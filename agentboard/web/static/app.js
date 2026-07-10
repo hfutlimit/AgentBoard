@@ -159,11 +159,25 @@ function highlightNav(hash) {
   if (target) target.classList.add("active");
 }
 
+// A-07 加载骨架屏：用与真实布局近似的占位块 + shimmer 动画替代单纯 spinner，避免内容载入时的布局跳动。
+function skeleton() {
+  const card = (w) => `<div class="sk-card">
+    <div class="sk-line sk-title" style="width:${w}%"></div>
+    <div class="sk-line" style="width:92%"></div>
+    <div class="sk-line" style="width:68%"></div>
+  </div>`;
+  const cards = Array.from({ length: 6 }, (_, i) => card(50 + ((i * 7) % 35))).join("");
+  return `<div class="skeleton">
+    <div class="sk-header"><div class="sk-line sk-h"></div></div>
+    <div class="sk-grid">${cards}</div>
+  </div>`;
+}
+
 // ---------- Router ----------
 async function render() {
   const h = location.hash || "#/";
   const app = $("app");
-  app.innerHTML = '<div class="loading"><span></span><span></span><span></span></div>';
+  app.innerHTML = skeleton();
   highlightNav(h);
   renderSidebar();
 
