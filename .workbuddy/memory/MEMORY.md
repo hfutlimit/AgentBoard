@@ -20,3 +20,9 @@
 ## 协作流程约定
 - 文档驱动：需求 `docs/requirements.md`、主任务 `docs/tasks.md`（Epic 分段）、每个变更 `openspec/changes/<id>/{proposal,design,tasks}.md`。
 - Git（⚠️ 本条为本项目硬性约定）：**每次修改都要及时 push**。无论改动大小（含文档/任务拆分/数据库运行时以外的任何文件变更），完成 `git add . && git commit -m "feat: ..."` 后**必须立即 `git push origin main`**。push 若失败（沙箱 SSH 受限）需提示用户本地重试，不得静默跳过。
+
+## 部署约定（重要，踩坑记录 2026-07-10）
+- **前端改动必须重建镜像**：`web_app.py` 从 `agentboard/web/static/` 读文件，但 Dockerfile 用 `COPY . .` 把源码**构建时**烤进镜像；`docker-compose.yml` 的 web/api 服务**只挂了 `agentboard_data` 数据卷，没挂源码**。因此改了静态文件后，只跑 `docker compose up -d` 会复用旧镜像 → 看到老页面。
+- **正确重部署命令**：`docker compose up -d --build`（或先 `docker compose build` 再 `up -d`）。本次已在沙箱执行 `docker compose up -d --build web` 修复"看不到新前端"问题。
+- Web 端口 **8080**（非 5080），API 端口 8000。浏览器访问 http://localhost:8080 ，SPA 经 `AGENTBOARD_API_URL`（默认 localhost:8000）调 API。
+- 部署后浏览器务必**硬刷新**（Ctrl/Cmd+Shift+R）清静态缓存。
