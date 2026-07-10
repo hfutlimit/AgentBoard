@@ -133,10 +133,11 @@
 待办：
 - [ ] Epic 4.2：从 spec 解析子任务 / 双向引用（可选）
 - [ ] Epic 6：以 OpenSpec 目录（`openspec/`）管理本项目自身规格
-- [x] Epic 7：前端注册 / 登录 UI（后端鉴权已就绪，仅前端集成）
-- [x] Epic 8：MariaDB 独立 `.sql` 脚本 + 真实集成验证（Alembic 迁移已完成）
-- [x] Epic 9：前端 Web 自动化测试（Playwright 真实浏览器 E2E）
-- [x] Epic 10：MCP 鉴权集成 + 运维化（"实现 MCP"）
+- [ ] Epic 7：前端注册 / 登录 UI（后端鉴权已就绪，仅前端集成）
+- [ ] Epic 8：MariaDB 独立 `.sql` 脚本 + 真实集成验证（Alembic 迁移已完成）
+- [ ] Epic 9：前端 Web 自动化测试（Playwright 真实浏览器 E2E）
+- [ ] Epic 10：MCP 鉴权集成 + 运维化（"实现 MCP"）
+- [ ] Epic 11：持续前端优化（模仿 Jira，小步迭代，长期轨道）
 
 ---
 
@@ -211,3 +212,52 @@
 - [ ] Task：新增 `tests/test_mcp_smoke.py`（FastMCP 客户端调用工具）
 - [ ] Task：README「MCP 运行与接入」章节
 - [ ] Task：更新 `openspec/specs/agentboard/spec.md` 的 MCP 工具清单
+
+---
+
+## Epic 11：持续前端优化（模仿 Jira，小步迭代）【长期轨道】
+> 目标：在不做破坏性重构、不擅自改动后端契约/数据模型的前提下，持续打磨 SPA，向 Jira 的交互密度与视觉语言靠拢。**每个自动任务周期只认领并交付一个 backlog 项。**
+> 权威 backlog 与规则见 `openspec/changes/frontend-continuous/`（proposal/design/tasks）。
+
+### 迭代规则（强制）
+- **R1 单交付**：每周期只做 **一项**（A-xx）；做完即交付、即 commit，不囤积。
+- **R2 范围红线**：单文件改动为主；新增前端代码 < ~80 行；不引入新 npm/打包依赖；不改 `models.py` / `api.py` 契约（除非该项标注「需后端」）。
+- **R3 完成标准**：本地起 `api` + `web`，打开页面手测通过；若改动通用函数（`md()`/`api()` 等），跑一遍 `tests/test_web_flow.py` 与 Playwright 冒烟确认不回归。
+- **R4 超限即拆**：某项偏大时拆回更细子项，本轮只做其一，剩余回写 backlog（保持 unchecked）。
+- **R5 记录**：每完成一项，勾选本 Epic 对应项并追加「完成记录」（日期 + 一句话）；积累 5~8 项可写一份前端演化小结（非强制）。
+- **commit 规范**：`feat(ui): 前端小优化 - <一句话描述>`。
+
+### Backlog A（纯前端，可直接做，按推荐顺序）
+- [ ] **A-01 看板视图（Story 页）**：在 Story 详情增加「看板」视图，按 `META.statuses` 分列展示 task 卡片（只读，先无拖拽），复用 `/api/stories/{id}/tasks`。仅改 `app.js` + `style.css`。
+- [ ] **A-02 状态色徽章**：为各 status 设计配色（backlog 灰 / todo 蓝 / in_progress 黄 / in_review 紫 / verifying 橙 / done 绿），bug 红色调，参照 Jira。`style.css` 增加 `.badge.status--<status>` 类，`app.js` 的 `statusSelect`/列表渲染套用。
+- [ ] **A-03 任务类型图标**：task/bug 用内联 SVG 或 Unicode 图标替代纯文字徽章（如 ▢ / 🐞），不引入图标库。
+- [ ] **A-04 行内快速编辑标题**：双击列表项标题或详情标题进入编辑态，失焦/回车 PATCH 保存，Esc 取消。仅改 `app.js` + 少量 CSS。
+- [ ] **A-05 全局搜索框**：顶部加搜索输入，按 `title` 实时过滤当前页列表（纯前端过滤，不改 API）。
+- [ ] **A-06 状态流转按钮组**：将任务详情的「状态下拉 + 更新按钮」改为 Jira 式状态工作流按钮，点击即 `PUT /api/tasks/{id}/status`。
+- [ ] **A-07 加载骨架屏**：将「加载中…」替换为轻量 spinner / 骨架占位，避免布局跳动。
+- [ ] **A-08 空状态优化**：列表为空时显示引导文案/插画（如「暂无 Epic，点击新建」）替代灰色「暂无」。
+- [ ] **A-09 进度条（Epic/Story）**：按子项 `status` 计算完成度（done 占比），在卡片显示进度条。
+- [ ] **A-10 深色模式开关**：基于 CSS 变量切换明/暗主题，偏好存 `localStorage`。
+- [ ] **A-11 响应式布局**：窄屏下树列表 / 两栏布局自动堆叠，按钮可点。
+- [ ] **A-12 Toast 堆叠与动画**：多条 toast 不互相覆盖，进出场有过渡。
+- [ ] **A-13 任务详情抽屉**：点击列表项从右侧滑出详情抽屉（含 description/spec/状态），不跳路由；关闭回列表。
+- [ ] **A-14 Markdown 编辑工具栏**：description/spec 文本框上方加「加粗/列表/标题」快捷按钮，插入 markdown 语法。
+- [ ] **A-15 键盘快捷键**：`j/k` 上下移动选中项、`e` 编辑、`Esc` 关闭弹层。
+- [ ] **A-16 复制链接**：任务/Story 提供「复制深链」（如 `#/task/123`）按钮。
+- [ ] **A-17 路由过渡动画**：视图切换加淡入/滑入过渡。
+- [ ] **A-18 面包屑高亮当前级**：确保各级面包屑链接正确且高亮当前级（补样式）。
+- [ ] **A-19 列表项 hover 操作**：hover 显示「编辑/删除」快捷图标，减少误触确认。
+- [ ] **A-20 前端偏好本地存储**：记住上次视图（列表/看板）等前端偏好。
+
+### Backlog B（需后端配合，先提需求，不混入小优化）
+- [ ] **B-01 标签 / 标签组（labels）**：task 增加 `labels` 字段 + 多选 UI（需 `models.py` + 迁移 + API）。
+- [ ] **B-02 负责人 / 指派（assignee）**：task 增加 `assignee` + 用户下拉（依赖 FR-8 用户体系）。
+- [ ] **B-03 截止日期（due_date）**：task 增加 `due_date` + 日历控件 + 逾期高亮。
+- [ ] **B-04 看板拖拽排序**：拖动卡片变更 status（需后端接受合法迁移 + 可选 order 字段）。
+- [ ] **B-05 评论 / 活动流**：task 增加评论（需新表 + API）。
+- [ ] **B-06 列表分组 / 排序**：按状态/类型/负责人分组（部分可纯前端，分组维度来自后端字段）。
+
+### 完成记录
+| 日期 | 项 | 简述 |
+|------|----|------|
+| （待自动任务填充） | — | — |

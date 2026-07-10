@@ -2,7 +2,7 @@
 
 > 版本：v0.2
 > 方法：规格驱动（OpenSpec / Superpowers 风格），后续开发以 `docs/tasks.md` 为工作清单，每个变更通过 `openspec/changes/<id>/`（proposal + design + tasks）推进。
-> 状态：基线已实现（数据层 / 服务层 / REST API / Web SPA / MCP 服务 / 后端鉴权接口）；新增 4 项能力待实现，见 `docs/tasks.md` Epic 7–10 与 `openspec/changes/`。
+> 状态：基线已实现（数据层 / 服务层 / REST API / Web SPA / MCP 服务 / 后端鉴权接口）；新增 4 项能力待实现（Epic 7–10），另设**长期前端优化轨道**（FR-12 / Epic 11）。详见 `docs/tasks.md` 与 `openspec/changes/`。
 
 ---
 
@@ -32,11 +32,12 @@
 - 后端鉴权接口：`/api/auth/register`、`/api/auth/login`、`/api/auth/me`（模型 + 加密 + service + 端点 + `users` 表迁移）
 - Web SPA：项目树浏览 + 增删改 + 状态流转 + spec 编辑（前端**鉴权 UI 待补**）
 
-**进行中 / 待实现（见 Epic 7–10）**
+**进行中 / 待实现（见 Epic 7–11）**
 - FR-8 前端注册 / 登录 UI 与 token 持久化（后端已就绪）
 - FR-9 MariaDB 独立 `.sql` 脚本 + 真实集成验证 + docker-compose 编排
 - FR-10 前端 Web 自动化测试（Playwright 真实浏览器 E2E）
 - FR-11 MCP 鉴权集成 + 运维化（启动脚本 / 客户端配置 / 冒烟测试）
+- FR-12 持续前端优化（模仿 Jira，小步迭代）—— 长期轨道，详见 Epic 11
 
 **暂不纳入（后续）**
 - 多租户 / 细粒度权限（RBAC）、第三方 OAuth
@@ -119,6 +120,12 @@ MVP 不做权限区分，所有调用方等价。
 - `api` 后端可选透传 Bearer Token（从环境变量 / 配置读取），以便调用受保护端点。
 - 提供启动脚本与客户端配置样例（Claude Desktop `mcp.json`、CodeBuddy 配置），以及 MCP 冒烟测试（FastMCP 客户端调用工具验证）。
 - README 补充 MCP 运行与接入说明。
+
+**FR-12 持续前端优化（模仿 Jira，小步迭代）**
+- 长期演进轨道：**不做破坏性重构、不擅自改动后端契约 / 数据模型** 的前提下，持续打磨 SPA，向 Jira 的交互密度与视觉语言靠拢（状态色、看板、行内编辑、详情抽屉、快捷键等）。
+- 迭代纪律：每个自动任务周期**只交付一个小而独立、可立即验证的优化**；范围红线为单文件改动为主、新增代码 < ~80 行、不引入新框架 / 构建链。
+- 边界：以纯前端（HTML/CSS/JS）为主；确需后端字段的 Jira 式能力（标签、负责人、截止日期、拖拽排序、评论）记入 backlog「需后端」分组，单独评估，不混入小优化。
+- 验收：每项优化都需本地起服务手测通过，且现有 playwright / httpx 测试不被破坏。详细 backlog 与规则见 `docs/tasks.md` Epic 11 与 `openspec/changes/frontend-continuous/`。
 
 ---
 
