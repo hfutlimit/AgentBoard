@@ -19,8 +19,7 @@ for _m in list(sys.modules):
     if _m == "agentboard" or _m.startswith("agentboard."):
         del sys.modules[_m]
 
-from agentboard.database import init_db, SessionLocal
-from agentboard import service
+from agentboard.database import init_db
 from agentboard.models import ItemType, Status
 
 init_db()
@@ -69,21 +68,30 @@ def test_register_and_login():
     assert fake.status_code == 401, fake.text
 
 
-def test_service_auth_layer():
-    with SessionLocal() as s:
-        u = service.register_user(s, username="bob", password="pw-bob")
-        assert u.id > 0
-        # 重复 -> Duplicate
-        try:
-            service.register_user(s, username="bob", password="x")
-            assert False, "重复用户名未拦截"
-        except service.Duplicate:
-            pass
-        # 认证成功 / 失败
-        assert service.authenticate_user(s, username="bob", password="pw-bob") is not None
-        assert service.authenticate_user(s, username="bob", password="nope") is None
-        # 密码哈希不可逆校验
-        assert service.get_user(s, u.id).username == "bob"
+def test_auth_edge_cases_via_api():
+    """全部通过 REST API 验证：重复注册、错误密码、注册后即可登录（哈希可校验）。"""
+    c = _client()
+    # 注册 bob
+    r = c.post("/api/auth/register", json={"username": "bob", "password": "pw-bob"})
+    assert r.status_code == 201, r.text
+    assert r.json()["token"]
+
+    # 重复注册 -> 409
+    dup = c.post("/api/auth/register", json={"username": "bob", "password": "other"})
+    assert dup.status_code == 409, dup.text
+
+    # 错误密码 -> 401（证明密码非明文、哈希校验生效）
+    bad = c.post("/api/auth/login", json={"username": "bob", "password": "wrong"})
+    assert bad.status_code == 401, bad.text
+
+    # 注册后正确密码可登录（哈希 round-trip 通过 API 验证）
+    ok = c.post("/api/auth/login", json={"username": "bob", "password": "pw-bob"})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["token"]
+
+    # 不存在的用户登录 -> 401
+    nope = c.post("/api/auth/login", json={"username": "ghost", "password": "x"})
+    assert nope.status_code == 401, nope.text
 
 
 # ---------------- 全链路 CRUD（含 task/bug） ----------------
@@ -151,6 +159,6 @@ def test_full_crud_flow():
 
 if __name__ == "__main__":
     test_register_and_login()
-    test_service_auth_layer()
+    test_auth_edge_cases_via_api()
     test_full_crud_flow()
     print("BACKEND FLOW OK")
