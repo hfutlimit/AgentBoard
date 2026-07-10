@@ -8,11 +8,41 @@
 <script>window.AGENTBOARD_API = "__API_URL__";</script>
 </head>
 <body>
-<header>
-  <h1 onclick="route('#/')" style="cursor:pointer">AgentBoard</h1>
-  <nav id="crumbs"></nav>
+<!-- 顶部导航栏 -->
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="topbar-left">
+      <button id="sidebar-toggle" class="icon-btn" title="切换侧栏">☰</button>
+      <h1 onclick="route('#/')" class="logo">AgentBoard</h1>
+    </div>
+    <nav class="topbar-nav">
+      <a href="#/" data-nav="home">仪表盘</a>
+      <a href="#/projects" data-nav="projects">项目</a>
+    </nav>
+    <div class="topbar-right">
+      <span id="user-info" class="muted"></span>
+    </div>
+  </div>
 </header>
-<main id="app">加载中…</main>
+
+<!-- 主体布局：侧栏 + 内容 -->
+<div class="layout">
+  <!-- 左侧项目树侧栏 -->
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <h3>项目</h3>
+      <button id="sidebar-new-project" class="ghost-sm" title="新建项目">＋</button>
+    </div>
+    <div id="sidebar-tree" class="sidebar-tree">加载中…</div>
+  </aside>
+
+  <!-- 主内容区 -->
+  <main id="app">加载中…</main>
+</div>
+
+<!-- 面包屑（嵌入 main 区域顶部） -->
+<div id="crumb-bar" class="crumb-bar"></div>
+
 <div id="toast"></div>
 <script src="/static/app.js"></script>
 </body>

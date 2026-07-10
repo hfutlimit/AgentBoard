@@ -19,4 +19,4 @@
 
 ## 协作流程约定
 - 文档驱动：需求 `docs/requirements.md`、主任务 `docs/tasks.md`（Epic 分段）、每个变更 `openspec/changes/<id>/{proposal,design,tasks}.md`。
-- Git：任务完成 `git add . && git commit -m "feat: ..."` 后 `git push`；沙箱 push 常因 SSH 受限失败，需本地重试。
+- Git（⚠️ 本条为本项目硬性约定）：**每次修改都要及时 push**。无论改动大小（含文档/任务拆分/数据库运行时以外的任何文件变更），完成 `git add . && git commit -m "feat: ..."` 后**必须立即 `git push origin main`**。push 若失败（沙箱 SSH 受限）需提示用户本地重试，不得静默跳过。
