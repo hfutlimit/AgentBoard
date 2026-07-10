@@ -6,7 +6,7 @@
 - **开发任务**：新增 `inlineEditEnter`/`makeInlineEditable`/`makeInlineEditableDetail`/`attachInlineEditList` 辅助。`attachInlineEditList` 按锚点 href 推断 type/id，为 Epic/Story/Task 列表项标题挂载双击编辑；列表项位于 `<a>` 内，用单击导航/双击编辑计时（200ms）区分，避免双击先触发跳转销毁元素。Task 详情 `h2#task-title` 双击编辑并同步面包屑。回车/失焦 PATCH 保存、Esc 取消。改动 `app.js` +69/−1、`style.css` +10（净增 ~79 行，符合 <~80 行红线），未改 `models.py`/`api.py` 契约。
 - **部署 Docker**：`docker compose up -d --build web` 仍因沙箱无法连通 Docker Hub（拉取 `python:3.13-slim` 元数据 TLS 超时）失败；退化为 `docker cp` 注入新 `app.js`/`style.css` 到运行中的 `agentboard-web-1`（/app/agentboard/web/static/）。验证 `http://localhost:8080/static/app.js` 含 A-04 标记（11 处）、`style.css` 含 `inline-edit-input`（4 处）。
 - **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
-- **推送**：`git push origin main` 待执行（见下方周期记录）。
+- **推送**：`git push origin main` 成功（`306ea21..4e5658a`，commit `4e5658a`）。
 - **环境笔记（续）**：① Docker Hub / GitHub 在沙箱不可达 → 继续用 docker cp 注入 + 阿里云镜像；② 列表项双击编辑与单击导航的计时冲突已用 200ms 计时器解决；③ 净增行数恰在 ~80 边界，后续若超需拆子项（R4）。
 
 ## 2026-07-11（周期执行）

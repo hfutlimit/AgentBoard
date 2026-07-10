@@ -2,6 +2,7 @@
 const API = window.AGENTBOARD_API || "http://127.0.0.1:8000";
 let META = { types: ["task", "bug"], statuses: ["backlog", "todo", "in_progress", "in_review", "verifying", "done"] };
 let PROJECTS = []; // 缓存项目列表供侧栏使用
+let GLOBAL_SEARCH = ""; // A-05 全局搜索框当前查询词
 
 // ---------- HTTP ----------
 async function api(path, method = "GET", body) {
@@ -162,6 +163,36 @@ async function render() {
       <p class="muted">请确认后端服务已启动：${API}</p>
     </div>`;
   }
+  applySearch();
+}
+
+// A-05 全局搜索框：按标题实时过滤当前页列表（纯前端过滤，不改 API）。
+// 遍历当前页所有可搜索列表容器，按条目标题文本匹配 q；空结果时给出提示。
+function applySearch() {
+  const q = (GLOBAL_SEARCH || "").trim().toLowerCase();
+  const scopes = document.querySelectorAll(".project-grid, .entity-list, .table-wrap, #story-board-view");
+  scopes.forEach(scope => {
+    const rows = scope.classList.contains("table-wrap")
+      ? scope.querySelectorAll("tbody tr")
+      : scope.querySelectorAll(".project-card, .entity-item, .kanban-card");
+    let visible = 0;
+    rows.forEach(r => {
+      const titleEl = r.querySelector(".project-card-name, .entity-item-title, .kanban-card-title");
+      const text = titleEl ? titleEl.textContent : r.textContent;
+      const show = !q || text.toLowerCase().includes(q);
+      r.style.display = show ? "" : "none";
+      if (show) visible++;
+    });
+    let hint = scope.querySelector(":scope > .search-empty-hint");
+    if (!visible && q) {
+      if (!hint) {
+        hint = document.createElement("div");
+        hint.className = "search-empty-hint empty-inline";
+        hint.textContent = `未找到匹配「${GLOBAL_SEARCH.trim()}」`;
+        scope.appendChild(hint);
+      }
+    } else if (hint) hint.remove();
+  });
 }
 
 // ========== Views ==========
@@ -811,6 +842,13 @@ if (sbToggle) sbToggle.addEventListener("click", toggleSidebar);
 // 侧栏新建项目按钮
 const sbNewBtn = document.getElementById("sidebar-new-project");
 if (sbNewBtn) sbNewBtn.addEventListener("click", showNewProjectModal);
+
+// A-05 全局搜索框：输入即过滤当前页列表（跨路由持久化）
+const gsInput = document.getElementById("global-search");
+if (gsInput) {
+  GLOBAL_SEARCH = gsInput.value;
+  gsInput.addEventListener("input", (e) => { GLOBAL_SEARCH = e.target.value; applySearch(); });
+}
 
 (async () => {
   try { META = await api("/api/meta"); } catch (e) {}

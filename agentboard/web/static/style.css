@@ -47,7 +47,18 @@ body {
 }
 .topbar-nav a:hover { background: #f1f5f9; color: var(--text); }
 .topbar-nav a.active { background: #eff6ff; color: var(--primary); font-weight: 600; }
-.topbar-right { font-size: .85rem; }
+.topbar-right { font-size: .85rem; display: flex; align-items: center; gap: 10px; }
+
+/* A-05 全局搜索框 */
+.global-search {
+  width: 220px; max-width: 40vw; height: 32px; padding: 0 12px;
+  border: 1px solid var(--border); border-radius: 16px;
+  font-size: .85rem; color: var(--text); background: #f8fafc;
+  outline: none; transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.global-search:focus { border-color: var(--primary); background: #fff; box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
+.global-search::-webkit-search-cancel-button { cursor: pointer; }
+.search-empty-hint { margin-top: 16px; }
 
 .icon-btn {
   background: none; border: none; font-size: 1.3rem; cursor: pointer;
