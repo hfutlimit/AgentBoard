@@ -41,8 +41,11 @@ def get_project(s: Session, id: int) -> Project | None:
     return s.get(Project, id)
 
 
-def list_projects(s: Session):
-    return s.query(Project).order_by(Project.id.desc()).all()
+def list_projects(s: Session, limit: int | None = None, offset: int = 0):
+    q = s.query(Project).order_by(Project.id.desc())
+    if limit is not None:
+        q = q.limit(limit).offset(offset)
+    return q.all()
 
 
 def update_project(s: Session, id: int, **fields) -> Project | None:
@@ -76,8 +79,11 @@ def get_epic(s: Session, id: int) -> Epic | None:
     return s.get(Epic, id)
 
 
-def list_epics(s: Session, project_id: int):
-    return s.query(Epic).filter(Epic.project_id == project_id).all()
+def list_epics(s: Session, project_id: int, limit: int | None = None, offset: int = 0):
+    q = s.query(Epic).filter(Epic.project_id == project_id)
+    if limit is not None:
+        q = q.limit(limit).offset(offset)
+    return q.all()
 
 
 def update_epic(s: Session, id: int, **fields) -> Epic | None:
@@ -110,8 +116,11 @@ def get_story(s: Session, id: int) -> Story | None:
     return s.get(Story, id)
 
 
-def list_stories(s: Session, epic_id: int):
-    return s.query(Story).filter(Story.epic_id == epic_id).all()
+def list_stories(s: Session, epic_id: int, limit: int | None = None, offset: int = 0):
+    q = s.query(Story).filter(Story.epic_id == epic_id)
+    if limit is not None:
+        q = q.limit(limit).offset(offset)
+    return q.all()
 
 
 def update_story(s: Session, id: int, **fields) -> Story | None:
@@ -144,11 +153,14 @@ def get_task(s: Session, id: int) -> Task | None:
     return s.get(Task, id)
 
 
-def list_tasks(s: Session, story_id: int | None = None):
+def list_tasks(s: Session, story_id: int | None = None, limit: int | None = None, offset: int = 0):
     q = s.query(Task)
     if story_id is not None:
         q = q.filter(Task.story_id == story_id)
-    return q.order_by(Task.id.desc()).all()
+    q = q.order_by(Task.id.desc())
+    if limit is not None:
+        q = q.limit(limit).offset(offset)
+    return q.all()
 
 
 def update_task(s: Session, id: int, **fields) -> Task | None:
@@ -224,7 +236,7 @@ def generate_tasks_from_spec(s: Session, task_id: int) -> list:
 
 # ---------- Search ----------
 def search_tasks(s: Session, *, project_id=None, epic_id=None, story_id=None,
-                 type=None, status=None, q=None):
+                 type=None, status=None, q=None, limit: int | None = None, offset: int = 0):
     qry = s.query(Task)
     if project_id is not None:
         qry = qry.filter(Task.project_id == project_id)
@@ -240,7 +252,10 @@ def search_tasks(s: Session, *, project_id=None, epic_id=None, story_id=None,
         like = f"%{q}%"
         qry = qry.filter(or_(Task.title.ilike(like), Task.description.ilike(like),
                               Task.spec.ilike(like)))
-    return qry.order_by(Task.id.desc()).all()
+    qry = qry.order_by(Task.id.desc())
+    if limit is not None:
+        qry = qry.limit(limit).offset(offset)
+    return qry.all()
 
 
 class NotFound(Exception):

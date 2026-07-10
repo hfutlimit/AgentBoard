@@ -63,6 +63,17 @@ python -m agentboard.mcp_server
 - `AGENTBOARD_API_URL`：Web/MCP 调用的 API 地址，默认 `http://127.0.0.1:8000`
 - `AGENTBOARD_MCP_BACKEND`：`api`（默认）或 `db`
 
+## 数据库迁移（Alembic）
+
+`init_db()` 优先执行 `alembic upgrade head`（正式迁移）；若 Alembic 不可用则降级为 `create_all` + 轻量在线迁移（开发期兼容）。
+
+```bash
+alembic revision --autogenerate -m "描述"   # 生成迁移
+alembic upgrade head                        # 应用迁移
+```
+
+> 注意：`alembic.ini` 为 ASCII，避免 Windows 下 GBK 读取报错；`env.py` 复用 `AGENTBOARD_DB_URL` 与项目 engine。
+
 ## 测试（smoke test）
 
 ```bash

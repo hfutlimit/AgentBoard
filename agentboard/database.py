@@ -11,10 +11,22 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 
 
 def init_db() -> None:
-    # 简易版：直接建表 + 轻量在线迁移（避免每次引 Alembic）。
-    import agentboard.models  # noqa: F401  (确保模型注册)
-    agentboard.models.Base.metadata.create_all(engine)
-    _ensure_migrations()
+    # 优先用 Alembic 正式迁移；不可用时降级为 create_all + 在线迁移（开发期兼容）。
+    try:
+        _run_alembic()
+    except Exception:
+        import agentboard.models  # noqa: F401  (确保模型注册)
+        agentboard.models.Base.metadata.create_all(engine)
+        _ensure_migrations()
+
+
+def _run_alembic() -> None:
+    from alembic.config import Config
+    from alembic import command
+    here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cfg = Config(os.path.join(here, "alembic.ini"))
+    cfg.set_main_option("script_location", os.path.join(here, "migrations"))
+    command.upgrade(cfg, "head")
 
 
 def _ensure_migrations() -> None:

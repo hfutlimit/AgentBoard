@@ -99,8 +99,8 @@ def meta():
 
 # ---------- Projects ----------
 @app.get("/api/projects")
-def list_projects(s: Session = Depends(get_session)):
-    return [service._ser(p) for p in service.list_projects(s)]
+def list_projects(s: Session = Depends(get_session), limit: int | None = Query(None), offset: int = 0):
+    return [service._ser(p) for p in service.list_projects(s, limit=limit, offset=offset)]
 
 
 @app.post("/api/projects", status_code=201)
@@ -128,8 +128,8 @@ def delete_project(pid: int, s: Session = Depends(get_session)):
 
 # ---------- Epics ----------
 @app.get("/api/projects/{pid}/epics")
-def list_epics(pid: int, s: Session = Depends(get_session)):
-    return [service._ser(e) for e in service.list_epics(s, pid)]
+def list_epics(pid: int, s: Session = Depends(get_session), limit: int | None = Query(None), offset: int = 0):
+    return [service._ser(e) for e in service.list_epics(s, pid, limit=limit, offset=offset)]
 
 
 @app.post("/api/projects/{pid}/epics", status_code=201)
@@ -158,8 +158,8 @@ def delete_epic(eid: int, s: Session = Depends(get_session)):
 
 # ---------- Stories ----------
 @app.get("/api/epics/{eid}/stories")
-def list_stories(eid: int, s: Session = Depends(get_session)):
-    return [service._ser(x) for x in service.list_stories(s, eid)]
+def list_stories(eid: int, s: Session = Depends(get_session), limit: int | None = Query(None), offset: int = 0):
+    return [service._ser(x) for x in service.list_stories(s, eid, limit=limit, offset=offset)]
 
 
 @app.post("/api/epics/{eid}/stories", status_code=201)
@@ -188,8 +188,8 @@ def delete_story(sid: int, s: Session = Depends(get_session)):
 
 # ---------- Tasks ----------
 @app.get("/api/stories/{sid}/tasks")
-def list_tasks(sid: int, s: Session = Depends(get_session)):
-    return [service._ser(t) for t in service.list_tasks(s, sid)]
+def list_tasks(sid: int, s: Session = Depends(get_session), limit: int | None = Query(None), offset: int = 0):
+    return [service._ser(t) for t in service.list_tasks(s, sid, limit=limit, offset=offset)]
 
 
 @app.post("/api/stories/{sid}/tasks", status_code=201)
@@ -245,7 +245,9 @@ def generate_subtasks(tid: int, s: Session = Depends(get_session)):
 def search_tasks(project_id: int | None = None, epic_id: int | None = None,
                  story_id: int | None = None, type: str | None = None,
                  status: str | None = None, q: str | None = Query(None),
+                 limit: int | None = Query(None), offset: int = 0,
                  s: Session = Depends(get_session)):
     rows = service.search_tasks(s, project_id=project_id, epic_id=epic_id,
-                                story_id=story_id, type=type, status=status, q=q)
+                                story_id=story_id, type=type, status=status, q=q,
+                                limit=limit, offset=offset)
     return [service._ser(t) for t in rows]

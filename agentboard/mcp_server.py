@@ -20,9 +20,9 @@ if BACKEND == "db":
     from .database import SessionLocal
     from . import service
 
-    def _proj_list():
+    def _proj_list(limit=None, offset=0):
         with SessionLocal() as s:
-            return [service._ser(p) for p in service.list_projects(s)]
+            return [service._ser(p) for p in service.list_projects(s, limit=limit, offset=offset)]
 
     def _proj_create(name, key, description):
         with SessionLocal() as s:
@@ -70,6 +70,34 @@ if BACKEND == "db":
                 return {"error": str(e)}
             return [service._ser(t) for t in created]
 
+    def _epic_get(epic_id):
+        with SessionLocal() as s:
+            e = service.get_epic(s, epic_id)
+            return service._ser(e) if e else {"error": "not found"}
+
+    def _epic_update(epic_id, fields):
+        with SessionLocal() as s:
+            e = service.update_epic(s, epic_id, **fields)
+            return service._ser(e) if e else {"error": "not found"}
+
+    def _epic_delete(epic_id):
+        with SessionLocal() as s:
+            return {"ok": service.delete_epic(s, epic_id)}
+
+    def _story_get(story_id):
+        with SessionLocal() as s:
+            x = service.get_story(s, story_id)
+            return service._ser(x) if x else {"error": "not found"}
+
+    def _story_update(story_id, fields):
+        with SessionLocal() as s:
+            x = service.update_story(s, story_id, **fields)
+            return service._ser(x) if x else {"error": "not found"}
+
+    def _story_delete(story_id):
+        with SessionLocal() as s:
+            return {"ok": service.delete_story(s, story_id)}
+
 else:  # api 模式
     import httpx
 
@@ -83,8 +111,8 @@ else:  # api 模式
                     return {"error": r.text}
             return r.json() if r.content else {"ok": True}
 
-    def _proj_list():
-        return _http("GET", "/api/projects")
+    def _proj_list(limit=None, offset=0):
+        return _http("GET", "/api/projects", params={"limit": limit, "offset": offset} if limit is not None else {})
 
     def _proj_create(name, key, description):
         return _http("POST", "/api/projects", json={"name": name, "key": key, "description": description})
@@ -116,12 +144,30 @@ else:  # api 模式
     def _task_generated(task_id):
         return _http("POST", f"/api/tasks/{task_id}/generate-subtasks")
 
+    def _epic_get(epic_id):
+        return _http("GET", f"/api/epics/{epic_id}")
+
+    def _epic_update(epic_id, fields):
+        return _http("PATCH", f"/api/epics/{epic_id}", json=fields)
+
+    def _epic_delete(epic_id):
+        return _http("DELETE", f"/api/epics/{epic_id}")
+
+    def _story_get(story_id):
+        return _http("GET", f"/api/stories/{story_id}")
+
+    def _story_update(story_id, fields):
+        return _http("PATCH", f"/api/stories/{story_id}", json=fields)
+
+    def _story_delete(story_id):
+        return _http("DELETE", f"/api/stories/{story_id}")
+
 
 # ===================== MCP 工具 =====================
 @mcp.tool()
-def list_projects() -> list:
-    """列出所有项目。"""
-    return _proj_list()
+def list_projects(limit: int | None = None, offset: int = 0) -> list:
+    """列出所有项目。limit / offset 用于分页。"""
+    return _proj_list(limit=limit, offset=offset)
 
 
 @mcp.tool()
@@ -140,6 +186,46 @@ def create_epic(project_id: int, title: str, description: str = "") -> dict:
 def create_story(epic_id: int, title: str, description: str = "") -> dict:
     """在指定 Epic 下创建 Story。"""
     return _story_create(epic_id, title, description)
+
+
+@mcp.tool()
+def get_epic(epic_id: int) -> dict:
+    """获取 Epic 详情。"""
+    return _epic_get(epic_id)
+
+
+@mcp.tool()
+def update_epic(epic_id: int, title: str | None = None, description: str | None = None,
+                status: str | None = None) -> dict:
+    """更新 Epic 标题/描述/状态。"""
+    fields = {k: v for k, v in dict(title=title, description=description, status=status).items() if v is not None}
+    return _epic_update(epic_id, fields)
+
+
+@mcp.tool()
+def delete_epic(epic_id: int) -> dict:
+    """删除 Epic（级联删除其 Stories / Tasks）。"""
+    return _epic_delete(epic_id)
+
+
+@mcp.tool()
+def get_story(story_id: int) -> dict:
+    """获取 Story 详情。"""
+    return _story_get(story_id)
+
+
+@mcp.tool()
+def update_story(story_id: int, title: str | None = None, description: str | None = None,
+                status: str | None = None) -> dict:
+    """更新 Story 标题/描述/状态。"""
+    fields = {k: v for k, v in dict(title=title, description=description, status=status).items() if v is not None}
+    return _story_update(story_id, fields)
+
+
+@mcp.tool()
+def delete_story(story_id: int) -> dict:
+    """删除 Story（级联删除其 Tasks）。"""
+    return _story_delete(story_id)
 
 
 @mcp.tool()
@@ -187,10 +273,11 @@ def set_status(task_id: int, status: str) -> dict:
 @mcp.tool()
 def search_tasks(project_id: int | None = None, epic_id: int | None = None,
                  story_id: int | None = None, type: str | None = None,
-                 status: str | None = None, q: str | None = None) -> list:
-    """按条件搜索任务，q 为关键字(匹配 title/description/spec)。"""
+                 status: str | None = None, q: str | None = None,
+                 limit: int | None = None, offset: int = 0) -> list:
+    """按条件搜索任务，q 为关键字(匹配 title/description/spec)。limit / offset 分页。"""
     return _task_search(dict(project_id=project_id, epic_id=epic_id, story_id=story_id,
-                             type=type, status=status, q=q))
+                             type=type, status=status, q=q, limit=limit, offset=offset))
 
 
 @mcp.tool()

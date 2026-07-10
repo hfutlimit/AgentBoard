@@ -6,6 +6,7 @@ markdown
 httpx            # MCP api 模式调用 REST API
 sqlalchemy>=2.0
 pydantic>=2.0
+alembic           # 生产迁移（init_db 优先使用，缺失时降级 create_all）
 fastmcp
 pymysql          # 生产 MariaDB 驱动（暂未实测）
 pytest           # 开发期 smoke test

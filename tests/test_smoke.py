@@ -44,6 +44,8 @@ def test_rest_api():
     from agentboard.api import app
     with TestClient(app) as c:
         assert c.get("/api/meta").json()["types"] == ["task", "bug"]
+        # 分页
+        assert len(c.get("/api/projects", params={"limit": 1}).json()) <= 1
 
         # 全链路创建：project -> epic -> story -> task
         p = c.post("/api/projects", json={"name": "API-P", "key": "AP"}).json()
@@ -105,6 +107,24 @@ def test_generate_from_spec():
         assert isinstance(again, list)
 
 
+def test_mcp_extra_and_pagination():
+    from agentboard import mcp_server as m
+    assert m.BACKEND == "db"
+    proj = m._proj_create("MCP-X", None, "")
+    epic = m._epic_create(proj["id"], "E", "")
+    story = m._story_create(epic["id"], "S", "")
+    # get / update epic
+    assert m._epic_get(epic["id"])["id"] == epic["id"]
+    assert m._epic_update(epic["id"], {"status": "todo"})["status"] == "todo"
+    # get / update story
+    assert m._story_get(story["id"])["id"] == story["id"]
+    assert m._story_update(story["id"], {"title": "S2"})["title"] == "S2"
+    # 分页
+    assert isinstance(m._proj_list(limit=1), list)
+    # 删除（级联）
+    assert m._epic_delete(epic["id"]).get("ok") is True
+
+
 def test_mcp_db_backend():
     from agentboard import mcp_server as m
     assert m.BACKEND == "db"
@@ -119,5 +139,6 @@ if __name__ == "__main__":
     test_rest_api()
     test_web_serving()
     test_generate_from_spec()
+    test_mcp_extra_and_pagination()
     test_mcp_db_backend()
     print("SMOKE OK")
