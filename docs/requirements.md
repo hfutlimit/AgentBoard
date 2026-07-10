@@ -1,8 +1,8 @@
 # AgentBoard 需求分析文档
 
-> 版本：v0.1（草案）
-> 方法：规格驱动（OpenSpec / Superpowers 风格），后续开发以 `docs/tasks.md` 为工作清单，每个变更通过 spec + tasks 推进。
-> 状态：待评审
+> 版本：v0.2
+> 方法：规格驱动（OpenSpec / Superpowers 风格），后续开发以 `docs/tasks.md` 为工作清单，每个变更通过 `openspec/changes/<id>/`（proposal + design + tasks）推进。
+> 状态：基线已实现（数据层 / 服务层 / REST API / Web SPA / MCP 服务 / 后端鉴权接口）；新增 4 项能力待实现，见 `docs/tasks.md` Epic 7–10 与 `openspec/changes/`。
 
 ---
 
@@ -22,18 +22,26 @@
 
 ## 2. 范围
 
-**包含（本期）**
+**包含（本期 / 已基线）**
 - 项目树 CRUD 与层级关系维护
 - Task / Bug 两类工作项，含 `description`、`spec`、状态、类型
 - 基于任务的过滤 / 搜索
 - MCP 工具集（CRUD + spec 读写 + 状态流转）
 - OpenSpec 风格的 spec/plan 模板：在 task 上挂载规范文档
 - 双存储后端切换（SQLite / MariaDB）
+- 后端鉴权接口：`/api/auth/register`、`/api/auth/login`、`/api/auth/me`（模型 + 加密 + service + 端点 + `users` 表迁移）
+- Web SPA：项目树浏览 + 增删改 + 状态流转 + spec 编辑（前端**鉴权 UI 待补**）
+
+**进行中 / 待实现（见 Epic 7–10）**
+- FR-8 前端注册 / 登录 UI 与 token 持久化（后端已就绪）
+- FR-9 MariaDB 独立 `.sql` 脚本 + 真实集成验证 + docker-compose 编排
+- FR-10 前端 Web 自动化测试（Playwright 真实浏览器 E2E）
+- FR-11 MCP 鉴权集成 + 运维化（启动脚本 / 客户端配置 / 冒烟测试）
 
 **暂不纳入（后续）**
-- 多用户 / 复杂权限与鉴权（MVP 单用户 / Agent 直接操作）
-- 完整 Web UI（先提供数据层 + MCP，Web UI 作为可选阶段）
+- 多租户 / 细粒度权限（RBAC）、第三方 OAuth
 - 评论、附件、通知、看板拖拽等协作功能
+- 现有项目树 CRUD 默认仍为单用户开放（与 MCP / Web 兼容）；是否强制鉴权见 FR-8 设计决策
 
 ---
 
@@ -86,6 +94,34 @@ MVP 不做权限区分，所有调用方等价。
 
 ---
 
+## 7. 本期新增能力（待实现）
+
+**FR-8 前端注册 / 登录（前端集成）**
+- 后端鉴权接口已就绪（`/api/auth/register|login|me`）。本次补齐**前端 SPA 的登录/注册界面与 token 生命周期**管理。
+- 登录后服务端返回无状态 Bearer Token；前端存于 `localStorage`，后续所有 `fetch` 自动携带 `Authorization: Bearer <token>`。
+- 未登录访问应用时展示登录 / 注册界面；登录成功后进入应用；提供登出按钮并清除 token。
+- 头部展示当前用户名。设计决策：现有项目树 CRUD 默认保持单用户开放（与 MCP 兼容），是否通过 `AGENTBOARD_REQUIRE_AUTH` 开关强制鉴权在变更 `auth` 中决定。
+
+**FR-9 MariaDB 数据库脚本与集成**
+- 在 Alembic 迁移之外，提供**独立、可审阅的 MariaDB `schema.sql` 脚本**（建库、建表、索引、字符集 `utf8mb4`、用户与授权），便于 DBA / 容器初始化与离线评审。
+- 验证 Alembic 迁移在真实 MariaDB 11 下可 `upgrade head`、功能与 SQLite 一致。
+- docker-compose `db` profile 一键起 MariaDB；`AGENTBOARD_DB_URL=mysql+pymysql://...` 切换；提供集成冒烟测试（可选，需可用实例）。
+
+**FR-10 前端 Web 自动化测试（Playwright）**
+- 引入 Playwright（Chromium），**真实浏览器**驱动 SPA，而非 `httpx` 模拟。
+- 覆盖：登录 / 注册 UI 流（含错误分支）、项目树 CRUD UI 操作、状态流转交互、markdown 渲染。
+- 与现有 `tests/test_web_flow.py` 互补：后者验证"接口等价行为"，前者验证"真实 UI 行为"。
+- 可脚本化启动 API + Web 服务，由 Playwright 对 `http://localhost:8080` 操作。
+
+**FR-11 MCP 鉴权集成与运维化（实现 MCP）**
+- MCP 服务（`mcp_server.py`）已完整实现工具集。本次目标：使其**生产可用并连通鉴权**。
+- 新增 MCP 用户管理工具：`auth_register` / `auth_login` / `auth_me`，供 AI Agent 创建与校验身份。
+- `api` 后端可选透传 Bearer Token（从环境变量 / 配置读取），以便调用受保护端点。
+- 提供启动脚本与客户端配置样例（Claude Desktop `mcp.json`、CodeBuddy 配置），以及 MCP 冒烟测试（FastMCP 客户端调用工具验证）。
+- README 补充 MCP 运行与接入说明。
+
+---
+
 ## 5. 非功能需求（NFR）
 
 - **NFR-1 存储可切换**：通过环境变量（如 `AGENTBOARD_DB_URL`）在 SQLite 与 MariaDB 间切换；代码不感知具体数据库。
@@ -133,12 +169,15 @@ Task    (N) ──< (N) Task   // 可选：task 可再拆子 task
 
 ## 8. 开放问题（需确认）
 
-1. 技术栈是否采用 Python（默认）还是 TypeScript？
-2. 是否需要 Web UI？还是本期仅 MCP + 数据层？
-3. Task 是否允许无限嵌套，还是固定四级（Project/Epic/Story/Task）？
-4. `spec` 模板是否遵循某固定 OpenSpec 结构（`proposal.md` / `tasks.md` / `design.md`），还是自由 markdown？
-5. 生产 MariaDB 的连接信息 / 部署形态（容器？云？）？
-6. 是否需要任务间的依赖 / 阻塞关系？
+1. 技术栈是否采用 Python（默认）还是 TypeScript？ → **已定：Python 3.11+ / FastAPI / FastMCP。**
+2. 是否需要 Web UI？ → **已定：是，前后端分离 SPA（已实现，鉴权 UI 待补）。**
+3. Task 是否允许无限嵌套，还是固定四级（Project/Epic/Story/Task）？ → **已定：固定四级，Task 为最底层不嵌套。**
+4. `spec` 模板是否遵循某固定 OpenSpec 结构？ → **已定：自由 markdown，提供 OpenSpec 风格提案模板。**
+5. 生产 MariaDB 的连接信息 / 部署形态？ → **方案：docker-compose `db` profile + `AGENTBOARD_DB_URL` 切换；独立 `.sql` 脚本便于离线评审（见 FR-9）。**
+6. 是否需要任务间的依赖 / 阻塞关系？ → 暂不做。
+7. **[新] 现有项目树 CRUD 是否强制鉴权？** → 默认保持单用户开放（与 MCP 兼容）；是否经 `AGENTBOARD_REQUIRE_AUTH` 开关强制，由变更 `auth` 决定。
+8. **[新] Playwright 是否纳入 CI？** 运行时依赖浏览器二进制，建议本地 / CI 均可执行 `playwright install chromium`。
+9. **[新] MCP 调用受保护端点时 token 来源？** 由 `AGENTBOARD_MCP_TOKEN` 或客户端注入；见变更 `mcp-auth`。
 
 ---
 

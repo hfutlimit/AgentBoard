@@ -1,20 +1,19 @@
-# Change: MariaDB 实际接入 + Alembic 迁移 + MCP 工具补全
+# Change: MariaDB 脚本 + Alembic 迁移 + 集成
 
 ## Why
-当前生产 MariaDB 尚未实际接入，schema 演进依赖 `database._ensure_migrations` 的在线 `ALTER TABLE`。为达到生产可用与规范迁移，需要：
-1. 真正验证 MariaDB 连接与 DDL 兼容性；
-2. 用 Alembic 接管迁移（替代临时在线 ALTER）；
-3. 补全 MCP 工具（更新/删除 epic、story、分页等），与 REST API 对齐。
+当前生产 MariaDB 接入已大半就绪：`AGENTBOARD_DB_URL` 切换、`pymysql` 依赖、Alembic 迁移（初始 + `users` 表）、docker-compose `db` profile、`_ensure_migrations` 兜底。但仍缺：
+1. **一份独立、可审阅的 MariaDB `schema.sql` 脚本**（建库 / 建表 / 索引 / 字符集 / 授权），便于 DBA 评审与容器初始化，与 Alembic 形成"离线脚本 + 在线迁移"双路径。
+2. **真实 MariaDB 11 下的验证**（Alembic `upgrade head` 与 service 冒烟）。
+3. **集成冒烟测试**与 docker-compose 对接示例。
 
 ## What Changes
-- 新增 Alembic 环境（`migrations/`），`env.py` 读取 `AGENTBOARD_DB_URL`，初始迁移覆盖全部表 + `source_spec_id`。
-- `init_db` 的在线迁移降级为「无 Alembic 时的兼容保底」。
-- MCP 新增：`update_epic` / `delete_epic` / `update_story` / `delete_story` / `get_epic` / `get_story`，以及列表分页参数。
+- 新增 `scripts/mariadb/schema.sql`：与 `models.py` 完全对齐的建库 / 建表脚本。
+- 验证 Alembic 在真实 MariaDB 下可应用、功能与 SQLite 一致。
+- 完善 docker-compose `db` 与 API 的对接示例；新增可选集成测试。
 
 ## Impact
-- 无破坏性；新增开发期依赖 `alembic`。
-- API/Web 行为不变；仅 MCP 工具集更完整。
-- 需用户提供可用的 MariaDB 连接信息（见 tasks）。
+- 无破坏性；新增开发/运维文件，不改变运行期代码契约。
+- API / Web 行为不变；MCP 工具集已在上一轮补全。
 
 ## Status
-Draft（待实现）
+In Progress（Alembic + MCP 工具已就绪；缺 `.sql` 脚本与真实验证）

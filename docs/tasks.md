@@ -133,5 +133,81 @@
 待办：
 - [ ] Epic 4.2：从 spec 解析子任务 / 双向引用（可选）
 - [ ] Epic 6：以 OpenSpec 目录（`openspec/`）管理本项目自身规格
-- [ ] MariaDB 实际接入与迁移脚本（Alembic）
-- [ ] 更多 MCP 工具（更新 epic/story、删除、分页）
+- [x] Epic 7：前端注册 / 登录 UI（后端鉴权已就绪，仅前端集成）
+- [x] Epic 8：MariaDB 独立 `.sql` 脚本 + 真实集成验证（Alembic 迁移已完成）
+- [x] Epic 9：前端 Web 自动化测试（Playwright 真实浏览器 E2E）
+- [x] Epic 10：MCP 鉴权集成 + 运维化（"实现 MCP"）
+
+---
+
+## Epic 7：前端注册 / 登录（鉴权 UI）
+> 目标：补齐 SPA 的登录 / 注册界面与 token 生命周期。后端接口已就绪（见 `openspec/changes/auth/`）。
+
+### Story 7.1 前端鉴权骨架
+- [ ] Task：`app.js` 增加 `getToken/setToken/clearToken`（localStorage）
+- [ ] Task：改造 `api()` 自动注入 `Authorization`；收到 401 清 token 回登录
+- [ ] Task：`index.html` 预留登录 / 注册容器
+
+### Story 7.2 登录 / 注册界面
+- [ ] Task：`renderAuth()`：用户名 / 密码 + 登录/注册切换，调用 `/api/auth/register|login`
+- [ ] Task：成功存 token 进应用；失败（409/401）展示错误
+- [ ] Task：启动守卫：有 token 且 `/api/auth/me` 通过则进应用，否则显示登录
+
+### Story 7.3 应用内用户态
+- [ ] Task：顶部栏显示当前用户名 + 登出按钮
+- [ ] Task：`style.css` 补充登录卡片 / 用户信息条样式
+- [ ] Task（可选）：`api.py` 增加 `AGENTBOARD_REQUIRE_AUTH` 强制 CRUD 鉴权
+
+---
+
+## Epic 8：MariaDB 数据库脚本与集成
+> 目标：独立 `.sql` 脚本 + 真实集成验证。Alembic 迁移与 MCP 工具已就绪（见 `openspec/changes/mariadb-alembic/`）。
+
+### Story 8.1 独立 MariaDB 脚本
+- [ ] Task：新增 `scripts/mariadb/schema.sql`（建库 utf8mb4、建用户授权、五表与 `models.py` 对齐、含 `source_spec_id`）
+- [ ] Task：`scripts/mariadb/README.md` 说明初始化与离线评审用法
+
+### Story 8.2 真实集成验证
+- [ ] Task：用户提供 MariaDB 连接信息（`AGENTBOARD_DB_URL=mysql+pymysql://...`）
+- [ ] Task：验证 Alembic `upgrade head` 在 MariaDB 11 建表 DDL 兼容
+- [ ] Task：MariaDB 下跑通 service 层冒烟（CRUD + 状态机 + 搜索 + 生成子任务）
+- [ ] Task：更新 `docker-compose.yml` 的 `db` profile 与 API 对接示例
+
+### Story 8.3 集成测试
+- [ ] Task：新增 `tests/test_mariadb_integration.py`（`skipif` 无 `AGENTBOARD_TEST_MARIADB`）
+
+---
+
+## Epic 9：前端 Web 自动化测试（Playwright）
+> 目标：真实浏览器驱动 SPA 的 E2E。与 `test_web_flow.py` 互补（见 `openspec/changes/playwright-e2e/`）。
+
+### Story 9.1 测试骨架
+- [ ] Task：`requirements.txt` 增加 `playwright` / `pytest-playwright`
+- [ ] Task：新增 `tests/test_playwright_e2e.py`：fixture 启动真实 API + Web（临时 SQLite）
+- [ ] Task：UI 辅助函数 `ui_register / ui_login`
+
+### Story 9.2 真实交互用例
+- [ ] Task：注册 UI 流（进入应用 + localStorage 含 token）
+- [ ] Task：登录 UI 流 + 错误密码 / 重复注册报错
+- [ ] Task：项目树 CRUD UI（Project→Epic→Story→Task/Bug）
+- [ ] Task：状态流转 UI（徽标更新）
+- [ ] Task：spec 编辑与 markdown 渲染
+- [ ] Task：README 补充 `playwright install chromium` 与运行命令
+
+---
+
+## Epic 10：MCP 鉴权集成与运维化（实现 MCP）
+> 目标：使现成 MCP 服务连通鉴权并生产可用（见 `openspec/changes/mcp-auth/`）。
+
+### Story 10.1 MCP 用户管理工具
+- [ ] Task：`mcp_server.py` 新增 `auth_register` / `auth_login` / `auth_me`（api + db 双后端）
+
+### Story 10.2 Token 透传与运维
+- [ ] Task：`api` 后端 `_http` 支持 `AGENTBOARD_MCP_TOKEN` 注入 `Authorization`
+- [ ] Task：启动脚本 `scripts/run_mcp.py` 或 README 写清 `python -m agentboard.mcp_server`
+- [ ] Task：客户端配置样例 `examples/claude_desktop_mcp.json` / `examples/codebuddy_mcp.json`
+
+### Story 10.3 验证与文档
+- [ ] Task：新增 `tests/test_mcp_smoke.py`（FastMCP 客户端调用工具）
+- [ ] Task：README「MCP 运行与接入」章节
+- [ ] Task：更新 `openspec/specs/agentboard/spec.md` 的 MCP 工具清单
