@@ -233,6 +233,10 @@ main {
 }
 .empty-icon { font-size: 2.5rem; margin-bottom: 12px; }
 .empty-state h3 { color: var(--text); margin: 0 0 8px; }
+/* A-08 空状态优化：紧凑型（列表内嵌）+ 动作按钮间距 */
+.empty-state.empty-compact { padding: 28px 20px; }
+.empty-state.empty-compact .empty-icon { font-size: 1.9rem; margin-bottom: 8px; }
+.empty-state.empty-compact p { margin: 0 0 14px; }
 .error-state { text-align: center; padding: 40px 20px; }
 .error-state h3 { color: var(--danger); margin: 0 0 8px; }
 

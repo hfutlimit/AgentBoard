@@ -1,5 +1,13 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-11（周期执行 · A-07 加载骨架屏）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=2519dee）。
+- **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-06 已完成，认领下一个 pending 项 **A-07 加载骨架屏**。
+- **开发任务**：新增 `skeleton()` 占位（标题条 + 6 卡片网格 shimmer + 侧栏占位），`render()` 与 `index.html` 初始态均替换原「加载中…」/3-dot spinner，避免内容载入时的布局跳动。`app.js` +12、`style.css` +16、`index.html` +9（净增 ~35 行，符合 <~80 行），未改 `models.py`/`api.py` 契约。
+- **部署 Docker**：基础镜像仍不可达 → `docker cp` 注入新 `app.js`/`style.css`/`index.html` 到运行中的 `agentboard-web-1`（/app/agentboard/web/static/）。验证 HTTP `app.js` 含 `function skeleton`、`style.css` 含 `sk-line`、`index.html` 含 `sk-grid`。
+- **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
+- **推送**：`git push origin main` 成功（`2519dee..5040b96`，commit `5040b96`）。
+
 ## 2026-07-11（周期执行 · A-06 状态流转按钮组）
 - **拉取最新代码**：`git pull origin main` 已是最新（HEAD=5359dfc）。
 - **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-05 已完成，认领下一个 pending 项 **A-06 状态流转按钮组**。

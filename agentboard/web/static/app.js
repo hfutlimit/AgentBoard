@@ -173,6 +173,21 @@ function skeleton() {
   </div>`;
 }
 
+// A-08 空状态优化：统一的友好空状态（图标 + 文案 + 可选动作按钮），
+// 替代原本灰色「暂无 xxx」纯文字，向 Jira 的空状态引导靠拢。
+// cta 可选 { id, label }：点击触发同页已有的「＋ 新建」按钮（onclick 由其绑定处理）。
+function emptyState(icon, title, desc, cta) {
+  const btn = cta
+    ? `<button class="btn-primary-sm" onclick="document.getElementById('${cta.id}').click()">${esc(cta.label)}</button>`
+    : "";
+  return `<div class="empty-state empty-compact">
+    <div class="empty-icon">${icon}</div>
+    <h3>${esc(title)}</h3>
+    ${desc ? `<p class="muted">${esc(desc)}</p>` : ""}
+    ${btn}
+  </div>`;
+}
+
 // ---------- Router ----------
 async function render() {
   const h = location.hash || "#/";
@@ -417,7 +432,7 @@ async function viewProject(app, id) {
           </a>
         `).join("")}
       </div>
-    ` : '<div class="empty-inline">暂无 Epic，点击上方按钮创建</div>'}
+    ` : emptyState("🗂", "暂无 Epic", "创建第一个 Epic 来组织你的 Story", { id: "p-new-epic", label: "＋ 新建 Epic" })}
 
     <!-- 新建 Epic 表单（内联） -->
     <div class="card form-section" id="p-epic-form" style="display:none">
@@ -510,7 +525,7 @@ async function viewEpic(app, id) {
           </a>
         `).join("")}
       </div>
-    ` : '<div class="empty-inline">暂无 Story</div>'}
+    ` : emptyState("📝", "暂无 Story", "把需求拆成一个个 Story 逐步推进", { id: "e-new-story", label: "＋ 新建 Story" })}
 
     <div class="card form-section" id="e-story-form" style="display:none">
       <h4>新建 Story</h4>
@@ -604,7 +619,7 @@ async function viewStory(app, id) {
             </a>
           `).join("")}
         </div>
-      ` : '<div class="empty-inline">暂无任务</div>'}
+      ` : emptyState("🔧", "暂无任务", "添加 Task 或 Bug 开始推进工作", { id: "s-new-task", label: "＋ 新建任务" })}
     </div>
     <div id="story-board-view"${storyViewMode === "list" ? ' style="display:none"' : ""}>
       ${renderKanban(tasks)}
