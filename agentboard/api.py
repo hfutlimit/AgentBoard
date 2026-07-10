@@ -231,6 +231,15 @@ def delete_task(tid: int, s: Session = Depends(get_session)):
     return {"ok": True}
 
 
+@app.post("/api/tasks/{tid}/generate-subtasks")
+def generate_subtasks(tid: int, s: Session = Depends(get_session)):
+    try:
+        created = service.generate_tasks_from_spec(s, tid)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return [service._ser(t) for t in created]
+
+
 # ---------- Search ----------
 @app.get("/api/tasks")
 def search_tasks(project_id: int | None = None, epic_id: int | None = None,

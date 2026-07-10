@@ -69,5 +69,6 @@ class Task(Base):
     status: Mapped[str] = mapped_column(String(20), default=Status.BACKLOG)
     description: Mapped[str] = mapped_column(Text, default="")
     spec: Mapped[str] = mapped_column(Text, default="")
+    source_spec_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 由哪个任务的 spec 生成
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)

@@ -256,9 +256,10 @@ async function viewTask(app, id) {
         <label>类型</label>${typeSelect(t.type)}
         <label>Description (markdown)</label><textarea name="description" rows="5">${esc(t.description)}</textarea>
         <label>Spec (markdown)</label><textarea name="spec" rows="12">${esc(t.spec)}</textarea>
-        <div class="row"><button>保存</button>
-          <button type="button" class="ghost" id="tpl">插入 OpenSpec 提案模板</button>
-          <button type="button" class="danger" id="del">删除任务</button></div>
+          <div class="row"><button>保存</button>
+            <button type="button" class="ghost" id="tpl">插入 OpenSpec 提案模板</button>
+            <button type="button" class="ghost" id="gen">从 spec 生成子任务</button>
+            <button type="button" class="danger" id="del">删除任务</button></div>
       </form>
     </div>`;
   $("stbtn").onclick = async () => {
@@ -279,6 +280,14 @@ async function viewTask(app, id) {
   $("del").onclick = async () => {
     if (!confirm("删除该任务？")) return;
     await api(`/api/tasks/${id}`, "DELETE"); toast("已删除"); route(`#/story/${t.story_id}`);
+  };
+  $("gen").onclick = async () => {
+    if (!confirm("从 spec 中的清单项生成同级子任务？")) return;
+    try {
+      const created = await api(`/api/tasks/${id}/generate-subtasks`, "POST");
+      toast(`已生成 ${created.length} 个子任务`);
+      render();
+    } catch (e) { toast("生成失败：" + e.message); }
   };
 }
 

@@ -1,3 +1,4 @@
+import re
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from . import models
@@ -186,6 +187,39 @@ def set_status(s: Session, id: int, new_status: str) -> Task | None:
         raise IllegalTransition(f"{t.status} -> {new} 不合法")
     t.status = new
     s.commit(); s.refresh(t); return t
+
+
+# ---------- Spec -> 子任务（OpenSpec / Superpowers 风格） ----------
+def generate_tasks_from_spec(s: Session, task_id: int) -> list:
+    """解析任务 spec 中的清单项（- [ ] 标题），生成同级子任务。
+
+    生成的子任务：同 project / story，type=task，status=backlog，
+    并通过 source_spec_id 反向关联到源任务；同时在源 spec 末尾回写链接。
+    """
+    src = s.get(Task, task_id)
+    if not src:
+        raise NotFound(f"task {task_id} not found")
+    created = []
+    for line in (src.spec or "").splitlines():
+        m = re.match(r"\s*[-*]\s*\[\s*[ xX]\s*\]\s*(.*)", line)
+        if not m:
+            continue
+        title = m.group(1).strip()
+        if not title:
+            continue
+        t = Task(project_id=src.project_id, story_id=src.story_id,
+                 type=ItemType.TASK, title=title[:300], description=title,
+                 source_spec_id=task_id)
+        s.add(t)
+        created.append(t)
+    s.commit()
+    for t in created:
+        s.refresh(t)
+    if created:
+        links = "\n".join(f"- 子任务 #{t.id}: {t.title}" for t in created)
+        src.spec = (src.spec or "") + f"\n\n## 生成的自任务\n{links}\n"
+        s.commit(); s.refresh(src)
+    return created
 
 
 # ---------- Search ----------

@@ -62,6 +62,14 @@ if BACKEND == "db":
         with SessionLocal() as s:
             return [service._ser(t) for t in service.search_tasks(s, **params)]
 
+    def _task_generated(task_id):
+        with SessionLocal() as s:
+            try:
+                created = service.generate_tasks_from_spec(s, task_id)
+            except service.NotFound as e:
+                return {"error": str(e)}
+            return [service._ser(t) for t in created]
+
 else:  # api 模式
     import httpx
 
@@ -104,6 +112,9 @@ else:  # api 模式
     def _task_search(params):
         clean = {k: v for k, v in params.items() if v is not None}
         return _http("GET", "/api/tasks", params=clean)
+
+    def _task_generated(task_id):
+        return _http("POST", f"/api/tasks/{task_id}/generate-subtasks")
 
 
 # ===================== MCP 工具 =====================
@@ -195,6 +206,15 @@ def spec_proposal(task_id: int, title: str, background: str, goal: str,
         f"## 验收标准\n{acceptance}\n"
     )
     return _task_update(task_id, {"spec": md})
+
+
+@mcp.tool()
+def generate_tasks_from_spec(task_id: int) -> list:
+    """从任务 spec 的清单项（- [ ] 标题）生成同级子任务，并在 spec 中回写链接。
+
+    返回生成的子任务列表（含 id）；源任务通过 source_spec_id 反向关联。
+    """
+    return _task_generated(task_id)
 
 
 if __name__ == "__main__":

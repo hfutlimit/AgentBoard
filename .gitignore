@@ -5,5 +5,6 @@ agentboard.db
 *.sqlite3
 .env
 smoke.log
+smoke_ascii.txt
 .venv/
 venv/

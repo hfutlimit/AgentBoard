@@ -70,8 +70,8 @@
 - [ ] Task：定义执行计划（plan）模板
 
 ### Story 4.2 规范与任务联动（可选）
-- [ ] Task：从 spec 解析 tasks 清单并批量建子 task
-- [ ] Task：task 与 spec 双向引用（task 记录关联 spec id）
+- [x] Task：从 spec 解析清单项（- [ ] 标题）并批量建同级子 task（generate_tasks_from_spec）
+- [x] Task：task 与 spec 双向引用（子任务记录 source_spec_id，源 spec 回写链接）
 - [ ] Task：状态联动（spec 进入 review 时关联 task 转 in_review）
 
 ---

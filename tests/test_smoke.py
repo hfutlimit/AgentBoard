@@ -83,6 +83,28 @@ def test_web_serving():
         assert c.get("/static/app.js").status_code == 200
 
 
+def test_generate_from_spec():
+    from fastapi.testclient import TestClient
+    from agentboard.api import app
+    with TestClient(app) as c:
+        p = c.post("/api/projects", json={"name": "G1"}).json()
+        e = c.post(f"/api/projects/{p['id']}/epics", json={"title": "E"}).json()
+        st = c.post(f"/api/epics/{e['id']}/stories", json={"title": "S"}).json()
+        t = c.post(f"/api/stories/{st['id']}/tasks",
+                   json={"project_id": p["id"], "title": "Spec 任务",
+                         "spec": "# 提案\n## 任务清单\n- [ ] 子任务A\n- [ ] 子任务B\n"}).json()
+        created = c.post(f"/api/tasks/{t['id']}/generate-subtasks").json()
+        assert len(created) == 2
+        assert created[0]["source_spec_id"] == t["id"]
+        # 源 spec 已回写链接
+        upd = c.get(f"/api/tasks/{t['id']}").json()
+        assert "生成的自任务" in upd["spec"]
+        # MCP db 后端也可生成
+        from agentboard import mcp_server as m
+        again = m._task_generated(t["id"])
+        assert isinstance(again, list)
+
+
 def test_mcp_db_backend():
     from agentboard import mcp_server as m
     assert m.BACKEND == "db"
@@ -96,5 +118,6 @@ if __name__ == "__main__":
     test_service_layer()
     test_rest_api()
     test_web_serving()
+    test_generate_from_spec()
     test_mcp_db_backend()
     print("SMOKE OK")
