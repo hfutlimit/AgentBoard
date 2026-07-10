@@ -1,0 +1,75 @@
+# AgentBoard 容器编排
+#
+# 零配置启动（SQLite 持久化）：
+#   docker compose up -d
+#   打开 http://localhost:8080  （Web 前端，浏览器经 http://localhost:8000 调 API）
+#   API 文档：http://localhost:8000/docs
+#
+# 改用 MariaDB（生产推荐）：
+#   # 1) 在下方 api.environment 把 AGENTBOARD_DB_URL 改为：
+#   #    mysql+pymysql://agentboard:agentboard@db:3306/agentboard
+#   # 2) 启动 MariaDB 服务（默认关闭，需 --profile mariadb）：
+#   docker compose --profile mariadb up -d
+#
+# 生产域名部署：设置 Web 注入给浏览器的 API 地址
+#   AGENTBOARD_WEB_API_URL=https://api.yourdomain.com docker compose up -d
+
+services:
+  api:
+    build: .
+    command: uvicorn agentboard.api:app --host 0.0.0.0 --port 8000
+    environment:
+      # 持久化到命名卷；生产请改用 MariaDB 连接串
+      AGENTBOARD_DB_URL: "sqlite:////app/data/agentboard.db"
+      # 生产务必改为强随机值（可用 openssl rand -hex 32 生成）
+      AGENTBOARD_SECRET: "${AGENTBOARD_SECRET:-dev-insecure-secret-change-me}"
+    volumes:
+      - agentboard_data:/app/data
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/meta').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  web:
+    build: .
+    command: uvicorn agentboard.web_app:app --host 0.0.0.0 --port 8080
+    environment:
+      # 注：此地址由浏览器（用户机器）发起请求，必须用宿主机可访问地址，
+      # 默认 localhost:8000 适用于本机 docker；生产改为真实域名/IP。
+      AGENTBOARD_API_URL: "${AGENTBOARD_WEB_API_URL:-http://localhost:8000}"
+    ports:
+      - "8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # 可选 MariaDB（默认关闭，启用需 --profile mariadb）
+  db:
+    image: mariadb:11
+    profiles: ["mariadb"]
+    environment:
+      MARIADB_DATABASE: agentboard
+      MARIADB_USER: agentboard
+      MARIADB_PASSWORD: agentboard
+      MARIADB_ROOT_PASSWORD: rootpass-change-me
+    volumes:
+      - agentboard_mariadb:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    restart: unless-stopped
+
+volumes:
+  agentboard_data:
+  agentboard_mariadb:

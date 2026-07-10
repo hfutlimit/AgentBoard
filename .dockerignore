@@ -1,0 +1,30 @@
+# 版本控制与本地配置
+.git
+.gitignore
+
+# Python 缓存/虚拟环境
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.venv/
+venv/
+env/
+
+# 本地数据库文件（容器内由卷管理）
+*.db
+agentboard.db
+
+# 文档与规范（非运行时必需，按需保留可移除下行）
+docs/
+openspec/
+
+# 测试（非运行时必需，按需保留可移除下行）
+tests/
+
+# 编辑器/系统
+.idea/
+.vscode/
+.workbuddy/
+.DS_Store
