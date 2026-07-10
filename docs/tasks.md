@@ -94,13 +94,13 @@
 > 用 OpenSpec 结构沉淀 AgentBoard 自身的规格与变更。
 
 ### Story 6.1 规范目录
-- [ ] Task：建立 `openspec/specs/agentboard/spec.md`（能力规格）
-- [ ] Task：建立 `openspec/changes/` 目录，沉淀后续变更提案
-- [ ] Task：将本 `docs/tasks.md` 与 OpenSpec `tasks.md` 对齐
+- [x] Task：建立 `openspec/specs/agentboard/spec.md`（能力规格 = 当前事实来源）
+- [x] Task：建立 `openspec/changes/` 目录 + `openspec/AGENTS.md`（Agent 指引）
+- [x] Task：将本 `docs/tasks.md` 与 OpenSpec `tasks.md` 对齐（后续变更走 `openspec/changes/*/tasks.md`）
 
 ### Story 6.2 首个变更提案
-- [ ] Task：以 OpenSpec 提案形式描述"MVP 数据层 + MCP"变更
-- [ ] Task：评审并归档
+- [x] Task：以 OpenSpec 提案形式描述后续变更（见 `openspec/changes/mariadb-alembic/`）
+- [ ] Task：MariaDB 接入 + Alembic 迁移 + MCP 工具补全（进行中，见 change 的 tasks.md）
 
 ---
 

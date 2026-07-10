@@ -71,4 +71,11 @@ PYTHONPATH=. python tests/test_smoke.py
 
 ## 需求与任务
 
-见 `docs/requirements.md` 与 `docs/tasks.md`。开发遵循 Superpowers / OpenSpec 规范驱动方式。
+- `docs/requirements.md`：需求分析
+- `docs/tasks.md`：任务列表（Epic/Story/Task）
+- `openspec/`：**OpenSpec 规范驱动开发**目录
+  - `openspec/specs/agentboard/spec.md`：当前能力的唯一事实来源
+  - `openspec/changes/<id>/`：变更提案（proposal / design / tasks）
+  - `openspec/AGENTS.md`：AI Agent 使用指引
+
+开发遵循 Superpowers / OpenSpec 规范：新功能先写变更提案，按 `tasks.md` 实现，完成后同步 `specs/`。
