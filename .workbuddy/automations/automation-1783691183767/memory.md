@@ -1,5 +1,21 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-11（周期执行 · A-06 状态流转按钮组）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=5359dfc）。
+- **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-05 已完成，认领下一个 pending 项 **A-06 状态流转按钮组**。
+- **开发任务**：任务详情的「状态下拉 + 更新状态按钮」替换为 Jira 式工作流按钮组——当前状态药丸（`sf-current`）+ 合法迁移按钮（`sf-btn`，`STATUS_TRANSITIONS` 镜像后端 `service.TRANSITIONS`），点击即 `PUT /api/tasks/{id}/status`；后端仍为权威校验（非法迁移 400）。新增 `STATUS_TRANSITIONS` 常量与 `statusFlow()` 辅助；`app.js` +22/−7、`style.css` +17（净增 ~32 行，符合 <~80 行），未改 `models.py`/`api.py` 契约。
+- **部署 Docker**：基础镜像 `python:3.13-slim` 仍不在本地缓存 → `docker compose up -d --build` 会拉取超时；继续 `docker cp` 注入新 `app.js`/`style.css` 到运行中的 `agentboard-web-1`。验证 `http://localhost:8080/static/app.js` 含 `statusFlow`（2 处）、`style.css` 含 `sf-btn`（10 处）。
+- **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
+- **推送**：`git push origin main` 成功（`5359dfc..6133905`，commit `6133905`）。
+
+## 2026-07-11（周期执行 · A-05 全局搜索框）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=4e5658a）。
+- **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-04 已完成，认领下一个 pending 项 **A-05 全局搜索框**。
+- **开发任务**：顶部栏 `.topbar-right` 加 `type=search` 输入框（`index.html` +1）；新增 `applySearch()` 按标题实时过滤当前页列表容器（`.project-grid`/`.entity-list`/`.table-wrap`/`#story-board-view`），空结果显示「未找到匹配」提示，查询词跨路由持久化（全局 `GLOBAL_SEARCH`，render() 末尾重应用），boot 绑定 input 事件。`app.js` +38、`style.css` +13（净增 ~52 行，符合 <~80 行），未改 `models.py`/`api.py` 契约。
+- **部署 Docker**：基础镜像 `python:3.13-slim` 不在本地缓存，`docker compose up -d --build web` 将触发 Docker Hub 拉取超时；退化为 `docker cp` 注入 `app.js`/`style.css`/`index.html` 到运行中的 `agentboard-web-1`（/app/agentboard/web/static/）。验证 HTTP `http://localhost:8080/static/app.js` 含 `applySearch`（3 处）、`index.html` 含 `global-search`（1 处）。
+- **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
+- **推送**：`git push origin main` 成功（`4e5658a..8e5c338`，commit `8e5c338`）。
+
 ## 2026-07-11（周期执行 · A-04 行内编辑）
 - **拉取最新代码**：`git pull origin main` 已是最新（与 origin/main 同步，HEAD=306ea21）。
 - **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01/A-02/A-03 已完成，认领下一个 pending 项 **A-04 行内快速编辑标题**。
