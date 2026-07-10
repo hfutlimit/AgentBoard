@@ -61,10 +61,9 @@ const STATUS_COLOR = {
   backlog: "#6b7280", todo: "#3b82f6", in_progress: "#f59e0b",
   in_review: "#8b5cf6", verifying: "#06b6d4", done: "#10b981"
 };
-function statusBadge(s) {
+function statusBadge(s, extra = "") {
   const label = STATUS_LABEL[s] || s;
-  const color = STATUS_COLOR[s] || "#6b7280";
-  return `<span class="badge status" style="background:${color}15;color:${color};border:1px solid ${color}30">${label}</span>`;
+  return `<span class="badge status status--${s}"${extra}>${label}</span>`;
 }
 function statusDot(s) {
   const color = STATUS_COLOR[s] || "#6b7280";
@@ -593,7 +592,7 @@ async function viewTask(app, id) {
         <h2>${esc(t.title)}</h2>
         <div class="header-badges">
           ${t.type === "bug" ? `<span class="badge bug">🐛 Bug</span>` : `<span class="badge task-badge">✅ Task</span>`}
-          <span class="badge status" id="stbadge">${(STATUS_LABEL[t.status]||t.status)}</span>
+          ${statusBadge(t.status, ' id="stbadge"')}
         </div>
       </div>
       <div class="page-actions">
@@ -713,7 +712,7 @@ function bindNewProjectForm(formId, modalId) {
 function statusSelect(cur, id) {
   return `<select name="status"${id ? ` id="${id}"` : ""}>` +
     META.statuses.map(s =>
-      `<option value="${s}"${s === cur ? " selected" : ""}>${STATUS_LABEL[s] || s}</option>`
+      `<option class="status--${s}" value="${s}"${s === cur ? " selected" : ""}>${STATUS_LABEL[s] || s}</option>`
     ).join("") + "</select>";
 }
 function typeSelect(cur) {
