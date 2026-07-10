@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ story.title }}{% endblock %}
+{% block content %}
+<a class="back" href="/epics/{{ story.epic_id }}">← Epic</a>
+<h1>{{ story.title }} <span class="badge">{{ story.status }}</span></h1>
+<div class="md">{{ story.description }}</div>
+<h2>Tasks / Bugs</h2>
+<ul>
+  {% for t in tasks %}
+  <li>
+    <a href="/tasks/{{ t.id }}">{{ t.title }}</a>
+    <span class="badge {% if t.type == 'bug' %}bug{% endif %}">{{ t.type }}</span>
+    <span class="badge">{{ t.status }}</span>
+  </li>
+  {% else %}
+  <li class="meta">暂无任务</li>
+  {% endfor %}
+</ul>
+<h3>新建 Task / Bug</h3>
+<form method="post" action="/stories/{{ story.id }}/tasks">
+  <input type="hidden" name="project_id" value="{{ story.project_id }}">
+  <input name="title" placeholder="标题" required>
+  <select name="type">
+    {% for ty in types %}<option value="{{ ty }}">{{ ty }}</option>{% endfor %}
+  </select>
+  <textarea name="description" rows="3" placeholder="描述 (markdown)"></textarea>
+  <button>创建</button>
+</form>
+{% endblock %}

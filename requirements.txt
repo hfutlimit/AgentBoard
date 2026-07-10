@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+python-multipart
+jinja2
+markdown
+sqlalchemy>=2.0
+pydantic>=2.0
+fastmcp
+pymysql          # 生产 MariaDB 驱动（暂未实测）
+pytest           # 开发期 smoke test

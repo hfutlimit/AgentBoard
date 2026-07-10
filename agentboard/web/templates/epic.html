@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}{{ epic.title }}{% endblock %}
+{% block content %}
+<a class="back" href="/projects/{{ epic.project_id }}">← 项目</a>
+<h1>{{ epic.title }} <span class="badge">{{ epic.status }}</span></h1>
+<div class="md">{{ epic.description }}</div>
+<h2>Stories</h2>
+<ul>
+  {% for st in stories %}
+  <li><a href="/stories/{{ st.id }}">{{ st.title }}</a> <span class="badge">{{ st.status }}</span></li>
+  {% else %}
+  <li class="meta">暂无 Story</li>
+  {% endfor %}
+</ul>
+<h3>新建 Story</h3>
+<form method="post" action="/epics/{{ epic.id }}/stories">
+  <input name="title" placeholder="标题" required>
+  <textarea name="description" rows="3" placeholder="描述 (markdown)"></textarea>
+  <button>创建</button>
+</form>
+{% endblock %}

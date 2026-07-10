@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+agentboard.db
+*.db
+*.sqlite3
+.env
+smoke.log
+.venv/
+venv/
