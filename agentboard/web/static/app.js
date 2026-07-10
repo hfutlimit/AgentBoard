@@ -69,6 +69,20 @@ function statusDot(s) {
   const color = STATUS_COLOR[s] || "#6b7280";
   return `<span class="status-dot" style="background:${color}" title="${STATUS_LABEL[s]||s}"></span>`;
 }
+// 任务类型图标（内联 SVG，不引入图标库）：task=勾选圆环，bug=瓢虫
+function typeIcon(type) {
+  if (type === "bug") {
+    return `<svg class="ti-svg" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
+      <ellipse cx="8" cy="9" rx="5" ry="5.2"/><line x1="8" y1="4" x2="8" y2="14"/>
+      <circle cx="8" cy="3.3" r="1.6" fill="currentColor" stroke="none"/>
+      <circle cx="5.4" cy="8.6" r="1" fill="currentColor" stroke="none"/>
+      <circle cx="10.6" cy="8.6" r="1" fill="currentColor" stroke="none"/>
+      <circle cx="6" cy="12" r="1" fill="currentColor" stroke="none"/>
+      <circle cx="10" cy="12" r="1" fill="currentColor" stroke="none"/></svg>`;
+  }
+  return `<svg class="ti-svg" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <circle cx="8" cy="8" r="6.4"/><path d="M5.4 8l1.9 1.9L10.8 6"/></svg>`;
+}
 
 // 只读看板：按 status 分列展示 task 卡片（复用已加载的 tasks 与 statusBadge）
 function renderKanban(tasks) {
@@ -76,7 +90,7 @@ function renderKanban(tasks) {
     const items = tasks.filter(t => t.status === s);
     const cards = items.length
       ? items.map(t => `<a href="#/task/${t.id}" class="kanban-card">
-          <span class="type-icon ${t.type}">${t.type === "bug" ? "🐛" : "✅"}</span>
+          <span class="type-icon ${t.type}">${typeIcon(t.type)}</span>
           <span class="kanban-card-title">${esc(t.title)}</span>
         </a>`).join("")
       : '<div class="kanban-empty">—</div>';
@@ -511,11 +525,11 @@ async function viewStory(app, id) {
           ${tasks.map(t => `
             <a href="#/task/${t.id}" class="entity-item">
               <div class="entity-item-main">
-                <span class="type-icon ${t.type}">${t.type === "bug" ? "🐛" : "✅"}</span>
+                <span class="type-icon ${t.type}">${typeIcon(t.type)}</span>
                 <span class="entity-item-title">${esc(t.title)}</span>
               </div>
               <div class="entity-item-badges">
-                ${t.type === "bug" ? `<span class="badge bug">Bug</span>` : ""}
+                ${t.type === "bug" ? `<span class="badge bug">${typeIcon("bug")} Bug</span>` : ""}
                 ${statusBadge(t.status)}
               </div>
             </a>
@@ -591,7 +605,7 @@ async function viewTask(app, id) {
       <div class="page-title-row">
         <h2>${esc(t.title)}</h2>
         <div class="header-badges">
-          ${t.type === "bug" ? `<span class="badge bug">🐛 Bug</span>` : `<span class="badge task-badge">✅ Task</span>`}
+          ${t.type === "bug" ? `<span class="badge bug">${typeIcon("bug")} Bug</span>` : `<span class="badge task-badge">${typeIcon("task")} Task</span>`}
           ${statusBadge(t.status, ' id="stbadge"')}
         </div>
       </div>
@@ -717,7 +731,7 @@ function statusSelect(cur, id) {
 }
 function typeSelect(cur) {
   return `<select name="type">` +
-    META.types.map(t => `<option value="${t}"${t === cur ? " selected" : ""}>${t === "task" ? "Task 📝" : "Bug 🐛"}</option>`).join("") +
+    META.types.map(t => `<option value="${t}"${t === cur ? " selected" : ""}>${t === "task" ? "Task" : "Bug"}</option>`).join("") +
     "</select>";
 }
 

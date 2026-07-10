@@ -197,8 +197,11 @@ main {
 .entity-item-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .entity-item-title { font-weight: 500; font-size: .92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .entity-item-badges { display: flex; gap: 6px; flex-shrink: 0; }
-.type-icon { font-size: 1rem; flex-shrink: 0; }
+.type-icon { display: inline-flex; align-items: center; flex-shrink: 0; font-size: 1rem; }
 .type-icon.bug { color: var(--danger); }
+.type-icon .ti-svg { display: block; }
+/* 类型徽章内的图标与文字对齐 */
+.badge.bug svg, .badge.task-badge svg { vertical-align: middle; margin-right: 4px; }
 
 .empty-inline {
   text-align: center; padding: 20px; color: var(--text-secondary); font-size: .88rem;

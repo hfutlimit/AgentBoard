@@ -230,7 +230,7 @@
 ### Backlog A（纯前端，可直接做，按推荐顺序）
 - [x] **A-01 看板视图（Story 页）**：在 Story 详情增加「看板」视图，按 `META.statuses` 分列展示 task 卡片（只读，先无拖拽），复用 `/api/stories/{id}/tasks`。仅改 `app.js` + `style.css`。
 - [x] **A-02 状态色徽章**：为各 status 设计配色（backlog 灰 / todo 蓝 / in_progress 黄 / in_review 紫 / verifying 橙 / done 绿），bug 红色调，参照 Jira。`style.css` 增加 `.badge.status--<status>` 类，`app.js` 的 `statusSelect`/列表渲染套用。
-- [ ] **A-03 任务类型图标**：task/bug 用内联 SVG 或 Unicode 图标替代纯文字徽章（如 ▢ / 🐞），不引入图标库。
+- [x] **A-03 任务类型图标**：task/bug 用内联 SVG 或 Unicode 图标替代纯文字徽章（如 ▢ / 🐞），不引入图标库。仅改 `app.js` + `style.css`。
 - [ ] **A-04 行内快速编辑标题**：双击列表项标题或详情标题进入编辑态，失焦/回车 PATCH 保存，Esc 取消。仅改 `app.js` + 少量 CSS。
 - [ ] **A-05 全局搜索框**：顶部加搜索输入，按 `title` 实时过滤当前页列表（纯前端过滤，不改 API）。
 - [ ] **A-06 状态流转按钮组**：将任务详情的「状态下拉 + 更新按钮」改为 Jira 式状态工作流按钮，点击即 `PUT /api/tasks/{id}/status`。
@@ -262,3 +262,4 @@
 |------|----|------|
 | 2026-07-10 | A-01 | Story 页只读看板（列表/看板切换），复用现有 tasks 接口与 statusBadge |
 | 2026-07-10 | A-02 | 状态色徽章 Jira 风格：statusBadge 改用 `.badge.status--<status>` CSS 类，下拉选项与任务详情头部同步套用，bug 红色强调 |
+| 2026-07-11 | A-03 | 任务类型图标：新增 `typeIcon()` 内联 SVG（task=勾选圆环 / bug=瓢虫），替换看板/列表/详情/徽章中的 emoji，不引入图标库 |
