@@ -70,6 +70,16 @@ function statusDot(s) {
   const color = STATUS_COLOR[s] || "#6b7280";
   return `<span class="status-dot" style="background:${color}" title="${STATUS_LABEL[s]||s}"></span>`;
 }
+// A-09 进度条：按子项（任务）status 计算完成度（done 占比），在 Epic/Story 卡片底部显示细进度条。
+function progressBar(done, total) {
+  if (!total) return "";
+  const pct = Math.round(done / total * 100);
+  const color = pct >= 100 ? "var(--success)" : pct >= 50 ? "var(--primary)" : "#94a3b8";
+  return `<div class="entity-progress" title="${done}/${total} 完成">
+    <div class="progress-track"><div class="progress-fill" style="width:${pct}%;background:${color}"></div></div>
+    <span class="progress-pct">${pct}%</span>
+  </div>`;
+}
 // A-06 状态流转按钮组：Jira 式工作流按钮（仅展示合法迁移），点击即 PUT /api/tasks/{id}/status。
 // 与后端 service.TRANSITIONS 保持一致；后端仍为权威校验，非法迁移会被 400 拒绝（防御性）。
 const STATUS_TRANSITIONS = {
@@ -396,6 +406,20 @@ async function viewProjects(app) {
 async function viewProject(app, id) {
   const p = await api(`/api/projects/${id}`);
   const eps = await api(`/api/projects/${id}/epics`);
+  // A-09：聚合每个 Epic 下所有 Story 的任务完成度（done 占比）
+  const epicProgress = {};
+  for (const e of eps) {
+    try {
+      const stories = await api(`/api/epics/${e.id}/stories`);
+      let done = 0, total = 0;
+      for (const s of stories) {
+        const tasks = await api(`/api/stories/${s.id}/tasks`);
+        total += tasks.length;
+        done += tasks.filter(t => t.status === "done").length;
+      }
+      epicProgress[e.id] = { done, total };
+    } catch (_) { epicProgress[e.id] = { done: 0, total: 0 }; }
+  }
   crumbs([{ label: "仪表盘", href: "#/" }, { label: p.name }]);
   // 高亮侧栏
   document.querySelectorAll(".sidebar-link").forEach(a => a.classList.remove("active"));
@@ -429,6 +453,7 @@ async function viewProject(app, id) {
               <span class="entity-item-title">${esc(e.title)}</span>
             </div>
             ${statusBadge(e.status)}
+            ${progressBar((epicProgress[e.id]||{}).done, (epicProgress[e.id]||{}).total)}
           </a>
         `).join("")}
       </div>
@@ -493,6 +518,14 @@ async function viewProject(app, id) {
 async function viewEpic(app, id) {
   const ep = await api(`/api/epics/${id}`);
   const sts = await api(`/api/epics/${id}/stories`);
+  // A-09：计算每个 Story 下任务的完成度（done 占比），用于卡片进度条
+  const storyProgress = {};
+  for (const s of sts) {
+    try {
+      const tasks = await api(`/api/stories/${s.id}/tasks`);
+      storyProgress[s.id] = { done: tasks.filter(t => t.status === "done").length, total: tasks.length };
+    } catch (_) { storyProgress[s.id] = { done: 0, total: 0 }; }
+  }
   const proj = PROJECTS.find(p => p.id === ep.project_id);
   crumbs([
     { label: "仪表盘", href: "#/" },
@@ -522,6 +555,7 @@ async function viewEpic(app, id) {
               <span class="entity-item-title">${esc(s.title)}</span>
             </div>
             ${statusBadge(s.status)}
+            ${progressBar((storyProgress[s.id]||{}).done, (storyProgress[s.id]||{}).total)}
           </a>
         `).join("")}
       </div>

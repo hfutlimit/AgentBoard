@@ -200,10 +200,15 @@ main {
 /* ========== Entity list (Epic/Story/Task items) ========= */
 .entity-list { display: flex; flex-direction: column; gap: 6px; }
 .entity-item {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
   padding: 11px 14px; background: var(--card-bg); border: 1px solid var(--border);
   border-radius: 8px; text-decoration: none; color: inherit; transition: all .12s;
 }
+/* A-09 进度条（Epic/Story 卡片底部）：细条 + 百分比，颜色随完成度变化 */
+.entity-progress { flex: 1 1 100%; display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+.progress-track { flex: 1; height: 6px; background: #eef2f7; border-radius: 999px; overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 999px; transition: width .3s ease; }
+.progress-pct { font-size: 11px; font-weight: 600; color: var(--text-secondary); min-width: 32px; text-align: right; }
 .entity-item:hover { border-color: var(--primary); box-shadow: 0 2px 8px rgba(37,99,235,.08); }
 .entity-item-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .entity-item-title { font-weight: 500; font-size: .92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
