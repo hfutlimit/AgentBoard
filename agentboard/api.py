@@ -4,13 +4,13 @@
 供 Web 前端（fetch）与 MCP（httpx）调用；不含任何 HTML 渲染。
 """
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from .database import get_session, init_db
-from . import service
+from . import service, auth
 from .models import ALL_TYPES, ALL_STATUSES
 
 
@@ -85,16 +85,60 @@ class StatusIn(BaseModel):
     status: str
 
 
+class AuthRegister(BaseModel):
+    username: str
+    password: str
+
+
+class AuthLogin(BaseModel):
+    username: str
+    password: str
+
+
 def _need(obj, what: str):
     if obj is None:
         raise HTTPException(status_code=404, detail=f"{what} not found")
     return obj
 
 
+def _current_user(authorization: str | None, s: Session):
+    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
+    uid = auth.parse_token(token)
+    u = service.get_user(s, uid) if uid else None
+    if u is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    return u
+
+
+
 # ---------- Meta ----------
 @app.get("/api/meta")
 def meta():
     return {"types": ALL_TYPES, "statuses": ALL_STATUSES}
+
+
+# ---------- Auth ----------
+@app.post("/api/auth/register", status_code=201)
+def register(body: AuthRegister, s: Session = Depends(get_session)):
+    try:
+        u = service.register_user(s, username=body.username, password=body.password)
+    except service.Duplicate:
+        raise HTTPException(status_code=409, detail=f"username '{body.username}' already exists")
+    return {"id": u.id, "username": u.username, "token": auth.make_token(u.id)}
+
+
+@app.post("/api/auth/login")
+def login(body: AuthLogin, s: Session = Depends(get_session)):
+    u = service.authenticate_user(s, username=body.username, password=body.password)
+    if u is None:
+        raise HTTPException(status_code=401, detail="invalid username or password")
+    return {"id": u.id, "username": u.username, "token": auth.make_token(u.id)}
+
+
+@app.get("/api/auth/me")
+def me(authorization: str | None = Header(None), s: Session = Depends(get_session)):
+    u = _current_user(authorization, s)
+    return {"id": u.id, "username": u.username}
 
 
 # ---------- Projects ----------

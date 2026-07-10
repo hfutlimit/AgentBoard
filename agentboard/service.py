@@ -1,7 +1,7 @@
 import re
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
-from . import models
+from . import models, auth
 from .models import ItemType, Status, Project, Epic, Story, Task
 
 # 合法状态迁移
@@ -264,3 +264,26 @@ class NotFound(Exception):
 
 class IllegalTransition(Exception):
     pass
+
+
+class Duplicate(Exception):
+    pass
+
+
+# ---------- Auth ----------
+def register_user(s: Session, *, username: str, password: str) -> models.User:
+    if s.query(models.User).filter_by(username=username).first():
+        raise Duplicate(f"username '{username}' already exists")
+    u = models.User(username=username, password_hash=auth.hash_password(password))
+    s.add(u); s.commit(); s.refresh(u); return u
+
+
+def authenticate_user(s: Session, *, username: str, password: str) -> models.User | None:
+    u = s.query(models.User).filter_by(username=username).first()
+    if u and auth.verify_password(password, u.password_hash):
+        return u
+    return None
+
+
+def get_user(s: Session, id: int) -> models.User | None:
+    return s.get(models.User, id)

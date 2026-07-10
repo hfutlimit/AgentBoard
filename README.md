@@ -62,6 +62,26 @@ python -m agentboard.mcp_server
 - `AGENTBOARD_DB_URL`：数据库地址。默认 `sqlite:///./agentboard.db`；生产 `mysql+pymysql://user:pass@host:3306/agentboard`
 - `AGENTBOARD_API_URL`：Web/MCP 调用的 API 地址，默认 `http://127.0.0.1:8000`
 - `AGENTBOARD_MCP_BACKEND`：`api`（默认）或 `db`
+- `AGENTBOARD_SECRET`：登录 Token 签名密钥（HMAC）。默认内置不安全占位值，**生产务必设置**。
+
+## 鉴权（注册 / 登录）
+
+内置轻量鉴权（无额外依赖；密码 pbkdf2 哈希，Token 为 HMAC 签名无状态 Bearer）：
+
+- `POST /api/auth/register`：`{"username","password"}` → `201` 返回 `{id,username,token}`；重复用户名 → `409`
+- `POST /api/auth/login`：`{"username","password"}` → `200` 返回 `{id,username,token}`；凭据错误 → `401`
+- `GET /api/auth/me`：带 `Authorization: Bearer <token>` → `200` 返回当前用户；缺失/伪造 → `401`
+
+> 现有项目树 CRUD 接口保持单用户开放（与 MCP / Web 兼容）；鉴权接口用于身份创建与校验。
+
+## 测试
+
+- `tests/test_smoke.py`：四端冒烟（service / REST / Web / MCP）。
+- `tests/test_backend_flow.py`：**后端自动化测试**，覆盖注册/登录/错误分支，以及全链路 CRUD（project → epic → story → task/bug）与状态机校验。
+
+```bash
+PYTHONPATH=. python -m pytest tests/ -q
+```
 
 ## 数据库迁移（Alembic）
 

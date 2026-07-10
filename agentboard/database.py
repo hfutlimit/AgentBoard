@@ -11,13 +11,14 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, futu
 
 
 def init_db() -> None:
-    # 优先用 Alembic 正式迁移；不可用时降级为 create_all + 在线迁移（开发期兼容）。
+    # 优先用 Alembic 正式迁移；不可用时降级为 create_all（开发期兼容）。
     try:
         _run_alembic()
     except Exception:
         import agentboard.models  # noqa: F401  (确保模型注册)
         agentboard.models.Base.metadata.create_all(engine)
-        _ensure_migrations()
+    # 兜底：确保任何缺失的表/列都被补齐，避免 Alembic 路径下漏建表。
+    _ensure_migrations()
 
 
 def _run_alembic() -> None:
@@ -31,6 +32,13 @@ def _run_alembic() -> None:
 
 def _ensure_migrations() -> None:
     from sqlalchemy import inspect, text
+    import agentboard.models  # noqa: F401  (确保模型注册)
+    # 补齐缺失的表（如新增的 users），兼容 Alembic 路径下未建表的情况。
+    existing = set(inspect(engine).get_table_names())
+    for table in agentboard.models.Base.metadata.tables.values():
+        if table.name not in existing:
+            table.create(bind=engine)
+    # 补齐 tasks.source_spec_id 列（早期 SQLite 库兼容）。
     with engine.connect() as conn:
         cols = {c["name"] for c in inspect(engine).get_columns("tasks")}
         if "source_spec_id" not in cols:
