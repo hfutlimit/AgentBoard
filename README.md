@@ -77,7 +77,8 @@ python -m agentboard.mcp_server
 ## 测试
 
 - `tests/test_smoke.py`：四端冒烟（service / REST / Web / MCP）。
-- `tests/test_backend_flow.py`：**后端自动化测试**，覆盖注册/登录/错误分支，以及全链路 CRUD（project → epic → story → task/bug）与状态机校验。
+- `tests/test_backend_flow.py`：**后端自动化测试**，真实启动 uvicorn 子进程，针对已运行的 API 做 HTTP 端到端验证：注册/登录/错误分支 + 全链路 CRUD（project → epic → story → task/bug）与状态机校验。
+- `tests/test_web_flow.py`：**Web 端到端自动化测试**，同时启动真实 API 与真实 Web 服务，校验 SPA 被正确托管并接到运行中的 API，并覆盖注册/登录、各类 ticket 的创建/修改、以及项目/epic/story/task 列表与搜索读取。
 
 ```bash
 PYTHONPATH=. python -m pytest tests/ -q
