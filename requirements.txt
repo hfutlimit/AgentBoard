@@ -3,6 +3,7 @@ uvicorn[standard]
 python-multipart
 jinja2
 markdown
+httpx            # MCP api 模式调用 REST API
 sqlalchemy>=2.0
 pydantic>=2.0
 fastmcp

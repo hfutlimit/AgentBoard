@@ -10,6 +10,19 @@
 - 简易 Web UI（FastAPI 服务端渲染，markdown 渲染）
 - 双存储：调试用 SQLite，生产用 MariaDB（通过 `AGENTBOARD_DB_URL` 切换，代码不感知具体库）
 
+## 架构（前后端分离）
+
+三端相互独立，共享 `service` + `database` 层：
+
+```
+[Web SPA]  --fetch-->  [REST API]  --->  [service/DB]
+[MCP]      --httpx-->  [REST API]        （或 MCP 直连 DB）
+```
+
+- **API**（`agentboard/api.py`）：纯 JSON REST，带 CORS，不含任何 HTML。
+- **Web**（`agentboard/web_app.py` + `web/static/`）：独立 SPA，浏览器 fetch 调 API。
+- **MCP**（`agentboard/mcp_server.py`）：默认 httpx 调 API，可切换直连 DB。
+
 ## 目录结构
 
 ```
@@ -17,9 +30,10 @@ agentboard/
   models.py       # SQLAlchemy 模型（Project/Epic/Story/Task）
   database.py     # 引擎工厂（SQLite/MariaDB 切换）+ session
   service.py      # 业务服务层（CRUD / spec / 搜索 / 状态机）
-  mcp_server.py   # FastMCP 工具集
-  api.py          # FastAPI Web 页面 + 表单
-  web/templates/  # Jinja2 模板
+  api.py          # REST API（纯 JSON，前后端分离的后端）
+  web_app.py      # Web 前端托管（独立服务）
+  web/static/     # SPA：index.html / app.js / style.css
+  mcp_server.py   # FastMCP 工具集（api / db 双后端）
 tests/test_smoke.py
 docs/requirements.md   # 需求分析
 docs/tasks.md          # 任务列表（Epic/Story/Task）
@@ -30,15 +44,24 @@ docs/tasks.md          # 任务列表（Epic/Story/Task）
 ```bash
 pip install -r requirements.txt
 
-# Web UI（默认 SQLite）
-uvicorn agentboard.api:app --reload
-# 浏览器打开 http://127.0.0.1:8000
+# 1) 启动 REST API（默认 SQLite，端口 8000）
+uvicorn agentboard.api:app --reload --port 8000
 
-# MCP 服务（stdio）
+# 2) 启动 Web 前端（独立服务，端口 8080）
+uvicorn agentboard.web_app:app --reload --port 8080
+# 浏览器打开 http://127.0.0.1:8080
+
+# 3) MCP 服务（stdio）
+#    默认调用 API：需先启动上面的 API
 python -m agentboard.mcp_server
+#    或让 MCP 直连数据库（无需 API）：
+#    $env:AGENTBOARD_MCP_BACKEND="db"; python -m agentboard.mcp_server
 ```
 
-生产切换到 MariaDB：设置环境变量 `AGENTBOARD_DB_URL=mysql+pymysql://user:pass@host:3306/agentboard`
+配置项（环境变量）：
+- `AGENTBOARD_DB_URL`：数据库地址。默认 `sqlite:///./agentboard.db`；生产 `mysql+pymysql://user:pass@host:3306/agentboard`
+- `AGENTBOARD_API_URL`：Web/MCP 调用的 API 地址，默认 `http://127.0.0.1:8000`
+- `AGENTBOARD_MCP_BACKEND`：`api`（默认）或 `db`
 
 ## 测试（smoke test）
 

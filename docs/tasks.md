@@ -122,6 +122,14 @@
 - [x] **Epic 4（基础）** spec 模板：`spec_proposal` 生成 OpenSpec 风格提案；Web UI 可编辑 spec
 - [x] **Epic 5** Web UI：项目树浏览 + 任务详情 + markdown 渲染 + 状态切换（服务端渲染，无独立 SPA）
 
+### 重构（前后端分离 · 2026-07-10）
+- [x] API / Web / MCP 三端拆分为独立服务
+- [x] `api.py` 改为纯 REST/JSON + CORS（不再服务端渲染）
+- [x] `web_app.py` + `web/static/` 独立 SPA，fetch 调 API
+- [x] MCP 支持 `api`（httpx 调 API）/ `db`（直连）双后端
+- [x] Web UI 支持对 project/epic/story/task/bug 全部增删改 + 状态流转 + spec 编辑
+- [x] smoke test 覆盖四端
+
 待办：
 - [ ] Epic 4.2：从 spec 解析子任务 / 双向引用（可选）
 - [ ] Epic 6：以 OpenSpec 目录（`openspec/`）管理本项目自身规格

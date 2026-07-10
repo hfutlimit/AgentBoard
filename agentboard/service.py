@@ -71,8 +71,22 @@ def create_epic(s: Session, *, project_id: int, title: str, description: str = "
     s.add(ep); s.commit(); s.refresh(ep); return ep
 
 
+def get_epic(s: Session, id: int) -> Epic | None:
+    return s.get(Epic, id)
+
+
 def list_epics(s: Session, project_id: int):
     return s.query(Epic).filter(Epic.project_id == project_id).all()
+
+
+def update_epic(s: Session, id: int, **fields) -> Epic | None:
+    ep = s.get(Epic, id)
+    if not ep:
+        return None
+    for k, v in fields.items():
+        if k in ("title", "description", "status") and v is not None:
+            setattr(ep, k, v)
+    s.commit(); s.refresh(ep); return ep
 
 
 def delete_epic(s: Session, id: int) -> bool:
@@ -91,8 +105,22 @@ def create_story(s: Session, *, epic_id: int, title: str, description: str = "")
     s.add(st); s.commit(); s.refresh(st); return st
 
 
+def get_story(s: Session, id: int) -> Story | None:
+    return s.get(Story, id)
+
+
 def list_stories(s: Session, epic_id: int):
     return s.query(Story).filter(Story.epic_id == epic_id).all()
+
+
+def update_story(s: Session, id: int, **fields) -> Story | None:
+    st = s.get(Story, id)
+    if not st:
+        return None
+    for k, v in fields.items():
+        if k in ("title", "description", "status") and v is not None:
+            setattr(st, k, v)
+    s.commit(); s.refresh(st); return st
 
 
 def delete_story(s: Session, id: int) -> bool:

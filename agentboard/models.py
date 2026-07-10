@@ -21,6 +21,11 @@ class Status(str):
     DONE = "done"
 
 
+ALL_TYPES = [ItemType.TASK, ItemType.BUG]
+ALL_STATUSES = [Status.BACKLOG, Status.TODO, Status.IN_PROGRESS,
+                Status.IN_REVIEW, Status.VERIFYING, Status.DONE]
+
+
 def _now() -> datetime:
     return datetime.utcnow()
 
