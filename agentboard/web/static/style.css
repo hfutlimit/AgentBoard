@@ -212,6 +212,23 @@ main {
 .error-state { text-align: center; padding: 40px 20px; }
 .error-state h3 { color: var(--danger); margin: 0 0 8px; }
 
+/* ========== List / Board toggle (segmented) ========= */
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+.seg-btn { background: #fff; border: 0; padding: 5px 13px; cursor: pointer; font: inherit; font-size: .82rem; color: var(--text-secondary); }
+.seg-btn:hover { background: #f8fafc; }
+.seg-btn.active { background: var(--primary); color: #fff; }
+
+/* ========== Kanban board (Story 页只读看板) ========= */
+.kanban { display: grid; grid-template-columns: repeat(6, minmax(150px, 1fr)); gap: 10px; margin-top: 4px; overflow-x: auto; }
+.kanban-col { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; min-height: 90px; }
+.kanban-col-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.kanban-count { font-size: .72rem; color: var(--text-secondary); background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; }
+.kanban-card { display: flex; align-items: center; gap: 6px; background: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; text-decoration: none; color: inherit; transition: all .12s; }
+.kanban-card:hover { border-color: var(--primary); box-shadow: 0 2px 8px rgba(37,99,235,.08); }
+.kanban-card-title { font-size: .85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kanban-empty { text-align: center; color: #cbd5e1; font-size: .8rem; padding: 8px 0; }
+@media (max-width: 768px) { .kanban { grid-template-columns: repeat(3, minmax(140px, 1fr)); } }
+
 /* ========== Data table ========= */
 .table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid var(--border); }
 .data-table { width: 100%; border-collapse: collapse; background: var(--card-bg); }

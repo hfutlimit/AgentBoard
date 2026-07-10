@@ -71,8 +71,27 @@ function statusDot(s) {
   return `<span class="status-dot" style="background:${color}" title="${STATUS_LABEL[s]||s}"></span>`;
 }
 
+// 只读看板：按 status 分列展示 task 卡片（复用已加载的 tasks 与 statusBadge）
+function renderKanban(tasks) {
+  const cols = META.statuses.map(s => {
+    const items = tasks.filter(t => t.status === s);
+    const cards = items.length
+      ? items.map(t => `<a href="#/task/${t.id}" class="kanban-card">
+          <span class="type-icon ${t.type}">${t.type === "bug" ? "🐛" : "✅"}</span>
+          <span class="kanban-card-title">${esc(t.title)}</span>
+        </a>`).join("")
+      : '<div class="kanban-empty">—</div>';
+    return `<div class="kanban-col">
+      <div class="kanban-col-head">${statusBadge(s)}<span class="kanban-count">${items.length}</span></div>
+      ${cards}
+    </div>`;
+  }).join("");
+  return `<div class="kanban">${cols}</div>`;
+}
+
 // ---------- 侧栏 ----------
 let sidebarOpen = true;
+let storyViewMode = "list"; // "list" | "board"（Story 页任务区视图切换）
 
 function toggleSidebar() {
   sidebarOpen = !sidebarOpen;
@@ -479,24 +498,35 @@ async function viewStory(app, id) {
 
     <div class="section-header">
       <h3>🔧 Tasks / Bugs <span class="count">${tasks.length}</span></h3>
-      <button id="s-new-task" class="btn-primary-sm">＋ 新建</button>
-    </div>
-    ${tasks.length ? `
-      <div class="entity-list">
-        ${tasks.map(t => `
-          <a href="#/task/${t.id}" class="entity-item">
-            <div class="entity-item-main">
-              <span class="type-icon ${t.type}">${t.type === "bug" ? "🐛" : "✅"}</span>
-              <span class="entity-item-title">${esc(t.title)}</span>
-            </div>
-            <div class="entity-item-badges">
-              ${t.type === "bug" ? `<span class="badge bug">Bug</span>` : ""}
-              ${statusBadge(t.status)}
-            </div>
-          </a>
-        `).join("")}
+      <div class="page-actions">
+        <div class="seg">
+          <button class="seg-btn${storyViewMode === "list" ? " active" : ""}" data-mode="list">列表</button>
+          <button class="seg-btn${storyViewMode === "board" ? " active" : ""}" data-mode="board">看板</button>
+        </div>
+        <button id="s-new-task" class="btn-primary-sm">＋ 新建</button>
       </div>
-    ` : '<div class="empty-inline">暂无任务</div>'}
+    </div>
+    <div id="story-list-view"${storyViewMode === "board" ? ' style="display:none"' : ""}>
+      ${tasks.length ? `
+        <div class="entity-list">
+          ${tasks.map(t => `
+            <a href="#/task/${t.id}" class="entity-item">
+              <div class="entity-item-main">
+                <span class="type-icon ${t.type}">${t.type === "bug" ? "🐛" : "✅"}</span>
+                <span class="entity-item-title">${esc(t.title)}</span>
+              </div>
+              <div class="entity-item-badges">
+                ${t.type === "bug" ? `<span class="badge bug">Bug</span>` : ""}
+                ${statusBadge(t.status)}
+              </div>
+            </a>
+          `).join("")}
+        </div>
+      ` : '<div class="empty-inline">暂无任务</div>'}
+    </div>
+    <div id="story-board-view"${storyViewMode === "list" ? ' style="display:none"' : ""}>
+      ${renderKanban(tasks)}
+    </div>
 
     <div class="card form-section" id="s-task-form" style="display:none">
       <h4>新建 Task / Bug</h4>
@@ -526,6 +556,12 @@ async function viewStory(app, id) {
   if (newBtn) newBtn.onclick = () => {
     const f = $("s-task-form"); f.style.display = f.style.display === "none" ? "" : "none";
   };
+  document.querySelectorAll(".seg-btn").forEach(b => b.onclick = () => {
+    storyViewMode = b.dataset.mode;
+    $("story-list-view").style.display = storyViewMode === "board" ? "none" : "";
+    $("story-board-view").style.display = storyViewMode === "list" ? "none" : "";
+    document.querySelectorAll(".seg-btn").forEach(x => x.classList.toggle("active", x.dataset.mode === storyViewMode));
+  });
   bindForm("s-tf", async (d) => {
     await api(`/api/stories/${id}/tasks`, "POST",
       { project_id: ep.project_id, title: d.title, type: d.type, description: d.description });
