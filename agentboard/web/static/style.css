@@ -305,6 +305,25 @@ option.status--in_review  { color:#6d28d9; }
 option.status--verifying  { color:#0e7490; }
 option.status--done       { color:#047857; }
 
+/* ========== A-06 状态流转按钮组（Jira 式工作流）：当前状态药丸 + 合法迁移按钮 ========= */
+.status-flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sf-current, .sf-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 12px; border-radius: 999px; font-size: .8rem; font-weight: 600;
+  border: 1px solid transparent; white-space: nowrap;
+}
+.sf-btn { cursor: pointer; background: #fff; transition: all .12s; }
+.sf-btn:hover { filter: brightness(.96); box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+.sf-btn:active { transform: translateY(1px); }
+.sf-arrow { color: var(--text-secondary); font-size: .85rem; }
+.sf-done-hint { font-size: .78rem; color: var(--success); font-weight: 600; }
+.sf-current.status--backlog, .sf-btn.status--backlog { background:#f3f4f6; color:#4b5563; border-color:#e5e7eb; }
+.sf-current.status--todo,    .sf-btn.status--todo    { background:#eff6ff; color:#1d4ed8; border-color:#bfdbfe; }
+.sf-current.status--in_progress, .sf-btn.status--in_progress { background:#fffbeb; color:#b45309; border-color:#fde68a; }
+.sf-current.status--in_review, .sf-btn.status--in_review { background:#f5f3ff; color:#6d28d9; border-color:#ddd6fe; }
+.sf-current.status--verifying, .sf-btn.status--verifying { background:#ecfeff; color:#0e7490; border-color:#a5f3fc; }
+.sf-current.status--done, .sf-btn.status--done { background:#ecfdf5; color:#047857; border-color:#a7f3d0; }
+
 /* Status dot */
 .status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
 

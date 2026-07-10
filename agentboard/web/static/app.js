@@ -70,6 +70,26 @@ function statusDot(s) {
   const color = STATUS_COLOR[s] || "#6b7280";
   return `<span class="status-dot" style="background:${color}" title="${STATUS_LABEL[s]||s}"></span>`;
 }
+// A-06 状态流转按钮组：Jira 式工作流按钮（仅展示合法迁移），点击即 PUT /api/tasks/{id}/status。
+// 与后端 service.TRANSITIONS 保持一致；后端仍为权威校验，非法迁移会被 400 拒绝（防御性）。
+const STATUS_TRANSITIONS = {
+  backlog: ["todo"],
+  todo: ["in_progress", "backlog"],
+  in_progress: ["in_review", "verifying", "todo"],
+  in_review: ["done", "in_progress"],
+  verifying: ["done", "in_progress"],
+  done: ["in_progress"],
+};
+function statusFlow(t) {
+  const cur = t.status;
+  const nexts = STATUS_TRANSITIONS[cur] || [];
+  const curPill = `<span class="sf-current status--${cur}">${STATUS_LABEL[cur] || cur}</span>`;
+  if (!nexts.length) return `<div class="status-flow">${curPill}<span class="sf-done-hint">✔ 终态</span></div>`;
+  const btns = nexts.map(n =>
+    `<button class="sf-btn status--${n}" data-next="${n}">${STATUS_LABEL[n] || n}</button>`
+  ).join('<span class="sf-arrow">→</span>');
+  return `<div class="status-flow">${curPill}<span class="sf-arrow">→</span>${btns}</div>`;
+}
 // 任务类型图标（内联 SVG，不引入图标库）：task=勾选圆环，bug=瓢虫
 function typeIcon(type) {
   if (type === "bug") {
@@ -647,8 +667,7 @@ async function viewTask(app, id) {
         </div>
       </div>
       <div class="page-actions">
-        <select id="stsel">${META.statuses.map(s => `<option value="${s}"${s===t.status?" selected":""}>${STATUS_LABEL[s]||s}</option>`).join("")}</select>
-        <button id="stbtn" class="btn-primary-sm">更新状态</button>
+        ${statusFlow(t)}
       </div>
     </div>
 
@@ -673,12 +692,16 @@ async function viewTask(app, id) {
       </form>
     </div>`;
 
-  $("stbtn").onclick = async () => {
-    try {
-      await api(`/api/tasks/${id}/status`, "PUT", { status: $("stsel").value });
-      toast("状态已更新"); render();
-    } catch (e) { toast("更新失败：" + e.message); }
-  };
+  document.querySelectorAll("#status-flow [data-next]").forEach(b => {
+    b.onclick = async () => {
+      const next = b.dataset.next;
+      b.disabled = true;
+      try {
+        await api(`/api/tasks/${id}/status`, "PUT", { status: next });
+        toast("状态已更新"); render();
+      } catch (e) { toast("更新失败：" + e.message); b.disabled = false; }
+    };
+  });
   bindForm("t-edit", async (d) => {
     await api(`/api/tasks/${id}`, "PATCH", { title: d.title, type: d.type, description: d.description, spec: d.spec });
     toast("已保存"); render();
