@@ -200,6 +200,16 @@ main {
 .type-icon { display: inline-flex; align-items: center; flex-shrink: 0; font-size: 1rem; }
 .type-icon.bug { color: var(--danger); }
 .type-icon .ti-svg { display: block; }
+
+/* A-04 行内快速编辑标题 */
+.inline-editable { cursor: text; border-radius: 4px; overflow: visible; }
+.inline-editable:hover { background: rgba(37,99,235,.08); }
+.inline-edit-input {
+  font: inherit; width: 100%; padding: 2px 6px; margin: 0;
+  border: 1px solid var(--primary); border-radius: 4px; outline: none;
+  background: #fff; color: inherit;
+}
+.inline-edit-input:focus { box-shadow: 0 0 0 3px rgba(37,99,235,.12); }
 /* 类型徽章内的图标与文字对齐 */
 .badge.bug svg, .badge.task-badge svg { vertical-align: middle; margin-right: 4px; }
 

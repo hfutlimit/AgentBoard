@@ -405,6 +405,8 @@ async function viewProject(app, id) {
     if (!confirm("删除项目及其所有子项？此操作不可撤销！")) return;
     await api(`/api/projects/${id}`, "DELETE"); toast("已删除"); route("#/");
   };
+
+  attachInlineEditList(app);
 }
 
 // ----- Epic 详情 -----
@@ -485,6 +487,8 @@ async function viewEpic(app, id) {
     if (!confirm("删除 Epic 及其子项？")) return;
     await api(`/api/epics/${id}`, "DELETE"); toast("已删除"); route(`#/project/${ep.project_id}`);
   };
+
+  attachInlineEditList(app);
 }
 
 // ----- Story 详情 -----
@@ -589,6 +593,8 @@ async function viewStory(app, id) {
     if (!confirm("删除 Story 及其任务？")) return;
     await api(`/api/stories/${id}`, "DELETE"); toast("已删除"); route(`#/epic/${st.epic_id}`);
   };
+
+  attachInlineEditList(app);
 }
 
 // ----- Task 详情 -----
@@ -603,7 +609,7 @@ async function viewTask(app, id) {
   app.innerHTML = `
     <div class="page-header">
       <div class="page-title-row">
-        <h2>${esc(t.title)}</h2>
+        <h2 id="task-title">${esc(t.title)}</h2>
         <div class="header-badges">
           ${t.type === "bug" ? `<span class="badge bug">${typeIcon("bug")} Bug</span>` : `<span class="badge task-badge">${typeIcon("task")} Task</span>`}
           ${statusBadge(t.status, ' id="stbadge"')}
@@ -661,6 +667,11 @@ async function viewTask(app, id) {
       toast(`已生成 ${created.length} 个子任务`); render();
     } catch (e) { toast("生成失败：" + e.message); }
   };
+
+  const th = $("task-title");
+  if (th) makeInlineEditableDetail(th, { type: "task", id: id, onSaved: (v) => {
+    const cur = document.querySelector(".crumb-current"); if (cur) cur.textContent = v;
+  } });
 }
 
 // ========== 公共组件 ==========
@@ -733,6 +744,63 @@ function typeSelect(cur) {
   return `<select name="type">` +
     META.types.map(t => `<option value="${t}"${t === cur ? " selected" : ""}>${t === "task" ? "Task" : "Bug"}</option>`).join("") +
     "</select>";
+}
+
+// A-04 行内快速编辑标题：双击进入编辑态，回车/失焦 PATCH 保存，Esc 取消
+function inlineEditEnter(elm, opts) {
+  if (elm.querySelector("input")) return;
+  const original = (elm.dataset.title || elm.textContent).trim();
+  elm.dataset.title = original;
+  elm.innerHTML = `<input class="inline-edit-input" value="${esc(original)}">`;
+  const inp = elm.querySelector("input");
+  inp.focus(); inp.select();
+  const revert = () => { elm.textContent = elm.dataset.title; };
+  const commit = async () => {
+    if (!elm.querySelector("input")) return;
+    const v = inp.value.trim();
+    if (!v || v === original) { revert(); return; }
+    try {
+      await api(`/api/${opts.type}s/${opts.id}`, "PATCH", { title: v });
+      elm.dataset.title = v; elm.textContent = v;
+      toast("标题已更新");
+      if (opts.onSaved) opts.onSaved(v);
+    } catch (e) { toast("保存失败：" + e.message); revert(); }
+  };
+  inp.addEventListener("keydown", (ev) => {
+    if (ev.key === "Enter") { ev.preventDefault(); commit(); }
+    else if (ev.key === "Escape") { ev.preventDefault(); revert(); }
+  });
+  inp.addEventListener("blur", commit);
+}
+
+// 列表项标题位于 <a> 内：单击应导航，双击编辑 → 用计时区分（避免双击先触发跳转销毁元素）
+function makeInlineEditable(elm, opts) {
+  elm.classList.add("inline-editable");
+  elm.title = "双击编辑标题";
+  let t = null;
+  elm.addEventListener("click", (ev) => {
+    if (elm.querySelector("input")) { ev.preventDefault(); return; }
+    ev.preventDefault(); ev.stopPropagation();
+    if (t) { clearTimeout(t); t = null; inlineEditEnter(elm, opts); }
+    else { t = setTimeout(() => { t = null; route(`#/${opts.type}/${opts.id}`); }, 200); }
+  });
+}
+
+// 详情标题（非链接）：直接双击编辑
+function makeInlineEditableDetail(elm, opts) {
+  elm.classList.add("inline-editable");
+  elm.title = "双击编辑标题";
+  elm.addEventListener("dblclick", () => inlineEditEnter(elm, opts));
+}
+
+// 为列表视图内所有 entity-item 标题挂载行内编辑（按锚点 href 推断 type/id）
+function attachInlineEditList(app) {
+  app.querySelectorAll("a.entity-item").forEach(a => {
+    const m = (a.getAttribute("href") || "").match(/#\/(epic|story|task)\/(\d+)/);
+    if (!m) return;
+    const span = a.querySelector(".entity-item-title");
+    if (span) makeInlineEditable(span, { type: m[1], id: +m[2] });
+  });
 }
 
 // ---------- boot ----------
