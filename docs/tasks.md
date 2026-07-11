@@ -135,7 +135,7 @@
 - [ ] Epic 6：以 OpenSpec 目录（`openspec/`）管理本项目自身规格
 - [x] Epic 7：前端注册 / 登录 UI（后端鉴权已就绪，仅前端集成）
 - [x] Epic 8：MariaDB 独立 `.sql` 脚本 + 真实集成验证（Alembic 迁移已完成，schema.sql 已对齐 models.py 并经 MariaDB 11 实测）
-- [ ] Epic 9：前端 Web 自动化测试（Playwright 真实浏览器 E2E，Story 9.1 骨架 + 注册/登录流已落地；Story 9.2 错误分支/CRUD/状态/spec 待补）
+- [ ] Epic 9：前端 Web 自动化测试（Playwright 真实浏览器 E2E，Story 9.1 骨架 + 注册/登录流已落地；Story 9.2 错误分支已覆盖、CRUD/状态/spec 待补）
 - [x] Epic 10：MCP 鉴权集成 + 远程运维化（完整项目树 + Streamable HTTP + Bearer）
 - [ ] Epic 11：持续前端优化（模仿 Jira，小步迭代，长期轨道）
 
@@ -190,7 +190,7 @@
 ### Story 9.2 真实交互用例
 - [x] Task：注册 UI 流（进入应用 + localStorage 含 token）
 - [x] Task：登录 UI 流（注册后登出再登录重新进入应用）
-- [ ] Task：错误密码 / 重复注册报错（UI 错误分支）
+- [x] Task：错误密码 / 重复注册报错（UI 错误分支）
 - [ ] Task：项目树 CRUD UI（Project→Epic→Story→Task/Bug）
 - [ ] Task：状态流转 UI（徽标更新）
 - [ ] Task：spec 编辑与 markdown 渲染
@@ -342,3 +342,4 @@
 | 2026-07-12 | Epic 7 | 前端注册/登录 UI（鉴权最后一公里）：`app.js` 新增 `getToken/setToken/clearToken` + `CURRENT_USER`/`_AUTH_VISIBLE`/`_AUTH_MODE` 状态；`api()` 自动注入 `Authorization` 并在 401 跳登录（auth 端点自身不触发，避免递归）；`showAuthScreen()/authScreenHTML()/bindAuthScreen()` 渲染登录/注册卡片（tab 切换、调用 `/api/auth/register|login`、成功存 token、失败 toast 报错）；启动用 `/api/auth/me` 校验登录态；`updateUserInfo()` 顶栏显示用户名+登出、`logout()` 清 token 回登录；`render()` 加 `_AUTH_VISIBLE` 守卫。`style.css`(+~21) 补充 `.auth-wrap/.auth-card/.auth-tabs/.auth-form/.user-chip` 等；`test_web_flow.py` 增 Epic 7 静态断言并修正 `css` 获取顺序。设计要点：启动守卫为**动态**——后端开放时免登可用、要求鉴权时自动跳登录，避免破坏现有开放部署。净增约 110 行（属独立功能 Epic，非 Epic 11 微优化 R2 范畴），未改 `models.py`/`api.py` 契约 |
 | 2026-07-12 | Epic 8 | MariaDB 独立脚本 + 真实集成验证（完成）：新增 `scripts/mariadb/schema.sql`（与 `models.py` + Alembic 迁移完全对齐的建库/建用户授权/六表 DDL，utf8mb4，含 `source_spec_id`、唯一约束、外键、`ix_comments_task_id`），`scripts/mariadb/README.md` 说明离线评审与 docker 对接用法；验证 `schema.sql` 在真实 MariaDB 11 上执行成功、6 表结构正确；新增 `tests/test_mariadb_integration.py`（`skipif` 无 `AGENTBOARD_TEST_MARIAODB`），在真实 MariaDB 上跑通 `init_db` + service 冒烟（CRUD + 状态机 + 搜索 + 评论 + spec 生成子任务 + 级联删除）全绿。未改 `models.py`/`api.py` 契约 |
 | 2026-07-12 | Epic 9 (Story 9.1) | Playwright 真实浏览器 E2E 测试骨架：新增 `tests/test_playwright_e2e.py`，含启动真实 API + Web（临时 SQLite）的 `servers` fixture、`browser`/`page` fixture（playwright 未装/Chromium 缺失时优雅 skip）、`ui_register`/`ui_login` UI 辅助；落地注册流（进入应用 + `agentboard_token` 写入 localStorage）与登录流（登出后同账号重登）两个真实浏览器冒烟用例；`requirements.txt` 增 `playwright`/`pytest-playwright`、README 补 `playwright install chromium` 与运行命令。沙箱实测 **2 passed**（真实 Chromium 驱动 SPA 注册/登录成功）；未改 `models.py`/`api.py` 契约 |
+| 2026-07-12 | Epic 9 (Story 9.2) | Playwright 错误分支 E2E：在 `tests/test_playwright_e2e.py` 新增 `test_e2e_auth_error_branch`（复用 `ui_register` 与新增 `_wait_toast` 辅助），真实 Chromium 驱动 SPA 验证「错误密码登录」触发「登录失败」error toast 且停留在登录界面（`#logout-btn` 不出现、`#auth-form` 仍可见）、「重复注册」触发「注册失败」error toast 且不进入应用（后端 409）。沙箱实测 **1 passed**（与既有 2 例合计 3 passed）；未改 `models.py`/`api.py` 契约 |

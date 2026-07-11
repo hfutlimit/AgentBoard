@@ -1,5 +1,24 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-12（周期执行 · Epic 9 Story 9.2 错误分支 E2E）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=8a5ce71，Story 9.1）；工作树仅含自动化/项目记忆文件改动。
+- **需求/任务分析**：Epic 11 Backlog A/C 全完成；Story 9.1 骨架+注册/登录流已交付（commit 8a5ce71）。下一个高价值 pending = Story 9.2 首项「错误密码/重复注册报错（UI 错误分支）」。
+- **开发任务**：`tests/test_playwright_e2e.py` 新增 `test_e2e_auth_error_branch`（复用 `ui_register` + 新增 `_wait_toast` 辅助）：真实 Chromium 驱动 SPA 验证 ① 错误密码登录→「登录失败」error toast 且停留登录界面（`#logout-btn` 不出现、`#auth-form` 仍可见）；② 重复注册（后端 409）→「注册失败」error toast 且不进入应用。断言基于 `#toast` 文本 + 元素挂载态，比 HTTP 等价校验更贴近真实 UI。仅改测试文件（+58 行），未改 `models.py`/`api.py` 契约。
+- **验证**：`tests/test_playwright_e2e.py` → **3 passed**（新增 1 + 既有 2）；回归 `test_web_flow + test_backend_flow` = **6 passed**，无回归。
+- **部署**：纯测试文件改动，无 app 代码改动 → 未重建镜像；校验运行容器健康（api/web/db 均 healthy，`/api/meta`=200、`web /`=200；MCP `/mcp` 403 为鉴权强制预期）。
+- **踩坑**：Playwright `wait_for_function` 该版本不接受第二位置参数 / `arg=`（`arguments` 上下文未定义）→ 改用 `json.dumps(text)` 内联子串进 JS 字符串。
+- **推送**：commit 待执行（`feat(test): Epic 9 错误分支 E2E - 错误密码/重复注册 UI 报错`）。
+- **下一个 pending 项**：Epic 9 Story 9.2 项目树 CRUD UI / 状态流转 UI / spec 编辑；或 Epic 12.2 Sprint 规划。
+
+## 2026-07-12（周期执行 · Epic 9 Playwright E2E 测试骨架）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=6c263a5，Epic 8）；工作树 clean。
+- **需求/任务分析**：Epic 11 Backlog A/C 全完成；下一个高价值 pending = FR-10 / Epic 9 Playwright 真实浏览器 E2E。本周期交付 **Story 9.1 测试骨架**（含注册/登录流），直接满足 Epic 11 R3 对 DOM 交互的浏览器回归要求。
+- **开发任务**：`tests/test_playwright_e2e.py`（新增，自包含）——`servers` fixture 启动真实 API+Web（临时 SQLite，复用 test_web_flow 模式）；`browser`/`page` fixture（playwright 未装/Chromium 缺失时优雅 skip）；`ui_register`/`ui_login` UI 辅助；`test_e2e_register_flow`（注册→进入应用+`agentboard_token` 写入 localStorage）、`test_e2e_login_flow`（登出后同账号重登）。后端默认开放，故经顶栏 `#login-btn` 打开鉴权界面。`requirements.txt` 增 `playwright`/`pytest-playwright`；README 补 `playwright install chromium` 与运行命令；`docs/tasks.md` 勾选 Story 9.1 三项 + 注册/登录流两项 + README 项，补完成记录。未改 `models.py`/`api.py` 契约。
+- **验证**：沙箱 Chromium 已就绪（chromium-1228）→ 真实浏览器驱动 SPA **2 passed**（注册/登录成功、token 持久化）；回归 `test_web_flow + test_backend_flow` **6 passed**，无回归。
+- **部署**：纯测试基础设施，无 app 代码改动 → 未重建镜像；校验运行容器健康（api/web/db 均 healthy，`/api/meta`=200、`web /`=200）。
+- **推送**：commit `8a5ce71`，`git push origin main` 成功（`6c263a5..8a5ce71`）。
+- **下一个 pending 项**：Epic 9 Story 9.2 错误分支（错误密码/重复注册）/ 项目树 CRUD UI / 状态流转 UI / spec 编辑；或 Epic 12.2 Sprint。
+
 ## 2026-07-12（周期执行 · Epic 8 MariaDB 脚本 + 集成验证）
 - **拉取最新代码**：`git pull origin main` 已是最新（HEAD=df20152，Epic 7）；工作树仅含自动化/项目记忆文件改动。
 - **需求/任务分析**：下一个 pending = Epic 8（MariaDB 独立 .sql 脚本 + 真实验证 + 集成测试）。关键发现：沙箱内 `agentboard-db-1`（MariaDB 11）实际在运行（宿主 `localhost:13306`，库 `agentboard`，账号 `agentboard`/`agentboard`），真实验证条件具备。

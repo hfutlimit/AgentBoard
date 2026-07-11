@@ -17,6 +17,7 @@
 说明：浏览器二进制 / playwright 未安装时，用例自动 skip（不报错），便于无浏览器环境跑 CI。
 """
 import importlib.util
+import json
 import os
 import socket
 import subprocess
@@ -164,6 +165,16 @@ def ui_login(page, base: str, username: str, password: str):
     page.wait_for_selector("#logout-btn", state="visible", timeout=10000)
 
 
+# ---------------- 错误分支辅助 ----------------
+def _wait_toast(page, text: str, timeout: float = 8000.0):
+    """等待 #toast 容器文本出现期望子串（证明走了对应 UI 分支）。"""
+    page.wait_for_function(
+        "document.querySelector('#toast') && "
+        "document.querySelector('#toast').textContent.includes(" + json.dumps(text) + ")",
+        timeout=timeout,
+    )
+
+
 # ---------------- 用例 ----------------
 def test_e2e_register_flow(page, servers):
     """真实浏览器：注册 UI 流 -> 进入应用 + localStorage 写入 token。"""
@@ -188,3 +199,36 @@ def test_e2e_login_flow(page, servers):
     page.wait_for_selector(".hero", state="visible", timeout=10000)
     token = page.evaluate("localStorage.getItem('agentboard_token')")
     assert token, "登录成功后未写入 agentboard_token"
+
+
+def test_e2e_auth_error_branch(page, servers):
+    """真实浏览器：错误密码登录 + 重复注册 -> UI 报错且停留在鉴权界面（不进入应用）。
+
+    对应 Story 9.2「错误密码/重复注册报错（UI 错误分支）」。后端开放，故需手动点开
+    鉴权界面；错误凭证应触发 error toast 且 #logout-btn 不出现、#auth-form 仍可见。
+    """
+    api_base, web_base = servers
+    # 先成功注册一个账号（用于后续错误密码/重复注册场景）
+    ui_register(page, web_base, "e2eerr", "secret123")
+    page.wait_for_selector("#logout-btn", state="visible", timeout=10000)
+
+    # ---- 1) 错误密码登录 ----
+    page.click("#logout-btn")
+    page.wait_for_selector("#auth-form", state="visible", timeout=10000)
+    page.click('.auth-tab[data-mode="login"]')
+    page.fill('input[name="username"]', "e2eerr")
+    page.fill('input[name="password"]', "wrongpass")
+    page.click("#auth-submit")
+    # 错误凭证：出现「登录失败」toast，且停留在鉴权界面
+    _wait_toast(page, "登录失败")
+    assert page.query_selector("#logout-btn") is None, "错误密码不应进入应用"
+    assert page.query_selector("#auth-form") is not None, "错误密码应停留在登录界面"
+
+    # ---- 2) 重复注册（同一用户名）----
+    page.click('.auth-tab[data-mode="register"]')
+    page.fill('input[name="username"]', "e2eerr")
+    page.fill('input[name="password"]', "secret123")
+    page.click("#auth-submit")
+    _wait_toast(page, "注册失败")
+    assert page.query_selector("#logout-btn") is None, "重复注册不应进入应用"
+    assert page.query_selector("#auth-form") is not None, "重复注册应停留在注册界面"
