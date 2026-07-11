@@ -6,7 +6,7 @@
 - **开发任务**：`index.html` 加 Inter + JetBrains Mono Google Fonts `<link>`（系统栈兜底、离线降级）；`style.css` `:root` 新增 `--font-sans`/`--font-mono`，`body` 用 `var(--font-sans)`，标题 `h2/h3/h4` `letter-spacing:-.02em`，`.stat-number`/`.sidebar-key`/`.progress-pct`/`.kanban-count` 加 `tabular-nums`，`textarea`/`.md pre`/`.md code` 用 `var(--font-mono)`。`index.html`+3/`style.css`+3（净增 ~6 行，符合 R2），未改 `models.py`/`api.py` 契约。
 - **部署 Docker**：基础镜像 `python:3.13-slim` 仍不在本地缓存、Docker Hub 不可达 → `docker compose up -d --build web` 会失败；退化 `docker cp` 注入新 `index.html`/`style.css` 到 `agentboard-web-1`（/app/agentboard/web/static/）。HTTP 校验 page 200、style.css 含 `--font-sans`(2)/`tabular-nums`(4)/`letter-spacing: -.02em`(3)/`var(--font-mono)`(3)、index.html 含 `fonts.googleapis.com`(2)/`JetBrains+Mono`(1)。
 - **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
-- **推送**：`git push origin main`（commit 见下）。
+- **推送**：`git push origin main` 成功（`1146d1a..8e07f64`，commit `8e07f64`）。
 - **下一个 pending 项**：P-03 Logo Mark 与品牌字（内联 SVG 看板图标 + 渐变描边文字，加 favicon；依赖 P-01）。
 
 ## 2026-07-11（周期执行 · P-01 设计 Token 体系）
