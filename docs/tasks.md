@@ -238,7 +238,7 @@
 - [x] **A-08 空状态优化**：列表为空时显示引导文案/插画（如「暂无 Epic，点击新建」）替代灰色「暂无」。
 - [x] **A-09 进度条（Epic/Story）**：按子项 `status` 计算完成度（done 占比），在卡片显示进度条。
 - [x] **A-10 深色模式开关**：基于 CSS 变量切换明/暗主题，偏好存 `localStorage`。
-- [ ] **A-11 响应式布局**：窄屏下树列表 / 两栏布局自动堆叠，按钮可点。
+- [x] **A-11 响应式布局**：窄屏下树列表 / 两栏布局自动堆叠，按钮可点。
 - [ ] **A-12 Toast 堆叠与动画**：多条 toast 不互相覆盖，进出场有过渡。
 - [ ] **A-13 任务详情抽屉**：点击列表项从右侧滑出详情抽屉（含 description/spec/状态），不跳路由；关闭回列表。
 - [ ] **A-14 Markdown 编辑工具栏**：description/spec 文本框上方加「加粗/列表/标题」快捷按钮，插入 markdown 语法。
@@ -270,3 +270,4 @@
 | 2026-07-11 | A-08 | 空状态优化：新增统一 `emptyState(icon,title,desc,cta)` 辅助，Epic/Story/Task 列表空态由灰色「暂无」升级为「图标 + 引导文案 + 新建按钮」；CTA 触发同页已有「＋ 新建」按钮。`app.js`+19/−3、`style.css`+4（净增 ~23 行），不改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | A-09 | 进度条（Epic/Story）：新增 `progressBar(done,total)` 辅助（细条+百分比，颜色随完成度变化，total=0 不显示）；`viewProject` 聚合每个 Epic 下所有 Story 的任务完成度、`viewEpic` 计算每个 Story 的任务完成度，卡片底部渲染进度条。`app.js`+30/−2、`style.css`+8（净增 ~38 行），不改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | A-10 | 深色模式开关：基于 CSS 变量切换明/暗主题（`[data-theme="dark"]` 覆盖 `--text/--bg/--card-bg` 等变量 + 硬编码浅色表面/hover 态兜底），顶栏 🌙/☀ 按钮点击切换，偏好存 `localStorage`（键 `agentboard_theme`）启动即应用。`app.js`+20、`style.css`+33、index.html+1（净增 ~54 行），不改 `models.py`/`api.py` 契约 |
+| 2026-07-11 | A-11 | 响应式布局：`≤768px` 时 `.layout` 转纵向、侧栏（树列表）堆叠为内容上方带 `max-height:42vh` 的可滚动面板（保留 ☰ 折叠）；按钮加 `min-height:36px` 触摸目标、`.page-actions` 换行防溢出；`≤480px` 看板转 2 列、搜索框收窄。纯 `style.css` 改动（净增 ~29 行），未改 `models.py`/`api.py` 契约 |
