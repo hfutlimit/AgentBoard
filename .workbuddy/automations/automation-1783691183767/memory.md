@@ -1,5 +1,15 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-12（周期执行 · Epic 8 MariaDB 脚本 + 集成验证）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=df20152，Epic 7）；工作树仅含自动化/项目记忆文件改动。
+- **需求/任务分析**：下一个 pending = Epic 8（MariaDB 独立 .sql 脚本 + 真实验证 + 集成测试）。关键发现：沙箱内 `agentboard-db-1`（MariaDB 11）实际在运行（宿主 `localhost:13306`，库 `agentboard`，账号 `agentboard`/`agentboard`），真实验证条件具备。
+- **开发任务**：`scripts/mariadb/schema.sql`（建库 utf8mb4 + 建用户授权 + 6 表 DDL，与 `models.py`+Alembic 迁移对齐，含 `source_spec_id`/`priority DEFAULT 'medium'`/`ix_comments_task_id`）+ `scripts/mariadb/README.md`（双路径用法）+ `tests/test_mariadb_integration.py`（`skipif` 无 `AGENTBOARD_TEST_MARIAODB`，service 冒烟）。未改 `models.py`/`api.py` 契约。
+- **验证**：`schema.sql` 隔离库实测建表成功（6 表+外键，验证库清理）；集成测试指向专用 `agentboard_ci`（root 授权后）**2 passed**；回归 `test_web_flow+test_backend_flow` **6 passed**；Docker 三容器 healthy（api `/api/meta`=200、web `/`=200）。
+- **踩坑**：删除后访问过期实例属性触发 `ObjectDeletedError` → 先捕获整型主键 + 新 session 断言；`agentboard` 用户仅拥有本库权限，CI 库需单独 GRANT。
+- **部署**：无 app 代码改动，未重建镜像；仅校验运行容器健康。
+- **推送**：commit `d3ea862`，`git push origin main` 成功（`df20152..d3ea862`）。
+- **下一个 pending 项**：Epic 9 Playwright E2E / Epic 12.2~12.4（Sprint/附件/定时 Agent）。
+
 ## 2026-07-12（周期执行 · Epic 7 前端登录/注册 UI）
 - **拉取最新代码**：`git pull origin main` 已是最新（HEAD=181fa99，B-06）；工作树 clean。
 - **需求/任务分析**：Epic 11 纯前端 backlog 全完成；下一个高价值 pending = Epic 7 前端登录/注册（后端鉴权已就绪）。实测线上 API 当前**开放**（/api/projects=200），故采用"动态守卫"而非硬 gate，避免破坏开放部署。
