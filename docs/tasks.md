@@ -266,7 +266,7 @@
 - [x] **A-15 键盘快捷键**：`j/k` 上下移动选中项、`e` 编辑、`Esc` 关闭弹层。
 - [x] **A-16 复制链接**：任务/Story 提供「复制深链」（如 `#/task/123`）按钮。
 - [x] **A-17 路由过渡动画**：视图切换加淡入/滑入过渡。
-- [ ] **A-18 面包屑高亮当前级**：确保各级面包屑链接正确且高亮当前级（补样式）。
+- [x] **A-18 面包屑高亮当前级**：确保各级面包屑链接正确且高亮当前级（补样式）。
 - [ ] **A-19 列表项 hover 操作**：hover 显示「编辑/删除」快捷图标，减少误触确认。
 - [ ] **A-20 前端偏好本地存储**：记住上次视图（列表/看板）等前端偏好。
 
@@ -331,3 +331,5 @@
 | 2026-07-11 | P-01 | 设计 Token 体系：在 `style.css` 的 `:root` 与 `[data-theme="dark"]` 落地 `--brand-500/600/700`、`--brand-soft/ring`、`--grad`、`--success/--warning/--danger/--info/--violet`、`--text-2/3`、`--border-2`、`--surface-2/3`、`--sh-sm/md/lg/brand`、`--r-sm/md/lg`；`--primary` 保留为 `--brand-500` 别名，`--text-secondary`/`--card-bg` 续用旧名以兼容旧类。净增 ~64 行（74/10），未改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | P-02 | 字体与排版升级：在 `index.html` 加 Inter + JetBrains Mono 的 Google Fonts `<link>`（系统栈兜底，离线降级）；`style.css` 的 `:root` 新增 `--font-sans`/`--font-mono` 令牌，`body` 改用 `var(--font-sans)`，标题 `letter-spacing:-.02em`，`.stat-number`/`.sidebar-key`/`.progress-pct`/`.kanban-count` 加 `tabular-nums`，`textarea`/`.md pre`/`.md code` 统一 `var(--font-mono)`。净增 ~6 行（符合 R2），未改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | P-15 | Agent 活动面板：仪表盘右侧 sticky「近期动态 / Agent 活动」面板，复用 `avatar()` 呈现评论作者（Agent 自动带标记）；`.dashboard` 转 `1fr 330px` 双栏、面板 `grid-row:1/-1` 跨列、`≤1000px` 转单列堆叠。数据沿用现有 `/api/tasks/{id}/comments`，在 `viewHome` 统计循环内收集 task 后 `Promise.all` 并行拉取评论、按 `created_at` 取近 12 条聚合为时间线，任一请求失败降级空面板。`app.js`+~52、`style.css`+~23（净增 ~75 行，符合 R2 红线），未改 `models.py`/`api.py` 契约；`test_web_flow.py` 增 `activity-panel`/`timeAgo` 静态断言 |
+| 2026-07-11 | 创建弹窗重构 | 收尾前次会话遗留改动：新增统一 `showCreateModal(kind,parentId,context)`（项目/Epic/Story/Task 共用），替换散布的「内联新增表单」，含遮罩点击关闭、Esc 关闭、焦点归还、必填校验、Ctrl/⌘+Enter 提交、统一错误/成功 toast；`showNewProjectModal` 复用之。移除 `bindNewProjectForm` 与各处 `bindForm` 创建分支；`style.css` 重写 `.modal*` 为 Jira 风格（圆角/阴影/动画/移动端底部 sheet/可见关闭按钮/表单字段栅格）；`test_web_flow.py` 增 `showCreateModal`/`data-modal-close` 断言并断言旧内联表单已移除。未改 `models.py`/`api.py` 契约 |
+| 2026-07-11 | A-18 | 面包屑高亮当前级：`.crumb-current` 由纯文字改为品牌浅底药丸（bold + `--brand-soft` 背景 + 1px 品牌环），与链接面包屑清晰区分；链接面包屑加 hover 浅底 chip 与 `:focus-visible` 品牌光环；当前级加 `aria-current="page"`。`app.js`+1、style.css+16/−5、test_web_flow.py+2（净增 ~13 行，符合 R2），未改 `models.py`/`api.py` 契约 |

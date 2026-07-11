@@ -94,7 +94,7 @@ function crumbs(items) {
   bar.innerHTML = items.map((it, i) =>
     i < items.length - 1
       ? `<a href="${it.href}">${esc(it.label)}</a><span class="crumb-sep">›</span>`
-      : `<span class="crumb-current">${esc(it.label)}</span>`
+      : `<span class="crumb-current" aria-current="page">${esc(it.label)}</span>`
   ).join("");
   bar.style.display = items.length > 1 ? "" : "none";
 }
