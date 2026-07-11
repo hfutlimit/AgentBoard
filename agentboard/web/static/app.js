@@ -3,6 +3,7 @@ const API = window.AGENTBOARD_API || "http://127.0.0.1:8000";
 let META = { types: ["task", "bug"], statuses: ["backlog", "todo", "in_progress", "in_review", "verifying", "done"], priorities: ["highest", "high", "medium", "low", "lowest"] };
 let PROJECTS = []; // 缓存项目列表供侧栏使用
 let GLOBAL_SEARCH = ""; // A-05 全局搜索框当前查询词
+let kbdSel = -1; // A-15 键盘快捷键：当前选中项索引（每次 render 重置）
 
 // ---------- HTTP ----------
 async function api(path, method = "GET", body) {
@@ -232,6 +233,7 @@ function emptyState(icon, title, desc, cta) {
 async function render() {
   const h = location.hash || "#/";
   const app = $("app");
+  kbdSel = -1; // A-15 每次视图切换重置键盘选中态
   app.innerHTML = skeleton();
   highlightNav(h);
   renderSidebar();
@@ -1095,6 +1097,45 @@ function attachTaskDrawer(app) {
     }
   });
 }
+
+// A-15 键盘快捷键：j/k 上下移动选中项、e 编辑选中项、Esc 关闭弹层（Esc 由既有监听处理）。
+// 复用既有行内编辑（inlineEditEnter）与路由（route），不改 API 契约；输入框聚焦时不触发，避免与输入冲突。
+function kbdItems() {
+  const app = $("app");
+  if (!app) return [];
+  return Array.from(app.querySelectorAll(".entity-item, .project-card, .kanban-card"))
+    .filter(el => el.style.display !== "none");
+}
+function kbdSet(i) {
+  const items = kbdItems();
+  if (!items.length) { kbdSel = -1; return; }
+  kbdSel = Math.max(0, Math.min(items.length - 1, i));
+  items.forEach((el, idx) => el.classList.toggle("kbd-selected", idx === kbdSel));
+  items[kbdSel].scrollIntoView({ block: "nearest" });
+}
+function kbdEdit() {
+  const el = kbdItems()[kbdSel];
+  if (!el) return;
+  const title = el.querySelector(".entity-item-title");
+  if (title && title.classList.contains("inline-editable")) {
+    let type, id;
+    const m = (el.getAttribute("href") || "").match(/#\/(epic|story)\/(\d+)/);
+    if (m) { type = m[1]; id = +m[2]; }
+    else if (el.dataset.taskId) { type = "task"; id = +el.dataset.taskId; }
+    if (type) { inlineEditEnter(title, { type, id }); return; }
+  }
+  const href = el.getAttribute("href");
+  if (href) route(href); // 项目卡等无行内编辑 → 打开
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") return; // 弹层关闭由既有监听处理
+  const tag = (document.activeElement && document.activeElement.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.key === "j") { e.preventDefault(); kbdSet(kbdSel < 0 ? 0 : kbdSel + 1); }
+  else if (e.key === "k") { e.preventDefault(); kbdSet(kbdSel < 0 ? 0 : kbdSel - 1); }
+  else if (e.key === "e") { e.preventDefault(); kbdEdit(); }
+});
 
 // ---------- boot ----------
 window.addEventListener("hashchange", render);

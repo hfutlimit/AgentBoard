@@ -542,6 +542,14 @@ details summary { cursor: pointer; font-weight: 600; color: var(--primary); marg
   .topbar-nav a { padding: 6px 8px; }
 }
 
+/* ========== A-15 键盘快捷键（j/k 移动选中项，e 编辑，Esc 关闭弹层）选中高亮 ========== */
+.kbd-selected { outline: 2px solid var(--primary); outline-offset: -2px; }
+.entity-item.kbd-selected,
+.project-card.kbd-selected,
+.kanban-card.kbd-selected { border-color: var(--primary); box-shadow: 0 2px 8px rgba(37,99,235,.12); }
+.kbd-hint { font-size: .72rem; color: var(--text-secondary); white-space: nowrap; }
+@media (max-width: 768px) { .kbd-hint { display: none; } }
+
 /* ========== A-10 深色模式（基于 CSS 变量切换明/暗主题，偏好存 localStorage） ========== */
 [data-theme="dark"] {
   --primary: #3b82f6; --primary-hover: #60a5fa; --danger: #ef4444; --success: #34d399;

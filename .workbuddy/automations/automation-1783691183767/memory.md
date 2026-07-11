@@ -1,5 +1,23 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-11（周期执行 · A-15 键盘快捷键）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=d3a2bdd）。
+- **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-14 已完成，认领下一个 pending 项 **A-15 键盘快捷键**。
+- **开发任务**：新增全局 `keydown` 监听（`j`/`k` 上下移动选中项、`e` 编辑选中项、`Esc` 关闭弹层由既有监听处理），复用 `inlineEditEnter()`/`route()`；`kbdItems()/kbdSet()/kbdEdit()` 在 `.entity-item/.project-card/.kanban-card` 管理选中态（`.kbd-selected` 高亮 + scrollIntoView），输入框聚焦或带修饰键时跳过，`render()` 重置选中态；顶栏加 `⌨ j/k · e · Esc` 提示。`app.js`+41、style.css+8、index.html+1（净增 50 行，符合 R2），未改 `models.py`/`api.py` 契约。
+- **部署 Docker**：基础镜像 `python:3.13-slim` 仍不在本地缓存、`docker compose build` 拉取超时 → 退化 `docker cp` 注入新 `app.js`/`style.css`/`index.html` 到运行中的 `agentboard-web-1`（/app/agentboard/web/static/）。HTTP 校验 app.js 含 `kbdItems`/`kbdSet`/`kbdEdit`(3)、style.css 含 `kbd-selected`/`kbd-hint`(6)、index.html 含 `kbd-hint`(1)、`/api/meta` 200、页面 200。
+- **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
+- **推送**：`git push origin main`（待执行，commit 见下）。
+- **下一个 pending 项**：A-16 复制链接（任务/Story 提供「复制深链」按钮）。
+
+## 2026-07-11（周期执行 · A-14 Markdown 编辑工具栏）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=faef13a）。
+- **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-13 已完成，认领下一个 pending 项 **A-14 Markdown 编辑工具栏**。
+- **开发任务**：新增 `mdToolbar(taName)`/`insertMd(ta,kind)`/`bindMdToolbar(scope)` 三个辅助；Task 详情编辑表单的 description/spec 文本框上方加「加粗/标题/列表/行内代码」按钮（行内类包裹选区、块级类行首插入，含占位文本与自动选中），点击即插入 markdown 语法。`app.js`+43/−2、`style.css`+8（净增 ~49 行，符合 R2），未改 `models.py`/`api.py` 契约；工具栏样式随 CSS 变量适配深色模式。
+- **部署 Docker**：基础镜像 `python:3.13-slim` 本地未缓存、Docker Hub 不可达 → `docker compose up -d --build web` 元数据解析失败；退化为 `docker cp` 注入新 `app.js`/`style.css` 到运行中的 `agentboard-web-1`（/app/agentboard/web/static/）。HTTP 校验 app.js 含 `function mdToolbar`(1)、style.css 含 `md-toolbar`(1)、页面 200、`/api/meta` 200。
+- **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
+- **推送**：`git push origin main` 成功（`faef13a..d3a2bdd`，commit `d3a2bdd`）。
+- **下一个 pending 项**：A-15 键盘快捷键（j/k 上下移动选中项、e 编辑、Esc 关闭弹层）。
+
 ## 2026-07-11（周期执行 · A-13 任务详情抽屉）
 - **拉取最新代码**：`git pull origin main` 已是最新（HEAD=d21e14b）。
 - **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-12 已完成，认领下一个 pending 项 **A-13 任务详情抽屉**。
