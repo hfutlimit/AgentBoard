@@ -118,6 +118,7 @@ def test_web_serves_spa(servers):
     assert all(x not in js.text for x in ("p-epic-form", "e-story-form", "s-task-form")), "仍存在内联新增表单"
     assert 'aria-current="page"' in js.text, "A-18 面包屑当前级未标记 aria-current"
     assert "function entityActions" in js.text and "attachEntityActions" in js.text, "A-19 列表项 hover 操作未渲染"
+    assert "agentboard_story_view" in js.text and "localStorage.setItem(VIEW_KEY" in js.text, "A-20 视图偏好本地存储未实现"
 
     css = httpx.get(web_base + "/static/style.css")
     assert css.status_code == 200, "style.css 未提供"

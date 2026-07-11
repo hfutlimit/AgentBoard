@@ -58,6 +58,8 @@ function fallbackCopy(text, cb) {
 
 // A-10 深色模式：切换 <html data-theme> 并持久化到 localStorage（默认浅色）
 const THEME_KEY = "agentboard_theme";
+// A-20 前端偏好本地存储：Story 页任务区视图（列表/看板）持久化键
+const VIEW_KEY = "agentboard_story_view";
 function applyTheme(theme) {
   const t = theme || localStorage.getItem(THEME_KEY) || "light";
   document.documentElement.setAttribute("data-theme", t);
@@ -243,7 +245,7 @@ function renderKanban(tasks) {
 
 // ---------- 侧栏 ----------
 let sidebarOpen = true;
-let storyViewMode = "list"; // "list" | "board"（Story 页任务区视图切换）
+let storyViewMode = localStorage.getItem(VIEW_KEY) || "list"; // "list" | "board"（Story 页任务区视图切换，A-20 记住上次选择）
 
 function toggleSidebar() {
   sidebarOpen = !sidebarOpen;
@@ -778,6 +780,7 @@ async function viewStory(app, id) {
   if (newBtn) newBtn.onclick = () => showCreateModal("task", id, { projectId: ep.project_id });
   document.querySelectorAll(".seg-btn").forEach(b => b.onclick = () => {
     storyViewMode = b.dataset.mode;
+    localStorage.setItem(VIEW_KEY, storyViewMode); // A-20 持久化视图偏好
     $("story-list-view").style.display = storyViewMode === "board" ? "none" : "";
     $("story-board-view").style.display = storyViewMode === "list" ? "none" : "";
     document.querySelectorAll(".seg-btn").forEach(x => x.classList.toggle("active", x.dataset.mode === storyViewMode));
