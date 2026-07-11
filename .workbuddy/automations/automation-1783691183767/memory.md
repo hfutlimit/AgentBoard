@@ -1,5 +1,21 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-11（周期执行 · A-09 进度条）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=2f1a4c0）。
+- **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-08 已完成，认领下一个 pending 项 **A-09 进度条（Epic/Story）**。
+- **开发任务**：新增 `progressBar(done,total)` 辅助（细条+百分比，颜色随完成度变化：100%绿/≥50%蓝/<50%灰，total=0 不显示）；`viewProject` 聚合每个 Epic 下所有 Story 的任务完成度（epics→stories→tasks）、`viewEpic` 计算每个 Story 的任务完成度（stories→tasks），卡片底部渲染进度条。`.entity-item` 加 `flex-wrap` 容纳换行进度条。`app.js` +30/−2、`style.css` +8（净增 ~38 行，符合 <~80 行），未改 `models.py`/`api.py` 契约。
+- **部署 Docker**：基础镜像仍不可达 → `docker cp` 注入新 `app.js`/`style.css` 到运行中的 `agentboard-web-1`（/app/agentboard/web/static/）。验证 HTTP `app.js` 含 `progressBar`（3 处）、`style.css` 含 `entity-progress`（1 处）、`/api/meta` 返回 200。
+- **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
+- **推送**：`git push origin main` 成功（`2f1a4c0..4e6df58`，commit `4e6df58`）。
+
+## 2026-07-11（周期执行 · A-10 深色模式开关）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=4e6df58）。
+- **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-09 已完成，认领下一个 pending 项 **A-10 深色模式开关**。
+- **开发任务**：基于 CSS 变量切换明/暗主题——`[data-theme="dark"]` 覆盖 `--text/--bg/--card-bg/--border/--primary` 等变量，并对硬编码浅色表面（输入框/看板卡/分段按钮/幽灵按钮/代码行内）、hover 态、骨架屏占位条做兜底；顶栏 🌙/☀ 按钮点击切换，偏好存 `localStorage`（键 `agentboard_theme`）启动即应用。`app.js`+20、`style.css`+33、index.html+1（净增 ~54 行，符合 <~80 行），未改 `models.py`/`api.py` 契约。
+- **部署 Docker**：基础镜像仍不可达 → `docker cp` 注入新 `app.js`/`style.css`/`index.html` 到运行中的 `agentboard-web-1`（/app/agentboard/web/static/）。验证 HTTP `app.js` 含 `toggleTheme`/`applyTheme`/`THEME_KEY`（8 处）、`style.css` 含 `data-theme="dark"`（22 处）、`index.html` 含 `theme-toggle`（1 处）。
+- **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
+- **推送**：`git push origin main` 成功（commit 待生成）。
+
 ## 2026-07-11（周期执行 · A-08 空状态优化）
 - **拉取最新代码**：`git pull origin main` 已是最新（HEAD=5040b96）。
 - **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-07 已完成，认领下一个 pending 项 **A-08 空状态优化**。

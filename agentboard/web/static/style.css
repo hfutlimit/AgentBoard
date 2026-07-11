@@ -454,3 +454,36 @@ details summary { cursor: pointer; font-weight: 600; color: var(--primary); marg
   .two-col { grid-template-columns: 1fr; }
   .page-header { flex-direction: column; }
 }
+
+/* ========== A-10 深色模式（基于 CSS 变量切换明/暗主题，偏好存 localStorage） ========== */
+[data-theme="dark"] {
+  --primary: #3b82f6; --primary-hover: #60a5fa; --danger: #ef4444; --success: #34d399;
+  --text: #e5e7eb; --text-secondary: #94a3b8; --border: #334155; --bg: #0f172a; --card-bg: #1e293b;
+}
+/* 覆盖硬编码的浅色表面（输入框 / 看板卡 / 分段按钮 / 幽灵按钮 / 代码行内） */
+[data-theme="dark"] input,
+[data-theme="dark"] textarea,
+[data-theme="dark"] select,
+[data-theme="dark"] .global-search,
+[data-theme="dark"] .kanban-card,
+[data-theme="dark"] .seg-btn,
+[data-theme="dark"] button.ghost,
+[data-theme="dark"] .inline-edit-input,
+[data-theme="dark"] .md code {
+  background: #1e293b; border-color: #334155; color: var(--text);
+}
+/* 浅灰底容器在暗色下改深底 */
+[data-theme="dark"] .kanban-col,
+[data-theme="dark"] .data-table th,
+[data-theme="dark"] .progress-track { background: #0f172a; }
+/* 暗色下的 hover / 选中态，避免残留浅蓝 */
+[data-theme="dark"] .topbar-nav a:hover,
+[data-theme="dark"] .icon-btn:hover,
+[data-theme="dark"] .sidebar-link:hover,
+[data-theme="dark"] .ghost-sm:hover,
+[data-theme="dark"] .seg-btn:hover,
+[data-theme="dark"] .data-table tr:hover td,
+[data-theme="dark"] .sidebar-link.active,
+[data-theme="dark"] .topbar-nav a.active { background: #334155; }
+/* 骨架屏占位条在暗色下改为深灰渐变 */
+[data-theme="dark"] .sk-line { background: linear-gradient(90deg, #1e293b 25%, #334155 37%, #1e293b 63%); }

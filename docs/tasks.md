@@ -237,7 +237,7 @@
 - [x] **A-07 加载骨架屏**：将「加载中…」与 3-dot spinner 替换为 Jira 式 shimmer 骨架屏（标题条 + 卡片网格占位 + 侧栏占位），避免内容载入时的布局跳动。仅改 `app.js` + `style.css` + `index.html`。
 - [x] **A-08 空状态优化**：列表为空时显示引导文案/插画（如「暂无 Epic，点击新建」）替代灰色「暂无」。
 - [x] **A-09 进度条（Epic/Story）**：按子项 `status` 计算完成度（done 占比），在卡片显示进度条。
-- [ ] **A-10 深色模式开关**：基于 CSS 变量切换明/暗主题，偏好存 `localStorage`。
+- [x] **A-10 深色模式开关**：基于 CSS 变量切换明/暗主题，偏好存 `localStorage`。
 - [ ] **A-11 响应式布局**：窄屏下树列表 / 两栏布局自动堆叠，按钮可点。
 - [ ] **A-12 Toast 堆叠与动画**：多条 toast 不互相覆盖，进出场有过渡。
 - [ ] **A-13 任务详情抽屉**：点击列表项从右侧滑出详情抽屉（含 description/spec/状态），不跳路由；关闭回列表。
@@ -269,3 +269,4 @@
 | 2026-07-11 | A-07 | 加载骨架屏：新增 `skeleton()` 占位（标题条 + 6 卡片网格 shimmer + 侧栏占位），`render()` 与 `index.html` 初始态均替换原「加载中…」/3-dot spinner，避免布局跳动；`app.js`+12、`style.css`+16、`index.html`+9（净增 ~35 行），不改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | A-08 | 空状态优化：新增统一 `emptyState(icon,title,desc,cta)` 辅助，Epic/Story/Task 列表空态由灰色「暂无」升级为「图标 + 引导文案 + 新建按钮」；CTA 触发同页已有「＋ 新建」按钮。`app.js`+19/−3、`style.css`+4（净增 ~23 行），不改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | A-09 | 进度条（Epic/Story）：新增 `progressBar(done,total)` 辅助（细条+百分比，颜色随完成度变化，total=0 不显示）；`viewProject` 聚合每个 Epic 下所有 Story 的任务完成度、`viewEpic` 计算每个 Story 的任务完成度，卡片底部渲染进度条。`app.js`+30/−2、`style.css`+8（净增 ~38 行），不改 `models.py`/`api.py` 契约 |
+| 2026-07-11 | A-10 | 深色模式开关：基于 CSS 变量切换明/暗主题（`[data-theme="dark"]` 覆盖 `--text/--bg/--card-bg` 等变量 + 硬编码浅色表面/hover 态兜底），顶栏 🌙/☀ 按钮点击切换，偏好存 `localStorage`（键 `agentboard_theme`）启动即应用。`app.js`+20、`style.css`+33、index.html+1（净增 ~54 行），不改 `models.py`/`api.py` 契约 |

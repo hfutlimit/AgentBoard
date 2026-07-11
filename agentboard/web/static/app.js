@@ -26,6 +26,21 @@ const esc = (s) => (s || "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2500); }
 function route(hash) { location.hash = hash; }
 
+// A-10 深色模式：切换 <html data-theme> 并持久化到 localStorage（默认浅色）
+const THEME_KEY = "agentboard_theme";
+function applyTheme(theme) {
+  const t = theme || localStorage.getItem(THEME_KEY) || "light";
+  document.documentElement.setAttribute("data-theme", t);
+  const btn = $("theme-toggle");
+  if (btn) btn.textContent = t === "dark" ? "☀" : "🌙";
+}
+function toggleTheme() {
+  const cur = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+  const next = cur === "dark" ? "light" : "dark";
+  localStorage.setItem(THEME_KEY, next);
+  applyTheme(next);
+}
+
 // minimal markdown renderer
 function md(src) {
   if (!src) return '<span class="muted">（空）</span>';
@@ -935,6 +950,11 @@ if (gsInput) {
   GLOBAL_SEARCH = gsInput.value;
   gsInput.addEventListener("input", (e) => { GLOBAL_SEARCH = e.target.value; applySearch(); });
 }
+
+// A-10 深色模式：启动时应用已保存偏好，并绑定切换按钮
+applyTheme();
+const themeBtn = document.getElementById("theme-toggle");
+if (themeBtn) themeBtn.addEventListener("click", toggleTheme);
 
 (async () => {
   try { META = await api("/api/meta"); } catch (e) {}
