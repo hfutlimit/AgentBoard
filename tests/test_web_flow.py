@@ -117,11 +117,13 @@ def test_web_serves_spa(servers):
     assert "function showCreateModal" in js.text and "data-modal-close" in js.text, "统一创建弹窗缺失"
     assert all(x not in js.text for x in ("p-epic-form", "e-story-form", "s-task-form")), "仍存在内联新增表单"
     assert 'aria-current="page"' in js.text, "A-18 面包屑当前级未标记 aria-current"
+    assert "function entityActions" in js.text and "attachEntityActions" in js.text, "A-19 列表项 hover 操作未渲染"
 
     css = httpx.get(web_base + "/static/style.css")
     assert css.status_code == 200, "style.css 未提供"
     assert "--grad:" in css.text and "[data-theme=\"dark\"]" in css.text, "品牌 token 或暗色主题缺失"
     assert ".crumb-current" in css.text and "var(--brand-soft)" in css.text, "A-18 当前级高亮样式缺失"
+    assert ".entity-item-actions" in css.text and ".ei-act" in css.text, "A-19 hover 操作样式缺失"
 
 
 # ---------------- 注册 / 登录 ----------------

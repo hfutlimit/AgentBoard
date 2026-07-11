@@ -1,5 +1,24 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-11（周期执行 · A-19 列表项 hover 操作 + 修复 story 行内编辑 404）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=0818e74）。
+- **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-18 已完成，认领下一个 pending 项 **A-19 列表项 hover 操作**。
+- **开发任务**：Epic/Story/Task 列表项右侧加 hover/focus-within 淡入的「✏ 编辑 / 🗑 删除」快捷图标（触摸设备常显）。新增 `entityActions()` 渲染 + `attachEntityActions()` 委托（`preventDefault+stopPropagation` 防导航/抽屉；编辑复用 `inlineEditEnter`，删除 confirm 后调既有 DELETE 端点 + `render()`）；新增 `API_PLURAL` 复数映射，**顺手修复 `inlineEditEnter` 对 story 生成 `/api/storys`(404) 的既有缺陷**。`app.js`+~35、style.css+8、test+2（净增 ~45 行，符合 R2），未改契约。
+- **部署 Docker**：base image `python:3.13-slim` 未缓存、Docker Hub 不可达 → 退化 `docker cp` 注入 app.js/style.css 到 `agentboard-web-1`。HTTP 校验 page 200、served app.js 含 `entityActions`/`attachEntityActions`(4)/`API_PLURAL`、style.css 含 `.entity-item-actions`/`.ei-act`。
+- **执行测试**：托管 venv 跑 test_web_flow + test_backend_flow → **6 passed**（新增 A-19 静态断言），无回归。
+- **推送**：见下方 commit。
+- **下一个 pending 项**：A-20 前端偏好本地存储（记住上次视图 列表/看板 等偏好）。
+
+## 2026-07-11（周期执行 · 收尾创建弹窗 + A-18 面包屑高亮）
+- **拉取最新代码**：`git pull origin main` 首次 SSH 中断，重试成功（已是最新，HEAD=e6e8a0b）；工作树有前次会话遗留的未提交「统一创建弹窗」重构（app.js/style.css/test_web_flow.py，约 +112/−107），非本次新增。
+- **遗留改动收尾**：该重构为完整功能（统一 `showCreateModal(kind,parentId,context)` 替换内联新增表单，含遮罩/Esc/焦点归还/校验/Ctrl·⌘+Enter），`node --check` 通过、托管 venv 跑 `test_web_flow.py`+`test_backend_flow.py` → **6 passed**（测试已含 `showCreateModal`/`data-modal-close` 断言）。提交 `adeb637` 并推送成功（`e6e8a0b..adeb637`）。
+- **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-17 已完成，认领下一个 pending 项 **A-18 面包屑高亮当前级**。
+- **开发任务**：`.crumb-current` 由纯文字改为品牌浅底药丸（bold + `--brand-soft` 背景 + 1px 品牌环），链接面包屑加 hover 浅底 chip 与 `:focus-visible` 品牌光环，当前级加 `aria-current="page"`。`app.js`+1、style.css+16/−5、test_web_flow.py+2（净增 ~13 行，符合 R2），未改 `models.py`/`api.py` 契约。
+- **部署 Docker**：基础镜像 `python:3.13-slim` 本地未缓存、Docker Hub 不可达 → `docker compose up -d --build` 会拉取失败；退化为 `docker cp` 注入新 `app.js`/`style.css` 到运行中的 `agentboard-web-1`（/app/agentboard/web/static/）。HTTP 校验 page 200、served app.js 含 `aria-current="page"`/`crumb-current`、served style.css 含 `.crumb-current`/`var(--brand-soft)`。
+- **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
+- **推送**：`git push origin main` 成功（`adeb637..0818e74`，commit `0818e74`）。`docs/tasks.md` 勾选 A-18 并补「创建弹窗重构」「A-18」完成记录。
+- **下一个 pending 项**：A-19 列表项 hover 操作（hover 显示「编辑/删除」快捷图标）或 A-20 前端偏好本地存储。
+
 ## 2026-07-11（周期执行 · P-15 Agent 活动面板）
 - **拉取最新代码**：`git pull origin main` 已是最新（HEAD=8f604b1）。
 - **需求/任务分析**：Epic 11 Backlog C 顺序推进；P-01~P-14 已完成，认领下一个 pending 项 **P-15 Agent 活动面板（可选）**（依赖 P-10，复用 `avatar()`）。

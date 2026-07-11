@@ -267,7 +267,7 @@
 - [x] **A-16 复制链接**：任务/Story 提供「复制深链」（如 `#/task/123`）按钮。
 - [x] **A-17 路由过渡动画**：视图切换加淡入/滑入过渡。
 - [x] **A-18 面包屑高亮当前级**：确保各级面包屑链接正确且高亮当前级（补样式）。
-- [ ] **A-19 列表项 hover 操作**：hover 显示「编辑/删除」快捷图标，减少误触确认。
+- [x] **A-19 列表项 hover 操作**：hover 显示「编辑/删除」快捷图标，减少误触确认。
 - [ ] **A-20 前端偏好本地存储**：记住上次视图（列表/看板）等前端偏好。
 
 ### Backlog B（需后端配合，先提需求，不混入小优化）
@@ -333,3 +333,4 @@
 | 2026-07-11 | P-15 | Agent 活动面板：仪表盘右侧 sticky「近期动态 / Agent 活动」面板，复用 `avatar()` 呈现评论作者（Agent 自动带标记）；`.dashboard` 转 `1fr 330px` 双栏、面板 `grid-row:1/-1` 跨列、`≤1000px` 转单列堆叠。数据沿用现有 `/api/tasks/{id}/comments`，在 `viewHome` 统计循环内收集 task 后 `Promise.all` 并行拉取评论、按 `created_at` 取近 12 条聚合为时间线，任一请求失败降级空面板。`app.js`+~52、`style.css`+~23（净增 ~75 行，符合 R2 红线），未改 `models.py`/`api.py` 契约；`test_web_flow.py` 增 `activity-panel`/`timeAgo` 静态断言 |
 | 2026-07-11 | 创建弹窗重构 | 收尾前次会话遗留改动：新增统一 `showCreateModal(kind,parentId,context)`（项目/Epic/Story/Task 共用），替换散布的「内联新增表单」，含遮罩点击关闭、Esc 关闭、焦点归还、必填校验、Ctrl/⌘+Enter 提交、统一错误/成功 toast；`showNewProjectModal` 复用之。移除 `bindNewProjectForm` 与各处 `bindForm` 创建分支；`style.css` 重写 `.modal*` 为 Jira 风格（圆角/阴影/动画/移动端底部 sheet/可见关闭按钮/表单字段栅格）；`test_web_flow.py` 增 `showCreateModal`/`data-modal-close` 断言并断言旧内联表单已移除。未改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | A-18 | 面包屑高亮当前级：`.crumb-current` 由纯文字改为品牌浅底药丸（bold + `--brand-soft` 背景 + 1px 品牌环），与链接面包屑清晰区分；链接面包屑加 hover 浅底 chip 与 `:focus-visible` 品牌光环；当前级加 `aria-current="page"`。`app.js`+1、style.css+16/−5、test_web_flow.py+2（净增 ~13 行，符合 R2），未改 `models.py`/`api.py` 契约 |
+| 2026-07-11 | A-19 | 列表项 hover 操作：Epic/Story/Task 列表项右侧新增 hover/focus-within 淡入的「✏ 编辑 / 🗑 删除」快捷图标（默认隐藏、触摸设备常显）。新增 `entityActions(type,id)` 渲染辅助与 `attachEntityActions(app)` 事件委托（`preventDefault+stopPropagation` 避免触发导航/抽屉；编辑复用 `inlineEditEnter`，删除二次 `confirm` 后调既有 `DELETE` 端点并 `render()`）；新增 `API_PLURAL` 复数映射并**修复 `inlineEditEnter` 对 story 生成 `/api/storys` 的既有 404 缺陷**（改用映射得 `/api/stories`）。`app.js`+~35、style.css+8、test_web_flow.py+2（净增 ~45 行，符合 R2），未改 `models.py`/`api.py` 契约 |

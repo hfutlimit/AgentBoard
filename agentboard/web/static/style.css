@@ -283,6 +283,14 @@ main {
 .entity-item-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .entity-item-title { font-weight: 500; font-size: .92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .entity-item-badges { display: flex; gap: 6px; flex-shrink: 0; }
+/* A-19 列表项 hover 操作：默认隐藏，hover/focus 时淡入「编辑/删除」快捷图标 */
+.entity-item-actions { display: flex; gap: 4px; flex-shrink: 0; margin-left: 8px; opacity: 0; transform: translateX(4px); transition: opacity .12s, transform .12s; pointer-events: none; }
+.entity-item:hover .entity-item-actions, .entity-item:focus-within .entity-item-actions { opacity: 1; transform: none; pointer-events: auto; }
+.ei-act { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; padding: 0; font-size: .8rem; line-height: 1; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2, var(--card-bg)); color: var(--text-secondary); cursor: pointer; transition: all .12s; }
+.ei-act:hover { border-color: var(--primary); color: var(--primary); background: var(--brand-soft, rgba(37,99,235,.08)); }
+.ei-act-del:hover { border-color: var(--danger, #dc2626); color: var(--danger, #dc2626); background: rgba(220,38,38,.08); }
+.ei-act:focus-visible { outline: 2px solid var(--brand-ring, rgba(37,99,235,.4)); outline-offset: 1px; }
+@media (hover: none) { .entity-item-actions { opacity: 1; transform: none; pointer-events: auto; } }
 .type-icon { display: inline-flex; align-items: center; flex-shrink: 0; font-size: 1rem; }
 .type-icon.bug { color: var(--danger); }
 .type-icon .ti-svg { display: block; }

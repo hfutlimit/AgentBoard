@@ -4,6 +4,7 @@ let META = { types: ["task", "bug"], statuses: ["backlog", "todo", "in_progress"
 let PROJECTS = []; // 缓存项目列表供侧栏使用
 let GLOBAL_SEARCH = ""; // A-05 全局搜索框当前查询词
 let kbdSel = -1; // A-15 键盘快捷键：当前选中项索引（每次 render 重置）
+const API_PLURAL = { project: "projects", epic: "epics", story: "stories", task: "tasks" }; // A-19 实体→REST 复数（story 不规则）
 
 // ---------- HTTP ----------
 async function api(path, method = "GET", body) {
@@ -581,6 +582,7 @@ async function viewProject(app, id) {
             </div>
             ${statusBadge(e.status)}
             ${progressBar((epicProgress[e.id]||{}).done, (epicProgress[e.id]||{}).total)}
+            ${entityActions("epic", e.id)}
           </a>
         `).join("")}
       </div>
@@ -620,6 +622,7 @@ async function viewProject(app, id) {
   };
 
   attachInlineEditList(app);
+  attachEntityActions(app);
 }
 
 // ----- Epic 详情 -----
@@ -664,6 +667,7 @@ async function viewEpic(app, id) {
             </div>
             ${statusBadge(s.status)}
             ${progressBar((storyProgress[s.id]||{}).done, (storyProgress[s.id]||{}).total)}
+            ${entityActions("story", s.id)}
           </a>
         `).join("")}
       </div>
@@ -696,6 +700,7 @@ async function viewEpic(app, id) {
   };
 
   attachInlineEditList(app);
+  attachEntityActions(app);
 }
 
 // ----- Story 详情 -----
@@ -745,6 +750,7 @@ async function viewStory(app, id) {
                 ${priorityBadge(t.priority)}
                 ${statusBadge(t.status)}
               </div>
+              ${entityActions("task", t.id)}
             </a>
           `).join("")}
         </div>
@@ -789,6 +795,7 @@ async function viewStory(app, id) {
   };
 
   attachTaskDrawer(app);
+  attachEntityActions(app);
 }
 
 // ----- Task 详情 -----
@@ -1062,7 +1069,7 @@ function inlineEditEnter(elm, opts) {
     const v = inp.value.trim();
     if (!v || v === original) { revert(); return; }
     try {
-      await api(`/api/${opts.type}s/${opts.id}`, "PATCH", { title: v });
+      await api(`/api/${API_PLURAL[opts.type] || opts.type + "s"}/${opts.id}`, "PATCH", { title: v });
       elm.dataset.title = v; elm.textContent = v;
       toast("标题已更新");
       if (opts.onSaved) opts.onSaved(v);
@@ -1102,6 +1109,33 @@ function attachInlineEditList(app) {
     if (!m) return;
     const span = a.querySelector(".entity-item-title");
     if (span) makeInlineEditable(span, { type: m[1], id: +m[2] });
+  });
+}
+
+// A-19 列表项 hover 操作：hover 显示「编辑/删除」快捷图标，减少误触确认。复用行内编辑与既有 DELETE 端点，不改 API 契约。
+function entityActions(type, id) {
+  return `<div class="entity-item-actions">
+      <button class="ei-act" data-act="edit" data-type="${type}" data-id="${id}" title="编辑标题" aria-label="编辑">✏</button>
+      <button class="ei-act ei-act-del" data-act="del" data-type="${type}" data-id="${id}" title="删除" aria-label="删除">🗑</button>
+    </div>`;
+}
+function attachEntityActions(app) {
+  const CONFIRM = { epic: "删除 Epic 及其所有子项？此操作不可撤销！", story: "删除 Story 及其任务？此操作不可撤销！", task: "删除此任务？此操作不可撤销！" };
+  app.querySelectorAll(".entity-item-actions .ei-act").forEach(b => {
+    b.addEventListener("click", async (ev) => {
+      ev.preventDefault(); ev.stopPropagation();
+      const type = b.dataset.type, id = +b.dataset.id, item = b.closest(".entity-item");
+      if (b.dataset.act === "edit") {
+        const span = item && item.querySelector(".entity-item-title");
+        if (span) inlineEditEnter(span, { type, id });
+        return;
+      }
+      if (!confirm(CONFIRM[type] || "确认删除？此操作不可撤销！")) return;
+      try {
+        await api(`/api/${API_PLURAL[type] || type + "s"}/${id}`, "DELETE");
+        toast("已删除"); render();
+      } catch (e) { toast("删除失败：" + e.message); }
+    });
   });
 }
 
