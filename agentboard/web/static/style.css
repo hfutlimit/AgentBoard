@@ -202,7 +202,7 @@ main {
 .entity-item {
   display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
   padding: 11px 14px; background: var(--card-bg); border: 1px solid var(--border);
-  border-radius: 8px; text-decoration: none; color: inherit; transition: all .12s;
+  border-radius: 8px; text-decoration: none; color: inherit; transition: all .12s; cursor: pointer;
 }
 /* A-09 进度条（Epic/Story 卡片底部）：细条 + 百分比，颜色随完成度变化 */
 .entity-progress { flex: 1 1 100%; display: flex; align-items: center; gap: 8px; margin-top: 8px; }
@@ -431,6 +431,34 @@ details summary { cursor: pointer; font-weight: 600; color: var(--primary); marg
 .toast-item.toast-error { border-left-color: #ef4444; }
 .toast-item.toast-success { border-left-color: #22c55e; }
 
+/* A-13 任务详情抽屉：右侧滑出，不跳路由；关闭回列表 */
+.drawer-overlay {
+  position: fixed; inset: 0; background: rgba(15,23,42,.45);
+  z-index: 250; opacity: 0; transition: opacity .25s ease;
+}
+.drawer-overlay.open { opacity: 1; }
+.drawer {
+  position: fixed; top: 0; right: 0; height: 100vh; width: 420px; max-width: 92vw;
+  background: var(--card-bg); border-left: 1px solid var(--border);
+  box-shadow: -8px 0 30px rgba(0,0,0,.12); z-index: 260;
+  transform: translateX(100%); transition: transform .25s ease;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.drawer.open { transform: translateX(0); }
+.drawer-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+  padding: 16px 18px; border-bottom: 1px solid var(--border);
+}
+.drawer-head-main { min-width: 0; }
+.drawer-head h3 { margin: 0 0 8px; font-size: 1.05rem; }
+.drawer-body { padding: 16px 18px; overflow-y: auto; flex: 1; }
+.drawer-body .card { margin: 12px 0; }
+.drawer-status { margin-bottom: 4px; }
+.drawer-loading { padding: 40px; text-align: center; color: var(--text-secondary); }
+.drawer-link { display: inline-block; margin-top: 8px; color: var(--primary); text-decoration: none; font-size: .88rem; font-weight: 500; }
+.drawer-link:hover { text-decoration: underline; }
+@media (max-width: 768px) { .drawer { width: 100vw; max-width: 100vw; } }
+
 /* Muted text */
 .muted { color: var(--text-secondary); }
 
@@ -539,3 +567,5 @@ details summary { cursor: pointer; font-weight: 600; color: var(--primary); marg
 [data-theme="dark"] .topbar-nav a.active { background: #334155; }
 /* 骨架屏占位条在暗色下改为深灰渐变 */
 [data-theme="dark"] .sk-line { background: linear-gradient(90deg, #1e293b 25%, #334155 37%, #1e293b 63%); }
+/* A-13 抽屉遮罩在暗色下加深 */
+[data-theme="dark"] .drawer-overlay { background: rgba(0,0,0,.6); }

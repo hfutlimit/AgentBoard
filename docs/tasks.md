@@ -240,7 +240,7 @@
 - [x] **A-10 深色模式开关**：基于 CSS 变量切换明/暗主题，偏好存 `localStorage`。
 - [x] **A-11 响应式布局**：窄屏下树列表 / 两栏布局自动堆叠，按钮可点。
 - [x] **A-12 Toast 堆叠与动画**：多条 toast 不互相覆盖，进出场有过渡。
-- [ ] **A-13 任务详情抽屉**：点击列表项从右侧滑出详情抽屉（含 description/spec/状态），不跳路由；关闭回列表。
+- [x] **A-13 任务详情抽屉**：点击列表项从右侧滑出详情抽屉（含 description/spec/状态），不跳路由；关闭回列表。
 - [ ] **A-14 Markdown 编辑工具栏**：description/spec 文本框上方加「加粗/列表/标题」快捷按钮，插入 markdown 语法。
 - [ ] **A-15 键盘快捷键**：`j/k` 上下移动选中项、`e` 编辑、`Esc` 关闭弹层。
 - [ ] **A-16 复制链接**：任务/Story 提供「复制深链」（如 `#/task/123`）按钮。
@@ -302,3 +302,4 @@
 | 2026-07-11 | A-10 | 深色模式开关：基于 CSS 变量切换明/暗主题（`[data-theme="dark"]` 覆盖 `--text/--bg/--card-bg` 等变量 + 硬编码浅色表面/hover 态兜底），顶栏 🌙/☀ 按钮点击切换，偏好存 `localStorage`（键 `agentboard_theme`）启动即应用。`app.js`+20、`style.css`+33、index.html+1（净增 ~54 行），不改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | A-11 | 响应式布局：`≤768px` 时 `.layout` 转纵向、侧栏（树列表）堆叠为内容上方带 `max-height:42vh` 的可滚动面板（保留 ☰ 折叠）；按钮加 `min-height:36px` 触摸目标、`.page-actions` 换行防溢出；`≤480px` 看板转 2 列、搜索框收窄。纯 `style.css` 改动（净增 ~29 行），未改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | A-12 | Toast 堆叠与动画：`#toast` 改为多子项容器，每条提示独立 `.toast-item`（滑入淡入进场、2.5s 后淡出移除，互不覆盖），支持可选 `type=error\|success` 左侧色条；仅改 `app.js`+10、`style.css`+13（净增 ~23 行），未改 `models.py`/`api.py` 契约 |
+| 2026-07-11 | A-13 | 任务详情抽屉：Story 页任务列表/看板项（`<a data-task-id>`，去 href 不跳路由）单击从右侧滑出抽屉（含 description/spec + 状态流转按钮，复用 `md()/statusFlow()` 等），遮罩点击/Esc 关闭并 `render()` 刷新列表；列表项保留 A-04 双击编辑标题（200ms 计时区分）。`app.js`+~80、`style.css`+32、index.html+2，未改 `models.py`/`api.py` 契约 |

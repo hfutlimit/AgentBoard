@@ -149,7 +149,7 @@ function renderKanban(tasks) {
   const cols = META.statuses.map(s => {
     const items = tasks.filter(t => t.status === s);
     const cards = items.length
-      ? items.map(t => `<a href="#/task/${t.id}" class="kanban-card">
+      ? items.map(t => `<a data-task-id="${t.id}" class="kanban-card">
           <span class="type-icon ${t.type}">${typeIcon(t.type)}</span>
           <span class="kanban-card-title">${esc(t.title)}</span>
           ${priorityBadge(t.priority)}
@@ -671,7 +671,7 @@ async function viewStory(app, id) {
       ${tasks.length ? `
         <div class="entity-list">
           ${tasks.map(t => `
-            <a href="#/task/${t.id}" class="entity-item">
+            <a data-task-id="${t.id}" class="entity-item">
               <div class="entity-item-main">
                 <span class="type-icon ${t.type}">${typeIcon(t.type)}</span>
                 <span class="entity-item-title">${esc(t.title)}</span>
@@ -740,7 +740,7 @@ async function viewStory(app, id) {
     await api(`/api/stories/${id}`, "DELETE"); toast("已删除"); route(`#/epic/${st.epic_id}`);
   };
 
-  attachInlineEditList(app);
+  attachTaskDrawer(app);
 }
 
 // ----- Task 详情 -----
@@ -987,6 +987,76 @@ function attachInlineEditList(app) {
   });
 }
 
+// A-13 任务详情抽屉：点击任务列表/看板项从右侧滑出（含 description/spec/状态），不跳路由；关闭回列表。
+// 复用既有的 md()/statusBadge()/statusFlow()/priorityBadge()/typeIcon() 辅助，未改 API 契约。
+async function openTaskDrawer(id) {
+  const drawer = $("task-drawer"), overlay = $("drawer-overlay");
+  if (!drawer || !overlay) return;
+  drawer.innerHTML = '<div class="drawer-loading">加载中…</div>';
+  overlay.style.display = "";
+  drawer.setAttribute("aria-hidden", "false");
+  requestAnimationFrame(() => { overlay.classList.add("open"); drawer.classList.add("open"); });
+  try {
+    const t = await api(`/api/tasks/${id}`);
+    drawer.innerHTML = `
+      <div class="drawer-head">
+        <div class="drawer-head-main">
+          <h3 id="drawer-task-title">${esc(t.title)}</h3>
+          <div class="header-badges">
+            ${t.type === "bug" ? `<span class="badge bug">${typeIcon("bug")} Bug</span>` : `<span class="badge task-badge">${typeIcon("task")} Task</span>`}
+            ${priorityBadge(t.priority)}
+            ${statusBadge(t.status)}
+          </div>
+        </div>
+        <button class="icon-btn" onclick="closeTaskDrawer()" title="关闭 (Esc)">×</button>
+      </div>
+      <div class="drawer-body">
+        <div class="drawer-status">${statusFlow(t)}</div>
+        <div class="card"><h4>📄 Description</h4><div class="md">${md(t.description)}</div></div>
+        <div class="card"><h4>📋 Spec（OpenSpec）</h4><div class="md">${md(t.spec)}</div></div>
+        <a href="#/task/${t.id}" class="drawer-link" onclick="closeTaskDrawer()">在完整页面打开 ↗</a>
+      </div>`;
+    drawer.querySelectorAll("#status-flow [data-next]").forEach(b => {
+      b.onclick = async () => {
+        try { await api(`/api/tasks/${id}/status`, "PUT", { status: b.dataset.next });
+          toast("状态已更新"); openTaskDrawer(id);
+        } catch (e) { toast("更新失败：" + e.message); }
+      };
+    });
+  } catch (e) {
+    drawer.innerHTML = `<div class="drawer-head"><h3>加载失败</h3><button class="icon-btn" onclick="closeTaskDrawer()">×</button></div><div class="drawer-body"><p class="muted">${esc(e.message)}</p></div>`;
+  }
+}
+function closeTaskDrawer() {
+  const drawer = $("task-drawer"), overlay = $("drawer-overlay");
+  if (!drawer || !overlay) return;
+  drawer.classList.remove("open"); overlay.classList.remove("open");
+  drawer.setAttribute("aria-hidden", "true");
+  setTimeout(() => { overlay.style.display = "none"; render(); }, 250);
+}
+// 为任务列表项/看板卡挂载「单击开抽屉、双击编辑标题」（200ms 计时区分，避免双击先触发抽屉）
+function attachTaskDrawer(app) {
+  app.querySelectorAll("a[data-task-id]").forEach(a => {
+    const id = +a.dataset.taskId;
+    let t = null;
+    a.addEventListener("click", (ev) => {
+      if (a.querySelector("input")) { ev.preventDefault(); return; }
+      ev.preventDefault();
+      if (t) { clearTimeout(t); t = null; return; }
+      t = setTimeout(() => { t = null; openTaskDrawer(id); }, 200);
+    });
+    const span = a.querySelector(".entity-item-title");
+    if (span) {
+      span.classList.add("inline-editable"); span.title = "双击编辑标题";
+      span.addEventListener("dblclick", () => {
+        if (t) { clearTimeout(t); t = null; }
+        if (span.querySelector("input")) return;
+        inlineEditEnter(span, { type: "task", id, onSaved: (v) => { const dt = $("drawer-task-title"); if (dt) dt.textContent = v; } });
+      });
+    }
+  });
+}
+
 // ---------- boot ----------
 window.addEventListener("hashchange", render);
 const sbToggle = document.getElementById("sidebar-toggle");
@@ -1007,6 +1077,13 @@ if (gsInput) {
 applyTheme();
 const themeBtn = document.getElementById("theme-toggle");
 if (themeBtn) themeBtn.addEventListener("click", toggleTheme);
+
+// A-13 任务详情抽屉：点击遮罩或按 Esc 关闭
+const drawerOverlay = document.getElementById("drawer-overlay");
+if (drawerOverlay) drawerOverlay.addEventListener("click", closeTaskDrawer);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { const d = $("task-drawer"); if (d && d.classList.contains("open")) closeTaskDrawer(); }
+});
 
 (async () => {
   try { META = await api("/api/meta"); } catch (e) {}
