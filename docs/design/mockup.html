@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentBoard · 重新设计原型</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   AgentBoard · 重新设计原型
+   设计语言：现代项目管理工具（Linear / Height / Shortcut 风格）
+   强调：品牌渐变、克制留白、清晰层级、状态色彩语义化
+   ============================================================ */
+:root{
+  /* Brand */
+  --brand-500:#4f46e5; --brand-600:#4338ca; --brand-700:#3730a3;
+  --brand-soft:#eef2ff; --brand-ring:rgba(79,70,229,.18);
+  --grad:linear-gradient(135deg,#6366f1 0%,#8b5cf6 55%,#a855f7 100%);
+
+  /* Semantic */
+  --success:#059669; --success-soft:#ecfdf5; --success-ring:rgba(5,150,105,.18);
+  --warning:#d97706; --warning-soft:#fffbeb;
+  --danger:#dc2626;  --danger-soft:#fef2f2;
+  --info:#0891b2;    --info-soft:#ecfeff;
+  --violet:#7c3aed;  --violet-soft:#f5f3ff;
+
+  /* Neutrals (slate) */
+  --text:#0f172a; --text-2:#475569; --text-3:#94a3b8;
+  --border:#e2e8f0; --border-2:#eef2f6;
+  --bg:#f6f8fb; --surface:#ffffff; --surface-2:#f8fafc; --surface-3:#f1f5f9;
+
+  /* Elevation */
+  --sh-sm:0 1px 2px rgba(15,23,42,.05),0 1px 3px rgba(15,23,42,.06);
+  --sh-md:0 4px 12px -2px rgba(15,23,42,.08),0 2px 6px -2px rgba(15,23,42,.05);
+  --sh-lg:0 12px 28px -6px rgba(15,23,42,.14),0 4px 10px -4px rgba(15,23,42,.08);
+  --sh-brand:0 8px 24px -6px rgba(99,102,241,.45);
+
+  --r-sm:8px; --r-md:12px; --r-lg:16px; --r-xl:20px;
+  --sp:8px;
+  --sidebar:264px; --topbar:60px;
+  --font:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans SC',sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,Consolas,monospace;
+}
+[data-theme="dark"]{
+  --brand-500:#818cf8; --brand-600:#6366f1; --brand-soft:#1e1b4b; --brand-ring:rgba(129,140,248,.25);
+  --success:#34d399; --success-soft:#052e22; --success-ring:rgba(52,211,153,.22);
+  --warning:#fbbf24; --warning-soft:#2a1d05;
+  --danger:#f87171;  --danger-soft:#2a0d0d;
+  --info:#22d3ee;    --info-soft:#062a33;
+  --violet:#a78bfa;  --violet-soft:#1e1b34;
+  --text:#e8edf5; --text-2:#aab4c5; --text-3:#6b7689;
+  --border:#273344; --border-2:#1e2733;
+  --bg:#0b1120; --surface:#121a2b; --surface-2:#0f1626; --surface-3:#1a2336;
+  --sh-sm:0 1px 2px rgba(0,0,0,.4);
+  --sh-md:0 6px 16px -4px rgba(0,0,0,.5);
+  --sh-lg:0 16px 36px -8px rgba(0,0,0,.6);
+  --sh-brand:0 8px 24px -6px rgba(129,140,248,.5);
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:var(--font);color:var(--text);background:var(--bg);
+  -webkit-font-smoothing:antialiased;line-height:1.5;}
+.tabnums{font-variant-numeric:tabular-nums;font-feature-settings:"tnum";}
+
+/* ---------- Topbar ---------- */
+.topbar{position:sticky;top:0;z-index:50;height:var(--topbar);
+  background:rgba(255,255,255,.82);backdrop-filter:saturate(180%) blur(12px);
+  border-bottom:1px solid var(--border);}
+[data-theme="dark"] .topbar{background:rgba(11,17,32,.78);}
+.topbar-in{height:100%;display:flex;align-items:center;gap:14px;padding:0 20px;max-width:1320px;margin:0 auto;}
+.brand{display:flex;align-items:center;gap:10px;cursor:pointer;}
+.logo-mark{width:32px;height:32px;border-radius:9px;background:var(--grad);
+  display:grid;place-items:center;box-shadow:var(--sh-brand);}
+.logo-mark svg{width:18px;height:18px}
+.brand-name{font-weight:800;font-size:1.06rem;letter-spacing:-.02em}
+.brand-name b{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.nav{display:flex;gap:4px;margin-left:8px}
+.nav a{padding:7px 14px;border-radius:var(--r-sm);text-decoration:none;color:var(--text-2);
+  font-size:.88rem;font-weight:500;transition:.15s}
+.nav a:hover{background:var(--surface-3);color:var(--text)}
+.nav a.active{background:var(--brand-soft);color:var(--brand-600);font-weight:600}
+[data-theme="dark"] .nav a.active{color:var(--brand-500)}
+.spacer{flex:1}
+.search{position:relative;width:240px}
+.search input{width:100%;height:36px;padding:0 12px 0 34px;border:1px solid var(--border);
+  border-radius:999px;background:var(--surface-2);font:inherit;font-size:.85rem;color:var(--text);
+  transition:.15s}
+.search input:focus{outline:none;border-color:var(--brand-500);box-shadow:0 0 0 4px var(--brand-ring);background:var(--surface)}
+.search svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:var(--text-3)}
+.icon-btn{width:36px;height:36px;border:1px solid var(--border);background:var(--surface);border-radius:10px;
+  display:grid;place-items:center;cursor:pointer;color:var(--text-2);font-size:1rem;transition:.15s}
+.icon-btn:hover{background:var(--surface-3);color:var(--text)}
+.avatar{width:34px;height:34px;border-radius:50%;background:var(--grad);color:#fff;display:grid;place-items:center;
+  font-weight:700;font-size:.82rem;box-shadow:var(--sh-sm);cursor:pointer}
+
+/* ---------- Layout ---------- */
+.layout{display:flex;max-width:1320px;margin:0 auto;gap:0}
+.sidebar{width:var(--sidebar);min-width:var(--sidebar);padding:18px 14px;position:sticky;top:var(--topbar);
+  height:calc(100vh - var(--topbar));overflow:auto}
+.side-h{display:flex;align-items:center;justify-content:space-between;padding:0 8px 10px}
+.side-h h3{margin:0;font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--text-3);font-weight:700}
+.side-add{width:26px;height:26px;border:1px solid var(--border);background:var(--surface);border-radius:7px;cursor:pointer;color:var(--text-2)}
+.tree-item{display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:9px;cursor:pointer;
+  color:var(--text);font-size:.88rem;font-weight:500;transition:.12s;border:1px solid transparent}
+.tree-item:hover{background:var(--surface-3)}
+.tree-item.active{background:var(--brand-soft);border-color:#c7d2fe;color:var(--brand-700)}
+[data-theme="dark"] .tree-item.active{color:var(--brand-500)}
+.tree-ic{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;background:var(--surface-3);font-size:.8rem}
+.tree-item.active .tree-ic{background:#fff;color:var(--brand-600)}
+.tag{margin-left:auto;font-size:.66rem;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--brand-soft);color:var(--brand-600)}
+
+main{flex:1;min-width:0;padding:26px 28px 60px}
+
+/* ---------- Hero ---------- */
+.hero{background:var(--grad);border-radius:var(--r-lg);padding:22px 26px;color:#fff;margin-bottom:24px;
+  display:flex;align-items:center;justify-content:space-between;box-shadow:var(--sh-brand);position:relative;overflow:hidden}
+.hero::after{content:"";position:absolute;right:-40px;top:-40px;width:200px;height:200px;border-radius:50%;
+  background:radial-gradient(circle,rgba(255,255,255,.25),transparent 70%)}
+.hero h1{margin:0;font-size:1.4rem;font-weight:800;letter-spacing:-.02em}
+.hero p{margin:4px 0 0;opacity:.9;font-size:.88rem}
+.hero .pill{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.3);padding:6px 13px;border-radius:999px;
+  font-size:.8rem;font-weight:600;backdrop-filter:blur(4px)}
+
+/* ---------- Stat cards ---------- */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:28px}
+.stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);padding:16px 18px;
+  box-shadow:var(--sh-sm);position:relative;overflow:hidden;transition:.18s}
+.stat:hover{box-shadow:var(--sh-md);transform:translateY(-2px)}
+.stat-ic{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;font-size:1.05rem;margin-bottom:10px}
+.stat-ic.b{background:var(--brand-soft);color:var(--brand-600)}
+.stat-ic.g{background:var(--success-soft);color:var(--success)}
+.stat-ic.a{background:var(--warning-soft);color:var(--warning)}
+.stat-ic.v{background:var(--violet-soft);color:var(--violet)}
+.stat-ic.i{background:var(--info-soft);color:var(--info)}
+.stat-n{font-size:1.9rem;font-weight:800;letter-spacing:-.02em;line-height:1.1}
+.stat-l{font-size:.78rem;color:var(--text-2);font-weight:600;margin-top:2px}
+.stat-d{font-size:.72rem;color:var(--text-3);margin-top:6px}
+.stat-d .up{color:var(--success);font-weight:700}
+
+/* ---------- Section ---------- */
+.sec-h{display:flex;align-items:center;justify-content:space-between;margin:8px 0 14px}
+.sec-h h2{margin:0;font-size:1.06rem;font-weight:700;letter-spacing:-.01em}
+.sec-h .meta{font-size:.8rem;color:var(--text-3)}
+.btn{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 16px;border-radius:10px;border:0;
+  background:var(--brand-500);color:#fff;font:inherit;font-weight:600;font-size:.85rem;cursor:pointer;transition:.15s;
+  box-shadow:0 2px 8px -2px var(--brand-ring)}
+.btn:hover{background:var(--brand-600);box-shadow:var(--sh-brand)}
+.btn.ghost{background:var(--surface);color:var(--text-2);border:1px solid var(--border);box-shadow:none}
+.btn.ghost:hover{background:var(--surface-3);color:var(--text)}
+
+/* ---------- Project grid ---------- */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:16px}
+.pcard{position:relative;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);
+  padding:18px;box-shadow:var(--sh-sm);cursor:pointer;transition:.18s;overflow:hidden}
+.pcard::before{content:"";position:absolute;left:0;top:0;right:0;height:4px;background:var(--bar,var(--grad))}
+.pcard:hover{box-shadow:var(--sh-md);transform:translateY(-3px);border-color:transparent}
+.pcard .row1{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.pcard .nm{font-weight:700;font-size:.98rem}
+.key{font-family:var(--mono);font-size:.7rem;font-weight:600;padding:2px 8px;border-radius:6px;background:var(--surface-3);color:var(--text-2)}
+.pcard .desc{font-size:.83rem;color:var(--text-2);line-height:1.55;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:36px;margin-bottom:14px}
+.pcard .foot{display:flex;align-items:center;gap:14px;font-size:.78rem;color:var(--text-2);margin-bottom:12px}
+.pcard .foot b{color:var(--text);font-weight:700}
+.ring{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;margin-left:auto;
+  background:conic-gradient(var(--success) calc(var(--p)*1%),var(--surface-3) 0);position:relative}
+.ring::after{content:"";position:absolute;inset:4px;border-radius:50%;background:var(--surface)}
+.ring span{position:relative;z-index:1;font-size:.66rem;font-weight:800;color:var(--text)}
+.bar{height:6px;border-radius:999px;background:var(--surface-3);overflow:hidden}
+.bar>i{display:block;height:100%;border-radius:999px;background:var(--success)}
+
+/* ---------- Task list ---------- */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-md);box-shadow:var(--sh-sm);overflow:hidden}
+.panel .ph{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;border-bottom:1px solid var(--border-2)}
+.panel .ph h3{margin:0;font-size:.95rem;font-weight:700}
+.task{display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--border-2);transition:.12s}
+.task:last-child{border-bottom:0}
+.task:hover{background:var(--surface-2)}
+.dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+.t-ic{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;font-size:.85rem;background:var(--surface-3);flex-shrink:0}
+.t-ic.bug{background:var(--danger-soft);color:var(--danger)}
+.t-title{font-size:.88rem;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.t-id{font-family:var(--mono);font-size:.72rem;color:var(--text-3);font-weight:600}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:.72rem;font-weight:600;white-space:nowrap}
+.badge .dot{width:7px;height:7px}
+.b-status-backlog{background:var(--surface-3);color:var(--text-2)}
+.b-status-todo{background:#eff6ff;color:#2563eb}
+.b-status-in_progress{background:var(--warning-soft);color:var(--warning)}
+.b-status-in_review{background:var(--violet-soft);color:var(--violet)}
+.b-status-verifying{background:var(--info-soft);color:var(--info)}
+.b-status-done{background:var(--success-soft);color:var(--success)}
+.prio{display:inline-flex;align-items:center;gap:5px;font-size:.74rem;font-weight:700}
+.prio svg{width:13px;height:13px}
+.prio.highest{color:var(--danger)} .prio.high{color:var(--warning)}
+.prio.medium{color:var(--brand-600)} .prio.low{color:var(--info)} .prio.lowest{color:var(--text-3)}
+.av-sm{width:24px;height:24px;border-radius:50%;background:var(--grad);color:#fff;display:grid;place-items:center;font-size:.66rem;font-weight:700;flex-shrink:0}
+
+/* ---------- Empty state ---------- */
+.empty{text-align:center;padding:54px 24px;border:1px dashed var(--border);border-radius:var(--r-md);background:var(--surface)}
+.empty svg{width:90px;height:90px;margin-bottom:14px}
+.empty h3{margin:0 0 6px;font-size:1rem}
+.empty p{margin:0 0 16px;color:var(--text-2);font-size:.86rem}
+
+/* ---------- Two column ---------- */
+.cols{display:grid;grid-template-columns:1.6fr 1fr;gap:18px;align-items:start}
+@media(max-width:980px){.cols{grid-template-columns:1fr}.sidebar{display:none}}
+
+/* ---------- Activity panel ---------- */
+.act{display:flex;gap:11px;padding:12px 4px;border-bottom:1px solid var(--border-2)}
+.act:last-child{border-bottom:0}
+.act .av-sm{width:30px;height:30px;flex:0 0 30px}
+.act .b{font-size:.84rem;line-height:1.5}
+.act .b b{font-weight:700}
+.act .t{font-size:.72rem;color:var(--text-3);margin-top:2px}
+.chip{display:inline-block;font-size:.66rem;font-weight:700;padding:1px 7px;border-radius:6px;background:var(--brand-soft);color:var(--brand-600);margin-left:6px}
+</style>
+</head>
+<body>
+
+<!-- Topbar -->
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="brand" onclick="document.documentElement.scrollIntoView()">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7Z" stroke="#fff" stroke-width="2"/><path d="M9 4v16M15 4v16M4 10h16M4 14h16" stroke="#fff" stroke-width="1.4" opacity=".7"/></svg>
+      </div>
+      <div class="brand-name">Agent<b>Board</b></div>
+    </div>
+    <nav class="nav">
+      <a href="#" class="active">仪表盘</a>
+      <a href="#">项目</a>
+      <a href="#">Sprint</a>
+    </nav>
+    <div class="spacer"></div>
+    <div class="search">
+      <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="m20 20-3-3" stroke="currentColor" stroke-width="2"/></svg>
+      <input placeholder="搜索任务、项目…">
+    </div>
+    <button class="icon-btn" id="theme" title="切换主题">🌙</button>
+    <div class="avatar" title="Jason">JA</div>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="side-h"><h3>项目空间</h3><button class="side-add">＋</button></div>
+    <div class="tree-item active"><span class="tree-ic">📦</span>WeTax 智慧税务 <span class="tag">WT</span></div>
+    <div class="tree-item"><span class="tree-ic">🏗️</span>天津招投标平台 <span class="tag">TB</span></div>
+    <div class="tree-item"><span class="tree-ic">⚡</span>AgentBoard 自身 <span class="tag">AB</span></div>
+    <div class="side-h" style="margin-top:18px"><h3>快捷</h3></div>
+    <div class="tree-item"><span class="tree-ic">📋</span>我的看板</div>
+    <div class="tree-item"><span class="tree-ic">🤖</span>Agent 运行</div>
+  </aside>
+
+  <!-- Main -->
+  <main>
+    <div class="hero">
+      <div>
+        <h1>WeTax 智慧税务服务平台</h1>
+        <p>12 个 Epic · 38 个 Story · 本月交付节奏良好</p>
+      </div>
+      <div class="pill">🤖 3 个 Agent 在线</div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats">
+      <div class="stat"><div class="stat-ic b">📦</div><div class="stat-n tabnums">3</div><div class="stat-l">项目空间</div><div class="stat-d">本月 <span class="up">+1</span> 新增</div></div>
+      <div class="stat"><div class="stat-ic v">🎯</div><div class="stat-n tabnums">12</div><div class="stat-l">Epic</div><div class="stat-d">进行中 5</div></div>
+      <div class="stat"><div class="stat-ic a">📝</div><div class="stat-n tabnums">38</div><div class="stat-l">Story</div><div class="stat-d">待规划 9</div></div>
+      <div class="stat"><div class="stat-ic g">✅</div><div class="stat-n tabnums">146</div><div class="stat-l">任务</div><div class="stat-d">本周 <span class="up">+18</span></div></div>
+      <div class="stat"><div class="stat-ic i">📈</div><div class="stat-n tabnums">68%</div><div class="stat-l">整体完成率</div><div class="stat-d">较上周 <span class="up">+6%</span></div></div>
+    </div>
+
+    <!-- Projects -->
+    <div class="cols">
+      <div>
+        <div class="sec-h"><h2>项目总览</h2><button class="btn">＋ 新建项目</button></div>
+        <div class="grid">
+          <div class="pcard" style="--bar:linear-gradient(90deg,#4f46e5,#8b5cf6)">
+            <div class="row1"><span class="nm">WeTax 智慧税务</span><span class="key">WT</span></div>
+            <div class="desc">面向企业的智慧税务申报、风险识别与优惠政策匹配平台，含 RAG 知识库。</div>
+            <div class="foot"><span><b>12</b> Epic</span><span><b>38</b> Story</span><span><b>146</b> 任务</span></div>
+            <div class="bar"><i style="width:68%"></i></div>
+          </div>
+          <div class="pcard" style="--bar:linear-gradient(90deg,#0891b2,#22d3ee)">
+            <div class="row1"><span class="nm">天津招投标平台</span><span class="key">TB</span></div>
+            <div class="desc">.NET 8 + Python LangGraph 多智能体驱动的招投标智慧化提升项目。</div>
+            <div class="foot"><span><b>6</b> Epic</span><span><b>21</b> Story</span><span><b>84</b> 任务</span></div>
+            <div class="bar"><i style="width:41%"></i></div>
+          </div>
+          <div class="pcard" style="--bar:linear-gradient(90deg,#059669,#34d399)">
+            <div class="row1"><span class="nm">AgentBoard 自身</span><span class="key">AB</span></div>
+            <div class="desc">用 OpenSpec 规范驱动开发本项目自身，轻量 Jira + Agent 开发闭环。</div>
+            <div class="foot"><span><b>9</b> Epic</span><span><b>30</b> Story</span><span><b>120</b> 任务</span></div>
+            <div class="bar"><i style="width:83%"></i></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Activity -->
+      <div>
+        <div class="sec-h"><h2>近期动态</h2></div>
+        <div class="panel">
+          <div class="ph"><h3>🤖 Agent 活动</h3><span class="meta">实时</span></div>
+          <div class="act"><div class="av-sm">CB</div><div><div class="b"><b>CodeBuddy</b> 完成 <b>WT-214 申报表导出</b><span class="chip">done</span></div><div class="t">2 分钟前 · 回写运行摘要</div></div></div>
+          <div class="act"><div class="av-sm">WB</div><div><div class="b"><b>WorkBuddy</b> 认领 <b>WT-209 风险模型</b><span class="chip">in_progress</span></div><div class="t">15 分钟前 · 进入开发</div></div></div>
+          <div class="act"><div class="av-sm">JA</div><div><div class="b"><b>Jason</b> 新建 Sprint <b>「七月冲刺」</b></div><div class="t">1 小时前</div></div></div>
+          <div class="act"><div class="av-sm">QO</div><div><div class="b"><b>Qoder</b> 提交 PR <b>#47 评论流</b><span class="chip">in_review</span></div><div class="t">3 小时前</div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Task list -->
+    <div class="sec-h" style="margin-top:30px"><h2>WeTax · 进行中的任务</h2><button class="btn ghost">查看全部 →</button></div>
+    <div class="panel">
+      <div class="ph"><h3>活跃任务</h3><span class="meta">4 / 26</span></div>
+      <div class="task">
+        <span class="dot" style="background:var(--warning)"></span>
+        <span class="t-ic">▢</span>
+        <span class="t-title">WT-209 增值税风险识别模型联调</span>
+        <span class="t-id">WT-209</span>
+        <span class="badge b-status-in_progress"><span class="dot" style="background:var(--warning)"></span>进行中</span>
+        <span class="prio high"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 5l4 8H8z"/></svg>高</span>
+        <span class="av-sm">WB</span>
+      </div>
+      <div class="task">
+        <span class="dot" style="background:var(--violet)"></span>
+        <span class="t-ic">▢</span>
+        <span class="t-title">WT-214 申报表 PDF 导出与签章</span>
+        <span class="t-id">WT-214</span>
+        <span class="badge b-status-done"><span class="dot" style="background:var(--success)"></span>已完成</span>
+        <span class="prio medium"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 8l3 6H9z"/></svg>中</span>
+        <span class="av-sm">CB</span>
+      </div>
+      <div class="task">
+        <span class="dot" style="background:var(--danger)"></span>
+        <span class="t-ic bug">🐞</span>
+        <span class="t-title">WT-198 优惠政策匹配偶发空指针</span>
+        <span class="t-id">WT-198</span>
+        <span class="badge b-status-verifying"><span class="dot" style="background:var(--info)"></span>验证中</span>
+        <span class="prio highest"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 4l5 9H7z"/></svg>最高</span>
+        <span class="av-sm">JA</span>
+      </div>
+      <div class="task">
+        <span class="dot" style="background:#2563eb"></span>
+        <span class="t-ic">▢</span>
+        <span class="t-title">WT-231 知识库检索召回优化</span>
+        <span class="t-id">WT-231</span>
+        <span class="badge b-status-todo"><span class="dot" style="background:#2563eb"></span>待处理</span>
+        <span class="prio low"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 16l-3-6h6z"/></svg>低</span>
+        <span class="av-sm">QO</span>
+      </div>
+    </div>
+
+    <!-- Empty state -->
+    <div class="sec-h" style="margin-top:30px"><h2>归档季</h2></div>
+    <div class="empty">
+      <svg viewBox="0 0 120 120" fill="none">
+        <rect x="22" y="30" width="76" height="60" rx="8" stroke="var(--brand-500)" stroke-width="3"/>
+        <path d="M22 46h76" stroke="var(--brand-500)" stroke-width="3"/>
+        <rect x="36" y="58" width="48" height="8" rx="4" fill="var(--brand-soft)"/>
+        <circle cx="60" cy="80" r="9" fill="var(--brand-soft)"/>
+        <path d="m56 80 3 3 5-6" stroke="var(--brand-600)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+      <h3>本季度暂无归档项目</h3>
+      <p>完成的项目会自动进入归档，保持工作区清爽。</p>
+      <button class="btn">查看历史归档</button>
+    </div>
+  </main>
+</div>
+
+<script>
+const t=document.getElementById('theme');
+t.onclick=()=>{const d=document.documentElement.getAttribute('data-theme')==='dark';
+  document.documentElement.setAttribute('data-theme',d?'light':'dark');
+  t.textContent=d?'🌙':'☀';};
+</script>
+</body>
+</html>
