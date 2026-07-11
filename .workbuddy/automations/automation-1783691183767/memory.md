@@ -1,5 +1,14 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-11（周期执行 · A-13 任务详情抽屉）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=d21e14b）。
+- **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-12 已完成，认领下一个 pending 项 **A-13 任务详情抽屉**。
+- **开发任务**：Story 页任务列表/看板项由 `<a href="#/task/{id}">` 改为 `<a data-task-id>`（去 href，不跳路由）；新增 `openTaskDrawer`/`closeTaskDrawer`/`attachTaskDrawer` 三个辅助——单击从右侧滑出抽屉（含 description/spec + 状态流转按钮，复用 `md()/statusFlow()/statusBadge()` 等），遮罩点击/Esc 关闭并 `render()` 刷新列表；列表项保留 A-04 双击编辑标题（200ms 计时区分单击/双击）。index.html 加 `#drawer-overlay`/`#task-drawer` 容器，style.css 加 `.drawer*` 样式（含暗色兜底）。`app.js`+~80、`style.css`+32、index.html+2（净增 ~114 行，含 CSS/HTML，前端逻辑 <~80 行），未改 `models.py`/`api.py` 契约。
+- **部署 Docker**：基础镜像本地缓存命中 → `docker compose up -d --build web` 规范重建成功（api/web 镜像重建、容器 recreated 且 healthy），无需退化 `docker cp`。HTTP 校验 page 200、`/api/meta` 200、`app.js` 含 `openTaskDrawer`(3)、`style.css` 含 `.drawer`(15)、index 含 `task-drawer`(1)。
+- **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
+- **推送**：`git push origin main` 成功（`d21e14b..d7d3a1c`，commit `d7d3a1c`）。
+- **下一个 pending 项**：A-14 Markdown 编辑工具栏。
+
 ## 2026-07-11（周期执行 · A-12 Toast 堆叠与动画）
 - **拉取最新代码**：`git pull origin main` 因沙箱 SSH 不可达失败（`Connection closed by 198.18.0.18 port 22`）；先把上一轮残留的自动化/项目记忆文件提交（`7500bac`），本地领先 origin。
 - **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-11 已完成，认领下一个 pending 项 **A-12 Toast 堆叠与动画**。
