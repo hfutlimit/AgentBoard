@@ -269,6 +269,13 @@ main {
 
 /* ========== Entity list (Epic/Story/Task items) ========= */
 .entity-list { display: flex; flex-direction: column; gap: 6px; }
+/* B-06 列表分组：分组标题 + 小号下拉（与现有 .seg 视觉一致） */
+.group-wrap { display: flex; flex-direction: column; gap: 4px; }
+.group-head { display: flex; align-items: center; gap: 8px; margin: 14px 0 2px; font-size: .8rem; font-weight: 600; color: var(--text-secondary); letter-spacing: -.01em; }
+.group-head .badge, .group-head .type-icon { font-size: .78rem; }
+.group-count { font-variant-numeric: tabular-nums; color: var(--text-3, #9aa4b2); font-weight: 600; }
+.select-sm { height: 30px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--card-bg); color: var(--text); font: inherit; font-size: .82rem; cursor: pointer; }
+.select-sm:focus-visible { outline: 2px solid var(--brand-ring, rgba(37,99,235,.4)); outline-offset: 1px; }
 .entity-item {
   display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
   padding: 11px 14px; background: var(--card-bg); border: 1px solid var(--border);

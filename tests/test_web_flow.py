@@ -119,12 +119,15 @@ def test_web_serves_spa(servers):
     assert 'aria-current="page"' in js.text, "A-18 面包屑当前级未标记 aria-current"
     assert "function entityActions" in js.text and "attachEntityActions" in js.text, "A-19 列表项 hover 操作未渲染"
     assert "agentboard_story_view" in js.text and "localStorage.setItem(VIEW_KEY" in js.text, "A-20 视图偏好本地存储未实现"
+    assert "storyTaskListHTML" in js.text and "storyGroupBy" in js.text and 'id="s-group-by"' in js.text, "B-06 列表分组（按状态/类型）未渲染"
+    assert "agentboard_story_group" in js.text and "localStorage.setItem(GROUP_KEY" in js.text, "B-06 分组偏好本地存储未实现"
 
     css = httpx.get(web_base + "/static/style.css")
     assert css.status_code == 200, "style.css 未提供"
     assert "--grad:" in css.text and "[data-theme=\"dark\"]" in css.text, "品牌 token 或暗色主题缺失"
     assert ".crumb-current" in css.text and "var(--brand-soft)" in css.text, "A-18 当前级高亮样式缺失"
     assert ".entity-item-actions" in css.text and ".ei-act" in css.text, "A-19 hover 操作样式缺失"
+    assert ".group-head" in css.text and ".select-sm" in css.text, "B-06 分组标题/下拉样式缺失"
 
 
 # ---------------- 注册 / 登录 ----------------

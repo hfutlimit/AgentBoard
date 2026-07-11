@@ -278,7 +278,7 @@
 - [ ] **B-03 截止日期（due_date）**：task 增加 `due_date` + 日历控件 + 逾期高亮。
 - [ ] **B-04 看板拖拽排序**：拖动卡片变更 status（需后端接受合法迁移 + 可选 order 字段）。
 - [x] **B-05 评论 / 活动流**：task 增加评论（已由 Epic 12 / Story 12.1 完成）。
-- [ ] **B-06 列表分组 / 排序**：按状态/类型/负责人分组（部分可纯前端，分组维度来自后端字段）。
+- [ ] **B-06 列表分组 / 排序**：按状态/类型/负责人分组（纯前端「按状态/按类型」已实现，见完成记录；「按负责人」依赖 Epic 7 用户体系，仍待后端）。
 
 ---
 
@@ -337,3 +337,4 @@
 | 2026-07-11 | A-18 | 面包屑高亮当前级：`.crumb-current` 由纯文字改为品牌浅底药丸（bold + `--brand-soft` 背景 + 1px 品牌环），与链接面包屑清晰区分；链接面包屑加 hover 浅底 chip 与 `:focus-visible` 品牌光环；当前级加 `aria-current="page"`。`app.js`+1、style.css+16/−5、test_web_flow.py+2（净增 ~13 行，符合 R2），未改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | A-19 | 列表项 hover 操作：Epic/Story/Task 列表项右侧新增 hover/focus-within 淡入的「✏ 编辑 / 🗑 删除」快捷图标（默认隐藏、触摸设备常显）。新增 `entityActions(type,id)` 渲染辅助与 `attachEntityActions(app)` 事件委托（`preventDefault+stopPropagation` 避免触发导航/抽屉；编辑复用 `inlineEditEnter`，删除二次 `confirm` 后调既有 `DELETE` 端点并 `render()`）；新增 `API_PLURAL` 复数映射并**修复 `inlineEditEnter` 对 story 生成 `/api/storys` 的既有 404 缺陷**（改用映射得 `/api/stories`）。`app.js`+~35、style.css+8、test_web_flow.py+2（净增 ~45 行，符合 R2），未改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | A-20 | 前端偏好本地存储：Story 页任务区视图切换（列表/看板）经 `localStorage`（键 `agentboard_story_view`）持久化；`storyViewMode` 启动时读取偏好、切换时回写，下次进入 Story 页自动恢复上次选择。仅改 `app.js`(+3/−1)、`test_web_flow.py`+1（净增 ~4 行，符合 R2），未改 `models.py`/`api.py` 契约 |
+| 2026-07-11 | B-06(纯前端) | 列表分组：Story 任务列表新增「不分组 / 按状态 / 按类型」切换（`<select id="s-group-by">`），分组维度取自后端已返回的 status/type 字段、无需新增 API；分组偏好存 `localStorage`（键 `agentboard_story_group`）；全局搜索过滤后自动隐藏空分组标题。新增 `storyTaskItemHTML()`/`storyTaskListHTML()` 辅助。仅改 `app.js`(+46/−18)/`style.css`(+7)/`test_web_flow.py`(+2)（净增 ~53 行，符合 R2），未改 `models.py`/`api.py` 契约 |

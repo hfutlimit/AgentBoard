@@ -60,6 +60,8 @@ function fallbackCopy(text, cb) {
 const THEME_KEY = "agentboard_theme";
 // A-20 前端偏好本地存储：Story 页任务区视图（列表/看板）持久化键
 const VIEW_KEY = "agentboard_story_view";
+// B-06 列表分组：Story 任务列表分组方式（none/status/type）持久化键
+const GROUP_KEY = "agentboard_story_group";
 function applyTheme(theme) {
   const t = theme || localStorage.getItem(THEME_KEY) || "light";
   document.documentElement.setAttribute("data-theme", t);
@@ -243,9 +245,40 @@ function renderKanban(tasks) {
   return `<div class="kanban">${cols}</div>`;
 }
 
+// B-06 列表分组（纯前端）：将 Story 任务渲染为「不分组 / 按状态 / 按类型」的列表。
+// 分组维度取自后端已返回的 status/type 字段，无需新增 API。
+function storyTaskItemHTML(t) {
+  return `<a data-task-id="${t.id}" class="entity-item">
+    <div class="entity-item-main">
+      <span class="type-icon ${t.type}">${typeIcon(t.type)}</span>
+      <span class="entity-item-title">${esc(t.title)}</span>
+    </div>
+    <div class="entity-item-badges">
+      ${t.type === "bug" ? `<span class="badge bug">${typeIcon("bug")} Bug</span>` : ""}
+      ${priorityBadge(t.priority)}
+      ${statusBadge(t.status)}
+    </div>
+    ${entityActions("task", t.id)}
+  </a>`;
+}
+function storyTaskListHTML(tasks, groupBy) {
+  if (!tasks.length) return emptyState("🔧", "暂无任务", "添加 Task 或 Bug 开始推进工作", { id: "s-new-task", label: "＋ 新建任务" });
+  if (groupBy === "none") return `<div class="entity-list">${tasks.map(storyTaskItemHTML).join("")}</div>`;
+  const keys = groupBy === "status" ? META.statuses : META.types;
+  const labelOf = k => groupBy === "status" ? (STATUS_LABEL[k] || k) : (k === "bug" ? "Bug" : "Task");
+  const iconOf = k => groupBy === "status" ? statusBadge(k) : `<span class="type-icon ${k}">${typeIcon(k)}</span>`;
+  return `<div class="group-wrap">${keys.map(k => {
+    const items = tasks.filter(t => (groupBy === "status" ? t.status : t.type) === k);
+    if (!items.length) return "";
+    return `<div class="group-head">${iconOf(k)}<span class="group-label">${labelOf(k)}</span><span class="group-count">${items.length}</span></div>
+      <div class="entity-list">${items.map(storyTaskItemHTML).join("")}</div>`;
+  }).join("")}</div>`;
+}
+
 // ---------- 侧栏 ----------
 let sidebarOpen = true;
 let storyViewMode = localStorage.getItem(VIEW_KEY) || "list"; // "list" | "board"（Story 页任务区视图切换，A-20 记住上次选择）
+let storyGroupBy = localStorage.getItem(GROUP_KEY) || "none"; // "none" | "status" | "type"（B-06 任务列表分组，纯前端）
 
 function toggleSidebar() {
   sidebarOpen = !sidebarOpen;
@@ -373,6 +406,16 @@ function applySearch() {
         scope.appendChild(hint);
       }
     } else if (hint) hint.remove();
+  });
+  // B-06 分组视图：全局搜索过滤后隐藏空分组标题
+  if (q) document.querySelectorAll(".group-wrap").forEach(w => {
+    w.querySelectorAll(".group-head").forEach(h => {
+      const list = h.nextElementSibling;
+      if (list && list.classList.contains("entity-list")) {
+        const anyVisible = [...list.querySelectorAll(".entity-item")].some(el => el.style.display !== "none");
+        h.style.display = anyVisible ? "" : "none";
+      }
+    });
   });
 }
 
@@ -734,29 +777,17 @@ async function viewStory(app, id) {
           <button class="seg-btn${storyViewMode === "list" ? " active" : ""}" data-mode="list">列表</button>
           <button class="seg-btn${storyViewMode === "board" ? " active" : ""}" data-mode="board">看板</button>
         </div>
+        <select id="s-group-by" class="select-sm" title="任务列表分组方式">
+          <option value="none"${storyGroupBy === "none" ? " selected" : ""}>不分组</option>
+          <option value="status"${storyGroupBy === "status" ? " selected" : ""}>按状态</option>
+          <option value="type"${storyGroupBy === "type" ? " selected" : ""}>按类型</option>
+        </select>
         <button id="s-new-task" class="btn-primary-sm">＋ 新建</button>
         <button class="ghost-sm" id="copy-story-link" title="复制此项深链接">🔗 复制链接</button>
       </div>
     </div>
     <div id="story-list-view"${storyViewMode === "board" ? ' style="display:none"' : ""}>
-      ${tasks.length ? `
-        <div class="entity-list">
-          ${tasks.map(t => `
-            <a data-task-id="${t.id}" class="entity-item">
-              <div class="entity-item-main">
-                <span class="type-icon ${t.type}">${typeIcon(t.type)}</span>
-                <span class="entity-item-title">${esc(t.title)}</span>
-              </div>
-              <div class="entity-item-badges">
-                ${t.type === "bug" ? `<span class="badge bug">${typeIcon("bug")} Bug</span>` : ""}
-                ${priorityBadge(t.priority)}
-                ${statusBadge(t.status)}
-              </div>
-              ${entityActions("task", t.id)}
-            </a>
-          `).join("")}
-        </div>
-      ` : emptyState("🔧", "暂无任务", "添加 Task 或 Bug 开始推进工作", { id: "s-new-task", label: "＋ 新建任务" })}
+      ${storyTaskListHTML(tasks, storyGroupBy)}
     </div>
     <div id="story-board-view"${storyViewMode === "list" ? ' style="display:none"' : ""}>
       ${renderKanban(tasks)}
@@ -785,6 +816,14 @@ async function viewStory(app, id) {
     $("story-board-view").style.display = storyViewMode === "list" ? "none" : "";
     document.querySelectorAll(".seg-btn").forEach(x => x.classList.toggle("active", x.dataset.mode === storyViewMode));
   });
+  const gs = $("s-group-by");
+  if (gs) gs.onchange = () => {
+    storyGroupBy = gs.value;
+    localStorage.setItem(GROUP_KEY, storyGroupBy); // B-06 记住分组偏好
+    const lv = $("story-list-view");
+    if (lv) lv.innerHTML = storyTaskListHTML(tasks, storyGroupBy);
+    applySearch();
+  };
   const copyBtnS = $("copy-story-link");
   if (copyBtnS) copyBtnS.onclick = () => copyLink(`#/story/${id}`);
   bindForm("s-edit", async (d) => {

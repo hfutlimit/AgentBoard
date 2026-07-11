@@ -1,5 +1,24 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-12（周期执行 · B-06 列表分组收尾交付）
+- **拉取最新代码**：`git fetch origin` 显示远端无新提交（HEAD=df19997，0/0），已是最新；工作树含 B-06 列表分组未提交改动（app.js+75/−19、style.css+7、test_web_flow.py+3、docs/tasks.md 完成记录）。
+- **需求/任务分析**：Epic 11 Backlog A（A-01~A-20）与 Backlog C（P-01~P-15）均已完成；Backlog B 中仅 B-06 的纯前端「按状态/按类型」分组部分已在树中写完但未提交。本周期收尾交付 B-06（不新开其他项，保持每周期一项）。
+- **开发任务（已在工作树）**：Story 任务列表新增「不分组/按状态/按类型」`<select id="s-group-by">`，复用后端已返回的 status/type 字段、无需新 API；新增 `storyTaskItemHTML()/storyTaskListHTML()`；分组偏好存 `localStorage`（键 `agentboard_story_group`）；全局搜索过滤后自动隐藏空分组标题。净增 ~53 行（app.js+46/−18、style.css+7、test+2），符合 R2，未改 `models.py`/`api.py` 契约。
+- **部署 Docker**：`docker compose build web` 因沙箱 Docker Hub 不可达（`python:3.13-slim` 元数据拉取超时）失败；退化为 `docker cp` 将新 `app.js`/`style.css` 注入运行中的 `agentboard-web-1`（/app/agentboard/web/static/）。⚠️ 副作用修复：`up -d web` 传入的占位 `AGENTBOARD_SECRET` 与 api 原密钥不同，导致 `agentboard-api-1` 被重建为占位密钥（与未运行的 mcp 潜在冲突）；已写入 `.env`（`AGENTBOARD_SECRET`，已被 gitignore）固化稳定密钥并 `docker compose up -d api web` 重建 api 一致化，根治后续 mcp 启动冲突。HTTP 校验 page 200、served app.js 含 `storyTaskListHTML`/`id="s-group-by"`/`agentboard_story_group`、style.css 含 `.group-head`/`.select-sm`、`/api/meta`(8000) 200。
+- **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归（排除需 fastmcp 的 test_smoke）。
+- **推送**：`git commit` 暂存 B-06 四文件 + 自动化/项目记忆 → `git push origin main`。
+- **下一个 pending 项**：Backlog B 剩余 B-01 labels / B-02 assignee / B-03 due_date / B-04 看板拖拽 均需后端契约改动；可转 Epic 7 登录 UI / Epic 9 Playwright E2E / Epic 8 MariaDB 脚本等。
+
+## 2026-07-11（周期执行 · A-20 前端偏好本地存储 + 收尾 Backlog A）
+- **拉取最新代码**：`git pull origin main` 首次 SSH 中断，重试成功，已是最新（HEAD=a853813，即 A-19）。工作树含用户未提交无关改动（MCP 鉴权/MariaDB 等 ~448 行 + 未跟踪 examples/、openspec/changes/archive/、tests/test_mcp_smoke.py），未动。
+- **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-19 已完成，认领最后一个 pending 项 **A-20 前端偏好本地存储**（记住 Story 页列表/看板视图）。
+- **开发任务**：Story 页任务区视图切换经 `localStorage`（键 `agentboard_story_view`）持久化——`storyViewMode` 启动读取、切换回写，下次进入 Story 页自动恢复。`app.js`+3/−1（新增 `VIEW_KEY` 常量与读取/回写两处）、`test_web_flow.py`+1（静态断言），净增 ~4 行，符合 R2，未改 `models.py`/`api.py` 契约。
+- **部署 Docker**：`docker cp` 注入新 `app.js` 到运行中的 `agentboard-web-1`（/app/agentboard/web/static/，避免把用户无关改动烤进重建镜像，因运行镜像由旧提交构建）。HTTP 校验 page 200、served app.js 含 `const VIEW_KEY`/`localStorage.setItem(VIEW_KEY`、`/api/meta`(8000) 200。
+- **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
+- **推送**：`git commit` **仅暂存 `app.js`+`test_web_flow.py`**（刻意不提交 `docs/tasks.md`——该文件同时含用户未提交无关改动，避免混入）；`git push origin main` 成功（`a853813..cf429b1`，commit `cf429b1`）。
+- **⚠️ 未提交项**：`docs/tasks.md` 的 A-20 勾选/完成记录已写入工作树但未提交（与用户未提交改动纠缠），待用户提交其部分或下个周期一并带上。
+- **下一个 pending 项**：Backlog A 已全完成（A-01~A-20）。Backlog B 均需后端契约改动，不可纯前端做。下一周期需重新评估轨道：可转入 Backlog B 中"部分纯前端实现"的子项、或 Epic 7 登录 UI / Epic 9 Playwright E2E 等。
+
 ## 2026-07-11（周期执行 · A-19 列表项 hover 操作 + 修复 story 行内编辑 404）
 - **拉取最新代码**：`git pull origin main` 已是最新（HEAD=0818e74）。
 - **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-18 已完成，认领下一个 pending 项 **A-19 列表项 hover 操作**。
