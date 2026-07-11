@@ -25,7 +25,7 @@ Task 拥有按创建时间正序排列的评论流；评论字段为 `id, task_i
 - `GET/POST /api/stories/{id}/tasks`、`GET/PATCH/DELETE /api/tasks/{id}`
 - `PUT /api/tasks/{id}/status`、`GET /api/tasks`（搜索：project/epic/story/type/status/priority/q）
 - `GET/POST /api/tasks/{id}/comments`、`DELETE /api/comments/{id}`
-- `POST /api/tasks/{id}/generate-subtasks`（spec 清单项 → 同级子任务）
+- `POST /api/tasks/{id}/generate-subtasks`（兼容性命名；spec 清单项 → 同一 Story 下的同级 Task，不形成 Task 嵌套）
 - `GET /api/meta`（返回 types / statuses / priorities）
 
 ## MCP 工具
@@ -34,9 +34,9 @@ Task 拥有按创建时间正序排列的评论流；评论字段为 `id, task_i
 > MCP 默认 `AGENTBOARD_MCP_BACKEND=api` 调 REST；可设 `db` 直连。列表/搜索工具支持 `limit` / `offset` 分页。
 
 ## Web UI
-项目树浏览；Project/Epic/Story/Task/Bug 全量增删改；状态流转；任务优先级徽章与编辑；description/spec 编辑；评论时间线；「插入 OpenSpec 提案模板」「从 spec 生成子任务」按钮；markdown 渲染。
+项目树浏览；Project/Epic/Story/Task/Bug 全量增删改；状态流转；任务优先级徽章与编辑；description/spec 编辑；评论时间线；Story 列表/看板的任务详情抽屉；「插入 OpenSpec 提案模板」「从 spec 生成同级任务」按钮；markdown 渲染。
 
 ## 规范约定
 - Task.spec 存放 OpenSpec/Superpowers markdown；`spec_proposal` 生成标准提案结构：背景 / 目标 / 范围 / 任务清单 / 验收标准。
-- `generate_tasks_from_spec` 解析 spec 中 `- [ ] 标题` 清单项，生成同级子任务，子任务以 `source_spec_id` 反向关联源任务，并在源 spec 末尾回写链接（双向引用）。
+- `generate_tasks_from_spec` 解析 spec 中 `- [ ] 标题` 清单项，在同一 Story 下生成同级 Task；生成项以 `source_spec_id` 反向关联源任务，并在源 spec 末尾回写链接（双向引用）。“subtask”仅是兼容性接口名称，不表示数据层级嵌套。
 - 存储：调试 SQLite，生产 MariaDB，经 `AGENTBOARD_DB_URL` 切换，代码不感知具体数据库。

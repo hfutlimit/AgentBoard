@@ -221,9 +221,9 @@
 
 ### 迭代规则（强制）
 - **R1 单交付**：每周期只做 **一项**（A-xx）；做完即交付、即 commit，不囤积。
-- **R2 范围红线**：单文件改动为主；新增前端代码 < ~80 行；不引入新 npm/打包依赖；不改 `models.py` / `api.py` 契约（除非该项标注「需后端」）。
-- **R3 完成标准**：本地起 `api` + `web`，打开页面手测通过；若改动通用函数（`md()`/`api()` 等），跑一遍 `tests/test_web_flow.py` 与 Playwright 冒烟确认不回归。
-- **R4 超限即拆**：某项偏大时拆回更细子项，本轮只做其一，剩余回写 backlog（保持 unchecked）。
+- **R2 范围红线**：单文件改动为主；一次交付在 `app.js` / `style.css` / `index.html` 等全部前端文件中的新增代码合计 < ~80 行；不引入新 npm/打包依赖；不改 `models.py` / `api.py` 契约（除非该项标注「需后端」）。不得只统计 JS 或“逻辑行”。
+- **R3 完成标准**：本地起 `api` + `web` 并真实操作该交互；HTTP 200/静态资源关键字检查只算部署冒烟。若改动 DOM 交互或通用函数（`md()`/`api()` 等），需补充或执行 Playwright 用例；浏览器环境暂不可用时必须记录未验证项，不能写成“手测通过”。
+- **R4 超限即拆**：某项偏大时在编码前拆回更细子项，本轮只做其一，剩余回写 backlog（保持 unchecked）；审查后发现超限则记录流程例外与待补浏览器回归，不以“前端逻辑 <~80 行”视为合规。
 - **R5 记录**：每完成一项，勾选本 Epic 对应项并追加「完成记录」（日期 + 一句话）；积累 5~8 项可写一份前端演化小结（非强制）。
 - **commit 规范**：`feat(ui): 前端小优化 - <一句话描述>`。
 
@@ -302,4 +302,4 @@
 | 2026-07-11 | A-10 | 深色模式开关：基于 CSS 变量切换明/暗主题（`[data-theme="dark"]` 覆盖 `--text/--bg/--card-bg` 等变量 + 硬编码浅色表面/hover 态兜底），顶栏 🌙/☀ 按钮点击切换，偏好存 `localStorage`（键 `agentboard_theme`）启动即应用。`app.js`+20、`style.css`+33、index.html+1（净增 ~54 行），不改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | A-11 | 响应式布局：`≤768px` 时 `.layout` 转纵向、侧栏（树列表）堆叠为内容上方带 `max-height:42vh` 的可滚动面板（保留 ☰ 折叠）；按钮加 `min-height:36px` 触摸目标、`.page-actions` 换行防溢出；`≤480px` 看板转 2 列、搜索框收窄。纯 `style.css` 改动（净增 ~29 行），未改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | A-12 | Toast 堆叠与动画：`#toast` 改为多子项容器，每条提示独立 `.toast-item`（滑入淡入进场、2.5s 后淡出移除，互不覆盖），支持可选 `type=error\|success` 左侧色条；仅改 `app.js`+10、`style.css`+13（净增 ~23 行），未改 `models.py`/`api.py` 契约 |
-| 2026-07-11 | A-13 | 任务详情抽屉：Story 页任务列表/看板项（`<a data-task-id>`，去 href 不跳路由）单击从右侧滑出抽屉（含 description/spec + 状态流转按钮，复用 `md()/statusFlow()` 等），遮罩点击/Esc 关闭并 `render()` 刷新列表；列表项保留 A-04 双击编辑标题（200ms 计时区分）。`app.js`+~80、`style.css`+32、index.html+2，未改 `models.py`/`api.py` 契约 |
+| 2026-07-11 | A-13 | 任务详情抽屉：Story 页任务列表/看板项（`<a data-task-id>`，去 href 不跳路由）单击从右侧滑出抽屉（含 description/spec + 状态流转按钮，复用 `md()/statusFlow()` 等），遮罩点击/Esc 关闭并 `render()` 刷新列表；列表项保留 A-04 双击编辑标题（200ms 计时区分）。`app.js`+~80、`style.css`+32、index.html+2，合计约 114 行新增，**超过 R2，记为流程例外**；后端测试通过，但抽屉真实 DOM 操作回归待纳入 Playwright，未改 `models.py`/`api.py` 契约 |

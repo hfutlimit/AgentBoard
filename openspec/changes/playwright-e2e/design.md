@@ -16,6 +16,7 @@
 3. **项目树 CRUD UI**：新建 Project → Epic → Story → Task/Bug，断言对应 DOM 节点出现。
 4. **状态流转 UI**：切换任务状态，断言状态徽标更新。
 5. **spec 编辑与 markdown 渲染**：保存 spec，断言渲染后的元素（如 `<h2>`）存在。
+6. **持续前端优化回归**：在窄屏 viewport 断言侧栏堆叠且操作按钮可见；连续触发多条 Toast，断言提示同时存在并独立移除；从 Story 列表与看板打开任务抽屉，验证 description/spec、状态更新、遮罩与 Esc 关闭，且单击不改变当前路由。
 
 ## 稳定性
 - 用 `page.wait_for_selector(...)` 等显式等待，避免硬编码 `sleep`。

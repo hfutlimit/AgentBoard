@@ -13,6 +13,9 @@
 - [ ] 项目树 CRUD UI：新建 Project → Epic → Story → Task/Bug，断言 DOM 节点出现。
 - [ ] 状态流转 UI：切换状态，断言徽标文本更新。
 - [ ] spec 编辑与 markdown 渲染：保存 spec，断言渲染后的元素存在。
+- [ ] A-11 响应式布局：窄屏 viewport 下侧栏堆叠、按钮可见且无横向溢出。
+- [ ] A-12 Toast：连续触发多条提示，断言并发堆叠、独立退场。
+- [ ] A-13 任务详情抽屉：从列表/看板打开，断言内容与状态流转；遮罩/Esc 关闭且路由不跳转。
 
 ## 4. 配置与文档
 - [ ] `tests/conftest.py` 或 `playwright` marker；README「测试」节补充：`playwright install chromium` 与运行命令。
