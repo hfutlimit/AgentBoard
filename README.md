@@ -162,9 +162,14 @@ codex mcp get agentboard
 - `tests/test_backend_flow.py`：**后端自动化测试**，真实启动 uvicorn 子进程，针对已运行的 API 做 HTTP 端到端验证：注册/登录/错误分支 + 全链路 CRUD（project → epic → story → task/bug）与状态机校验。
 - `tests/test_web_flow.py`：**Web 端到端自动化测试**，同时启动真实 API 与真实 Web 服务，校验 SPA 被正确托管并接到运行中的 API，并覆盖注册/登录、各类 ticket 的创建/修改、以及项目/epic/story/task 列表与搜索读取。
 - `tests/test_mcp_smoke.py`：启动真实 Streamable HTTP MCP，验证无 Token 拒绝、Bearer 登录、工具发现和 Project → Epic → Story → Task 完整链路。
+- `tests/test_playwright_e2e.py`：**前端 E2E 真实浏览器测试**（FR-10 / Epic 9）。用真实 Chromium 驱动 SPA，验证注册 / 登录 UI 流与 DOM 行为（与 `test_web_flow.py` 的 httpx 等价校验互补）。覆盖按 Epic 9 切片推进：Story 9.1 为测试骨架（`servers` fixture + `ui_register` / `ui_login` 辅助 + 注册/登录冒烟）；Story 9.2 的真实交互用例（CRUD UI / 状态流转 / spec 编辑 / 错误分支）后续切片。
 
 ```bash
 PYTHONPATH=. python -m pytest tests/ -q
+
+# 仅跑前端 E2E（首次需安装浏览器二进制）：
+pip install playwright && playwright install chromium
+PYTHONPATH=. python -m pytest tests/test_playwright_e2e.py -q
 ```
 
 ## 数据库迁移（Alembic）

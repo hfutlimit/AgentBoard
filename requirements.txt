@@ -10,3 +10,5 @@ alembic           # 生产迁移（init_db 优先使用，缺失时降级 create
 fastmcp>=3.4,<4   # Streamable HTTP + TokenVerifier/AccessToken API
 pymysql          # 生产 MariaDB 驱动（暂未实测）
 pytest           # 开发期 smoke test
+playwright       # 前端 E2E 真实浏览器测试（FR-10 / Epic 9）
+pytest-playwright  # pytest 接入 Playwright
