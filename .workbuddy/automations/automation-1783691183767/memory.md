@@ -1,5 +1,14 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-11（周期执行 · P-15 Agent 活动面板）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=8f604b1）。
+- **需求/任务分析**：Epic 11 Backlog C 顺序推进；P-01~P-14 已完成，认领下一个 pending 项 **P-15 Agent 活动面板（可选）**（依赖 P-10，复用 `avatar()`）。
+- **开发任务**：纯前端实现，未改 `models.py`/`api.py` 契约（R2）。`viewHome` 在统计循环内收集全部 task，经现有 `/api/tasks/{id}/comments` 用 `Promise.all` 并行拉取评论，按 `created_at` 取近 12 条聚合为「近期动态 / Agent 活动」时间线；`.dashboard` 转 `1fr 330px` 双栏，面板 `grid-row:1/-1` sticky 跨列、`≤1000px` 单列堆叠；新增 `timeAgo()`/`activityPanel()` 复用 `avatar()`。`app.js`+~52/`style.css`+~23（净增 ~75 行，符合 R2），`test_web_flow.py` 增 `activity-panel`/`timeAgo` 静态断言。
+- **部署 Docker**：基础镜像本地已缓存 → `docker compose build web` + `up -d web` 规范重建成功（容器 recreated 且 healthy），无需退化 `docker cp`。HTTP 校验 page 200、served app.js 含 `activityPanel`/`timeAgo`/`activity-avatar`、served style.css 含 `.activity-panel`/`minmax(0,1fr) 330px`、`/api/meta`(8000) 200。
+- **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
+- **推送**：`git push origin main` 首次因沙箱 SSH 不可达失败（`Connection closed by 198.18.0.18 port 22`），重试成功（`8f604b1..72a456f`，commit `72a456f`）。
+- **下一个 pending 项**：Backlog A 中 **A-18 面包屑高亮当前级**（纯前端，补样式；或 A-19 列表项 hover 操作 / A-20 前端偏好本地存储）。
+
 ## 2026-07-11（手动收尾 · 品牌组件系统 P-04~P-14 批量完成）
 - **拉取最新代码**：`git pull origin main` 已是最新（HEAD=fab47c8）。
 - **未完成任务盘点**：工作树有一批未提交、未部署的大块 UI 重设计改动（app.js+126/−51、style.css+120、index.html+4/−4、tests/test_web_flow.py+6），对应 Backlog C 的 P-04~P-14 多项，疑似前次会话中断遗留；非本次新增开发。
