@@ -243,7 +243,7 @@
 - [x] **A-13 任务详情抽屉**：点击列表项从右侧滑出详情抽屉（含 description/spec/状态），不跳路由；关闭回列表。
 - [x] **A-14 Markdown 编辑工具栏**：description/spec 文本框上方加「加粗/列表/标题」快捷按钮，插入 markdown 语法。
 - [x] **A-15 键盘快捷键**：`j/k` 上下移动选中项、`e` 编辑、`Esc` 关闭弹层。
-- [ ] **A-16 复制链接**：任务/Story 提供「复制深链」（如 `#/task/123`）按钮。
+- [x] **A-16 复制链接**：任务/Story 提供「复制深链」（如 `#/task/123`）按钮。
 - [ ] **A-17 路由过渡动画**：视图切换加淡入/滑入过渡。
 - [ ] **A-18 面包屑高亮当前级**：确保各级面包屑链接正确且高亮当前级（补样式）。
 - [ ] **A-19 列表项 hover 操作**：hover 显示「编辑/删除」快捷图标，减少误触确认。
@@ -305,3 +305,4 @@
 | 2026-07-11 | A-13 | 任务详情抽屉：Story 页任务列表/看板项（`<a data-task-id>`，去 href 不跳路由）单击从右侧滑出抽屉（含 description/spec + 状态流转按钮，复用 `md()/statusFlow()` 等），遮罩点击/Esc 关闭并 `render()` 刷新列表；列表项保留 A-04 双击编辑标题（200ms 计时区分）。`app.js`+~80、`style.css`+32、index.html+2，合计约 114 行新增，**超过 R2，记为流程例外**；后端测试通过，但抽屉真实 DOM 操作回归待纳入 Playwright，未改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | A-14 | Markdown 编辑工具栏：新增 `mdToolbar(taName)`/`insertMd(ta,kind)`/`bindMdToolbar(scope)` 三个辅助，Task 详情编辑表单的 description/spec 文本框上方加「加粗/标题/列表/行内代码」按钮（行内类包裹选区、块级类行首插入，含占位文本与自动选中），点击即插入 markdown 语法。`app.js`+43/−2、`style.css`+8（净增 ~49 行，符合 R2），未改 `models.py`/`api.py` 契约；工具栏样式随 CSS 变量适配深色模式 |
 | 2026-07-11 | A-15 | 键盘快捷键：新增全局 `keydown` 监听（j/k 上下移动选中项、e 编辑选中项、Esc 关闭弹层由既有监听处理），复用 `inlineEditEnter()`/`route()`；`kbdItems()/kbdSet()/kbdEdit()` 在 `.entity-item/.project-card/.kanban-card` 中管理选中态（`.kbd-selected` 高亮、scrollIntoView），输入框聚焦或带修饰键时跳过以免冲突，`render()` 重置选中态；顶栏加 `⌨ j/k · e · Esc` 提示。`app.js`+41、style.css+8、index.html+1（净增 50 行，符合 R2），未改 `models.py`/`api.py` 契约 |
+| 2026-07-11 | A-16 | 复制链接：Task 详情与 Story 详情页 `page-actions` 各加「🔗 复制链接」按钮，点击调用新增 `copyLink(href)`（组装 `location.origin+pathname+#/xxx` 深链，优先 `navigator.clipboard.writeText`，回退 `execCommand` 临时 textarea），复制成功 `toast("已复制链接")`。仅改 `app.js`（+24/−0，净增 ~24 行，符合 R2），未改 `models.py`/`api.py` 契约 |

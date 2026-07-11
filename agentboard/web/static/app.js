@@ -36,6 +36,25 @@ function toast(msg, type) {
 }
 function route(hash) { location.hash = hash; }
 
+// A-16 复制深链：复制当前项的可分享深链接（如 #/task/123 = 完整 URL + hash 锚点）。
+// 优先 navigator.clipboard，不可用时回退 execCommand，复制成功以 toast 反馈。
+function copyLink(href) {
+  const url = location.origin + location.pathname + href;
+  const done = () => toast("已复制链接");
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(done).catch(() => fallbackCopy(url, done));
+  } else {
+    fallbackCopy(url, done);
+  }
+}
+function fallbackCopy(text, cb) {
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  try { document.execCommand("copy"); cb(); } catch (e) { toast("复制失败"); }
+  ta.remove();
+}
+
 // A-10 深色模式：切换 <html data-theme> 并持久化到 localStorage（默认浅色）
 const THEME_KEY = "agentboard_theme";
 function applyTheme(theme) {
@@ -667,6 +686,7 @@ async function viewStory(app, id) {
           <button class="seg-btn${storyViewMode === "board" ? " active" : ""}" data-mode="board">看板</button>
         </div>
         <button id="s-new-task" class="btn-primary-sm">＋ 新建</button>
+        <button class="ghost-sm" id="copy-story-link" title="复制此项深链接">🔗 复制链接</button>
       </div>
     </div>
     <div id="story-list-view"${storyViewMode === "board" ? ' style="display:none"' : ""}>
@@ -727,6 +747,8 @@ async function viewStory(app, id) {
     $("story-board-view").style.display = storyViewMode === "list" ? "none" : "";
     document.querySelectorAll(".seg-btn").forEach(x => x.classList.toggle("active", x.dataset.mode === storyViewMode));
   });
+  const copyBtnS = $("copy-story-link");
+  if (copyBtnS) copyBtnS.onclick = () => copyLink(`#/story/${id}`);
   bindForm("s-tf", async (d) => {
     await api(`/api/stories/${id}/tasks`, "POST",
       { project_id: ep.project_id, title: d.title, type: d.type, priority: d.priority, description: d.description });
@@ -766,6 +788,7 @@ async function viewTask(app, id) {
         </div>
       </div>
       <div class="page-actions">
+        <button class="ghost-sm" id="copy-task-link" title="复制此项深链接">🔗 复制链接</button>
         ${statusFlow(t)}
       </div>
     </div>
@@ -817,6 +840,8 @@ async function viewTask(app, id) {
       } catch (e) { toast("更新失败：" + e.message); b.disabled = false; }
     };
   });
+  const copyBtn = $("copy-task-link");
+  if (copyBtn) copyBtn.onclick = () => copyLink(`#/task/${id}`);
   bindForm("t-edit", async (d) => {
     await api(`/api/tasks/${id}`, "PATCH", { title: d.title, type: d.type, priority: d.priority, description: d.description, spec: d.spec });
     toast("已保存"); render();
