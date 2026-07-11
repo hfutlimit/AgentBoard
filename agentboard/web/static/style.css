@@ -850,3 +850,23 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .stat-card { align-items: center; }
   .global-search { display: none; }
 }
+
+/* ===== Epic 7：登录 / 注册 / 用户态 ===== */
+.auth-wrap { min-height: 70vh; display: grid; place-items: center; padding: 24px; }
+.auth-card { width: 100%; max-width: 380px; background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--r-lg); box-shadow: var(--sh-md); padding: 28px 26px; }
+.auth-brand { text-align: center; margin-bottom: 18px; }
+.auth-brand .logo-mark { display: inline-flex; filter: drop-shadow(0 4px 10px rgba(99,102,241,.35)); }
+.auth-brand h1 { font-size: 1.45rem; font-weight: 800; margin: 8px 0 4px; letter-spacing: -.02em; }
+.auth-brand h1 b { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.auth-brand p { font-size: .85rem; margin: 0; }
+.auth-tabs { display: flex; gap: 6px; background: var(--surface-2); padding: 4px; border-radius: var(--r-md); margin-bottom: 16px; }
+.auth-tab { flex: 1; border: 0; background: transparent; padding: 8px; border-radius: calc(var(--r-md) - 4px); cursor: pointer; font-weight: 600; color: var(--text-secondary); }
+.auth-tab.active { background: var(--card-bg); color: var(--text); box-shadow: var(--sh-sm); }
+.auth-form { display: flex; flex-direction: column; gap: 12px; }
+.auth-form label { display: flex; flex-direction: column; gap: 5px; font-size: .82rem; color: var(--text-secondary); }
+.auth-form input { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); color: var(--text); font-size: .95rem; }
+.auth-form input:focus-visible { outline: 2px solid var(--brand-500); outline-offset: 1px; border-color: var(--brand-500); }
+.auth-form .block { width: 100%; margin-top: 4px; padding: 11px; font-size: .95rem; }
+.auth-hint { font-size: .8rem; text-align: center; min-height: 1em; margin: 10px 0 0; }
+.user-chip { display: inline-flex; align-items: center; gap: 8px; }
+.user-name { font-weight: 600; }

@@ -6,13 +6,26 @@ let GLOBAL_SEARCH = ""; // A-05 全局搜索框当前查询词
 let kbdSel = -1; // A-15 键盘快捷键：当前选中项索引（每次 render 重置）
 const API_PLURAL = { project: "projects", epic: "epics", story: "stories", task: "tasks" }; // A-19 实体→REST 复数（story 不规则）
 
+// Epic 7 鉴权：token 生命周期与用户态（后端端点已存在，仅前端集成）
+function getToken() { return localStorage.getItem("agentboard_token"); }
+function setToken(t, username) { localStorage.setItem("agentboard_token", t); if (username) localStorage.setItem("agentboard_user", username); }
+function clearToken() { localStorage.removeItem("agentboard_token"); localStorage.removeItem("agentboard_user"); }
+let CURRENT_USER = null;      // 当前登录用户（含 id/username）
+let _AUTH_VISIBLE = false;    // 登录界面是否正在显示（render 守卫，避免覆盖登录屏）
+let _AUTH_MODE = "login";     // "login" | "register"
+
 // ---------- HTTP ----------
 async function api(path, method = "GET", body) {
   const opt = { method, headers: {} };
-  const token = localStorage.getItem("agentboard_token");
+  const token = getToken();
   if (token) opt.headers["Authorization"] = "Bearer " + token;
   if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
   const r = await fetch(API + path, opt);
+  if (r.status === 401) {
+    // 令牌失效或后端要求鉴权：跳回登录（auth 端点自身不触发，避免递归）
+    if (!path.startsWith("/api/auth/") && !_AUTH_VISIBLE) showAuthScreen();
+    throw new Error("unauthorized");
+  }
   if (!r.ok) {
     let msg = r.status + "";
     try { const j = await r.json(); msg = j.detail || msg; } catch (e) {}
@@ -350,6 +363,7 @@ function emptyState(icon, title, desc, cta) {
 
 // ---------- Router ----------
 async function render() {
+  if (_AUTH_VISIBLE) return; // Epic 7：已跳登录界面时不渲染应用主体
   const h = location.hash || "#/";
   const app = $("app");
   kbdSel = -1; // A-15 每次视图切换重置键盘选中态
@@ -1290,6 +1304,103 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "e") { e.preventDefault(); kbdEdit(); }
 });
 
+// ---------- Epic 7：登录 / 注册 / 用户态 ----------
+function showAuthScreen() {
+  _AUTH_VISIBLE = true;
+  CURRENT_USER = null;
+  updateUserInfo();
+  const app = $("app");
+  if (app) { app.innerHTML = authScreenHTML(); bindAuthScreen(); }
+}
+
+function authScreenHTML() {
+  const submit = _AUTH_MODE === "register" ? "注册" : "登录";
+  return `
+  <div class="auth-wrap">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <span class="logo-mark" aria-hidden="true"><svg viewBox="0 0 32 32" width="34" height="34" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="ag" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6366f1"/><stop offset=".55" stop-color="#8b5cf6"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs><rect width="32" height="32" rx="8" fill="url(#ag)"/><rect x="6" y="8" width="5" height="16" rx="2" fill="#fff"/><rect x="13.5" y="8" width="5" height="11" rx="2" fill="#fff" opacity=".85"/><rect x="21" y="8" width="5" height="14" rx="2" fill="#fff" opacity=".7"/></svg></span>
+        <h1>Agent<b>Board</b></h1>
+        <p class="muted">登录以管理项目与 Agent 开发闭环</p>
+      </div>
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab${_AUTH_MODE === "login" ? " active" : ""}" data-mode="login">登录</button>
+        <button type="button" class="auth-tab${_AUTH_MODE === "register" ? " active" : ""}" data-mode="register">注册</button>
+      </div>
+      <form id="auth-form" class="auth-form" autocomplete="off">
+        <label>用户名<input name="username" required minlength="2" maxlength="40" autocomplete="username" placeholder="2-40 个字符" /></label>
+        <label>密码<input name="password" type="password" required minlength="6" autocomplete="current-password" placeholder="至少 6 位" /></label>
+        <button type="submit" class="btn-primary block" id="auth-submit">${submit}</button>
+      </form>
+      <p class="auth-hint muted" id="auth-hint"></p>
+    </div>
+  </div>`;
+}
+
+function bindAuthScreen() {
+  const app = $("app");
+  if (!app) return;
+  app.querySelectorAll(".auth-tab").forEach((t) => t.addEventListener("click", () => {
+    _AUTH_MODE = t.dataset.mode;
+    app.querySelectorAll(".auth-tab").forEach((x) => x.classList.toggle("active", x === t));
+    const submit = $("auth-submit");
+    if (submit) submit.textContent = _AUTH_MODE === "register" ? "注册" : "登录";
+    const hint = $("auth-hint");
+    if (hint) hint.textContent = "";
+  }));
+  const form = $("auth-form");
+  if (form) form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const fd = new FormData(form);
+    const username = (fd.get("username") || "").toString().trim();
+    const password = (fd.get("password") || "").toString();
+    if (!username || !password) { toast("请输入用户名和密码", "error"); return; }
+    const btn = $("auth-submit");
+    if (btn) { btn.disabled = true; btn.textContent = "处理中…"; }
+    try {
+      const res = await api("/api/auth/" + _AUTH_MODE, "POST", { username, password });
+      setToken(res.token, res.username);
+      CURRENT_USER = res;
+      _AUTH_VISIBLE = false;
+      updateUserInfo();
+      toast(_AUTH_MODE === "register" ? "注册成功，已登录" : "登录成功");
+      startApp();
+    } catch (err) {
+      if (btn) { btn.disabled = false; btn.textContent = _AUTH_MODE === "register" ? "注册" : "登录"; }
+      toast((_AUTH_MODE === "register" ? "注册失败：" : "登录失败：") + err.message, "error");
+    }
+  });
+}
+
+function updateUserInfo() {
+  const el = $("user-info");
+  if (!el) return;
+  if (CURRENT_USER) {
+    el.innerHTML = `<span class="user-chip"><span class="user-name">${esc(CURRENT_USER.username)}</span><button id="logout-btn" class="ghost-sm" type="button">登出</button></span>`;
+    const lb = $("logout-btn");
+    if (lb) lb.addEventListener("click", logout);
+  } else {
+    el.innerHTML = `<button id="login-btn" class="ghost-sm" type="button">登录</button>`;
+    const lb = $("login-btn");
+    if (lb) lb.addEventListener("click", showAuthScreen);
+  }
+}
+
+function logout() {
+  clearToken();
+  CURRENT_USER = null;
+  showAuthScreen();
+  toast("已登出");
+}
+
+async function startApp() {
+  _AUTH_VISIBLE = false;
+  updateUserInfo();
+  try { META = await api("/api/meta"); } catch (e) {}
+  try { PROJECTS = await api("/api/projects"); } catch (e) {}
+  render();
+}
+
 // ---------- boot ----------
 window.addEventListener("hashchange", render);
 const sbToggle = document.getElementById("sidebar-toggle");
@@ -1323,8 +1434,10 @@ document.addEventListener("keydown", (e) => {
 });
 
 (async () => {
-  try { META = await api("/api/meta"); } catch (e) {}
-  // 加载侧栏数据
-  try { PROJECTS = await api("/api/projects"); } catch (e) {}
-  render();
+  // Epic 7：启动时用已存 token 校验登录态；无 token 或失效则进入应用（后端开放时）或自动跳登录（后端要求鉴权）
+  const token = getToken();
+  if (token) {
+    try { CURRENT_USER = await api("/api/auth/me"); } catch (e) { clearToken(); CURRENT_USER = null; }
+  }
+  startApp();
 })();

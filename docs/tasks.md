@@ -133,7 +133,7 @@
 待办：
 - [ ] Epic 4.2：从 spec 解析子任务 / 双向引用（可选）
 - [ ] Epic 6：以 OpenSpec 目录（`openspec/`）管理本项目自身规格
-- [ ] Epic 7：前端注册 / 登录 UI（后端鉴权已就绪，仅前端集成）
+- [x] Epic 7：前端注册 / 登录 UI（后端鉴权已就绪，仅前端集成）
 - [ ] Epic 8：MariaDB 独立 `.sql` 脚本 + 真实集成验证（Alembic 迁移已完成）
 - [ ] Epic 9：前端 Web 自动化测试（Playwright 真实浏览器 E2E）
 - [x] Epic 10：MCP 鉴权集成 + 远程运维化（完整项目树 + Streamable HTTP + Bearer）
@@ -145,18 +145,18 @@
 > 目标：补齐 SPA 的登录 / 注册界面与 token 生命周期。后端接口已就绪（见 `openspec/changes/auth/`）。
 
 ### Story 7.1 前端鉴权骨架
-- [ ] Task：`app.js` 增加 `getToken/setToken/clearToken`（localStorage）
-- [ ] Task：改造 `api()` 自动注入 `Authorization`；收到 401 清 token 回登录
-- [ ] Task：`index.html` 预留登录 / 注册容器
+- [x] Task：`app.js` 增加 `getToken/setToken/clearToken`（localStorage）
+- [x] Task：改造 `api()` 自动注入 `Authorization`；收到 401 清 token 回登录
+- [x] Task：`index.html` 预留登录 / 注册容器（复用顶栏 `#user-info` 作为登录入口 / 用户态容器）
 
 ### Story 7.2 登录 / 注册界面
-- [ ] Task：`renderAuth()`：用户名 / 密码 + 登录/注册切换，调用 `/api/auth/register|login`
-- [ ] Task：成功存 token 进应用；失败（409/401）展示错误
-- [ ] Task：启动守卫：有 token 且 `/api/auth/me` 通过则进应用，否则显示登录
+- [x] Task：`renderAuth()`：用户名 / 密码 + 登录/注册切换，调用 `/api/auth/register|login`
+- [x] Task：成功存 token 进应用；失败（409/401）展示错误
+- [x] Task：启动守卫：有 token 且 `/api/auth/me` 通过则进应用，否则显示登录（动态：后端开放时免登可用，要求鉴权时自动跳登录）
 
 ### Story 7.3 应用内用户态
-- [ ] Task：顶部栏显示当前用户名 + 登出按钮
-- [ ] Task：`style.css` 补充登录卡片 / 用户信息条样式
+- [x] Task：顶部栏显示当前用户名 + 登出按钮
+- [x] Task：`style.css` 补充登录卡片 / 用户信息条样式
 - [ ] Task（可选）：`api.py` 增加 `AGENTBOARD_REQUIRE_AUTH` 强制 CRUD 鉴权
 
 ---
@@ -338,3 +338,4 @@
 | 2026-07-11 | A-19 | 列表项 hover 操作：Epic/Story/Task 列表项右侧新增 hover/focus-within 淡入的「✏ 编辑 / 🗑 删除」快捷图标（默认隐藏、触摸设备常显）。新增 `entityActions(type,id)` 渲染辅助与 `attachEntityActions(app)` 事件委托（`preventDefault+stopPropagation` 避免触发导航/抽屉；编辑复用 `inlineEditEnter`，删除二次 `confirm` 后调既有 `DELETE` 端点并 `render()`）；新增 `API_PLURAL` 复数映射并**修复 `inlineEditEnter` 对 story 生成 `/api/storys` 的既有 404 缺陷**（改用映射得 `/api/stories`）。`app.js`+~35、style.css+8、test_web_flow.py+2（净增 ~45 行，符合 R2），未改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | A-20 | 前端偏好本地存储：Story 页任务区视图切换（列表/看板）经 `localStorage`（键 `agentboard_story_view`）持久化；`storyViewMode` 启动时读取偏好、切换时回写，下次进入 Story 页自动恢复上次选择。仅改 `app.js`(+3/−1)、`test_web_flow.py`+1（净增 ~4 行，符合 R2），未改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | B-06(纯前端) | 列表分组：Story 任务列表新增「不分组 / 按状态 / 按类型」切换（`<select id="s-group-by">`），分组维度取自后端已返回的 status/type 字段、无需新增 API；分组偏好存 `localStorage`（键 `agentboard_story_group`）；全局搜索过滤后自动隐藏空分组标题。新增 `storyTaskItemHTML()`/`storyTaskListHTML()` 辅助。仅改 `app.js`(+46/−18)/`style.css`(+7)/`test_web_flow.py`(+2)（净增 ~53 行，符合 R2），未改 `models.py`/`api.py` 契约 |
+| 2026-07-12 | Epic 7 | 前端注册/登录 UI（鉴权最后一公里）：`app.js` 新增 `getToken/setToken/clearToken` + `CURRENT_USER`/`_AUTH_VISIBLE`/`_AUTH_MODE` 状态；`api()` 自动注入 `Authorization` 并在 401 跳登录（auth 端点自身不触发，避免递归）；`showAuthScreen()/authScreenHTML()/bindAuthScreen()` 渲染登录/注册卡片（tab 切换、调用 `/api/auth/register|login`、成功存 token、失败 toast 报错）；启动用 `/api/auth/me` 校验登录态；`updateUserInfo()` 顶栏显示用户名+登出、`logout()` 清 token 回登录；`render()` 加 `_AUTH_VISIBLE` 守卫。`style.css`(+~21) 补充 `.auth-wrap/.auth-card/.auth-tabs/.auth-form/.user-chip` 等；`test_web_flow.py` 增 Epic 7 静态断言并修正 `css` 获取顺序。设计要点：启动守卫为**动态**——后端开放时免登可用、要求鉴权时自动跳登录，避免破坏现有开放部署。净增约 110 行（属独立功能 Epic，非 Epic 11 微优化 R2 范畴），未改 `models.py`/`api.py` 契约 |

@@ -110,6 +110,8 @@ def test_web_serves_spa(servers):
 
     js = httpx.get(web_base + "/static/app.js")
     assert js.status_code == 200, "app.js 未提供"
+    css = httpx.get(web_base + "/static/style.css")
+    assert css.status_code == 200, "style.css 未提供"
     assert "fetch(API" in js.text, "SPA 未使用 fetch 调 API"
     assert 'class="hero"' in js.text, "仪表盘品牌 Hero 未渲染"
     assert "badge-dot" in js.text and "empty-art" in js.text, "语义徽章或空状态插画缺失"
@@ -122,8 +124,14 @@ def test_web_serves_spa(servers):
     assert "storyTaskListHTML" in js.text and "storyGroupBy" in js.text and 'id="s-group-by"' in js.text, "B-06 列表分组（按状态/类型）未渲染"
     assert "agentboard_story_group" in js.text and "localStorage.setItem(GROUP_KEY" in js.text, "B-06 分组偏好本地存储未实现"
 
-    css = httpx.get(web_base + "/static/style.css")
-    assert css.status_code == 200, "style.css 未提供"
+    # Epic 7 登录 / 注册 UI（鉴权最后一公里）
+    assert "function showAuthScreen" in js.text, "Epic 7 登录界面未实现"
+    assert "function logout" in js.text and "登出" in js.text, "Epic 7 登出未实现"
+    assert "getToken" in js.text and "setToken" in js.text and "clearToken" in js.text, "Epic 7 token 辅助缺失"
+    assert "agentboard_token" in js.text, "Epic 7 token 持久化缺失"
+    assert "auth-form" in js.text and "auth-card" in js.text, "Epic 7 登录卡片缺失"
+    assert ".auth-card" in css.text and ".user-chip" in css.text, "Epic 7 登录/用户样式缺失"
+
     assert "--grad:" in css.text and "[data-theme=\"dark\"]" in css.text, "品牌 token 或暗色主题缺失"
     assert ".crumb-current" in css.text and "var(--brand-soft)" in css.text, "A-18 当前级高亮样式缺失"
     assert ".entity-item-actions" in css.text and ".ei-act" in css.text, "A-19 hover 操作样式缺失"
