@@ -1,5 +1,22 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-11（手动收尾 · 品牌组件系统 P-04~P-14 批量完成）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=fab47c8）。
+- **未完成任务盘点**：工作树有一批未提交、未部署的大块 UI 重设计改动（app.js+126/−51、style.css+120、index.html+4/−4、tests/test_web_flow.py+6），对应 Backlog C 的 P-04~P-14 多项，疑似前次会话中断遗留；非本次新增开发。
+- **校验**：`node --check app.js` 语法 OK；托管 venv 跑 `tests/test_web_flow.py`+`test_backend_flow.py` → **6 passed**（含新增 `hero`/`badge-dot`/`empty-art`/`--grad`/`dark` 断言）。
+- **部署 Docker**：基础镜像 `python:3.13-slim` 本地未缓存、Docker Hub 不可达 → `docker compose up -d --build web` 拉取失败；退化 `docker cp` 注入 `app.js`/`index.html`/`style.css` 到运行中的 `agentboard-web-1`。HTTP 校验 page 200、served app.js 含 `function avatar`/`class="hero"`/`badge-dot`/`empty-art`、served style.css 含 `backdrop-filter`(3)/`stat-rate`(6)/`project-progress`(4)/`--grad:`(2)。
+- **任务勾选**：`docs/tasks.md` 勾选 P-04~P-14（顶栏磨砂/统计卡/项目卡进度/徽章点/优先级SVG/空状态插画/头像/按钮聚焦/表面分级/暗色同步/Hero）。**P-15 Agent 活动面板未实现，保持 pending。**
+- **推送**：`git push origin main`（待执行，commit 见下）。下一个 pending 项：**P-15 Agent 活动面板**（依赖 P-10，复用 `avatar()`）。
+
+## 2026-07-11（周期执行 · P-03 Logo Mark 与品牌字）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=132641a）。
+- **需求/任务分析**：Epic 11 Backlog C 顺序推进；P-01/P-02 已完成，认领下一个 pending 项 **P-03 Logo Mark 与品牌字**（依赖 P-01，已满足）。
+- **开发任务**：`index.html` 加 data URI SVG favicon（渐变看板图标）+ 将纯文字 `<h1 class="logo">AgentBoard</h1>` 替换为内联渐变 SVG 看板 mark（`<span class="logo-mark">`）+ 渐变描边文字 `<span class="logo-text">Agent<b>Board</b></span>`（复用 P-01 `--grad`/`--brand-ring`）；`style.css` 重写 `.logo` 为 inline-flex，新增 `.logo-mark`（drop-shadow 品牌光晕）/`.logo-text`（background-clip:text 渐变字 + `<b>` 加粗）。`index.html`+3、`style.css`+10（净增 ~13 行，符合 R2），未改 `models.py`/`api.py` 契约。
+- **部署 Docker**：基础镜像 `python:3.13-slim` 本地未缓存、Docker Hub 不可达 → `docker compose up -d --build web` 拉取失败；退化 `docker cp` 注入新 `index.html`/`style.css` 到运行中的 `agentboard-web-1`（/app/agentboard/web/static/）。HTTP 校验 page 200、served index.html 含 `logo-mark`/`logo-text`/`rel="icon"`、served style.css 含 `logo-mark`(1)/`logo-text`(2)/`background-clip`(2)。
+- **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
+- **推送**：`git push origin main` 成功（`132641a..fab47c8`，commit `fab47c8`）。
+- **下一个 pending 项**：P-04 顶栏磨砂与导航胶囊（`.topbar` backdrop-filter 磨砂 + 导航 active 胶囊 + 搜索框聚焦品牌光环，依赖 P-01）。
+
 ## 2026-07-11（周期执行 · P-02 字体与排版升级）
 - **拉取最新代码**：`git pull origin main` 已是最新（HEAD=1146d1a）。
 - **需求/任务分析**：Epic 11 Backlog C 顺序推进；P-01 已完成，认领下一个 pending 项 **P-02 字体与排版升级**。

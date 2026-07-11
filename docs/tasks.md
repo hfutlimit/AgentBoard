@@ -235,17 +235,17 @@
 - [x] **P-01 设计 Token 体系**：`style.css` `:root`+`[data-theme="dark"]` 落地 `--brand-*`/`--grad`/`--success`/`--warning`/`--danger`/`--info`/`--violet`/`--text-2/3`/`--border-2`/`--surface-2/3`/`--sh-sm/md/lg/brand`/`--r-sm/md/lg`；保留 `--primary` 作 `--brand-500` 别名以兼容旧类（~40 行）。
 - [x] **P-02 字体与排版升级**：引入 Inter + JetBrains Mono；标题 `letter-spacing:-.02em`；数字/ID `tabular-nums`；统一字号阶梯（~30 行，依赖 P-01）。
 - [x] **P-03 Logo Mark 与品牌字**：内联 SVG 看板图标（渐变底）+ "Agent<b>Board</b>" 渐变描边文字，替换纯文字 logo；加 data URI SVG favicon（index.html+3/style.css+10，净增 ~13 行，依赖 P-01）。
-- [ ] **P-04 顶栏磨砂与导航胶囊**：`.topbar` `backdrop-filter:blur`+半透明；导航 active 改胶囊；搜索框聚焦品牌光环；图标按钮细化（~25 行，依赖 P-01）。
-- [ ] **P-05 统计卡重设计**：`renderDashboard` 统计卡加语义色图标芯片+`tabular-nums` 大数字+副标题+微趋势行；完成率卡用品牌强调（`app.js`+18/`style.css`+22，依赖 P-01,P-02）。
-- [ ] **P-06 项目卡强调条与进度**：`.project-card` 卡顶 4px 项目色渐变条、hover 上浮+阴影+隐边框、底部进度条（`app.js`+14/`style.css`+26，依赖 P-01）。
-- [ ] **P-07 状态徽章加引导点**：`statusBadge` 药丸前加 8px 色点（状态双编码），复用现有 `STATUS_COLOR`；任务列表/详情/看板同步（`app.js`+6/`style.css`+10，依赖 P-01）。
-- [ ] **P-08 优先级箭头图标**：`priorityBadge` 用内联 SVG 箭头（最高↑↑/高↑/中◆/低↓/最低↓↓）替换 `⇈↑◆↓⇊`，配色沿用优先级语义（`app.js`+12/`style.css`+8，依赖 P-01）。
-- [ ] **P-09 空状态线性插画**：`emptyState` 辅助增加 2~3 个内联 SVG 插画（归档盒/看板/空列表）替换 emoji，结构保持"插画+文案+按钮"（`app.js`+20/`style.css`+12，依赖 P-01）。
-- [ ] **P-10 头像组件（用户/Agent）**：新增 `avatar(name)` 圆形渐变底+首字母；Agent 名加标记；用于评论、活动流、顶栏用户（`app.js`+14/`style.css`+10，依赖 P-01）。
-- [ ] **P-11 按钮与聚焦态精炼**：主按钮品牌渐变阴影；统一 `:focus-visible` 品牌光环（`outline:2px var(--brand-500);outline-offset:2px`）；圆角 10px（~22 行，依赖 P-01）。
-- [ ] **P-12 深度与表面分级**：用 `--sh-sm/md/lg` 与 `--surface-2/3` 建立层次；卡片 hover 升 `--sh-md`；剥离"全白平铺"（`app.js`+0/`style.css`+28，依赖 P-01）。
-- [ ] **P-13 暗色主题与新 Token 同步**：`[data-theme="dark"]` 按提案覆盖中性/品牌提亮，校准所有新类暗色可读性（~30 行，依赖 P-01~P-12，末位统一校准）。
-- [ ] **P-14 仪表盘 Hero 条（可选）**：品牌渐变 hero 显示当前项目名+健康度摘要+"N 个 Agent 在线"胶囊（`app.js`+12/`style.css`+18，依赖 P-01,P-03）。
+- [x] **P-04 顶栏磨砂与导航胶囊**：`.topbar` `backdrop-filter:blur`+半透明；导航 active 改胶囊；搜索框聚焦品牌光环；图标按钮细化（~25 行，依赖 P-01）。
+- [x] **P-05 统计卡重设计**：`renderDashboard` 统计卡加语义色图标芯片+`tabular-nums` 大数字+副标题+微趋势行；完成率卡用品牌强调（`app.js`+18/`style.css`+22，依赖 P-01,P-02）。
+- [x] **P-06 项目卡强调条与进度**：`.project-card` 卡顶 4px 项目色渐变条、hover 上浮+阴影+隐边框、底部进度条（`app.js`+14/`style.css`+26，依赖 P-01）。
+- [x] **P-07 状态徽章加引导点**：`statusBadge` 药丸前加 8px 色点（状态双编码），复用现有 `STATUS_COLOR`；任务列表/详情/看板同步（`app.js`+6/`style.css`+10，依赖 P-01）。
+- [x] **P-08 优先级箭头图标**：`priorityBadge` 用内联 SVG 箭头（最高↑↑/高↑/中◆/低↓/最低↓↓）替换 `⇈↑◆↓⇊`，配色沿用优先级语义（`app.js`+12/`style.css`+8，依赖 P-01）。
+- [x] **P-09 空状态线性插画**：`emptyState` 辅助增加 2~3 个内联 SVG 插画（归档盒/看板/空列表）替换 emoji，结构保持"插画+文案+按钮"（`app.js`+20/`style.css`+12，依赖 P-01）。
+- [x] **P-10 头像组件（用户/Agent）**：新增 `avatar(name)` 圆形渐变底+首字母；Agent 名加标记；用于评论、活动流、顶栏用户（`app.js`+14/`style.css`+10，依赖 P-01）。
+- [x] **P-11 按钮与聚焦态精炼**：主按钮品牌渐变阴影；统一 `:focus-visible` 品牌光环（`outline:2px var(--brand-500);outline-offset:2px`）；圆角 10px（~22 行，依赖 P-01）。
+- [x] **P-12 深度与表面分级**：用 `--sh-sm/md/lg` 与 `--surface-2/3` 建立层次；卡片 hover 升 `--sh-md`；剥离"全白平铺"（`app.js`+0/`style.css`+28，依赖 P-01）。
+- [x] **P-13 暗色主题与新 Token 同步**：`[data-theme="dark"]` 按提案覆盖中性/品牌提亮，校准所有新类暗色可读性（~30 行，依赖 P-01~P-12，末位统一校准）。
+- [x] **P-14 仪表盘 Hero 条（可选）**：品牌渐变 hero 显示当前项目名+健康度摘要+"N 个 Agent 在线"胶囊（`app.js`+12/`style.css`+18，依赖 P-01,P-03）。
 - [ ] **P-15 Agent 活动面板（可选）**：仪表盘右侧"近期动态 / Agent 活动"面板，复用 `avatar()`（`app.js`+24/`style.css`+16，依赖 P-10）。
 
 ### Backlog A（纯前端，可直接做，按推荐顺序）

@@ -61,7 +61,9 @@ function applyTheme(theme) {
   const t = theme || localStorage.getItem(THEME_KEY) || "light";
   document.documentElement.setAttribute("data-theme", t);
   const btn = $("theme-toggle");
-  if (btn) btn.textContent = t === "dark" ? "☀" : "🌙";
+  if (btn) btn.innerHTML = t === "dark"
+    ? '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.5"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.3 4.3l1.4 1.4M14.3 14.3l1.4 1.4M15.7 4.3l-1.4 1.4M5.7 14.3l-1.4 1.4"/></svg>'
+    : '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5 7 7 0 1 0 16.5 12.4Z"/></svg>';
 }
 function toggleTheme() {
   const cur = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
@@ -108,7 +110,7 @@ const STATUS_COLOR = {
 };
 function statusBadge(s, extra = "") {
   const label = STATUS_LABEL[s] || s;
-  return `<span class="badge status status--${s}"${extra}>${label}</span>`;
+  return `<span class="badge status status--${s}"${extra}><span class="badge-dot" aria-hidden="true"></span>${label}</span>`;
 }
 function statusDot(s) {
   const color = STATUS_COLOR[s] || "#6b7280";
@@ -117,7 +119,33 @@ function statusDot(s) {
 const PRIORITY_LABEL = { highest: "最高", high: "高", medium: "中", low: "低", lowest: "最低" };
 function priorityBadge(p) {
   p = p || "medium";
-  return `<span class="badge priority priority--${p}" title="优先级：${PRIORITY_LABEL[p] || p}"><span aria-hidden="true">${p === "highest" ? "⇈" : p === "high" ? "↑" : p === "low" ? "↓" : p === "lowest" ? "⇊" : "◆"}</span> ${PRIORITY_LABEL[p] || p}</span>`;
+  const paths = {
+    highest: '<path d="M5 10l3-4 3 4M5 15l3-4 3 4"/>',
+    high: '<path d="M4 11l4-5 4 5M8 6v8"/>',
+    medium: '<path d="M8 4l4 4-4 4-4-4 4-4Z"/>',
+    low: '<path d="M4 5l4 5 4-5M8 2v8"/>',
+    lowest: '<path d="M5 4l3 4 3-4M5 9l3 4 3-4"/>'
+  };
+  if (!paths[p]) p = "medium";
+  return `<span class="badge priority priority--${p}" title="优先级：${PRIORITY_LABEL[p] || p}"><svg viewBox="0 0 16 16" aria-hidden="true">${paths[p]}</svg>${PRIORITY_LABEL[p] || p}</span>`;
+}
+
+function avatar(name, extra = "") {
+  const value = (name || "?").trim();
+  const initials = value.split(/[\s_-]+/).filter(Boolean).slice(0, 2).map(x => x[0]).join("").toUpperCase() || "?";
+  const isAgent = /agent|buddy|codex|qoder/i.test(value);
+  return `<span class="avatar${isAgent ? " avatar-agent" : ""}${extra ? " " + extra : ""}" title="${esc(value)}">${esc(initials)}</span>`;
+}
+
+function statIcon(kind) {
+  const icons = {
+    projects: '<rect x="3" y="4" width="14" height="12" rx="2"/><path d="M3 8h14M8 8v8"/>',
+    epics: '<path d="M5 4h10v12H5zM8 2v4M12 2v4M8 9h4M8 12h4"/>',
+    stories: '<path d="M4 3h12v14H4zM7 7h6M7 10h6M7 13h4"/>',
+    tasks: '<circle cx="10" cy="10" r="7"/><path d="m7 10 2 2 4-5"/>',
+    rate: '<path d="M3 15V9M8 15V5M13 15V2M2 15h15"/>'
+  };
+  return `<svg viewBox="0 0 20 20" aria-hidden="true">${icons[kind]}</svg>`;
 }
 // A-09 进度条：按子项（任务）status 计算完成度（done 占比），在 Epic/Story 卡片底部显示细进度条。
 function progressBar(done, total) {
@@ -201,7 +229,7 @@ async function renderSidebar() {
       ? PROJECTS.map(p => `
           <div class="sidebar-item">
             <a href="#/project/${p.id}" class="sidebar-link${(location.hash||"#/")===`#/project/${p.id}`?" active":""}">
-              <span class="sidebar-icon">📁</span>
+              <span class="sidebar-icon"><svg viewBox="0 0 18 18" aria-hidden="true"><path d="M2.5 5.5h5l1.5 2h6.5v7H2.5zM2.5 5.5v-2h4l1.5 2"/></svg></span>
               <span class="sidebar-label">${esc(p.name)}</span>
               ${p.key ? `<span class="sidebar-key">${esc(p.key)}</span>` : ""}
             </a>
@@ -240,8 +268,15 @@ function emptyState(icon, title, desc, cta) {
   const btn = cta
     ? `<button class="btn-primary-sm" onclick="document.getElementById('${cta.id}').click()">${esc(cta.label)}</button>`
     : "";
+  const art = `<svg class="empty-art" viewBox="0 0 120 96" fill="none" aria-hidden="true">
+    <rect x="20" y="22" width="80" height="58" rx="10" stroke="currentColor" stroke-width="3"/>
+    <path d="M20 40h80M37 31h18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+    <rect x="34" y="51" width="52" height="10" rx="5" fill="currentColor" opacity=".12"/>
+    <circle cx="60" cy="73" r="12" fill="var(--brand-soft)"/>
+    <path d="m54 73 4 4 8-9" stroke="var(--brand-600)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
   return `<div class="empty-state empty-compact">
-    <div class="empty-icon">${icon}</div>
+    <div class="empty-icon">${art}</div>
     <h3>${esc(title)}</h3>
     ${desc ? `<p class="muted">${esc(desc)}</p>` : ""}
     ${btn}
@@ -343,42 +378,43 @@ async function viewHome(app) {
 
   app.innerHTML = `
     <div class="dashboard">
+      <section class="hero">
+        <div><span class="hero-kicker">AGENTBOARD WORKSPACE</span><h1>项目协作一目了然</h1><p>${ps.length} 个项目空间 · ${totalTasks} 项任务正在持续推进</p></div>
+        <span class="hero-pill"><span></span> 实时进度已同步</span>
+      </section>
       <!-- 统计卡片 -->
       <div class="stats-row">
-        <div class="stat-card">
+        <div class="stat-card stat-brand"><div class="stat-icon">${statIcon("projects")}</div><div class="stat-content">
           <div class="stat-number">${ps.length}</div>
-          <div class="stat-label">项目</div>
-        </div>
-        <div class="stat-card">
+          <div class="stat-label">项目</div><div class="stat-trend">协作空间总数</div></div></div>
+        <div class="stat-card stat-violet"><div class="stat-icon">${statIcon("epics")}</div><div class="stat-content">
           <div class="stat-number">${totalEpics}</div>
-          <div class="stat-label">Epic</div>
-        </div>
-        <div class="stat-card">
+          <div class="stat-label">Epic</div><div class="stat-trend">目标持续拆解</div></div></div>
+        <div class="stat-card stat-warning"><div class="stat-icon">${statIcon("stories")}</div><div class="stat-content">
           <div class="stat-number">${totalStories}</div>
-          <div class="stat-label">Story</div>
-        </div>
-        <div class="stat-card">
+          <div class="stat-label">Story</div><div class="stat-trend">需求条目总数</div></div></div>
+        <div class="stat-card stat-success"><div class="stat-icon">${statIcon("tasks")}</div><div class="stat-content">
           <div class="stat-number">${totalTasks}</div>
-          <div class="stat-label">任务</div>
-        </div>
-        <div class="stat-card highlight">
+          <div class="stat-label">任务</div><div class="stat-trend"><strong>${doneTasks}</strong> 项已完成</div></div></div>
+        <div class="stat-card stat-rate highlight"><div class="stat-icon">${statIcon("rate")}</div><div class="stat-content">
           <div class="stat-number">${totalTasks ? Math.round(doneTasks/totalTasks*100) : 0}%</div>
-          <div class="stat-label">完成率</div>
-        </div>
+          <div class="stat-label">完成率</div><div class="stat-trend">整体交付进度</div></div></div>
       </div>
 
       <!-- 项目列表 -->
       <div class="section-header">
-        <h2>📂 项目总览</h2>
+        <h2>项目总览</h2>
         <button id="home-new-project" class="btn-primary-sm">＋ 新建项目</button>
       </div>
       ${ps.length ? `
         <div class="project-grid">
-          ${projectStats.map(p => `
-            <a href="#/project/${p.id}" class="project-card">
+          ${projectStats.map((p, i) => {
+            const pct = typeof p.done === "number" && typeof p.tasks === "number" && p.tasks ? Math.round(p.done / p.tasks * 100) : 0;
+            return `
+            <a href="#/project/${p.id}" class="project-card project-hue-${i % 4}" style="--project-progress:${pct}%">
               <div class="project-card-header">
                 <span class="project-card-name">${esc(p.name)}</span>
-                ${p.key ? `<span class="badge">${esc(p.key)}</span>` : ""}
+                ${p.key ? `<span class="project-key">${esc(p.key)}</span>` : ""}
               </div>
               ${p.description ? `<div class="project-card-desc">${esc(p.description.substring(0, 100))}${p.description.length > 100 ? "…" : ""}</div>` : ""}
               <div class="project-card-stats">
@@ -387,25 +423,21 @@ async function viewHome(app) {
                 <span>${p.tasks} 任务</span>
                 ${typeof p.done === "number" ? `<span class="text-success">${p.done} 完成</span>` : ""}
               </div>
+              <div class="project-progress"><span style="width:${pct}%"></span></div><div class="project-progress-label"><span>完成进度</span><strong>${pct}%</strong></div>
             </a>
-          `).join("")}
+          `}).join("")}
         </div>
       ` : `
-        <div class="empty-state">
-          <div class="empty-icon">📋</div>
-          <h3>还没有项目</h3>
-          <p class="muted">创建你的第一个项目管理空间</p>
-          <button onclick="document.getElementById('home-new-project').click()" class="btn-primary">创建项目</button>
-        </div>
+        ${emptyState("projects", "还没有项目", "创建你的第一个项目管理空间", { id: "home-new-project", label: "创建项目" })}
       `}
 
       <!-- 快捷操作 -->
       <div class="section-header" style="margin-top:32px">
-        <h2>⚡ 快捷操作</h2>
+        <h2>快捷操作</h2>
       </div>
       <div class="quick-actions">
-        <button onclick="route('#/projects')" class="action-card">📋 所有项目</button>
-        <button onclick="showNewProjectModal()" class="action-card">➕ 新建项目</button>
+        <button onclick="route('#/projects')" class="action-card">所有项目 <span>→</span></button>
+        <button onclick="showNewProjectModal()" class="action-card">新建项目 <span>＋</span></button>
       </div>
     </div>`;
 
@@ -445,11 +477,7 @@ async function viewProjects(app) {
         </table>
       </div>
     ` : `
-      <div class="empty-state">
-        <div class="empty-icon">📋</div>
-        <h3>暂无项目</h3>
-        <button class="btn-primary" onclick="document.getElementById('proj-new-btn').click()">创建第一个项目</button>
-      </div>
+      ${emptyState("projects", "暂无项目", "创建第一个项目管理空间", { id: "proj-new-btn", label: "创建第一个项目" })}
     `}`;
 
   bindNewProjectForm("proj-new-form", "proj-new-modal");
@@ -496,7 +524,7 @@ async function viewProject(app, id) {
 
     <!-- Epics 列表 -->
     <div class="section-header">
-      <h3>📋 Epics <span class="count">${eps.length}</span></h3>
+      <h3>Epics <span class="count">${eps.length}</span></h3>
       <button id="p-new-epic" class="btn-primary-sm">＋ 新建 Epic</button>
     </div>
     ${eps.length ? `
@@ -598,7 +626,7 @@ async function viewEpic(app, id) {
     ${ep.description ? `<div class="card">${md(ep.description)}</div>` : ""}
 
     <div class="section-header">
-      <h3>📝 Stories <span class="count">${sts.length}</span></h3>
+      <h3>Stories <span class="count">${sts.length}</span></h3>
       <button id="e-new-story" class="btn-primary-sm">＋ 新建 Story</button>
     </div>
     ${sts.length ? `
@@ -683,7 +711,7 @@ async function viewStory(app, id) {
     ${st.description ? `<div class="card">${md(st.description)}</div>` : ""}
 
     <div class="section-header">
-      <h3>🔧 Tasks / Bugs <span class="count">${tasks.length}</span></h3>
+      <h3>Tasks / Bugs <span class="count">${tasks.length}</span></h3>
       <div class="page-actions">
         <div class="seg">
           <button class="seg-btn${storyViewMode === "list" ? " active" : ""}" data-mode="list">列表</button>
@@ -798,8 +826,8 @@ async function viewTask(app, id) {
     </div>
 
     <div class="two-col">
-      <div class="card"><h3>📄 Description</h3><div class="md">${md(t.description)}</div></div>
-      <div class="card"><h3>📋 Spec（OpenSpec）</h3><div class="md">${md(t.spec)}</div></div>
+      <div class="card"><h3>Description</h3><div class="md">${md(t.description)}</div></div>
+      <div class="card"><h3>Spec（OpenSpec）</h3><div class="md">${md(t.spec)}</div></div>
     </div>
 
     <div class="card form-section">
@@ -820,10 +848,10 @@ async function viewTask(app, id) {
     </div>
 
     <div class="card comments-card">
-      <div class="section-header"><h3>💬 评论 <span class="count">${comments.length}</span></h3></div>
+      <div class="section-header"><h3>评论 <span class="count">${comments.length}</span></h3></div>
       <div class="comment-list">
         ${comments.length ? comments.map(c => `<article class="comment-item">
-          <div class="comment-avatar">${esc(c.author).slice(0, 1).toUpperCase()}</div>
+          ${avatar(c.author, "comment-avatar")}
           <div class="comment-body"><div class="comment-meta"><strong>${esc(c.author)}</strong><time>${new Date(c.created_at).toLocaleString()}</time><button class="comment-delete" data-comment-id="${c.id}" title="删除评论">×</button></div><div class="md">${md(c.content)}</div></div>
         </article>`).join("") : '<div class="empty-inline">还没有评论。可在这里记录决策，Agent 也会在此同步进展。</div>'}
       </div>
@@ -896,7 +924,7 @@ function showNewProjectModal() {
     modal.className = "modal-overlay";
     modal.innerHTML = `
       <div class="modal">
-        <div class="modal-header"><h3>➕ 新建项目</h3><button class="modal-close" onclick="closeModal('new-project-modal')">×</button></div>
+        <div class="modal-header"><h3>新建项目</h3><button class="modal-close" onclick="closeModal('new-project-modal')">×</button></div>
         <form id="modal-project-form">
           <label>名称 <span class="required">*</span></label>
           <input name="name" placeholder="如：DevPilot AI 平台" required autofocus>
@@ -1082,8 +1110,8 @@ async function openTaskDrawer(id) {
       </div>
       <div class="drawer-body">
         <div class="drawer-status">${statusFlow(t)}</div>
-        <div class="card"><h4>📄 Description</h4><div class="md">${md(t.description)}</div></div>
-        <div class="card"><h4>📋 Spec（OpenSpec）</h4><div class="md">${md(t.spec)}</div></div>
+        <div class="card"><h4>Description</h4><div class="md">${md(t.description)}</div></div>
+        <div class="card"><h4>Spec（OpenSpec）</h4><div class="md">${md(t.spec)}</div></div>
         <a href="#/task/${t.id}" class="drawer-link" onclick="closeTaskDrawer()">在完整页面打开 ↗</a>
       </div>`;
     drawer.querySelectorAll("#status-flow [data-next]").forEach(b => {

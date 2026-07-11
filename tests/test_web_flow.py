@@ -111,6 +111,12 @@ def test_web_serves_spa(servers):
     js = httpx.get(web_base + "/static/app.js")
     assert js.status_code == 200, "app.js 未提供"
     assert "fetch(API" in js.text, "SPA 未使用 fetch 调 API"
+    assert 'class="hero"' in js.text, "仪表盘品牌 Hero 未渲染"
+    assert "badge-dot" in js.text and "empty-art" in js.text, "语义徽章或空状态插画缺失"
+
+    css = httpx.get(web_base + "/static/style.css")
+    assert css.status_code == 200, "style.css 未提供"
+    assert "--grad:" in css.text and "[data-theme=\"dark\"]" in css.text, "品牌 token 或暗色主题缺失"
 
 
 # ---------------- 注册 / 登录 ----------------
