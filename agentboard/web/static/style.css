@@ -413,14 +413,23 @@ details summary { cursor: pointer; font-weight: 600; color: var(--primary); marg
 .modal-close:hover { color: var(--text); }
 .modal form { padding: 12px 20px 20px; }
 
-/* Toast */
+/* A-12 Toast 堆叠容器 + 进出场动画 */
 #toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-  background: #111827; color: #fff; padding: 10px 22px; border-radius: 8px;
-  opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 300;
-  font-size: .88rem; font-weight: 500;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  z-index: 300; pointer-events: none; width: max-content; max-width: 90vw;
 }
-#toast.show { opacity: 1; }
+.toast-item {
+  background: #111827; color: #fff; padding: 10px 22px; border-radius: 8px;
+  font-size: .88rem; font-weight: 500; box-shadow: 0 6px 20px rgba(0,0,0,.18);
+  border-left: 4px solid transparent;
+  opacity: 0; transform: translateY(12px);
+  transition: opacity .25s ease, transform .25s ease;
+}
+.toast-item.toast-in { opacity: 1; transform: translateY(0); }
+.toast-item.toast-out { opacity: 0; transform: translateY(12px); }
+.toast-item.toast-error { border-left-color: #ef4444; }
+.toast-item.toast-success { border-left-color: #22c55e; }
 
 /* Muted text */
 .muted { color: var(--text-secondary); }

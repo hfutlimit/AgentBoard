@@ -23,7 +23,16 @@ async function api(path, method = "GET", body) {
 // ---------- utils ----------
 const $ = (id) => document.getElementById(id);
 const esc = (s) => (s || "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2500); }
+// A-12 Toast 堆叠：每条提示一个 .toast-item，进场滑入淡入、2.5s 后淡出移除（可选 type: error|success）
+function toast(msg, type) {
+  const c = $("toast");
+  const el = document.createElement("div");
+  el.className = "toast-item" + (type ? " toast-" + type : "");
+  el.textContent = msg;
+  c.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("toast-in"));
+  setTimeout(() => { el.classList.remove("toast-in"); el.classList.add("toast-out"); setTimeout(() => el.remove(), 280); }, 2500);
+}
 function route(hash) { location.hash = hash; }
 
 // A-10 深色模式：切换 <html data-theme> 并持久化到 localStorage（默认浅色）
