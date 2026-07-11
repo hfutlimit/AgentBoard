@@ -12,7 +12,7 @@ os.environ["AGENTBOARD_MCP_BACKEND"] = "db"  # MCP 直连 DB，无需启动 API
 
 from agentboard.database import init_db, SessionLocal
 from agentboard import service
-from agentboard.models import ItemType, Status
+from agentboard.models import ItemType, Status, Priority
 
 
 def test_service_layer():
@@ -21,7 +21,9 @@ def test_service_layer():
         p = service.create_project(s, name="Demo", key="DEMO", description="# Demo")
         ep = service.create_epic(s, project_id=p.id, title="E1")
         st = service.create_story(s, epic_id=ep.id, title="S1")
-        t = service.create_task(s, project_id=p.id, story_id=st.id, type=ItemType.TASK, title="T1")
+        t = service.create_task(s, project_id=p.id, story_id=st.id, type=ItemType.TASK,
+                                title="T1", priority=Priority.HIGH)
+        assert t.priority == Priority.HIGH
         service.set_task_spec(s, t.id, "## Spec\n做这件事")
         assert service.get_task(s, t.id).spec.startswith("## Spec")
 
@@ -34,6 +36,10 @@ def test_service_layer():
             pass
 
         assert len(service.search_tasks(s, project_id=p.id, q="这件事")) >= 1
+        assert service.search_tasks(s, project_id=p.id, priority=Priority.HIGH)[0].id == t.id
+        comment = service.create_comment(s, task_id=t.id, author="codex", content="开始实现")
+        assert service.list_comments(s, t.id)[0].id == comment.id
+        assert service.delete_comment(s, comment.id)
         # epic / story 更新
         assert service.update_epic(s, ep.id, status=Status.TODO).status == Status.TODO
         assert service.update_story(s, st.id, title="S1-x").title == "S1-x"
@@ -52,22 +58,32 @@ def test_rest_api():
         e = c.post(f"/api/projects/{p['id']}/epics", json={"title": "E"}).json()
         st = c.post(f"/api/epics/{e['id']}/stories", json={"title": "S"}).json()
         t = c.post(f"/api/stories/{st['id']}/tasks",
-                   json={"project_id": p["id"], "title": "Bug1", "type": "bug"}).json()
-        assert t["type"] == "bug"
+                   json={"project_id": p["id"], "title": "Bug1", "type": "bug",
+                         "priority": "highest"}).json()
+        assert t["type"] == "bug" and t["priority"] == "highest"
 
         # 编辑各类 ticket
         assert c.patch(f"/api/projects/{p['id']}", json={"description": "d"}).json()["description"] == "d"
         assert c.patch(f"/api/epics/{e['id']}", json={"status": "todo"}).json()["status"] == "todo"
         assert c.patch(f"/api/stories/{st['id']}", json={"title": "S2"}).json()["title"] == "S2"
-        r = c.patch(f"/api/tasks/{t['id']}", json={"spec": "# spec"})
-        assert r.json()["spec"] == "# spec"
+        r = c.patch(f"/api/tasks/{t['id']}", json={"spec": "# spec", "priority": "low"})
+        assert r.json()["spec"] == "# spec" and r.json()["priority"] == "low"
+        assert c.patch(f"/api/tasks/{t['id']}", json={"priority": "urgent"}).status_code == 422
+
+        # 人类和 Agent 共用评论流
+        cm = c.post(f"/api/tasks/{t['id']}/comments",
+                    json={"author": "workbuddy", "content": "已完成复现"})
+        assert cm.status_code == 201
+        comments = c.get(f"/api/tasks/{t['id']}/comments").json()
+        assert len(comments) == 1 and comments[0]["author"] == "workbuddy"
+        assert c.delete(f"/api/comments/{comments[0]['id']}").status_code == 200
 
         # 状态流转（合法/非法）
         assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "todo"}).status_code == 200
         assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "done"}).status_code == 400
 
         # 搜索
-        assert len(c.get("/api/tasks", params={"q": "spec"}).json()) >= 1
+        assert len(c.get("/api/tasks", params={"q": "spec", "priority": "low"}).json()) >= 1
 
         # 删除
         assert c.delete(f"/api/tasks/{t['id']}").status_code == 200
@@ -113,6 +129,12 @@ def test_mcp_extra_and_pagination():
     proj = m._proj_create("MCP-X", None, "")
     epic = m._epic_create(proj["id"], "E", "")
     story = m._story_create(epic["id"], "S", "")
+    task = m._task_create(proj["id"], story["id"], "Agent task", "task", "", "", "high")
+    assert task["priority"] == "high"
+    comment = m._comment_create(task["id"], "qoder", "处理中")
+    assert comment["author"] == "qoder"
+    assert m._comment_list(task["id"])[0]["id"] == comment["id"]
+    assert m._comment_delete(comment["id"])["ok"] is True
     # get / update epic
     assert m._epic_get(epic["id"])["id"] == epic["id"]
     assert m._epic_update(epic["id"], {"status": "todo"})["status"] == "todo"

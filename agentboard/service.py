@@ -2,7 +2,7 @@ import re
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from . import models, auth
-from .models import ItemType, Status, Project, Epic, Story, Task
+from .models import ItemType, Status, Priority, ALL_PRIORITIES, Project, Epic, Story, Task, Comment
 
 # 合法状态迁移
 TRANSITIONS = {
@@ -17,7 +17,7 @@ TRANSITIONS = {
 EDITABLE = {
     "name", "key", "description",          # project
     "title", "description", "status",      # epic / story / task
-    "type", "spec",                        # task
+    "type", "spec", "priority",            # task
 }
 
 
@@ -62,6 +62,9 @@ def delete_project(s: Session, id: int) -> bool:
     p = s.get(Project, id)
     if not p:
         return False
+    task_ids = [x[0] for x in s.query(Task.id).filter(Task.project_id == id).all()]
+    if task_ids:
+        s.query(Comment).filter(Comment.task_id.in_(task_ids)).delete(synchronize_session=False)
     s.query(Task).filter(Task.project_id == id).delete()
     for ep in s.query(Epic).filter(Epic.project_id == id):
         s.query(Story).filter(Story.epic_id == ep.id).delete()
@@ -101,6 +104,9 @@ def delete_epic(s: Session, id: int) -> bool:
     if not ep:
         return False
     for st in s.query(Story).filter(Story.epic_id == id):
+        task_ids = [x[0] for x in s.query(Task.id).filter(Task.story_id == st.id).all()]
+        if task_ids:
+            s.query(Comment).filter(Comment.task_id.in_(task_ids)).delete(synchronize_session=False)
         s.query(Task).filter(Task.story_id == st.id).delete()
     s.query(Story).filter(Story.epic_id == id).delete()
     s.delete(ep); s.commit(); return True
@@ -137,15 +143,20 @@ def delete_story(s: Session, id: int) -> bool:
     st = s.get(Story, id)
     if not st:
         return False
+    task_ids = [x[0] for x in s.query(Task.id).filter(Task.story_id == id).all()]
+    if task_ids:
+        s.query(Comment).filter(Comment.task_id.in_(task_ids)).delete(synchronize_session=False)
     s.query(Task).filter(Task.story_id == id).delete()
     s.delete(st); s.commit(); return True
 
 
 # ---------- Task ----------
 def create_task(s: Session, *, project_id: int, story_id: int | None, title: str,
-                type: str = ItemType.TASK, description: str = "", spec: str = "") -> Task:
+                type: str = ItemType.TASK, description: str = "", spec: str = "",
+                priority: str = Priority.MEDIUM) -> Task:
+    _check_priority(priority)
     t = Task(project_id=project_id, story_id=story_id, title=title,
-             type=type, description=description or "", spec=spec or "")
+             type=type, description=description or "", spec=spec or "", priority=priority)
     s.add(t); s.commit(); s.refresh(t); return t
 
 
@@ -167,9 +178,11 @@ def update_task(s: Session, id: int, **fields) -> Task | None:
     t = s.get(Task, id)
     if not t:
         return None
-    allowed = {"title", "description", "spec", "type", "status"}
+    allowed = {"title", "description", "spec", "type", "status", "priority"}
     for k, v in fields.items():
         if k in allowed and v is not None:
+            if k == "priority":
+                _check_priority(v)
             setattr(t, k, v)
     s.commit(); s.refresh(t); return t
 
@@ -236,7 +249,7 @@ def generate_tasks_from_spec(s: Session, task_id: int) -> list:
 
 # ---------- Search ----------
 def search_tasks(s: Session, *, project_id=None, epic_id=None, story_id=None,
-                 type=None, status=None, q=None, limit: int | None = None, offset: int = 0):
+                 type=None, status=None, priority=None, q=None, limit: int | None = None, offset: int = 0):
     qry = s.query(Task)
     if project_id is not None:
         qry = qry.filter(Task.project_id == project_id)
@@ -246,6 +259,9 @@ def search_tasks(s: Session, *, project_id=None, epic_id=None, story_id=None,
         qry = qry.filter(Task.type == type)
     if status is not None:
         qry = qry.filter(Task.status == status)
+    if priority is not None:
+        _check_priority(priority)
+        qry = qry.filter(Task.priority == priority)
     if epic_id is not None:
         qry = qry.join(Story, Task.story_id == Story.id).filter(Story.epic_id == epic_id)
     if q:
@@ -258,6 +274,35 @@ def search_tasks(s: Session, *, project_id=None, epic_id=None, story_id=None,
     return qry.all()
 
 
+def _check_priority(priority: str) -> None:
+    if priority not in ALL_PRIORITIES:
+        raise InvalidValue(f"invalid priority '{priority}'")
+
+
+# ---------- Comments ----------
+def create_comment(s: Session, *, task_id: int, author: str, content: str) -> Comment:
+    if not s.get(Task, task_id):
+        raise NotFound(f"task {task_id} not found")
+    author, content = (author or "").strip(), (content or "").strip()
+    if not author or not content:
+        raise InvalidValue("author and content are required")
+    comment = Comment(task_id=task_id, author=author[:100], content=content)
+    s.add(comment); s.commit(); s.refresh(comment); return comment
+
+
+def list_comments(s: Session, task_id: int):
+    if not s.get(Task, task_id):
+        raise NotFound(f"task {task_id} not found")
+    return s.query(Comment).filter(Comment.task_id == task_id).order_by(Comment.created_at, Comment.id).all()
+
+
+def delete_comment(s: Session, id: int) -> bool:
+    comment = s.get(Comment, id)
+    if not comment:
+        return False
+    s.delete(comment); s.commit(); return True
+
+
 class NotFound(Exception):
     pass
 
@@ -267,6 +312,10 @@ class IllegalTransition(Exception):
 
 
 class Duplicate(Exception):
+    pass
+
+
+class InvalidValue(Exception):
     pass
 
 

@@ -38,12 +38,14 @@ def _ensure_migrations() -> None:
     for table in agentboard.models.Base.metadata.tables.values():
         if table.name not in existing:
             table.create(bind=engine)
-    # 补齐 tasks.source_spec_id 列（早期 SQLite 库兼容）。
+    # 补齐早期 SQLite 库的 tasks 列；正式环境仍以 Alembic 为准。
     with engine.connect() as conn:
         cols = {c["name"] for c in inspect(engine).get_columns("tasks")}
         if "source_spec_id" not in cols:
             conn.execute(text("ALTER TABLE tasks ADD COLUMN source_spec_id INTEGER"))
-            conn.commit()
+        if "priority" not in cols:
+            conn.execute(text("ALTER TABLE tasks ADD COLUMN priority VARCHAR(10) NOT NULL DEFAULT 'medium'"))
+        conn.commit()
 
 
 def get_session() -> Session:

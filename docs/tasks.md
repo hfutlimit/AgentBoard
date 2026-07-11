@@ -254,8 +254,38 @@
 - [ ] **B-02 负责人 / 指派（assignee）**：task 增加 `assignee` + 用户下拉（依赖 FR-8 用户体系）。
 - [ ] **B-03 截止日期（due_date）**：task 增加 `due_date` + 日历控件 + 逾期高亮。
 - [ ] **B-04 看板拖拽排序**：拖动卡片变更 status（需后端接受合法迁移 + 可选 order 字段）。
-- [ ] **B-05 评论 / 活动流**：task 增加评论（需新表 + API）。
+- [x] **B-05 评论 / 活动流**：task 增加评论（已由 Epic 12 / Story 12.1 完成）。
 - [ ] **B-06 列表分组 / 排序**：按状态/类型/负责人分组（部分可纯前端，分组维度来自后端字段）。
+
+---
+
+## Epic 12：轻量 Jira 核心与 Agent 开发闭环（v0.3）
+> 权威变更提案：`openspec/changes/jira-agent-core/`。按纵向切片交付，保证每一片都同时覆盖存储、REST、MCP、Web 与测试。
+
+### Story 12.1 优先级与评论（本轮）
+- [x] Task：任务增加五级 `priority`，支持创建、编辑、筛选及迁移
+- [x] Task：评论表与服务层 CRUD，删除任务/父级时同步清理
+- [x] Task：REST API 暴露优先级与评论端点
+- [x] Task：MCP 支持设置/筛选优先级、添加/读取/删除评论
+- [x] Task：Web 任务列表/详情显示优先级，详情页支持评论流
+- [x] Task：补充服务、REST 与 MCP 回归测试
+
+### Story 12.2 Sprint 规划
+- [ ] Task：Sprint 数据模型、迁移、状态机与“单 active Sprint”约束
+- [ ] Task：Sprint CRUD、任务入 Sprint、关闭时搬迁未完成任务
+- [ ] Task：Sprint/Backlog Web 视图与 MCP 工具
+
+### Story 12.3 附件
+- [ ] Task：附件元数据模型、本地安全存储与大小/MIME 限制
+- [ ] Task：上传、列表、下载、删除 REST API
+- [ ] Task：任务详情附件区与 MCP 资源信息工具
+
+### Story 12.4 定时 Agent 开发
+- [ ] Task：AgentSchedule / AgentRun 模型、一次性与 cron 表达式校验
+- [ ] Task：带租约和幂等键的调度扫描器，避免重复运行
+- [ ] Task：Codex / WorkBuddy / Qoder 执行器适配契约与最小安全策略
+- [ ] Task：Web 计划配置、运行历史、失败重试与停用入口
+- [ ] Task：MCP 提供领取任务、心跳、状态/评论同步与运行完成工具
 
 ### 完成记录
 | 日期 | 项 | 简述 |

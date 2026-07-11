@@ -1,8 +1,8 @@
 # AgentBoard 需求分析文档
 
-> 版本：v0.2
+> 版本：v0.3
 > 方法：规格驱动（OpenSpec / Superpowers 风格），后续开发以 `docs/tasks.md` 为工作清单，每个变更通过 `openspec/changes/<id>/`（proposal + design + tasks）推进。
-> 状态：基线已实现（数据层 / 服务层 / REST API / Web SPA / MCP 服务 / 后端鉴权接口）；新增 4 项能力待实现（Epic 7–10），另设**长期前端优化轨道**（FR-12 / Epic 11）。详见 `docs/tasks.md` 与 `openspec/changes/`。
+> 状态：基线已实现（数据层 / 服务层 / REST API / Web SPA / MCP 服务 / 后端鉴权接口）；v0.3 将产品定位收敛为“面向人和开发 Agent 的轻量 Jira”，新增优先级、评论、附件、Sprint 与定时 Agent 开发闭环。详见 `docs/tasks.md` 与 `openspec/changes/jira-agent-core/`。
 
 ---
 
@@ -31,17 +31,23 @@
 - 双存储后端切换（SQLite / MariaDB）
 - 后端鉴权接口：`/api/auth/register`、`/api/auth/login`、`/api/auth/me`（模型 + 加密 + service + 端点 + `users` 表迁移）
 - Web SPA：项目树浏览 + 增删改 + 状态流转 + spec 编辑（前端**鉴权 UI 待补**）
+- Jira 核心协作：任务优先级、评论、附件、Sprint 规划
+- Agent 协作：Codex、WorkBuddy、Qoder 等通过 MCP 查询/领取任务、同步状态、追加评论与交付记录
+- 自动开发：用户可为任务配置一次性或周期性计划，由 Agent 执行器按时领取并回写运行结果
 
-**进行中 / 待实现（见 Epic 7–11）**
+**进行中 / 待实现（见 Epic 7–12）**
 - FR-8 前端注册 / 登录 UI 与 token 持久化（后端已就绪）
 - FR-9 MariaDB 独立 `.sql` 脚本 + 真实集成验证 + docker-compose 编排
 - FR-10 前端 Web 自动化测试（Playwright 真实浏览器 E2E）
 - FR-11 MCP 鉴权集成 + 运维化（启动脚本 / 客户端配置 / 冒烟测试）
 - FR-12 持续前端优化（模仿 Jira，小步迭代）—— 长期轨道，详见 Epic 11
+- FR-13/14 优先级与评论—— 首个纵向切片已实现
+- FR-15/16 附件与 Sprint—— 已完成规格，待实现
+- FR-17 Agent MCP 与定时开发闭环—— 已完成安全边界与任务拆分，待实现
 
-**暂不纳入（后续）**
+**后续增强（不阻塞 Jira 核心闭环）**
 - 多租户 / 细粒度权限（RBAC）、第三方 OAuth
-- 评论、附件、通知、看板拖拽等协作功能
+- 通知、看板拖拽、工时、发布版本、复杂报表
 - 现有项目树 CRUD 默认仍为单用户开放（与 MCP / Web 兼容）；是否强制鉴权见 FR-8 设计决策
 
 ---
@@ -127,6 +133,32 @@ MVP 不做权限区分，所有调用方等价。
 - 边界：以纯前端（HTML/CSS/JS）为主；确需后端字段的 Jira 式能力（标签、负责人、截止日期、拖拽排序、评论）记入 backlog「需后端」分组，单独评估，不混入小优化。
 - 验收：每项优化都需本地起服务手测通过，且现有 playwright / httpx 测试不被破坏。详细 backlog 与规则见 `docs/tasks.md` Epic 11 与 `openspec/changes/frontend-continuous/`。
 
+**FR-13 优先级（Jira 核心）**
+- Task / Bug 必须具有 `priority`：`highest | high | medium | low | lowest`，默认 `medium`。
+- 创建、编辑、列表、搜索、MCP 工具均可读写/筛选优先级；Web 使用有辨识度但不喧宾夺主的优先级徽章。
+- Agent 领取工作时默认先考虑 Sprint 内未完成且优先级更高的任务。
+
+**FR-14 评论与活动记录（Jira 核心）**
+- 每条评论包含 `task_id, author, content(markdown), created_at, updated_at`；支持添加、列表与删除。
+- 人类与 Agent 使用同一评论流。Agent 在开始、阻塞、完成时可写入简短进展，避免把过程信息塞入 description。
+- 评论按创建时间正序展示；删除任务时级联删除评论。
+
+**FR-15 附件（Jira 核心）**
+- 任务可上传、列出、下载、删除附件；元数据至少包含原文件名、MIME、大小、存储键、上传者与时间。
+- 默认采用本地文件系统存储并通过配置切换根目录；限制单文件大小并阻止路径穿越，数据库只保存元数据。
+- MCP 支持列出附件、登记/读取受控附件；二进制上传可由 REST 完成，MCP 返回可访问的资源信息。
+
+**FR-16 Sprint（Jira 核心）**
+- Project 下可创建 Sprint，字段至少包含 `name, goal, status(planned|active|closed), start_at, end_at`。
+- Task 可归入一个 Sprint；支持 Backlog 与 Sprint 看板、启动/关闭 Sprint，同一项目最多一个 active Sprint。
+- 关闭 Sprint 时，未完成任务可移回 Backlog 或迁移到目标 Sprint。
+
+**FR-17 Agent MCP 与定时开发闭环**
+- MCP 提供面向 Codex、WorkBuddy、Qoder 等客户端的稳定工具：查询待办、读取上下文、更新状态/优先级、评论进展、读取 Sprint 与附件。
+- 任务可配置 `AgentSchedule`：`task_id, agent, schedule_type(once|cron), schedule_expr/run_at, enabled, next_run_at, last_run_at`。
+- 调度器只负责生成可审计的 Agent Run/触发请求，不在 Web 进程中直接执行任意 shell；执行器通过明确的命令模板/适配器运行，并回写 `queued|running|succeeded|failed|cancelled`、摘要与日志引用。
+- 每次运行必须具备幂等键和租约，避免多实例重复执行；默认不自动 push/merge，除非具体任务策略明确授权。
+
 ---
 
 ## 5. 非功能需求（NFR）
@@ -145,7 +177,8 @@ MVP 不做权限区分，所有调用方等价。
 Project (1) ──< (N) Epic
 Epic    (1) ──< (N) Story
 Story   (1) ──< (N) Task
-Task    (N) ──< (N) Task   // 可选：task 可再拆子 task
+Project (1) ──< (N) Sprint ──< (N) Task
+Task    (1) ──< (N) Comment / Attachment / AgentSchedule / AgentRun
 ```
 
 | 实体 | 关键字段 |
@@ -153,9 +186,14 @@ Task    (N) ──< (N) Task   // 可选：task 可再拆子 task
 | Project | id, name, key(短码), description(md), created_at |
 | Epic | id, project_id, title, description(md), status |
 | Story | id, epic_id, title, description(md), status |
-| Task | id, project_id, parent_id(nullable), story_id(nullable), type(task\|bug), title, status, description(md), spec(md), created_at, updated_at |
+| Task | id, project_id, story_id(nullable), sprint_id(nullable), type(task\|bug), title, status, priority, description(md), spec(md), created_at, updated_at |
+| Sprint | id, project_id, name, goal, status, start_at, end_at |
+| Comment | id, task_id, author, content(md), created_at, updated_at |
+| Attachment | id, task_id, filename, mime_type, size, storage_key, uploader, created_at |
+| AgentSchedule | id, task_id, agent, schedule_type, schedule_expr/run_at, enabled, next_run_at, last_run_at |
+| AgentRun | id, schedule_id, task_id, agent, status, idempotency_key, summary, log_ref, timestamps |
 
-> 说明：`Task.parent_id` 支持嵌套；`story_id` 记录其归属 Story，便于从 Story 维度聚合。
+> 说明：Task 为最底层工作项、不再嵌套；`story_id` 记录其归属 Story，便于从 Story 维度聚合。
 
 ---
 

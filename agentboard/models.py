@@ -21,9 +21,19 @@ class Status(str):
     DONE = "done"
 
 
+class Priority(str):
+    HIGHEST = "highest"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+    LOWEST = "lowest"
+
+
 ALL_TYPES = [ItemType.TASK, ItemType.BUG]
 ALL_STATUSES = [Status.BACKLOG, Status.TODO, Status.IN_PROGRESS,
                 Status.IN_REVIEW, Status.VERIFYING, Status.DONE]
+ALL_PRIORITIES = [Priority.HIGHEST, Priority.HIGH, Priority.MEDIUM,
+                  Priority.LOW, Priority.LOWEST]
 
 
 def _now() -> datetime:
@@ -75,8 +85,19 @@ class Task(Base):
     type: Mapped[str] = mapped_column(String(10), default=ItemType.TASK)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default=Status.BACKLOG)
+    priority: Mapped[str] = mapped_column(String(10), default=Priority.MEDIUM)
     description: Mapped[str] = mapped_column(Text, default="")
     spec: Mapped[str] = mapped_column(Text, default="")
     source_spec_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 由哪个任务的 spec 生成
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class Comment(Base):
+    __tablename__ = "comments"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), nullable=False, index=True)
+    author: Mapped[str] = mapped_column(String(100), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)

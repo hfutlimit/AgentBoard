@@ -36,10 +36,14 @@ if BACKEND == "db":
         with SessionLocal() as s:
             return service._ser(service.create_story(s, epic_id=epic_id, title=title, description=description))
 
-    def _task_create(project_id, story_id, title, type, description, spec):
+    def _task_create(project_id, story_id, title, type, description, spec, priority="medium"):
         with SessionLocal() as s:
-            return service._ser(service.create_task(s, project_id=project_id, story_id=story_id,
-                                                    title=title, type=type, description=description, spec=spec))
+            try:
+                return service._ser(service.create_task(s, project_id=project_id, story_id=story_id,
+                                                        title=title, type=type, description=description,
+                                                        spec=spec, priority=priority))
+            except service.InvalidValue as e:
+                return {"error": str(e)}
 
     def _task_get(task_id):
         with SessionLocal() as s:
@@ -48,7 +52,10 @@ if BACKEND == "db":
 
     def _task_update(task_id, fields):
         with SessionLocal() as s:
-            t = service.update_task(s, task_id, **fields)
+            try:
+                t = service.update_task(s, task_id, **fields)
+            except service.InvalidValue as e:
+                return {"error": str(e)}
             return service._ser(t) if t else {"error": "not found"}
 
     def _task_status(task_id, status):
@@ -98,6 +105,24 @@ if BACKEND == "db":
         with SessionLocal() as s:
             return {"ok": service.delete_story(s, story_id)}
 
+    def _comment_list(task_id):
+        with SessionLocal() as s:
+            try:
+                return [service._ser(x) for x in service.list_comments(s, task_id)]
+            except service.NotFound as e:
+                return {"error": str(e)}
+
+    def _comment_create(task_id, author, content):
+        with SessionLocal() as s:
+            try:
+                return service._ser(service.create_comment(s, task_id=task_id, author=author, content=content))
+            except (service.NotFound, service.InvalidValue) as e:
+                return {"error": str(e)}
+
+    def _comment_delete(comment_id):
+        with SessionLocal() as s:
+            return {"ok": service.delete_comment(s, comment_id)}
+
 else:  # api 模式
     import httpx
 
@@ -123,10 +148,10 @@ else:  # api 模式
     def _story_create(epic_id, title, description):
         return _http("POST", f"/api/epics/{epic_id}/stories", json={"title": title, "description": description})
 
-    def _task_create(project_id, story_id, title, type, description, spec):
+    def _task_create(project_id, story_id, title, type, description, spec, priority="medium"):
         return _http("POST", f"/api/stories/{story_id}/tasks",
                      json={"project_id": project_id, "title": title, "type": type,
-                           "description": description, "spec": spec})
+                           "description": description, "spec": spec, "priority": priority})
 
     def _task_get(task_id):
         return _http("GET", f"/api/tasks/{task_id}")
@@ -161,6 +186,16 @@ else:  # api 模式
 
     def _story_delete(story_id):
         return _http("DELETE", f"/api/stories/{story_id}")
+
+    def _comment_list(task_id):
+        return _http("GET", f"/api/tasks/{task_id}/comments")
+
+    def _comment_create(task_id, author, content):
+        return _http("POST", f"/api/tasks/{task_id}/comments",
+                     json={"author": author, "content": content})
+
+    def _comment_delete(comment_id):
+        return _http("DELETE", f"/api/comments/{comment_id}")
 
 
 # ===================== MCP 工具 =====================
@@ -230,9 +265,10 @@ def delete_story(story_id: int) -> dict:
 
 @mcp.tool()
 def create_task(project_id: int, story_id: int, title: str,
-                type: str = "task", description: str = "", spec: str = "") -> dict:
-    """在指定 Story 下创建 Task/Bug。type 为 task 或 bug。"""
-    return _task_create(project_id, story_id, title, type, description, spec)
+                type: str = "task", description: str = "", spec: str = "",
+                priority: str = "medium") -> dict:
+    """在指定 Story 下创建 Task/Bug，可设置五级 priority。"""
+    return _task_create(project_id, story_id, title, type, description, spec, priority)
 
 
 @mcp.tool()
@@ -243,9 +279,11 @@ def get_task(task_id: int) -> dict:
 
 @mcp.tool()
 def update_task(task_id: int, title: str | None = None, description: str | None = None,
-                spec: str | None = None, type: str | None = None) -> dict:
-    """更新任务标题/描述/spec/类型。"""
-    fields = {k: v for k, v in dict(title=title, description=description, spec=spec, type=type).items() if v is not None}
+                spec: str | None = None, type: str | None = None,
+                priority: str | None = None) -> dict:
+    """更新任务标题/描述/spec/类型/优先级。"""
+    fields = {k: v for k, v in dict(title=title, description=description, spec=spec,
+                                    type=type, priority=priority).items() if v is not None}
     return _task_update(task_id, fields)
 
 
@@ -273,11 +311,31 @@ def set_status(task_id: int, status: str) -> dict:
 @mcp.tool()
 def search_tasks(project_id: int | None = None, epic_id: int | None = None,
                  story_id: int | None = None, type: str | None = None,
-                 status: str | None = None, q: str | None = None,
+                 status: str | None = None, priority: str | None = None,
+                 q: str | None = None,
                  limit: int | None = None, offset: int = 0) -> list:
-    """按条件搜索任务，q 为关键字(匹配 title/description/spec)。limit / offset 分页。"""
+    """按条件搜索任务，可按 priority 筛选；q 匹配 title/description/spec。"""
     return _task_search(dict(project_id=project_id, epic_id=epic_id, story_id=story_id,
-                             type=type, status=status, q=q, limit=limit, offset=offset))
+                             type=type, status=status, priority=priority, q=q,
+                             limit=limit, offset=offset))
+
+
+@mcp.tool()
+def list_comments(task_id: int) -> list | dict:
+    """按时间顺序读取任务评论，供人类与开发 Agent 共享进展。"""
+    return _comment_list(task_id)
+
+
+@mcp.tool()
+def add_comment(task_id: int, author: str, content: str) -> dict:
+    """给任务追加 markdown 评论；Agent 可用它同步开始、阻塞和完成状态。"""
+    return _comment_create(task_id, author, content)
+
+
+@mcp.tool()
+def delete_comment(comment_id: int) -> dict:
+    """删除指定评论。"""
+    return _comment_delete(comment_id)
 
 
 @mcp.tool()

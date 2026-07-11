@@ -1,6 +1,6 @@
 // AgentBoard SPA —— 纯前端，通过 fetch 调用 REST API（前后端分离）。
 const API = window.AGENTBOARD_API || "http://127.0.0.1:8000";
-let META = { types: ["task", "bug"], statuses: ["backlog", "todo", "in_progress", "in_review", "verifying", "done"] };
+let META = { types: ["task", "bug"], statuses: ["backlog", "todo", "in_progress", "in_review", "verifying", "done"], priorities: ["highest", "high", "medium", "low", "lowest"] };
 let PROJECTS = []; // 缓存项目列表供侧栏使用
 let GLOBAL_SEARCH = ""; // A-05 全局搜索框当前查询词
 
@@ -85,6 +85,11 @@ function statusDot(s) {
   const color = STATUS_COLOR[s] || "#6b7280";
   return `<span class="status-dot" style="background:${color}" title="${STATUS_LABEL[s]||s}"></span>`;
 }
+const PRIORITY_LABEL = { highest: "最高", high: "高", medium: "中", low: "低", lowest: "最低" };
+function priorityBadge(p) {
+  p = p || "medium";
+  return `<span class="badge priority priority--${p}" title="优先级：${PRIORITY_LABEL[p] || p}"><span aria-hidden="true">${p === "highest" ? "⇈" : p === "high" ? "↑" : p === "low" ? "↓" : p === "lowest" ? "⇊" : "◆"}</span> ${PRIORITY_LABEL[p] || p}</span>`;
+}
 // A-09 进度条：按子项（任务）status 计算完成度（done 占比），在 Epic/Story 卡片底部显示细进度条。
 function progressBar(done, total) {
   if (!total) return "";
@@ -113,7 +118,7 @@ function statusFlow(t) {
   const btns = nexts.map(n =>
     `<button class="sf-btn status--${n}" data-next="${n}">${STATUS_LABEL[n] || n}</button>`
   ).join('<span class="sf-arrow">→</span>');
-  return `<div class="status-flow">${curPill}<span class="sf-arrow">→</span>${btns}</div>`;
+  return `<div class="status-flow" id="status-flow">${curPill}<span class="sf-arrow">→</span>${btns}</div>`;
 }
 // 任务类型图标（内联 SVG，不引入图标库）：task=勾选圆环，bug=瓢虫
 function typeIcon(type) {
@@ -138,6 +143,7 @@ function renderKanban(tasks) {
       ? items.map(t => `<a href="#/task/${t.id}" class="kanban-card">
           <span class="type-icon ${t.type}">${typeIcon(t.type)}</span>
           <span class="kanban-card-title">${esc(t.title)}</span>
+          ${priorityBadge(t.priority)}
         </a>`).join("")
       : '<div class="kanban-empty">—</div>';
     return `<div class="kanban-col">
@@ -663,6 +669,7 @@ async function viewStory(app, id) {
               </div>
               <div class="entity-item-badges">
                 ${t.type === "bug" ? `<span class="badge bug">${typeIcon("bug")} Bug</span>` : ""}
+                ${priorityBadge(t.priority)}
                 ${statusBadge(t.status)}
               </div>
             </a>
@@ -679,6 +686,7 @@ async function viewStory(app, id) {
       <form id="s-tf">
         <input name="title" placeholder="标题" required>
         <label>类型</label>${typeSelect("task")}
+        <label>优先级</label>${prioritySelect("medium")}
         <textarea name="description" rows="3" placeholder="描述 (markdown)"></textarea>
         <div class="row"><button type="submit" class="btn-primary-sm">创建</button><button type="button" class="ghost-sm" onclick="$('#/s-task-form').style.display='none'">取消</button></div>
       </form>
@@ -710,7 +718,7 @@ async function viewStory(app, id) {
   });
   bindForm("s-tf", async (d) => {
     await api(`/api/stories/${id}/tasks`, "POST",
-      { project_id: ep.project_id, title: d.title, type: d.type, description: d.description });
+      { project_id: ep.project_id, title: d.title, type: d.type, priority: d.priority, description: d.description });
     toast("任务已创建"); render();
   });
   bindForm("s-edit", async (d) => {
@@ -729,6 +737,7 @@ async function viewStory(app, id) {
 // ----- Task 详情 -----
 async function viewTask(app, id) {
   const t = await api(`/api/tasks/${id}`);
+  const comments = await api(`/api/tasks/${id}/comments`);
   crumbs([
     { label: "仪表盘", href: "#/" },
     { label: "Story", href: `#/story/${t.story_id}` },
@@ -741,6 +750,7 @@ async function viewTask(app, id) {
         <h2 id="task-title">${esc(t.title)}</h2>
         <div class="header-badges">
           ${t.type === "bug" ? `<span class="badge bug">${typeIcon("bug")} Bug</span>` : `<span class="badge task-badge">${typeIcon("task")} Task</span>`}
+          ${priorityBadge(t.priority)}
           ${statusBadge(t.status, ' id="stbadge"')}
         </div>
       </div>
@@ -759,6 +769,7 @@ async function viewTask(app, id) {
       <form id="t-edit">
         <label>标题</label><input name="title" value="${esc(t.title)}" required>
         <label>类型</label>${typeSelect(t.type)}
+        <label>优先级</label>${prioritySelect(t.priority)}
         <label>Description (markdown)</label><textarea name="description" rows="5">${esc(t.description)}</textarea>
         <label>Spec (markdown)</label><textarea name="spec" rows="12">${esc(t.spec)}</textarea>
         <div class="row" style="flex-wrap:wrap">
@@ -767,6 +778,21 @@ async function viewTask(app, id) {
           <button type="button" class="ghost-sm" id="gen">⚡ 生成子任务</button>
           <button type="button" class="danger" id="del">🗑 删除</button>
         </div>
+      </form>
+    </div>
+
+    <div class="card comments-card">
+      <div class="section-header"><h3>💬 评论 <span class="count">${comments.length}</span></h3></div>
+      <div class="comment-list">
+        ${comments.length ? comments.map(c => `<article class="comment-item">
+          <div class="comment-avatar">${esc(c.author).slice(0, 1).toUpperCase()}</div>
+          <div class="comment-body"><div class="comment-meta"><strong>${esc(c.author)}</strong><time>${new Date(c.created_at).toLocaleString()}</time><button class="comment-delete" data-comment-id="${c.id}" title="删除评论">×</button></div><div class="md">${md(c.content)}</div></div>
+        </article>`).join("") : '<div class="empty-inline">还没有评论。可在这里记录决策，Agent 也会在此同步进展。</div>'}
+      </div>
+      <form id="comment-form" class="comment-form">
+        <input name="author" value="${esc(localStorage.getItem("agentboard_comment_author") || "我")}" placeholder="作者（人或 Agent）" required>
+        <textarea name="content" rows="3" placeholder="添加评论（支持 markdown）" required></textarea>
+        <div><button type="submit" class="btn-primary-sm">发表评论</button></div>
       </form>
     </div>`;
 
@@ -781,8 +807,18 @@ async function viewTask(app, id) {
     };
   });
   bindForm("t-edit", async (d) => {
-    await api(`/api/tasks/${id}`, "PATCH", { title: d.title, type: d.type, description: d.description, spec: d.spec });
+    await api(`/api/tasks/${id}`, "PATCH", { title: d.title, type: d.type, priority: d.priority, description: d.description, spec: d.spec });
     toast("已保存"); render();
+  });
+  bindForm("comment-form", async (d) => {
+    localStorage.setItem("agentboard_comment_author", d.author);
+    await api(`/api/tasks/${id}/comments`, "POST", { author: d.author, content: d.content });
+    toast("评论已添加"); render();
+  });
+  document.querySelectorAll("[data-comment-id]").forEach(b => b.onclick = async () => {
+    if (!confirm("删除这条评论？")) return;
+    await api(`/api/comments/${b.dataset.commentId}`, "DELETE");
+    toast("评论已删除"); render();
   });
   $("tpl").onclick = () => {
     const ta = document.querySelector('textarea[name="spec"]');
@@ -876,6 +912,13 @@ function typeSelect(cur) {
   return `<select name="type">` +
     META.types.map(t => `<option value="${t}"${t === cur ? " selected" : ""}>${t === "task" ? "Task" : "Bug"}</option>`).join("") +
     "</select>";
+}
+
+function prioritySelect(cur = "medium") {
+  return `<select name="priority">` +
+    (META.priorities || ["highest", "high", "medium", "low", "lowest"]).map(p =>
+      `<option value="${p}"${p === cur ? " selected" : ""}>${PRIORITY_LABEL[p] || p}</option>`
+    ).join("") + `</select>`;
 }
 
 // A-04 行内快速编辑标题：双击进入编辑态，回车/失焦 PATCH 保存，Esc 取消

@@ -172,8 +172,9 @@ def test_full_crud_flow(api_url):
 
         # task（type=task）
         t = c.post(f"/api/stories/{st['id']}/tasks",
-                   json={"project_id": p["id"], "title": "实现登录", "type": "task"}).json()
-        assert t["type"] == ItemType.TASK
+                   json={"project_id": p["id"], "title": "实现登录", "type": "task",
+                         "priority": "high"}).json()
+        assert t["type"] == ItemType.TASK and t["priority"] == "high"
 
         # bug（type=bug）
         b = c.post(f"/api/stories/{st['id']}/tasks",
@@ -198,6 +199,14 @@ def test_full_crud_flow(api_url):
         # 搜索按 type 过滤
         bugs = c.get("/api/tasks", params={"project_id": p["id"], "type": "bug"}).json()
         assert len(bugs) == 1 and bugs[0]["id"] == b["id"]
+
+        # 评论与优先级筛选
+        cm = c.post(f"/api/tasks/{t['id']}/comments",
+                    json={"author": "codex", "content": "实现中"})
+        assert cm.status_code == 201
+        assert c.get(f"/api/tasks/{t['id']}/comments").json()[0]["content"] == "实现中"
+        high = c.get("/api/tasks", params={"project_id": p["id"], "priority": "high"}).json()
+        assert [x["id"] for x in high] == [t["id"]]
 
         # 删除 task 不影响 bug
         assert c.delete(f"/api/tasks/{t['id']}").status_code == 200

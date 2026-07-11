@@ -296,6 +296,12 @@ h4 { font-size: .95rem; margin: 0 0 8px; }
 .badge.lg { padding: 4px 11px; font-size .8rem; }
 .badge.bug { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
 .badge.task-badge { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+.badge.priority { border: 1px solid transparent; white-space: nowrap; }
+.priority--highest { background:#fff1f2; color:#be123c; border-color:#fecdd3 !important; }
+.priority--high { background:#fff7ed; color:#c2410c; border-color:#fed7aa !important; }
+.priority--medium { background:#f8fafc; color:#475569; border-color:#cbd5e1 !important; }
+.priority--low { background:#eff6ff; color:#2563eb; border-color:#bfdbfe !important; }
+.priority--lowest { background:#ecfeff; color:#0e7490; border-color:#a5f3fc !important; }
 
 /* ========== 状态色徽章（Jira 风格淡色系） ========= */
 .badge.status.status--backlog    { background:#f3f4f6; color:#4b5563; border:1px solid #e5e7eb; }
@@ -370,6 +376,21 @@ details summary { cursor: pointer; font-weight: 600; color: var(--primary); marg
 /* Two-column layout for task detail */
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
+
+/* Comments / activity timeline */
+.comments-card { margin-top: 16px; }
+.comments-card .section-header { margin-top: 0; }
+.comment-list { display: grid; gap: 4px; }
+.comment-item { display: flex; gap: 12px; padding: 14px 4px; border-bottom: 1px solid var(--border); }
+.comment-avatar { width: 34px; height: 34px; flex: 0 0 34px; display: grid; place-items: center; border-radius: 50%; background: #e0e7ff; color: #3730a3; font-weight: 700; }
+.comment-body { flex: 1; min-width: 0; }
+.comment-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: .85rem; }
+.comment-meta time { color: var(--text-secondary); font-size: .76rem; }
+.comment-delete { margin-left: auto; padding: 0 7px; min-height: 24px; background: transparent; color: var(--text-secondary); font-size: 1.1rem; }
+.comment-delete:hover { background:#fef2f2; color:var(--danger); }
+.comment-form { margin-top: 16px; grid-template-columns: minmax(110px, 180px) 1fr auto; align-items: start; }
+.comment-form textarea { min-height: 72px; }
+@media (max-width: 720px) { .comment-form { grid-template-columns: 1fr; } }
 
 /* Modal */
 .modal-overlay {
@@ -493,6 +514,7 @@ details summary { cursor: pointer; font-weight: 600; color: var(--primary); marg
 [data-theme="dark"] .md code {
   background: #1e293b; border-color: #334155; color: var(--text);
 }
+[data-theme="dark"] .comment-avatar { background:#312e81; color:#c7d2fe; }
 /* 浅灰底容器在暗色下改深底 */
 [data-theme="dark"] .kanban-col,
 [data-theme="dark"] .data-table th,

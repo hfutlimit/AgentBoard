@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from .database import get_session, init_db
 from . import service, auth
-from .models import ALL_TYPES, ALL_STATUSES
+from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, Comment
 
 
 @asynccontextmanager
@@ -72,6 +72,7 @@ class TaskIn(BaseModel):
     type: str = "task"
     description: str = ""
     spec: str = ""
+    priority: str = "medium"
 
 
 class TaskPatch(BaseModel):
@@ -79,6 +80,12 @@ class TaskPatch(BaseModel):
     type: str | None = None
     description: str | None = None
     spec: str | None = None
+    priority: str | None = None
+
+
+class CommentIn(BaseModel):
+    author: str
+    content: str
 
 
 class StatusIn(BaseModel):
@@ -114,7 +121,7 @@ def _current_user(authorization: str | None, s: Session):
 # ---------- Meta ----------
 @app.get("/api/meta")
 def meta():
-    return {"types": ALL_TYPES, "statuses": ALL_STATUSES}
+    return {"types": ALL_TYPES, "statuses": ALL_STATUSES, "priorities": ALL_PRIORITIES}
 
 
 # ---------- Auth ----------
@@ -239,9 +246,13 @@ def list_tasks(sid: int, s: Session = Depends(get_session), limit: int | None = 
 @app.post("/api/stories/{sid}/tasks", status_code=201)
 def create_task(sid: int, body: TaskIn, s: Session = Depends(get_session)):
     story = _need(service.get_story(s, sid), "story")
-    t = service.create_task(s, project_id=body.project_id, story_id=story.id,
-                            title=body.title, type=body.type,
-                            description=body.description, spec=body.spec)
+    try:
+        t = service.create_task(s, project_id=body.project_id, story_id=story.id,
+                                title=body.title, type=body.type,
+                                description=body.description, spec=body.spec,
+                                priority=body.priority)
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
     return service._ser(t)
 
 
@@ -252,7 +263,10 @@ def get_task(tid: int, s: Session = Depends(get_session)):
 
 @app.patch("/api/tasks/{tid}")
 def update_task(tid: int, body: TaskPatch, s: Session = Depends(get_session)):
-    r = service.update_task(s, tid, **body.model_dump(exclude_none=True))
+    try:
+        r = service.update_task(s, tid, **body.model_dump(exclude_none=True))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
     return service._ser(_need(r, "task"))
 
 
@@ -271,7 +285,35 @@ def delete_task(tid: int, s: Session = Depends(get_session)):
     t = service.get_task(s, tid)
     if not t:
         raise HTTPException(status_code=404, detail="task not found")
+    s.query(Comment).filter(Comment.task_id == tid).delete()
     s.delete(t); s.commit()
+    return {"ok": True}
+
+
+# ---------- Comments ----------
+@app.get("/api/tasks/{tid}/comments")
+def list_comments(tid: int, s: Session = Depends(get_session)):
+    try:
+        return [service._ser(x) for x in service.list_comments(s, tid)]
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/api/tasks/{tid}/comments", status_code=201)
+def create_comment(tid: int, body: CommentIn, s: Session = Depends(get_session)):
+    try:
+        return service._ser(service.create_comment(s, task_id=tid, author=body.author,
+                                                   content=body.content))
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.delete("/api/comments/{cid}")
+def delete_comment(cid: int, s: Session = Depends(get_session)):
+    if not service.delete_comment(s, cid):
+        raise HTTPException(status_code=404, detail="comment not found")
     return {"ok": True}
 
 
@@ -288,10 +330,14 @@ def generate_subtasks(tid: int, s: Session = Depends(get_session)):
 @app.get("/api/tasks")
 def search_tasks(project_id: int | None = None, epic_id: int | None = None,
                  story_id: int | None = None, type: str | None = None,
-                 status: str | None = None, q: str | None = Query(None),
+                 status: str | None = None, priority: str | None = None,
+                 q: str | None = Query(None),
                  limit: int | None = Query(None), offset: int = 0,
                  s: Session = Depends(get_session)):
-    rows = service.search_tasks(s, project_id=project_id, epic_id=epic_id,
-                                story_id=story_id, type=type, status=status, q=q,
-                                limit=limit, offset=offset)
+    try:
+        rows = service.search_tasks(s, project_id=project_id, epic_id=epic_id,
+                                    story_id=story_id, type=type, status=status,
+                                    priority=priority, q=q, limit=limit, offset=offset)
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
     return [service._ser(t) for t in rows]
