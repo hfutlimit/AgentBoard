@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AgentBoard</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Cdefs%3E%3ClinearGradient%20id='g'%20x1='0'%20y1='0'%20x2='1'%20y2='1'%3E%3Cstop%20offset='0'%20stop-color='%236366f1'/%3E%3Cstop%20offset='.55'%20stop-color='%238b5cf6'/%3E%3Cstop%20offset='1'%20stop-color='%23a855f7'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width='32'%20height='32'%20rx='8'%20fill='url(%23g)'/%3E%3Crect%20x='6'%20y='8'%20width='5'%20height='16'%20rx='2'%20fill='%23fff'/%3E%3Crect%20x='13.5'%20y='8'%20width='5'%20height='11'%20rx='2'%20fill='%23fff'%20opacity='.85'/%3E%3Crect%20x='21'%20y='8'%20width='5'%20height='14'%20rx='2'%20fill='%23fff'%20opacity='.7'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap">
@@ -16,7 +17,10 @@
   <div class="topbar-inner">
     <div class="topbar-left">
       <button id="sidebar-toggle" class="icon-btn" title="切换侧栏">☰</button>
-      <h1 onclick="route('#/')" class="logo">AgentBoard</h1>
+      <h1 onclick="route('#/')" class="logo" title="AgentBoard 首页" aria-label="AgentBoard">
+        <span class="logo-mark" aria-hidden="true"><svg viewBox="0 0 32 32" width="28" height="28" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6366f1"/><stop offset=".55" stop-color="#8b5cf6"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs><rect width="32" height="32" rx="8" fill="url(#lg)"/><rect x="6" y="8" width="5" height="16" rx="2" fill="#fff"/><rect x="13.5" y="8" width="5" height="11" rx="2" fill="#fff" opacity=".85"/><rect x="21" y="8" width="5" height="14" rx="2" fill="#fff" opacity=".7"/></svg></span>
+        <span class="logo-text">Agent<b>Board</b></span>
+      </h1>
     </div>
     <nav class="topbar-nav">
       <a href="#/" data-nav="home">仪表盘</a>

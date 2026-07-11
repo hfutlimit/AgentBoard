@@ -72,10 +72,17 @@ body {
 }
 .topbar-left { display: flex; align-items: center; gap: 10px; }
 .logo {
-  margin: 0; font-size: 1.2rem; font-weight: 700; cursor: pointer;
-  color: var(--primary); letter-spacing: -0.3px;
+  margin: 0; display: inline-flex; align-items: center; gap: 9px;
+  font-size: 1.2rem; font-weight: 700; cursor: pointer;
+  letter-spacing: -.02em; user-select: none;
 }
 .logo:hover { opacity: .85; }
+.logo-mark { display: inline-flex; flex: none; filter: drop-shadow(0 2px 6px var(--brand-ring)); }
+.logo-text {
+  background: var(--grad); -webkit-background-clip: text; background-clip: text;
+  -webkit-text-fill-color: transparent; color: transparent;
+}
+.logo-text b { font-weight: 800; }
 .topbar-nav { display: flex; gap: 4px; }
 .topbar-nav a {
   padding: 6px 14px; border-radius: 6px; text-decoration: none; color: var(--text-secondary);
