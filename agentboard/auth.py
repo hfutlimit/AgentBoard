@@ -9,12 +9,14 @@ import hashlib
 import hmac
 import os
 import secrets
+import time
 from sqlalchemy.orm import Session
 
 from . import models
 
 _SECRET = os.getenv("AGENTBOARD_SECRET", "dev-insecure-secret-change-me").encode()
 _PBKDF2_ROUNDS = 100_000
+_TOKEN_TTL_SECONDS = int(os.getenv("AGENTBOARD_TOKEN_TTL_SECONDS", "2592000"))
 
 
 def hash_password(password: str) -> str:
@@ -35,26 +37,40 @@ def verify_password(password: str, stored: str) -> bool:
     return hmac.compare_digest(dk.hex(), expected)
 
 
-def make_token(user_id: int) -> str:
-    sig = hmac.new(_SECRET, str(user_id).encode("utf-8"), "sha256").hexdigest()
-    return f"{user_id}.{sig}"
+def make_token(user_id: int, *, ttl_seconds: int | None = None) -> str:
+    """签发带过期时间的 HMAC Token：`v1.<uid>.<exp>.<signature>`。"""
+    ttl = _TOKEN_TTL_SECONDS if ttl_seconds is None else ttl_seconds
+    if ttl <= 0:
+        raise ValueError("token ttl must be positive")
+    expires_at = int(time.time()) + ttl
+    payload = f"v1.{user_id}.{expires_at}"
+    sig = hmac.new(_SECRET, payload.encode("utf-8"), "sha256").hexdigest()
+    return f"{payload}.{sig}"
+
+
+def parse_token_details(token: str | None) -> tuple[int, int] | None:
+    """校验 Token 并返回 `(user_id, expires_at)`；非法或过期返回 None。"""
+    if not token:
+        return None
+    try:
+        version, uid_s, exp_s, sig = token.split(".", 3)
+        expires_at = int(exp_s)
+        uid = int(uid_s)
+    except (ValueError, TypeError):
+        return None
+    if version != "v1" or expires_at <= int(time.time()):
+        return None
+    payload = f"{version}.{uid_s}.{exp_s}"
+    expect = hmac.new(_SECRET, payload.encode("utf-8"), "sha256").hexdigest()
+    if not hmac.compare_digest(sig, expect):
+        return None
+    return uid, expires_at
 
 
 def parse_token(token: str | None) -> int | None:
     """校验 Token 并返回 user_id；非法/篡改返回 None。"""
-    if not token:
-        return None
-    try:
-        uid_s, sig = token.split(".", 1)
-    except ValueError:
-        return None
-    expect = hmac.new(_SECRET, uid_s.encode("utf-8"), "sha256").hexdigest()
-    if not hmac.compare_digest(sig, expect):
-        return None
-    try:
-        return int(uid_s)
-    except ValueError:
-        return None
+    details = parse_token_details(token)
+    return details[0] if details else None
 
 
 def get_user_by_id(s: Session, user_id: int) -> models.User | None:

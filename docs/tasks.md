@@ -136,7 +136,7 @@
 - [ ] Epic 7：前端注册 / 登录 UI（后端鉴权已就绪，仅前端集成）
 - [ ] Epic 8：MariaDB 独立 `.sql` 脚本 + 真实集成验证（Alembic 迁移已完成）
 - [ ] Epic 9：前端 Web 自动化测试（Playwright 真实浏览器 E2E）
-- [ ] Epic 10：MCP 鉴权集成 + 运维化（"实现 MCP"）
+- [x] Epic 10：MCP 鉴权集成 + 远程运维化（完整项目树 + Streamable HTTP + Bearer）
 - [ ] Epic 11：持续前端优化（模仿 Jira，小步迭代，长期轨道）
 
 ---
@@ -198,20 +198,22 @@
 ---
 
 ## Epic 10：MCP 鉴权集成与运维化（实现 MCP）
-> 目标：使现成 MCP 服务连通鉴权并生产可用（见 `openspec/changes/mcp-auth/`）。
+> 已完成：完整项目树工具、统一登录 Token、远程 Streamable HTTP、Bearer 鉴权、Docker 与真实协议测试。
 
 ### Story 10.1 MCP 用户管理工具
-- [ ] Task：`mcp_server.py` 新增 `auth_register` / `auth_login` / `auth_me`（api + db 双后端）
+- [x] Task：`mcp_server.py` 新增 `auth_register` / `auth_login` / `auth_me`（api + db 双后端）
 
 ### Story 10.2 Token 透传与运维
-- [ ] Task：`api` 后端 `_http` 支持 `AGENTBOARD_MCP_TOKEN` 注入 `Authorization`
-- [ ] Task：启动脚本 `scripts/run_mcp.py` 或 README 写清 `python -m agentboard.mcp_server`
-- [ ] Task：客户端配置样例 `examples/claude_desktop_mcp.json` / `examples/codebuddy_mcp.json`
+- [x] Task：`api` 后端透传当前远程 MCP Token，stdio 回退 `AGENTBOARD_MCP_TOKEN`
+- [x] Task：`python -m agentboard.mcp_server` 支持 stdio/http 环境配置
+- [x] Task：客户端配置样例 `examples/mcp-stdio.json` / `examples/mcp-remote.json`
+- [x] Task：完整 Project/Epic/Story/Task list/get/update/delete 工具
+- [x] Task：Docker Compose 远程 MCP 服务与 REST 强制鉴权
 
 ### Story 10.3 验证与文档
-- [ ] Task：新增 `tests/test_mcp_smoke.py`（FastMCP 客户端调用工具）
-- [ ] Task：README「MCP 运行与接入」章节
-- [ ] Task：更新 `openspec/specs/agentboard/spec.md` 的 MCP 工具清单
+- [x] Task：新增 `tests/test_mcp_smoke.py`（真实 HTTP、Bearer、API Token 透传、完整项目树）
+- [x] Task：README「MCP 运行与接入」章节
+- [x] Task：更新 `openspec/specs/agentboard/spec.md` 的 MCP 工具清单
 
 ---
 
@@ -268,7 +270,7 @@
 - [x] **A-17 路由过渡动画**：视图切换加淡入/滑入过渡。
 - [x] **A-18 面包屑高亮当前级**：确保各级面包屑链接正确且高亮当前级（补样式）。
 - [x] **A-19 列表项 hover 操作**：hover 显示「编辑/删除」快捷图标，减少误触确认。
-- [ ] **A-20 前端偏好本地存储**：记住上次视图（列表/看板）等前端偏好。
+- [x] **A-20 前端偏好本地存储**：记住上次视图（列表/看板）等前端偏好。
 
 ### Backlog B（需后端配合，先提需求，不混入小优化）
 - [ ] **B-01 标签 / 标签组（labels）**：task 增加 `labels` 字段 + 多选 UI（需 `models.py` + 迁移 + API）。
@@ -334,3 +336,4 @@
 | 2026-07-11 | 创建弹窗重构 | 收尾前次会话遗留改动：新增统一 `showCreateModal(kind,parentId,context)`（项目/Epic/Story/Task 共用），替换散布的「内联新增表单」，含遮罩点击关闭、Esc 关闭、焦点归还、必填校验、Ctrl/⌘+Enter 提交、统一错误/成功 toast；`showNewProjectModal` 复用之。移除 `bindNewProjectForm` 与各处 `bindForm` 创建分支；`style.css` 重写 `.modal*` 为 Jira 风格（圆角/阴影/动画/移动端底部 sheet/可见关闭按钮/表单字段栅格）；`test_web_flow.py` 增 `showCreateModal`/`data-modal-close` 断言并断言旧内联表单已移除。未改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | A-18 | 面包屑高亮当前级：`.crumb-current` 由纯文字改为品牌浅底药丸（bold + `--brand-soft` 背景 + 1px 品牌环），与链接面包屑清晰区分；链接面包屑加 hover 浅底 chip 与 `:focus-visible` 品牌光环；当前级加 `aria-current="page"`。`app.js`+1、style.css+16/−5、test_web_flow.py+2（净增 ~13 行，符合 R2），未改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | A-19 | 列表项 hover 操作：Epic/Story/Task 列表项右侧新增 hover/focus-within 淡入的「✏ 编辑 / 🗑 删除」快捷图标（默认隐藏、触摸设备常显）。新增 `entityActions(type,id)` 渲染辅助与 `attachEntityActions(app)` 事件委托（`preventDefault+stopPropagation` 避免触发导航/抽屉；编辑复用 `inlineEditEnter`，删除二次 `confirm` 后调既有 `DELETE` 端点并 `render()`）；新增 `API_PLURAL` 复数映射并**修复 `inlineEditEnter` 对 story 生成 `/api/storys` 的既有 404 缺陷**（改用映射得 `/api/stories`）。`app.js`+~35、style.css+8、test_web_flow.py+2（净增 ~45 行，符合 R2），未改 `models.py`/`api.py` 契约 |
+| 2026-07-11 | A-20 | 前端偏好本地存储：Story 页任务区视图切换（列表/看板）经 `localStorage`（键 `agentboard_story_view`）持久化；`storyViewMode` 启动时读取偏好、切换时回写，下次进入 Story 页自动恢复上次选择。仅改 `app.js`(+3/−1)、`test_web_flow.py`+1（净增 ~4 行，符合 R2），未改 `models.py`/`api.py` 契约 |

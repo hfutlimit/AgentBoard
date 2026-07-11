@@ -51,34 +51,117 @@ uvicorn agentboard.api:app --reload --port 8000
 uvicorn agentboard.web_app:app --reload --port 8080
 # 浏览器打开 http://127.0.0.1:8080
 
-# 3) MCP 服务（stdio）
+# 3) 本地 MCP 服务（stdio）
 #    默认调用 API：需先启动上面的 API
 python -m agentboard.mcp_server
 #    或让 MCP 直连数据库（无需 API）：
 #    $env:AGENTBOARD_MCP_BACKEND="db"; python -m agentboard.mcp_server
+
+# 4) 远程 MCP（Streamable HTTP，默认要求 Bearer Token）
+#    API 与 MCP 必须使用相同的 AGENTBOARD_SECRET
+$env:AGENTBOARD_SECRET="replace-with-at-least-32-random-bytes"
+$env:AGENTBOARD_MCP_TRANSPORT="http"
+$env:AGENTBOARD_MCP_HOST="0.0.0.0"
+$env:AGENTBOARD_MCP_PORT="8001"
+python -m agentboard.mcp_server
+# MCP endpoint: http://127.0.0.1:8001/mcp
 ```
 
 配置项（环境变量）：
 - `AGENTBOARD_DB_URL`：数据库地址。默认 `sqlite:///./agentboard.db`；生产 `mysql+pymysql://user:pass@host:3306/agentboard`
 - `AGENTBOARD_API_URL`：Web/MCP 调用的 API 地址，默认 `http://127.0.0.1:8000`
 - `AGENTBOARD_MCP_BACKEND`：`api`（默认）或 `db`
+- `AGENTBOARD_MCP_TRANSPORT`：`stdio`（默认）或 `http`（Streamable HTTP）
+- `AGENTBOARD_MCP_HOST` / `AGENTBOARD_MCP_PORT` / `AGENTBOARD_MCP_PATH`：远程 MCP 监听配置，默认 `127.0.0.1:8001/mcp`
+- `AGENTBOARD_MCP_REQUIRE_AUTH`：远程 MCP Bearer 鉴权，默认开启；只应在本机调试时关闭
+- `AGENTBOARD_MCP_TOKEN`：stdio + API 后端调用受保护 REST 时使用的登录 Token
+- `AGENTBOARD_REQUIRE_AUTH`：设为 `1` 时统一保护 REST 业务端点
+- `AGENTBOARD_ALLOW_REGISTRATION`：设为 `0` 时仅允许创建首个用户，之后注册返回 403；Docker 默认关闭公开注册
+- `AGENTBOARD_TOKEN_TTL_SECONDS`：Token 有效期，默认 2592000 秒（30 天）
 - `AGENTBOARD_SECRET`：登录 Token 签名密钥（HMAC）。默认内置不安全占位值，**生产务必设置**。
 
 ## 鉴权（注册 / 登录）
 
-内置轻量鉴权（无额外依赖；密码 pbkdf2 哈希，Token 为 HMAC 签名无状态 Bearer）：
+内置轻量鉴权（无额外依赖；密码 pbkdf2 哈希，Token 为带过期时间的 HMAC 签名无状态 Bearer）：
 
 - `POST /api/auth/register`：`{"username","password"}` → `201` 返回 `{id,username,token}`；重复用户名 → `409`
 - `POST /api/auth/login`：`{"username","password"}` → `200` 返回 `{id,username,token}`；凭据错误 → `401`
 - `GET /api/auth/me`：带 `Authorization: Bearer <token>` → `200` 返回当前用户；缺失/伪造 → `401`
 
-> 现有项目树 CRUD 接口保持单用户开放（与 MCP / Web 兼容）；鉴权接口用于身份创建与校验。
+> 本地默认保持 CRUD 开放；远程部署设置 `AGENTBOARD_REQUIRE_AUTH=1`。注册、登录和 `/api/meta` 保持公开。远程 MCP 默认始终要求同一枚 Bearer Token。
+
+## 远程部署与 Agent 接入
+
+### Docker Compose
+
+先生成并设置强随机密钥，再启动 API、Web 和 MCP：
+
+```powershell
+Copy-Item .env.example .env
+# 编辑 .env，把 AGENTBOARD_SECRET 换成：
+python -c "import secrets; print(secrets.token_hex(32))"
+docker compose up -d --build
+```
+
+默认端口：API `8000`、MCP `8001/mcp`、Web `8080`。生产环境应由 Nginx/Caddy/云网关终止 TLS，只向 Agent 暴露 `https://.../mcp`；不要在公网使用明文 HTTP，也不要直接暴露数据库。Nginx 样例见 [examples/nginx-agentboard.conf](examples/nginx-agentboard.conf)，其中已关闭 MCP 响应缓冲并转发 Authorization。
+
+### 获取 Agent Token
+
+首次注册（Docker 默认只允许创建首个用户，之后自动拒绝公开注册）：
+
+```bash
+curl -X POST https://agentboard.example.com/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"codex-agent","password":"replace-with-strong-password"}'
+```
+
+以后登录续签：
+
+```bash
+curl -X POST https://agentboard.example.com/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"codex-agent","password":"replace-with-strong-password"}'
+```
+
+响应中的 `token` 同时用于 REST 和 MCP。需要创建更多 Agent 账号时，可在受控维护窗口临时设置 `AGENTBOARD_ALLOW_REGISTRATION=1`，创建完成后立即恢复为 `0`。
+
+### Codex
+
+```powershell
+$env:AGENTBOARD_TOKEN="v1.REPLACE_WITH_LOGIN_TOKEN"
+codex mcp add agentboard `
+  --url https://mcp.agentboard.example.com/mcp `
+  --bearer-token-env-var AGENTBOARD_TOKEN
+codex mcp get agentboard
+```
+
+重启或新建 Agent 会话后，确认可以看到 `list_projects`、`list_epics`、`list_stories`、`list_tasks` 等工具。
+
+### 其他 MCP Agent
+
+支持 Streamable HTTP 和自定义请求头的 Agent 使用：
+
+```json
+{
+  "mcpServers": {
+    "agentboard": {
+      "url": "https://mcp.agentboard.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer v1.REPLACE_WITH_LOGIN_TOKEN"
+      }
+    }
+  }
+}
+```
+
+可复制 [examples/mcp-remote.json](examples/mcp-remote.json)；本地 stdio 示例见 [examples/mcp-stdio.json](examples/mcp-stdio.json)。客户端字段名可能不同，但连接要素始终是 Streamable HTTP URL 与 Bearer Token。
 
 ## 测试
 
 - `tests/test_smoke.py`：四端冒烟（service / REST / Web / MCP）。
 - `tests/test_backend_flow.py`：**后端自动化测试**，真实启动 uvicorn 子进程，针对已运行的 API 做 HTTP 端到端验证：注册/登录/错误分支 + 全链路 CRUD（project → epic → story → task/bug）与状态机校验。
 - `tests/test_web_flow.py`：**Web 端到端自动化测试**，同时启动真实 API 与真实 Web 服务，校验 SPA 被正确托管并接到运行中的 API，并覆盖注册/登录、各类 ticket 的创建/修改、以及项目/epic/story/task 列表与搜索读取。
+- `tests/test_mcp_smoke.py`：启动真实 Streamable HTTP MCP，验证无 Token 拒绝、Bearer 登录、工具发现和 Project → Epic → Story → Task 完整链路。
 
 ```bash
 PYTHONPATH=. python -m pytest tests/ -q

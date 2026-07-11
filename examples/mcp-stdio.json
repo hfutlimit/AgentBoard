@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "agentboard": {
+      "command": "python",
+      "args": ["-m", "agentboard.mcp_server"],
+      "env": {
+        "PYTHONPATH": "/absolute/path/to/AgentBoard",
+        "AGENTBOARD_MCP_TRANSPORT": "stdio",
+        "AGENTBOARD_MCP_BACKEND": "api",
+        "AGENTBOARD_API_URL": "https://agentboard.example.com",
+        "AGENTBOARD_MCP_TOKEN": "REPLACE_WITH_LOGIN_TOKEN"
+      }
+    }
+  }
+}

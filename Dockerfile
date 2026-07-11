@@ -22,6 +22,6 @@ RUN mkdir -p /app/data
 # 默认入口：REST API。Web 服务在 compose 中覆盖 command。
 # 数据库地址默认指向卷内 SQLite；生产可改用 MariaDB（见 docker-compose.yml）。
 ENV AGENTBOARD_DB_URL="sqlite:////app/data/agentboard.db"
-EXPOSE 8000 8080
+EXPOSE 8000 8001 8080
 
 CMD ["uvicorn", "agentboard.api:app", "--host", "0.0.0.0", "--port", "8000"]

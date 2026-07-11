@@ -22,7 +22,12 @@ services:
       # 持久化到命名卷；生产请改用 MariaDB 连接串
       AGENTBOARD_DB_URL: "sqlite:////app/data/agentboard.db"
       # 生产务必改为强随机值（可用 openssl rand -hex 32 生成）
-      AGENTBOARD_SECRET: "${AGENTBOARD_SECRET:-dev-insecure-secret-change-me}"
+      AGENTBOARD_SECRET: "${AGENTBOARD_SECRET:?Set AGENTBOARD_SECRET to a strong random value}"
+      # 远程部署默认保护 REST 业务接口；注册/登录和 /api/meta 保持公开
+      AGENTBOARD_REQUIRE_AUTH: "1"
+      # 首个用户仍可注册；创建后关闭公开注册
+      AGENTBOARD_ALLOW_REGISTRATION: "0"
+      AGENTBOARD_TOKEN_TTL_SECONDS: "${AGENTBOARD_TOKEN_TTL_SECONDS:-2592000}"
     volumes:
       - agentboard_data:/app/data
     ports:
@@ -54,6 +59,27 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  mcp:
+    build: .
+    command: python -m agentboard.mcp_server
+    environment:
+      AGENTBOARD_MCP_TRANSPORT: "http"
+      AGENTBOARD_MCP_HOST: "0.0.0.0"
+      AGENTBOARD_MCP_PORT: "8001"
+      AGENTBOARD_MCP_PATH: "/mcp"
+      AGENTBOARD_MCP_REQUIRE_AUTH: "1"
+      AGENTBOARD_MCP_BACKEND: "api"
+      AGENTBOARD_API_URL: "http://api:8000"
+      # 必须与 API 完全一致，MCP 才能验证并透传 REST 登录 Token
+      AGENTBOARD_SECRET: "${AGENTBOARD_SECRET:?Set AGENTBOARD_SECRET to a strong random value}"
+      AGENTBOARD_TOKEN_TTL_SECONDS: "${AGENTBOARD_TOKEN_TTL_SECONDS:-2592000}"
+    ports:
+      - "8001:8001"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
 
   # 可选 MariaDB（默认关闭，启用需 --profile mariadb）
   db:

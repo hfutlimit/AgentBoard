@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "agentboard": {
+      "url": "https://mcp.agentboard.example.com/mcp",
+      "headers": {
+        "Authorization": "Bearer REPLACE_WITH_LOGIN_TOKEN"
+      }
+    }
+  }
+}

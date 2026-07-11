@@ -39,7 +39,7 @@
 - FR-8 前端注册 / 登录 UI 与 token 持久化（后端已就绪）
 - FR-9 MariaDB 独立 `.sql` 脚本 + 真实集成验证 + docker-compose 编排
 - FR-10 前端 Web 自动化测试（Playwright 真实浏览器 E2E）
-- FR-11 MCP 鉴权集成 + 运维化（启动脚本 / 客户端配置 / 冒烟测试）
+- FR-11 MCP 鉴权集成 + 远程运维化（完整项目树 / Streamable HTTP / Bearer / 部署与测试）—— 已完成
 - FR-12 持续前端优化（模仿 Jira，小步迭代）—— 长期轨道，详见 Epic 11
 - FR-13/14 优先级与评论—— 首个纵向切片已实现
 - FR-15/16 附件与 Sprint—— 已完成规格，待实现
@@ -122,6 +122,7 @@ MVP 不做权限区分，所有调用方等价。
 - 可脚本化启动 API + Web 服务，由 Playwright 对 `http://localhost:8080` 操作。
 
 **FR-11 MCP 鉴权集成与运维化（实现 MCP）**
+- 状态：**已完成**。
 - MCP 服务（`mcp_server.py`）已完整实现工具集。本次目标：使其**生产可用并连通鉴权**。
 - 新增 MCP 用户管理工具：`auth_register` / `auth_login` / `auth_me`，供 AI Agent 创建与校验身份。
 - `api` 后端可选透传 Bearer Token（从环境变量 / 配置读取），以便调用受保护端点。

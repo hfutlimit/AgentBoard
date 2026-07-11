@@ -187,6 +187,14 @@ def update_task(s: Session, id: int, **fields) -> Task | None:
     s.commit(); s.refresh(t); return t
 
 
+def delete_task(s: Session, id: int) -> bool:
+    t = s.get(Task, id)
+    if not t:
+        return False
+    s.query(Comment).filter(Comment.task_id == id).delete(synchronize_session=False)
+    s.delete(t); s.commit(); return True
+
+
 def set_task_description(s: Session, id: int, text: str) -> Task | None:
     return update_task(s, id, description=text)
 
@@ -320,6 +328,10 @@ class InvalidValue(Exception):
 
 
 # ---------- Auth ----------
+def has_users(s: Session) -> bool:
+    return s.query(models.User.id).first() is not None
+
+
 def register_user(s: Session, *, username: str, password: str) -> models.User:
     if s.query(models.User).filter_by(username=username).first():
         raise Duplicate(f"username '{username}' already exists")

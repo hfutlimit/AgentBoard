@@ -3,15 +3,17 @@
 独立运行：uvicorn agentboard.api:app --port 8000
 供 Web 前端（fetch）与 MCP（httpx）调用；不含任何 HTML 渲染。
 """
+import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException, Query, Header
+from fastapi import FastAPI, Depends, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from .database import get_session, init_db
+from .database import get_session, init_db, SessionLocal
 from . import service, auth
-from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, Comment
+from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES
 
 
 @asynccontextmanager
@@ -29,6 +31,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def require_business_auth(request: Request, call_next):
+    """可选统一保护 REST 业务端点，避免新增路由遗漏鉴权依赖。"""
+    protected = (
+        os.getenv("AGENTBOARD_REQUIRE_AUTH", "0").lower() in {"1", "true", "yes"}
+        and request.method != "OPTIONS"
+        and request.url.path.startswith("/api/")
+        and request.url.path not in {"/api/meta", "/api/auth/register", "/api/auth/login"}
+    )
+    if protected:
+        authorization = request.headers.get("Authorization")
+        token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
+        uid = auth.parse_token(token)
+        with SessionLocal() as s:
+            if not uid or service.get_user(s, uid) is None:
+                return JSONResponse(status_code=401, content={"detail": "unauthorized"})
+    return await call_next(request)
 
 
 # ---------- Schemas ----------
@@ -92,6 +113,10 @@ class StatusIn(BaseModel):
     status: str
 
 
+class SpecAppendIn(BaseModel):
+    text: str
+
+
 class AuthRegister(BaseModel):
     username: str
     password: str
@@ -127,6 +152,9 @@ def meta():
 # ---------- Auth ----------
 @app.post("/api/auth/register", status_code=201)
 def register(body: AuthRegister, s: Session = Depends(get_session)):
+    registration_open = os.getenv("AGENTBOARD_ALLOW_REGISTRATION", "1").lower() in {"1", "true", "yes"}
+    if not registration_open and service.has_users(s):
+        raise HTTPException(status_code=403, detail="registration is disabled")
     try:
         u = service.register_user(s, username=body.username, password=body.password)
     except service.Duplicate:
@@ -282,12 +310,14 @@ def set_status(tid: int, body: StatusIn, s: Session = Depends(get_session)):
 
 @app.delete("/api/tasks/{tid}")
 def delete_task(tid: int, s: Session = Depends(get_session)):
-    t = service.get_task(s, tid)
-    if not t:
+    if not service.delete_task(s, tid):
         raise HTTPException(status_code=404, detail="task not found")
-    s.query(Comment).filter(Comment.task_id == tid).delete()
-    s.delete(t); s.commit()
     return {"ok": True}
+
+
+@app.post("/api/tasks/{tid}/spec/append")
+def append_task_spec(tid: int, body: SpecAppendIn, s: Session = Depends(get_session)):
+    return service._ser(_need(service.append_task_spec(s, tid, body.text), "task"))
 
 
 # ---------- Comments ----------
