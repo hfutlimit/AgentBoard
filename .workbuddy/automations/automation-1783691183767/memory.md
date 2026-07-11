@@ -1,5 +1,23 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-11（周期执行 · P-02 字体与排版升级）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=1146d1a）。
+- **需求/任务分析**：Epic 11 Backlog C 顺序推进；P-01 已完成，认领下一个 pending 项 **P-02 字体与排版升级**。
+- **开发任务**：`index.html` 加 Inter + JetBrains Mono Google Fonts `<link>`（系统栈兜底、离线降级）；`style.css` `:root` 新增 `--font-sans`/`--font-mono`，`body` 用 `var(--font-sans)`，标题 `h2/h3/h4` `letter-spacing:-.02em`，`.stat-number`/`.sidebar-key`/`.progress-pct`/`.kanban-count` 加 `tabular-nums`，`textarea`/`.md pre`/`.md code` 用 `var(--font-mono)`。`index.html`+3/`style.css`+3（净增 ~6 行，符合 R2），未改 `models.py`/`api.py` 契约。
+- **部署 Docker**：基础镜像 `python:3.13-slim` 仍不在本地缓存、Docker Hub 不可达 → `docker compose up -d --build web` 会失败；退化 `docker cp` 注入新 `index.html`/`style.css` 到 `agentboard-web-1`（/app/agentboard/web/static/）。HTTP 校验 page 200、style.css 含 `--font-sans`(2)/`tabular-nums`(4)/`letter-spacing: -.02em`(3)/`var(--font-mono)`(3)、index.html 含 `fonts.googleapis.com`(2)/`JetBrains+Mono`(1)。
+- **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
+- **推送**：`git push origin main`（commit 见下）。
+- **下一个 pending 项**：P-03 Logo Mark 与品牌字（内联 SVG 看板图标 + 渐变描边文字，加 favicon；依赖 P-01）。
+
+## 2026-07-11（周期执行 · P-01 设计 Token 体系）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=12be63e；Backlog C 已接入，候选首项 P-01）。
+- **需求/任务分析**：Epic 11 Backlog C 为本轮优先；A-01~A-17 已完成，P-01 为 Backlog C 首个 pending 项，认领 **P-01 设计 Token 体系**。
+- **开发任务**：`style.css` `:root`+`[data-theme="dark"]` 落地 `--brand-500/600/700`/`--brand-soft/ring`/`--grad`/`--success/--warning/--danger/--info/--violet`/`--text-2/3`/`--border-2`/`--surface-2/3`/`--sh-sm/md/lg/brand`/`--r-sm/md/lg`；`--primary` 保留为 `--brand-500` 别名、`--text-secondary`/`--card-bg` 续用旧名以兼容旧类。`style.css` +74/−10（净增 ~64 行，符合 R2），未改 `models.py`/`api.py` 契约。
+- **部署 Docker**：基础镜像 `python:3.13-slim` 本地未缓存、Docker Hub 不可达 → `docker compose up -d --build web` 会触发拉取失败；退化 `docker cp` 注入新 `style.css` 到运行中的 `agentboard-web-1`（/app/agentboard/web/static/）。HTTP 校验 served style.css 含 `--brand-500`(6)/`--surface-2`(2)/`--sh-brand`(2)/`data-theme="dark"`(24)、page 200、`/api/meta` 200。
+- **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
+- **推送**：`git push origin main` 成功（`12be63e..1146d1a`，commit `1146d1a`）。
+- **下一个 pending 项**：P-02 字体与排版升级（依赖 P-01）。
+
 ## 2026-07-11（周期执行 · A-17 路由过渡动画）
 - **拉取最新代码**：`git pull origin main` 已是最新（HEAD=316378c）。
 - **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-16 已完成，认领下一个 pending 项 **A-17 路由过渡动画**。

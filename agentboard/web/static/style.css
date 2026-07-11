@@ -44,13 +44,17 @@
   --r-md: 12px;
   --r-lg: 16px;
 
+  /* 字体（P-02 字体与排版升级：Inter + JetBrains Mono，系统栈兜底） */
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", "PingFang SC", sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Consolas, "Cascadia Code", monospace;
+
   --sidebar-width: 250px;
   --topbar-h: 52px;
 }
 
 * { box-sizing: border-box; }
 body {
-  font-family: -apple-system, "Segoe UI", Roboto, "Noto Sans SC", sans-serif;
+  font-family: var(--font-sans);
   margin: 0; color: var(--text); background: var(--bg);
   display: flex; flex-direction: column; min-height: 100vh;
 }
@@ -132,6 +136,7 @@ body {
 .sidebar-key {
   font-size: .72rem; padding: 1px 7px; border-radius: 999px;
   background: #eef2ff; color: #3730a3; font-weight: 600; flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 .sidebar-empty {
   text-align: center; padding: 24px 16px; color: var(--text-secondary); font-size: .85rem; line-height: 1.6;
@@ -172,7 +177,7 @@ main {
   box-shadow: 0 1px 3px rgba(0,0,0,.04);
 }
 .stat-card.highlight { border-top: 3px solid var(--success); }
-.stat-number { font-size: 1.8rem; font-weight: 800; color: var(--text); line-height: 1.2; }
+.stat-number { font-size: 1.8rem; font-weight: 800; color: var(--text); line-height: 1.2; font-variant-numeric: tabular-nums; }
 .stat-label { font-size: .8rem; color: var(--text-secondary); margin-top: 4px; font-weight: 500; }
 
 .section-header {
@@ -240,7 +245,7 @@ main {
 .entity-progress { flex: 1 1 100%; display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .progress-track { flex: 1; height: 6px; background: #eef2f7; border-radius: 999px; overflow: hidden; }
 .progress-fill { height: 100%; border-radius: 999px; transition: width .3s ease; }
-.progress-pct { font-size: 11px; font-weight: 600; color: var(--text-secondary); min-width: 32px; text-align: right; }
+.progress-pct { font-size: 11px; font-weight: 600; color: var(--text-secondary); min-width: 32px; text-align: right; font-variant-numeric: tabular-nums; }
 .entity-item:hover { border-color: var(--primary); box-shadow: 0 2px 8px rgba(37,99,235,.08); }
 .entity-item-main { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .entity-item-title { font-weight: 500; font-size: .92rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -287,7 +292,7 @@ main {
 .kanban { display: grid; grid-template-columns: repeat(6, minmax(150px, 1fr)); gap: 10px; margin-top: 4px; overflow-x: auto; }
 .kanban-col { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; min-height: 90px; }
 .kanban-col-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
-.kanban-count { font-size: .72rem; color: var(--text-secondary); background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; }
+.kanban-count { font-size: .72rem; color: var(--text-secondary); background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; font-variant-numeric: tabular-nums; }
 .kanban-card { display: flex; align-items: center; gap: 6px; background: #fff; border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; text-decoration: none; color: inherit; transition: all .12s; }
 .kanban-card:hover { border-color: var(--primary); box-shadow: 0 2px 8px rgba(37,99,235,.08); }
 .kanban-card-title { font-size: .85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -319,9 +324,9 @@ main {
 }
 .form-section { animation: slideDown .2s ease-out; }
 
-h2 { font-size: 1.15rem; margin: 0; }
-h3 { font-size: 1.05rem; margin: 0; }
-h4 { font-size: .95rem; margin: 0 0 8px; }
+h2 { font-size: 1.15rem; margin: 0; letter-spacing: -.02em; }
+h3 { font-size: 1.05rem; margin: 0; letter-spacing: -.02em; }
+h4 { font-size: .95rem; margin: 0 0 8px; letter-spacing: -.02em; }
 
 /* Badges */
 .badge { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: .72rem; font-weight: 600; }
@@ -382,7 +387,7 @@ input, textarea, select {
   background: #fff;
 }
 input:focus, textarea:focus, select:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
-textarea { resize: vertical; font-family: ui-monospace, Consolas, "Cascadia Code", monospace; font-size: .85rem; }
+textarea { resize: vertical; font-family: var(--font-mono); font-size: .85rem; }
 label { font-size: .82rem; color: var(--text-secondary); font-weight: 600; margin-top: 4px; }
 .required { color: var(--danger); }
 /* A-14 Markdown 编辑工具栏：文本框上方的小型语法快捷按钮 */
@@ -409,9 +414,9 @@ details summary { cursor: pointer; font-weight: 600; color: var(--primary); marg
 .md { line-height: 1.75; }
 .md pre {
   background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 8px;
-  overflow-x: auto; font-size: .84rem; line-height: 1.55;
+  overflow-x: auto; font-size: .84rem; line-height: 1.55; font-family: var(--font-mono);
 }
-.md code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: .85rem; }
+.md code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: .85rem; font-family: var(--font-mono); }
 
 /* Two-column layout for task detail */
 .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
