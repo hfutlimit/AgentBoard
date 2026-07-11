@@ -232,7 +232,7 @@
 > 完整设计提案：`docs/design/ui-style-proposal.md`；逐任务规格：`docs/design/ui-style-tasks.md`；高保真原型：`docs/design/mockup.html`（含明/暗切换，浏览器可直接打开）。
 > 纪律同 Epic 11：每项独立交付、净增 < ~80 行、可独立验证、改 DOM 补 Playwright；顺序按依赖（P0 骨架 → P1 观感 → P2 细化 → P13 暗色校准）。
 
-- [ ] **P-01 设计 Token 体系**：`style.css` `:root`+`[data-theme="dark"]` 落地 `--brand-*`/`--grad`/`--success`/`--warning`/`--danger`/`--info`/`--violet`/`--text-2/3`/`--border-2`/`--surface-2/3`/`--sh-sm/md/lg/brand`/`--r-sm/md/lg`；保留 `--primary` 作 `--brand-500` 别名以兼容旧类（~40 行）。
+- [x] **P-01 设计 Token 体系**：`style.css` `:root`+`[data-theme="dark"]` 落地 `--brand-*`/`--grad`/`--success`/`--warning`/`--danger`/`--info`/`--violet`/`--text-2/3`/`--border-2`/`--surface-2/3`/`--sh-sm/md/lg/brand`/`--r-sm/md/lg`；保留 `--primary` 作 `--brand-500` 别名以兼容旧类（~40 行）。
 - [ ] **P-02 字体与排版升级**：引入 Inter + JetBrains Mono；标题 `letter-spacing:-.02em`；数字/ID `tabular-nums`；统一字号阶梯（~30 行，依赖 P-01）。
 - [ ] **P-03 Logo Mark 与品牌字**：内联 SVG 看板图标（渐变底）+ "Agent<b>Board</b>" 渐变描边文字，替换纯文字 logo；加 data URI SVG favicon（~35 行，依赖 P-01）。
 - [ ] **P-04 顶栏磨砂与导航胶囊**：`.topbar` `backdrop-filter:blur`+半透明；导航 active 改胶囊；搜索框聚焦品牌光环；图标按钮细化（~25 行，依赖 P-01）。
@@ -328,3 +328,4 @@
 | 2026-07-11 | A-15 | 键盘快捷键：新增全局 `keydown` 监听（j/k 上下移动选中项、e 编辑选中项、Esc 关闭弹层由既有监听处理），复用 `inlineEditEnter()`/`route()`；`kbdItems()/kbdSet()/kbdEdit()` 在 `.entity-item/.project-card/.kanban-card` 中管理选中态（`.kbd-selected` 高亮、scrollIntoView），输入框聚焦或带修饰键时跳过以免冲突，`render()` 重置选中态；顶栏加 `⌨ j/k · e · Esc` 提示。`app.js`+41、style.css+8、index.html+1（净增 50 行，符合 R2），未改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | A-16 | 复制链接：Task 详情与 Story 详情页 `page-actions` 各加「🔗 复制链接」按钮，点击调用新增 `copyLink(href)`（组装 `location.origin+pathname+#/xxx` 深链，优先 `navigator.clipboard.writeText`，回退 `execCommand` 临时 textarea），复制成功 `toast("已复制链接")`。仅改 `app.js`（+24/−0，净增 ~24 行，符合 R2），未改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | A-17 | 路由过渡动画：复用既有 `fadeIn` keyframe，在 `render()` 末尾对 `#app` 移除/强制回流/重新添加 `.route-in` 类，使每次视图切换后主内容区淡入+轻微上滑（.22s）；加 `prefers-reduced-motion` 降级。仅改 `app.js`(+4) + `style.css`(+3，净增 7 行，符合 R2)，未改 `models.py`/`api.py` 契约 |
+| 2026-07-11 | P-01 | 设计 Token 体系：在 `style.css` 的 `:root` 与 `[data-theme="dark"]` 落地 `--brand-500/600/700`、`--brand-soft/ring`、`--grad`、`--success/--warning/--danger/--info/--violet`、`--text-2/3`、`--border-2`、`--surface-2/3`、`--sh-sm/md/lg/brand`、`--r-sm/md/lg`；`--primary` 保留为 `--brand-500` 别名，`--text-secondary`/`--card-bg` 续用旧名以兼容旧类。净增 ~64 行（74/10），未改 `models.py`/`api.py` 契约 |

@@ -3,15 +3,47 @@
    ============================================ */
 
 :root {
-  --primary: #2563eb;
-  --primary-hover: #1d4ed8;
+  /* Brand —— 唯一签名渐变（保留 --primary 作为 --brand-500 别名以兼容旧类） */
+  --brand-500: #4f46e5;
+  --brand-600: #4338ca;
+  --brand-700: #3730a3;
+  --brand-soft: #eef2ff;
+  --brand-ring: rgba(79,70,229,.18);
+  --grad: linear-gradient(135deg, #6366f1 0%, #8b5cf6 55%, #a855f7 100%);
+  --primary: var(--brand-500);
+  --primary-hover: var(--brand-600);
+
+  /* 语义色（与状态机对齐，对比度 ≥ 4.5:1） */
+  --success: #059669;
+  --warning: #d97706;
   --danger: #dc2626;
-  --success: #10b981;
-  --text: #1f2937;
-  --text-secondary: #6b7280;
-  --border: #e5e7eb;
-  --bg: #f8fafc;
-  --card-bg: #fff;
+  --info: #0891b2;
+  --violet: #7c3aed;
+
+  /* 中性（slate 体系，替代原 gray） */
+  --text: #0f172a;
+  --text-2: #475569;
+  --text-3: #94a3b8;
+  --text-secondary: var(--text-2);   /* 兼容旧类 */
+  --border: #e2e8f0;
+  --border-2: #eef2f6;
+  --bg: #f6f8fb;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-3: #f1f5f9;
+  --card-bg: var(--surface);          /* 兼容旧类 */
+
+  /* 深度 */
+  --sh-sm: 0 1px 2px rgba(15,23,42,.05), 0 1px 3px rgba(15,23,42,.06);
+  --sh-md: 0 4px 12px -2px rgba(15,23,42,.08), 0 2px 6px -2px rgba(15,23,42,.05);
+  --sh-lg: 0 12px 28px -6px rgba(15,23,42,.14);
+  --sh-brand: 0 8px 24px -6px rgba(99,102,241,.45);
+
+  /* 圆角 */
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+
   --sidebar-width: 250px;
   --topbar-h: 52px;
 }
@@ -555,8 +587,40 @@ details summary { cursor: pointer; font-weight: 600; color: var(--primary); marg
 
 /* ========== A-10 深色模式（基于 CSS 变量切换明/暗主题，偏好存 localStorage） ========== */
 [data-theme="dark"] {
-  --primary: #3b82f6; --primary-hover: #60a5fa; --danger: #ef4444; --success: #34d399;
-  --text: #e5e7eb; --text-secondary: #94a3b8; --border: #334155; --bg: #0f172a; --card-bg: #1e293b;
+  /* 品牌提亮（--primary 别名自动跟随 --brand-500） */
+  --brand-500: #818cf8;
+  --brand-600: #a5b4fc;
+  --brand-soft: #1e1b4b;
+  --brand-ring: rgba(129,140,248,.25);
+  --grad: linear-gradient(135deg, #818cf8 0%, #a78bfa 55%, #c084fc 100%);
+  --primary: var(--brand-500);
+  --primary-hover: var(--brand-600);
+
+  /* 语义色提亮 */
+  --success: #34d399;
+  --warning: #fbbf24;
+  --danger: #ef4444;
+  --info: #22d3ee;
+  --violet: #a78bfa;
+
+  /* 中性提亮 */
+  --text: #e8edf5;
+  --text-2: #aab4c5;
+  --text-secondary: var(--text-2);
+  --text-3: #64748b;
+  --border: #273344;
+  --border-2: #1e293b;
+  --bg: #0b1120;
+  --surface: #121a2b;
+  --surface-2: #0f1626;
+  --surface-3: #1a2336;
+  --card-bg: var(--surface);
+
+  /* 深度 */
+  --sh-sm: 0 1px 2px rgba(0,0,0,.4);
+  --sh-md: 0 6px 16px -4px rgba(0,0,0,.5);
+  --sh-lg: 0 16px 32px -8px rgba(0,0,0,.6);
+  --sh-brand: 0 8px 24px -6px rgba(129,140,248,.5);
 }
 /* 覆盖硬编码的浅色表面（输入框 / 看板卡 / 分段按钮 / 幽灵按钮 / 代码行内） */
 [data-theme="dark"] input,
