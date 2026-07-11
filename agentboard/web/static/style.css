@@ -502,6 +502,9 @@ details summary { cursor: pointer; font-weight: 600; color: var(--primary); marg
 @keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
 @keyframes modalIn { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
 @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-8px); } }
+/* A-17 路由过渡动画：视图切换时主内容区淡入 + 轻微上滑（复用 fadeIn keyframe） */
+.route-in { animation: fadeIn .22s ease-out; }
+@media (prefers-reduced-motion: reduce) { .route-in { animation: none; } }
 
 /* ========== A-11 响应式布局（窄屏下树列表/两栏自动堆叠，按钮可点） ========== */
 /* 触摸友好：保证按钮最小可点区域，避免窄屏误触 */

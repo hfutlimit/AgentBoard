@@ -1,5 +1,24 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-11（周期执行 · A-17 路由过渡动画）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=316378c）。
+- **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-16 已完成，认领下一个 pending 项 **A-17 路由过渡动画**。
+- **开发任务**：复用既有 `fadeIn` keyframe；`render()` 末尾对 `#app` 先 `classList.remove("route-in")` + 强制回流(`void app.offsetWidth`) + `classList.add("route-in")`，使每次视图切换后主内容区淡入+轻微上滑（.22s）；`style.css` 加 `.route-in { animation: fadeIn .22s ease-out; }` 与 `prefers-reduced-motion` 降级。`app.js`+4、`style.css`+3（净增 7 行，符合 R2），未改 `models.py`/`api.py` 契约。
+- **部署 Docker**：基础镜像 `python:3.13-slim` 本地未缓存、Docker Hub 不可达 → `docker compose up -d --build web` 元数据解析失败；退化为 `docker cp` 注入新 `app.js`/`style.css` 到运行中的 `agentboard-web-1`（/app/agentboard/web/static/）。HTTP 校验 page 200、`/api/meta` 200、`app.js` 含 `route-in`(2)、`style.css` 含 `route-in`(2) 与 `fadeIn`(5)。
+- **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
+- **推送**：`git push origin main`（待执行，commit 见下）。
+- **下一个 pending 项**：A-18 面包屑高亮当前级（确保各级面包屑链接正确且高亮当前级，补样式）。
+
+## 2026-07-11（周期执行 · A-16 复制链接）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=f12958c）。
+- **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-15 已完成，认领下一个 pending 项 **A-16 复制链接**。
+- **开发任务**：Task 详情页与 Story 详情页 `page-actions` 各加「🔗 复制链接」按钮；新增 `copyLink(href)`（组装 `origin+pathname+#/xxx` 深链，优先 `navigator.clipboard.writeText`，回退 `execCommand` 临时 textarea）+ `fallbackCopy()`，复制成功 `toast("已复制链接")`。`app.js`+24/−0（净增 ~24 行，符合 R2），未改 `models.py`/`api.py` 契约。
+- **部署 Docker**：基础镜像 `python:3.13-slim` 仍不在本地缓存、Docker Hub 不可达 → `docker compose up -d --build web` 元数据解析失败；退化 `docker cp` 注入新 `app.js` 到运行中的 `agentboard-web-1`（/app/agentboard/web/static/）。HTTP 校验 page 200、served app.js 含 `function copyLink`(1)/`fallbackCopy`(3)/`copy-task-link`+`copy-story-link`(4)。
+- **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
+- **推送**：`git push origin main` 成功（`f12958c..316378c`，commit `316378c`）。
+- **下一个 pending 项**：A-17 路由过渡动画（视图切换加淡入/滑入过渡）。
+- **环境笔记**：① `/api/*` 经 Web 容器(8080)不代理，SPA 直连 API(8000)，故 8080 上 `/api/meta` 404 为预期、非回归；② 工作树 `.workbuddy/memory/2026-07-11.md` 曾被无关「UI 重设计提案」内容覆盖，已从 HEAD 还原后再追加 A-16 记录，避免丢失自动开发历史。
+
 ## 2026-07-11（周期执行 · A-15 键盘快捷键）
 - **拉取最新代码**：`git pull origin main` 已是最新（HEAD=d3a2bdd）。
 - **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-14 已完成，认领下一个 pending 项 **A-15 键盘快捷键**。

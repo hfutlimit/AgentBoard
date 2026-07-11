@@ -244,7 +244,7 @@
 - [x] **A-14 Markdown 编辑工具栏**：description/spec 文本框上方加「加粗/列表/标题」快捷按钮，插入 markdown 语法。
 - [x] **A-15 键盘快捷键**：`j/k` 上下移动选中项、`e` 编辑、`Esc` 关闭弹层。
 - [x] **A-16 复制链接**：任务/Story 提供「复制深链」（如 `#/task/123`）按钮。
-- [ ] **A-17 路由过渡动画**：视图切换加淡入/滑入过渡。
+- [x] **A-17 路由过渡动画**：视图切换加淡入/滑入过渡。
 - [ ] **A-18 面包屑高亮当前级**：确保各级面包屑链接正确且高亮当前级（补样式）。
 - [ ] **A-19 列表项 hover 操作**：hover 显示「编辑/删除」快捷图标，减少误触确认。
 - [ ] **A-20 前端偏好本地存储**：记住上次视图（列表/看板）等前端偏好。
@@ -306,3 +306,4 @@
 | 2026-07-11 | A-14 | Markdown 编辑工具栏：新增 `mdToolbar(taName)`/`insertMd(ta,kind)`/`bindMdToolbar(scope)` 三个辅助，Task 详情编辑表单的 description/spec 文本框上方加「加粗/标题/列表/行内代码」按钮（行内类包裹选区、块级类行首插入，含占位文本与自动选中），点击即插入 markdown 语法。`app.js`+43/−2、`style.css`+8（净增 ~49 行，符合 R2），未改 `models.py`/`api.py` 契约；工具栏样式随 CSS 变量适配深色模式 |
 | 2026-07-11 | A-15 | 键盘快捷键：新增全局 `keydown` 监听（j/k 上下移动选中项、e 编辑选中项、Esc 关闭弹层由既有监听处理），复用 `inlineEditEnter()`/`route()`；`kbdItems()/kbdSet()/kbdEdit()` 在 `.entity-item/.project-card/.kanban-card` 中管理选中态（`.kbd-selected` 高亮、scrollIntoView），输入框聚焦或带修饰键时跳过以免冲突，`render()` 重置选中态；顶栏加 `⌨ j/k · e · Esc` 提示。`app.js`+41、style.css+8、index.html+1（净增 50 行，符合 R2），未改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | A-16 | 复制链接：Task 详情与 Story 详情页 `page-actions` 各加「🔗 复制链接」按钮，点击调用新增 `copyLink(href)`（组装 `location.origin+pathname+#/xxx` 深链，优先 `navigator.clipboard.writeText`，回退 `execCommand` 临时 textarea），复制成功 `toast("已复制链接")`。仅改 `app.js`（+24/−0，净增 ~24 行，符合 R2），未改 `models.py`/`api.py` 契约 |
+| 2026-07-11 | A-17 | 路由过渡动画：复用既有 `fadeIn` keyframe，在 `render()` 末尾对 `#app` 移除/强制回流/重新添加 `.route-in` 类，使每次视图切换后主内容区淡入+轻微上滑（.22s）；加 `prefers-reduced-motion` 降级。仅改 `app.js`(+4) + `style.css`(+3，净增 7 行，符合 R2)，未改 `models.py`/`api.py` 契约 |

@@ -274,6 +274,10 @@ async function render() {
     </div>`;
   }
   applySearch();
+  // A-17 路由过渡：每次视图切换后重新触发主内容区淡入/上滑动画（复用 fadeIn keyframe）
+  app.classList.remove("route-in");
+  void app.offsetWidth; // 强制回流以重启 CSS 动画
+  app.classList.add("route-in");
 }
 
 // A-05 全局搜索框：按标题实时过滤当前页列表（纯前端过滤，不改 API）。
