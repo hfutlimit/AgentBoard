@@ -1,16 +1,19 @@
 # AgentBoard 容器编排
 #
-# 零配置启动（SQLite 持久化）：
+# 默认启动（MariaDB 持久化）：
 #   docker compose up -d
 #   打开 http://localhost:8080  （Web 前端，浏览器经 http://localhost:8000 调 API）
 #   API 文档：http://localhost:8000/docs
+#   MariaDB 宿主机访问端口：13306（容器内 3306；AGENTBOARD_DB_URL 用 db:3306）
 #
-# 改用 MariaDB（生产推荐）：
-#   # 1) 在下方 api.environment 把 AGENTBOARD_DB_URL 改为：
-#   #    mysql+pymysql://agentboard:agentboard@db:3306/agentboard
-#   # 2) 启动 MariaDB 服务（默认关闭，需 --profile mariadb）：
-#   docker compose --profile mariadb up -d
+# 注意：AGENTBOARD_SECRET 为必填项，启动前需导出（如 export AGENTBOARD_SECRET=xxx）
+#   或写入项目根 .env（勿提交）。
 #
+# 如需回退到本地 SQLite（开发）：
+#   将 api.environment 的 AGENTBOARD_DB_URL 改回 sqlite:////app/data/agentboard.db
+#   并恢复 api 的 volumes: - agentboard_data:/app/data（需同时恢复 volumes.agentboard_data）
+#
+
 # 生产域名部署：设置 Web 注入给浏览器的 API 地址
 #   AGENTBOARD_WEB_API_URL=https://api.yourdomain.com docker compose up -d
 
@@ -19,8 +22,8 @@ services:
     build: .
     command: uvicorn agentboard.api:app --host 0.0.0.0 --port 8000
     environment:
-      # 持久化到命名卷；生产请改用 MariaDB 连接串
-      AGENTBOARD_DB_URL: "sqlite:////app/data/agentboard.db"
+      # 生产数据库：MariaDB（容器名 db，内部端口 3306）
+      AGENTBOARD_DB_URL: "mysql+pymysql://agentboard:agentboard@db:3306/agentboard"
       # 生产务必改为强随机值（可用 openssl rand -hex 32 生成）
       AGENTBOARD_SECRET: "${AGENTBOARD_SECRET:?Set AGENTBOARD_SECRET to a strong random value}"
       # 远程部署默认保护 REST 业务接口；注册/登录和 /api/meta 保持公开
@@ -28,8 +31,9 @@ services:
       # 首个用户仍可注册；创建后关闭公开注册
       AGENTBOARD_ALLOW_REGISTRATION: "0"
       AGENTBOARD_TOKEN_TTL_SECONDS: "${AGENTBOARD_TOKEN_TTL_SECONDS:-2592000}"
-    volumes:
-      - agentboard_data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "8000:8000"
     restart: unless-stopped
@@ -81,10 +85,9 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # 可选 MariaDB（默认关闭，启用需 --profile mariadb）
+  # 生产数据库：MariaDB（随 up -d 默认启动）
   db:
     image: mariadb:11
-    profiles: ["mariadb"]
     environment:
       MARIADB_DATABASE: agentboard
       MARIADB_USER: agentboard
@@ -92,10 +95,17 @@ services:
       MARIADB_ROOT_PASSWORD: rootpass-change-me
     volumes:
       - agentboard_mariadb:/var/lib/mysql
+    # 宿主机映射：主机 3306 已被占用，改用 13306 便于本地工具/迁移连接；
+    # 容器内仍为 3306，AgentBoard 服务经 docker 网络 db:3306 访问。
     ports:
-      - "3306:3306"
+      - "13306:3306"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
 volumes:
-  agentboard_data:
   agentboard_mariadb:
