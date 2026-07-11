@@ -461,24 +461,49 @@ details summary { cursor: pointer; font-weight: 600; color: var(--primary); marg
 
 /* Modal */
 .modal-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 200;
+  position: fixed; inset: 0; background: rgba(15,23,42,.52); z-index: 400;
   display: flex; align-items: center; justify-content: center;
+  padding: 24px; opacity: 0; transition: opacity .16s ease;
 }
+.modal-overlay.open { opacity: 1; }
 .modal {
-  background: var(--card-bg); border-radius: 12px; width: 90%; max-width: 480px;
-  box-shadow: 0 20px 60px rgba(0,0,0,.2); animation: modalIn .2s ease-out;
+  background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--r-lg); width: min(680px, 100%); max-height: calc(100vh - 48px);
+  box-shadow: 0 24px 70px rgba(15,23,42,.28); overflow: hidden; transform: translateY(8px) scale(.985); transition: transform .16s ease;
 }
+.modal-overlay.open .modal { transform: none; }
 .modal-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 16px 20px 0;
+  padding: 18px 22px; border-bottom: 1px solid var(--border-2);
 }
-.modal-header h3 { margin: 0; font-size: 1.05rem; }
+.modal-header h3 { margin: 2px 0 0; font-size: 1.15rem; letter-spacing: -.02em; }
+.modal-eyebrow { color: var(--brand-600); font-family: var(--font-mono); font-size: .64rem; font-weight: 700; letter-spacing: .12em; }
 .modal-close {
-  background: none; border: none; font-size: 1.5rem; cursor: pointer;
-  color: var(--text-secondary); line-height: 1; padding: 4px;
+  width: 34px; height: 34px; display: grid; place-items: center; background: none; border: none; border-radius: 8px; font-size: 1.5rem; cursor: pointer;
+  color: var(--text-secondary); line-height: 1; padding: 0;
 }
-.modal-close:hover { color: var(--text); }
-.modal form { padding: 12px 20px 20px; }
+.modal-close:hover { color: var(--text); background: var(--surface-3); }
+.modal form { display: flex; flex-direction: column; gap: 0; margin: 0; padding: 0; }
+.modal-body { display: grid; gap: 17px; padding: 22px; overflow-y: auto; }
+.form-field { display: grid; gap: 7px; }
+.form-field label { margin: 0; color: var(--text); }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.field-optional { color: var(--text-3); font-size: .72rem; font-weight: 500; }
+.field-help { color: var(--text-3); font-size: .72rem; }
+.field-error { min-height: 0; color: var(--danger); font-size: .76rem; }
+.field-error:empty { display: none; }
+.modal [aria-invalid="true"] { border-color: var(--danger); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 14%, transparent); }
+.modal-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 22px; border-top: 1px solid var(--border-2); background: var(--surface-2); }
+.modal-actions { display: flex; align-items: center; gap: 9px; }
+.modal-shortcut { color: var(--text-3); font-size: .72rem; }
+.modal-footer button { min-height: 38px; }
+body.modal-open { overflow: hidden; }
+@media (max-width: 600px) {
+  .modal-overlay { align-items: flex-end; padding: 0; }
+  .modal { width: 100%; max-height: 92vh; border-radius: var(--r-lg) var(--r-lg) 0 0; }
+  .form-grid { grid-template-columns: 1fr; }
+  .modal-shortcut { display: none; }
+  .modal-footer { justify-content: flex-end; }
+}
 
 /* A-12 Toast 堆叠容器 + 进出场动画 */
 #toast {

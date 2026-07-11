@@ -114,6 +114,8 @@ def test_web_serves_spa(servers):
     assert 'class="hero"' in js.text, "仪表盘品牌 Hero 未渲染"
     assert "badge-dot" in js.text and "empty-art" in js.text, "语义徽章或空状态插画缺失"
     assert "activity-panel" in js.text and "timeAgo" in js.text, "P-15 Agent 活动面板未渲染"
+    assert "function showCreateModal" in js.text and "data-modal-close" in js.text, "统一创建弹窗缺失"
+    assert all(x not in js.text for x in ("p-epic-form", "e-story-form", "s-task-form")), "仍存在内联新增表单"
 
     css = httpx.get(web_base + "/static/style.css")
     assert css.status_code == 200, "style.css 未提供"

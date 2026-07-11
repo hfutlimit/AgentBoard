@@ -488,7 +488,6 @@ async function viewHome(app) {
     </div>`;
 
   // 绑定新建项目
-  bindNewProjectForm("home-new-project-form", "home-new-project-modal");
   const btn = $("home-new-project");
   if (btn) btn.onclick = () => showNewProjectModal();
 }
@@ -526,7 +525,6 @@ async function viewProjects(app) {
       ${emptyState("projects", "暂无项目", "创建第一个项目管理空间", { id: "proj-new-btn", label: "创建第一个项目" })}
     `}`;
 
-  bindNewProjectForm("proj-new-form", "proj-new-modal");
   const btn = $("proj-new-btn");
   if (btn) btn.onclick = () => showNewProjectModal();
 }
@@ -588,16 +586,6 @@ async function viewProject(app, id) {
       </div>
     ` : emptyState("🗂", "暂无 Epic", "创建第一个 Epic 来组织你的 Story", { id: "p-new-epic", label: "＋ 新建 Epic" })}
 
-    <!-- 新建 Epic 表单（内联） -->
-    <div class="card form-section" id="p-epic-form" style="display:none">
-      <h4>新建 Epic</h4>
-      <form id="p-ef">
-        <input name="title" placeholder="Epic 标题" required>
-        <textarea name="description" rows="3" placeholder="描述 (markdown)"></textarea>
-        <div class="row"><button type="submit" class="btn-primary-sm">创建</button><button type="button" class="ghost-sm" onclick="$('#/p-epic-form').style.display='none'">取消</button></div>
-      </form>
-    </div>
-
     <!-- 编辑区域 -->
     <div class="card form-section" id="p-edit-area" style="display:none;margin-top:16px">
       <h4>✏ 编辑项目</h4>
@@ -615,21 +603,12 @@ async function viewProject(app, id) {
 
   // 绑定事件
   const newEpicBtn = $("p-new-epic");
-  if (newEpicBtn) newEpicBtn.onclick = () => {
-    const f = $("p-epic-form"); f.style.display = f.style.display === "none" ? "" : "none";
-    $("p-edit-area").style.display = "none";
-  };
+  if (newEpicBtn) newEpicBtn.onclick = () => showCreateModal("epic", id);
 
   const editToggle = $("p-edit-toggle");
   if (editToggle) editToggle.onclick = () => {
     const f = $("p-edit-area"); f.style.display = f.style.display === "none" ? "" : "none";
-    $("p-epic-form").style.display = "none";
   };
-
-  bindForm("p-ef", async (d) => {
-    await api(`/api/projects/${id}/epics`, "POST", { title: d.title, description: d.description });
-    toast("Epic 已创建"); render();
-  });
   bindForm("p-edit-form", async (d) => {
     await api(`/api/projects/${id}`, "PATCH", { name: d.name, key: d.key || null, description: d.description });
     toast("已保存"); render();
@@ -690,15 +669,6 @@ async function viewEpic(app, id) {
       </div>
     ` : emptyState("📝", "暂无 Story", "把需求拆成一个个 Story 逐步推进", { id: "e-new-story", label: "＋ 新建 Story" })}
 
-    <div class="card form-section" id="e-story-form" style="display:none">
-      <h4>新建 Story</h4>
-      <form id="e-sf">
-        <input name="title" placeholder="Story 标题" required>
-        <textarea name="description" rows="3" placeholder="描述 (markdown)"></textarea>
-        <div class="row"><button type="submit" class="btn-primary-sm">创建</button><button type="button" class="ghost-sm" onclick="$('#/e-story-form').style.display='none'">取消</button></div>
-      </form>
-    </div>
-
     <div class="card form-section" style="margin-top:16px">
       <details><summary class="summary-edit">✏ 编辑 Epic</summary>
         <form id="e-edit">
@@ -714,13 +684,7 @@ async function viewEpic(app, id) {
     </div>`;
 
   const newBtn = $("e-new-story");
-  if (newBtn) newBtn.onclick = () => {
-    const f = $("e-story-form"); f.style.display = f.style.display === "none" ? "" : "none";
-  };
-  bindForm("e-sf", async (d) => {
-    await api(`/api/epics/${id}/stories`, "POST", { title: d.title, description: d.description });
-    toast("Story 已创建"); render();
-  });
+  if (newBtn) newBtn.onclick = () => showCreateModal("story", id);
   bindForm("e-edit", async (d) => {
     await api(`/api/epics/${id}`, "PATCH", { title: d.title, status: d.status, description: d.description });
     toast("已保存"); render();
@@ -790,17 +754,6 @@ async function viewStory(app, id) {
       ${renderKanban(tasks)}
     </div>
 
-    <div class="card form-section" id="s-task-form" style="display:none">
-      <h4>新建 Task / Bug</h4>
-      <form id="s-tf">
-        <input name="title" placeholder="标题" required>
-        <label>类型</label>${typeSelect("task")}
-        <label>优先级</label>${prioritySelect("medium")}
-        <textarea name="description" rows="3" placeholder="描述 (markdown)"></textarea>
-        <div class="row"><button type="submit" class="btn-primary-sm">创建</button><button type="button" class="ghost-sm" onclick="$('#/s-task-form').style.display='none'">取消</button></div>
-      </form>
-    </div>
-
     <div class="card form-section" style="margin-top:16px">
       <details><summary class="summary-edit">✏ 编辑 Story</summary>
         <form id="s-edit">
@@ -816,9 +769,7 @@ async function viewStory(app, id) {
     </div>`;
 
   const newBtn = $("s-new-task");
-  if (newBtn) newBtn.onclick = () => {
-    const f = $("s-task-form"); f.style.display = f.style.display === "none" ? "" : "none";
-  };
+  if (newBtn) newBtn.onclick = () => showCreateModal("task", id, { projectId: ep.project_id });
   document.querySelectorAll(".seg-btn").forEach(b => b.onclick = () => {
     storyViewMode = b.dataset.mode;
     $("story-list-view").style.display = storyViewMode === "board" ? "none" : "";
@@ -827,11 +778,6 @@ async function viewStory(app, id) {
   });
   const copyBtnS = $("copy-story-link");
   if (copyBtnS) copyBtnS.onclick = () => copyLink(`#/story/${id}`);
-  bindForm("s-tf", async (d) => {
-    await api(`/api/stories/${id}/tasks`, "POST",
-      { project_id: ep.project_id, title: d.title, type: d.type, priority: d.priority, description: d.description });
-    toast("任务已创建"); render();
-  });
   bindForm("s-edit", async (d) => {
     await api(`/api/stories/${id}`, "PATCH", { title: d.title, status: d.status, description: d.description });
     toast("已保存"); render();
@@ -960,47 +906,79 @@ async function viewTask(app, id) {
 
 // ========== 公共组件 ==========
 
-// 新建项目弹窗
-function showNewProjectModal() {
-  // 如果已有 modal 就复用，否则动态插入
-  let modal = document.getElementById("new-project-modal");
-  if (!modal) {
-    modal = document.createElement("div");
-    modal.id = "new-project-modal";
-    modal.className = "modal-overlay";
-    modal.innerHTML = `
-      <div class="modal">
-        <div class="modal-header"><h3>新建项目</h3><button class="modal-close" onclick="closeModal('new-project-modal')">×</button></div>
-        <form id="modal-project-form">
-          <label>名称 <span class="required">*</span></label>
-          <input name="name" placeholder="如：DevPilot AI 平台" required autofocus>
-          <label>短码（可选）</label>
-          <input name="key" placeholder="如：DEV（用于标识和引用）">
-          <label>描述 (markdown)</label>
-          <textarea name="description" rows="4" placeholder="项目简介、目标等…"></textarea>
-          <div class="row" style="justify-content:flex-end;margin-top:12px">
-            <button type="button" class="ghost-sm" onclick="closeModal('new-project-modal')">取消</button>
-            <button type="submit" class="btn-primary">创建项目</button>
-          </div>
-        </form>
-      </div>`;
-    document.body.appendChild(modal);
-  } else {
-    modal.style.display = "";
-  }
+let modalReturnFocus = null;
 
-  bindForm("modal-project-form", async (d) => {
-    await api("/api/projects", "POST", { name: d.name, key: d.key || null, description: d.description });
-    toast("✅ 项目已创建"); closeModal("new-project-modal"); render();
-  });
+const CREATE_META = {
+  project: { title: "创建项目", eyebrow: "PROJECT", submit: "创建项目", field: "项目名称", placeholder: "例如：AgentBoard 产品研发" },
+  epic: { title: "创建 Epic", eyebrow: "EPIC", submit: "创建 Epic", field: "Epic 标题", placeholder: "描述一个阶段性业务目标" },
+  story: { title: "创建 Story", eyebrow: "STORY", submit: "创建 Story", field: "Story 标题", placeholder: "描述一个可交付的用户需求" },
+  task: { title: "创建工作项", eyebrow: "WORK ITEM", submit: "创建", field: "标题", placeholder: "需要完成什么？" }
+};
 
-  // 聚焦到名称输入框
-  setTimeout(() => { const inp = modal.querySelector('input[name="name"]'); if (inp) inp.focus(); }, 50);
+function showNewProjectModal() { showCreateModal("project"); }
+
+// Jira 风格统一创建弹窗：项目 / Epic / Story / Task / Bug 共用交互、校验和关闭行为。
+function showCreateModal(kind, parentId, context = {}) {
+  const meta = CREATE_META[kind];
+  if (!meta) return;
+  const existing = document.getElementById("create-modal");
+  if (existing) existing.remove();
+  modalReturnFocus = document.activeElement;
+  const overlay = document.createElement("div");
+  overlay.id = "create-modal";
+  overlay.className = "modal-overlay create-overlay";
+  overlay.setAttribute("role", "presentation");
+  const projectFields = kind === "project" ? `
+    <div class="form-field"><label for="create-key">短码 <span class="field-optional">可选</span></label>
+    <input id="create-key" name="key" maxlength="12" placeholder="例如：AB" autocomplete="off"><div class="field-help">用于工作项编号，建议使用 2–6 个大写字母</div></div>` : "";
+  const taskFields = kind === "task" ? `
+    <div class="form-grid"><div class="form-field"><label for="create-type">工作项类型</label>${typeSelect("task").replace("<select", '<select id="create-type"')}</div>
+    <div class="form-field"><label for="create-priority">优先级</label>${prioritySelect("medium").replace("<select", '<select id="create-priority"')}</div></div>` : "";
+  overlay.innerHTML = `<section class="modal modal-create" role="dialog" aria-modal="true" aria-labelledby="create-modal-title">
+    <header class="modal-header"><div><span class="modal-eyebrow">${meta.eyebrow}</span><h3 id="create-modal-title">${meta.title}</h3></div>
+      <button type="button" class="modal-close" data-modal-close aria-label="关闭弹窗">×</button></header>
+    <form id="create-form" novalidate>
+      <div class="modal-body">
+        <div class="form-field"><label for="create-title">${meta.field} <span class="required">*</span></label>
+        <input id="create-title" name="title" placeholder="${meta.placeholder}" required maxlength="200" autocomplete="off"><div class="field-error" aria-live="polite"></div></div>
+        ${projectFields}${taskFields}
+        <div class="form-field"><label for="create-description">描述 <span class="field-optional">可选</span></label>
+        <textarea id="create-description" name="description" rows="5" placeholder="添加背景、验收标准或相关说明（支持 Markdown）"></textarea></div>
+      </div>
+      <footer class="modal-footer"><span class="modal-shortcut">${navigator.platform.includes("Mac") ? "⌘" : "Ctrl"} + Enter 创建</span>
+        <div class="modal-actions"><button type="button" class="ghost" data-modal-close>取消</button><button type="submit" class="btn-primary">${meta.submit}</button></div></footer>
+    </form></section>`;
+  document.body.appendChild(overlay);
+  document.body.classList.add("modal-open");
+  const form = overlay.querySelector("form"), title = overlay.querySelector("#create-title");
+  const close = () => closeModal("create-modal");
+  overlay.querySelectorAll("[data-modal-close]").forEach(btn => btn.onclick = close);
+  overlay.onclick = e => { if (e.target === overlay) close(); };
+  form.onkeydown = e => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); form.requestSubmit(); } };
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const error = overlay.querySelector(".field-error");
+    if (!title.value.trim()) { title.setAttribute("aria-invalid", "true"); error.textContent = "请输入标题"; title.focus(); return; }
+    title.removeAttribute("aria-invalid"); error.textContent = "";
+    const submit = form.querySelector('[type="submit"]'), data = Object.fromEntries(new FormData(form));
+    submit.disabled = true; submit.textContent = "创建中…";
+    try {
+      if (kind === "project") await api("/api/projects", "POST", { name: data.title.trim(), key: data.key.trim().toUpperCase() || null, description: data.description });
+      else if (kind === "epic") await api(`/api/projects/${parentId}/epics`, "POST", { title: data.title.trim(), description: data.description });
+      else if (kind === "story") await api(`/api/epics/${parentId}/stories`, "POST", { title: data.title.trim(), description: data.description });
+      else await api(`/api/stories/${parentId}/tasks`, "POST", { project_id: context.projectId, title: data.title.trim(), type: data.type, priority: data.priority, description: data.description });
+      closeModal("create-modal"); toast(`${kind === "task" ? (data.type === "bug" ? "Bug" : "Task") : meta.eyebrow} 已创建`, "success"); render();
+    } catch (err) { toast("创建失败：" + err.message, "error"); submit.disabled = false; submit.textContent = meta.submit; }
+  };
+  requestAnimationFrame(() => { overlay.classList.add("open"); title.focus(); });
 }
 
-function closeModal(id) {
+function closeModal(id = "create-modal", restoreFocus = true) {
   const el = document.getElementById(id);
-  if (el) el.style.display = "none";
+  if (!el) return;
+  el.classList.remove("open"); document.body.classList.remove("modal-open");
+  setTimeout(() => el.remove(), 160);
+  if (restoreFocus && modalReturnFocus && document.contains(modalReturnFocus)) modalReturnFocus.focus();
 }
 
 // 通用表单绑定
@@ -1012,10 +990,6 @@ function bindForm(formId, handler) {
     const d = Object.fromEntries(new FormData(e.target));
     await handler(d);
   };
-}
-
-function bindNewProjectForm(formId, modalId) {
-  // 预留：如果页面有独立的表单可绑定到这里
 }
 
 function statusSelect(cur, id) {
@@ -1265,7 +1239,11 @@ if (themeBtn) themeBtn.addEventListener("click", toggleTheme);
 const drawerOverlay = document.getElementById("drawer-overlay");
 if (drawerOverlay) drawerOverlay.addEventListener("click", closeTaskDrawer);
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") { const d = $("task-drawer"); if (d && d.classList.contains("open")) closeTaskDrawer(); }
+  if (e.key !== "Escape") return;
+  const modal = $("create-modal");
+  if (modal) { e.preventDefault(); closeModal("create-modal"); return; }
+  const d = $("task-drawer");
+  if (d && d.classList.contains("open")) closeTaskDrawer();
 });
 
 (async () => {
