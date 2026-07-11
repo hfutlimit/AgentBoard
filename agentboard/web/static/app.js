@@ -779,8 +779,8 @@ async function viewTask(app, id) {
         <label>标题</label><input name="title" value="${esc(t.title)}" required>
         <label>类型</label>${typeSelect(t.type)}
         <label>优先级</label>${prioritySelect(t.priority)}
-        <label>Description (markdown)</label><textarea name="description" rows="5">${esc(t.description)}</textarea>
-        <label>Spec (markdown)</label><textarea name="spec" rows="12">${esc(t.spec)}</textarea>
+        <label>Description (markdown)</label>${mdToolbar("description")}<textarea name="description" rows="5">${esc(t.description)}</textarea>
+        <label>Spec (markdown)</label>${mdToolbar("spec")}<textarea name="spec" rows="12">${esc(t.spec)}</textarea>
         <div class="row" style="flex-wrap:wrap">
           <button type="submit" class="btn-primary-sm">💾 保存</button>
           <button type="button" class="ghost-sm" id="tpl">📝 插入提案模板</button>
@@ -849,6 +849,8 @@ async function viewTask(app, id) {
   if (th) makeInlineEditableDetail(th, { type: "task", id: id, onSaved: (v) => {
     const cur = document.querySelector(".crumb-current"); if (cur) cur.textContent = v;
   } });
+
+  bindMdToolbar(app);
 }
 
 // ========== 公共组件 ==========
@@ -928,6 +930,43 @@ function prioritySelect(cur = "medium") {
     (META.priorities || ["highest", "high", "medium", "low", "lowest"]).map(p =>
       `<option value="${p}"${p === cur ? " selected" : ""}>${PRIORITY_LABEL[p] || p}</option>`
     ).join("") + `</select>`;
+}
+
+// A-14 Markdown 编辑工具栏：在 description/spec 文本框上方加「加粗/标题/列表/行内代码」快捷按钮，
+// 点击即向对应 textarea 插入 markdown 语法（行内类包裹选区，块级类在行首插入）。纯前端，不改 API。
+function mdToolbar(taName) {
+  return `<div class="md-toolbar" data-ta="${taName}">
+    <button type="button" class="md-tb-btn" data-md="bold" title="加粗">B</button>
+    <button type="button" class="md-tb-btn" data-md="h2" title="标题">H</button>
+    <button type="button" class="md-tb-btn" data-md="list" title="列表">•</button>
+    <button type="button" class="md-tb-btn" data-md="code" title="行内代码">{ }</button>
+  </div>`;
+}
+function insertMd(ta, kind) {
+  const s = ta.selectionStart, e = ta.selectionEnd, v = ta.value;
+  const sel = v.slice(s, e);
+  const wrap = { bold: ["**", "**", "加粗文本"], code: ["`", "`", "代码"] };
+  const block = { h2: ["## ", "标题"], list: ["- ", "列表项"] };
+  if (wrap[kind]) {
+    const [pre, post, ph] = wrap[kind];
+    const text = sel || ph, ins = pre + text + post;
+    ta.value = v.slice(0, s) + ins + v.slice(e);
+    ta.setSelectionRange(s + pre.length, s + pre.length + text.length);
+  } else {
+    const [pre, ph] = block[kind];
+    const lineStart = v.lastIndexOf("\n", s - 1) + 1;
+    const text = sel || ph, ins = pre + text;
+    ta.value = v.slice(0, lineStart) + ins + v.slice(lineStart);
+    ta.setSelectionRange(lineStart + pre.length, lineStart + pre.length + text.length);
+  }
+  ta.focus();
+}
+function bindMdToolbar(scope) {
+  scope.querySelectorAll(".md-toolbar").forEach(bar => {
+    const ta = scope.querySelector(`textarea[name="${bar.dataset.ta}"]`);
+    if (!ta) return;
+    bar.querySelectorAll(".md-tb-btn").forEach(b => b.onclick = () => insertMd(ta, b.dataset.md));
+  });
 }
 
 // A-04 行内快速编辑标题：双击进入编辑态，回车/失焦 PATCH 保存，Esc 取消
