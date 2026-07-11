@@ -1,5 +1,14 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-11（周期执行 · A-12 Toast 堆叠与动画）
+- **拉取最新代码**：`git pull origin main` 因沙箱 SSH 不可达失败（`Connection closed by 198.18.0.18 port 22`）；先把上一轮残留的自动化/项目记忆文件提交（`7500bac`），本地领先 origin。
+- **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-11 已完成，认领下一个 pending 项 **A-12 Toast 堆叠与动画**。
+- **开发任务**：`#toast` 由单一覆盖元素改为多子项容器，每条提示独立 `.toast-item`（滑入淡入进场、2.5s 后淡出移除，多条约提示互不覆盖），支持可选 `type=error|success` 左侧色条。`app.js`+10、`style.css`+13（净增 ~23 行，符合 <~80 行），未改 `models.py`/`api.py` 契约，调用方向后兼容。
+- **部署 Docker**：**基础镜像本地缓存命中** → `docker compose up -d --build web` 规范重建成功（api/web 镜像重建、容器 recreated 且 healthy），无需退化 `docker cp`。HTTP 校验 `app.js` 含 `toast-item`(2)、`style.css` 含 `toast-item`(5)、`/api/meta` 返回 200、页面 200。
+- **执行测试**：托管 venv 跑 `tests/test_web_flow.py` + `tests/test_backend_flow.py` → **6 passed**，无回归。
+- **推送**：`git push origin main` 成功（`ac4195d..37cacde`，含 `7500bac`/`2cc558f`/`37cacde` 三个提交）。
+- **下一个 pending 项**：A-13 任务详情抽屉（点击列表项从右侧滑出详情抽屉，不跳路由）。
+
 ## 2026-07-11（周期执行 · A-11 响应式布局）
 - **拉取最新代码**：`git pull origin main` 已是最新（HEAD=dea5edaf）。
 - **需求/任务分析**：Epic 11 Backlog A 顺序推进；A-01~A-10 已完成，认领下一个 pending 项 **A-11 响应式布局**。
