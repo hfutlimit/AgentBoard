@@ -110,9 +110,9 @@ MVP 不做权限区分，所有调用方等价。
 - 头部展示当前用户名。设计决策：现有项目树 CRUD 默认保持单用户开放（与 MCP 兼容），是否通过 `AGENTBOARD_REQUIRE_AUTH` 开关强制鉴权在变更 `auth` 中决定。
 
 **FR-9 MariaDB 数据库脚本与集成**
-- 在 Alembic 迁移之外，提供**独立、可审阅的 MariaDB `schema.sql` 脚本**（建库、建表、索引、字符集 `utf8mb4`、用户与授权），便于 DBA / 容器初始化与离线评审。
-- 验证 Alembic 迁移在真实 MariaDB 11 下可 `upgrade head`、功能与 SQLite 一致。
-- docker-compose `db` profile 一键起 MariaDB；`AGENTBOARD_DB_URL=mysql+pymysql://...` 切换；提供集成冒烟测试（可选，需可用实例）。
+- 在 Alembic 迁移之外，提供**独立、可审阅的 MariaDB `schema.sql` 脚本**（建库、建表、索引、字符集 `utf8mb4`、用户与授权），便于 DBA / 容器初始化与离线评审（已落地：`scripts/mariadb/schema.sql` + `scripts/mariadb/README.md`，与 `models.py` 完全对齐）。
+- 验证 Alembic 迁移在真实 MariaDB 11 下可 `upgrade head`、功能与 SQLite 一致（已验证：`schema.sql` 在 MariaDB 11 实测建出 6 表 + `tests/test_mariadb_integration.py` 在真实库跑通 service 冒烟）。
+- docker-compose `db` profile 一键起 MariaDB；`AGENTBOARD_DB_URL=mysql+pymysql://...` 切换；提供集成冒烟测试（可选，需可用实例，`AGENTBOARD_TEST_MARIAODB` 开启）。
 
 **FR-10 前端 Web 自动化测试（Playwright）**
 - 引入 Playwright（Chromium），**真实浏览器**驱动 SPA，而非 `httpx` 模拟。

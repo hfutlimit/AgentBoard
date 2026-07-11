@@ -1,5 +1,14 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-12（周期执行 · Epic 7 前端登录/注册 UI）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=181fa99，B-06）；工作树 clean。
+- **需求/任务分析**：Epic 11 纯前端 backlog 全完成；下一个高价值 pending = Epic 7 前端登录/注册（后端鉴权已就绪）。实测线上 API 当前**开放**（/api/projects=200），故采用"动态守卫"而非硬 gate，避免破坏开放部署。
+- **开发任务**：`app.js`(+123/−3) 新增 token 生命周期（getToken/setToken/clearToken）+ CURRENT_USER 态；`api()` 注入 Authorization 并在 401 跳登录（auth 端点自身不触发防递归）；`showAuthScreen()/authScreenHTML()/bindAuthScreen()` 登录注册卡片（tab 切换、调 /api/auth/register|login、成功存 token、失败 toast）；启动用 /api/auth/me 校验；`updateUserInfo()` 顶栏用户名+登出、`logout()`、`startApp()`；`render()` 加 _AUTH_VISIBLE 守卫。`style.css`(+20) 补 .auth-* / .user-chip。`test_web_flow.py`(+12/−1) 增 Epic 7 静态断言并前移 css 获取（修 UnboundLocalError）。`docs/tasks.md` 勾选 Epic 7 三项 Story + 完成记录。未改 models.py/api.py 契约。
+- **部署 Docker**：Docker Hub 不可达 → 退化 `docker cp` 注入新 app.js/style.css 到运行中的 agentboard-web-1（/app/agentboard/web/static/）。HTTP 校验 served app.js 含 `function showAuthScreen`、style.css 含 `.auth-card`；线上 API 实测 register→201+token、me(token)→200、me(无)→401、错误密码→401。
+- **执行测试**：托管 venv 跑 tests/test_web_flow.py + test_backend_flow.py → **6 passed**（新增 Epic 7 断言），无回归。
+- **推送**：commit `df20152`，`git push origin main` 成功（`181fa99..df20152`）。
+- **下一个 pending 项**：Epic 8 MariaDB 独立 .sql 脚本 + 真实集成验证 / Epic 9 Playwright E2E / Epic 12.2~12.4。
+
 ## 2026-07-12（周期执行 · B-06 列表分组收尾交付）
 - **拉取最新代码**：`git fetch origin` 显示远端无新提交（HEAD=df19997，0/0），已是最新；工作树含 B-06 列表分组未提交改动（app.js+75/−19、style.css+7、test_web_flow.py+3、docs/tasks.md 完成记录）。
 - **需求/任务分析**：Epic 11 Backlog A（A-01~A-20）与 Backlog C（P-01~P-15）均已完成；Backlog B 中仅 B-06 的纯前端「按状态/按类型」分组部分已在树中写完但未提交。本周期收尾交付 B-06（不新开其他项，保持每周期一项）。

@@ -12,10 +12,11 @@
 - commit 规范：`feat(ui): 前端小优化 - <一句话描述>`。
 - 复用：状态/类型枚举来自 `GET /api/meta`；渲染辅助 `md()/esc()/statusSelect()/typeSelect()/toast()/route()` 可直接复用。
 
-## 既有能力现状（2026-07-10 盘点）
-- 后端鉴权 100% 就绪（`/api/auth/register|login|me` + `users` 表 + 测试）；缺前端登录 UI（Epic 7）。
+## 既有能力现状（2026-07-10 盘点，Epic 7 于 2026-07-12 完成）
+- **鉴权全链路就绪**：后端 `/api/auth/register|login|me` + `users` 表 + 测试；**前端登录/注册 UI 已完成（Epic 7，2026-07-12）**。`app.js` 含 `getToken/setToken/clearToken` + `CURRENT_USER`；`api()` 注入 `Authorization` 并在 401 跳登录（auth 端点自身不触发，避免递归）；顶栏用户名+登出。
+- **Epic 7 启动守卫为"动态"设计（重要）**：后端开放（默认 `AGENTBOARD_REQUIRE_AUTH` 未设/0）时免登可用；一旦后端设为 `1` 强制鉴权，SPA 数据请求 401 会**自动跳登录**。据此**不要**把 SPA 改成"无 token 一律硬拦截进入"——会破坏当前开放部署。如需强制登录，应在后端置 `AGENTBOARD_REQUIRE_AUTH=1`，SPA 会自动适配。
 - MariaDB：切换/驱动/Alembic/`db` profile 就绪；缺独立 `.sql` 脚本与真实验证（Epic 8）。
-- Playwright：无（Epic 9）。MCP 服务完整，待鉴权集成+运维化（Epic 10）。
+- Playwright：无（Epic 9）。MCP 服务完整，待鉴权集成+运维化（Epic 10，已完成）。
 
 ## 协作流程约定
 - 文档驱动：需求 `docs/requirements.md`、主任务 `docs/tasks.md`（Epic 分段）、每个变更 `openspec/changes/<id>/{proposal,design,tasks}.md`。

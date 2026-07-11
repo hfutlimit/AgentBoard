@@ -16,4 +16,4 @@
 - API / Web 行为不变；MCP 工具集已在上一轮补全。
 
 ## Status
-In Progress（Alembic + MCP 工具已就绪；缺 `.sql` 脚本与真实验证）
+Completed（Alembic + MCP 工具已就绪；`schema.sql` 独立脚本已补齐并经 MariaDB 11 真实验证 + 集成测试）
