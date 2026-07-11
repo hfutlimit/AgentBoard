@@ -137,6 +137,35 @@ function avatar(name, extra = "") {
   return `<span class="avatar${isAgent ? " avatar-agent" : ""}${extra ? " " + extra : ""}" title="${esc(value)}">${esc(initials)}</span>`;
 }
 
+// P-15 Agent 活动面板：聚合评论为"近期动态"时间线，复用 avatar() 呈现作者（Agent 自动带标记）。
+function timeAgo(iso) {
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  const s = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (s < 60) return "刚刚";
+  if (s < 3600) return Math.floor(s / 60) + " 分钟前";
+  if (s < 86400) return Math.floor(s / 3600) + " 小时前";
+  if (s < 2592000) return Math.floor(s / 86400) + " 天前";
+  return d.toLocaleDateString();
+}
+function activityPanel(items) {
+  const body = items.length
+    ? `<ul class="activity-list">${items.map(c => `
+      <li class="activity-item">
+        ${avatar(c.author, "activity-avatar")}
+        <div class="activity-body">
+          <div class="activity-line"><strong>${esc(c.author)}</strong> 评论了 <a class="activity-task" href="#/task/${c.taskId}">${esc(c.taskTitle)}</a></div>
+          <p class="activity-text">${esc((c.content || "").slice(0, 90))}</p>
+          <time class="activity-time">${timeAgo(c.created_at)}</time>
+        </div>
+      </li>`).join("")}</ul>`
+    : '<div class="empty-inline">暂无动态。在任务详情发表评论后，Agent 与成员的最新进展会显示在这里。</div>';
+  return `<aside class="activity-panel">
+    <div class="activity-head"><h3>近期动态</h3><span class="activity-tag">Agent 活动</span></div>
+    ${body}
+  </aside>`;
+}
+
 function statIcon(kind) {
   const icons = {
     projects: '<rect x="3" y="4" width="14" height="12" rx="2"/><path d="M3 8h14M8 8v8"/>',
@@ -355,6 +384,7 @@ async function viewHome(app) {
   // 汇总统计
   let totalEpics = 0, totalStories = 0, totalTasks = 0, doneTasks = 0;
   const projectStats = [];
+  const allTasks = [];
   for (const p of ps) {
     try {
       const eps = await api(`/api/projects/${p.id}/epics`);
@@ -367,6 +397,7 @@ async function viewHome(app) {
           const ts = await api(`/api/stories/${s.id}/tasks`);
           pTasks += ts.length;
           pDone += ts.filter(t => t.status === "done").length;
+          ts.forEach(t => allTasks.push({ id: t.id, title: t.title, status: t.status }));
         }
       }
       totalStories += pStories; totalTasks += pTasks; doneTasks += pDone;
@@ -374,6 +405,20 @@ async function viewHome(app) {
     } catch (e) {
       projectStats.push({ ...p, epics: "?", stories: "?", tasks: "?", done: "?" });
     }
+  }
+
+  // P-15 Agent 活动面板：复用仪表盘已枚举的 task 列表，并行拉取各自评论（沿用 /api/tasks/{id}/comments），
+  // 汇总成"近期动态"时间线。不新增后端端点、不改变 API 契约；任一请求失败则降级为空面板。
+  let activity = [];
+  if (allTasks.length) {
+    try {
+      const groups = await Promise.all(allTasks.map(t => api(`/api/tasks/${t.id}/comments`).catch(() => [])));
+      activity = [];
+      allTasks.forEach((t, i) => (groups[i] || []).forEach(c =>
+        activity.push({ id: c.id, author: c.author, content: c.content, created_at: c.created_at, taskId: t.id, taskTitle: t.title })));
+      activity.sort((a, b) => (b.created_at || "").localeCompare(a.created_at || ""));
+      activity = activity.slice(0, 12);
+    } catch (e) { activity = []; }
   }
 
   app.innerHTML = `
@@ -439,6 +484,7 @@ async function viewHome(app) {
         <button onclick="route('#/projects')" class="action-card">所有项目 <span>→</span></button>
         <button onclick="showNewProjectModal()" class="action-card">新建项目 <span>＋</span></button>
       </div>
+      ${activityPanel(activity)}
     </div>`;
 
   // 绑定新建项目

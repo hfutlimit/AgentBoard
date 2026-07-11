@@ -246,7 +246,7 @@
 - [x] **P-12 深度与表面分级**：用 `--sh-sm/md/lg` 与 `--surface-2/3` 建立层次；卡片 hover 升 `--sh-md`；剥离"全白平铺"（`app.js`+0/`style.css`+28，依赖 P-01）。
 - [x] **P-13 暗色主题与新 Token 同步**：`[data-theme="dark"]` 按提案覆盖中性/品牌提亮，校准所有新类暗色可读性（~30 行，依赖 P-01~P-12，末位统一校准）。
 - [x] **P-14 仪表盘 Hero 条（可选）**：品牌渐变 hero 显示当前项目名+健康度摘要+"N 个 Agent 在线"胶囊（`app.js`+12/`style.css`+18，依赖 P-01,P-03）。
-- [ ] **P-15 Agent 活动面板（可选）**：仪表盘右侧"近期动态 / Agent 活动"面板，复用 `avatar()`（`app.js`+24/`style.css`+16，依赖 P-10）。
+- [x] **P-15 Agent 活动面板（可选）**：仪表盘右侧"近期动态 / Agent 活动"面板，复用 `avatar()`（`app.js`+24/`style.css`+16，依赖 P-10）。
 
 ### Backlog A（纯前端，可直接做，按推荐顺序）
 - [x] **A-01 看板视图（Story 页）**：在 Story 详情增加「看板」视图，按 `META.statuses` 分列展示 task 卡片（只读，先无拖拽），复用 `/api/stories/{id}/tasks`。仅改 `app.js` + `style.css`。
@@ -330,3 +330,4 @@
 | 2026-07-11 | A-17 | 路由过渡动画：复用既有 `fadeIn` keyframe，在 `render()` 末尾对 `#app` 移除/强制回流/重新添加 `.route-in` 类，使每次视图切换后主内容区淡入+轻微上滑（.22s）；加 `prefers-reduced-motion` 降级。仅改 `app.js`(+4) + `style.css`(+3，净增 7 行，符合 R2)，未改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | P-01 | 设计 Token 体系：在 `style.css` 的 `:root` 与 `[data-theme="dark"]` 落地 `--brand-500/600/700`、`--brand-soft/ring`、`--grad`、`--success/--warning/--danger/--info/--violet`、`--text-2/3`、`--border-2`、`--surface-2/3`、`--sh-sm/md/lg/brand`、`--r-sm/md/lg`；`--primary` 保留为 `--brand-500` 别名，`--text-secondary`/`--card-bg` 续用旧名以兼容旧类。净增 ~64 行（74/10），未改 `models.py`/`api.py` 契约 |
 | 2026-07-11 | P-02 | 字体与排版升级：在 `index.html` 加 Inter + JetBrains Mono 的 Google Fonts `<link>`（系统栈兜底，离线降级）；`style.css` 的 `:root` 新增 `--font-sans`/`--font-mono` 令牌，`body` 改用 `var(--font-sans)`，标题 `letter-spacing:-.02em`，`.stat-number`/`.sidebar-key`/`.progress-pct`/`.kanban-count` 加 `tabular-nums`，`textarea`/`.md pre`/`.md code` 统一 `var(--font-mono)`。净增 ~6 行（符合 R2），未改 `models.py`/`api.py` 契约 |
+| 2026-07-11 | P-15 | Agent 活动面板：仪表盘右侧 sticky「近期动态 / Agent 活动」面板，复用 `avatar()` 呈现评论作者（Agent 自动带标记）；`.dashboard` 转 `1fr 330px` 双栏、面板 `grid-row:1/-1` 跨列、`≤1000px` 转单列堆叠。数据沿用现有 `/api/tasks/{id}/comments`，在 `viewHome` 统计循环内收集 task 后 `Promise.all` 并行拉取评论、按 `created_at` 取近 12 条聚合为时间线，任一请求失败降级空面板。`app.js`+~52、`style.css`+~23（净增 ~75 行，符合 R2 红线），未改 `models.py`/`api.py` 契约；`test_web_flow.py` 增 `activity-panel`/`timeAgo` 静态断言 |

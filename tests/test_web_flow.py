@@ -113,6 +113,7 @@ def test_web_serves_spa(servers):
     assert "fetch(API" in js.text, "SPA 未使用 fetch 调 API"
     assert 'class="hero"' in js.text, "仪表盘品牌 Hero 未渲染"
     assert "badge-dot" in js.text and "empty-art" in js.text, "语义徽章或空状态插画缺失"
+    assert "activity-panel" in js.text and "timeAgo" in js.text, "P-15 Agent 活动面板未渲染"
 
     css = httpx.get(web_base + "/static/style.css")
     assert css.status_code == 200, "style.css 未提供"
