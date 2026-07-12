@@ -141,8 +141,9 @@
 
 ---
 
-## Epic 7：前端注册 / 登录（鉴权 UI）
+## Epic 7：前端注册 / 登录（鉴权 UI）⚠️ 优先级高，暂不推进 MCP 鉴权
 > 目标：补齐 SPA 的登录 / 注册界面与 token 生命周期。后端接口已就绪（见 `openspec/changes/auth/`）。
+> **优先级说明**：Epic 7 已完成（所有 Story [x]）。MCP 鉴权（Task 102）**暂不加**，避免影响 Agent 交互体验。
 
 ### Story 7.1 前端鉴权骨架
 - [x] Task：`app.js` 增加 `getToken/setToken/clearToken`（localStorage）
@@ -157,7 +158,7 @@
 ### Story 7.3 应用内用户态
 - [x] Task：顶部栏显示当前用户名 + 登出按钮
 - [x] Task：`style.css` 补充登录卡片 / 用户信息条样式
-- [ ] Task（可选）：`api.py` 增加 `AGENTBOARD_REQUIRE_AUTH` 强制 CRUD 鉴权
+- [ ] Task（暂缓）：`api.py` 增加 `AGENTBOARD_REQUIRE_AUTH` 强制 CRUD 鉴权（MCP 鉴权先行时再加，避免破坏 Agent 交互）
 
 ---
 
@@ -368,9 +369,9 @@
 ### Story 13.4 管理员后台
 - [x] Task 100：后端 API：`/api/admin/users`（设管理员）、`/api/admin/projects`（删除项目）；首个注册用户自动 admin
 - [x] Task 101：前端 Admin 视图：`/admin` 路由、用户/项目管理表格、Admin 专属导航入口
-- [ ] Task 102：MCP 工具补全：将新增 API 暴露到 `mcp_server.py` MCP 工具
+- [ ] Task 102（**暂缓**）：MCP 工具补全：将新增 API 暴露到 `mcp_server.py` MCP 工具。**暂不推进**，避免 MCP 鉴权影响 Agent 交互体验；待 Epic 7 MCP 鉴权方案明确后再评估。
 
 ### 完成记录
 | 日期 | 项 | 简述 |
 |------|----|------|
-| 2026-07-12 | Epic 13 | 成员管理（ProjectMember）、通知系统（Notification）、项目可见性（is_private）、Admin 后台（is_admin）；后端新增 10+ API 端点 + Alembic 迁移；前端 Tab 化项目详情页（Epics/Sprints/Backlog/Members/Stats/Settings）；17 pytest 测试全绿；commit `4fcde35` |
+| 2026-07-12 | Epic 13 | 成员管理（ProjectMember）、通知系统（Notification）、项目可见性（is_private）、Admin 后台（is_admin）；后端新增 10+ API 端点 + Alembic 迁移；前端 Tab 化项目详情页（Epics/Sprints/Backlog/Members/Stats/Settings）；17 pytest 测试全绿；Task 102（MCP 工具补全）**暂缓**，不推进 MCP 鉴权；commit `4fcde35` |
