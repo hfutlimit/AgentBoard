@@ -6,7 +6,7 @@ from . import models, auth
 from .models import (
     ItemType, Status, Priority, SprintStatus, ALL_TYPES, ALL_STATUSES,
     ALL_PRIORITIES, ALL_SPRINT_STATUSES,
-    Project, Epic, Story, Task, Comment, Sprint,
+    Project, Epic, Story, Task, Comment, Sprint, Attachment,
 )
 
 DEFAULT_PAGE_SIZE = 100
@@ -517,6 +517,66 @@ def delete_sprint(s: Session, id: int) -> bool:
     # 将关联任务解除绑定
     s.query(Task).filter(Task.sprint_id == sp.id).update({"sprint_id": None})
     s.delete(sp); _commit(s); return True
+
+
+# ---------- Attachment ----------
+import os as _os
+import uuid as _uuid
+
+ATTACHMENT_DIR = _os.getenv("AGENTBOARD_ATTACHMENT_DIR", "data/attachments")
+ATTACHMENT_MAX_SIZE = int(_os.getenv("AGENTBOARD_ATTACHMENT_MAX_SIZE", str(10 * 1024 * 1024)))  # 10 MB
+ATTACHMENT_ALLOWED_TYPES = {
+    "image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml",
+    "application/pdf",
+    "text/plain", "text/markdown", "text/csv",
+    "application/json", "application/xml",
+    "application/zip", "application/gzip",
+}
+
+
+def _attachment_dir() -> str:
+    _os.makedirs(ATTACHMENT_DIR, exist_ok=True)
+    return ATTACHMENT_DIR
+
+
+def create_attachment(s: Session, *, task_id: int, content: bytes, original_name: str, mime_type: str) -> Attachment:
+    if not s.get(Task, task_id):
+        raise NotFound(f"task {task_id} not found")
+    if mime_type not in ATTACHMENT_ALLOWED_TYPES:
+        raise InvalidValue(f"unsupported MIME type: {mime_type}")
+    if len(content) > ATTACHMENT_MAX_SIZE:
+        raise InvalidValue(f"file exceeds {ATTACHMENT_MAX_SIZE // (1024*1024)} MB limit")
+    stored = _uuid.uuid4().hex
+    path = _os.path.join(_attachment_dir(), stored)
+    with open(path, "wb") as f:
+        f.write(content)
+    att = Attachment(task_id=task_id, filename=stored, original_name=original_name,
+                     size=len(content), mime_type=mime_type)
+    s.add(att); _commit(s); s.refresh(att); return att
+
+
+def get_attachment(s: Session, id: int) -> Attachment | None:
+    return s.get(Attachment, id)
+
+
+def get_attachment_path(att: Attachment) -> str:
+    return _os.path.join(ATTACHMENT_DIR, att.filename)
+
+
+def list_attachments(s: Session, task_id: int) -> list:
+    if not s.get(Task, task_id):
+        raise NotFound(f"task {task_id} not found")
+    return s.query(Attachment).filter(Attachment.task_id == task_id).order_by(Attachment.id).all()
+
+
+def delete_attachment(s: Session, id: int) -> bool:
+    att = s.get(Attachment, id)
+    if not att:
+        return False
+    path = _os.path.join(ATTACHMENT_DIR, att.filename)
+    if _os.path.isfile(path):
+        _os.unlink(path)
+    s.delete(att); _commit(s); return True
 
 
 class DomainError(Exception):

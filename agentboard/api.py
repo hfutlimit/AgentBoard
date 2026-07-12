@@ -5,9 +5,9 @@
 """
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException, Query, Header, Request
+from fastapi import FastAPI, Depends, HTTPException, Query, Header, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
@@ -496,3 +496,55 @@ def list_sprint_tasks(sid: int, s: Session = Depends(get_session),
                       limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0)):
     _need(service.get_sprint(s, sid), "sprint")
     return [service._ser(t) for t in service.list_tasks(s, sprint_id=sid, limit=limit, offset=offset)]
+
+
+# ---------- Attachment ----------
+@app.get("/api/tasks/{tid}/attachments")
+def list_attachments(tid: int, s: Session = Depends(get_session)):
+    try:
+        return [service._ser(a) for a in service.list_attachments(s, tid)]
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/api/tasks/{tid}/attachments", status_code=201)
+async def upload_attachment(tid: int, file: UploadFile = File(...), s: Session = Depends(get_session)):
+    try:
+        content = await file.read()
+    except Exception:
+        raise HTTPException(status_code=400, detail="failed to read file")
+    try:
+        att = service.create_attachment(s, task_id=tid, content=content,
+                                         original_name=file.filename or "unnamed",
+                                         mime_type=file.content_type or "application/octet-stream")
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(att)
+
+
+@app.get("/api/attachments/{aid}")
+def download_attachment(aid: int, s: Session = Depends(get_session)):
+    att = service.get_attachment(s, aid)
+    if not att:
+        raise HTTPException(status_code=404, detail="attachment not found")
+    path = service.get_attachment_path(att)
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="file not found on disk")
+    return FileResponse(path, media_type=att.mime_type, filename=att.original_name)
+
+
+@app.get("/api/attachments/{aid}/info")
+def attachment_info(aid: int, s: Session = Depends(get_session)):
+    att = service.get_attachment(s, aid)
+    if not att:
+        raise HTTPException(status_code=404, detail="attachment not found")
+    return service._ser(att)
+
+
+@app.delete("/api/attachments/{aid}")
+def delete_attachment(aid: int, s: Session = Depends(get_session)):
+    if not service.delete_attachment(s, aid):
+        raise HTTPException(status_code=404, detail="attachment not found")
+    return {"ok": True}

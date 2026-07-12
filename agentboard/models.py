@@ -153,3 +153,14 @@ class Comment(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class Attachment(Base):
+    __tablename__ = "attachments"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)       # 磁盘文件名 (UUID)
+    original_name: Mapped[str] = mapped_column(String(500), nullable=False)  # 用户上传时的原始文件名
+    size: Mapped[int] = mapped_column(Integer, nullable=False)               # 字节数
+    mime_type: Mapped[str] = mapped_column(String(200), nullable=False)      # MIME 类型
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

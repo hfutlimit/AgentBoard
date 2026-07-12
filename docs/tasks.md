@@ -297,10 +297,10 @@
 ### Story 12.2 Sprint 规划
 - [x] Task：Sprint 数据模型、迁移、状态机与"单 active Sprint"约束
 - [x] Task：Sprint CRUD、任务入 Sprint、关闭时搬迁未完成任务
-- [ ] Task：Sprint/Backlog Web 视图与 MCP 工具
+- [x] Task：Sprint/Backlog Web 视图与 MCP 工具
 
 ### Story 12.3 附件
-- [ ] Task：附件元数据模型、本地安全存储与大小/MIME 限制
+- [x] Task：附件元数据模型、本地安全存储与大小/MIME 限制
 - [ ] Task：上传、列表、下载、删除 REST API
 - [ ] Task：任务详情附件区与 MCP 资源信息工具
 
