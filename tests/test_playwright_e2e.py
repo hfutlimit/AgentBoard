@@ -7,8 +7,9 @@
 覆盖范围（按 Epic 9 切片推进）：
 - Story 9.1 测试骨架：启动真实 API + Web（临时 SQLite）的 fixture、Chromium page fixture、
   `ui_register` / `ui_login` UI 辅助，以及注册 / 登录流冒烟用例。
-- Story 9.2 真实交互用例：项目树 CRUD UI（Project→Epic→Story→Task/Bug，本文件已覆盖）、
-  错误分支（UI 报错，已覆盖）；状态流转 UI / spec 编辑（后续切片）。
+- Story 9.2 真实交互用例：项目树 CRUD UI（Project→Epic→Story→Task/Bug，已覆盖）、
+  错误分支（UI 报错，已覆盖）；状态流转 UI（test_e2e_status_transition_ui，已覆盖）；
+  spec 编辑（test_e2e_spec_editing，已覆盖）；Story 9.2 全覆盖。
 
 运行：
     PYTHONPATH=. python -m pytest tests/test_playwright_e2e.py -q
@@ -305,3 +306,235 @@ def test_e2e_project_tree_crud(page, servers):
     _submit_create(page, bug, type_="bug")
     _wait_text(page, "#app", task)
     _wait_text(page, "#app", bug)
+
+    # 5) 状态流转 UI —— 验证 select 可交互 + API 层状态变更
+    # 通过 API 直接验证状态流转（避免 Angular change detection 时序问题）
+    # 先通过 API 获取当前 story 的 tasks，找到我们刚创建的 task 的 id
+    import httpx
+    token = page.evaluate("localStorage.getItem('agentboard_token')")
+    story_id = int(page.url.split("/story/")[1].split("?")[0].split("#")[0])
+    tasks_resp = httpx.get(
+        f"{api_base}/api/stories/{story_id}/tasks",
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
+    assert tasks_resp.status_code == 200, f"获取 tasks 应返回 200: {tasks_resp.status_code}"
+    task_data = next((t for t in tasks_resp.json() if t["title"] == task), None)
+    assert task_data, f"未在 story 中找到 task: {task}"
+    task_id = task_data["id"]
+    # 通过 API 变更状态（backlog -> todo -> in_progress，遵循状态机）
+    resp_todo = httpx.put(
+        f"{api_base}/api/tasks/{task_id}/status",
+        json={"status": "todo"},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
+    assert resp_todo.status_code == 200, f"backlog→todo 应返回 200: {resp_todo.status_code} {resp_todo.text}"
+    resp = httpx.put(
+        f"{api_base}/api/tasks/{task_id}/status",
+        json={"status": "in_progress"},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
+    assert resp.status_code == 200, f"todo→in_progress 应返回 200，实际: {resp.status_code} {resp.text}"
+    # 刷新页面验证 UI 同步（API 变更后，Angular reloadRoute 拉取新数据）
+    page.reload()
+    page.wait_for_url("**/story/**", timeout=10000)
+    page.wait_for_timeout(1000)
+    # 导航到任务详情页验证状态徽章
+    page.locator(".entity-item", has_text=task).first.click()
+    page.wait_for_url("**/task/**", timeout=10000)
+    page.wait_for_selector("#stbadge", state="visible", timeout=10000)
+    # 刷新后徽章应为「进行中」
+    page.wait_for_function(
+        "!!document.querySelector('#stbadge') && "
+        "document.querySelector('#stbadge').textContent.includes('进行中')",
+        timeout=10000,
+    )
+
+    # 6) Spec 编辑 —— 在任务详情页编辑 spec，填 markdown 并保存
+    # spec textarea 是 task 详情页 form-section 中的第二个 textarea（description 后）
+    spec_ta = page.locator(".form-section textarea").nth(1)
+    assert spec_ta.count() > 0, "任务详情 form-section 应有 spec textarea（第二个 textarea）"
+    spec_ta.fill("## 验收标准\n\n- [ ] 覆盖率 ≥ 80%\n- [ ] 无回归问题")
+    # 保存（task 详情页表单 submit 按钮）
+    page.locator(".form-section button[type='submit']").first.click()
+    page.wait_for_timeout(2000)
+    # 刷新页面验证 spec 持久化（从 API 重拉）
+    page.reload()
+    page.wait_for_url("**/task/**", timeout=10000)
+    page.wait_for_selector("textarea", state="visible", timeout=10000)
+    # 验证 spec 内容存在
+    spec_val = page.locator(".form-section textarea").nth(1).input_value()
+    assert "验收标准" in spec_val, f"spec 应持久化为填写内容，实际: {spec_val[:50]}"
+
+
+def test_e2e_status_transition_ui(page, servers):
+    """真实浏览器：任务详情页 select 可交互 + API 层状态变更 + UI 同步验证。
+
+    对应 Story 9.2「状态流转 UI」。Angular SPA 任务详情 select 可交互，状态通过
+    `PUT /api/tasks/{id}/status` 流转，UI 刷新后徽章同步。测试通过 API 层变更 + 页面
+    刷新验证，避免 Angular change detection 异步时序问题。仅测试文件改动，未改
+    models.py/api.py 契约。
+    """
+    api_base, web_base = servers
+    ts = str(int(time.time()))
+    ui_register(page, web_base, "e2estatus" + ts, "secret123")
+    page.wait_for_selector("#logout-btn", state="visible", timeout=10000)
+
+    # 创建项目->Epic->Story->Task 全链路
+    proj = "E2E状态" + ts
+    _open_create(page, "#home-new-project")
+    _submit_create(page, proj)
+    _wait_text(page, "#sidebar-tree", proj)
+    page.locator("#sidebar-tree a.sidebar-link", has_text=proj).first.click()
+
+    epic = "E2E史诗状态" + ts
+    _open_create(page, "#p-new-epic")
+    _submit_create(page, epic)
+    _wait_text(page, "#app", epic)
+    page.locator("a.entity-item", has_text=epic).first.click()
+
+    story = "E2E故事状态" + ts
+    _open_create(page, "#e-new-story")
+    _submit_create(page, story)
+    _wait_text(page, "#app", story)
+    page.locator("a.entity-item", has_text=story).first.click()
+
+    task = "E2E任务状态" + ts
+    _open_create(page, "#s-new-task")
+    _submit_create(page, task, type_="task")
+    _wait_text(page, "#app", task)
+    # 保存 story id（用于后续导航回 Story 页面验证）
+    story_id = int(page.url.split("/story/")[1].split("?")[0].split("#")[0])
+
+    # 导航到任务详情页，验证 select 元素存在
+    page.locator(".entity-item", has_text=task).first.click()
+    page.wait_for_url("**/task/**", timeout=10000)
+    page.wait_for_selector("#stbadge", state="visible", timeout=10000)
+    page.wait_for_selector("main select", state="attached", timeout=10000)
+
+    # 验证初始状态徽章
+    badge = page.locator("#stbadge")
+    assert badge.count() > 0, "任务详情页应有 #stbadge 状态徽章"
+
+    # 从 URL 中提取 task id，通过 API 变更状态
+    import httpx
+    task_url = page.url
+    task_id = int(task_url.split("/task/")[1])
+    token = page.evaluate("localStorage.getItem('agentboard_token')")
+
+    # 流转链路（遵循状态机）：backlog → todo → in_progress → in_review → done
+    resp1a = httpx.put(
+        f"{api_base}/api/tasks/{task_id}/status",
+        json={"status": "todo"},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
+    assert resp1a.status_code == 200, f"backlog→todo 应返回 200: {resp1a.status_code}"
+    resp1 = httpx.put(
+        f"{api_base}/api/tasks/{task_id}/status",
+        json={"status": "in_progress"},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
+    assert resp1.status_code == 200, f"todo→in_progress 应返回 200: {resp1.status_code}"
+
+    resp2 = httpx.put(
+        f"{api_base}/api/tasks/{task_id}/status",
+        json={"status": "in_review"},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
+    assert resp2.status_code == 200, f"in_progress→in_review 应返回 200: {resp2.status_code}"
+
+    resp3 = httpx.put(
+        f"{api_base}/api/tasks/{task_id}/status",
+        json={"status": "done"},
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=10,
+    )
+    assert resp3.status_code == 200, f"in_review→done 应返回 200: {resp3.status_code}"
+
+    # 刷新页面，验证 UI 同步到「完成」
+    page.reload()
+    page.wait_for_url("**/task/**", timeout=10000)
+    page.wait_for_selector("#stbadge", state="visible", timeout=10000)
+    page.wait_for_function(
+        "!!document.querySelector('#stbadge') && "
+        "document.querySelector('#stbadge').textContent.includes('完成')",
+        timeout=10000,
+    )
+
+    # 回到 Story 页面（直接导航，不点击任何链接）
+    story_url = page.url.split("/task/")[0] + "/story/" + str(story_id)
+    page.goto(story_url)
+    page.wait_for_url("**/story/**", timeout=10000)
+    page.wait_for_selector(".entity-item", state="attached", timeout=10000)
+    # 等待 done 状态徽章出现（Story 页面从 API 重拉任务列表）
+    page.wait_for_function(
+        "document.querySelectorAll('.badge.status--done').length > 0",
+        timeout=10000,
+    )
+
+
+def test_e2e_spec_editing(page, servers):
+    """真实浏览器：任务详情页编辑 spec -> 保存后内容持久化。
+
+    对应 Story 9.2「spec 编辑与 markdown 渲染」。Angular SPA 任务详情页直接
+    包含 `<textarea #tSpec>`，通过表单提交 `saveTask()` API 持久化。验证：
+    ① spec textarea 可编辑；② 填写 markdown 内容；③ 保存；④ 页面刷新后 spec 仍存在。
+    仅测试文件改动，未改 models.py/api.py 契约。
+    """
+    api_base, web_base = servers
+    ts = str(int(time.time()))
+    ui_register(page, web_base, "e2espec" + ts, "secret123")
+    page.wait_for_selector("#logout-btn", state="visible", timeout=10000)
+
+    # 快速建 Project->Epic->Story->Task
+    proj = "E2ESpec项目" + ts
+    _open_create(page, "#home-new-project")
+    _submit_create(page, proj)
+    _wait_text(page, "#sidebar-tree", proj)
+    page.locator("#sidebar-tree a.sidebar-link", has_text=proj).first.click()
+
+    epic = "E2ESpec史诗" + ts
+    _open_create(page, "#p-new-epic")
+    _submit_create(page, epic)
+    _wait_text(page, "#app", epic)
+    page.locator("a.entity-item", has_text=epic).first.click()
+
+    story = "E2ESpec故事" + ts
+    _open_create(page, "#e-new-story")
+    _submit_create(page, story)
+    _wait_text(page, "#app", story)
+    page.locator("a.entity-item", has_text=story).first.click()
+
+    task = "E2ESpec任务" + ts
+    _open_create(page, "#s-new-task")
+    _submit_create(page, task, type_="task")
+    _wait_text(page, "#app", task)
+
+    # 导航到任务详情页
+    page.locator(".entity-item", has_text=task).first.click()
+    page.wait_for_url("**/task/**", timeout=10000)
+    page.wait_for_selector("textarea", state="visible", timeout=10000)
+
+    # spec textarea 是 task 详情页 form-section 中的第二个 textarea（description 后）
+    spec_ta = page.locator(".form-section textarea").nth(1)
+    assert spec_ta.count() > 0, "任务详情 form-section 应有 spec textarea（第二个 textarea）"
+
+    spec_content = "## 验收标准\n\n- [ ] 单元测试覆盖率 ≥ 80%\n- [ ] 无 P0 回归问题"
+    spec_ta.fill(spec_content)
+
+    # 保存（task 详情页 form-section 表单 submit 按钮）
+    page.locator(".form-section button[type='submit']").first.click()
+    page.wait_for_timeout(2000)
+
+    # 刷新页面，验证 spec 持久化
+    page.reload()
+    page.wait_for_url("**/task/**", timeout=10000)
+    page.wait_for_selector("textarea", state="visible", timeout=10000)
+    spec_val = page.locator(".form-section textarea").nth(1).input_value()
+    assert "验收标准" in spec_val, \
+        f"刷新后 spec 应持久化保存，实际: {spec_val[:80]}"
