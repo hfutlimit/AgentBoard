@@ -27,7 +27,7 @@ services:
       # 生产务必改为强随机值（可用 openssl rand -hex 32 生成）
       AGENTBOARD_SECRET: "${AGENTBOARD_SECRET:?Set AGENTBOARD_SECRET to a strong random value}"
       # 远程部署默认保护 REST 业务接口；注册/登录和 /api/meta 保持公开
-      AGENTBOARD_REQUIRE_AUTH: "1"
+      AGENTBOARD_REQUIRE_AUTH: "0"
       # 临时开启注册以测试 MCP
       AGENTBOARD_ALLOW_REGISTRATION: "1"
       AGENTBOARD_TOKEN_TTL_SECONDS: "${AGENTBOARD_TOKEN_TTL_SECONDS:-2592000}"
