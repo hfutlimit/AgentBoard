@@ -6,9 +6,9 @@ import { firstValueFrom, Subscription } from 'rxjs';
 import { filter } from 'rxjs/operators';
 
 import { ApiService } from './api.service';
-import { Comment, Epic, ItemType, Priority, Project, Status, Story, Task } from './models';
+import { Comment, Epic, ItemType, Priority, Project, Sprint, SprintStatus, Status, Story, Task } from './models';
 
-type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'not-found';
+type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
 
 interface CreateModal {
@@ -30,6 +30,9 @@ export class App implements OnInit, OnDestroy {
   readonly stories = signal<Story[]>([]);
   readonly tasks = signal<Task[]>([]);
   readonly comments = signal<Comment[]>([]);
+  readonly sprints = signal<Sprint[]>([]);
+  readonly sprint = signal<Sprint | null>(null);
+  readonly sprintTasks = signal<Task[]>([]);
   readonly project = signal<Project | null>(null);
   readonly epic = signal<Epic | null>(null);
   readonly story = signal<Story | null>(null);
@@ -118,6 +121,7 @@ export class App implements OnInit, OnDestroy {
         ]);
         this.project.set(project);
         this.epics.set(epics);
+        await this.loadSprints(id);
       } else if (kind === 'epic' && id > 0) {
         this.view.set('epic');
         const [epic, stories] = await Promise.all([
@@ -151,8 +155,22 @@ export class App implements OnInit, OnDestroy {
           this.story.set(story);
           const epic = await firstValueFrom(this.api.getEpic(story.epic_id));
           this.epic.set(epic);
-          this.project.set(await firstValueFrom(this.api.getProject(epic.project_id)));
+          const project = await firstValueFrom(this.api.getProject(epic.project_id));
+          this.project.set(project);
+          await this.loadSprints(project.id);
+        } else {
+          this.project.set(await firstValueFrom(this.api.getProject(task.project_id)));
+          await this.loadSprints(task.project_id);
         }
+      } else if (kind === 'sprint' && id > 0) {
+        this.view.set('sprint');
+        const [sprint, tasks] = await Promise.all([
+          firstValueFrom(this.api.getSprint(id)),
+          firstValueFrom(this.api.listSprintTasks(id)),
+        ]);
+        this.sprint.set(sprint);
+        this.sprintTasks.set(tasks);
+        this.project.set(await firstValueFrom(this.api.getProject(sprint.project_id)));
       } else {
         this.view.set('not-found');
       }
@@ -370,6 +388,89 @@ export class App implements OnInit, OnDestroy {
     } catch (error) {
       this.notify(`删除失败：${this.message(error)}`, 'error');
     }
+  }
+
+  /* ---------- Sprint ---------- */
+
+  async createSprint(event: Event, name: string, goal: string): Promise<void> {
+    event.preventDefault();
+    const project = this.project();
+    if (!project || !name.trim()) return;
+    this.submitting.set(true);
+    try {
+      await firstValueFrom(this.api.createSprint(project.id, { title: name.trim(), goal }));
+      this.notify('Sprint 已创建');
+      await this.loadSprints(project.id);
+    } catch (error) {
+      this.notify(`创建失败：${this.message(error)}`, 'error');
+    } finally {
+      this.submitting.set(false);
+    }
+  }
+
+  async loadSprints(projectId: number): Promise<void> {
+    this.sprints.set(await firstValueFrom(this.api.listSprints(projectId)));
+  }
+
+  async activateSprint(id: number): Promise<void> {
+    if (!confirm('激活此 Sprint？同一项目只能有一个 active Sprint。')) return;
+    try {
+      await firstValueFrom(this.api.activateSprint(id));
+      this.notify('Sprint 已激活');
+      await this.refresh();
+    } catch (error) {
+      this.notify(`激活失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  async completeSprint(id: number): Promise<void> {
+    if (!confirm('完成此 Sprint？未完成的任务将退回 Backlog。')) return;
+    try {
+      await firstValueFrom(this.api.completeSprint(id));
+      this.notify('Sprint 已完成，未完成任务已退回 Backlog');
+      await this.refresh();
+    } catch (error) {
+      this.notify(`完成失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  async deleteSprint(id: number): Promise<void> {
+    if (!confirm('删除此 Sprint？')) return;
+    try {
+      await firstValueFrom(this.api.deleteSprint(id));
+      this.notify('Sprint 已删除');
+      await this.refresh();
+    } catch (error) {
+      this.notify(`删除失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  async assignTaskToSprint(taskId: number, sprintId: number): Promise<void> {
+    try {
+      await firstValueFrom(this.api.updateTask(taskId, { sprint_id: sprintId } as Partial<Task>));
+      this.notify('任务已加入 Sprint');
+      await this.refresh();
+    } catch (error) {
+      this.notify(`分配失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  async removeTaskFromSprint(taskId: number): Promise<void> {
+    try {
+      await firstValueFrom(this.api.updateTask(taskId, { sprint_id: null } as Partial<Task>));
+      this.notify('任务已移出 Sprint');
+      await this.refresh();
+    } catch (error) {
+      this.notify(`移除失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  sprintStatusLabel(status: string): string {
+    return (
+      (
+        { planning: '规划中', active: '进行中', completed: '已完成' } as Record<string, string>
+      )[status] || status
+    );
   }
 
   async generate(): Promise<void> {

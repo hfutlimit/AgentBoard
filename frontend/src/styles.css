@@ -1208,3 +1208,87 @@ details.form-section > form { padding: 16px; }
   .hero { flex-direction: column; }
   .page-header { flex-direction: column; align-items: flex-start; }
 }
+
+/* ========== Sprint ========== */
+
+.sprint-create-section {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+.sprint-create-section summary {
+  cursor: pointer;
+  display: inline-block;
+}
+
+.sprint-create-section form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 12px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+
+.sprint-item {
+  align-items: center;
+}
+
+.type-icon.sprint-planning {
+  background: #cbd5e1;
+}
+
+.type-icon.sprint-active {
+  background: var(--brand-500);
+  color: #fff;
+}
+
+.type-icon.sprint-completed {
+  background: #22c55e;
+  color: #fff;
+}
+
+.sprint-status {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: var(--r-sm);
+  font-weight: 600;
+}
+
+.sprint-status--planning {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+.sprint-status--active {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+
+.sprint-status--completed {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+[data-theme="dark"] .sprint-status--planning {
+  background: #334155;
+  color: #94a3b8;
+}
+
+[data-theme="dark"] .sprint-status--active {
+  background: #3b2984;
+  color: #c4b5fd;
+}
+
+[data-theme="dark"] .sprint-status--completed {
+  background: #14532d;
+  color: #86efac;
+}
+
+[data-theme="dark"] .type-icon.sprint-planning {
+  background: #475569;
+}

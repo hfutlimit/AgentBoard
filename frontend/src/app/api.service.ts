@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
-import { ApiErrorBody, AuthResult, Comment, Epic, Project, Story, Task } from './models';
+import { ApiErrorBody, AuthResult, Comment, Epic, Project, Sprint, Story, Task } from './models';
 
 declare global {
   interface Window {
@@ -134,5 +134,31 @@ export class ApiService {
   }
   login(username: string, password: string) {
     return this.request<AuthResult>('POST', '/api/auth/login', { username, password });
+  }
+
+  /* ---------- Sprint ---------- */
+  listSprints(projectId: number) {
+    return this.request<Sprint[]>('GET', `/api/projects/${projectId}/sprints`);
+  }
+  getSprint(id: number) {
+    return this.request<Sprint>('GET', `/api/sprints/${id}`);
+  }
+  createSprint(projectId: number, body: { title: string; goal?: string }) {
+    return this.request<Sprint>('POST', `/api/projects/${projectId}/sprints`, body);
+  }
+  updateSprint(id: number, body: Partial<Sprint>) {
+    return this.request<Sprint>('PATCH', `/api/sprints/${id}`, body);
+  }
+  activateSprint(id: number) {
+    return this.request<Sprint>('POST', `/api/sprints/${id}/activate`);
+  }
+  completeSprint(id: number) {
+    return this.request<Sprint>('POST', `/api/sprints/${id}/complete`);
+  }
+  deleteSprint(id: number) {
+    return this.request<{ ok: boolean }>('DELETE', `/api/sprints/${id}`);
+  }
+  listSprintTasks(sprintId: number) {
+    return this.request<Task[]>('GET', `/api/sprints/${sprintId}/tasks`);
   }
 }

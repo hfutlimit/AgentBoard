@@ -32,6 +32,7 @@ export interface Task {
   id: number;
   project_id: number;
   story_id: number | null;
+  sprint_id: number | null;
   type: ItemType;
   title: string;
   status: Status;
@@ -56,6 +57,20 @@ export interface AuthResult {
   id: number;
   username: string;
   token: string;
+}
+
+export type SprintStatus = 'planning' | 'active' | 'completed';
+
+export interface Sprint {
+  id: number;
+  project_id: number;
+  title: string;
+  goal: string;
+  status: SprintStatus;
+  start_date: string | null;
+  end_date: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ApiErrorBody {

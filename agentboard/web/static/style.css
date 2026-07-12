@@ -1101,3 +1101,34 @@ details.form-section > form { padding: 16px; }
   .hero { flex-direction: column; }
   .page-header { flex-direction: column; align-items: flex-start; }
 }
+
+/* ========== Breadcrumbs ========== */
+.crumb-current {
+  color: var(--text); font-weight: 600;
+  padding: 3px 9px; border-radius: var(--r-sm);
+  background: var(--brand-soft);
+  border: 1px solid var(--brand-ring);
+}
+
+/* ========== Entity item actions (A-19 hover) ========== */
+.entity-item-actions { display: flex; gap: 4px; flex-shrink: 0; margin-left: 8px; opacity: 0; transform: translateX(4px); transition: opacity .12s, transform .12s; pointer-events: none; }
+.entity-item:hover .entity-item-actions, .entity-item:focus-within .entity-item-actions { opacity: 1; transform: none; pointer-events: auto; }
+.ei-act { width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center; padding: 0; font-size: .8rem; line-height: 1; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-2, var(--card-bg)); color: var(--text-secondary); cursor: pointer; transition: all .12s; }
+.ei-act:hover { border-color: var(--primary); color: var(--primary); background: var(--brand-soft, rgba(37,99,235,.08)); }
+.ei-act-del:hover { border-color: var(--danger, #dc2626); color: var(--danger, #dc2626); background: rgba(220,38,38,.08); }
+.ei-act:focus-visible { outline: 2px solid var(--brand-ring, rgba(37,99,235,.4)); outline-offset: 1px; }
+@media (hover: none) { .entity-item-actions { opacity: 1; transform: none; pointer-events: auto; } }
+
+/* ========== Badge / empty / avatar (P-07, P-09, P-10) ========== */
+.badge-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 16%, transparent); }
+.badge.priority { display: inline-flex; align-items: center; gap: 4px; }
+.badge.priority svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.empty-art { width: 104px; height: 84px; }
+.avatar { width: 34px; height: 34px; display: inline-grid; place-items: center; flex: 0 0 34px; border-radius: 50%; color: #fff; background: var(--grad); box-shadow: var(--sh-sm); font-size: .7rem; font-weight: 800; }
+
+/* ========== Group / select (B-06) ========== */
+.group-head { display: flex; align-items: center; gap: 8px; margin: 14px 0 2px; font-size: .8rem; font-weight: 600; color: var(--text-secondary); letter-spacing: -.01em; }
+.group-head .badge, .group-head .type-icon { font-size: .78rem; }
+.group-count { font-variant-numeric: tabular-nums; color: var(--text-3); font-weight: 600; }
+.select-sm { height: 30px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--card-bg); color: var(--text); font: inherit; font-size: .82rem; cursor: pointer; }
+.select-sm:focus-visible { outline: 2px solid var(--brand-ring); outline-offset: 1px; }

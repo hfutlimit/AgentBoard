@@ -261,6 +261,53 @@
                 </div>
               </form>
             </details>
+            <div class="section-header">
+              <h3>
+                Sprints <span class="count">{{ sprints().length }}</span>
+              </h3>
+              <div class="page-actions">
+                <details class="card sprint-create-section">
+                  <summary class="btn-primary-sm">＋ 新建 Sprint</summary>
+                  <form (submit)="createSprint($event, spName.value, spGoal.value)">
+                    <label>名称<input #spName required maxlength="200" placeholder="Sprint 1" /></label
+                    ><label>目标<textarea #spGoal rows="2" placeholder="本次 Sprint 的目标…"></textarea></label
+                    ><button class="btn-primary-sm" type="submit">创建 Sprint</button>
+                  </form>
+                </details>
+              </div>
+            </div>
+            @if (sprints().length) {
+              <div class="entity-list">
+                @for (item of sprints(); track item.id) {
+                  <div class="entity-item sprint-item">
+                    <a [routerLink]="['/sprint', item.id]" class="entity-item-main">
+                      <span
+                        class="type-icon sprint-{{ item.status }}"
+                        [title]="sprintStatusLabel(item.status)"
+                      >S</span
+                      ><span class="entity-item-title">{{ item.title }}</span>
+                      @if (item.goal) {
+                        <span class="entity-item-subtitle">{{ item.goal }}</span>
+                      }
+                    </a>
+                    <div class="entity-item-badges">
+                      <span class="badge sprint-status sprint-status--{{ item.status }}">{{
+                        sprintStatusLabel(item.status)
+                      }}</span>
+                      @if (item.status === 'planning') {
+                        <button class="ghost-sm" (click)="activateSprint(item.id)">▶ 启动</button>
+                      }
+                      @if (item.status === 'active') {
+                        <button class="ghost-sm" (click)="completeSprint(item.id)">✓ 完成</button>
+                      }
+                      <button class="ghost-sm danger" (click)="deleteSprint(item.id)">✕</button>
+                    </div>
+                  </div>
+                }
+              </div>
+            } @else {
+              <div class="empty-inline">暂无 Sprint</div>
+            }
           }
         }
         @case ('epic') {
@@ -514,6 +561,31 @@
                     </select></label
                   >
                 </div>
+                @if (project()?.id) {
+                  <label
+                    >Sprint<select
+                      #tSprint
+                      [value]="current.sprint_id || 0"
+                      (change)="
+                        $any($event.target).value > 0
+                          ? assignTaskToSprint(current.id, +$any($event.target).value)
+                          : removeTaskFromSprint(current.id)
+                      "
+                    >
+                      <option value="0">— 无 —</option>
+                      @if (sprints().length === 0) {
+                        @defer {
+                          <!-- loaded in project view -->
+                        }
+                      }
+                      @for (s of sprints(); track s.id) {
+                        <option [value]="s.id">
+                          {{ s.title }} ({{ sprintStatusLabel(s.status) }})
+                        </option>
+                      }
+                    </select></label
+                  >
+                }
                 <label
                   >Description<textarea #tDesc rows="5">{{ current.description }}</textarea></label
                 ><label
@@ -571,6 +643,75 @@
                 ><button type="submit" class="btn-primary-sm">发表评论</button>
               </form>
             </div>
+          }
+        }
+        @case ('sprint') {
+          @if (sprint(); as current) {
+            <div class="crumb-bar">
+              <a [routerLink]="['/project', project()?.id]">{{ project()?.name }}</a
+              ><span>›</span><span>{{ current.title }}</span>
+            </div>
+            <div class="page-header">
+              <div class="page-title-row">
+                <h2>{{ current.title }}</h2>
+                <span class="badge sprint-status sprint-status--{{ current.status }} lg">{{
+                  sprintStatusLabel(current.status)
+                }}</span>
+              </div>
+              <div class="page-actions">
+                @if (current.status === 'planning') {
+                  <button class="btn-primary-sm" (click)="activateSprint(current.id)">
+                    ▶ 启动 Sprint
+                  </button>
+                }
+                @if (current.status === 'active') {
+                  <button class="btn-primary-sm" (click)="completeSprint(current.id)">
+                    ✓ 完成 Sprint
+                  </button>
+                }
+                <button class="danger" (click)="deleteSprint(current.id)">删除 Sprint</button>
+              </div>
+            </div>
+            @if (current.goal) {
+              <div class="card md text-pre">
+                <strong>Sprint 目标：</strong>{{ current.goal }}
+              </div>
+            }
+            <div class="section-header">
+              <h3>
+                Sprint 任务 <span class="count">{{ sprintTasks().length }}</span>
+              </h3>
+            </div>
+            @if (sprintTasks().length) {
+              <div class="entity-list">
+                @for (item of sprintTasks(); track item.id) {
+                  <div class="entity-item">
+                    <a [routerLink]="['/task', item.id]" class="entity-item-main">
+                      <span class="type-icon {{ item.type }}">{{
+                        item.type === 'bug' ? 'B' : 'T'
+                      }}</span
+                      ><span class="entity-item-title">{{ item.title }}</span>
+                    </a>
+                    <div class="entity-item-badges">
+                      <span class="badge status status--{{ item.status }}">{{
+                        statusLabel(item.status)
+                      }}</span>
+                      <button
+                        class="ghost-sm danger"
+                        (click)="removeTaskFromSprint(item.id)"
+                        title="移出 Sprint"
+                      >
+                        ←
+                      </button>
+                    </div>
+                  </div>
+                }
+              </div>
+            } @else {
+              <div class="empty-inline">
+                暂无任务。在任务详情中选择「加入 Sprint」将任务分配至此。
+              </div>
+            }
           }
         }
         @default {

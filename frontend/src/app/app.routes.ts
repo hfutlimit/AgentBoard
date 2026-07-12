@@ -11,5 +11,6 @@ export const routes: Routes = [
   { path: 'epic/:id', component: RouteAnchor },
   { path: 'story/:id', component: RouteAnchor },
   { path: 'task/:id', component: RouteAnchor },
+  { path: 'sprint/:id', component: RouteAnchor },
   { path: '**', component: RouteAnchor },
 ];

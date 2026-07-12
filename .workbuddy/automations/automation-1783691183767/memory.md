@@ -1,5 +1,20 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-12（周期执行 · Epic 12 Story 12.2 Sprint 数据模型）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=12d43c7，Epic 9 Story 9.2 + Angular 构建产物）。
+- **需求/任务分析**：Epic 12（id=11）stories 12.2/12.3/12.4 均 in_progress；Story 12.2 三个 task（id=82/83/84）均为 backlog。认领首个 task **12.2.1 Sprint 数据模型、迁移、状态机与"单 active Sprint"约束**。
+- **开发任务**：
+  - `models.py`：新增 `SprintStatus` 枚举（planning/active/completed）+ `Sprint` 模型 + Task 增加 `sprint_id` FK
+  - `service.py`：Sprint CRUD + `activate_sprint()`（单 active 约束）+ `complete_sprint()`（未完成任务退回 backlog）+ Task.create/update/list/search 支持 sprint_id
+  - `api.py`：新增 Sprint schemas/endpoints（CRUD + activate + complete + list_sprint_tasks）+ TaskPatch 增加 sprint_id + `/api/meta` 增加 sprint_statuses
+  - `migrations/versions/7d3e9f0a1c2b_add_sprints.py`：Sprint 表 + task sprint_id 列 + FK（修正列→索引→约束顺序）
+- **部署**：Docker Hub 不可达（已知问题）；用 `docker cp` 注入修改文件到运行中的 `agentboard-api-1`；手动 SQL 直接应用到 MariaDB（容器内 Python），因为 `init_db()` 会运行 alembic 迁移；发现嵌套 `versions/versions` 目录（docker cp 行为）→ 清理后正常。
+- **验证**：Sprint CRUD（create/activate/complete）全部通过；任务入 Sprint + 完成时退回 backlog 验证通过；API `/api/meta` 含 `sprint_statuses`；回归 backend_flow 3/3 + playwright_e2e 6/6 全绿。
+- **踩坑**：docker cp 迁移文件到容器时创建了嵌套 `versions/versions` 目录（docker cp 行为），导致 alembic 无法识别新迁移；修复：删除嵌套目录后重新复制单个文件；`TaskPatch` 缺少 `sprint_id` 字段导致任务分配失败，补充后修复。
+- **推送**：commit `926b8f6`（Sprint）+ `40fc10d`（docs），`git push origin main` 成功（`12d43c7..40fc10d`）。
+- **MCP 任务更新**：Task 82（12.2.1）更新 spec（完成记录）+ 状态 backlog→todo（待 review）；Story 12.2 保持 in_progress。
+- **下一个 pending 项**：Epic 12 Story 12.2 task 12.2.2（Sprint CRUD + 任务入 Sprint + 关闭搬迁未完成任务）/ 12.2.3（Web 视图 + MCP 工具）；或 Story 12.3 附件。
+
 ## 2026-07-12（周期执行 · Epic 9 Story 9.2 完整覆盖）
 - **拉取最新代码**：`git pull origin main` 已是最新（HEAD=6ab305a，Epic 9 Story 9.1 + Story 9.2 错误分支）。
 - **需求/任务分析**：Epic 11 Backlog A/C 全完成；Epic 9 Story 9.2 剩余 pending 项：项目树 CRUD UI、状态流转 UI、spec 编辑。发现测试文件已有 `test_e2e_project_tree_crud` 骨架（未提交），需完成剩余 3 项。
