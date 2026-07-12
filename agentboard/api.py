@@ -52,7 +52,12 @@ async def require_business_auth(request: Request, call_next):
         uid = auth.parse_token(token)
         with SessionLocal() as s:
             if not uid or service.get_user(s, uid) is None:
-                return JSONResponse(status_code=401, content={"detail": "unauthorized"})
+                resp = JSONResponse(status_code=401, content={"detail": "unauthorized"})
+                origin = request.headers.get("origin")
+                if origin:
+                    resp.headers["Access-Control-Allow-Origin"] = origin
+                    resp.headers["Access-Control-Allow-Credentials"] = "true"
+                return resp
     return await call_next(request)
 
 
