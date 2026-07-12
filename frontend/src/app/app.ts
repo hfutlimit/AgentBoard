@@ -6,9 +6,9 @@ import { firstValueFrom, Subscription } from 'rxjs';
 import { filter } from 'rxjs/operators';
 
 import { ApiService } from './api.service';
-import { Comment, Epic, ItemType, Priority, Project, Sprint, SprintStatus, Status, Story, Task } from './models';
+import { Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task } from './models';
 
-type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'not-found';
+type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'admin' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
 
 interface CreateModal {
@@ -51,6 +51,26 @@ export class App implements OnInit, OnDestroy {
   readonly toastType = signal<'success' | 'error'>('success');
   readonly modal = signal<CreateModal | null>(null);
   readonly submitting = signal(false);
+  readonly activeTab = signal<'epics' | 'sprints' | 'backlog' | 'settings' | 'members' | 'stats'>('epics');
+  readonly members = signal<ProjectMember[]>([]);
+  readonly notifications = signal<Notification[]>([]);
+  readonly unreadCount = signal(0);
+  readonly showNotifications = signal(false);
+  readonly projectStats = signal<ProjectStats | null>(null);
+  readonly statsMaxCreated = computed(() => {
+    const stats = this.projectStats();
+    if (!stats) return 1;
+    return Math.max(...(stats.daily_created.map(d => d.count) || [1]), 1);
+  });
+  readonly statsMaxDone = computed(() => {
+    const stats = this.projectStats();
+    if (!stats) return 1;
+    return Math.max(...(stats.daily_done.map(d => d.count) || [1]), 1);
+  });
+  readonly isOwner = signal(false);
+  readonly isAdmin = signal(false);
+  readonly adminUsers = signal<any[]>([]);
+  readonly adminProjects = signal<any[]>([]);
   readonly statuses: Status[] = [
     'backlog',
     'todo',
@@ -85,6 +105,8 @@ export class App implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.applyTheme(localStorage.getItem('agentboard_theme') || 'light');
+    const storedAdmin = localStorage.getItem('agentboard_is_admin');
+    this.isAdmin.set(storedAdmin === 'true');
     this.routeSub = this.router.events
       .pipe(filter((event) => event instanceof NavigationEnd))
       .subscribe(() => this.loadRoute());
@@ -116,6 +138,7 @@ export class App implements OnInit, OnDestroy {
         this.view.set('projects');
       } else if (kind === 'project' && id > 0) {
         this.view.set('project');
+        this.activeTab.set('epics');
         const [project, epics] = await Promise.all([
           firstValueFrom(this.api.getProject(id)),
           firstValueFrom(this.api.listEpics(id)),
@@ -124,6 +147,9 @@ export class App implements OnInit, OnDestroy {
         this.epics.set(epics);
         await this.loadSprints(id);
         await this.loadBacklog(id);
+        await this.loadMembers(id);
+        await this.loadProjectStats(id);
+        await this.checkProjectOwner(id);
       } else if (kind === 'epic' && id > 0) {
         this.view.set('epic');
         const [epic, stories] = await Promise.all([
@@ -173,6 +199,14 @@ export class App implements OnInit, OnDestroy {
         this.sprint.set(sprint);
         this.sprintTasks.set(tasks);
         this.project.set(await firstValueFrom(this.api.getProject(sprint.project_id)));
+      } else if (kind === 'admin') {
+        const me = await this.adminMe();
+        if (!me?.is_admin) {
+          this.router.navigateByUrl('/');
+          return;
+        }
+        this.view.set('admin');
+        await this.loadAdminData();
       } else {
         this.view.set('not-found');
       }
@@ -228,7 +262,9 @@ export class App implements OnInit, OnDestroy {
       );
       localStorage.setItem('agentboard_token', result.token);
       localStorage.setItem('agentboard_user', result.username);
+      localStorage.setItem('agentboard_is_admin', String(result.is_admin ?? false));
       this.currentUser.set(result.username);
+      this.isAdmin.set(result.is_admin ?? false);
       this.authVisible.set(false);
       this.notify(this.authMode() === 'register' ? '注册成功，已登录' : '登录成功');
       await this.loadRoute();
@@ -245,7 +281,10 @@ export class App implements OnInit, OnDestroy {
   logout(): void {
     localStorage.removeItem('agentboard_token');
     localStorage.removeItem('agentboard_user');
+    localStorage.removeItem('agentboard_is_admin');
     this.currentUser.set('');
+    this.isAdmin.set(false);
+    this.isOwner.set(false);
     this.openAuth('login');
     this.notify('已退出登录');
   }
@@ -493,6 +532,172 @@ export class App implements OnInit, OnDestroy {
         { planning: '规划中', active: '进行中', completed: '已完成' } as Record<string, string>
       )[status] || status
     );
+  }
+
+  /* ---------- Members ---------- */
+  async loadMembers(projectId: number): Promise<void> {
+    try {
+      const result = await firstValueFrom(this.api.listMembers(projectId));
+      this.members.set(result.items);
+    } catch {
+      this.members.set([]);
+    }
+  }
+
+  async checkProjectOwner(projectId: number): Promise<void> {
+    const token = localStorage.getItem('agentboard_token');
+    if (!token) { this.isOwner.set(false); this.isAdmin.set(false); return; }
+    try {
+      const me = await firstValueFrom(this.api.me());
+      this.isAdmin.set(me.is_admin ?? false);
+      // 从成员列表判断是否 owner
+      const result = await firstValueFrom(this.api.listMembers(projectId));
+      const myMember = result.items.find((m: ProjectMember) => m.user_id === me.id);
+      this.isOwner.set(myMember?.role === 'owner');
+    } catch {
+      this.isOwner.set(false); this.isAdmin.set(false);
+    }
+  }
+
+  async addMember(projectId: number, username: string, role: string = 'member'): Promise<void> {
+    try {
+      await firstValueFrom(this.api.addMember(projectId, { username, role }));
+      this.notify('成员已添加');
+      await this.loadMembers(projectId);
+    } catch (error) {
+      this.notify(`添加失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  async removeMember(projectId: number, userId: number): Promise<void> {
+    if (!confirm('确认移除该成员？')) return;
+    try {
+      await firstValueFrom(this.api.removeMember(projectId, userId));
+      this.notify('成员已移除');
+      await this.loadMembers(projectId);
+    } catch (error) {
+      this.notify(`移除失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  async updateMemberRole(projectId: number, userId: number, role: string): Promise<void> {
+    try {
+      await firstValueFrom(this.api.updateMemberRole(projectId, userId, role));
+      this.notify('角色已更新');
+      await this.loadMembers(projectId);
+    } catch (error) {
+      this.notify(`更新失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  /* ---------- Notifications ---------- */
+  async loadNotifications(): Promise<void> {
+    try {
+      const [notifs, count] = await Promise.all([
+        firstValueFrom(this.api.listNotifications({ limit: 20 })),
+        firstValueFrom(this.api.getUnreadCount()),
+      ]);
+      this.notifications.set(notifs.items);
+      this.unreadCount.set(count.count);
+    } catch {
+      this.notifications.set([]);
+      this.unreadCount.set(0);
+    }
+  }
+
+  async markRead(notifId: number): Promise<void> {
+    try {
+      await firstValueFrom(this.api.markRead(notifId));
+      await this.loadNotifications();
+    } catch { /* ignore */ }
+  }
+
+  async markAllRead(): Promise<void> {
+    try {
+      await firstValueFrom(this.api.markAllRead());
+      await this.loadNotifications();
+    } catch { /* ignore */ }
+  }
+
+  async deleteNotification(notifId: number): Promise<void> {
+    try {
+      await firstValueFrom(this.api.deleteNotification(notifId));
+      await this.loadNotifications();
+    } catch { /* ignore */ }
+  }
+
+  toggleNotifications(): void {
+    const current = this.showNotifications();
+    this.showNotifications.set(!current);
+    if (!current) { void this.loadNotifications(); }
+  }
+
+  /* ---------- Project Stats ---------- */
+  async loadProjectStats(projectId: number): Promise<void> {
+    try {
+      const stats = await firstValueFrom(this.api.getProjectStats(projectId));
+      this.projectStats.set(stats);
+    } catch {
+      this.projectStats.set(null);
+    }
+  }
+
+  async saveProjectSettings(name: string, key: string, description: string, isPrivate: boolean): Promise<void> {
+    const project = this.project();
+    if (!project) return;
+    try {
+      await firstValueFrom(this.api.updateProject(project.id, { name, key: key || null, description, is_private: isPrivate }));
+      this.notify('项目设置已保存');
+      await this.loadRoute();
+    } catch (error) {
+      this.notify(`保存失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  /* ---------- Admin ---------- */
+  async adminMe(): Promise<{ id: number; username: string; is_admin: boolean } | null> {
+    const token = localStorage.getItem('agentboard_token');
+    if (!token) return null;
+    try {
+      return await firstValueFrom(this.api.me());
+    } catch {
+      return null;
+    }
+  }
+
+  async loadAdminData(): Promise<void> {
+    try {
+      const [usersResult, projectsResult] = await Promise.all([
+        firstValueFrom(this.api.adminListUsers({ limit: 100 })),
+        firstValueFrom(this.api.adminListProjects({ limit: 100 })),
+      ]);
+      this.adminUsers.set(usersResult.items);
+      this.adminProjects.set(projectsResult.items);
+    } catch {
+      this.adminUsers.set([]);
+      this.adminProjects.set([]);
+    }
+  }
+
+  async setAdmin(userId: number, isAdmin: boolean): Promise<void> {
+    try {
+      await firstValueFrom(this.api.adminUpdateUser(userId, isAdmin));
+      this.notify(isAdmin ? '已设为管理员' : '已撤销管理员权限');
+      await this.loadAdminData();
+    } catch (error) {
+      this.notify(`操作失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  async adminDeleteProject(projectId: number): Promise<void> {
+    if (!confirm('确认删除此项目？此操作不可撤销！')) return;
+    try {
+      await firstValueFrom(this.api.adminDeleteProject(projectId));
+      this.notify('项目已删除');
+      await this.loadAdminData();
+    } catch (error) {
+      this.notify(`删除失败：${this.message(error)}`, 'error');
+    }
   }
 
   async generate(): Promise<void> {

@@ -7,6 +7,7 @@ export interface Project {
   name: string;
   key: string | null;
   description: string;
+  is_private: boolean;
   created_at: string;
 }
 
@@ -56,6 +57,7 @@ export interface Comment {
 export interface AuthResult {
   id: number;
   username: string;
+  is_admin: boolean;
   token: string;
 }
 
@@ -71,6 +73,41 @@ export interface Sprint {
   end_date: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ProjectMember {
+  id: number;
+  project_id: number;
+  user_id: number;
+  role: 'owner' | 'member';
+  joined_at: string;
+  username: string | null;
+}
+
+export interface Notification {
+  id: number;
+  user_id: number;
+  type: 'project_invite' | 'join_request' | 'task_assigned' | 'status_changed' | 'mentioned';
+  title: string;
+  content: string;
+  is_read: boolean;
+  link: string | null;
+  created_at: string;
+}
+
+export interface ProjectStats {
+  daily_created: Array<{ day: string; count: number }>;
+  daily_done: Array<{ day: string; count: number }>;
+  active_tasks: number;
+  backlog_tasks: number;
+  total_tasks: number;
+  done_tasks: number;
+  completion_rate: number;
+}
+
+export interface PagedResult<T> {
+  items: T[];
+  total: number;
 }
 
 export interface ApiErrorBody {

@@ -7,6 +7,7 @@ from .models import (
     ItemType, Status, Priority, SprintStatus, ALL_TYPES, ALL_STATUSES,
     ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES,
     Project, Epic, Story, Task, Comment, Sprint, Attachment, AgentSchedule, AgentRun,
+    ProjectMember, Notification, User,
 )
 
 DEFAULT_PAGE_SIZE = 100
@@ -23,7 +24,7 @@ TRANSITIONS = {
 }
 
 EDITABLE = {
-    "name", "key", "description",          # project
+    "name", "key", "description", "is_private",   # project
     "title", "description", "status",      # epic / story / task
     "type", "spec", "priority", "sprint_id",  # task
 }
@@ -106,7 +107,9 @@ def update_project(s: Session, id: int, **fields) -> Project | None:
     if not p:
         return None
     for k, v in fields.items():
-        if k in ("name", "key", "description") and v is not None:
+        if k == "is_private" and v is not None:
+            p.is_private = bool(v)
+        elif k in ("name", "key", "description") and v is not None:
             if k == "name":
                 v = _required(v, "name", 200)
             elif k == "key":
@@ -736,7 +739,9 @@ def register_user(s: Session, *, username: str, password: str) -> models.User:
         raise InvalidValue("password must be at least 8 characters")
     if s.query(models.User).filter_by(username=username).first():
         raise Duplicate(f"username '{username}' already exists")
-    u = models.User(username=username, password_hash=auth.hash_password(password))
+    # 第一个注册用户自动成为管理员
+    is_first = not has_users(s)
+    u = models.User(username=username, password_hash=auth.hash_password(password), is_admin=is_first)
     s.add(u)
     _commit(s, duplicate=f"username '{username}' already exists")
     s.refresh(u)
@@ -755,3 +760,301 @@ def authenticate_user(s: Session, *, username: str, password: str) -> models.Use
 
 def get_user(s: Session, id: int) -> models.User | None:
     return s.get(models.User, id)
+
+
+def get_user_by_username(s: Session, username: str) -> models.User | None:
+    return s.query(models.User).filter(models.User.username == username).first()
+
+
+# ---------- Paged response ----------
+def paginated_result(items: list, total: int) -> dict:
+    return {"items": items, "total": total}
+
+
+# ---------- Project visibility helpers ----------
+def user_is_project_member(s: Session, project_id: int, user_id: int | None) -> bool:
+    if user_id is None:
+        return False
+    return (
+        s.query(ProjectMember)
+        .filter(ProjectMember.project_id == project_id, ProjectMember.user_id == user_id)
+        .first()
+        is not None
+    )
+
+
+def user_is_project_owner(s: Session, project_id: int, user_id: int | None) -> bool:
+    if user_id is None:
+        return False
+    return (
+        s.query(ProjectMember)
+        .filter(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == user_id,
+            ProjectMember.role == "owner",
+        )
+        .first()
+        is not None
+    )
+
+
+# ---------- ProjectMember ----------
+def add_project_member(
+    s: Session, *, project_id: int, user_id: int, role: str = "member",
+) -> ProjectMember:
+    """将用户加入项目（自动分配 owner 为创建者，或由管理员添加）"""
+    if not s.get(Project, project_id):
+        raise NotFound(f"project {project_id} not found")
+    if not s.get(models.User, user_id):
+        raise NotFound(f"user {user_id} not found")
+    existing = (
+        s.query(ProjectMember)
+        .filter(ProjectMember.project_id == project_id, ProjectMember.user_id == user_id)
+        .first()
+    )
+    if existing:
+        raise Duplicate(f"user {user_id} already in project {project_id}")
+    if role not in ("owner", "member"):
+        raise InvalidValue("role must be 'owner' or 'member'")
+    pm = ProjectMember(project_id=project_id, user_id=user_id, role=role)
+    s.add(pm); _commit(s); s.refresh(pm); return pm
+
+
+def list_project_members(s: Session, project_id: int, limit: int | None = None, offset: int = 0) -> tuple[list, int]:
+    q = s.query(ProjectMember).filter(ProjectMember.project_id == project_id)
+    total = q.count()
+    return _paginate(q.order_by(ProjectMember.joined_at.desc()), limit, offset).all(), total
+
+
+def remove_project_member(s: Session, project_id: int, user_id: int) -> bool:
+    pm = (
+        s.query(ProjectMember)
+        .filter(ProjectMember.project_id == project_id, ProjectMember.user_id == user_id)
+        .first()
+    )
+    if not pm:
+        return False
+    if pm.role == "owner":
+        # 检查是否还有其他人是 owner
+        owner_count = (
+            s.query(ProjectMember)
+            .filter(ProjectMember.project_id == project_id, ProjectMember.role == "owner")
+            .count()
+        )
+        if owner_count <= 1:
+            raise InvalidValue("cannot remove the last owner from a project")
+    s.delete(pm); _commit(s); return True
+
+
+def update_project_member_role(s: Session, project_id: int, user_id: int, role: str) -> ProjectMember | None:
+    pm = (
+        s.query(ProjectMember)
+        .filter(ProjectMember.project_id == project_id, ProjectMember.user_id == user_id)
+        .first()
+    )
+    if not pm:
+        return None
+    if role not in ("owner", "member"):
+        raise InvalidValue("role must be 'owner' or 'member'")
+    pm.role = role; _commit(s); s.refresh(pm); return pm
+
+
+def get_project_member(s: Session, project_id: int, user_id: int) -> ProjectMember | None:
+    return (
+        s.query(ProjectMember)
+        .filter(ProjectMember.project_id == project_id, ProjectMember.user_id == user_id)
+        .first()
+    )
+
+
+# ---------- Notification ----------
+def create_notification(
+    s: Session, *, user_id: int, notif_type: str, title: str,
+    content: str = "", link: str | None = None,
+) -> Notification:
+    if not s.get(models.User, user_id):
+        raise NotFound(f"user {user_id} not found")
+    valid_types = {
+        "project_invite", "join_request", "task_assigned", "status_changed", "mentioned",
+    }
+    if notif_type not in valid_types:
+        raise InvalidValue(f"notification type must be one of: {valid_types}")
+    n = Notification(
+        user_id=user_id, type=notif_type, title=title,
+        content=content, link=link,
+    )
+    s.add(n); _commit(s); s.refresh(n); return n
+
+
+def list_notifications(
+    s: Session, user_id: int, limit: int | None = None, offset: int = 0,
+    unread_only: bool = False,
+) -> tuple[list, int]:
+    q = s.query(Notification).filter(Notification.user_id == user_id)
+    if unread_only:
+        q = q.filter(Notification.is_read == False)
+    total = q.count()
+    return _paginate(q.order_by(Notification.created_at.desc()), limit, offset).all(), total
+
+
+def mark_notification_read(s: Session, notif_id: int, user_id: int) -> Notification | None:
+    n = s.get(Notification, notif_id)
+    if not n or n.user_id != user_id:
+        return None
+    n.is_read = True; _commit(s); s.refresh(n); return n
+
+
+def mark_all_notifications_read(s: Session, user_id: int) -> int:
+    count = (
+        s.query(Notification)
+        .filter(Notification.user_id == user_id, Notification.is_read == False)
+        .update({"is_read": True})
+    )
+    _commit(s); return count
+
+
+def delete_notification(s: Session, notif_id: int, user_id: int) -> bool:
+    n = s.get(Notification, notif_id)
+    if not n or n.user_id != user_id:
+        return False
+    s.delete(n); _commit(s); return True
+
+
+# ---------- Project statistics ----------
+def get_project_stats(s: Session, project_id: int) -> dict:
+    """返回项目统计：每日新增/开发/完成任务量（最近 30 天）"""
+    from datetime import timedelta, datetime as dt
+    from sqlalchemy import func
+    now = dt.now()
+    thirty_days_ago = now - timedelta(days=30)
+
+    # 每日新建任务数
+    daily_created = (
+        s.query(
+            func.date(Task.created_at).label("day"),
+            func.count(Task.id).label("count"),
+        )
+        .filter(Task.project_id == project_id, Task.created_at >= thirty_days_ago)
+        .group_by(func.date(Task.created_at))
+        .order_by(func.date(Task.created_at))
+        .all()
+    )
+
+    # 每日完成任务数（status 变为 done）
+    # 由于没有历史记录表，这里近似：统计 updated_at 在范围内且 status=done 的任务（按 updated_at 聚合）
+    # 更精确方案：任务状态流转表（未来扩展），此处用 updated_at
+    daily_done = (
+        s.query(
+            func.date(Task.updated_at).label("day"),
+            func.count(Task.id).label("count"),
+        )
+        .filter(
+            Task.project_id == project_id,
+            Task.status == Status.DONE,
+            Task.updated_at >= thirty_days_ago,
+        )
+        .group_by(func.date(Task.updated_at))
+        .order_by(func.date(Task.updated_at))
+        .all()
+    )
+
+    # 当前 sprint 开发中任务数
+    active_tasks = (
+        s.query(func.count(Task.id))
+        .filter(
+            Task.project_id == project_id,
+            Task.status.in_(["in_progress", "in_review", "verifying"]),
+        )
+        .scalar()
+    ) or 0
+
+    # 当前 backlog 任务数
+    backlog_tasks = (
+        s.query(func.count(Task.id))
+        .filter(Task.project_id == project_id, Task.status == "backlog")
+        .scalar()
+    ) or 0
+
+    # 当前总任务数
+    total_tasks = (
+        s.query(func.count(Task.id))
+        .filter(Task.project_id == project_id)
+        .scalar()
+    ) or 0
+
+    # 当前 done 任务数
+    done_tasks = (
+        s.query(func.count(Task.id))
+        .filter(Task.project_id == project_id, Task.status == "done")
+        .scalar()
+    ) or 0
+
+    return {
+        "daily_created": [{"day": str(r.day), "count": r.count} for r in daily_created],
+        "daily_done": [{"day": str(r.day), "count": r.count} for r in daily_done],
+        "active_tasks": active_tasks,
+        "backlog_tasks": backlog_tasks,
+        "total_tasks": total_tasks,
+        "done_tasks": done_tasks,
+        "completion_rate": round(done_tasks / total_tasks * 100, 1) if total_tasks > 0 else 0,
+    }
+
+
+# ---------- Admin: user management ----------
+def list_users(s: Session, limit: int | None = None, offset: int = 0) -> tuple[list, int]:
+    q = s.query(models.User).order_by(models.User.id.desc())
+    total = q.count()
+    return _paginate(q, limit, offset).all(), total
+
+
+def set_user_admin(s: Session, user_id: int, is_admin: bool) -> models.User | None:
+    u = s.get(models.User, user_id)
+    if not u:
+        return None
+    u.is_admin = is_admin; _commit(s); s.refresh(u); return u
+
+
+def list_all_projects_admin(s: Session, limit: int | None = None, offset: int = 0) -> tuple[list, int]:
+    """管理员视角：所有项目（带成员数统计）"""
+    q = s.query(Project).order_by(Project.id.desc())
+    total = q.count()
+    projects = _paginate(q, limit, offset).all()
+    result = []
+    for p in projects:
+        row = _ser(p)
+        row["member_count"] = (
+            s.query(func.count(ProjectMember.id))
+            .filter(ProjectMember.project_id == p.id)
+            .scalar()
+        ) or 0
+        result.append(row)
+    return result, total
+
+
+# ---------- Visibility-filtered project list ----------
+def list_accessible_projects(
+    s: Session, user_id: int | None, limit: int | None = None, offset: int = 0,
+) -> tuple[list, int]:
+    """返回用户可见的项目列表（public 项目 + 用户所在的 private 项目）"""
+    if user_id is None:
+        # 未登录：只能看 public 项目
+        q = s.query(Project).filter(Project.is_private == False)
+    else:
+        # 查看用户是成员的 private 项目
+        member_project_ids = [
+            r[0]
+            for r in s.query(ProjectMember.project_id)
+            .filter(ProjectMember.user_id == user_id)
+            .all()
+        ]
+        if member_project_ids:
+            q = s.query(Project).filter(
+                or_(
+                    Project.is_private == False,
+                    Project.id.in_(member_project_ids),
+                )
+            )
+        else:
+            q = s.query(Project).filter(Project.is_private == False)
+    total = q.count()
+    return _paginate(q.order_by(Project.id.desc()), limit, offset).all(), total

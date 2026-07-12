@@ -31,13 +31,45 @@
         (input)="search.set($any($event.target).value)"
       />
       <span id="user-info" class="muted">
+        <!-- Notification bell -->
         @if (currentUser()) {
-          <span class="user-chip"
-            ><span class="user-name">{{ currentUser() }}</span
-            ><button id="logout-btn" class="ghost-sm" type="button" (click)="logout()">
-              登出
-            </button></span
-          >
+          <div class="notif-wrap" style="position:relative;display:inline-block;margin-right:8px">
+            <button class="ghost-sm notif-btn" (click)="toggleNotifications()" title="通知">
+              🔔
+              @if (unreadCount() > 0) {
+                <span class="notif-badge">{{ unreadCount() > 9 ? '9+' : unreadCount() }}</span>
+              }
+            </button>
+            @if (showNotifications()) {
+              <div class="notif-panel">
+                <div class="notif-header">
+                  <strong>通知</strong>
+                  @if (unreadCount() > 0) {
+                    <button class="ghost-sm" (click)="markAllRead()">全部已读</button>
+                  }
+                </div>
+                @if (notifications().length) {
+                  @for (n of notifications(); track n.id) {
+                    <div class="notif-item" [class.unread]="!n.is_read" (click)="markRead(n.id)">
+                      <div class="notif-title">{{ n.title }}</div>
+                      @if (n.content) { <div class="notif-content">{{ n.content }}</div> }
+                      <div class="notif-time">{{ n.created_at | date:'MM-dd HH:mm' }}</div>
+                    </div>
+                  }
+                } @else {
+                  <div class="notif-empty">暂无通知</div>
+                }
+              </div>
+            }
+          </div>
+          @if (isAdmin()) {
+            <a routerLink="/admin" class="ghost-sm admin-link" style="margin-right:8px">⚙ 管理</a>
+          }
+          <span class="user-chip">
+            <span class="user-name">{{ currentUser() }}</span>
+            @if (isAdmin()) { <span class="badge priority priority--high" style="font-size:10px">Admin</span> }
+            <button id="logout-btn" class="ghost-sm" type="button" (click)="logout()">登出</button>
+          </span>
         } @else {
           <button id="login-btn" class="ghost-sm" type="button" (click)="openAuth()">登录</button>
         }
@@ -209,137 +241,282 @@
                 @if (current.key) {
                   <span class="badge lg">{{ current.key }}</span>
                 }
+                @if (current.is_private) {
+                  <span class="badge" title="私有项目，仅成员可见">🔒 私有</span>
+                } @else {
+                  <span class="badge" title="公开项目">🌐 公开</span>
+                }
               </div>
             </div>
             @if (current.description) {
               <div class="card md text-pre">{{ current.description }}</div>
             }
-            <div class="section-header">
-              <h3>
-                Epics <span class="count">{{ epics().length }}</span>
-              </h3>
-              <button
-                id="p-new-epic"
-                class="btn-primary-sm"
-                (click)="openCreate('epic', current.id)"
-              >
-                ＋ 新建 Epic
+            <!-- Tab bar -->
+            <div class="tab-bar">
+              <button class="tab-btn" [class.active]="activeTab() === 'epics'" (click)="activeTab.set('epics')">
+                Epics <span class="tab-count">{{ epics().length }}</span>
+              </button>
+              <button class="tab-btn" [class.active]="activeTab() === 'sprints'" (click)="activeTab.set('sprints')">
+                Sprints <span class="tab-count">{{ sprints().length }}</span>
+              </button>
+              <button class="tab-btn" [class.active]="activeTab() === 'backlog'" (click)="activeTab.set('backlog')">
+                Backlog <span class="tab-count">{{ backlogVisibleTasks().length }}</span>
+              </button>
+              <button class="tab-btn" [class.active]="activeTab() === 'members'" (click)="activeTab.set('members')">
+                成员 <span class="tab-count">{{ members().length }}</span>
+              </button>
+              <button class="tab-btn" [class.active]="activeTab() === 'stats'" (click)="activeTab.set('stats')">
+                统计
+              </button>
+              <button class="tab-btn" [class.active]="activeTab() === 'settings'" (click)="activeTab.set('settings')">
+                设置
               </button>
             </div>
-            <div class="entity-list">
-              @for (item of visibleEpics(); track item.id) {
-                <a [routerLink]="['/epic', item.id]" class="entity-item"
-                  ><div class="entity-item-main">
-                    <span class="type-icon epic">E</span
-                    ><span class="entity-item-title">{{ item.title }}</span>
-                  </div>
-                  <span class="badge status status--{{ item.status }}">{{
-                    statusLabel(item.status)
-                  }}</span></a
-                >
-              } @empty {
-                <div class="empty-inline">暂无 Epic</div>
-              }
-            </div>
-            <details class="card form-section">
-              <summary class="summary-edit">✏ 编辑项目</summary>
-              <form
-                (submit)="
-                  saveProject(pName.value, pKey.value, pDesc.value); $event.preventDefault()
-                "
-              >
-                <label>名称<input #pName [value]="current.name" required maxlength="200" /></label
-                ><label>短码<input #pKey [value]="current.key || ''" maxlength="20" /></label
-                ><label
-                  >描述<textarea #pDesc rows="5">{{ current.description }}</textarea>
-                </label>
-                <div class="row">
-                  <button class="btn-primary-sm" type="submit">保存</button
-                  ><button class="danger" type="button" (click)="remove('project', current.id)">
-                    删除项目
+
+            <!-- Tab: Epics -->
+            @if (activeTab() === 'epics') {
+              <div class="tab-content">
+                <div class="section-header">
+                  <h3>Epics</h3>
+                  <button id="p-new-epic" class="btn-primary-sm" (click)="openCreate('epic', current.id)">
+                    ＋ 新建 Epic
                   </button>
                 </div>
-              </form>
-            </details>
-            <div class="section-header">
-              <h3>
-                Sprints <span class="count">{{ sprints().length }}</span>
-              </h3>
-              <div class="page-actions">
-                <details class="card sprint-create-section">
-                  <summary class="btn-primary-sm">＋ 新建 Sprint</summary>
-                  <form (submit)="createSprint($event, spName.value, spGoal.value)">
-                    <label>名称<input #spName required maxlength="200" placeholder="Sprint 1" /></label
-                    ><label>目标<textarea #spGoal rows="2" placeholder="本次 Sprint 的目标…"></textarea></label
-                    ><button class="btn-primary-sm" type="submit">创建 Sprint</button>
-                  </form>
-                </details>
-              </div>
-            </div>
-            @if (sprints().length) {
-              <div class="entity-list">
-                @for (item of sprints(); track item.id) {
-                  <div class="entity-item sprint-item">
-                    <a [routerLink]="['/sprint', item.id]" class="entity-item-main">
-                      <span
-                        class="type-icon sprint-{{ item.status }}"
-                        [title]="sprintStatusLabel(item.status)"
-                      >S</span
-                      ><span class="entity-item-title">{{ item.title }}</span>
-                      @if (item.goal) {
-                        <span class="entity-item-subtitle">{{ item.goal }}</span>
-                      }
+                <div class="entity-list">
+                  @for (item of visibleEpics(); track item.id) {
+                    <a [routerLink]="['/epic', item.id]" class="entity-item">
+                      <div class="entity-item-main">
+                        <span class="type-icon epic">E</span>
+                        <span class="entity-item-title">{{ item.title }}</span>
+                      </div>
+                      <span class="badge status status--{{ item.status }}">{{ statusLabel(item.status) }}</span>
                     </a>
-                    <div class="entity-item-badges">
-                      <span class="badge sprint-status sprint-status--{{ item.status }}">{{
-                        sprintStatusLabel(item.status)
-                      }}</span>
-                      @if (item.status === 'planning') {
-                        <button class="ghost-sm" (click)="activateSprint(item.id)">▶ 启动</button>
-                      }
-                      @if (item.status === 'active') {
-                        <button class="ghost-sm" (click)="completeSprint(item.id)">✓ 完成</button>
-                      }
-                      <button class="ghost-sm danger" (click)="deleteSprint(item.id)">✕</button>
-                    </div>
-                  </div>
-                }
+                  } @empty {
+                    <div class="empty-inline">暂无 Epic，点击「新建 Epic」创建第一个</div>
+                  }
+                </div>
               </div>
-            } @else {
-              <div class="empty-inline">暂无 Sprint</div>
             }
 
-            <!-- Backlog: 未分配 Sprint 的任务 -->
-            <div class="section-header">
-              <h3>
-                Backlog <span class="count">{{ backlogVisibleTasks().length }}</span>
-              </h3>
-            </div>
-            @if (backlogVisibleTasks().length) {
-              <div class="entity-list">
-                @for (task of backlogVisibleTasks(); track task.id) {
-                  <div class="entity-item">
-                    <a [routerLink]="['/task', task.id]" class="entity-item-main">
-                      <span class="type-icon {{ task.type }}">{{
-                        task.type === 'bug' ? '!' : '✓'
-                      }}</span>
-                      <span class="entity-item-title">{{ task.title }}</span>
-                    </a>
-                    <div class="entity-item-badges">
-                      <span class="badge status status--{{ task.status }}">{{
-                        statusLabel(task.status)
-                      }}</span>
-                      @if (task.priority !== 'medium') {
-                        <span class="badge priority priority--{{ task.priority }}">{{
-                          priorityLabel(task.priority)
-                        }}</span>
-                      }
+            <!-- Tab: Sprints -->
+            @if (activeTab() === 'sprints') {
+              <div class="tab-content">
+                <div class="section-header">
+                  <h3>Sprints</h3>
+                  <details class="card sprint-create-section">
+                    <summary class="btn-primary-sm">＋ 新建 Sprint</summary>
+                    <form (submit)="createSprint($event, spName.value, spGoal.value)">
+                      <label>名称<input #spName required maxlength="200" placeholder="Sprint 1" /></label>
+                      <label>目标<textarea #spGoal rows="2" placeholder="本次 Sprint 的目标…"></textarea></label>
+                      <button class="btn-primary-sm" type="submit">创建 Sprint</button>
+                    </form>
+                  </details>
+                </div>
+                @if (sprints().length) {
+                  <div class="entity-list">
+                    @for (item of sprints(); track item.id) {
+                      <div class="entity-item sprint-item">
+                        <a [routerLink]="['/sprint', item.id]" class="entity-item-main">
+                          <span class="type-icon sprint-{{ item.status }}" [title]="sprintStatusLabel(item.status)">S</span>
+                          <span class="entity-item-title">{{ item.title }}</span>
+                          @if (item.goal) { <span class="entity-item-subtitle">{{ item.goal }}</span> }
+                        </a>
+                        <div class="entity-item-badges">
+                          <span class="badge sprint-status sprint-status--{{ item.status }}">{{ sprintStatusLabel(item.status) }}</span>
+                          @if (item.status === 'planning') { <button class="ghost-sm" (click)="activateSprint(item.id)">▶ 启动</button> }
+                          @if (item.status === 'active') { <button class="ghost-sm" (click)="completeSprint(item.id)">✓ 完成</button> }
+                          <button class="ghost-sm danger" (click)="deleteSprint(item.id)">✕</button>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                } @else {
+                  <div class="empty-inline">暂无 Sprint</div>
+                }
+              </div>
+            }
+
+            <!-- Tab: Backlog -->
+            @if (activeTab() === 'backlog') {
+              <div class="tab-content">
+                <div class="section-header">
+                  <h3>Backlog <span class="count">{{ backlogVisibleTasks().length }}</span></h3>
+                </div>
+                @if (backlogVisibleTasks().length) {
+                  <div class="entity-list">
+                    @for (task of backlogVisibleTasks(); track task.id) {
+                      <div class="entity-item">
+                        <a [routerLink]="['/task', task.id]" class="entity-item-main">
+                          <span class="type-icon {{ task.type }}">{{ task.type === 'bug' ? '!' : '✓' }}</span>
+                          <span class="entity-item-title">{{ task.title }}</span>
+                        </a>
+                        <div class="entity-item-badges">
+                          <span class="badge status status--{{ task.status }}">{{ statusLabel(task.status) }}</span>
+                          @if (task.priority !== 'medium') {
+                            <span class="badge priority priority--{{ task.priority }}">{{ priorityLabel(task.priority) }}</span>
+                          }
+                        </div>
+                      </div>
+                    }
+                  </div>
+                } @else {
+                  <div class="empty-inline">Backlog 为空，所有任务已分配 Sprint</div>
+                }
+              </div>
+            }
+
+            <!-- Tab: Members -->
+            @if (activeTab() === 'members') {
+              <div class="tab-content">
+                <div class="section-header">
+                  <h3>项目成员 <span class="count">{{ members().length }}</span></h3>
+                  @if (isOwner() || isAdmin()) {
+                    <details class="card sprint-create-section">
+                      <summary class="btn-primary-sm">＋ 邀请成员</summary>
+                      <form (submit)="addMember(current.id, mbUsername.value, mbRole.value); $event.preventDefault()">
+                        <label>用户名<input #mbUsername required placeholder="输入用户名" /></label>
+                        <label>角色
+                          <select #mbRole>
+                            <option value="member">Member（成员）</option>
+                            <option value="owner">Owner（所有者）</option>
+                          </select>
+                        </label>
+                        <button class="btn-primary-sm" type="submit">邀请</button>
+                      </form>
+                    </details>
+                  }
+                </div>
+                @if (members().length) {
+                  <div class="entity-list">
+                    @for (m of members(); track m.id) {
+                      <div class="entity-item">
+                        <div class="entity-item-main">
+                          <span class="type-icon {{ m.role === 'owner' ? 'epic' : 'story' }}">
+                            {{ m.role === 'owner' ? '★' : '●' }}
+                          </span>
+                          <span class="entity-item-title">{{ m.username || '用户#' + m.user_id }}</span>
+                        </div>
+                        <div class="entity-item-badges">
+                          <span class="badge priority priority--{{ m.role === 'owner' ? 'high' : 'medium' }}">
+                            {{ m.role === 'owner' ? 'Owner' : 'Member' }}
+                          </span>
+                          @if ((isOwner() || isAdmin()) && m.role !== 'owner') {
+                            <button class="ghost-sm danger" (click)="removeMember(current.id, m.user_id)">移除</button>
+                          }
+                          @if ((isOwner() || isAdmin()) && m.role === 'member') {
+                            <button class="ghost-sm" (click)="updateMemberRole(current.id, m.user_id, 'owner')">升为 Owner</button>
+                          }
+                          @if ((isOwner() || isAdmin()) && m.role === 'owner') {
+                            <button class="ghost-sm" (click)="updateMemberRole(current.id, m.user_id, 'member')">降为 Member</button>
+                          }
+                        </div>
+                      </div>
+                    }
+                  </div>
+                } @else {
+                  <div class="empty-inline">暂无成员</div>
+                }
+                @if (!isOwner() && !isAdmin()) {
+                  <div class="info-box">你是此项目的成员。如需管理成员，请联系项目 Owner。</div>
+                }
+              </div>
+            }
+
+            <!-- Tab: Stats -->
+            @if (activeTab() === 'stats') {
+              <div class="tab-content">
+                @if (projectStats(); as stats) {
+                  <div class="stats-grid">
+                    <div class="stat-card">
+                      <div class="stat-value">{{ stats.total_tasks }}</div>
+                      <div class="stat-label">总任务数</div>
                     </div>
+                    <div class="stat-card">
+                      <div class="stat-value">{{ stats.active_tasks }}</div>
+                      <div class="stat-label">开发中</div>
+                    </div>
+                    <div class="stat-card">
+                      <div class="stat-value">{{ stats.backlog_tasks }}</div>
+                      <div class="stat-label">Backlog</div>
+                    </div>
+                    <div class="stat-card">
+                      <div class="stat-value">{{ stats.done_tasks }}</div>
+                      <div class="stat-label">已完成</div>
+                    </div>
+                    <div class="stat-card highlight">
+                      <div class="stat-value">{{ stats.completion_rate }}%</div>
+                      <div class="stat-label">完成率</div>
+                    </div>
+                  </div>
+                  @if (stats.daily_created.length) {
+                    <div class="stats-chart">
+                      <h4>每日新增任务（最近30天）</h4>
+                      <div class="chart-bars">
+                        @for (d of stats.daily_created; track d.day) {
+                          <div class="chart-bar-wrap" [title]="d.day + ': ' + d.count + ' 个'">
+                            <div class="chart-bar" [style.height]="(d.count / statsMaxCreated() * 80) + 'px'"></div>
+                            <div class="chart-label">{{ d.day.slice(5) }}</div>
+                          </div>
+                        }
+                      </div>
+                    </div>
+                  }
+                  @if (stats.daily_done.length) {
+                    <div class="stats-chart">
+                      <h4>每日完成任务（最近30天）</h4>
+                      <div class="chart-bars">
+                        @for (d of stats.daily_done; track d.day) {
+                          <div class="chart-bar-wrap" [title]="d.day + ': ' + d.count + ' 个'">
+                            <div class="chart-bar done" [style.height]="(d.count / statsMaxDone() * 80) + 'px'"></div>
+                            <div class="chart-label">{{ d.day.slice(5) }}</div>
+                          </div>
+                        }
+                      </div>
+                    </div>
+                  }
+                } @else {
+                  <div class="empty-inline">加载统计数据…</div>
+                }
+              </div>
+            }
+
+            <!-- Tab: Settings -->
+            @if (activeTab() === 'settings') {
+              <div class="tab-content">
+                @if (isOwner() || isAdmin()) {
+                  <div class="card form-section">
+                    <h4>项目设置</h4>
+                    <form
+                      (submit)="saveProjectSettings(sName.value, sKey.value, sDesc.value, sPrivate.checked); $event.preventDefault()"
+                    >
+                      <label>名称<input #sName [value]="current.name" required maxlength="200" /></label>
+                      <label>短码<input #sKey [value]="current.key || ''" maxlength="20" placeholder="如 AB" /></label>
+                      <label>描述<textarea #sDesc rows="4">{{ current.description }}</textarea></label>
+                      <label class="checkbox-label">
+                        <input #sPrivate type="checkbox" [checked]="current.is_private" /> 私有项目（仅成员可见）
+                      </label>
+                      <div class="row">
+                        <button class="btn-primary-sm" type="submit">保存设置</button>
+                      </div>
+                    </form>
+                  </div>
+                  <div class="card danger-zone">
+                    <h4>危险操作</h4>
+                    <button class="danger" (click)="remove('project', current.id)">删除项目（不可恢复）</button>
+                  </div>
+                } @else {
+                  <div class="info-box">只有项目 Owner 或管理员可以修改项目设置。</div>
+                  <div class="card">
+                    <h4>当前设置</h4>
+                    <dl class="setting-list">
+                      <dt>项目名称</dt><dd>{{ current.name }}</dd>
+                      <dt>短码</dt><dd>{{ current.key || '—' }}</dd>
+                      <dt>可见性</dt><dd>{{ current.is_private ? '🔒 私有' : '🌐 公开' }}</dd>
+                      <dt>创建时间</dt><dd>{{ current.created_at | date }}</dd>
+                    </dl>
                   </div>
                 }
               </div>
-            } @else {
-              <div class="empty-inline">Backlog 为空，所有任务已分配 Sprint</div>
             }
           }
         }
@@ -746,6 +923,77 @@
               </div>
             }
           }
+        }
+        @case ('admin') {
+          <div class="crumb-bar"><a routerLink="/">首页</a><span>›</span><span>管理员后台</span></div>
+          <div class="page-header">
+            <div class="page-title-row">
+              <h2>⚙ 管理员后台</h2>
+            </div>
+          </div>
+          <!-- Admin: Users section -->
+          <div class="admin-section">
+            <h3>用户管理</h3>
+            <p class="muted">设置用户为管理员或普通用户。</p>
+            @if (adminUsers().length) {
+              <table class="data-table">
+                <thead><tr><th>ID</th><th>用户名</th><th>角色</th><th>注册时间</th><th>操作</th></tr></thead>
+                <tbody>
+                  @for (u of adminUsers(); track u.id) {
+                    <tr>
+                      <td>{{ u.id }}</td>
+                      <td>{{ u.username }}</td>
+                      <td>
+                        @if (u.is_admin) {
+                          <span class="badge priority priority--high">管理员</span>
+                        } @else {
+                          <span class="badge">普通用户</span>
+                        }
+                      </td>
+                      <td>{{ u.created_at | date:'yyyy-MM-dd' }}</td>
+                      <td>
+                        @if (!u.is_admin) {
+                          <button class="ghost-sm" (click)="setAdmin(u.id, true)">设为管理员</button>
+                        } @else {
+                          <button class="ghost-sm danger" (click)="setAdmin(u.id, false)">撤销管理员</button>
+                        }
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            } @else {
+              <div class="empty-inline">加载中…</div>
+            }
+          </div>
+          <!-- Admin: Projects section -->
+          <div class="admin-section">
+            <h3>项目管理</h3>
+            <p class="muted">查看所有项目，可执行删除操作。</p>
+            @if (adminProjects().length) {
+              <table class="data-table">
+                <thead><tr><th>ID</th><th>名称</th><th>短码</th><th>私有</th><th>成员数</th><th>创建时间</th><th>操作</th></tr></thead>
+                <tbody>
+                  @for (p of adminProjects(); track p.id) {
+                    <tr>
+                      <td>{{ p.id }}</td>
+                      <td><a [routerLink]="['/project', p.id]">{{ p.name }}</a></td>
+                      <td>{{ p.key || '—' }}</td>
+                      <td>{{ p.is_private ? '🔒' : '🌐' }}</td>
+                      <td>{{ p.member_count || 0 }}</td>
+                      <td>{{ p.created_at | date:'yyyy-MM-dd' }}</td>
+                      <td>
+                        <a [routerLink]="['/project', p.id]" class="ghost-sm">查看</a>
+                        <button class="ghost-sm danger" (click)="adminDeleteProject(p.id)">删除</button>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            } @else {
+              <div class="empty-inline">加载中…</div>
+            }
+          </div>
         }
         @default {
           <div class="card empty-state">

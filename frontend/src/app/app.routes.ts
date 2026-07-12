@@ -12,5 +12,6 @@ export const routes: Routes = [
   { path: 'story/:id', component: RouteAnchor },
   { path: 'task/:id', component: RouteAnchor },
   { path: 'sprint/:id', component: RouteAnchor },
+  { path: 'admin', component: RouteAnchor },
   { path: '**', component: RouteAnchor },
 ];

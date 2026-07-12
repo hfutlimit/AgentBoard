@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
-import { ApiErrorBody, AuthResult, Comment, Epic, Project, Sprint, Story, Task } from './models';
+import { ApiErrorBody, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task } from './models';
 
 declare global {
   interface Window {
@@ -136,6 +136,10 @@ export class ApiService {
     return this.request<AuthResult>('POST', '/api/auth/login', { username, password });
   }
 
+  me() {
+    return this.request<{ id: number; username: string; is_admin: boolean }>('GET', '/api/auth/me');
+  }
+
   /* ---------- Sprint ---------- */
   listSprints(projectId: number) {
     return this.request<Sprint[]>('GET', `/api/projects/${projectId}/sprints`);
@@ -160,5 +164,55 @@ export class ApiService {
   }
   listSprintTasks(sprintId: number) {
     return this.request<Task[]>('GET', `/api/sprints/${sprintId}/tasks`);
+  }
+
+  /* ---------- Project Members ---------- */
+  listMembers(projectId: number) {
+    return this.request<PagedResult<ProjectMember>>('GET', `/api/projects/${projectId}/members`);
+  }
+  addMember(projectId: number, body: { user_id?: number; username?: string; role?: string }) {
+    return this.request<ProjectMember>('POST', `/api/projects/${projectId}/members`, body);
+  }
+  removeMember(projectId: number, userId: number) {
+    return this.request<{ ok: boolean }>('DELETE', `/api/projects/${projectId}/members/${userId}`);
+  }
+  updateMemberRole(projectId: number, userId: number, role: string) {
+    return this.request<ProjectMember>('PATCH', `/api/projects/${projectId}/members/${userId}`, { role });
+  }
+
+  /* ---------- Notifications ---------- */
+  listNotifications(params?: { limit?: number; offset?: number; unread_only?: boolean }) {
+    return this.request<PagedResult<Notification>>('GET', '/api/notifications', undefined, params as Record<string, string | number | undefined>);
+  }
+  getUnreadCount() {
+    return this.request<{ count: number }>('GET', '/api/notifications/unread-count');
+  }
+  markRead(notifId: number) {
+    return this.request<Notification>('POST', `/api/notifications/${notifId}/read`);
+  }
+  markAllRead() {
+    return this.request<{ ok: boolean; count: number }>('POST', '/api/notifications/read-all');
+  }
+  deleteNotification(notifId: number) {
+    return this.request<{ ok: boolean }>('DELETE', `/api/notifications/${notifId}`);
+  }
+
+  /* ---------- Project Stats ---------- */
+  getProjectStats(projectId: number) {
+    return this.request<ProjectStats>('GET', `/api/projects/${projectId}/stats`);
+  }
+
+  /* ---------- Admin ---------- */
+  adminListUsers(params?: { limit?: number; offset?: number }) {
+    return this.request<PagedResult<any>>('GET', '/api/admin/users', undefined, params as Record<string, string | number | undefined>);
+  }
+  adminUpdateUser(userId: number, isAdmin: boolean) {
+    return this.request<any>('PATCH', `/api/admin/users/${userId}`, { is_admin: isAdmin });
+  }
+  adminListProjects(params?: { limit?: number; offset?: number }) {
+    return this.request<PagedResult<any>>('GET', '/api/admin/projects', undefined, params as Record<string, string | number | undefined>);
+  }
+  adminDeleteProject(projectId: number) {
+    return this.request<{ ok: boolean }>('DELETE', `/api/admin/projects/${projectId}`);
   }
 }

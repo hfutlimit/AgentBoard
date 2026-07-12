@@ -68,6 +68,7 @@ class Project(Base):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     key: Mapped[str | None] = mapped_column(String(20), unique=True)
     description: Mapped[str] = mapped_column(Text, default="")
+    is_private: Mapped[bool] = mapped_column(default=False)   # True=仅成员可见
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
@@ -108,6 +109,39 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    is_admin: Mapped[bool] = mapped_column(default=False)       # 全局管理员
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class ProjectMember(Base):
+    """项目成员关联表"""
+    __tablename__ = "project_members"
+    __table_args__ = (
+        CheckConstraint("role IN ('owner','member')", name="ck_members_role"),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(20), default="member")   # owner / member
+    joined_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class Notification(Base):
+    """用户通知"""
+    __tablename__ = "notifications"
+    __table_args__ = (
+        CheckConstraint(
+            "type IN ('project_invite','join_request','task_assigned','status_changed','mentioned')",
+            name="ck_notifications_type",
+        ),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    type: Mapped[str] = mapped_column(String(30), nullable=False)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    content: Mapped[str] = mapped_column(Text, default="")
+    is_read: Mapped[bool] = mapped_column(default=False)
+    link: Mapped[str | None] = mapped_column(String(500), nullable=True)   # 跳转链接
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
