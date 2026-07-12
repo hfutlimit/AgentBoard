@@ -7,7 +7,8 @@
 覆盖范围（按 Epic 9 切片推进）：
 - Story 9.1 测试骨架：启动真实 API + Web（临时 SQLite）的 fixture、Chromium page fixture、
   `ui_register` / `ui_login` UI 辅助，以及注册 / 登录流冒烟用例。
-- Story 9.2 真实交互用例（项目树 CRUD / 状态流转 / spec 编辑 / 错误分支）：后续切片。
+- Story 9.2 真实交互用例：项目树 CRUD UI（Project→Epic→Story→Task/Bug，本文件已覆盖）、
+  错误分支（UI 报错，已覆盖）；状态流转 UI / spec 编辑（后续切片）。
 
 运行：
     PYTHONPATH=. python -m pytest tests/test_playwright_e2e.py -q
@@ -175,6 +176,31 @@ def _wait_toast(page, text: str, timeout: float = 8000.0):
     )
 
 
+# ---------------- 项目树 CRUD 辅助 ----------------
+def _open_create(page, trigger_selector: str):
+    """点击触发按钮（新建项目 / 新建 Epic / 新建 Story / 新建 Task），等待 #create-modal 可见。"""
+    page.click(trigger_selector)
+    page.wait_for_selector("#create-modal", state="visible", timeout=10000)
+
+
+def _submit_create(page, name: str, type_: str | None = None):
+    """在已打开的 #create-modal 中填写标题（可选设置 task 类型 task/bug）并提交，等待弹窗关闭。"""
+    page.fill("#create-title", name)
+    if type_ is not None:
+        page.select_option("#create-type", type_)
+    page.click('#create-form [type="submit"]')
+    page.wait_for_selector("#create-modal", state="detached", timeout=10000)
+
+
+def _wait_text(page, selector: str, text: str, timeout: float = 10000.0):
+    """等待某容器内文本出现（内联 JSON，规避 wait_for_function 的 arg 兼容问题）。"""
+    page.wait_for_function(
+        "!!document.querySelector(" + json.dumps(selector) + ") && "
+        "document.querySelector(" + json.dumps(selector) + ").innerText.includes(" + json.dumps(text) + ")",
+        timeout=timeout,
+    )
+
+
 # ---------------- 用例 ----------------
 def test_e2e_register_flow(page, servers):
     """真实浏览器：注册 UI 流 -> 进入应用 + localStorage 写入 token。"""
@@ -232,3 +258,50 @@ def test_e2e_auth_error_branch(page, servers):
     _wait_toast(page, "注册失败")
     assert page.query_selector("#logout-btn") is None, "重复注册不应进入应用"
     assert page.query_selector("#auth-form") is not None, "重复注册应停留在注册界面"
+
+
+def test_e2e_project_tree_crud(page, servers):
+    """真实浏览器：走 UI 创建 Project→Epic→Story→Task/Bug 全链路，验证侧栏树与各级列表出现对应节点。
+
+    对应 Story 9.2「项目树 CRUD UI」。覆盖真实浏览器下统一创建弹窗（showCreateModal）在各页面
+    （仪表盘 / 项目页 / 史诗页 / 故事页）的正确性，以及创建后侧栏树（#sidebar-tree）与各级列表
+    （#app）的真实 DOM 渲染。仅测试文件改动，未改 models.py/api.py 契约。
+    """
+    api_base, web_base = servers
+    ts = str(int(time.time()))
+    ui_register(page, web_base, "e2ecrud" + ts, "secret123")
+    page.wait_for_selector("#logout-btn", state="visible", timeout=10000)
+
+    # 1) Project —— 仪表盘「＋ 新建项目」-> 侧栏树出现项目
+    proj = "E2E项目" + ts
+    _open_create(page, "#home-new-project")
+    _submit_create(page, proj)
+    _wait_text(page, "#sidebar-tree", proj)
+    page.locator("#sidebar-tree a.sidebar-link", has_text=proj).first.click()
+
+    # 2) Epic —— 项目页「＋ 新建 Epic」-> 项目页史诗列表出现
+    page.wait_for_selector("#p-new-epic", state="visible", timeout=10000)
+    epic = "E2E史诗" + ts
+    _open_create(page, "#p-new-epic")
+    _submit_create(page, epic)
+    _wait_text(page, "#app", epic)
+    page.locator("a.entity-item", has_text=epic).first.click()
+
+    # 3) Story —— 史诗页「＋ 新建 Story」-> 史诗页故事列表出现
+    page.wait_for_selector("#e-new-story", state="visible", timeout=10000)
+    story = "E2E故事" + ts
+    _open_create(page, "#e-new-story")
+    _submit_create(page, story)
+    _wait_text(page, "#app", story)
+    page.locator("a.entity-item", has_text=story).first.click()
+
+    # 4) Task + Bug —— 故事页「＋ 新建」分别建 Task 与 Bug -> 故事页任务区出现两者标题
+    page.wait_for_selector("#s-new-task", state="visible", timeout=10000)
+    task = "E2E任务" + ts
+    _open_create(page, "#s-new-task")
+    _submit_create(page, task, type_="task")
+    bug = "E2E缺陷" + ts
+    _open_create(page, "#s-new-task")
+    _submit_create(page, bug, type_="bug")
+    _wait_text(page, "#app", task)
+    _wait_text(page, "#app", bug)
