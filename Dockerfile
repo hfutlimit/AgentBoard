@@ -1,5 +1,12 @@
-# AgentBoard — 多阶段/单镜像部署
-# API(8000) 与 Web(8080) 复用同一镜像，仅在 docker-compose 中通过 command 区分。
+# AgentBoard — Angular 构建 + Python 运行时
+FROM node:22.22-alpine AS frontend-build
+
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
 FROM python:3.13-slim
 
 # 非交互、无缓冲、不写 .pyc，便于容器日志与层缓存
@@ -15,6 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # 再拷源码
 COPY . .
+COPY --from=frontend-build /frontend/dist/frontend/browser /app/frontend/dist/frontend/browser
 
 # SQLite 持久化目录（compose 中以命名卷挂载到这里）
 RUN mkdir -p /app/data

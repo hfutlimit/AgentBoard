@@ -116,7 +116,9 @@ def test_web_serving():
         assert r.status_code == 200
         assert "AgentBoard" in r.text
         assert "__API_URL__" not in r.text  # 已注入
-        assert c.get("/static/app.js").status_code == 200
+        assert "app-root" in r.text
+        assert c.get("/static/style.css").status_code == 200
+        assert c.get("/project/123").status_code == 200  # Angular history 路由回退
 
 
 def test_generate_from_spec():

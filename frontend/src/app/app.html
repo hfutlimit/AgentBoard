@@ -1,0 +1,712 @@
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="topbar-left">
+      <button
+        id="sidebar-toggle"
+        class="icon-btn"
+        title="切换侧栏"
+        (click)="sidebarOpen.set(!sidebarOpen())"
+      >
+        ☰
+      </button>
+      <a routerLink="/" class="logo" title="AgentBoard 首页" aria-label="AgentBoard">
+        <span class="logo-mark" aria-hidden="true">AB</span
+        ><span class="logo-text">Agent<b>Board</b></span>
+      </a>
+    </div>
+    <nav class="topbar-nav">
+      <a routerLink="/" [class.active]="view() === 'home'">仪表盘</a>
+      <a routerLink="/projects" [class.active]="view() === 'projects'">项目</a>
+    </nav>
+    <div class="topbar-right">
+      <button id="theme-toggle" class="icon-btn" title="切换深色 / 浅色" (click)="toggleTheme()">
+        ◐
+      </button>
+      <input
+        id="global-search"
+        class="global-search"
+        type="search"
+        placeholder="搜索标题…"
+        [value]="search()"
+        (input)="search.set($any($event.target).value)"
+      />
+      <span id="user-info" class="muted">
+        @if (currentUser()) {
+          <span class="user-chip"
+            ><span class="user-name">{{ currentUser() }}</span
+            ><button id="logout-btn" class="ghost-sm" type="button" (click)="logout()">
+              登出
+            </button></span
+          >
+        } @else {
+          <button id="login-btn" class="ghost-sm" type="button" (click)="openAuth()">登录</button>
+        }
+      </span>
+    </div>
+  </div>
+</header>
+
+<div class="layout">
+  @if (sidebarOpen()) {
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-header">
+        <h3>项目</h3>
+        <button
+          id="sidebar-new-project"
+          class="ghost-sm"
+          title="新建项目"
+          (click)="openCreate('project')"
+        >
+          ＋
+        </button>
+      </div>
+      <div id="sidebar-tree" class="sidebar-tree">
+        @for (item of visibleProjects(); track item.id) {
+          <div class="sidebar-item">
+            <a [routerLink]="['/project', item.id]" class="sidebar-link">
+              <span class="sidebar-icon">◆</span><span class="sidebar-label">{{ item.name }}</span>
+              @if (item.key) {
+                <span class="sidebar-key">{{ item.key }}</span>
+              }
+            </a>
+          </div>
+        } @empty {
+          <div class="sidebar-empty">暂无项目<br /><small>点击 ＋ 创建</small></div>
+        }
+      </div>
+    </aside>
+  }
+
+  <main id="app">
+    @if (loading()) {
+      <div class="skeleton">
+        <div class="sk-header"><div class="sk-line sk-h"></div></div>
+        <div class="sk-grid">
+          <div class="sk-card"></div>
+          <div class="sk-card"></div>
+          <div class="sk-card"></div>
+        </div>
+      </div>
+    } @else if (error()) {
+      <div class="card error-state">
+        <h2>加载失败</h2>
+        <p>{{ error() }}</p>
+        <p class="muted">API：{{ api.baseUrl }}</p>
+        <button class="btn-primary-sm" (click)="refresh()">重试</button>
+      </div>
+    } @else {
+      @switch (view()) {
+        @case ('home') {
+          <div class="dashboard">
+            <section class="hero">
+              <div>
+                <span class="hero-kicker">ANGULAR WORKSPACE</span>
+                <h1>项目协作一目了然</h1>
+                <p>{{ projects().length }} 个项目空间 · {{ tasks().length }} 项任务持续推进</p>
+              </div>
+              <span class="hero-pill"><span></span> 实时进度已同步</span>
+            </section>
+            <div class="stats-row">
+              <div class="stat-card stat-brand">
+                <div class="stat-content">
+                  <div class="stat-number">{{ projects().length }}</div>
+                  <div class="stat-label">项目</div>
+                  <div class="stat-trend">协作空间总数</div>
+                </div>
+              </div>
+              <div class="stat-card stat-violet">
+                <div class="stat-content">
+                  <div class="stat-number">{{ epics().length }}</div>
+                  <div class="stat-label">Epic</div>
+                  <div class="stat-trend">目标持续拆解</div>
+                </div>
+              </div>
+              <div class="stat-card stat-warning">
+                <div class="stat-content">
+                  <div class="stat-number">{{ stories().length }}</div>
+                  <div class="stat-label">Story</div>
+                  <div class="stat-trend">需求条目总数</div>
+                </div>
+              </div>
+              <div class="stat-card stat-success">
+                <div class="stat-content">
+                  <div class="stat-number">{{ tasks().length }}</div>
+                  <div class="stat-label">任务</div>
+                  <div class="stat-trend">{{ doneTasks() }} 项已完成</div>
+                </div>
+              </div>
+            </div>
+            <div class="section-header">
+              <h2>项目空间</h2>
+              <button id="home-new-project" class="btn-primary-sm" (click)="openCreate('project')">
+                ＋ 新建项目
+              </button>
+            </div>
+            <div class="project-grid">
+              @for (item of visibleProjects(); track item.id) {
+                <a [routerLink]="['/project', item.id]" class="project-card"
+                  ><div class="project-card-header">
+                    <span class="project-card-name">{{ item.name }}</span>
+                    @if (item.key) {
+                      <span class="project-key">{{ item.key }}</span>
+                    }
+                  </div>
+                  <div class="project-card-desc">{{ item.description || '暂无描述' }}</div>
+                  <div class="project-card-stats"><span>打开项目</span><span>→</span></div></a
+                >
+              } @empty {
+                <div class="empty-state empty-compact">
+                  <h3>还没有项目</h3>
+                  <p class="muted">创建第一个项目，让人类与 Agent 在同一处协作。</p>
+                </div>
+              }
+            </div>
+          </div>
+        }
+        @case ('projects') {
+          <div class="page-header">
+            <div>
+              <span class="eyebrow">WORKSPACES</span>
+              <h2>所有项目</h2>
+            </div>
+            <button id="proj-new-btn" class="btn-primary" (click)="openCreate('project')">
+              ＋ 新建项目
+            </button>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>项目</th>
+                  <th>短码</th>
+                  <th>描述</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (item of visibleProjects(); track item.id) {
+                  <tr>
+                    <td>
+                      <a [routerLink]="['/project', item.id]" class="link-bold">{{ item.name }}</a>
+                    </td>
+                    <td>{{ item.key || '—' }}</td>
+                    <td class="cell-truncate">{{ item.description || '—' }}</td>
+                    <td><a [routerLink]="['/project', item.id]" class="link">打开</a></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+        @case ('project') {
+          @if (project(); as current) {
+            <div class="crumb-bar">
+              <a routerLink="/projects">项目</a><span>›</span><span>{{ current.name }}</span>
+            </div>
+            <div class="page-header">
+              <div class="page-title-row">
+                <h2>{{ current.name }}</h2>
+                @if (current.key) {
+                  <span class="badge lg">{{ current.key }}</span>
+                }
+              </div>
+            </div>
+            @if (current.description) {
+              <div class="card md text-pre">{{ current.description }}</div>
+            }
+            <div class="section-header">
+              <h3>
+                Epics <span class="count">{{ epics().length }}</span>
+              </h3>
+              <button
+                id="p-new-epic"
+                class="btn-primary-sm"
+                (click)="openCreate('epic', current.id)"
+              >
+                ＋ 新建 Epic
+              </button>
+            </div>
+            <div class="entity-list">
+              @for (item of visibleEpics(); track item.id) {
+                <a [routerLink]="['/epic', item.id]" class="entity-item"
+                  ><div class="entity-item-main">
+                    <span class="type-icon epic">E</span
+                    ><span class="entity-item-title">{{ item.title }}</span>
+                  </div>
+                  <span class="badge status status--{{ item.status }}">{{
+                    statusLabel(item.status)
+                  }}</span></a
+                >
+              } @empty {
+                <div class="empty-inline">暂无 Epic</div>
+              }
+            </div>
+            <details class="card form-section">
+              <summary class="summary-edit">✏ 编辑项目</summary>
+              <form
+                (submit)="
+                  saveProject(pName.value, pKey.value, pDesc.value); $event.preventDefault()
+                "
+              >
+                <label>名称<input #pName [value]="current.name" required maxlength="200" /></label
+                ><label>短码<input #pKey [value]="current.key || ''" maxlength="20" /></label
+                ><label
+                  >描述<textarea #pDesc rows="5">{{ current.description }}</textarea>
+                </label>
+                <div class="row">
+                  <button class="btn-primary-sm" type="submit">保存</button
+                  ><button class="danger" type="button" (click)="remove('project', current.id)">
+                    删除项目
+                  </button>
+                </div>
+              </form>
+            </details>
+          }
+        }
+        @case ('epic') {
+          @if (epic(); as current) {
+            <div class="crumb-bar">
+              <a [routerLink]="['/project', project()?.id]">{{ project()?.name }}</a
+              ><span>›</span><span>{{ current.title }}</span>
+            </div>
+            <div class="page-header">
+              <div class="page-title-row">
+                <h2>{{ current.title }}</h2>
+                <span class="badge status status--{{ current.status }}">{{
+                  statusLabel(current.status)
+                }}</span>
+              </div>
+            </div>
+            @if (current.description) {
+              <div class="card md text-pre">{{ current.description }}</div>
+            }
+            <div class="section-header">
+              <h3>
+                Stories <span class="count">{{ stories().length }}</span>
+              </h3>
+              <button
+                id="e-new-story"
+                class="btn-primary-sm"
+                (click)="openCreate('story', current.id)"
+              >
+                ＋ 新建 Story
+              </button>
+            </div>
+            <div class="entity-list">
+              @for (item of visibleStories(); track item.id) {
+                <a [routerLink]="['/story', item.id]" class="entity-item"
+                  ><div class="entity-item-main">
+                    <span class="type-icon story">S</span
+                    ><span class="entity-item-title">{{ item.title }}</span>
+                  </div>
+                  <span class="badge status status--{{ item.status }}">{{
+                    statusLabel(item.status)
+                  }}</span></a
+                >
+              } @empty {
+                <div class="empty-inline">暂无 Story</div>
+              }
+            </div>
+            <details class="card form-section">
+              <summary class="summary-edit">✏ 编辑 Epic</summary>
+              <form
+                (submit)="
+                  saveEpic(eTitle.value, eDesc.value, $any(eStatus.value)); $event.preventDefault()
+                "
+              >
+                <label>标题<input #eTitle [value]="current.title" required /></label
+                ><label
+                  >状态<select #eStatus [value]="current.status">
+                    @for (status of statuses; track status) {
+                      <option [value]="status">{{ statusLabel(status) }}</option>
+                    }
+                  </select></label
+                ><label
+                  >描述<textarea #eDesc rows="5">{{ current.description }}</textarea>
+                </label>
+                <div class="row">
+                  <button class="btn-primary-sm" type="submit">保存</button
+                  ><button class="danger" type="button" (click)="remove('epic', current.id)">
+                    删除 Epic
+                  </button>
+                </div>
+              </form>
+            </details>
+          }
+        }
+        @case ('story') {
+          @if (story(); as current) {
+            <div class="crumb-bar">
+              <a [routerLink]="['/project', project()?.id]">{{ project()?.name }}</a
+              ><span>›</span><a [routerLink]="['/epic', epic()?.id]">{{ epic()?.title }}</a
+              ><span>›</span><span>{{ current.title }}</span>
+            </div>
+            <div class="page-header">
+              <div class="page-title-row">
+                <h2>{{ current.title }}</h2>
+                <span class="badge status status--{{ current.status }}">{{
+                  statusLabel(current.status)
+                }}</span>
+              </div>
+            </div>
+            @if (current.description) {
+              <div class="card md text-pre">{{ current.description }}</div>
+            }
+            <div class="section-header">
+              <h3>
+                Tasks / Bugs <span class="count">{{ tasks().length }}</span>
+              </h3>
+              <div class="page-actions">
+                <div class="seg">
+                  <button
+                    class="seg-btn"
+                    [class.active]="!boardMode()"
+                    (click)="setBoardMode(false)"
+                  >
+                    列表</button
+                  ><button
+                    class="seg-btn"
+                    [class.active]="boardMode()"
+                    (click)="setBoardMode(true)"
+                  >
+                    看板
+                  </button>
+                </div>
+                <button
+                  id="s-new-task"
+                  class="btn-primary-sm"
+                  (click)="openCreate('task', current.id, project()?.id)"
+                >
+                  ＋ 新建
+                </button>
+              </div>
+            </div>
+            @if (!boardMode()) {
+              <div class="entity-list">
+                @for (item of visibleTasks(); track item.id) {
+                  <a [routerLink]="['/task', item.id]" class="entity-item"
+                    ><div class="entity-item-main">
+                      <span class="type-icon {{ item.type }}">{{
+                        item.type === 'bug' ? 'B' : 'T'
+                      }}</span
+                      ><span class="entity-item-title">{{ item.title }}</span>
+                    </div>
+                    <div class="entity-item-badges">
+                      <span class="badge priority priority--{{ item.priority }}">{{
+                        priorityLabel(item.priority)
+                      }}</span
+                      ><span class="badge status status--{{ item.status }}">{{
+                        statusLabel(item.status)
+                      }}</span>
+                    </div></a
+                  >
+                } @empty {
+                  <div class="empty-inline">暂无任务</div>
+                }
+              </div>
+            } @else {
+              <div class="kanban">
+                @for (status of statuses; track status) {
+                  <div class="kanban-col">
+                    <div class="kanban-col-head">
+                      <span>{{ statusLabel(status) }}</span
+                      ><span class="kanban-count">{{ tasksForStatus(status).length }}</span>
+                    </div>
+                    @for (item of tasksForStatus(status); track item.id) {
+                      <a [routerLink]="['/task', item.id]" class="kanban-card"
+                        ><strong>{{ item.title }}</strong
+                        ><span>{{ priorityLabel(item.priority) }}</span></a
+                      >
+                    }
+                  </div>
+                }
+              </div>
+            }
+            <details class="card form-section">
+              <summary class="summary-edit">✏ 编辑 Story</summary>
+              <form
+                (submit)="
+                  saveStory(sTitle.value, sDesc.value, $any(sStatus.value)); $event.preventDefault()
+                "
+              >
+                <label>标题<input #sTitle [value]="current.title" required /></label
+                ><label
+                  >状态<select #sStatus [value]="current.status">
+                    @for (status of statuses; track status) {
+                      <option [value]="status">{{ statusLabel(status) }}</option>
+                    }
+                  </select></label
+                ><label
+                  >描述<textarea #sDesc rows="5">{{ current.description }}</textarea>
+                </label>
+                <div class="row">
+                  <button class="btn-primary-sm" type="submit">保存</button
+                  ><button class="danger" type="button" (click)="remove('story', current.id)">
+                    删除 Story
+                  </button>
+                </div>
+              </form>
+            </details>
+          }
+        }
+        @case ('task') {
+          @if (task(); as current) {
+            <div class="crumb-bar">
+              <a [routerLink]="['/project', project()?.id]">{{ project()?.name }}</a
+              ><span>›</span><a [routerLink]="['/story', story()?.id]">{{ story()?.title }}</a
+              ><span>›</span><span>{{ current.title }}</span>
+            </div>
+            <div class="page-header">
+              <div class="page-title-row">
+                <h2 id="task-title">{{ current.title }}</h2>
+                <span class="badge {{ current.type }}">{{
+                  current.type === 'bug' ? 'Bug' : 'Task'
+                }}</span
+                ><span id="stbadge" class="badge status status--{{ current.status }}">{{
+                  statusLabel(current.status)
+                }}</span>
+              </div>
+              <select
+                [value]="current.status"
+                (change)="changeTaskStatus($any($event.target).value)"
+              >
+                @for (status of statuses; track status) {
+                  <option [value]="status">{{ statusLabel(status) }}</option>
+                }
+              </select>
+            </div>
+            <div class="two-col">
+              <div class="card">
+                <h3>Description</h3>
+                <div class="md text-pre">{{ current.description || '（空）' }}</div>
+              </div>
+              <div class="card">
+                <h3>Spec（OpenSpec）</h3>
+                <div class="md text-pre">{{ current.spec || '（空）' }}</div>
+              </div>
+            </div>
+            <div class="card form-section">
+              <h3>编辑任务</h3>
+              <form
+                (submit)="
+                  saveTask(
+                    tTitle.value,
+                    tDesc.value,
+                    tSpec.value,
+                    $any(tType.value),
+                    $any(tPriority.value)
+                  );
+                  $event.preventDefault()
+                "
+              >
+                <label>标题<input #tTitle [value]="current.title" required /></label>
+                <div class="form-grid">
+                  <label
+                    >类型<select #tType [value]="current.type">
+                      <option value="task">Task</option>
+                      <option value="bug">Bug</option>
+                    </select></label
+                  ><label
+                    >优先级<select #tPriority [value]="current.priority">
+                      @for (priority of priorities; track priority) {
+                        <option [value]="priority">{{ priorityLabel(priority) }}</option>
+                      }
+                    </select></label
+                  >
+                </div>
+                <label
+                  >Description<textarea #tDesc rows="5">{{ current.description }}</textarea></label
+                ><label
+                  >Spec<textarea #tSpec rows="10">{{ current.spec }}</textarea>
+                </label>
+                <div class="row">
+                  <button class="btn-primary-sm" type="submit">💾 保存</button
+                  ><button class="ghost-sm" type="button" (click)="generate()">⚡ 生成子任务</button
+                  ><button class="danger" type="button" (click)="remove('task', current.id)">
+                    🗑 删除
+                  </button>
+                </div>
+              </form>
+            </div>
+            <div class="card comments-card">
+              <div class="section-header">
+                <h3>
+                  评论 <span class="count">{{ comments().length }}</span>
+                </h3>
+              </div>
+              <div class="comment-list">
+                @for (comment of comments(); track comment.id) {
+                  <article class="comment-item">
+                    <span class="avatar">{{ comment.author.slice(0, 2) }}</span>
+                    <div class="comment-body">
+                      <div class="comment-meta">
+                        <strong>{{ comment.author }}</strong
+                        ><time>{{ comment.created_at | date: 'medium' }}</time>
+                      </div>
+                      <div class="md text-pre">{{ comment.content }}</div>
+                    </div>
+                  </article>
+                } @empty {
+                  <div class="empty-inline">还没有评论。</div>
+                }
+              </div>
+              <form
+                id="comment-form"
+                class="comment-form"
+                (submit)="addComment($event, cAuthor.value, cContent.value)"
+              >
+                <input
+                  #cAuthor
+                  name="author"
+                  [value]="commentAuthor()"
+                  required
+                  maxlength="100"
+                /><textarea
+                  #cContent
+                  name="content"
+                  rows="4"
+                  required
+                  placeholder="记录进展、决策或阻塞…"
+                ></textarea
+                ><button type="submit" class="btn-primary-sm">发表评论</button>
+              </form>
+            </div>
+          }
+        }
+        @default {
+          <div class="card empty-state">
+            <h2>页面不存在</h2>
+            <a routerLink="/">返回首页</a>
+          </div>
+        }
+      }
+    }
+  </main>
+</div>
+
+@if (authVisible()) {
+  <div class="modal-overlay auth-overlay">
+    <section class="auth-wrap">
+      <div class="auth-card">
+        <div class="auth-brand">
+          <span class="logo-mark">AB</span>
+          <h1>Agent<b>Board</b></h1>
+          <p class="muted">登录以管理项目与 Agent 开发闭环</p>
+        </div>
+        <div class="auth-tabs">
+          <button
+            type="button"
+            class="auth-tab"
+            [class.active]="authMode() === 'login'"
+            data-mode="login"
+            (click)="authMode.set('login')"
+          >
+            登录</button
+          ><button
+            type="button"
+            class="auth-tab"
+            [class.active]="authMode() === 'register'"
+            data-mode="register"
+            (click)="authMode.set('register')"
+          >
+            注册
+          </button>
+        </div>
+        <form
+          id="auth-form"
+          class="auth-form"
+          (submit)="authenticate($event, authUser.value, authPassword.value)"
+        >
+          <label
+            >用户名<input
+              #authUser
+              name="username"
+              required
+              maxlength="64"
+              autocomplete="username" /></label
+          ><label
+            >密码<input
+              #authPassword
+              name="password"
+              type="password"
+              required
+                [minLength]="authMode() === 'register' ? 8 : 1"
+              autocomplete="current-password"
+              [placeholder]="authMode() === 'register' ? '至少 8 位' : '请输入密码'" /></label
+          ><button
+            type="submit"
+            class="btn-primary block"
+            id="auth-submit"
+            [disabled]="submitting()"
+          >
+            {{ submitting() ? '处理中…' : authMode() === 'register' ? '注册' : '登录' }}
+          </button>
+        </form>
+        <button type="button" class="ghost block" (click)="closeAuth()">取消</button>
+      </div>
+    </section>
+  </div>
+}
+
+@if (modal(); as currentModal) {
+  <div class="modal-overlay" id="create-modal">
+    <section class="modal modal-create" role="dialog" aria-modal="true">
+      <header class="modal-header">
+        <div>
+          <span class="modal-eyebrow">CREATE</span>
+          <h3>{{ modalTitle() }}</h3>
+        </div>
+        <button type="button" class="modal-close" (click)="closeCreate()">×</button>
+      </header>
+      <form id="create-form" (submit)="create($event)">
+        <div class="modal-body">
+          <div class="form-field">
+            <label>标题 <span class="required">*</span></label
+            ><input id="create-title" name="title" required maxlength="200" autocomplete="off" />
+          </div>
+          @if (currentModal.kind === 'project') {
+            <div class="form-field">
+              <label>短码</label><input id="create-key" name="key" maxlength="20" />
+            </div>
+          }
+          <div class="form-field">
+            <label>描述</label
+            ><textarea id="create-description" name="description" rows="5"></textarea>
+          </div>
+          @if (currentModal.kind === 'task') {
+            <div class="form-grid">
+              <div class="form-field">
+                <label>类型</label
+                ><select id="create-type" name="type">
+                  <option value="task">Task</option>
+                  <option value="bug">Bug</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label>优先级</label
+                ><select id="create-priority" name="priority">
+                  @for (priority of priorities; track priority) {
+                    <option [value]="priority">{{ priorityLabel(priority) }}</option>
+                  }
+                </select>
+              </div>
+            </div>
+          }
+        </div>
+        <footer class="modal-footer">
+          <button type="button" class="ghost" (click)="closeCreate()">取消</button
+          ><button type="submit" class="btn-primary" [disabled]="submitting()">
+            {{ submitting() ? '创建中…' : '创建' }}
+          </button>
+        </footer>
+      </form>
+    </section>
+  </div>
+}
+
+<div id="toast">
+  @if (toastMessage()) {
+    <div class="toast {{ toastType() }}">{{ toastMessage() }}</div>
+  }
+</div>
+<router-outlet />

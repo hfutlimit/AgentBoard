@@ -20,7 +20,7 @@
 ```
 
 - **API**（`agentboard/api.py`）：纯 JSON REST，带 CORS，不含任何 HTML。
-- **Web**（`agentboard/web_app.py` + `web/static/`）：独立 SPA，浏览器 fetch 调 API。
+- **Web**（`frontend/` + `agentboard/web_app.py`）：Angular 21 LTS 独立 SPA，构建后由 FastAPI 托管，浏览器通过 `HttpClient` 调 API。
 - **MCP**（`agentboard/mcp_server.py`）：默认 httpx 调 API，可切换直连 DB。
 
 ## 目录结构
@@ -32,8 +32,9 @@ agentboard/
   service.py      # 业务服务层（CRUD / spec / 搜索 / 状态机）
   api.py          # REST API（纯 JSON，前后端分离的后端）
   web_app.py      # Web 前端托管（独立服务）
-  web/static/     # SPA：index.html / app.js / style.css
+  web/static/     # Angular 复用的全局设计系统 style.css
   mcp_server.py   # FastMCP 工具集（api / db 双后端）
+frontend/         # Angular 21 源码、路由、类型化 API 服务
 tests/test_smoke.py
 docs/requirements.md   # 需求分析
 docs/tasks.md          # 任务列表（Epic/Story/Task）
@@ -44,10 +45,16 @@ docs/tasks.md          # 任务列表（Epic/Story/Task）
 ```bash
 pip install -r requirements.txt
 
+# 构建 Angular（需要 Node 20.19+/22.12+/24，或直接使用 docker compose）
+cd frontend
+npm ci
+npm run build
+cd ..
+
 # 1) 启动 REST API（默认 SQLite，端口 8000）
 uvicorn agentboard.api:app --reload --port 8000
 
-# 2) 启动 Web 前端（独立服务，端口 8080）
+# 2) 托管 Angular 构建产物（独立服务，端口 8080）
 uvicorn agentboard.web_app:app --reload --port 8080
 # 浏览器打开 http://127.0.0.1:8080
 
@@ -167,6 +174,7 @@ codex mcp get agentboard
 - `tests/test_playwright_e2e.py`：**前端 E2E 真实浏览器测试**（FR-10 / Epic 9）。用真实 Chromium 驱动 SPA，验证注册 / 登录 UI 流与 DOM 行为（与 `test_web_flow.py` 的 httpx 等价校验互补）。覆盖按 Epic 9 切片推进：Story 9.1 为测试骨架（`servers` fixture + `ui_register` / `ui_login` 辅助 + 注册/登录冒烟）；Story 9.2 的真实交互用例（CRUD UI / 状态流转 / spec 编辑 / 错误分支）后续切片。
 
 ```bash
+# Web 测试需要先执行 frontend 的 npm run build
 PYTHONPATH=. python -m pytest tests/ -q
 
 # 仅跑前端 E2E（首次需安装浏览器二进制）：

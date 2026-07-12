@@ -1,0 +1,33 @@
+.modal-overlay {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.modal-overlay .modal {
+  transform: none;
+}
+
+.auth-overlay {
+  z-index: 1200;
+}
+
+.text-pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.logo-mark {
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: white;
+  background: linear-gradient(135deg, #6366f1, #a855f7);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+router-outlet {
+  display: none;
+}

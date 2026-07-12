@@ -1,7 +1,7 @@
 """AgentBoard Web 端到端自动化测试：同时启动【真实 API】与【真实 Web】服务。
 
 覆盖场景（均走 Web SPA 实际消费的 REST 端点）：
-- Web 服务正确托管 SPA 并把页面接到运行中的 API（/ 注入 AGENTBOARD_API、/static/app.js 可用）
+- Web 服务正确托管 Angular SPA、注入 AGENTBOARD_API 并提供带哈希的构建资源
 - 注册 / 登录 / 重复注册 / 错误密码 / me
 - 创建并修改 各种 ticket：project / epic / story / task / bug
 - 读取列表（首页项目列表、epic 列表、story 列表、task/bug 列表、搜索）
@@ -14,6 +14,7 @@
     PYTHONPATH=. python tests/test_web_flow.py        # 直接运行（同样先起 api+web 再测）
 """
 import os
+import re
 import sys
 import socket
 import subprocess
@@ -108,26 +109,16 @@ def test_web_serves_spa(servers):
     # 页面必须把 SPA 接到当前运行中的 API
     assert api_base in html, "Web 未把页面注入到运行中的 API 地址"
 
-    js = httpx.get(web_base + "/static/app.js")
-    assert js.status_code == 200, "app.js 未提供"
+    script_match = re.search(r'<script src="([^"]+\.js)"', html)
+    assert script_match, "Angular 入口脚本未注入"
+    js = httpx.get(web_base + "/" + script_match.group(1).lstrip("/"))
+    assert js.status_code == 200, "Angular bundle 未提供"
     css = httpx.get(web_base + "/static/style.css")
     assert css.status_code == 200, "style.css 未提供"
-    assert "fetch(API" in js.text, "SPA 未使用 fetch 调 API"
-    assert 'class="hero"' in js.text, "仪表盘品牌 Hero 未渲染"
-    assert "badge-dot" in js.text and "empty-art" in js.text, "语义徽章或空状态插画缺失"
-    assert "activity-panel" in js.text and "timeAgo" in js.text, "P-15 Agent 活动面板未渲染"
-    assert "function showCreateModal" in js.text and "data-modal-close" in js.text, "统一创建弹窗缺失"
-    assert all(x not in js.text for x in ("p-epic-form", "e-story-form", "s-task-form")), "仍存在内联新增表单"
-    assert 'aria-current="page"' in js.text, "A-18 面包屑当前级未标记 aria-current"
-    assert "function entityActions" in js.text and "attachEntityActions" in js.text, "A-19 列表项 hover 操作未渲染"
-    assert "agentboard_story_view" in js.text and "localStorage.setItem(VIEW_KEY" in js.text, "A-20 视图偏好本地存储未实现"
-    assert "storyTaskListHTML" in js.text and "storyGroupBy" in js.text and 'id="s-group-by"' in js.text, "B-06 列表分组（按状态/类型）未渲染"
-    assert "agentboard_story_group" in js.text and "localStorage.setItem(GROUP_KEY" in js.text, "B-06 分组偏好本地存储未实现"
-
-    # Epic 7 登录 / 注册 UI（鉴权最后一公里）
-    assert "function showAuthScreen" in js.text, "Epic 7 登录界面未实现"
-    assert "function logout" in js.text and "登出" in js.text, "Epic 7 登出未实现"
-    assert "getToken" in js.text and "setToken" in js.text and "clearToken" in js.text, "Epic 7 token 辅助缺失"
+    assert len(js.content) > 100_000, "Angular bundle 内容异常"
+    assert "app-root" in html, "Angular 根组件缺失"
+    deep_link = httpx.get(web_base + "/project/123")
+    assert deep_link.status_code == 200 and "app-root" in deep_link.text, "Angular 深链接未回退到 SPA"
     assert "agentboard_token" in js.text, "Epic 7 token 持久化缺失"
     assert "auth-form" in js.text and "auth-card" in js.text, "Epic 7 登录卡片缺失"
     assert ".auth-card" in css.text and ".user-chip" in css.text, "Epic 7 登录/用户样式缺失"
