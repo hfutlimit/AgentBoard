@@ -1,4 +1,5 @@
 import os
+from contextlib import contextmanager
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
 
@@ -33,6 +34,21 @@ def _run_alembic() -> None:
     with engine.connect() as connection:
         cfg.attributes["connection"] = connection
         command.upgrade(cfg, "head")
+
+
+@contextmanager
+def session_scope():
+    """提供独立事务上下文（scheduler 等非 FastAPI 环境使用）。"""
+    s = SessionLocal()
+    s.info["auto_commit"] = False
+    try:
+        yield s
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        s.close()
 
 
 def get_session() -> Session:
