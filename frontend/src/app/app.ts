@@ -6,7 +6,7 @@ import { firstValueFrom, Subscription } from 'rxjs';
 import { filter } from 'rxjs/operators';
 
 import { ApiService } from './api.service';
-import { Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task } from './models';
+import { AgentSchedule, Attachment, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task } from './models';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'admin' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
@@ -51,12 +51,13 @@ export class App implements OnInit, OnDestroy {
   readonly toastType = signal<'success' | 'error'>('success');
   readonly modal = signal<CreateModal | null>(null);
   readonly submitting = signal(false);
-  readonly activeTab = signal<'epics' | 'sprints' | 'backlog' | 'settings' | 'members' | 'stats'>('epics');
+  readonly activeTab = signal<'epics' | 'sprints' | 'backlog' | 'settings' | 'members' | 'stats' | 'schedules'>('epics');
   readonly members = signal<ProjectMember[]>([]);
   readonly notifications = signal<Notification[]>([]);
   readonly unreadCount = signal(0);
   readonly showNotifications = signal(false);
   readonly projectStats = signal<ProjectStats | null>(null);
+  readonly schedules = signal<AgentSchedule[]>([]);
   readonly statsMaxCreated = computed(() => {
     const stats = this.projectStats();
     if (!stats) return 1;
@@ -69,6 +70,7 @@ export class App implements OnInit, OnDestroy {
   });
   readonly isOwner = signal(false);
   readonly isAdmin = signal(false);
+  readonly attachments = signal<Attachment[]>([]);
   readonly adminUsers = signal<any[]>([]);
   readonly adminProjects = signal<any[]>([]);
   readonly statuses: Status[] = [
@@ -166,10 +168,13 @@ export class App implements OnInit, OnDestroy {
         ]);
         this.project.set(project);
         this.epics.set(epics);
-        await this.loadSprints(id);
-        await this.loadBacklog(id);
-        await this.loadMembers(id);
-        await this.loadProjectStats(id);
+        await Promise.all([
+          this.loadSprints(id),
+          this.loadBacklog(id),
+          this.loadMembers(id),
+          this.loadProjectStats(id),
+          this.loadSchedules(id),
+        ]);
         await this.checkProjectOwner(id);
       } else if (kind === 'epic' && id > 0) {
         this.view.set('epic');
@@ -199,6 +204,7 @@ export class App implements OnInit, OnDestroy {
         ]);
         this.task.set(task);
         this.comments.set(comments);
+        await this.loadAttachments(id);
         if (task.story_id) {
           const story = await firstValueFrom(this.api.getStory(task.story_id));
           this.story.set(story);
@@ -313,6 +319,18 @@ export class App implements OnInit, OnDestroy {
 
   openCreate(kind: CreateKind, parentId?: number, projectId?: number): void {
     this.modal.set({ kind, parentId, projectId });
+  }
+
+  openCreateSchedule(projectId: number): void {
+    const title = prompt('计划名称：');
+    if (!title?.trim()) return;
+    const type = prompt('类型（cron/once，默认 cron）：') || 'cron';
+    const cron = type === 'cron' ? prompt('Cron 表达式（5字段，如 */5 * * * *）：') : '';
+    if (type === 'cron' && !cron?.trim()) {
+      this.notify('Cron 类型需要 cron 表达式', 'error');
+      return;
+    }
+    void this.createNewSchedule(projectId, title.trim(), type, cron || '');
   }
 
   closeCreate(): void {
@@ -528,6 +546,18 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  async deleteSchedule(id: number): Promise<void> {
+    if (!confirm('删除此定时计划？')) return;
+    const project = this.project();
+    try {
+      await firstValueFrom(this.api.deleteSchedule(id));
+      this.notify('计划已删除');
+      if (project) await this.loadSchedules(project.id);
+    } catch (error) {
+      this.notify(`删除失败：${this.message(error)}`, 'error');
+    }
+  }
+
   async assignTaskToSprint(taskId: number, sprintId: number): Promise<void> {
     try {
       await firstValueFrom(this.api.updateTask(taskId, { sprint_id: sprintId } as Partial<Task>));
@@ -661,6 +691,74 @@ export class App implements OnInit, OnDestroy {
       this.projectStats.set(stats);
     } catch {
       this.projectStats.set(null);
+    }
+  }
+
+  /* ---------- Attachment ---------- */
+  async loadAttachments(taskId: number): Promise<void> {
+    try {
+      this.attachments.set(await firstValueFrom(this.api.listAttachments(taskId)));
+    } catch {
+      this.attachments.set([]);
+    }
+  }
+
+  async onAttachmentFileSelected(event: Event, taskId: number): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      await firstValueFrom(this.api.uploadAttachment(taskId, file));
+      this.notify('附件已上传');
+      await this.loadAttachments(taskId);
+    } catch (error) {
+      this.notify(`上传失败：${this.message(error)}`, 'error');
+    }
+    input.value = '';
+  }
+
+  async deleteAttachment(taskId: number, attachmentId: number): Promise<void> {
+    if (!confirm('确认删除此附件？')) return;
+    try {
+      await firstValueFrom(this.api.deleteAttachment(attachmentId));
+      this.notify('附件已删除');
+      await this.loadAttachments(taskId);
+    } catch (error) {
+      this.notify(`删除失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  /* ---------- Schedules ---------- */
+  async loadSchedules(projectId: number): Promise<void> {
+    try {
+      this.schedules.set(await firstValueFrom(this.api.listSchedules(projectId)));
+    } catch {
+      this.schedules.set([]);
+    }
+  }
+
+  async toggleSchedule(scheduleId: number, enabled: boolean): Promise<void> {
+    try {
+      await firstValueFrom(this.api.updateSchedule(scheduleId, { enabled } as Partial<AgentSchedule>));
+      this.notify(enabled ? '计划已启用' : '计划已停用');
+      const project = this.project();
+      if (project) await this.loadSchedules(project.id);
+    } catch (error) {
+      this.notify(`操作失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  async createNewSchedule(projectId: number, title: string, scheduleType: string, cronExpr: string): Promise<void> {
+    try {
+      await firstValueFrom(this.api.createSchedule(projectId, {
+        title,
+        schedule_type: scheduleType as 'cron' | 'once',
+        cron_expr: cronExpr || undefined,
+      }));
+      this.notify('计划已创建');
+      await this.loadSchedules(projectId);
+    } catch (error) {
+      this.notify(`创建失败：${this.message(error)}`, 'error');
     }
   }
 

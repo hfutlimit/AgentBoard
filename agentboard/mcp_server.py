@@ -894,6 +894,176 @@ def auth_me(token: str | None = None) -> dict:
     return _auth_me(token)
 
 
+# ---------- Attachment MCP 工具 ----------
+if BACKEND == "db":
+    def _attachment_list(task_id):
+        with SessionLocal() as s:
+            try:
+                return [service._ser(a) for a in service.list_attachments(s, task_id)]
+            except service.NotFound as e:
+                return {"error": str(e)}
+
+    def _attachment_get(attachment_id):
+        with SessionLocal() as s:
+            att = service.get_attachment(s, attachment_id)
+            return service._ser(att) if att else {"error": "not found"}
+else:
+    def _attachment_list(task_id):
+        return _http("GET", f"/api/tasks/{task_id}/attachments")
+
+    def _attachment_get(attachment_id):
+        return _http("GET", f"/api/attachments/{attachment_id}/info")
+
+
+@mcp.tool()
+def list_attachments(task_id: int) -> list | dict:
+    """列出任务的所有附件元数据（不含文件内容）。"""
+    return _attachment_list(task_id)
+
+
+@mcp.tool()
+def get_attachment_info(attachment_id: int) -> dict:
+    """获取附件元数据（id、文件名、MIME、大小、上传时间）。"""
+    return _attachment_get(attachment_id)
+
+
+# ---------- Agent MCP 工具（Task 92）----------
+if BACKEND == "db":
+    def _agent_claim_task(task_id, agent_name="agent"):
+        """领取任务并创建 Run 记录"""
+        import uuid
+        with SessionLocal() as s:
+            try:
+                t = service.get_task(s, task_id)
+                if not t:
+                    return {"error": f"task {task_id} not found"}
+                # 获取 task 关联的 schedule（如果有）
+                from .models import AgentSchedule
+                sch = s.query(AgentSchedule).filter(
+                    AgentSchedule.project_id == t.project_id,
+                    AgentSchedule.enabled == True
+                ).first()
+                if not sch:
+                    # 无 schedule，创建独立 run
+                    run = service.create_run(s, schedule_id=0, task_id=task_id,
+                                           idempotency_key=f"manual-{task_id}-{uuid.uuid4().hex[:8]}")
+                    return {"run": service._ser(run), "task": service._ser(t), "schedule": None}
+                # 通过 schedule 创建 run
+                run = service.create_run(s, schedule_id=sch.id, task_id=task_id,
+                                        idempotency_key=f"{agent_name}-{task_id}-{uuid.uuid4().hex[:8]}")
+                # 更新任务状态为 in_progress
+                if t.status == "backlog" or t.status == "todo":
+                    service.set_status(s, task_id, "in_progress")
+                    s.refresh(t)
+                return {"run": service._ser(run), "task": service._ser(t), "schedule": service._ser(sch)}
+            except service.DomainError as e:
+                return {"error": str(e)}
+
+    def _agent_heartbeat(run_id, status="running"):
+        """心跳：更新 Run 状态"""
+        with SessionLocal() as s:
+            run = service.update_run(s, run_id, status=status,
+                                    started_at=service._now() if status == "running" else None)
+            return service._ser(run) if run else {"error": f"run {run_id} not found"}
+
+    def _agent_complete_run(run_id, output, status="success", error_message=None):
+        """完成运行"""
+        from datetime import datetime
+        with SessionLocal() as s:
+            fields = {"status": status, "output": output,
+                     "finished_at": datetime.utcnow().isoformat()}
+            if error_message:
+                fields["error_message"] = error_message
+            run = service.update_run(s, run_id, **fields)
+            if not run:
+                return {"error": f"run {run_id} not found"}
+            # 如果有 task_id，同步任务状态
+            if run.task_id:
+                if status == "success":
+                    try:
+                        service.set_status(s, run.task_id, "in_review")
+                    except service.DomainError:
+                        pass
+                elif status == "failed":
+                    try:
+                        service.set_status(s, run.task_id, "todo")
+                    except service.DomainError:
+                        pass
+            return service._ser(run)
+else:
+    def _agent_claim_task(task_id, agent_name="agent"):
+        import uuid
+        # 获取 task 详情
+        t = _http("GET", f"/api/tasks/{task_id}")
+        if "error" in t:
+            return t
+        # 创建 run（临时用 schedule_id=0 表示手动触发）
+        idempotency_key = f"{agent_name}-{task_id}-{uuid.uuid4().hex[:8]}"
+        run = _http("POST", "/api/schedules/0/runs" if False else f"/api/schedules/1/runs",
+                   json={"task_id": task_id, "idempotency_key": idempotency_key})
+        # 同步任务状态
+        if t.get("status") in ("backlog", "todo"):
+            _http("PUT", f"/api/tasks/{task_id}/status", json={"status": "in_progress"})
+            t = _http("GET", f"/api/tasks/{task_id}")
+        return {"run": run, "task": t, "schedule": None}
+
+    def _agent_heartbeat(run_id, status="running"):
+        fields = {"status": status}
+        return _http("PATCH", f"/api/runs/{run_id}", json=fields)
+
+    def _agent_complete_run(run_id, output, status="success", error_message=None):
+        fields = {"status": status, "output": output}
+        if error_message:
+            fields["error_message"] = error_message
+        return _http("PATCH", f"/api/runs/{run_id}", json=fields)
+
+
+@mcp.tool()
+def claim_task(task_id: int, agent_name: str = "agent") -> dict:
+    """Agent 领取任务：
+    - 创建 Run 记录
+    - 自动将任务状态从 backlog/todo 推进到 in_progress
+    - 返回 run 信息供后续 heartbeat/complete 使用
+    """
+    return _agent_claim_task(task_id, agent_name)
+
+
+@mcp.tool()
+def heartbeat(run_id: int, status: str = "running") -> dict:
+    """Agent 心跳：定期调用以更新 Run 状态为 running。
+    status 可选：pending / running / success / failed
+    """
+    return _agent_heartbeat(run_id, status)
+
+
+@mcp.tool()
+def complete_run(run_id: int, output: str, status: str = "success",
+                error_message: str | None = None) -> dict:
+    """Agent 完成运行：
+    - output: 运行输出摘要（markdown）
+    - status: success / failed
+    - error_message: 失败原因（可选）
+    - 成功时自动将关联任务推进到 in_review
+    """
+    return _agent_complete_run(run_id, output, status, error_message)
+
+
+@mcp.tool()
+def sync_status(task_id: int, status: str, comment: str | None = None) -> dict:
+    """同步任务状态，可选追加评论。
+    status 必须符合状态机合法迁移规则。
+    """
+    result = _task_status(task_id, status)
+    if "error" in result:
+        return result
+    if comment:
+        # 获取 task 详情以确定 project 用于评论 author
+        t = _task_get(task_id)
+        author = t.get("spec", "").split("\n")[0][:50] if t else "agent"
+        _comment_create(task_id, author=author, content=comment)
+    return result
+
+
 if __name__ == "__main__":
     transport = os.getenv("AGENTBOARD_MCP_TRANSPORT", "stdio").lower()
     if transport in {"http", "streamable-http"}:

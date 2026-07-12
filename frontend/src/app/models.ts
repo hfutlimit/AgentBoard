@@ -95,6 +95,42 @@ export interface Notification {
   created_at: string;
 }
 
+export interface Attachment {
+  id: number;
+  task_id: number;
+  filename: string;
+  original_name: string;
+  size: number;
+  mime_type: string;
+  created_at: string;
+}
+
+export interface AgentSchedule {
+  id: number;
+  project_id: number;
+  title: string;
+  schedule_type: 'once' | 'cron';
+  cron_expr: string | null;
+  enabled: boolean;
+  next_run_at: string | null;
+  last_run_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentRun {
+  id: number;
+  schedule_id: number;
+  task_id: number | null;
+  status: 'pending' | 'running' | 'success' | 'failed';
+  idempotency_key: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  output: string | null;
+  error_message: string | null;
+  created_at: string;
+}
+
 export interface ProjectStats {
   daily_created: Array<{ day: string; count: number }>;
   daily_done: Array<{ day: string; count: number }>;

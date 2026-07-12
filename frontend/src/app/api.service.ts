@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable, throwError } from 'rxjs';
 import { catchError } from 'rxjs/operators';
 
-import { ApiErrorBody, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task } from './models';
+import { ApiErrorBody, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun } from './models';
 
 declare global {
   interface Window {
@@ -214,5 +214,58 @@ export class ApiService {
   }
   adminDeleteProject(projectId: number) {
     return this.request<{ ok: boolean }>('DELETE', `/api/admin/projects/${projectId}`);
+  }
+
+  /* ---------- Attachment ---------- */
+  listAttachments(taskId: number) {
+    return this.request<Attachment[]>('GET', `/api/tasks/${taskId}/attachments`);
+  }
+  getAttachmentInfo(attachmentId: number) {
+    return this.request<Attachment>('GET', `/api/attachments/${attachmentId}/info`);
+  }
+  uploadAttachment(taskId: number, file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const token = localStorage.getItem('agentboard_token');
+    const headers = token ? new HttpHeaders({ Authorization: `Bearer ${token}` }) : undefined;
+    return this.http.request<Attachment>('POST', `${this.baseUrl}/api/tasks/${taskId}/attachments`, {
+      body: formData,
+      headers,
+    }).pipe(catchError((error: HttpErrorResponse) => {
+      const payload = error.error as ApiErrorBody | undefined;
+      const detail = Array.isArray(payload?.detail)
+        ? payload?.detail.map((item) => item.msg || '参数错误').join('；')
+        : payload?.detail;
+      return throwError(() => new Error(detail || error.message || `HTTP ${error.status}`));
+    }));
+  }
+  deleteAttachment(attachmentId: number) {
+    return this.request<{ ok: boolean }>('DELETE', `/api/attachments/${attachmentId}`);
+  }
+  getAttachmentUrl(attachmentId: number): string {
+    const token = localStorage.getItem('agentboard_token') || '';
+    return `${this.baseUrl}/api/attachments/${attachmentId}?token=${encodeURIComponent(token)}`;
+  }
+
+  /* ---------- Agent Schedules ---------- */
+  listSchedules(projectId: number) {
+    return this.request<AgentSchedule[]>('GET', `/api/projects/${projectId}/schedules`);
+  }
+  createSchedule(projectId: number, body: { title: string; schedule_type: string; cron_expr?: string }) {
+    return this.request<AgentSchedule>('POST', `/api/projects/${projectId}/schedules`, body);
+  }
+  updateSchedule(scheduleId: number, body: Partial<AgentSchedule>) {
+    return this.request<AgentSchedule>('PATCH', `/api/schedules/${scheduleId}`, body);
+  }
+  deleteSchedule(scheduleId: number) {
+    return this.request<{ ok: boolean }>('DELETE', `/api/schedules/${scheduleId}`);
+  }
+
+  /* ---------- Agent Runs ---------- */
+  listRuns(scheduleId: number) {
+    return this.request<AgentRun[]>('GET', `/api/schedules/${scheduleId}/runs`);
+  }
+  retryRun(scheduleId: number, taskId: number) {
+    return this.request<AgentRun>('POST', `/api/schedules/${scheduleId}/runs`, { task_id: taskId });
   }
 }

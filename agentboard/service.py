@@ -522,6 +522,11 @@ def delete_sprint(s: Session, id: int) -> bool:
     s.delete(sp); _commit(s); return True
 
 
+def _now():
+    from datetime import datetime, UTC
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
 # ---------- Attachment ----------
 import os as _os
 import uuid as _uuid

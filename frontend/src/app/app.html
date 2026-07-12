@@ -268,6 +268,9 @@
               <button class="tab-btn" [class.active]="activeTab() === 'stats'" (click)="activeTab.set('stats')">
                 统计
               </button>
+              <button class="tab-btn" [class.active]="activeTab() === 'schedules'" (click)="activeTab.set('schedules')">
+                定时计划
+              </button>
               <button class="tab-btn" [class.active]="activeTab() === 'settings'" (click)="activeTab.set('settings')">
                 设置
               </button>
@@ -476,6 +479,48 @@
                   }
                 } @else {
                   <div class="empty-inline">加载统计数据…</div>
+                }
+              </div>
+            }
+
+            <!-- Tab: Schedules -->
+            @if (activeTab() === 'schedules') {
+              <div class="tab-content">
+                <div class="section-header">
+                  <h3>定时 Agent 计划</h3>
+                  <button class="btn-primary-sm" (click)="openCreateSchedule(current.id)">＋ 新建计划</button>
+                </div>
+                @if (schedules().length) {
+                  <div class="schedule-list">
+                    @for (sch of schedules(); track sch.id) {
+                      <div class="schedule-item">
+                        <div class="schedule-info">
+                          <div class="schedule-title">
+                            <strong>{{ sch.title }}</strong>
+                            <span class="badge" [class.schedule-active]="sch.enabled" [class.schedule-paused]="!sch.enabled">
+                              {{ sch.enabled ? '启用' : '停用' }}
+                            </span>
+                            <span class="badge">{{ sch.schedule_type === 'cron' ? 'Cron' : '一次性' }}</span>
+                          </div>
+                          @if (sch.cron_expr) {
+                            <div class="schedule-cron muted">{{ sch.cron_expr }}</div>
+                          }
+                          <div class="schedule-meta muted">
+                            下次运行：{{ sch.next_run_at || '—' }} ·
+                            最后运行：{{ sch.last_run_at || '从未' }}
+                          </div>
+                        </div>
+                        <div class="schedule-actions">
+                          <button class="btn-ghost-sm" (click)="toggleSchedule(sch.id, !sch.enabled)">
+                            {{ sch.enabled ? '⏸ 停用' : '▶ 启用' }}
+                          </button>
+                          <button class="ghost-sm danger" (click)="deleteSchedule(sch.id)">🗑 删除</button>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                } @else {
+                  <div class="empty-inline">暂无定时计划，配置 Agent 自动运行任务</div>
                 }
               </div>
             }
@@ -740,6 +785,34 @@
               <div class="card">
                 <h3>Spec（OpenSpec）</h3>
                 <div class="md text-pre">{{ current.spec || '（空）' }}</div>
+              </div>
+            </div>
+            <!-- Attachment section -->
+            <div class="card">
+              <div class="section-header">
+                <h3>附件 <span class="count">{{ attachments().length }}</span></h3>
+              </div>
+              @if (attachments().length) {
+                <div class="attachment-list">
+                  @for (att of attachments(); track att.id) {
+                    <div class="attachment-item">
+                      <span class="att-icon">{{ att.mime_type.startsWith('image/') ? '🖼' : '📎' }}</span>
+                      <div class="att-info">
+                        <span class="att-name">{{ att.original_name }}</span>
+                        <span class="att-meta">{{ (att.size / 1024).toFixed(1) }} KB · {{ att.mime_type }}</span>
+                      </div>
+                      <a [href]="api.baseUrl + '/api/attachments/' + att.id" target="_blank" class="btn-ghost-sm">下载</a>
+                      <button class="ghost-sm danger" (click)="deleteAttachment(current.id, att.id)">✕</button>
+                    </div>
+                  }
+                </div>
+              } @else {
+                <div class="empty-inline">暂无附件</div>
+              }
+              <div class="upload-area">
+                <input type="file" #attFile id="att-file" style="display:none" (change)="onAttachmentFileSelected($event, current.id)">
+                <button class="btn-ghost-sm" (click)="$any($event.target).previousElementSibling.click()">＋ 上传附件</button>
+                <span class="muted" style="margin-left:8px;font-size:12px">支持图片、PDF、文本等，最大 10MB</span>
               </div>
             </div>
             <div class="card form-section">
