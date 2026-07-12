@@ -173,6 +173,9 @@ export class ApiService {
   listSprintTasks(sprintId: number) {
     return this.request<Task[]>('GET', `/api/sprints/${sprintId}/tasks`);
   }
+  getSprintBurndown(sprintId: number) {
+    return this.request<any>('GET', `/api/sprints/${sprintId}/burndown`);
+  }
 
   /* ---------- Project Members ---------- */
   listMembers(projectId: number) {

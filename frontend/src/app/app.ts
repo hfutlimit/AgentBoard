@@ -3,6 +3,8 @@ import { Component, OnDestroy, OnInit, ViewEncapsulation, computed, signal } fro
 import { FormsModule } from '@angular/forms';
 import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
 import { firstValueFrom, Subscription } from 'rxjs';
+import { DOCUMENT } from '@angular/common';
+import { Inject } from '@angular/core';
 import { filter } from 'rxjs/operators';
 
 import { ApiService } from './api.service';
@@ -26,6 +28,7 @@ interface CreateModal {
 })
 export class App implements OnInit, OnDestroy {
   readonly projects = signal<Project[]>([]);
+  readonly recentProjects = signal<Project[]>([]);
   readonly epics = signal<Epic[]>([]);
   readonly stories = signal<Story[]>([]);
   readonly tasks = signal<Task[]>([]);
@@ -34,6 +37,7 @@ export class App implements OnInit, OnDestroy {
   readonly sprint = signal<Sprint | null>(null);
   readonly sprintTasks = signal<Task[]>([]);
   readonly backlogTasks = signal<Task[]>([]);
+  readonly sprintBurndown = signal<any>(null);
   readonly project = signal<Project | null>(null);
   readonly epic = signal<Epic | null>(null);
   readonly story = signal<Story | null>(null);
@@ -106,10 +110,21 @@ export class App implements OnInit, OnDestroy {
   constructor(
     readonly api: ApiService,
     private readonly router: Router,
+    @Inject(DOCUMENT) private readonly document: Document,
   ) {}
 
   ngOnInit(): void {
-    this.applyTheme(localStorage.getItem('agentboard_theme') || 'light');
+    const saved = localStorage.getItem('agentboard_theme');
+    // 优先使用用户偏好，其次跟随系统
+    const theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    this.applyTheme(theme);
+    this.loadRecentProjects();
+    // Listen for system theme changes
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+      if (!localStorage.getItem('agentboard_theme')) {
+        this.applyTheme(e.matches ? 'dark' : 'light');
+      }
+    });
     // 启动时校验已有 token，失败则清除并显示登录
     void this.validateAuth();
     this.routeSub = this.router.events
@@ -188,6 +203,7 @@ export class App implements OnInit, OnDestroy {
         ]);
         this.project.set(project);
         this.epics.set(epics);
+        this.trackRecentProject(project);
         await Promise.all([
           this.loadSprints(id),
           this.loadBacklog(id),
@@ -246,6 +262,7 @@ export class App implements OnInit, OnDestroy {
         this.sprint.set(sprint);
         this.sprintTasks.set(tasks);
         this.project.set(await firstValueFrom(this.api.getProject(sprint.project_id)));
+        await this.loadSprintBurndown(id);
       } else if (kind === 'admin') {
         const me = await this.adminMe();
         if (!me?.is_admin) {
@@ -267,6 +284,34 @@ export class App implements OnInit, OnDestroy {
   private async loadProjects(): Promise<void> {
     const result = await firstValueFrom(this.api.listProjects());
     this.projects.set(Array.isArray(result) ? result : (result.items || []));
+  }
+
+  private loadRecentProjects(): void {
+    try {
+      const stored = localStorage.getItem('agentboard_recent_projects');
+      if (stored) {
+        const ids: number[] = JSON.parse(stored);
+        // Will be filtered when projects are loaded
+        this.recentProjects.set([]);
+      }
+    } catch { /* ignore */ }
+  }
+
+  trackRecentProject(project: Project): void {
+    try {
+      const KEY = 'agentboard_recent_projects';
+      const MAX = 5;
+      let ids: number[] = [];
+      const stored = localStorage.getItem(KEY);
+      if (stored) ids = JSON.parse(stored);
+      ids = ids.filter(id => id !== project.id);
+      ids.unshift(project.id);
+      ids = ids.slice(0, MAX);
+      localStorage.setItem(KEY, JSON.stringify(ids));
+      // Filter projects to get recent ones
+      const recent = ids.map(id => this.projects().find(p => p.id === id)).filter(Boolean) as Project[];
+      this.recentProjects.set(recent);
+    } catch { /* ignore */ }
   }
 
   private async loadDashboard(): Promise<void> {
@@ -598,6 +643,15 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  async loadSprintBurndown(sprintId: number): Promise<void> {
+    try {
+      const data = await firstValueFrom(this.api.getSprintBurndown(sprintId));
+      this.sprintBurndown.set(data);
+    } catch {
+      this.sprintBurndown.set(null);
+    }
+  }
+
   sprintStatusLabel(status: string): string {
     return (
       (
@@ -847,7 +901,18 @@ export class App implements OnInit, OnDestroy {
   }
 
   toggleTheme(): void {
-    this.applyTheme(document.documentElement.dataset['theme'] === 'dark' ? 'light' : 'dark');
+    this.applyTheme(this.document.documentElement.dataset['theme'] === 'dark' ? 'light' : 'dark');
+  }
+
+  getThemeLabel(): string {
+    const isDark = this.isDarkTheme();
+    const isSystem = !localStorage.getItem('agentboard_theme');
+    const base = isDark ? '切换到浅色模式' : '切换到深色模式';
+    return isSystem ? `${base}（跟随系统）` : base;
+  }
+
+  isDarkTheme(): boolean {
+    return this.document.documentElement.dataset['theme'] === 'dark';
   }
 
   setBoardMode(board: boolean): void {
@@ -860,7 +925,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   private applyTheme(theme: string): void {
-    document.documentElement.dataset['theme'] = theme;
+    this.document.documentElement.dataset['theme'] = theme;
     localStorage.setItem('agentboard_theme', theme);
   }
 
@@ -888,6 +953,18 @@ export class App implements OnInit, OnDestroy {
         >
       )[priority] || priority
     );
+  }
+
+  timeAgo(dateStr: string): string {
+    if (!dateStr) return '';
+    const now = Date.now();
+    const date = new Date(dateStr).getTime();
+    const diff = Math.floor((now - date) / 1000);
+    if (diff < 60) return `${diff}s前`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m前`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h前`;
+    if (diff < 604800) return `${Math.floor(diff / 86400)}d前`;
+    return new Date(dateStr).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
   }
 
   private async run(success: string, action: () => Promise<unknown>): Promise<void> {

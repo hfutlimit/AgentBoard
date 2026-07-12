@@ -19,8 +19,8 @@
       <a routerLink="/projects" [class.active]="view() === 'projects'">项目</a>
     </nav>
     <div class="topbar-right">
-      <button id="theme-toggle" class="icon-btn" title="切换深色 / 浅色" (click)="toggleTheme()">
-        ◐
+      <button id="theme-toggle" class="icon-btn" [title]="getThemeLabel()" (click)="toggleTheme()">
+        <span class="theme-icon">{{ isDarkTheme() ? '🌙' : '☀️' }}</span>
       </button>
       <input
         id="global-search"
@@ -58,28 +58,47 @@
             </div>
           }
           <div class="notif-wrap" style="position:relative;display:inline-block;margin-right:8px">
-            <button class="ghost-sm notif-btn" (click)="toggleNotifications()" title="通知">
-              🔔
+            <button class="ghost-sm notif-btn notif-btn--bell" (click)="toggleNotifications()" title="通知">
+              <span class="bell-icon">🔔</span>
               @if (unreadCount() > 0) {
-                <span class="notif-badge">{{ unreadCount() > 9 ? '9+' : unreadCount() }}</span>
+                <span class="notif-badge notif-badge--pulse">{{ unreadCount() > 9 ? '9+' : unreadCount() }}</span>
               }
             </button>
             @if (showNotifications()) {
-              <div class="notif-panel">
+              <div class="notif-panel notif-panel--animate">
                 <div class="notif-header">
                   <strong>通知</strong>
                   @if (unreadCount() > 0) {
+                    <span class="notif-unread-tag">{{ unreadCount() }} 条未读</span>
                     <button class="ghost-sm" (click)="markAllRead()">全部已读</button>
+                  } @else {
+                    <span class="notif-all-read-tag">全部已读 ✓</span>
                   }
                 </div>
                 @if (notifications().length) {
-                  @for (n of notifications(); track n.id) {
-                    <div class="notif-item" [class.unread]="!n.is_read" (click)="markRead(n.id)">
-                      <div class="notif-title">{{ n.title }}</div>
-                      @if (n.content) { <div class="notif-content">{{ n.content }}</div> }
-                      <div class="notif-time">{{ n.created_at | date:'MM-dd HH:mm' }}</div>
-                    </div>
-                  }
+                  <div class="notif-list">
+                    @for (n of notifications(); track n.id) {
+                      <div class="notif-item" [class.unread]="!n.is_read" (click)="markRead(n.id)">
+                        <div class="notif-item-icon">
+                          @switch (n.type) {
+                            @case ('project_invite') { 📬 }
+                            @case ('task_assigned') { 📋 }
+                            @case ('status_changed') { 🔄 }
+                            @case ('mentioned') { 💬 }
+                            @default { 🔔 }
+                          }
+                        </div>
+                        <div class="notif-item-body">
+                          <div class="notif-title">{{ n.title }}</div>
+                          @if (n.content) { <div class="notif-content">{{ n.content }}</div> }
+                          <div class="notif-time">{{ timeAgo(n.created_at) }}</div>
+                        </div>
+                        @if (!n.is_read) {
+                          <span class="notif-dot"></span>
+                        }
+                      </div>
+                    }
+                  </div>
                 } @else {
                   <div class="notif-empty">暂无通知</div>
                 }
@@ -116,6 +135,18 @@
           ＋
         </button>
       </div>
+      @if (recentProjects().length > 0) {
+        <div class="sidebar-recent">
+          <div class="sidebar-recent-header">最近访问</div>
+          @for (item of recentProjects(); track item.id) {
+            <div class="sidebar-item">
+              <a [routerLink]="['/project', item.id]" class="sidebar-link">
+                <span class="sidebar-icon recent-icon">⏱</span><span class="sidebar-label">{{ item.name }}</span>
+              </a>
+            </div>
+          }
+        </div>
+      }
       <div id="sidebar-tree" class="sidebar-tree">
         @for (item of visibleProjects(); track item.id) {
           <div class="sidebar-item">
@@ -156,11 +187,21 @@
           <div class="dashboard">
             <section class="hero">
               <div>
-                <span class="hero-kicker">ANGULAR WORKSPACE</span>
+                <span class="hero-kicker">AGENTBOARD</span>
                 <h1>项目协作一目了然</h1>
-                <p>{{ projects().length }} 个项目空间 · {{ tasks().length }} 项任务持续推进</p>
+                <p>{{ projects().length }} 个项目 · {{ tasks().length }} 项任务 · {{ doneTasks() }} 项已完成</p>
               </div>
-              <span class="hero-pill"><span></span> 实时进度已同步</span>
+              <div class="hero-right">
+                <span class="hero-pill" [class.ok]="healthStatus() === 'ok'" [class.error]="healthStatus() === 'error'">
+                  <span class="health-dot" [class.ok]="healthStatus() === 'ok'" [class.error]="healthStatus() === 'error'" [class.unknown]="healthStatus() === 'unknown'"></span>
+                  {{ healthStatus() === 'ok' ? '系统正常' : healthStatus() === 'error' ? '系统异常' : '检测中' }}
+                </span>
+                @if (tasks().length > 0) {
+                  <span class="hero-pill hero-progress">
+                    完成率 {{ ((doneTasks() / tasks().length) * 100).toFixed(0) }}%
+                  </span>
+                }
+              </div>
             </section>
             <div class="stats-row">
               <div class="stat-card stat-brand">
@@ -191,6 +232,15 @@
                   <div class="stat-trend">{{ doneTasks() }} 项已完成</div>
                 </div>
               </div>
+              @if (tasks().length > 0) {
+                <div class="stat-card stat-info">
+                  <div class="stat-content">
+                    <div class="stat-number">{{ ((doneTasks() / tasks().length) * 100).toFixed(0) }}%</div>
+                    <div class="stat-label">完成率</div>
+                    <div class="stat-trend">{{ doneTasks() }}/{{ tasks().length }}</div>
+                  </div>
+                </div>
+              }
             </div>
             <div class="section-header">
               <h2>项目空间</h2>
@@ -710,20 +760,24 @@
             @if (!boardMode()) {
               <div class="entity-list">
                 @for (item of visibleTasks(); track item.id) {
-                  <a [routerLink]="['/task', item.id]" class="entity-item"
+                  <a [routerLink]="['/task', item.id]" class="entity-item entity-item--rich"
                     ><div class="entity-item-main">
                       <span class="type-icon {{ item.type }}">{{
                         item.type === 'bug' ? 'B' : 'T'
                       }}</span
                       ><span class="entity-item-title">{{ item.title }}</span>
                     </div>
-                    <div class="entity-item-badges">
+                    <div class="entity-item-meta">
                       <span class="badge priority priority--{{ item.priority }}">{{
                         priorityLabel(item.priority)
                       }}</span
                       ><span class="badge status status--{{ item.status }}">{{
                         statusLabel(item.status)
                       }}</span>
+                      @if (item.sprint_id) {
+                        <span class="badge sprint-badge" title="已分配 Sprint">🏃</span>
+                      }
+                      <span class="entity-item-time" title="最后更新">{{ timeAgo(item.updated_at) }}</span>
                     </div></a
                   >
                 } @empty {
@@ -739,9 +793,15 @@
                       ><span class="kanban-count">{{ tasksForStatus(status).length }}</span>
                     </div>
                     @for (item of tasksForStatus(status); track item.id) {
-                      <a [routerLink]="['/task', item.id]" class="kanban-card"
-                        ><strong>{{ item.title }}</strong
-                        ><span>{{ priorityLabel(item.priority) }}</span></a
+                      <a [routerLink]="['/task', item.id]" class="kanban-card kanban-card--rich"
+                        ><strong class="kanban-card-title">{{ item.title }}</strong>
+                        <div class="kanban-card-meta">
+                          <span class="badge priority priority--{{ item.priority }}" style="font-size:10px">{{ priorityLabel(item.priority) }}</span>
+                          <span class="badge status status--{{ item.status }}" style="font-size:10px">{{ statusLabel(item.status) }}</span>
+                          @if (item.sprint_id) {
+                            <span class="sprint-dot" title="Sprint">🏃</span>
+                          }
+                        </div></a
                       >
                     }
                   </div>
@@ -982,6 +1042,37 @@
             @if (current.goal) {
               <div class="card md text-pre">
                 <strong>Sprint 目标：</strong>{{ current.goal }}
+              </div>
+            }
+            @if (sprintBurndown(); as bd) {
+              <div class="card burndown-card">
+                <div class="burndown-header">
+                  <h4>燃尽图</h4>
+                  <span class="burndown-stats">
+                    <span class="bd-stat"><strong>{{ bd.total_tasks }}</strong> 总任务</span>
+                    <span class="bd-stat"><strong>{{ bd.done_tasks }}</strong> 已完成</span>
+                    <span class="bd-stat highlight"><strong>{{ bd.remaining_tasks }}</strong> 剩余</span>
+                  </span>
+                </div>
+                @if (bd.daily && bd.daily.length > 0) {
+                  <div class="burndown-chart">
+                    @for (d of bd.daily; track d.day; let i = $index) {
+                      <div class="bd-col" [title]="d.day + ': 剩余 ' + d.remaining + '，理想 ' + d.ideal">
+                        <div class="bd-bar-wrap">
+                          <div class="bd-bar-ideal" [style.height]="(d.ideal / bd.total_tasks * 100) + '%'"></div>
+                          <div class="bd-bar-actual" [style.height]="(d.remaining / bd.total_tasks * 100) + '%'"></div>
+                        </div>
+                        <div class="bd-label">{{ d.day.slice(5) }}</div>
+                      </div>
+                    }
+                  </div>
+                  <div class="burndown-legend">
+                    <span class="legend-item"><span class="legend-swatch ideal"></span>理想燃尽</span>
+                    <span class="legend-item"><span class="legend-swatch actual"></span>实际剩余</span>
+                  </div>
+                } @else {
+                  <div class="empty-inline">暂无足够数据绘制燃尽图</div>
+                }
               </div>
             }
             <div class="section-header">

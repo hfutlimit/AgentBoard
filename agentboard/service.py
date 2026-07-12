@@ -462,6 +462,65 @@ def list_sprints(s: Session, project_id: int, limit: int | None = None, offset: 
     return _paginate(q, limit, offset).all()
 
 
+def get_sprint_burndown(s: Session, sprint_id: int) -> dict:
+    """返回 Sprint 燃尽图数据：每日剩余任务数。"""
+    from datetime import timedelta, datetime as dt
+    from sqlalchemy import func
+
+    sp = s.get(Sprint, sprint_id)
+    if not sp:
+        raise NotFound(f"sprint {sprint_id} not found")
+
+    # 统计总任务数
+    total = s.query(func.count(Task.id)).filter(Task.sprint_id == sprint_id).scalar() or 0
+
+    # 已完成任务数
+    done = s.query(func.count(Task.id)).filter(
+        Task.sprint_id == sprint_id, Task.status == Status.DONE
+    ).scalar() or 0
+
+    # 理想燃尽：从 start_date 每天递减，到 end_date 为 0
+    # 如果没有 start_date，从今天往前推 14 天
+    today = dt.now().date()
+    if sp.start_date:
+        start = sp.start_date.date() if hasattr(sp.start_date, 'date') else sp.start_date
+    else:
+        start = today - timedelta(days=13)
+    if sp.end_date:
+        end = sp.end_date.date() if hasattr(sp.end_date, 'date') else sp.end_date
+    else:
+        end = today
+
+    # 生成每日剩余任务数（理想线 = 线性递减）
+    days = []
+    ideal = []
+    total_days = max((end - start).days, 1)
+    for i in range(total_days + 1):
+        day = start + timedelta(days=i)
+        # 剩余 = 总任务 - (i/total_days * 总任务) = 总任务 * (1 - i/total_days)
+        ideal_val = round(total * (1 - i / total_days)) if total_days > 0 else 0
+        # 实际剩余：统计当天及之前完成的任务
+        done_by_day = s.query(func.count(Task.id)).filter(
+            Task.sprint_id == sprint_id,
+            Task.status == Status.DONE,
+            func.date(Task.updated_at) <= day,
+        ).scalar() or 0
+        remaining = total - done_by_day
+        days.append({"day": day.isoformat(), "remaining": remaining, "ideal": ideal_val})
+
+    return {
+        "sprint_id": sprint_id,
+        "title": sp.title,
+        "total_tasks": total,
+        "done_tasks": done,
+        "remaining_tasks": total - done,
+        "start_date": sp.start_date.isoformat() if sp.start_date else start.isoformat(),
+        "end_date": sp.end_date.isoformat() if sp.end_date else end.isoformat(),
+        "status": sp.status.value if hasattr(sp.status, 'value') else sp.status,
+        "daily": days,
+    }
+
+
 def activate_sprint(s: Session, id: int) -> Sprint:
     """激活 Sprint：先停用同项目所有 ACTIVE Sprint，再激活目标 Sprint。"""
     sp = s.get(Sprint, id)
