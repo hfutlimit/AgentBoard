@@ -377,3 +377,49 @@
 | 日期 | 项 | 简述 |
 |------|----|------|
 | 2026-07-12 | Epic 13 | 成员管理（ProjectMember）、通知系统（Notification）、项目可见性（is_private）、Admin 后台（is_admin）；后端新增 10+ API 端点 + Alembic 迁移；前端 Tab 化项目详情页（Epics/Sprints/Backlog/Members/Stats/Settings）；17 pytest 测试全绿；Task 102（MCP 工具补全）**暂缓**，不推进 MCP 鉴权；commit `4fcde35` |
+
+---
+
+## Epic 14：平台优化与运维增强（v0.4）
+> 目标：Sprint 燃尽图、API 速率限制、Dashboard 增强。
+
+### Story 14.1 健康检查与 MCP 工具
+- [x] Task 204: GET /api/health 后端健康检查端点（Task 204 → in_review）
+- [x] Task 206: 前端 API 健康指示器（Task 206 → in_review）
+- [x] Task 210: MCP get_project_stats 工具（Task 210 → in_review）
+
+### Story 14.2 Dashboard 与 Sprint 增强
+- [x] Task 207: Dashboard Hero 增强（健康状态胶囊 + 完成率统计卡）
+- [x] Task 208: Sprint 燃尽图（GET /api/sprints/{id}/burndown + Angular 图表）
+- [x] Task 209: 任务卡片丰富化（timeAgo + Sprint 指示器）
+
+### Story 14.3 API 速率限制
+- [x] Task 205: 线程安全 token-bucket 限流（60 req/min/IP，环境变量可配置）
+
+### Story 14.4 通知增强
+- [x] 全局通知优化（动画 + 类型图标 + timeAgo + 脉冲徽章）
+
+### 完成记录
+| 日期 | 项 | 简述 |
+|------|----|------|
+| 2026-07-13 | Epic 14 | Sprint 燃尽图（`get_sprint_burndown` + `/burndown` 端点 + Angular 双柱图）+ API 速率限制（token-bucket 中间件，60 req/min）+ Dashboard Hero 增强（健康胶囊 + 完成率）+ 任务卡片丰富化（timeAgo + Sprint 指示器）；11 scheduler 测试全绿，Rate limit 65→60 OK + 5×429 ✅；commit `5b6affb` |
+
+---
+
+## Epic 15：用户体验持续优化（v0.4+）
+> 目标：深色模式、通知系统、最近访问等交互体验增强。
+
+### Story 15.1 全局通知与操作反馈
+- [x] 通知列表动画、未读蓝色圆点、类型图标（📬📋🔄💬）、timeAgo 格式
+
+### Story 15.2 最近访问与收藏
+- [x] localStorage 记录最近 5 个访问项目，侧栏顶部显示分组
+
+### Story 15.3 深色模式系统同步
+- [x] 启动跟随 `prefers-color-scheme`，监听变化自动切换，☀️/🌙 按钮图标
+
+### 完成记录
+| 日期 | 项 | 简述 |
+|------|----|------|
+| 2026-07-13 | Epic 15 | 全局通知增强（slideDown 动画 + 脉冲徽章 + 类型图标）+ 最近访问（localStorage 5 项目）+ 深色模式系统同步（prefers-color-scheme）；commit `5b6affb` |
+

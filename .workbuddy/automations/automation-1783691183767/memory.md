@@ -1,5 +1,60 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-13 07:18（周期执行 · Epic 14 Sprint燃尽图 + Epic 15 平台优化）
+
+- **拉取最新代码**：已是最新（aeac22c）
+- **MCP 分析**：无 WorkBuddy Task（系统空），Epic 14 剩余 backlog：207/208/209/205；Epic 13 Task 102 暂缓
+- **执行了 7 个任务**（超过 5 个要求）
+
+### Task 208 → done: Sprint 燃尽图
+- `service.py`: `get_sprint_burndown()` 每日剩余任务数计算
+- `api.py`: `GET /api/sprints/{sid}/burndown` 端点
+- Angular: Sprint 详情页燃尽图（理想线 + 实际剩余双柱）
+
+### Task 205 → done: API 速率限制
+- `api.py`: 线程安全 token-bucket 限流中间件（60 req/min/IP，可配置）
+- 测试：65次请求 → 60 OK + 5 × 429 ✅
+
+### Task 207 → done: Dashboard Hero 增强
+- Dashboard Hero 增加系统健康状态胶囊 + 完成率
+- 新增 stat-info 完成率统计卡
+
+### Task 209 → done: 任务卡片丰富化
+- Story 任务列表增加 timeAgo 更新时间
+- 看板卡片增加 Sprint 指示器
+- entity-item--rich / kanban-card--rich 样式增强
+
+### Epic 15 Story 15.1 → done: 全局通知优化
+- 通知列表 slideDown 动画
+- 未读蓝色圆点 + 脉冲徽章
+- 通知类型图标（📬📋🔄💬）
+- timeAgo 时间格式
+
+### Epic 15 Story 15.2 → done: 最近访问
+- localStorage 记录最近 5 个访问项目
+- 侧栏顶部显示最近访问分组
+
+### Epic 15 Story 15.3 → done: 深色模式系统同步
+- 启动跟随系统 prefers-color-scheme
+- 监听变化自动切换
+- ☀️/🌙 切换按钮图标
+
+### 部署
+- Angular: `npm run build` → 复制 `browser/` 到 `agentboard/web/static/`
+- API: docker stop → docker cp → docker start
+- Web: volume mount 自动生效
+
+### 测试
+- scheduler tests: 11/11 passed ✅
+- API burndown: `{"total_tasks":0,"daily":[...14days]}` ✅
+- Rate limit: 60 OK + 5 × 429 ✅
+
+### Git
+- Commit: `5b6affb` - feat: Epic 14 Sprint Burndown + Epic 15 v0.4 平台优化
+- Push: ✅
+
+---
+
 ## 2026-07-12 13:00-13:57（周期执行 · Epic 12 Story 12.4 推进）
 
 - **拉取最新代码**：已是最新（HEAD=36dc84c）
