@@ -248,6 +248,57 @@ if BACKEND == "db":
                 return {"error": "not found"}
             return [service._ser(t) for t in service.list_tasks(s, sprint_id=sprint_id, limit=limit, offset=offset)]
 
+    # ---------- AgentSchedule ----------
+    def _schedule_list(project_id, limit=None, offset=0):
+        with SessionLocal() as s:
+            return [service._ser(sch) for sch in service.list_schedules(s, project_id, limit=limit, offset=offset)]
+
+    def _schedule_get(schedule_id):
+        with SessionLocal() as s:
+            sch = service.get_schedule(s, schedule_id)
+            return service._ser(sch) if sch else {"error": "not found"}
+
+    def _schedule_create(project_id, title, schedule_type="cron", cron_expr=None):
+        with SessionLocal() as s:
+            return service._ser(service.create_schedule(s, project_id=project_id, title=title,
+                                                         schedule_type=schedule_type, cron_expr=cron_expr))
+
+    def _schedule_update(schedule_id, fields):
+        with SessionLocal() as s:
+            sch = service.update_schedule(s, schedule_id, **fields)
+            return service._ser(sch) if sch else {"error": "not found"}
+
+    def _schedule_delete(schedule_id):
+        with SessionLocal() as s:
+            return {"ok": service.delete_schedule(s, schedule_id)}
+
+    # ---------- AgentRun ----------
+    def _run_create(schedule_id, task_id=None, idempotency_key=None):
+        with SessionLocal() as s:
+            try:
+                return service._ser(service.create_run(s, schedule_id=schedule_id,
+                                                       task_id=task_id, idempotency_key=idempotency_key))
+            except service.Duplicate as e:
+                return {"error": str(e)}
+
+    def _run_list(schedule_id, limit=None, offset=0):
+        with SessionLocal() as s:
+            return [service._ser(r) for r in service.list_runs(s, schedule_id, limit=limit, offset=offset)]
+
+    def _run_get(run_id):
+        with SessionLocal() as s:
+            r = service.get_run(s, run_id)
+            return service._ser(r) if r else {"error": "not found"}
+
+    def _run_update(run_id, fields):
+        with SessionLocal() as s:
+            r = service.update_run(s, run_id, **fields)
+            return service._ser(r) if r else {"error": "not found"}
+
+    def _run_delete(run_id):
+        with SessionLocal() as s:
+            return {"ok": service.delete_run(s, run_id)}
+
 else:  # api 模式
     import httpx
 
@@ -411,6 +462,52 @@ else:  # api 模式
             params["limit"] = limit
         return _http("GET", f"/api/sprints/{sprint_id}/tasks", params=params)
 
+    # ---------- AgentSchedule ----------
+    def _schedule_list(project_id, limit=None, offset=0):
+        params = {"offset": offset}
+        if limit is not None:
+            params["limit"] = limit
+        return _http("GET", f"/api/projects/{project_id}/schedules", params=params)
+
+    def _schedule_get(schedule_id):
+        return _http("GET", f"/api/schedules/{schedule_id}")
+
+    def _schedule_create(project_id, title, schedule_type="cron", cron_expr=None):
+        body = {"title": title, "schedule_type": schedule_type}
+        if cron_expr:
+            body["cron_expr"] = cron_expr
+        return _http("POST", f"/api/projects/{project_id}/schedules", json=body)
+
+    def _schedule_update(schedule_id, fields):
+        return _http("PATCH", f"/api/schedules/{schedule_id}", json=fields)
+
+    def _schedule_delete(schedule_id):
+        return _http("DELETE", f"/api/schedules/{schedule_id}")
+
+    # ---------- AgentRun ----------
+    def _run_create(schedule_id, task_id=None, idempotency_key=None):
+        body = {}
+        if task_id is not None:
+            body["task_id"] = task_id
+        if idempotency_key is not None:
+            body["idempotency_key"] = idempotency_key
+        return _http("POST", f"/api/schedules/{schedule_id}/runs", json=body)
+
+    def _run_list(schedule_id, limit=None, offset=0):
+        params = {"offset": offset}
+        if limit is not None:
+            params["limit"] = limit
+        return _http("GET", f"/api/schedules/{schedule_id}/runs", params=params)
+
+    def _run_get(run_id):
+        return _http("GET", f"/api/runs/{run_id}")
+
+    def _run_update(run_id, fields):
+        return _http("PATCH", f"/api/runs/{run_id}", json=fields)
+
+    def _run_delete(run_id):
+        return _http("DELETE", f"/api/runs/{run_id}")
+
 
 if BACKEND == "db":
     # 让 DB 与 API 后端对领域错误使用相同的 MCP 返回契约。
@@ -426,7 +523,7 @@ if BACKEND == "db":
         if _name.startswith("_") and callable(_func) and _name not in {
             "_domain_error_result", "_current_token", "_http"
         }:
-            if _name.startswith(("_proj_", "_epic_", "_story_", "_task_", "_comment_", "_auth_", "_sprint_")):
+            if _name.startswith(("_proj_", "_epic_", "_story_", "_task_", "_comment_", "_auth_", "_sprint_", "_schedule_", "_run_")):
                 globals()[_name] = _domain_error_result(_func)
 
 
@@ -695,6 +792,80 @@ def delete_sprint(sprint_id: int) -> dict:
 def list_sprint_tasks(sprint_id: int, limit: int | None = None, offset: int = 0) -> list:
     """分页列出指定 Sprint 下的 Task。"""
     return _sprint_task_list(sprint_id, limit=limit, offset=offset)
+
+
+# ---------- AgentSchedule MCP 工具 ----------
+@mcp.tool()
+def list_schedules(project_id: int, limit: int | None = None, offset: int = 0) -> list:
+    """分页列出指定 Project 下的 AgentSchedule。"""
+    return _schedule_list(project_id, limit=limit, offset=offset)
+
+
+@mcp.tool()
+def get_schedule(schedule_id: int) -> dict:
+    """获取 AgentSchedule 详情。"""
+    return _schedule_get(schedule_id)
+
+
+@mcp.tool()
+def create_schedule(project_id: int, title: str, schedule_type: str = "cron",
+                    cron_expr: str | None = None) -> dict:
+    """创建定时计划。schedule_type: once/cron；cron_expr: 5 字段 cron 表达式。"""
+    return _schedule_create(project_id, title, schedule_type=schedule_type, cron_expr=cron_expr)
+
+
+@mcp.tool()
+def update_schedule(schedule_id: int, title: str | None = None,
+                    schedule_type: str | None = None, cron_expr: str | None = None,
+                    enabled: bool | None = None, next_run_at: str | None = None) -> dict:
+    """更新 AgentSchedule 配置。仅传入需要修改的字段。"""
+    fields = {k: v for k, v in dict(title=title, schedule_type=schedule_type,
+                                    cron_expr=cron_expr, enabled=enabled,
+                                    next_run_at=next_run_at).items() if v is not None}
+    return _schedule_update(schedule_id, fields)
+
+
+@mcp.tool()
+def delete_schedule(schedule_id: int) -> dict:
+    """删除 AgentSchedule（级联删除运行记录）。"""
+    return _schedule_delete(schedule_id)
+
+
+# ---------- AgentRun MCP 工具 ----------
+@mcp.tool()
+def list_runs(schedule_id: int, limit: int | None = None, offset: int = 0) -> list:
+    """分页列出指定 Schedule 的 AgentRun 历史。"""
+    return _run_list(schedule_id, limit=limit, offset=offset)
+
+
+@mcp.tool()
+def get_run(run_id: int) -> dict:
+    """获取 AgentRun 详情（含 output/error_message）。"""
+    return _run_get(run_id)
+
+
+@mcp.tool()
+def create_run(schedule_id: int, task_id: int | None = None,
+               idempotency_key: str | None = None) -> dict:
+    """创建运行记录。idempotency_key 用于防止重复运行。"""
+    return _run_create(schedule_id, task_id=task_id, idempotency_key=idempotency_key)
+
+
+@mcp.tool()
+def update_run(run_id: int, status: str | None = None, output: str | None = None,
+               error_message: str | None = None, started_at: str | None = None,
+               finished_at: str | None = None, task_id: int | None = None) -> dict:
+    """更新 AgentRun 状态、输出或错误信息。"""
+    fields = {k: v for k, v in dict(status=status, output=output, error_message=error_message,
+                                    started_at=started_at, finished_at=finished_at,
+                                    task_id=task_id).items() if v is not None}
+    return _run_update(run_id, fields)
+
+
+@mcp.tool()
+def delete_run(run_id: int) -> dict:
+    """删除运行记录。"""
+    return _run_delete(run_id)
 
 
 @mcp.tool()

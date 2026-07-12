@@ -36,12 +36,26 @@ class SprintStatus(StrEnum):
     COMPLETED = "completed"
 
 
+class ScheduleType(StrEnum):
+    ONCE = "once"
+    CRON = "cron"
+
+
+class RunStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+
+
 ALL_TYPES = [ItemType.TASK, ItemType.BUG]
 ALL_SPRINT_STATUSES = [SprintStatus.PLANNING, SprintStatus.ACTIVE, SprintStatus.COMPLETED]
 ALL_STATUSES = [Status.BACKLOG, Status.TODO, Status.IN_PROGRESS,
                 Status.IN_REVIEW, Status.VERIFYING, Status.DONE]
 ALL_PRIORITIES = [Priority.HIGHEST, Priority.HIGH, Priority.MEDIUM,
                   Priority.LOW, Priority.LOWEST]
+ALL_SCHEDULE_TYPES = [ScheduleType.ONCE, ScheduleType.CRON]
+ALL_RUN_STATUSES = [RunStatus.PENDING, RunStatus.RUNNING, RunStatus.SUCCESS, RunStatus.FAILED]
 
 
 def _now() -> datetime:
@@ -163,4 +177,44 @@ class Attachment(Base):
     original_name: Mapped[str] = mapped_column(String(500), nullable=False)  # 用户上传时的原始文件名
     size: Mapped[int] = mapped_column(Integer, nullable=False)               # 字节数
     mime_type: Mapped[str] = mapped_column(String(200), nullable=False)      # MIME 类型
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class AgentSchedule(Base):
+    __tablename__ = "agent_schedules"
+    __table_args__ = (
+        CheckConstraint(
+            "schedule_type IN ('once','cron')",
+            name="ck_schedules_type",
+        ),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    schedule_type: Mapped[str] = mapped_column(String(10), default=ScheduleType.CRON)
+    cron_expr: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    enabled: Mapped[bool] = mapped_column(default=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','running','success','failed')",
+            name="ck_runs_status",
+        ),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    schedule_id: Mapped[int] = mapped_column(ForeignKey("agent_schedules.id", ondelete="CASCADE"), nullable=False, index=True)
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id"), nullable=True, index=True)
+    status: Mapped[str] = mapped_column(String(20), default=RunStatus.PENDING)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128), unique=True, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    output: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

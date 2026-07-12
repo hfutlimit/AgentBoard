@@ -5,8 +5,8 @@ from sqlalchemy.orm import Session
 from . import models, auth
 from .models import (
     ItemType, Status, Priority, SprintStatus, ALL_TYPES, ALL_STATUSES,
-    ALL_PRIORITIES, ALL_SPRINT_STATUSES,
-    Project, Epic, Story, Task, Comment, Sprint, Attachment,
+    ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES,
+    Project, Epic, Story, Task, Comment, Sprint, Attachment, AgentSchedule, AgentRun,
 )
 
 DEFAULT_PAGE_SIZE = 100
@@ -577,6 +577,131 @@ def delete_attachment(s: Session, id: int) -> bool:
     if _os.path.isfile(path):
         _os.unlink(path)
     s.delete(att); _commit(s); return True
+
+
+# ---------- AgentSchedule / AgentRun ----------
+import re as _re
+
+_CRON_PATTERN = _re.compile(
+    r"^(\*|[0-5]?\d(?:-[0-5]?\d(?:/\d+)?)?(?:,[0-5]?\d(?:-[0-5]?\d(?:/\d+)?)?)*)\s+"
+    r"(\*|1?\d|2[0-3])(?:-[1-2]?\d(?:/\d+)?)?(?:,(?:1?\d|#[0-3]))*\s+"
+    r"(\*|[1-2]?\d|3[01])(?:-[1-3]?\d(?:/\d+)?)?(?:,\d+(?:-\d+(?:/\d+)?)?)*\s+"
+    r"(\*|1?\d|1[0-2])(?:-1[0-2](?:/\d+)?)?(?:,\d+(?:-\d+(?:/\d+)?)?)*\s+"
+    r"(\*|[0-7])(?:-[0-7](?:/\d+)?)?(?:,[0-7](?:-[0-7](?:/\d+)?)?)*$"
+)
+
+
+def _validate_cron(expr: str) -> None:
+    """校验 cron 表达式格式（5 字段：分 时 日 月 周）。"""
+    if not _CRON_PATTERN.match(expr.strip()):
+        raise InvalidValue(f"invalid cron expression: {expr}")
+
+
+def create_schedule(s: Session, *, project_id: int, title: str,
+                    schedule_type: str = "cron", cron_expr: str | None = None) -> AgentSchedule:
+    if not s.get(Project, project_id):
+        raise NotFound(f"project {project_id} not found")
+    title = _required(title, "title", 300)
+    if schedule_type not in ALL_SCHEDULE_TYPES:
+        raise InvalidValue(f"invalid schedule_type '{schedule_type}'")
+    if schedule_type == "cron":
+        if not cron_expr:
+            raise InvalidValue("cron_expr is required for cron schedule")
+        _validate_cron(cron_expr)
+    else:
+        cron_expr = None
+    sch = AgentSchedule(project_id=project_id, title=title,
+                        schedule_type=schedule_type, cron_expr=cron_expr)
+    s.add(sch); _commit(s); s.refresh(sch); return sch
+
+
+def get_schedule(s: Session, id: int) -> AgentSchedule | None:
+    return s.get(AgentSchedule, id)
+
+
+def list_schedules(s: Session, project_id: int, limit: int | None = None, offset: int = 0):
+    q = s.query(AgentSchedule).filter(AgentSchedule.project_id == project_id)
+    return _paginate(q, limit, offset).all()
+
+
+def update_schedule(s: Session, id: int, **fields) -> AgentSchedule | None:
+    sch = s.get(AgentSchedule, id)
+    if not sch:
+        return None
+    for k, v in fields.items():
+        if k == "title" and v is not None:
+            v = _required(v, "title", 300)
+            sch.title = v
+        elif k == "schedule_type" and v is not None:
+            if v not in ALL_SCHEDULE_TYPES:
+                raise InvalidValue(f"invalid schedule_type '{v}'")
+            sch.schedule_type = v
+        elif k == "cron_expr" and v is not None:
+            _validate_cron(v)
+            sch.cron_expr = v
+        elif k == "enabled" and v is not None:
+            sch.enabled = v
+        elif k == "next_run_at" and v is not None:
+            sch.next_run_at = v
+    _commit(s); s.refresh(sch); return sch
+
+
+def delete_schedule(s: Session, id: int) -> bool:
+    sch = s.get(AgentSchedule, id)
+    if not sch:
+        return False
+    s.delete(sch); _commit(s); return True
+
+
+def create_run(s: Session, *, schedule_id: int, task_id: int | None = None,
+               idempotency_key: str | None = None) -> AgentRun:
+    if not s.get(AgentSchedule, schedule_id):
+        raise NotFound(f"schedule {schedule_id} not found")
+    if idempotency_key:
+        existing = s.query(AgentRun).filter(AgentRun.idempotency_key == idempotency_key).first()
+        if existing:
+            raise Duplicate(f"run with idempotency_key '{idempotency_key}' already exists")
+    run = AgentRun(schedule_id=schedule_id, task_id=task_id,
+                   idempotency_key=idempotency_key)
+    s.add(run); _commit(s); s.refresh(run); return run
+
+
+def get_run(s: Session, id: int) -> AgentRun | None:
+    return s.get(AgentRun, id)
+
+
+def list_runs(s: Session, schedule_id: int, limit: int | None = None, offset: int = 0):
+    q = s.query(AgentRun).filter(AgentRun.schedule_id == schedule_id).order_by(AgentRun.id.desc())
+    return _paginate(q, limit, offset).all()
+
+
+def update_run(s: Session, id: int, **fields) -> AgentRun | None:
+    run = s.get(AgentRun, id)
+    if not run:
+        return None
+    for k, v in fields.items():
+        if k == "status" and v is not None:
+            if v not in ALL_RUN_STATUSES:
+                raise InvalidValue(f"invalid run status '{v}'")
+            run.status = v
+        elif k == "output" and v is not None:
+            run.output = v
+        elif k == "error_message" and v is not None:
+            run.error_message = v
+        elif k == "started_at" and v is not None:
+            run.started_at = v
+        elif k == "finished_at" and v is not None:
+            run.finished_at = v
+        elif k == "task_id" and v is not None:
+            run.task_id = v
+    _commit(s); s.refresh(run); return run
+
+
+def delete_run(s: Session, id: int) -> bool:
+    run = s.get(AgentRun, id)
+    if not run:
+        return False
+    s.delete(run); _commit(s); return True
 
 
 class DomainError(Exception):

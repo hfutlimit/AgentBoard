@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from .database import get_session, init_db, SessionLocal
 from . import service, auth
-from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, ALL_SPRINT_STATUSES
+from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES
 
 
 @asynccontextmanager
@@ -159,6 +159,34 @@ class SprintPatch(BaseModel):
     end_date: str | None = None
 
 
+class ScheduleIn(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    schedule_type: str = "cron"
+    cron_expr: str | None = None
+
+
+class SchedulePatch(BaseModel):
+    title: str | None = Field(None, min_length=1, max_length=300)
+    schedule_type: str | None = None
+    cron_expr: str | None = None
+    enabled: bool | None = None
+    next_run_at: str | None = None
+
+
+class RunIn(BaseModel):
+    task_id: int | None = None
+    idempotency_key: str | None = Field(None, max_length=128)
+
+
+class RunPatch(BaseModel):
+    status: str | None = None
+    output: str | None = None
+    error_message: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    task_id: int | None = None
+
+
 def _need(obj, what: str):
     if obj is None:
         raise HTTPException(status_code=404, detail=f"{what} not found")
@@ -199,7 +227,8 @@ async def handle_illegal_transition(_request: Request, exc: service.IllegalTrans
 @app.get("/api/meta")
 def meta():
     return {"types": ALL_TYPES, "statuses": ALL_STATUSES, "priorities": ALL_PRIORITIES,
-            "sprint_statuses": ALL_SPRINT_STATUSES}
+            "sprint_statuses": ALL_SPRINT_STATUSES,
+            "schedule_types": ALL_SCHEDULE_TYPES, "run_statuses": ALL_RUN_STATUSES}
 
 
 # ---------- Auth ----------
@@ -547,4 +576,86 @@ def attachment_info(aid: int, s: Session = Depends(get_session)):
 def delete_attachment(aid: int, s: Session = Depends(get_session)):
     if not service.delete_attachment(s, aid):
         raise HTTPException(status_code=404, detail="attachment not found")
+    return {"ok": True}
+
+
+# ---------- AgentSchedule ----------
+@app.get("/api/projects/{pid}/schedules")
+def list_schedules(pid: int, s: Session = Depends(get_session),
+                   limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0)):
+    _need(service.get_project(s, pid), "project")
+    return [service._ser(sch) for sch in service.list_schedules(s, pid, limit=limit, offset=offset)]
+
+
+@app.post("/api/projects/{pid}/schedules", status_code=201)
+def create_schedule(pid: int, body: ScheduleIn, s: Session = Depends(get_session)):
+    _need(service.get_project(s, pid), "project")
+    try:
+        sch = service.create_schedule(s, project_id=pid, title=body.title,
+                                      schedule_type=body.schedule_type,
+                                      cron_expr=body.cron_expr)
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(sch)
+
+
+@app.get("/api/schedules/{sid}")
+def get_schedule(sid: int, s: Session = Depends(get_session)):
+    return service._ser(_need(service.get_schedule(s, sid), "schedule"))
+
+
+@app.patch("/api/schedules/{sid}")
+def update_schedule(sid: int, body: SchedulePatch, s: Session = Depends(get_session)):
+    try:
+        r = service.update_schedule(s, sid, **body.model_dump(exclude_none=True))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(_need(r, "schedule"))
+
+
+@app.delete("/api/schedules/{sid}")
+def delete_schedule(sid: int, s: Session = Depends(get_session)):
+    if not service.delete_schedule(s, sid):
+        raise HTTPException(status_code=404, detail="schedule not found")
+    return {"ok": True}
+
+
+# ---------- AgentRun ----------
+@app.post("/api/schedules/{sid}/runs", status_code=201)
+def create_run(sid: int, body: RunIn, s: Session = Depends(get_session)):
+    try:
+        run = service.create_run(s, schedule_id=sid, task_id=body.task_id,
+                                 idempotency_key=body.idempotency_key)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.Duplicate as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return service._ser(run)
+
+
+@app.get("/api/schedules/{sid}/runs")
+def list_runs(sid: int, s: Session = Depends(get_session),
+              limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0)):
+    _need(service.get_schedule(s, sid), "schedule")
+    return [service._ser(r) for r in service.list_runs(s, sid, limit=limit, offset=offset)]
+
+
+@app.get("/api/runs/{rid}")
+def get_run(rid: int, s: Session = Depends(get_session)):
+    return service._ser(_need(service.get_run(s, rid), "run"))
+
+
+@app.patch("/api/runs/{rid}")
+def update_run(rid: int, body: RunPatch, s: Session = Depends(get_session)):
+    try:
+        r = service.update_run(s, rid, **body.model_dump(exclude_none=True))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(_need(r, "run"))
+
+
+@app.delete("/api/runs/{rid}")
+def delete_run(rid: int, s: Session = Depends(get_session)):
+    if not service.delete_run(s, rid):
+        raise HTTPException(status_code=404, detail="run not found")
     return {"ok": True}
