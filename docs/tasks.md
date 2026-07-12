@@ -305,8 +305,8 @@
 - [ ] Task：任务详情附件区与 MCP 资源信息工具
 
 ### Story 12.4 定时 Agent 开发
-- [ ] Task：AgentSchedule / AgentRun 模型、一次性与 cron 表达式校验
-- [ ] Task：带租约和幂等键的调度扫描器，避免重复运行
+- [x] Task：AgentSchedule / AgentRun 模型、一次性与 cron 表达式校验（Task 88 → in_review）
+- [x] Task：带租约和幂等键的调度扫描器，避免重复运行（Task 89 → in_review）
 - [ ] Task：Codex / WorkBuddy / Qoder 执行器适配契约与最小安全策略
 - [ ] Task：Web 计划配置、运行历史、失败重试与停用入口
 - [ ] Task：MCP 提供领取任务、心跳、状态/评论同步与运行完成工具
@@ -314,6 +314,7 @@
 ### 完成记录
 | 日期 | 项 | 简述 |
 |------|----|------|
+| 2026-07-12 | Epic 12 Story 12.4 Task 89 | 调度扫描器：scheduler.py（含 croniter compute_next_run、幂等键、DaemonScheduler）；修复 cron 正则 */n 步长；SQLite FOR UPDATE NOWAIT 降级；11 项测试 + 26 回归 + 6 Playwright 全绿。Task 89 → in_review |
 | 2026-07-10 | A-01 | Story 页只读看板（列表/看板切换），复用现有 tasks 接口与 statusBadge |
 | 2026-07-10 | A-02 | 状态色徽章 Jira 风格：statusBadge 改用 `.badge.status--<status>` CSS 类，下拉选项与任务详情头部同步套用，bug 红色强调 |
 | 2026-07-11 | A-03 | 任务类型图标：新增 `typeIcon()` 内联 SVG（task=勾选圆环 / bug=瓢虫），替换看板/列表/详情/徽章中的 emoji，不引入图标库 |
