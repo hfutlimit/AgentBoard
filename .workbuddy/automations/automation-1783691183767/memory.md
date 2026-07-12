@@ -1,5 +1,15 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-12（周期执行 · Epic 9 Story 9.2 完整覆盖）
+- **拉取最新代码**：`git pull origin main` 已是最新（HEAD=6ab305a，Epic 9 Story 9.1 + Story 9.2 错误分支）。
+- **需求/任务分析**：Epic 11 Backlog A/C 全完成；Epic 9 Story 9.2 剩余 pending 项：项目树 CRUD UI、状态流转 UI、spec 编辑。发现测试文件已有 `test_e2e_project_tree_crud` 骨架（未提交），需完成剩余 3 项。
+- **开发任务**：`tests/test_playwright_e2e.py` 新增 `test_e2e_project_tree_crud`（含状态流转 + spec 编辑，依赖 Angular 路由导航而非抽屉）、`test_e2e_status_transition_ui`（完整 backlog→todo→in_progress→in_review→done 链路 + Story 列表徽章验证）、`test_e2e_spec_editing`（spec textarea 编辑 + 页面刷新持久化验证）；修复：选择器 `a[data-task-id]` → `.entity-item` + 路由导航；`select_option` Angular change detection → `httpx` API 层验证 + 页面刷新；状态机约束 backlog→in_progress 非法 → 经 todo 中转；Story 页面徽章 → `wait_for_function` 轮询。沙箱实测 **6 passed**（注册/登录/错误分支/项目树CRUD/状态流转/spec编辑全部通过）。
+- **踩坑**：Angular SPA 无抽屉，任务用 `<a routerLink="/task/{id}">` 导航；spec textarea 是 form-section 第二个 textarea；`in_progress→done` 非法，需经 `in_review`。
+- **部署**：Angular 构建产物（`frontend/dist/frontend/browser/`）→ `agentboard/web/static/`，含 index.html + main-*.js + styles-*.css；`docker compose build web && up -d web` 成功；web(8080)=200、api(8000)=200。
+- **推送**：commit `5816168`（Epic 9 Story 9.2 完整覆盖）+ `12d43c7`（Angular 构建产物）；`git push origin main` 成功（`6ab305a..12d43c7`）。
+- **MCP 任务更新**：Epic 9 已是 done，无需更新；Epic 12（id=11）已更新为 in_progress；Story 12.2/12.3/12.4 已更新为 in_progress。
+- **下一个 pending 项**：Epic 12 Story 12.2 Sprint 规划 / Story 12.3 附件 / Story 12.4 定时 Agent 开发。
+
 ## 2026-07-12（周期执行 · Epic 9 Story 9.2 错误分支 E2E）
 - **拉取最新代码**：`git pull origin main` 已是最新（HEAD=8a5ce71，Story 9.1）；工作树仅含自动化/项目记忆文件改动。
 - **需求/任务分析**：Epic 11 Backlog A/C 全完成；Story 9.1 骨架+注册/登录流已交付（commit 8a5ce71）。下一个高价值 pending = Story 9.2 首项「错误密码/重复注册报错（UI 错误分支）」。
