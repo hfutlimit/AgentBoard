@@ -54,3 +54,31 @@
 **Both tasks updated to `done` with detailed review comments.**
 
 **No remaining in_review tasks.**
+
+## 2026-07-12 15:50 Execution
+
+**Status**: Completed successfully
+
+**Findings**:
+- Found 2 tasks in `in_review` status: Task #84 (Sprint/Backlog Web 视图与 MCP 工具) and Task #85 (附件元数据模型、本地安全存储与大小/MIME 限制)
+- Both belong to AgentBoard project (id=3)
+
+**Actions taken**:
+- Git pull: already up to date
+- Docker containers all running (API, MCP, Web, DB)
+- MCP container had outdated code (missing Attachment model + migration file) → fixed via `docker cp` (models.py, service.py, migration file) + restart
+- Verified attachments table exists in MariaDB with correct schema
+- Wrote comprehensive test script `tests/test_review_84_85.py` (35 tests)
+- Task #84: 19/19 tests passed (Sprint API CRUD + lifecycle, Backlog web view, MCP 8 sprint tools)
+- Task #85: 16/16 tests passed (Attachment upload/download/info/delete, MIME whitelist, size limit, UUID security)
+- Single active sprint constraint verified: uses auto-deactivate approach (valid design)
+- Both tasks updated to `done` with detailed review comments
+
+**Issues encountered**:
+- MCP container missing migration file `9e4f1d5c8a3b_add_attachments.py` → copied via `docker cp`
+- MCP container missing updated `models.py` and `service.py` → copied via `docker cp`
+- Docker Hub still unreachable, used `docker cp` workaround
+
+**Committed and pushed**: `019d05a`
+
+**No remaining in_review tasks.**
