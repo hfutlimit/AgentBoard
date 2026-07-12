@@ -12,17 +12,30 @@
 - commit 规范：`feat(ui): 前端小优化 - <一句话描述>`。
 - 复用：状态/类型枚举来自 `GET /api/meta`；渲染辅助 `md()/esc()/statusSelect()/typeSelect()/toast()/route()` 可直接复用。
 
-## 既有能力现状（2026-07-10 盘点，Epic 7 于 2026-07-12 完成）
+## 既有能力现状（2026-07-12 盘点）
 - **鉴权全链路就绪**：后端 `/api/auth/register|login|me` + `users` 表 + 测试；**前端登录/注册 UI 已完成（Epic 7，2026-07-12）**。`app.js` 含 `getToken/setToken/clearToken` + `CURRENT_USER`；`api()` 注入 `Authorization` 并在 401 跳登录（auth 端点自身不触发，避免递归）；顶栏用户名+登出。
 - **Epic 7 启动守卫为"动态"设计（重要）**：后端开放（默认 `AGENTBOARD_REQUIRE_AUTH` 未设/0）时免登可用；一旦后端设为 `1` 强制鉴权，SPA 数据请求 401 会**自动跳登录**。据此**不要**把 SPA 改成"无 token 一律硬拦截进入"——会破坏当前开放部署。如需强制登录，应在后端置 `AGENTBOARD_REQUIRE_AUTH=1`，SPA 会自动适配。
-- MariaDB：切换/驱动/Alembic/`db` profile 就绪；缺独立 `.sql` 脚本与真实验证（Epic 8）。
-- Playwright：无（Epic 9）。MCP 服务完整，待鉴权集成+运维化（Epic 10，已完成）。
+- **Epic 8**：MariaDB 独立 `.sql` 脚本 + 真实集成验证（已完成）。
+- **Epic 9**：Playwright 真实浏览器 E2E（已完成，6 passed）。
+- **Epic 12（进行中）**：Story 12.1 完成；Story 12.2 进行中（task 12.2.1 完成：Sprint 数据模型与 CRUD）。
+- **Sprint 功能就绪（2026-07-12）**：`SprintStatus` 枚举（planning/active/completed）+ `Sprint` 模型 + Task.sprint_id FK；单 active Sprint 约束；Sprint 完成时未完成任务退回 backlog；REST API Sprint 端点完整；`/api/meta` 含 `sprint_statuses`。
 
 ## 协作流程约定
 - 文档驱动：需求 `docs/requirements.md`、主任务 `docs/tasks.md`（Epic 分段）、每个变更 `openspec/changes/<id>/{proposal,design,tasks}.md`。
 - Git（⚠️ 本条为本项目硬性约定）：**每次修改都要及时 push**。无论改动大小（含文档/任务拆分/数据库运行时以外的任何文件变更），完成 `git add . && git commit -m "feat: ..."` 后**必须立即 `git push origin main`**。push 若失败（沙箱 SSH 受限）需提示用户本地重试，不得静默跳过。
 
-## 部署约定（重要，踩坑记录 2026-07-10）
+## 前端开发规范（强制流程，2026-07-12）
+- **修改前端代码 → 部署 → Playwright 验证**：每次修改前端代码后，完成部署必须用 Playwright 截图验证页面渲染正常、无 JS 错误、无 404 资源。
+- Playwright 验证检查项：Page Errors、404 Resources、Angular 组件是否渲染。
+- 参考验证脚本模式：启动 browser、访问 http://localhost:8080/、截图、控制台错误检查。
+
+## 部署约定（重要，踩坑记录 2026-07-12）
+- **前端改动必须重建镜像**：`web_app.py` 从 `agentboard/web/static/` 读文件，但 Dockerfile 用 `COPY . .` 把源码**构建时**烤进镜像；`docker-compose.yml` 的 web/api 服务**只挂了 `agentboard_data` 数据卷，没挂源码**。因此改了静态文件后，只跑 `docker compose up -d` 会复用旧镜像 → 看到老页面。
+- **正确重部署命令**：`docker compose up -d --build`（或先 `docker compose build` 再 `up -d`）。本次已在沙箱执行 `docker compose up -d --build web` 修复"看不到新前端"问题。
+- Web 端口 **8080**（非 5080），API 端口 8000。浏览器访问 http://localhost:8080 ，SPA 经 `AGENTBOARD_API_URL`（默认 localhost:8000）调 API。
+- **浏览器务必硬刷新**（Ctrl/Cmd+Shift+R）清静态缓存。
+- **后端改动 docker cp 注入**：沙箱 Docker Hub 不可达，`docker compose build` 失败；改用 `docker cp <file> agentboard-api-1:/app/<path>` 注入修改文件；`docker restart agentboard-api-1` 重启；注意：`docker cp` 复制目录到已存在的目标时会**嵌套复制**（创建 `dest/src/` 而非覆盖内容），需用 `docker exec rm -rf` 清理嵌套目录。
+- **Alembic 迁移与 init_db**：API 启动时 `init_db()` 调用 `alembic.command.upgrade("head")`；新迁移必须同时复制到容器 `/app/migrations/versions/` 并更新 `alembic_version` 表；沙箱无 mysql 客户端时用容器内 Python 直接 SQL 应用。
 - **前端改动必须重建镜像**：`web_app.py` 从 `agentboard/web/static/` 读文件，但 Dockerfile 用 `COPY . .` 把源码**构建时**烤进镜像；`docker-compose.yml` 的 web/api 服务**只挂了 `agentboard_data` 数据卷，没挂源码**。因此改了静态文件后，只跑 `docker compose up -d` 会复用旧镜像 → 看到老页面。
 - **正确重部署命令**：`docker compose up -d --build`（或先 `docker compose build` 再 `up -d`）。本次已在沙箱执行 `docker compose up -d --build web` 修复"看不到新前端"问题。
 - Web 端口 **8080**（非 5080），API 端口 8000。浏览器访问 http://localhost:8080 ，SPA 经 `AGENTBOARD_API_URL`（默认 localhost:8000）调 API。
