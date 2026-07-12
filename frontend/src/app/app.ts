@@ -218,7 +218,8 @@ export class App implements OnInit, OnDestroy {
   }
 
   private async loadProjects(): Promise<void> {
-    this.projects.set(await firstValueFrom(this.api.listProjects()));
+    const result = await firstValueFrom(this.api.listProjects());
+    this.projects.set(Array.isArray(result) ? result : (result.items || []));
   }
 
   private async loadDashboard(): Promise<void> {

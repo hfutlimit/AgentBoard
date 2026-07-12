@@ -285,9 +285,16 @@ def me(authorization: str | None = Header(None), s: Session = Depends(get_sessio
 
 # ---------- Projects ----------
 @app.get("/api/projects")
-def list_projects(s: Session = Depends(get_session), limit: int = Query(100, ge=1, le=200),
-                  offset: int = Query(0, ge=0)):
-    return [service._ser(p) for p in service.list_projects(s, limit=limit, offset=offset)]
+def list_projects_ext(
+    s: Session = Depends(get_session),
+    limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
+    authorization: str | None = Header(None),
+):
+    """列表 API：public 项目所有人可见；private 项目仅成员可见"""
+    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
+    uid = auth.parse_token(token) if token else None
+    projects, total = service.list_accessible_projects(s, uid, limit=limit, offset=offset)
+    return {"items": [service._ser(p) for p in projects], "total": total}
 
 
 @app.post("/api/projects", status_code=201)
@@ -305,8 +312,17 @@ def create_project(
 
 
 @app.get("/api/projects/{pid}")
-def get_project(pid: int, s: Session = Depends(get_session)):
-    return service._ser(_need(service.get_project(s, pid), "project"))
+def get_project_ext(
+    pid: int, s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
+):
+    """获取项目：private 项目仅成员可见"""
+    p = _need(service.get_project(s, pid), "project")
+    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
+    uid = auth.parse_token(token) if token else None
+    if p.is_private and not service.user_is_project_member(s, pid, uid):
+        raise HTTPException(status_code=403, detail="access denied: private project")
+    return service._ser(p)
 
 
 @app.patch("/api/projects/{pid}")
@@ -696,31 +712,6 @@ def delete_run(rid: int, s: Session = Depends(get_session)):
 
 
 # ---------- Project visibility & members ----------
-@app.get("/api/projects")
-def list_projects_ext(
-    s: Session = Depends(get_session),
-    limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
-    authorization: str | None = Header(None),
-):
-    """列表 API：public 项目所有人可见；private 项目仅成员可见"""
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    uid = auth.parse_token(token) if token else None
-    projects, total = service.list_accessible_projects(s, uid, limit=limit, offset=offset)
-    return {"items": [service._ser(p) for p in projects], "total": total}
-
-
-@app.get("/api/projects/{pid}")
-def get_project_ext(
-    pid: int, s: Session = Depends(get_session),
-    authorization: str | None = Header(None),
-):
-    """获取项目：private 项目仅成员可见"""
-    p = _need(service.get_project(s, pid), "project")
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    uid = auth.parse_token(token) if token else None
-    if p.is_private and not service.user_is_project_member(s, pid, uid):
-        raise HTTPException(status_code=403, detail="access denied: private project")
-    return service._ser(p)
 
 
 # ---------- Project Members ----------

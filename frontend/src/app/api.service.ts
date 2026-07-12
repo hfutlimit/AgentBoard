@@ -47,7 +47,7 @@ export class ApiService {
   }
 
   listProjects() {
-    return this.request<Project[]>('GET', '/api/projects');
+    return this.request<PagedResult<Project>>('GET', '/api/projects');
   }
   getProject(id: number) {
     return this.request<Project>('GET', `/api/projects/${id}`);
