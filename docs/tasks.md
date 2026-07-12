@@ -296,7 +296,7 @@
 
 ### Story 12.2 Sprint 规划
 - [x] Task：Sprint 数据模型、迁移、状态机与"单 active Sprint"约束
-- [ ] Task：Sprint CRUD、任务入 Sprint、关闭时搬迁未完成任务
+- [x] Task：Sprint CRUD、任务入 Sprint、关闭时搬迁未完成任务
 - [ ] Task：Sprint/Backlog Web 视图与 MCP 工具
 
 ### Story 12.3 附件
@@ -344,3 +344,4 @@
 | 2026-07-12 | Epic 9 (Story 9.1) | Playwright 真实浏览器 E2E 测试骨架：新增 `tests/test_playwright_e2e.py`，含启动真实 API + Web（临时 SQLite）的 `servers` fixture、`browser`/`page` fixture（playwright 未装/Chromium 缺失时优雅 skip）、`ui_register`/`ui_login` UI 辅助；落地注册流（进入应用 + `agentboard_token` 写入 localStorage）与登录流（登出后同账号重登）两个真实浏览器冒烟用例；`requirements.txt` 增 `playwright`/`pytest-playwright`、README 补 `playwright install chromium` 与运行命令。沙箱实测 **2 passed**（真实 Chromium 驱动 SPA 注册/登录成功）；未改 `models.py`/`api.py` 契约 |
 | 2026-07-12 | Epic 9 (Story 9.2) | Playwright 完整覆盖 Story 9.2：新增 `test_e2e_project_tree_crud`（Project→Epic→Story→Task/Bug 全链路 + 抽屉内状态流转验证）+ `test_e2e_status_transition_ui`（Jira 式状态按钮流转 + 列表徽章同步）+ `test_e2e_spec_editing`（spec textarea 编辑→markdown h2/li 渲染）；`docs/tasks.md` 勾选 Story 9.2 全部 6 项。沙箱实测 Playwright E2E 套件 **6 passed**（注册/登录/错误分支/项目树CRUD/状态流转/spec编辑）。未改 `models.py`/`api.py` 契约 |
 | 2026-07-12 | Epic 12 (Story 12.2) | Sprint 数据模型与 CRUD（首个 task）：新增 `SprintStatus` 枚举（planning/active/completed）+ `Sprint` ORM 模型；Task 增加 `sprint_id` FK；Service 层 Sprint CRUD + 单 active Sprint 约束（激活时自动停用同项目其他 active sprint）+ 完成时未完成任务退回 backlog；REST API Sprint 端点（CRUD + activate + complete）；Alembic 迁移 `7d3e9f0a1c2b_add_sprints.py`（MariaDB 直接应用）；回归测试 backend_flow 3/3 + playwright_e2e 6/6 全绿。Task 82 更新为 todo（待 review），Story 12.2 保持 in_progress |
+| 2026-07-12 | Epic 12 (Story 12.2 Task 83) | Sprint Web UI：Angular 前端 Sprint 管理完整界面（项目页 Sprint 区域列表/创建/启动/完成/删除 + Sprint 详情页任务列表 + 任务详情 Sprint 下拉分配/移除）+ Sprint 状态色标签（planning 灰/active 紫/completed 绿）+ 暗色适配；补回 Angular 迁移丢失样式（A-18 面包屑/A-19 hover/B-06 分组）。回归测试 6/6 全绿。Task 83→in_review，commit `c2fc6f7`

@@ -1,6 +1,23 @@
 # AgentBoard 自动开发 — 执行记录
 
-## 2026-07-12（周期执行 · Epic 12 Story 12.2 Sprint 数据模型）
+## 2026-07-12（周期执行 · Epic 12 Story 12.2 Sprint Web UI）
+- **拉取最新代码**：`git pull origin main` 已是最新。
+- **需求/任务分析**：Epic 12 Story 12.2 Task 83（Sprint CRUD Web UI + 任务入 Sprint + 关闭搬迁）为下一个最高优先级 pending 项。后端 Sprint CRUD 已在 Task 82 就绪。
+- **开发任务**：Angular 前端 Sprint 管理完整 UI：
+  - `models.ts`：新增 Sprint/SprintStatus 接口 + Task 增加 sprint_id 字段
+  - `api.service.ts`：Sprint CRUD/activate/complete/delete/listTasks API 方法
+  - `app.ts`：Sprint 信号 + Sprint detail 路由 + 管理方法（创建/激活/完成/删除/任务分配/任务移除）
+  - `app.html`：项目页 Sprint 区域（列表+创建+启动/完成按钮）+ Sprint 详情页（任务列表+移除操作）+ 任务详情 Sprint 下拉
+  - `styles.css`：Sprint 状态色（planning 灰/active 紫/completed 绿）+ 暗色适配
+  - `app.routes.ts`：注册 `/sprint/:id` 路由
+  - `style.css`：补回 Angular 迁移中丢失的 A-18 面包屑/A-19 hover 操作/B-06 分组/选择器等样式
+- **部署**：`ng build` + 复制到 `agentboard/web/static/`（volume mount 自动生效）
+- **验证**：Sprint API 端到端（创建→激活→完成）全通过；回归 backend_flow 3/3 + web_flow 3/3 = 6 passed；curl POST Sprint 返回 422（需 `title` 非 `name`，已修正）
+- **踩坑**：Angular 迁移导致 `style.css` 丢失 A-18/A-19/B-06 等样式，需从 git 历史逐一找回
+- **推送**：commit `c2fc6f7`，`git push origin main` 成功
+- **MCP 任务更新**：Task 83 status backlog→in_review（数据库直写）；Task 82 仍为 todo（前次更新）
+- **Story**: Story 12.2 保持 in_progress；Task 84（Sprint MCP 工具）为下一个 pending 项
+- **下一个 pending 项**：Epic 12 Story 12.2 task 84（Sprint/Backlog MCP 工具）或 Story 12.3 附件
 - **拉取最新代码**：`git pull origin main` 已是最新（HEAD=12d43c7，Epic 9 Story 9.2 + Angular 构建产物）。
 - **需求/任务分析**：Epic 12（id=11）stories 12.2/12.3/12.4 均 in_progress；Story 12.2 三个 task（id=82/83/84）均为 backlog。认领首个 task **12.2.1 Sprint 数据模型、迁移、状态机与"单 active Sprint"约束**。
 - **开发任务**：
