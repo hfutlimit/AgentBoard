@@ -136,3 +136,52 @@
 - Epic 12 全部 Task 均已 in_review/done
 - Story 27/28 完成验收后可关闭 Epic 12
 - Epic 11 前端优化继续小步迭代
+
+---
+
+## 2026-07-13 03:03（周期执行 · Epic 14 启动 · 完成）
+
+### 分析结果
+- **Epic 12 已全完成**：Tasks 85-92 全部 done，Epic 12 关闭
+- **Epic 13 已全完成**：仅 Task 102 暂缓
+- **Epic 1-6 backlog**：31 个陈旧幽灵任务（Epic 7-9 实现后未更新 DB 状态）
+- **新 Epic 14 创建**："平台优化与运维增强（v0.4）"，5 个 Story，7 个 Task
+
+### Task 206 → in_review: GET /api/health 后端健康检查端点
+- `api.py`: `@app.get("/api/health")` → `{status, database, version, timestamp}`
+- `text("SELECT 1")` 探测 DB（SQLAlchemy 2.0 要求 `text()` 包装）
+- `/api/health` 加入鉴权白名单（`require_business_auth`）
+- 容器注入：`stop → cp → start` 模式
+
+### Task 204 → in_review: 前端 API 健康指示器
+- `api.service.ts`: `getHealth()` 方法（无 auth header）
+- `app.ts`: `healthStatus`/`healthDetail`/`showHealth` signals + `checkHealth()`/`toggleHealth()`
+- `app.html`: 顶栏绿/红/灰点 + 点击详情弹层（API/DB/版本/时间戳）
+- `styles.css`: health-dot/health-popover 样式 + 暗色适配
+
+### Task 210 → in_review: MCP get_project_stats 工具
+- Sprint/Stats/Attachment MCP 工具均已存在（list_sprints/activate_sprint/complete_sprint/list_attachments 等）
+- 补全：`get_project_stats`（`_project_stats` 双后端 + `@mcp.tool` 装饰器）
+
+### 踩坑总结
+1. SQLAlchemy 2.0 `s.execute("SELECT 1")` 需包装为 `text()`
+2. Docker Hub 不通 → `docker cp` 注入运行中容器
+3. MCP task ID 与创建顺序不一致（并发创建 + 并行返回导致）→ 需通过 API 查询实际 ID
+4. `sys.exit()` 测试文件（review/smoke）需 `--ignore` 排除
+5. web 容器有 volume mount → 新构建文件自动生效
+
+### 部署验证
+- API: `{"status":"ok","database":"ok","version":"0.4"}` ✅
+- Web: `main-ZB3DHVIN.js` (新构建) ✅
+- Scheduler tests: 11/11 passed ✅
+
+### Git
+- Commit: `9dfef7e` - feat: Epic 14 启动 - API健康检查 + MCP扩展 + 前端状态指示器
+- Push: ✅
+
+### Epic 14 待处理（Epic 14 Story 14.1 已 in_progress）
+- Task 207 (Dashboard Hero): backlog
+- Task 208 (Sprint 燃尽图): backlog
+- Task 209 (任务卡片丰富化): backlog
+- Task 205 (速率限制): backlog
+- Story 14.2/14.3/14.4/14.5: backlog

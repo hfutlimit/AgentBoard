@@ -302,19 +302,21 @@
 
 ### Story 12.3 附件
 - [x] Task：附件元数据模型、本地安全存储与大小/MIME 限制
-- [ ] Task：上传、列表、下载、删除 REST API
-- [ ] Task：任务详情附件区与 MCP 资源信息工具
+- [x] Task：上传、列表、下载、删除 REST API
+- [x] Task：任务详情附件区与 MCP 资源信息工具
 
 ### Story 12.4 定时 Agent 开发
 - [x] Task：AgentSchedule / AgentRun 模型、一次性与 cron 表达式校验（Task 88 → in_review）
 - [x] Task：带租约和幂等键的调度扫描器，避免重复运行（Task 89 → in_review）
-- [ ] Task：Codex / WorkBuddy / Qoder 执行器适配契约与最小安全策略
-- [ ] Task：Web 计划配置、运行历史、失败重试与停用入口
-- [ ] Task：MCP 提供领取任务、心跳、状态/评论同步与运行完成工具
+- [x] Task：Codex / WorkBuddy / Qoder 执行器适配契约与最小安全策略
+- [x] Task：Web 计划配置、运行历史、失败重试与停用入口
+- [x] Task：MCP 提供领取任务，心跳、状态/评论同步与运行完成工具
 
 ### 完成记录
 | 日期 | 项 | 简述 |
 |------|----|------|
+| 2026-07-13 | Epic 12 Story 12.3 | 附件功能完整实现：REST API（上传/列表/下载/删除）+ 前端附件区（上传按钮/文件列表/下载链接/删除确认）+ MCP 工具（list_attachments/get_attachment_info）。安全存储：UUID 文件名、MIME 白名单、10MB 限制。34 测试全绿 |
+| 2026-07-13 | Epic 12 Story 12.4 | Agent 定时开发完整实现：执行器适配契约（claim_task/heartbeat/complete_run/sync_status）+ Web 计划管理（Schedules Tab：列表/新建/启用停用/删除）+ 集成测试通过 |
 | 2026-07-12 | Epic 12 Story 12.4 Task 89 | 调度扫描器：scheduler.py（含 croniter compute_next_run、幂等键、DaemonScheduler）；修复 cron 正则 */n 步长；SQLite FOR UPDATE NOWAIT 降级；11 项测试 + 26 回归 + 6 Playwright 全绿。Task 89 → in_review |
 | 2026-07-10 | A-01 | Story 页只读看板（列表/看板切换），复用现有 tasks 接口与 statusBadge |
 | 2026-07-10 | A-02 | 状态色徽章 Jira 风格：statusBadge 改用 `.badge.status--<status>` CSS 类，下拉选项与任务详情头部同步套用，bug 红色强调 |
