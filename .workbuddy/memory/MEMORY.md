@@ -58,3 +58,27 @@
 - Task #82 (Sprint API) → **done** ✅ (46/46 tests passed)
 - Task #83 (Sprint UI) → **done** ✅ (13/13 tests passed)
 - Sprint CRUD + activate + complete + 单 active 约束 + 任务退回 全部正常。
+
+## 新增数据模型（2026-07-12 21:10）
+- **Project**: `is_private` 字段（私有项目仅成员可见）
+- **User**: `is_admin` 字段（全局管理员）
+- **ProjectMember**: `project_id`/`user_id`/`role`(owner|member)/`joined_at`
+- **Notification**: `user_id`/`type`(project_invite|join_request|task_assigned|status_changed|mentioned)/`title`/`content`/`is_read`/`link`/`created_at`
+
+## 新增 API 端点（2026-07-12）
+- GET/POST `/api/projects/{pid}/members` — 成员管理
+- DELETE/PATCH `/api/projects/{pid}/members/{uid}` — 移除/变更角色
+- GET `/api/notifications` — 通知列表（支持 unread_only）
+- GET `/api/notifications/unread-count` — 未读计数
+- POST `/api/notifications/{nid}/read` — 标记已读
+- POST `/api/notifications/read-all` — 全部已读
+- DELETE `/api/notifications/{nid}` — 删除通知
+- GET `/api/projects/{pid}/stats` — 项目统计数据
+- GET/PATCH `/api/admin/users` — 管理员用户管理
+- GET/DELETE `/api/admin/projects` — 管理员项目管理
+
+## 项目成员权限规则（2026-07-12）
+- 项目创建者自动成为 Owner
+- Owner 可邀请/移除成员、变更角色、编辑项目设置
+- Admin 拥有全局 Owner 权限
+- Private 项目：非成员无法访问；Public 项目：所有人可见
