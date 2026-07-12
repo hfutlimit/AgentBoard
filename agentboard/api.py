@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends, HTTPException, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from .database import get_session, init_db, SessionLocal
@@ -18,6 +18,7 @@ from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    auth.validate_runtime_security()
     init_db()
     yield
 
@@ -25,9 +26,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AgentBoard API", version="0.2", lifespan=lifespan)
 
 # 前后端分离：允许 Web 前端跨域调用
+_cors_origins = [
+    x.strip() for x in os.getenv("AGENTBOARD_CORS_ORIGINS", "*").split(",") if x.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -54,42 +58,42 @@ async def require_business_auth(request: Request, call_next):
 
 # ---------- Schemas ----------
 class ProjectIn(BaseModel):
-    name: str
-    key: str | None = None
+    name: str = Field(min_length=1, max_length=200)
+    key: str | None = Field(None, max_length=20)
     description: str = ""
 
 
 class ProjectPatch(BaseModel):
-    name: str | None = None
-    key: str | None = None
+    name: str | None = Field(None, min_length=1, max_length=200)
+    key: str | None = Field(None, max_length=20)
     description: str | None = None
 
 
 class EpicIn(BaseModel):
-    title: str
+    title: str = Field(min_length=1, max_length=300)
     description: str = ""
 
 
 class EpicPatch(BaseModel):
-    title: str | None = None
+    title: str | None = Field(None, min_length=1, max_length=300)
     description: str | None = None
     status: str | None = None
 
 
 class StoryIn(BaseModel):
-    title: str
+    title: str = Field(min_length=1, max_length=300)
     description: str = ""
 
 
 class StoryPatch(BaseModel):
-    title: str | None = None
+    title: str | None = Field(None, min_length=1, max_length=300)
     description: str | None = None
     status: str | None = None
 
 
 class TaskIn(BaseModel):
-    project_id: int
-    title: str
+    project_id: int = Field(gt=0)
+    title: str = Field(min_length=1, max_length=300)
     type: str = "task"
     description: str = ""
     spec: str = ""
@@ -97,7 +101,7 @@ class TaskIn(BaseModel):
 
 
 class TaskPatch(BaseModel):
-    title: str | None = None
+    title: str | None = Field(None, min_length=1, max_length=300)
     type: str | None = None
     description: str | None = None
     spec: str | None = None
@@ -105,8 +109,8 @@ class TaskPatch(BaseModel):
 
 
 class CommentIn(BaseModel):
-    author: str
-    content: str
+    author: str = Field(min_length=1, max_length=100)
+    content: str = Field(min_length=1)
 
 
 class StatusIn(BaseModel):
@@ -114,17 +118,25 @@ class StatusIn(BaseModel):
 
 
 class SpecAppendIn(BaseModel):
-    text: str
+    text: str = Field(min_length=1)
 
 
 class AuthRegister(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=8, max_length=1024)
+
+    @field_validator("username")
+    @classmethod
+    def normalize_username(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("username is required")
+        return value
 
 
 class AuthLogin(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=1024)
 
 
 def _need(obj, what: str):
@@ -140,6 +152,26 @@ def _current_user(authorization: str | None, s: Session):
     if u is None:
         raise HTTPException(status_code=401, detail="unauthorized")
     return u
+
+
+@app.exception_handler(service.NotFound)
+async def handle_not_found(_request: Request, exc: service.NotFound):
+    return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+
+@app.exception_handler(service.Duplicate)
+async def handle_duplicate(_request: Request, exc: service.Duplicate):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(service.InvalidValue)
+async def handle_invalid_value(_request: Request, exc: service.InvalidValue):
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
+@app.exception_handler(service.IllegalTransition)
+async def handle_illegal_transition(_request: Request, exc: service.IllegalTransition):
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
 
@@ -178,7 +210,8 @@ def me(authorization: str | None = Header(None), s: Session = Depends(get_sessio
 
 # ---------- Projects ----------
 @app.get("/api/projects")
-def list_projects(s: Session = Depends(get_session), limit: int | None = Query(None), offset: int = 0):
+def list_projects(s: Session = Depends(get_session), limit: int = Query(100, ge=1, le=200),
+                  offset: int = Query(0, ge=0)):
     return [service._ser(p) for p in service.list_projects(s, limit=limit, offset=offset)]
 
 
@@ -207,7 +240,8 @@ def delete_project(pid: int, s: Session = Depends(get_session)):
 
 # ---------- Epics ----------
 @app.get("/api/projects/{pid}/epics")
-def list_epics(pid: int, s: Session = Depends(get_session), limit: int | None = Query(None), offset: int = 0):
+def list_epics(pid: int, s: Session = Depends(get_session), limit: int = Query(100, ge=1, le=200),
+               offset: int = Query(0, ge=0)):
     return [service._ser(e) for e in service.list_epics(s, pid, limit=limit, offset=offset)]
 
 
@@ -237,7 +271,8 @@ def delete_epic(eid: int, s: Session = Depends(get_session)):
 
 # ---------- Stories ----------
 @app.get("/api/epics/{eid}/stories")
-def list_stories(eid: int, s: Session = Depends(get_session), limit: int | None = Query(None), offset: int = 0):
+def list_stories(eid: int, s: Session = Depends(get_session), limit: int = Query(100, ge=1, le=200),
+                 offset: int = Query(0, ge=0)):
     return [service._ser(x) for x in service.list_stories(s, eid, limit=limit, offset=offset)]
 
 
@@ -267,7 +302,8 @@ def delete_story(sid: int, s: Session = Depends(get_session)):
 
 # ---------- Tasks ----------
 @app.get("/api/stories/{sid}/tasks")
-def list_tasks(sid: int, s: Session = Depends(get_session), limit: int | None = Query(None), offset: int = 0):
+def list_tasks(sid: int, s: Session = Depends(get_session), limit: int = Query(100, ge=1, le=200),
+               offset: int = Query(0, ge=0)):
     return [service._ser(t) for t in service.list_tasks(s, sid, limit=limit, offset=offset)]
 
 
@@ -362,7 +398,7 @@ def search_tasks(project_id: int | None = None, epic_id: int | None = None,
                  story_id: int | None = None, type: str | None = None,
                  status: str | None = None, priority: str | None = None,
                  q: str | None = Query(None),
-                 limit: int | None = Query(None), offset: int = 0,
+                 limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
                  s: Session = Depends(get_session)):
     try:
         rows = service.search_tasks(s, project_id=project_id, epic_id=epic_id,

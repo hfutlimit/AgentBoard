@@ -15,26 +15,56 @@ from sqlalchemy.orm import Session
 from . import models
 
 _SECRET = os.getenv("AGENTBOARD_SECRET", "dev-insecure-secret-change-me").encode()
-_PBKDF2_ROUNDS = 100_000
+_LEGACY_PBKDF2_ROUNDS = 100_000
+_PBKDF2_ROUNDS = 600_000
 _TOKEN_TTL_SECONDS = int(os.getenv("AGENTBOARD_TOKEN_TTL_SECONDS", "2592000"))
 
 
+def validate_runtime_security() -> None:
+    """生产环境拒绝明显不安全的默认值；本地开发保持零配置可运行。"""
+    if os.getenv("AGENTBOARD_ENV", "development").lower() != "production":
+        return
+    if _SECRET == b"dev-insecure-secret-change-me" or len(_SECRET) < 32:
+        raise RuntimeError("production requires AGENTBOARD_SECRET with at least 32 bytes")
+    if os.getenv("AGENTBOARD_REQUIRE_AUTH", "0").lower() not in {"1", "true", "yes"}:
+        raise RuntimeError("production requires AGENTBOARD_REQUIRE_AUTH=1")
+    origins = os.getenv("AGENTBOARD_CORS_ORIGINS", "*")
+    if "*" in {x.strip() for x in origins.split(",")}:
+        raise RuntimeError("production requires an explicit AGENTBOARD_CORS_ORIGINS allowlist")
+
+
 def hash_password(password: str) -> str:
-    """返回 `pbkdf2_sha256$<salt_hex>$<hash_hex>`。"""
+    """返回包含算法和迭代次数的可升级密码哈希。"""
     salt = secrets.token_hex(16)
     dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), _PBKDF2_ROUNDS)
-    return f"pbkdf2_sha256${salt}${dk.hex()}"
+    return f"pbkdf2_sha256${_PBKDF2_ROUNDS}${salt}${dk.hex()}"
 
 
 def verify_password(password: str, stored: str) -> bool:
     try:
-        algo, salt, expected = stored.split("$")
-    except ValueError:
+        parts = stored.split("$")
+        if len(parts) == 3:  # 兼容早期 `algorithm$salt$hash` 格式
+            algo, salt, expected = parts
+            rounds = _LEGACY_PBKDF2_ROUNDS
+        elif len(parts) == 4:
+            algo, rounds_s, salt, expected = parts
+            rounds = int(rounds_s)
+        else:
+            return False
+        if rounds <= 0 or rounds > 10_000_000:
+            return False
+        salt_bytes = bytes.fromhex(salt)
+    except (ValueError, TypeError):
         return False
     if algo != "pbkdf2_sha256":
         return False
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), _PBKDF2_ROUNDS)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt_bytes, rounds)
     return hmac.compare_digest(dk.hex(), expected)
+
+
+def password_needs_rehash(stored: str) -> bool:
+    parts = stored.split("$")
+    return len(parts) != 4 or parts[1] != str(_PBKDF2_ROUNDS)
 
 
 def make_token(user_id: int, *, ttl_seconds: int | None = None) -> str:

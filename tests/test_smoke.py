@@ -4,6 +4,7 @@
 """
 import os
 import tempfile
+import hashlib
 
 # 必须在导入 agentboard 之前设置临时 SQLite 与 MCP 后端
 _DB = tempfile.mktemp(suffix=".db")
@@ -13,6 +14,23 @@ os.environ["AGENTBOARD_MCP_BACKEND"] = "db"  # MCP 直连 DB，无需启动 API
 from agentboard.database import init_db, SessionLocal
 from agentboard import service
 from agentboard.models import ItemType, Status, Priority
+
+
+def test_password_hash_compatibility():
+    from agentboard import auth
+
+    new_hash = auth.hash_password("password123")
+    assert new_hash.startswith("pbkdf2_sha256$600000$")
+    assert auth.verify_password("password123", new_hash)
+    assert not auth.password_needs_rehash(new_hash)
+
+    salt = "00" * 16
+    legacy_digest = hashlib.pbkdf2_hmac(
+        "sha256", b"password123", bytes.fromhex(salt), 100_000
+    ).hex()
+    legacy_hash = f"pbkdf2_sha256${salt}${legacy_digest}"
+    assert auth.verify_password("password123", legacy_hash)
+    assert auth.password_needs_rehash(legacy_hash)
 
 
 def test_service_layer():
@@ -116,11 +134,35 @@ def test_generate_from_spec():
         assert created[0]["source_spec_id"] == t["id"]
         # 源 spec 已回写链接
         upd = c.get(f"/api/tasks/{t['id']}").json()
-        assert "生成的自任务" in upd["spec"]
+        assert "生成的子任务" in upd["spec"]
         # MCP db 后端也可生成
         from agentboard import mcp_server as m
         again = m._task_generated(t["id"])
-        assert isinstance(again, list)
+        assert again == []  # 同一 spec 重复调用保持幂等
+
+
+def test_domain_validation():
+    from fastapi.testclient import TestClient
+    from agentboard.api import app
+    with TestClient(app) as c:
+        p1 = c.post("/api/projects", json={"name": "P1"}).json()
+        p2 = c.post("/api/projects", json={"name": "P2"}).json()
+        ep = c.post(f"/api/projects/{p1['id']}/epics", json={"title": "E"}).json()
+        st = c.post(f"/api/epics/{ep['id']}/stories", json={"title": "S"}).json()
+
+        cross = c.post(f"/api/stories/{st['id']}/tasks", json={
+            "project_id": p2["id"], "title": "wrong project",
+        })
+        assert cross.status_code == 422
+        invalid_type = c.post(f"/api/stories/{st['id']}/tasks", json={
+            "project_id": p1["id"], "title": "wrong type", "type": "anything",
+        })
+        assert invalid_type.status_code == 422
+        assert c.patch(f"/api/epics/{ep['id']}", json={"status": "anything"}).status_code == 422
+        assert c.get("/api/projects", params={"limit": 201}).status_code == 422
+
+        weak = c.post("/api/auth/register", json={"username": "weak", "password": "short"})
+        assert weak.status_code == 422
 
 
 def test_mcp_extra_and_pagination():
@@ -157,10 +199,12 @@ def test_mcp_db_backend():
 
 
 if __name__ == "__main__":
+    test_password_hash_compatibility()
     test_service_layer()
     test_rest_api()
     test_web_serving()
     test_generate_from_spec()
+    test_domain_validation()
     test_mcp_extra_and_pagination()
     test_mcp_db_backend()
     print("SMOKE OK")

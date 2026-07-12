@@ -1329,7 +1329,7 @@ function authScreenHTML() {
       </div>
       <form id="auth-form" class="auth-form" autocomplete="off">
         <label>用户名<input name="username" required minlength="2" maxlength="40" autocomplete="username" placeholder="2-40 个字符" /></label>
-        <label>密码<input name="password" type="password" required minlength="6" autocomplete="current-password" placeholder="至少 6 位" /></label>
+        <label>密码<input name="password" type="password" required minlength="${_AUTH_MODE === "register" ? 8 : 1}" autocomplete="current-password" placeholder="${_AUTH_MODE === "register" ? "至少 8 位" : "请输入密码"}" /></label>
         <button type="submit" class="btn-primary block" id="auth-submit">${submit}</button>
       </form>
       <p class="auth-hint muted" id="auth-hint"></p>
@@ -1345,6 +1345,11 @@ function bindAuthScreen() {
     app.querySelectorAll(".auth-tab").forEach((x) => x.classList.toggle("active", x === t));
     const submit = $("auth-submit");
     if (submit) submit.textContent = _AUTH_MODE === "register" ? "注册" : "登录";
+    const password = app.querySelector('input[name="password"]');
+    if (password) {
+      password.minLength = _AUTH_MODE === "register" ? 8 : 1;
+      password.placeholder = _AUTH_MODE === "register" ? "至少 8 位" : "请输入密码";
+    }
     const hint = $("auth-hint");
     if (hint) hint.textContent = "";
   }));

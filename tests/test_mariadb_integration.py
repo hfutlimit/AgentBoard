@@ -11,7 +11,7 @@
   export AGENTBOARD_TEST_MARIAODB="mysql+pymysql://agentboard:agentboard@localhost:13306/agentboard_ci"
   PYTHONPATH=. python -m pytest tests/test_mariadb_integration.py -q
 
-init_db() 会优先 Alembic upgrade head，缺失表时降级 create_all，均可幂等重跑。
+init_db() 会执行 Alembic upgrade head，并可幂等重跑。
 """
 import os
 import sys
@@ -23,6 +23,7 @@ skip_no_mariadb = pytest.mark.skipif(
     not MARIADB_URL,
     reason="set AGENTBOARD_TEST_MARIAODB=mysql+pymysql://... to run MariaDB integration tests",
 )
+pytestmark = skip_no_mariadb
 
 if MARIADB_URL:
     os.environ["AGENTBOARD_DB_URL"] = MARIADB_URL
@@ -48,7 +49,7 @@ def session():
 
 
 def test_all_tables_exist(session):
-    """Alembic / create_all 在 MariaDB 上建出全部 6 张业务表。"""
+    """Alembic 在 MariaDB 上建出全部 6 张业务表。"""
     from sqlalchemy import inspect
     existing = set(inspect(engine).get_table_names())
     for t in ("projects", "epics", "stories", "tasks", "users", "comments"):

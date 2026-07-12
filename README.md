@@ -76,13 +76,15 @@ python -m agentboard.mcp_server
 - `AGENTBOARD_MCP_REQUIRE_AUTH`：远程 MCP Bearer 鉴权，默认开启；只应在本机调试时关闭
 - `AGENTBOARD_MCP_TOKEN`：stdio + API 后端调用受保护 REST 时使用的登录 Token
 - `AGENTBOARD_REQUIRE_AUTH`：设为 `1` 时统一保护 REST 业务端点
-- `AGENTBOARD_ALLOW_REGISTRATION`：设为 `0` 时仅允许创建首个用户，之后注册返回 403；Docker 默认关闭公开注册
+- `AGENTBOARD_ALLOW_REGISTRATION`：设为 `0` 时仅允许创建首个用户，之后注册返回 403；当前 Docker 配置为方便测试保持开启，生产应设为 `0`
 - `AGENTBOARD_TOKEN_TTL_SECONDS`：Token 有效期，默认 2592000 秒（30 天）
 - `AGENTBOARD_SECRET`：登录 Token 签名密钥（HMAC）。默认内置不安全占位值，**生产务必设置**。
+- `AGENTBOARD_ENV`：环境标识；设为 `production` 时强制检查 REST 鉴权、强密钥和 CORS 白名单。
+- `AGENTBOARD_CORS_ORIGINS`：逗号分隔的 Web 来源白名单；本地默认 `*`，生产必须显式配置。
 
 ## 鉴权（注册 / 登录）
 
-内置轻量鉴权（无额外依赖；密码 pbkdf2 哈希，Token 为带过期时间的 HMAC 签名无状态 Bearer）：
+内置轻量鉴权（无额外依赖；新注册密码至少 8 位，密码使用可升级轮次的 PBKDF2 哈希，Token 为带过期时间的 HMAC 签名无状态 Bearer）：
 
 - `POST /api/auth/register`：`{"username","password"}` → `201` 返回 `{id,username,token}`；重复用户名 → `409`
 - `POST /api/auth/login`：`{"username","password"}` → `200` 返回 `{id,username,token}`；凭据错误 → `401`
@@ -174,7 +176,7 @@ PYTHONPATH=. python -m pytest tests/test_playwright_e2e.py -q
 
 ## 数据库迁移（Alembic）
 
-`init_db()` 优先执行 `alembic upgrade head`（正式迁移）；若 Alembic 不可用则降级为 `create_all` + 轻量在线迁移（开发期兼容）。
+`init_db()` 执行 `alembic upgrade head`。迁移失败时服务会中止启动，不再用 `create_all` 静默掩盖结构或权限错误。
 
 ```bash
 alembic revision --autogenerate -m "描述"   # 生成迁移

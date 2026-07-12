@@ -42,8 +42,11 @@ mcp = FastMCP("AgentBoard", auth=AgentBoardTokenVerifier() if MCP_REQUIRE_AUTH e
 
 # ===================== 后端实现 =====================
 if BACKEND == "db":
-    from .database import SessionLocal
+    from .database import SessionLocal, init_db
     from . import service
+
+    # DB 模式是独立入口，也必须自行确保 schema 已升级。
+    init_db()
 
     def _proj_list(limit=None, offset=0):
         with SessionLocal() as s:
@@ -332,6 +335,24 @@ else:  # api 模式
 
     def _auth_me(token):
         return _http("GET", "/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+
+if BACKEND == "db":
+    # 让 DB 与 API 后端对领域错误使用相同的 MCP 返回契约。
+    def _domain_error_result(func):
+        def wrapped(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except service.DomainError as exc:
+                return {"error": str(exc)}
+        return wrapped
+
+    for _name, _func in list(globals().items()):
+        if _name.startswith("_") and callable(_func) and _name not in {
+            "_domain_error_result", "_current_token", "_http"
+        }:
+            if _name.startswith(("_proj_", "_epic_", "_story_", "_task_", "_comment_", "_auth_")):
+                globals()[_name] = _domain_error_result(_func)
 
 
 # ===================== MCP 工具 =====================

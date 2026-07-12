@@ -142,15 +142,15 @@ def test_web_serves_spa(servers):
 def test_web_register_login(servers):
     api_base, _ = servers
     with httpx.Client(base_url=api_base) as c:
-        r = c.post("/api/auth/register", json={"username": "webuser", "password": "pw"})
+        r = c.post("/api/auth/register", json={"username": "webuser", "password": "password123"})
         assert r.status_code == 201, r.text
         token = r.json()["token"]
 
-        assert c.post("/api/auth/login", json={"username": "webuser", "password": "pw"}).status_code == 200
+        assert c.post("/api/auth/login", json={"username": "webuser", "password": "password123"}).status_code == 200
         assert c.post("/api/auth/login", json={"username": "webuser", "password": "bad"}).status_code == 401
         assert c.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"}).status_code == 200
         # 重复注册 -> 409
-        assert c.post("/api/auth/register", json={"username": "webuser", "password": "pw2"}).status_code == 409
+        assert c.post("/api/auth/register", json={"username": "webuser", "password": "password456"}).status_code == 409
 
 
 # ---------------- 创建 / 修改 各种 ticket + 读取列表 ----------------

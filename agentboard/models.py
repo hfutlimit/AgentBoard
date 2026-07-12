@@ -1,5 +1,6 @@
 from datetime import datetime, UTC
-from sqlalchemy import String, Integer, Text, DateTime, ForeignKey
+from enum import StrEnum
+from sqlalchemy import CheckConstraint, String, Integer, Text, DateTime, ForeignKey
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -7,12 +8,12 @@ class Base(DeclarativeBase):
     pass
 
 
-class ItemType(str):
+class ItemType(StrEnum):
     TASK = "task"
     BUG = "bug"
 
 
-class Status(str):
+class Status(StrEnum):
     BACKLOG = "backlog"
     TODO = "todo"
     IN_PROGRESS = "in_progress"
@@ -21,7 +22,7 @@ class Status(str):
     DONE = "done"
 
 
-class Priority(str):
+class Priority(StrEnum):
     HIGHEST = "highest"
     HIGH = "high"
     MEDIUM = "medium"
@@ -51,8 +52,14 @@ class Project(Base):
 
 class Epic(Base):
     __tablename__ = "epics"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('backlog','todo','in_progress','in_review','verifying','done')",
+            name="ck_epics_status",
+        ),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default=Status.BACKLOG)
@@ -61,8 +68,14 @@ class Epic(Base):
 
 class Story(Base):
     __tablename__ = "stories"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('backlog','todo','in_progress','in_review','verifying','done')",
+            name="ck_stories_status",
+        ),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    epic_id: Mapped[int] = mapped_column(ForeignKey("epics.id"), nullable=False)
+    epic_id: Mapped[int] = mapped_column(ForeignKey("epics.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(20), default=Status.BACKLOG)
@@ -79,16 +92,29 @@ class User(Base):
 
 class Task(Base):
     __tablename__ = "tasks"
+    __table_args__ = (
+        CheckConstraint("type IN ('task','bug')", name="ck_tasks_type"),
+        CheckConstraint(
+            "status IN ('backlog','todo','in_progress','in_review','verifying','done')",
+            name="ck_tasks_status",
+        ),
+        CheckConstraint(
+            "priority IN ('highest','high','medium','low','lowest')",
+            name="ck_tasks_priority",
+        ),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False)
-    story_id: Mapped[int | None] = mapped_column(ForeignKey("stories.id"), nullable=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    story_id: Mapped[int | None] = mapped_column(ForeignKey("stories.id"), nullable=True, index=True)
     type: Mapped[str] = mapped_column(String(10), default=ItemType.TASK)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default=Status.BACKLOG)
     priority: Mapped[str] = mapped_column(String(10), default=Priority.MEDIUM)
     description: Mapped[str] = mapped_column(Text, default="")
     spec: Mapped[str] = mapped_column(Text, default="")
-    source_spec_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 由哪个任务的 spec 生成
+    source_spec_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True
+    )  # 由哪个任务的 spec 生成
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 

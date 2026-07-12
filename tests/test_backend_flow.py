@@ -100,7 +100,7 @@ def test_register_and_login(api_url):
         token = body["token"]
 
         # 重复注册 -> 409
-        dup = c.post("/api/auth/register", json={"username": "alice", "password": "other"})
+        dup = c.post("/api/auth/register", json={"username": "alice", "password": "other-password"})
         assert dup.status_code == 409, dup.text
 
         # 登录（正确密码）
@@ -129,12 +129,12 @@ def test_auth_edge_cases_via_api(api_url):
     """通过 REST API 验证：重复注册、错误密码、注册后即可登录（哈希可校验）。"""
     with httpx.Client(base_url=api_url) as c:
         # 注册 bob
-        r = c.post("/api/auth/register", json={"username": "bob", "password": "pw-bob"})
+        r = c.post("/api/auth/register", json={"username": "bob", "password": "password-bob"})
         assert r.status_code == 201, r.text
         assert r.json()["token"]
 
         # 重复注册 -> 409
-        dup = c.post("/api/auth/register", json={"username": "bob", "password": "other"})
+        dup = c.post("/api/auth/register", json={"username": "bob", "password": "other-password"})
         assert dup.status_code == 409, dup.text
 
         # 错误密码 -> 401（证明密码非明文、哈希校验生效）
@@ -142,7 +142,7 @@ def test_auth_edge_cases_via_api(api_url):
         assert bad.status_code == 401, bad.text
 
         # 注册后正确密码可登录（哈希 round-trip 通过 API 验证）
-        ok = c.post("/api/auth/login", json={"username": "bob", "password": "pw-bob"})
+        ok = c.post("/api/auth/login", json={"username": "bob", "password": "password-bob"})
         assert ok.status_code == 200, ok.text
         assert ok.json()["token"]
 
@@ -155,7 +155,7 @@ def test_auth_edge_cases_via_api(api_url):
 def test_full_crud_flow(api_url):
     with httpx.Client(base_url=api_url) as c:
         # 先登录拿到 token（仅演示鉴权接口可用，CRUD 接口当前为单用户开放）
-        reg = c.post("/api/auth/register", json={"username": "carol", "password": "pw"})
+        reg = c.post("/api/auth/register", json={"username": "carol", "password": "password-carol"})
         token = reg.json()["token"]
 
         # project

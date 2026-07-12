@@ -1,8 +1,15 @@
 import re
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from . import models, auth
-from .models import ItemType, Status, Priority, ALL_PRIORITIES, Project, Epic, Story, Task, Comment
+from .models import (
+    ItemType, Status, Priority, ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES,
+    Project, Epic, Story, Task, Comment,
+)
+
+DEFAULT_PAGE_SIZE = 100
+MAX_PAGE_SIZE = 200
 
 # 合法状态迁移
 TRANSITIONS = {
@@ -31,10 +38,57 @@ def _ser(obj) -> dict:
     return out
 
 
+def _required(value: str, field: str, max_length: int) -> str:
+    value = (value or "").strip()
+    if not value:
+        raise InvalidValue(f"{field} is required")
+    if len(value) > max_length:
+        raise InvalidValue(f"{field} must be at most {max_length} characters")
+    return value
+
+
+def _check_type(value: str) -> None:
+    if value not in ALL_TYPES:
+        raise InvalidValue(f"invalid type '{value}'")
+
+
+def _check_status(value: str) -> None:
+    if value not in ALL_STATUSES:
+        raise InvalidValue(f"invalid status '{value}'")
+
+
+def _paginate(q, limit: int | None, offset: int):
+    if offset < 0:
+        raise InvalidValue("offset must be non-negative")
+    actual_limit = DEFAULT_PAGE_SIZE if limit is None else limit
+    if actual_limit < 1 or actual_limit > MAX_PAGE_SIZE:
+        raise InvalidValue(f"limit must be between 1 and {MAX_PAGE_SIZE}")
+    return q.limit(actual_limit).offset(offset)
+
+
+def _commit(s: Session, *, duplicate: str | None = None) -> None:
+    try:
+        s.flush()
+        if s.info.get("auto_commit", True):
+            s.commit()
+    except IntegrityError as exc:
+        s.rollback()
+        if duplicate:
+            raise Duplicate(duplicate) from exc
+        raise InvalidValue("database constraint violated") from exc
+
+
 # ---------- Project ----------
 def create_project(s: Session, *, name: str, key=None, description: str = "") -> Project:
-    p = Project(name=name, key=key or None, description=description or "")
-    s.add(p); s.commit(); s.refresh(p); return p
+    name = _required(name, "name", 200)
+    key = (key or "").strip() or None
+    if key and len(key) > 20:
+        raise InvalidValue("key must be at most 20 characters")
+    p = Project(name=name, key=key, description=description or "")
+    s.add(p)
+    _commit(s, duplicate=f"project key '{key}' already exists" if key else None)
+    s.refresh(p)
+    return p
 
 
 def get_project(s: Session, id: int) -> Project | None:
@@ -43,9 +97,7 @@ def get_project(s: Session, id: int) -> Project | None:
 
 def list_projects(s: Session, limit: int | None = None, offset: int = 0):
     q = s.query(Project).order_by(Project.id.desc())
-    if limit is not None:
-        q = q.limit(limit).offset(offset)
-    return q.all()
+    return _paginate(q, limit, offset).all()
 
 
 def update_project(s: Session, id: int, **fields) -> Project | None:
@@ -54,28 +106,45 @@ def update_project(s: Session, id: int, **fields) -> Project | None:
         return None
     for k, v in fields.items():
         if k in ("name", "key", "description") and v is not None:
+            if k == "name":
+                v = _required(v, "name", 200)
+            elif k == "key":
+                v = v.strip() or None
+                if v and len(v) > 20:
+                    raise InvalidValue("key must be at most 20 characters")
             setattr(p, k, v)
-    s.commit(); s.refresh(p); return p
+    _commit(s, duplicate=f"project key '{p.key}' already exists" if p.key else None)
+    s.refresh(p)
+    return p
 
 
 def delete_project(s: Session, id: int) -> bool:
     p = s.get(Project, id)
     if not p:
         return False
-    task_ids = [x[0] for x in s.query(Task.id).filter(Task.project_id == id).all()]
+    epic_ids = [x[0] for x in s.query(Epic.id).filter(Epic.project_id == id).all()]
+    story_ids = []
+    if epic_ids:
+        story_ids = [x[0] for x in s.query(Story.id).filter(Story.epic_id.in_(epic_ids)).all()]
+    task_filter = Task.project_id == id
+    if story_ids:
+        task_filter = or_(task_filter, Task.story_id.in_(story_ids))
+    task_ids = [x[0] for x in s.query(Task.id).filter(task_filter).all()]
     if task_ids:
         s.query(Comment).filter(Comment.task_id.in_(task_ids)).delete(synchronize_session=False)
-    s.query(Task).filter(Task.project_id == id).delete()
-    for ep in s.query(Epic).filter(Epic.project_id == id):
-        s.query(Story).filter(Story.epic_id == ep.id).delete()
+        s.query(Task).filter(Task.id.in_(task_ids)).delete(synchronize_session=False)
+    if story_ids:
+        s.query(Story).filter(Story.id.in_(story_ids)).delete(synchronize_session=False)
     s.query(Epic).filter(Epic.project_id == id).delete()
-    s.delete(p); s.commit(); return True
+    s.delete(p); _commit(s); return True
 
 
 # ---------- Epic ----------
 def create_epic(s: Session, *, project_id: int, title: str, description: str = "") -> Epic:
-    ep = Epic(project_id=project_id, title=title, description=description or "")
-    s.add(ep); s.commit(); s.refresh(ep); return ep
+    if not s.get(Project, project_id):
+        raise NotFound(f"project {project_id} not found")
+    ep = Epic(project_id=project_id, title=_required(title, "title", 300), description=description or "")
+    s.add(ep); _commit(s); s.refresh(ep); return ep
 
 
 def get_epic(s: Session, id: int) -> Epic | None:
@@ -84,9 +153,7 @@ def get_epic(s: Session, id: int) -> Epic | None:
 
 def list_epics(s: Session, project_id: int, limit: int | None = None, offset: int = 0):
     q = s.query(Epic).filter(Epic.project_id == project_id)
-    if limit is not None:
-        q = q.limit(limit).offset(offset)
-    return q.all()
+    return _paginate(q, limit, offset).all()
 
 
 def update_epic(s: Session, id: int, **fields) -> Epic | None:
@@ -95,8 +162,12 @@ def update_epic(s: Session, id: int, **fields) -> Epic | None:
         return None
     for k, v in fields.items():
         if k in ("title", "description", "status") and v is not None:
+            if k == "title":
+                v = _required(v, "title", 300)
+            elif k == "status":
+                _check_status(v)
             setattr(ep, k, v)
-    s.commit(); s.refresh(ep); return ep
+    _commit(s); s.refresh(ep); return ep
 
 
 def delete_epic(s: Session, id: int) -> bool:
@@ -109,13 +180,15 @@ def delete_epic(s: Session, id: int) -> bool:
             s.query(Comment).filter(Comment.task_id.in_(task_ids)).delete(synchronize_session=False)
         s.query(Task).filter(Task.story_id == st.id).delete()
     s.query(Story).filter(Story.epic_id == id).delete()
-    s.delete(ep); s.commit(); return True
+    s.delete(ep); _commit(s); return True
 
 
 # ---------- Story ----------
 def create_story(s: Session, *, epic_id: int, title: str, description: str = "") -> Story:
-    st = Story(epic_id=epic_id, title=title, description=description or "")
-    s.add(st); s.commit(); s.refresh(st); return st
+    if not s.get(Epic, epic_id):
+        raise NotFound(f"epic {epic_id} not found")
+    st = Story(epic_id=epic_id, title=_required(title, "title", 300), description=description or "")
+    s.add(st); _commit(s); s.refresh(st); return st
 
 
 def get_story(s: Session, id: int) -> Story | None:
@@ -124,9 +197,7 @@ def get_story(s: Session, id: int) -> Story | None:
 
 def list_stories(s: Session, epic_id: int, limit: int | None = None, offset: int = 0):
     q = s.query(Story).filter(Story.epic_id == epic_id)
-    if limit is not None:
-        q = q.limit(limit).offset(offset)
-    return q.all()
+    return _paginate(q, limit, offset).all()
 
 
 def update_story(s: Session, id: int, **fields) -> Story | None:
@@ -135,8 +206,12 @@ def update_story(s: Session, id: int, **fields) -> Story | None:
         return None
     for k, v in fields.items():
         if k in ("title", "description", "status") and v is not None:
+            if k == "title":
+                v = _required(v, "title", 300)
+            elif k == "status":
+                _check_status(v)
             setattr(st, k, v)
-    s.commit(); s.refresh(st); return st
+    _commit(s); s.refresh(st); return st
 
 
 def delete_story(s: Session, id: int) -> bool:
@@ -147,17 +222,28 @@ def delete_story(s: Session, id: int) -> bool:
     if task_ids:
         s.query(Comment).filter(Comment.task_id.in_(task_ids)).delete(synchronize_session=False)
     s.query(Task).filter(Task.story_id == id).delete()
-    s.delete(st); s.commit(); return True
+    s.delete(st); _commit(s); return True
 
 
 # ---------- Task ----------
 def create_task(s: Session, *, project_id: int, story_id: int | None, title: str,
                 type: str = ItemType.TASK, description: str = "", spec: str = "",
                 priority: str = Priority.MEDIUM) -> Task:
+    project = s.get(Project, project_id)
+    if not project:
+        raise NotFound(f"project {project_id} not found")
+    if story_id is not None:
+        story = s.get(Story, story_id)
+        if not story:
+            raise NotFound(f"story {story_id} not found")
+        epic = s.get(Epic, story.epic_id)
+        if epic is None or epic.project_id != project_id:
+            raise InvalidValue(f"story {story_id} does not belong to project {project_id}")
+    _check_type(type)
     _check_priority(priority)
-    t = Task(project_id=project_id, story_id=story_id, title=title,
+    t = Task(project_id=project_id, story_id=story_id, title=_required(title, "title", 300),
              type=type, description=description or "", spec=spec or "", priority=priority)
-    s.add(t); s.commit(); s.refresh(t); return t
+    s.add(t); _commit(s); s.refresh(t); return t
 
 
 def get_task(s: Session, id: int) -> Task | None:
@@ -169,9 +255,7 @@ def list_tasks(s: Session, story_id: int | None = None, limit: int | None = None
     if story_id is not None:
         q = q.filter(Task.story_id == story_id)
     q = q.order_by(Task.id.desc())
-    if limit is not None:
-        q = q.limit(limit).offset(offset)
-    return q.all()
+    return _paginate(q, limit, offset).all()
 
 
 def update_task(s: Session, id: int, **fields) -> Task | None:
@@ -181,10 +265,16 @@ def update_task(s: Session, id: int, **fields) -> Task | None:
     allowed = {"title", "description", "spec", "type", "status", "priority"}
     for k, v in fields.items():
         if k in allowed and v is not None:
-            if k == "priority":
+            if k == "title":
+                v = _required(v, "title", 300)
+            elif k == "priority":
                 _check_priority(v)
+            elif k == "type":
+                _check_type(v)
+            elif k == "status":
+                _check_status(v)
             setattr(t, k, v)
-    s.commit(); s.refresh(t); return t
+    _commit(s); s.refresh(t); return t
 
 
 def delete_task(s: Session, id: int) -> bool:
@@ -192,7 +282,7 @@ def delete_task(s: Session, id: int) -> bool:
     if not t:
         return False
     s.query(Comment).filter(Comment.task_id == id).delete(synchronize_session=False)
-    s.delete(t); s.commit(); return True
+    s.delete(t); _commit(s); return True
 
 
 def set_task_description(s: Session, id: int, text: str) -> Task | None:
@@ -208,18 +298,20 @@ def append_task_spec(s: Session, id: int, text: str) -> Task | None:
     if not t:
         return None
     t.spec = (t.spec or "") + "\n" + text
-    s.commit(); s.refresh(t); return t
+    _commit(s); s.refresh(t); return t
 
 
 def set_status(s: Session, id: int, new_status: str) -> Task | None:
     t = s.get(Task, id)
     if not t:
         raise NotFound(f"task {id} not found")
+    _check_status(new_status)
     new = Status(new_status)
-    if t.status != new and new not in TRANSITIONS.get(Status(t.status), set()):
+    current = Status(t.status)
+    if current != new and new not in TRANSITIONS.get(current, set()):
         raise IllegalTransition(f"{t.status} -> {new} 不合法")
     t.status = new
-    s.commit(); s.refresh(t); return t
+    _commit(s); s.refresh(t); return t
 
 
 # ---------- Spec -> 子任务（OpenSpec / Superpowers 风格） ----------
@@ -232,6 +324,9 @@ def generate_tasks_from_spec(s: Session, task_id: int) -> list:
     src = s.get(Task, task_id)
     if not src:
         raise NotFound(f"task {task_id} not found")
+    existing_titles = {
+        title for (title,) in s.query(Task.title).filter(Task.source_spec_id == task_id).all()
+    }
     created = []
     for line in (src.spec or "").splitlines():
         m = re.match(r"\s*[-*]\s*\[\s*[ xX]\s*\]\s*(.*)", line)
@@ -240,18 +335,24 @@ def generate_tasks_from_spec(s: Session, task_id: int) -> list:
         title = m.group(1).strip()
         if not title:
             continue
+        title = title[:300]
+        if title in existing_titles:
+            continue
         t = Task(project_id=src.project_id, story_id=src.story_id,
                  type=ItemType.TASK, title=title[:300], description=title,
                  source_spec_id=task_id)
         s.add(t)
         created.append(t)
-    s.commit()
+        existing_titles.add(title)
+    if created:
+        s.flush()
+        links = "\n".join(f"- 子任务 #{t.id}: {t.title}" for t in created)
+        src.spec = (src.spec or "") + f"\n\n## 生成的子任务\n{links}\n"
+    _commit(s)
     for t in created:
         s.refresh(t)
     if created:
-        links = "\n".join(f"- 子任务 #{t.id}: {t.title}" for t in created)
-        src.spec = (src.spec or "") + f"\n\n## 生成的自任务\n{links}\n"
-        s.commit(); s.refresh(src)
+        s.refresh(src)
     return created
 
 
@@ -264,8 +365,10 @@ def search_tasks(s: Session, *, project_id=None, epic_id=None, story_id=None,
     if story_id is not None:
         qry = qry.filter(Task.story_id == story_id)
     if type is not None:
+        _check_type(type)
         qry = qry.filter(Task.type == type)
     if status is not None:
+        _check_status(status)
         qry = qry.filter(Task.status == status)
     if priority is not None:
         _check_priority(priority)
@@ -277,9 +380,7 @@ def search_tasks(s: Session, *, project_id=None, epic_id=None, story_id=None,
         qry = qry.filter(or_(Task.title.ilike(like), Task.description.ilike(like),
                               Task.spec.ilike(like)))
     qry = qry.order_by(Task.id.desc())
-    if limit is not None:
-        qry = qry.limit(limit).offset(offset)
-    return qry.all()
+    return _paginate(qry, limit, offset).all()
 
 
 def _check_priority(priority: str) -> None:
@@ -295,7 +396,7 @@ def create_comment(s: Session, *, task_id: int, author: str, content: str) -> Co
     if not author or not content:
         raise InvalidValue("author and content are required")
     comment = Comment(task_id=task_id, author=author[:100], content=content)
-    s.add(comment); s.commit(); s.refresh(comment); return comment
+    s.add(comment); _commit(s); s.refresh(comment); return comment
 
 
 def list_comments(s: Session, task_id: int):
@@ -308,22 +409,26 @@ def delete_comment(s: Session, id: int) -> bool:
     comment = s.get(Comment, id)
     if not comment:
         return False
-    s.delete(comment); s.commit(); return True
+    s.delete(comment); _commit(s); return True
 
 
-class NotFound(Exception):
+class DomainError(Exception):
     pass
 
 
-class IllegalTransition(Exception):
+class NotFound(DomainError):
     pass
 
 
-class Duplicate(Exception):
+class IllegalTransition(DomainError):
     pass
 
 
-class InvalidValue(Exception):
+class Duplicate(DomainError):
+    pass
+
+
+class InvalidValue(DomainError):
     pass
 
 
@@ -333,15 +438,24 @@ def has_users(s: Session) -> bool:
 
 
 def register_user(s: Session, *, username: str, password: str) -> models.User:
+    username = _required(username, "username", 64)
+    if len(password or "") < 8:
+        raise InvalidValue("password must be at least 8 characters")
     if s.query(models.User).filter_by(username=username).first():
         raise Duplicate(f"username '{username}' already exists")
     u = models.User(username=username, password_hash=auth.hash_password(password))
-    s.add(u); s.commit(); s.refresh(u); return u
+    s.add(u)
+    _commit(s, duplicate=f"username '{username}' already exists")
+    s.refresh(u)
+    return u
 
 
 def authenticate_user(s: Session, *, username: str, password: str) -> models.User | None:
     u = s.query(models.User).filter_by(username=username).first()
     if u and auth.verify_password(password, u.password_hash):
+        if auth.password_needs_rehash(u.password_hash):
+            u.password_hash = auth.hash_password(password)
+            _commit(s)
         return u
     return None
 

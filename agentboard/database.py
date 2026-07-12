@@ -1,5 +1,5 @@
 import os
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
 
 DEFAULT_URL = "sqlite:///./agentboard.db"
@@ -10,15 +10,17 @@ engine = create_engine(URL, connect_args=_connect_args, future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 
+if URL.startswith("sqlite"):
+    @event.listens_for(engine, "connect")
+    def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+
 def init_db() -> None:
-    # 优先用 Alembic 正式迁移；不可用时降级为 create_all（开发期兼容）。
-    try:
-        _run_alembic()
-    except Exception:
-        import agentboard.models  # noqa: F401  (确保模型注册)
-        agentboard.models.Base.metadata.create_all(engine)
-    # 兜底：确保任何缺失的表/列都被补齐，避免 Alembic 路径下漏建表。
-    _ensure_migrations()
+    """将数据库升级到最新版本；迁移失败时中止启动，避免带病运行。"""
+    _run_alembic()
 
 
 def _run_alembic() -> None:
@@ -27,30 +29,20 @@ def _run_alembic() -> None:
     here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     cfg = Config(os.path.join(here, "alembic.ini"))
     cfg.set_main_option("script_location", os.path.join(here, "migrations"))
-    command.upgrade(cfg, "head")
-
-
-def _ensure_migrations() -> None:
-    from sqlalchemy import inspect, text
-    import agentboard.models  # noqa: F401  (确保模型注册)
-    # 补齐缺失的表（如新增的 users），兼容 Alembic 路径下未建表的情况。
-    existing = set(inspect(engine).get_table_names())
-    for table in agentboard.models.Base.metadata.tables.values():
-        if table.name not in existing:
-            table.create(bind=engine)
-    # 补齐早期 SQLite 库的 tasks 列；正式环境仍以 Alembic 为准。
-    with engine.connect() as conn:
-        cols = {c["name"] for c in inspect(engine).get_columns("tasks")}
-        if "source_spec_id" not in cols:
-            conn.execute(text("ALTER TABLE tasks ADD COLUMN source_spec_id INTEGER"))
-        if "priority" not in cols:
-            conn.execute(text("ALTER TABLE tasks ADD COLUMN priority VARCHAR(10) NOT NULL DEFAULT 'medium'"))
-        conn.commit()
+    # 显式传入本模块的连接，避免测试/多实例场景下 Alembic 重新导入到另一套 engine。
+    with engine.connect() as connection:
+        cfg.attributes["connection"] = connection
+        command.upgrade(cfg, "head")
 
 
 def get_session() -> Session:
     s = SessionLocal()
+    s.info["auto_commit"] = False
     try:
         yield s
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
     finally:
         s.close()
