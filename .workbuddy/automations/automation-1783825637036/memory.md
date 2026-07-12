@@ -23,3 +23,34 @@
 - Test data conflicts (duplicate project keys) resolved with unique suffixes
 
 **No remaining in_review tasks.**
+
+## 2026-07-12 14:10 Execution
+
+**Status**: Completed successfully
+
+**Findings**:
+- Found 2 tasks in `in_review` status: Task #82 (Sprint 数据模型与 REST API) and Task #83 (前端 Sprint 管理 UI)
+- Both belong to AgentBoard project (id=3), Story 26 (Epic 12)
+
+**Actions taken**:
+- Git pull: already up to date
+- Docker containers running with Sprint code already present
+- Verified API container has Sprint model, routes, and service functions
+- Ran Sprint API smoke test (46/46 passed): CRUD, activate, single-active constraint, task-sprint assignment, complete+backfill
+- Installed Playwright + Chromium for UI testing
+- Ran Sprint UI E2E test (13/13 passed): SPA load, login, project nav, Sprint view, create/activate/complete via UI
+
+**Issues found and fixed**:
+1. **Web container `web_app.py` outdated**: Missing catch-all route for Angular assets → JS/CSS 404. Fixed via `docker cp`.
+2. **CORS 401 missing headers**: `require_business_auth` middleware returned 401 JSONResponse without CORS headers. Fixed by adding `Access-Control-Allow-Origin` and `Access-Control-Allow-Credentials` to the 401 response.
+3. Docker Hub still unreachable, used `docker cp` workaround.
+
+**Code changes committed**:
+- `agentboard/api.py`: CORS fix on 401 response
+- `tests/test_sprint_api_review.py`: Sprint API test script (46 tests)
+- `tests/test_sprint_ui_review.py`: Sprint UI Playwright test (13 tests)
+- Committed and pushed: `9514b8b`
+
+**Both tasks updated to `done` with detailed review comments.**
+
+**No remaining in_review tasks.**

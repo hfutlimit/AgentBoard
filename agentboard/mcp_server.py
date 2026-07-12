@@ -209,6 +209,45 @@ if BACKEND == "db":
             u = service.get_user(s, details[0])
             return {"id": u.id, "username": u.username} if u else {"error": "unauthorized"}
 
+    # ---------- Sprint ----------
+    def _sprint_list(project_id, limit=None, offset=0):
+        with SessionLocal() as s:
+            return [service._ser(sp) for sp in service.list_sprints(s, project_id, limit=limit, offset=offset)]
+
+    def _sprint_get(sprint_id):
+        with SessionLocal() as s:
+            sp = service.get_sprint(s, sprint_id)
+            return service._ser(sp) if sp else {"error": "not found"}
+
+    def _sprint_create(project_id, title, goal="", start_date=None, end_date=None):
+        with SessionLocal() as s:
+            return service._ser(service.create_sprint(s, project_id=project_id, title=title,
+                                                       goal=goal, start_date=start_date, end_date=end_date))
+
+    def _sprint_update(sprint_id, fields):
+        with SessionLocal() as s:
+            sp = service.update_sprint(s, sprint_id, **fields)
+            return service._ser(sp) if sp else {"error": "not found"}
+
+    def _sprint_activate(sprint_id):
+        with SessionLocal() as s:
+            return service._ser(service.activate_sprint(s, sprint_id))
+
+    def _sprint_complete(sprint_id):
+        with SessionLocal() as s:
+            return service._ser(service.complete_sprint(s, sprint_id))
+
+    def _sprint_delete(sprint_id):
+        with SessionLocal() as s:
+            return {"ok": service.delete_sprint(s, sprint_id)}
+
+    def _sprint_task_list(sprint_id, limit=None, offset=0):
+        with SessionLocal() as s:
+            sp = service.get_sprint(s, sprint_id)
+            if not sp:
+                return {"error": "not found"}
+            return [service._ser(t) for t in service.list_tasks(s, sprint_id=sprint_id, limit=limit, offset=offset)]
+
 else:  # api 模式
     import httpx
 
@@ -336,6 +375,42 @@ else:  # api 模式
     def _auth_me(token):
         return _http("GET", "/api/auth/me", headers={"Authorization": f"Bearer {token}"})
 
+    # ---------- Sprint ----------
+    def _sprint_list(project_id, limit=None, offset=0):
+        params = {"offset": offset}
+        if limit is not None:
+            params["limit"] = limit
+        return _http("GET", f"/api/projects/{project_id}/sprints", params=params)
+
+    def _sprint_get(sprint_id):
+        return _http("GET", f"/api/sprints/{sprint_id}")
+
+    def _sprint_create(project_id, title, goal="", start_date=None, end_date=None):
+        body = {"title": title, "goal": goal}
+        if start_date:
+            body["start_date"] = start_date
+        if end_date:
+            body["end_date"] = end_date
+        return _http("POST", f"/api/projects/{project_id}/sprints", json=body)
+
+    def _sprint_update(sprint_id, fields):
+        return _http("PATCH", f"/api/sprints/{sprint_id}", json=fields)
+
+    def _sprint_activate(sprint_id):
+        return _http("POST", f"/api/sprints/{sprint_id}/activate")
+
+    def _sprint_complete(sprint_id):
+        return _http("POST", f"/api/sprints/{sprint_id}/complete")
+
+    def _sprint_delete(sprint_id):
+        return _http("DELETE", f"/api/sprints/{sprint_id}")
+
+    def _sprint_task_list(sprint_id, limit=None, offset=0):
+        params = {"offset": offset}
+        if limit is not None:
+            params["limit"] = limit
+        return _http("GET", f"/api/sprints/{sprint_id}/tasks", params=params)
+
 
 if BACKEND == "db":
     # 让 DB 与 API 后端对领域错误使用相同的 MCP 返回契约。
@@ -351,7 +426,7 @@ if BACKEND == "db":
         if _name.startswith("_") and callable(_func) and _name not in {
             "_domain_error_result", "_current_token", "_http"
         }:
-            if _name.startswith(("_proj_", "_epic_", "_story_", "_task_", "_comment_", "_auth_")):
+            if _name.startswith(("_proj_", "_epic_", "_story_", "_task_", "_comment_", "_auth_", "_sprint_")):
                 globals()[_name] = _domain_error_result(_func)
 
 
@@ -567,6 +642,59 @@ def generate_tasks_from_spec(task_id: int) -> list:
     返回生成的子任务列表（含 id）；源任务通过 source_spec_id 反向关联。
     """
     return _task_generated(task_id)
+
+
+# ---------- Sprint MCP 工具 ----------
+@mcp.tool()
+def list_sprints(project_id: int, limit: int | None = None, offset: int = 0) -> list:
+    """分页列出指定 Project 下的 Sprint。"""
+    return _sprint_list(project_id, limit=limit, offset=offset)
+
+
+@mcp.tool()
+def get_sprint(sprint_id: int) -> dict:
+    """获取 Sprint 详情（含 goal、日期、状态）。"""
+    return _sprint_get(sprint_id)
+
+
+@mcp.tool()
+def create_sprint(project_id: int, title: str, goal: str = "",
+                  start_date: str | None = None, end_date: str | None = None) -> dict:
+    """在指定项目下创建 Sprint。start_date / end_date 为 ISO 日期字符串 (YYYY-MM-DD)。"""
+    return _sprint_create(project_id, title, goal=goal, start_date=start_date, end_date=end_date)
+
+
+@mcp.tool()
+def update_sprint(sprint_id: int, title: str | None = None, goal: str | None = None,
+                  start_date: str | None = None, end_date: str | None = None) -> dict:
+    """更新 Sprint 标题/目标/日期。仅传入需要修改的字段。"""
+    fields = {k: v for k, v in dict(title=title, goal=goal,
+                                    start_date=start_date, end_date=end_date).items() if v is not None}
+    return _sprint_update(sprint_id, fields)
+
+
+@mcp.tool()
+def activate_sprint(sprint_id: int) -> dict:
+    """激活 Sprint（自动停用同项目其他 active Sprint）。"""
+    return _sprint_activate(sprint_id)
+
+
+@mcp.tool()
+def complete_sprint(sprint_id: int) -> dict:
+    """完成 Sprint（未完成的任务退回 backlog）。"""
+    return _sprint_complete(sprint_id)
+
+
+@mcp.tool()
+def delete_sprint(sprint_id: int) -> dict:
+    """删除 Sprint（ACTIVE 状态不可删除；关联任务解除绑定）。"""
+    return _sprint_delete(sprint_id)
+
+
+@mcp.tool()
+def list_sprint_tasks(sprint_id: int, limit: int | None = None, offset: int = 0) -> list:
+    """分页列出指定 Sprint 下的 Task。"""
+    return _sprint_task_list(sprint_id, limit=limit, offset=offset)
 
 
 @mcp.tool()

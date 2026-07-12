@@ -33,6 +33,7 @@ export class App implements OnInit, OnDestroy {
   readonly sprints = signal<Sprint[]>([]);
   readonly sprint = signal<Sprint | null>(null);
   readonly sprintTasks = signal<Task[]>([]);
+  readonly backlogTasks = signal<Task[]>([]);
   readonly project = signal<Project | null>(null);
   readonly epic = signal<Epic | null>(null);
   readonly story = signal<Story | null>(null);
@@ -122,6 +123,7 @@ export class App implements OnInit, OnDestroy {
         this.project.set(project);
         this.epics.set(epics);
         await this.loadSprints(id);
+        await this.loadBacklog(id);
       } else if (kind === 'epic' && id > 0) {
         this.view.set('epic');
         const [epic, stories] = await Promise.all([
@@ -411,6 +413,26 @@ export class App implements OnInit, OnDestroy {
   async loadSprints(projectId: number): Promise<void> {
     this.sprints.set(await firstValueFrom(this.api.listSprints(projectId)));
   }
+
+  async loadBacklog(projectId: number): Promise<void> {
+    try {
+      const tasks = await firstValueFrom(
+        this.api.searchTasks({ project_id: projectId, limit: 200 }),
+      );
+      this.backlogTasks.set(tasks.filter((t) => !t.sprint_id));
+    } catch {
+      this.backlogTasks.set([]);
+    }
+  }
+
+  readonly backlogVisibleTasks = computed(() => {
+    const query = this.search().trim().toLocaleLowerCase();
+    return query
+      ? this.backlogTasks().filter((t) =>
+          `${t.title} ${t.description} ${t.spec}`.toLocaleLowerCase().includes(query),
+        )
+      : this.backlogTasks();
+  });
 
   async activateSprint(id: number): Promise<void> {
     if (!confirm('激活此 Sprint？同一项目只能有一个 active Sprint。')) return;

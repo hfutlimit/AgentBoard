@@ -40,3 +40,21 @@
 - **正确重部署命令**：`docker compose up -d --build`（或先 `docker compose build` 再 `up -d`）。本次已在沙箱执行 `docker compose up -d --build web` 修复"看不到新前端"问题。
 - Web 端口 **8080**（非 5080），API 端口 8000。浏览器访问 http://localhost:8080 ，SPA 经 `AGENTBOARD_API_URL`（默认 localhost:8000）调 API。
 - 部署后浏览器务必**硬刷新**（Ctrl/Cmd+Shift+R）清静态缓存。
+
+## CORS 踩坑记录（2026-07-12）
+- **问题**：`require_business_auth` 中间件返回 401 `JSONResponse` 时，CORS 中间件未能注入 `Access-Control-Allow-Origin` 头 → 浏览器报 CORS 错误，SPA 无法读取 401 响应。
+- **根因**：Starlette `CORSMiddleware` 对直接返回的 `JSONResponse`（非经 `call_next` 的响应）可能不注入 CORS 头。
+- **修复**：在 `require_business_auth` 中手动为 401 响应添加 `Access-Control-Allow-Origin`（取自请求 `Origin` 头）和 `Access-Control-Allow-Credentials: true`。
+- **文件**：`agentboard/api.py` L49-55。
+
+## API Schema 关键约定（2026-07-12 盘点）
+- **SprintIn**: `title`（非 `name`）、`goal`、`start_date`、`end_date`。无 `status` 字段（默认 planning）。
+- **SprintPatch**: 同 SprintIn 但全部可选。更新用 **PATCH**（非 PUT）。
+- **TaskIn**: 必须含 `project_id`；无 `status`（默认 backlog）和 `sprint_id`（默认 null）字段。
+- **TaskPatch**: 含 `sprint_id`（可 null）。改状态用 `PUT /api/tasks/{tid}/status`（非 PATCH）。
+- **任务状态机**: backlog → todo → in_progress（不允许 backlog → in_progress 直接跳转）→ in_review → verifying → done。
+
+## Sprint 功能就绪状态（2026-07-12 14:10 更新）
+- Task #82 (Sprint API) → **done** ✅ (46/46 tests passed)
+- Task #83 (Sprint UI) → **done** ✅ (13/13 tests passed)
+- Sprint CRUD + activate + complete + 单 active 约束 + 任务退回 全部正常。

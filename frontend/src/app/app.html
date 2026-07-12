@@ -308,6 +308,39 @@
             } @else {
               <div class="empty-inline">暂无 Sprint</div>
             }
+
+            <!-- Backlog: 未分配 Sprint 的任务 -->
+            <div class="section-header">
+              <h3>
+                Backlog <span class="count">{{ backlogVisibleTasks().length }}</span>
+              </h3>
+            </div>
+            @if (backlogVisibleTasks().length) {
+              <div class="entity-list">
+                @for (task of backlogVisibleTasks(); track task.id) {
+                  <div class="entity-item">
+                    <a [routerLink]="['/task', task.id]" class="entity-item-main">
+                      <span class="type-icon {{ task.type }}">{{
+                        task.type === 'bug' ? '!' : '✓'
+                      }}</span>
+                      <span class="entity-item-title">{{ task.title }}</span>
+                    </a>
+                    <div class="entity-item-badges">
+                      <span class="badge status status--{{ task.status }}">{{
+                        statusLabel(task.status)
+                      }}</span>
+                      @if (task.priority !== 'medium') {
+                        <span class="badge priority priority--{{ task.priority }}">{{
+                          priorityLabel(task.priority)
+                        }}</span>
+                      }
+                    </div>
+                  </div>
+                }
+              </div>
+            } @else {
+              <div class="empty-inline">Backlog 为空，所有任务已分配 Sprint</div>
+            }
           }
         }
         @case ('epic') {
