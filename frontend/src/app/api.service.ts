@@ -49,6 +49,14 @@ export class ApiService {
   listProjects() {
     return this.request<PagedResult<Project>>('GET', '/api/projects');
   }
+
+  getHealth() {
+    return this.http.get<{ status: string; database: string; version: string; timestamp: string }>(
+      `${this.baseUrl}/api/health`,
+      { headers: new HttpHeaders() }  // no auth header
+    );
+  }
+
   getProject(id: number) {
     return this.request<Project>('GET', `/api/projects/${id}`);
   }

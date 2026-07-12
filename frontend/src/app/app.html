@@ -33,6 +33,30 @@
       <span id="user-info" class="muted">
         <!-- Notification bell -->
         @if (currentUser()) {
+          <!-- Health indicator -->
+          <button class="ghost-sm health-btn" style="margin-right:6px" (click)="toggleHealth()" title="API 健康状态">
+            @if (healthStatus() === 'ok') {
+              <span class="health-dot ok" title="API 正常"></span>
+            } @else if (healthStatus() === 'error') {
+              <span class="health-dot error" title="API 异常"></span>
+            } @else {
+              <span class="health-dot unknown" title="检测中…"></span>
+            }
+          </button>
+          @if (showHealth()) {
+            <div class="health-popover">
+              <div class="health-header"><strong>系统状态</strong></div>
+              @if (healthDetail(); as h) {
+                <div class="health-row"><span>API</span><span class="badge status--done">{{ h.status }}</span></div>
+                <div class="health-row"><span>Database</span><span [class]="h.database === 'ok' ? 'badge status--done' : 'badge status--verifying'">{{ h.database }}</span></div>
+                <div class="health-row"><span>Version</span><span>{{ h.version }}</span></div>
+                <div class="health-row"><span>Timestamp</span><span style="font-size:11px">{{ h.timestamp | date:'HH:mm:ss' }}</span></div>
+              } @else {
+                <div class="health-row"><span>状态</span><span class="badge status--verifying">无法获取</span></div>
+              }
+              <button class="ghost-sm" style="width:100%;margin-top:8px" (click)="checkHealth()">刷新</button>
+            </div>
+          }
           <div class="notif-wrap" style="position:relative;display:inline-block;margin-right:8px">
             <button class="ghost-sm notif-btn" (click)="toggleNotifications()" title="通知">
               🔔

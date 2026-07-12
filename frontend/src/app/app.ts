@@ -70,6 +70,9 @@ export class App implements OnInit, OnDestroy {
   });
   readonly isOwner = signal(false);
   readonly isAdmin = signal(false);
+  readonly healthStatus = signal<'ok' | 'error' | 'unknown'>('unknown');
+  readonly healthDetail = signal<{ status: string; database: string; version: string; timestamp: string } | null>(null);
+  readonly showHealth = signal(false);
   readonly attachments = signal<Attachment[]>([]);
   readonly adminUsers = signal<any[]>([]);
   readonly adminProjects = signal<any[]>([]);
@@ -113,6 +116,23 @@ export class App implements OnInit, OnDestroy {
       .pipe(filter((event) => event instanceof NavigationEnd))
       .subscribe(() => this.loadRoute());
     void this.loadRoute();
+    void this.checkHealth();
+  }
+
+  async checkHealth(): Promise<void> {
+    try {
+      const health = await firstValueFrom(this.api.getHealth());
+      this.healthStatus.set(health.status === 'ok' && health.database === 'ok' ? 'ok' : 'error');
+      this.healthDetail.set(health);
+    } catch {
+      this.healthStatus.set('error');
+      this.healthDetail.set(null);
+    }
+  }
+
+  toggleHealth(): void {
+    this.showHealth.set(!this.showHealth());
+    if (this.showHealth()) void this.checkHealth();
   }
 
   /** 启动时验证 localStorage 中的 token，有效则恢复登录态，无效则清除并弹登录 */

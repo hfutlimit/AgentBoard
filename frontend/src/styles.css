@@ -1417,3 +1417,63 @@ details.form-section > form { padding: 16px; }
   background: #334155;
   color: #94a3b8;
 }
+
+/* ========== Health Indicator ========== */
+.health-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  position: relative;
+}
+
+.health-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.health-dot.ok { background: var(--success); box-shadow: 0 0 0 2px rgba(5,150,105,.2); }
+.health-dot.error { background: var(--danger); box-shadow: 0 0 0 2px rgba(220,38,38,.2); animation: pulse-error 1.5s infinite; }
+.health-dot.unknown { background: #94a3b8; }
+
+@keyframes pulse-error {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.health-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  padding: 12px;
+  min-width: 200px;
+  box-shadow: var(--sh-md, 0 4px 6px -1px rgba(0,0,0,.1));
+  z-index: 9999;
+  font-size: 13px;
+}
+
+.health-header {
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--text-secondary, #64748b);
+}
+
+.health-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 0;
+  color: var(--text, #0f172a);
+}
+
+.health-row span:first-child {
+  color: var(--text-secondary, #64748b);
+  font-size: 12px;
+}

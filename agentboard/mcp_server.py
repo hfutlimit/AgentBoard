@@ -927,6 +927,22 @@ def get_attachment_info(attachment_id: int) -> dict:
     return _attachment_get(attachment_id)
 
 
+# ---------- Project Stats MCP 工具 ----------
+if BACKEND == "db":
+    def _project_stats(project_id):
+        with SessionLocal() as s:
+            return service.get_project_stats(s, project_id)
+else:
+    def _project_stats(project_id):
+        return _http("GET", f"/api/projects/{project_id}/stats")
+
+
+@mcp.tool()
+def get_project_stats(project_id: int) -> dict:
+    """获取项目统计：总任务数、状态分布、每日新增/完成任务量、完成率。"""
+    return _project_stats(project_id)
+
+
 # ---------- Agent MCP 工具（Task 92）----------
 if BACKEND == "db":
     def _agent_claim_task(task_id, agent_name="agent"):

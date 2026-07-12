@@ -4,7 +4,9 @@
 供 Web 前端（fetch）与 MCP（httpx）调用；不含任何 HTML 渲染。
 """
 import os
+from datetime import datetime
 from contextlib import asynccontextmanager
+from sqlalchemy import text
 from fastapi import FastAPI, Depends, HTTPException, Query, Header, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
@@ -44,7 +46,7 @@ async def require_business_auth(request: Request, call_next):
         os.getenv("AGENTBOARD_REQUIRE_AUTH", "0").lower() in {"1", "true", "yes"}
         and request.method != "OPTIONS"
         and request.url.path.startswith("/api/")
-        and request.url.path not in {"/api/meta", "/api/auth/register", "/api/auth/login"}
+        and request.url.path not in {"/api/meta", "/api/health", "/api/auth/register", "/api/auth/login"}
     )
     if protected:
         authorization = request.headers.get("Authorization")
@@ -254,6 +256,23 @@ def meta():
     return {"types": ALL_TYPES, "statuses": ALL_STATUSES, "priorities": ALL_PRIORITIES,
             "sprint_statuses": ALL_SPRINT_STATUSES,
             "schedule_types": ALL_SCHEDULE_TYPES, "run_statuses": ALL_RUN_STATUSES}
+
+
+# ---------- Health ----------
+@app.get("/api/health")
+def health(s: Session = Depends(get_session)):
+    """健康检查端点：探测 DB 连接、API 版本。不需要鉴权。"""
+    db_status = "ok"
+    try:
+        s.execute(text("SELECT 1"))
+    except Exception:
+        db_status = "error"
+    return {
+        "status": "ok",
+        "database": db_status,
+        "version": "0.4",
+        "timestamp": datetime.now().isoformat(),
+    }
 
 
 # ---------- Auth ----------
