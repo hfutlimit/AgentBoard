@@ -105,12 +105,33 @@ export class App implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.applyTheme(localStorage.getItem('agentboard_theme') || 'light');
-    const storedAdmin = localStorage.getItem('agentboard_is_admin');
-    this.isAdmin.set(storedAdmin === 'true');
+    // 启动时校验已有 token，失败则清除并显示登录
+    void this.validateAuth();
     this.routeSub = this.router.events
       .pipe(filter((event) => event instanceof NavigationEnd))
       .subscribe(() => this.loadRoute());
     void this.loadRoute();
+  }
+
+  /** 启动时验证 localStorage 中的 token，有效则恢复登录态，无效则清除并弹登录 */
+  private async validateAuth(): Promise<void> {
+    const token = localStorage.getItem('agentboard_token');
+    if (!token) return; // 无 token，不弹登录（后端开放时免登可用）
+    try {
+      const me = await firstValueFrom(this.api.me());
+      this.currentUser.set(me.username);
+      this.isAdmin.set(me.is_admin ?? false);
+      localStorage.setItem('agentboard_user', me.username);
+      localStorage.setItem('agentboard_is_admin', String(me.is_admin ?? false));
+    } catch {
+      // token 失效，清除并显示登录
+      localStorage.removeItem('agentboard_token');
+      localStorage.removeItem('agentboard_user');
+      localStorage.removeItem('agentboard_is_admin');
+      this.currentUser.set('');
+      this.isAdmin.set(false);
+      this.openAuth('login');
+    }
   }
 
   ngOnDestroy(): void {
