@@ -37,6 +37,15 @@
 
 ---
 
+## 2026-07-12 22:57（周期执行 · 检测到 Task 88 仍 in_progress，跳过）
+
+- **拉取最新代码**：已是最新（HEAD=36dc84c）
+- **MCP 分析**：Task 88 (AgentSchedule/AgentRun) 状态为 in_progress
+- **决策**：根据"有正在执行的任务则忽略本次任务"指令，跳过本次执行
+- **待处理**：Task 90/91/92 (Story 12.4)、Task 87 (Story 12.3)
+
+---
+
 ## 2026-07-12 17:38-18:05（周期执行 · Epic 12 Story 12.4 启动）
 
 - **拉取最新代码**：已是最新（HEAD=36dc84c）
@@ -72,3 +81,58 @@
 ### 下一个 pending 项
 - Story 12.4 Task 89（带租约和幂等键的调度扫描器）
 - 可用时间剩余 ~3 分钟，如自动启动下一周期可处理
+
+---
+
+## 2026-07-13 00:53（周期执行 · Epic 12 Story 12.3/12.4 收尾）
+
+- **拉取最新代码**：已是最新
+- **MCP 分析**：无 in_progress 任务 → 开始执行
+- **处理了 5 个 backlog Task（Task 87/90/91/92 + Task 86 in_review 确认）**
+
+### Task 87: 任务详情附件区与 MCP 资源信息工具
+- `models.ts`: 新增 Attachment/AgentSchedule/AgentRun 接口
+- `api.service.ts`: 新增 listAttachments/getAttachmentInfo/uploadAttachment/deleteAttachment + Schedule/Run API
+- `app.ts`: 新增 attachments/signals + loadAttachments/onAttachmentFileSelected/deleteAttachment/schedules + loadSchedules/toggleSchedule/createNewSchedule/deleteSchedule
+- `app.html`: 任务详情抽屉添加附件列表区（上传/下载/删除）+ 项目详情 Schedules Tab（列表/创建/启用停用/删除）
+- `styles.css`: 新增 .attachment-list/.schedule-list 等样式
+
+### Task 90/92: 执行器适配契约 + Agent MCP 工具
+- `mcp_server.py`: 新增 list_attachments/get_attachment_info (db+api 双后端)
+- 新增 claim_task/heartbeat/complete_run/sync_status MCP 工具
+
+### Task 91: Web 计划配置 UI
+- 项目详情页新增「定时计划」Tab（`activeTab='schedules'`）
+- 显示调度列表、启用/停用、创建、删除
+- `prompt()` 简化创建表单
+
+### 踩坑总结
+1. Docker Hub 不可达 → 使用 `docker cp` 注入 web_app.py + `agentboard-web` 镜像
+2. Angular 构建输出在 `dist/frontend/browser/`，需复制 browser/ 目录内容
+3. 旧容器内 web_app.py 缺少 `angular_asset_or_route` 处理器 → 用 `docker cp` 更新
+4. MCP `set_status` 任务状态机约束 backlog→todo→in_progress→in_review，不能跳过
+
+### 部署
+- 前端：`npm run build` → 复制 `browser/` 到 `agentboard/web/static/`
+- Web 容器：`docker run agentboard-web:latest` + `docker cp web_app.py` 更新处理器
+- 静态文件通过 volume mount (`-v ./agentboard/web/static:/app/agentboard/web/static:ro`) 实时同步
+
+### 测试结果
+- Backend flow: 3/3 passed
+- Playwright E2E: 6/6 passed
+- MCP 工具测试: 5/5 passed (新工具验证)
+
+### MCP 任务更新
+- Task 86: 已 done
+- Task 87: backlog → todo → in_progress → **in_review** ✅
+- Task 88: 已 in_review
+- Task 89: 已 done
+- Task 90: backlog → todo → in_progress → **in_review** ✅
+- Task 91: backlog → todo → in_progress → **in_review** ✅
+- Task 92: backlog → todo → in_progress → **in_review** ✅
+- Story 27/28: 保持 in_progress（Epic 12 未完成）
+
+### 下一个待处理
+- Epic 12 全部 Task 均已 in_review/done
+- Story 27/28 完成验收后可关闭 Epic 12
+- Epic 11 前端优化继续小步迭代
