@@ -185,3 +185,37 @@
 - Task 209 (任务卡片丰富化): backlog
 - Task 205 (速率限制): backlog
 - Story 14.2/14.3/14.4/14.5: backlog
+
+---
+
+## 2026-07-13 05:16（周期执行 · Epic 12 Story 12.3/12.4 收尾确认）
+
+### 分析结果
+- **Epic 12 已全完成**：经分析确认所有功能已实现
+  - Task 305: 附件元数据模型 ✅ (models.py + migration)
+  - Task 306: REST API（上传/列表/下载/删除）✅ (api.py)
+  - Task 307: 前端附件区 + MCP 工具 ✅ (frontend + mcp_server.py)
+  - Task 311: 执行器适配契约 ✅ (mcp_server.py claim_task/heartbeat/complete_run)
+  - Task 312: Web 计划配置 ✅ (frontend Schedules Tab)
+  - Task 313: MCP 领取任务工具 ✅ (mcp_server.py)
+
+### 测试结果
+- Backend pytest: 32/34 passed (2 失败为环境问题)
+- Playwright E2E: 6/6 passed ✅
+
+### 部署
+- Docker: Web 重启，MCP 迁移修复（docker cp migrations → restart）
+- 所有容器运行正常
+
+### Git
+- Commit: `8981427` - feat: Epic 12 Story 12.3 & 12.4 - Attachment & Agent Schedule Complete
+- Push: ✅
+
+### 文档更新
+- tasks.md: Story 12.3/12.4 全部 Task 标记 [x]
+- 完成记录追加：Epic 12 Story 12.3 & 12.4
+
+### 踩坑总结
+1. Docker Hub 不可达 → `docker cp` 注入运行中容器
+2. MCP alembic_version 不匹配 → `docker cp` 迁移文件
+3. MCP 容器 restart loop → 等待稳定后验证
