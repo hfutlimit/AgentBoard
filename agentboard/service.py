@@ -4,8 +4,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from . import models, auth
 from .models import (
-    ItemType, Status, Priority, ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES,
-    Project, Epic, Story, Task, Comment,
+    ItemType, Status, Priority, SprintStatus, ALL_TYPES, ALL_STATUSES,
+    ALL_PRIORITIES, ALL_SPRINT_STATUSES,
+    Project, Epic, Story, Task, Comment, Sprint,
 )
 
 DEFAULT_PAGE_SIZE = 100
@@ -24,7 +25,7 @@ TRANSITIONS = {
 EDITABLE = {
     "name", "key", "description",          # project
     "title", "description", "status",      # epic / story / task
-    "type", "spec", "priority",            # task
+    "type", "spec", "priority", "sprint_id",  # task
 }
 
 
@@ -228,7 +229,7 @@ def delete_story(s: Session, id: int) -> bool:
 # ---------- Task ----------
 def create_task(s: Session, *, project_id: int, story_id: int | None, title: str,
                 type: str = ItemType.TASK, description: str = "", spec: str = "",
-                priority: str = Priority.MEDIUM) -> Task:
+                priority: str = Priority.MEDIUM, sprint_id: int | None = None) -> Task:
     project = s.get(Project, project_id)
     if not project:
         raise NotFound(f"project {project_id} not found")
@@ -241,7 +242,14 @@ def create_task(s: Session, *, project_id: int, story_id: int | None, title: str
             raise InvalidValue(f"story {story_id} does not belong to project {project_id}")
     _check_type(type)
     _check_priority(priority)
-    t = Task(project_id=project_id, story_id=story_id, title=_required(title, "title", 300),
+    if sprint_id is not None:
+        sp = s.get(Sprint, sprint_id)
+        if not sp or sp.project_id != project_id:
+            raise InvalidValue(f"sprint {sprint_id} does not belong to project {project_id}")
+        if sp.status == SprintStatus.COMPLETED:
+            raise InvalidValue("cannot assign task to a completed sprint")
+    t = Task(project_id=project_id, story_id=story_id, sprint_id=sprint_id,
+             title=_required(title, "title", 300),
              type=type, description=description or "", spec=spec or "", priority=priority)
     s.add(t); _commit(s); s.refresh(t); return t
 
@@ -250,10 +258,13 @@ def get_task(s: Session, id: int) -> Task | None:
     return s.get(Task, id)
 
 
-def list_tasks(s: Session, story_id: int | None = None, limit: int | None = None, offset: int = 0):
+def list_tasks(s: Session, story_id: int | None = None, sprint_id: int | None = None,
+               limit: int | None = None, offset: int = 0):
     q = s.query(Task)
     if story_id is not None:
         q = q.filter(Task.story_id == story_id)
+    if sprint_id is not None:
+        q = q.filter(Task.sprint_id == sprint_id)
     q = q.order_by(Task.id.desc())
     return _paginate(q, limit, offset).all()
 
@@ -262,7 +273,7 @@ def update_task(s: Session, id: int, **fields) -> Task | None:
     t = s.get(Task, id)
     if not t:
         return None
-    allowed = {"title", "description", "spec", "type", "status", "priority"}
+    allowed = {"title", "description", "spec", "type", "status", "priority", "sprint_id"}
     for k, v in fields.items():
         if k in allowed and v is not None:
             if k == "title":
@@ -273,6 +284,13 @@ def update_task(s: Session, id: int, **fields) -> Task | None:
                 _check_type(v)
             elif k == "status":
                 _check_status(v)
+            elif k == "sprint_id":
+                if v is not None:
+                    sp = s.get(Sprint, v)
+                    if not sp or sp.project_id != t.project_id:
+                        raise InvalidValue(f"sprint {v} does not belong to project {t.project_id}")
+                    if sp.status == SprintStatus.COMPLETED:
+                        raise InvalidValue("cannot assign task to a completed sprint")
             setattr(t, k, v)
     _commit(s); s.refresh(t); return t
 
@@ -358,12 +376,15 @@ def generate_tasks_from_spec(s: Session, task_id: int) -> list:
 
 # ---------- Search ----------
 def search_tasks(s: Session, *, project_id=None, epic_id=None, story_id=None,
-                 type=None, status=None, priority=None, q=None, limit: int | None = None, offset: int = 0):
+                 sprint_id=None, type=None, status=None, priority=None, q=None,
+                 limit: int | None = None, offset: int = 0):
     qry = s.query(Task)
     if project_id is not None:
         qry = qry.filter(Task.project_id == project_id)
     if story_id is not None:
         qry = qry.filter(Task.story_id == story_id)
+    if sprint_id is not None:
+        qry = qry.filter(Task.sprint_id == sprint_id)
     if type is not None:
         _check_type(type)
         qry = qry.filter(Task.type == type)
@@ -410,6 +431,92 @@ def delete_comment(s: Session, id: int) -> bool:
     if not comment:
         return False
     s.delete(comment); _commit(s); return True
+
+
+# ---------- Sprint ----------
+def _check_sprint_status(status: str) -> None:
+    if status not in ALL_SPRINT_STATUSES:
+        raise InvalidValue(f"invalid sprint status '{status}'")
+
+
+def create_sprint(s: Session, *, project_id: int, title: str,
+                  goal: str = "", start_date=None, end_date=None) -> Sprint:
+    if not s.get(Project, project_id):
+        raise NotFound(f"project {project_id} not found")
+    sp = Sprint(project_id=project_id,
+                title=_required(title, "title", 300),
+                goal=goal or "",
+                start_date=start_date, end_date=end_date)
+    s.add(sp); _commit(s); s.refresh(sp); return sp
+
+
+def get_sprint(s: Session, id: int) -> Sprint | None:
+    return s.get(Sprint, id)
+
+
+def list_sprints(s: Session, project_id: int, limit: int | None = None, offset: int = 0):
+    q = s.query(Sprint).filter(Sprint.project_id == project_id)
+    return _paginate(q, limit, offset).all()
+
+
+def activate_sprint(s: Session, id: int) -> Sprint:
+    """激活 Sprint：先停用同项目所有 ACTIVE Sprint，再激活目标 Sprint。"""
+    sp = s.get(Sprint, id)
+    if not sp:
+        raise NotFound(f"sprint {id} not found")
+    if sp.status == SprintStatus.COMPLETED:
+        raise InvalidValue("cannot activate a completed sprint")
+    # 停用同项目所有 ACTIVE Sprint
+    s.query(Sprint).filter(
+        Sprint.project_id == sp.project_id,
+        Sprint.status == SprintStatus.ACTIVE,
+        Sprint.id != sp.id
+    ).update({"status": SprintStatus.PLANNING})
+    sp.status = SprintStatus.ACTIVE
+    _commit(s); s.refresh(sp); return sp
+
+
+def complete_sprint(s: Session, id: int) -> Sprint:
+    """完成 Sprint：将其状态改为 completed，未完成任务退回 backlog。"""
+    sp = s.get(Sprint, id)
+    if not sp:
+        raise NotFound(f"sprint {id} not found")
+    if sp.status == SprintStatus.COMPLETED:
+        raise InvalidValue("sprint is already completed")
+    sp.status = SprintStatus.COMPLETED
+    # 未完成任务退回 backlog
+    s.query(Task).filter(
+        Task.sprint_id == sp.id,
+        Task.status.notin_([Status.DONE])
+    ).update({"sprint_id": None, "status": Status.BACKLOG})
+    _commit(s); s.refresh(sp); return sp
+
+
+def update_sprint(s: Session, id: int, **fields) -> Sprint | None:
+    sp = s.get(Sprint, id)
+    if not sp:
+        return None
+    for k, v in fields.items():
+        if k in ("title", "goal") and v is not None:
+            if k == "title":
+                v = _required(v, "title", 300)
+            setattr(sp, k, v)
+        elif k == "start_date" and v is not None:
+            sp.start_date = v
+        elif k == "end_date" and v is not None:
+            sp.end_date = v
+    _commit(s); s.refresh(sp); return sp
+
+
+def delete_sprint(s: Session, id: int) -> bool:
+    sp = s.get(Sprint, id)
+    if not sp:
+        return False
+    if sp.status == SprintStatus.ACTIVE:
+        raise InvalidValue("cannot delete an active sprint")
+    # 将关联任务解除绑定
+    s.query(Task).filter(Task.sprint_id == sp.id).update({"sprint_id": None})
+    s.delete(sp); _commit(s); return True
 
 
 class DomainError(Exception):

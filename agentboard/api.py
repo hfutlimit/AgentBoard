@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from .database import get_session, init_db, SessionLocal
 from . import service, auth
-from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES
+from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, ALL_SPRINT_STATUSES
 
 
 @asynccontextmanager
@@ -106,6 +106,7 @@ class TaskPatch(BaseModel):
     description: str | None = None
     spec: str | None = None
     priority: str | None = None
+    sprint_id: int | None = None
 
 
 class CommentIn(BaseModel):
@@ -137,6 +138,20 @@ class AuthRegister(BaseModel):
 class AuthLogin(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=1024)
+
+
+class SprintIn(BaseModel):
+    title: str = Field(min_length=1, max_length=300)
+    goal: str = ""
+    start_date: str | None = None
+    end_date: str | None = None
+
+
+class SprintPatch(BaseModel):
+    title: str | None = Field(None, min_length=1, max_length=300)
+    goal: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
 
 
 def _need(obj, what: str):
@@ -178,7 +193,8 @@ async def handle_illegal_transition(_request: Request, exc: service.IllegalTrans
 # ---------- Meta ----------
 @app.get("/api/meta")
 def meta():
-    return {"types": ALL_TYPES, "statuses": ALL_STATUSES, "priorities": ALL_PRIORITIES}
+    return {"types": ALL_TYPES, "statuses": ALL_STATUSES, "priorities": ALL_PRIORITIES,
+            "sprint_statuses": ALL_SPRINT_STATUSES}
 
 
 # ---------- Auth ----------
@@ -303,8 +319,8 @@ def delete_story(sid: int, s: Session = Depends(get_session)):
 # ---------- Tasks ----------
 @app.get("/api/stories/{sid}/tasks")
 def list_tasks(sid: int, s: Session = Depends(get_session), limit: int = Query(100, ge=1, le=200),
-               offset: int = Query(0, ge=0)):
-    return [service._ser(t) for t in service.list_tasks(s, sid, limit=limit, offset=offset)]
+               offset: int = Query(0, ge=0), sprint_id: int | None = Query(None)):
+    return [service._ser(t) for t in service.list_tasks(s, sid, sprint_id=sprint_id, limit=limit, offset=offset)]
 
 
 @app.post("/api/stories/{sid}/tasks", status_code=201)
@@ -395,15 +411,83 @@ def generate_subtasks(tid: int, s: Session = Depends(get_session)):
 # ---------- Search ----------
 @app.get("/api/tasks")
 def search_tasks(project_id: int | None = None, epic_id: int | None = None,
-                 story_id: int | None = None, type: str | None = None,
-                 status: str | None = None, priority: str | None = None,
-                 q: str | None = Query(None),
+                 story_id: int | None = None, sprint_id: int | None = None,
+                 type: str | None = None, status: str | None = None,
+                 priority: str | None = None, q: str | None = Query(None),
                  limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
                  s: Session = Depends(get_session)):
     try:
         rows = service.search_tasks(s, project_id=project_id, epic_id=epic_id,
-                                    story_id=story_id, type=type, status=status,
+                                    story_id=story_id, sprint_id=sprint_id,
+                                    type=type, status=status,
                                     priority=priority, q=q, limit=limit, offset=offset)
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     return [service._ser(t) for t in rows]
+
+
+# ---------- Sprint ----------
+@app.get("/api/projects/{pid}/sprints")
+def list_sprints(pid: int, s: Session = Depends(get_session),
+                limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0)):
+    _need(service.get_project(s, pid), "project")
+    return [service._ser(sp) for sp in service.list_sprints(s, pid, limit=limit, offset=offset)]
+
+
+@app.post("/api/projects/{pid}/sprints", status_code=201)
+def create_sprint(pid: int, body: SprintIn, s: Session = Depends(get_session)):
+    _need(service.get_project(s, pid), "project")
+    return service._ser(service.create_sprint(
+        s, project_id=pid, title=body.title, goal=body.goal,
+        start_date=body.start_date, end_date=body.end_date))
+
+
+@app.get("/api/sprints/{sid}")
+def get_sprint(sid: int, s: Session = Depends(get_session)):
+    return service._ser(_need(service.get_sprint(s, sid), "sprint"))
+
+
+@app.patch("/api/sprints/{sid}")
+def update_sprint(sid: int, body: SprintPatch, s: Session = Depends(get_session)):
+    try:
+        r = service.update_sprint(s, sid, **body.model_dump(exclude_none=True))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(_need(r, "sprint"))
+
+
+@app.post("/api/sprints/{sid}/activate", status_code=200)
+def activate_sprint(sid: int, s: Session = Depends(get_session)):
+    try:
+        return service._ser(service.activate_sprint(s, sid))
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.post("/api/sprints/{sid}/complete", status_code=200)
+def complete_sprint(sid: int, s: Session = Depends(get_session)):
+    try:
+        return service._ser(service.complete_sprint(s, sid))
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.delete("/api/sprints/{sid}")
+def delete_sprint(sid: int, s: Session = Depends(get_session)):
+    try:
+        if not service.delete_sprint(s, sid):
+            raise HTTPException(status_code=404, detail="sprint not found")
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"ok": True}
+
+
+@app.get("/api/sprints/{sid}/tasks")
+def list_sprint_tasks(sid: int, s: Session = Depends(get_session),
+                      limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0)):
+    _need(service.get_sprint(s, sid), "sprint")
+    return [service._ser(t) for t in service.list_tasks(s, sprint_id=sid, limit=limit, offset=offset)]

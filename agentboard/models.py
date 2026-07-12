@@ -30,7 +30,14 @@ class Priority(StrEnum):
     LOWEST = "lowest"
 
 
+class SprintStatus(StrEnum):
+    PLANNING = "planning"
+    ACTIVE = "active"
+    COMPLETED = "completed"
+
+
 ALL_TYPES = [ItemType.TASK, ItemType.BUG]
+ALL_SPRINT_STATUSES = [SprintStatus.PLANNING, SprintStatus.ACTIVE, SprintStatus.COMPLETED]
 ALL_STATUSES = [Status.BACKLOG, Status.TODO, Status.IN_PROGRESS,
                 Status.IN_REVIEW, Status.VERIFYING, Status.DONE]
 ALL_PRIORITIES = [Priority.HIGHEST, Priority.HIGH, Priority.MEDIUM,
@@ -90,6 +97,24 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
+class Sprint(Base):
+    __tablename__ = "sprints"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('planning','active','completed')",
+            name="ck_sprints_status",
+        ),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    goal: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default=SprintStatus.PLANNING)
+    start_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    end_date: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
 class Task(Base):
     __tablename__ = "tasks"
     __table_args__ = (
@@ -106,6 +131,7 @@ class Task(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
     story_id: Mapped[int | None] = mapped_column(ForeignKey("stories.id"), nullable=True, index=True)
+    sprint_id: Mapped[int | None] = mapped_column(ForeignKey("sprints.id"), nullable=True, index=True)
     type: Mapped[str] = mapped_column(String(10), default=ItemType.TASK)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     status: Mapped[str] = mapped_column(String(20), default=Status.BACKLOG)
