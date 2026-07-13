@@ -62,6 +62,9 @@ async def rate_limit_middleware(request: Request, call_next):
     ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
     if "," in ip:
         ip = ip.split(",")[0].strip()
+    # Skip rate limiting for localhost/127.0.0.1 (test environments)
+    if ip in {"127.0.0.1", "localhost", "::1", "::ffff:127.0.0.1"}:
+        return await call_next(request)
     now = time.time()
     with _rate_lock:
         # Remove expired timestamps

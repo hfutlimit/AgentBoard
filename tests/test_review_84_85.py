@@ -232,19 +232,26 @@ if sprint_id:
     except Exception as e:
         fail("Delete sprint", str(e))
 
-# 12. Single active sprint constraint
+# 12. Single active sprint constraint - API uses "swap" mode (deactivate old, activate new)
 try:
     s1 = client.post(f"/api/projects/{proj_id}/sprints", json={"title": "S1", "start_date": "2026-07-12", "end_date": "2026-07-26"})
     s2 = client.post(f"/api/projects/{proj_id}/sprints", json={"title": "S2", "start_date": "2026-07-12", "end_date": "2026-07-26"})
     if s1.status_code == 201 and s2.status_code == 201:
         s1_id = s1.json()["id"]
         s2_id = s2.json()["id"]
-        client.post(f"/api/sprints/{s1_id}/activate")
+        # Activate S1, then activate S2 - S1 should be deactivated
+        r1 = client.post(f"/api/sprints/{s1_id}/activate")
         r2 = client.post(f"/api/sprints/{s2_id}/activate")
-        if r2.status_code == 400:
-            ok("Single active sprint constraint enforced")
+        if r2.status_code == 200:
+            # Verify S1 is now planning (deactivated)
+            s1_check = client.get(f"/api/sprints/{s1_id}")
+            s2_check = client.get(f"/api/sprints/{s2_id}")
+            if s1_check.json().get("status") == "planning" and s2_check.json().get("status") == "active":
+                ok("Single active sprint constraint - swap mode works")
+            else:
+                fail("Single active sprint constraint", f"S1 status={s1_check.json().get('status')}, S2 status={s2_check.json().get('status')}")
         else:
-            fail("Single active sprint constraint", f"expected 400, got {r2.status_code}")
+            fail("Single active sprint constraint", f"expected 200, got {r2.status_code}")
         client.delete(f"/api/sprints/{s1_id}")
         client.delete(f"/api/sprints/{s2_id}")
     else:
