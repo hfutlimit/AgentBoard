@@ -727,6 +727,101 @@ def sync_status(task_id: int, status: str, comment: str | None = None) -> dict:
     return result
 
 
+# ---------- Epic 20: Batch Operations ----------
+@mcp.tool()
+def batch_update_task_status(task_ids: list[int], new_status: str) -> dict:
+    """批量更新任务状态。
+    - task_ids: 任务 ID 列表（最多 100 个）
+    - new_status: 新状态（backlog/todo/in_progress/in_review/verifying/done）
+    """
+    payload = {"task_ids": task_ids, "status": new_status}
+    return _api("POST", "/tasks/bulk-update", payload)
+
+
+@mcp.tool()
+def batch_assign_sprint(task_ids: list[int], sprint_id: int | None) -> dict:
+    """批量分配 Sprint。
+    - task_ids: 任务 ID 列表（最多 100 个）
+    - sprint_id: Sprint ID（设为 null 可移除分配）
+    """
+    payload = {"task_ids": task_ids, "sprint_id": sprint_id}
+    return _api("POST", "/tasks/bulk-update", payload)
+
+
+@mcp.tool()
+def batch_delete_tasks(task_ids: list[int]) -> dict:
+    """批量删除任务。
+    - task_ids: 任务 ID 列表（最多 100 个）
+    """
+    return _api("POST", "/tasks/bulk-delete", {"task_ids": task_ids})
+
+
+# ---------- Epic 20: Enhanced Search ----------
+@mcp.tool()
+def search_tasks_enhanced(
+    project_id: int | None = None,
+    epic_id: int | None = None,
+    story_id: int | None = None,
+    sprint_id: int | None = None,
+    type: str | None = None,
+    status: str | list[str] | None = None,
+    priority: str | list[str] | None = None,
+    q: str | None = None,
+    sort_by: str = "id",
+    sort_order: str = "desc",
+    limit: int = 100,
+    offset: int = 0,
+) -> list[dict]:
+    """增强搜索任务：支持多值过滤和排序。
+    - status/priority 可以是单个字符串或字符串列表（多值 OR 过滤）
+    - sort_by: id, created_at, updated_at, priority, status, title
+    - sort_order: asc, desc
+    """
+    params = {
+        "sort_by": sort_by, "sort_order": sort_order,
+        "limit": limit, "offset": offset,
+    }
+    if project_id is not None:
+        params["project_id"] = project_id
+    if epic_id is not None:
+        params["epic_id"] = epic_id
+    if story_id is not None:
+        params["story_id"] = story_id
+    if sprint_id is not None:
+        params["sprint_id"] = sprint_id
+    if type is not None:
+        params["type"] = type
+    if status is not None:
+        if isinstance(status, list):
+            for s_val in status:
+                params.setdefault("status", status if not params.get("status") else params["status"])
+        else:
+            params["status"] = status
+    if priority is not None:
+        if isinstance(priority, list):
+            for p_val in priority:
+                params.setdefault("priority", priority if not params.get("priority") else params["priority"])
+        else:
+            params["priority"] = priority
+    if q is not None:
+        params["q"] = q
+    resp = _api("GET", "/tasks/search", params=params)
+    return resp if isinstance(resp, list) else []
+
+
+# ---------- Epic 20: Data Export ----------
+@mcp.tool()
+def export_project_data(project_id: int) -> dict:
+    """导出项目完整数据（项目 + Epics + Stories + Tasks）。"""
+    return _api("GET", f"/projects/{project_id}/export")
+
+
+@mcp.tool()
+def export_story_data(story_id: int) -> dict:
+    """导出 Story 及所有子任务数据。"""
+    return _api("GET", f"/stories/{story_id}/export")
+
+
 if __name__ == "__main__":
     transport = os.getenv("AGENTBOARD_MCP_TRANSPORT", "stdio").lower()
     if transport in {"http", "streamable-http"}:

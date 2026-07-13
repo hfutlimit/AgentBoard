@@ -605,6 +605,35 @@ def create_task(sid: int, body: TaskIn, s: Session = Depends(get_session)):
     return service._ser(t)
 
 
+# ---------- Enhanced Search (must be before /api/tasks/{tid}) ----------
+@app.get("/api/tasks/search")
+def search_tasks_enhanced_api(
+    project_id: int | None = None,
+    epic_id: int | None = None,
+    story_id: int | None = None,
+    sprint_id: int | None = None,
+    type: str | None = None,
+    status: str | list[str] | None = None,
+    priority: str | list[str] | None = None,
+    q: str | None = Query(None),
+    sort_by: str = Query("id", description="Sort field: id, created_at, updated_at, priority, status, title"),
+    sort_order: str = Query("desc", pattern=r"^(asc|desc)$"),
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    s: Session = Depends(get_session),
+):
+    """增强搜索：支持多值过滤（status[]=xx&status[]=yy）和排序。"""
+    try:
+        rows = service.search_tasks_enhanced(
+            s, project_id=project_id, epic_id=epic_id, story_id=story_id,
+            sprint_id=sprint_id, type=type, status=status, priority=priority,
+            q=q, sort_by=sort_by, sort_order=sort_order, limit=limit, offset=offset,
+        )
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return [service._ser(t) for t in rows]
+
+
 @app.get("/api/tasks/{tid}")
 def get_task(tid: int, s: Session = Depends(get_session)):
     return service._ser(_need(service.get_task(s, tid), "task"))
@@ -1186,3 +1215,28 @@ def admin_delete_project(
     if not service.delete_project(s, pid):
         raise HTTPException(status_code=404, detail="project not found")
     return {"ok": True}
+
+
+# ---------- Epic 20: Data Export ----------
+@app.get("/api/projects/{pid}/export")
+def export_project(
+    pid: int, format: str = Query("json", pattern=r"^(json)$"),
+    s: Session = Depends(get_session),
+):
+    """导出项目完整数据为 JSON。"""
+    try:
+        return service.export_project_data(s, pid)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/api/stories/{sid}/export")
+def export_story(
+    sid: int, format: str = Query("json", pattern=r"^(json)$"),
+    s: Session = Depends(get_session),
+):
+    """导出 Story 及所有子任务为 JSON。"""
+    try:
+        return service.export_story_data(s, sid)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))

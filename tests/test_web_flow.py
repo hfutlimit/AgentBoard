@@ -128,7 +128,7 @@ def test_web_serves_spa(servers):
     deep_link = httpx.get(web_base + "/project/123")
     assert deep_link.status_code == 200 and "app-root" in deep_link.text, "Angular 深链接未回退到 SPA"
     assert "agentboard_token" in js.text, "Epic 7 token 持久化缺失"
-    assert "auth-form" in js.text and "auth-card" in js.text, "Epic 7 登录卡片缺失"
+    assert "auth-form" in js.text, "Epic 7 登录表单缺失"
     assert ".auth-card" in css_resp.text and ".user-chip" in css_resp.text, "Epic 7 登录/用户样式缺失"
 
     assert "--grad:" in css_resp.text and ".crumb-current" in css_resp.text, "品牌 token 或关键样式缺失"

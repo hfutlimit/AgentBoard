@@ -1175,3 +1175,177 @@ def list_accessible_projects(
             q = s.query(Project).filter(Project.is_private == False)
     total = q.count()
     return _paginate(q.order_by(Project.id.desc()), limit, offset).all(), total
+
+
+# ---------- Epic 20: 批量操作 ----------
+def batch_update_task_status(s: Session, task_ids: list[int], new_status: str) -> dict:
+    """批量更新任务状态，返回成功和失败的任务ID列表。"""
+    _check_status(new_status)
+    new = Status(new_status)
+    updated = []
+    errors = []
+    for tid in task_ids:
+        t = s.get(Task, tid)
+        if not t:
+            errors.append({"id": tid, "error": f"task {tid} not found"})
+            continue
+        current = Status(t.status)
+        if current != new and new not in TRANSITIONS.get(current, set()):
+            errors.append({"id": tid, "error": f"illegal transition {t.status} -> {new}"})
+            continue
+        t.status = new
+        updated.append(tid)
+    _commit(s)
+    return {"updated": updated, "errors": errors}
+
+
+def batch_assign_sprint(s: Session, task_ids: list[int], sprint_id: int | None) -> dict:
+    """批量分配 Sprint，支持将任务移入或移出 Sprint。"""
+    updated = []
+    errors = []
+    sprint = None
+    if sprint_id is not None:
+        sprint = s.get(Sprint, sprint_id)
+        if not sprint:
+            raise InvalidValue(f"sprint {sprint_id} not found")
+        if sprint.status == SprintStatus.COMPLETED:
+            raise InvalidValue("cannot assign task to a completed sprint")
+    for tid in task_ids:
+        t = s.get(Task, tid)
+        if not t:
+            errors.append({"id": tid, "error": f"task {tid} not found"})
+            continue
+        if sprint and sprint.project_id != t.project_id:
+            errors.append({"id": tid, "error": f"task {tid} does not belong to sprint's project"})
+            continue
+        t.sprint_id = sprint_id
+        updated.append(tid)
+    _commit(s)
+    return {"updated": updated, "errors": errors}
+
+
+def batch_delete_tasks(s: Session, task_ids: list[int]) -> dict:
+    """批量删除任务，返回成功和失败的任务ID列表。"""
+    deleted = []
+    errors = []
+    for tid in task_ids:
+        t = s.get(Task, tid)
+        if not t:
+            errors.append({"id": tid, "error": f"task {tid} not found"})
+            continue
+        s.query(Comment).filter(Comment.task_id == tid).delete(synchronize_session=False)
+        s.delete(t)
+        deleted.append(tid)
+    _commit(s)
+    return {"deleted": deleted, "errors": errors}
+
+
+# ---------- Epic 20: 增强搜索与排序 ----------
+def search_tasks_enhanced(
+    s: Session, *,
+    project_id: int | None = None,
+    epic_id: int | None = None,
+    story_id: int | None = None,
+    sprint_id: int | None = None,
+    type: str | list[str] | None = None,
+    status: str | list[str] | None = None,
+    priority: str | list[str] | None = None,
+    q: str | None = None,
+    sort_by: str = "id",
+    sort_order: str = "desc",
+    limit: int | None = None,
+    offset: int = 0,
+):
+    """增强搜索：支持多值过滤（status[], priority[]）和排序。"""
+    qry = s.query(Task)
+    if project_id is not None:
+        qry = qry.filter(Task.project_id == project_id)
+    if story_id is not None:
+        qry = qry.filter(Task.story_id == story_id)
+    if sprint_id is not None:
+        qry = qry.filter(Task.sprint_id == sprint_id)
+    if type is not None:
+        if isinstance(type, list):
+            qry = qry.filter(Task.type.in_(type))
+        else:
+            _check_type(type)
+            qry = qry.filter(Task.type == type)
+    if status is not None:
+        if isinstance(status, list):
+            for s_val in status:
+                _check_status(s_val)
+            qry = qry.filter(Task.status.in_(status))
+        else:
+            _check_status(status)
+            qry = qry.filter(Task.status == status)
+    if priority is not None:
+        if isinstance(priority, list):
+            for p_val in priority:
+                _check_priority(p_val)
+            qry = qry.filter(Task.priority.in_(priority))
+        else:
+            _check_priority(priority)
+            qry = qry.filter(Task.priority == priority)
+    if epic_id is not None:
+        qry = qry.join(Story, Task.story_id == Story.id).filter(Story.epic_id == epic_id)
+    if q:
+        like = f"%{q}%"
+        qry = qry.filter(or_(Task.title.ilike(like), Task.description.ilike(like),
+                              Task.spec.ilike(like)))
+
+    # 排序
+    sort_col = {
+        "id": Task.id, "created_at": Task.created_at, "updated_at": Task.updated_at,
+        "priority": Task.priority, "status": Task.status, "title": Task.title,
+    }.get(sort_by, Task.id)
+    if sort_order.lower() == "asc":
+        qry = qry.order_by(sort_col.asc())
+    else:
+        qry = qry.order_by(sort_col.desc())
+
+    return _paginate(qry, limit, offset).all()
+
+
+# ---------- Epic 20: 数据导出 ----------
+def export_project_data(s: Session, project_id: int) -> dict:
+    """导出项目完整数据（项目 + Epics + Stories + Tasks）。"""
+    project = s.get(Project, project_id)
+    if not project:
+        raise NotFound(f"project {project_id} not found")
+
+    # 获取所有 Epics
+    epics = s.query(Epic).filter(Epic.project_id == project_id).all()
+    epic_ids = [e.id for e in epics]
+
+    # 获取所有 Stories
+    stories = []
+    story_ids = []
+    if epic_ids:
+        stories = s.query(Story).filter(Story.epic_id.in_(epic_ids)).all()
+        story_ids = [st.id for st in stories]
+
+    # 获取所有 Tasks
+    task_filter = Task.project_id == project_id
+    if story_ids:
+        task_filter = or_(task_filter, Task.story_id.in_(story_ids))
+    tasks = s.query(Task).filter(task_filter).all()
+
+    return {
+        "project": _ser(project),
+        "epics": [_ser(e) for e in epics],
+        "stories": [_ser(st) for st in stories],
+        "tasks": [_ser(t) for t in tasks],
+    }
+
+
+def export_story_data(s: Session, story_id: int) -> dict:
+    """导出 Story 及所有子任务数据。"""
+    story = s.get(Story, story_id)
+    if not story:
+        raise NotFound(f"story {story_id} not found")
+
+    tasks = s.query(Task).filter(Task.story_id == story_id).all()
+    return {
+        "story": _ser(story),
+        "tasks": [_ser(t) for t in tasks],
+    }
