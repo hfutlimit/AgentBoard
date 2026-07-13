@@ -1,8 +1,7 @@
 """AgentBoard MCP 服务（独立）。
 
-后端可切换（前后端分离友好）：
-- AGENTBOARD_MCP_BACKEND=api （默认）：通过 httpx 调用 REST API，地址 AGENTBOARD_API_URL（默认 http://127.0.0.1:8000）
-- AGENTBOARD_MCP_BACKEND=db        ：直连数据库（复用 service 层，无需启动 API）
+所有业务数据均通过 REST API 访问，地址由 AGENTBOARD_API_URL 配置
+（默认 http://127.0.0.1:8000）。MCP 服务不直接连接数据库。
 
 运行：python -m agentboard.mcp_server   （stdio 传输）
 """
@@ -14,7 +13,6 @@ from fastmcp.server.dependencies import get_access_token
 
 from . import auth as agent_auth
 
-BACKEND = os.getenv("AGENTBOARD_MCP_BACKEND", "api").lower()
 API_URL = os.getenv("AGENTBOARD_API_URL", "http://127.0.0.1:8000")
 MCP_REQUIRE_AUTH = os.getenv("AGENTBOARD_MCP_REQUIRE_AUTH", "1").lower() in {"1", "true", "yes"}
 
@@ -40,497 +38,220 @@ class AgentBoardTokenVerifier(TokenVerifier):
 mcp = FastMCP("AgentBoard", auth=AgentBoardTokenVerifier() if MCP_REQUIRE_AUTH else None)
 
 
-# ===================== 后端实现 =====================
-if BACKEND == "db":
-    from .database import SessionLocal, init_db
-    from . import service
+# ===================== HTTP API client =====================
+import httpx
 
-    # DB 模式是独立入口，也必须自行确保 schema 已升级。
-    init_db()
+def _current_token():
+    try:
+        access = get_access_token()
+    except RuntimeError:
+        access = None
+    return access.token if access else os.getenv("AGENTBOARD_MCP_TOKEN")
 
-    def _proj_list(limit=None, offset=0):
-        with SessionLocal() as s:
-            return [service._ser(p) for p in service.list_projects(s, limit=limit, offset=offset)]
-
-    def _proj_create(name, key, description):
-        with SessionLocal() as s:
-            return service._ser(service.create_project(s, name=name, key=key, description=description))
-
-    def _proj_get(project_id):
-        with SessionLocal() as s:
-            p = service.get_project(s, project_id)
-            return service._ser(p) if p else {"error": "not found"}
-
-    def _proj_update(project_id, fields):
-        with SessionLocal() as s:
-            p = service.update_project(s, project_id, **fields)
-            return service._ser(p) if p else {"error": "not found"}
-
-    def _proj_delete(project_id):
-        with SessionLocal() as s:
-            return {"ok": service.delete_project(s, project_id)}
-
-    def _epic_list(project_id, limit=None, offset=0):
-        with SessionLocal() as s:
-            return [service._ser(x) for x in service.list_epics(s, project_id, limit=limit, offset=offset)]
-
-    def _epic_create(project_id, title, description):
-        with SessionLocal() as s:
-            return service._ser(service.create_epic(s, project_id=project_id, title=title, description=description))
-
-    def _story_create(epic_id, title, description):
-        with SessionLocal() as s:
-            return service._ser(service.create_story(s, epic_id=epic_id, title=title, description=description))
-
-    def _story_list(epic_id, limit=None, offset=0):
-        with SessionLocal() as s:
-            return [service._ser(x) for x in service.list_stories(s, epic_id, limit=limit, offset=offset)]
-
-    def _task_list(story_id, limit=None, offset=0):
-        with SessionLocal() as s:
-            return [service._ser(x) for x in service.list_tasks(s, story_id, limit=limit, offset=offset)]
-
-    def _task_create(project_id, story_id, title, type, description, spec, priority="medium"):
-        with SessionLocal() as s:
+def _http(method, path, **kw):
+    headers = dict(kw.pop("headers", {}) or {})
+    token = _current_token()
+    if token and "Authorization" not in headers:
+        headers["Authorization"] = f"Bearer {token}"
+    with httpx.Client(base_url=API_URL, timeout=15) as c:
+        r = c.request(method, path, headers=headers, **kw)
+        if r.status_code >= 400:
             try:
-                return service._ser(service.create_task(s, project_id=project_id, story_id=story_id,
-                                                        title=title, type=type, description=description,
-                                                        spec=spec, priority=priority))
-            except service.InvalidValue as e:
-                return {"error": str(e)}
-
-    def _task_get(task_id):
-        with SessionLocal() as s:
-            t = service.get_task(s, task_id)
-            return service._ser(t) if t else {"error": "not found"}
-
-    def _task_update(task_id, fields):
-        with SessionLocal() as s:
-            try:
-                t = service.update_task(s, task_id, **fields)
-            except service.InvalidValue as e:
-                return {"error": str(e)}
-            return service._ser(t) if t else {"error": "not found"}
-
-    def _task_append_spec(task_id, text):
-        with SessionLocal() as s:
-            t = service.append_task_spec(s, task_id, text)
-            return service._ser(t) if t else {"error": "not found"}
-
-    def _task_delete(task_id):
-        with SessionLocal() as s:
-            return {"ok": service.delete_task(s, task_id)}
-
-    def _task_status(task_id, status):
-        with SessionLocal() as s:
-            try:
-                return service._ser(service.set_status(s, task_id, status))
-            except (service.NotFound, service.IllegalTransition) as e:
-                return {"error": str(e)}
-
-    def _task_search(params):
-        with SessionLocal() as s:
-            return [service._ser(t) for t in service.search_tasks(s, **params)]
-
-    def _task_generated(task_id):
-        with SessionLocal() as s:
-            try:
-                created = service.generate_tasks_from_spec(s, task_id)
-            except service.NotFound as e:
-                return {"error": str(e)}
-            return [service._ser(t) for t in created]
-
-    def _epic_get(epic_id):
-        with SessionLocal() as s:
-            e = service.get_epic(s, epic_id)
-            return service._ser(e) if e else {"error": "not found"}
-
-    def _epic_update(epic_id, fields):
-        with SessionLocal() as s:
-            e = service.update_epic(s, epic_id, **fields)
-            return service._ser(e) if e else {"error": "not found"}
-
-    def _epic_delete(epic_id):
-        with SessionLocal() as s:
-            return {"ok": service.delete_epic(s, epic_id)}
-
-    def _story_get(story_id):
-        with SessionLocal() as s:
-            x = service.get_story(s, story_id)
-            return service._ser(x) if x else {"error": "not found"}
-
-    def _story_update(story_id, fields):
-        with SessionLocal() as s:
-            x = service.update_story(s, story_id, **fields)
-            return service._ser(x) if x else {"error": "not found"}
-
-    def _story_delete(story_id):
-        with SessionLocal() as s:
-            return {"ok": service.delete_story(s, story_id)}
-
-    def _comment_list(task_id):
-        with SessionLocal() as s:
-            try:
-                return [service._ser(x) for x in service.list_comments(s, task_id)]
-            except service.NotFound as e:
-                return {"error": str(e)}
-
-    def _comment_create(task_id, author, content):
-        with SessionLocal() as s:
-            try:
-                return service._ser(service.create_comment(s, task_id=task_id, author=author, content=content))
-            except (service.NotFound, service.InvalidValue) as e:
-                return {"error": str(e)}
-
-    def _comment_delete(comment_id):
-        with SessionLocal() as s:
-            return {"ok": service.delete_comment(s, comment_id)}
-
-    def _auth_register(username, password):
-        with SessionLocal() as s:
-            try:
-                u = service.register_user(s, username=username, password=password)
-            except service.Duplicate as e:
-                return {"error": str(e)}
-            return {"id": u.id, "username": u.username, "token": agent_auth.make_token(u.id)}
-
-    def _auth_login(username, password):
-        with SessionLocal() as s:
-            u = service.authenticate_user(s, username=username, password=password)
-            if u is None:
-                return {"error": "invalid username or password"}
-            return {"id": u.id, "username": u.username, "token": agent_auth.make_token(u.id)}
-
-    def _auth_me(token):
-        details = agent_auth.parse_token_details(token)
-        if details is None:
-            return {"error": "unauthorized"}
-        with SessionLocal() as s:
-            u = service.get_user(s, details[0])
-            return {"id": u.id, "username": u.username} if u else {"error": "unauthorized"}
-
-    # ---------- Sprint ----------
-    def _sprint_list(project_id, limit=None, offset=0):
-        with SessionLocal() as s:
-            return [service._ser(sp) for sp in service.list_sprints(s, project_id, limit=limit, offset=offset)]
-
-    def _sprint_get(sprint_id):
-        with SessionLocal() as s:
-            sp = service.get_sprint(s, sprint_id)
-            return service._ser(sp) if sp else {"error": "not found"}
-
-    def _sprint_create(project_id, title, goal="", start_date=None, end_date=None):
-        with SessionLocal() as s:
-            return service._ser(service.create_sprint(s, project_id=project_id, title=title,
-                                                       goal=goal, start_date=start_date, end_date=end_date))
-
-    def _sprint_update(sprint_id, fields):
-        with SessionLocal() as s:
-            sp = service.update_sprint(s, sprint_id, **fields)
-            return service._ser(sp) if sp else {"error": "not found"}
-
-    def _sprint_activate(sprint_id):
-        with SessionLocal() as s:
-            return service._ser(service.activate_sprint(s, sprint_id))
-
-    def _sprint_complete(sprint_id):
-        with SessionLocal() as s:
-            return service._ser(service.complete_sprint(s, sprint_id))
-
-    def _sprint_delete(sprint_id):
-        with SessionLocal() as s:
-            return {"ok": service.delete_sprint(s, sprint_id)}
-
-    def _sprint_task_list(sprint_id, limit=None, offset=0):
-        with SessionLocal() as s:
-            sp = service.get_sprint(s, sprint_id)
-            if not sp:
-                return {"error": "not found"}
-            return [service._ser(t) for t in service.list_tasks(s, sprint_id=sprint_id, limit=limit, offset=offset)]
-
-    # ---------- AgentSchedule ----------
-    def _schedule_list(project_id, limit=None, offset=0):
-        with SessionLocal() as s:
-            return [service._ser(sch) for sch in service.list_schedules(s, project_id, limit=limit, offset=offset)]
-
-    def _schedule_get(schedule_id):
-        with SessionLocal() as s:
-            sch = service.get_schedule(s, schedule_id)
-            return service._ser(sch) if sch else {"error": "not found"}
-
-    def _schedule_create(project_id, title, schedule_type="cron", cron_expr=None):
-        with SessionLocal() as s:
-            return service._ser(service.create_schedule(s, project_id=project_id, title=title,
-                                                         schedule_type=schedule_type, cron_expr=cron_expr))
-
-    def _schedule_update(schedule_id, fields):
-        with SessionLocal() as s:
-            sch = service.update_schedule(s, schedule_id, **fields)
-            return service._ser(sch) if sch else {"error": "not found"}
-
-    def _schedule_delete(schedule_id):
-        with SessionLocal() as s:
-            return {"ok": service.delete_schedule(s, schedule_id)}
-
-    # ---------- AgentRun ----------
-    def _run_create(schedule_id, task_id=None, idempotency_key=None):
-        with SessionLocal() as s:
-            try:
-                return service._ser(service.create_run(s, schedule_id=schedule_id,
-                                                       task_id=task_id, idempotency_key=idempotency_key))
-            except service.Duplicate as e:
-                return {"error": str(e)}
-
-    def _run_list(schedule_id, limit=None, offset=0):
-        with SessionLocal() as s:
-            return [service._ser(r) for r in service.list_runs(s, schedule_id, limit=limit, offset=offset)]
-
-    def _run_get(run_id):
-        with SessionLocal() as s:
-            r = service.get_run(s, run_id)
-            return service._ser(r) if r else {"error": "not found"}
-
-    def _run_update(run_id, fields):
-        with SessionLocal() as s:
-            r = service.update_run(s, run_id, **fields)
-            return service._ser(r) if r else {"error": "not found"}
-
-    def _run_delete(run_id):
-        with SessionLocal() as s:
-            return {"ok": service.delete_run(s, run_id)}
-
-else:  # api 模式
-    import httpx
-
-    def _current_token():
-        try:
-            access = get_access_token()
-        except RuntimeError:
-            access = None
-        return access.token if access else os.getenv("AGENTBOARD_MCP_TOKEN")
-
-    def _http(method, path, **kw):
-        headers = dict(kw.pop("headers", {}) or {})
-        token = _current_token()
-        if token and "Authorization" not in headers:
-            headers["Authorization"] = f"Bearer {token}"
-        with httpx.Client(base_url=API_URL, timeout=15) as c:
-            r = c.request(method, path, headers=headers, **kw)
-            if r.status_code >= 400:
-                try:
-                    return {"error": r.json().get("detail", r.text)}
-                except Exception:
-                    return {"error": r.text}
-            return r.json() if r.content else {"ok": True}
-
-    def _proj_list(limit=None, offset=0):
-        resp = _http("GET", "/api/projects", params={"limit": limit, "offset": offset} if limit is not None else {})
-        return resp.get("items", resp) if isinstance(resp, dict) else resp
-
-    def _proj_create(name, key, description):
-        return _http("POST", "/api/projects", json={"name": name, "key": key, "description": description})
-
-    def _proj_get(project_id):
-        return _http("GET", f"/api/projects/{project_id}")
-
-    def _proj_update(project_id, fields):
-        return _http("PATCH", f"/api/projects/{project_id}", json=fields)
-
-    def _proj_delete(project_id):
-        return _http("DELETE", f"/api/projects/{project_id}")
-
-    def _epic_list(project_id, limit=None, offset=0):
-        params = {"offset": offset}
-        if limit is not None:
-            params["limit"] = limit
-        resp = _http("GET", f"/api/projects/{project_id}/epics", params=params)
-        return resp.get("items", resp) if isinstance(resp, dict) else resp
-
-    def _epic_create(project_id, title, description):
-        return _http("POST", f"/api/projects/{project_id}/epics", json={"title": title, "description": description})
-
-    def _story_create(epic_id, title, description):
-        return _http("POST", f"/api/epics/{epic_id}/stories", json={"title": title, "description": description})
-
-    def _story_list(epic_id, limit=None, offset=0):
-        params = {"offset": offset}
-        if limit is not None:
-            params["limit"] = limit
-        resp = _http("GET", f"/api/epics/{epic_id}/stories", params=params)
-        return resp.get("items", resp) if isinstance(resp, dict) else resp
-
-    def _task_list(story_id, limit=None, offset=0):
-        params = {"offset": offset}
-        if limit is not None:
-            params["limit"] = limit
-        resp = _http("GET", f"/api/stories/{story_id}/tasks", params=params)
-        return resp.get("items", resp) if isinstance(resp, dict) else resp
-
-    def _task_create(project_id, story_id, title, type, description, spec, priority="medium"):
-        return _http("POST", f"/api/stories/{story_id}/tasks",
-                     json={"project_id": project_id, "title": title, "type": type,
-                           "description": description, "spec": spec, "priority": priority})
-
-    def _task_get(task_id):
-        return _http("GET", f"/api/tasks/{task_id}")
-
-    def _task_update(task_id, fields):
-        return _http("PATCH", f"/api/tasks/{task_id}", json=fields)
-
-    def _task_append_spec(task_id, text):
-        return _http("POST", f"/api/tasks/{task_id}/spec/append", json={"text": text})
-
-    def _task_delete(task_id):
-        return _http("DELETE", f"/api/tasks/{task_id}")
-
-    def _task_status(task_id, status):
-        return _http("PUT", f"/api/tasks/{task_id}/status", json={"status": status})
-
-    def _task_search(params):
-        clean = {k: v for k, v in params.items() if v is not None}
-        resp = _http("GET", "/api/tasks", params=clean)
-        return resp.get("items", resp) if isinstance(resp, dict) else resp
-
-    def _task_generated(task_id):
-        return _http("POST", f"/api/tasks/{task_id}/generate-subtasks")
-
-    def _epic_get(epic_id):
-        return _http("GET", f"/api/epics/{epic_id}")
-
-    def _epic_update(epic_id, fields):
-        return _http("PATCH", f"/api/epics/{epic_id}", json=fields)
-
-    def _epic_delete(epic_id):
-        return _http("DELETE", f"/api/epics/{epic_id}")
-
-    def _story_get(story_id):
-        return _http("GET", f"/api/stories/{story_id}")
-
-    def _story_update(story_id, fields):
-        return _http("PATCH", f"/api/stories/{story_id}", json=fields)
-
-    def _story_delete(story_id):
-        return _http("DELETE", f"/api/stories/{story_id}")
-
-    def _comment_list(task_id):
-        return _http("GET", f"/api/tasks/{task_id}/comments")
-
-    def _comment_create(task_id, author, content):
-        return _http("POST", f"/api/tasks/{task_id}/comments",
-                     json={"author": author, "content": content})
-
-    def _comment_delete(comment_id):
-        return _http("DELETE", f"/api/comments/{comment_id}")
-
-    def _auth_register(username, password):
-        return _http("POST", "/api/auth/register", json={"username": username, "password": password})
-
-    def _auth_login(username, password):
-        return _http("POST", "/api/auth/login", json={"username": username, "password": password})
-
-    def _auth_me(token):
-        return _http("GET", "/api/auth/me", headers={"Authorization": f"Bearer {token}"})
-
-    # ---------- Sprint ----------
-    def _sprint_list(project_id, limit=None, offset=0):
-        params = {"offset": offset}
-        if limit is not None:
-            params["limit"] = limit
-        resp = _http("GET", f"/api/projects/{project_id}/sprints", params=params)
-        return resp.get("items", resp) if isinstance(resp, dict) else resp
-
-    def _sprint_get(sprint_id):
-        return _http("GET", f"/api/sprints/{sprint_id}")
-
-    def _sprint_create(project_id, title, goal="", start_date=None, end_date=None):
-        body = {"title": title, "goal": goal}
-        if start_date:
-            body["start_date"] = start_date
-        if end_date:
-            body["end_date"] = end_date
-        return _http("POST", f"/api/projects/{project_id}/sprints", json=body)
-
-    def _sprint_update(sprint_id, fields):
-        return _http("PATCH", f"/api/sprints/{sprint_id}", json=fields)
-
-    def _sprint_activate(sprint_id):
-        return _http("POST", f"/api/sprints/{sprint_id}/activate")
-
-    def _sprint_complete(sprint_id):
-        return _http("POST", f"/api/sprints/{sprint_id}/complete")
-
-    def _sprint_delete(sprint_id):
-        return _http("DELETE", f"/api/sprints/{sprint_id}")
-
-    def _sprint_task_list(sprint_id, limit=None, offset=0):
-        params = {"offset": offset}
-        if limit is not None:
-            params["limit"] = limit
-        return _http("GET", f"/api/sprints/{sprint_id}/tasks", params=params)
-
-    # ---------- AgentSchedule ----------
-    def _schedule_list(project_id, limit=None, offset=0):
-        params = {"offset": offset}
-        if limit is not None:
-            params["limit"] = limit
-        return _http("GET", f"/api/projects/{project_id}/schedules", params=params)
-
-    def _schedule_get(schedule_id):
-        return _http("GET", f"/api/schedules/{schedule_id}")
-
-    def _schedule_create(project_id, title, schedule_type="cron", cron_expr=None):
-        body = {"title": title, "schedule_type": schedule_type}
-        if cron_expr:
-            body["cron_expr"] = cron_expr
-        return _http("POST", f"/api/projects/{project_id}/schedules", json=body)
-
-    def _schedule_update(schedule_id, fields):
-        return _http("PATCH", f"/api/schedules/{schedule_id}", json=fields)
-
-    def _schedule_delete(schedule_id):
-        return _http("DELETE", f"/api/schedules/{schedule_id}")
-
-    # ---------- AgentRun ----------
-    def _run_create(schedule_id, task_id=None, idempotency_key=None):
-        body = {}
-        if task_id is not None:
-            body["task_id"] = task_id
-        if idempotency_key is not None:
-            body["idempotency_key"] = idempotency_key
-        return _http("POST", f"/api/schedules/{schedule_id}/runs", json=body)
-
-    def _run_list(schedule_id, limit=None, offset=0):
-        params = {"offset": offset}
-        if limit is not None:
-            params["limit"] = limit
-        return _http("GET", f"/api/schedules/{schedule_id}/runs", params=params)
-
-    def _run_get(run_id):
-        return _http("GET", f"/api/runs/{run_id}")
-
-    def _run_update(run_id, fields):
-        return _http("PATCH", f"/api/runs/{run_id}", json=fields)
-
-    def _run_delete(run_id):
-        return _http("DELETE", f"/api/runs/{run_id}")
-
-
-if BACKEND == "db":
-    # 让 DB 与 API 后端对领域错误使用相同的 MCP 返回契约。
-    def _domain_error_result(func):
-        def wrapped(*args, **kwargs):
-            try:
-                return func(*args, **kwargs)
-            except service.DomainError as exc:
-                return {"error": str(exc)}
-        return wrapped
-
-    for _name, _func in list(globals().items()):
-        if _name.startswith("_") and callable(_func) and _name not in {
-            "_domain_error_result", "_current_token", "_http"
-        }:
-            if _name.startswith(("_proj_", "_epic_", "_story_", "_task_", "_comment_", "_auth_", "_sprint_", "_schedule_", "_run_")):
-                globals()[_name] = _domain_error_result(_func)
+                return {"error": r.json().get("detail", r.text)}
+            except Exception:
+                return {"error": r.text}
+        return r.json() if r.content else {"ok": True}
+
+def _proj_list(limit=None, offset=0):
+    resp = _http("GET", "/api/projects", params={"limit": limit, "offset": offset} if limit is not None else {})
+    return resp.get("items", resp) if isinstance(resp, dict) else resp
+
+def _proj_create(name, key, description):
+    return _http("POST", "/api/projects", json={"name": name, "key": key, "description": description})
+
+def _proj_get(project_id):
+    return _http("GET", f"/api/projects/{project_id}")
+
+def _proj_update(project_id, fields):
+    return _http("PATCH", f"/api/projects/{project_id}", json=fields)
+
+def _proj_delete(project_id):
+    return _http("DELETE", f"/api/projects/{project_id}")
+
+def _epic_list(project_id, limit=None, offset=0):
+    params = {"offset": offset}
+    if limit is not None:
+        params["limit"] = limit
+    resp = _http("GET", f"/api/projects/{project_id}/epics", params=params)
+    return resp.get("items", resp) if isinstance(resp, dict) else resp
+
+def _epic_create(project_id, title, description):
+    return _http("POST", f"/api/projects/{project_id}/epics", json={"title": title, "description": description})
+
+def _story_create(epic_id, title, description):
+    return _http("POST", f"/api/epics/{epic_id}/stories", json={"title": title, "description": description})
+
+def _story_list(epic_id, limit=None, offset=0):
+    params = {"offset": offset}
+    if limit is not None:
+        params["limit"] = limit
+    resp = _http("GET", f"/api/epics/{epic_id}/stories", params=params)
+    return resp.get("items", resp) if isinstance(resp, dict) else resp
+
+def _task_list(story_id, limit=None, offset=0):
+    params = {"offset": offset}
+    if limit is not None:
+        params["limit"] = limit
+    resp = _http("GET", f"/api/stories/{story_id}/tasks", params=params)
+    return resp.get("items", resp) if isinstance(resp, dict) else resp
+
+def _task_create(project_id, story_id, title, type, description, spec, priority="medium"):
+    return _http("POST", f"/api/stories/{story_id}/tasks",
+                 json={"project_id": project_id, "title": title, "type": type,
+                       "description": description, "spec": spec, "priority": priority})
+
+def _task_get(task_id):
+    return _http("GET", f"/api/tasks/{task_id}")
+
+def _task_update(task_id, fields):
+    return _http("PATCH", f"/api/tasks/{task_id}", json=fields)
+
+def _task_append_spec(task_id, text):
+    return _http("POST", f"/api/tasks/{task_id}/spec/append", json={"text": text})
+
+def _task_delete(task_id):
+    return _http("DELETE", f"/api/tasks/{task_id}")
+
+def _task_status(task_id, status):
+    return _http("PUT", f"/api/tasks/{task_id}/status", json={"status": status})
+
+def _task_search(params):
+    clean = {k: v for k, v in params.items() if v is not None}
+    resp = _http("GET", "/api/tasks", params=clean)
+    return resp.get("items", resp) if isinstance(resp, dict) else resp
+
+def _task_generated(task_id):
+    return _http("POST", f"/api/tasks/{task_id}/generate-subtasks")
+
+def _epic_get(epic_id):
+    return _http("GET", f"/api/epics/{epic_id}")
+
+def _epic_update(epic_id, fields):
+    return _http("PATCH", f"/api/epics/{epic_id}", json=fields)
+
+def _epic_delete(epic_id):
+    return _http("DELETE", f"/api/epics/{epic_id}")
+
+def _story_get(story_id):
+    return _http("GET", f"/api/stories/{story_id}")
+
+def _story_update(story_id, fields):
+    return _http("PATCH", f"/api/stories/{story_id}", json=fields)
+
+def _story_delete(story_id):
+    return _http("DELETE", f"/api/stories/{story_id}")
+
+def _comment_list(task_id):
+    return _http("GET", f"/api/tasks/{task_id}/comments")
+
+def _comment_create(task_id, author, content):
+    return _http("POST", f"/api/tasks/{task_id}/comments",
+                 json={"author": author, "content": content})
+
+def _comment_delete(comment_id):
+    return _http("DELETE", f"/api/comments/{comment_id}")
+
+def _auth_register(username, password):
+    return _http("POST", "/api/auth/register", json={"username": username, "password": password})
+
+def _auth_login(username, password):
+    return _http("POST", "/api/auth/login", json={"username": username, "password": password})
+
+def _auth_me(token):
+    return _http("GET", "/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+
+# ---------- Sprint ----------
+def _sprint_list(project_id, limit=None, offset=0):
+    params = {"offset": offset}
+    if limit is not None:
+        params["limit"] = limit
+    resp = _http("GET", f"/api/projects/{project_id}/sprints", params=params)
+    return resp.get("items", resp) if isinstance(resp, dict) else resp
+
+def _sprint_get(sprint_id):
+    return _http("GET", f"/api/sprints/{sprint_id}")
+
+def _sprint_create(project_id, title, goal="", start_date=None, end_date=None):
+    body = {"title": title, "goal": goal}
+    if start_date:
+        body["start_date"] = start_date
+    if end_date:
+        body["end_date"] = end_date
+    return _http("POST", f"/api/projects/{project_id}/sprints", json=body)
+
+def _sprint_update(sprint_id, fields):
+    return _http("PATCH", f"/api/sprints/{sprint_id}", json=fields)
+
+def _sprint_activate(sprint_id):
+    return _http("POST", f"/api/sprints/{sprint_id}/activate")
+
+def _sprint_complete(sprint_id):
+    return _http("POST", f"/api/sprints/{sprint_id}/complete")
+
+def _sprint_delete(sprint_id):
+    return _http("DELETE", f"/api/sprints/{sprint_id}")
+
+def _sprint_task_list(sprint_id, limit=None, offset=0):
+    params = {"offset": offset}
+    if limit is not None:
+        params["limit"] = limit
+    return _http("GET", f"/api/sprints/{sprint_id}/tasks", params=params)
+
+# ---------- AgentSchedule ----------
+def _schedule_list(project_id, limit=None, offset=0):
+    params = {"offset": offset}
+    if limit is not None:
+        params["limit"] = limit
+    return _http("GET", f"/api/projects/{project_id}/schedules", params=params)
+
+def _schedule_get(schedule_id):
+    return _http("GET", f"/api/schedules/{schedule_id}")
+
+def _schedule_create(project_id, title, schedule_type="cron", cron_expr=None):
+    body = {"title": title, "schedule_type": schedule_type}
+    if cron_expr:
+        body["cron_expr"] = cron_expr
+    return _http("POST", f"/api/projects/{project_id}/schedules", json=body)
+
+def _schedule_update(schedule_id, fields):
+    return _http("PATCH", f"/api/schedules/{schedule_id}", json=fields)
+
+def _schedule_delete(schedule_id):
+    return _http("DELETE", f"/api/schedules/{schedule_id}")
+
+# ---------- AgentRun ----------
+def _run_create(schedule_id, task_id=None, idempotency_key=None):
+    body = {}
+    if task_id is not None:
+        body["task_id"] = task_id
+    if idempotency_key is not None:
+        body["idempotency_key"] = idempotency_key
+    return _http("POST", f"/api/schedules/{schedule_id}/runs", json=body)
+
+def _run_list(schedule_id, limit=None, offset=0):
+    params = {"offset": offset}
+    if limit is not None:
+        params["limit"] = limit
+    return _http("GET", f"/api/schedules/{schedule_id}/runs", params=params)
+
+def _run_get(run_id):
+    return _http("GET", f"/api/runs/{run_id}")
+
+def _run_update(run_id, fields):
+    return _http("PATCH", f"/api/runs/{run_id}", json=fields)
+
+def _run_delete(run_id):
+    return _http("DELETE", f"/api/runs/{run_id}")
 
 
 # ===================== MCP 工具 =====================
@@ -901,24 +622,11 @@ def auth_me(token: str | None = None) -> dict:
 
 
 # ---------- Attachment MCP 工具 ----------
-if BACKEND == "db":
-    def _attachment_list(task_id):
-        with SessionLocal() as s:
-            try:
-                return [service._ser(a) for a in service.list_attachments(s, task_id)]
-            except service.NotFound as e:
-                return {"error": str(e)}
+def _attachment_list(task_id):
+    return _http("GET", f"/api/tasks/{task_id}/attachments")
 
-    def _attachment_get(attachment_id):
-        with SessionLocal() as s:
-            att = service.get_attachment(s, attachment_id)
-            return service._ser(att) if att else {"error": "not found"}
-else:
-    def _attachment_list(task_id):
-        return _http("GET", f"/api/tasks/{task_id}/attachments")
-
-    def _attachment_get(attachment_id):
-        return _http("GET", f"/api/attachments/{attachment_id}/info")
+def _attachment_get(attachment_id):
+    return _http("GET", f"/api/attachments/{attachment_id}/info")
 
 
 @mcp.tool()
@@ -934,13 +642,8 @@ def get_attachment_info(attachment_id: int) -> dict:
 
 
 # ---------- Project Stats MCP 工具 ----------
-if BACKEND == "db":
-    def _project_stats(project_id):
-        with SessionLocal() as s:
-            return service.get_project_stats(s, project_id)
-else:
-    def _project_stats(project_id):
-        return _http("GET", f"/api/projects/{project_id}/stats")
+def _project_stats(project_id):
+    return _http("GET", f"/api/projects/{project_id}/stats")
 
 
 @mcp.tool()
@@ -950,94 +653,31 @@ def get_project_stats(project_id: int) -> dict:
 
 
 # ---------- Agent MCP 工具（Task 92）----------
-if BACKEND == "db":
-    def _agent_claim_task(task_id, agent_name="agent"):
-        """领取任务并创建 Run 记录"""
-        import uuid
-        with SessionLocal() as s:
-            try:
-                t = service.get_task(s, task_id)
-                if not t:
-                    return {"error": f"task {task_id} not found"}
-                # 获取 task 关联的 schedule（如果有）
-                from .models import AgentSchedule
-                sch = s.query(AgentSchedule).filter(
-                    AgentSchedule.project_id == t.project_id,
-                    AgentSchedule.enabled == True
-                ).first()
-                if not sch:
-                    # 无 schedule，创建独立 run
-                    run = service.create_run(s, schedule_id=0, task_id=task_id,
-                                           idempotency_key=f"manual-{task_id}-{uuid.uuid4().hex[:8]}")
-                    return {"run": service._ser(run), "task": service._ser(t), "schedule": None}
-                # 通过 schedule 创建 run
-                run = service.create_run(s, schedule_id=sch.id, task_id=task_id,
-                                        idempotency_key=f"{agent_name}-{task_id}-{uuid.uuid4().hex[:8]}")
-                # 更新任务状态为 in_progress
-                if t.status == "backlog" or t.status == "todo":
-                    service.set_status(s, task_id, "in_progress")
-                    s.refresh(t)
-                return {"run": service._ser(run), "task": service._ser(t), "schedule": service._ser(sch)}
-            except service.DomainError as e:
-                return {"error": str(e)}
-
-    def _agent_heartbeat(run_id, status="running"):
-        """心跳：更新 Run 状态"""
-        with SessionLocal() as s:
-            run = service.update_run(s, run_id, status=status,
-                                    started_at=service._now() if status == "running" else None)
-            return service._ser(run) if run else {"error": f"run {run_id} not found"}
-
-    def _agent_complete_run(run_id, output, status="success", error_message=None):
-        """完成运行"""
-        from datetime import datetime
-        with SessionLocal() as s:
-            fields = {"status": status, "output": output,
-                     "finished_at": datetime.utcnow().isoformat()}
-            if error_message:
-                fields["error_message"] = error_message
-            run = service.update_run(s, run_id, **fields)
-            if not run:
-                return {"error": f"run {run_id} not found"}
-            # 如果有 task_id，同步任务状态
-            if run.task_id:
-                if status == "success":
-                    try:
-                        service.set_status(s, run.task_id, "in_review")
-                    except service.DomainError:
-                        pass
-                elif status == "failed":
-                    try:
-                        service.set_status(s, run.task_id, "todo")
-                    except service.DomainError:
-                        pass
-            return service._ser(run)
-else:
-    def _agent_claim_task(task_id, agent_name="agent"):
-        import uuid
-        # 获取 task 详情
+def _agent_claim_task(task_id, agent_name="agent"):
+    import uuid
+    # 获取 task 详情
+    t = _http("GET", f"/api/tasks/{task_id}")
+    if "error" in t:
+        return t
+    # 创建 run（临时用 schedule_id=0 表示手动触发）
+    idempotency_key = f"{agent_name}-{task_id}-{uuid.uuid4().hex[:8]}"
+    run = _http("POST", "/api/schedules/0/runs" if False else f"/api/schedules/1/runs",
+               json={"task_id": task_id, "idempotency_key": idempotency_key})
+    # 同步任务状态
+    if t.get("status") in ("backlog", "todo"):
+        _http("PUT", f"/api/tasks/{task_id}/status", json={"status": "in_progress"})
         t = _http("GET", f"/api/tasks/{task_id}")
-        if "error" in t:
-            return t
-        # 创建 run（临时用 schedule_id=0 表示手动触发）
-        idempotency_key = f"{agent_name}-{task_id}-{uuid.uuid4().hex[:8]}"
-        run = _http("POST", "/api/schedules/0/runs" if False else f"/api/schedules/1/runs",
-                   json={"task_id": task_id, "idempotency_key": idempotency_key})
-        # 同步任务状态
-        if t.get("status") in ("backlog", "todo"):
-            _http("PUT", f"/api/tasks/{task_id}/status", json={"status": "in_progress"})
-            t = _http("GET", f"/api/tasks/{task_id}")
-        return {"run": run, "task": t, "schedule": None}
+    return {"run": run, "task": t, "schedule": None}
 
-    def _agent_heartbeat(run_id, status="running"):
-        fields = {"status": status}
-        return _http("PATCH", f"/api/runs/{run_id}", json=fields)
+def _agent_heartbeat(run_id, status="running"):
+    fields = {"status": status}
+    return _http("PATCH", f"/api/runs/{run_id}", json=fields)
 
-    def _agent_complete_run(run_id, output, status="success", error_message=None):
-        fields = {"status": status, "output": output}
-        if error_message:
-            fields["error_message"] = error_message
-        return _http("PATCH", f"/api/runs/{run_id}", json=fields)
+def _agent_complete_run(run_id, output, status="success", error_message=None):
+    fields = {"status": status, "output": output}
+    if error_message:
+        fields["error_message"] = error_message
+    return _http("PATCH", f"/api/runs/{run_id}", json=fields)
 
 
 @mcp.tool()

@@ -30,14 +30,14 @@ def _result(result):
 
 def test_remote_mcp_auth_and_full_tree():
     db_path = tempfile.mktemp(suffix=".db")
-    port = _free_port()
+    api_port, port = _free_port(), _free_port()
     secret = "test-only-secret-with-at-least-32-bytes"
     env = os.environ.copy()
     env.update({
         "PYTHONPATH": ROOT,
         "AGENTBOARD_DB_URL": f"sqlite:///{db_path}",
         "AGENTBOARD_SECRET": secret,
-        "AGENTBOARD_MCP_BACKEND": "db",
+        "AGENTBOARD_API_URL": f"http://127.0.0.1:{api_port}",
         "AGENTBOARD_MCP_TRANSPORT": "http",
         "AGENTBOARD_MCP_HOST": "127.0.0.1",
         "AGENTBOARD_MCP_PORT": str(port),
@@ -55,12 +55,26 @@ def test_remote_mcp_auth_and_full_tree():
         cwd=ROOT, env=env, check=True, capture_output=True, text=True,
     )
     token = bootstrap.stdout.strip().splitlines()[-1]
+    api = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "agentboard.api:app", "--host", "127.0.0.1", "--port", str(api_port)],
+        cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
     process = subprocess.Popen(
         [sys.executable, "-m", "agentboard.mcp_server"],
         cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     url = f"http://127.0.0.1:{port}/mcp"
     try:
+        for _ in range(80):
+            try:
+                if httpx.get(f"http://127.0.0.1:{api_port}/api/meta", timeout=0.25).status_code == 200:
+                    break
+            except httpx.HTTPError:
+                pass
+            time.sleep(0.1)
+        else:
+            raise AssertionError("REST API did not start")
+
         for _ in range(80):
             try:
                 if httpx.get(url, timeout=0.25).status_code in {401, 404, 405}:
@@ -127,7 +141,10 @@ def test_remote_mcp_auth_and_full_tree():
                     "delete_task", {"task_id": task["id"]}
                 ))["ok"] is True
                 assert _result(await client.call_tool(
-                    "delete_project", {"project_id": project["id"]}
+                    "delete_story", {"story_id": story["id"]}
+                ))["ok"] is True
+                assert _result(await client.call_tool(
+                    "delete_epic", {"epic_id": epic["id"]}
                 ))["ok"] is True
 
         asyncio.run(exercise())
@@ -137,6 +154,11 @@ def test_remote_mcp_auth_and_full_tree():
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
             process.kill()
+        api.terminate()
+        try:
+            api.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            api.kill()
 
 
 def test_rest_business_auth_switch():
@@ -201,7 +223,6 @@ def test_remote_mcp_forwards_bearer_to_protected_api():
         assert httpx.get(f"{api_url}/api/projects").status_code == 401
 
         mcp_env = env | {
-            "AGENTBOARD_MCP_BACKEND": "api",
             "AGENTBOARD_API_URL": api_url,
             "AGENTBOARD_MCP_TRANSPORT": "http",
             "AGENTBOARD_MCP_HOST": "127.0.0.1",

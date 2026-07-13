@@ -21,7 +21,7 @@
 
 - **API**（`agentboard/api.py`）：纯 JSON REST，带 CORS，不含任何 HTML。
 - **Web**（`frontend/` + `agentboard/web_app.py`）：Angular 21 LTS 独立 SPA，构建后由 FastAPI 托管，浏览器通过 `HttpClient` 调 API。
-- **MCP**（`agentboard/mcp_server.py`）：默认 httpx 调 API，可切换直连 DB。
+- **MCP**（`agentboard/mcp_server.py`）：仅通过 httpx 调用 REST API，不直接访问数据库。
 
 ## 目录结构
 
@@ -33,7 +33,7 @@ agentboard/
   api.py          # REST API（纯 JSON，前后端分离的后端）
   web_app.py      # Web 前端托管（独立服务）
   web/static/     # Angular 复用的全局设计系统 style.css
-  mcp_server.py   # FastMCP 工具集（api / db 双后端）
+  mcp_server.py   # 基于 REST API 的 FastMCP 工具集
 frontend/         # Angular 21 源码、路由、类型化 API 服务
 tests/test_smoke.py
 docs/requirements.md   # 需求分析
@@ -61,8 +61,6 @@ uvicorn agentboard.web_app:app --reload --port 8080
 # 3) 本地 MCP 服务（stdio）
 #    默认调用 API：需先启动上面的 API
 python -m agentboard.mcp_server
-#    或让 MCP 直连数据库（无需 API）：
-#    $env:AGENTBOARD_MCP_BACKEND="db"; python -m agentboard.mcp_server
 
 # 4) 远程 MCP（Streamable HTTP，默认要求 Bearer Token）
 #    API 与 MCP 必须使用相同的 AGENTBOARD_SECRET
@@ -77,7 +75,6 @@ python -m agentboard.mcp_server
 配置项（环境变量）：
 - `AGENTBOARD_DB_URL`：数据库地址。默认 `sqlite:///./agentboard.db`；生产 `mysql+pymysql://user:pass@host:3306/agentboard`
 - `AGENTBOARD_API_URL`：Web/MCP 调用的 API 地址，默认 `http://127.0.0.1:8000`
-- `AGENTBOARD_MCP_BACKEND`：`api`（默认）或 `db`
 - `AGENTBOARD_MCP_TRANSPORT`：`stdio`（默认）或 `http`（Streamable HTTP）
 - `AGENTBOARD_MCP_HOST` / `AGENTBOARD_MCP_PORT` / `AGENTBOARD_MCP_PATH`：远程 MCP 监听配置，默认 `127.0.0.1:8001/mcp`
 - `AGENTBOARD_MCP_REQUIRE_AUTH`：远程 MCP Bearer 鉴权，默认开启；只应在本机调试时关闭

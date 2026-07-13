@@ -76,9 +76,7 @@ services:
       AGENTBOARD_MCP_PORT: "8001"
       AGENTBOARD_MCP_PATH: "/mcp"
       AGENTBOARD_MCP_REQUIRE_AUTH: "0"
-      AGENTBOARD_MCP_BACKEND: "db"
-      # 直连 MariaDB（容器内用 db:3306）
-      AGENTBOARD_DB_URL: "mysql+pymysql://agentboard:agentboard@db:3306/agentboard"
+      AGENTBOARD_API_URL: "http://api:8000"
       # 必须与 API 完全一致，MCP 才能验证 Token
       AGENTBOARD_SECRET: "${AGENTBOARD_SECRET:?Set AGENTBOARD_SECRET to a strong random value}"
       AGENTBOARD_TOKEN_TTL_SECONDS: "${AGENTBOARD_TOKEN_TTL_SECONDS:-2592000}"
