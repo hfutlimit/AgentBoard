@@ -19,14 +19,6 @@
       <button id="theme-toggle" class="icon-btn" [title]="getThemeLabel()" (click)="toggleTheme()">
         <span class="theme-icon">{{ isDarkTheme() ? '🌙' : '☀️' }}</span>
       </button>
-      <input
-        id="global-search"
-        class="global-search"
-        type="search"
-        placeholder="搜索标题…"
-        [value]="search()"
-        (input)="search.set($any($event.target).value)"
-      />
       <span id="user-info" class="muted">
         <!-- Notification bell -->
         @if (currentUser()) {

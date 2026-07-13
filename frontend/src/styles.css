@@ -162,7 +162,7 @@ a:hover { color: var(--brand-700); text-decoration: underline; }
 
 .topbar-left { display: flex; align-items: center; gap: 12px; }
 .topbar-nav { display: flex; gap: 4px; }
-.topbar-right { font-size: .9rem; display: flex; align-items: center; gap: 12px; }
+.topbar-right { font-size: .9rem; display: flex; align-items: center; gap: 16px; }
 
 .logo {
   margin: 0;
