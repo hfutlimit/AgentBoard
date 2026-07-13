@@ -15,10 +15,6 @@
         ><span class="logo-text">Agent<b>Board</b></span>
       </a>
     </div>
-    <nav class="topbar-nav">
-      <a routerLink="/" [class.active]="view() === 'home'">仪表盘</a>
-      <a routerLink="/projects" [class.active]="view() === 'projects'">项目</a>
-    </nav>
     <div class="topbar-right">
       <button id="theme-toggle" class="icon-btn" [title]="getThemeLabel()" (click)="toggleTheme()">
         <span class="theme-icon">{{ isDarkTheme() ? '🌙' : '☀️' }}</span>
@@ -106,9 +102,6 @@
               </div>
             }
           </div>
-          @if (isAdmin()) {
-            <a routerLink="/admin" class="ghost-sm admin-link" style="margin-right:8px">⚙ 管理</a>
-          }
           <span class="user-chip">
             <span class="user-name">{{ currentUser() }}</span>
             @if (isAdmin()) { <span class="badge priority priority--high" style="font-size:10px">Admin</span> }
@@ -125,17 +118,36 @@
 <div class="layout">
   @if (sidebarOpen()) {
     <aside id="sidebar" class="sidebar">
-      <div class="sidebar-header">
-        <h3>项目</h3>
-        <button
-          id="sidebar-new-project"
-          class="ghost-sm"
-          title="新建项目"
-          (click)="openCreate('project')"
-        >
-          ＋
-        </button>
-      </div>
+      <!-- 一级导航 -->
+      <nav class="sidebar-nav">
+        <a routerLink="/" [class.active]="view() === 'home'" class="sidebar-nav-item">
+          <span class="sidebar-nav-icon">📊</span>
+          <span class="sidebar-nav-label">仪表盘</span>
+        </a>
+        <div class="sidebar-nav-group">
+          <a routerLink="/projects" [class.active]="view() === 'projects'" class="sidebar-nav-item">
+            <span class="sidebar-nav-icon">📁</span>
+            <span class="sidebar-nav-label">项目</span>
+          </a>
+          <!-- 二级：项目列表 -->
+          @if (view() === 'projects' || view() === 'project') {
+            <div class="sidebar-sub">
+              <div class="sidebar-sub-header">项目列表</div>
+              @for (item of visibleProjects(); track item.id) {
+                <a [routerLink]="['/project', item.id]" class="sidebar-sub-item" [class.active]="project()?.id === item.id">
+                  <span class="sidebar-icon">◆</span><span class="sidebar-label">{{ item.name }}</span>
+                  @if (item.key) {
+                    <span class="sidebar-key">{{ item.key }}</span>
+                  }
+                </a>
+              } @empty {
+                <div class="sidebar-empty">暂无项目</div>
+              }
+            </div>
+          }
+        </div>
+      </nav>
+      <!-- 最近访问 -->
       @if (recentProjects().length > 0) {
         <div class="sidebar-recent">
           <div class="sidebar-recent-header">最近访问</div>
@@ -148,20 +160,6 @@
           }
         </div>
       }
-      <div id="sidebar-tree" class="sidebar-tree">
-        @for (item of visibleProjects(); track item.id) {
-          <div class="sidebar-item">
-            <a [routerLink]="['/project', item.id]" class="sidebar-link">
-              <span class="sidebar-icon">◆</span><span class="sidebar-label">{{ item.name }}</span>
-              @if (item.key) {
-                <span class="sidebar-key">{{ item.key }}</span>
-              }
-            </a>
-          </div>
-        } @empty {
-          <div class="sidebar-empty">暂无项目<br /><small>点击 ＋ 创建</small></div>
-        }
-      </div>
     </aside>
   }
 
