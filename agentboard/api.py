@@ -4,6 +4,7 @@
 供 Web 前端（fetch）与 MCP（httpx）调用；不含任何 HTML 渲染。
 """
 import os
+import re
 from datetime import datetime
 from contextlib import asynccontextmanager
 from sqlalchemy import text
@@ -254,6 +255,47 @@ class UserAdminPatch(BaseModel):
     is_admin: bool
 
 
+_PERMISSION_RE = re.compile(r"^[a-z][a-z0-9_-]*(?::(?:[a-z0-9_*.-]+))+$")
+
+
+class ApiKeyCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    permissions: list[str] = Field(default_factory=list, max_length=100)
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("name is required")
+        return value.strip()
+
+    @field_validator("permissions")
+    @classmethod
+    def validate_permissions(cls, value: list[str]) -> list[str]:
+        normalized = sorted(set(value))
+        if any(len(p) > 120 or not _PERMISSION_RE.fullmatch(p) for p in normalized):
+            raise ValueError("permissions must be namespaced strings such as 'mcp:tools:read'")
+        return normalized
+
+
+class ApiKeyPatch(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=100)
+    enabled: bool | None = None
+    permissions: list[str] | None = Field(None, max_length=100)
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("name is required")
+        return value.strip() if value is not None else None
+
+    @field_validator("permissions")
+    @classmethod
+    def validate_permissions(cls, value: list[str] | None) -> list[str] | None:
+        return ApiKeyCreate.validate_permissions(value) if value is not None else None
+
+
 def _need(obj, what: str):
     if obj is None:
         raise HTTPException(status_code=404, detail=f"{what} not found")
@@ -340,6 +382,46 @@ def login(body: AuthLogin, s: Session = Depends(get_session)):
 def me(authorization: str | None = Header(None), s: Session = Depends(get_session)):
     u = _current_user(authorization, s)
     return {"id": u.id, "username": u.username, "is_admin": u.is_admin}
+
+
+def _api_key_response(item) -> dict:
+    return {
+        "id": item.id, "name": item.name, "prefix": item.key_prefix,
+        "permissions": auth.decode_permissions(item.permissions), "enabled": item.enabled,
+        "created_at": item.created_at, "updated_at": item.updated_at,
+        "last_used_at": item.last_used_at,
+    }
+
+
+@app.post("/api/api-keys", status_code=201)
+def create_api_key(body: ApiKeyCreate, authorization: str | None = Header(None), s: Session = Depends(get_session)):
+    user = _current_user(authorization, s)
+    item, plaintext = service.create_api_key(
+        s, user_id=user.id, name=body.name, permissions=body.permissions,
+    )
+    return {**_api_key_response(item), "key": plaintext}
+
+
+@app.get("/api/api-keys")
+def list_api_keys(authorization: str | None = Header(None), s: Session = Depends(get_session)):
+    user = _current_user(authorization, s)
+    return {"items": [_api_key_response(x) for x in service.list_api_keys(s, user_id=user.id)]}
+
+
+@app.get("/api/api-keys/{api_key_id}")
+def get_api_key(api_key_id: int, authorization: str | None = Header(None), s: Session = Depends(get_session)):
+    user = _current_user(authorization, s)
+    return _api_key_response(_need(service.get_api_key(s, user_id=user.id, api_key_id=api_key_id), "api key"))
+
+
+@app.patch("/api/api-keys/{api_key_id}")
+def update_api_key(body: ApiKeyPatch, api_key_id: int, authorization: str | None = Header(None), s: Session = Depends(get_session)):
+    user = _current_user(authorization, s)
+    item = _need(service.get_api_key(s, user_id=user.id, api_key_id=api_key_id), "api key")
+    updated = service.update_api_key(
+        s, item, name=body.name, enabled=body.enabled, permissions=body.permissions,
+    )
+    return _api_key_response(updated)
 
 
 # ---------- Projects ----------

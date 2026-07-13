@@ -1,3 +1,3 @@
-from .models import Notification, User
+from .models import ApiKey, Notification, User
 
-__all__ = ["Notification", "User"]
+__all__ = ["ApiKey", "Notification", "User"]

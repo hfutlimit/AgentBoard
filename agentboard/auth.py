@@ -10,6 +10,7 @@ import hmac
 import os
 import secrets
 import time
+import json
 from sqlalchemy.orm import Session
 
 from . import models
@@ -105,3 +106,30 @@ def parse_token(token: str | None) -> int | None:
 
 def get_user_by_id(s: Session, user_id: int) -> models.User | None:
     return s.get(models.User, user_id)
+
+
+API_KEY_PREFIX = "abk_"
+
+
+def generate_api_key() -> tuple[str, str, str]:
+    """Return (plaintext, display prefix, digest). Plaintext is shown once."""
+    plaintext = API_KEY_PREFIX + secrets.token_urlsafe(32)
+    display_prefix = plaintext[:12]
+    digest = hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
+    return plaintext, display_prefix, digest
+
+
+def hash_api_key(plaintext: str) -> str:
+    return hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
+
+
+def encode_permissions(permissions: list[str]) -> str:
+    return json.dumps(sorted(set(permissions)), separators=(",", ":"))
+
+
+def decode_permissions(value: str) -> list[str]:
+    try:
+        decoded = json.loads(value)
+        return decoded if isinstance(decoded, list) else []
+    except (TypeError, json.JSONDecodeError):
+        return []

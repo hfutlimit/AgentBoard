@@ -7,7 +7,7 @@ from .models import (
     ItemType, Status, Priority, SprintStatus, ALL_TYPES, ALL_STATUSES,
     ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES,
     Project, Epic, Story, Task, Comment, Sprint, Attachment, AgentSchedule, AgentRun,
-    ProjectMember, Notification, User,
+    ProjectMember, Notification, User, ApiKey,
 )
 
 DEFAULT_PAGE_SIZE = 100
@@ -828,6 +828,42 @@ def get_user(s: Session, id: int) -> models.User | None:
 
 def get_user_by_username(s: Session, username: str) -> models.User | None:
     return s.query(models.User).filter(models.User.username == username).first()
+
+
+def create_api_key(s: Session, *, user_id: int, name: str, permissions: list[str]) -> tuple[ApiKey, str]:
+    plaintext, prefix, digest = auth.generate_api_key()
+    item = ApiKey(
+        user_id=user_id, name=name.strip(), key_prefix=prefix, key_hash=digest,
+        permissions=auth.encode_permissions(permissions), enabled=True,
+    )
+    s.add(item)
+    _commit(s)
+    s.refresh(item)
+    return item, plaintext
+
+
+def list_api_keys(s: Session, *, user_id: int) -> list[ApiKey]:
+    return s.query(ApiKey).filter(ApiKey.user_id == user_id).order_by(ApiKey.id.desc()).all()
+
+
+def get_api_key(s: Session, *, user_id: int, api_key_id: int) -> ApiKey | None:
+    return s.query(ApiKey).filter(ApiKey.id == api_key_id, ApiKey.user_id == user_id).first()
+
+
+def update_api_key(
+    s: Session, item: ApiKey, *, name: str | None = None,
+    enabled: bool | None = None, permissions: list[str] | None = None,
+) -> ApiKey:
+    if name is not None:
+        item.name = name.strip()
+    if enabled is not None:
+        item.enabled = enabled
+    if permissions is not None:
+        item.permissions = auth.encode_permissions(permissions)
+    item.updated_at = models._now()
+    _commit(s)
+    s.refresh(item)
+    return item
 
 
 # ---------- Paged response ----------
