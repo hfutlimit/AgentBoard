@@ -461,13 +461,31 @@ main {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
-  padding: 20px;
+  padding: 24px;
   box-shadow: var(--sh-sm);
   transition: all .2s;
 }
 .card:hover { box-shadow: var(--sh-md); }
-.card.md { padding: 24px; }
+.card.md { padding: 28px; }
 .card.sm { padding: 12px 16px; }
+
+.card > h4, .card > h3 {
+  font-size: .95rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card > h4::before {
+  content: "";
+  width: 3px;
+  height: 16px;
+  background: var(--grad);
+  border-radius: 2px;
+}
+.card.form-section { margin-bottom: 20px; }
 
 /* ========== Page Header ========== */
 .page-header {
@@ -773,10 +791,11 @@ main {
 /* ========== Forms ========== */
 label {
   display: block;
-  font-size: .88rem;
-  font-weight: 500;
-  color: var(--text);
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--text-2);
   margin-bottom: 6px;
+  letter-spacing: .01em;
 }
 input[type="text"],
 input[type="search"],
@@ -812,10 +831,10 @@ select { cursor: pointer; }
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 14px;
 }
-.form-field { margin-bottom: 14px; }
+.form-field { margin-bottom: 16px; }
 .form-field:last-child { margin-bottom: 0; }
 
-.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+.row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 20px; padding-top: 4px; }
 .row > * { margin: 0; }
 
 /* Details / Accordion */
