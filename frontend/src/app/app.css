@@ -376,3 +376,117 @@ router-outlet {
 .data-table a:hover {
   text-decoration: underline;
 }
+
+/* ---- Bulk Actions ---- */
+.bulk-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--brand-soft, #e0e7ff);
+  border: 1px solid var(--brand-500, #6366f1);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+[data-theme="dark"] .bulk-action-bar {
+  background: rgba(99, 102, 241, 0.15);
+}
+
+.bulk-count {
+  font-weight: 600;
+  color: var(--brand-600, #4f46e5);
+  margin-right: 8px;
+}
+
+.bulk-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.bulk-panel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.bulk-panel--danger {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: var(--danger, #ef4444);
+}
+
+.status-btn {
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.status-btn:hover {
+  transform: scale(1.05);
+}
+
+.task-checkbox {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--brand-500, #6366f1);
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.entity-item.selected {
+  background: var(--brand-soft, #e0e7ff);
+  border-color: var(--brand-500, #6366f1);
+}
+
+[data-theme="dark"] .entity-item.selected {
+  background: rgba(99, 102, 241, 0.15);
+}
+
+.entity-item {
+  display: flex;
+  align-items: center;
+}
+
+.entity-item-link {
+  display: flex;
+  flex: 1;
+  justify-content: space-between;
+  align-items: center;
+  text-decoration: none;
+  color: inherit;
+}
+
+.entity-item-link:hover {
+  color: var(--brand-600, #4f46e5);
+}
+
+/* ---- Keyboard Navigation ---- */
+.kbd-focused {
+  outline: 2px solid var(--brand-500, #6366f1);
+  outline-offset: -2px;
+  background: var(--brand-soft, #e0e7ff) !important;
+}
+
+[data-theme="dark"] .kbd-focused {
+  background: rgba(99, 102, 241, 0.2) !important;
+}
+
+.kbd-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  text-align: center;
+  border-top: 1px solid var(--border);
+}
+
+.entity-list:focus {
+  outline: none;
+}

@@ -296,6 +296,36 @@ class ApiKeyPatch(BaseModel):
         return ApiKeyCreate.validate_permissions(value) if value is not None else None
 
 
+# ---------- Bulk Operations ----------
+class BulkTaskUpdate(BaseModel):
+    task_ids: list[int] = Field(..., min_length=1, max_length=100)
+    status: str | None = None
+    priority: str | None = None
+    sprint_id: int | None = None
+
+    @field_validator("task_ids")
+    @classmethod
+    def validate_ids(cls, value: list[int]) -> list[int]:
+        if not value:
+            raise ValueError("task_ids cannot be empty")
+        if len(set(value)) != len(value):
+            raise ValueError("task_ids must be unique")
+        return value
+
+
+class BulkTaskDelete(BaseModel):
+    task_ids: list[int] = Field(..., min_length=1, max_length=100)
+
+    @field_validator("task_ids")
+    @classmethod
+    def validate_ids(cls, value: list[int]) -> list[int]:
+        if not value:
+            raise ValueError("task_ids cannot be empty")
+        if len(set(value)) != len(value):
+            raise ValueError("task_ids must be unique")
+        return value
+
+
 def _need(obj, what: str):
     if obj is None:
         raise HTTPException(status_code=404, detail=f"{what} not found")
@@ -590,6 +620,49 @@ def delete_task(tid: int, s: Session = Depends(get_session)):
     if not service.delete_task(s, tid):
         raise HTTPException(status_code=404, detail="task not found")
     return {"ok": True}
+
+
+# ---------- Bulk Task Operations ----------
+@app.post("/api/tasks/bulk-update")
+def bulk_update_tasks(body: BulkTaskUpdate, s: Session = Depends(get_session)):
+    """批量更新任务：支持 status / priority / sprint_id"""
+    results = []
+    errors = []
+    for tid in body.task_ids:
+        task = service.get_task(s, tid)
+        if not task:
+            errors.append({"task_id": tid, "error": "task not found"})
+            continue
+        try:
+            updates = {}
+            if body.status is not None:
+                service.set_status(s, tid, body.status)
+            if body.priority is not None:
+                updates["priority"] = body.priority
+            if body.sprint_id is not None:
+                updates["sprint_id"] = body.sprint_id
+            if updates:
+                service.update_task(s, tid, **updates)
+            results.append({"task_id": tid, "ok": True})
+        except Exception as e:
+            errors.append({"task_id": tid, "error": str(e)})
+    return {"updated": results, "errors": errors}
+
+
+@app.post("/api/tasks/bulk-delete")
+def bulk_delete_tasks(body: BulkTaskDelete, s: Session = Depends(get_session)):
+    """批量删除任务"""
+    results = []
+    errors = []
+    for tid in body.task_ids:
+        try:
+            if service.delete_task(s, tid):
+                results.append({"task_id": tid, "ok": True})
+            else:
+                errors.append({"task_id": tid, "error": "task not found"})
+        except Exception as e:
+            errors.append({"task_id": tid, "error": str(e)})
+    return {"deleted": results, "errors": errors}
 
 
 @app.post("/api/tasks/{tid}/spec/append")

@@ -80,6 +80,10 @@ export class App implements OnInit, OnDestroy {
   readonly attachments = signal<Attachment[]>([]);
   readonly adminUsers = signal<any[]>([]);
   readonly adminProjects = signal<any[]>([]);
+  readonly selectedTasks = signal<Set<number>>(new Set());
+  readonly bulkActionTarget = signal<string | null>(null); // 'status' | 'delete' | null
+  readonly focusedTaskIndex = signal<number>(-1);
+  readonly exportDropdownOpen = signal(false);
   readonly statuses: Status[] = [
     'backlog',
     'todo',
@@ -658,6 +662,140 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  /* ---------- Bulk Operations ---------- */
+  toggleTaskSelection(taskId: number): void {
+    const selected = new Set(this.selectedTasks());
+    if (selected.has(taskId)) {
+      selected.delete(taskId);
+    } else {
+      selected.add(taskId);
+    }
+    this.selectedTasks.set(selected);
+  }
+
+  selectAllTasks(): void {
+    const allIds = new Set(this.visibleTasks().map(t => t.id));
+    this.selectedTasks.set(allIds);
+  }
+
+  clearTaskSelection(): void {
+    this.selectedTasks.set(new Set());
+  }
+
+  get selectedTaskCount(): number {
+    return this.selectedTasks().size;
+  }
+
+  async bulkUpdateStatus(newStatus: string): Promise<void> {
+    const ids = Array.from(this.selectedTasks());
+    if (ids.length === 0) return;
+    try {
+      const result = await firstValueFrom(this.api.bulkUpdateTasks(ids, { status: newStatus }));
+      const successCount = result.updated?.length ?? 0;
+      const errorCount = result.errors?.length ?? 0;
+      if (errorCount > 0) {
+        this.notify(`批量更新完成：${successCount} 成功，${errorCount} 失败`, 'error');
+      } else {
+        this.notify(`已批量更新 ${successCount} 个任务的状态为「${this.statusLabel(newStatus)}」`);
+      }
+      this.clearTaskSelection();
+      await this.refresh();
+    } catch (error) {
+      this.notify(`批量更新失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  async bulkDeleteTasks(): Promise<void> {
+    const ids = Array.from(this.selectedTasks());
+    if (ids.length === 0) return;
+    if (!confirm(`确认删除选中的 ${ids.length} 个任务？此操作不可撤销。`)) return;
+    try {
+      const result = await firstValueFrom(this.api.bulkDeleteTasks(ids));
+      const successCount = result.deleted?.length ?? 0;
+      const errorCount = result.errors?.length ?? 0;
+      if (errorCount > 0) {
+        this.notify(`批量删除完成：${successCount} 成功，${errorCount} 失败`, 'error');
+      } else {
+        this.notify(`已删除 ${successCount} 个任务`);
+      }
+      this.clearTaskSelection();
+      await this.refresh();
+    } catch (error) {
+      this.notify(`批量删除失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  showBulkActionPanel(type: 'status' | 'delete'): void {
+    this.bulkActionTarget.set(type);
+  }
+
+  closeBulkActionPanel(): void {
+    this.bulkActionTarget.set(null);
+  }
+
+  /* ---------- Keyboard Navigation ---------- */
+  handleTaskKeydown(event: KeyboardEvent): void {
+    // Skip if in input/textarea/select
+    const target = event.target as HTMLElement;
+    if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') {
+      return;
+    }
+    const tasks = this.visibleTasks();
+    if (tasks.length === 0) return;
+    const idx = this.focusedTaskIndex();
+    switch (event.key) {
+      case 'j':
+      case 'ArrowDown':
+        event.preventDefault();
+        if (idx < tasks.length - 1) {
+          this.focusedTaskIndex.set(idx + 1);
+          this.scrollToFocusedTask();
+        }
+        break;
+      case 'k':
+      case 'ArrowUp':
+        event.preventDefault();
+        if (idx > 0) {
+          this.focusedTaskIndex.set(idx - 1);
+          this.scrollToFocusedTask();
+        } else if (idx === -1 && tasks.length > 0) {
+          this.focusedTaskIndex.set(0);
+          this.scrollToFocusedTask();
+        }
+        break;
+      case 'Enter':
+        if (idx >= 0 && idx < tasks.length) {
+          event.preventDefault();
+          this.router.navigate(['/task', tasks[idx].id]);
+        }
+        break;
+      case ' ':
+        if (idx >= 0 && idx < tasks.length) {
+          event.preventDefault();
+          this.toggleTaskSelection(tasks[idx].id);
+        }
+        break;
+      case 'Escape':
+        this.focusedTaskIndex.set(-1);
+        this.clearTaskSelection();
+        this.closeBulkActionPanel();
+        break;
+    }
+  }
+
+  private scrollToFocusedTask(): void {
+    setTimeout(() => {
+      const el = document.querySelector('.entity-item.kbd-focused');
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 0);
+  }
+
+  isTaskFocused(index: number): boolean {
+    return this.focusedTaskIndex() === index;
+  }
+
   async loadSprintBurndown(sprintId: number): Promise<void> {
     try {
       const data = await firstValueFrom(this.api.getSprintBurndown(sprintId));
@@ -1001,5 +1139,80 @@ export class App implements OnInit, OnDestroy {
 
   private message(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+  }
+
+  /* ---------- Export ---------- */
+  exportToCSV(tasks?: Task[]): void {
+    const items = tasks || this.visibleTasks();
+    if (items.length === 0) {
+      this.notify('没有可导出的任务', 'error');
+      return;
+    }
+    const headers = ['ID', '标题', '类型', '状态', '优先级', '描述', 'Spec', '创建时间', '更新时间'];
+    const rows = items.map(t => [
+      t.id,
+      `"${(t.title || '').replace(/"/g, '""')}"`,
+      t.type,
+      t.status,
+      t.priority,
+      `"${(t.description || '').replace(/"/g, '""')}"`,
+      `"${(t.spec || '').replace(/"/g, '""')}"`,
+      t.created_at,
+      t.updated_at,
+    ]);
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    this.downloadFile(csv, `tasks-${Date.now()}.csv`, 'text/csv;charset=utf-8');
+    this.notify(`已导出 ${items.length} 个任务到 CSV`);
+  }
+
+  exportToJSON(tasks?: Task[]): void {
+    const items = tasks || this.visibleTasks();
+    if (items.length === 0) {
+      this.notify('没有可导出的任务', 'error');
+      return;
+    }
+    const json = JSON.stringify(items, null, 2);
+    this.downloadFile(json, `tasks-${Date.now()}.json`, 'application/json');
+    this.notify(`已导出 ${items.length} 个任务到 JSON`);
+  }
+
+  exportProjectTasks(): void {
+    const project = this.project();
+    if (!project) {
+      this.notify('请先选择一个项目', 'error');
+      return;
+    }
+    void this.exportProjectTasksAsync(project.id);
+  }
+
+  private async exportProjectTasksAsync(projectId: number): Promise<void> {
+    try {
+      // Fetch all epics, stories, and tasks for the project
+      const epics = await firstValueFrom(this.api.listEpics(projectId));
+      const allTasks: Task[] = [];
+      for (const epic of epics) {
+        const stories = await firstValueFrom(this.api.listStories(epic.id));
+        for (const story of stories) {
+          const tasks = await firstValueFrom(this.api.listTasks(story.id));
+          allTasks.push(...tasks);
+        }
+      }
+      // Export all tasks
+      this.exportToCSV(allTasks);
+    } catch (error) {
+      this.notify(`导出失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  private downloadFile(content: string, filename: string, mimeType: string): void {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   }
 }

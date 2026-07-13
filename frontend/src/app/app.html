@@ -635,6 +635,13 @@
                     </dl>
                   </div>
                 }
+                <div class="card">
+                  <h4>数据导出</h4>
+                  <p class="muted" style="margin-bottom:12px">导出项目的所有任务数据</p>
+                  <div class="row">
+                    <button class="ghost-sm" (click)="exportProjectTasks()">📥 导出全部任务</button>
+                  </div>
+                </div>
               </div>
             }
           }
@@ -748,6 +755,14 @@
                     看板
                   </button>
                 </div>
+                <div class="seg" style="margin-left:4px">
+                  <button class="ghost-sm" (click)="exportToCSV()" title="导出为 CSV">
+                    📥 CSV
+                  </button>
+                  <button class="ghost-sm" (click)="exportToJSON()" title="导出为 JSON">
+                    📥 JSON
+                  </button>
+                </div>
                 <button
                   id="s-new-task"
                   class="btn-primary-sm"
@@ -757,33 +772,72 @@
                 </button>
               </div>
             </div>
+            @if (selectedTaskCount > 0) {
+              <div class="bulk-action-bar">
+                <span class="bulk-count">{{ selectedTaskCount }} 项已选</span>
+                <button class="ghost-sm" (click)="selectAllTasks()">全选</button>
+                <button class="ghost-sm" (click)="clearTaskSelection()">清除</button>
+                <div class="bulk-actions">
+                  <button class="btn-primary-sm" (click)="showBulkActionPanel('status')">批量修改状态</button>
+                  <button class="danger ghost-sm" (click)="showBulkActionPanel('delete')">批量删除</button>
+                </div>
+              </div>
+              @if (bulkActionTarget() === 'status') {
+                <div class="bulk-panel">
+                  <span>选择新状态：</span>
+                  @for (status of statuses; track status) {
+                    <button class="status-btn badge status--{{ status }}" (click)="bulkUpdateStatus(status); closeBulkActionPanel()">
+                      {{ statusLabel(status) }}
+                    </button>
+                  }
+                  <button class="ghost-sm" (click)="closeBulkActionPanel()">取消</button>
+                </div>
+              }
+              @if (bulkActionTarget() === 'delete') {
+                <div class="bulk-panel bulk-panel--danger">
+                  <span>确认删除 {{ selectedTaskCount }} 个任务？</span>
+                  <button class="danger ghost-sm" (click)="bulkDeleteTasks()">确认删除</button>
+                  <button class="ghost-sm" (click)="closeBulkActionPanel()">取消</button>
+                </div>
+              }
+            }
             @if (!boardMode()) {
-              <div class="entity-list">
-                @for (item of visibleTasks(); track item.id) {
-                  <a [routerLink]="['/task', item.id]" class="entity-item entity-item--rich"
-                    ><div class="entity-item-main">
-                      <span class="type-icon {{ item.type }}">{{
-                        item.type === 'bug' ? 'B' : 'T'
-                      }}</span
-                      ><span class="entity-item-title">{{ item.title }}</span>
-                    </div>
-                    <div class="entity-item-meta">
-                      <span class="badge priority priority--{{ item.priority }}">{{
-                        priorityLabel(item.priority)
-                      }}</span
-                      ><span class="badge status status--{{ item.status }}">{{
-                        statusLabel(item.status)
-                      }}</span>
-                      @if (item.sprint_id) {
-                        <span class="badge sprint-badge" title="已分配 Sprint">🏃</span>
-                      }
-                      <span class="entity-item-time" title="最后更新">{{ timeAgo(item.updated_at) }}</span>
-                    </div></a
-                  >
+              <div class="entity-list" (keydown)="handleTaskKeydown($event)" tabindex="0">
+                @for (item of visibleTasks(); track item.id; let i = $index) {
+                  <div class="entity-item entity-item--rich" [class.selected]="selectedTasks().has(item.id)" [class.kbd-focused]="isTaskFocused(i)">
+                    <input
+                      type="checkbox"
+                      class="task-checkbox"
+                      [checked]="selectedTasks().has(item.id)"
+                      (change)="toggleTaskSelection(item.id); $event.stopPropagation()"
+                      (click)="$event.stopPropagation()"
+                    />
+                    <a [routerLink]="['/task', item.id]" class="entity-item-link">
+                      <div class="entity-item-main">
+                        <span class="type-icon {{ item.type }}">{{
+                          item.type === 'bug' ? 'B' : 'T'
+                        }}</span
+                        ><span class="entity-item-title">{{ item.title }}</span>
+                      </div>
+                      <div class="entity-item-meta">
+                        <span class="badge priority priority--{{ item.priority }}">{{
+                          priorityLabel(item.priority)
+                        }}</span
+                        ><span class="badge status status--{{ item.status }}">{{
+                          statusLabel(item.status)
+                        }}</span>
+                        @if (item.sprint_id) {
+                          <span class="badge sprint-badge" title="已分配 Sprint">🏃</span>
+                        }
+                        <span class="entity-item-time" title="最后更新">{{ timeAgo(item.updated_at) }}</span>
+                      </div>
+                    </a>
+                  </div>
                 } @empty {
                   <div class="empty-inline">暂无任务</div>
                 }
               </div>
+              <div class="kbd-hint">j/k 上下导航 · Enter 打开 · Space 选择 · Esc 取消</div>
             } @else {
               <div class="kanban">
                 @for (status of statuses; track status) {

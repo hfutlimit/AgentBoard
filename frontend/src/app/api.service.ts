@@ -1,7 +1,7 @@
 import { HttpClient, HttpErrorResponse, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
-import { Observable, throwError } from 'rxjs';
-import { catchError } from 'rxjs/operators';
+import { Observable, of, throwError } from 'rxjs';
+import { catchError, tap } from 'rxjs/operators';
 
 import { ApiErrorBody, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun } from './models';
 
@@ -13,11 +13,82 @@ declare global {
   }
 }
 
+// ========== Simple Cache Layer ==========
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
+class ApiCache {
+  private cache = new Map<string, CacheEntry<any>>();
+  private readonly DEFAULT_TTL = 30000; // 30 seconds
+  private readonly SEARCH_TTL = 30000; // 30 seconds for search
+
+  get<T>(key: string): T | null {
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.timestamp > this.DEFAULT_TTL) {
+      this.cache.delete(key);
+      return null;
+    }
+    return entry.data as T;
+  }
+
+  getWithTTL<T>(key: string, ttl: number): T | null {
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.timestamp > ttl) {
+      this.cache.delete(key);
+      return null;
+    }
+    return entry.data as T;
+  }
+
+  set<T>(key: string, data: T): void {
+    this.cache.set(key, { data, timestamp: Date.now() });
+  }
+
+  invalidate(pattern?: string): void {
+    if (!pattern) {
+      this.cache.clear();
+      return;
+    }
+    for (const key of this.cache.keys()) {
+      if (key.includes(pattern)) {
+        this.cache.delete(key);
+      }
+    }
+  }
+
+  invalidatePrefix(prefix: string): void {
+    for (const key of this.cache.keys()) {
+      if (key.startsWith(prefix)) {
+        this.cache.delete(key);
+      }
+    }
+  }
+}
+
+const apiCache = new ApiCache();
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   readonly baseUrl = window.AGENTBOARD_API || 'http://127.0.0.1:8000';
 
   constructor(private readonly http: HttpClient) {}
+
+  // Cache invalidation helper
+  invalidateCache(pattern?: string): void {
+    apiCache.invalidate(pattern);
+  }
+
+  invalidateProjectCache(projectId?: number): void {
+    if (projectId) {
+      apiCache.invalidatePrefix(`/api/projects/${projectId}`);
+    } else {
+      apiCache.invalidatePrefix('/api/projects');
+    }
+  }
 
   private options(params?: Record<string, string | number | undefined>) {
     let httpParams = new HttpParams();
@@ -55,7 +126,12 @@ export class ApiService {
   }
 
   listProjects() {
-    return this.request<PagedResult<Project>>('GET', '/api/projects');
+    const cacheKey = '/api/projects';
+    const cached = apiCache.get<PagedResult<Project>>(cacheKey);
+    if (cached) return of(cached);
+    return this.request<PagedResult<Project>>('GET', '/api/projects').pipe(
+      tap(data => apiCache.set(cacheKey, data))
+    );
   }
 
   getHealth() {
@@ -69,58 +145,95 @@ export class ApiService {
     return this.request<Project>('GET', `/api/projects/${id}`);
   }
   createProject(body: { name: string; key?: string; description?: string }) {
-    return this.request<Project>('POST', '/api/projects', body);
+    return this.request<Project>('POST', '/api/projects', body).pipe(
+      tap(() => this.invalidateProjectCache())
+    );
   }
   updateProject(id: number, body: Partial<Project>) {
     return this.request<Project>('PATCH', `/api/projects/${id}`, body);
   }
   deleteProject(id: number) {
-    return this.request<{ ok: boolean }>('DELETE', `/api/projects/${id}`);
+    return this.request<{ ok: boolean }>('DELETE', `/api/projects/${id}`).pipe(
+      tap(() => this.invalidateProjectCache())
+    );
   }
 
   listEpics(projectId: number) {
-    return this.request<Epic[]>('GET', `/api/projects/${projectId}/epics`);
+    const cacheKey = `/api/projects/${projectId}/epics`;
+    const cached = apiCache.get<Epic[]>(cacheKey);
+    if (cached) return of(cached);
+    return this.request<Epic[]>('GET', cacheKey).pipe(
+      tap(data => apiCache.set(cacheKey, data))
+    );
   }
   getEpic(id: number) {
     return this.request<Epic>('GET', `/api/epics/${id}`);
   }
   createEpic(projectId: number, body: { title: string; description?: string }) {
-    return this.request<Epic>('POST', `/api/projects/${projectId}/epics`, body);
+    return this.request<Epic>('POST', `/api/projects/${projectId}/epics`, body).pipe(
+      tap(() => this.invalidateProjectCache(projectId))
+    );
   }
   updateEpic(id: number, body: Partial<Epic>) {
     return this.request<Epic>('PATCH', `/api/epics/${id}`, body);
   }
   deleteEpic(id: number) {
-    return this.request<{ ok: boolean }>('DELETE', `/api/epics/${id}`);
+    return this.request<{ ok: boolean }>('DELETE', `/api/epics/${id}`).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/projects'))
+    );
   }
 
   listStories(epicId: number) {
-    return this.request<Story[]>('GET', `/api/epics/${epicId}/stories`);
+    const cacheKey = `/api/epics/${epicId}/stories`;
+    const cached = apiCache.get<Story[]>(cacheKey);
+    if (cached) return of(cached);
+    return this.request<Story[]>('GET', cacheKey).pipe(
+      tap(data => apiCache.set(cacheKey, data))
+    );
   }
   getStory(id: number) {
     return this.request<Story>('GET', `/api/stories/${id}`);
   }
   createStory(epicId: number, body: { title: string; description?: string }) {
-    return this.request<Story>('POST', `/api/epics/${epicId}/stories`, body);
+    return this.request<Story>('POST', `/api/epics/${epicId}/stories`, body).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/epics'))
+    );
   }
   updateStory(id: number, body: Partial<Story>) {
     return this.request<Story>('PATCH', `/api/stories/${id}`, body);
   }
   deleteStory(id: number) {
-    return this.request<{ ok: boolean }>('DELETE', `/api/stories/${id}`);
+    return this.request<{ ok: boolean }>('DELETE', `/api/stories/${id}`).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/epics'))
+    );
   }
 
   listTasks(storyId: number) {
-    return this.request<Task[]>('GET', `/api/stories/${storyId}/tasks`);
+    const cacheKey = `/api/stories/${storyId}/tasks`;
+    const cached = apiCache.get<Task[]>(cacheKey);
+    if (cached) return of(cached);
+    return this.request<Task[]>('GET', cacheKey).pipe(
+      tap(data => apiCache.set(cacheKey, data))
+    );
   }
   searchTasks(params: Record<string, string | number | undefined>) {
-    return this.request<Task[]>('GET', '/api/tasks', undefined, params);
+    // Build cache key from params
+    const paramStr = Object.entries(params).filter(([_, v]) => v !== undefined)
+      .map(([k, v]) => `${k}=${v}`).sort().join('&');
+    const cacheKey = `/api/tasks?${paramStr}`;
+    const cached = apiCache.getWithTTL<Task[]>(cacheKey, 30000);
+    if (cached) return of(cached);
+    return this.request<Task[]>('GET', '/api/tasks', undefined, params).pipe(
+      tap(data => apiCache.set(cacheKey, data))
+    );
   }
   getTask(id: number) {
     return this.request<Task>('GET', `/api/tasks/${id}`);
   }
   createTask(storyId: number, body: Partial<Task> & { project_id: number; title: string }) {
-    return this.request<Task>('POST', `/api/stories/${storyId}/tasks`, body);
+    return this.request<Task>('POST', `/api/stories/${storyId}/tasks`, body).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/stories'))
+    );
   }
   updateTask(id: number, body: Partial<Task>) {
     return this.request<Task>('PATCH', `/api/tasks/${id}`, body);
@@ -129,10 +242,14 @@ export class ApiService {
     return this.request<Task>('PUT', `/api/tasks/${id}/status`, { status });
   }
   deleteTask(id: number) {
-    return this.request<{ ok: boolean }>('DELETE', `/api/tasks/${id}`);
+    return this.request<{ ok: boolean }>('DELETE', `/api/tasks/${id}`).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/stories'))
+    );
   }
   generateSubtasks(id: number) {
-    return this.request<Task[]>('POST', `/api/tasks/${id}/generate-subtasks`);
+    return this.request<Task[]>('POST', `/api/tasks/${id}/generate-subtasks`).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/stories'))
+    );
   }
 
   listComments(taskId: number) {
@@ -158,25 +275,38 @@ export class ApiService {
 
   /* ---------- Sprint ---------- */
   listSprints(projectId: number) {
-    return this.request<Sprint[]>('GET', `/api/projects/${projectId}/sprints`);
+    const cacheKey = `/api/projects/${projectId}/sprints`;
+    const cached = apiCache.get<Sprint[]>(cacheKey);
+    if (cached) return of(cached);
+    return this.request<Sprint[]>('GET', cacheKey).pipe(
+      tap(data => apiCache.set(cacheKey, data))
+    );
   }
   getSprint(id: number) {
     return this.request<Sprint>('GET', `/api/sprints/${id}`);
   }
   createSprint(projectId: number, body: { title: string; goal?: string }) {
-    return this.request<Sprint>('POST', `/api/projects/${projectId}/sprints`, body);
+    return this.request<Sprint>('POST', `/api/projects/${projectId}/sprints`, body).pipe(
+      tap(() => this.invalidateProjectCache(projectId))
+    );
   }
   updateSprint(id: number, body: Partial<Sprint>) {
     return this.request<Sprint>('PATCH', `/api/sprints/${id}`, body);
   }
   activateSprint(id: number) {
-    return this.request<Sprint>('POST', `/api/sprints/${id}/activate`);
+    return this.request<Sprint>('POST', `/api/sprints/${id}/activate`).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/projects'))
+    );
   }
   completeSprint(id: number) {
-    return this.request<Sprint>('POST', `/api/sprints/${id}/complete`);
+    return this.request<Sprint>('POST', `/api/sprints/${id}/complete`).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/projects'))
+    );
   }
   deleteSprint(id: number) {
-    return this.request<{ ok: boolean }>('DELETE', `/api/sprints/${id}`);
+    return this.request<{ ok: boolean }>('DELETE', `/api/sprints/${id}`).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/projects'))
+    );
   }
   listSprintTasks(sprintId: number) {
     return this.request<Task[]>('GET', `/api/sprints/${sprintId}/tasks`);
@@ -286,5 +416,18 @@ export class ApiService {
   }
   retryRun(scheduleId: number, taskId: number) {
     return this.request<AgentRun>('POST', `/api/schedules/${scheduleId}/runs`, { task_id: taskId });
+  }
+
+  /* ---------- Bulk Operations ---------- */
+  bulkUpdateTasks(taskIds: number[], updates: { status?: string; priority?: string; sprint_id?: number }) {
+    return this.request<{ updated: any[]; errors: any[] }>('POST', '/api/tasks/bulk-update', { task_ids: taskIds, ...updates }).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/stories'))
+    );
+  }
+
+  bulkDeleteTasks(taskIds: number[]) {
+    return this.request<{ deleted: any[]; errors: any[] }>('POST', '/api/tasks/bulk-delete', { task_ids: taskIds }).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/stories'))
+    );
   }
 }

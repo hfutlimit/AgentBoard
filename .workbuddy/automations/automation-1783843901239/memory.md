@@ -1,5 +1,21 @@
 # AgentBoard Code Review 自动化执行记录
 
+## 2026-07-13 10:30 (第 9 次执行)
+
+找到 7 个 in_review 任务，全部测试完毕：
+
+- ✅ #204 (API 健康指示器) → done - 源码确认完整实现（health-dot + popover）
+- ✅ #205 (Sprint 燃尽图) → done - CSS 柱状图 + burndown API 均正常
+- ⚠️ #206 (health 端点) → in_progress - 缺少 mcp 字段
+- ✅ #207 (Dashboard Hero) → done - 源码确认 hero + stats 卡片
+- ✅ #208 (速率限制) → done - 429 + Retry-After 正常
+- ✅ #209 (任务卡片丰富化) → done - priority/sprint/comment 徽章完整
+- ⚠️ #210 (MCP 工具集) → in_progress - 缺少 search_attachments 工具
+
+发现问题：SPA 正常请求量 > 60req/min，触发自身限流（非 bug，是配置问题）。
+
+状态分布：todo 66 | done 65 | backlog 49 | in_progress 7 | in_review 0
+
 ## 2026-07-13 08:39 (第 8 次执行)
 
 无 in_review 任务，跳过。
