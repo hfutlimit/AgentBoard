@@ -149,6 +149,10 @@ class TaskIn(BaseModel):
     description: str = ""
     spec: str = ""
     priority: str = "medium"
+    # Epic 17: 任务管理增强
+    assignee_id: int | None = None
+    due_date: str | None = None  # ISO date string YYYY-MM-DD
+    labels: str = "[]"  # JSON array string
 
 
 class TaskPatch(BaseModel):
@@ -158,6 +162,10 @@ class TaskPatch(BaseModel):
     spec: str | None = None
     priority: str | None = None
     sprint_id: int | None = None
+    # Epic 17: 任务管理增强
+    assignee_id: int | None = None
+    due_date: str | None = None  # ISO date string YYYY-MM-DD
+    labels: str | None = None  # JSON array string
 
 
 class CommentIn(BaseModel):
@@ -588,7 +596,10 @@ def create_task(sid: int, body: TaskIn, s: Session = Depends(get_session)):
         t = service.create_task(s, project_id=body.project_id, story_id=story.id,
                                 title=body.title, type=body.type,
                                 description=body.description, spec=body.spec,
-                                priority=body.priority)
+                                priority=body.priority,
+                                assignee_id=body.assignee_id,
+                                due_date=body.due_date,
+                                labels=body.labels)
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     return service._ser(t)

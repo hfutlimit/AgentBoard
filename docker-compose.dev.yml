@@ -1,0 +1,42 @@
+# AgentBoard 开发模式配置
+# 用途：启用热重载，提高开发效率
+# 使用方法：
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# 或：
+#   ./scripts/dev-hot-reload.sh
+
+version: "3.8"
+
+services:
+  api:
+    # 启用 uvicorn 热重载（监听 /app 目录变化自动重启）
+    command: uvicorn agentboard.api:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app
+    # 挂载源码目录（开发时实时同步代码变化）
+    volumes:
+      - ./agentboard:/app/agentboard
+      - ./migrations:/app/migrations
+      - ./data:/app/data
+      - agentboard_mariadb:/var/lib/mysql
+    environment:
+      # 开发模式：SQLite 方便调试
+      AGENTBOARD_DB_URL: "sqlite:////app/data/agentboard.db"
+      # 关闭速率限制方便调试
+      AGENTBOARD_RATE_LIMIT_ENABLED: "0"
+
+  web:
+    # Web 静态文件已通过 docker-compose.yml 的 volume mount 热更新
+    # 如需完全热重载，可取消注释下面一行
+    # volumes:
+    #   - ./agentboard/web/static:/app/agentboard/web/static:ro
+
+  mcp:
+    # MCP 服务暂不支持热重载（需要重启）
+    # 开发时建议单独运行：python -m agentboard.mcp_server
+    command: python -m agentboard.mcp_server
+    volumes:
+      - ./agentboard:/app/agentboard
+
+  db:
+    # 开发时可选择不启动 MariaDB（API 使用 SQLite）
+    profiles:
+      - database

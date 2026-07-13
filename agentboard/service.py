@@ -27,6 +27,8 @@ EDITABLE = {
     "name", "key", "description", "is_private",   # project
     "title", "description", "status",      # epic / story / task
     "type", "spec", "priority", "sprint_id",  # task
+    # Epic 17: 任务管理增强
+    "assignee_id", "due_date", "labels",
 }
 
 
@@ -232,7 +234,8 @@ def delete_story(s: Session, id: int) -> bool:
 # ---------- Task ----------
 def create_task(s: Session, *, project_id: int, story_id: int | None, title: str,
                 type: str = ItemType.TASK, description: str = "", spec: str = "",
-                priority: str = Priority.MEDIUM, sprint_id: int | None = None) -> Task:
+                priority: str = Priority.MEDIUM, sprint_id: int | None = None,
+                assignee_id: int | None = None, due_date=None, labels: str = "[]") -> Task:
     project = s.get(Project, project_id)
     if not project:
         raise NotFound(f"project {project_id} not found")
@@ -251,9 +254,22 @@ def create_task(s: Session, *, project_id: int, story_id: int | None, title: str
             raise InvalidValue(f"sprint {sprint_id} does not belong to project {project_id}")
         if sp.status == SprintStatus.COMPLETED:
             raise InvalidValue("cannot assign task to a completed sprint")
+    # Epic 17: 验证 assignee_id
+    if assignee_id is not None:
+        user = s.get(User, assignee_id)
+        if not user:
+            raise InvalidValue(f"assignee {assignee_id} not found")
+    # Epic 17: 验证 labels (JSON)
+    import json
+    if labels:
+        try:
+            json.loads(labels)
+        except json.JSONDecodeError:
+            raise InvalidValue("labels must be a valid JSON array")
     t = Task(project_id=project_id, story_id=story_id, sprint_id=sprint_id,
              title=_required(title, "title", 300),
-             type=type, description=description or "", spec=spec or "", priority=priority)
+             type=type, description=description or "", spec=spec or "", priority=priority,
+             assignee_id=assignee_id, due_date=due_date, labels=labels or "[]")
     s.add(t); _commit(s); s.refresh(t); return t
 
 
@@ -276,7 +292,8 @@ def update_task(s: Session, id: int, **fields) -> Task | None:
     t = s.get(Task, id)
     if not t:
         return None
-    allowed = {"title", "description", "spec", "type", "status", "priority", "sprint_id"}
+    allowed = {"title", "description", "spec", "type", "status", "priority", "sprint_id",
+               "assignee_id", "due_date", "labels"}  # Epic 17
     for k, v in fields.items():
         if k in allowed and v is not None:
             if k == "title":
@@ -294,6 +311,17 @@ def update_task(s: Session, id: int, **fields) -> Task | None:
                         raise InvalidValue(f"sprint {v} does not belong to project {t.project_id}")
                     if sp.status == SprintStatus.COMPLETED:
                         raise InvalidValue("cannot assign task to a completed sprint")
+            elif k == "assignee_id":
+                if v is not None:
+                    user = s.get(User, v)
+                    if not user:
+                        raise InvalidValue(f"assignee {v} not found")
+            elif k == "labels":
+                import json
+                try:
+                    json.loads(v)
+                except json.JSONDecodeError:
+                    raise InvalidValue("labels must be a valid JSON array")
             setattr(t, k, v)
     _commit(s); s.refresh(t); return t
 
