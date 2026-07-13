@@ -478,4 +478,27 @@
 |------|----|------|
 | 2026-07-13 | Epic 19 | 统计查询优化（单查询条件聚合）+ 索引创建脚本 + 22 项测试全绿 |
 
+---
+
+## Epic 20：API 增强与批量操作（v0.5）
+> 目标：批量任务操作、增强搜索排序、数据导出功能。
+
+### Story 20.1 批量任务操作
+- [x] Task 103: 批量更新任务状态 API（POST /api/tasks/bulk-update，支持 status/priority/sprint_id）
+- [x] Task 104: 批量分配 Sprint API（通过 bulk-update 的 sprint_id 参数实现）
+- [x] Task 105: 批量删除任务 API（POST /api/tasks/bulk-delete）
+
+### Story 20.2 高级搜索与过滤 API
+- [x] Task 106: 增强排序参数（GET /api/tasks/search 支持 sort_by=created_at/updated_at/priority/status & sort_order=asc/desc）
+- [x] Task 107: 多条件组合过滤 API（GET /api/tasks/search 支持 status[]=xx&priority[]=xx 多值过滤）
+
+### Story 20.3 数据导出功能
+- [x] Task 108: 导出项目数据 API（GET /api/projects/{pid}/export 返回完整项目树 JSON）
+- [x] Task 109: 导出 Epic/Story 数据（GET /api/stories/{sid}/export 返回 Story 及所有子任务）
+
+### 完成记录
+| 日期 | 项 | 简述 |
+|------|----|------|
+| 2026-07-13 | Epic 20 | 批量任务操作（bulk-update/bulk-delete）+ 增强搜索排序（sort_by/sort_order）+ 多条件过滤（status[]/priority[]）+ 数据导出（project/story export）+ 36 项测试全绿 |
+
 
