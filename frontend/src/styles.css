@@ -1735,10 +1735,6 @@ details.form-section > form { padding: 16px; }
   font-size: 16px;
   display: inline-block;
 }
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border, #e2e8f0);
-  margin-bottom: 4px;
-}
 .sidebar-recent-header {
   font-size: 10px;
   font-weight: 700;

@@ -7,7 +7,7 @@ import { DOCUMENT } from '@angular/common';
 import { Inject } from '@angular/core';
 import { filter } from 'rxjs/operators';
 
-import { ApiService } from './api.service';
+import { ApiService, AUTH_EXPIRED_EVENT } from './api.service';
 import { AgentSchedule, Attachment, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task } from './models';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'admin' | 'not-found';
@@ -48,7 +48,7 @@ export class App implements OnInit, OnDestroy {
   readonly search = signal('');
   readonly sidebarOpen = signal(true);
   readonly boardMode = signal(localStorage.getItem('agentboard_story_view') === 'board');
-  readonly authVisible = signal(false);
+  readonly authVisible = signal(!localStorage.getItem('agentboard_token'));
   readonly authMode = signal<'login' | 'register'>('login');
   readonly currentUser = signal(localStorage.getItem('agentboard_user') || '');
   readonly toastMessage = signal('');
@@ -106,6 +106,19 @@ export class App implements OnInit, OnDestroy {
 
   private routeSub?: Subscription;
   private toastTimer?: ReturnType<typeof setTimeout>;
+  private readonly colorScheme = window.matchMedia?.('(prefers-color-scheme: dark)');
+  private readonly handleColorSchemeChange = (event: MediaQueryListEvent): void => {
+    if (!localStorage.getItem('agentboard_theme')) {
+      this.applyTheme(event.matches ? 'dark' : 'light');
+    }
+  };
+  private readonly handleAuthExpired = (): void => {
+    this.currentUser.set('');
+    this.isAdmin.set(false);
+    this.isOwner.set(false);
+    this.openAuth('login');
+    this.notify('登录已失效，请重新登录', 'error');
+  };
 
   constructor(
     readonly api: ApiService,
@@ -114,17 +127,14 @@ export class App implements OnInit, OnDestroy {
   ) {}
 
   ngOnInit(): void {
+    window.addEventListener(AUTH_EXPIRED_EVENT, this.handleAuthExpired);
     const saved = localStorage.getItem('agentboard_theme');
     // 优先使用用户偏好，其次跟随系统
-    const theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    const theme = saved || (this.colorScheme?.matches ? 'dark' : 'light');
     this.applyTheme(theme);
     this.loadRecentProjects();
     // Listen for system theme changes
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
-      if (!localStorage.getItem('agentboard_theme')) {
-        this.applyTheme(e.matches ? 'dark' : 'light');
-      }
-    });
+    this.colorScheme?.addEventListener('change', this.handleColorSchemeChange);
     // 启动时校验已有 token，失败则清除并显示登录
     void this.validateAuth();
     this.routeSub = this.router.events
@@ -153,7 +163,10 @@ export class App implements OnInit, OnDestroy {
   /** 启动时验证 localStorage 中的 token，有效则恢复登录态，无效则清除并弹登录 */
   private async validateAuth(): Promise<void> {
     const token = localStorage.getItem('agentboard_token');
-    if (!token) return; // 无 token，不弹登录（后端开放时免登可用）
+    if (!token) {
+      this.openAuth('login');
+      return;
+    }
     try {
       const me = await firstValueFrom(this.api.me());
       this.currentUser.set(me.username);
@@ -172,6 +185,8 @@ export class App implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    window.removeEventListener(AUTH_EXPIRED_EVENT, this.handleAuthExpired);
+    this.colorScheme?.removeEventListener('change', this.handleColorSchemeChange);
     this.routeSub?.unsubscribe();
     if (this.toastTimer) clearTimeout(this.toastTimer);
   }

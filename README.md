@@ -77,11 +77,11 @@ python -m agentboard.mcp_server
 - `AGENTBOARD_API_URL`：Web/MCP 调用的 API 地址，默认 `http://127.0.0.1:8000`
 - `AGENTBOARD_MCP_TRANSPORT`：`stdio`（默认）或 `http`（Streamable HTTP）
 - `AGENTBOARD_MCP_HOST` / `AGENTBOARD_MCP_PORT` / `AGENTBOARD_MCP_PATH`：远程 MCP 监听配置，默认 `127.0.0.1:8001/mcp`
-- `AGENTBOARD_MCP_REQUIRE_AUTH`：远程 MCP Bearer 鉴权，默认开启；只应在本机调试时关闭
+- `AGENTBOARD_MCP_REQUIRE_AUTH`：远程 MCP Bearer 鉴权，当前默认关闭；需要时显式设为 `1` 开启
 - `AGENTBOARD_MCP_TOKEN`：stdio + API 后端调用受保护 REST 时使用的登录 Token
 - `AGENTBOARD_REQUIRE_AUTH`：设为 `1` 时统一保护 REST 业务端点
 - `AGENTBOARD_ALLOW_REGISTRATION`：设为 `0` 时仅允许创建首个用户，之后注册返回 403；当前 Docker 配置为方便测试保持开启，生产应设为 `0`
-- `AGENTBOARD_TOKEN_TTL_SECONDS`：Token 有效期，默认 2592000 秒（30 天）
+- `AGENTBOARD_TOKEN_TTL_SECONDS`：Token 有效期，默认 172800 秒（2 天）
 - `AGENTBOARD_SECRET`：登录 Token 签名密钥（HMAC）。默认内置不安全占位值，**生产务必设置**。
 - `AGENTBOARD_ENV`：环境标识；设为 `production` 时强制检查 REST 鉴权、强密钥和 CORS 白名单。
 - `AGENTBOARD_CORS_ORIGINS`：逗号分隔的 Web 来源白名单；本地默认 `*`，生产必须显式配置。

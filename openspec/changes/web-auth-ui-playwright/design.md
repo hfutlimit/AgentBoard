@@ -2,7 +2,8 @@
 
 ## SPA 鉴权
 - 头部 `#auth` 区：未登录显示「登录」「注册」按钮；已登录显示用户名 + 「退出」。
-- token 存 `localStorage`（key `agentboard_token`）。
+- token 存 `localStorage`（key `agentboard_token`），服务端默认有效期 2 天。
+- 无 token、token 过期或 `/api/auth/me` 校验失败时，默认显示登录页且不可跳过。
 - `api()` 在存在 token 时附加 `Authorization: Bearer <token>`。
 - 登录/注册弹窗复用 `#modal` 容器；提交调用 `/api/auth/login`、`/api/auth/register`，成功则存 token 并重渲染鉴权区。
 - 登录成功后调用 `/api/auth/me` 显示用户名；token 失效时清除并退回未登录态。

@@ -5,6 +5,8 @@ import { catchError } from 'rxjs/operators';
 
 import { ApiErrorBody, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun } from './models';
 
+export const AUTH_EXPIRED_EVENT = 'agentboard:auth-expired';
+
 declare global {
   interface Window {
     AGENTBOARD_API?: string;
@@ -37,6 +39,12 @@ export class ApiService {
       .request<T>(method, `${this.baseUrl}${path}`, { ...this.options(params), body })
       .pipe(
         catchError((error: HttpErrorResponse) => {
+          if (error.status === 401 && localStorage.getItem('agentboard_token')) {
+            localStorage.removeItem('agentboard_token');
+            localStorage.removeItem('agentboard_user');
+            localStorage.removeItem('agentboard_is_admin');
+            window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+          }
           const payload = error.error as ApiErrorBody | undefined;
           const detail = Array.isArray(payload?.detail)
             ? payload?.detail.map((item) => item.msg || '参数错误').join('；')

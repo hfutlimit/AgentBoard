@@ -14,7 +14,8 @@ from fastmcp.server.dependencies import get_access_token
 from . import auth as agent_auth
 
 API_URL = os.getenv("AGENTBOARD_API_URL", "http://127.0.0.1:8000")
-MCP_REQUIRE_AUTH = os.getenv("AGENTBOARD_MCP_REQUIRE_AUTH", "1").lower() in {"1", "true", "yes"}
+# MCP 暂时保持开放；只有显式开启时才安装传输层 TokenVerifier。
+MCP_REQUIRE_AUTH = os.getenv("AGENTBOARD_MCP_REQUIRE_AUTH", "0").lower() in {"1", "true", "yes"}
 
 
 class AgentBoardTokenVerifier(TokenVerifier):

@@ -17,7 +17,7 @@ from . import models
 _SECRET = os.getenv("AGENTBOARD_SECRET", "dev-insecure-secret-change-me").encode()
 _LEGACY_PBKDF2_ROUNDS = 100_000
 _PBKDF2_ROUNDS = 600_000
-_TOKEN_TTL_SECONDS = int(os.getenv("AGENTBOARD_TOKEN_TTL_SECONDS", "2592000"))
+_TOKEN_TTL_SECONDS = int(os.getenv("AGENTBOARD_TOKEN_TTL_SECONDS", "172800"))
 
 
 def validate_runtime_security() -> None:
