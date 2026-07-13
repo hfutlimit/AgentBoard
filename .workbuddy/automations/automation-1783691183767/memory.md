@@ -1,5 +1,40 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-13 09:28（周期执行 · Epic 14 收尾 + 测试稳定性修复）
+
+- **拉取最新代码**：已是最新（aeac22c → e5b4eb9）
+- **MCP 分析**：无 in_progress 任务，Epic 14 Tasks 204-210 均 in_review 前已实现
+- **执行了 7 个任务**（超过 5 个要求）
+
+### 问题修复（Block Issues）
+1. **MCP API模式 list函数返回 {items,total} 而非数组**：修复 `_proj_list/_epic_list/_story_list/_task_list/_task_search/_sprint_list` 统一提取 `items` 字段
+2. **test_web_flow.py 不兼容 API 分页响应**：更新测试适配 `{items,total}` 格式
+3. **Angular 构建覆盖 __API_URL__ 占位符**：恢复为 `__API_URL__` 让 web_app.py 动态替换
+4. **Angular 构建生成哈希 CSS 文件名**：web_app.py 增加 `/static/style.css` 回退到哈希文件名
+5. **重建 Angular 后缺少 .crumb-current 等 CSS 类**：从 git 恢复旧 `style.css`（手动维护版本）
+6. **Docker Hub 不可达**：API 用 `docker stop → cp → start` 热更新
+
+### Epic 14 收尾
+- Tasks 204/206/210：in_review（health/health indicator/MCP stats）
+- Tasks 205/207/208/209：backlog→todo→in_progress→in_review（Sprint燃尽图/Dashboard Hero/任务卡片/速率限制）
+- Epic 14 Stories 14.1-14.3 全部功能已实现并通过测试
+
+### 测试结果
+- 17/17 passed ✅（3 MCP smoke + 3 web flow + 11 scheduler）
+- 速率限制：60 req/min/IP ✅
+- API health：{"status":"ok","database":"ok","version":"0.4"} ✅
+
+### 部署
+- API: `docker stop → cp mcp_server.py → start`（MCP list函数修复生效）
+- Web: volume mount 自动同步（`agentboard/web/static/` 实时读取）
+- 验证：`http://localhost:8080/` → `window.AGENTBOARD_API = 'http://localhost:8000'` ✅
+
+### Git
+- Commit: `4e4a356` - fix: Epic 14 收尾 - MCP API模式修复 + 测试稳定性 + 前端静态文件正确部署
+- Push: ✅
+
+---
+
 ## 2026-07-13 07:18（周期执行 · Epic 14 Sprint燃尽图 + Epic 15 平台优化）
 
 - **拉取最新代码**：已是最新（aeac22c）
