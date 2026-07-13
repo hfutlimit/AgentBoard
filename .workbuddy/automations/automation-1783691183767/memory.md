@@ -309,3 +309,45 @@
 1. Docker Hub 不可达 → `docker cp` 注入运行中容器
 2. MCP alembic_version 不匹配 → `docker cp` 迁移文件
 3. MCP 容器 restart loop → 等待稳定后验证
+
+---
+
+## 2026-07-13 18:48（周期执行 · Epic 16/17 开发体验优化 + 任务管理增强）
+
+### 分析结果
+- **拉取最新代码**：243c37c → 已是最新
+- **无 in_progress 任务** → 开始执行
+- **创建/更新了 Epic 15/16/17** 及相关 Stories 和 Tasks
+
+### 执行的任务
+1. **Epic 15** (ID=89): 用户体验优化 - Stories 15.1/15.2/15.3 → done
+2. **Epic 16** (ID=90): 开发体验优化 - Story 16.1 → done
+3. **Task 222/260**: Docker 镜像预热脚本 (`scripts/docker-warmup.sh`)
+4. **Task 223/261**: 热重载配置 (`docker-compose.dev.yml` + `scripts/dev-hot-reload.sh`)
+5. **Epic 17** (ID=91): 任务管理增强 - 数据模型 + API 层支持
+   - Task 模型新增 `assignee_id`, `due_date`, `labels` 字段
+   - API `TaskIn`/`TaskPatch` 支持新字段
+   - `service.create_task`/`update_task` 支持新字段
+   - Alembic 迁移 `eb8c9d7f1a2_add_task_enhancements.py`
+
+### 踩坑总结
+1. **Docker Hub 不可达**：无法 `docker compose build`，使用 `docker run` 临时容器 + `docker commit` 保存镜像
+2. **镜像源码缺失**：容器中缺少 `domains/` 目录结构 → 通过 `docker cp` 逐个复制并 commit
+3. **Alembic 多头冲突**：`c4e8a1b2d3f4` 与 `eb8c9d7f1a2` 并行链 → 更新 `down_revision` 依赖
+4. **SQLite 外键约束**：`ALTER TABLE ADD FOREIGN KEY` 不支持 → 迁移中移除外键约束
+5. **Alembic inspector 导入**：需 `from sqlalchemy import inspect` 而非 `sa.inspector`
+
+### 数据库状态同步
+- Epic 14 Stories (105-109): backlog → done ✅
+- Epic 69 (Epic 14): in_progress → done ✅
+- Epic 90 (Epic 16) Story 16.2: backlog → done ✅
+- Epic 91 (Epic 17) Stories 17.1-17.3: in_progress → done ✅
+
+### 测试结果
+- Backend flow: 3/3 passed ✅
+- 迁移链修复后测试正常
+
+### Git
+- Commit 1: `de91fff` - feat: Epic 16/17 - 开发体验优化 + 任务管理增强
+- Commit 2: `f24caec` - fix: 修复 Alembic 迁移链冲突 + SQLite 外键约束问题
+- Push: ✅
