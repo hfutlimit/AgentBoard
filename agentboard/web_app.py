@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).parent / "web" / "static"
-API_URL = os.getenv("AGENTBOARD_API_URL", "http://127.0.0.1:8000")
+API_URL = os.getenv("AGENTBOARD_API_URL", "http://127.0.0.1:58124")
 
 app = FastAPI(title="AgentBoard Web (Angular)")
 
