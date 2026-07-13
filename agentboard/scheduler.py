@@ -33,7 +33,8 @@ from croniter import croniter
 
 from . import database as _db
 from . import service
-from .models import AgentSchedule, AgentRun, ScheduleType, RunStatus
+from .domains.common.enums import RunStatus, ScheduleType
+from .domains.scheduling.models import AgentRun, AgentSchedule
 
 log = logging.getLogger("agentboard.scheduler")
 
