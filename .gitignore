@@ -8,5 +8,6 @@ smoke.log
 smoke_ascii.txt
 logs/
 *.log
+ng-serve.err
 .venv/
 venv/
