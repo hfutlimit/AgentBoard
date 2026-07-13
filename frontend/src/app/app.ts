@@ -8,6 +8,7 @@ import { Inject } from '@angular/core';
 import { filter } from 'rxjs/operators';
 
 import { ApiService, AUTH_EXPIRED_EVENT } from './api.service';
+import { LoginComponent } from './login/login';
 import { AgentSchedule, Attachment, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task } from './models';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'admin' | 'not-found';
@@ -21,7 +22,7 @@ interface CreateModal {
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet],
+  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
   encapsulation: ViewEncapsulation.None,
@@ -120,7 +121,7 @@ export class App implements OnInit, OnDestroy {
     this.currentUser.set('');
     this.isAdmin.set(false);
     this.isOwner.set(false);
-    this.openAuth('login');
+    this.showLogin();
     this.notify('登录已失效，请重新登录', 'error');
   };
 
@@ -164,11 +165,11 @@ export class App implements OnInit, OnDestroy {
     if (this.showHealth()) void this.checkHealth();
   }
 
-  /** 启动时验证 localStorage 中的 token，有效则恢复登录态，无效则清除并弹登录 */
+  /** 启动时验证 localStorage 中的 token，有效则恢复登录态，无效则清除并进入登录页 */
   private async validateAuth(): Promise<void> {
     const token = localStorage.getItem('agentboard_token');
     if (!token) {
-      this.openAuth('login');
+      this.showLogin();
       return;
     }
     try {
@@ -201,11 +202,18 @@ export class App implements OnInit, OnDestroy {
   }
 
   private async loadRoute(): Promise<void> {
+    // 未登录时不加载任何业务数据，由独立登录页接管
+    if (this.authVisible()) return;
     this.loading.set(true);
     this.error.set('');
     const path = this.router.url.split('?')[0].replace(/^\//, '');
     const [kind = '', rawId] = path.split('/');
     const id = Number(rawId);
+    // 已登录用户直接访问 /login 时回首页
+    if (kind === 'login') {
+      await this.router.navigateByUrl('/');
+      return;
+    }
     try {
       await this.loadProjects();
       if (!kind) {
@@ -355,16 +363,23 @@ export class App implements OnInit, OnDestroy {
   }
 
   openAuth(mode: 'login' | 'register' = 'login'): void {
+    this.showLogin(mode);
+  }
+
+  /** 进入独立登录页（全屏，非弹窗） */
+  private showLogin(mode: 'login' | 'register' = 'login'): void {
     this.authMode.set(mode);
     this.authVisible.set(true);
+    if (this.router.url !== '/login') {
+      void this.router.navigateByUrl('/login');
+    }
   }
 
   closeAuth(): void {
     this.authVisible.set(false);
   }
 
-  async authenticate(event: Event, username: string, password: string): Promise<void> {
-    event.preventDefault();
+  async authenticate(username: string, password: string): Promise<void> {
     this.submitting.set(true);
     try {
       const result = await firstValueFrom(
@@ -379,7 +394,11 @@ export class App implements OnInit, OnDestroy {
       this.isAdmin.set(result.is_admin ?? false);
       this.authVisible.set(false);
       this.notify(this.authMode() === 'register' ? '注册成功，已登录' : '登录成功');
-      await this.loadRoute();
+      if (this.router.url.startsWith('/login')) {
+        await this.router.navigateByUrl('/');
+      } else {
+        await this.loadRoute();
+      }
     } catch (error) {
       this.notify(
         `${this.authMode() === 'register' ? '注册' : '登录'}失败：${this.message(error)}`,
@@ -397,7 +416,7 @@ export class App implements OnInit, OnDestroy {
     this.currentUser.set('');
     this.isAdmin.set(false);
     this.isOwner.set(false);
-    this.openAuth('login');
+    this.showLogin('login');
     this.notify('已退出登录');
   }
 

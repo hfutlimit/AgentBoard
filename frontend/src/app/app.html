@@ -1,3 +1,4 @@
+@if (!authVisible()) {
 <header class="topbar">
   <div class="topbar-inner">
     <div class="topbar-left">
@@ -1248,69 +1249,6 @@
   </main>
 </div>
 
-@if (authVisible()) {
-  <div class="modal-overlay auth-overlay">
-    <section class="auth-wrap">
-      <div class="auth-card">
-        <div class="auth-brand">
-          <span class="logo-mark">AB</span>
-          <h1>Agent<b>Board</b></h1>
-          <p class="muted">登录以管理项目与 Agent 开发闭环</p>
-        </div>
-        <div class="auth-tabs">
-          <button
-            type="button"
-            class="auth-tab"
-            [class.active]="authMode() === 'login'"
-            data-mode="login"
-            (click)="authMode.set('login')"
-          >
-            登录</button
-          ><button
-            type="button"
-            class="auth-tab"
-            [class.active]="authMode() === 'register'"
-            data-mode="register"
-            (click)="authMode.set('register')"
-          >
-            注册
-          </button>
-        </div>
-        <form
-          id="auth-form"
-          class="auth-form"
-          (submit)="authenticate($event, authUser.value, authPassword.value)"
-        >
-          <label
-            >用户名<input
-              #authUser
-              name="username"
-              required
-              maxlength="64"
-              autocomplete="username" /></label
-          ><label
-            >密码<input
-              #authPassword
-              name="password"
-              type="password"
-              required
-                [minLength]="authMode() === 'register' ? 8 : 1"
-              autocomplete="current-password"
-              [placeholder]="authMode() === 'register' ? '至少 8 位' : '请输入密码'" /></label
-          ><button
-            type="submit"
-            class="btn-primary block"
-            id="auth-submit"
-            [disabled]="submitting()"
-          >
-            {{ submitting() ? '处理中…' : authMode() === 'register' ? '注册' : '登录' }}
-          </button>
-        </form>
-      </div>
-    </section>
-  </div>
-}
-
 @if (modal(); as currentModal) {
   <div class="modal-overlay" id="create-modal">
     <section class="modal modal-create" role="dialog" aria-modal="true">
@@ -1365,6 +1303,14 @@
       </form>
     </section>
   </div>
+}
+} @else {
+  <app-login
+    [mode]="authMode()"
+    [submitting]="submitting()"
+    (modeChange)="authMode.set($event)"
+    (authenticate)="authenticate($event.username, $event.password)"
+  />
 }
 
 <div id="toast">
