@@ -1845,3 +1845,24 @@ details.form-section > form { padding: 16px; }
 .recent-icon {
   color: var(--brand-500, #4f46e5);
 }
+
+/* ---- Epic 21: Offline Banner (Task 402) ---- */
+.offline-banner {
+  background: var(--warning, #d97706);
+  color: #fff;
+  text-align: center;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  letter-spacing: 0.3px;
+}
+.offline-banner span::before {
+  content: '⚡ ';
+}

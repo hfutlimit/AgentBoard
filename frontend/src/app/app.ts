@@ -78,6 +78,7 @@ export class App implements OnInit, OnDestroy {
   readonly healthStatus = signal<'ok' | 'error' | 'unknown'>('unknown');
   readonly healthDetail = signal<{ status: string; database: string; version: string; timestamp: string } | null>(null);
   readonly showHealth = signal(false);
+  readonly offlineBanner = signal(false);  // Task 402: API 离线检测
   readonly attachments = signal<Attachment[]>([]);
   readonly adminUsers = signal<any[]>([]);
   readonly adminProjects = signal<any[]>([]);
@@ -111,6 +112,8 @@ export class App implements OnInit, OnDestroy {
 
   private routeSub?: Subscription;
   private toastTimer?: ReturnType<typeof setTimeout>;
+  private healthTimer?: ReturnType<typeof setInterval>;   // Task 400: 健康检查轮询
+  private notifTimer?: ReturnType<typeof setInterval>;    // Task 401: 通知轮询
   private readonly colorScheme = window.matchMedia?.('(prefers-color-scheme: dark)');
   private readonly handleColorSchemeChange = (event: MediaQueryListEvent): void => {
     if (!localStorage.getItem('agentboard_theme')) {
@@ -124,6 +127,9 @@ export class App implements OnInit, OnDestroy {
     this.showLogin();
     this.notify('登录已失效，请重新登录', 'error');
   };
+  // Task 402: 网络离线检测
+  private readonly handleOnline = (): void => { this.offlineBanner.set(false); };
+  private readonly handleOffline = (): void => { this.offlineBanner.set(true); };
 
   constructor(
     readonly api: ApiService,
@@ -133,6 +139,8 @@ export class App implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     window.addEventListener(AUTH_EXPIRED_EVENT, this.handleAuthExpired);
+    window.addEventListener('online', this.handleOnline);    // Task 402: 离线检测
+    window.addEventListener('offline', this.handleOffline);
     const saved = localStorage.getItem('agentboard_theme');
     // 优先使用用户偏好，其次跟随系统
     const theme = saved || (this.colorScheme?.matches ? 'dark' : 'light');
@@ -146,7 +154,20 @@ export class App implements OnInit, OnDestroy {
       .pipe(filter((event) => event instanceof NavigationEnd))
       .subscribe(() => this.loadRoute());
     void this.loadRoute();
-    void this.checkHealth();
+    // Task 400: 健康检查轮询（默认开启，可通过 localStorage 关闭）
+    if (localStorage.getItem('agentboard_health_poll') !== 'disabled') {
+      void this.checkHealth();
+      this.healthTimer = setInterval(() => {
+        if (localStorage.getItem('agentboard_health_poll') !== 'disabled') {
+          void this.checkHealth();
+        }
+      }, 60000); // 60s
+    }
+    // Task 401: 通知轮询（每 60s）
+    this.notifTimer = setInterval(() => {
+      if (this.authVisible()) return;
+      void this.loadNotifications();
+    }, 60000);
   }
 
   async checkHealth(): Promise<void> {
@@ -163,6 +184,22 @@ export class App implements OnInit, OnDestroy {
   toggleHealth(): void {
     this.showHealth.set(!this.showHealth());
     if (this.showHealth()) void this.checkHealth();
+  }
+
+  // Task 400: 切换健康检查轮询
+  toggleHealthPoll(): void {
+    const current = localStorage.getItem('agentboard_health_poll');
+    if (current === 'disabled') {
+      localStorage.removeItem('agentboard_health_poll');
+      this.notify('健康检查轮询已开启（每 60s）');
+    } else {
+      localStorage.setItem('agentboard_health_poll', 'disabled');
+      this.notify('健康检查轮询已关闭');
+    }
+  }
+
+  isHealthPollEnabled(): boolean {
+    return localStorage.getItem('agentboard_health_poll') !== 'disabled';
   }
 
   /** 启动时验证 localStorage 中的 token，有效则恢复登录态，无效则清除并进入登录页 */
@@ -191,9 +228,13 @@ export class App implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     window.removeEventListener(AUTH_EXPIRED_EVENT, this.handleAuthExpired);
+    window.removeEventListener('online', this.handleOnline);    // Task 402
+    window.removeEventListener('offline', this.handleOffline);
     this.colorScheme?.removeEventListener('change', this.handleColorSchemeChange);
     this.routeSub?.unsubscribe();
     if (this.toastTimer) clearTimeout(this.toastTimer);
+    if (this.healthTimer) clearInterval(this.healthTimer);    // Task 400
+    if (this.notifTimer) clearInterval(this.notifTimer);     // Task 401
   }
 
   private match<T>(items: T[], text: (item: T) => string): T[] {

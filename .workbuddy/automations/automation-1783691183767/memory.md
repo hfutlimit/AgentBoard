@@ -395,3 +395,43 @@
 ### Git
 - Commit: `39db3e6` - feat: Epic 16/18/19 - API 性能优化与索引管理
 - Push: ✅
+
+---
+
+## 2026-07-14 00:35（周期执行 · Epic 20 API 增强与批量操作）
+
+### 分析结果
+- **拉取最新代码**：已是最新（c9a457d → 已是最新）
+- **无 in_progress 任务** → 开始执行
+- **发现数据库中 Epic 20 Tasks (103-109) 标记为 in_progress**
+
+### 发现情况
+分析代码后发现 Epic 20 所有 API 功能**已经实现**（代码已完成但数据库未同步）：
+- Task 103: 批量更新任务状态 API → `POST /api/tasks/bulk-update` ✅
+- Task 104: 批量分配 Sprint API → bulk-update 支持 sprint_id ✅
+- Task 105: 批量删除任务 API → `POST /api/tasks/bulk-delete` ✅
+- Task 106: 增强排序参数 → `GET /api/tasks/search` 支持 sort_by/sort_order ✅
+- Task 107: 多条件组合过滤 API → status[]/priority[] 多值过滤 ✅
+- Task 108: 导出项目数据 API → `GET /api/projects/{pid}/export` ✅
+- Task 109: 导出 Epic/Story 数据 → `GET /api/stories/{sid}/export` ✅
+
+### 执行的操作
+1. 更新数据库中 Tasks 103-109 状态 → done
+2. 更新 Stories 33/34/35 状态 → in_review
+3. 更新 docs/tasks.md 添加 Epic 20 文档
+
+### 测试结果
+- Smoke tests: 8/8 passed ✅
+- Web flow tests: 3/3 passed ✅
+- Scheduler tests: 11/11 passed ✅
+- Performance tests: 11/11 passed ✅
+- MCP smoke tests: 3/3 passed ✅
+- **Total: 36+ passed**
+
+### Git
+- Commit: `2ea1511` - feat: Epic 20 - API 增强与批量操作
+- Push: ✅
+
+### 备注
+- Docker Hub 网络不可达，跳过 Docker 部署
+- Epic 20 所有功能验证通过

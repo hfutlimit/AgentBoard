@@ -1,4 +1,10 @@
 @if (!authVisible()) {
+<!-- Task 402: 离线提示条 -->
+@if (offlineBanner()) {
+  <div class="offline-banner">
+    <span>⚡ 网络已断开，部分功能可能不可用</span>
+  </div>
+}
 <header class="topbar">
   <div class="topbar-inner">
     <div class="topbar-left">
@@ -44,6 +50,9 @@
                 <div class="health-row"><span>状态</span><span class="badge status--verifying">无法获取</span></div>
               }
               <button class="ghost-sm" style="width:100%;margin-top:8px" (click)="checkHealth()">刷新</button>
+              <button class="ghost-sm" style="width:100%;margin-top:4px" (click)="toggleHealthPoll()">
+                {{ isHealthPollEnabled() ? '⏸ 关闭轮询' : '▶ 开启轮询' }}
+              </button>
             </div>
           }
           <div class="notif-wrap" style="position:relative;display:inline-block;margin-right:8px">
