@@ -13,7 +13,7 @@ def test_legacy_model_facade_exports_domain_models():
     assert models.Project is Project
     assert models.Task is Task
     assert models.AgentSchedule is AgentSchedule
-    assert len(models.Base.metadata.tables) == 12
+    assert len(models.Base.metadata.tables) == 13
 
 
 def test_domains_do_not_depend_on_transport_or_entrypoints():

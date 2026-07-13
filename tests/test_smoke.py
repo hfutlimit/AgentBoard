@@ -6,14 +6,29 @@ import os
 import tempfile
 import hashlib
 
-# 必须在导入 agentboard 之前设置临时 SQLite 与 MCP 后端
+# 必须在导入 agentboard 之前设置临时 SQLite
 _DB = tempfile.mktemp(suffix=".db")
 os.environ["AGENTBOARD_DB_URL"] = f"sqlite:///{_DB}"
-os.environ["AGENTBOARD_MCP_BACKEND"] = "db"  # MCP 直连 DB，无需启动 API
 
 from agentboard.database import init_db, SessionLocal
 from agentboard import service
 from agentboard.models import ItemType, Status, Priority
+
+
+def _mcp_over_api():
+    """bc0db88 后 MCP 只走 REST API（不再直连 DB）。
+
+    这里把 MCP 模块内的 httpx 客户端替换为 Starlette TestClient（同步跑
+    in-process ASGI 应用），使 smoke test 无需真实启动服务即可覆盖
+    MCP -> REST API 链路，且不修改 MCP 源码。共用同一临时 SQLite。
+    """
+    import types
+    from starlette.testclient import TestClient
+    from agentboard.api import app
+    from agentboard import mcp_server as m
+
+    m.httpx = types.SimpleNamespace(Client=lambda *a, **k: TestClient(app))
+    return m
 
 
 def test_password_hash_compatibility():
@@ -68,8 +83,9 @@ def test_rest_api():
     from agentboard.api import app
     with TestClient(app) as c:
         assert c.get("/api/meta").json()["types"] == ["task", "bug"]
-        # 分页
-        assert len(c.get("/api/projects", params={"limit": 1}).json()) <= 1
+        # 分页：列表 API 返回 {items, total}
+        page = c.get("/api/projects", params={"limit": 1}).json()
+        assert len(page["items"]) <= 1 and "total" in page
 
         # 全链路创建：project -> epic -> story -> task
         p = c.post("/api/projects", json={"name": "API-P", "key": "AP"}).json()
@@ -137,10 +153,10 @@ def test_generate_from_spec():
         # 源 spec 已回写链接
         upd = c.get(f"/api/tasks/{t['id']}").json()
         assert "生成的子任务" in upd["spec"]
-        # MCP db 后端也可生成
-        from agentboard import mcp_server as m
+        # MCP（走 REST API）重复调用保持幂等
+        m = _mcp_over_api()
         again = m._task_generated(t["id"])
-        assert again == []  # 同一 spec 重复调用保持幂等
+        assert again == []
 
 
 def test_domain_validation():
@@ -168,8 +184,7 @@ def test_domain_validation():
 
 
 def test_mcp_extra_and_pagination():
-    from agentboard import mcp_server as m
-    assert m.BACKEND == "db"
+    m = _mcp_over_api()
     proj = m._proj_create("MCP-X", None, "")
     epic = m._epic_create(proj["id"], "E", "")
     story = m._story_create(epic["id"], "S", "")
@@ -192,8 +207,7 @@ def test_mcp_extra_and_pagination():
 
 
 def test_mcp_db_backend():
-    from agentboard import mcp_server as m
-    assert m.BACKEND == "db"
+    m = _mcp_over_api()
     proj = m._proj_create("MCP-P", None, "")
     assert proj["id"] > 0
     rows = m._proj_list()
