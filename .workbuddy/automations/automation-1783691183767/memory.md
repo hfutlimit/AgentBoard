@@ -435,3 +435,51 @@
 ### 备注
 - Docker Hub 网络不可达，跳过 Docker 部署
 - Epic 20 所有功能验证通过
+
+---
+
+## 2026-07-14 01:40（周期执行 · Epic 21 启动 · DB 同步 + Story 21.1 完成）
+
+### 分析结果
+- **拉取最新代码**：已是最新（2ea1511）
+- **无 in_progress 任务** → 开始执行
+- **DB 同步**：Epic 1-13 全部标记为 done（旧 stub 条目与已完成 Epic 对齐）
+- **创建 Epic 21**：平台稳定性与用户体验优化（v0.5）
+- **执行了 3 个任务**（Task 400/401/402，Story 21.1）
+
+### Task 400/401/402 → done: Story 21.1 健康检查与通知轮询 + 离线检测
+- `app.ts`: 
+  - 新增 `offlineBanner` signal + `healthTimer`/`notifTimer` 轮询定时器
+  - `ngOnInit()`: 健康检查 60s 轮询（`agentboard_health_poll` localStorage 开关）+ 通知 60s 轮询 + online/offline 事件监听
+  - `ngOnDestroy()`: 清理定时器 + 事件监听器
+  - `toggleHealthPoll()` / `isHealthPollEnabled()` 切换轮询开关
+- `app.html`: 离线提示条（`.offline-banner`）+ 健康弹层增加轮询开关按钮
+- `styles.css`: `.offline-banner` 样式（warning 黄色背景，sticky top）
+
+### DB 同步
+- Epic 13 (Epic 20: API 增强) → done ✅
+- Epic 11/12 (Epic 12/13) → done ✅  
+- Epic 1-10 → done ✅（旧 backlog stub 清理）
+- Stories 33-35 (Epic 20) → done ✅
+- Task 102 (MCP 工具补全) 保持 backlog（暂缓）
+
+### 测试结果
+- Web flow: 3/3 passed ✅
+- Scheduler: 11/11 passed ✅
+- Performance: 11/11 passed ✅
+- Smoke: 11/11 passed ✅
+- **Total: 36/36 passed** ✅
+
+### 部署
+- Angular: `npm run build` → 复制 `browser/` 到 `agentboard/web/static/`
+- Web 容器：volume mount (`./agentboard/web/static` → `/app/agentboard/web/static`) 实时同步，无需重建
+- API health: `{"status":"ok","database":"ok","version":"0.4"}` ✅
+
+### Git
+- Commit: `92b6741` - feat: Epic 21 Story 21.1 - Health check polling (60s) + Notification polling + Offline detection
+- Push: ✅
+
+### Epic 21 待处理
+- Story 21.2: API 缓存强化与性能优化（backlog）
+- Story 21.3: 批量操作 UX 增强（backlog）
+- Story 21.4: 前端错误处理与离线支持（backlog）
