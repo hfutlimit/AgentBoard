@@ -1,5 +1,25 @@
 # AgentBoard Code Review 自动化执行记录
 
+## 2026-07-13 14:43 (第 11 次执行)
+
+找到 6 个 in_review 任务（Epic 16，前端持续优化轨道 233-238），全部测试完毕：
+
+- ✅ #236 (Extend keyboard shortcuts) → done - 源码确认 `handleTaskKeydown` 实现 j/k/Enter/Space/Esc
+- ✅ #237 (Update keyboard hints) → done - `.kbd-hint` 提示 "j/k 上下导航 · Enter 打开 · Space 选择 · Esc 取消"
+- ⚠️ #233 (Filter signals) → in_progress - 源码无 filterStatus/filterPriority/filterType signals
+- ⚠️ #234 (Filter UI panel) → in_progress - 源码无 filter-panel/filter-bar 元素
+- ⚠️ #235 (Sort by priority/status/created) → in_progress - 源码无 sortField/sortDirection
+- ⚠️ #238 (ARIA labels) → in_progress - app.html 仅 2 处 aria 属性（logo + modal-dialog）
+
+**源码依据**：1c84a1a commit（API缓存 + 批量 + 导出 + 键盘导航）只实现了 keyboard 和 hints，未实现 filter/sort/aria。
+**部署**：git pull 1a70f97..e84fe67（登录页重构），web 容器 volume 挂载生效。
+
+状态分布：backlog 48 | todo 66 | in_progress 7 | in_review 0 | done 67
+
+## 2026-07-13 12:40 (第 10 次执行)
+
+无 in_review 任务，跳过。
+
 ## 2026-07-13 10:30 (第 9 次执行)
 
 找到 7 个 in_review 任务，全部测试完毕：
