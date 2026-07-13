@@ -6,5 +6,7 @@ agentboard.db
 .env
 smoke.log
 smoke_ascii.txt
+logs/
+*.log
 .venv/
 venv/
