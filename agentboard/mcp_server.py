@@ -324,7 +324,8 @@ else:  # api 模式
             return r.json() if r.content else {"ok": True}
 
     def _proj_list(limit=None, offset=0):
-        return _http("GET", "/api/projects", params={"limit": limit, "offset": offset} if limit is not None else {})
+        resp = _http("GET", "/api/projects", params={"limit": limit, "offset": offset} if limit is not None else {})
+        return resp.get("items", resp) if isinstance(resp, dict) else resp
 
     def _proj_create(name, key, description):
         return _http("POST", "/api/projects", json={"name": name, "key": key, "description": description})
@@ -342,7 +343,8 @@ else:  # api 模式
         params = {"offset": offset}
         if limit is not None:
             params["limit"] = limit
-        return _http("GET", f"/api/projects/{project_id}/epics", params=params)
+        resp = _http("GET", f"/api/projects/{project_id}/epics", params=params)
+        return resp.get("items", resp) if isinstance(resp, dict) else resp
 
     def _epic_create(project_id, title, description):
         return _http("POST", f"/api/projects/{project_id}/epics", json={"title": title, "description": description})
@@ -354,13 +356,15 @@ else:  # api 模式
         params = {"offset": offset}
         if limit is not None:
             params["limit"] = limit
-        return _http("GET", f"/api/epics/{epic_id}/stories", params=params)
+        resp = _http("GET", f"/api/epics/{epic_id}/stories", params=params)
+        return resp.get("items", resp) if isinstance(resp, dict) else resp
 
     def _task_list(story_id, limit=None, offset=0):
         params = {"offset": offset}
         if limit is not None:
             params["limit"] = limit
-        return _http("GET", f"/api/stories/{story_id}/tasks", params=params)
+        resp = _http("GET", f"/api/stories/{story_id}/tasks", params=params)
+        return resp.get("items", resp) if isinstance(resp, dict) else resp
 
     def _task_create(project_id, story_id, title, type, description, spec, priority="medium"):
         return _http("POST", f"/api/stories/{story_id}/tasks",
@@ -384,7 +388,8 @@ else:  # api 模式
 
     def _task_search(params):
         clean = {k: v for k, v in params.items() if v is not None}
-        return _http("GET", "/api/tasks", params=clean)
+        resp = _http("GET", "/api/tasks", params=clean)
+        return resp.get("items", resp) if isinstance(resp, dict) else resp
 
     def _task_generated(task_id):
         return _http("POST", f"/api/tasks/{task_id}/generate-subtasks")
@@ -431,7 +436,8 @@ else:  # api 模式
         params = {"offset": offset}
         if limit is not None:
             params["limit"] = limit
-        return _http("GET", f"/api/projects/{project_id}/sprints", params=params)
+        resp = _http("GET", f"/api/projects/{project_id}/sprints", params=params)
+        return resp.get("items", resp) if isinstance(resp, dict) else resp
 
     def _sprint_get(sprint_id):
         return _http("GET", f"/api/sprints/{sprint_id}")

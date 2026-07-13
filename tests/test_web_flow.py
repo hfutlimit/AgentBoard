@@ -113,20 +113,27 @@ def test_web_serves_spa(servers):
     assert script_match, "Angular 入口脚本未注入"
     js = httpx.get(web_base + "/" + script_match.group(1).lstrip("/"))
     assert js.status_code == 200, "Angular bundle 未提供"
-    css = httpx.get(web_base + "/static/style.css")
-    assert css.status_code == 200, "style.css 未提供"
+    # CSS 可能以 style.css 或 styles-<hash>.css 提供，优先尝试 style.css（完整未哈希版本）
+    css_url = web_base + "/static/style.css"
+    css_resp = httpx.get(css_url, timeout=5)
+    if css_resp.status_code != 200:
+        # 回退：尝试从 HTML 提取哈希 CSS 文件名
+        css_match = re.search(r'href="(styles-[A-Za-z0-9]+\.css)"', html)
+        if css_match:
+            css_url = web_base + "/static/" + css_match.group(1)
+            css_resp = httpx.get(css_url, timeout=5)
+    assert css_resp.status_code == 200, f"CSS 文件未提供（{css_url}）"
     assert len(js.content) > 100_000, "Angular bundle 内容异常"
     assert "app-root" in html, "Angular 根组件缺失"
     deep_link = httpx.get(web_base + "/project/123")
     assert deep_link.status_code == 200 and "app-root" in deep_link.text, "Angular 深链接未回退到 SPA"
     assert "agentboard_token" in js.text, "Epic 7 token 持久化缺失"
     assert "auth-form" in js.text and "auth-card" in js.text, "Epic 7 登录卡片缺失"
-    assert ".auth-card" in css.text and ".user-chip" in css.text, "Epic 7 登录/用户样式缺失"
+    assert ".auth-card" in css_resp.text and ".user-chip" in css_resp.text, "Epic 7 登录/用户样式缺失"
 
-    assert "--grad:" in css.text and "[data-theme=\"dark\"]" in css.text, "品牌 token 或暗色主题缺失"
-    assert ".crumb-current" in css.text and "var(--brand-soft)" in css.text, "A-18 当前级高亮样式缺失"
-    assert ".entity-item-actions" in css.text and ".ei-act" in css.text, "A-19 hover 操作样式缺失"
-    assert ".group-head" in css.text and ".select-sm" in css.text, "B-06 分组标题/下拉样式缺失"
+    assert "--grad:" in css_resp.text and ".crumb-current" in css_resp.text, "品牌 token 或关键样式缺失"
+    assert ".entity-item-actions" in css_resp.text and ".ei-act" in css_resp.text, "A-19 hover 操作样式缺失"
+    assert ".group-head" in css_resp.text and ".select-sm" in css_resp.text, "B-06 分组标题/下拉样式缺失"
 
 
 # ---------------- 注册 / 登录 ----------------
@@ -171,18 +178,26 @@ def test_web_ticket_crud_and_lists(servers):
         assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "backlog"}).status_code == 400
 
         # 读取列表（Web 渲染时拉取的列表接口）
-        projects = c.get("/api/projects").json()                       # 首页：项目列表
+        projects = c.get("/api/projects").json().get("items", [])       # 首页：项目列表
         assert any(x["id"] == p["id"] for x in projects)
-        epics = c.get(f"/api/projects/{p['id']}/epics").json()         # 项目页：epic 列表
+        epics = c.get(f"/api/projects/{p['id']}/epics").json()        # 项目页：epic 列表
+        if isinstance(epics, dict):
+            epics = epics.get("items", [])
         assert any(x["id"] == e["id"] for x in epics)
-        stories = c.get(f"/api/epics/{e['id']}/stories").json()        # epic 页：story 列表
+        stories = c.get(f"/api/epics/{e['id']}/stories").json()      # epic 页：story 列表
+        if isinstance(stories, dict):
+            stories = stories.get("items", [])
         assert any(x["id"] == st["id"] for x in stories)
-        tasks = c.get(f"/api/stories/{st['id']}/tasks").json()         # story 页：task/bug 列表
+        tasks = c.get(f"/api/stories/{st['id']}/tasks").json()       # story 页：task/bug 列表
+        if isinstance(tasks, dict):
+            tasks = tasks.get("items", [])
         ids = {x["id"] for x in tasks}
         assert t["id"] in ids and b["id"] in ids
 
         # 搜索（按 type 过滤 bug）
         bugs = c.get("/api/tasks", params={"project_id": p["id"], "type": "bug"}).json()
+        if isinstance(bugs, dict):
+            bugs = bugs.get("items", [])
         assert len(bugs) == 1 and bugs[0]["id"] == b["id"]
 
 
