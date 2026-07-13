@@ -433,12 +433,49 @@
 - [x] Task 221: 修复速率限制器绕过本地测试请求（localhost/127.0.0.1 跳过限流）
 
 ### Story 16.2 本地开发体验
-- [ ] Task 222: Docker Compose 镜像预热脚本（避免每次构建拉取基础镜像）
-- [ ] Task 223: 本地开发 hot-reload 配置
+- [x] Task 222: Docker Compose 镜像预热脚本（避免每次构建拉取基础镜像）
+- [x] Task 223: 本地开发 hot-reload 配置
 
 ### 完成记录
 | 日期 | 项 | 简述 |
 |------|----|------|
-| 2026-07-13 | Epic 16 | Sprint 测试稳定性修复（swap 模式验证）+ 速率限制器 localhost 绕过；35 项测试全绿 |
+| 2026-07-13 | Epic 16 | Sprint 测试稳定性修复（swap 模式验证）+ 速率限制器 localhost 绕过 + Docker 预热脚本 + Hot-reload 配置；35 项测试全绿 |
+
+---
+
+## Epic 18：API 性能优化（v0.5）
+> 目标：数据库查询优化与 API 缓存机制，提升响应速度。
+
+### Story 18.1 数据库索引优化
+- [x] Task 300: 添加复合索引优化常见查询模式（project_id+status, epic_id+status 等）
+- [x] Task 301: 添加单字段 status 索引优化任务列表查询
+
+### Story 18.2 API 缓存机制
+- [x] Task 302: 实现 SimpleCache 内存缓存模块（TTL 支持、线程安全、前缀失效）
+- [x] Task 303: 创建性能测试用例验证缓存功能
+
+### 完成记录
+| 日期 | 项 | 简述 |
+|------|----|------|
+| 2026-07-13 | Epic 18 | 数据库复合索引（ix_tasks_project_status/ix_epics_project_status 等）+ SimpleCache 缓存模块 + 11 项测试全绿 |
+
+---
+
+## Epic 19：查询优化与工具增强（v0.5）
+> 目标：进一步优化数据库查询，添加辅助工具脚本。
+
+### Story 19.1 API 分页增强
+- [x] 主要列表 API 已返回 total 字段（projects, notifications, users, admin projects 等）
+
+### Story 19.2 统计查询优化
+- [x] Task: get_project_stats 使用条件聚合（case when）替代多个单独查询
+
+### Story 19.3 索引管理工具
+- [x] Task: 创建 scripts/create_indexes.py 辅助脚本，支持 SQLite/MariaDB 自动检测
+
+### 完成记录
+| 日期 | 项 | 简述 |
+|------|----|------|
+| 2026-07-13 | Epic 19 | 统计查询优化（单查询条件聚合）+ 索引创建脚本 + 22 项测试全绿 |
 
 

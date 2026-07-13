@@ -1050,11 +1050,33 @@ def delete_notification(s: Session, notif_id: int, user_id: int) -> bool:
 
 # ---------- Project statistics ----------
 def get_project_stats(s: Session, project_id: int) -> dict:
-    """返回项目统计：每日新增/开发/完成任务量（最近 30 天）"""
+    """返回项目统计：每日新增/开发/完成任务量（最近 30 天）
+
+    优化：使用单个查询获取多个统计值，减少数据库往返次数
+    """
     from datetime import timedelta, datetime as dt
-    from sqlalchemy import func
+    from sqlalchemy import func, case
     now = dt.now()
     thirty_days_ago = now - timedelta(days=30)
+
+    # 使用条件聚合一次获取所有计数统计
+    stats = (
+        s.query(
+            func.count(Task.id).label("total"),
+            func.sum(case((Task.status == Status.DONE, 1), else_=0)).label("done"),
+            func.sum(case((Task.status == "backlog", 1), else_=0)).label("backlog"),
+            func.sum(case(
+                (Task.status.in_(["in_progress", "in_review", "verifying"]), 1),
+                else_=0
+            )).label("active"),
+        )
+        .filter(Task.project_id == project_id)
+        .first()
+    )
+    total_tasks = stats.total or 0
+    done_tasks = stats.done or 0
+    backlog_tasks = stats.backlog or 0
+    active_tasks = stats.active or 0
 
     # 每日新建任务数
     daily_created = (
@@ -1069,8 +1091,6 @@ def get_project_stats(s: Session, project_id: int) -> dict:
     )
 
     # 每日完成任务数（status 变为 done）
-    # 由于没有历史记录表，这里近似：统计 updated_at 在范围内且 status=done 的任务（按 updated_at 聚合）
-    # 更精确方案：任务状态流转表（未来扩展），此处用 updated_at
     daily_done = (
         s.query(
             func.date(Task.updated_at).label("day"),
@@ -1085,37 +1105,6 @@ def get_project_stats(s: Session, project_id: int) -> dict:
         .order_by(func.date(Task.updated_at))
         .all()
     )
-
-    # 当前 sprint 开发中任务数
-    active_tasks = (
-        s.query(func.count(Task.id))
-        .filter(
-            Task.project_id == project_id,
-            Task.status.in_(["in_progress", "in_review", "verifying"]),
-        )
-        .scalar()
-    ) or 0
-
-    # 当前 backlog 任务数
-    backlog_tasks = (
-        s.query(func.count(Task.id))
-        .filter(Task.project_id == project_id, Task.status == "backlog")
-        .scalar()
-    ) or 0
-
-    # 当前总任务数
-    total_tasks = (
-        s.query(func.count(Task.id))
-        .filter(Task.project_id == project_id)
-        .scalar()
-    ) or 0
-
-    # 当前 done 任务数
-    done_tasks = (
-        s.query(func.count(Task.id))
-        .filter(Task.project_id == project_id, Task.status == "done")
-        .scalar()
-    ) or 0
 
     return {
         "daily_created": [{"day": str(r.day), "count": r.count} for r in daily_created],
