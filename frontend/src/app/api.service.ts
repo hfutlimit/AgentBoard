@@ -1,7 +1,7 @@
 import { HttpClient, HttpErrorResponse, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
-import { Observable, of, throwError, timer } from 'rxjs';
-import { catchError, tap, switchMap, mergeMap } from 'rxjs/operators';
+import { Observable, of, throwError, timer, Subject } from 'rxjs';
+import { catchError, tap, switchMap, mergeMap, debounceTime, takeUntil } from 'rxjs/operators';
 
 import { ApiErrorBody, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, WebhookConfig } from './models';
 
@@ -13,6 +13,70 @@ declare global {
     AGENTBOARD_STATS_CACHE_TTL?: string;
   }
 }
+
+// ========== Debounce Helper for Task 705 ==========
+class RequestDebouncer {
+  private pending = new Map<string, Subject<() => void>>();
+  private readonly DEFAULT_DEBOUNCE_MS = 300; // Default debounce time
+
+  /**
+   * Debounce a request - only executes the last one within the time window
+   * Returns a function that can be called to trigger the debounced request
+   */
+  debounce<T>(key: string, factory: () => Observable<T>, ms: number = this.DEFAULT_DEBOUNCE_MS): Observable<T> {
+    return new Observable<T>(observer => {
+      // Cancel any pending request for this key
+      if (this.pending.has(key)) {
+        const subject = this.pending.get(key)!;
+        // Complete will be handled by takeUntil
+      }
+
+      const subject = new Subject<() => void>();
+      this.pending.set(key, subject);
+
+      const timeoutId = setTimeout(() => {
+        this.pending.delete(key);
+        const result = factory();
+        const subscription = result.subscribe({
+          next: (value) => observer.next(value),
+          error: (err) => observer.error(err),
+          complete: () => observer.complete()
+        });
+        return () => subscription.unsubscribe();
+      }, ms);
+
+      // Cleanup on unsubscribe
+      return () => {
+        clearTimeout(timeoutId);
+        this.pending.delete(key);
+        subject.complete();
+      };
+    });
+  }
+
+  /**
+   * Check if there's a pending request for this key
+   */
+  hasPending(key: string): boolean {
+    return this.pending.has(key);
+  }
+
+  /**
+   * Cancel pending request for this key
+   */
+  cancel(key: string): void {
+    this.pending.delete(key);
+  }
+
+  /**
+   * Clear all pending requests
+   */
+  clear(): void {
+    this.pending.clear();
+  }
+}
+
+const requestDebouncer = new RequestDebouncer();
 
 // ========== Simple Cache Layer ==========
 interface CacheEntry<T> {
@@ -139,6 +203,26 @@ export class ApiService {
     } else {
       apiCache.invalidatePrefix('/api/projects');
     }
+  }
+
+  // Task 705: API 响应缓存与防抖 - 防抖请求方法
+  // 使用防抖减少快速连续请求，同一 key 的请求只在最后一个生效
+  debouncedRequest<T>(
+    key: string,
+    factory: () => Observable<T>,
+    ms: number = 300
+  ): Observable<T> {
+    // 如果有缓存且未过期，直接返回缓存
+    const cached = apiCache.get<T>(key);
+    if (cached) {
+      return of(cached);
+    }
+    // 否则使用防抖
+    return requestDebouncer.debounce(key, () => {
+      return this.request<T>('GET', key).pipe(
+        tap(data => apiCache.set(key, data))
+      );
+    }, ms);
   }
 
   private options(params?: Record<string, string | number | undefined>) {
