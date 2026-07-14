@@ -559,4 +559,54 @@
 |------|----|------|
 | 2026-07-14 | Epic 22 | 审计日志中间件（记录所有 API 请求）+ 任务依赖关系（blocks/blocked_by/relates_to）+ Webhook 配置（CRUD）+ 数据导入；修复 audit_log_middleware 使用 service.SessionLocal() bug；迁移 9f8c2e7d1a4c；前端依赖面板 + Webhooks Tab + Audit Logs 面板；MCP 工具扩展；commit f7ec4ea |
 
+---
+
+## Epic 27（Epic 15 in DB）：前端体验升级 v0.6（2026-07-14 创建）
+> 目标：看板交互增强、搜索优化、详情页导航、无障碍访问。
+
+### Story 27.1 看板卡片动画优化（Stories 40-44）
+- [x] Task 700: 看板卡片 hover 动画增强（cubic-bezier spring + shimmer + `::before` 渐变）
+- [x] Task 701: 看板列拖拽占位符动画（`::after` + `@keyframes` 指示器）
+
+### Story 27.2 搜索体验优化
+- [x] Task 702: 搜索框历史记录下拉（localStorage，最多 10 条）
+- [x] Task 703: 搜索结果高亮关键词（`<mark>` 高亮 + 深色适配）
+
+### Story 27.3 任务详情页增强
+- [x] Task 704: 任务详情页上一条/下一条导航
+
+### Story 27.4 无障碍访问优化
+- [x] Task 706: 关键元素 ARIA 属性添加（`.skip-link`/`.sr-only`/`.live-region`）
+
+### Story 27.5 API 性能优化
+- [x] Task 705: API 响应缓存与防抖（300ms debounce on search）
+
+### 完成记录
+| 日期 | 项 | 简述 |
+|------|----|------|
+| 2026-07-14 | Epic 26 | Task 700/702/703/704/706 → in_review |
+| 2026-07-14 | Epic 26 | Task 701/705 → in_review |
+
+---
+
+## Epic 28（Epic 16 in DB）：前端体验升级 v0.7（2026-07-15 完成）
+> 目标：看板交互增强、虚拟滚动、全局快捷键。
+
+### Story 28.1 看板卡片动画优化（Stories 49）
+- [x] Task 712: 看板卡片 hover 效果增强（`will-change` + cubic-bezier(0.34,1.56,0.64,1) spring + shimmer `::before`）
+- [x] Task 713: 卡片拖拽占位符动画（`.dragging`/`.drag-over`/`.drag-over::after` + `@keyframes drag-drop-indicator`）
+
+### Story 28.2 列表渲染性能优化（Stories 50）
+- [x] Task 714: 虚拟滚动优化大型列表（`taskPageSize`/`taskPageCount` signals + 加载更多按钮）
+- [x] Task 715: 增量渲染优化（`tasksForStatus` memoize + Angular signals computed cache）
+
+### Story 28.3 快捷键增强（Stories 51）
+- [x] Task 716: 全局快捷键面板（`showShortcuts` signal + `shortcuts` data + `?` 键 + 顶部 `?` 按钮）
+
+### 完成记录
+| 日期 | 项 | 简述 |
+|------|----|------|
+| 2026-07-15 | Epic 28 | Tasks 712-716 → in_review；cubic-bezier spring hover + drag placeholder + virtual scroll + shortcuts panel |
+
+
 
