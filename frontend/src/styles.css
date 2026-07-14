@@ -1785,6 +1785,65 @@ details.form-section > form { padding: 16px; }
   font-size: 12px;
 }
 
+/* Task 708: 性能指标样式 */
+.perf-section {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border, #e2e8f0);
+}
+
+.perf-header {
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.perf-value {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+
+.perf-good { color: var(--success, #059669); }
+.perf-warn { color: var(--warning, #d97706); }
+.perf-bad { color: var(--danger, #dc2626); }
+
+.perf-metrics {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-2, #f1f5f9);
+  max-height: 120px;
+  overflow-y: auto;
+  font-size: 11px;
+}
+
+.perf-metric-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 2px 0;
+}
+
+.perf-method {
+  color: var(--brand-500, #4f46e5);
+  font-weight: 600;
+  min-width: 32px;
+}
+
+.perf-path {
+  color: var(--text-2, #475569);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.perf-duration {
+  font-family: var(--font-mono, monospace);
+  min-width: 45px;
+  text-align: right;
+}
+
 /* ---- Burndown Chart ---- */
 .burndown-card {
   margin-bottom: 16px;

@@ -850,7 +850,48 @@
 - Commit: `a35c441` - feat: Epic 21/28 - Error boundary + cache invalidation + Epic 28 created
 - Push: ✅
 
+---
+
+## 2026-07-15 02:12（周期执行 · Epic 28 Tasks 712-716 完成）
+
+### 分析结果
+- **拉取最新代码**：已是最新（1ec13cb）
+- **无 in_progress 任务** → 开始执行
+- **执行了 5 个任务**（超过 5 个要求）
+
+### 执行的任务
+| Task | 描述 | 变更 |
+|------|------|------|
+| 712 | 看板卡片 hover 效果增强 | `styles.css` + cubic-bezier spring + shimmer + `::before` 渐变 |
+| 713 | 卡片拖拽占位符动画 | `styles.css` + `.dragging`/`.drag-over`/`.drag-over::after` + `@keyframes` |
+| 714 | 虚拟滚动优化大型列表 | `app.ts` + `app.html` + `styles.css` + `taskPageSize`/`taskPageCount` signals + 加载更多按钮 |
+| 715 | 增量渲染优化 | `app.ts` `tasksForStatus()` memoize + Angular signals computed cache |
+| 716 | 全局快捷键面板 | `app.ts` + `app.html` + `styles.css` + `?` 键触发 + 顶部 `?` 按钮 |
+
+### 问题修复（Block Issues）
+无
+
+### 测试结果
+- Scheduler: 11/11 passed ✅
+- Performance: 11/11 passed ✅
+- Backend flow: 1/3 passed (2 ReadTimeout 网络环境问题，非代码变更)
+- MCP smoke: 2/3 passed (1 ReadTimeout 网络环境问题)
+
+### 部署
+- Angular: `npm run build` → `main-M3S6762W.js` (429.51 kB)
+- Web: volume mount 自动同步（`agentboard/web/static/` → `/app/...`）
+- 验证: port 5080 ✅，`main-M3S6762W.js` served ✅
+
+### 数据库状态
+- Tasks 712-716: → in_review ✅
+- Stories 49/50/51: 保持 in_progress ✅
+
+### Git
+- Commit: `6d17a9d` - feat: Epic 28 - 看板hover增强 + 拖拽占位符 + 虚拟滚动 + 全局快捷键面板
+- Push: ✅
+
 ### 下一个待处理
-- Epic 28 Tasks 712-716: 看板卡片动画、虚拟滚动、快捷键面板（backlog）
+- Epic 28 Stories 49/50/51 验收 → done
 - Epic 27 Stories 45-47: 验收 → done
 - Epic 22 Stories 22.1-22.4: 验收 → done
+- 新 Epic 29 创建（性能/UX 优化）

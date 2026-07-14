@@ -60,7 +60,25 @@
               } @else {
                 <div class="health-row"><span>状态</span><span class="badge status--verifying">无法获取</span></div>
               }
-              <button class="ghost-sm" style="width:100%;margin-top:8px" (click)="checkHealth()">刷新</button>
+              <!-- Task 708: 性能指标显示 -->
+              <div class="perf-section">
+                <div class="perf-header">📊 性能指标</div>
+                <div class="health-row"><span>页面加载</span><span class="perf-value">{{ formatLoadTime() }}</span></div>
+                <div class="health-row"><span>API 平均</span><span class="perf-value">{{ avgApiDuration() > 0 ? formatMetricTime(avgApiDuration()) : '-' }}</span></div>
+                <div class="health-row"><span>API 成功率</span><span [class]="apiSuccessRate() >= 95 ? 'perf-value perf-good' : apiSuccessRate() >= 80 ? 'perf-value perf-warn' : 'perf-value perf-bad'">{{ apiSuccessRate() }}%</span></div>
+                @if (apiMetrics().length > 0) {
+                  <div class="perf-metrics">
+                    @for (m of apiMetrics().slice(-5); track m.timestamp) {
+                      <div class="perf-metric-row">
+                        <span class="perf-method">{{ m.method }}</span>
+                        <span class="perf-path" title="{{ m.path }}">{{ m.path | slice:0:20 }}</span>
+                        <span [class]="m.status === 'success' ? 'perf-duration perf-good' : 'perf-duration perf-bad'">{{ formatMetricTime(m.duration) }}</span>
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+              <button class="ghost-sm" style="width:100%;margin-top:8px" (click)="checkHealth(); updatePerformanceMetrics()">刷新</button>
               <button class="ghost-sm" style="width:100%;margin-top:4px" (click)="toggleHealthPoll()">
                 {{ isHealthPollEnabled() ? '⏸ 关闭轮询' : '▶ 开启轮询' }}
               </button>

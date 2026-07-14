@@ -136,6 +136,59 @@ class ApiCache {
 
 const apiCache = new ApiCache();
 
+// ========== Performance Metrics (Task 708) ==========
+export interface ApiMetric {
+  path: string;
+  method: string;
+  duration: number;
+  status: 'success' | 'error';
+  timestamp: number;
+}
+
+class PerformanceTracker {
+  private metrics: ApiMetric[] = [];
+  private readonly MAX_METRICS = 50;
+
+  record(path: string, method: string, duration: number, success: boolean): void {
+    this.metrics.push({
+      path,
+      method,
+      duration,
+      status: success ? 'success' : 'error',
+      timestamp: Date.now(),
+    });
+    if (this.metrics.length > this.MAX_METRICS) {
+      this.metrics.shift();
+    }
+  }
+
+  getMetrics(): ApiMetric[] {
+    return [...this.metrics];
+  }
+
+  getAverageDuration(): number {
+    if (this.metrics.length === 0) return 0;
+    const total = this.metrics.reduce((sum, m) => sum + m.duration, 0);
+    return total / this.metrics.length;
+  }
+
+  getSuccessRate(): number {
+    if (this.metrics.length === 0) return 100;
+    const successCount = this.metrics.filter(m => m.status === 'success').length;
+    return (successCount / this.metrics.length) * 100;
+  }
+
+  getRecentMetrics(count: number = 10): ApiMetric[] {
+    return this.metrics.slice(-count);
+  }
+
+  clear(): void {
+    this.metrics = [];
+  }
+}
+
+export const perfTracker = new PerformanceTracker();
+
 // ========== Offline Queue (Task 472) ==========
 const OFFLINE_QUEUE_KEY = 'agentboard_offline_queue';
 
@@ -242,6 +295,9 @@ export class ApiService {
     params?: Record<string, string | number | undefined>,
     _retries = 0,
   ): Observable<T> {
+    // Task 708: Performance tracking - record start time
+    const startTime = performance.now();
+
     // Task 472: offline queue — if offline, queue write operations
     if (!this._isOnline && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method.toUpperCase())) {
       const queuedReq: QueuedRequest = {
@@ -255,6 +311,18 @@ export class ApiService {
     return (this.http
       .request(method, `${this.baseUrl}${path}`, { ...this.options(params), body }) as Observable<T>)
       .pipe(
+        tap({
+          next: () => {
+            // Task 708: Record successful request duration
+            const duration = performance.now() - startTime;
+            perfTracker.record(path, method, duration, true);
+          },
+          error: (error: HttpErrorResponse) => {
+            // Task 708: Record failed request duration
+            const duration = performance.now() - startTime;
+            perfTracker.record(path, method, duration, false);
+          }
+        }),
         catchError((error: HttpErrorResponse) => {
           // Task 470: exponential backoff retry on transient server errors (500-503)
           // 不要在 429 上重试：429 是服务器明确说"等一下"，重试会更快耗尽配额

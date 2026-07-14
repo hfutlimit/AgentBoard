@@ -7,7 +7,7 @@ import { DOCUMENT } from '@angular/common';
 import { Inject } from '@angular/core';
 import { filter } from 'rxjs/operators';
 
-import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT } from './api.service';
+import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric } from './api.service';
 import { LoginComponent } from './login/login';
 import { AgentSchedule, Attachment, AuditLog, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, WebhookConfig } from './models';
 
@@ -124,6 +124,12 @@ export class App implements OnInit, OnDestroy {
   readonly webhooks = signal<WebhookConfig[]>([]);
   // Epic 22: 审计日志
   readonly auditLogs = signal<AuditLog[]>([]);
+  // Task 708: 性能指标显示
+  readonly apiMetrics = signal<ApiMetric[]>([]);
+  readonly avgApiDuration = signal<number>(0);
+  readonly apiSuccessRate = signal<number>(100);
+  readonly pageLoadTime = signal<number>(0);
+  readonly showPerformance = signal(false);
   readonly statuses: Status[] = [
     'backlog',
     'todo',
@@ -236,6 +242,8 @@ export class App implements OnInit, OnDestroy {
   ) {}
 
   ngOnInit(): void {
+    // Task 708: 记录页面加载时间
+    this.pageLoadTime.set(performance.now());
     window.addEventListener(AUTH_EXPIRED_EVENT, this.handleAuthExpired);
     window.addEventListener('online', this.handleOnline);    // Task 402: 离线检测
     window.addEventListener('offline', this.handleOffline);
@@ -277,11 +285,22 @@ export class App implements OnInit, OnDestroy {
     } catch { this.offlineQueueCount.set(0); }
     // Epic 26 Task 702: 加载搜索历史记录
     this.loadSearchHistory();
-    // Task 716: 全局快捷键面板 - '?' 键打开快捷键帮助
+    // Task 716/711: 全局快捷键 - '?' 键打开快捷键帮助，Ctrl+A 全选，Del 删除选中
     window.addEventListener('keydown', (e: KeyboardEvent) => {
-      if (e.key === '?' && !this.isInputFocused()) {
+      if (this.isInputFocused()) return;
+      if (e.key === '?') {
         e.preventDefault();
         this.toggleShortcuts();
+      }
+      // Task 711: Ctrl+A 全选当前列表任务
+      if (e.ctrlKey && e.key === 'a') {
+        e.preventDefault();
+        this.selectAllTasks();
+      }
+      // Task 711: Del 删除选中任务
+      if (e.key === 'Delete' && this.selectedTasks().size > 0) {
+        e.preventDefault();
+        this.bulkDelete();
       }
     });
   }
@@ -373,7 +392,31 @@ export class App implements OnInit, OnDestroy {
 
   toggleHealth(): void {
     this.showHealth.set(!this.showHealth());
-    if (this.showHealth()) void this.checkHealth();
+    if (this.showHealth()) {
+      void this.checkHealth();
+      // Task 708: 更新性能指标
+      this.updatePerformanceMetrics();
+    }
+  }
+
+  // Task 708: 更新性能指标
+  updatePerformanceMetrics(): void {
+    this.apiMetrics.set(perfTracker.getRecentMetrics(10));
+    this.avgApiDuration.set(Math.round(perfTracker.getAverageDuration()));
+    this.apiSuccessRate.set(Math.round(perfTracker.getSuccessRate()));
+  }
+
+  // Task 708: 格式化性能指标时间
+  formatMetricTime(ms: number): string {
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    return `${(ms / 1000).toFixed(2)}s`;
+  }
+
+  // Task 708: 格式化页面加载时间
+  formatLoadTime(): string {
+    const ms = this.pageLoadTime();
+    if (ms < 1000) return `${Math.round(ms)}ms`;
+    return `${(ms / 1000).toFixed(2)}s`;
   }
 
   // Task 400: 切换健康检查轮询
@@ -1058,6 +1101,13 @@ export class App implements OnInit, OnDestroy {
       }
     } finally {
       this.bulkProgress.set(null);
+    }
+  }
+
+  // Task 711: 批量删除 - 快捷键触发
+  bulkDelete(): void {
+    if (this.selectedTasks().size > 0) {
+      void this.bulkDeleteTasks();
     }
   }
 
@@ -1795,6 +1845,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   // Task 716: 全局快捷键面板 - 快捷键说明
+  // Task 710/711: 增强快捷键提示面板 + 批量选择键盘支持
   readonly shortcuts = [
     { group: '导航', items: [
       { keys: ['j'], desc: '下一项' },
@@ -1806,6 +1857,12 @@ export class App implements OnInit, OnDestroy {
       { keys: ['e'], desc: '编辑选中项' },
       { keys: ['n'], desc: '新建项目' },
       { keys: ['Ctrl', '↵'], desc: '提交表单' },
+    ]},
+    { group: '批量操作', items: [
+      { keys: ['Shift', '点击'], desc: '范围多选' },
+      { keys: ['Ctrl', 'A'], desc: '全选当前列表' },
+      { keys: ['Ctrl', '点击'], desc: '单项切换选择' },
+      { keys: ['Del'], desc: '删除选中项' },
     ]},
     { group: '视图', items: [
       { keys: ['v'], desc: '切换列表/看板' },
