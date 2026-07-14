@@ -84,7 +84,9 @@ services:
       AGENTBOARD_SECRET: "${AGENTBOARD_SECRET:?Set AGENTBOARD_SECRET to a strong random value}"
       AGENTBOARD_TOKEN_TTL_SECONDS: "${AGENTBOARD_TOKEN_TTL_SECONDS:-2592000}"
     ports:
-      - "8001:8001"
+      # 8001 被 Windows 系统保留 (Hyper-V 动态端口范围 7921-8020, 实测 8000-8082 整段不可用),
+      # 改用 18001 暴露到宿主机 (容器内端口仍为 8001)
+      - "18001:8001"
     depends_on:
       api:
         condition: service_healthy
