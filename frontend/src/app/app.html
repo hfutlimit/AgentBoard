@@ -848,6 +848,25 @@
                 </div>
               }
             }
+            <!-- Task 602: 高级筛选面板 -->
+            <div class="filter-bar">
+              <span class="filter-label">筛选:</span>
+              <select class="filter-select" (change)="filterStatus.set($any($event.target).value)" [value]="filterStatus()">
+                <option value="">全部状态</option>
+                @for (s of statuses; track s) {
+                  <option [value]="s">{{ statusLabel(s) }}</option>
+                }
+              </select>
+              <select class="filter-select" (change)="filterPriority.set($any($event.target).value)" [value]="filterPriority()">
+                <option value="">全部优先级</option>
+                @for (p of priorities; track p) {
+                  <option [value]="p">{{ priorityLabel(p) }}</option>
+                }
+              </select>
+              @if (filterStatus() || filterPriority()) {
+                <button class="btn-ghost-sm" (click)="filterStatus.set(''); filterPriority.set('')">清除</button>
+              }
+            </div>
             @if (!boardMode()) {
               <div class="entity-list" (keydown)="handleTaskKeydown($event)" tabindex="0">
                 @for (item of visibleTasks(); track item.id; let i = $index) {
@@ -894,7 +913,7 @@
                       ><span class="kanban-count">{{ tasksForStatus(status).length }}</span>
                     </div>
                     @for (item of tasksForStatus(status); track item.id) {
-                      <a [routerLink]="['/task', item.id]" class="kanban-card kanban-card--rich"
+                      <a [routerLink]="['/task', item.id]" class="kanban-card kanban-card--rich priority-card--{{ item.priority }}"
                         ><strong class="kanban-card-title">{{ item.title }}</strong>
                         <div class="kanban-card-meta">
                           <span class="badge priority priority--{{ item.priority }}" style="font-size:10px">{{ priorityLabel(item.priority) }}</span>
@@ -902,7 +921,10 @@
                           @if (item.sprint_id) {
                             <span class="sprint-dot" title="Sprint">🏃</span>
                           }
-                        </div></a
+                        </div>
+                        @if (item.status === 'done') {
+                          <div class="kanban-done-bar" title="已完成"><span>✓</span></div>
+                        }</a
                       >
                     }
                   </div>
@@ -953,14 +975,18 @@
                   statusLabel(current.status)
                 }}</span>
               </div>
-              <select
-                [value]="current.status"
-                (change)="changeTaskStatus($any($event.target).value)"
-              >
-                @for (status of statuses; track status) {
-                  <option [value]="status">{{ statusLabel(status) }}</option>
-                }
-              </select>
+              <!-- Task 603: 抽屉内快速操作按钮 -->
+              <div class="task-quick-actions">
+                <button class="btn-ghost-sm" title="复制任务ID" (click)="copyToClipboard('#task-' + current.id)">#{{ current.id }} 📋</button>
+                <select
+                  [value]="current.status"
+                  (change)="changeTaskStatus($any($event.target).value)"
+                >
+                  @for (status of statuses; track status) {
+                    <option [value]="status">{{ statusLabel(status) }}</option>
+                  }
+                </select>
+              </div>
             </div>
             <div class="two-col">
               <div class="card">

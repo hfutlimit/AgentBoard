@@ -505,6 +505,15 @@ main {
 }
 
 /* ========== Entity List ========== */
+/* Task 602: 高级筛选面板 */
+.filter-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.filter-label { font-size: .8rem; color: var(--text-2); font-weight: 600; }
+.filter-select { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 4px 8px; font-size: .8rem; color: var(--text); cursor: pointer; }
+.filter-select:focus { outline: 2px solid var(--brand-500); outline-offset: 1px; }
+.btn-ghost-sm { background: transparent; border: 1px solid var(--border); border-radius: var(--r-sm); padding: 4px 8px; font-size: .75rem; color: var(--text-2); cursor: pointer; }
+.btn-ghost-sm:hover { border-color: var(--brand-500); color: var(--brand-600); }
+/* Task 603: 任务快速操作栏 */
+.task-quick-actions { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .entity-list { display: flex; flex-direction: column; gap: 8px; }
 .entity-item {
   display: flex;
@@ -662,6 +671,13 @@ main {
 .priority--low { background: var(--priority-low-bg); color: var(--priority-low-text); }
 .priority--lowest { background: var(--priority-lowest-bg); color: var(--priority-lowest-text); }
 
+/* Task 600: 看板卡片优先级色边框 - 左侧 3px 竖条 */
+.kanban-card.priority-card--highest { border-left: 3px solid var(--priority-highest-text); }
+.kanban-card.priority-card--high { border-left: 3px solid var(--priority-high-text); }
+.kanban-card.priority-card--medium { border-left: 3px solid var(--priority-medium-text); }
+.kanban-card.priority-card--low { border-left: 3px solid var(--priority-low-text); }
+.kanban-card.priority-card--lowest { border-left: 3px solid var(--priority-lowest-text); }
+
 .badge.task { background: var(--info-soft); color: var(--info); }
 .badge.bug { background: var(--danger-soft); color: var(--danger); }
 .badge.epic { background: var(--violet-soft); color: var(--violet); }
@@ -775,6 +791,9 @@ main {
 }
 .kanban-card strong { font-size: .9rem; display: block; margin-bottom: 6px; }
 .kanban-card span { font-size: .75rem; color: var(--text-2); }
+/* Task 601: 看板卡片完成进度条 */
+.kanban-done-bar { display: flex; align-items: center; margin-top: 4px; }
+.kanban-done-bar span { font-size: .8rem; color: var(--success); font-weight: 700; }
 
 /* ========== Table ========== */
 .table-wrap { overflow-x: auto; }

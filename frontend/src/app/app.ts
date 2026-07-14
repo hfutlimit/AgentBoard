@@ -114,9 +114,17 @@ export class App implements OnInit, OnDestroy {
   readonly visibleStories = computed(() =>
     this.match(this.stories(), (s) => `${s.title} ${s.description}`),
   );
-  readonly visibleTasks = computed(() =>
-    this.match(this.tasks(), (t) => `${t.title} ${t.description} ${t.spec}`),
-  );
+  // Task 602: 高级筛选面板 - 状态/优先级过滤
+  readonly filterStatus = signal('');
+  readonly filterPriority = signal('');
+  readonly visibleTasks = computed(() => {
+    const search = this.match(this.tasks(), (t) => `${t.title} ${t.description} ${t.spec}`);
+    const status = this.filterStatus();
+    const priority = this.filterPriority();
+    return search.filter((t: Task) =>
+      (!status || t.status === status) && (!priority || t.priority === priority)
+    );
+  });
   readonly doneTasks = computed(() => this.tasks().filter((t) => t.status === 'done').length);
 
   private routeSub?: Subscription;
@@ -611,6 +619,23 @@ export class App implements OnInit, OnDestroy {
 
   commentAuthor(): string {
     return localStorage.getItem('agentboard_comment_author') || this.currentUser() || '我';
+  }
+
+  // Task 603: 复制文本到剪贴板
+  copyToClipboard(text: string): void {
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(() => this.notify('已复制到剪贴板'));
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      this.notify('已复制到剪贴板');
+    }
   }
 
   async remove(kind: 'project' | 'epic' | 'story' | 'task', id: number): Promise<void> {
