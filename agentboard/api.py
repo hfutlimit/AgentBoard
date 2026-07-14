@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from .database import get_session, init_db, SessionLocal
 from . import service, auth
 from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES
+from .cache import get_cache
 
 
 @asynccontextmanager
@@ -27,6 +28,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AgentBoard API", version="0.2", lifespan=lifespan)
+
+# ---------- Cache Invalidation Helper ----------
+def _invalidate_stats_cache(project_id: int) -> None:
+    """Invalidate project stats cache when data changes"""
+    try:
+        cache = get_cache()
+        cache.delete(f"stats:{project_id}")
+    except Exception:
+        pass  # Non-critical, don't fail the request
 
 # 前后端分离：允许 Web 前端跨域调用
 _cors_origins = [
@@ -618,6 +628,7 @@ def create_task(sid: int, body: TaskIn, s: Session = Depends(get_session)):
                                 labels=body.labels)
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
+    _invalidate_stats_cache(body.project_id)
     return service._ser(t)
 
 
@@ -657,27 +668,40 @@ def get_task(tid: int, s: Session = Depends(get_session)):
 
 @app.patch("/api/tasks/{tid}")
 def update_task(tid: int, body: TaskPatch, s: Session = Depends(get_session)):
+    task = service.get_task(s, tid)
+    pid = task.project_id if task else None
     try:
         r = service.update_task(s, tid, **body.model_dump(exclude_none=True))
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
+    if pid:
+        _invalidate_stats_cache(pid)
     return service._ser(_need(r, "task"))
 
 
 @app.put("/api/tasks/{tid}/status")
 def set_status(tid: int, body: StatusIn, s: Session = Depends(get_session)):
+    task = service.get_task(s, tid)
+    pid = task.project_id if task else None
     try:
-        return service._ser(service.set_status(s, tid, body.status))
+        result = service.set_status(s, tid, body.status)
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
     except service.IllegalTransition as e:
         raise HTTPException(status_code=400, detail=str(e))
+    if pid:
+        _invalidate_stats_cache(pid)
+    return service._ser(result)
 
 
 @app.delete("/api/tasks/{tid}")
 def delete_task(tid: int, s: Session = Depends(get_session)):
+    task = service.get_task(s, tid)
+    pid = task.project_id if task else None
     if not service.delete_task(s, tid):
         raise HTTPException(status_code=404, detail="task not found")
+    if pid:
+        _invalidate_stats_cache(pid)
     return {"ok": True}
 
 
@@ -687,6 +711,7 @@ def bulk_update_tasks(body: BulkTaskUpdate, s: Session = Depends(get_session)):
     """批量更新任务：支持 status / priority / sprint_id"""
     results = []
     errors = []
+    affected_pids = set()
     for tid in body.task_ids:
         task = service.get_task(s, tid)
         if not task:
@@ -703,8 +728,11 @@ def bulk_update_tasks(body: BulkTaskUpdate, s: Session = Depends(get_session)):
             if updates:
                 service.update_task(s, tid, **updates)
             results.append({"task_id": tid, "ok": True})
+            affected_pids.add(task.project_id)
         except Exception as e:
             errors.append({"task_id": tid, "error": str(e)})
+    for pid in affected_pids:
+        _invalidate_stats_cache(pid)
     return {"updated": results, "errors": errors}
 
 
@@ -713,14 +741,21 @@ def bulk_delete_tasks(body: BulkTaskDelete, s: Session = Depends(get_session)):
     """批量删除任务"""
     results = []
     errors = []
+    affected_pids = set()
     for tid in body.task_ids:
+        task = service.get_task(s, tid)
+        pid = task.project_id if task else None
         try:
             if service.delete_task(s, tid):
                 results.append({"task_id": tid, "ok": True})
+                if pid:
+                    affected_pids.add(pid)
             else:
                 errors.append({"task_id": tid, "error": "task not found"})
         except Exception as e:
             errors.append({"task_id": tid, "error": str(e)})
+    for pid in affected_pids:
+        _invalidate_stats_cache(pid)
     return {"deleted": results, "errors": errors}
 
 
@@ -816,21 +851,25 @@ def update_sprint(sid: int, body: SprintPatch, s: Session = Depends(get_session)
 @app.post("/api/sprints/{sid}/activate", status_code=200)
 def activate_sprint(sid: int, s: Session = Depends(get_session)):
     try:
-        return service._ser(service.activate_sprint(s, sid))
+        result = service.activate_sprint(s, sid)
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
+    _invalidate_stats_cache(result.project_id)
+    return service._ser(result)
 
 
 @app.post("/api/sprints/{sid}/complete", status_code=200)
 def complete_sprint(sid: int, s: Session = Depends(get_session)):
     try:
-        return service._ser(service.complete_sprint(s, sid))
+        result = service.complete_sprint(s, sid)
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
+    _invalidate_stats_cache(result.project_id)
+    return service._ser(result)
 
 
 @app.delete("/api/sprints/{sid}")
@@ -1163,18 +1202,21 @@ def delete_notification(
     return {"ok": True}
 
 
-# ---------- Project Statistics (Epic 23 Story 23.1: 缓存强化) ----------
+# ---------- Project Statistics ----------
+# 配置化 TTL（默认 60 秒）
+_CACHE_TTL_STATS = int(os.getenv("AGENTBOARD_CACHE_TTL_STATS", "60"))
+_CACHE_TTL_LIST  = int(os.getenv("AGENTBOARD_CACHE_TTL_LIST", "30"))
 @app.get("/api/projects/{pid}/stats")
 def project_stats(pid: int, s: Session = Depends(get_session)):
     from agentboard.cache import get_cache, STATS_CACHE_TTL
     _need(service.get_project(s, pid), "project")
     cache = get_cache()
-    cache_key = f"project_stats:{pid}"
+    cache_key = f"stats:{pid}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
     result = service.get_project_stats(s, pid)
-    cache.set(cache_key, result, ttl=STATS_CACHE_TTL)
+    cache.set(cache_key, result, _CACHE_TTL_STATS)
     return result
 
 

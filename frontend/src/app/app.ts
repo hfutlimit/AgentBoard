@@ -85,6 +85,7 @@ export class App implements OnInit, OnDestroy {
   readonly offlineBanner = signal(false);  // Task 402: API 离线检测
   // Epic 21 Story 21.4: 离线状态详细提示
   readonly offlineQueueCount = signal(0);
+  readonly appError = signal<string | null>(null);  // Task 431: 错误边界
   readonly attachments = signal<Attachment[]>([]);
   readonly adminUsers = signal<any[]>([]);
   readonly adminProjects = signal<any[]>([]);
@@ -193,13 +194,14 @@ export class App implements OnInit, OnDestroy {
 
   // Epic 21 Story 21.4: 全局错误边界处理器
   private readonly handleGlobalError = (event: ErrorEvent): void => {
-    // 忽略网络资源加载错误
-    if (event.filename?.includes('_ngcontent') || event.message?.includes('404')) {
-      return;
-    }
-    this.hasError.set(true);
-    this.errorMessage.set(`发生错误：${event.message}`);
-    console.error('[ErrorBoundary]', event.error);
+    const msg = event.message || '发生了未知错误';
+    // 忽略某些常见的非关键错误
+    if (msg.includes('ResizeObserver') || msg.includes('ResizeObserver loop')) return;
+    this.appError.set(msg);
+    // 5 秒后自动消失（除非是严重错误）
+    setTimeout(() => {
+      if (this.appError() === msg) this.appError.set(null);
+    }, 5000);
   };
 
   private readonly handleUnhandledRejection = (event: PromiseRejectionEvent): void => {
@@ -207,8 +209,11 @@ export class App implements OnInit, OnDestroy {
     if (event.reason?.message?.includes('离线')) {
       return;
     }
-    this.hasError.set(true);
-    this.errorMessage.set(`异步错误：${event.reason?.message || '未知错误'}`);
+    const msg = event.reason?.message || '异步错误';
+    this.appError.set(msg);
+    setTimeout(() => {
+      if (this.appError() === msg) this.appError.set(null);
+    }, 5000);
     console.error('[UnhandledRejection]', event.reason);
   };
 
@@ -216,6 +221,7 @@ export class App implements OnInit, OnDestroy {
   resetErrorBoundary(): void {
     this.hasError.set(false);
     this.errorMessage.set('');
+    this.appError.set(null);
   }
 
   constructor(
@@ -228,6 +234,7 @@ export class App implements OnInit, OnDestroy {
     window.addEventListener(AUTH_EXPIRED_EVENT, this.handleAuthExpired);
     window.addEventListener('online', this.handleOnline);    // Task 402: 离线检测
     window.addEventListener('offline', this.handleOffline);
+    window.addEventListener('error', this.handleGlobalError); // Task 431: 错误边界
     const saved = localStorage.getItem('agentboard_theme');
     // 优先使用用户偏好，其次跟随系统
     const theme = saved || (this.colorScheme?.matches ? 'dark' : 'light');
@@ -389,6 +396,11 @@ export class App implements OnInit, OnDestroy {
       this.isAdmin.set(false);
       this.openAuth('login');
     }
+  }
+
+  // Task 431: 手动关闭错误提示
+  dismissError(): void {
+    this.appError.set(null);
   }
 
   ngOnDestroy(): void {
@@ -1085,6 +1097,13 @@ export class App implements OnInit, OnDestroy {
         this.focusedTaskIndex.set(-1);
         this.clearTaskSelection();
         this.closeBulkActionPanel();
+        break;
+      case 'a':
+        // Ctrl+A / Cmd+A: Select all tasks
+        if (event.ctrlKey || event.metaKey) {
+          event.preventDefault();
+          this.selectAllTasks();
+        }
         break;
     }
   }

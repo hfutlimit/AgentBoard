@@ -1,12 +1,15 @@
 @if (!authVisible()) {
 <!-- Task 402: 离线提示条 -->
-<!-- Epic 21 Story 21.4: 优化离线状态提示 -->
 @if (offlineBanner()) {
   <div class="offline-banner">
-    <span>⚡ 网络已断开，操作将在恢复后自动重试</span>
-    @if (offlineQueueCount() > 0) {
-      <span class="offline-queue-badge">{{ offlineQueueCount() }} 个操作排队中</span>
-    }
+    <span>⚡ 网络已断开，部分功能可能不可用</span>
+  </div>
+}
+<!-- Task 431: 错误边界 -->
+@if (appError()) {
+  <div class="error-banner" role="alert">
+    <span>❗ {{ appError() }}</span>
+    <button class="error-dismiss" (click)="dismissError()" aria-label="关闭">✕</button>
   </div>
 }
 <header class="topbar">
@@ -108,13 +111,7 @@
             }
           </div>
           <span class="user-chip">
-            <span class="user-name" (click)="showUserMenu.set(!showUserMenu())" style="cursor:pointer">{{ currentUser() }}</span>
-            @if (showUserMenu()) {
-              <div class="user-dropdown">
-                <a routerLink="/settings" class="user-dropdown-item" (click)="showUserMenu.set(false)">⚙ 个人设置</a>
-                <button class="user-dropdown-item" (click)="logout()">🚪 退出登录</button>
-              </div>
-            }
+            <span class="user-name">{{ currentUser() }}</span>
           </span>
         } @else {
           <button id="login-btn" class="ghost-sm" type="button" (click)="openAuth()">登录</button>
@@ -188,17 +185,6 @@
         <p>{{ error() }}</p>
         <p class="muted">API：{{ api.baseUrl }}</p>
         <button class="btn-primary-sm" (click)="refresh()">重试</button>
-      </div>
-    } @else if (hasError()) {
-      <!-- Epic 21 Story 21.4: 组件级错误边界 -->
-      <div class="card error-state">
-        <h2>⚠ 发生错误</h2>
-        <p>{{ errorMessage() }}</p>
-        <p class="muted">页面可能处于不稳定状态，建议刷新页面。</p>
-        <div class="error-actions">
-          <button class="btn-primary-sm" (click)="resetErrorBoundary()">继续使用</button>
-          <button class="ghost-sm" (click)="refresh()">刷新页面</button>
-        </div>
       </div>
     } @else {
       @switch (view()) {
@@ -661,55 +647,6 @@
                     <button class="ghost-sm" (click)="exportProjectTasks()">📥 导出全部任务</button>
                   </div>
                 </div>
-
-                <!-- Epic 22: 数据导入 -->
-                <div class="card">
-                  <h4>数据导入</h4>
-                  <p class="muted" style="margin-bottom:12px">从 JSON 文件导入任务</p>
-                  <input type="file" id="import-file" accept=".json" style="margin-bottom:8px"
-                    (change)="onImportFileSelected($event, current.id)">
-                  <div id="import-result" class="info-box" style="display:none"></div>
-                </div>
-
-                <!-- Epic 22: Webhooks -->
-                <div class="card">
-                  <div class="section-header">
-                    <h4>Webhook 配置</h4>
-                    <button class="btn-ghost-sm" (click)="loadWebhooks(current.id)">🔄 刷新</button>
-                  </div>
-                  @if (webhooks().length) {
-                    <div class="webhook-list">
-                      @for (wh of webhooks(); track wh.id) {
-                        <div class="webhook-item">
-                          <div class="webhook-info">
-                            <strong>{{ wh.name }}</strong>
-                            <span class="muted">{{ wh.url }}</span>
-                            <span class="badge {{ wh.enabled ? 'status--done' : 'status--backlog' }}">
-                              {{ wh.enabled ? '启用' : '停用' }}
-                            </span>
-                            @if (wh.events.length) {
-                              <span class="muted">{{ wh.events.join(', ') }}</span>
-                            }
-                          </div>
-                          <div class="webhook-actions">
-                            <button class="ghost-sm" (click)="toggleWebhook(wh.id, !wh.enabled, current.id)">
-                              {{ wh.enabled ? '停用' : '启用' }}
-                            </button>
-                            <button class="ghost-sm danger" (click)="deleteWebhook(wh.id, current.id)">删除</button>
-                          </div>
-                        </div>
-                      }
-                    </div>
-                  } @else {
-                    <div class="empty-inline">暂无 Webhook 配置</div>
-                  }
-                  <div style="margin-top:12px">
-                    <input type="text" id="wh-name" placeholder="名称" style="margin-right:8px;padding:4px 8px;border:1px solid var(--border-color);border-radius:6px">
-                    <input type="text" id="wh-url" placeholder="https://..." style="margin-right:8px;padding:4px 8px;border:1px solid var(--border-color);border-radius:6px;width:300px">
-                    <input type="text" id="wh-secret" placeholder="密钥(可选)" style="margin-right:8px;padding:4px 8px;border:1px solid var(--border-color);border-radius:6px">
-                    <button class="btn-primary-sm" (click)="onCreateWebhook(current.id)">+ 添加 Webhook</button>
-                  </div>
-                </div>
               </div>
             }
           }
@@ -841,15 +778,6 @@
               </div>
             </div>
             @if (selectedTaskCount > 0) {
-              <!-- Epic 21 Story 21.3: 批量操作进度指示 -->
-              @if (bulkProgress(); as progress) {
-                <div class="bulk-progress-bar">
-                  <div class="bulk-progress-info">{{ progress.message }}</div>
-                  <div class="bulk-progress-track">
-                    <div class="bulk-progress-fill" [style.width]="(progress.current / progress.total * 100) + '%'"></div>
-                  </div>
-                </div>
-              }
               <div class="bulk-action-bar">
                 <span class="bulk-count">{{ selectedTaskCount }} 项已选</span>
                 <button class="ghost-sm" (click)="selectAllTasks()">全选</button>
@@ -878,25 +806,6 @@
                 </div>
               }
             }
-            <!-- Task 602: 高级筛选面板 -->
-            <div class="filter-bar">
-              <span class="filter-label">筛选:</span>
-              <select class="filter-select" (change)="filterStatus.set($any($event.target).value)" [value]="filterStatus()">
-                <option value="">全部状态</option>
-                @for (s of statuses; track s) {
-                  <option [value]="s">{{ statusLabel(s) }}</option>
-                }
-              </select>
-              <select class="filter-select" (change)="filterPriority.set($any($event.target).value)" [value]="filterPriority()">
-                <option value="">全部优先级</option>
-                @for (p of priorities; track p) {
-                  <option [value]="p">{{ priorityLabel(p) }}</option>
-                }
-              </select>
-              @if (filterStatus() || filterPriority()) {
-                <button class="btn-ghost-sm" (click)="filterStatus.set(''); filterPriority.set('')">清除</button>
-              }
-            </div>
             @if (!boardMode()) {
               <div class="entity-list" (keydown)="handleTaskKeydown($event)" tabindex="0">
                 @for (item of visibleTasks(); track item.id; let i = $index) {
@@ -905,7 +814,7 @@
                       type="checkbox"
                       class="task-checkbox"
                       [checked]="selectedTasks().has(item.id)"
-                      (change)="toggleTaskSelection(item.id, $any($event)); $event.stopPropagation()"
+                      (change)="toggleTaskSelection(item.id); $event.stopPropagation()"
                       (click)="$event.stopPropagation()"
                     />
                     <a [routerLink]="['/task', item.id]" class="entity-item-link">
@@ -933,7 +842,7 @@
                   <div class="empty-inline">暂无任务</div>
                 }
               </div>
-              <div class="kbd-hint">j/k 上下导航 · Enter 打开 · Space/点击 选择 · Shift+点击 范围选择 · Esc 取消</div>
+              <div class="kbd-hint">j/k 上下导航 · Enter 打开 · Space 选择 · Ctrl+A 全选 · Esc 取消</div>
             } @else {
               <div class="kanban">
                 @for (status of statuses; track status) {
@@ -943,7 +852,7 @@
                       ><span class="kanban-count">{{ tasksForStatus(status).length }}</span>
                     </div>
                     @for (item of tasksForStatus(status); track item.id) {
-                      <a [routerLink]="['/task', item.id]" class="kanban-card kanban-card--rich priority-card--{{ item.priority }}"
+                      <a [routerLink]="['/task', item.id]" class="kanban-card kanban-card--rich"
                         ><strong class="kanban-card-title">{{ item.title }}</strong>
                         <div class="kanban-card-meta">
                           <span class="badge priority priority--{{ item.priority }}" style="font-size:10px">{{ priorityLabel(item.priority) }}</span>
@@ -951,10 +860,7 @@
                           @if (item.sprint_id) {
                             <span class="sprint-dot" title="Sprint">🏃</span>
                           }
-                        </div>
-                        @if (item.status === 'done') {
-                          <div class="kanban-done-bar" title="已完成"><span>✓</span></div>
-                        }</a
+                        </div></a
                       >
                     }
                   </div>
@@ -1005,18 +911,14 @@
                   statusLabel(current.status)
                 }}</span>
               </div>
-              <!-- Task 603: 抽屉内快速操作按钮 -->
-              <div class="task-quick-actions">
-                <button class="btn-ghost-sm" title="复制任务ID" (click)="copyToClipboard('#task-' + current.id)">#{{ current.id }} 📋</button>
-                <select
-                  [value]="current.status"
-                  (change)="changeTaskStatus($any($event.target).value)"
-                >
-                  @for (status of statuses; track status) {
-                    <option [value]="status">{{ statusLabel(status) }}</option>
-                  }
-                </select>
-              </div>
+              <select
+                [value]="current.status"
+                (change)="changeTaskStatus($any($event.target).value)"
+              >
+                @for (status of statuses; track status) {
+                  <option [value]="status">{{ statusLabel(status) }}</option>
+                }
+              </select>
             </div>
             <div class="two-col">
               <div class="card">
@@ -1055,52 +957,6 @@
                 <button class="btn-ghost-sm" (click)="$any($event.target).previousElementSibling.click()">＋ 上传附件</button>
                 <span class="muted" style="margin-left:8px;font-size:12px">支持图片、PDF、文本等，最大 10MB</span>
               </div>
-            </div>
-
-            <!-- Epic 22: 任务依赖关系 -->
-            <div class="card">
-              <div class="section-header">
-                <h3>依赖关系</h3>
-                <button class="btn-ghost-sm" (click)="loadTaskDependencies(current.id)">🔄 刷新</button>
-              </div>
-              @if (taskDependencies()) {
-                <div class="dep-section">
-                  <div class="dep-group">
-                    <strong>🔗 阻塞此任务</strong>
-                    @if (taskDependencies()!.blockers.length) {
-                      <ul class="dep-list">
-                        @for (dep of taskDependencies()!.blockers; track dep.id) {
-                          <li class="dep-item">
-                            <a [routerLink]="['/task', dep.task_id]">{{ dep.task?.title || '任务 #' + dep.task_id }}</a>
-                            <span class="badge {{ dep.type === 'blocks' ? 'status--in_progress' : 'status--todo' }}">{{ dep.type }}</span>
-                            <button class="ghost-sm danger" (click)="removeDependency(dep.id, current.id)">✕</button>
-                          </li>
-                        }
-                      </ul>
-                    } @else {
-                      <div class="empty-inline">无阻塞依赖</div>
-                    }
-                  </div>
-                  <div class="dep-group">
-                    <strong>🚧 被此任务阻塞</strong>
-                    @if (taskDependencies()!.blocked_by.length) {
-                      <ul class="dep-list">
-                        @for (dep of taskDependencies()!.blocked_by; track dep.id) {
-                          <li class="dep-item">
-                            <a [routerLink]="['/task', dep.task_id]">{{ dep.task?.title || '任务 #' + dep.task_id }}</a>
-                            <span class="badge status--in_progress">{{ dep.type }}</span>
-                            <button class="ghost-sm danger" (click)="removeDependency(dep.id, current.id)">✕</button>
-                          </li>
-                        }
-                      </ul>
-                    } @else {
-                      <div class="empty-inline">无被阻塞任务</div>
-                    }
-                  </div>
-                </div>
-              } @else {
-                <div class="empty-inline">点击「刷新」加载依赖关系</div>
-              }
             </div>
             <div class="card form-section">
               <h3>编辑任务</h3>
@@ -1386,64 +1242,6 @@
             }
           </div>
         }
-        @case ('settings') {
-          <div class="page-header">
-            <h1>个人设置</h1>
-            <p class="muted">管理您的 API Key 和偏好设置</p>
-          </div>
-          <!-- API Key 管理 -->
-          <div class="card">
-            <div class="card-header">
-              <h2>API Key</h2>
-              <button class="btn-primary-sm" (click)="showCreateKeyModal()">+ 新建 API Key</button>
-            </div>
-            <p class="muted" style="margin-bottom:16px">API Key 用于第三方工具或脚本调用 AgentBoard API，以 <code>abk_</code> 开头。</p>
-            @if (apiKeys().length) {
-              <table class="table">
-                <thead><tr><th>名称</th><th>前缀</th><th>权限</th><th>创建时间</th><th>最后使用</th><th>状态</th><th>操作</th></tr></thead>
-                <tbody>
-                  @for (key of apiKeys(); track key.id) {
-                    <tr>
-                      <td>{{ key.name }}</td>
-                      <td><code>{{ key.prefix }}</code>…</td>
-                      <td><span class="badge">{{ (key.permissions || []).join(', ') || '全部' }}</span></td>
-                      <td class="muted">{{ key.created_at | date:'yyyy-MM-dd HH:mm' }}</td>
-                      <td class="muted">{{ key.last_used_at ? (key.last_used_at | date:'yyyy-MM-dd HH:mm') : '从未使用' }}</td>
-                      <td><span [class]="key.enabled ? 'badge status--done' : 'badge'">{{ key.enabled ? '启用' : '已禁用' }}</span></td>
-                      <td><button class="ghost-sm danger" (click)="revokeApiKey(key.id)">撤销</button></td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            } @else {
-              <div class="empty-inline">暂无 API Key</div>
-            }
-          </div>
-          <!-- 创建 Key 弹窗 -->
-          @if (keyModalVisible()) {
-            <div class="modal-backdrop" (click)="closeKeyModal()"></div>
-            <div class="modal">
-              @if (createdKeyPlaintext()) {
-                <h3>✅ API Key 已创建</h3>
-                <p class="muted">请立即复制并安全保存以下密钥，<strong>关闭后无法再次查看</strong>：</p>
-                <div class="info-box" style="word-break:break-all;font-family:monospace;user-select:all">{{ createdKeyPlaintext() }}</div>
-                <div style="margin-top:16px;text-align:right">
-                  <button class="btn-primary-sm" (click)="closeKeyModal()">我已复制</button>
-                </div>
-              } @else {
-                <h3>新建 API Key</h3>
-                <form (submit)="createApiKey(); $event.preventDefault()">
-                  <label>名称 <input [(ngModel)]="newKeyName" name="keyName" required placeholder="例如：CLI 工具" /></label>
-                  <label>权限范围 <input [(ngModel)]="newKeyPerms" name="keyPerms" placeholder="逗号分隔，例如：api:read,mcp:tools:read（留空默认 api:read）" /></label>
-                  <div style="margin-top:16px;text-align:right;display:flex;gap:8px;justify-content:flex-end">
-                    <button type="button" class="ghost-sm" (click)="closeKeyModal()">取消</button>
-                    <button type="submit" class="btn-primary-sm" [disabled]="submitting()">创建</button>
-                  </div>
-                </form>
-              }
-            </div>
-          }
-        }
         @default {
           <div class="card empty-state">
             <h2>页面不存在</h2>
@@ -1520,12 +1318,6 @@
 }
 
 <div id="toast">
-  @for (t of toasts(); track t.id) {
-    <div class="toast {{ t.type }}">
-      <span class="toast-msg">{{ t.message }}</span>
-      <button class="toast-close" (click)="closeToast(t.id)">×</button>
-    </div>
-  }
   @if (toastMessage()) {
     <div class="toast {{ toastType() }}">{{ toastMessage() }}</div>
   }

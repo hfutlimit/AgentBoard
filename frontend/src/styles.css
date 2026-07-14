@@ -1896,3 +1896,44 @@ details.form-section > form { padding: 16px; }
 .offline-banner span::before {
   content: '⚡ ';
 }
+
+/* ---- Epic 21.4: Error Boundary (Task 431) ---- */
+.error-banner {
+  background: var(--danger, #dc2626);
+  color: #fff;
+  text-align: center;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  position: sticky;
+  top: 0;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  letter-spacing: 0.3px;
+  animation: slideDown 0.3s ease;
+}
+.error-dismiss {
+  background: rgba(255,255,255,0.2);
+  border: 1px solid rgba(255,255,255,0.4);
+  color: #fff;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  padding: 0;
+}
+.error-dismiss:hover {
+  background: rgba(255,255,255,0.3);
+}
+@keyframes slideDown {
+  from { transform: translateY(-100%); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
