@@ -1,8 +1,11 @@
 @if (!authVisible()) {
-<!-- Task 402: 离线提示条 -->
+<!-- Task 402: 离线提示条 + Task 808: 离线队列数量 -->
 @if (offlineBanner()) {
   <div class="offline-banner">
     <span>⚡ 网络已断开，部分功能可能不可用</span>
+    @if (offlineQueueCount() > 0) {
+      <span class="offline-queue-count">{{ offlineQueueCount() }} 个操作已加入队列</span>
+    }
   </div>
 }
 <!-- Task 431: 错误边界 -->
@@ -192,6 +195,21 @@
   }
 
   <main id="app">
+    <!-- Task 804: Bulk operation progress indicator with percentage -->
+    @if (bulkProgress()) {
+      <div class="bulk-progress-bar" style="position:sticky;top:0;z-index:50;margin-bottom:8px">
+        <span class="spinner"></span>
+        <span>{{ bulkProgress()!.message }}</span>
+        @if (bulkProgress()!.total > 0) {
+          <span class="bulk-progress-pct">{{ ((bulkProgress()!.current / bulkProgress()!.total) * 100).toFixed(0) }}%</span>
+        }
+      </div>
+      @if (bulkProgress()!.total > 0) {
+        <div class="bulk-progress-track">
+          <div class="bulk-progress-fill" [style.width.%]="(bulkProgress()!.current / bulkProgress()!.total) * 100"></div>
+        </div>
+      }
+    }
     @if (loading()) {
       <div class="skeleton">
         <div class="sk-header"><div class="sk-line sk-h"></div></div>

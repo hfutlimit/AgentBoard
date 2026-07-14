@@ -583,3 +583,248 @@ router-outlet {
 .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .card-header h2 { margin: 0; }
 
+/* ---------- Health Popover & Performance Metrics (Task 708) ---------- */
+.health-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 280px;
+  background: var(--card-bg, #fff);
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.12);
+  z-index: 200;
+  padding: 12px;
+}
+[data-theme="dark"] .health-popover {
+  background: var(--card-bg, #1e293b);
+  border-color: var(--border-color, #334155);
+}
+.health-header {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color, #e5e7eb);
+}
+.health-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--text-secondary, #6b7280);
+}
+.health-row span:last-child {
+  font-weight: 500;
+  color: var(--text-primary, #1f2937);
+}
+[data-theme="dark"] .health-row span:last-child {
+  color: var(--text-primary, #f1f5f9);
+}
+
+/* Task 708: Performance Metrics Styles */
+.perf-section {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-color, #e5e7eb);
+}
+.perf-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #6b7280);
+  margin-bottom: 6px;
+}
+.perf-value {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  font-weight: 600;
+}
+.perf-good { color: #16a34a; }
+.perf-warn { color: #ca8a04; }
+.perf-bad { color: #dc2626; }
+[data-theme="dark"] .perf-good { color: #4ade80; }
+[data-theme="dark"] .perf-warn { color: #facc15; }
+[data-theme="dark"] .perf-bad { color: #f87171; }
+
+.perf-metrics {
+  margin-top: 8px;
+  max-height: 120px;
+  overflow-y: auto;
+  background: rgba(0,0,0,.03);
+  border-radius: 6px;
+  padding: 4px;
+}
+[data-theme="dark"] .perf-metrics {
+  background: rgba(255,255,255,.05);
+}
+.perf-metric-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+}
+.perf-method {
+  background: var(--brand-soft, #dbeafe);
+  color: var(--brand-600, #2563eb);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+[data-theme="dark"] .perf-method {
+  background: rgba(37,99,235,.2);
+  color: #93c5fd;
+}
+.perf-path {
+  flex: 1;
+  color: var(--text-secondary, #6b7280);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.perf-duration {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* ---------- Task 709: Skeleton Screen & Slow Operation Indicators ---------- */
+/* A-07: Shimmer Skeleton Loading */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  padding: 20px;
+}
+.skeleton-title {
+  height: 20px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+  margin-bottom: 12px;
+  width: 60%;
+}
+.skeleton-card {
+  height: 80px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+  margin-bottom: 8px;
+}
+.skeleton-sidebar {
+  height: 200px;
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 8px;
+  width: 200px;
+}
+[data-theme="dark"] .skeleton-title,
+[data-theme="dark"] .skeleton-card,
+[data-theme="dark"] .skeleton-sidebar {
+  background: linear-gradient(90deg, #2d3748 25%, #1a202c 50%, #2d3748 75%);
+  background-size: 200% 100%;
+}
+
+/* Task 709: Slow operation progress indicator */
+.slow-op-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.slow-op-card {
+  background: var(--card-bg, #fff);
+  border-radius: 12px;
+  padding: 24px;
+  min-width: 280px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.2);
+  text-align: center;
+}
+.slow-op-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border-color, #e5e7eb);
+  border-top-color: var(--brand-500, #3b82f6);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+  margin: 0 auto 12px;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.slow-op-message {
+  font-size: 14px;
+  color: var(--text-primary, #1f2937);
+  margin-bottom: 8px;
+}
+.slow-op-progress {
+  height: 4px;
+  background: var(--border-color, #e5e7eb);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 12px;
+}
+.slow-op-progress-bar {
+  height: 100%;
+  background: var(--brand-500, #3b82f6);
+  transition: width .3s ease;
+}
+
+/* Bulk operation progress (Epic 21 Story 21.3) */
+.bulk-progress-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--brand-soft, #dbeafe);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--brand-600, #2563eb);
+}
+[data-theme="dark"] .bulk-progress-bar {
+  background: rgba(37,99,235,.2);
+  color: #93c5fd;
+}
+.bulk-progress-bar .spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin .6s linear infinite;
+}
+.bulk-progress-pct {
+  margin-left: auto;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.bulk-progress-track {
+  height: 3px;
+  background: var(--border-color, #e5e7eb);
+  margin: -8px 12px 8px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.bulk-progress-fill {
+  height: 100%;
+  background: var(--brand-500, #3b82f6);
+  border-radius: 2px;
+  transition: width .2s ease;
+}
+[data-theme="dark"] .bulk-progress-track {
+  background: rgba(255,255,255,.1);
+}
+[data-theme="dark"] .bulk-progress-fill {
+  background: #60a5fa;
+}
