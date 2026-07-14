@@ -1,8 +1,12 @@
 @if (!authVisible()) {
 <!-- Task 402: 离线提示条 -->
+<!-- Epic 21 Story 21.4: 优化离线状态提示 -->
 @if (offlineBanner()) {
   <div class="offline-banner">
-    <span>⚡ 网络已断开，部分功能可能不可用</span>
+    <span>⚡ 网络已断开，操作将在恢复后自动重试</span>
+    @if (offlineQueueCount() > 0) {
+      <span class="offline-queue-badge">{{ offlineQueueCount() }} 个操作排队中</span>
+    }
   </div>
 }
 <header class="topbar">
@@ -178,6 +182,17 @@
         <p>{{ error() }}</p>
         <p class="muted">API：{{ api.baseUrl }}</p>
         <button class="btn-primary-sm" (click)="refresh()">重试</button>
+      </div>
+    } @else if (hasError()) {
+      <!-- Epic 21 Story 21.4: 组件级错误边界 -->
+      <div class="card error-state">
+        <h2>⚠ 发生错误</h2>
+        <p>{{ errorMessage() }}</p>
+        <p class="muted">页面可能处于不稳定状态，建议刷新页面。</p>
+        <div class="error-actions">
+          <button class="btn-primary-sm" (click)="resetErrorBoundary()">继续使用</button>
+          <button class="ghost-sm" (click)="refresh()">刷新页面</button>
+        </div>
       </div>
     } @else {
       @switch (view()) {
@@ -820,6 +835,15 @@
               </div>
             </div>
             @if (selectedTaskCount > 0) {
+              <!-- Epic 21 Story 21.3: 批量操作进度指示 -->
+              @if (bulkProgress(); as progress) {
+                <div class="bulk-progress-bar">
+                  <div class="bulk-progress-info">{{ progress.message }}</div>
+                  <div class="bulk-progress-track">
+                    <div class="bulk-progress-fill" [style.width]="(progress.current / progress.total * 100) + '%'"></div>
+                  </div>
+                </div>
+              }
               <div class="bulk-action-bar">
                 <span class="bulk-count">{{ selectedTaskCount }} 项已选</span>
                 <button class="ghost-sm" (click)="selectAllTasks()">全选</button>
@@ -875,7 +899,7 @@
                       type="checkbox"
                       class="task-checkbox"
                       [checked]="selectedTasks().has(item.id)"
-                      (change)="toggleTaskSelection(item.id); $event.stopPropagation()"
+                      (change)="toggleTaskSelection(item.id, $any($event)); $event.stopPropagation()"
                       (click)="$event.stopPropagation()"
                     />
                     <a [routerLink]="['/task', item.id]" class="entity-item-link">
@@ -903,7 +927,7 @@
                   <div class="empty-inline">暂无任务</div>
                 }
               </div>
-              <div class="kbd-hint">j/k 上下导航 · Enter 打开 · Space 选择 · Esc 取消</div>
+              <div class="kbd-hint">j/k 上下导航 · Enter 打开 · Space/点击 选择 · Shift+点击 范围选择 · Esc 取消</div>
             } @else {
               <div class="kanban">
                 @for (status of statuses; track status) {

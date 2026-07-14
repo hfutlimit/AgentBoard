@@ -10,6 +10,7 @@ export const AUTH_EXPIRED_EVENT = 'agentboard:auth-expired';
 declare global {
   interface Window {
     AGENTBOARD_API?: string;
+    AGENTBOARD_STATS_CACHE_TTL?: string;
   }
 }
 
@@ -416,8 +417,25 @@ export class ApiService {
   }
 
   /* ---------- Project Stats ---------- */
+  // Epic 21 Story 21.2: 添加缓存支持，可配置 TTL
+  private readonly STATS_CACHE_TTL = parseInt(window.AGENTBOARD_STATS_CACHE_TTL || '30000', 10); // 默认 30 秒
+
   getProjectStats(projectId: number) {
-    return this.request<ProjectStats>('GET', `/api/projects/${projectId}/stats`);
+    const cacheKey = `/api/projects/${projectId}/stats`;
+    const cached = apiCache.getWithTTL<ProjectStats>(cacheKey, this.STATS_CACHE_TTL);
+    if (cached) return of(cached);
+    return this.request<ProjectStats>('GET', cacheKey).pipe(
+      tap(data => apiCache.set(cacheKey, data))
+    );
+  }
+
+  // Story 21.2: 写入操作时清除 stats 缓存
+  invalidateStatsCache(projectId?: number): void {
+    if (projectId) {
+      apiCache.invalidate(`/api/projects/${projectId}/stats`);
+    } else {
+      apiCache.invalidatePrefix('/api/projects');
+    }
   }
 
   /* ---------- Admin ---------- */
@@ -488,15 +506,22 @@ export class ApiService {
   }
 
   /* ---------- Bulk Operations ---------- */
+  // Epic 21 Story 21.2: 写入操作时清除相关缓存
   bulkUpdateTasks(taskIds: number[], updates: { status?: string; priority?: string; sprint_id?: number }) {
     return this.request<{ updated: any[]; errors: any[] }>('POST', '/api/tasks/bulk-update', { task_ids: taskIds, ...updates }).pipe(
-      tap(() => apiCache.invalidatePrefix('/api/stories'))
+      tap(() => {
+        apiCache.invalidatePrefix('/api/stories');
+        apiCache.invalidatePrefix('/api/projects'); // 清除项目统计缓存
+      })
     );
   }
 
   bulkDeleteTasks(taskIds: number[]) {
     return this.request<{ deleted: any[]; errors: any[] }>('POST', '/api/tasks/bulk-delete', { task_ids: taskIds }).pipe(
-      tap(() => apiCache.invalidatePrefix('/api/stories'))
+      tap(() => {
+        apiCache.invalidatePrefix('/api/stories');
+        apiCache.invalidatePrefix('/api/projects'); // 清除项目统计缓存
+      })
     );
   }
 

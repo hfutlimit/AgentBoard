@@ -82,13 +82,21 @@ export class App implements OnInit, OnDestroy {
   readonly healthDetail = signal<{ status: string; database: string; version: string; timestamp: string } | null>(null);
   readonly showHealth = signal(false);
   readonly offlineBanner = signal(false);  // Task 402: API 离线检测
+  // Epic 21 Story 21.4: 离线状态详细提示
+  readonly offlineQueueCount = signal(0);
   readonly attachments = signal<Attachment[]>([]);
   readonly adminUsers = signal<any[]>([]);
   readonly adminProjects = signal<any[]>([]);
   readonly selectedTasks = signal<Set<number>>(new Set());
   readonly bulkActionTarget = signal<string | null>(null); // 'status' | 'delete' | null
+  // Epic 21 Story 21.3: 批量操作进度跟踪
+  readonly bulkProgress = signal<{ current: number; total: number; message: string } | null>(null);
   readonly focusedTaskIndex = signal<number>(-1);
   readonly exportDropdownOpen = signal(false);
+  // Epic 21 Story 21.4: 组件级错误边界状态
+  readonly hasError = signal(false);
+  readonly errorMessage = signal('');
+  readonly lastSelectedTaskId = signal<number | null>(null); // Shift+点击多选支持
   // Epic 22: 任务依赖
   readonly taskDependencies = signal<TaskDependencies | null>(null);
   // Epic 22: Webhooks
@@ -145,8 +153,10 @@ export class App implements OnInit, OnDestroy {
     this.notify('登录已失效，请重新登录', 'error');
   };
   // Task 402: 网络离线检测
+  // Epic 21 Story 21.4: 优化离线状态提示
   private readonly handleOnline = (): void => {
     this.offlineBanner.set(false);
+    this.offlineQueueCount.set(0);
     // Task 472: flush offline queue when back online
     const queue = (() => {
       try { return JSON.parse(localStorage.getItem('agentboard_offline_queue') || '[]'); }
@@ -157,7 +167,41 @@ export class App implements OnInit, OnDestroy {
       this.notify(`已恢复网络，正在重发 ${queue.length} 个离线操作…`);
     }
   };
-  private readonly handleOffline = (): void => { this.offlineBanner.set(true); };
+  private readonly handleOffline = (): void => {
+    this.offlineBanner.set(true);
+    // 同步更新离线队列计数
+    try {
+      const queue = JSON.parse(localStorage.getItem('agentboard_offline_queue') || '[]');
+      this.offlineQueueCount.set(queue.length);
+    } catch { this.offlineQueueCount.set(0); }
+  };
+
+  // Epic 21 Story 21.4: 全局错误边界处理器
+  private readonly handleGlobalError = (event: ErrorEvent): void => {
+    // 忽略网络资源加载错误
+    if (event.filename?.includes('_ngcontent') || event.message?.includes('404')) {
+      return;
+    }
+    this.hasError.set(true);
+    this.errorMessage.set(`发生错误：${event.message}`);
+    console.error('[ErrorBoundary]', event.error);
+  };
+
+  private readonly handleUnhandledRejection = (event: PromiseRejectionEvent): void => {
+    // 忽略离线队列相关错误
+    if (event.reason?.message?.includes('离线')) {
+      return;
+    }
+    this.hasError.set(true);
+    this.errorMessage.set(`异步错误：${event.reason?.message || '未知错误'}`);
+    console.error('[UnhandledRejection]', event.reason);
+  };
+
+  // Story 21.4: 错误边界重置
+  resetErrorBoundary(): void {
+    this.hasError.set(false);
+    this.errorMessage.set('');
+  }
 
   constructor(
     readonly api: ApiService,
@@ -176,6 +220,9 @@ export class App implements OnInit, OnDestroy {
     this.loadRecentProjects();
     // Listen for system theme changes
     this.colorScheme?.addEventListener('change', this.handleColorSchemeChange);
+    // Epic 21 Story 21.4: 全局错误处理
+    window.addEventListener('error', this.handleGlobalError);
+    window.addEventListener('unhandledrejection', this.handleUnhandledRejection);
     // 启动时校验已有 token，失败则清除并显示登录
     void this.validateAuth();
     this.routeSub = this.router.events
@@ -196,6 +243,11 @@ export class App implements OnInit, OnDestroy {
       if (this.authVisible()) return;
       void this.loadNotifications();
     }, 60000);
+    // Story 21.4: 初始化时更新离线队列计数
+    try {
+      const queue = JSON.parse(localStorage.getItem('agentboard_offline_queue') || '[]');
+      this.offlineQueueCount.set(queue.length);
+    } catch { this.offlineQueueCount.set(0); }
   }
 
   async checkHealth(): Promise<void> {
@@ -258,6 +310,8 @@ export class App implements OnInit, OnDestroy {
     window.removeEventListener(AUTH_EXPIRED_EVENT, this.handleAuthExpired);
     window.removeEventListener('online', this.handleOnline);    // Task 402
     window.removeEventListener('offline', this.handleOffline);
+    window.removeEventListener('error', this.handleGlobalError);
+    window.removeEventListener('unhandledrejection', this.handleUnhandledRejection);
     this.colorScheme?.removeEventListener('change', this.handleColorSchemeChange);
     this.routeSub?.unsubscribe();
     if (this.toastTimer) clearTimeout(this.toastTimer);
@@ -768,14 +822,33 @@ export class App implements OnInit, OnDestroy {
   }
 
   /* ---------- Bulk Operations ---------- */
-  toggleTaskSelection(taskId: number): void {
+  // Epic 21 Story 21.3: Shift+点击多选支持
+  toggleTaskSelection(taskId: number, event?: Event): void {
     const selected = new Set(this.selectedTasks());
-    if (selected.has(taskId)) {
-      selected.delete(taskId);
+    const mouseEvent = event as MouseEvent | undefined;
+    
+    // Shift+点击：范围选择
+    if (mouseEvent?.shiftKey && this.lastSelectedTaskId() !== null) {
+      const tasks = this.visibleTasks();
+      const lastIdx = tasks.findIndex(t => t.id === this.lastSelectedTaskId());
+      const currentIdx = tasks.findIndex(t => t.id === taskId);
+      if (lastIdx >= 0 && currentIdx >= 0) {
+        const [start, end] = lastIdx < currentIdx ? [lastIdx, currentIdx] : [currentIdx, lastIdx];
+        for (let i = start; i <= end; i++) {
+          selected.add(tasks[i].id);
+        }
+      }
     } else {
-      selected.add(taskId);
+      // 普通点击切换
+      if (selected.has(taskId)) {
+        selected.delete(taskId);
+      } else {
+        selected.add(taskId);
+      }
     }
+    
     this.selectedTasks.set(selected);
+    this.lastSelectedTaskId.set(taskId);
   }
 
   selectAllTasks(): void {
@@ -785,28 +858,46 @@ export class App implements OnInit, OnDestroy {
 
   clearTaskSelection(): void {
     this.selectedTasks.set(new Set());
+    this.lastSelectedTaskId.set(null);
   }
 
   get selectedTaskCount(): number {
     return this.selectedTasks().size;
   }
 
+  // Epic 21 Story 21.3: 批量操作进度跟踪
   async bulkUpdateStatus(newStatus: string): Promise<void> {
     const ids = Array.from(this.selectedTasks());
     if (ids.length === 0) return;
+    
+    // 显示进度
+    this.bulkProgress.set({ current: 0, total: ids.length, message: `正在更新 0/${ids.length} 个任务…` });
+    
     try {
       const result = await firstValueFrom(this.api.bulkUpdateTasks(ids, { status: newStatus }));
       const successCount = result.updated?.length ?? 0;
       const errorCount = result.errors?.length ?? 0;
+      
+      // Story 21.3: 失败反馈优化 - 显示具体失败项
       if (errorCount > 0) {
-        this.notify(`批量更新完成：${successCount} 成功，${errorCount} 失败`, 'error');
+        const failedIds = result.errors.map((e: any) => e.id || e.task_id).filter(Boolean).slice(0, 3);
+        const failedMsg = failedIds.length > 0 ? `（失败 ID: ${failedIds.join(', ')}${errorCount > 3 ? '…' : ''}）` : '';
+        this.notify(`批量更新完成：${successCount} 成功，${errorCount} 失败${failedMsg}`, 'error');
       } else {
         this.notify(`已批量更新 ${successCount} 个任务的状态为「${this.statusLabel(newStatus)}」`);
       }
       this.clearTaskSelection();
       await this.refresh();
     } catch (error) {
-      this.notify(`批量更新失败：${this.message(error)}`, 'error');
+      // Epic 21 Story 21.4: 离线队列重放时的错误处理
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      if (errorMsg.includes('离线')) {
+        this.notify('操作已加入离线队列，将在网络恢复后自动重试', 'error');
+      } else {
+        this.notify(`批量更新失败：${errorMsg}`, 'error');
+      }
+    } finally {
+      this.bulkProgress.set(null);
     }
   }
 
@@ -814,19 +905,35 @@ export class App implements OnInit, OnDestroy {
     const ids = Array.from(this.selectedTasks());
     if (ids.length === 0) return;
     if (!confirm(`确认删除选中的 ${ids.length} 个任务？此操作不可撤销。`)) return;
+    
+    // 显示进度
+    this.bulkProgress.set({ current: 0, total: ids.length, message: `正在删除 0/${ids.length} 个任务…` });
+    
     try {
       const result = await firstValueFrom(this.api.bulkDeleteTasks(ids));
       const successCount = result.deleted?.length ?? 0;
       const errorCount = result.errors?.length ?? 0;
+      
+      // Story 21.3: 失败反馈优化 - 显示具体失败项
       if (errorCount > 0) {
-        this.notify(`批量删除完成：${successCount} 成功，${errorCount} 失败`, 'error');
+        const failedIds = result.errors.map((e: any) => e.id || e.task_id).filter(Boolean).slice(0, 3);
+        const failedMsg = failedIds.length > 0 ? `（失败 ID: ${failedIds.join(', ')}${errorCount > 3 ? '…' : ''}）` : '';
+        this.notify(`批量删除完成：${successCount} 成功，${errorCount} 失败${failedMsg}`, 'error');
       } else {
         this.notify(`已删除 ${successCount} 个任务`);
       }
       this.clearTaskSelection();
       await this.refresh();
     } catch (error) {
-      this.notify(`批量删除失败：${this.message(error)}`, 'error');
+      // Epic 21 Story 21.4: 离线队列重放时的错误处理
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      if (errorMsg.includes('离线')) {
+        this.notify('操作已加入离线队列，将在网络恢复后自动重试', 'error');
+      } else {
+        this.notify(`批量删除失败：${errorMsg}`, 'error');
+      }
+    } finally {
+      this.bulkProgress.set(null);
     }
   }
 
