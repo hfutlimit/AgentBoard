@@ -11,7 +11,7 @@ import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT } from './api
 import { LoginComponent } from './login/login';
 import { AgentSchedule, Attachment, AuditLog, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, WebhookConfig } from './models';
 
-type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'admin' | 'not-found';
+type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
 
 interface CreateModal {
@@ -64,6 +64,7 @@ export class App implements OnInit, OnDestroy {
   readonly notifications = signal<Notification[]>([]);
   readonly unreadCount = signal(0);
   readonly showNotifications = signal(false);
+  readonly showUserMenu = signal(false);
   readonly projectStats = signal<ProjectStats | null>(null);
   readonly schedules = signal<AgentSchedule[]>([]);
   readonly statsMaxCreated = computed(() => {
@@ -105,6 +106,12 @@ export class App implements OnInit, OnDestroy {
   // Epic 26 Task 704: 任务详情相邻导航
   readonly prevTask = signal<Task | null>(null);
   readonly nextTask = signal<Task | null>(null);
+  // Epic 25: API Keys
+  readonly apiKeys = signal<any[]>([]);
+  readonly newKeyName = signal('');
+  readonly newKeyPerms = signal('');
+  readonly keyModalVisible = signal(false);
+  readonly createdKeyPlaintext = signal('');
   // Epic 22: 任务依赖
   readonly taskDependencies = signal<TaskDependencies | null>(null);
   // Epic 22: Webhooks
@@ -501,6 +508,13 @@ export class App implements OnInit, OnDestroy {
         }
         this.view.set('admin');
         await this.loadAdminData();
+      } else if (kind === 'settings') {
+        if (!localStorage.getItem('agentboard_token')) {
+          this.router.navigateByUrl('/login');
+          return;
+        }
+        this.view.set('settings');
+        await this.loadApiKeys();
       } else {
         this.view.set('not-found');
       }
@@ -1336,6 +1350,55 @@ export class App implements OnInit, OnDestroy {
       await this.loadAdminData();
     } catch (error) {
       this.notify(`删除失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  /* ---------- Epic 25: API Keys ---------- */
+  async loadApiKeys(): Promise<void> {
+    try {
+      const resp = await firstValueFrom(this.api.listApiKeys());
+      this.apiKeys.set(resp.items || []);
+    } catch {
+      this.apiKeys.set([]);
+    }
+  }
+
+  showCreateKeyModal(): void {
+    this.newKeyName.set('');
+    this.newKeyPerms.set('');
+    this.createdKeyPlaintext.set('');
+    this.keyModalVisible.set(true);
+  }
+
+  closeKeyModal(): void {
+    this.keyModalVisible.set(false);
+    this.createdKeyPlaintext.set('');
+  }
+
+  async createApiKey(): Promise<void> {
+    const name = this.newKeyName().trim();
+    if (!name) { this.notify('请输入密钥名称', 'error'); return; }
+    const perms = this.newKeyPerms().trim()
+      ? this.newKeyPerms().trim().split(',').map(p => p.trim()).filter(Boolean)
+      : ['api:read'];
+    try {
+      const result = await firstValueFrom(this.api.createApiKey({ name, permissions: perms }));
+      this.createdKeyPlaintext.set(result.key);
+      this.notify('API Key 已创建，请立即复制保存！');
+      await this.loadApiKeys();
+    } catch (error) {
+      this.notify(`创建失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  async revokeApiKey(keyId: number): Promise<void> {
+    if (!confirm('确认撤销此 API Key？撤销后使用该 Key 的请求将立即失效。')) return;
+    try {
+      await firstValueFrom(this.api.revokeApiKey(keyId));
+      this.notify('API Key 已撤销');
+      await this.loadApiKeys();
+    } catch (error) {
+      this.notify(`撤销失败：${this.message(error)}`, 'error');
     }
   }
 

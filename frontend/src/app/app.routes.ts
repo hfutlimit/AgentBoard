@@ -14,5 +14,6 @@ export const routes: Routes = [
   { path: 'task/:id', component: RouteAnchor },
   { path: 'sprint/:id', component: RouteAnchor },
   { path: 'admin', component: RouteAnchor },
+  { path: 'settings', component: RouteAnchor },
   { path: '**', component: RouteAnchor },
 ];

@@ -568,3 +568,18 @@ router-outlet {
   color: #fca5a5;
 }
 
+/* ---------- User Dropdown ---------- */
+.user-chip { position: relative; display: inline-flex; align-items: center; }
+.user-name { padding: 4px 10px; border-radius: 6px; font-weight: 600; font-size: 14px; transition: background .15s; }
+.user-name:hover { background: rgba(0,0,0,.06); }
+[data-theme="dark"] .user-name:hover { background: rgba(255,255,255,.1); }
+.user-dropdown { position: absolute; top: 100%; right: 0; margin-top: 4px; min-width: 150px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,.1); z-index: 100; overflow: hidden; }
+[data-theme="dark"] .user-dropdown { background: #1e293b; border-color: #334155; }
+.user-dropdown-item { display: block; width: 100%; padding: 10px 14px; text-align: left; background: none; border: none; font-size: 14px; cursor: pointer; color: inherit; text-decoration: none; }
+.user-dropdown-item:hover { background: #f3f4f6; }
+[data-theme="dark"] .user-dropdown-item:hover { background: #334155; }
+
+/* ---------- Card Header (with action button) ---------- */
+.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.card-header h2 { margin: 0; }
+

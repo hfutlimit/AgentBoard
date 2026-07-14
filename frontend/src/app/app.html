@@ -108,7 +108,13 @@
             }
           </div>
           <span class="user-chip">
-            <span class="user-name">{{ currentUser() }}</span>
+            <span class="user-name" (click)="showUserMenu.set(!showUserMenu())" style="cursor:pointer">{{ currentUser() }}</span>
+            @if (showUserMenu()) {
+              <div class="user-dropdown">
+                <a routerLink="/settings" class="user-dropdown-item" (click)="showUserMenu.set(false)">⚙ 个人设置</a>
+                <button class="user-dropdown-item" (click)="logout()">🚪 退出登录</button>
+              </div>
+            }
           </span>
         } @else {
           <button id="login-btn" class="ghost-sm" type="button" (click)="openAuth()">登录</button>
@@ -1379,6 +1385,64 @@
               <div class="empty-inline">加载中…</div>
             }
           </div>
+        }
+        @case ('settings') {
+          <div class="page-header">
+            <h1>个人设置</h1>
+            <p class="muted">管理您的 API Key 和偏好设置</p>
+          </div>
+          <!-- API Key 管理 -->
+          <div class="card">
+            <div class="card-header">
+              <h2>API Key</h2>
+              <button class="btn-primary-sm" (click)="showCreateKeyModal()">+ 新建 API Key</button>
+            </div>
+            <p class="muted" style="margin-bottom:16px">API Key 用于第三方工具或脚本调用 AgentBoard API，以 <code>abk_</code> 开头。</p>
+            @if (apiKeys().length) {
+              <table class="table">
+                <thead><tr><th>名称</th><th>前缀</th><th>权限</th><th>创建时间</th><th>最后使用</th><th>状态</th><th>操作</th></tr></thead>
+                <tbody>
+                  @for (key of apiKeys(); track key.id) {
+                    <tr>
+                      <td>{{ key.name }}</td>
+                      <td><code>{{ key.prefix }}</code>…</td>
+                      <td><span class="badge">{{ (key.permissions || []).join(', ') || '全部' }}</span></td>
+                      <td class="muted">{{ key.created_at | date:'yyyy-MM-dd HH:mm' }}</td>
+                      <td class="muted">{{ key.last_used_at ? (key.last_used_at | date:'yyyy-MM-dd HH:mm') : '从未使用' }}</td>
+                      <td><span [class]="key.enabled ? 'badge status--done' : 'badge'">{{ key.enabled ? '启用' : '已禁用' }}</span></td>
+                      <td><button class="ghost-sm danger" (click)="revokeApiKey(key.id)">撤销</button></td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            } @else {
+              <div class="empty-inline">暂无 API Key</div>
+            }
+          </div>
+          <!-- 创建 Key 弹窗 -->
+          @if (keyModalVisible()) {
+            <div class="modal-backdrop" (click)="closeKeyModal()"></div>
+            <div class="modal">
+              @if (createdKeyPlaintext()) {
+                <h3>✅ API Key 已创建</h3>
+                <p class="muted">请立即复制并安全保存以下密钥，<strong>关闭后无法再次查看</strong>：</p>
+                <div class="info-box" style="word-break:break-all;font-family:monospace;user-select:all">{{ createdKeyPlaintext() }}</div>
+                <div style="margin-top:16px;text-align:right">
+                  <button class="btn-primary-sm" (click)="closeKeyModal()">我已复制</button>
+                </div>
+              } @else {
+                <h3>新建 API Key</h3>
+                <form (submit)="createApiKey(); $event.preventDefault()">
+                  <label>名称 <input [(ngModel)]="newKeyName" name="keyName" required placeholder="例如：CLI 工具" /></label>
+                  <label>权限范围 <input [(ngModel)]="newKeyPerms" name="keyPerms" placeholder="逗号分隔，例如：api:read,mcp:tools:read（留空默认 api:read）" /></label>
+                  <div style="margin-top:16px;text-align:right;display:flex;gap:8px;justify-content:flex-end">
+                    <button type="button" class="ghost-sm" (click)="closeKeyModal()">取消</button>
+                    <button type="submit" class="btn-primary-sm" [disabled]="submitting()">创建</button>
+                  </div>
+                </form>
+              }
+            </div>
+          }
         }
         @default {
           <div class="card empty-state">

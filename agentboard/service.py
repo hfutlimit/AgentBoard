@@ -918,6 +918,24 @@ def update_api_key(
     return item
 
 
+def revoke_api_key(s: Session, *, user_id: int, api_key_id: int) -> bool:
+    item = s.query(ApiKey).filter(ApiKey.id == api_key_id, ApiKey.user_id == user_id).first()
+    if item is None:
+        return False
+    s.delete(item)
+    _commit(s)
+    return True
+
+
+def lookup_api_key_by_hash(s: Session, key_hash: str) -> ApiKey | None:
+    return s.query(ApiKey).filter(ApiKey.key_hash == key_hash).first()
+
+
+def touch_api_key(s: Session, item: ApiKey) -> None:
+    item.last_used_at = models._now()
+    _commit(s)
+
+
 # ---------- Paged response ----------
 def paginated_result(items: list, total: int) -> dict:
     return {"items": items, "total": total}

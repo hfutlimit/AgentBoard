@@ -647,4 +647,15 @@ export class ApiService {
   listAuditLogs(params?: { entity_type?: string; entity_id?: number; user_id?: number; action?: string; limit?: number; offset?: number }) {
     return this.request<PagedResult<AuditLog>>('GET', '/api/audit-logs', undefined, params as Record<string, string | number | undefined>);
   }
+
+  /* ---------- Epic 25: API Keys ---------- */
+  listApiKeys() {
+    return this.request<{ items: any[] }>('GET', '/api/api-keys');
+  }
+  createApiKey(body: { name: string; permissions: string[] }) {
+    return this.request<any>('POST', '/api/api-keys', body);
+  }
+  revokeApiKey(keyId: number) {
+    return this.request<void>('DELETE', `/api/api-keys/${keyId}`);
+  }
 }

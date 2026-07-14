@@ -94,8 +94,17 @@ async def require_business_auth(request: Request, call_next):
     )
     if protected:
         authorization = request.headers.get("Authorization")
-        token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-        uid = auth.parse_token(token)
+        raw_token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
+        uid = auth.parse_token(raw_token)
+        # Also support API Key auth: token prefixed with abk_
+        if not uid and raw_token and raw_token.startswith(auth.API_KEY_PREFIX):
+            digest = auth.hash_api_key(raw_token)
+            with SessionLocal() as s:
+                ak = service.lookup_api_key_by_hash(s, digest)
+                uid = ak.user_id if ak and ak.enabled else None
+                # Update last_used_at if key is valid
+                if uid and ak:
+                    service.touch_api_key(s, ak)
         with SessionLocal() as s:
             if not uid or service.get_user(s, uid) is None:
                 resp = JSONResponse(status_code=401, content={"detail": "unauthorized"})
@@ -463,6 +472,13 @@ def update_api_key(body: ApiKeyPatch, api_key_id: int, authorization: str | None
         s, item, name=body.name, enabled=body.enabled, permissions=body.permissions,
     )
     return _api_key_response(updated)
+
+
+@app.delete("/api/api-keys/{api_key_id}", status_code=204)
+def revoke_api_key(api_key_id: int, authorization: str | None = Header(None), s: Session = Depends(get_session)):
+    user = _current_user(authorization, s)
+    if not service.revoke_api_key(s, user_id=user.id, api_key_id=api_key_id):
+        raise HTTPException(status_code=404, detail="api key not found")
 
 
 # ---------- Projects ----------
