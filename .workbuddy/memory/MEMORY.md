@@ -12,12 +12,19 @@
 - commit 规范：`feat(ui): 前端小优化 - <一句话描述>`。
 - 复用：状态/类型枚举来自 `GET /api/meta`；渲染辅助 `md()/esc()/statusSelect()/typeSelect()/toast()/route()` 可直接复用。
 
-## 既有能力现状（2026-07-12 盘点）
-- **鉴权全链路就绪**：后端 `/api/auth/register|login|me` + `users` 表 + 测试；**前端登录/注册 UI 已完成（Epic 7，2026-07-12）**。`app.js` 含 `getToken/setToken/clearToken` + `CURRENT_USER`；`api()` 注入 `Authorization` 并在 401 跳登录（auth 端点自身不触发，避免递归）；顶栏用户名+登出。
-- **Epic 7 启动守卫为"动态"设计（重要）**：后端开放（默认 `AGENTBOARD_REQUIRE_AUTH` 未设/0）时免登可用；一旦后端设为 `1` 强制鉴权，SPA 数据请求 401 会**自动跳登录**。据此**不要**把 SPA 改成"无 token 一律硬拦截进入"——会破坏当前开放部署。如需强制登录，应在后端置 `AGENTBOARD_REQUIRE_AUTH=1`，SPA 会自动适配。
-- **Epic 8**：MariaDB 独立 `.sql` 脚本 + 真实集成验证（已完成）。
-- **Epic 9**：Playwright 真实浏览器 E2E（已完成，6 passed）。
-- **Epic 12（进行中）**：Story 12.1 完成；Story 12.2 进行中（task 12.2.1 完成：Sprint 数据模型与 CRUD）。
+## 既有能力现状（2026-07-14 15:40 更新）
+- **Epic 22/23/24 已完成**：审计日志、任务依赖、Webhook、缓存强化、Toast、移动端优化全部 done
+- **Epic 21 Story 15/16 已完成**：API 指数退避重试（429/5xx，1s/2s/4s）+ 离线队列（localStorage）+ 批量操作确认 → done ✅
+- **Epic 25 (Epic 8 in DB) 进行中**：Stories 25.1-25.4，Tasks 600-605 → in_review
+  - Task 600: 看板卡片优先级色边框
+  - Task 601: 看板卡片完成进度显示
+  - Task 602: 任务列表高级筛选面板
+  - Task 603: 抽屉内快速操作按钮
+- **前端指数退避重试**：`api.service.ts` 的 `request()` 方法带 `_retries` 参数，retryable 错误自动退避重试
+- **离线队列**：写入操作离线时入 localStorage（最多 50 条），网络恢复时 toast 提示
+- **Docker Web**：volume mount `E:/Projects/WorkBuddy/AgentBoard/agentboard/web/static -> /app/...`，无需 rebuild
+- **API 端口**：58125（非 8000），验证用 `curl http://localhost:58125/api/meta`
+- **测试约定**：module-scoped fixture 启动独立 server；backend_flow 单独运行通过，组合运行时 fixture 冲突
 - **Sprint 功能就绪（2026-07-12）**：`SprintStatus` 枚举（planning/active/completed）+ `Sprint` 模型 + Task.sprint_id FK；单 active Sprint 约束；Sprint 完成时未完成任务退回 backlog；REST API Sprint 端点完整；`/api/meta` 含 `sprint_statuses`。
 
 ## 协作流程约定

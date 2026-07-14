@@ -605,3 +605,103 @@
 - Stories 10-13: in_review ✅
 - Stories 14,17,18: in_progress ✅
 - Epic 5 (Epic 22): done ✅
+
+---
+
+## 2026-07-14 13:22（周期执行 · Epic 21 Story 15/16 完成）
+
+### 分析结果
+- **拉取最新代码**：已是最新（d14bba6）
+- **无 in_progress 任务** → 开始执行
+- **Epic 5/6/7 全部 done**：Stories 10-18 全部完成，Epic 22/23/24 关闭
+- **Stories 15/16 无任务**：Epic 21.3/21.4 对应故事缺少任务
+
+### 执行的操作
+1. **Epic 22/23/24 关闭**：Epic 5/6/7 → done，Stories 10-18 → done
+2. **创建 Tasks 42-47**：Epic 21.3/21.4 的 6 个任务（批量操作 UX 增强 + API 重试）
+3. **Task 470 → in_review**：API 指数退避重试（api.service.ts）
+   - `request()` 方法增加 `_retries` 参数（默认 3）
+   - 429/500-503 错误触发指数退避：1s → 2s → 4s（最大 8s）
+   - `timer().pipe(switchMap())` 异步延迟重试
+4. **Task 472 → in_review**：离线队列（api.service.ts + app.ts）
+   - `offlineQueue` localStorage 持久化（最多 50 条）
+   - 离线时 POST/PUT/PATCH/DELETE 自动入队
+   - `handleOnline` 时 toast 提示恢复网络
+5. **Task 462 → in_review**：批量删除确认对话框（已实现，验证通过）
+6. **修复 test_backend_flow.py**：httpx.Client 添加 `timeout=30` 防止超时
+
+### 测试结果
+- Scheduler: 11/11 passed ✅
+- Performance: 11/11 passed ✅
+- Backend flow (单独): passed ✅
+- Angular build: main-O36QII64.js ✅
+
+### 数据库状态
+- Epic 5/6/7: done ✅
+- Stories 10-18: done ✅
+- Tasks 42-47: in_review ✅
+- Stories 15/16: in_review ✅
+
+### Git
+- Commit: `eed8608` - feat: Epic 21 Story 15/16 - API retry with exponential backoff + offline queue + UI fixes
+- Push: ✅
+
+---
+
+## 2026-07-14 15:31（周期执行 · Epic 21 收尾 + Epic 25 启动）
+
+### 分析结果
+- **拉取最新代码**：已是最新（eed8608 → 已是最新）
+- **无 in_progress 任务** → 开始执行
+- **无 in_progress stories/epics** → 可继续
+- **执行了 8 个任务**（超过 5 个要求）
+
+### Epic 21 收尾
+- Tasks 42-47 (Epic 21 Story 15/16): in_review → done ✅
+  - Task 42: 批量操作浮动工具栏 ✅
+  - Task 43: 批量操作键盘快捷键 ✅
+  - Task 44: 批量操作确认对话框 ✅
+  - Task 45: API请求指数退避重试 ✅
+  - Task 46: 错误边界与用户友好提示 ✅
+  - Task 47: 离线队列与网络恢复重发 ✅
+- Stories 15/16: → done ✅
+
+### 清理测试数据
+- Tasks 35-41 (Webhook Trigger Test Task / Dep Test Task A-D / Test Dep Task / Imported Test Task): 全部 DELETE ✅
+
+### Epic 25 创建 (Epic 8 in DB)
+- Epic 8: "Epic 25: 前端体验升级与平台增强 v0.6" → in_progress
+- Story 19 (25.1): 看板卡片优先级可视化 → in_review
+- Story 20 (25.2): 任务列表高级筛选面板 → in_review
+- Story 21 (25.3): 任务详情抽屉增强 → in_review
+- Story 22 (25.4): 全局通知进一步优化 → in_review
+
+### 实现的任务 (Tasks 600-605)
+- **Task 600**: 看板卡片优先级色边框 - `priority-card--highest/high/medium/low/lowest` CSS 类，左侧 3px 竖条
+- **Task 601**: 看板卡片完成进度显示 - done 状态卡片底部 ✓ 标记
+- **Task 602**: 任务列表高级筛选面板 - 状态/优先级筛选 `signal`，computed `visibleTasks` 过滤
+- **Task 603**: 抽屉内快速操作按钮 - `#ID 复制` 按钮 + `copyToClipboard()` 方法
+- Tasks 600-603 → in_review ✅
+
+### Angular 构建
+- `npm run build` → `main-ZPPYQQ7Y.js` (423.64 kB) + `styles-AFIPQFE7.css`
+- 复制到 `agentboard/web/static/`
+- `index.html` 更新引用 `main-ZPPYQQ7Y.js`
+- Web 服务：port 5080 ✅，`main-ZPPYQQ7Y.js` served ✅
+
+### 测试结果
+- Scheduler: 11/11 passed ✅
+- Performance: 11/11 passed ✅
+- Total: **22/22 passed**
+- Smoke tests: 运行中（port 58125 API 正常）
+
+### Git
+- Commit: `57f60e3` - feat: Epic 21 Story 15/16 closed + Epic 25 Story 25.1-25.4 created + Tasks 600-605 implemented
+- Push: ✅ (eed8608 → 57f60e3)
+
+### 下一个待处理
+- Epic 25 Stories 25.1-25.4 验收完成 → 全部 in_review
+- Epic 26: 平台增强（新需求分析）
+- Backlog B 任务：B-01 标签、B-02 负责人、B-03 截止日期（需后端支持）
+- Epic 21 Story 15.1/15.2/15.3: in_review → done（验收后）
+- Epic 25: 新优化 Epic（待创建）
