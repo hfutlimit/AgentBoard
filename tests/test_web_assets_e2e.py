@@ -164,6 +164,78 @@ def test_index_html_resource_paths_resolve():
         assert status == 200, f"index.html 引用 {r} 应 200，实际: {status}"
 
 
+# ---------------- API 端点测试 （2026-07-14 补充：防止 CORS/API 调用失败） ----------------
+API_BASE = "http://localhost:58125"
+
+
+def test_api_meta_accessible():
+    """API meta 端点应返回 200 且包含 statuses 字段。"""
+    status, headers, body = _http_get(f"{API_BASE}/api/meta")
+    assert status == 200, f"/api/meta 应 200，实际: {status}"
+    assert "statuses" in body, "/api/meta 应含 statuses 字段"
+
+
+def test_api_cors_headers():
+    """跨域请求（Origin: localhost:5080）必须返回 Access-Control-Allow-Origin。"""
+    req = urllib.request.Request(f"{API_BASE}/api/meta")
+    req.add_header("Origin", "http://localhost:5080")
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        assert resp.headers.get("Access-Control-Allow-Origin"), \
+            "缺少 CORS Access-Control-Allow-Origin 头"
+
+
+def test_api_cors_preflight():
+    """OPTIONS 预检请求必须返回正确的 CORS 头（浏览器在 POST 前发的）。"""
+    req = urllib.request.Request(f"{API_BASE}/api/meta", method="OPTIONS")
+    req.add_header("Origin", "http://localhost:5080")
+    req.add_header("Access-Control-Request-Method", "GET")
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        assert resp.headers.get("Access-Control-Allow-Origin"), \
+            "OPTIONS 预检必须返回 Allow-Origin"
+        assert resp.headers.get("Access-Control-Allow-Methods"), \
+            "OPTIONS 预检必须返回 Allow-Methods"
+
+
+def test_frontend_can_call_api(page):
+    """真实浏览器：从页面 JavaScript 调用 API 应成功（跨域 CORS 验证 + 真实端点测试）。
+
+    这是 2026-07-14 「Http failure response: 0 Unknown Error」的回归测试。
+    使用标准 fetch() 验证 API 可达、CORS 无阻止、具体 story 端点工作正常。
+
+    注意：如果标准 fetch() 通过但 Angular HttpClient 仍失败，
+    则问题在 Angular 拦截器/重试机制（非 web_app.py 范畴）。
+    """
+    page.goto(f"{WEB_BASE}/", timeout=15000)
+    page.wait_for_timeout(1000)
+
+    # 测试 /api/meta
+    result = page.evaluate(f"""async () => {{
+        try {{
+            const resp = await fetch('{API_BASE}/api/meta');
+            if (!resp.ok) return 'HTTP ' + resp.status;
+            const data = await resp.json();
+            return 'OK: ' + (data.statuses || []).join(', ');
+        }} catch(e) {{
+            return 'CORS/BLOCK: ' + e.message;
+        }}
+    }}""")
+    assert "OK:" in result, f"fetch /api/meta 应成功，实际: {result}"
+
+    # 测试 /api/stories/9/tasks（用户截图看到的失败端点）
+    result2 = page.evaluate(f"""async () => {{
+        try {{
+            const resp = await fetch('{API_BASE}/api/stories/9/tasks');
+            if (!resp.ok) return 'HTTP ' + resp.status;
+            const data = await resp.json();
+            return 'OK: ' + resp.status + ' tasks=[' + data.length + ']';
+        }} catch(e) {{
+            return 'FAIL: ' + e.message;
+        }}
+    }}""")
+    assert "OK:" in result2, \
+        f"fetch /api/stories/9/tasks 应成功，实际: {result2}"
+
+
 # ---------------- Fixtures 注入 ----------------
 @pytest.fixture
 def page():
