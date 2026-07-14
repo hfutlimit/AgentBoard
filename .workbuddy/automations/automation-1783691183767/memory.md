@@ -1,5 +1,60 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-15 04:30（周期执行 · Epic 29 性能监控 + 键盘增强）
+
+### 分析结果
+- **拉取最新代码**：已是最新（1ec13cb → 已是最新）
+- **无阻塞 in_progress 任务**：Task 708 遗留 in_progress 状态，完成后更新
+- **执行了 4 个任务**（Task 708/710/711/712）
+
+### 执行的任务
+
+#### Task 708 → in_review: 性能指标显示（加载时间/API响应时间）
+- `api.service.ts`: 新增 `PerformanceTracker` 类 + `perfTracker` 单例
+  - 跟踪 API 请求耗时（`performance.now()`）
+  - 记录成功/失败状态、平均耗时、成功率
+  - 保留最近 50 条请求记录
+- `app.ts`: 新增 signals `apiMetrics/avgApiDuration/apiSuccessRate/pageLoadTime/showPerformance`
+  - `updatePerformanceMetrics()` 更新指标
+  - `formatMetricTime()` / `formatLoadTime()` 格式化显示
+- `app.html`: 健康弹层增加「📊 性能指标」区块
+  - 页面加载时间、API 平均耗时、成功率
+  - 最近 5 条 API 请求详情（方法/路径/耗时）
+- `styles.css`: 新增 `.perf-section/.perf-value/.perf-good/.perf-bad` 等样式
+
+#### Task 710 → in_review: 快捷键提示面板增强
+- `app.ts`: 快捷键列表增加「批量操作」分组
+  - Shift+点击、Ctrl+A、Ctrl+点击、Del 快捷键说明
+
+#### Task 711 → in_review: 任务列表批量选择键盘支持
+- `app.ts`: 全局 keydown 监听增加 Ctrl+A（全选）、Del（删除）快捷键
+- 新增 `bulkDelete()` 方法触发批量删除
+- 快捷键面板同步更新
+
+### 测试结果
+- Scheduler: 11/11 passed ✅
+- Performance: 11/11 passed ✅
+- Total: **22/22 passed**
+
+### 部署
+- Angular: `npm run build` → `main-CMUKGOZI.js` (433.14 kB) + `styles-3UPTZBVK.css`
+- Web: volume mount 自动同步（`agentboard/web/static/` → `/app/...`）
+
+### Git
+- Commit: `fdff62c` - feat(ui): Epic 29 - 性能监控 + 快捷键增强 (Task 708/710/711)
+- Push: ✅
+
+### 数据库状态
+- Tasks 708/710/711: → in_review ✅
+- Story 45/46/47: 保持 in_progress ✅
+
+### 下一个待处理
+- Story 45/46/47 验收 → done
+- Epic 27 关闭
+- Epic 28 创建（新优化 Epic）
+
+---
+
 ## 2026-07-13 09:28（周期执行 · Epic 14 收尾 + 测试稳定性修复）
 
 - **拉取最新代码**：已是最新（aeac22c → e5b4eb9）
