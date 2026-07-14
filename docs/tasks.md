@@ -188,6 +188,11 @@
 - [x] Task：新增 `tests/test_playwright_e2e.py`：fixture 启动真实 API + Web（临时 SQLite）
 - [x] Task：UI 辅助函数 `ui_register / ui_login`
 
+### Story 9.3 静态资源契约与回归保护
+> 目的：防止 2026-07-14 「web_app.py 资源路径/MIME 错误导致页面空白」事故复现。
+- [x] Task：新增 `tests/test_web_assets_e2e.py`：8 项契约测试（首页 200/app-root/无 404/Angular 启动/品牌文案/JS MIME/CSS MIME/资源路径解析）
+- [x] Task：所有测试通过（8/8 PASSED），与现有 test_playwright_e2e.py 互补
+
 ### Story 9.2 真实交互用例
 - [x] Task：注册 UI 流（进入应用 + localStorage 含 token）
 - [x] Task：登录 UI 流（注册后登出再登录重新进入应用）
