@@ -521,4 +521,36 @@
 ### Story 21.4 前端错误处理与离线支持
 - [ ] API 重试机制 + 离线状态提示 + 错误边界
 
+---
+
+## Epic 22：审计日志、任务依赖、Webhook 与数据导入（v0.5）
+> 目标：API 审计日志、任务依赖关系管理、Webhook 配置、数据导入导出增强。
+
+### Story 22.1 审计日志
+- [x] Task：审计日志模型（audit_logs 表：user_id/action/entity_type/entity_id/method/path/ip/user_agent/response_status/duration_ms）
+- [x] Task：API 中间件自动记录所有非 health/meta/auth 的 API 请求
+- [x] Task：审计日志查询 API（GET /api/audit-logs，支持 entity_type/entity_id/user_id/action 过滤）
+
+### Story 22.2 任务依赖关系
+- [x] Task：任务依赖模型（task_dependencies 表：task_id/depends_on_id/dependency_type）
+- [x] Task：依赖 CRUD API（POST /api/tasks/{tid}/dependencies、DELETE /api/dependencies/{did}）
+- [x] Task：前端依赖管理面板（任务详情抽屉内：blockers/blocked_by 显示 + 添加/删除）
+
+### Story 22.3 数据导入
+- [x] Task：JSON 数据批量导入 API（POST /api/projects/{pid}/import）
+
+### Story 22.4 Webhook 配置
+- [x] Task：Webhook 配置模型（webhook_configs 表：project_id/name/url/secret/events/enabled）
+- [x] Task：Webhook CRUD API（POST/GET/DELETE/PATCH /api/webhooks）
+- [x] Task：前端 Webhooks Tab（项目详情页：列表/创建/启用停用/删除）
+
+### Story 22.5 MCP 工具扩展
+- [x] Task：MCP 审计日志工具（list_audit_logs）
+- [x] Task：MCP 依赖管理工具（get_task_dependencies、remove_task_dependency）
+
+### 完成记录
+| 日期 | 项 | 简述 |
+|------|----|------|
+| 2026-07-14 | Epic 22 | 审计日志中间件（记录所有 API 请求）+ 任务依赖关系（blocks/blocked_by/relates_to）+ Webhook 配置（CRUD）+ 数据导入；修复 audit_log_middleware 使用 service.SessionLocal() bug；迁移 9f8c2e7d1a4c；前端依赖面板 + Webhooks Tab + Audit Logs 面板；MCP 工具扩展；commit f7ec4ea |
+
 
