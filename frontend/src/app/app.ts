@@ -97,6 +97,14 @@ export class App implements OnInit, OnDestroy {
   readonly hasError = signal(false);
   readonly errorMessage = signal('');
   readonly lastSelectedTaskId = signal<number | null>(null); // Shift+点击多选支持
+
+  // Epic 26 Task 702: 搜索历史记录
+  readonly searchHistory = signal<{ query: string; timestamp: number }[]>([]);
+  readonly showSearchHistory = signal(false);
+
+  // Epic 26 Task 704: 任务详情相邻导航
+  readonly prevTask = signal<Task | null>(null);
+  readonly nextTask = signal<Task | null>(null);
   // Epic 22: 任务依赖
   readonly taskDependencies = signal<TaskDependencies | null>(null);
   // Epic 22: Webhooks
@@ -248,6 +256,76 @@ export class App implements OnInit, OnDestroy {
       const queue = JSON.parse(localStorage.getItem('agentboard_offline_queue') || '[]');
       this.offlineQueueCount.set(queue.length);
     } catch { this.offlineQueueCount.set(0); }
+    // Epic 26 Task 702: 加载搜索历史记录
+    this.loadSearchHistory();
+  }
+
+  // Epic 26 Task 702: 加载搜索历史记录
+  private loadSearchHistory(): void {
+    try {
+      const stored = localStorage.getItem('agentboard_search_history');
+      if (stored) {
+        this.searchHistory.set(JSON.parse(stored));
+      }
+    } catch { this.searchHistory.set([]); }
+  }
+
+  // Epic 26 Task 702: 保存搜索历史记录
+  saveSearchHistory(query: string): void {
+    if (!query.trim()) return;
+    try {
+      const KEY = 'agentboard_search_history';
+      const MAX = 10;
+      let history = this.searchHistory();
+      // Remove duplicate if exists
+      history = history.filter(h => h.query !== query);
+      // Add new query at the beginning
+      history.unshift({ query, timestamp: Date.now() });
+      // Keep only MAX items
+      history = history.slice(0, MAX);
+      this.searchHistory.set(history);
+      localStorage.setItem(KEY, JSON.stringify(history));
+    } catch { /* ignore */ }
+  }
+
+  // Epic 26 Task 702: 清除单条搜索历史
+  removeSearchHistoryItem(query: string): void {
+    try {
+      const history = this.searchHistory().filter(h => h.query !== query);
+      this.searchHistory.set(history);
+      localStorage.setItem('agentboard_search_history', JSON.stringify(history));
+    } catch { /* ignore */ }
+  }
+
+  // Epic 26 Task 702: 清除所有搜索历史
+  clearSearchHistory(): void {
+    this.searchHistory.set([]);
+    localStorage.removeItem('agentboard_search_history');
+    this.showSearchHistory.set(false);
+  }
+
+  // Epic 26 Task 702: 选择历史记录项
+  selectSearchHistory(query: string): void {
+    this.search.set(query);
+    this.showSearchHistory.set(false);
+  }
+
+  // Epic 26 Task 703: 高亮搜索关键词
+  highlightSearch(text: string, query: string): string {
+    if (!query.trim() || !text) return text;
+    const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escaped})`, 'gi');
+    return text.replace(regex, '<mark class="search-highlight">$1</mark>');
+  }
+
+  // Epic 26 Task 704: 计算相邻任务
+  private updatePrevNextTasks(currentTaskId: number): void {
+    const allTasks = this.visibleTasks();
+    const currentIndex = allTasks.findIndex(t => t.id === currentTaskId);
+    if (currentIndex >= 0) {
+      this.prevTask.set(currentIndex > 0 ? allTasks[currentIndex - 1] : null);
+      this.nextTask.set(currentIndex < allTasks.length - 1 ? allTasks[currentIndex + 1] : null);
+    }
   }
 
   async checkHealth(): Promise<void> {
@@ -403,6 +481,8 @@ export class App implements OnInit, OnDestroy {
           this.project.set(await firstValueFrom(this.api.getProject(task.project_id)));
           await this.loadSprints(task.project_id);
         }
+        // Epic 26 Task 704: 更新相邻任务导航
+        this.updatePrevNextTasks(id);
       } else if (kind === 'sprint' && id > 0) {
         this.view.set('sprint');
         const [sprint, tasks] = await Promise.all([

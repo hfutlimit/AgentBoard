@@ -1174,3 +1174,162 @@ details.form-section > form { padding: 16px; }
 .info-box { padding: 10px 14px; border-radius: 8px; background: var(--surface-2, var(--bg)); border: 1px solid var(--border); font-size: .85rem; color: var(--text-secondary); }
 .info-box.warning { border-color: var(--warning, #f59e0b); background: rgba(245,158,11,.08); color: var(--warning, #b45309); }
 
+/* ========== Epic 26: 看板卡片 hover 动画增强 (Task 700) ========== */
+.kanban-card {
+  transition: all .2s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform, box-shadow;
+}
+.kanban-card:hover {
+  border-color: var(--brand-500);
+  box-shadow: var(--sh-md), 0 0 0 3px var(--brand-ring);
+  transform: translateY(-3px) scale(1.01);
+}
+.kanban-card:active {
+  transform: translateY(-1px) scale(0.995);
+  box-shadow: var(--sh-sm);
+  transition-duration: .08s;
+}
+
+/* ========== Epic 26: 搜索结果高亮 (Task 703) ========== */
+.search-highlight {
+  background: linear-gradient(120deg, #fef08a 0%, #fde047 100%);
+  border-radius: 2px;
+  padding: 0 2px;
+  font-weight: 600;
+}
+[data-theme="dark"] .search-highlight {
+  background: linear-gradient(120deg, rgba(234,179,8,.3) 0%, rgba(234,179,8,.4) 100%);
+  color: #fef08a;
+}
+
+/* ========== Epic 26: 搜索历史记录下拉 (Task 702) ========== */
+.search-history-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  box-shadow: var(--sh-lg);
+  z-index: 100;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.search-history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-size: .85rem;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-2);
+  transition: background .12s;
+}
+.search-history-item:last-child { border-bottom: none; }
+.search-history-item:hover { background: var(--surface-2, var(--bg)); }
+.search-history-item .history-query { color: var(--text); font-weight: 500; }
+.search-history-item .history-time { font-size: .75rem; color: var(--text-3); }
+.search-history-clear {
+  padding: 8px 12px;
+  font-size: .8rem;
+  color: var(--danger, #dc2626);
+  cursor: pointer;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2, var(--bg));
+  transition: background .12s;
+}
+.search-history-clear:hover { background: rgba(220,38,38,.08); }
+
+/* ========== Epic 26: 任务详情页相邻导航 (Task 704) ========== */
+.task-nav-buttons {
+  display: flex;
+  justify-content: space-between;
+  margin: 20px 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.task-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: .85rem;
+  cursor: pointer;
+  transition: all .15s;
+  text-decoration: none;
+}
+.task-nav-btn:hover {
+  border-color: var(--brand-500);
+  color: var(--brand-600);
+  background: var(--brand-soft);
+  box-shadow: var(--sh-sm);
+}
+.task-nav-btn:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.task-nav-btn svg { width: 14px; height: 14px; }
+
+/* ========== Epic 26: 无障碍访问优化 (Task 706) ========== */
+/* Focus visible for keyboard navigation */
+.kanban-card:focus-visible {
+  outline: 3px solid var(--brand-500);
+  outline-offset: 2px;
+}
+button:focus-visible, a:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+
+/* Skip link for screen readers */
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: auto;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+.skip-link:focus {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: 8px 16px;
+  background: var(--brand-500);
+  color: white;
+  border-radius: 4px;
+  font-weight: 600;
+  margin: 8px;
+  z-index: 9999;
+}
+
+/* Screen reader only class */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Live region for dynamic content updates */
+.live-region {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
