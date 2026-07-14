@@ -90,7 +90,7 @@ def api_url():
 
 # ---------------- 注册 / 登录 ----------------
 def test_register_and_login(api_url):
-    with httpx.Client(base_url=api_url) as c:
+    with httpx.Client(base_url=api_url, timeout=30) as c:
         # 注册
         r = c.post("/api/auth/register", json={"username": "alice", "password": "secret123"})
         assert r.status_code == 201, r.text

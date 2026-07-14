@@ -1,7 +1,7 @@
 import { HttpClient, HttpErrorResponse, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
-import { Observable, of, throwError } from 'rxjs';
-import { catchError, tap } from 'rxjs/operators';
+import { Observable, of, throwError, timer } from 'rxjs';
+import { catchError, tap, switchMap, mergeMap } from 'rxjs/operators';
 
 import { ApiErrorBody, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, WebhookConfig } from './models';
 
@@ -71,11 +71,61 @@ class ApiCache {
 
 const apiCache = new ApiCache();
 
+// ========== Offline Queue (Task 472) ==========
+const OFFLINE_QUEUE_KEY = 'agentboard_offline_queue';
+
+interface QueuedRequest {
+  id: string;
+  method: string;
+  path: string;
+  body?: unknown;
+  params?: Record<string, string | number | undefined>;
+  timestamp: number;
+}
+
+function getOfflineQueue(): QueuedRequest[] {
+  try {
+    return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]');
+  } catch { return []; }
+}
+
+function saveOfflineQueue(queue: QueuedRequest[]): void {
+  localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(queue.slice(0, 50))); // max 50
+}
+
+function addToOfflineQueue(req: QueuedRequest): void {
+  const queue = getOfflineQueue();
+  queue.push(req);
+  saveOfflineQueue(queue);
+}
+
+export const OFFLINE_QUEUE_FLUSH_EVENT = 'agentboard:flush-offline-queue';
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
   readonly baseUrl = window.AGENTBOARD_API || 'http://127.0.0.1:8000';
+  private _isOnline = navigator.onLine;
+  private _retryCount = 3; // Task 470: max retries for exponential backoff
 
-  constructor(private readonly http: HttpClient) {}
+  constructor(private readonly http: HttpClient) {
+    window.addEventListener('online', () => {
+      this._isOnline = true;
+      window.dispatchEvent(new CustomEvent(OFFLINE_QUEUE_FLUSH_EVENT));
+    });
+    window.addEventListener('offline', () => { this._isOnline = false; });
+  }
+
+  // Task 472: flush offline queue when back online
+  flushOfflineQueue(httpFn: (req: QueuedRequest) => Observable<any>): void {
+    const queue = getOfflineQueue();
+    if (!queue.length) return;
+    const token = localStorage.getItem('agentboard_token');
+    const headers = token ? new HttpHeaders({ Authorization: `Bearer ${token}` }) : undefined;
+    for (const req of queue) {
+      httpFn(req).subscribe({ next: () => {}, error: () => {} });
+    }
+    saveOfflineQueue([]);
+  }
 
   // Cache invalidation helper
   invalidateCache(pattern?: string): void {
@@ -105,11 +155,30 @@ export class ApiService {
     path: string,
     body?: unknown,
     params?: Record<string, string | number | undefined>,
+    _retries = 0,
   ): Observable<T> {
-    return this.http
-      .request<T>(method, `${this.baseUrl}${path}`, { ...this.options(params), body })
+    // Task 472: offline queue — if offline, queue write operations
+    if (!this._isOnline && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method.toUpperCase())) {
+      const queuedReq: QueuedRequest = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        method, path, body, params,
+        timestamp: Date.now(),
+      };
+      addToOfflineQueue(queuedReq);
+      return throwError(() => new Error('离线，操作已加入队列，将在恢复网络后自动重试'));
+    }
+    return (this.http
+      .request(method, `${this.baseUrl}${path}`, { ...this.options(params), body }) as Observable<T>)
       .pipe(
         catchError((error: HttpErrorResponse) => {
+          // Task 470: exponential backoff retry on rate-limit (429) and server errors (500-503)
+          const retryable = error.status === 429 || (error.status >= 500 && error.status < 504);
+          if (retryable && _retries < this._retryCount) {
+            const delay = Math.min(1000 * Math.pow(2, _retries), 8000); // 1s, 2s, 4s
+            return timer(delay).pipe(
+              switchMap(() => this.request<T>(method, path, body, params, _retries + 1))
+            );
+          }
           if (error.status === 401 && localStorage.getItem('agentboard_token')) {
             localStorage.removeItem('agentboard_token');
             localStorage.removeItem('agentboard_user');

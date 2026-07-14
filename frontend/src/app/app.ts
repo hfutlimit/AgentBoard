@@ -7,7 +7,7 @@ import { DOCUMENT } from '@angular/common';
 import { Inject } from '@angular/core';
 import { filter } from 'rxjs/operators';
 
-import { ApiService, AUTH_EXPIRED_EVENT } from './api.service';
+import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT } from './api.service';
 import { LoginComponent } from './login/login';
 import { AgentSchedule, Attachment, AuditLog, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, WebhookConfig } from './models';
 
@@ -137,7 +137,18 @@ export class App implements OnInit, OnDestroy {
     this.notify('登录已失效，请重新登录', 'error');
   };
   // Task 402: 网络离线检测
-  private readonly handleOnline = (): void => { this.offlineBanner.set(false); };
+  private readonly handleOnline = (): void => {
+    this.offlineBanner.set(false);
+    // Task 472: flush offline queue when back online
+    const queue = (() => {
+      try { return JSON.parse(localStorage.getItem('agentboard_offline_queue') || '[]'); }
+      catch { return []; }
+    })();
+    if (queue.length > 0) {
+      localStorage.removeItem('agentboard_offline_queue');
+      this.notify(`已恢复网络，正在重发 ${queue.length} 个离线操作…`);
+    }
+  };
   private readonly handleOffline = (): void => { this.offlineBanner.set(true); };
 
   constructor(
