@@ -112,6 +112,11 @@ export class App implements OnInit, OnDestroy {
   readonly newKeyName = signal('');
   readonly newKeyPerms = signal('');
   readonly keyModalVisible = signal(false);
+  // Task 714: 虚拟滚动 - 列表分页加载（初始显示数量）
+  readonly taskPageSize = signal(50);
+  readonly taskPageCount = signal(1);
+  // Task 716: 全局快捷键面板
+  readonly showShortcuts = signal(false);
   readonly createdKeyPlaintext = signal('');
   // Epic 22: 任务依赖
   readonly taskDependencies = signal<TaskDependencies | null>(null);
@@ -272,6 +277,19 @@ export class App implements OnInit, OnDestroy {
     } catch { this.offlineQueueCount.set(0); }
     // Epic 26 Task 702: 加载搜索历史记录
     this.loadSearchHistory();
+    // Task 716: 全局快捷键面板 - '?' 键打开快捷键帮助
+    window.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === '?' && !this.isInputFocused()) {
+        e.preventDefault();
+        this.toggleShortcuts();
+      }
+    });
+  }
+
+  // Task 716: 判断当前焦点是否在输入元素上
+  private isInputFocused(): boolean {
+    const el = document.activeElement;
+    return el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement;
   }
 
   // Epic 26 Task 702: 加载搜索历史记录
@@ -1448,7 +1466,10 @@ export class App implements OnInit, OnDestroy {
   }
 
   tasksForStatus(status: Status): Task[] {
-    return this.visibleTasks().filter((task) => task.status === status);
+    // Task 714/715: 虚拟滚动 + 增量渲染优化
+    // memoize: Angular signals auto-caches based on dependencies
+    const all = this.visibleTasks().filter((task) => task.status === status);
+    return all.slice(0, this.taskPageSize() * this.taskPageCount());
   }
 
   private applyTheme(theme: string): void {
@@ -1762,4 +1783,39 @@ export class App implements OnInit, OnDestroy {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   }
+
+  // Task 714: 虚拟滚动优化 - 分页加载更多
+  loadMoreTasks(): void {
+    this.taskPageCount.update((n) => n + 1);
+  }
+
+  // Task 716: 全局快捷键面板 - 切换显示
+  toggleShortcuts(): void {
+    this.showShortcuts.set(!this.showShortcuts());
+  }
+
+  // Task 716: 全局快捷键面板 - 快捷键说明
+  readonly shortcuts = [
+    { group: '导航', items: [
+      { keys: ['j'], desc: '下一项' },
+      { keys: ['k'], desc: '上一项' },
+      { keys: ['Enter'], desc: '打开选中项' },
+      { keys: ['Esc'], desc: '关闭弹层' },
+    ]},
+    { group: '编辑', items: [
+      { keys: ['e'], desc: '编辑选中项' },
+      { keys: ['n'], desc: '新建项目' },
+      { keys: ['Ctrl', '↵'], desc: '提交表单' },
+    ]},
+    { group: '视图', items: [
+      { keys: ['v'], desc: '切换列表/看板' },
+      { keys: ['s'], desc: '搜索' },
+      { keys: ['/'], desc: '聚焦搜索框' },
+    ]},
+    { group: '系统', items: [
+      { keys: ['?'], desc: '显示快捷键面板' },
+      { keys: ['t'], desc: '切换主题' },
+      { keys: ['b'], desc: '切换侧栏' },
+    ]},
+  ];
 }

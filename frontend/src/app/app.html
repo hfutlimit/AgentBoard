@@ -29,6 +29,10 @@
       </a>
     </div>
     <div class="topbar-right">
+      <!-- Task 716: 快捷键帮助按钮 -->
+      <button id="shortcuts-toggle" class="icon-btn" title="键盘快捷键 (?)" (click)="toggleShortcuts()">
+        <span>?</span>
+      </button>
       <button id="theme-toggle" class="icon-btn" [title]="getThemeLabel()" (click)="toggleTheme()">
         <span class="theme-icon">{{ isDarkTheme() ? '🌙' : '☀️' }}</span>
       </button>
@@ -863,6 +867,12 @@
                         </div></a
                       >
                     }
+                    <!-- Task 714: 虚拟滚动 - 看板列加载更多 -->
+                    @if (visibleTasks().length > taskPageSize() * taskPageCount()) {
+                      <button class="task-list-load-more" (click)="loadMoreTasks()">
+                        加载更多 ({{ visibleTasks().length - taskPageSize() * taskPageCount() }} 剩余)
+                      </button>
+                    }
                   </div>
                 }
               </div>
@@ -1322,4 +1332,32 @@
     <div class="toast {{ toastType() }}">{{ toastMessage() }}</div>
   }
 </div>
+<!-- Task 716: 全局快捷键面板 -->
+@if (showShortcuts()) {
+  <div class="shortcuts-modal-overlay" (click)="toggleShortcuts()">
+    <div class="shortcuts-modal" (click)="$event.stopPropagation()">
+      <h2>键盘快捷键</h2>
+      @for (group of shortcuts; track group.group) {
+        <div class="shortcuts-group">
+          <div class="shortcuts-group-title">{{ group.group }}</div>
+          <div class="shortcuts-list">
+            @for (item of group.items; track item.desc) {
+              <div class="shortcut-row">
+                <span class="shortcut-desc">{{ item.desc }}</span>
+                <span class="shortcut-keys">
+                  @for (key of item.keys; track key) {
+                    <kbd class="shortcut-key">{{ key }}</kbd>
+                  }
+                </span>
+              </div>
+            }
+          </div>
+        </div>
+      }
+      <div style="text-align:center;margin-top:16px">
+        <button class="ghost-sm" (click)="toggleShortcuts()">关闭</button>
+      </div>
+    </div>
+  </div>
+}
 <router-outlet />
