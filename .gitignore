@@ -14,3 +14,4 @@ ng-serve.err
 .venv/
 venv/
 nul
+backups/
