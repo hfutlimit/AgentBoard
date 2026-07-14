@@ -172,8 +172,9 @@ export class ApiService {
       .request(method, `${this.baseUrl}${path}`, { ...this.options(params), body }) as Observable<T>)
       .pipe(
         catchError((error: HttpErrorResponse) => {
-          // Task 470: exponential backoff retry on rate-limit (429) and server errors (500-503)
-          const retryable = error.status === 429 || (error.status >= 500 && error.status < 504);
+          // Task 470: exponential backoff retry on transient server errors (500-503)
+          // 不要在 429 上重试：429 是服务器明确说"等一下"，重试会更快耗尽配额
+          const retryable = error.status >= 500 && error.status < 504;
           if (retryable && _retries < this._retryCount) {
             const delay = Math.min(1000 * Math.pow(2, _retries), 8000); // 1s, 2s, 4s
             return timer(delay).pipe(
