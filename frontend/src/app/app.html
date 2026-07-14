@@ -640,6 +640,55 @@
                     <button class="ghost-sm" (click)="exportProjectTasks()">📥 导出全部任务</button>
                   </div>
                 </div>
+
+                <!-- Epic 22: 数据导入 -->
+                <div class="card">
+                  <h4>数据导入</h4>
+                  <p class="muted" style="margin-bottom:12px">从 JSON 文件导入任务</p>
+                  <input type="file" id="import-file" accept=".json" style="margin-bottom:8px"
+                    (change)="onImportFileSelected($event, current.id)">
+                  <div id="import-result" class="info-box" style="display:none"></div>
+                </div>
+
+                <!-- Epic 22: Webhooks -->
+                <div class="card">
+                  <div class="section-header">
+                    <h4>Webhook 配置</h4>
+                    <button class="btn-ghost-sm" (click)="loadWebhooks(current.id)">🔄 刷新</button>
+                  </div>
+                  @if (webhooks().length) {
+                    <div class="webhook-list">
+                      @for (wh of webhooks(); track wh.id) {
+                        <div class="webhook-item">
+                          <div class="webhook-info">
+                            <strong>{{ wh.name }}</strong>
+                            <span class="muted">{{ wh.url }}</span>
+                            <span class="badge {{ wh.enabled ? 'status--done' : 'status--backlog' }}">
+                              {{ wh.enabled ? '启用' : '停用' }}
+                            </span>
+                            @if (wh.events.length) {
+                              <span class="muted">{{ wh.events.join(', ') }}</span>
+                            }
+                          </div>
+                          <div class="webhook-actions">
+                            <button class="ghost-sm" (click)="toggleWebhook(wh.id, !wh.enabled, current.id)">
+                              {{ wh.enabled ? '停用' : '启用' }}
+                            </button>
+                            <button class="ghost-sm danger" (click)="deleteWebhook(wh.id, current.id)">删除</button>
+                          </div>
+                        </div>
+                      }
+                    </div>
+                  } @else {
+                    <div class="empty-inline">暂无 Webhook 配置</div>
+                  }
+                  <div style="margin-top:12px">
+                    <input type="text" id="wh-name" placeholder="名称" style="margin-right:8px;padding:4px 8px;border:1px solid var(--border-color);border-radius:6px">
+                    <input type="text" id="wh-url" placeholder="https://..." style="margin-right:8px;padding:4px 8px;border:1px solid var(--border-color);border-radius:6px;width:300px">
+                    <input type="text" id="wh-secret" placeholder="密钥(可选)" style="margin-right:8px;padding:4px 8px;border:1px solid var(--border-color);border-radius:6px">
+                    <button class="btn-primary-sm" (click)="onCreateWebhook(current.id)">+ 添加 Webhook</button>
+                  </div>
+                </div>
               </div>
             }
           }
@@ -950,6 +999,52 @@
                 <button class="btn-ghost-sm" (click)="$any($event.target).previousElementSibling.click()">＋ 上传附件</button>
                 <span class="muted" style="margin-left:8px;font-size:12px">支持图片、PDF、文本等，最大 10MB</span>
               </div>
+            </div>
+
+            <!-- Epic 22: 任务依赖关系 -->
+            <div class="card">
+              <div class="section-header">
+                <h3>依赖关系</h3>
+                <button class="btn-ghost-sm" (click)="loadTaskDependencies(current.id)">🔄 刷新</button>
+              </div>
+              @if (taskDependencies()) {
+                <div class="dep-section">
+                  <div class="dep-group">
+                    <strong>🔗 阻塞此任务</strong>
+                    @if (taskDependencies()!.blockers.length) {
+                      <ul class="dep-list">
+                        @for (dep of taskDependencies()!.blockers; track dep.id) {
+                          <li class="dep-item">
+                            <a [routerLink]="['/task', dep.task_id]">{{ dep.task?.title || '任务 #' + dep.task_id }}</a>
+                            <span class="badge {{ dep.type === 'blocks' ? 'status--in_progress' : 'status--todo' }}">{{ dep.type }}</span>
+                            <button class="ghost-sm danger" (click)="removeDependency(dep.id, current.id)">✕</button>
+                          </li>
+                        }
+                      </ul>
+                    } @else {
+                      <div class="empty-inline">无阻塞依赖</div>
+                    }
+                  </div>
+                  <div class="dep-group">
+                    <strong>🚧 被此任务阻塞</strong>
+                    @if (taskDependencies()!.blocked_by.length) {
+                      <ul class="dep-list">
+                        @for (dep of taskDependencies()!.blocked_by; track dep.id) {
+                          <li class="dep-item">
+                            <a [routerLink]="['/task', dep.task_id]">{{ dep.task?.title || '任务 #' + dep.task_id }}</a>
+                            <span class="badge status--in_progress">{{ dep.type }}</span>
+                            <button class="ghost-sm danger" (click)="removeDependency(dep.id, current.id)">✕</button>
+                          </li>
+                        }
+                      </ul>
+                    } @else {
+                      <div class="empty-inline">无被阻塞任务</div>
+                    }
+                  </div>
+                </div>
+              } @else {
+                <div class="empty-inline">点击「刷新」加载依赖关系</div>
+              }
             </div>
             <div class="card form-section">
               <h3>编辑任务</h3>

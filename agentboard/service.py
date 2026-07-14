@@ -7,7 +7,7 @@ from .models import (
     ItemType, Status, Priority, SprintStatus, ALL_TYPES, ALL_STATUSES,
     ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES,
     Project, Epic, Story, Task, Comment, Sprint, Attachment, AgentSchedule, AgentRun,
-    ProjectMember, Notification, User, ApiKey,
+    ProjectMember, Notification, User, ApiKey, AuditLog, TaskDependency, WebhookConfig,
 )
 
 DEFAULT_PAGE_SIZE = 100
@@ -1349,3 +1349,198 @@ def export_story_data(s: Session, story_id: int) -> dict:
         "story": _ser(story),
         "tasks": [_ser(t) for t in tasks],
     }
+
+
+# ---------- Epic 22 Story 22.1: 审计日志 ----------
+def create_audit_log(
+    s: Session, *, user_id: int | None, action: str, entity_type: str,
+    entity_id: int | None = None, method: str = "GET", path: str = "",
+    ip_address: str | None = None, user_agent: str | None = None,
+    request_body: str | None = None, response_status: int | None = None,
+    duration_ms: int | None = None,
+) -> AuditLog:
+    """创建审计日志条目。"""
+    log = AuditLog(
+        user_id=user_id, action=action, entity_type=entity_type, entity_id=entity_id,
+        method=method, path=path, ip_address=ip_address, user_agent=user_agent,
+        request_body=request_body, response_status=response_status, duration_ms=duration_ms,
+    )
+    s.add(log)
+    _commit(s)
+    return log
+
+
+def list_audit_logs(
+    s: Session, *, project_id: int | None = None, entity_type: str | None = None,
+    entity_id: int | None = None, user_id: int | None = None,
+    action: str | None = None, limit: int | None = None, offset: int = 0,
+) -> tuple[list[AuditLog], int]:
+    """查询审计日志列表。"""
+    qry = s.query(AuditLog)
+    if entity_type:
+        qry = qry.filter(AuditLog.entity_type == entity_type)
+    if entity_id is not None:
+        qry = qry.filter(AuditLog.entity_id == entity_id)
+    if user_id is not None:
+        qry = qry.filter(AuditLog.user_id == user_id)
+    if action:
+        qry = qry.filter(AuditLog.action == action)
+    total = qry.count()
+    qry = qry.order_by(AuditLog.created_at.desc())
+    items = _paginate(qry, limit, offset).all()
+    return items, total
+
+
+# ---------- Epic 22 Story 22.2: 任务依赖关系 ----------
+def add_task_dependency(
+    s: Session, *, task_id: int, depends_on_id: int, dependency_type: str = "blocks",
+) -> TaskDependency:
+    """添加任务依赖关系。"""
+    if task_id == depends_on_id:
+        raise InvalidValue("task cannot depend on itself")
+    # 检查是否已存在
+    existing = s.query(TaskDependency).filter(
+        TaskDependency.task_id == task_id,
+        TaskDependency.depends_on_id == depends_on_id,
+    ).first()
+    if existing:
+        raise Duplicate(f"dependency already exists")
+    task = s.get(Task, task_id)
+    dep_task = s.get(Task, depends_on_id)
+    if not task:
+        raise NotFound(f"task {task_id} not found")
+    if not dep_task:
+        raise NotFound(f"task {depends_on_id} not found")
+    dep = TaskDependency(
+        task_id=task_id, depends_on_id=depends_on_id, dependency_type=dependency_type,
+    )
+    s.add(dep)
+    _commit(s)
+    return dep
+
+
+def remove_task_dependency(s: Session, dependency_id: int) -> None:
+    """移除任务依赖关系。"""
+    dep = s.get(TaskDependency, dependency_id)
+    if not dep:
+        raise NotFound(f"dependency {dependency_id} not found")
+    s.delete(dep)
+    _commit(s)
+
+
+def get_task_dependencies(s: Session, task_id: int) -> dict:
+    """获取任务的所有依赖关系。"""
+    deps = s.query(TaskDependency).filter(TaskDependency.task_id == task_id).all()
+    blockers = [
+        {"id": d.id, "task_id": d.depends_on_id, "type": d.dependency_type,
+         "task": _ser(s.get(Task, d.depends_on_id)) if s.get(Task, d.depends_on_id) else None}
+        for d in deps
+    ]
+    # 反向依赖：该任务被谁阻塞
+    blocked_by = s.query(TaskDependency).filter(TaskDependency.depends_on_id == task_id).all()
+    blocking = [
+        {"id": d.id, "task_id": d.task_id, "type": d.dependency_type,
+         "task": _ser(s.get(Task, d.task_id)) if s.get(Task, d.task_id) else None}
+        for d in blocked_by
+    ]
+    return {"blockers": blockers, "blocked_by": blocking}
+
+
+# ---------- Epic 22 Story 22.4: Webhook 配置 ----------
+def create_webhook(
+    s: Session, *, project_id: int | None, name: str, url: str,
+    secret: str | None = None, events: list[str] | None = None,
+    created_by: int | None = None,
+) -> WebhookConfig:
+    """创建 Webhook 配置。"""
+    import json
+    name = _required(name, "name", 100)
+    url_val = _required(url, "url", 2000)
+    if not url_val.startswith(("http://", "https://")):
+        raise InvalidValue("url must start with http:// or https://")
+    wh = WebhookConfig(
+        project_id=project_id, name=name, url=url_val, secret=secret or None,
+        events=json.dumps(events or []), created_by=created_by,
+    )
+    s.add(wh)
+    _commit(s)
+    s.refresh(wh)
+    return wh
+
+
+def list_webhooks(s: Session, *, project_id: int | None = None) -> list[WebhookConfig]:
+    """列出 Webhook 配置。"""
+    qry = s.query(WebhookConfig)
+    if project_id is not None:
+        qry = qry.filter(WebhookConfig.project_id == project_id)
+    return qry.order_by(WebhookConfig.created_at.desc()).all()
+
+
+def delete_webhook(s: Session, webhook_id: int) -> None:
+    """删除 Webhook 配置。"""
+    wh = s.get(WebhookConfig, webhook_id)
+    if not wh:
+        raise NotFound(f"webhook {webhook_id} not found")
+    s.delete(wh)
+    _commit(s)
+
+
+def toggle_webhook(s: Session, webhook_id: int, enabled: bool) -> WebhookConfig:
+    """启用/停用 Webhook。"""
+    wh = s.get(WebhookConfig, webhook_id)
+    if not wh:
+        raise NotFound(f"webhook {webhook_id} not found")
+    wh.enabled = enabled
+    _commit(s)
+    return wh
+
+
+def fire_webhook(webhook: WebhookConfig, event: str, payload: dict) -> bool:
+    """触发 Webhook（异步发送 HTTP POST）。调用方需自行处理异常。"""
+    import hashlib, hmac, json, time
+    import httpx
+    headers = {"Content-Type": "application/json", "User-Agent": "AgentBoard-Webhook/1.0"}
+    if webhook.secret:
+        timestamp = str(int(time.time()))
+        body = json.dumps({"event": event, "timestamp": timestamp, "data": payload})
+        signature = hmac.new(
+            webhook.secret.encode(),
+            body.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        headers["X-AgentBoard-Signature"] = signature
+        headers["X-AgentBoard-Timestamp"] = timestamp
+    else:
+        body = json.dumps({"event": event, "data": payload})
+    try:
+        resp = httpx.post(webhook.url, content=body, headers=headers, timeout=10.0)
+        return 200 <= resp.status_code < 300
+    except Exception:
+        return False
+
+
+# ---------- Epic 22 Story 22.3: 数据导入 ----------
+def import_tasks_from_json(s: Session, project_id: int, data: dict) -> dict:
+    """从 JSON 数据导入任务。"""
+    import json
+    imported = []
+    errors = []
+    tasks_data = data.get("tasks", [])
+    for item in tasks_data:
+        try:
+            title = _required(item.get("title", "").strip(), "title", 300)
+            task = Task(
+                project_id=project_id,
+                title=title,
+                type=item.get("type", "task"),
+                description=item.get("description", ""),
+                priority=item.get("priority", "medium"),
+                status=item.get("status", "backlog"),
+            )
+            s.add(task)
+            s.flush()
+            imported.append({"id": task.id, "title": task.title})
+        except Exception as e:
+            errors.append({"title": item.get("title", "?"), "error": str(e)})
+    _commit(s)
+    return {"imported": imported, "errors": errors}

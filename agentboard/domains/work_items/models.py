@@ -52,3 +52,50 @@ class Attachment(Base):
     size: Mapped[int] = mapped_column(Integer, nullable=False)
     mime_type: Mapped[str] = mapped_column(String(200), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class AuditLog(Base):
+    """Epic 22 Story 22.1: API操作审计日志"""
+    __tablename__ = "audit_logs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    entity_type: Mapped[str] = mapped_column(String(30), nullable=False)  # project/epic/story/task
+    entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    method: Mapped[str] = mapped_column(String(10), nullable=False)  # GET/POST/PUT/PATCH/DELETE
+    path: Mapped[str] = mapped_column(String(500), nullable=False)
+    ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    request_body: Mapped[str | None] = mapped_column(Text, nullable=True)  # 脱敏后的请求体
+    response_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class TaskDependency(Base):
+    """Epic 22 Story 22.2: 任务依赖关系"""
+    __tablename__ = "task_dependencies"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    depends_on_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    dependency_type: Mapped[str] = mapped_column(String(20), default="blocks")  # blocks / blocked_by / relates_to
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    __table_args__ = (
+        # 防止重复依赖
+        # SQLite 不支持带条件的 UNIQUE 约束，放到 DB 层面处理
+    )
+
+
+class WebhookConfig(Base):
+    """Epic 22 Story 22.4: Webhook 配置"""
+    __tablename__ = "webhook_configs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int | None] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    url: Mapped[str] = mapped_column(String(2000), nullable=False)
+    secret: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    events: Mapped[str] = mapped_column(Text, default="[]")  # JSON: ["task.created","task.status_changed",...]
+    enabled: Mapped[bool] = mapped_column(default=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)

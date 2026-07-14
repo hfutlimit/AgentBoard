@@ -1132,3 +1132,26 @@ details.form-section > form { padding: 16px; }
 .group-count { font-variant-numeric: tabular-nums; color: var(--text-3); font-weight: 600; }
 .select-sm { height: 30px; padding: 0 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--card-bg); color: var(--text); font: inherit; font-size: .82rem; cursor: pointer; }
 .select-sm:focus-visible { outline: 2px solid var(--brand-ring); outline-offset: 1px; }
+
+/* ========== Epic 22: 任务依赖关系 ========== */
+.dep-section { display: flex; flex-direction: column; gap: 12px; }
+.dep-group { display: flex; flex-direction: column; gap: 6px; }
+.dep-group strong { font-size: .85rem; color: var(--text-secondary); }
+.dep-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.dep-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 7px; background: var(--surface-2, var(--bg)); border: 1px solid var(--border); }
+.dep-item a { flex: 1; font-size: .85rem; color: var(--brand-600, #2563eb); text-decoration: none; font-weight: 500; }
+.dep-item a:hover { text-decoration: underline; }
+.dep-item .badge { font-size: .72rem; }
+
+/* ========== Epic 22: Webhook ========== */
+.webhook-list { display: flex; flex-direction: column; gap: 8px; }
+.webhook-item { display: flex; align-items: flex-start; justify-content: space-between; padding: 10px 12px; border-radius: 8px; background: var(--surface-2, var(--bg)); border: 1px solid var(--border); gap: 12px; }
+.webhook-info { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.webhook-info strong { font-size: .9rem; }
+.webhook-info .muted { font-size: .8rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.webhook-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+/* ========== Epic 22: Audit Log / Import Result ========== */
+.info-box { padding: 10px 14px; border-radius: 8px; background: var(--surface-2, var(--bg)); border: 1px solid var(--border); font-size: .85rem; color: var(--text-secondary); }
+.info-box.warning { border-color: var(--warning, #f59e0b); background: rgba(245,158,11,.08); color: var(--warning, #b45309); }
+

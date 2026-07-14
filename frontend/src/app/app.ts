@@ -9,7 +9,7 @@ import { filter } from 'rxjs/operators';
 
 import { ApiService, AUTH_EXPIRED_EVENT } from './api.service';
 import { LoginComponent } from './login/login';
-import { AgentSchedule, Attachment, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task } from './models';
+import { AgentSchedule, Attachment, AuditLog, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, WebhookConfig } from './models';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'admin' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
@@ -86,6 +86,12 @@ export class App implements OnInit, OnDestroy {
   readonly bulkActionTarget = signal<string | null>(null); // 'status' | 'delete' | null
   readonly focusedTaskIndex = signal<number>(-1);
   readonly exportDropdownOpen = signal(false);
+  // Epic 22: 任务依赖
+  readonly taskDependencies = signal<TaskDependencies | null>(null);
+  // Epic 22: Webhooks
+  readonly webhooks = signal<WebhookConfig[]>([]);
+  // Epic 22: 审计日志
+  readonly auditLogs = signal<AuditLog[]>([]);
   readonly statuses: Status[] = [
     'backlog',
     'todo',
@@ -1201,6 +1207,117 @@ export class App implements OnInit, OnDestroy {
     return error instanceof Error ? error.message : String(error);
   }
 
+  /* ---------- Epic 22: Task Dependencies ---------- */
+  loadTaskDependencies(taskId: number): void {
+    void this.loadTaskDependenciesAsync(taskId);
+  }
+
+  private async loadTaskDependenciesAsync(taskId: number): Promise<void> {
+    try {
+      const deps = await firstValueFrom(this.api.getTaskDependencies(taskId));
+      this.taskDependencies.set(deps);
+    } catch (error) {
+      this.notify(`加载依赖失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  addDependency(taskId: number, dependsOnId: number, type: string = 'blocks'): void {
+    void this.addDependencyAsync(taskId, dependsOnId, type);
+  }
+
+  private async addDependencyAsync(taskId: number, dependsOnId: number, type: string): Promise<void> {
+    try {
+      await firstValueFrom(this.api.addTaskDependency(taskId, dependsOnId, type));
+      await this.loadTaskDependenciesAsync(taskId);
+      this.notify('依赖添加成功');
+    } catch (error) {
+      this.notify(`添加依赖失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  removeDependency(dependencyId: number, taskId: number): void {
+    void this.removeDependencyAsync(dependencyId, taskId);
+  }
+
+  private async removeDependencyAsync(dependencyId: number, taskId: number): Promise<void> {
+    try {
+      await firstValueFrom(this.api.removeTaskDependency(dependencyId));
+      await this.loadTaskDependenciesAsync(taskId);
+      this.notify('依赖已移除');
+    } catch (error) {
+      this.notify(`移除依赖失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  /* ---------- Epic 22: Webhooks ---------- */
+  loadWebhooks(projectId?: number): void {
+    void this.loadWebhooksAsync(projectId);
+  }
+
+  private async loadWebhooksAsync(projectId?: number): Promise<void> {
+    try {
+      const resp = await firstValueFrom(this.api.listWebhooks(projectId));
+      this.webhooks.set(resp.items || []);
+    } catch (error) {
+      this.notify(`加载 Webhooks 失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  createWebhook(name: string, url: string, secret: string, events: string[], projectId?: number): void {
+    void this.createWebhookAsync(name, url, secret, events, projectId);
+  }
+
+  private async createWebhookAsync(name: string, url: string, secret: string, events: string[], projectId?: number): Promise<void> {
+    try {
+      await firstValueFrom(this.api.createWebhook(projectId, { name, url, secret: secret || undefined, events }));
+      await this.loadWebhooksAsync(projectId);
+      this.notify('Webhook 创建成功');
+    } catch (error) {
+      this.notify(`创建 Webhook 失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  deleteWebhook(webhookId: number, projectId?: number): void {
+    void this.deleteWebhookAsync(webhookId, projectId);
+  }
+
+  private async deleteWebhookAsync(webhookId: number, projectId?: number): Promise<void> {
+    try {
+      await firstValueFrom(this.api.deleteWebhook(webhookId));
+      await this.loadWebhooksAsync(projectId);
+      this.notify('Webhook 已删除');
+    } catch (error) {
+      this.notify(`删除 Webhook 失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  toggleWebhook(webhookId: number, enabled: boolean, projectId?: number): void {
+    void this.toggleWebhookAsync(webhookId, enabled, projectId);
+  }
+
+  private async toggleWebhookAsync(webhookId: number, enabled: boolean, projectId?: number): Promise<void> {
+    try {
+      await firstValueFrom(this.api.toggleWebhook(webhookId, enabled));
+      await this.loadWebhooksAsync(projectId);
+    } catch (error) {
+      this.notify(`更新 Webhook 失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  /* ---------- Epic 22: Audit Logs ---------- */
+  loadAuditLogs(params?: { entity_type?: string; entity_id?: number }): void {
+    void this.loadAuditLogsAsync(params);
+  }
+
+  private async loadAuditLogsAsync(params?: { entity_type?: string; entity_id?: number }): Promise<void> {
+    try {
+      const resp = await firstValueFrom(this.api.listAuditLogs({ ...params, limit: 50 }));
+      this.auditLogs.set(resp.items || []);
+    } catch (error) {
+      this.notify(`加载审计日志失败：${this.message(error)}`, 'error');
+    }
+  }
+
   /* ---------- Export ---------- */
   exportToCSV(tasks?: Task[]): void {
     const items = tasks || this.visibleTasks();
@@ -1223,6 +1340,55 @@ export class App implements OnInit, OnDestroy {
     const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     this.downloadFile(csv, `tasks-${Date.now()}.csv`, 'text/csv;charset=utf-8');
     this.notify(`已导出 ${items.length} 个任务到 CSV`);
+  }
+
+  /* ---------- Epic 22: Import/Export Handlers ---------- */
+  onImportFileSelected(event: Event, projectId: number): void {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target?.result as string);
+        void this.importTasksAsync(projectId, data);
+      } catch {
+        this.notify('JSON 解析失败，请检查文件格式', 'error');
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  private async importTasksAsync(projectId: number, data: any): Promise<void> {
+    try {
+      const result = await firstValueFrom(this.api.importTasks(projectId, data.tasks || []));
+      const resultEl = document.getElementById('import-result');
+      if (resultEl) {
+        resultEl.style.display = 'block';
+        resultEl.textContent = `导入完成：成功 ${result.imported.length} 个，失败 ${result.errors.length} 个`;
+        resultEl.className = result.errors.length > 0 ? 'info-box warning' : 'info-box';
+      }
+      this.notify(`导入完成：成功 ${result.imported.length} 个`);
+    } catch (error) {
+      this.notify(`导入失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  onCreateWebhook(projectId: number): void {
+    const nameEl = document.getElementById('wh-name') as HTMLInputElement;
+    const urlEl = document.getElementById('wh-url') as HTMLInputElement;
+    const secretEl = document.getElementById('wh-secret') as HTMLInputElement;
+    const name = nameEl?.value?.trim();
+    const url = urlEl?.value?.trim();
+    const secret = secretEl?.value?.trim();
+    if (!name || !url) {
+      this.notify('名称和 URL 不能为空', 'error');
+      return;
+    }
+    this.createWebhook(name, url, secret, [], projectId);
+    if (nameEl) nameEl.value = '';
+    if (urlEl) urlEl.value = '';
+    if (secretEl) secretEl.value = '';
   }
 
   exportToJSON(tasks?: Task[]): void {

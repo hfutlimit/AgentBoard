@@ -1240,3 +1240,230 @@ def export_story(
         return service.export_story_data(s, sid)
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+# ---------- Epic 22 Story 22.1: 审计日志 ----------
+@app.get("/api/audit-logs")
+def list_audit_logs(
+    project_id: int | None = Query(None),
+    entity_type: str | None = Query(None),
+    entity_id: int | None = Query(None),
+    user_id: int | None = Query(None),
+    action: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    s: Session = Depends(get_session),
+):
+    """获取审计日志列表。"""
+    items, total = service.list_audit_logs(
+        s, project_id=project_id, entity_type=entity_type,
+        entity_id=entity_id, user_id=user_id, action=action,
+        limit=limit, offset=offset,
+    )
+    return {"items": [service._ser(x) for x in items], "total": total}
+
+
+# ---------- Epic 22 Story 22.2: 任务依赖关系 ----------
+@app.post("/api/tasks/{tid}/dependencies", status_code=201)
+def add_dependency(
+    tid: int,
+    depends_on_id: int = Query(..., description="被依赖的任务 ID"),
+    dependency_type: str = Query("blocks", pattern=r"^(blocks|blocked_by|relates_to)$"),
+    s: Session = Depends(get_session),
+):
+    """添加任务依赖关系。"""
+    try:
+        dep = service.add_task_dependency(
+            s, task_id=tid, depends_on_id=depends_on_id, dependency_type=dependency_type,
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.Duplicate as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(dep)
+
+
+@app.get("/api/tasks/{tid}/dependencies")
+def get_dependencies(tid: int, s: Session = Depends(get_session)):
+    """获取任务的依赖关系（blockers 和 blocked_by）。"""
+    try:
+        return service.get_task_dependencies(s, tid)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.delete("/api/dependencies/{did}")
+def delete_dependency(did: int, s: Session = Depends(get_session)):
+    """删除依赖关系。"""
+    try:
+        service.remove_task_dependency(s, did)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"ok": True}
+
+
+# ---------- Epic 22 Story 22.3: 数据导入 ----------
+@app.post("/api/projects/{pid}/import")
+def import_tasks(
+    pid: int,
+    body: dict,
+    s: Session = Depends(get_session),
+):
+    """从 JSON 数据批量导入任务。"""
+    try:
+        return service.import_tasks_from_json(s, pid, body)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+# ---------- Epic 22 Story 22.4: Webhook 配置 ----------
+class WebhookIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    url: str = Field(min_length=1, max_length=2000)
+    secret: str | None = Field(None, max_length=256)
+    events: list[str] = Field(default_factory=list)
+
+
+@app.post("/api/webhooks", status_code=201)
+def create_webhook(
+    body: WebhookIn,
+    project_id: int | None = Query(None),
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    """创建 Webhook 配置。"""
+    user = _current_user(authorization, s) if authorization else None
+    try:
+        wh = service.create_webhook(
+            s, project_id=project_id, name=body.name, url=body.url,
+            secret=body.secret, events=body.events,
+            created_by=user.id if user else None,
+        )
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    import json
+    return {
+        "id": wh.id, "name": wh.name, "url": wh.url, "enabled": wh.enabled,
+        "events": json.loads(wh.events), "created_at": wh.created_at,
+    }
+
+
+@app.get("/api/webhooks")
+def list_webhooks(
+    project_id: int | None = Query(None),
+    s: Session = Depends(get_session),
+):
+    """列出 Webhook 配置。"""
+    import json
+    webhooks = service.list_webhooks(s, project_id=project_id)
+    return {
+        "items": [
+            {"id": w.id, "name": w.name, "url": w.url, "enabled": w.enabled,
+             "events": json.loads(w.events), "created_at": w.created_at}
+            for w in webhooks
+        ]
+    }
+
+
+@app.delete("/api/webhooks/{wid}")
+def delete_webhook(wid: int, s: Session = Depends(get_session)):
+    """删除 Webhook 配置。"""
+    try:
+        service.delete_webhook(s, wid)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"ok": True}
+
+
+@app.patch("/api/webhooks/{wid}")
+def toggle_webhook(
+    wid: int,
+    enabled: bool,
+    s: Session = Depends(get_session),
+):
+    """启用/停用 Webhook。"""
+    try:
+        wh = service.toggle_webhook(s, wid, enabled)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    import json
+    return {
+        "id": wh.id, "name": wh.name, "url": wh.url, "enabled": wh.enabled,
+        "events": json.loads(wh.events), "created_at": wh.created_at,
+    }
+
+
+# ---------- Epic 22 Story 22.1: 审计日志中间件 ----------
+@app.middleware("http")
+async def audit_log_middleware(request: Request, call_next):
+    """记录所有非 health/meta/auth 的 API 请求到审计日志。"""
+    import re
+    import time
+    skip_paths = {"/api/meta", "/api/health", "/api/audit-logs"}
+    if request.url.path in skip_paths or not request.url.path.startswith("/api/"):
+        return await call_next(request)
+
+    start = time.time()
+    # 读取请求体（仅对非 GET 请求）
+    body_text = None
+    if request.method in {"POST", "PUT", "PATCH"}:
+        body_bytes = await request.body()
+        body_text = body_bytes.decode("utf-8", errors="replace")
+        # 脱敏：移除敏感字段
+        body_text = re.sub(r'"password"\s*:\s*"[^"]*"', '"password":"***"', body_text)
+        body_text = re.sub(r'"token"\s*:\s*"[^"]*"', '"token":"***"', body_text)
+        # 限制长度
+        body_text = body_text[:2000] if body_text else None
+
+    response = await call_next(request)
+
+    duration_ms = int((time.time() - start) * 1000)
+    # 从响应状态码
+    status_code = response.status_code if hasattr(response, "status_code") else None
+
+    # 提取用户 ID
+    uid = None
+    authorization = request.headers.get("authorization")
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.split(" ", 1)[1]
+        uid = auth.parse_token(token)
+
+    # 提取实体信息
+    path = request.url.path
+    entity_type = None
+    entity_id = None
+    action = request.method
+    # 从路径提取实体类型和 ID
+    for pattern, etype in [
+        (r"^/api/projects/(\d+)", "project"),
+        (r"^/api/epics/(\d+)", "epic"),
+        (r"^/api/stories/(\d+)", "story"),
+        (r"^/api/tasks/(\d+)", "task"),
+        (r"^/api/comments/(\d+)", "comment"),
+        (r"^/api/attachments/(\d+)", "attachment"),
+        (r"^/api/schedules/(\d+)", "schedule"),
+    ]:
+        m = re.match(pattern, path)
+        if m:
+            entity_type = etype
+            entity_id = int(m.group(1))
+            break
+
+    # 异步记录日志（避免阻塞响应）
+    try:
+        with SessionLocal() as ss:
+            service.create_audit_log(
+                ss, user_id=uid, action=action, entity_type=entity_type or "unknown",
+                entity_id=entity_id, method=request.method, path=path,
+                ip_address=request.headers.get("x-forwarded-for", request.client.host if request.client else None),
+                user_agent=request.headers.get("user-agent"),
+                request_body=body_text, response_status=status_code, duration_ms=duration_ms,
+            )
+    except Exception:
+        pass  # 不阻塞主流程
+
+    return response

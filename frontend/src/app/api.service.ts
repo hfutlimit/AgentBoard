@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable, of, throwError } from 'rxjs';
 import { catchError, tap } from 'rxjs/operators';
 
-import { ApiErrorBody, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun } from './models';
+import { ApiErrorBody, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, WebhookConfig } from './models';
 
 export const AUTH_EXPIRED_EVENT = 'agentboard:auth-expired';
 
@@ -429,5 +429,43 @@ export class ApiService {
     return this.request<{ deleted: any[]; errors: any[] }>('POST', '/api/tasks/bulk-delete', { task_ids: taskIds }).pipe(
       tap(() => apiCache.invalidatePrefix('/api/stories'))
     );
+  }
+
+  /* ---------- Epic 22: Task Dependencies ---------- */
+  getTaskDependencies(taskId: number) {
+    return this.request<TaskDependencies>('GET', `/api/tasks/${taskId}/dependencies`);
+  }
+  addTaskDependency(taskId: number, dependsOnId: number, dependencyType: string = 'blocks') {
+    return this.request<any>('POST', `/api/tasks/${taskId}/dependencies`, undefined, { depends_on_id: dependsOnId, dependency_type: dependencyType });
+  }
+  removeTaskDependency(dependencyId: number) {
+    return this.request<{ ok: boolean }>('DELETE', `/api/dependencies/${dependencyId}`);
+  }
+
+  /* ---------- Epic 22: Import/Export ---------- */
+  exportProject(projectId: number) {
+    return this.request<any>('GET', `/api/projects/${projectId}/export`);
+  }
+  importTasks(projectId: number, tasksData: any[]) {
+    return this.request<{ imported: any[]; errors: any[] }>('POST', `/api/projects/${projectId}/import`, { tasks: tasksData });
+  }
+
+  /* ---------- Epic 22: Webhooks ---------- */
+  listWebhooks(projectId?: number) {
+    return this.request<PagedResult<WebhookConfig>>('GET', '/api/webhooks', undefined, projectId !== undefined ? { project_id: projectId } : undefined);
+  }
+  createWebhook(projectId: number | undefined, body: { name: string; url: string; secret?: string; events?: string[] }) {
+    return this.request<WebhookConfig>('POST', '/api/webhooks', body, projectId !== undefined ? { project_id: projectId } : undefined);
+  }
+  deleteWebhook(webhookId: number) {
+    return this.request<{ ok: boolean }>('DELETE', `/api/webhooks/${webhookId}`);
+  }
+  toggleWebhook(webhookId: number, enabled: boolean) {
+    return this.request<WebhookConfig>('PATCH', `/api/webhooks/${webhookId}`, undefined, { enabled: enabled ? 1 : 0 });
+  }
+
+  /* ---------- Epic 22: Audit Logs ---------- */
+  listAuditLogs(params?: { entity_type?: string; entity_id?: number; user_id?: number; action?: string; limit?: number; offset?: number }) {
+    return this.request<PagedResult<AuditLog>>('GET', '/api/audit-logs', undefined, params as Record<string, string | number | undefined>);
   }
 }

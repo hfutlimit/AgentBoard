@@ -149,3 +149,39 @@ export interface PagedResult<T> {
 export interface ApiErrorBody {
   detail?: string | Array<{ msg?: string }>;
 }
+
+export interface TaskDependency {
+  id: number;
+  task_id: number;
+  type: 'blocks' | 'blocked_by' | 'relates_to';
+  task: Task | null;
+}
+
+export interface TaskDependencies {
+  blockers: TaskDependency[];
+  blocked_by: TaskDependency[];
+}
+
+export interface AuditLog {
+  id: number;
+  user_id: number | null;
+  action: string;
+  entity_type: string;
+  entity_id: number | null;
+  method: string;
+  path: string;
+  ip_address: string | null;
+  user_agent: string | null;
+  response_status: number | null;
+  duration_ms: number | null;
+  created_at: string;
+}
+
+export interface WebhookConfig {
+  id: number;
+  name: string;
+  url: string;
+  enabled: boolean;
+  events: string[];
+  created_at: string;
+}

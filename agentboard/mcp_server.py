@@ -822,6 +822,129 @@ def export_story_data(story_id: int) -> dict:
     return _api("GET", f"/stories/{story_id}/export")
 
 
+# ---------- Epic 22 Story 22.1: 审计日志工具 ----------
+@mcp.tool()
+def list_audit_logs(
+    entity_type: str | None = None,
+    entity_id: int | None = None,
+    user_id: int | None = None,
+    action: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> dict:
+    """列出审计日志。
+    - entity_type: project / epic / story / task
+    - entity_id: 特定实体 ID
+    - user_id: 特定用户 ID
+    - action: GET / POST / PUT / PATCH / DELETE
+    """
+    params = {"limit": limit, "offset": offset}
+    if entity_type:
+        params["entity_type"] = entity_type
+    if entity_id is not None:
+        params["entity_id"] = entity_id
+    if user_id is not None:
+        params["user_id"] = user_id
+    if action:
+        params["action"] = action
+    resp = _api("GET", "/audit-logs", params=params)
+    return resp if isinstance(resp, dict) else {"items": resp}
+
+
+# ---------- Epic 22 Story 22.2: 任务依赖关系工具 ----------
+@mcp.tool()
+def add_task_dependency(
+    task_id: int,
+    depends_on_id: int,
+    dependency_type: str = "blocks",
+) -> dict:
+    """添加任务依赖关系。
+    - task_id: 当前任务 ID
+    - depends_on_id: 被依赖的任务 ID
+    - dependency_type: blocks / blocked_by / relates_to
+    """
+    params = {"depends_on_id": depends_on_id, "dependency_type": dependency_type}
+    resp = _api("POST", f"/tasks/{task_id}/dependencies", params=params)
+    return resp
+
+
+@mcp.tool()
+def get_task_dependencies(task_id: int) -> dict:
+    """获取任务的依赖关系（blockers 阻塞当前任务的 + blocked_by 被当前任务阻塞的）。"""
+    resp = _api("GET", f"/tasks/{task_id}/dependencies")
+    return resp if isinstance(resp, dict) else {"blockers": [], "blocked_by": []}
+
+
+@mcp.tool()
+def remove_task_dependency(dependency_id: int) -> dict:
+    """删除依赖关系。"""
+    resp = _api("DELETE", f"/dependencies/{dependency_id}")
+    return resp if isinstance(resp, dict) else {"ok": True}
+
+
+# ---------- Epic 22 Story 22.3: 导入工具 ----------
+@mcp.tool()
+def import_tasks(project_id: int, tasks_data: list[dict]) -> dict:
+    """从 JSON 数据批量导入任务。
+    - project_id: 目标项目 ID
+    - tasks_data: 任务数据列表，每个元素包含 title/type/description/priority/status
+    """
+    resp = _api("POST", f"/projects/{project_id}/import", json={"tasks": tasks_data})
+    return resp
+
+
+# ---------- Epic 22 Story 22.4: Webhook 工具 ----------
+@mcp.tool()
+def create_webhook(
+    name: str,
+    url: str,
+    project_id: int | None = None,
+    secret: str | None = None,
+    events: list[str] | None = None,
+) -> dict:
+    """创建 Webhook 配置。
+    - name: Webhook 名称
+    - url: Webhook 回调 URL
+    - project_id: 可选，关联项目
+    - secret: 可选，签名密钥
+    - events: 监听事件列表，如 ["task.created","task.status_changed"]
+    """
+    params = {}
+    if project_id is not None:
+        params["project_id"] = project_id
+    payload = {"name": name, "url": url}
+    if secret:
+        payload["secret"] = secret
+    if events:
+        payload["events"] = events
+    resp = _api("POST", "/webhooks", params=params, json=payload)
+    return resp
+
+
+@mcp.tool()
+def list_webhooks(project_id: int | None = None) -> dict:
+    """列出 Webhook 配置。"""
+    params = {}
+    if project_id is not None:
+        params["project_id"] = project_id
+    resp = _api("GET", "/webhooks", params=params)
+    return resp if isinstance(resp, dict) else {"items": resp}
+
+
+@mcp.tool()
+def delete_webhook(webhook_id: int) -> dict:
+    """删除 Webhook 配置。"""
+    resp = _api("DELETE", f"/webhooks/{webhook_id}")
+    return resp if isinstance(resp, dict) else {"ok": True}
+
+
+@mcp.tool()
+def toggle_webhook(webhook_id: int, enabled: bool) -> dict:
+    """启用/停用 Webhook。"""
+    resp = _api("PATCH", f"/webhooks/{webhook_id}", params={"enabled": enabled})
+    return resp
+
+
 if __name__ == "__main__":
     transport = os.getenv("AGENTBOARD_MCP_TRANSPORT", "stdio").lower()
     if transport in {"http", "streamable-http"}:
