@@ -809,3 +809,48 @@
 ### Git
 - Commit: `99b2bc6` - feat: Epic 26 Task 701/705 - 看板拖拽占位符动画 + API防抖 + Epic 27创建
 - Push: ✅
+
+---
+
+## 2026-07-15 00:03（周期执行 · Epic 21/28 合并 + Epic 28 创建）
+
+### 分析结果
+- **拉取最新代码**：已是最新
+- **无 in_progress 任务** → 开始执行
+- **检测到 stash**：Epic 22/Epic 25 相关更改未合并
+- **解决合并冲突**：api.py, app.ts, app.html, index.html
+
+### Block Issues 修复
+1. **Stash 合并冲突**：4 个文件冲突标记已解决
+2. **api.py 缓存失效**：添加 `_invalidate_stats_cache()` 函数
+3. **app.ts 全局错误边界**：合并两个 handleGlobalError 定义
+
+### 执行的操作
+1. **Epic 21 Story 21.4 完善**：全局错误边界 + 自动消失（5s）+ 错误横幅
+2. **API 缓存失效**：create/update/delete 操作自动失效 stats 缓存
+3. **Epic 28 创建**：前端体验升级 v0.7 + 3 个 Story + 5 个 Task
+
+### 部署
+- API: `docker stop → cp → start`（api.py 缓存失效逻辑）
+- Web: `npm run build` → `main-45DA2OU6.js` (426 kB) + volume mount
+- 验证: API health OK ✅, Web port 5080 ✅
+
+### 测试结果
+- Scheduler: 11/11 passed ✅
+- Performance: 11/11 passed ✅
+- Total: **22/22 passed**
+
+### 数据库状态
+- Tasks 701/705/102: → in_review ✅
+- Epic 16 (Epic 28): in_progress ✅
+- Stories 49/50/51: in_progress ✅
+- Tasks 712-716: backlog（新创建）
+
+### Git
+- Commit: `a35c441` - feat: Epic 21/28 - Error boundary + cache invalidation + Epic 28 created
+- Push: ✅
+
+### 下一个待处理
+- Epic 28 Tasks 712-716: 看板卡片动画、虚拟滚动、快捷键面板（backlog）
+- Epic 27 Stories 45-47: 验收 → done
+- Epic 22 Stories 22.1-22.4: 验收 → done
