@@ -31,6 +31,9 @@ services:
       # 临时开启注册以测试 MCP
       AGENTBOARD_ALLOW_REGISTRATION: "1"
       AGENTBOARD_TOKEN_TTL_SECONDS: "${AGENTBOARD_TOKEN_TTL_SECONDS:-2592000}"
+      # 速率限制：300 req/60s/IP（开发环境避免测试时被 429 卡住）
+      AGENTBOARD_RATE_LIMIT: "${AGENTBOARD_RATE_LIMIT:-300}"
+      AGENTBOARD_RATE_WINDOW: "${AGENTBOARD_RATE_WINDOW:-60}"
     depends_on:
       db:
         condition: service_healthy
