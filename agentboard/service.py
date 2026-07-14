@@ -270,7 +270,9 @@ def create_task(s: Session, *, project_id: int, story_id: int | None, title: str
              title=_required(title, "title", 300),
              type=type, description=description or "", spec=spec or "", priority=priority,
              assignee_id=assignee_id, due_date=due_date, labels=labels or "[]")
-    s.add(t); _commit(s); s.refresh(t); return t
+    s.add(t); _commit(s); s.refresh(t)
+    _invalidate_project_stats_cache(project_id)
+    return t
 
 
 def get_task(s: Session, id: int) -> Task | None:
@@ -323,15 +325,22 @@ def update_task(s: Session, id: int, **fields) -> Task | None:
                 except json.JSONDecodeError:
                     raise InvalidValue("labels must be a valid JSON array")
             setattr(t, k, v)
-    _commit(s); s.refresh(t); return t
+    _commit(s); s.refresh(t)
+    # 关键字段变更时清除项目统计缓存（Epic 23 Story 23.1）
+    if any(k in fields for k in ("status", "sprint_id", "priority")):
+        _invalidate_project_stats_cache(t.project_id)
+    return t
 
 
 def delete_task(s: Session, id: int) -> bool:
     t = s.get(Task, id)
     if not t:
         return False
+    pid = t.project_id
     s.query(Comment).filter(Comment.task_id == id).delete(synchronize_session=False)
-    s.delete(t); _commit(s); return True
+    s.delete(t); _commit(s)
+    _invalidate_project_stats_cache(pid)
+    return True
 
 
 def set_task_description(s: Session, id: int, text: str) -> Task | None:
@@ -359,8 +368,23 @@ def set_status(s: Session, id: int, new_status: str) -> Task | None:
     current = Status(t.status)
     if current != new and new not in TRANSITIONS.get(current, set()):
         raise IllegalTransition(f"{t.status} -> {new} 不合法")
+    old_status = t.status
     t.status = new
-    _commit(s); s.refresh(t); return t
+    _commit(s); s.refresh(t)
+    # 状态变更时清除项目统计缓存
+    if old_status != new:
+        _invalidate_project_stats_cache(t.project_id)
+    return t
+
+
+def _invalidate_project_stats_cache(project_id: int) -> None:
+    """清除项目统计缓存（Epic 23 Story 23.1）"""
+    try:
+        from agentboard.cache import get_cache
+        cache = get_cache()
+        cache.delete(f"project_stats:{project_id}")
+    except Exception:
+        pass  # 缓存失败不影响主流程
 
 
 # ---------- Spec -> 子任务（OpenSpec / Superpowers 风格） ----------

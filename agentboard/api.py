@@ -1147,11 +1147,19 @@ def delete_notification(
     return {"ok": True}
 
 
-# ---------- Project Statistics ----------
+# ---------- Project Statistics (Epic 23 Story 23.1: 缓存强化) ----------
 @app.get("/api/projects/{pid}/stats")
 def project_stats(pid: int, s: Session = Depends(get_session)):
+    from agentboard.cache import get_cache, STATS_CACHE_TTL
     _need(service.get_project(s, pid), "project")
-    return service.get_project_stats(s, pid)
+    cache = get_cache()
+    cache_key = f"project_stats:{pid}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    result = service.get_project_stats(s, pid)
+    cache.set(cache_key, result, ttl=STATS_CACHE_TTL)
+    return result
 
 
 # ---------- Admin: Users ----------

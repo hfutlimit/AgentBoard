@@ -1406,6 +1406,12 @@
 }
 
 <div id="toast">
+  @for (t of toasts(); track t.id) {
+    <div class="toast {{ t.type }}">
+      <span class="toast-msg">{{ t.message }}</span>
+      <button class="toast-close" (click)="closeToast(t.id)">×</button>
+    </div>
+  }
   @if (toastMessage()) {
     <div class="toast {{ toastType() }}">{{ toastMessage() }}</div>
   }

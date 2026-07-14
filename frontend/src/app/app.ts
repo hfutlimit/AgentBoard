@@ -54,6 +54,9 @@ export class App implements OnInit, OnDestroy {
   readonly currentUser = signal(localStorage.getItem('agentboard_user') || '');
   readonly toastMessage = signal('');
   readonly toastType = signal<'success' | 'error'>('success');
+  // Epic 24 Story 24.2: Toast 增强 - 多 toasts 支持
+  private _toastCounter = 0;
+  readonly toasts = signal<{ id: number; message: string; type: 'success' | 'error' }[]>([]);
   readonly modal = signal<CreateModal | null>(null);
   readonly submitting = signal(false);
   readonly activeTab = signal<'epics' | 'sprints' | 'backlog' | 'settings' | 'members' | 'stats' | 'schedules'>('epics');
@@ -1197,10 +1200,23 @@ export class App implements OnInit, OnDestroy {
   }
 
   private notify(message: string, type: 'success' | 'error' = 'success'): void {
+    // Epic 24 Story 24.2: Toast 多行+可关闭+最大数量限制
+    const id = ++this._toastCounter;
+    const MAX_TOASTS = 3;
+    const current = this.toasts();
+    const updated: { id: number; message: string; type: 'success' | 'error' }[] = [{ id, message, type }, ...current].slice(0, MAX_TOASTS);
+    this.toasts.set(updated);
+    setTimeout(() => this.closeToast(id), 5000);
+    // 保持旧信号兼容
     this.toastMessage.set(message);
     this.toastType.set(type);
     if (this.toastTimer) clearTimeout(this.toastTimer);
-    this.toastTimer = setTimeout(() => this.toastMessage.set(''), 4000);
+    this.toastTimer = setTimeout(() => { this.toastMessage.set(''); }, 4000);
+  }
+
+  closeToast(id: number): void {
+    // Epic 24 Story 24.2: 关闭指定 toast
+    this.toasts.set(this.toasts().filter((t: { id: number }) => t.id !== id));
   }
 
   private message(error: unknown): string {

@@ -1,11 +1,16 @@
 """Simple in-memory cache for API responses.
 
 Epic 18: API 性能优化 - 缓存机制
+Epic 23 Story 23.1: 统计端点缓存强化
 提供基于 TTL 的简单缓存，减少重复数据库查询
 """
+import os
 import threading
 import time
 from typing import Any, Callable, Hashable
+
+# TTL 配置（秒），可通过环境变量覆盖
+STATS_CACHE_TTL = int(os.getenv("AGENTBOARD_STATS_CACHE_TTL", "300"))  # 默认 5 分钟
 
 
 class CacheEntry:
