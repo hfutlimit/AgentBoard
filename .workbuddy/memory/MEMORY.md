@@ -89,3 +89,30 @@
 - Owner 可邀请/移除成员、变更角色、编辑项目设置
 - Admin 拥有全局 Owner 权限
 - Private 项目：非成员无法访问；Public 项目：所有人可见
+
+## API Key 管理（Epic 25，2026-07-14 实现完整）
+
+### 数据模型
+- 表 `api_keys` 已迁移（alembic `c4e8a1b2d3f4`）：id, user_id, name, key_prefix, key_hash, permissions(JSON str), enabled, created_at, updated_at, last_used_at
+- 密钥生成：`auth.generate_api_key()` → `abk_<secrets.token_urlsafe(32)>`，仅存 SHA256 hash
+
+### API 端点（全部要求登录 Bearer Token）
+- `POST /api/api-keys` body={name, permissions[]} → 返回完整 key（仅此一次）+ 明文
+- `GET /api/api-keys` → 列表（不返回明文）
+- `GET /api/api-keys/{id}` → 详情
+- `PATCH /api/api-keys/{id}` → 更新 name/enabled/permissions
+- `DELETE /api/api-keys/{id}` → 撤销
+
+### 中间件认证
+- `require_business_auth` 中兼容 `Bearer abk_xxx` 头：sha256 查表 → 注入 user_id → 更新 last_used_at
+- 要求 `AGENTBOARD_REQUIRE_AUTH=1` 才生效（默认 0，仅登录/注册/meta/health 公开）
+
+### 任务状态机（重要！2026-07-14 踩坑）
+- `TRANSITIONS`: backlog→todo; todo↔in_progress; in_progress→in_review/verifying/todo; in_review→done/in_progress; verifying→done/in_progress
+- **in_review → verifying 非法**！必须从 in_review 退回 in_progress 才能到 verifying
+- 状态转移用 `PUT /api/tasks/{tid}/status` body={status}（不是 PATCH /api/tasks/{tid}）
+
+## 用户/项目 owner 配置（2026-07-14）
+- 提权：直接 SQLite 改 `users.is_admin=1`（容器内 `/app/data/agentboard.db`，不是 MariaDB！）
+- 加 owner：`INSERT INTO project_members (project_id, user_id, role, joined_at) VALUES (?,?, 'owner', datetime('now'))`
+- 当前账号 jzhong2026 (id=3) 已是 admin + 4 项目 owner（projects 1,2,3,4）
