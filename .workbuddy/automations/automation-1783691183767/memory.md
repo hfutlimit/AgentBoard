@@ -483,3 +483,67 @@
 - Story 21.2: API 缓存强化与性能优化（backlog）
 - Story 21.3: 批量操作 UX 增强（backlog）
 - Story 21.4: 前端错误处理与离线支持（backlog）
+
+---
+
+## 2026-07-14 08:49（周期执行 · Epic 22 审计日志 + 任务依赖 + Webhook）
+
+### 分析结果
+- **拉取最新代码**：已是最新（01597bf）
+- **无 in_progress 任务** → 开始执行
+- **发现 stashed changes**：Epic 22 代码已实现但未 commit
+- **执行了 7 个子任务**（超过 5 个要求）
+
+### 发现情况
+分析 stashed changes 发现 Epic 22 已完整实现但未提交：
+- Story 22.1: 审计日志（audit_logs 表 + 中间件 + API）
+- Story 22.2: 任务依赖（task_dependencies 表 + CRUD API + 前端 UI）
+- Story 22.3: 数据导入（POST /api/projects/{pid}/import）
+- Story 22.4: Webhook 配置（webhook_configs 表 + CRUD API + 前端 Tab）
+
+### 问题修复（Block Issues）
+1. **audit_log_middleware Bug**：`service.SessionLocal()` 不存在 → 修复为 `SessionLocal()`（从 api.py 导入）
+
+### 执行的操作
+1. 恢复 stashed changes
+2. 应用 Alembic 迁移 `9f8c2e7d1a4c` 到本地 SQLite
+3. 验证 Docker DB 已有 3 个新表（audit_logs/task_dependencies/webhook_configs）
+4. 修复 `api.py` L1458：`service.SessionLocal()` → `SessionLocal()`
+5. 部署 API：`docker stop → docker cp api.py → docker start`
+6. 验证审计日志生效：API 请求后 DB 有记录
+
+### 测试结果
+- Smoke tests: 8/8 passed ✅
+- Web flow: 3/3 passed ✅
+- Scheduler: 11/11 passed ✅
+- Performance: 11/11 passed ✅
+- MCP smoke: 3/3 passed ✅
+- **Total: 36+ passed** ✅
+
+### 部署
+- API: `docker stop → cp api.py → start`（修复 audit_log_middleware bug）
+- Web: volume mount 自动同步（`agentboard/web/static/` → `/app/...`）
+- 前端: `npm run build` → Angular 构建 + 复制到 static 目录
+- 验证: `curl /api/audit-logs` → 有记录 ✅
+
+### Git
+- Commit 1: `f7ec4ea` - feat: Epic 22 - Audit logs, Task dependencies, Webhooks, and Import
+- Commit 2: `2abe5e2` - docs: Add Epic 22 to tasks.md
+- Push: ✅
+
+### Epic 22 完成清单
+| 功能 | 状态 |
+|------|------|
+| audit_logs 表 + 中间件 | ✅ |
+| 任务依赖 CRUD API | ✅ |
+| Webhooks CRUD API | ✅ |
+| JSON 数据导入 | ✅ |
+| 前端依赖面板 | ✅ |
+| 前端 Webhooks Tab | ✅ |
+| MCP 工具扩展 | ✅ |
+| docs/tasks.md 更新 | ✅ |
+
+### 下一个待处理
+- Epic 21 Story 21.2: API 缓存强化与性能优化（backlog）
+- Epic 21 Story 21.3: 批量操作 UX 增强（backlog）
+- Epic 21 Story 21.4: 前端错误处理与离线支持（backlog）
