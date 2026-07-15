@@ -119,10 +119,20 @@
                     <span class="notif-all-read-tag">全部已读 ✓</span>
                   }
                 </div>
+                <!-- Task 727: 通知面板搜索过滤 -->
+                <div class="notif-search-wrap">
+                  <input
+                    class="notif-search-input"
+                    type="search"
+                    placeholder="搜索通知…"
+                    [value]="notifSearchQuery()"
+                    (input)="notifSearchQuery.set($any($event.target).value)"
+                  />
+                </div>
                 @if (notifications().length) {
                   <div class="notif-list notif-list--grouped">
                     <!-- Task 719: 按类型分组显示通知 -->
-                    @for (group of objectEntries(groupedNotifications()); track group[0]) {
+                    @for (group of objectEntries(filteredGroupedNotifications()); track group[0]) {
                       <details class="notif-group" open>
                         <summary class="notif-group-header">
                           {{ notifTypeLabel(group[0]) }}
@@ -302,7 +312,7 @@
               }
             </div>
             <div class="section-header">
-              <h2>项目空间</h2>
+              <h2>项目空间 <span class="project-count-badge">{{ projects().length }}</span></h2>
               <button id="home-new-project" class="btn-primary-sm" (click)="openCreate('project')">
                 ＋ 新建项目
               </button>
@@ -830,6 +840,18 @@
                   ＋ 新建
                 </button>
               </div>
+              <!-- Task 730: 任务列表排序下拉 -->
+              <div class="task-sort-bar">
+                <span class="task-sort-label">排序：</span>
+                <select class="task-sort-select" [value]="taskSortKey()" (change)="taskSortKey.set($any($event.target).value)">
+                  @for (opt of taskSortOptions; track opt.key) {
+                    <option [value]="opt.key">{{ opt.label }}</option>
+                  }
+                </select>
+                <button class="ghost-sm task-sort-dir-btn" (click)="taskSortOrder.set(taskSortOrder() === 'asc' ? 'desc' : 'asc')" [title]="taskSortOrder() === 'asc' ? '升序' : '降序'">
+                  {{ taskSortOrder() === 'asc' ? '↑' : '↓' }}
+                </button>
+              </div>
             </div>
             @if (selectedTaskCount > 0) {
               <div class="bulk-action-bar">
@@ -918,6 +940,10 @@
                       @for (item of tasksForStatus(status); track item.id) {
                         <a [routerLink]="['/task', item.id]" class="kanban-card kanban-card--rich"
                           ><strong class="kanban-card-title">{{ item.title }}</strong>
+                          <!-- Task 729: 看板卡片显示 Epic 名称 -->
+                          @if (taskEpicName(item)) {
+                            <div class="kanban-card-epic">{{ taskEpicName(item) }}</div>
+                          }
                           <div class="kanban-card-meta">
                             <span class="badge priority priority--{{ item.priority }}" style="font-size:10px">{{ priorityLabel(item.priority) }}</span>
                             <span class="badge status status--{{ item.status }}" style="font-size:10px">{{ statusLabel(item.status) }}</span>

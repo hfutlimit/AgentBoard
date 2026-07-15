@@ -700,6 +700,35 @@ main {
   font-size: .9rem;
   margin-left: 6px;
 }
+/* Task 730: 任务列表排序下拉 */
+.task-sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+  font-size: .82rem;
+}
+.task-sort-label { color: var(--text-2); font-weight: 500; }
+.task-sort-select {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: .82rem;
+  outline: none;
+  cursor: pointer;
+}
+.task-sort-select:focus { border-color: var(--brand-500); box-shadow: 0 0 0 2px var(--brand-ring); }
+.task-sort-dir-btn {
+  padding: 4px 8px;
+  font-size: .9rem;
+  min-width: unset;
+  cursor: pointer;
+}
 
 /* ========== Kanban Board ========== */
 .kanban {
@@ -716,6 +745,11 @@ main {
   padding: 12px;
   min-width: 180px;
 }
+/* Task 728: 看板列交替背景色 */
+.kanban-col:nth-child(odd) { background: var(--surface-2); }
+.kanban-col:nth-child(even) { background: color-mix(in srgb, var(--surface-2) 85%, var(--brand-soft) 15%); }
+.kanban-col--collapsed:nth-child(odd) { background: var(--surface-2); }
+.kanban-col--collapsed:nth-child(even) { background: color-mix(in srgb, var(--surface-2) 85%, var(--brand-soft) 15%); }
 
 .kanban-col-head {
   display: flex;
@@ -1208,13 +1242,16 @@ details.form-section > form { padding: 16px; }
   padding: 20px;
   text-decoration: none;
   color: inherit;
-  transition: all .2s;
+  transition: all .22s cubic-bezier(.34,1.2,.64,1), box-shadow .22s ease, border-color .15s ease;
   box-shadow: var(--sh-sm);
+  transform-style: preserve-3d;
+  will-change: transform;
+  position: relative;
 }
 .project-card:hover {
-  border-color: var(--brand-500);
-  box-shadow: var(--sh-lg);
-  transform: translateY(-3px);
+  border-color: var(--brand-400, var(--brand-500));
+  box-shadow: var(--sh-lg), 0 0 0 1px var(--brand-ring);
+  transform: translateY(-4px) scale(1.02) rotateX(1.5deg);
   text-decoration: none;
   color: inherit;
 }
@@ -1225,6 +1262,15 @@ details.form-section > form { padding: 16px; }
   margin-bottom: 10px;
 }
 .project-card-name { font-weight: 700; font-size: 1rem; }
+.project-count-badge {
+  font-size: .75rem;
+  font-weight: 600;
+  background: var(--brand-soft);
+  color: var(--brand-700);
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-left: 8px;
+}
 .project-key {
   font-size: .72rem;
   padding: 3px 10px;
@@ -2069,6 +2115,20 @@ details.form-section > form { padding: 16px; }
   font-size: 13px;
   line-height: 1.4;
 }
+/* Task 729: 看板卡片显示 Epic 名称 */
+.kanban-card-epic {
+  font-size: 10px;
+  color: var(--brand-600, #4338ca);
+  background: var(--brand-soft, #eef2ff);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  display: inline-block;
+}
 .kanban-card-meta {
   display: flex;
   align-items: center;
@@ -2115,6 +2175,27 @@ details.form-section > form { padding: 16px; }
   color: var(--success, #059669);
   margin-right: auto;
 }
+/* Task 727: 通知面板搜索框 */
+.notif-search-wrap {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.notif-search-input {
+  width: 100%;
+  padding: 5px 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: var(--r-sm, 6px);
+  background: var(--surface-2, #f8fafc);
+  color: var(--text, inherit);
+  font-size: .82rem;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+}
+.notif-search-input:focus {
+  border-color: var(--brand-500, #6366f1);
+  box-shadow: 0 0 0 2px var(--brand-ring, rgba(99,102,241,.15));
+}
+.notif-search-input::placeholder { color: var(--text-3, #94a3b8); }
 .notif-list {
   max-height: 360px;
   overflow-y: auto;

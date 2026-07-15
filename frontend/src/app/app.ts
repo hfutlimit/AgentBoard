@@ -145,6 +145,21 @@ export class App implements OnInit, OnDestroy {
     }
     return groups;
   });
+  // Task 727: 通知面板搜索过滤
+  readonly notifSearchQuery = signal('');
+  readonly filteredGroupedNotifications = computed(() => {
+    const q = this.notifSearchQuery().toLowerCase();
+    const groups = this.groupedNotifications();
+    if (!q) return groups;
+    const result: Record<string, any[]> = {};
+    for (const [key, items] of Object.entries(groups)) {
+      const filtered = items.filter((n: any) =>
+        n.title?.toLowerCase().includes(q) || n.content?.toLowerCase().includes(q)
+      );
+      if (filtered.length > 0) result[key] = filtered;
+    }
+    return result;
+  });
   readonly statuses: Status[] = [
     'backlog',
     'todo',
@@ -164,6 +179,15 @@ export class App implements OnInit, OnDestroy {
   readonly visibleStories = computed(() =>
     this.match(this.stories(), (s) => `${s.title} ${s.description}`),
   );
+  // Task 730: 任务列表排序
+  readonly taskSortKey = signal<'created_at' | 'updated_at' | 'priority' | 'title'>('created_at');
+  readonly taskSortOrder = signal<'asc' | 'desc'>('desc');
+  readonly taskSortOptions = [
+    { key: 'created_at', label: '创建时间' },
+    { key: 'updated_at', label: '更新时间' },
+    { key: 'priority', label: '优先级' },
+    { key: 'title', label: '标题' },
+  ];
   // Task 602: 高级筛选面板 - 状态/优先级过滤
   readonly filterStatus = signal('');
   readonly filterPriority = signal('');
@@ -171,9 +195,25 @@ export class App implements OnInit, OnDestroy {
     const search = this.match(this.tasks(), (t) => `${t.title} ${t.description} ${t.spec}`);
     const status = this.filterStatus();
     const priority = this.filterPriority();
-    return search.filter((t: Task) =>
+    const sortKey = this.taskSortKey();
+    const sortOrder = this.taskSortOrder();
+    const PRIORITY_ORDER = ['highest', 'high', 'medium', 'low', 'lowest'];
+    let filtered = search.filter((t: Task) =>
       (!status || t.status === status) && (!priority || t.priority === priority)
     );
+    // Task 730: 排序
+    filtered.sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === 'created_at' || sortKey === 'updated_at') {
+        cmp = new Date(a[sortKey]).getTime() - new Date(b[sortKey]).getTime();
+      } else if (sortKey === 'priority') {
+        cmp = PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority);
+      } else if (sortKey === 'title') {
+        cmp = (a.title || '').localeCompare(b.title || '');
+      }
+      return sortOrder === 'asc' ? cmp : -cmp;
+    });
+    return filtered;
   });
   readonly doneTasks = computed(() => this.tasks().filter((t) => t.status === 'done').length);
 
@@ -1560,6 +1600,15 @@ export class App implements OnInit, OnDestroy {
 
   isColumnCollapsed(status: string): boolean {
     return this.collapsedColumns().has(status);
+  }
+
+  // Task 729: 看板卡片显示 Epic 名称
+  taskEpicName(task: Task): string {
+    if (!task.story_id) return '';
+    const story = this.stories().find(s => s.id === task.story_id);
+    if (!story) return '';
+    const epic = this.epics().find(e => e.id === story.epic_id);
+    return epic?.title || '';
   }
 
   // Task 719: 通知类型分组标签
