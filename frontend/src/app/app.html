@@ -214,16 +214,25 @@
           }
         </div>
       </nav>
+      <!-- 收藏项目 -->
+      @if (favoriteProjects().length > 0) {
+        <div class="sidebar-favorites">
+          <div class="sidebar-section-header">⭐ 收藏</div>
+          @for (item of favoriteProjects(); track item.id) {
+            <a [routerLink]="['/project', item.id]" class="sidebar-section-item" [class.active]="project()?.id === item.id">
+              <span class="sidebar-icon">★</span><span class="sidebar-label">{{ item.name }}</span>
+            </a>
+          }
+        </div>
+      }
       <!-- 最近访问 -->
       @if (recentProjects().length > 0) {
         <div class="sidebar-recent">
-          <div class="sidebar-recent-header">最近访问</div>
+          <div class="sidebar-section-header">⏱ 最近访问</div>
           @for (item of recentProjects(); track item.id) {
-            <div class="sidebar-item">
-              <a [routerLink]="['/project', item.id]" class="sidebar-link">
-                <span class="sidebar-icon recent-icon">⏱</span><span class="sidebar-label">{{ item.name }}</span>
-              </a>
-            </div>
+            <a [routerLink]="['/project', item.id]" class="sidebar-section-item" [class.active]="project()?.id === item.id">
+              <span class="sidebar-icon">◆</span><span class="sidebar-label">{{ item.name }}</span>
+            </a>
           }
         </div>
       }
@@ -331,16 +340,22 @@
             </div>
             <div class="project-grid">
               @for (item of visibleProjects(); track item.id) {
-                <a [routerLink]="['/project', item.id]" class="project-card"
-                  ><div class="project-card-header">
-                    <span class="project-card-name">{{ item.name }}</span>
-                    @if (item.key) {
-                      <span class="project-key">{{ item.key }}</span>
-                    }
-                  </div>
-                  <div class="project-card-desc">{{ item.description || '暂无描述' }}</div>
-                  <div class="project-card-stats"><span>打开项目</span><span>→</span></div></a
-                >
+                <div class="project-card-wrapper">
+                  <a [routerLink]="['/project', item.id]" class="project-card"
+                    ><div class="project-card-header">
+                      <span class="project-card-name">{{ item.name }}</span>
+                      @if (item.key) {
+                        <span class="project-key">{{ item.key }}</span>
+                      }
+                    </div>
+                    <div class="project-card-desc">{{ item.description || '暂无描述' }}</div>
+                    <div class="project-card-stats"><span>打开项目</span><span>→</span></div></a
+                  >
+                  <button class="favorite-toggle" [class.favorited]="isFavorite(item.id)"
+                    (click)="toggleFavorite(item, $event)" title="收藏/取消收藏">
+                    {{ isFavorite(item.id) ? '★' : '☆' }}
+                  </button>
+                </div>
               } @empty {
                 <div class="empty-state empty-compact">
                   <h3>还没有项目</h3>
@@ -375,6 +390,10 @@
                   <tr>
                     <td>
                       <a [routerLink]="['/project', item.id]" class="link-bold">{{ item.name }}</a>
+                      <button class="favorite-toggle-inline" [class.favorited]="isFavorite(item.id)"
+                        (click)="toggleFavorite(item, $event)" title="收藏/取消收藏">
+                        {{ isFavorite(item.id) ? '★' : '☆' }}
+                      </button>
                     </td>
                     <td>{{ item.key || '—' }}</td>
                     <td class="cell-truncate">{{ item.description || '—' }}</td>

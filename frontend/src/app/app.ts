@@ -30,6 +30,9 @@ interface CreateModal {
 export class App implements OnInit, OnDestroy {
   readonly projects = signal<Project[]>([]);
   readonly recentProjects = signal<Project[]>([]);
+  readonly favoriteProjects = signal<Project[]>([]);
+  private recentProjectIds: number[] = [];
+  private favoriteProjectIds: Set<number> = new Set();
   readonly epics = signal<Epic[]>([]);
   readonly stories = signal<Story[]>([]);
   readonly tasks = signal<Task[]>([]);
@@ -323,6 +326,7 @@ export class App implements OnInit, OnDestroy {
     const theme = saved || (this.colorScheme?.matches ? 'dark' : 'light');
     this.applyTheme(theme);
     this.loadRecentProjects();
+    this.loadFavorites();
     // Listen for system theme changes
     this.colorScheme?.addEventListener('change', this.handleColorSchemeChange);
     // Epic 21 Story 21.4: 全局错误处理
@@ -623,6 +627,8 @@ export class App implements OnInit, OnDestroy {
     }
     try {
       await this.loadProjects();
+      this.syncRecentProjects();
+      this.syncFavorites();
       if (!kind) {
         this.view.set('home');
         await this.loadDashboard();
@@ -733,11 +739,56 @@ export class App implements OnInit, OnDestroy {
     try {
       const stored = localStorage.getItem('agentboard_recent_projects');
       if (stored) {
-        const ids: number[] = JSON.parse(stored);
-        // Will be filtered when projects are loaded
-        this.recentProjects.set([]);
+        this.recentProjectIds = JSON.parse(stored);
       }
     } catch { /* ignore */ }
+  }
+
+  /** Populate recentProjects signal from stored IDs + loaded projects list */
+  private syncRecentProjects(): void {
+    if (this.recentProjectIds.length === 0) return;
+    const recent = this.recentProjectIds
+      .map(id => this.projects().find(p => p.id === id))
+      .filter(Boolean) as Project[];
+    this.recentProjects.set(recent);
+  }
+
+  /** Load favorite project IDs from localStorage */
+  private loadFavorites(): void {
+    try {
+      const stored = localStorage.getItem('agentboard_favorite_projects');
+      if (stored) {
+        this.favoriteProjectIds = new Set(JSON.parse(stored));
+      }
+    } catch { /* ignore */ }
+  }
+
+  /** Populate favoriteProjects signal from stored IDs + loaded projects list */
+  private syncFavorites(): void {
+    if (this.favoriteProjectIds.size === 0) {
+      this.favoriteProjects.set([]);
+      return;
+    }
+    const favs = this.projects().filter(p => this.favoriteProjectIds.has(p.id));
+    this.favoriteProjects.set(favs);
+  }
+
+  /** Toggle favorite status for a project */
+  toggleFavorite(project: Project, event?: Event): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    if (this.favoriteProjectIds.has(project.id)) {
+      this.favoriteProjectIds.delete(project.id);
+    } else {
+      this.favoriteProjectIds.add(project.id);
+    }
+    localStorage.setItem('agentboard_favorite_projects', JSON.stringify([...this.favoriteProjectIds]));
+    this.syncFavorites();
+  }
+
+  /** Check if a project is favorited */
+  isFavorite(projectId: number): boolean {
+    return this.favoriteProjectIds.has(projectId);
   }
 
   trackRecentProject(project: Project): void {
@@ -751,6 +802,7 @@ export class App implements OnInit, OnDestroy {
       ids.unshift(project.id);
       ids = ids.slice(0, MAX);
       localStorage.setItem(KEY, JSON.stringify(ids));
+      this.recentProjectIds = ids;
       // Filter projects to get recent ones
       const recent = ids.map(id => this.projects().find(p => p.id === id)).filter(Boolean) as Project[];
       this.recentProjects.set(recent);
