@@ -38,7 +38,7 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "18000:8000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/meta').status==200 else 1)"]
@@ -53,12 +53,12 @@ services:
     environment:
       # 注：此地址由浏览器（用户机器）发起请求，必须用宿主机可访问地址，
       # 默认 localhost:8000 适用于本机 docker；生产改为真实域名/IP。
-      AGENTBOARD_API_URL: "${AGENTBOARD_WEB_API_URL:-http://localhost:8000}"
+      AGENTBOARD_API_URL: "${AGENTBOARD_WEB_API_URL:-http://localhost:18000}"
     volumes:
       # 开发模式：挂载静态文件目录，更新样式后无需重建容器
       - ./agentboard/web/static:/app/agentboard/web/static:ro
     ports:
-      - "8080:8080"
+      - "28080:8080"
     depends_on:
       api:
         condition: service_healthy
