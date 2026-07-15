@@ -654,4 +654,22 @@
 | 2026-07-15 | Epic 29 | Task 708/709 → in_review（性能指标 + 骨架屏） |
 | 2026-07-15 | Epic 30 | Task 803/804/805/806/807/808 → in_review（批量操作 + 错误处理） |
 
+---
+
+## Epic 31（Epic 18 in DB）：前端体验升级 v0.9（2026-07-15 创建）
+> 目标：通知搜索过滤、看板视觉增强、任务列表排序、项目卡片 3D 效果。
+
+### Story 31.1 通知与看板增强
+- [x] Task 727: 通知面板搜索过滤（`notifSearchQuery` signal + `filteredGroupedNotifications` computed）
+- [x] Task 728: 看板列交替背景色（`nth-child(odd/even)` + color-mix 微妙区分）
+- [x] Task 729: 看板卡片显示 Epic 名称徽章（`taskEpicName()` helper + CSS）
+- [x] Task 731: 项目卡片 3D 悬浮效果 + 项目计数徽章
+
+### Story 31.2 任务列表排序
+- [x] Task 730: 任务列表排序下拉（`taskSortKey`/`taskSortOrder` signals + 按创建/更新/优先级/标题排序）
+
+### 完成记录
+| 日期 | 项 | 简述 |
+|------|----|------|
+| 2026-07-15 | Epic 31 | Tasks 727-731 → in_review（通知搜索 + 看板交替色 + Epic徽章 + 排序下拉 + 3D卡片） |
 
