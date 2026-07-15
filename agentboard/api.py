@@ -671,7 +671,7 @@ def update_task(tid: int, body: TaskPatch, s: Session = Depends(get_session)):
     task = service.get_task(s, tid)
     pid = task.project_id if task else None
     try:
-        r = service.update_task(s, tid, **body.model_dump(exclude_none=True))
+        r = service.update_task(s, tid, **body.model_dump(exclude_unset=True))
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     if pid:

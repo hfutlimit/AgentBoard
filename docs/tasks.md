@@ -282,7 +282,7 @@
 ### Backlog B（需后端配合，先提需求，不混入小优化）
 - [ ] **B-01 标签 / 标签组（labels）**：task 增加 `labels` 字段 + 多选 UI（需 `models.py` + 迁移 + API）。
 - [ ] **B-02 负责人 / 指派（assignee）**：task 增加 `assignee` + 用户下拉（依赖 FR-8 用户体系）。
-- [ ] **B-03 截止日期（due_date）**：task 增加 `due_date` + 日历控件 + 逾期高亮。
+- [x] **B-03 截止日期（due_date）**：task 增加 `due_date` + 日历控件 + 逾期高亮。后端模型/迁移/API 已就绪（Epic 17）；前端 UI 实现：Angular Task 接口增加 `due_date`，创建弹窗 + 编辑表单加 `<input type="date">`，任务列表/看板卡片/任务详情显示截止日期徽章（逾期红色脉冲 + 近期黄色 + 正常灰色）；后端 `service.py` 增加 `_parse_due_date()` 字符串转 `date` 对象；`api.py` `update_task` 改用 `exclude_unset=True` 支持 null 清空；5 项 pytest 全绿。
 - [ ] **B-04 看板拖拽排序**：拖动卡片变更 status（需后端接受合法迁移 + 可选 order 字段）。
 - [x] **B-05 评论 / 活动流**：task 增加评论（已由 Epic 12 / Story 12.1 完成）。
 - [ ] **B-06 列表分组 / 排序**：按状态/类型/负责人分组（纯前端「按状态/按类型」已实现，见完成记录；「按负责人」依赖 Epic 7 用户体系，仍待后端）。

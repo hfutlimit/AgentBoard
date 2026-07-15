@@ -1093,3 +1093,39 @@ router-outlet {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+
+/* B-03: Due date badge styles */
+.due-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.due-badge.due-soon {
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-weight: 600;
+}
+.due-badge.due-overdue {
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-weight: 700;
+  animation: pulse-overdue 2s ease-in-out infinite;
+}
+@keyframes pulse-overdue {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+.task-meta-item.overdue .meta-value {
+  color: var(--danger);
+  font-weight: 700;
+}
+.task-meta-item.due-soon .meta-value {
+  color: var(--warning);
+  font-weight: 600;
+}
+.task-meta-item.overdue .meta-icon {
+  animation: pulse-overdue 1.5s ease-in-out infinite;
+}

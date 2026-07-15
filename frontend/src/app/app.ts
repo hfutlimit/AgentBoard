@@ -872,6 +872,7 @@ export class App implements OnInit, OnDestroy {
     const description = String(data.get('description') || '');
     const type = String(data.get('type') || 'task') as ItemType;
     const priority = String(data.get('priority') || 'medium') as Priority;
+    const dueDate = String(data.get('due_date') || '') || null;
     if (!modal || !title.trim()) return;
     this.submitting.set(true);
     try {
@@ -895,6 +896,7 @@ export class App implements OnInit, OnDestroy {
             description,
             type,
             priority,
+            due_date: dueDate,
           }),
         );
       }
@@ -938,11 +940,12 @@ export class App implements OnInit, OnDestroy {
     spec: string,
     type: ItemType,
     priority: Priority,
+    dueDate: string | null,
   ): Promise<void> {
     const task = this.task();
     if (!task) return;
     await this.run('任务已保存', () =>
-      firstValueFrom(this.api.updateTask(task.id, { title, description, spec, type, priority })),
+      firstValueFrom(this.api.updateTask(task.id, { title, description, spec, type, priority, due_date: dueDate })),
     );
   }
 
@@ -1840,6 +1843,29 @@ export class App implements OnInit, OnDestroy {
     if (diff < 86400) return `${Math.floor(diff / 3600)}h前`;
     if (diff < 604800) return `${Math.floor(diff / 86400)}d前`;
     return new Date(dateStr).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+  }
+
+  // B-03: Due date helpers
+  isOverdue(dueDate: string | null | undefined): boolean {
+    if (!dueDate) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return new Date(dueDate) < today;
+  }
+
+  isDueSoon(dueDate: string | null | undefined): boolean {
+    if (!dueDate) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const due = new Date(dueDate);
+    const diffDays = Math.floor((due.getTime() - today.getTime()) / 86400000);
+    return diffDays >= 0 && diffDays <= 3;
+  }
+
+  formatDueDate(dueDate: string | null | undefined): string {
+    if (!dueDate) return '';
+    const d = new Date(dueDate);
+    return d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
   }
 
   private async run(success: string, action: () => Promise<unknown>): Promise<void> {

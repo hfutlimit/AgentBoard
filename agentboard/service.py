@@ -1,4 +1,5 @@
 import re
+from datetime import date
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -12,6 +13,16 @@ from .models import (
 
 DEFAULT_PAGE_SIZE = 100
 MAX_PAGE_SIZE = 200
+
+
+def _parse_due_date(value):
+    """Convert ISO date string (YYYY-MM-DD) to date object; pass through None/date."""
+    if value is None or isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value))
+    except (ValueError, TypeError):
+        raise InvalidValue(f"invalid due_date format: {value!r}, expected YYYY-MM-DD")
 
 # 合法状态迁移
 TRANSITIONS = {
@@ -269,7 +280,7 @@ def create_task(s: Session, *, project_id: int, story_id: int | None, title: str
     t = Task(project_id=project_id, story_id=story_id, sprint_id=sprint_id,
              title=_required(title, "title", 300),
              type=type, description=description or "", spec=spec or "", priority=priority,
-             assignee_id=assignee_id, due_date=due_date, labels=labels or "[]")
+             assignee_id=assignee_id, due_date=_parse_due_date(due_date), labels=labels or "[]")
     s.add(t); _commit(s); s.refresh(t)
     _invalidate_project_stats_cache(project_id)
     return t
@@ -296,35 +307,41 @@ def update_task(s: Session, id: int, **fields) -> Task | None:
         return None
     allowed = {"title", "description", "spec", "type", "status", "priority", "sprint_id",
                "assignee_id", "due_date", "labels"}  # Epic 17
+    nullable_fields = {"due_date", "sprint_id", "assignee_id"}  # fields that can be set to None
     for k, v in fields.items():
-        if k in allowed and v is not None:
-            if k == "title":
-                v = _required(v, "title", 300)
-            elif k == "priority":
-                _check_priority(v)
-            elif k == "type":
-                _check_type(v)
-            elif k == "status":
-                _check_status(v)
-            elif k == "sprint_id":
-                if v is not None:
-                    sp = s.get(Sprint, v)
-                    if not sp or sp.project_id != t.project_id:
-                        raise InvalidValue(f"sprint {v} does not belong to project {t.project_id}")
-                    if sp.status == SprintStatus.COMPLETED:
-                        raise InvalidValue("cannot assign task to a completed sprint")
-            elif k == "assignee_id":
-                if v is not None:
-                    user = s.get(User, v)
-                    if not user:
-                        raise InvalidValue(f"assignee {v} not found")
-            elif k == "labels":
-                import json
-                try:
-                    json.loads(v)
-                except json.JSONDecodeError:
-                    raise InvalidValue("labels must be a valid JSON array")
-            setattr(t, k, v)
+        if k not in allowed:
+            continue
+        if v is None and k not in nullable_fields:
+            continue
+        if k == "title":
+            v = _required(v, "title", 300)
+        elif k == "priority":
+            _check_priority(v)
+        elif k == "type":
+            _check_type(v)
+        elif k == "status":
+            _check_status(v)
+        elif k == "sprint_id":
+            if v is not None:
+                sp = s.get(Sprint, v)
+                if not sp or sp.project_id != t.project_id:
+                    raise InvalidValue(f"sprint {v} does not belong to project {t.project_id}")
+                if sp.status == SprintStatus.COMPLETED:
+                    raise InvalidValue("cannot assign task to a completed sprint")
+        elif k == "assignee_id":
+            if v is not None:
+                user = s.get(User, v)
+                if not user:
+                    raise InvalidValue(f"assignee {v} not found")
+        elif k == "due_date":
+            v = _parse_due_date(v)
+        elif k == "labels":
+            import json
+            try:
+                json.loads(v)
+            except json.JSONDecodeError:
+                raise InvalidValue("labels must be a valid JSON array")
+        setattr(t, k, v)
     _commit(s); s.refresh(t)
     # 关键字段变更时清除项目统计缓存（Epic 23 Story 23.1）
     if any(k in fields for k in ("status", "sprint_id", "priority")):

@@ -939,6 +939,11 @@
                         @if (item.sprint_id) {
                           <span class="badge sprint-badge" title="已分配 Sprint">🏃</span>
                         }
+                        @if (item.due_date) {
+                          <span class="badge due-badge" [class.due-overdue]="isOverdue(item.due_date)" [class.due-soon]="isDueSoon(item.due_date)" title="截止日期">
+                            ⏰ {{ formatDueDate(item.due_date) }}
+                          </span>
+                        }
                         <span class="entity-item-time" title="最后更新">{{ timeAgo(item.updated_at) }}</span>
                       </div>
                     </a>
@@ -986,6 +991,9 @@
                             <span class="badge status status--{{ item.status }}" style="font-size:10px">{{ statusLabel(item.status) }}</span>
                             @if (item.sprint_id) {
                               <span class="sprint-dot" title="Sprint">🏃</span>
+                            }
+                            @if (item.due_date) {
+                              <span class="badge due-badge" [class.due-overdue]="isOverdue(item.due_date)" [class.due-soon]="isDueSoon(item.due_date)" style="font-size:10px" title="截止日期">⏰ {{ formatDueDate(item.due_date) }}</span>
                             }
                           </div></a
                         >
@@ -1065,6 +1073,13 @@
                     <span class="meta-icon">📋</span>
                     <span class="meta-label">子任务</span>
                     <span class="meta-value">{{ getSubtaskCount(current.id).done }}/{{ getSubtaskCount(current.id).total }}</span>
+                  </span>
+                }
+                @if (current.due_date) {
+                  <span class="task-meta-item" [class.overdue]="isOverdue(current.due_date)" [class.due-soon]="isDueSoon(current.due_date)">
+                    <span class="meta-icon">⏰</span>
+                    <span class="meta-label">截止</span>
+                    <span class="meta-value">{{ formatDueDate(current.due_date) }}</span>
                   </span>
                 }
               </div>
@@ -1156,7 +1171,8 @@
                     tDesc.value,
                     tSpec.value,
                     $any(tType.value),
-                    $any(tPriority.value)
+                    $any(tPriority.value),
+                    tDueDate.value || null
                   );
                   $event.preventDefault()
                 "
@@ -1176,6 +1192,9 @@
                     </select></label
                   >
                 </div>
+                <label
+                  >截止日期<input #tDueDate type="date" [value]="current.due_date || ''" />
+                </label>
                 @if (project()?.id) {
                   <label
                     >Sprint<select
@@ -1495,6 +1514,9 @@
                   }
                 </select>
               </div>
+            </div>
+            <div class="form-field">
+              <label>截止日期</label><input id="create-due-date" name="due_date" type="date" />
             </div>
           }
         </div>

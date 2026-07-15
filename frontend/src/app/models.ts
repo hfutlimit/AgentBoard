@@ -41,6 +41,7 @@ export interface Task {
   description: string;
   spec: string;
   source_spec_id: number | null;
+  due_date: string | null;  // ISO date string YYYY-MM-DD
   created_at: string;
   updated_at: string;
 }
