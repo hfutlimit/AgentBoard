@@ -4,11 +4,10 @@ import re
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 
-ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).parent / "web" / "static"
 API_URL = os.getenv("AGENTBOARD_API_URL", "http://127.0.0.1:58124")
 
@@ -35,7 +34,17 @@ def _fixed_index() -> str:
     return content
 
 
-@app.get("/{path:path}", response_class=HTMLResponse)
-@app.get("/", response_class=HTMLResponse)
-def index():
+@app.get("/")
+def root():
     return _fixed_index()
+
+
+@app.get("/{path:path}")
+def angular_asset_or_route(path: str):
+    """提供 Angular 资源文件，并把浏览器深链接回退到 index.html。"""
+    # 先尝试 /static/ 路径
+    static_candidate = STATIC_DIR / path
+    if static_candidate.is_file():
+        return FileResponse(static_candidate)
+    # 回退到 index.html
+    return HTMLResponse(_fixed_index())

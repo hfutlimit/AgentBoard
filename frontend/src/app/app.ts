@@ -130,6 +130,21 @@ export class App implements OnInit, OnDestroy {
   readonly apiSuccessRate = signal<number>(100);
   readonly pageLoadTime = signal<number>(0);
   readonly showPerformance = signal(false);
+  // Task 721: 看板列折叠状态
+  readonly collapsedColumns = signal<Set<string>>(new Set(
+    JSON.parse(localStorage.getItem('agentboard_collapsed_cols') || '[]')
+  ));
+  // Task 719: 通知按类型分组
+  readonly groupedNotifications = computed(() => {
+    const notifs = this.notifications();
+    const groups: Record<string, typeof notifs> = {};
+    for (const n of notifs) {
+      const key = n.type || 'other';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(n);
+    }
+    return groups;
+  });
   readonly statuses: Status[] = [
     'backlog',
     'todo',
@@ -1497,6 +1512,10 @@ export class App implements OnInit, OnDestroy {
 
   toggleTheme(): void {
     this.applyTheme(this.document.documentElement.dataset['theme'] === 'dark' ? 'light' : 'dark');
+    // Task 717: Theme change toast feedback
+    this.notify(
+      this.isDarkTheme() ? '已切换到深色模式 🌙' : '已切换到浅色模式 ☀️'
+    );
   }
 
   getThemeLabel(): string {
@@ -1525,6 +1544,40 @@ export class App implements OnInit, OnDestroy {
   private applyTheme(theme: string): void {
     this.document.documentElement.dataset['theme'] = theme;
     localStorage.setItem('agentboard_theme', theme);
+  }
+
+  // Task 721/722: 看板列折叠/展开
+  toggleColumnCollapse(status: string): void {
+    const collapsed = new Set(this.collapsedColumns());
+    if (collapsed.has(status)) {
+      collapsed.delete(status);
+    } else {
+      collapsed.add(status);
+    }
+    this.collapsedColumns.set(collapsed);
+    localStorage.setItem('agentboard_collapsed_cols', JSON.stringify([...collapsed]));
+  }
+
+  isColumnCollapsed(status: string): boolean {
+    return this.collapsedColumns().has(status);
+  }
+
+  // Task 719: 通知类型分组标签
+  notifTypeLabel(type: string): string {
+    const labels: Record<string, string> = {
+      project_invite: '📬 项目邀请',
+      join_request: '📩 加入申请',
+      task_assigned: '📋 任务分配',
+      status_changed: '🔄 状态变更',
+      mentioned: '💬 提及',
+      other: '🔔 其他',
+    };
+    return labels[type] || labels['other'];
+  }
+
+  // Task 719: 对象键值对列表（用于模板中遍历 groupedNotifications）
+  objectEntries(obj: Record<string, any>): [string, any][] {
+    return Object.entries(obj);
   }
 
   statusLabel(status: string): string {

@@ -63,20 +63,34 @@
               } @else {
                 <div class="health-row"><span>状态</span><span class="badge status--verifying">无法获取</span></div>
               }
-              <!-- Task 708: 性能指标显示 -->
+              <!-- Task 708/725: 性能指标显示 + Network请求详情 -->
               <div class="perf-section">
                 <div class="perf-header">📊 性能指标</div>
                 <div class="health-row"><span>页面加载</span><span class="perf-value">{{ formatLoadTime() }}</span></div>
                 <div class="health-row"><span>API 平均</span><span class="perf-value">{{ avgApiDuration() > 0 ? formatMetricTime(avgApiDuration()) : '-' }}</span></div>
                 <div class="health-row"><span>API 成功率</span><span [class]="apiSuccessRate() >= 95 ? 'perf-value perf-good' : apiSuccessRate() >= 80 ? 'perf-value perf-warn' : 'perf-value perf-bad'">{{ apiSuccessRate() }}%</span></div>
+                <!-- Task 725: Network请求详情 -->
                 @if (apiMetrics().length > 0) {
                   <div class="perf-metrics">
+                    <div class="perf-metrics-header">最近 {{ apiMetrics().length > 5 ? 5 : apiMetrics().length }} 条请求</div>
                     @for (m of apiMetrics().slice(-5); track m.timestamp) {
                       <div class="perf-metric-row">
-                        <span class="perf-method">{{ m.method }}</span>
-                        <span class="perf-path" title="{{ m.path }}">{{ m.path | slice:0:20 }}</span>
+                        <span class="perf-method perf-method--{{ m.method.toLowerCase() }}">{{ m.method }}</span>
+                        <span class="perf-path" [title]="m.path">{{ m.path | slice:0:22 }}</span>
                         <span [class]="m.status === 'success' ? 'perf-duration perf-good' : 'perf-duration perf-bad'">{{ formatMetricTime(m.duration) }}</span>
                       </div>
+                    }
+                  </div>
+                  <!-- Task 726: 性能建议 -->
+                  <div class="perf-advice">
+                    @if (avgApiDuration() > 1000) {
+                      <div class="perf-advice-warn">⚠️ API 平均响应超过 1s，建议检查服务端性能</div>
+                    }
+                    @if (apiSuccessRate() < 95) {
+                      <div class="perf-advice-warn">⚠️ API 成功率偏低 ({{ apiSuccessRate() }}%)，请检查网络或服务端状态</div>
+                    }
+                    @if (apiSuccessRate() >= 95 && avgApiDuration() <= 1000) {
+                      <div class="perf-advice-ok">✅ 系统运行正常</div>
                     }
                   </div>
                 }
@@ -106,27 +120,27 @@
                   }
                 </div>
                 @if (notifications().length) {
-                  <div class="notif-list">
-                    @for (n of notifications(); track n.id) {
-                      <div class="notif-item" [class.unread]="!n.is_read" (click)="markRead(n.id)">
-                        <div class="notif-item-icon">
-                          @switch (n.type) {
-                            @case ('project_invite') { 📬 }
-                            @case ('task_assigned') { 📋 }
-                            @case ('status_changed') { 🔄 }
-                            @case ('mentioned') { 💬 }
-                            @default { 🔔 }
-                          }
-                        </div>
-                        <div class="notif-item-body">
-                          <div class="notif-title">{{ n.title }}</div>
-                          @if (n.content) { <div class="notif-content">{{ n.content }}</div> }
-                          <div class="notif-time">{{ timeAgo(n.created_at) }}</div>
-                        </div>
-                        @if (!n.is_read) {
-                          <span class="notif-dot"></span>
+                  <div class="notif-list notif-list--grouped">
+                    <!-- Task 719: 按类型分组显示通知 -->
+                    @for (group of objectEntries(groupedNotifications()); track group[0]) {
+                      <details class="notif-group" open>
+                        <summary class="notif-group-header">
+                          {{ notifTypeLabel(group[0]) }}
+                          <span class="notif-group-count">{{ group[1].length }}</span>
+                        </summary>
+                        @for (n of group[1]; track n.id) {
+                          <div class="notif-item" [class.unread]="!n.is_read" (click)="markRead(n.id)">
+                            <div class="notif-item-body">
+                              <div class="notif-title">{{ n.title }}</div>
+                              @if (n.content) { <div class="notif-content">{{ n.content }}</div> }
+                              <div class="notif-time">{{ timeAgo(n.created_at) }}</div>
+                            </div>
+                            @if (!n.is_read) {
+                              <span class="notif-dot"></span>
+                            }
+                          </div>
                         }
-                      </div>
+                      </details>
                     }
                   </div>
                 } @else {
@@ -886,30 +900,41 @@
             } @else {
               <div class="kanban">
                 @for (status of statuses; track status) {
-                  <div class="kanban-col">
-                    <div class="kanban-col-head">
-                      <span>{{ statusLabel(status) }}</span
-                      ><span class="kanban-count">{{ tasksForStatus(status).length }}</span>
+                  <!-- Task 721: 看板列折叠/展开 -->
+                  @if (isColumnCollapsed(status)) {
+                    <div class="kanban-col kanban-col--collapsed" (click)="toggleColumnCollapse(status)" title="点击展开 {{ statusLabel(status) }}">
+                      <div class="kanban-col-head kanban-col-head--collapsed">
+                        <span>▶ {{ statusLabel(status) }}</span>
+                        <span class="kanban-count">{{ tasksForStatus(status).length }}</span>
+                      </div>
                     </div>
-                    @for (item of tasksForStatus(status); track item.id) {
-                      <a [routerLink]="['/task', item.id]" class="kanban-card kanban-card--rich"
-                        ><strong class="kanban-card-title">{{ item.title }}</strong>
-                        <div class="kanban-card-meta">
-                          <span class="badge priority priority--{{ item.priority }}" style="font-size:10px">{{ priorityLabel(item.priority) }}</span>
-                          <span class="badge status status--{{ item.status }}" style="font-size:10px">{{ statusLabel(item.status) }}</span>
-                          @if (item.sprint_id) {
-                            <span class="sprint-dot" title="Sprint">🏃</span>
-                          }
-                        </div></a
-                      >
-                    }
-                    <!-- Task 714: 虚拟滚动 - 看板列加载更多 -->
-                    @if (visibleTasks().length > taskPageSize() * taskPageCount()) {
-                      <button class="task-list-load-more" (click)="loadMoreTasks()">
-                        加载更多 ({{ visibleTasks().length - taskPageSize() * taskPageCount() }} 剩余)
-                      </button>
-                    }
-                  </div>
+                  } @else {
+                    <div class="kanban-col">
+                      <div class="kanban-col-head">
+                        <span>{{ statusLabel(status) }}</span
+                        ><span class="kanban-count">{{ tasksForStatus(status).length }}</span>
+                        <button class="kanban-col-collapse-btn" (click)="toggleColumnCollapse(status)" title="折叠">▼</button>
+                      </div>
+                      @for (item of tasksForStatus(status); track item.id) {
+                        <a [routerLink]="['/task', item.id]" class="kanban-card kanban-card--rich"
+                          ><strong class="kanban-card-title">{{ item.title }}</strong>
+                          <div class="kanban-card-meta">
+                            <span class="badge priority priority--{{ item.priority }}" style="font-size:10px">{{ priorityLabel(item.priority) }}</span>
+                            <span class="badge status status--{{ item.status }}" style="font-size:10px">{{ statusLabel(item.status) }}</span>
+                            @if (item.sprint_id) {
+                              <span class="sprint-dot" title="Sprint">🏃</span>
+                            }
+                          </div></a
+                        >
+                      }
+                      <!-- Task 714: 虚拟滚动 - 看板列加载更多 -->
+                      @if (visibleTasks().length > taskPageSize() * taskPageCount()) {
+                        <button class="task-list-load-more" (click)="loadMoreTasks()">
+                          加载更多 ({{ visibleTasks().length - taskPageSize() * taskPageCount() }} 剩余)
+                        </button>
+                      }
+                    </div>
+                  }
                 }
               </div>
             }

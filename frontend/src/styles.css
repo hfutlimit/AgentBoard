@@ -810,6 +810,70 @@ main {
 
 /* Task 714: 虚拟滚动 - 列表分页加载 */
 .task-list-wrap { position: relative; }
+
+/* Task 721: 看板列折叠/展开 */
+.kanban-col-collapse-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: .7rem;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: color .15s, background .15s;
+  margin-left: auto;
+}
+.kanban-col-collapse-btn:hover { color: var(--text); background: var(--surface-3); }
+.kanban-col--collapsed {
+  min-width: 40px;
+  max-width: 40px;
+  cursor: pointer;
+  padding: 8px 4px;
+  display: flex;
+  align-items: flex-start;
+}
+.kanban-col-head--collapsed {
+  writing-mode: vertical-rl;
+  flex-direction: column;
+  align-items: flex-start;
+  border-bottom: none;
+  gap: 4px;
+  font-size: .8rem;
+  cursor: pointer;
+}
+.kanban-col-head--collapsed .kanban-count {
+  writing-mode: horizontal-tb;
+}
+
+/* Task 719: 通知按类型分组 */
+.notif-list--grouped { padding: 4px 0; }
+.notif-group { margin-bottom: 4px; }
+.notif-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .75rem;
+  font-weight: 600;
+  color: var(--text-2);
+  padding: 4px 8px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+.notif-group-header::-webkit-details-marker { display: none; }
+.notif-group-header::before {
+  content: '▶';
+  font-size: .6rem;
+  transition: transform .15s;
+}
+details[open] .notif-group-header::before { transform: rotate(90deg); }
+.notif-group-count {
+  background: var(--surface-3);
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-size: .65rem;
+}
+.notif-group .notif-item { margin-left: 0; border-radius: var(--r-sm); }
 .task-list-load-more {
   display: flex;
   align-items: center;
@@ -1842,6 +1906,36 @@ details.form-section > form { padding: 16px; }
   font-family: var(--font-mono, monospace);
   min-width: 45px;
   text-align: right;
+}
+
+/* Task 725: API 方法色彩 */
+.perf-method--get { color: var(--success, #059669); }
+.perf-method--post { color: var(--brand-500, #4f46e5); }
+.perf-method--patch { color: var(--warning, #d97706); }
+.perf-method--put { color: var(--warning, #d97706); }
+.perf-method--delete { color: var(--danger, #dc2626); }
+
+.perf-metrics-header {
+  font-size: .7rem;
+  color: var(--text-2);
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+/* Task 726: 性能建议 */
+.perf-advice {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--border-2, #f1f5f9);
+  font-size: .7rem;
+}
+.perf-advice-warn {
+  color: var(--warning, #d97706);
+  padding: 2px 0;
+}
+.perf-advice-ok {
+  color: var(--success, #059669);
+  padding: 2px 0;
 }
 
 /* ---- Burndown Chart ---- */
