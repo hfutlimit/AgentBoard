@@ -450,7 +450,15 @@
                       <span class="badge status status--{{ item.status }}">{{ statusLabel(item.status) }}</span>
                     </a>
                   } @empty {
-                    <div class="empty-inline">暂无 Epic，点击「新建 Epic」创建第一个</div>
+                    <!-- Task 811: 空项目引导创建第一个 Epic -->
+                    <div class="empty-state-guide">
+                      <div class="empty-state-icon">🎯</div>
+                      <div class="empty-state-title">还没有 Epic</div>
+                      <div class="empty-state-desc">Epic 是大一点的目标或功能模块，帮助你组织和管理大型工作。</div>
+                      <button class="btn-primary-sm" (click)="openCreate('epic', current.id)">
+                        ＋ 创建第一个 Epic
+                      </button>
+                    </div>
                   }
                 </div>
               </div>
@@ -545,29 +553,26 @@
                   }
                 </div>
                 @if (members().length) {
-                  <div class="entity-list">
+                  <!-- Task 809: 项目成员头像显示 -->
+                  <div class="members-grid">
                     @for (m of members(); track m.id) {
-                      <div class="entity-item">
-                        <div class="entity-item-main">
-                          <span class="type-icon {{ m.role === 'owner' ? 'epic' : 'story' }}">
-                            {{ m.role === 'owner' ? '★' : '●' }}
-                          </span>
-                          <span class="entity-item-title">{{ m.username || '用户#' + m.user_id }}</span>
+                      <div class="member-card">
+                        <div class="member-avatar">{{ getMemberAvatar(m) }}</div>
+                        <div class="member-info">
+                          <div class="member-name">{{ m.username || '用户#' + m.user_id }}</div>
+                          <div class="member-role-badge {{ m.role }}">
+                            {{ m.role === 'owner' ? '★ Owner' : '● Member' }}
+                          </div>
                         </div>
-                        <div class="entity-item-badges">
-                          <span class="badge priority priority--{{ m.role === 'owner' ? 'high' : 'medium' }}">
-                            {{ m.role === 'owner' ? 'Owner' : 'Member' }}
-                          </span>
-                          @if ((isOwner() || isAdmin()) && m.role !== 'owner') {
-                            <button class="ghost-sm danger" (click)="removeMember(current.id, m.user_id)">移除</button>
-                          }
-                          @if ((isOwner() || isAdmin()) && m.role === 'member') {
-                            <button class="ghost-sm" (click)="updateMemberRole(current.id, m.user_id, 'owner')">升为 Owner</button>
-                          }
-                          @if ((isOwner() || isAdmin()) && m.role === 'owner') {
-                            <button class="ghost-sm" (click)="updateMemberRole(current.id, m.user_id, 'member')">降为 Member</button>
-                          }
-                        </div>
+                        @if ((isOwner() || isAdmin()) && m.role !== 'owner') {
+                          <button class="ghost-sm danger member-action" (click)="removeMember(current.id, m.user_id)">移除</button>
+                        }
+                        @if ((isOwner() || isAdmin()) && m.role === 'member') {
+                          <button class="ghost-sm member-action" (click)="updateMemberRole(current.id, m.user_id, 'owner')">升为 Owner</button>
+                        }
+                        @if ((isOwner() || isAdmin()) && m.role === 'owner') {
+                          <button class="ghost-sm member-action" (click)="updateMemberRole(current.id, m.user_id, 'member')">降为 Member</button>
+                        }
                       </div>
                     }
                   </div>
@@ -1025,10 +1030,12 @@
         }
         @case ('task') {
           @if (task(); as current) {
+            <!-- Task 741: 任务详情页显示 Epic/Story 面包屑 -->
             <div class="crumb-bar">
               <a [routerLink]="['/project', project()?.id]">{{ project()?.name }}</a
-              ><span>›</span><a [routerLink]="['/story', story()?.id]">{{ story()?.title }}</a
-              ><span>›</span><span>{{ current.title }}</span>
+              ><span>›</span><span class="crumb-epic">{{ getEpicName(current.story_id) }}</span
+              ><span>›</span><a [routerLink]="['/story', story()?.id]">{{ story()?.title || '—' }}</a
+              ><span>›</span><span class="crumb-current">{{ current.title }}</span>
             </div>
             <div class="page-header">
               <div class="page-title-row">
@@ -1039,6 +1046,27 @@
                 ><span id="stbadge" class="badge status status--{{ current.status }}">{{
                   statusLabel(current.status)
                 }}</span>
+              </div>
+              <!-- Task 742: 任务详情页显示创建者/更新时间 -->
+              <div class="task-meta-bar">
+                <span class="task-meta-item">
+                  <span class="meta-icon">📅</span>
+                  <span class="meta-label">创建</span>
+                  <span class="meta-value">{{ formatDateTime(current.created_at) }}</span>
+                </span>
+                <span class="task-meta-item">
+                  <span class="meta-icon">🔄</span>
+                  <span class="meta-label">更新</span>
+                  <span class="meta-value">{{ formatDateTime(current.updated_at) }}</span>
+                </span>
+                <!-- Task 803: 任务详情页显示子任务数量 -->
+                @if (getSubtaskCount(current.id).total > 0) {
+                  <span class="task-meta-item">
+                    <span class="meta-icon">📋</span>
+                    <span class="meta-label">子任务</span>
+                    <span class="meta-value">{{ getSubtaskCount(current.id).done }}/{{ getSubtaskCount(current.id).total }}</span>
+                  </span>
+                }
               </div>
               <select
                 [value]="current.status"
@@ -1053,6 +1081,34 @@
                 🔗 复制链接
               </button>
             </div>
+            <!-- Task 744: 任务详情页显示相关任务链接 -->
+            @if (getRelatedTasks().blocks.length > 0 || getRelatedTasks().blockedBy.length > 0) {
+              <div class="card related-tasks-card">
+                <h3>相关任务</h3>
+                @if (getRelatedTasks().blocks.length > 0) {
+                  <div class="related-section">
+                    <span class="related-label">阻塞：</span>
+                    @for (t of getRelatedTasks().blocks; track t.id) {
+                      <a [routerLink]="['/task', t.id]" class="related-link">
+                        <span class="badge status status--{{ t.status }}">{{ statusLabel(t.status) }}</span>
+                        {{ t.title }}
+                      </a>
+                    }
+                  </div>
+                }
+                @if (getRelatedTasks().blockedBy.length > 0) {
+                  <div class="related-section">
+                    <span class="related-label">被阻塞：</span>
+                    @for (t of getRelatedTasks().blockedBy; track t.id) {
+                      <a [routerLink]="['/task', t.id]" class="related-link">
+                        <span class="badge status status--{{ t.status }}">{{ statusLabel(t.status) }}</span>
+                        {{ t.title }}
+                      </a>
+                    }
+                  </div>
+                }
+              </div>
+            }
             <div class="two-col">
               <div class="card">
                 <h3>Description</h3>
@@ -1159,20 +1215,25 @@
                 </div>
               </form>
             </div>
+            <!-- Task 808: 评论 Markdown 实时预览切换 -->
             <div class="card comments-card">
               <div class="section-header">
                 <h3>
                   评论 <span class="count">{{ comments().length }}</span>
                 </h3>
+                <button class="ghost-sm" (click)="toggleCommentPreview()" [class.active]="isCommentPreviewMode()">
+                  {{ isCommentPreviewMode() ? '✏ 编辑' : '👁 预览' }}
+                </button>
               </div>
               <div class="comment-list">
                 @for (comment of comments(); track comment.id) {
                   <article class="comment-item">
-                    <span class="avatar">{{ comment.author.slice(0, 2) }}</span>
+                    <!-- Task 809/810: 评论头像 -->
+                    <span class="avatar comment-avatar">{{ comment.author.slice(0, 2) }}</span>
                     <div class="comment-body">
                       <div class="comment-meta">
                         <strong>{{ comment.author }}</strong
-                        ><time>{{ comment.created_at | date: 'medium' }}</time>
+                        ><time>{{ timeAgo(comment.created_at) }}</time>
                       </div>
                       <div class="md text-pre">{{ comment.content }}</div>
                     </div>
@@ -1192,14 +1253,20 @@
                   [value]="commentAuthor()"
                   required
                   maxlength="100"
-                /><textarea
+                  placeholder="你的名字"
+                />
+                @if (isCommentPreviewMode()) {
+                  <div class="comment-preview md text-pre">{{ cContent.value || '（预览区域）' }}</div>
+                }
+                <textarea
                   #cContent
                   name="content"
                   rows="4"
                   required
-                  placeholder="记录进展、决策或阻塞…"
+                  [placeholder]="isCommentPreviewMode() ? '切换到编辑模式输入…' : '记录进展、决策或阻塞…'"
+                  [disabled]="isCommentPreviewMode()"
                 ></textarea
-                ><button type="submit" class="btn-primary-sm">发表评论</button>
+                ><button type="submit" class="btn-primary-sm" [disabled]="isCommentPreviewMode()">发表评论</button>
               </form>
             </div>
           }

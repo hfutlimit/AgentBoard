@@ -1700,6 +1700,85 @@ export class App implements OnInit, OnDestroy {
     return Object.entries(obj);
   }
 
+  // Task 741: 任务详情页显示 Epic/Story 面包屑 - 获取 Epic 名称
+  getEpicName(storyId: number | null): string {
+    if (!storyId) return '';
+    const story = this.stories().find(s => s.id === storyId);
+    if (!story) return '';
+    const epic = this.epics().find(e => e.id === story.epic_id);
+    return epic?.title || '';
+  }
+
+  // Task 741: 获取 Story 名称
+  getStoryName(storyId: number | null): string {
+    if (!storyId) return '';
+    const story = this.stories().find(s => s.id === storyId);
+    return story?.title || '';
+  }
+
+  // Task 803: 计算子任务数量
+  getSubtaskCount(parentTaskId: number): { total: number; done: number } {
+    const subtasks = this.tasks().filter(t => t.source_spec_id === parentTaskId);
+    return {
+      total: subtasks.length,
+      done: subtasks.filter(t => t.status === 'done').length
+    };
+  }
+
+  // Task 744: 获取相关任务（基于 task_dependencies）
+  getRelatedTasks(): { blocks: {id: number; title: string; status: string}[]; blockedBy: {id: number; title: string; status: string}[] } {
+    const deps = this.taskDependencies();
+    if (!deps) return { blocks: [], blockedBy: [] };
+    return {
+      blocks: (deps.blockers || []).map(d => ({ id: d.task_id, title: d.task?.title || '', status: d.task?.status || '' })),
+      blockedBy: (deps.blocked_by || []).map(d => ({ id: d.task_id, title: d.task?.title || '', status: d.task?.status || '' }))
+    };
+  }
+
+  // Task 745: 看板列任务计数
+  getStatusTaskCount(status: string): number {
+    return this.tasks().filter(t => t.status === status).length;
+  }
+
+  // Task 808: 评论 Markdown 预览切换
+  readonly commentPreviewMode = signal(false);
+  toggleCommentPreview(): void {
+    this.commentPreviewMode.set(!this.commentPreviewMode());
+  }
+  isCommentPreviewMode(): boolean {
+    return this.commentPreviewMode();
+  }
+
+  // Task 809: 项目成员头像
+  getMemberAvatar(member: any): string {
+    return (member.username || '?').slice(0, 2).toUpperCase();
+  }
+
+  // Task 810: 任务指派人头像
+  getAssigneeInitials(assigneeId: number | null): string {
+    if (!assigneeId) return '';
+    // 需要从 members 中查找
+    const member = this.members().find(m => m.user_id === assigneeId);
+    return member?.username?.slice(0, 2).toUpperCase() || '';
+  }
+
+  // Task 811: 检查 Epic 列表是否为空
+  isEpicsEmpty(): boolean {
+    return this.epics().length === 0;
+  }
+
+  // Task 742: 格式化日期时间
+  formatDateTime(dateStr: string | null | undefined): string {
+    if (!dateStr) return '-';
+    return new Date(dateStr).toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }
+
   statusLabel(status: string): string {
     return (
       (

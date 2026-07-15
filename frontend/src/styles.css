@@ -2343,3 +2343,215 @@ details.form-section > form { padding: 16px; }
   from { transform: translateY(-100%); opacity: 0; }
   to   { transform: translateY(0);     opacity: 1; }
 }
+
+/* ---- Epic 32: 前端交互细节优化 ---- */
+/* Task 741: 任务详情页显示 Epic/Story 面包屑 */
+.crumb-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary, #64748b);
+  padding: 8px 16px;
+  background: var(--surface-2, #f8fafc);
+  border-radius: var(--r-sm, 8px);
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.crumb-bar a {
+  color: var(--brand-500, #4f46e5);
+  text-decoration: none;
+}
+.crumb-bar a:hover {
+  text-decoration: underline;
+}
+.crumb-epic {
+  color: var(--text, #0f172a);
+  font-weight: 500;
+}
+.crumb-current {
+  color: var(--text, #0f172a);
+}
+
+/* Task 742: 任务详情页显示创建者/更新时间 */
+.task-meta-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+  margin: 6px 0 10px;
+  flex-wrap: wrap;
+}
+.task-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.task-meta-item .meta-icon {
+  font-size: 13px;
+}
+.task-meta-item .meta-label {
+  color: var(--text-3, #94a3b8);
+}
+.task-meta-item .meta-value {
+  color: var(--text, #0f172a);
+}
+
+/* Task 744: 任务详情页显示相关任务链接 */
+.related-tasks-card {
+  margin-bottom: 12px;
+}
+.related-section {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.related-label {
+  font-size: 12px;
+  color: var(--text-secondary, #64748b);
+  font-weight: 500;
+}
+.related-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--surface-2, #f8fafc);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text, #0f172a);
+  text-decoration: none;
+}
+.related-link:hover {
+  background: var(--brand-soft, #eef2ff);
+  color: var(--brand-500, #4f46e5);
+}
+
+/* Task 808: 评论 Markdown 实时预览切换 */
+.comments-card .section-header button.active {
+  background: var(--brand-soft, #eef2ff);
+  color: var(--brand-500, #4f46e5);
+}
+.comment-preview {
+  background: var(--surface-2, #f8fafc);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: var(--r-sm, 8px);
+  padding: 12px;
+  min-height: 80px;
+  margin-bottom: 8px;
+  white-space: pre-wrap;
+  font-size: 13px;
+}
+.comment-form textarea:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Task 809: 项目成员头像显示 */
+.members-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.member-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background: var(--surface, #ffffff);
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: var(--r-md, 12px);
+  flex-wrap: wrap;
+}
+.member-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--grad, linear-gradient(135deg, #6366f1 0%, #8b5cf6 55%, #a855f7 100%));
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.member-info {
+  flex: 1;
+  min-width: 80px;
+}
+.member-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text, #0f172a);
+}
+.member-role-badge {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  margin-top: 2px;
+}
+.member-role-badge.owner {
+  background: var(--warning-soft, #fef3c7);
+  color: var(--warning, #d97706);
+}
+.member-role-badge.member {
+  background: var(--surface-3, #f1f5f9);
+  color: var(--text-secondary, #64748b);
+}
+.member-action {
+  margin-left: auto;
+}
+
+/* Task 811: 空项目引导创建第一个 Epic */
+.empty-state-guide {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+}
+.empty-state-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+.empty-state-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text, #0f172a);
+  margin-bottom: 8px;
+}
+.empty-state-desc {
+  font-size: 13px;
+  color: var(--text-secondary, #64748b);
+  margin-bottom: 16px;
+  max-width: 300px;
+}
+
+/* Dark theme adjustments */
+[data-theme="dark"] .crumb-bar {
+  background: var(--surface-3, #334155);
+}
+[data-theme="dark"] .related-link {
+  background: var(--surface-3, #334155);
+  color: var(--text, #f1f5f9);
+}
+[data-theme="dark"] .related-link:hover {
+  background: var(--brand-soft, #1e1b4b);
+  color: var(--brand-400, #a5b4fc);
+}
+[data-theme="dark"] .comment-preview {
+  background: var(--surface-3, #334155);
+  border-color: var(--border, #334155);
+}
+[data-theme="dark"] .member-card {
+  background: var(--surface, #1e293b);
+  border-color: var(--border, #334155);
+}
+
