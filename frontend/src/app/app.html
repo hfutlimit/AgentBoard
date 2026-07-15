@@ -15,6 +15,18 @@
     <button class="error-dismiss" (click)="dismissError()" aria-label="关闭">✕</button>
   </div>
 }
+<!-- Task 819: 操作反馈动画 -->
+@if (operationFeedback().type) {
+  <div class="operation-feedback {{ operationFeedback().type }}" [class.hiding]="false">
+    @if (operationFeedback().type === 'success') {
+      <span>✓</span>
+    } @else {
+      <span>✗</span>
+    }
+    {{ operationFeedback().message }}
+  </div>
+}
+
 <header class="topbar">
   <div class="topbar-inner">
     <div class="topbar-left">

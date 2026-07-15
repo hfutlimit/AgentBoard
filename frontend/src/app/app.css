@@ -828,3 +828,135 @@ router-outlet {
 [data-theme="dark"] .bulk-progress-fill {
   background: #60a5fa;
 }
+
+/* Task 814: 搜索历史清除按钮 */
+.search-history-clear-btn {
+  padding: 2px 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all .15s;
+}
+.search-history-clear-btn:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+
+/* Task 813: 搜索结果空状态 */
+.search-empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-muted);
+}
+.search-empty-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  opacity: .5;
+}
+.search-empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+.search-empty-desc {
+  font-size: 14px;
+}
+
+/* Task 816: 面包屑导航可点击 */
+.crumb-bar a {
+  color: var(--primary);
+  text-decoration: none;
+  transition: color .15s;
+}
+.crumb-bar a:hover {
+  color: var(--brand-600);
+  text-decoration: underline;
+}
+
+/* Task 817: 方向键导航高亮 */
+.arrow-nav-highlight {
+  background: var(--brand-soft) !important;
+  outline: 2px solid var(--brand-500);
+  outline-offset: -2px;
+}
+
+/* Task 818: 骨架屏增强动画 */
+.skeleton {
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .6; }
+}
+
+/* Task 819: 操作反馈动画 */
+.operation-feedback {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 9999;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: var(--sh-lg);
+  animation: feedback-slide-in .3s ease;
+}
+.operation-feedback.success {
+  background: var(--success);
+  color: white;
+}
+.operation-feedback.error {
+  background: var(--danger);
+  color: white;
+}
+@keyframes feedback-slide-in {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes feedback-slide-out {
+  from { transform: translateY(0); opacity: 1; }
+  to { transform: translateY(20px); opacity: 0; }
+}
+.operation-feedback.hiding {
+  animation: feedback-slide-out .3s ease forwards;
+}
+
+/* Task 820: 按钮波纹效果 */
+.btn-ripple {
+  position: relative;
+  overflow: hidden;
+}
+.btn-ripple .ripple {
+  position: absolute;
+  border-radius: 50%;
+  background: rgba(255,255,255,.4);
+  transform: scale(0);
+  animation: ripple-effect .6s linear;
+  pointer-events: none;
+}
+@keyframes ripple-effect {
+  to { transform: scale(4); opacity: 0; }
+}
+
+/* Task 815: 搜索框提示 */
+.search-hint {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}

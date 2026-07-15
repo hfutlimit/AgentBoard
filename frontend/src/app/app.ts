@@ -188,6 +188,15 @@ export class App implements OnInit, OnDestroy {
     { key: 'priority', label: '优先级' },
     { key: 'title', label: '标题' },
   ];
+  // Task 813: 搜索结果空状态
+  readonly searchResultEmpty = signal(false);
+  // Task 817: 快捷键导航增强 - 方向键导航状态
+  readonly arrowNavIndex = signal(-1);
+  readonly arrowNavItems = signal<any[]>([]);
+  // Task 818: 骨架屏增强 - 加载动画状态
+  readonly skeletonPulse = signal(true);
+  // Task 819: 操作反馈动画
+  readonly operationFeedback = signal<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
   // Task 602: 高级筛选面板 - 状态/优先级过滤
   readonly filterStatus = signal('');
   readonly filterPriority = signal('');
@@ -340,7 +349,7 @@ export class App implements OnInit, OnDestroy {
     } catch { this.offlineQueueCount.set(0); }
     // Epic 26 Task 702: 加载搜索历史记录
     this.loadSearchHistory();
-    // Task 716/711: 全局快捷键 - '?' 键打开快捷键帮助，Ctrl+A 全选，Del 删除选中
+    // Task 716/711/815/817: 全局快捷键 - '?' 键打开快捷键帮助，Ctrl+A 全选，Del 删除选中，/ 聚焦搜索，←→ 导航
     window.addEventListener('keydown', (e: KeyboardEvent) => {
       if (this.isInputFocused()) return;
       if (e.key === '?') {
@@ -356,6 +365,22 @@ export class App implements OnInit, OnDestroy {
       if (e.key === 'Delete' && this.selectedTasks().size > 0) {
         e.preventDefault();
         this.bulkDelete();
+      }
+      // Task 815: '/' 快捷键聚焦搜索框
+      if (e.key === '/') {
+        e.preventDefault();
+        const searchInput = document.getElementById('global-search') as HTMLInputElement;
+        if (searchInput) searchInput.focus();
+      }
+      // Task 817: ←→ 方向键导航列表
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        this.handleArrowNav(e.key === 'ArrowLeft' ? -1 : 1);
+      }
+      // Task 817: Enter 键确认导航选择
+      if (e.key === 'Enter' && this.arrowNavIndex() >= 0) {
+        e.preventDefault();
+        this.confirmArrowNav();
       }
     });
   }
@@ -414,6 +439,46 @@ export class App implements OnInit, OnDestroy {
   selectSearchHistory(query: string): void {
     this.search.set(query);
     this.showSearchHistory.set(false);
+  }
+
+  // Task 817: 方向键导航处理
+  handleArrowNav(direction: -1 | 1): void {
+    const items = this.arrowNavItems();
+    if (items.length === 0) return;
+    let idx = this.arrowNavIndex();
+    idx = idx + direction;
+    if (idx < 0) idx = items.length - 1;
+    if (idx >= items.length) idx = 0;
+    this.arrowNavIndex.set(idx);
+  }
+
+  // Task 817: 确认导航选择
+  confirmArrowNav(): void {
+    const idx = this.arrowNavIndex();
+    const items = this.arrowNavItems();
+    if (idx >= 0 && idx < items.length) {
+      const item = items[idx];
+      if (item.id) {
+        void this.router.navigate([`/task`, item.id]);
+      }
+      this.arrowNavIndex.set(-1);
+      this.arrowNavItems.set([]);
+    }
+  }
+
+  // Task 819: 显示操作反馈动画
+  showFeedback(type: 'success' | 'error', message: string): void {
+    this.operationFeedback.set({ type, message });
+    setTimeout(() => {
+      this.operationFeedback.set({ type: null, message: '' });
+    }, 3000);
+  }
+
+  // Task 814: 清除单条搜索历史（带确认）
+  clearSearchHistoryItem(query: string, event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this.removeSearchHistoryItem(query);
   }
 
   // Epic 26 Task 703: 高亮搜索关键词
