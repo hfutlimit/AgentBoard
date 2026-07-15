@@ -36,7 +36,7 @@ def _fixed_index() -> str:
 
 @app.get("/")
 def root():
-    return _fixed_index()
+    return HTMLResponse(_fixed_index())
 
 
 @app.get("/{path:path}")
