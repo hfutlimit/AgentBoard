@@ -816,6 +816,18 @@
             @if (current.description) {
               <div class="card md text-pre">{{ current.description }}</div>
             }
+            <!-- Task 822: Story 子任务完成进度条 -->
+            @if (tasks().length > 0) {
+              <div class="story-progress-bar">
+                <div class="story-progress-label">
+                  <span>进度</span>
+                  <span class="story-progress-text">{{ storyTaskProgress().done }}/{{ storyTaskProgress().total }} ({{ storyTaskProgress().pct }}%)</span>
+                </div>
+                <div class="story-progress-track">
+                  <div class="story-progress-fill" [style.width.%]="storyTaskProgress().pct"></div>
+                </div>
+              </div>
+            }
             <div class="section-header">
               <h3>
                 Tasks / Bugs <span class="count">{{ tasks().length }}</span>
@@ -932,6 +944,14 @@
               </div>
               <div class="kbd-hint">j/k 上下导航 · Enter 打开 · Space 选择 · Ctrl+A 全选 · Esc 取消</div>
             } @else {
+              <!-- Task 823: 状态徽章图例 -->
+              <div class="status-legend">
+                @for (s of statuses; track s) {
+                  <span class="status-legend-item">
+                    <span class="badge status status--{{ s }}">{{ statusLabel(s) }}</span>
+                  </span>
+                }
+              </div>
               <div class="kanban">
                 @for (status of statuses; track status) {
                   <!-- Task 721: 看板列折叠/展开 -->
@@ -951,7 +971,7 @@
                       </div>
                       @for (item of tasksForStatus(status); track item.id) {
                         <a [routerLink]="['/task', item.id]" class="kanban-card kanban-card--rich"
-                          ><strong class="kanban-card-title">{{ item.title }}</strong>
+                          ><span class="kanban-card-type-icon" title="{{ item.type === 'bug' ? 'Bug' : 'Task' }}">{{ taskTypeIcon(item.type) }}</span><strong class="kanban-card-title">{{ item.title }}</strong>
                           <!-- Task 729: 看板卡片显示 Epic 名称 -->
                           @if (taskEpicName(item)) {
                             <div class="kanban-card-epic">{{ taskEpicName(item) }}</div>
@@ -1028,6 +1048,10 @@
                   <option [value]="status">{{ statusLabel(status) }}</option>
                 }
               </select>
+              <!-- Task 824: 复制任务链接按钮 -->
+              <button class="ghost-sm" style="margin-left:8px" (click)="copyTaskLink(current.id)" title="复制任务链接">
+                🔗 复制链接
+              </button>
             </div>
             <div class="two-col">
               <div class="card">

@@ -197,6 +197,12 @@ export class App implements OnInit, OnDestroy {
   readonly skeletonPulse = signal(true);
   // Task 819: 操作反馈动画
   readonly operationFeedback = signal<{ type: 'success' | 'error' | null; message: string }>({ type: null, message: '' });
+  // Task 822: Story 子任务完成进度
+  readonly storyTaskProgress = computed(() => {
+    const total = this.tasks().length;
+    const done = this.tasks().filter(t => t.status === 'done').length;
+    return { total, done, pct: total > 0 ? Math.round((done / total) * 100) : 0 };
+  });
   // Task 602: 高级筛选面板 - 状态/优先级过滤
   readonly filterStatus = signal('');
   readonly filterPriority = signal('');
@@ -1718,6 +1724,31 @@ export class App implements OnInit, OnDestroy {
         >
       )[priority] || priority
     );
+  }
+
+  // Task 821: 任务类型图标
+  taskTypeIcon(type: string): string {
+    return type === 'bug' ? '🐛' : '📋';
+  }
+
+  // Task 824: 复制任务链接
+  copyTaskLink(taskId: number): void {
+    const url = `${window.location.origin}/task/${taskId}`;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(() => {
+        this.notify('链接已复制到剪贴板！');
+      }).catch(() => {
+        this.notify('复制失败，请手动复制', 'error');
+      });
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      this.notify('链接已复制到剪贴板！');
+    }
   }
 
   timeAgo(dateStr: string): string {
