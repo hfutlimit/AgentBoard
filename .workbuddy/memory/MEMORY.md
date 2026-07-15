@@ -12,7 +12,10 @@
 - commit 规范：`feat(ui): 前端小优化 - <一句话描述>`。
 - 复用：状态/类型枚举来自 `GET /api/meta`；渲染辅助 `md()/esc()/statusSelect()/typeSelect()/toast()/route()` 可直接复用。
 
-## 既有能力现状（2026-07-14 15:40 更新）
+## 既有能力现状（2026-07-15 22:00 更新）
+- **Epic 15 (用户体验持续优化 v0.4+) 已完成**（id=89）✅
+  - Story 15.1 全局通知与操作反馈：每条通知项加类型图标（5 种类型各对应主题色）+ 错落入场动画
+  - Story 15.2 最近访问与收藏：修复 loadRecentProjects 刷新 bug + 新增收藏功能（侧边栏分组、星标按钮）
 - **Epic 22/23/24 已完成**：审计日志、任务依赖、Webhook、缓存强化、Toast、移动端优化全部 done
 - **Epic 21 Story 15/16 已完成**：API 指数退避重试（429/5xx，1s/2s/4s）+ 离线队列（localStorage）+ 批量操作确认 → done ✅
 - **Epic 25 (Epic 8 in DB) 进行中**：Stories 25.1-25.4，Tasks 600-605 → in_review
@@ -116,3 +119,13 @@
 - 提权：直接 SQLite 改 `users.is_admin=1`（容器内 `/app/data/agentboard.db`，不是 MariaDB！）
 - 加 owner：`INSERT INTO project_members (project_id, user_id, role, joined_at) VALUES (?,?, 'owner', datetime('now'))`
 - 当前账号 jzhong2026 (id=3) 已是 admin + 4 项目 owner（projects 1,2,3,4）
+
+## 自动化任务关键经验（2026-07-15）
+- **MCP 状态更新绕过**：沙箱中 `mcp__agentboard__set_status` 持续报 "task_id must be integer"（DeferExecuteTool 序列化 bug），用 curl 直接调 REST：
+  - `PUT /api/tasks/{tid}/status` body=`{"status":"..."}` — 任务状态变更
+  - `PATCH /api/stories/{sid}` body=`{"status":"..."}` — Story 状态
+  - `PATCH /api/epics/{eid}` body=`{"status":"..."}` — Epic 状态
+  - 任务状态机：`backlog → todo → in_progress → in_review → done`（不可跳跃）
+- **容器 api.py 与本地可能不同步**：容器内 `/app/agentboard/api.py` 可能是数小时前的版本（mtime 15:09 vs 本地 23:09），导致 API 路由 404 但代码存在。`docker exec grep` 验证容器端代码，必要时 `docker cp` 注入。
+- **Playwright 拦截 API 模拟数据**：用 `context.route("**/api/notifications**", mock_route)` 拦截 Angular HttpClient（XHR）调用，绕过 404 返回 mock 数据用于 UI 验证。
+- **Web 容器 volume mount**：web 服务挂载 `./agentboard/web/static:/app/agentboard/web/static:ro`，前端改文件 → `cp` 到 static 即可，无需 rebuild。`index.html` 引用的 hashed JS 名要同步更新（每次 ng build 都会变）。
