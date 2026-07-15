@@ -2161,6 +2161,20 @@ details.form-section > form { padding: 16px; }
   from { opacity: 0; transform: translateY(-8px) scaleY(0.95); }
   to { opacity: 1; transform: translateY(0) scaleY(1); }
 }
+/* Story 15.1: 通知项错落入场动画（每项延迟 30ms 错开） */
+.notif-item {
+  animation: notifItemIn 0.25s ease-out backwards;
+}
+.notif-item:nth-child(1) { animation-delay: 0.02s; }
+.notif-item:nth-child(2) { animation-delay: 0.05s; }
+.notif-item:nth-child(3) { animation-delay: 0.08s; }
+.notif-item:nth-child(4) { animation-delay: 0.11s; }
+.notif-item:nth-child(5) { animation-delay: 0.14s; }
+.notif-item:nth-child(n+6) { animation-delay: 0.17s; }
+@keyframes notifItemIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
 .notif-unread-tag {
   font-size: 11px;
   color: var(--brand-600, #4338ca);
@@ -2220,10 +2234,19 @@ details.form-section > form { padding: 16px; }
   background: #e0e7ff;
 }
 .notif-item-icon {
-  font-size: 18px;
+  font-size: 16px;
   flex-shrink: 0;
-  width: 28px;
-  text-align: center;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  line-height: 1;
+  transition: transform .15s;
+}
+.notif-item:hover .notif-item-icon {
+  transform: scale(1.08);
 }
 .notif-item-body {
   flex: 1;

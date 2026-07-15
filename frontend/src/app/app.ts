@@ -1750,6 +1750,19 @@ export class App implements OnInit, OnDestroy {
     return labels[type] || labels['other'];
   }
 
+  // Story 15.1: 单条通知项类型图标（emoji + 主题色）
+  notifTypeIcon(type: string): { emoji: string; color: string } {
+    const icons: Record<string, { emoji: string; color: string }> = {
+      project_invite: { emoji: '📬', color: '#7c3aed' },  // violet
+      join_request:   { emoji: '📩', color: '#0891b2' },  // info cyan
+      task_assigned:  { emoji: '📋', color: '#4f46e5' },  // brand indigo
+      status_changed: { emoji: '🔄', color: '#d97706' },  // warning orange
+      mentioned:      { emoji: '💬', color: '#dc2626' },  // danger red
+      other:          { emoji: '🔔', color: '#64748b' },  // slate
+    };
+    return icons[type] || icons['other'];
+  }
+
   // Task 719: 对象键值对列表（用于模板中遍历 groupedNotifications）
   objectEntries(obj: Record<string, any>): [string, any][] {
     return Object.entries(obj);

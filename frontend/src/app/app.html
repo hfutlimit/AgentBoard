@@ -152,6 +152,9 @@
                         </summary>
                         @for (n of group[1]; track n.id) {
                           <div class="notif-item" [class.unread]="!n.is_read" (click)="markRead(n.id)">
+                            <span class="notif-item-icon" [style.background]="notifTypeIcon(n.type).color + '20'" [style.color]="notifTypeIcon(n.type).color">
+                              {{ notifTypeIcon(n.type).emoji }}
+                            </span>
                             <div class="notif-item-body">
                               <div class="notif-title">{{ n.title }}</div>
                               @if (n.content) { <div class="notif-content">{{ n.content }}</div> }
