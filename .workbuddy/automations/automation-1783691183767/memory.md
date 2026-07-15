@@ -1,5 +1,65 @@
 # AgentBoard 自动开发 — 执行记录
 
+## 2026-07-15 13:04（周期执行 · Epic 31 创建 + 5 任务实施）
+
+### 分析结果
+- **拉取最新代码**：已是最新（f7937bf → 已是最新）
+- **无 in_progress 任务** → 开始执行
+- **验收 Epic 29**：Tasks 717-726 → done ✅
+- **Stories 52-56**：→ in_review ✅
+- **创建 Epic 31** + 实施 5 个任务
+
+### 执行的任务
+
+#### Task 727 → in_review: 通知面板搜索过滤
+- `app.ts`: 新增 `notifSearchQuery` signal + `filteredGroupedNotifications` computed
+- `app.html`: 通知面板顶部增加搜索输入框
+- `styles.css`: `.notif-search-wrap/.notif-search-input` 样式
+
+#### Task 728 → in_review: 看板列交替背景色
+- `styles.css`: `.kanban-col:nth-child(odd/even)` + color-mix 微妙背景区分
+
+#### Task 729 → in_review: 看板卡片显示 Epic 名称
+- `app.ts`: 新增 `taskEpicName(task)` helper 方法
+- `app.html`: 看板卡片内显示 Epic 名称徽章
+- `styles.css`: `.kanban-card-epic` 样式（品牌色小标签）
+
+#### Task 730 → in_review: 任务列表排序下拉
+- `app.ts`: 新增 `taskSortKey`/`taskSortOrder` signals + `taskSortOptions` + 排序逻辑
+- `app.html`: 任务列表区顶部增加排序下拉 + 升/降序切换按钮
+- `styles.css`: `.task-sort-bar/.task-sort-select/.task-sort-dir-btn` 样式
+
+#### Task 731 → in_review: 项目卡片 3D 悬浮效果 + 项目计数徽章
+- `styles.css`: `.project-card` 增强 hover - `cubic-bezier spring` + `rotateX(1.5deg)` + `scale(1.02)`
+- `app.html`: 项目列表标题旁增加计数徽章 `.project-count-badge`
+- `styles.css`: `.project-count-badge` 样式
+
+### 测试结果
+- Scheduler: 11/11 passed ✅
+- Performance: 11/11 passed ✅
+- Total: **22/22 passed**
+
+### 部署
+- Angular: `npm run build` → `main-XGVO77SH.js` (443.77 kB) + `styles-3AWUGX2T.css`
+- Web: volume mount 自动同步（`agentboard/web/static/` → `/app/...`）
+- 验证: port 5080 ✅，`main-XGVO77SH.js` served ✅
+
+### Git
+- Commit: `f556534` - feat(ui): Epic 31 - 前端体验升级 v0.9 (Task 727-731)
+- Push: ✅
+
+### 数据库状态
+- Tasks 717-726: → done ✅
+- Tasks 727-731: → in_review ✅
+- Stories 52-56: → in_review ✅
+
+### 下一个待处理
+- Epic 31 Stories 验收 → done
+- Epic 30 Task 801/802: API 缓存 TTL 配置（backlog）
+- 新 Epic 32 创建（下一轮优化）
+
+---
+
 ## 2026-07-15 08:36（周期执行 · Epic 29 创建 + 实施 + Epic 26/27/28 验收）
 
 ### 分析结果
