@@ -65,7 +65,9 @@ async def rate_limit_middleware(request: Request, call_next):
     """Simple token-bucket rate limiting: RATE_LIMIT requests per RATE_WINDOW seconds per IP."""
     if RATE_LIMIT <= 0:
         return await call_next(request)
-    # Skip rate limiting for health/meta/auth endpoints
+    # Skip rate limiting for health/meta/auth endpoints and CORS preflight
+    if request.method == "OPTIONS":
+        return await call_next(request)
     if request.url.path in {"/api/meta", "/api/health", "/api/auth/register", "/api/auth/login"}:
         return await call_next(request)
     # Get client IP (handle proxies)

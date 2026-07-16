@@ -1300,6 +1300,17 @@ router-outlet {
   transition: width 0.3s ease;
 }
 
+/* B-04: 看板拖拽视觉反馈 */
+.kanban-card.dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+.kanban-col.drag-over {
+  background: rgba(79, 70, 229, 0.08);
+  border: 2px dashed var(--brand-500, #4f46e5);
+  border-radius: 10px;
+}
+
 /* ===== Task 602: 高级筛选面板 ===== */
 .filter-panel {
   display: flex;

@@ -1058,7 +1058,11 @@
                       </div>
                     </div>
                   } @else {
-                    <div class="kanban-col">
+                    <div class="kanban-col"
+                      [class.drag-over]="dragOverStatus() === status"
+                      (dragover)="onKanbanDragOver($event, status)"
+                      (dragleave)="onKanbanDragLeave($event, status)"
+                      (drop)="onKanbanDrop($event, status)">
                       <div class="kanban-col-head">
                         <span>{{ statusLabel(status) }}</span
                         ><span class="kanban-count">{{ tasksForStatus(status).length }}</span>
@@ -1066,6 +1070,10 @@
                       </div>
                       @for (item of tasksForStatus(status); track item.id) {
                         <a [routerLink]="['/task', item.id]" class="kanban-card kanban-card--rich {{ priorityBorderClass(item.priority) }}"
+                          draggable="true"
+                          [class.dragging]="dragTaskId() === item.id"
+                          (dragstart)="onKanbanDragStart($event, item)"
+                          (dragend)="onKanbanDragEnd()"
                           ><span class="kanban-card-type-icon" title="{{ item.type === 'bug' ? 'Bug' : 'Task' }}">{{ taskTypeIcon(item.type) }}</span><strong class="kanban-card-title">{{ item.title }}</strong>
                           <!-- Task 729: 看板卡片显示 Epic 名称 -->
                           @if (taskEpicName(item)) {

@@ -106,6 +106,9 @@ export class App implements OnInit, OnDestroy {
   readonly hasError = signal(false);
   readonly errorMessage = signal('');
   readonly lastSelectedTaskId = signal<number | null>(null); // Shift+点击多选支持
+  // B-04: 看板拖拽状态
+  readonly dragTaskId = signal<number | null>(null);
+  readonly dragOverStatus = signal<Status | null>(null);
 
   // Epic 26 Task 702: 搜索历史记录
   readonly searchHistory = signal<{ query: string; timestamp: number }[]>([]);
@@ -1839,6 +1842,44 @@ export class App implements OnInit, OnDestroy {
 
   isColumnCollapsed(status: string): boolean {
     return this.collapsedColumns().has(status);
+  }
+
+  // B-04: 看板拖拽改状态
+  onKanbanDragStart(event: DragEvent, task: Task): void {
+    this.dragTaskId.set(task.id);
+    event.dataTransfer!.effectAllowed = 'move';
+    event.dataTransfer!.setData('text/plain', String(task.id));
+  }
+
+  onKanbanDragOver(event: DragEvent, status: Status): void {
+    if (!this.dragTaskId()) return;
+    event.preventDefault();
+    event.dataTransfer!.dropEffect = 'move';
+    this.dragOverStatus.set(status);
+  }
+
+  onKanbanDragLeave(_event: DragEvent, status: Status): void {
+    if (this.dragOverStatus() === status) this.dragOverStatus.set(null);
+  }
+
+  async onKanbanDrop(event: DragEvent, status: Status): Promise<void> {
+    event.preventDefault();
+    const taskId = this.dragTaskId();
+    this.dragTaskId.set(null);
+    this.dragOverStatus.set(null);
+    if (!taskId) return;
+    const task = this.tasks().find(t => t.id === taskId);
+    if (!task || task.status === status) return;
+    try {
+      await firstValueFrom(this.api.setTaskStatus(taskId, status));
+      this.tasks.update(list => list.map(t => t.id === taskId ? { ...t, status } : t));
+      this.notify('状态已更新', 'success');
+    } catch { this.notify('状态更新失败', 'error'); }
+  }
+
+  onKanbanDragEnd(): void {
+    this.dragTaskId.set(null);
+    this.dragOverStatus.set(null);
   }
 
   // Task 729: 看板卡片显示 Epic 名称
