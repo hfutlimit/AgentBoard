@@ -21,6 +21,11 @@ services:
   api:
     build: .
     command: uvicorn agentboard.api:app --host 0.0.0.0 --port 8000
+    # 镜像无法联网重建时，挂载宿主机迁移目录使容器内 alembic 识别全量迁移链，
+    # 避免 init_db 因镜像中迁移文件陈旧而抛 "Can't locate revision"。
+    # 网络恢复后应以 `docker compose build` 重建镜像并移除此挂载。
+    volumes:
+      - ./migrations:/app/migrations:ro
     environment:
       # 生产数据库：MariaDB（容器名 db，内部端口 3306）
       AGENTBOARD_DB_URL: "mysql+pymysql://agentboard:agentboard@db:3306/agentboard"
