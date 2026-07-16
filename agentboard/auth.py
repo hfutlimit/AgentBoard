@@ -133,3 +133,11 @@ def decode_permissions(value: str) -> list[str]:
         return decoded if isinstance(decoded, list) else []
     except (TypeError, json.JSONDecodeError):
         return []
+
+
+def permission_allows(permissions: list[str], required: str) -> bool:
+    """Return whether an API-key permission set grants a namespaced capability."""
+    if required in permissions:
+        return True
+    namespace = required.split(":", 1)[0]
+    return f"{namespace}:*" in permissions

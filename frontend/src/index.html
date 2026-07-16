@@ -10,6 +10,14 @@
     <script>
       window.AGENTBOARD_API = '__API_URL__';
     </script>
+    <script>
+      // Apply the saved/system theme before Angular paints to avoid a light-theme flash.
+      (() => {
+        const saved = localStorage.getItem('agentboard_theme');
+        const theme = saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        document.documentElement.dataset.theme = theme;
+      })();
+    </script>
   </head>
   <body>
     <app-root></app-root>

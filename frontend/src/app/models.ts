@@ -9,6 +9,28 @@ export interface Project {
   description: string;
   is_private: boolean;
   created_at: string;
+  membership_role?: 'owner' | 'member';
+}
+
+export interface UserProfile {
+  id: number;
+  username: string;
+  display_name: string;
+  email: string | null;
+  avatar_url: string | null;
+  is_admin: boolean;
+  created_at: string;
+}
+
+export interface ApiKeyInfo {
+  id: number;
+  name: string;
+  prefix: string;
+  permissions: string[];
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
 }
 
 export interface Epic {

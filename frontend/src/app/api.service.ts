@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable, of, throwError, timer, Subject } from 'rxjs';
 import { catchError, tap, switchMap, mergeMap, debounceTime, takeUntil } from 'rxjs/operators';
 
-import { ApiErrorBody, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, WebhookConfig } from './models';
+import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig } from './models';
 
 export const AUTH_EXPIRED_EVENT = 'agentboard:auth-expired';
 
@@ -357,6 +357,10 @@ export class ApiService {
     );
   }
 
+  listMyProjects(role?: 'owner' | 'member') {
+    return this.request<PagedResult<Project>>('GET', '/api/users/me/projects', undefined, role ? { role } : undefined);
+  }
+
   getHealth() {
     return this.http.get<{ status: string; database: string; version: string; timestamp: string }>(
       `${this.baseUrl}/api/health`,
@@ -493,7 +497,13 @@ export class ApiService {
   }
 
   me() {
-    return this.request<{ id: number; username: string; is_admin: boolean }>('GET', '/api/auth/me');
+    return this.request<UserProfile>('GET', '/api/auth/me');
+  }
+  updateProfile(body: { display_name: string; email: string; avatar_url: string }) {
+    return this.request<UserProfile>('PATCH', '/api/auth/me', body);
+  }
+  changePassword(body: { current_password: string; new_password: string }) {
+    return this.request<void>('POST', '/api/auth/change-password', body);
   }
 
   /* ---------- Sprint ---------- */
@@ -718,10 +728,10 @@ export class ApiService {
 
   /* ---------- Epic 25: API Keys ---------- */
   listApiKeys() {
-    return this.request<{ items: any[] }>('GET', '/api/api-keys');
+    return this.request<{ items: ApiKeyInfo[] }>('GET', '/api/api-keys');
   }
   createApiKey(body: { name: string; permissions: string[] }) {
-    return this.request<any>('POST', '/api/api-keys', body);
+    return this.request<ApiKeyInfo & { key: string }>('POST', '/api/api-keys', body);
   }
   revokeApiKey(keyId: number) {
     return this.request<void>('DELETE', `/api/api-keys/${keyId}`);

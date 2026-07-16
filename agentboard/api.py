@@ -106,15 +106,24 @@ async def require_business_auth(request: Request, call_next):
         authorization = request.headers.get("Authorization")
         raw_token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
         uid = auth.parse_token(raw_token)
+        api_key_permissions: list[str] | None = None
         # Also support API Key auth: token prefixed with abk_
         if not uid and raw_token and raw_token.startswith(auth.API_KEY_PREFIX):
             digest = auth.hash_api_key(raw_token)
             with SessionLocal() as s:
                 ak = service.lookup_api_key_by_hash(s, digest)
                 uid = ak.user_id if ak and ak.enabled else None
+                api_key_permissions = auth.decode_permissions(ak.permissions) if ak and ak.enabled else None
                 # Update last_used_at if key is valid
                 if uid and ak:
                     service.touch_api_key(s, ak)
+        if uid and api_key_permissions is not None:
+            required_permission = "api:read" if request.method in {"GET", "HEAD", "OPTIONS"} else "api:write"
+            if not auth.permission_allows(api_key_permissions, required_permission):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": f"API key requires '{required_permission}' permission"},
+                )
         with SessionLocal() as s:
             if not uid or service.get_user(s, uid) is None:
                 resp = JSONResponse(status_code=401, content={"detail": "unauthorized"})
@@ -177,6 +186,7 @@ class TaskIn(BaseModel):
 class TaskPatch(BaseModel):
     title: str | None = Field(None, min_length=1, max_length=300)
     type: str | None = None
+    status: str | None = None
     description: str | None = None
     spec: str | None = None
     priority: str | None = None
@@ -285,12 +295,42 @@ class UserAdminPatch(BaseModel):
     is_admin: bool
 
 
+class UserProfilePatch(BaseModel):
+    display_name: str | None = Field(None, max_length=100)
+    email: str | None = Field(None, max_length=254)
+    avatar_url: str | None = Field(None, max_length=500)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return value
+        normalized = value.strip().lower()
+        if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", normalized):
+            raise ValueError("invalid email address")
+        return normalized
+
+    @field_validator("avatar_url")
+    @classmethod
+    def validate_avatar_url(cls, value: str | None) -> str | None:
+        if value is None or not value.strip():
+            return value
+        if not re.fullmatch(r"https?://[^\s]+", value.strip()):
+            raise ValueError("avatar_url must be an http(s) URL")
+        return value.strip()
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=1000)
+    new_password: str = Field(min_length=8, max_length=1000)
+
+
 _PERMISSION_RE = re.compile(r"^[a-z][a-z0-9_-]*(?::(?:[a-z0-9_*.-]+))+$")
 
 
 class ApiKeyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    permissions: list[str] = Field(default_factory=list, max_length=100)
+    permissions: list[str] = Field(default_factory=lambda: ["api:read"], max_length=100)
 
     @field_validator("name")
     @classmethod
@@ -362,13 +402,55 @@ def _need(obj, what: str):
     return obj
 
 
-def _current_user(authorization: str | None, s: Session):
+def _current_user(
+    authorization: str | None, s: Session, *, required_permission: str | None = None,
+):
     token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
     uid = auth.parse_token(token)
+    if not uid and token and token.startswith(auth.API_KEY_PREFIX):
+        item = service.lookup_api_key_by_hash(s, auth.hash_api_key(token))
+        if item and item.enabled:
+            permissions = auth.decode_permissions(item.permissions)
+            if required_permission and not auth.permission_allows(permissions, required_permission):
+                raise HTTPException(status_code=403, detail=f"API key requires '{required_permission}' permission")
+            uid = item.user_id
     u = service.get_user(s, uid) if uid else None
     if u is None:
         raise HTTPException(status_code=401, detail="unauthorized")
     return u
+
+
+def _optional_user_id(authorization: str | None, s: Session) -> int | None:
+    if not authorization:
+        return None
+    return _current_user(authorization, s, required_permission="api:read").id
+
+
+def _auth_is_required() -> bool:
+    return os.getenv("AGENTBOARD_REQUIRE_AUTH", "0").lower() in {"1", "true", "yes"}
+
+
+def _require_project_owner(
+    s: Session, project_id: int, authorization: str | None,
+) -> None:
+    # Explicitly preserve the documented local open-CRUD mode when no identity is supplied.
+    if not authorization and not _auth_is_required():
+        return
+    user = _current_user(authorization, s, required_permission="api:write")
+    if not user.is_admin and not service.user_is_project_owner(s, project_id, user.id):
+        raise HTTPException(status_code=403, detail="project owner or admin required")
+
+
+def _user_response(user) -> dict:
+    return {
+        "id": user.id,
+        "username": user.username,
+        "display_name": user.display_name,
+        "email": user.email,
+        "avatar_url": user.avatar_url,
+        "is_admin": user.is_admin,
+        "created_at": user.created_at,
+    }
 
 
 @app.exception_handler(service.NotFound)
@@ -440,8 +522,33 @@ def login(body: AuthLogin, s: Session = Depends(get_session)):
 
 @app.get("/api/auth/me")
 def me(authorization: str | None = Header(None), s: Session = Depends(get_session)):
-    u = _current_user(authorization, s)
-    return {"id": u.id, "username": u.username, "is_admin": u.is_admin}
+    return _user_response(_current_user(authorization, s, required_permission="api:read"))
+
+
+@app.patch("/api/auth/me")
+def update_me(
+    body: UserProfilePatch,
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    user = _current_user(authorization, s, required_permission="api:write")
+    updated = service.update_user_profile(user=user, s=s, **body.model_dump(exclude_unset=True))
+    return _user_response(updated)
+
+
+@app.post("/api/auth/change-password", status_code=204)
+def change_password(
+    body: PasswordChange,
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    user = _current_user(authorization, s, required_permission="api:write")
+    try:
+        service.change_user_password(
+            s, user, current_password=body.current_password, new_password=body.new_password,
+        )
+    except service.InvalidValue as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 def _api_key_response(item) -> dict:
@@ -499,10 +606,23 @@ def list_projects_ext(
     authorization: str | None = Header(None),
 ):
     """列表 API：public 项目所有人可见；private 项目仅成员可见"""
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    uid = auth.parse_token(token) if token else None
+    uid = _optional_user_id(authorization, s)
     projects, total = service.list_accessible_projects(s, uid, limit=limit, offset=offset)
     return {"items": [service._ser(p) for p in projects], "total": total}
+
+
+@app.get("/api/users/me/projects")
+def list_my_projects(
+    role: str | None = Query(None, pattern=r"^(owner|member)$"),
+    limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
+    authorization: str | None = Header(None), s: Session = Depends(get_session),
+):
+    user = _current_user(authorization, s, required_permission="api:read")
+    rows, total = service.list_user_projects(s, user.id, role=role, limit=limit, offset=offset)
+    return {
+        "items": [{**service._ser(project), "membership_role": membership_role} for project, membership_role in rows],
+        "total": total,
+    }
 
 
 @app.post("/api/projects", status_code=201)
@@ -510,10 +630,10 @@ def create_project(
     body: ProjectIn, s: Session = Depends(get_session),
     authorization: str | None = Header(None),
 ):
+    user = _current_user(authorization, s, required_permission="api:write") if authorization or _auth_is_required() else None
     p = service.create_project(s, name=body.name, key=body.key, description=body.description)
-    # 创建者自动成为项目 owner
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    uid = auth.parse_token(token) if token else None
+    # 创建者自动成为项目 owner；本地显式开放模式仍兼容匿名项目。
+    uid = user.id if user else None
     if uid:
         service.add_project_member(s, project_id=p.id, user_id=uid, role="owner")
     return service._ser(p)
@@ -526,21 +646,29 @@ def get_project_ext(
 ):
     """获取项目：private 项目仅成员可见"""
     p = _need(service.get_project(s, pid), "project")
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    uid = auth.parse_token(token) if token else None
+    uid = _optional_user_id(authorization, s)
     if p.is_private and not service.user_is_project_member(s, pid, uid):
         raise HTTPException(status_code=403, detail="access denied: private project")
     return service._ser(p)
 
 
 @app.patch("/api/projects/{pid}")
-def update_project(pid: int, body: ProjectPatchExtended, s: Session = Depends(get_session)):
+def update_project(
+    pid: int, body: ProjectPatchExtended, authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    _need(service.get_project(s, pid), "project")
+    _require_project_owner(s, pid, authorization)
     r = service.update_project(s, pid, **body.model_dump(exclude_none=True))
     return service._ser(_need(r, "project"))
 
 
 @app.delete("/api/projects/{pid}")
-def delete_project(pid: int, s: Session = Depends(get_session)):
+def delete_project(
+    pid: int, authorization: str | None = Header(None), s: Session = Depends(get_session),
+):
+    _need(service.get_project(s, pid), "project")
+    _require_project_owner(s, pid, authorization)
     if not service.delete_project(s, pid):
         raise HTTPException(status_code=404, detail="project not found")
     return {"ok": True}
@@ -616,7 +744,10 @@ def list_tasks(sid: int, s: Session = Depends(get_session), limit: int = Query(1
 
 
 @app.post("/api/stories/{sid}/tasks", status_code=201)
-def create_task(sid: int, body: TaskIn, s: Session = Depends(get_session)):
+def create_task(
+    sid: int, body: TaskIn, authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
     story = _need(service.get_story(s, sid), "story")
     try:
         t = service.create_task(s, project_id=body.project_id, story_id=story.id,
@@ -629,6 +760,11 @@ def create_task(sid: int, body: TaskIn, s: Session = Depends(get_session)):
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     _invalidate_stats_cache(body.project_id)
+    if t.assignee_id is not None:
+        service.create_notification(
+            s, user_id=t.assignee_id, notif_type="task_assigned",
+            title=f"任务 #{t.id} 已分配给你", content=t.title, link=f"/task/{t.id}",
+        )
     return service._ser(t)
 
 
@@ -667,22 +803,44 @@ def get_task(tid: int, s: Session = Depends(get_session)):
 
 
 @app.patch("/api/tasks/{tid}")
-def update_task(tid: int, body: TaskPatch, s: Session = Depends(get_session)):
+def update_task(
+    tid: int, body: TaskPatch, authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
     task = service.get_task(s, tid)
     pid = task.project_id if task else None
+    old_assignee_id = task.assignee_id if task else None
+    old_status = task.status if task else None
     try:
         r = service.update_task(s, tid, **body.model_dump(exclude_unset=True))
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     if pid:
         _invalidate_stats_cache(pid)
-    return service._ser(_need(r, "task"))
+    updated = _need(r, "task")
+    if updated.assignee_id is not None and updated.assignee_id != old_assignee_id:
+        service.create_notification(
+            s, user_id=updated.assignee_id, notif_type="task_assigned",
+            title=f"任务 #{updated.id} 已分配给你", content=updated.title,
+            link=f"/task/{updated.id}",
+        )
+    if updated.assignee_id is not None and updated.status != old_status:
+        service.create_notification(
+            s, user_id=updated.assignee_id, notif_type="status_changed",
+            title=f"任务 #{updated.id} 状态已变更", content=f"{updated.title}：{old_status} → {updated.status}",
+            link=f"/task/{updated.id}",
+        )
+    return service._ser(updated)
 
 
 @app.put("/api/tasks/{tid}/status")
-def set_status(tid: int, body: StatusIn, s: Session = Depends(get_session)):
+def set_status(
+    tid: int, body: StatusIn, authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
     task = service.get_task(s, tid)
     pid = task.project_id if task else None
+    old_status = task.status if task else None
     try:
         result = service.set_status(s, tid, body.status)
     except service.NotFound as e:
@@ -691,6 +849,12 @@ def set_status(tid: int, body: StatusIn, s: Session = Depends(get_session)):
         raise HTTPException(status_code=400, detail=str(e))
     if pid:
         _invalidate_stats_cache(pid)
+    if result.assignee_id is not None and result.status != old_status:
+        service.create_notification(
+            s, user_id=result.assignee_id, notif_type="status_changed",
+            title=f"任务 #{result.id} 状态已变更", content=f"{result.title}：{old_status} → {result.status}",
+            link=f"/task/{result.id}",
+        )
     return service._ser(result)
 
 
@@ -774,10 +938,23 @@ def list_comments(tid: int, s: Session = Depends(get_session)):
 
 
 @app.post("/api/tasks/{tid}/comments", status_code=201)
-def create_comment(tid: int, body: CommentIn, s: Session = Depends(get_session)):
+def create_comment(
+    tid: int, body: CommentIn, authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
     try:
-        return service._ser(service.create_comment(s, task_id=tid, author=body.author,
-                                                   content=body.content))
+        comment = service.create_comment(s, task_id=tid, author=body.author, content=body.content)
+        mentioned_user_ids: set[int] = set()
+        for username in re.findall(r"@([A-Za-z0-9_.-]{1,64})", body.content):
+            mentioned = service.get_user_by_username(s, username)
+            if mentioned and mentioned.id not in mentioned_user_ids:
+                mentioned_user_ids.add(mentioned.id)
+                service.create_notification(
+                    s, user_id=mentioned.id, notif_type="mentioned",
+                    title=f"{body.author} 在评论中提到了你", content=body.content[:500],
+                    link=f"/task/{tid}",
+                )
+        return service._ser(comment)
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
     except service.InvalidValue as e:
@@ -1062,8 +1239,7 @@ def add_member(
     authorization: str | None = Header(None),
 ):
     """邀请用户加入项目（仅 owner 或管理员可操作）"""
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    uid = auth.parse_token(token) if token else None
+    uid = _current_user(authorization, s, required_permission="api:write").id
     if not service.user_is_project_owner(s, pid, uid):
         u = service.get_user(s, uid) if uid else None
         if not (u and u.is_admin):
@@ -1096,8 +1272,7 @@ def remove_member(
     authorization: str | None = Header(None),
 ):
     """移除项目成员（仅 owner 或管理员可操作，owner 不能移除自己）"""
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    current_uid = auth.parse_token(token) if token else None
+    current_uid = _current_user(authorization, s, required_permission="api:write").id
     if not service.user_is_project_owner(s, pid, current_uid):
         u = service.get_user(s, current_uid) if current_uid else None
         if not (u and u.is_admin):
@@ -1116,8 +1291,7 @@ def update_member_role(
     authorization: str | None = Header(None),
 ):
     """更新成员角色（仅 owner 或管理员可操作）"""
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    current_uid = auth.parse_token(token) if token else None
+    current_uid = _current_user(authorization, s, required_permission="api:write").id
     if not service.user_is_project_owner(s, pid, current_uid):
         u = service.get_user(s, current_uid) if current_uid else None
         if not (u and u.is_admin):
@@ -1139,10 +1313,7 @@ def list_notifications(
     unread_only: bool = Query(False),
     authorization: str | None = Header(None),
 ):
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    uid = auth.parse_token(token) if token else None
-    if not uid:
-        raise HTTPException(status_code=401, detail="unauthorized")
+    uid = _current_user(authorization, s, required_permission="api:read").id
     items, total = service.list_notifications(s, uid, limit=limit, offset=offset, unread_only=unread_only)
     return {"items": [service._ser(n) for n in items], "total": total}
 
@@ -1152,10 +1323,7 @@ def unread_count(
     s: Session = Depends(get_session),
     authorization: str | None = Header(None),
 ):
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    uid = auth.parse_token(token) if token else None
-    if not uid:
-        raise HTTPException(status_code=401, detail="unauthorized")
+    uid = _current_user(authorization, s, required_permission="api:read").id
     _, total = service.list_notifications(s, uid, limit=1, unread_only=True)
     return {"count": total}
 
@@ -1165,10 +1333,7 @@ def mark_read(
     nid: int, s: Session = Depends(get_session),
     authorization: str | None = Header(None),
 ):
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    uid = auth.parse_token(token) if token else None
-    if not uid:
-        raise HTTPException(status_code=401, detail="unauthorized")
+    uid = _current_user(authorization, s, required_permission="api:write").id
     n = service.mark_notification_read(s, nid, uid)
     if not n:
         raise HTTPException(status_code=404, detail="notification not found")
@@ -1180,10 +1345,7 @@ def mark_all_read(
     s: Session = Depends(get_session),
     authorization: str | None = Header(None),
 ):
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    uid = auth.parse_token(token) if token else None
-    if not uid:
-        raise HTTPException(status_code=401, detail="unauthorized")
+    uid = _current_user(authorization, s, required_permission="api:write").id
     count = service.mark_all_notifications_read(s, uid)
     return {"ok": True, "count": count}
 
@@ -1193,10 +1355,7 @@ def delete_notification(
     nid: int, s: Session = Depends(get_session),
     authorization: str | None = Header(None),
 ):
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    uid = auth.parse_token(token) if token else None
-    if not uid:
-        raise HTTPException(status_code=401, detail="unauthorized")
+    uid = _current_user(authorization, s, required_permission="api:write").id
     if not service.delete_notification(s, nid, uid):
         raise HTTPException(status_code=404, detail="notification not found")
     return {"ok": True}

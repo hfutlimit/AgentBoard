@@ -93,6 +93,10 @@ python -m agentboard.mcp_server
 - `POST /api/auth/register`：`{"username","password"}` → `201` 返回 `{id,username,token}`；重复用户名 → `409`
 - `POST /api/auth/login`：`{"username","password"}` → `200` 返回 `{id,username,token}`；凭据错误 → `401`
 - `GET /api/auth/me`：带 `Authorization: Bearer <token>` → `200` 返回当前用户；缺失/伪造 → `401`
+- `PATCH /api/auth/me`：更新 `display_name`、`email`、`avatar_url`
+- `POST /api/auth/change-password`：校验当前密码后更新密码
+- `GET /api/users/me/projects`：返回当前用户创建（Owner）或参与（Member）的项目
+- `/api/api-keys`：管理用户自己的 API Key；REST 只读请求要求 `api:read`，写请求要求 `api:write`（也支持 `api:*`）
 
 > 本地默认保持 CRUD 开放；远程部署设置 `AGENTBOARD_REQUIRE_AUTH=1`。注册、登录和 `/api/meta` 保持公开。远程 MCP 默认始终要求同一枚 Bearer Token。
 

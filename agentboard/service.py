@@ -899,6 +899,39 @@ def get_user_by_username(s: Session, username: str) -> models.User | None:
     return s.query(models.User).filter(models.User.username == username).first()
 
 
+def update_user_profile(
+    s: Session, user: models.User, *, display_name: str | None = None,
+    email: str | None = None, avatar_url: str | None = None,
+) -> models.User:
+    if display_name is not None:
+        user.display_name = display_name.strip()[:100]
+    if email is not None:
+        normalized_email = email.strip().lower() or None
+        if normalized_email:
+            existing = s.query(models.User).filter(
+                models.User.email == normalized_email, models.User.id != user.id,
+            ).first()
+            if existing:
+                raise Duplicate(f"email '{normalized_email}' already exists")
+        user.email = normalized_email
+    if avatar_url is not None:
+        user.avatar_url = avatar_url.strip() or None
+    _commit(s, duplicate="email already exists")
+    s.refresh(user)
+    return user
+
+
+def change_user_password(
+    s: Session, user: models.User, *, current_password: str, new_password: str,
+) -> None:
+    if not auth.verify_password(current_password, user.password_hash):
+        raise InvalidValue("current password is incorrect")
+    if len(new_password or "") < 8:
+        raise InvalidValue("new password must be at least 8 characters")
+    user.password_hash = auth.hash_password(new_password)
+    _commit(s)
+
+
 def create_api_key(s: Session, *, user_id: int, name: str, permissions: list[str]) -> tuple[ApiKey, str]:
     plaintext, prefix, digest = auth.generate_api_key()
     item = ApiKey(
@@ -1232,6 +1265,23 @@ def list_accessible_projects(
             )
         else:
             q = s.query(Project).filter(Project.is_private == False)
+    total = q.count()
+    return _paginate(q.order_by(Project.id.desc()), limit, offset).all(), total
+
+
+def list_user_projects(
+    s: Session, user_id: int, *, role: str | None = None,
+    limit: int | None = None, offset: int = 0,
+) -> tuple[list[tuple[Project, str]], int]:
+    q = (
+        s.query(Project, ProjectMember.role)
+        .join(ProjectMember, ProjectMember.project_id == Project.id)
+        .filter(ProjectMember.user_id == user_id)
+    )
+    if role is not None:
+        if role not in {"owner", "member"}:
+            raise InvalidValue("role must be 'owner' or 'member'")
+        q = q.filter(ProjectMember.role == role)
     total = q.count()
     return _paginate(q.order_by(Project.id.desc()), limit, offset).all(), total
 

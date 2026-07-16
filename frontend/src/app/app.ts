@@ -9,7 +9,7 @@ import { filter } from 'rxjs/operators';
 
 import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric } from './api.service';
 import { LoginComponent } from './login/login';
-import { AgentSchedule, Attachment, AuditLog, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, WebhookConfig } from './models';
+import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig } from './models';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
@@ -111,7 +111,9 @@ export class App implements OnInit, OnDestroy {
   readonly prevTask = signal<Task | null>(null);
   readonly nextTask = signal<Task | null>(null);
   // Epic 25: API Keys
-  readonly apiKeys = signal<any[]>([]);
+  readonly profile = signal<UserProfile | null>(null);
+  readonly myProjects = signal<Project[]>([]);
+  readonly apiKeys = signal<ApiKeyInfo[]>([]);
   readonly newKeyName = signal('');
   readonly newKeyPerms = signal('');
   readonly keyModalVisible = signal(false);
@@ -719,7 +721,7 @@ export class App implements OnInit, OnDestroy {
           return;
         }
         this.view.set('settings');
-        await this.loadApiKeys();
+        await Promise.all([this.loadProfile(), this.loadMyProjects(), this.loadApiKeys()]);
       } else {
         this.view.set('not-found');
       }
@@ -1631,6 +1633,54 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  async loadProfile(): Promise<void> {
+    try {
+      this.profile.set(await firstValueFrom(this.api.me()));
+    } catch {
+      this.profile.set(null);
+    }
+  }
+
+  async saveProfile(displayName: string, email: string, avatarUrl: string): Promise<void> {
+    this.submitting.set(true);
+    try {
+      const profile = await firstValueFrom(this.api.updateProfile({
+        display_name: displayName.trim(), email: email.trim(), avatar_url: avatarUrl.trim(),
+      }));
+      this.profile.set(profile);
+      this.notify('个人资料已保存');
+    } catch (error) {
+      this.notify(`保存失败：${this.message(error)}`, 'error');
+    } finally {
+      this.submitting.set(false);
+    }
+  }
+
+  async updatePassword(currentPassword: string, newPassword: string, confirmPassword: string): Promise<void> {
+    if (newPassword !== confirmPassword) {
+      this.notify('两次输入的新密码不一致', 'error');
+      return;
+    }
+    this.submitting.set(true);
+    try {
+      await firstValueFrom(this.api.changePassword({ current_password: currentPassword, new_password: newPassword }));
+      this.notify('密码已更新');
+    } catch (error) {
+      this.notify(`修改密码失败：${this.message(error)}`, 'error');
+    } finally {
+      this.submitting.set(false);
+    }
+  }
+
+  async loadMyProjects(): Promise<void> {
+    try {
+      const response = await firstValueFrom(this.api.listMyProjects());
+      this.myProjects.set(response.items || []);
+    } catch {
+      this.myProjects.set([]);
+    }
+  }
+
   showCreateKeyModal(): void {
     this.newKeyName.set('');
     this.newKeyPerms.set('');
@@ -1648,7 +1698,7 @@ export class App implements OnInit, OnDestroy {
     if (!name) { this.notify('请输入密钥名称', 'error'); return; }
     const perms = this.newKeyPerms().trim()
       ? this.newKeyPerms().trim().split(',').map(p => p.trim()).filter(Boolean)
-      : ['api:read'];
+      : ['api:read', 'api:write'];
     try {
       const result = await firstValueFrom(this.api.createApiKey({ name, permissions: perms }));
       this.createdKeyPlaintext.set(result.key);
@@ -1668,6 +1718,12 @@ export class App implements OnInit, OnDestroy {
     } catch (error) {
       this.notify(`撤销失败：${this.message(error)}`, 'error');
     }
+  }
+
+  async openNotification(notification: Notification): Promise<void> {
+    if (!notification.is_read) await this.markRead(notification.id);
+    this.showNotifications.set(false);
+    if (notification.link) await this.router.navigateByUrl(notification.link);
   }
 
   async generate(): Promise<void> {

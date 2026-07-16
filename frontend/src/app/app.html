@@ -151,7 +151,7 @@
                           <span class="notif-group-count">{{ group[1].length }}</span>
                         </summary>
                         @for (n of group[1]; track n.id) {
-                          <div class="notif-item" [class.unread]="!n.is_read" (click)="markRead(n.id)">
+                          <div class="notif-item" [class.unread]="!n.is_read" (click)="openNotification(n)" [class.clickable]="!!n.link">
                             <span class="notif-item-icon" [style.background]="notifTypeIcon(n.type).color + '20'" [style.color]="notifTypeIcon(n.type).color">
                               {{ notifTypeIcon(n.type).emoji }}
                             </span>
@@ -163,6 +163,7 @@
                             @if (!n.is_read) {
                               <span class="notif-dot"></span>
                             }
+                            <button class="notif-delete" title="删除通知" (click)="deleteNotification(n.id); $event.stopPropagation()">×</button>
                           </div>
                         }
                       </details>
@@ -175,7 +176,18 @@
             }
           </div>
           <span class="user-chip">
-            <span class="user-name">{{ currentUser() }}</span>
+            <button class="user-name user-menu-trigger" (click)="showUserMenu.set(!showUserMenu())">
+              {{ currentUser() }} <span aria-hidden="true">⌄</span>
+            </button>
+            @if (showUserMenu()) {
+              <div class="user-dropdown">
+                <a routerLink="/settings" class="user-dropdown-item" (click)="showUserMenu.set(false)">⚙ 个人设置</a>
+                @if (isAdmin()) {
+                  <a routerLink="/admin" class="user-dropdown-item" (click)="showUserMenu.set(false)">🛡 管理员后台</a>
+                }
+                <button class="user-dropdown-item" (click)="showUserMenu.set(false); logout()">🚪 退出登录</button>
+              </div>
+            }
           </span>
         } @else {
           <button id="login-btn" class="ghost-sm" type="button" (click)="openAuth()">登录</button>
@@ -1410,6 +1422,116 @@
                 暂无任务。在任务详情中选择「加入 Sprint」将任务分配至此。
               </div>
             }
+          }
+        }
+        @case ('settings') {
+          <div class="crumb-bar"><a routerLink="/">首页</a><span>›</span><span>个人设置</span></div>
+          <div class="page-header settings-header">
+            <div>
+              <span class="eyebrow">ACCOUNT</span>
+              <h1>个人设置</h1>
+              <p class="muted">管理个人资料、安全凭据和自己的项目。</p>
+            </div>
+          </div>
+
+          @if (profile(); as currentProfile) {
+            <div class="settings-grid">
+              <section class="card settings-card">
+                <h2>Profile</h2>
+                <form (submit)="saveProfile(displayName.value, profileEmail.value, avatarUrl.value); $event.preventDefault()">
+                  <label>用户名<input [value]="currentProfile.username" disabled /></label>
+                  <label>显示名称<input #displayName [value]="currentProfile.display_name || ''" maxlength="100" placeholder="你的显示名称" /></label>
+                  <label>邮箱<input #profileEmail type="email" [value]="currentProfile.email || ''" maxlength="254" placeholder="name@example.com" /></label>
+                  <label>头像 URL<input #avatarUrl type="url" [value]="currentProfile.avatar_url || ''" maxlength="500" placeholder="https://…" /></label>
+                  <button class="btn-primary-sm" type="submit" [disabled]="submitting()">保存资料</button>
+                </form>
+              </section>
+
+              <section class="card settings-card">
+                <h2>修改密码</h2>
+                <form (submit)="updatePassword(currentPassword.value, newPassword.value, confirmPassword.value); $event.preventDefault()">
+                  <label>当前密码<input #currentPassword type="password" required autocomplete="current-password" /></label>
+                  <label>新密码<input #newPassword type="password" required minlength="8" autocomplete="new-password" /></label>
+                  <label>确认新密码<input #confirmPassword type="password" required minlength="8" autocomplete="new-password" /></label>
+                  <button class="btn-primary-sm" type="submit" [disabled]="submitting()">更新密码</button>
+                </form>
+              </section>
+            </div>
+          }
+
+          <section class="card settings-card settings-wide">
+            <div class="card-header">
+              <div><h2>我的项目</h2><p class="muted">仅显示你创建或参与的项目。</p></div>
+              <button class="btn-primary-sm" (click)="openCreate('project')">＋ 新建项目</button>
+            </div>
+            @if (myProjects().length) {
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead><tr><th>项目</th><th>短码</th><th>角色</th><th>可见性</th><th>操作</th></tr></thead>
+                  <tbody>
+                    @for (p of myProjects(); track p.id) {
+                      <tr>
+                        <td><a [routerLink]="['/project', p.id]" class="link-bold">{{ p.name }}</a></td>
+                        <td>{{ p.key || '—' }}</td>
+                        <td><span class="badge">{{ p.membership_role === 'owner' ? 'Owner / 我创建的' : 'Member / 我参与的' }}</span></td>
+                        <td>{{ p.is_private ? '🔒 私有' : '🌐 公开' }}</td>
+                        <td><a [routerLink]="['/project', p.id]" (click)="activeTab.set('settings')" class="ghost-sm">{{ p.membership_role === 'owner' ? '管理设置' : '查看' }}</a></td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            } @else {
+              <div class="empty-inline">你还没有创建或加入项目。</div>
+            }
+          </section>
+
+          <section class="card settings-card settings-wide">
+            <div class="card-header">
+              <div><h2>API Key</h2><p class="muted">用于脚本和第三方工具访问 AgentBoard API。</p></div>
+              <button class="btn-primary-sm" (click)="showCreateKeyModal()">＋ 新建 API Key</button>
+            </div>
+            @if (apiKeys().length) {
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead><tr><th>名称</th><th>前缀</th><th>权限</th><th>最后使用</th><th>状态</th><th>操作</th></tr></thead>
+                  <tbody>
+                    @for (key of apiKeys(); track key.id) {
+                      <tr>
+                        <td>{{ key.name }}</td><td><code>{{ key.prefix }}…</code></td>
+                        <td>{{ key.permissions.join(', ') || '无权限' }}</td>
+                        <td>{{ key.last_used_at ? (key.last_used_at | date:'yyyy-MM-dd HH:mm') : '从未使用' }}</td>
+                        <td><span [class]="key.enabled ? 'badge status--done' : 'badge'">{{ key.enabled ? '启用' : '禁用' }}</span></td>
+                        <td><button class="ghost-sm danger" (click)="revokeApiKey(key.id)">撤销</button></td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            } @else {
+              <div class="empty-inline">暂无 API Key。</div>
+            }
+          </section>
+
+          @if (keyModalVisible()) {
+            <div class="modal-overlay" (click)="closeKeyModal()">
+              <section class="modal settings-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+                @if (createdKeyPlaintext()) {
+                  <h3>✅ API Key 已创建</h3>
+                  <p class="muted">请立即复制并安全保存，关闭后无法再次查看。</p>
+                  <div class="api-key-secret">{{ createdKeyPlaintext() }}</div>
+                  <button class="btn-primary-sm" (click)="closeKeyModal()">我已复制</button>
+                } @else {
+                  <h3>新建 API Key</h3>
+                  <form (submit)="createApiKey(); $event.preventDefault()">
+                    <label>名称<input required [value]="newKeyName()" (input)="newKeyName.set($any($event.target).value)" placeholder="例如：CLI 工具" /></label>
+                    <label>权限范围<input [value]="newKeyPerms()" (input)="newKeyPerms.set($any($event.target).value)" placeholder="api:read,api:write" /></label>
+                    <p class="muted">留空默认授予 REST API 读写权限；可使用 <code>api:read</code>、<code>api:write</code>。</p>
+                    <div class="row modal-actions"><button type="button" class="ghost-sm" (click)="closeKeyModal()">取消</button><button type="submit" class="btn-primary-sm">创建</button></div>
+                  </form>
+                }
+              </section>
+            </div>
           }
         }
         @case ('admin') {
