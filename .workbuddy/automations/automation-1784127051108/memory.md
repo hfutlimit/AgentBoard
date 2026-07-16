@@ -1,20 +1,18 @@
-# Automation Memory: AgentBoard 自动开发 [GLM-5.2] 23:00
+# Automation Memory: AgentBoard 自动开发 [GLM-5.2] 23:10
 
-## 2026-07-15 23:00 执行记录
+## 2026-07-16 23:10 执行记录
 
 ### 完成项
-- **B-03 Task due_date 功能**（Backlog B 第 3 项）
-  - 后端：service.py `_parse_due_date()` 修复 SQLite Date 类型错误；api.py 增加 due_date 到 TaskIn/TaskPatch；update_task 改用 exclude_unset=True
-  - 前端：Angular Task 接口+创建弹窗+编辑表单+列表/看板/详情徽章（逾期红脉冲/近期黄/正常灰）
-  - 测试：5 项 pytest 全绿
-  - commit c8b7983，push 成功
+- **Epic 32 (B-01): Task Labels UI & Filtering** → done
+  - 后端 labels 字段已就绪；前端实现标签徽章/输入/过滤 UI
+  - 6 项 API 测试全绿
+  - commit `871a50d` + `3df42a8`，push 成功
+  - MCP: Epic 19/Story 53/Task 821 全部 done
 
 ### 踩坑
-- Docker API 容器代码与宿主机不同步：需 force-recreate 获取原始代码，再 docker cp 注入修改
-- 容器原 api.py 缺少 due_date 字段 → 用 Python 脚本在容器内 patch
-- MariaDB 迁移标记 applied 但列实际缺失 → 手动 ALTER TABLE 添加
-- web_app.py 容器版本缺少 /static/ 路径重写 → docker cp 更新
+- Docker web_app.py 不同步导致 Angular 404；rate limiter 阻断 CORS preflight
+- Playwright E2E 基础设施已损坏（选择器过时）；改用 TestClient API 测试
+- MCP auth_login 后仍 unauthorized，改用 REST API 更新状态
 
 ### 未完成
-- Playwright 截图验证（时间不足，API E2E 已通过 curl 验证）
-- 现有测试套件回归（test_crud_smoke 端口冲突 pre-existing issue）
+- Playwright E2E 测试需修复现有基础设施（选择器适配 Angular 登录页）

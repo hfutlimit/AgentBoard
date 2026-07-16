@@ -38,3 +38,7 @@
 - **容器代码同步**：容器内 `/app/agentboard/api.py` 可能与本地不同步；用 `docker exec grep` 验证，必要时 `docker cp` 注入。
 - **并发锁**：自动开发前检查 `.workbuddy/autodev.lock`；90 分钟内存在则停，否则建锁、结束删锁。
 - **Playwright 验证坑（2026-07-16 实测）**：① SPA 路由守卫——无 `localStorage.agentboard_token` 时 `http://.../story/19` 会被重定向到 `/login`；必须在脚本里先走「注册」UI 流程建会话（点 `.auth-tab` 注册、填 `input[name=username]/[name=password]`、提交 `.login-submit`），再导航。② 选择器歧义——带 `☰` 图标的按钮有两个：侧栏开关 `#sidebar-toggle`（class `icon-btn`）与密度切换 `#s-density-toggle`（class `ghost-sm`）；用 `button,has_text=☰` + `.first` 会误点侧栏，必须按 `id` 精确选择。③ web 服务用 `agentboard/web_app.py`（其 STATIC_DIR 解析为 `agentboard/web/static`）；根目录 `web_app_new.py` 的 STATIC_DIR 解析错误会报 `Directory does not exist`。④ 新 Python venv 需 `pip install playwright`；Chromium 已缓存于 `~/AppData/Local/ms-playwright`，无需再下载。
+- **Docker web_app.py 不同步（2026-07-16 #2 实测）**：容器内 `web_app.py` 可能是旧版（不做 `/static/` 路径重写），导致 Angular JS/CSS 404、页面空白。需 `docker cp agentboard/web_app.py agentboard-web-1:/app/agentboard/web_app.py` 注入新版。
+- **Rate limiter 阻断 CORS preflight**：API 容器 rate limiter 对 Docker bridge IP（非 127.0.0.1）生效，OPTIONS preflight 返回 429 → CORS 失败。重启 API 容器可临时清除计数。
+- **Playwright E2E 基础设施已损坏（2026-07-16 #2）**：现有 `test_playwright_e2e.py` 全部 6 项 FAIL（选择器 `#login-btn` 已不存在，登录页重构为 Angular 组件 `app-login`，使用 `.auth-tab` + `.login-submit`）。需修复后才能跑 E2E。
+- **MCP auth 仍不可用**：`mcp__agentboard__auth_login` 返回 token 后，`mcp__agentboard__list_projects` 仍 unauthorized。改用 REST API + curl/Python urllib 更新状态。
