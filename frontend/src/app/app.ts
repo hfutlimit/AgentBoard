@@ -220,7 +220,16 @@ export class App implements OnInit, OnDestroy {
   readonly filterPriorities = signal<string[]>([]);
   readonly filterTypes = signal<string[]>([]);
   readonly filterOnlyOverdue = signal(false);
-  readonly activeFilterCount = computed(() => this.filterPriorities().length + this.filterTypes().length + (this.filterOnlyOverdue() ? 1 : 0));
+  // B-01: Label filter
+  readonly labelFilter = signal('');
+  readonly activeFilterCount = computed(() => this.filterPriorities().length + this.filterTypes().length + (this.filterOnlyOverdue() ? 1 : 0) + (this.labelFilter() ? 1 : 0));
+  readonly allLabels = computed(() => {
+    const set = new Set<string>();
+    for (const t of this.tasks()) {
+      for (const l of this.parseLabels(t.labels)) set.add(l);
+    }
+    return [...set].sort();
+  });
   readonly visibleTasks = computed(() => {
     const search = this.match(this.tasks(), (t) => `${t.title} ${t.description} ${t.spec}`);
     const status = this.filterStatus();
@@ -236,6 +245,9 @@ export class App implements OnInit, OnDestroy {
       const ft = this.filterTypes();
       if (ft.length && !ft.includes(t.type)) return false;
       if (this.filterOnlyOverdue() && !(t.due_date && this.isOverdue(t.due_date) && t.status !== 'done')) return false;
+      // B-01: Label filter
+      const lf = this.labelFilter();
+      if (lf && !this.parseLabels(t.labels).includes(lf)) return false;
       return true;
     });
     // Task 730: 排序
@@ -951,6 +963,8 @@ export class App implements OnInit, OnDestroy {
     const type = String(data.get('type') || 'task') as ItemType;
     const priority = String(data.get('priority') || 'medium') as Priority;
     const dueDate = String(data.get('due_date') || '') || null;
+    const labelsStr = String(data.get('labels') || '').trim();
+    const labels = labelsStr ? JSON.stringify(labelsStr.split(',').map(s => s.trim()).filter(Boolean)) : '[]';
     if (!modal || !title.trim()) return;
     this.submitting.set(true);
     try {
@@ -975,6 +989,7 @@ export class App implements OnInit, OnDestroy {
             type,
             priority,
             due_date: dueDate,
+            labels,
           }),
         );
       }
@@ -1024,6 +1039,18 @@ export class App implements OnInit, OnDestroy {
     if (!task) return;
     await this.run('任务已保存', () =>
       firstValueFrom(this.api.updateTask(task.id, { title, description, spec, type, priority, due_date: dueDate })),
+    );
+  }
+
+  // B-01: Save task labels
+  async saveTaskLabels(labelsInput: string): Promise<void> {
+    const task = this.task();
+    if (!task) return;
+    const labels = labelsInput.trim()
+      ? JSON.stringify(labelsInput.split(',').map(s => s.trim()).filter(Boolean))
+      : '[]';
+    await this.run('标签已保存', () =>
+      firstValueFrom(this.api.updateTask(task.id, { labels })),
     );
   }
 
@@ -1996,6 +2023,42 @@ export class App implements OnInit, OnDestroy {
     return new Date(dateStr).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
   }
 
+  // B-01: Label helpers
+  parseLabels(labelsStr: string | null | undefined): string[] {
+    if (!labelsStr) return [];
+    try {
+      const arr = JSON.parse(labelsStr);
+      return Array.isArray(arr) ? arr.map(String) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private static readonly LABEL_PALETTE = [
+    '#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6',
+    '#8b5cf6', '#ef4444', '#14b8a6', '#f97316', '#06b6d4',
+  ];
+
+  labelColor(label: string): string {
+    let hash = 0;
+    for (let i = 0; i < label.length; i++) {
+      hash = ((hash << 5) - hash + label.charCodeAt(i)) | 0;
+    }
+    return App.LABEL_PALETTE[Math.abs(hash) % App.LABEL_PALETTE.length];
+  }
+
+  labelBg(label: string): string {
+    return this.labelColor(label) + '20';
+  }
+
+  labelsToString(labelsStr: string | null | undefined): string {
+    return this.parseLabels(labelsStr).join(', ');
+  }
+
+  clearLabelFilter(): void {
+    this.labelFilter.set('');
+  }
+
   // B-03: Due date helpers
   isOverdue(dueDate: string | null | undefined): boolean {
     if (!dueDate) return false;
@@ -2358,6 +2421,7 @@ export class App implements OnInit, OnDestroy {
     this.filterPriorities.set([]);
     this.filterTypes.set([]);
     this.filterOnlyOverdue.set(false);
+    this.labelFilter.set('');
   }
 
   // Task 603: 抽屉内快速操作

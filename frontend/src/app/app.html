@@ -949,6 +949,15 @@
                   <div class="filter-group">
                     <label class="filter-check"><input type="checkbox" [checked]="filterOnlyOverdue()" (change)="filterOnlyOverdue.set(!filterOnlyOverdue())" /> 仅看逾期</label>
                   </div>
+                  @if (allLabels().length > 0) {
+                    <div class="filter-group">
+                      <span class="filter-label">标签</span>
+                      <button class="filter-chip" [class.active]="!labelFilter()" (click)="labelFilter.set('')">全部</button>
+                      @for (lbl of allLabels(); track lbl) {
+                        <button class="filter-chip" [class.active]="labelFilter() === lbl" [style.border-color]="labelColor(lbl)" (click)="labelFilter.set(lbl)">{{ lbl }}</button>
+                      }
+                    </div>
+                  }
                   @if (activeFilterCount() > 0) {
                     <button class="ghost-sm" (click)="clearFilters()">清除筛选</button>
                   }
@@ -1017,6 +1026,9 @@
                             ⏰ {{ formatDueDate(item.due_date) }}
                           </span>
                         }
+                        @for (lbl of parseLabels(item.labels); track lbl) {
+                          <span class="label-badge" [style.color]="labelColor(lbl)" [style.background]="labelBg(lbl)">{{ lbl }}</span>
+                        }
                         <span class="entity-item-time" title="最后更新">{{ timeAgo(item.updated_at) }}</span>
                       </div>
                     </a>
@@ -1067,6 +1079,9 @@
                             }
                             @if (item.due_date) {
                               <span class="badge due-badge" [class.due-overdue]="isOverdue(item.due_date)" [class.due-soon]="isDueSoon(item.due_date)" style="font-size:10px" title="截止日期">⏰ {{ formatDueDate(item.due_date) }}</span>
+                            }
+                            @for (lbl of parseLabels(item.labels); track lbl) {
+                              <span class="label-badge label-badge--sm" [style.color]="labelColor(lbl)" [style.background]="labelBg(lbl)">{{ lbl }}</span>
                             }
                           </div>
                           <!-- Task 601: 看板卡片完成进度显示 -->
@@ -1157,6 +1172,17 @@
                     <span class="meta-icon">⏰</span>
                     <span class="meta-label">截止</span>
                     <span class="meta-value">{{ formatDueDate(current.due_date) }}</span>
+                  </span>
+                }
+                @if (parseLabels(current.labels).length > 0) {
+                  <span class="task-meta-item">
+                    <span class="meta-icon">🏷</span>
+                    <span class="meta-label">标签</span>
+                    <span class="meta-value label-list">
+                      @for (lbl of parseLabels(current.labels); track lbl) {
+                        <span class="label-badge" [style.color]="labelColor(lbl)" [style.background]="labelBg(lbl)">{{ lbl }}</span>
+                      }
+                    </span>
                   </span>
                 }
               </div>
@@ -1278,6 +1304,11 @@
                 </div>
                 <label
                   >截止日期<input #tDueDate type="date" [value]="current.due_date || ''" />
+                </label>
+                <label
+                  >标签 <span class="muted" style="font-size:11px">逗号分隔</span
+                  ><input #tLabels [value]="labelsToString(current.labels)" placeholder="如: 前端,紧急" autocomplete="off" />
+                  <button class="ghost-sm" type="button" style="margin-top:4px" (click)="saveTaskLabels(tLabels.value); tLabels.value = tLabels.value">💾 保存标签</button>
                 </label>
                 @if (project()?.id) {
                   <label
@@ -1711,6 +1742,9 @@
             </div>
             <div class="form-field">
               <label>截止日期</label><input id="create-due-date" name="due_date" type="date" />
+            </div>
+            <div class="form-field">
+              <label>标签 <span class="muted" style="font-size:11px">逗号分隔</span></label><input id="create-labels" name="labels" placeholder="如: 前端,紧急,bug-fix" autocomplete="off" />
             </div>
           }
         </div>
