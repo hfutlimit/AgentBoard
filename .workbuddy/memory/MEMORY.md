@@ -17,6 +17,8 @@
 - **Epic 15 (v0.4+ 体验优化) → done** ✅：通知类型图标、收藏/最近访问。
 - **Epic 22/23/24 → done** ✅：审计日志、任务依赖、Webhook、缓存、Toast、移动端。
 - **Sprint 功能就绪**：planning/active/completed + 单 active 约束 + 任务退回 backlog。
+- **Task 831 列表密度切换（紧凑视图）→ done** ✅（2026-07-16）：`listDensity` signal（`localStorage` 持久化）+ 任务列表工具条 `☰` 切换按钮（`#s-density-toggle`）+ `.entity-list.density-compact` 类 + 紧凑 CSS（行内边距/字号收敛）；净增 ~24 行，符合 R2。Playwright 验证：切换前后 `.entity-item--rich` padding 10px→6px，零错误。
+- **顺带修复**：`frontend/src/index.html` 遗留 `<link href="/static/style.css">` 孤儿引用（每次构建复现 404 + 构建告警）；已从源码移除，Angular 注入的 `styles-*.css` 接管。
 
 ## 协作与发布约定
 - **文档驱动**：需求 `docs/requirements.md`、任务 `docs/tasks.md`、变更 `openspec/changes/<id>/{proposal,design,tasks}.md`。
@@ -35,3 +37,4 @@
 - **多 DB 注意**：运行中的 API 可能连接 `agentboard.db`（根）或 `data/agentboard.db`；验证/状态流转前务必确认 `AGENTBOARD_DB_URL` 指向目标库。
 - **容器代码同步**：容器内 `/app/agentboard/api.py` 可能与本地不同步；用 `docker exec grep` 验证，必要时 `docker cp` 注入。
 - **并发锁**：自动开发前检查 `.workbuddy/autodev.lock`；90 分钟内存在则停，否则建锁、结束删锁。
+- **Playwright 验证坑（2026-07-16 实测）**：① SPA 路由守卫——无 `localStorage.agentboard_token` 时 `http://.../story/19` 会被重定向到 `/login`；必须在脚本里先走「注册」UI 流程建会话（点 `.auth-tab` 注册、填 `input[name=username]/[name=password]`、提交 `.login-submit`），再导航。② 选择器歧义——带 `☰` 图标的按钮有两个：侧栏开关 `#sidebar-toggle`（class `icon-btn`）与密度切换 `#s-density-toggle`（class `ghost-sm`）；用 `button,has_text=☰` + `.first` 会误点侧栏，必须按 `id` 精确选择。③ web 服务用 `agentboard/web_app.py`（其 STATIC_DIR 解析为 `agentboard/web/static`）；根目录 `web_app_new.py` 的 STATIC_DIR 解析错误会报 `Directory does not exist`。④ 新 Python venv 需 `pip install playwright`；Chromium 已缓存于 `~/AppData/Local/ms-playwright`，无需再下载。

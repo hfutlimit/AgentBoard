@@ -513,6 +513,25 @@ router-outlet {
   outline: none;
 }
 
+/* Task 831: 列表密度切换 — 紧凑视图（减少行内边距与字号，提升信息密度） */
+.entity-list.density-compact .entity-item--rich {
+  padding: 6px 14px;
+}
+.entity-list.density-compact .entity-item-main {
+  gap: 8px;
+}
+.entity-list.density-compact .entity-item-title {
+  font-size: .85rem;
+}
+.entity-list.density-compact .entity-item-meta,
+.entity-list.density-compact .entity-item-badges {
+  gap: 4px;
+}
+.entity-list.density-compact .entity-item-time {
+  font-size: 10px;
+  margin-left: 2px;
+}
+
 /* ---- Epic 21 Story 21.3: 批量操作进度条 ---- */
 .bulk-progress-bar {
   padding: 12px 16px;

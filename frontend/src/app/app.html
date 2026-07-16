@@ -884,7 +884,7 @@
                     (click)="setBoardMode(false)"
                   >
                     列表</button
-                  ><button
+                  >                  <button
                     class="seg-btn"
                     [class.active]="boardMode()"
                     (click)="setBoardMode(true)"
@@ -892,6 +892,15 @@
                     看板
                   </button>
                 </div>
+                <button
+                  id="s-density-toggle"
+                  class="ghost-sm"
+                  [class.active]="listDensity() === 'compact'"
+                  (click)="toggleListDensity()"
+                  title="切换列表密度（舒适 / 紧凑）"
+                >
+                  {{ listDensity() === 'compact' ? '☰ 紧凑' : '☰ 舒适' }}
+                </button>
                 <div class="seg" style="margin-left:4px">
                   <button class="ghost-sm" (click)="exportToCSV()" title="导出为 CSV">
                     📥 CSV
@@ -976,7 +985,7 @@
               }
             }
             @if (!boardMode()) {
-              <div class="entity-list" (keydown)="handleTaskKeydown($event)" tabindex="0">
+              <div class="entity-list" [class.density-compact]="listDensity() === 'compact'" (keydown)="handleTaskKeydown($event)" tabindex="0">
                 @for (item of visibleTasks(); track item.id; let i = $index) {
                   <div class="entity-item entity-item--rich" [class.selected]="selectedTasks().has(item.id)" [class.kbd-focused]="isTaskFocused(i)">
                     <input

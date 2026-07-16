@@ -52,6 +52,10 @@ export class App implements OnInit, OnDestroy {
   readonly search = signal('');
   readonly sidebarOpen = signal(true);
   readonly boardMode = signal(localStorage.getItem('agentboard_story_view') === 'board');
+  // Task 831: 列表密度切换（舒适 / 紧凑），偏好持久化
+  readonly listDensity = signal<'comfortable' | 'compact'>(
+    (localStorage.getItem('agentboard_list_density') as 'comfortable' | 'compact') || 'comfortable'
+  );
   readonly authVisible = signal(!localStorage.getItem('agentboard_token'));
   readonly authMode = signal<'login' | 'register'>('login');
   readonly currentUser = signal(localStorage.getItem('agentboard_user') || '');
@@ -1774,6 +1778,12 @@ export class App implements OnInit, OnDestroy {
   setBoardMode(board: boolean): void {
     this.boardMode.set(board);
     localStorage.setItem('agentboard_story_view', board ? 'board' : 'list');
+  }
+
+  toggleListDensity(): void {
+    const next = this.listDensity() === 'compact' ? 'comfortable' : 'compact';
+    this.listDensity.set(next);
+    localStorage.setItem('agentboard_list_density', next);
   }
 
   tasksForStatus(status: Status): Task[] {
