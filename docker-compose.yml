@@ -26,6 +26,8 @@ services:
     # 网络恢复后应以 `docker compose build` 重建镜像并移除此挂载。
     volumes:
       - ./migrations:/app/migrations:ro
+      # 开发模式：挂载 Python 代码目录，修改后无需重建容器
+      - ./agentboard:/app/agentboard:ro
     environment:
       # 生产数据库：MariaDB（容器名 db，内部端口 3306）
       AGENTBOARD_DB_URL: "mysql+pymysql://agentboard:agentboard@db:3306/agentboard"
