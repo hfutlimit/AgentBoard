@@ -1,5 +1,13 @@
 # Automation 1784127051421 Execution Memory
 
+## 2026-07-17 01:55-02:55 Run
+- **Outcome**: B-04 看板拖拽排序 → done ✅
+- **Key deliverable**: Kanban HTML5 drag-and-drop (5 handlers + 2 signals + CSS) + CORS preflight fix (OPTIONS skip) + Playwright E2E
+- **Push**: ✅ origin/main (commit 4a486cf)
+- **Issues hit**: CORS preflight 429 from rate limiter (middleware order); rate limit frequently hit during dev (300/60s); MCP auth still broken
+- **Mitigation**: Fixed OPTIONS skip in rate_limit_middleware; used REST API for all MCP bypass; docker restart api between tests
+- **Next run suggestions**: B-02 负责人/指派 (assignee) — backend already has assignee_id, only need frontend dropdown; or B-06「按负责人分组」 (depends on B-02)
+
 ## 2026-07-16 01:55-02:25 Run
 - **Outcome**: Story 15.3 done ✅
 - **Key deliverable**: Dark mode system sync + toggle button (style.css + index.html + Playwright test)
