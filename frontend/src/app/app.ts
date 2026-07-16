@@ -211,6 +211,12 @@ export class App implements OnInit, OnDestroy {
   // Task 602: 高级筛选面板 - 状态/优先级过滤
   readonly filterStatus = signal('');
   readonly filterPriority = signal('');
+  // Task 602: 高级筛选面板 - 多选过滤
+  readonly filterOpen = signal(false);
+  readonly filterPriorities = signal<string[]>([]);
+  readonly filterTypes = signal<string[]>([]);
+  readonly filterOnlyOverdue = signal(false);
+  readonly activeFilterCount = computed(() => this.filterPriorities().length + this.filterTypes().length + (this.filterOnlyOverdue() ? 1 : 0));
   readonly visibleTasks = computed(() => {
     const search = this.match(this.tasks(), (t) => `${t.title} ${t.description} ${t.spec}`);
     const status = this.filterStatus();
@@ -218,9 +224,16 @@ export class App implements OnInit, OnDestroy {
     const sortKey = this.taskSortKey();
     const sortOrder = this.taskSortOrder();
     const PRIORITY_ORDER = ['highest', 'high', 'medium', 'low', 'lowest'];
-    let filtered = search.filter((t: Task) =>
-      (!status || t.status === status) && (!priority || t.priority === priority)
-    );
+    let filtered = search.filter((t: Task) => {
+      if (status && t.status !== status) return false;
+      if (priority && t.priority !== priority) return false;
+      const fp = this.filterPriorities();
+      if (fp.length && !fp.includes(t.priority)) return false;
+      const ft = this.filterTypes();
+      if (ft.length && !ft.includes(t.type)) return false;
+      if (this.filterOnlyOverdue() && !(t.due_date && this.isOverdue(t.due_date) && t.status !== 'done')) return false;
+      return true;
+    });
     // Task 730: 排序
     filtered.sort((a, b) => {
       let cmp = 0;
@@ -393,6 +406,13 @@ export class App implements OnInit, OnDestroy {
       if (e.key === 'Enter' && this.arrowNavIndex() >= 0) {
         e.preventDefault();
         this.confirmArrowNav();
+      }
+      // Task 605: 任务详情页快捷键 c/d/x
+      if (this.task() && (e.key === 'c' || e.key === 'd' || e.key === 'x')) {
+        e.preventDefault();
+        if (e.key === 'c') this.quickAdvanceStatus();
+        else if (e.key === 'd') this.quickCompleteTask();
+        else if (e.key === 'x') this.quickDeleteTask();
       }
     });
   }
@@ -2299,4 +2319,89 @@ export class App implements OnInit, OnDestroy {
       { keys: ['b'], desc: '切换侧栏' },
     ]},
   ];
+
+  /* ---------- Task 600-605: Epic 25 前端体验优化 ---------- */
+
+  // Task 600: 看板卡片优先级色边框
+  priorityBorderClass(priority: Priority): string {
+    return `kanban-card--pri-${priority}`;
+  }
+
+  // Task 601: 看板卡片完成进度
+  taskProgressPct(status: Status): number {
+    const map: Record<string, number> = {
+      backlog: 0, todo: 20, in_progress: 50, in_review: 75, verifying: 90, done: 100,
+    };
+    return map[status] ?? 0;
+  }
+
+  // Task 602: 高级筛选面板 - 切换/清除
+  toggleFilterPriority(p: string): void {
+    const cur = this.filterPriorities();
+    this.filterPriorities.set(cur.includes(p) ? cur.filter(x => x !== p) : [...cur, p]);
+  }
+  toggleFilterType(t: string): void {
+    const cur = this.filterTypes();
+    this.filterTypes.set(cur.includes(t) ? cur.filter(x => x !== t) : [...cur, t]);
+  }
+  clearFilters(): void {
+    this.filterPriorities.set([]);
+    this.filterTypes.set([]);
+    this.filterOnlyOverdue.set(false);
+  }
+
+  // Task 603: 抽屉内快速操作
+  quickAdvanceStatus(): void {
+    const task = this.task();
+    if (!task) return;
+    const order: Status[] = ['backlog', 'todo', 'in_progress', 'in_review', 'verifying', 'done'];
+    const idx = order.indexOf(task.status);
+    if (idx < 0 || idx >= order.length - 1) return;
+    void this.changeTaskStatus(order[idx + 1]);
+  }
+  quickCompleteTask(): void {
+    void this.changeTaskStatus('done');
+  }
+  scrollToEdit(): void {
+    setTimeout(() => {
+      document.getElementById('task-edit-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 0);
+  }
+  quickDeleteTask(): void {
+    const task = this.task();
+    if (task) void this.remove('task', task.id);
+  }
+
+  // Task 604: 通知分组批量操作
+  readonly notifGroupCollapsed = signal<Record<string, boolean>>({});
+  toggleNotifGroup(type: string): void {
+    const cur = { ...this.notifGroupCollapsed() };
+    cur[type] = !cur[type];
+    this.notifGroupCollapsed.set(cur);
+  }
+  isNotifGroupCollapsed(type: string): boolean {
+    return !!this.notifGroupCollapsed()[type];
+  }
+  async markGroupRead(type: string): Promise<void> {
+    const groups = this.filteredGroupedNotifications();
+    for (const n of (groups[type] || [])) {
+      if (!n.is_read) await this.markRead(n.id);
+    }
+    await this.loadNotifications();
+  }
+  async deleteNotifGroup(type: string): Promise<void> {
+    const groups = this.filteredGroupedNotifications();
+    for (const n of (groups[type] || [])) {
+      await this.deleteNotification(n.id);
+    }
+  }
+  async deleteAllNotifications(): Promise<void> {
+    const groups = this.filteredGroupedNotifications();
+    const all = Object.values(groups).flat();
+    if (all.length === 0) return;
+    if (!confirm('确认清空全部通知？')) return;
+    for (const n of all) {
+      await this.deleteNotification(n.id);
+    }
+  }
 }

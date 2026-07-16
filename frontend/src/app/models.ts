@@ -64,6 +64,9 @@ export interface Task {
   spec: string;
   source_spec_id: number | null;
   due_date: string | null;  // ISO date string YYYY-MM-DD
+  assignee_id: number | null;
+  labels: string;  // JSON array string
+  estimate: number | null;  // 预估工时（小时）
   created_at: string;
   updated_at: string;
 }

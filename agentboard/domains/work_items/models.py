@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import CheckConstraint, Date, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import CheckConstraint, Date, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..common.enums import ItemType, Priority, Status
@@ -29,6 +29,8 @@ class Task(Base):
     assignee_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     labels: Mapped[str] = mapped_column(Text, default="[]")  # JSON array string
+    # Epic 32 Story 49.3: 看板卡片显示预估时间（工时，单位小时）
+    estimate: Mapped[float | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 

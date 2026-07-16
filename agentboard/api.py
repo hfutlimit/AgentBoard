@@ -181,6 +181,8 @@ class TaskIn(BaseModel):
     assignee_id: int | None = None
     due_date: str | None = None  # ISO date string YYYY-MM-DD
     labels: str = "[]"  # JSON array string
+    # Epic 32 Story 49.3: 预估工时（小时）
+    estimate: float | None = None
 
 
 class TaskPatch(BaseModel):
@@ -195,6 +197,8 @@ class TaskPatch(BaseModel):
     assignee_id: int | None = None
     due_date: str | None = None  # ISO date string YYYY-MM-DD
     labels: str | None = None  # JSON array string
+    # Epic 32 Story 49.3: 预估工时（小时）
+    estimate: float | None = None
 
 
 class CommentIn(BaseModel):
@@ -756,7 +760,8 @@ def create_task(
                                 priority=body.priority,
                                 assignee_id=body.assignee_id,
                                 due_date=body.due_date,
-                                labels=body.labels)
+                                labels=body.labels,
+                                estimate=body.estimate)
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     _invalidate_stats_cache(body.project_id)

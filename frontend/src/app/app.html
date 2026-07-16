@@ -127,6 +127,7 @@
                   @if (unreadCount() > 0) {
                     <span class="notif-unread-tag">{{ unreadCount() }} 条未读</span>
                     <button class="ghost-sm" (click)="markAllRead()">全部已读</button>
+                    <button class="ghost-sm danger" (click)="deleteAllNotifications()">清空全部</button>
                   } @else {
                     <span class="notif-all-read-tag">全部已读 ✓</span>
                   }
@@ -145,10 +146,14 @@
                   <div class="notif-list notif-list--grouped">
                     <!-- Task 719: 按类型分组显示通知 -->
                     @for (group of objectEntries(filteredGroupedNotifications()); track group[0]) {
-                      <details class="notif-group" open>
-                        <summary class="notif-group-header">
+                      <details class="notif-group" [open]="!isNotifGroupCollapsed(group[0])">
+                        <summary class="notif-group-header" (click)="toggleNotifGroup(group[0]); $event.preventDefault()">
                           {{ notifTypeLabel(group[0]) }}
                           <span class="notif-group-count">{{ group[1].length }}</span>
+                          <span class="notif-group-actions">
+                            <button class="notif-group-btn" title="标记组为已读" (click)="markGroupRead(group[0]); $event.stopPropagation()">✓</button>
+                            <button class="notif-group-btn" title="删除整组" (click)="deleteNotifGroup(group[0]); $event.stopPropagation()">🗑</button>
+                          </span>
                         </summary>
                         @for (n of group[1]; track n.id) {
                           <div class="notif-item" [class.unread]="!n.is_read" (click)="openNotification(n)" [class.clickable]="!!n.link">
@@ -915,6 +920,31 @@
                   {{ taskSortOrder() === 'asc' ? '↑' : '↓' }}
                 </button>
               </div>
+              <!-- Task 602: 高级筛选面板 -->
+              <button class="ghost-sm" (click)="filterOpen.set(!filterOpen())" [class.active]="filterOpen()">
+                ⚙ 筛选{{ activeFilterCount() > 0 ? ' (' + activeFilterCount() + ')' : '' }}
+              </button>
+              @if (filterOpen()) {
+                <div class="filter-panel">
+                  <div class="filter-group">
+                    <span class="filter-label">优先级</span>
+                    @for (p of priorities; track p) {
+                      <button class="filter-chip" [class.active]="filterPriorities().includes(p)" (click)="toggleFilterPriority(p)">{{ priorityLabel(p) }}</button>
+                    }
+                  </div>
+                  <div class="filter-group">
+                    <span class="filter-label">类型</span>
+                    <button class="filter-chip" [class.active]="filterTypes().includes('task')" (click)="toggleFilterType('task')">任务</button>
+                    <button class="filter-chip" [class.active]="filterTypes().includes('bug')" (click)="toggleFilterType('bug')">Bug</button>
+                  </div>
+                  <div class="filter-group">
+                    <label class="filter-check"><input type="checkbox" [checked]="filterOnlyOverdue()" (change)="filterOnlyOverdue.set(!filterOnlyOverdue())" /> 仅看逾期</label>
+                  </div>
+                  @if (activeFilterCount() > 0) {
+                    <button class="ghost-sm" (click)="clearFilters()">清除筛选</button>
+                  }
+                </div>
+              }
             </div>
             @if (selectedTaskCount > 0) {
               <div class="bulk-action-bar">
@@ -1014,7 +1044,7 @@
                         <button class="kanban-col-collapse-btn" (click)="toggleColumnCollapse(status)" title="折叠">▼</button>
                       </div>
                       @for (item of tasksForStatus(status); track item.id) {
-                        <a [routerLink]="['/task', item.id]" class="kanban-card kanban-card--rich"
+                        <a [routerLink]="['/task', item.id]" class="kanban-card kanban-card--rich {{ priorityBorderClass(item.priority) }}"
                           ><span class="kanban-card-type-icon" title="{{ item.type === 'bug' ? 'Bug' : 'Task' }}">{{ taskTypeIcon(item.type) }}</span><strong class="kanban-card-title">{{ item.title }}</strong>
                           <!-- Task 729: 看板卡片显示 Epic 名称 -->
                           @if (taskEpicName(item)) {
@@ -1029,8 +1059,12 @@
                             @if (item.due_date) {
                               <span class="badge due-badge" [class.due-overdue]="isOverdue(item.due_date)" [class.due-soon]="isDueSoon(item.due_date)" style="font-size:10px" title="截止日期">⏰ {{ formatDueDate(item.due_date) }}</span>
                             }
-                          </div></a
-                        >
+                          </div>
+                          <!-- Task 601: 看板卡片完成进度显示 -->
+                          <div class="kanban-card-progress" title="完成进度 {{ taskProgressPct(item.status) }}%">
+                            <div class="kanban-card-progress-fill" [style.width.%]="taskProgressPct(item.status)"></div>
+                          </div>
+                        </a>
                       }
                       <!-- Task 714: 虚拟滚动 - 看板列加载更多 -->
                       @if (visibleTasks().length > taskPageSize() * taskPageCount()) {
@@ -1129,6 +1163,13 @@
               <button class="ghost-sm" style="margin-left:8px" (click)="copyTaskLink(current.id)" title="复制任务链接">
                 🔗 复制链接
               </button>
+            <!-- Task 603: 抽屉内快速操作按钮 -->
+            <div class="quick-actions">
+              <button class="ghost-sm" (click)="quickAdvanceStatus()" title="推进到下一状态">→ 下一状态</button>
+              <button class="ghost-sm" (click)="quickCompleteTask()" title="标记为完成">✓ 完成</button>
+              <button class="ghost-sm" (click)="scrollToEdit()" title="跳转到编辑表单">✎ 编辑</button>
+              <button class="ghost-sm danger" (click)="quickDeleteTask()" title="删除当前任务">🗑 删除</button>
+            </div>
             </div>
             <!-- Task 744: 任务详情页显示相关任务链接 -->
             @if (getRelatedTasks().blocks.length > 0 || getRelatedTasks().blockedBy.length > 0) {
@@ -1196,7 +1237,7 @@
                 <span class="muted" style="margin-left:8px;font-size:12px">支持图片、PDF、文本等，最大 10MB</span>
               </div>
             </div>
-            <div class="card form-section">
+            <div class="card form-section" id="task-edit-form">
               <h3>编辑任务</h3>
               <form
                 (submit)="
@@ -1712,6 +1753,10 @@
       }
       <div style="text-align:center;margin-top:16px">
         <button class="ghost-sm" (click)="toggleShortcuts()">关闭</button>
+      </div>
+      <!-- Task 605: 快捷键提示增强 - 任务详情页快捷键说明 -->
+      <div class="shortcuts-note">
+        在任务详情页：<kbd>c</kbd> 推进状态 · <kbd>d</kbd> 标记完成 · <kbd>x</kbd> 删除任务
       </div>
     </div>
   </div>

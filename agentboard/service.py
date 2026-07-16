@@ -39,7 +39,7 @@ EDITABLE = {
     "title", "description", "status",      # epic / story / task
     "type", "spec", "priority", "sprint_id",  # task
     # Epic 17: 任务管理增强
-    "assignee_id", "due_date", "labels",
+    "assignee_id", "due_date", "labels", "estimate",
 }
 
 
@@ -246,7 +246,8 @@ def delete_story(s: Session, id: int) -> bool:
 def create_task(s: Session, *, project_id: int, story_id: int | None, title: str,
                 type: str = ItemType.TASK, description: str = "", spec: str = "",
                 priority: str = Priority.MEDIUM, sprint_id: int | None = None,
-                assignee_id: int | None = None, due_date=None, labels: str = "[]") -> Task:
+                assignee_id: int | None = None, due_date=None, labels: str = "[]",
+                estimate: float | None = None) -> Task:
     project = s.get(Project, project_id)
     if not project:
         raise NotFound(f"project {project_id} not found")
@@ -280,7 +281,8 @@ def create_task(s: Session, *, project_id: int, story_id: int | None, title: str
     t = Task(project_id=project_id, story_id=story_id, sprint_id=sprint_id,
              title=_required(title, "title", 300),
              type=type, description=description or "", spec=spec or "", priority=priority,
-             assignee_id=assignee_id, due_date=_parse_due_date(due_date), labels=labels or "[]")
+             assignee_id=assignee_id, due_date=_parse_due_date(due_date), labels=labels or "[]",
+             estimate=estimate)
     s.add(t); _commit(s); s.refresh(t)
     _invalidate_project_stats_cache(project_id)
     return t
@@ -306,8 +308,8 @@ def update_task(s: Session, id: int, **fields) -> Task | None:
     if not t:
         return None
     allowed = {"title", "description", "spec", "type", "status", "priority", "sprint_id",
-               "assignee_id", "due_date", "labels"}  # Epic 17
-    nullable_fields = {"due_date", "sprint_id", "assignee_id"}  # fields that can be set to None
+               "assignee_id", "due_date", "labels", "estimate"}  # Epic 17 / Epic 32
+    nullable_fields = {"due_date", "sprint_id", "assignee_id", "estimate"}  # fields that can be set to None
     for k, v in fields.items():
         if k not in allowed:
             continue
