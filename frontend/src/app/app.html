@@ -1029,6 +1029,11 @@
                         @for (lbl of parseLabels(item.labels); track lbl) {
                           <span class="label-badge" [style.color]="labelColor(lbl)" [style.background]="labelBg(lbl)">{{ lbl }}</span>
                         }
+                        @if (item.assignee_id) {
+                          <span class="assignee-avatar-sm" title="{{ getAssigneeName(item.assignee_id) }}">{{ getAssigneeInitials(item.assignee_id) }}</span>
+                        } @else {
+                          <span class="assignee-avatar-sm unassigned" title="未指派">?</span>
+                        }
                         <span class="entity-item-time" title="最后更新">{{ timeAgo(item.updated_at) }}</span>
                       </div>
                     </a>
@@ -1155,8 +1160,13 @@
                   statusLabel(current.status)
                 }}</span>
               </div>
-              <!-- Task 742: 任务详情页显示创建者/更新时间 -->
+              <!-- Task 742/810: 任务详情页显示创建者/更新时间 -->
               <div class="task-meta-bar">
+                <span class="task-meta-item">
+                  <span class="meta-icon">👤</span>
+                  <span class="meta-label">负责人</span>
+                  <span class="meta-value">{{ getAssigneeName(current.assignee_id) }}</span>
+                </span>
                 <span class="task-meta-item">
                   <span class="meta-icon">📅</span>
                   <span class="meta-label">创建</span>
@@ -1167,12 +1177,15 @@
                   <span class="meta-label">更新</span>
                   <span class="meta-value">{{ formatDateTime(current.updated_at) }}</span>
                 </span>
-                <!-- Task 803: 任务详情页显示子任务数量 -->
+                <!-- Task 803/811: 任务详情页显示子任务数量与完成比例 -->
                 @if (getSubtaskCount(current.id).total > 0) {
                   <span class="task-meta-item">
                     <span class="meta-icon">📋</span>
                     <span class="meta-label">子任务</span>
-                    <span class="meta-value">{{ getSubtaskCount(current.id).done }}/{{ getSubtaskCount(current.id).total }}</span>
+                    <span class="meta-value">{{ getSubtaskCount(current.id).done }}/{{ getSubtaskCount(current.id).total }} ({{ getSubtaskProgress(current.id) }}%)</span>
+                    <span class="subtask-progress-bar">
+                      <span class="subtask-progress-fill" [style.width.%]="getSubtaskProgress(current.id)"></span>
+                    </span>
                   </span>
                 }
                 @if (current.due_date) {

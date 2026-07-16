@@ -532,6 +532,26 @@ router-outlet {
   margin-left: 2px;
 }
 
+/* Task 818: 任务列表指派人头像 */
+.assignee-avatar-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 9px;
+  font-weight: 700;
+  background: var(--primary, #6366f1);
+  color: #fff;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+.assignee-avatar-sm.unassigned {
+  background: var(--border, rgba(0,0,0,.1));
+  color: var(--text-secondary, #94a3b8);
+}
+
 /* ---- Epic 21 Story 21.3: 批量操作进度条 ---- */
 .bulk-progress-bar {
   padding: 12px 16px;
@@ -1181,6 +1201,25 @@ router-outlet {
 }
 .task-meta-item.overdue .meta-icon {
   animation: pulse-overdue 1.5s ease-in-out infinite;
+}
+
+/* Task 811: 子任务完成比例进度条 */
+.subtask-progress-bar {
+  display: inline-block;
+  width: 48px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--border, rgba(0,0,0,.1));
+  overflow: hidden;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+.subtask-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--primary, #6366f1);
+  transition: width 0.3s ease;
 }
 
 /* ---- Story 15.2: Favorites & Recent Projects sidebar sections ---- */

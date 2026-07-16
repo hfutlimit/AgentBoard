@@ -1984,6 +1984,20 @@ export class App implements OnInit, OnDestroy {
     return member?.username?.slice(0, 2).toUpperCase() || '';
   }
 
+  // Task 810: 获取指派人/负责人用户名
+  getAssigneeName(assigneeId: number | null): string {
+    if (!assigneeId) return '未指派';
+    const member = this.members().find(m => m.user_id === assigneeId);
+    return member?.username || `用户#${assigneeId}`;
+  }
+
+  // Task 811: 子任务完成比例
+  getSubtaskProgress(parentTaskId: number): number {
+    const { total, done } = this.getSubtaskCount(parentTaskId);
+    if (total === 0) return 0;
+    return Math.round((done / total) * 100);
+  }
+
   // Task 811: 检查 Epic 列表是否为空
   isEpicsEmpty(): boolean {
     return this.epics().length === 0;
