@@ -281,7 +281,7 @@
 - [x] **A-21 列表密度切换（紧凑视图）**：任务列表工具条「☰ 舒适/☰ 紧凑」按钮（`#s-density-toggle`）切换列表密度；`listDensity` signal 持久化于 `localStorage`（键 `agentboard_list_density`），切换即 `localStorage` 回写；列表容器按 `[class.density-compact]` 套用紧凑 CSS（行内边距 10px→6px、字号 .95→.85rem、间距收敛），提升信息密度。仅改 `app.ts`(+12)/`app.html`(+7)/`app.css`(+14)（净增 ~33 行，符合 R2），未改 `models.py`/`api.py` 契约；Playwright 验证：切换前后 `.entity-item--rich` padding 10px→6px、零 page/console/404 错误。
 
 ### Backlog B（需后端配合，先提需求，不混入小优化）
-- [ ] **B-01 标签 / 标签组（labels）**：task 增加 `labels` 字段 + 多选 UI（需 `models.py` + 迁移 + API）。
+- [x] **B-01 标签 / 标签组（labels）**：task 增加 `labels` 字段 + 多选 UI。后端 `labels` 字段已就绪（models/api/service）；前端 UI 实现：Angular `parseLabels()` 解析 JSON 标签、`labelColor()` 确定性配色、任务列表/看板卡片/任务详情显示标签徽章、创建弹窗 + 编辑表单加标签输入（逗号分隔）、筛选面板增加标签过滤（chip 选择、`labelFilter` signal）、`saveTaskLabels()` 方法；6 项 API 测试全绿（创建/更新/清空/默认/特殊字符/列表返回）；commit `871a50d`。
 - [ ] **B-02 负责人 / 指派（assignee）**：task 增加 `assignee` + 用户下拉（依赖 FR-8 用户体系）。
 - [x] **B-03 截止日期（due_date）**：task 增加 `due_date` + 日历控件 + 逾期高亮。后端模型/迁移/API 已就绪（Epic 17）；前端 UI 实现：Angular Task 接口增加 `due_date`，创建弹窗 + 编辑表单加 `<input type="date">`，任务列表/看板卡片/任务详情显示截止日期徽章（逾期红色脉冲 + 近期黄色 + 正常灰色）；后端 `service.py` 增加 `_parse_due_date()` 字符串转 `date` 对象；`api.py` `update_task` 改用 `exclude_unset=True` 支持 null 清空；5 项 pytest 全绿。
 - [ ] **B-04 看板拖拽排序**：拖动卡片变更 status（需后端接受合法迁移 + 可选 order 字段）。
