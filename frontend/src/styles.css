@@ -163,7 +163,9 @@ a:hover { color: var(--brand-700); text-decoration: underline; }
 
 /* ========== Top Bar ========== */
 .topbar {
-  background: var(--surface);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
   height: var(--topbar-h);
   position: sticky;
@@ -222,7 +224,12 @@ a:hover { color: var(--brand-700); text-decoration: underline; }
   transition: all .15s;
 }
 .topbar-nav a:hover { background: var(--surface-3); color: var(--text); text-decoration: none; }
-.topbar-nav a.active { background: var(--brand-soft); color: var(--brand-600); font-weight: 600; }
+.topbar-nav a.active {
+  background: var(--brand-soft);
+  color: var(--brand-600);
+  font-weight: 600;
+  border-radius: 8px;
+}
 
 /* ========== Search ========== */
 .global-search {
