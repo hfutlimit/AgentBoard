@@ -16,3 +16,18 @@
 
 ### 未完成
 - Playwright E2E 测试需修复现有基础设施（选择器适配 Angular 登录页）
+
+## 2026-07-17 23:10 执行记录
+
+### 完成项
+- **Epic 33 (DB Epic 23): 前端体验升级 v1.3** → done ✅
+  - Story 33.1: Epic 进度条可视化（epicProgress 方法 + 迷你进度条 UI）
+  - Story 33.2: Task 快速复制（duplicateTask 方法 + hover 复制按钮）
+  - commit `db0b209`，push 进行中（SSH 失败，改用 HTTPS）
+  - MCP: Epic 23 / Story 58-59 / Task 827-828 全部 done
+  - Playwright E2E: 0 errors, 18 progress bars rendering
+
+### 注意
+- 所有已有 Epic/Story/Task 均为 done 状态，本次新建 Epic 33 推进
+- 项目详情页新增 story/task 预加载（用于 epic 进度计算）
+- SSH push 失败（Connection closed by 198.18.0.28），改用 HTTPS push
