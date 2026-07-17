@@ -39,8 +39,22 @@
         ☰
       </button>
       <a routerLink="/" class="logo" title="AgentBoard 首页" aria-label="AgentBoard">
-        <span class="logo-mark" aria-hidden="true">AB</span
-        ><span class="logo-text">Agent<b>Board</b></span>
+        <svg class="logo-mark" width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">
+          <rect width="32" height="32" rx="8" fill="url(#logo-grad)"/>
+          <rect x="9" y="9" width="6" height="5" rx="1" fill="white" opacity=".9"/>
+          <rect x="17" y="9" width="6" height="5" rx="1" fill="white" opacity=".9"/>
+          <rect x="9" y="16" width="6" height="5" rx="1" fill="white" opacity=".7"/>
+          <rect x="17" y="16" width="6" height="5" rx="1" fill="white" opacity=".7"/>
+          <rect x="9" y="23" width="6" height="2" rx="1" fill="white" opacity=".5"/>
+          <defs>
+            <linearGradient id="logo-grad" x1="0" y1="0" x2="32" y2="32">
+              <stop offset="0%" stop-color="#6366f1"/>
+              <stop offset="55%" stop-color="#8b5cf6"/>
+              <stop offset="100%" stop-color="#a855f7"/>
+            </linearGradient>
+          </defs>
+        </svg>
+        <span class="logo-text">Agent<b>Board</b></span>
       </a>
     </div>
     <div class="topbar-right">
