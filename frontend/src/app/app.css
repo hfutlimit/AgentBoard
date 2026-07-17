@@ -586,6 +586,45 @@ router-outlet {
   font-weight: 600;
 }
 
+/* Epic 35: Task keyword search */
+.task-search-bar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.task-search-input {
+  width: 180px;
+  padding: 4px 28px 4px 10px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.85rem;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s, width 0.2s;
+}
+.task-search-input:focus {
+  border-color: var(--accent, #6366f1);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+  width: 220px;
+}
+.task-search-input::-webkit-search-cancel-button { display: none; }
+.task-search-clear {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 2px 4px;
+  border-radius: 3px;
+  line-height: 1;
+}
+.task-search-clear:hover { color: var(--text); background: var(--surface-3); }
+
 .entity-list:focus {
   outline: none;
 }

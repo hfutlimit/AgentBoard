@@ -242,6 +242,8 @@ export class App implements OnInit, OnDestroy {
   readonly filterOnlyOverdue = signal(false);
   // B-01: Label filter
   readonly labelFilter = signal('');
+  // Epic 35: Task keyword search (local to story task list)
+  readonly taskSearchQuery = signal('');
   readonly activeFilterCount = computed(() => this.filterPriorities().length + this.filterTypes().length + (this.filterOnlyOverdue() ? 1 : 0) + (this.labelFilter() ? 1 : 0));
   readonly allLabels = computed(() => {
     const set = new Set<string>();
@@ -268,6 +270,9 @@ export class App implements OnInit, OnDestroy {
       // B-01: Label filter
       const lf = this.labelFilter();
       if (lf && !this.parseLabels(t.labels).includes(lf)) return false;
+      // Epic 35: Local task keyword search (title + description, case-insensitive)
+      const tq = this.taskSearchQuery().trim().toLocaleLowerCase();
+      if (tq && !(`${t.title} ${t.description}`.toLocaleLowerCase().includes(tq))) return false;
       return true;
     });
     // Task 730: 排序
