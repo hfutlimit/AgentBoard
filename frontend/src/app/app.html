@@ -1064,8 +1064,19 @@
                       <div class="entity-item-main">
                         <span class="type-icon {{ item.type }}">{{
                           item.type === 'bug' ? 'B' : 'T'
-                        }}</span
-                        ><span class="entity-item-title">{{ item.title }}</span>
+                        }}</span>@if (editingTaskId() === item.id) {
+                          <input
+                            class="inline-edit-input"
+                            [value]="editingTaskTitle()"
+                            (input)="editingTaskTitle.set($any($event.target).value)"
+                            (keydown.enter)="saveInlineEdit(); $event.preventDefault()"
+                            (keydown.escape)="cancelInlineEdit(); $event.preventDefault()"
+                            (blur)="saveInlineEdit()"
+                            (click)="$event.stopPropagation(); $event.preventDefault()"
+                          />
+                        } @else {
+                          <span class="entity-item-title">{{ item.title }}</span>
+                        }
                       </div>
                       <div class="entity-item-meta">
                         <span class="badge priority priority--{{ item.priority }}">{{
@@ -1093,6 +1104,13 @@
                         <span class="entity-item-time" title="最后更新">{{ timeAgo(item.updated_at) }}</span>
                       </div>
                     </a>
+                    <button
+                      type="button"
+                      class="task-inline-edit-btn"
+                      title="编辑标题"
+                      aria-label="编辑标题"
+                      (click)="startInlineEdit(item.id); $event.stopPropagation()"
+                    >✎</button>
                     <button
                       type="button"
                       class="task-duplicate-btn"

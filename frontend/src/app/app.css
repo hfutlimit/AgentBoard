@@ -625,6 +625,63 @@ router-outlet {
 }
 .task-search-clear:hover { color: var(--text); background: var(--surface-3); }
 
+/* Epic 36: Inline task title editing */
+.inline-edit-input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 6px;
+  border: 1.5px solid var(--accent, #6366f1);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: inherit;
+  font-weight: 500;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+}
+.entity-item-title {
+  cursor: text;
+}
+
+/* Epic 36: Inline task title editing */
+.task-inline-edit-btn {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity .2s, border-color .2s, color .2s;
+}
+.entity-item--rich:hover .task-inline-edit-btn { opacity: .7; }
+.task-inline-edit-btn:hover {
+  opacity: 1 !important;
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.task-inline-edit-btn:active { transform: scale(.88); }
+.inline-edit-input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 6px;
+  border: 1.5px solid var(--accent, #6366f1);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: inherit;
+  font-weight: 500;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.12);
+}
+
 .entity-list:focus {
   outline: none;
 }

@@ -244,6 +244,9 @@ export class App implements OnInit, OnDestroy {
   readonly labelFilter = signal('');
   // Epic 35: Task keyword search (local to story task list)
   readonly taskSearchQuery = signal('');
+  // Epic 36: Inline task title editing
+  readonly editingTaskId = signal<number | null>(null);
+  readonly editingTaskTitle = signal('');
   readonly activeFilterCount = computed(() => this.filterPriorities().length + this.filterTypes().length + (this.filterOnlyOverdue() ? 1 : 0) + (this.labelFilter() ? 1 : 0));
   readonly allLabels = computed(() => {
     const set = new Set<string>();
@@ -2562,6 +2565,46 @@ export class App implements OnInit, OnDestroy {
       })),
     );
   }
+
+  // Epic 36: Inline task title editing
+  startInlineEdit(id: number): void {
+    const task = this.tasks().find((t) => t.id === id);
+    if (!task) return;
+    this.editingTaskId.set(id);
+    this.editingTaskTitle.set(task.title);
+  }
+
+  private _savingInline = false;
+  saveInlineEdit(): void {
+    if (this._savingInline) return;
+    const id = this.editingTaskId();
+    const newTitle = this.editingTaskTitle().trim();
+    if (id === null || !newTitle) { this.cancelInlineEdit(); return; }
+    // Clear edit state immediately for responsive UI
+    this.editingTaskId.set(null);
+    this.editingTaskTitle.set('');
+    const task = this.tasks().find((t) => t.id === id);
+    if (task && task.title !== newTitle) {
+      this._savingInline = true;
+      const token = localStorage.getItem('agentboard_token');
+      const apiUrl = (window as any).AGENTBOARD_API || 'http://127.0.0.1:8000';
+      fetch(`${apiUrl}/api/tasks/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ title: newTitle }),
+      })
+        .then((r) => r.ok ? r.json() : Promise.reject(r.statusText))
+        .then(() => this.tasks.update((list) => list.map((t) => t.id === id ? { ...t, title: newTitle } : t)))
+        .catch(() => {})
+        .finally(() => { this._savingInline = false; });
+    }
+  }
+
+  cancelInlineEdit(): void {
+    this.editingTaskId.set(null);
+    this.editingTaskTitle.set('');
+  }
+
   scrollToEdit(): void {
     setTimeout(() => {
       document.getElementById('task-edit-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
