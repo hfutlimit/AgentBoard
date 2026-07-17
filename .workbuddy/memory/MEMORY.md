@@ -60,3 +60,4 @@
   - Story 33.2: Task 快速复制——`duplicateTask(id)` 调用 `createTask` API 创建副本（标题加 "(副本)"），任务列表项添加 hover 显示的 ⎘ 复制按钮。
   - 净增 ~70 行（app.ts +25, app.html +15, app.css +50），符合 R2。Playwright E2E：0 page/console/404 错误，18 个进度条正确渲染。
   - DB 映射：Epic 23 / Story 58-59 / Task 827-828 全部 done。
+- **Git push SSH 端口 22 被代理拦截**（2026-07-17 实测）：`Connection closed by 198.18.0.28 port 22`，HTTPS push 也超时。**解决方案**：改用 SSH over 443——`git remote set-url origin ssh://git@ssh.github.com:443/hfutlimit/AgentBoard.git`，认证用户 `Jzhong2026`，push 成功。此为网络环境固定限制，后续自动化 push 均需此配置。
