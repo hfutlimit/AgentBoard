@@ -553,6 +553,39 @@ router-outlet {
   border-top: 1px solid var(--border);
 }
 
+/* Epic 34.1: 任务列表汇总栏（状态分布堆叠条 + 计数文案） */
+.task-list-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-md);
+  font-size: 0.82rem;
+  color: var(--text-2);
+}
+.summary-stack {
+  flex: 1;
+  height: 8px;
+  min-width: 80px;
+  display: flex;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--surface-3);
+}
+.summary-seg {
+  height: 100%;
+  min-width: 2px;
+  transition: width 0.3s ease;
+}
+.summary-text strong {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
 .entity-list:focus {
   outline: none;
 }

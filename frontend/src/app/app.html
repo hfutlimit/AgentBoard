@@ -1016,6 +1016,18 @@
               }
             }
             @if (!boardMode()) {
+              @if (tasks().length > 0) {
+                <div class="task-list-summary" role="status" aria-label="任务汇总">
+                  <div class="summary-stack" title="状态分布">
+                    @for (seg of taskListSummary().segments; track seg.status) {
+                      <span class="summary-seg status--{{ seg.status }}" [style.width.%]="(seg.count / taskListSummary().total) * 100" [title]="statusLabel(seg.status) + ' ' + seg.count"></span>
+                    }
+                  </div>
+                  <div class="summary-text">
+                    共 <strong>{{ taskListSummary().total }}</strong> 项 · 已完成 <strong>{{ taskListSummary().done }}</strong> · 进行中 <strong>{{ taskListSummary().inProgress }}</strong> · 完成率 <strong>{{ taskListSummary().rate }}%</strong>
+                  </div>
+                </div>
+              }
               <div class="entity-list" [class.density-compact]="listDensity() === 'compact'" (keydown)="handleTaskKeydown($event)" tabindex="0">
                 @for (item of visibleTasks(); track item.id; let i = $index) {
                   <div class="entity-item entity-item--rich" [class.selected]="selectedTasks().has(item.id)" [class.kbd-focused]="isTaskFocused(i)">

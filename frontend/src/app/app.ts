@@ -285,6 +285,18 @@ export class App implements OnInit, OnDestroy {
     return filtered;
   });
   readonly doneTasks = computed(() => this.tasks().filter((t) => t.status === 'done').length);
+  // Epic 34.1: 任务列表汇总栏（总数/完成率/状态分布堆叠条）
+  readonly taskListSummary = computed(() => {
+    const list = this.tasks();
+    const total = list.length;
+    const done = list.filter((t) => t.status === 'done').length;
+    const inProgress = list.filter((t) => t.status === 'in_progress' || t.status === 'in_review' || t.status === 'verifying').length;
+    const rate = total === 0 ? 0 : Math.round((done / total) * 100);
+    const segments = this.statuses
+      .map((st) => ({ status: st, count: list.filter((t) => t.status === st).length }))
+      .filter((seg) => seg.count > 0);
+    return { total, done, inProgress, rate, segments };
+  });
 
   private routeSub?: Subscription;
   private toastTimer?: ReturnType<typeof setTimeout>;

@@ -677,4 +677,16 @@
 |------|----|------|
 | 2026-07-15 | Epic 31 | Tasks 727-731 → in_review（通知搜索 + 看板交替色 + Epic徽章 + 排序下拉 + 3D卡片） |
 | 2026-07-17 | Epic 32 Story 32.1 Task 900 | B-04 看板拖拽排序完成：Story 看板 HTML5 drag-and-drop（`draggable` + `dragstart/dragover/drop`），调用现有 `PUT /api/tasks/{id}/status`，零后端契约变更；顺带修复 rate limiter 阻断 CORS preflight（OPTIONS 跳过）；Playwright E2E 通过：1/1 卡片 draggable、拖拽 待规划→待办 成功、零错误。Epic 103 / Story 163 / Task 862 全部 done |
+| 2026-07-18 | Epic 34 Story 34.1 Task 903 | 任务列表汇总栏完成：Story 详情任务列表工具条下方加 `.task-list-summary`（状态分布堆叠条 + "共 N 项 · 已完成 X · 进行中 Y · 完成率 Z%"）；`taskListSummary()` computed 基于 `tasks()` 聚合（复用 `STATUS_COLOR` 段色）；仅列表模式显示、看板模式隐藏；仅 `app.ts`(+12)/`app.html`(+12)/`app.css`(+33)（净增 57 行，符合 R2 <80）；不改 `models.py`/`api.py` 契约；Playwright E2E（`tests/test_epic34_summary_e2e.py`）：`.task-list-summary` 渲染、3 段堆叠条、文案含 共/完成率、summary total(153) == task list rows(153)、切换看板→列表 摘要消失再重现、零 page/console/.js+.css 错误；回归 Epic 33 E2E 仍 PASS。Epic 24 / Story 60 / Task 831 全部 done |
+
+## Epic 34（Epic 24 in DB）：前端体验升级 v1.4（2026-07-18 创建）
+> 目标：任务列表信息密度向 Jira/Linear 靠拢；纯前端，不改后端契约。
+
+### Story 34.1 任务列表汇总栏
+- [x] Task 903: 任务列表汇总栏 - computed + 模板 + CSS
+
+### 完成记录
+| 日期 | 项 | 简述 |
+|------|----|------|
+| 2026-07-18 | Epic 34 | Task 903 → done（任务列表汇总栏：堆叠条 + 总数/完成率文案） |
 
