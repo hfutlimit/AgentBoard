@@ -81,6 +81,7 @@ router-outlet {
   font-weight: 700;
   line-height: 1;
   margin-bottom: 4px;
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-label {

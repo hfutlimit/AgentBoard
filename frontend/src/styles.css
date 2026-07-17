@@ -2,6 +2,8 @@
    AgentBoard Angular —— 完整设计系统样式
    ============================================ */
 
+@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&family=JetBrains+Mono:wght@400;500&display=swap');
+
 /* ========== Design Tokens ========== */
 :root {
   /* Brand —— 唯一签名渐变 */
@@ -121,6 +123,13 @@ body {
 
 html { scroll-behavior: smooth; }
 
+/* Unified heading typography */
+h1, h2, h3, h4 { letter-spacing: -0.02em; }
+h1 { font-size: 2rem; font-weight: 800; }
+h2 { font-size: 1.5rem; font-weight: 700; }
+h3 { font-size: 1.15rem; font-weight: 600; }
+h4 { font-size: 1rem; font-weight: 600; }
+
 /* Selection */
 ::selection { background: var(--brand-soft); color: var(--brand-700); }
 
@@ -128,6 +137,18 @@ html { scroll-behavior: smooth; }
 :focus-visible {
   outline: 2px solid var(--brand-500);
   outline-offset: 2px;
+}
+
+/* Code & monospaced */
+code, pre, kbd {
+  font-family: var(--font-mono);
+  font-size: .88em;
+}
+code {
+  background: var(--surface-2);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--brand-700);
 }
 
 /* Links */
@@ -1278,6 +1299,8 @@ details.form-section > form { padding: 16px; }
   background: var(--brand-soft);
   color: var(--brand-700);
   font-weight: 600;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 .project-card-desc {
   font-size: .85rem;
