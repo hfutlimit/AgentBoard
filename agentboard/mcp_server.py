@@ -945,6 +945,143 @@ def toggle_webhook(webhook_id: int, enabled: bool) -> dict:
     return resp
 
 
+# ---------- Epic 13 / Story 32: 成员管理工具 ----------
+def _member_list(project_id: int, limit: int = 50, offset: int = 0):
+    params = {"limit": limit, "offset": offset}
+    return _http("GET", f"/api/projects/{project_id}/members", params=params)
+
+def _member_add(project_id: int, user_id: int | None = None, username: str | None = None, role: str = "member"):
+    body = {"role": role}
+    if user_id is not None:
+        body["user_id"] = user_id
+    if username is not None:
+        body["username"] = username
+    return _http("POST", f"/api/projects/{project_id}/members", json=body)
+
+def _member_remove(project_id: int, user_id: int):
+    return _http("DELETE", f"/api/projects/{project_id}/members/{user_id}")
+
+def _member_update_role(project_id: int, user_id: int, role: str):
+    return _http("PATCH", f"/api/projects/{project_id}/members/{user_id}", json={"role": role})
+
+
+@mcp.tool()
+def list_members(project_id: int, limit: int = 50, offset: int = 0) -> list:
+    """列出项目成员（含 username）。project_id 必填。"""
+    resp = _member_list(project_id, limit=limit, offset=offset)
+    return resp.get("items", resp) if isinstance(resp, dict) else resp
+
+
+@mcp.tool()
+def add_member(project_id: int, user_id: int | None = None, username: str | None = None, role: str = "member") -> dict:
+    """邀请用户加入项目（需 owner 或管理员权限）。
+    - user_id 或 username 二选一
+    - role: member / admin
+    """
+    return _member_add(project_id, user_id=user_id, username=username, role=role)
+
+
+@mcp.tool()
+def remove_member(project_id: int, user_id: int) -> dict:
+    """移除项目成员（需 owner 或管理员权限，owner 不能移除自己）。"""
+    return _member_remove(project_id, user_id)
+
+
+@mcp.tool()
+def update_member_role(project_id: int, user_id: int, role: str) -> dict:
+    """更新成员角色（需 owner 或管理员权限）。role: member / admin"""
+    return _member_update_role(project_id, user_id, role)
+
+
+# ---------- Epic 13 / Story 32: 通知工具 ----------
+def _notification_list(limit: int = 20, offset: int = 0, unread_only: bool = False):
+    params = {"limit": limit, "offset": offset, "unread_only": unread_only}
+    return _http("GET", "/api/notifications", params=params)
+
+def _notification_unread_count():
+    return _http("GET", "/api/notifications/unread-count")
+
+def _notification_mark_read(notification_id: int):
+    return _http("POST", f"/api/notifications/{notification_id}/read")
+
+def _notification_mark_all_read():
+    return _http("POST", "/api/notifications/read-all")
+
+def _notification_delete(notification_id: int):
+    return _http("DELETE", f"/api/notifications/{notification_id}")
+
+
+@mcp.tool()
+def list_notifications(limit: int = 20, offset: int = 0, unread_only: bool = False) -> dict:
+    """列出当前用户通知。unread_only=True 仅返回未读。"""
+    resp = _notification_list(limit=limit, offset=offset, unread_only=unread_only)
+    return resp if isinstance(resp, dict) else {"items": resp}
+
+
+@mcp.tool()
+def notification_unread_count() -> dict:
+    """返回当前用户未读通知数量。"""
+    return _notification_unread_count()
+
+
+@mcp.tool()
+def mark_notification_read(notification_id: int) -> dict:
+    """标记单条通知为已读。"""
+    return _notification_mark_read(notification_id)
+
+
+@mcp.tool()
+def mark_all_notifications_read() -> dict:
+    """标记当前用户全部通知为已读。"""
+    return _notification_mark_all_read()
+
+
+@mcp.tool()
+def delete_notification(notification_id: int) -> dict:
+    """删除单条通知。"""
+    return _notification_delete(notification_id)
+
+
+# ---------- Epic 13 / Story 32: 管理员工具 ----------
+def _admin_list_users(limit: int = 50, offset: int = 0):
+    return _http("GET", "/api/admin/users", params={"limit": limit, "offset": offset})
+
+def _admin_update_user(user_id: int, is_admin: bool):
+    return _http("PATCH", f"/api/admin/users/{user_id}", json={"is_admin": is_admin})
+
+def _admin_list_projects(limit: int = 50, offset: int = 0):
+    return _http("GET", "/api/admin/projects", params={"limit": limit, "offset": offset})
+
+def _admin_delete_project(project_id: int):
+    return _http("DELETE", f"/api/admin/projects/{project_id}")
+
+
+@mcp.tool()
+def admin_list_users(limit: int = 50, offset: int = 0) -> dict:
+    """（管理员）列出全部用户。"""
+    resp = _admin_list_users(limit=limit, offset=offset)
+    return resp if isinstance(resp, dict) else {"items": resp}
+
+
+@mcp.tool()
+def admin_set_user_admin(user_id: int, is_admin: bool) -> dict:
+    """（管理员）设置/取消用户管理员权限。is_admin: true / false"""
+    return _admin_update_user(user_id, is_admin)
+
+
+@mcp.tool()
+def admin_list_projects(limit: int = 50, offset: int = 0) -> dict:
+    """（管理员）列出全部项目。"""
+    resp = _admin_list_projects(limit=limit, offset=offset)
+    return resp if isinstance(resp, dict) else {"items": resp}
+
+
+@mcp.tool()
+def admin_delete_project(project_id: int) -> dict:
+    """（管理员）删除项目（危险操作，级联删除其下全部数据）。"""
+    return _admin_delete_project(project_id)
+
+
 if __name__ == "__main__":
     transport = os.getenv("AGENTBOARD_MCP_TRANSPORT", "stdio").lower()
     if transport in {"http", "streamable-http"}:
