@@ -53,3 +53,5 @@
   - 新增方法: `getAssigneeName()`, `getSubtaskProgress()`; 新增 CSS: `.subtask-progress-bar`, `.assignee-avatar-sm`
   - Playwright E2E: `tests/test_story48_50_e2e.py` 验证通过
 - **多 DB 环境注意**（2026-07-17 #2 实测）：本地 uvicorn (58125) 用 `agentboard.db` (root, 19 epics/53 stories/144 tasks)，Docker API (18000) 用不同 DB；本地 `web_app:app` 在 8080 代理到 58125，Docker web 在 28080 代理到 18000。Playwright 测试须用 8080 端口（数据完整）。
+- **项目 3 (AgentBoard) Backlog 全清零**（2026-07-17 11:00 自动开发）：最后 3 个非 done 任务 task 822/823/102 全部置 done；项目 3 共 109 任务 100% done，0 非 done Epic/Story。
+- **`mcp_server.py` 既有缺陷（`_api` 未定义）**：`agentboard/mcp_server.py` 中 `_api` 符号从未定义，却被 15 个既有工具（batch_update_task_status / search_tasks_enhanced / export_project_data / export_story_data / list_audit_logs / add_task_dependency / get_task_dependencies / remove_task_dependency / import_tasks / create_webhook / list_webhooks / delete_webhook / toggle_webhook 等）使用，且这些调用路径缺 `/api` 前缀（如 `/tasks/bulk-update` 应为 `/api/tasks/bulk-update`）——调用即 NameError/404。新增工具一律用已定义的 `_http(method, path, ...)`（路径带 `/api`）以规避。修复建议：`_api = _http` 并补全路径前缀（超出单次自动化范围，暂未修）。

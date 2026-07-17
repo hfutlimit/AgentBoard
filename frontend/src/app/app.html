@@ -500,6 +500,14 @@
                         <span class="type-icon epic">E</span>
                         <span class="entity-item-title">{{ item.title }}</span>
                       </div>
+                      @if (epicProgress(item.id).stories > 0) {
+                        <div class="epic-progress-mini" title="{{ epicProgress(item.id).doneStories }}/{{ epicProgress(item.id).stories }} Story · {{ epicProgress(item.id).pct }}%">
+                          <span class="epic-progress-text">{{ epicProgress(item.id).doneStories }}/{{ epicProgress(item.id).stories }}</span>
+                          <div class="epic-progress-track">
+                            <div class="epic-progress-fill" [style.width.%]="epicProgress(item.id).pct"></div>
+                          </div>
+                        </div>
+                      }
                       <span class="badge status status--{{ item.status }}">{{ statusLabel(item.status) }}</span>
                     </a>
                   } @empty {
@@ -1059,6 +1067,13 @@
                         <span class="entity-item-time" title="最后更新">{{ timeAgo(item.updated_at) }}</span>
                       </div>
                     </a>
+                    <button
+                      type="button"
+                      class="task-duplicate-btn"
+                      title="复制任务"
+                      aria-label="复制任务"
+                      (click)="duplicateTask(item.id); $event.stopPropagation()"
+                    >⎘</button>
                   </div>
                 } @empty {
                   <div class="empty-inline">暂无任务</div>

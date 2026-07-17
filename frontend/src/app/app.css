@@ -1121,6 +1121,60 @@ router-outlet {
   min-width: 2px;
 }
 
+/* Epic 33.1: Epic progress mini bar */
+.epic-progress-mini {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 8px;
+}
+.epic-progress-text {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-weight: 500;
+}
+.epic-progress-track {
+  width: 50px;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.epic-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), #22c55e);
+  border-radius: 2px;
+  transition: width .4s cubic-bezier(.4,0,.2,1);
+  min-width: 2px;
+}
+
+/* Epic 33.2: Task duplicate button */
+.task-duplicate-btn {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity .2s, border-color .2s, color .2s;
+}
+.entity-item--rich:hover .task-duplicate-btn { opacity: .7; }
+.task-duplicate-btn:hover {
+  opacity: 1 !important;
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.task-duplicate-btn:active { transform: scale(.88); }
+
 /* Task 823: 状态徽章图例 */
 .status-legend {
   display: flex;

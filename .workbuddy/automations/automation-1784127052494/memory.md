@@ -21,3 +21,13 @@
 - **提交**：`6ec0a14` feat(ui): 列表密度切换 + index 修复；`git push origin main` 成功（ee52b62..6ec0a14）。显式 `git add <paths>` 规避了另一运行 `automation-1784127051108/` 目录、`autodev.lock`、及对方遗留 `main-YVF4X37R.js` 孤儿。
 - **收尾**：删除 `.workbuddy/autodev.lock`；kill 验证服务（58132/8092）；更新 `docs/tasks.md`（A-21 + 完成记录）与 `MEMORY.md`。验证截图 `scripts/verify_density_comfort.png` / `verify_density_compact.png`。
 - **未提交产物**：`scripts/verify_density*.py/*.png`（本地验证夹具，未入库）；`agentboard/web/static/main-YVF4X37R.js`（对方运行遗留孤儿，未跟踪，无害）。
+
+## 2026-07-17 11:00 (GMT+8) — 执行（清空项目 3 剩余 Backlog）
+
+- **结果**：关闭项目 3 仅剩的 3 个未完成任务（822/823/102），Project 3 Backlog 全清零（109/109 任务 done，0 非 done Epic/Story）。
+- **MCP 状态**：`mcp__agentboard__*` 受保护端点仍 `unauthorized`（远程 Bearer Token 不被本地 REST API 接受）。按既定回退用 REST API（58125 + admin token）做选任务/改状态权威源；WorkBuddy MCP 端口 18001 未触碰。
+- **完成项**：① task 823 (A-22 快速完成勾选) 代码早已落地，补 Playwright E2E `tests/test_a22_e2e.py` 验证（列表→done→todo，零报错）并置 done；② task 822 (Label UI 夹具) 新增 `tests/test_labels_e2e.py` 验证标签徽章+筛选面板过滤，置 done；③ task 102 (MCP 工具补全) `agentboard/mcp_server.py` +13 个工具（成员×4/通知×5/管理员×4），注册 73→86，新增 `tests/test_mcp_task102_tools.py`。
+- **验证**：项目 3 全 done；回归 `test_mcp_smoke::test_rest_business_auth_switch` PASS + A-22/Labels E2E 复跑 PASS。
+- **提交**：`4e6d700` / `11afd83` / `f37ce6d` 均 `git push origin main` 成功。
+- **收尾**：删 `.workbuddy/autodev.lock`；写 `MEMORY`/daily memory。
+- **已知缺陷（未修，超出范围）**：`mcp_server.py` 中 `_api` 未定义且被 15 个既有工具使用（路径亦缺 `/api` 前缀），启用这些工具前需先修。

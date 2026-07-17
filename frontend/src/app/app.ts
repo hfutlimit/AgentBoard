@@ -215,6 +215,23 @@ export class App implements OnInit, OnDestroy {
     const done = this.tasks().filter(t => t.status === 'done').length;
     return { total, done, pct: total > 0 ? Math.round((done / total) * 100) : 0 };
   });
+  // Epic 33.1: Epic 进度可视化（Story 数 + Task 完成率）
+  epicProgress(epicId: number): { stories: number; doneStories: number; tasks: number; doneTasks: number; pct: number } {
+    const epicStories = this.stories().filter(s => s.epic_id === epicId);
+    const storyIds = new Set(epicStories.map(s => s.id));
+    const epicTasks = this.tasks().filter(t => t.story_id !== null && storyIds.has(t.story_id));
+    const doneStories = epicStories.filter(s => s.status === 'done').length;
+    const doneTasks = epicTasks.filter(t => t.status === 'done').length;
+    const total = epicStories.length + epicTasks.length;
+    const done = doneStories + doneTasks;
+    return {
+      stories: epicStories.length,
+      doneStories,
+      tasks: epicTasks.length,
+      doneTasks,
+      pct: total > 0 ? Math.round((done / total) * 100) : 0,
+    };
+  }
   // Task 602: 高级筛选面板 - 状态/优先级过滤
   readonly filterStatus = signal('');
   readonly filterPriority = signal('');
@@ -685,6 +702,15 @@ export class App implements OnInit, OnDestroy {
         this.project.set(project);
         this.epics.set(epics);
         this.trackRecentProject(project);
+        // Epic 33.1: Load stories + tasks for all epics to compute epic progress
+        const allStories = (
+          await Promise.all(epics.map((e) => firstValueFrom(this.api.listStories(e.id))))
+        ).flat();
+        this.stories.set(allStories);
+        const allTasks = (
+          await Promise.all(allStories.map((s) => firstValueFrom(this.api.listTasks(s.id))))
+        ).flat();
+        this.tasks.set(allTasks);
         await Promise.all([
           this.loadSprints(id),
           this.loadBacklog(id),
@@ -2501,6 +2527,22 @@ export class App implements OnInit, OnDestroy {
     await this.run(
       target === 'done' ? '已标记为完成' : '已重新打开',
       () => firstValueFrom(this.api.setTaskStatus(id, target)),
+    );
+  }
+  // Epic 33.2: Task 快速复制
+  async duplicateTask(id: number): Promise<void> {
+    const task = this.tasks().find((t) => t.id === id);
+    if (!task || !task.story_id) return;
+    await this.run(
+      '任务已复制',
+      () => firstValueFrom(this.api.createTask(task.story_id!, {
+        project_id: task.project_id,
+        title: task.title + ' (副本)',
+        type: task.type,
+        priority: task.priority,
+        description: task.description,
+        labels: task.labels,
+      })),
     );
   }
   scrollToEdit(): void {
