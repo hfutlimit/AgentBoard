@@ -2491,6 +2491,18 @@ export class App implements OnInit, OnDestroy {
   quickCompleteTask(): void {
     void this.changeTaskStatus('done');
   }
+  // A-22: 任务列表/看板「快速完成」勾选（toggle done / 重新打开）
+  // 从组件权威状态 this.tasks() 读取最新状态，避免模板 item 闭包在 refresh() 重渲染后过期
+  async toggleTaskComplete(id: number): Promise<void> {
+    const task = this.tasks().find((t) => t.id === id);
+    if (!task) return;
+    const target: Status = task.status === 'done' ? 'todo' : 'done';
+    if (task.status === target) return;
+    await this.run(
+      target === 'done' ? '已标记为完成' : '已重新打开',
+      () => firstValueFrom(this.api.setTaskStatus(id, target)),
+    );
+  }
   scrollToEdit(): void {
     setTimeout(() => {
       document.getElementById('task-edit-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });

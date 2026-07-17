@@ -466,7 +466,10 @@ export class ApiService {
     return this.request<Task>('PATCH', `/api/tasks/${id}`, body);
   }
   setTaskStatus(id: number, status: string) {
-    return this.request<Task>('PUT', `/api/tasks/${id}/status`, { status });
+    return this.request<Task>('PUT', `/api/tasks/${id}/status`, { status }).pipe(
+      // A-22: 状态变更后使任务列表缓存失效，否则列表/看板仍显示旧状态（快速完成二次点击失效的根因）
+      tap(() => apiCache.invalidatePrefix('/api/stories')),
+    );
   }
   deleteTask(id: number) {
     return this.request<{ ok: boolean }>('DELETE', `/api/tasks/${id}`).pipe(

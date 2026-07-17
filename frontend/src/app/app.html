@@ -1002,9 +1002,17 @@
                       class="task-checkbox"
                       [checked]="selectedTasks().has(item.id)"
                       (change)="toggleTaskSelection(item.id); $event.stopPropagation()"
-                      (click)="$event.stopPropagation()"
-                    />
-                    <a [routerLink]="['/task', item.id]" class="entity-item-link">
+                    (click)="$event.stopPropagation()"
+                  />
+                  <button
+                    type="button"
+                    class="task-quick-complete"
+                    [class.done]="item.status === 'done'"
+                    [title]="item.status === 'done' ? '重新打开' : '标记为完成'"
+                    [attr.aria-label]="item.status === 'done' ? '重新打开' : '标记为完成'"
+                    (click)="toggleTaskComplete(item.id); $event.stopPropagation()"
+                  ><span class="qc-check">{{ item.status === 'done' ? '✓' : '' }}</span></button>
+                  <a [routerLink]="['/task', item.id]" class="entity-item-link">
                       <div class="entity-item-main">
                         <span class="type-icon {{ item.type }}">{{
                           item.type === 'bug' ? 'B' : 'T'
@@ -1079,7 +1087,17 @@
                           [class.dragging]="dragTaskId() === item.id"
                           (dragstart)="onKanbanDragStart($event, item)"
                           (dragend)="onKanbanDragEnd()"
-                          ><span class="kanban-card-type-icon" title="{{ item.type === 'bug' ? 'Bug' : 'Task' }}">{{ taskTypeIcon(item.type) }}</span><strong class="kanban-card-title">{{ item.title }}</strong>
+                          ><span
+                            class="task-quick-complete kanban-qc"
+                            [class.done]="item.status === 'done'"
+                            role="button"
+                            tabindex="0"
+                            [title]="item.status === 'done' ? '重新打开' : '标记为完成'"
+                            [attr.aria-label]="item.status === 'done' ? '重新打开' : '标记为完成'"
+                            (click)="toggleTaskComplete(item.id); $event.stopPropagation()"
+                            (keydown.enter)="toggleTaskComplete(item.id); $event.stopPropagation()"
+                            (keydown.space)="toggleTaskComplete(item.id); $event.preventDefault(); $event.stopPropagation()"
+                          ><span class="qc-check">{{ item.status === 'done' ? '✓' : '' }}</span></span><span class="kanban-card-type-icon" title="{{ item.type === 'bug' ? 'Bug' : 'Task' }}">{{ taskTypeIcon(item.type) }}</span><strong class="kanban-card-title">{{ item.title }}</strong>
                           <!-- Task 729: 看板卡片显示 Epic 名称 -->
                           @if (taskEpicName(item)) {
                             <div class="kanban-card-epic">{{ taskEpicName(item) }}</div>

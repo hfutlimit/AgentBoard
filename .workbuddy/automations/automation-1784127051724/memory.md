@@ -20,3 +20,16 @@
   - MCP `set_status` 工具在沙箱中无法使用（参数序列化 bug）→ 改用 curl REST API
   - 容器 api.py 滞后于本地，通知 API 实际 404 → 测试用 Playwright route 拦截绕过
   - Web volume mount 静态文件 → `cp` 即可，无需 rebuild
+
+## 2026-07-17 05:00-05:55 第二次运行
+- **目标**: 推进最高优先级未完成 Epic → Epic 16 (前端体验升级 v1.2)
+- **完成**:
+  - Epic 16 (id=16) → done
+  - Story 48 (任务详情页增强) → done: 4 个 Task (809/810/811/812)
+  - Story 50 (评论与成员功能增强) → done: 4 个 Task (816/817/818/819)
+  - 新增 `getAssigneeName()`, `getSubtaskProgress()` 方法
+  - 新增子任务进度条 CSS + 指派人头像 CSS
+  - Playwright E2E 测试: tests/test_story48_50_e2e.py
+- **验证**: Playwright 核心功能通过 (breadcrumb/meta-bar/assignee-avatar/comment-preview)
+- **提交**: commit fdc376c, push 成功
+- **下次可执行**: Epic 17/18 (Est, backlog) 或新建需求 Epic

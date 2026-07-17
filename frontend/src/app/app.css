@@ -463,6 +463,49 @@ router-outlet {
   flex-shrink: 0;
 }
 
+/* A-22: 任务列表/看板「快速完成」勾选按钮 */
+.task-quick-complete {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-right: 8px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--border-2, #cbd5e1);
+  background: transparent;
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, transform .1s ease;
+}
+.task-quick-complete:hover { border-color: var(--success, #059669); }
+.task-quick-complete:active { transform: scale(.88); }
+.task-quick-complete.done {
+  border-color: var(--success, #059669);
+  background: var(--success, #059669);
+}
+.task-quick-complete .qc-check { font-weight: 700; }
+/* 看板卡片内绝对定位角标 */
+.kanban-card { position: relative; }
+.kanban-card .task-quick-complete.kanban-qc {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  margin: 0;
+  width: 18px;
+  height: 18px;
+  background: rgba(255, 255, 255, .92);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .25);
+  z-index: 2;
+}
+[data-theme="dark"] .kanban-card .task-quick-complete.kanban-qc {
+  background: rgba(30, 41, 59, .92);
+}
+
 .entity-item.selected {
   background: var(--brand-soft, #e0e7ff);
   border-color: var(--brand-500, #6366f1);

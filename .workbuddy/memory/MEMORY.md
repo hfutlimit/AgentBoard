@@ -19,6 +19,7 @@
 - **Sprint 功能就绪**：planning/active/completed + 单 active 约束 + 任务退回 backlog。
 - **Task 831 列表密度切换（紧凑视图）→ done** ✅（2026-07-16）：`listDensity` signal（`localStorage` 持久化）+ 任务列表工具条 `☰` 切换按钮（`#s-density-toggle`）+ `.entity-list.density-compact` 类 + 紧凑 CSS（行内边距/字号收敛）；净增 ~24 行，符合 R2。Playwright 验证：切换前后 `.entity-item--rich` padding 10px→6px，零错误。
 - **顺带修复**：`frontend/src/index.html` 遗留 `<link href="/static/style.css">` 孤儿引用（每次构建复现 404 + 构建告警）；已从源码移除，Angular 注入的 `styles-*.css` 接管。
+- **A-22 任务快速完成勾选（列表 + 看板）→ done** ✅（2026-07-17）：列表项 `.task-quick-complete` 圆形按钮 + 看板卡片 `.kanban-qc` 徽标，`toggleTaskComplete(id)` 经 `PUT /api/tasks/{id}/status` 标记完成/重新打开；后端状态机放宽 `TODO/IN_PROGRESS→DONE`、`DONE→TODO`；前端 `setTaskStatus` 补 `apiCache.invalidatePrefix('/api/stories')` 缓存失效（**通用修复**：根治二次点击失效根因，惠及看板拖拽 B-04、快速推进等所有状态变更路径）。净增 ~50 行，符合 R2。Playwright E2E 验证：列表 in_progress→done→todo、看板 todo→done、零 page/console/404 错误。
 
 ## 协作与发布约定
 - **文档驱动**：需求 `docs/requirements.md`、任务 `docs/tasks.md`、变更 `openspec/changes/<id>/{proposal,design,tasks}.md`。
@@ -27,7 +28,7 @@
 - **部署**：Docker 环境下前端改动需 `docker compose up -d --build`；沙箱无 Docker 时改用本地 uvicorn + SQLite（`data/agentboard.db`）。浏览器务必硬刷新清静态缓存。
 
 ## API/状态机约定
-- 任务改状态用 `PUT /api/tasks/{tid}/status` body=`{"status":"..."}`，状态机：`backlog → todo → in_progress → in_review → verifying → done`（不可跳跃）。
+- 任务改状态用 `PUT /api/tasks/{tid}/status` body=`{"status":"..."}`，状态机：`backlog → todo → in_progress → in_review → verifying → done`；**例外（A-22 快速完成）**：允许 `TODO/IN_PROGRESS→DONE`（标记完成）与 `DONE→TODO`（重新打开），`IN_PROGRESS→BACKLOG` 仍禁止。
 - Story/Epic 改状态用 `PATCH /api/{stories|epics}/{id}` body=`{"status":"..."}`。
 - `TaskIn` 必须含 `project_id`；`TaskPatch` 含 `sprint_id`（可 null）。
 - CORS：中间件 `require_business_auth` 对 401 响应手动注入 `Access-Control-Allow-Origin`（`agentboard/api.py` L49-55）。
@@ -46,3 +47,9 @@
 - **MCP auth 仍不可用**：`mcp__agentboard__auth_login` 返回 token 后，`mcp__agentboard__list_projects` 仍 unauthorized。改用 REST API + curl/Python urllib 更新状态。
   - **备选 admin 账号**：直接 `POST /api/auth/register` 创建 admin/admin123（id=54, is_admin=false，但能看到所有项目）；用于 Playwright E2E 登录。
 - **B-04 看板拖拽已实现**（2026-07-17）：Story 详情看板视图 HTML5 drag-and-drop，调用现有 `PUT /api/tasks/{id}/status`，零后端契约变更。文件：`frontend/src/app/app.ts` (+41)、`app.html` (+10/-1)、`app.css` (+11)，API 修正 CORS 跳过 OPTIONS（+2/-1）。Epic 103 / Story 163 / Task 862 全部 done。Playwright E2E 验证：1/1 卡片 draggable、拖拽待规划→待办成功、零错误。
+- **Epic 16 (前端体验升级 v1.2) → done** ✅（2026-07-17，commit `fdc376c`）：
+  - Story 48 (任务详情页增强): Task 809 面包屑、Task 810 负责人/时间、Task 811 子任务进度条、Task 812 相关任务链接
+  - Story 50 (评论与成员功能增强): Task 816 评论预览切换、Task 817 成员头像、Task 818 任务列表指派人头像、Task 819 空项目引导
+  - 新增方法: `getAssigneeName()`, `getSubtaskProgress()`; 新增 CSS: `.subtask-progress-bar`, `.assignee-avatar-sm`
+  - Playwright E2E: `tests/test_story48_50_e2e.py` 验证通过
+- **多 DB 环境注意**（2026-07-17 #2 实测）：本地 uvicorn (58125) 用 `agentboard.db` (root, 19 epics/53 stories/144 tasks)，Docker API (18000) 用不同 DB；本地 `web_app:app` 在 8080 代理到 58125，Docker web 在 28080 代理到 18000。Playwright 测试须用 8080 端口（数据完整）。
