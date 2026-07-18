@@ -287,7 +287,7 @@
 - [x] **B-03 截止日期（due_date）**：task 增加 `due_date` + 日历控件 + 逾期高亮。后端模型/迁移/API 已就绪（Epic 17）；前端 UI 实现：Angular Task 接口增加 `due_date`，创建弹窗 + 编辑表单加 `<input type="date">`，任务列表/看板卡片/任务详情显示截止日期徽章（逾期红色脉冲 + 近期黄色 + 正常灰色）；后端 `service.py` 增加 `_parse_due_date()` 字符串转 `date` 对象；`api.py` `update_task` 改用 `exclude_unset=True` 支持 null 清空；5 项 pytest 全绿。
 - [x] **B-04 看板拖拽排序**：Story 详情看板视图拖拽卡片改 status。Angular `onKanbanDragStart`/`onKanbanDragOver`/`onKanbanDragLeave`/`onKanbanDrop`/`onKanbanDragEnd` 5 个方法 + `dragTaskId`/`dragOverStatus` signals；HTML 模板 `.kanban-card` 加 `draggable=true` + `(dragstart)/(dragend)` 事件、`.kanban-col` 加 `(dragover)/(dragleave)/(drop)` 事件；CSS `.kanban-card.dragging` opacity 0.4、`.kanban-col.drag-over` 品牌色虚线边框高亮。复用现有 `PUT /api/tasks/{id}/status` 端点，零后端契约变更；`notify()` 复用现有 toast 系统。顺带修复 `api.py` rate limiter 阻断 CORS preflight（增加 `OPTIONS` 跳过），解封 28080→18000 跨域预检。Playwright E2E 验证：登录 admin → 项目→Epic→Story→看板视图→`draggable=true` 1/1 卡片→JS 模拟 dragstart/dragover/drop→`待规划→待办` 成功→`notify("状态已更新", "success")` toast 出现→零 page/console/404 错误。Epic 103/Story 163/Task 862 全部 done。净增 ~45 行（app.ts+39/app.html+2/app.css+11/api.py+2），符合 R2。
 - [x] **B-05 评论 / 活动流**：task 增加评论（已由 Epic 12 / Story 12.1 完成）。
-- [ ] **B-06 列表分组 / 排序**：按状态/类型/负责人分组（纯前端「按状态/按类型」已实现，见完成记录；「按负责人」依赖 Epic 7 用户体系，仍待后端）。
+- [x] **B-06 列表分组 / 排序**：按状态 / 类型 / 负责人分组（纯前端）。「按状态 / 按类型」已于 2026-07-11 经 `agentboard_story_group` localStorage 落地；「按负责人」依赖 Epic 7 用户体系（已 done），本次经 Epic 28 / Story 64 / Task 836 补齐：Angular `taskGroupBy` signal + `taskGroupOptions` + `groupedTasks` computed（按 `assignee_id` 分桶，未指派用 `'unassigned'` 哨兵键避免空串 key 被 `@if(grp.key)` 吞掉标题）+ `groupLabel` 映射 + 工具条 `<select class="task-group-select">`；HTML 以 `groupedTasks()` 双层 `@for` 包裹任务列表、分组标题含计数 `.task-group-count`；CSS `.task-group-bar/.task-group-header/.task-group-count`。修复根因：未指派任务 `assignee_id=null` 经 `String(t.assignee_id??'')` 得空串 key，与「不分组」单组 key `''` 同值，导致 `@if(grp.key)` 判定 falsy、不渲染「未指派」分组标题（E2E 只见具名分组）；改为未指派用显式 `'unassigned'` 真值键 + `groupLabel` 双分支返回「未指派」。复用既有 `loadStory`/`visibleTasks`，零后端契约变更；Playwright E2E（`tests/test_epic28_grouping_e2e.py`）不分组/按状态/按类型/按负责人四态全绿、计数和==可见任务数、零 page/console/404 错误。净增 ~28 行（app.ts+18/app.html+8/app.css+13），符合 R2。Epic 28 / Story 64 / Task 836 全部 done。
 
 ---
 
@@ -632,6 +632,7 @@
 | 日期 | 项 | 简述 |
 |------|----|------|
 | 2026-07-15 | Epic 28 | Tasks 712-716 → in_review；cubic-bezier spring hover + drag placeholder + virtual scroll + shortcuts panel |
+| 2026-07-18 | Epic 28 v1.7（任务列表分组） | Angular `taskGroupBy` signal + `groupedTasks` computed 按 状态/类型/负责人 分桶；修复未指派任务 `assignee_id=null` 经空串 key 被 `@if(grp.key)` 吞掉「未指派」分组标题的根因（改 `'unassigned'` 哨兵真值键 + `groupLabel` 双分支）；工具条 `<select>` 切换 + localStorage `agentboard_story_group` 持久化；Playwright E2E（`tests/test_epic28_grouping_e2e.py`）四态全绿、零错误；DB Epic 28（id 28）/ Story 64 / Task 836 → done |
 
 ---
 

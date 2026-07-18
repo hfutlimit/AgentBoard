@@ -965,6 +965,15 @@
                   {{ taskSortOrder() === 'asc' ? '↑' : '↓' }}
                 </button>
               </div>
+              <!-- Task 836: 任务列表分组 -->
+              <div class="task-group-bar">
+                <span class="task-group-label">分组：</span>
+                <select class="task-group-select" [value]="taskGroupBy()" (change)="setTaskGroup($any($event.target).value)">
+                  @for (opt of taskGroupOptions; track opt.key) {
+                    <option [value]="opt.key">{{ opt.label }}</option>
+                  }
+                </select>
+              </div>
               <!-- Task 602: 高级筛选面板 -->
               <button class="ghost-sm" (click)="filterOpen.set(!filterOpen())" [class.active]="filterOpen()">
                 ⚙ 筛选{{ activeFilterCount() > 0 ? ' (' + activeFilterCount() + ')' : '' }}
@@ -1043,8 +1052,15 @@
                 </div>
               }
               <div class="entity-list" [class.density-compact]="listDensity() === 'compact'" (keydown)="handleTaskKeydown($event)" tabindex="0">
-                @for (item of visibleTasks(); track item.id; let i = $index) {
-                  <div class="entity-item entity-item--rich" [class.selected]="selectedTasks().has(item.id)" [class.kbd-focused]="isTaskFocused(i)">
+                @for (grp of groupedTasks(); track grp.key) {
+                  @if (grp.key) {
+                    <div class="task-group-header">
+                      <span class="task-group-label">{{ grp.label }}</span>
+                      <span class="task-group-count">{{ grp.count }}</span>
+                    </div>
+                  }
+                  @for (item of grp.items; track item.id) {
+                  <div class="entity-item entity-item--rich" [class.selected]="selectedTasks().has(item.id)" [class.kbd-focused]="isTaskFocused(item.id)">
                     <input
                       type="checkbox"
                       class="task-checkbox"
@@ -1119,6 +1135,7 @@
                       (click)="duplicateTask(item.id); $event.stopPropagation()"
                     >⎘</button>
                   </div>
+                  }
                 } @empty {
                   <div class="empty-inline">暂无任务</div>
                 }

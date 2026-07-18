@@ -100,7 +100,7 @@ export class App implements OnInit, OnDestroy {
   readonly bulkActionTarget = signal<string | null>(null); // 'status' | 'delete' | null
   // Epic 21 Story 21.3: 批量操作进度跟踪
   readonly bulkProgress = signal<{ current: number; total: number; message: string } | null>(null);
-  readonly focusedTaskIndex = signal<number>(-1);
+  readonly focusedTaskId = signal<number | null>(null);
   readonly exportDropdownOpen = signal(false);
   // Epic 21 Story 21.4: 组件级错误边界状态
   readonly hasError = signal(false);
@@ -291,6 +291,50 @@ export class App implements OnInit, OnDestroy {
       return sortOrder === 'asc' ? cmp : -cmp;
     });
     return filtered;
+  });
+  // Task 836: 任务列表分组（不分组 / 按状态 / 按类型 / 按负责人）
+  readonly taskGroupBy = signal<'none' | 'status' | 'type' | 'assignee'>(
+    (localStorage.getItem('agentboard_story_group') as 'none' | 'status' | 'type' | 'assignee') || 'none'
+  );
+  readonly taskGroupOptions = [
+    { key: 'none', label: '不分组' },
+    { key: 'status', label: '按状态' },
+    { key: 'type', label: '按类型' },
+    { key: 'assignee', label: '按负责人' },
+  ];
+  setTaskGroup(v: string): void {
+    this.taskGroupBy.set(v as any);
+    localStorage.setItem('agentboard_story_group', v);
+  }
+  private groupLabel(mode: string, key: string): string {
+    if (mode === 'status') return this.statusLabel(key);
+    if (mode === 'type') return key === 'bug' ? 'Bug' : '任务';
+    if (key === '' || key === 'unassigned') return '未指派';
+    return this.getAssigneeName(Number(key)) || '未指派';
+  }
+  readonly groupedTasks = computed(() => {
+    const g = this.taskGroupBy();
+    const list = this.visibleTasks();
+    if (!list.length) return [] as { key: string; label: string; count: number; items: Task[] }[];
+    if (g === 'none') return [{ key: '', label: '', count: list.length, items: list }];
+    const buckets: Record<string, Task[]> = {};
+    for (const t of list) {
+      const k =
+        g === 'status'
+          ? t.status
+          : g === 'type'
+            ? t.type
+            : t.assignee_id == null
+              ? 'unassigned'
+              : String(t.assignee_id);
+      (buckets[k] ||= []).push(t);
+    }
+    let keys: string[];
+    if (g === 'status') keys = this.statuses.filter((s) => buckets[s]);
+    else if (g === 'type') keys = ['task', 'bug'].filter((k) => buckets[k]);
+    else keys = Object.keys(buckets).sort((a, b) =>
+      this.groupLabel('assignee', a).localeCompare(this.groupLabel('assignee', b), 'zh'));
+    return keys.map((k) => ({ key: k, label: this.groupLabel(g, k), count: buckets[k].length, items: buckets[k] }));
   });
   readonly doneTasks = computed(() => this.tasks().filter((t) => t.status === 'done').length);
   // Epic 34.1: 任务列表汇总栏（总数/完成率/状态分布堆叠条）
@@ -1426,13 +1470,14 @@ export class App implements OnInit, OnDestroy {
     }
     const tasks = this.visibleTasks();
     if (tasks.length === 0) return;
-    const idx = this.focusedTaskIndex();
+    const curId = this.focusedTaskId();
+    const idx = curId == null ? -1 : tasks.findIndex((t) => t.id === curId);
     switch (event.key) {
       case 'j':
       case 'ArrowDown':
         event.preventDefault();
         if (idx < tasks.length - 1) {
-          this.focusedTaskIndex.set(idx + 1);
+          this.focusedTaskId.set(tasks[idx + 1].id);
           this.scrollToFocusedTask();
         }
         break;
@@ -1440,10 +1485,10 @@ export class App implements OnInit, OnDestroy {
       case 'ArrowUp':
         event.preventDefault();
         if (idx > 0) {
-          this.focusedTaskIndex.set(idx - 1);
+          this.focusedTaskId.set(tasks[idx - 1].id);
           this.scrollToFocusedTask();
         } else if (idx === -1 && tasks.length > 0) {
-          this.focusedTaskIndex.set(0);
+          this.focusedTaskId.set(tasks[0].id);
           this.scrollToFocusedTask();
         }
         break;
@@ -1460,7 +1505,7 @@ export class App implements OnInit, OnDestroy {
         }
         break;
       case 'Escape':
-        this.focusedTaskIndex.set(-1);
+        this.focusedTaskId.set(null);
         this.clearTaskSelection();
         this.closeBulkActionPanel();
         break;
@@ -1483,8 +1528,8 @@ export class App implements OnInit, OnDestroy {
     }, 0);
   }
 
-  isTaskFocused(index: number): boolean {
-    return this.focusedTaskIndex() === index;
+  isTaskFocused(taskId: number): boolean {
+    return this.focusedTaskId() === taskId;
   }
 
   async loadSprintBurndown(sprintId: number): Promise<void> {

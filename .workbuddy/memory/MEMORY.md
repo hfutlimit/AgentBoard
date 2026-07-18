@@ -20,6 +20,7 @@
 - **Task 831 列表密度切换** → done（2026-07-16）：紧凑视图切换。
 - **Epic 35 (前端体验升级 v1.5)** → done（commit `1f70841`，2026-07-18）：任务关键词搜索——`taskSearchQuery` signal + 工具条搜索输入框 + `visibleTasks` 叠加 title/description 过滤。
 - **Epic 36 (前端体验升级 v1.6)** → done（commit `257c654`，2026-07-18）：内联任务标题编辑——hover 显示 ✎ 编辑按钮 → inline input，Enter/Esc/blur 控制；`saveInlineEdit()` 用 `fetch()` 绕过 Angular HttpClient PATCH 不返回问题。
+- **B-06 / Epic 28 v1.7 (前端体验升级 v1.7)** → done（2026-07-18）：任务列表分组（按状态/类型/负责人）；`taskGroupBy` signal + `groupedTasks` computed + `<select>` 切换 + localStorage 持久化。关键修复：未指派任务 `assignee_id=null` 经空串 key 被 `@if(grp.key)` 吞掉「未指派」标题——改 `'unassigned'` 哨兵真值键。DB Epic 28(28)/Story 64/Task 836 全 done。
 
 ## 协作与发布约定
 - **文档驱动**：需求 `docs/requirements.md`、任务 `docs/tasks.md`、变更 `openspec/changes/<id>/{proposal,design,tasks}.md`。
@@ -29,7 +30,7 @@
 - **部署**：Docker 改后端需 `docker cp` 注入 + `docker restart`；本地 uvicorn (58125) + web (8080) 用于开发验证。
 
 ## API/状态机约定
-- 任务改状态用 `PUT /api/tasks/{tid}/status` body=`{"status":"..."}`，状态机：`backlog → todo → in_progress → in_review → verifying → done`；**例外（A-22 快速完成）**：允许 `TODO/IN_PROGRESS→DONE` 与 `DONE→TODO`，`IN_PROGRESS→BACKLOG` 仍禁止。
+- 任务改状态用 `PUT /api/tasks/{tid}/status` body=`{"status":"..."}`；**真实迁移表**（`service.py` TRANSITIONS，L30-37）：`BACKLOG→{TODO}`、`TODO→{IN_PROGRESS,BACKLOG,DONE}`、`IN_PROGRESS→{IN_REVIEW,VERIFYING,TODO,DONE}`、`IN_REVIEW→{DONE,IN_PROGRESS}`、`VERIFYING→{DONE,IN_PROGRESS}`、`DONE→{IN_PROGRESS,TODO}`。**注意：无 `in_review → verifying` 边**（旧记忆里的线性链是错的），从 in_review 只能直接→done 或回 in_progress。状态同步脚本应在 TRANSITIONS 上 BFS 求最短合法路径，勿硬编码线性顺序。**例外（A-22 快速完成）**：允许 `TODO/IN_PROGRESS→DONE` 与 `DONE→TODO`，`IN_PROGRESS→BACKLOG` 仍禁止。
 - Story/Epic 改状态用 `PATCH /api/{stories|epics}/{id}` body=`{"status":"..."}`。
 - `TaskIn` 必须含 `project_id`；`TaskPatch` 含 `sprint_id`（可 null）。
 - CORS：`require_business_auth` 对 401 响应手动注入 `Access-Control-Allow-Origin`（`agentboard/api.py` L49-55）；`rate_limit_middleware` 跳过 OPTIONS preflight（commit `4a486cf`）。
@@ -54,3 +55,10 @@
 - **Angular HttpClient PATCH 不返回**（2026-07-18 实测）：`this.api.updateTask()` 用 `http.request('PATCH', ...)` 返回的 Observable 不 emit（request 发出但 response 不触发 next/complete），GET/PUT 均正常。**Workaround**：直接用 `fetch()` 调 API，绕过 HttpClient。
 - **angular.json font inlining 间歇失败**（2026-07-18）：Google Fonts `@import` 在构建时被 CSS optimizer 试图内联，网络不可达时构建失败。**修复**：`angular.json` production 配置加 `"optimization": {"fonts": false}`。
 - **web_app.py SPA fallback 有效**：`page.goto(f"{BASE}/story/33")` 直接触发 Angular Router `loadRoute()`，无需 hash 导航或侧栏点击。
+
+## Windows/IIS 原生部署（非 Docker）
+- 拓扑：IIS(ARR) 统一反代，WebAPI 127.0.0.1:8000、MCP 127.0.0.1:8001，均 NSSM 服务；DB MariaDB。前端静态由 IIS 直接托管，`web.config` 含 `/api`、`/mcp` 反代 + SPA 回退。
+- 打包：`scripts/package_windows.py` → `dist/*.zip`（webapi/mcp/web 三份）。运行时脚本：`scripts/deploy/`。文档：`docs/deploy-windows-iis.md`。
+- **MCP 鉴权硬约束**：生产 `REQUIRE_AUTH=1` 下，MCP 必须经 `abk_` API Key 调 API；用 `make-mcp-token.py` 生成（权限 `["api:*"]`），填 `AGENTBOARD_MCP_TOKEN`，且两端 `AGENTBOARD_SECRET` 必须一致。
+- 前端 `index.html` 资源相对引用，IIS 站点根 = 静态目录；`__API_URL__` 默认 `/api`（同源反代），由 `configure-api-url.ps1` 注入。
+- 服务器需装：Python 3.13、MariaDB、IIS + URL Rewrite + ARR（并 Enable proxy）、NSSM。无需服务器装 Node。
