@@ -1252,7 +1252,8 @@ def add_member(
         if not (u and u.is_admin):
             raise HTTPException(status_code=403, detail="only owner or admin can add members")
     try:
-        user_id = body.get("user_id") or (service.get_user_by_username(s, body.get("username")) or {}).get("id")
+        found_user = service.get_user_by_username(s, body.get("username")) if body.get("username") else None
+        user_id = body.get("user_id") or (found_user.id if found_user else None)
         if not user_id:
             raise HTTPException(status_code=400, detail="user_id or username required")
         pm = service.add_project_member(s, project_id=pid, user_id=user_id, role=body.get("role", "member"))

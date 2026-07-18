@@ -759,6 +759,8 @@ export class App implements OnInit, OnDestroy {
         const epic = await firstValueFrom(this.api.getEpic(story.epic_id));
         this.epic.set(epic);
         this.project.set(await firstValueFrom(this.api.getProject(epic.project_id)));
+        // B-02: 负责人下拉依赖成员列表，进入 Story 视图时必须加载
+        await this.loadMembers(epic.project_id);
       } else if (kind === 'task' && id > 0) {
         this.view.set('task');
         const [task, comments] = await Promise.all([
@@ -776,9 +778,12 @@ export class App implements OnInit, OnDestroy {
           const project = await firstValueFrom(this.api.getProject(epic.project_id));
           this.project.set(project);
           await this.loadSprints(project.id);
+          // B-02: 任务详情改派需要成员列表
+          await this.loadMembers(project.id);
         } else {
           this.project.set(await firstValueFrom(this.api.getProject(task.project_id)));
           await this.loadSprints(task.project_id);
+          await this.loadMembers(task.project_id);
         }
         // Epic 26 Task 704: 更新相邻任务导航
         this.updatePrevNextTasks(id);
@@ -1013,6 +1018,8 @@ export class App implements OnInit, OnDestroy {
     const priority = String(data.get('priority') || 'medium') as Priority;
     const dueDate = String(data.get('due_date') || '') || null;
     const labelsStr = String(data.get('labels') || '').trim();
+    const assigneeRaw = data.get('assignee_id');
+    const assigneeId = assigneeRaw ? Number(assigneeRaw) : null;
     const labels = labelsStr ? JSON.stringify(labelsStr.split(',').map(s => s.trim()).filter(Boolean)) : '[]';
     if (!modal || !title.trim()) return;
     this.submitting.set(true);
@@ -1039,6 +1046,7 @@ export class App implements OnInit, OnDestroy {
             priority,
             due_date: dueDate,
             labels,
+            assignee_id: assigneeId,
           }),
         );
       }
@@ -1100,6 +1108,13 @@ export class App implements OnInit, OnDestroy {
       : '[]';
     await this.run('标签已保存', () =>
       firstValueFrom(this.api.updateTask(task.id, { labels })),
+    );
+  }
+
+  // B-02: Save task assignee (负责人)
+  async saveTaskAssignee(taskId: number, userId: number): Promise<void> {
+    await this.run('负责人已更新', () =>
+      firstValueFrom(this.api.updateTask(taskId, { assignee_id: userId > 0 ? userId : null })),
     );
   }
 

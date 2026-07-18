@@ -18,6 +18,8 @@
 - **项目 3 (AgentBoard) Backlog 全清零**（2026-07-17）：109 任务 100% done。
 - **A-22 任务快速完成勾选** → done（2026-07-17）：列表 + 看板快速完成按钮，后端状态机放宽 TODO/IN_PROGRESS→DONE、DONE→TODO。
 - **Task 831 列表密度切换** → done（2026-07-16）：紧凑视图切换。
+- **Epic 35 (前端体验升级 v1.5)** → done（commit `1f70841`，2026-07-18）：任务关键词搜索——`taskSearchQuery` signal + 工具条搜索输入框 + `visibleTasks` 叠加 title/description 过滤。
+- **Epic 36 (前端体验升级 v1.6)** → done（commit `257c654`，2026-07-18）：内联任务标题编辑——hover 显示 ✎ 编辑按钮 → inline input，Enter/Esc/blur 控制；`saveInlineEdit()` 用 `fetch()` 绕过 Angular HttpClient PATCH 不返回问题。
 
 ## 协作与发布约定
 - **文档驱动**：需求 `docs/requirements.md`、任务 `docs/tasks.md`、变更 `openspec/changes/<id>/{proposal,design,tasks}.md`。
@@ -49,3 +51,6 @@
 - **`tasks()` 信号 SPA 路由竞态**（既有 bug）：直接 `page.goto(/story/N)` 时 `tasks()` 可能含全项目任务而非 story 级。根因：`loadRoute()` 首次触发 `loadDashboard()` 预加载全量 tasks，慢，覆盖 story 级 tasks。修复需在 `loadRoute` 加守卫，超出单次范围，记录为后续项。
 - **managed python venv playwright**：`C:\Users\jason\.workbuddy\binaries\python\envs\default\Scripts\python.exe` 已装 playwright 1.61.0；Chromium 缓存于 `~/AppData/Local/ms-playwright`。
 - **前端构建部署（无需 docker rebuild）**：`npm run build`（managed node 22.22.2）→ `frontend/dist/frontend/browser/` → cp 到 `agentboard/web/static/`；两端即时生效。
+- **Angular HttpClient PATCH 不返回**（2026-07-18 实测）：`this.api.updateTask()` 用 `http.request('PATCH', ...)` 返回的 Observable 不 emit（request 发出但 response 不触发 next/complete），GET/PUT 均正常。**Workaround**：直接用 `fetch()` 调 API，绕过 HttpClient。
+- **angular.json font inlining 间歇失败**（2026-07-18）：Google Fonts `@import` 在构建时被 CSS optimizer 试图内联，网络不可达时构建失败。**修复**：`angular.json` production 配置加 `"optimization": {"fonts": false}`。
+- **web_app.py SPA fallback 有效**：`page.goto(f"{BASE}/story/33")` 直接触发 Angular Router `loadRoute()`，无需 hash 导航或侧栏点击。

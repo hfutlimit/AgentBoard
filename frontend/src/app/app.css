@@ -725,6 +725,22 @@ router-outlet {
   color: var(--text-secondary, #94a3b8);
 }
 
+/* B-02: 看板卡片负责人头像 */
+.assignee-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 9px;
+  font-weight: 700;
+  background: var(--primary, #6366f1);
+  color: #fff;
+  flex-shrink: 0;
+  margin-left: 2px;
+}
+
 /* ---- Epic 21 Story 21.3: 批量操作进度条 ---- */
 .bulk-progress-bar {
   padding: 12px 16px;

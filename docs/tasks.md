@@ -283,7 +283,7 @@
 
 ### Backlog B（需后端配合，先提需求，不混入小优化）
 - [x] **B-01 标签 / 标签组（labels）**：task 增加 `labels` 字段 + 多选 UI。后端 `labels` 字段已就绪（models/api/service）；前端 UI 实现：Angular `parseLabels()` 解析 JSON 标签、`labelColor()` 确定性配色、任务列表/看板卡片/任务详情显示标签徽章、创建弹窗 + 编辑表单加标签输入（逗号分隔）、筛选面板增加标签过滤（chip 选择、`labelFilter` signal）、`saveTaskLabels()` 方法；6 项 API 测试全绿（创建/更新/清空/默认/特殊字符/列表返回）；commit `871a50d`。
-- [ ] **B-02 负责人 / 指派（assignee）**：task 增加 `assignee` + 用户下拉（依赖 FR-8 用户体系）。
+- [x] **B-02 负责人 / 指派（assignee）**：task 增加 `assignee` + 用户下拉（依赖 FR-8 用户体系）。后端 `assignee_id` 字段/迁移/API（`TaskIn`/`TaskPatch`/`update_task` 支持 `assignee_id`）已就绪；前端 UI 实现：创建弹窗 + 任务详情编辑表单增加「负责人」下拉（`loadMembers` 在 story/task 视图加载成员列表）、保存走 `fetch()` 绕过 Angular HttpClient PATCH 不返回问题、`saveTaskAssignee()` 方法、看板卡片 `.assignee-chip` 头像；顺带修复 `api.py` `add_member` 端点 `get_user_by_username` 返回 ORM 对象误用 `.get("id")` 导致 500 的真实后端 bug。Playwright E2E 全绿（注册双用户→成员下拉两候选→创建指派→详情改派→看板 chip→零 page/console/404 错误）。Epic 37/Story 63/Task 835 全部 done。净增 ~50 行，未改 `models.py`/`api.py` 契约（仅修 bug）。
 - [x] **B-03 截止日期（due_date）**：task 增加 `due_date` + 日历控件 + 逾期高亮。后端模型/迁移/API 已就绪（Epic 17）；前端 UI 实现：Angular Task 接口增加 `due_date`，创建弹窗 + 编辑表单加 `<input type="date">`，任务列表/看板卡片/任务详情显示截止日期徽章（逾期红色脉冲 + 近期黄色 + 正常灰色）；后端 `service.py` 增加 `_parse_due_date()` 字符串转 `date` 对象；`api.py` `update_task` 改用 `exclude_unset=True` 支持 null 清空；5 项 pytest 全绿。
 - [x] **B-04 看板拖拽排序**：Story 详情看板视图拖拽卡片改 status。Angular `onKanbanDragStart`/`onKanbanDragOver`/`onKanbanDragLeave`/`onKanbanDrop`/`onKanbanDragEnd` 5 个方法 + `dragTaskId`/`dragOverStatus` signals；HTML 模板 `.kanban-card` 加 `draggable=true` + `(dragstart)/(dragend)` 事件、`.kanban-col` 加 `(dragover)/(dragleave)/(drop)` 事件；CSS `.kanban-card.dragging` opacity 0.4、`.kanban-col.drag-over` 品牌色虚线边框高亮。复用现有 `PUT /api/tasks/{id}/status` 端点，零后端契约变更；`notify()` 复用现有 toast 系统。顺带修复 `api.py` rate limiter 阻断 CORS preflight（增加 `OPTIONS` 跳过），解封 28080→18000 跨域预检。Playwright E2E 验证：登录 admin → 项目→Epic→Story→看板视图→`draggable=true` 1/1 卡片→JS 模拟 dragstart/dragover/drop→`待规划→待办` 成功→`notify("状态已更新", "success")` toast 出现→零 page/console/404 错误。Epic 103/Story 163/Task 862 全部 done。净增 ~45 行（app.ts+39/app.html+2/app.css+11/api.py+2），符合 R2。
 - [x] **B-05 评论 / 活动流**：task 增加评论（已由 Epic 12 / Story 12.1 完成）。
@@ -689,4 +689,5 @@
 | 日期 | 项 | 简述 |
 |------|----|------|
 | 2026-07-18 | Epic 34 | Task 903 → done（任务列表汇总栏：堆叠条 + 总数/完成率文案） |
+| 2026-07-18 | B-02 负责人指派 | Epic 37/Story 63/Task 835 → done：创建弹窗 + 任务详情「负责人」下拉（`loadMembers` 在 story/task 视图加载成员）、`saveTaskAssignee()` 走 `fetch()`、`assignee-chip` 看板头像；顺带修复 `add_member` 端点 `get_user_by_username` 返回 ORM 对象误用 `.get("id")` 的 500 后端 bug；Playwright E2E 全绿（零 page/console/404 错误） |
 

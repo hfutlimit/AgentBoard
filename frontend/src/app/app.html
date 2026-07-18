@@ -1187,6 +1187,9 @@
                             @for (lbl of parseLabels(item.labels); track lbl) {
                               <span class="label-badge label-badge--sm" [style.color]="labelColor(lbl)" [style.background]="labelBg(lbl)">{{ lbl }}</span>
                             }
+                            @if (item.assignee_id) {
+                              <span class="assignee-chip" title="负责人 {{ getAssigneeName(item.assignee_id) }}">{{ getAssigneeInitials(item.assignee_id) }}</span>
+                            }
                           </div>
                           <!-- Task 601: 看板卡片完成进度显示 -->
                           <div class="kanban-card-progress" title="完成进度 {{ taskProgressPct(item.status) }}%">
@@ -1443,6 +1446,19 @@
                         <option [value]="s.id">
                           {{ s.title }} ({{ sprintStatusLabel(s.status) }})
                         </option>
+                      }
+                    </select></label
+                  >
+                  <label
+                    >负责人<select
+                      #tAssignee
+                      id="task-assignee"
+                      [value]="current.assignee_id || 0"
+                      (change)="saveTaskAssignee(current.id, +$any($event.target).value); $event.preventDefault()"
+                    >
+                      <option value="0">— 未指派 —</option>
+                      @for (m of members(); track m.user_id) {
+                        <option [value]="m.user_id">{{ m.username }}</option>
                       }
                     </select></label
                   >
@@ -1857,6 +1873,15 @@
             </div>
             <div class="form-field">
               <label>标签 <span class="muted" style="font-size:11px">逗号分隔</span></label><input id="create-labels" name="labels" placeholder="如: 前端,紧急,bug-fix" autocomplete="off" />
+            </div>
+            <div class="form-field">
+              <label>负责人</label>
+              <select id="create-assignee" name="assignee_id">
+                <option value="">— 未指派 —</option>
+                @for (m of members(); track m.user_id) {
+                  <option [value]="m.user_id">{{ m.username }}</option>
+                }
+              </select>
             </div>
           }
         </div>

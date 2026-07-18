@@ -33,3 +33,18 @@
 - **验证**: Playwright 核心功能通过 (breadcrumb/meta-bar/assignee-avatar/comment-preview)
 - **提交**: commit fdc376c, push 成功
 - **下次可执行**: Epic 17/18 (Est, backlog) 或新建需求 Epic
+
+## 2026-07-18 05:00-05:30 第三次运行
+- **目标**: 推进最高优先级未完成 Epic（项目 3 全部 done，新建需求）
+- **完成**:
+  - Epic 35 (id=25) 前端体验升级 v1.5: 任务关键词搜索 → done
+    - Story 35.1 (id=61) / Task 904 (id=833): `taskSearchQuery` signal + 搜索输入框 + `visibleTasks` 过滤
+    - commit `1f70841`, push 成功
+  - Epic 36 (id=26) 前端体验升级 v1.6: 内联任务标题编辑 → done
+    - Story 36.1 (id=62) / Task 905 (id=834): `editingTaskId`/`editingTaskTitle` signals + ✎ 编辑按钮
+    - saveInlineEdit 用 fetch() 绕过 Angular HttpClient PATCH 不返回问题
+    - angular.json 禁用 font inlining 修复构建失败
+    - commit `257c654`, push 成功
+- **验证**: 2 个 Playwright E2E 全部通过 (test_epic35_search_e2e, test_epic36_inline_edit_e2e)
+- **关键发现**: Angular HttpClient PATCH Observable 不 emit（fetch 正常），改用 fetch() workaround
+- **下次可执行**: 继续新建前端优化 Epic 或修复 mcp_server.py _api 缺陷
