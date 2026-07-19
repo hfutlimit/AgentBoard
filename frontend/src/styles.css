@@ -1079,6 +1079,7 @@ label {
   margin-bottom: 6px;
   letter-spacing: .01em;
 }
+input:not([type]),
 input[type="text"],
 input[type="search"],
 input[type="password"],
@@ -2599,3 +2600,103 @@ details.form-section > form { padding: 16px; }
   border-color: var(--border, #334155);
 }
 
+[data-theme="dark"] .confirmation-dialog {
+  background: #182235;
+  border-color: rgba(148, 163, 184, 0.24);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="dark"] .confirmation-dialog--danger .confirmation-icon {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.13);
+}
+
+[data-theme="dark"] .confirmation-dialog--warning .confirmation-icon {
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.13);
+}
+
+[data-theme="dark"] .confirmation-dialog--info .confirmation-icon {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.16);
+}
+
+[data-theme="dark"] .confirmation-actions {
+  background: rgba(15, 23, 42, 0.28);
+  border-top-color: rgba(148, 163, 184, 0.16);
+}
+
+[data-theme="dark"] .confirmation-cancel {
+  background: rgba(30, 41, 59, 0.72);
+  border-color: rgba(148, 163, 184, 0.28);
+}
+
+@keyframes confirmation-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes confirmation-pop-in {
+  from { opacity: 0; transform: translateY(10px) scale(.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes confirmation-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 520px) {
+  .confirmation-overlay { align-items: end; padding: 14px; }
+  .confirmation-dialog { border-radius: 18px; }
+  .confirmation-content { padding: 23px 20px 20px; }
+  .confirmation-actions { padding: 14px 20px 18px; }
+  .confirmation-actions button { flex: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .confirmation-overlay,
+  .confirmation-dialog,
+  .confirmation-spinner { animation-duration: 1ms; }
+}
+.confirmation-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 12000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.54);
+  backdrop-filter: blur(4px);
+  animation: confirmation-fade-in 160ms ease-out;
+}
+
+.confirmation-dialog {
+  width: min(100%, 448px);
+  overflow: hidden;
+  color: var(--text, var(--text-1, #172033));
+  background: var(--surface, var(--surface-1, #fff));
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 18px;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28), 0 8px 24px rgba(15, 23, 42, 0.14);
+  animation: confirmation-pop-in 190ms cubic-bezier(.2, .9, .25, 1.08);
+}
+
+.confirmation-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 26px 26px 22px;
+}
+.confirmation-icon svg {
+  width: 23px;
+  height: 23px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.9;
+}
+.confirmation-copy {
+  min-width: 0;
+  padding-top: 1px;
+}

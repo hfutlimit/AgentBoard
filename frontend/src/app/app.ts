@@ -10,9 +10,12 @@ import { filter } from 'rxjs/operators';
 import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric } from './api.service';
 import { LoginComponent } from './login/login';
 import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig } from './models';
+import { PaginationComponent } from './pagination/pagination';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
+type ProjectTabKind = 'epics' | 'sprints' | 'backlog' | 'settings' | 'members' | 'stats' | 'schedules';
+type ProjectListKind = 'epics' | 'sprints' | 'backlog' | 'members' | 'schedules';
 
 interface CreateModal {
   kind: CreateKind;
@@ -20,9 +23,20 @@ interface CreateModal {
   projectId?: number;
 }
 
+type ConfirmationTone = 'danger' | 'warning' | 'info';
+
+interface ConfirmationDialog {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  tone: ConfirmationTone;
+  action: () => Promise<void>;
+}
+
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent],
+  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, PaginationComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
   encapsulation: ViewEncapsulation.None,
@@ -66,7 +80,9 @@ export class App implements OnInit, OnDestroy {
   readonly toasts = signal<{ id: number; message: string; type: 'success' | 'error' }[]>([]);
   readonly modal = signal<CreateModal | null>(null);
   readonly submitting = signal(false);
-  readonly activeTab = signal<'epics' | 'sprints' | 'backlog' | 'settings' | 'members' | 'stats' | 'schedules'>('epics');
+  readonly confirmation = signal<ConfirmationDialog | null>(null);
+  readonly confirmationBusy = signal(false);
+  readonly activeTab = signal<ProjectTabKind>('epics');
   readonly members = signal<ProjectMember[]>([]);
   readonly notifications = signal<Notification[]>([]);
   readonly unreadCount = signal(0);
@@ -74,6 +90,41 @@ export class App implements OnInit, OnDestroy {
   readonly showUserMenu = signal(false);
   readonly projectStats = signal<ProjectStats | null>(null);
   readonly schedules = signal<AgentSchedule[]>([]);
+  readonly projectListPageSize = 20;
+  readonly epicsPage = signal(1);
+  readonly sprintsPage = signal(1);
+  readonly backlogPage = signal(1);
+  readonly membersPage = signal(1);
+  readonly schedulesPage = signal(1);
+  readonly tabSkeletonRows = [0, 1, 2, 3, 4];
+  readonly projectTabLoading = signal<Record<ProjectTabKind, boolean>>({
+    epics: false,
+    sprints: false,
+    backlog: false,
+    settings: false,
+    members: false,
+    stats: false,
+    schedules: false,
+  });
+  readonly projectTabLoaded = signal<Record<ProjectTabKind, boolean>>({
+    epics: false,
+    sprints: false,
+    backlog: false,
+    settings: false,
+    members: false,
+    stats: false,
+    schedules: false,
+  });
+  readonly projectTabErrors = signal<Record<ProjectTabKind, string>>({
+    epics: '',
+    sprints: '',
+    backlog: '',
+    settings: '',
+    members: '',
+    stats: '',
+    schedules: '',
+  });
+  private projectTabGeneration = 0;
   readonly statsMaxCreated = computed(() => {
     const stats = this.projectStats();
     if (!stats) return 1;
@@ -476,6 +527,13 @@ export class App implements OnInit, OnDestroy {
     this.loadSearchHistory();
     // Task 716/711/815/817: 全局快捷键 - '?' 键打开快捷键帮助，Ctrl+A 全选，Del 删除选中，/ 聚焦搜索，←→ 导航
     window.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (this.confirmation()) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          this.cancelConfirmation();
+        }
+        return;
+      }
       if (this.isInputFocused()) return;
       if (e.key === '?') {
         e.preventDefault();
@@ -734,6 +792,201 @@ export class App implements OnInit, OnDestroy {
     return query ? items.filter((item) => text(item).toLocaleLowerCase().includes(query)) : items;
   }
 
+  paginatedItems<T>(items: T[], page: number): T[] {
+    const totalPages = Math.max(1, Math.ceil(items.length / this.projectListPageSize));
+    const currentPage = Math.min(Math.max(1, page), totalPages);
+    const start = (currentPage - 1) * this.projectListPageSize;
+    return items.slice(start, start + this.projectListPageSize);
+  }
+
+  setProjectListPage(kind: ProjectListKind, page: number): void {
+    if (kind === 'epics') this.epicsPage.set(page);
+    else if (kind === 'sprints') this.sprintsPage.set(page);
+    else if (kind === 'backlog') this.backlogPage.set(page);
+    else if (kind === 'members') this.membersPage.set(page);
+    else this.schedulesPage.set(page);
+
+    setTimeout(() => {
+      this.document.getElementById(`${kind}-list`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  private resetProjectListPages(): void {
+    this.epicsPage.set(1);
+    this.sprintsPage.set(1);
+    this.backlogPage.set(1);
+    this.membersPage.set(1);
+    this.schedulesPage.set(1);
+  }
+
+  selectProjectTab(tab: ProjectTabKind): void {
+    this.activeTab.set(tab);
+    const projectId = this.project()?.id;
+    if (projectId) void this.loadProjectTab(tab, projectId);
+  }
+
+  isProjectTabLoading(tab: ProjectTabKind): boolean {
+    return this.projectTabLoading()[tab];
+  }
+
+  isProjectTabLoaded(tab: ProjectTabKind): boolean {
+    return this.projectTabLoaded()[tab];
+  }
+
+  projectTabError(tab: ProjectTabKind): string {
+    return this.projectTabErrors()[tab];
+  }
+
+  retryProjectTab(tab: ProjectTabKind): void {
+    const projectId = this.project()?.id;
+    if (!projectId) return;
+    this.projectTabLoaded.update((state) => ({ ...state, [tab]: false }));
+    void this.loadProjectTab(tab, projectId, true);
+  }
+
+  private setProjectTabLoading(tab: ProjectTabKind, loading: boolean): void {
+    this.projectTabLoading.update((state) => ({ ...state, [tab]: loading }));
+  }
+
+  private resetProjectTabs(): void {
+    this.projectTabGeneration += 1;
+    this.epics.set([]);
+    this.stories.set([]);
+    this.tasks.set([]);
+    this.sprints.set([]);
+    this.backlogTasks.set([]);
+    this.members.set([]);
+    this.projectStats.set(null);
+    this.schedules.set([]);
+    this.isOwner.set(false);
+    this.projectTabLoading.set({
+      epics: false,
+      sprints: false,
+      backlog: false,
+      settings: false,
+      members: false,
+      stats: false,
+      schedules: false,
+    });
+    this.projectTabLoaded.set({
+      epics: false,
+      sprints: false,
+      backlog: false,
+      settings: false,
+      members: false,
+      stats: false,
+      schedules: false,
+    });
+    this.projectTabErrors.set({
+      epics: '',
+      sprints: '',
+      backlog: '',
+      settings: '',
+      members: '',
+      stats: '',
+      schedules: '',
+    });
+  }
+
+  private async loadProjectTab(tab: ProjectTabKind, projectId: number, force = false): Promise<void> {
+    if (!force && (this.isProjectTabLoading(tab) || this.isProjectTabLoaded(tab))) return;
+
+    const generation = this.projectTabGeneration;
+    if (tab === 'settings') {
+      await this.loadProjectAccess(projectId, generation);
+      return;
+    }
+    this.setProjectTabLoading(tab, true);
+    this.projectTabErrors.update((state) => ({ ...state, [tab]: '' }));
+
+    try {
+      if (tab === 'epics') {
+        const epics = await firstValueFrom(this.api.listEpics(projectId));
+        if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
+        this.epics.set(epics);
+        void this.loadEpicProgressData(projectId, epics, generation);
+      } else if (tab === 'sprints') {
+        const sprints = await firstValueFrom(this.api.listSprints(projectId));
+        if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
+        this.sprints.set(sprints);
+      } else if (tab === 'backlog') {
+        const tasks = await firstValueFrom(this.api.searchTasks({ project_id: projectId, limit: 200 }));
+        if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
+        this.backlogTasks.set(tasks.filter((task) => !task.sprint_id));
+      } else if (tab === 'members') {
+        const [members, me] = await Promise.all([
+          firstValueFrom(this.api.listMembers(projectId)),
+          firstValueFrom(this.api.me()),
+        ]);
+        if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
+        this.members.set(members.items);
+        this.applyProjectAccess(me, members.items);
+        this.projectTabLoaded.update((state) => ({ ...state, settings: true }));
+      } else if (tab === 'stats') {
+        const stats = await firstValueFrom(this.api.getProjectStats(projectId));
+        if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
+        this.projectStats.set(stats);
+      } else if (tab === 'schedules') {
+        const schedules = await firstValueFrom(this.api.listSchedules(projectId));
+        if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
+        this.schedules.set(schedules);
+      }
+
+      this.projectTabLoaded.update((state) => ({ ...state, [tab]: true }));
+    } catch (error) {
+      if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
+      this.projectTabErrors.update((state) => ({ ...state, [tab]: this.message(error) }));
+    } finally {
+      if (this.isCurrentProjectTabRequest(projectId, generation)) this.setProjectTabLoading(tab, false);
+    }
+  }
+
+  private async loadProjectAccess(projectId: number, generation: number): Promise<void> {
+    if (this.isProjectTabLoaded('settings') || this.isProjectTabLoading('settings')) return;
+    this.setProjectTabLoading('settings', true);
+    this.projectTabErrors.update((state) => ({ ...state, settings: '' }));
+    try {
+      const [me, members] = await Promise.all([
+        firstValueFrom(this.api.me()),
+        firstValueFrom(this.api.listMembers(projectId)),
+      ]);
+      if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
+      this.applyProjectAccess(me, members.items);
+      this.projectTabLoaded.update((state) => ({ ...state, settings: true }));
+    } catch (error) {
+      if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
+      this.projectTabErrors.update((state) => ({ ...state, settings: this.message(error) }));
+    } finally {
+      if (this.isCurrentProjectTabRequest(projectId, generation)) this.setProjectTabLoading('settings', false);
+    }
+  }
+
+  private applyProjectAccess(me: UserProfile, members: ProjectMember[]): void {
+    this.isAdmin.set(me.is_admin ?? false);
+    const membership = members.find((member) => member.user_id === me.id);
+    this.isOwner.set(membership?.role === 'owner');
+  }
+
+  private async loadEpicProgressData(projectId: number, epics: Epic[], generation: number): Promise<void> {
+    try {
+      const stories = (
+        await Promise.all(epics.map((epic) => firstValueFrom(this.api.listStories(epic.id))))
+      ).flat();
+      if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
+      this.stories.set(stories);
+      const tasks = (
+        await Promise.all(stories.map((story) => firstValueFrom(this.api.listTasks(story.id))))
+      ).flat();
+      if (this.isCurrentProjectTabRequest(projectId, generation)) this.tasks.set(tasks);
+    } catch {
+      // Epic 列表已经可用；进度数据加载失败不阻塞主列表。
+    }
+  }
+
+  private isCurrentProjectTabRequest(projectId: number, generation: number): boolean {
+    return this.project()?.id === projectId && this.projectTabGeneration === generation;
+  }
+
   private async loadRoute(): Promise<void> {
     // 未登录时不加载任何业务数据，由独立登录页接管
     if (this.authVisible()) return;
@@ -759,30 +1012,12 @@ export class App implements OnInit, OnDestroy {
       } else if (kind === 'project' && id > 0) {
         this.view.set('project');
         this.activeTab.set('epics');
-        const [project, epics] = await Promise.all([
-          firstValueFrom(this.api.getProject(id)),
-          firstValueFrom(this.api.listEpics(id)),
-        ]);
+        this.resetProjectListPages();
+        this.resetProjectTabs();
+        const project = await firstValueFrom(this.api.getProject(id));
         this.project.set(project);
-        this.epics.set(epics);
         this.trackRecentProject(project);
-        // Epic 33.1: Load stories + tasks for all epics to compute epic progress
-        const allStories = (
-          await Promise.all(epics.map((e) => firstValueFrom(this.api.listStories(e.id))))
-        ).flat();
-        this.stories.set(allStories);
-        const allTasks = (
-          await Promise.all(allStories.map((s) => firstValueFrom(this.api.listTasks(s.id))))
-        ).flat();
-        this.tasks.set(allTasks);
-        await Promise.all([
-          this.loadSprints(id),
-          this.loadBacklog(id),
-          this.loadMembers(id),
-          this.loadProjectStats(id),
-          this.loadSchedules(id),
-        ]);
-        await this.checkProjectOwner(id);
+        void this.loadProjectTab('epics', id);
       } else if (kind === 'epic' && id > 0) {
         this.view.set('epic');
         const [epic, stories] = await Promise.all([
@@ -1201,26 +1436,71 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  async remove(kind: 'project' | 'epic' | 'story' | 'task', id: number): Promise<void> {
-    if (!confirm('确认删除？此操作不可撤销。')) return;
+  private openConfirmation(
+    options: Omit<ConfirmationDialog, 'action' | 'cancelLabel'> & { cancelLabel?: string },
+    action: () => Promise<void>,
+  ): void {
+    if (this.confirmation() || this.confirmationBusy()) return;
+    this.confirmation.set({
+      ...options,
+      cancelLabel: options.cancelLabel || '取消',
+      action,
+    });
+    setTimeout(() => this.document.getElementById('confirmation-primary')?.focus());
+  }
+
+  cancelConfirmation(): void {
+    if (this.confirmationBusy()) return;
+    this.confirmation.set(null);
+  }
+
+  async acceptConfirmation(): Promise<void> {
+    const dialog = this.confirmation();
+    if (!dialog || this.confirmationBusy()) return;
+    this.confirmationBusy.set(true);
     try {
-      if (kind === 'project') await firstValueFrom(this.api.deleteProject(id));
-      if (kind === 'epic') await firstValueFrom(this.api.deleteEpic(id));
-      if (kind === 'story') await firstValueFrom(this.api.deleteStory(id));
-      if (kind === 'task') await firstValueFrom(this.api.deleteTask(id));
-      this.notify('已删除');
-      await this.router.navigateByUrl(
-        kind === 'project'
-          ? '/projects'
-          : kind === 'epic'
-            ? `/project/${this.project()?.id}`
-            : kind === 'story'
-              ? `/epic/${this.epic()?.id}`
-              : `/story/${this.story()?.id}`,
-      );
+      await dialog.action();
+      this.confirmation.set(null);
     } catch (error) {
-      this.notify(`删除失败：${this.message(error)}`, 'error');
+      this.notify(`操作失败：${this.message(error)}`, 'error');
+    } finally {
+      this.confirmationBusy.set(false);
     }
+  }
+
+  remove(kind: 'project' | 'epic' | 'story' | 'task', id: number): void {
+    const labels: Record<typeof kind, string> = {
+      project: '项目',
+      epic: 'Epic',
+      story: 'Story',
+      task: '任务',
+    };
+    const label = labels[kind];
+    this.openConfirmation({
+      title: `删除${label}？`,
+      message: `删除后，该${label}及其关联数据将无法恢复。请确认是否继续。`,
+      confirmLabel: `删除${label}`,
+      tone: 'danger',
+    }, async () => {
+      try {
+        if (kind === 'project') await firstValueFrom(this.api.deleteProject(id));
+        if (kind === 'epic') await firstValueFrom(this.api.deleteEpic(id));
+        if (kind === 'story') await firstValueFrom(this.api.deleteStory(id));
+        if (kind === 'task') await firstValueFrom(this.api.deleteTask(id));
+        this.notify('已删除');
+        await this.router.navigateByUrl(
+          kind === 'project'
+            ? '/projects'
+            : kind === 'epic'
+              ? `/project/${this.project()?.id}`
+              : kind === 'story'
+                ? `/epic/${this.epic()?.id}`
+                : `/story/${this.story()?.id}`,
+        );
+      } catch (error) {
+        this.notify(`删除失败：${this.message(error)}`, 'error');
+      }
+    });
   }
 
   /* ---------- Sprint ---------- */
@@ -1265,49 +1545,73 @@ export class App implements OnInit, OnDestroy {
       : this.backlogTasks();
   });
 
-  async activateSprint(id: number): Promise<void> {
-    if (!confirm('激活此 Sprint？同一项目只能有一个 active Sprint。')) return;
-    try {
-      await firstValueFrom(this.api.activateSprint(id));
-      this.notify('Sprint 已激活');
-      await this.refresh();
-    } catch (error) {
-      this.notify(`激活失败：${this.message(error)}`, 'error');
-    }
+  activateSprint(id: number): void {
+    this.openConfirmation({
+      title: '启动 Sprint？',
+      message: '启动后，此 Sprint 将进入进行中状态。同一项目同时只能有一个进行中的 Sprint。',
+      confirmLabel: '确认启动',
+      tone: 'info',
+    }, async () => {
+      try {
+        await firstValueFrom(this.api.activateSprint(id));
+        this.notify('Sprint 已激活');
+        await this.refresh();
+      } catch (error) {
+        this.notify(`激活失败：${this.message(error)}`, 'error');
+      }
+    });
   }
 
-  async completeSprint(id: number): Promise<void> {
-    if (!confirm('完成此 Sprint？未完成的任务将退回 Backlog。')) return;
-    try {
-      await firstValueFrom(this.api.completeSprint(id));
-      this.notify('Sprint 已完成，未完成任务已退回 Backlog');
-      await this.refresh();
-    } catch (error) {
-      this.notify(`完成失败：${this.message(error)}`, 'error');
-    }
+  completeSprint(id: number): void {
+    this.openConfirmation({
+      title: '完成 Sprint？',
+      message: '完成后，所有未完成的任务会自动退回 Backlog。',
+      confirmLabel: '确认完成',
+      tone: 'warning',
+    }, async () => {
+      try {
+        await firstValueFrom(this.api.completeSprint(id));
+        this.notify('Sprint 已完成，未完成任务已退回 Backlog');
+        await this.refresh();
+      } catch (error) {
+        this.notify(`完成失败：${this.message(error)}`, 'error');
+      }
+    });
   }
 
-  async deleteSprint(id: number): Promise<void> {
-    if (!confirm('删除此 Sprint？')) return;
-    try {
-      await firstValueFrom(this.api.deleteSprint(id));
-      this.notify('Sprint 已删除');
-      await this.refresh();
-    } catch (error) {
-      this.notify(`删除失败：${this.message(error)}`, 'error');
-    }
+  deleteSprint(id: number): void {
+    this.openConfirmation({
+      title: '删除 Sprint？',
+      message: '删除后无法恢复，其中的任务将不再属于此 Sprint。',
+      confirmLabel: '删除 Sprint',
+      tone: 'danger',
+    }, async () => {
+      try {
+        await firstValueFrom(this.api.deleteSprint(id));
+        this.notify('Sprint 已删除');
+        await this.refresh();
+      } catch (error) {
+        this.notify(`删除失败：${this.message(error)}`, 'error');
+      }
+    });
   }
 
-  async deleteSchedule(id: number): Promise<void> {
-    if (!confirm('删除此定时计划？')) return;
+  deleteSchedule(id: number): void {
     const project = this.project();
-    try {
-      await firstValueFrom(this.api.deleteSchedule(id));
-      this.notify('计划已删除');
-      if (project) await this.loadSchedules(project.id);
-    } catch (error) {
-      this.notify(`删除失败：${this.message(error)}`, 'error');
-    }
+    this.openConfirmation({
+      title: '删除定时计划？',
+      message: '删除后，该计划将不再执行且无法恢复。',
+      confirmLabel: '删除计划',
+      tone: 'danger',
+    }, async () => {
+      try {
+        await firstValueFrom(this.api.deleteSchedule(id));
+        this.notify('计划已删除');
+        if (project) await this.loadSchedules(project.id);
+      } catch (error) {
+        this.notify(`删除失败：${this.message(error)}`, 'error');
+      }
+    });
   }
 
   async assignTaskToSprint(taskId: number, sprintId: number): Promise<void> {
@@ -1410,40 +1714,45 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  async bulkDeleteTasks(): Promise<void> {
+  bulkDeleteTasks(): void {
     const ids = Array.from(this.selectedTasks());
     if (ids.length === 0) return;
-    if (!confirm(`确认删除选中的 ${ids.length} 个任务？此操作不可撤销。`)) return;
-    
-    // 显示进度
-    this.bulkProgress.set({ current: 0, total: ids.length, message: `正在删除 0/${ids.length} 个任务…` });
-    
-    try {
-      const result = await firstValueFrom(this.api.bulkDeleteTasks(ids));
-      const successCount = result.deleted?.length ?? 0;
-      const errorCount = result.errors?.length ?? 0;
-      
-      // Story 21.3: 失败反馈优化 - 显示具体失败项
-      if (errorCount > 0) {
-        const failedIds = result.errors.map((e: any) => e.id || e.task_id).filter(Boolean).slice(0, 3);
-        const failedMsg = failedIds.length > 0 ? `（失败 ID: ${failedIds.join(', ')}${errorCount > 3 ? '…' : ''}）` : '';
-        this.notify(`批量删除完成：${successCount} 成功，${errorCount} 失败${failedMsg}`, 'error');
-      } else {
-        this.notify(`已删除 ${successCount} 个任务`);
+    this.openConfirmation({
+      title: `删除 ${ids.length} 个任务？`,
+      message: '所选任务会被永久删除，此操作无法撤销。',
+      confirmLabel: `删除 ${ids.length} 个任务`,
+      tone: 'danger',
+    }, async () => {
+      // 显示进度
+      this.bulkProgress.set({ current: 0, total: ids.length, message: `正在删除 0/${ids.length} 个任务…` });
+
+      try {
+        const result = await firstValueFrom(this.api.bulkDeleteTasks(ids));
+        const successCount = result.deleted?.length ?? 0;
+        const errorCount = result.errors?.length ?? 0;
+
+        // Story 21.3: 失败反馈优化 - 显示具体失败项
+        if (errorCount > 0) {
+          const failedIds = result.errors.map((e: any) => e.id || e.task_id).filter(Boolean).slice(0, 3);
+          const failedMsg = failedIds.length > 0 ? `（失败 ID: ${failedIds.join(', ')}${errorCount > 3 ? '…' : ''}）` : '';
+          this.notify(`批量删除完成：${successCount} 成功，${errorCount} 失败${failedMsg}`, 'error');
+        } else {
+          this.notify(`已删除 ${successCount} 个任务`);
+        }
+        this.clearTaskSelection();
+        await this.refresh();
+      } catch (error) {
+        // Epic 21 Story 21.4: 离线队列重放时的错误处理
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        if (errorMsg.includes('离线')) {
+          this.notify('操作已加入离线队列，将在网络恢复后自动重试', 'error');
+        } else {
+          this.notify(`批量删除失败：${errorMsg}`, 'error');
+        }
+      } finally {
+        this.bulkProgress.set(null);
       }
-      this.clearTaskSelection();
-      await this.refresh();
-    } catch (error) {
-      // Epic 21 Story 21.4: 离线队列重放时的错误处理
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      if (errorMsg.includes('离线')) {
-        this.notify('操作已加入离线队列，将在网络恢复后自动重试', 'error');
-      } else {
-        this.notify(`批量删除失败：${errorMsg}`, 'error');
-      }
-    } finally {
-      this.bulkProgress.set(null);
-    }
+    });
   }
 
   // Task 711: 批量删除 - 快捷键触发
@@ -1584,15 +1893,21 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  async removeMember(projectId: number, userId: number): Promise<void> {
-    if (!confirm('确认移除该成员？')) return;
-    try {
-      await firstValueFrom(this.api.removeMember(projectId, userId));
-      this.notify('成员已移除');
-      await this.loadMembers(projectId);
-    } catch (error) {
-      this.notify(`移除失败：${this.message(error)}`, 'error');
-    }
+  removeMember(projectId: number, userId: number): void {
+    this.openConfirmation({
+      title: '移除项目成员？',
+      message: '该成员将失去项目访问权限，之后仍可重新邀请。',
+      confirmLabel: '确认移除',
+      tone: 'warning',
+    }, async () => {
+      try {
+        await firstValueFrom(this.api.removeMember(projectId, userId));
+        this.notify('成员已移除');
+        await this.loadMembers(projectId);
+      } catch (error) {
+        this.notify(`移除失败：${this.message(error)}`, 'error');
+      }
+    });
   }
 
   async updateMemberRole(projectId: number, userId: number, role: string): Promise<void> {
@@ -1680,15 +1995,21 @@ export class App implements OnInit, OnDestroy {
     input.value = '';
   }
 
-  async deleteAttachment(taskId: number, attachmentId: number): Promise<void> {
-    if (!confirm('确认删除此附件？')) return;
-    try {
-      await firstValueFrom(this.api.deleteAttachment(attachmentId));
-      this.notify('附件已删除');
-      await this.loadAttachments(taskId);
-    } catch (error) {
-      this.notify(`删除失败：${this.message(error)}`, 'error');
-    }
+  deleteAttachment(taskId: number, attachmentId: number): void {
+    this.openConfirmation({
+      title: '删除附件？',
+      message: '附件删除后无法恢复，请确认是否继续。',
+      confirmLabel: '删除附件',
+      tone: 'danger',
+    }, async () => {
+      try {
+        await firstValueFrom(this.api.deleteAttachment(attachmentId));
+        this.notify('附件已删除');
+        await this.loadAttachments(taskId);
+      } catch (error) {
+        this.notify(`删除失败：${this.message(error)}`, 'error');
+      }
+    });
   }
 
   /* ---------- Schedules ---------- */
@@ -1772,15 +2093,21 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  async adminDeleteProject(projectId: number): Promise<void> {
-    if (!confirm('确认删除此项目？此操作不可撤销！')) return;
-    try {
-      await firstValueFrom(this.api.adminDeleteProject(projectId));
-      this.notify('项目已删除');
-      await this.loadAdminData();
-    } catch (error) {
-      this.notify(`删除失败：${this.message(error)}`, 'error');
-    }
+  adminDeleteProject(projectId: number): void {
+    this.openConfirmation({
+      title: '永久删除项目？',
+      message: '该项目及其所有关联数据都会被永久删除，此操作无法撤销。',
+      confirmLabel: '永久删除',
+      tone: 'danger',
+    }, async () => {
+      try {
+        await firstValueFrom(this.api.adminDeleteProject(projectId));
+        this.notify('项目已删除');
+        await this.loadAdminData();
+      } catch (error) {
+        this.notify(`删除失败：${this.message(error)}`, 'error');
+      }
+    });
   }
 
   /* ---------- Epic 25: API Keys ---------- */
@@ -1869,15 +2196,21 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  async revokeApiKey(keyId: number): Promise<void> {
-    if (!confirm('确认撤销此 API Key？撤销后使用该 Key 的请求将立即失效。')) return;
-    try {
-      await firstValueFrom(this.api.revokeApiKey(keyId));
-      this.notify('API Key 已撤销');
-      await this.loadApiKeys();
-    } catch (error) {
-      this.notify(`撤销失败：${this.message(error)}`, 'error');
-    }
+  revokeApiKey(keyId: number): void {
+    this.openConfirmation({
+      title: '撤销 API Key？',
+      message: '撤销后，所有使用该 Key 的请求会立即失效，且无法恢复。',
+      confirmLabel: '确认撤销',
+      tone: 'danger',
+    }, async () => {
+      try {
+        await firstValueFrom(this.api.revokeApiKey(keyId));
+        this.notify('API Key 已撤销');
+        await this.loadApiKeys();
+      } catch (error) {
+        this.notify(`撤销失败：${this.message(error)}`, 'error');
+      }
+    });
   }
 
   async openNotification(notification: Notification): Promise<void> {
@@ -2698,13 +3031,19 @@ export class App implements OnInit, OnDestroy {
       await this.deleteNotification(n.id);
     }
   }
-  async deleteAllNotifications(): Promise<void> {
+  deleteAllNotifications(): void {
     const groups = this.filteredGroupedNotifications();
     const all = Object.values(groups).flat();
     if (all.length === 0) return;
-    if (!confirm('确认清空全部通知？')) return;
-    for (const n of all) {
-      await this.deleteNotification(n.id);
-    }
+    this.openConfirmation({
+      title: '清空全部通知？',
+      message: `当前共 ${all.length} 条通知，清空后无法恢复。`,
+      confirmLabel: '清空通知',
+      tone: 'danger',
+    }, async () => {
+      for (const n of all) {
+        await this.deleteNotification(n.id);
+      }
+    });
   }
 }

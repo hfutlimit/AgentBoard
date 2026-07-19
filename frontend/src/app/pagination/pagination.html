@@ -1,0 +1,48 @@
+@if (totalPages > 1) {
+  <nav class="pagination" [attr.aria-label]="label + '分页'">
+    <span class="pagination-summary">第 {{ rangeStart }}–{{ rangeEnd }} 条，共 {{ total }} 条</span>
+    <div class="pagination-controls">
+      <button
+        type="button"
+        class="pagination-btn pagination-edge"
+        [disabled]="currentPage === 1"
+        [attr.aria-label]="label + '首页'"
+        title="首页"
+        (click)="goTo(1)"
+      >
+        «
+      </button>
+      <button
+        type="button"
+        class="pagination-btn"
+        [disabled]="currentPage === 1"
+        [attr.aria-label]="label + '上一页'"
+        (click)="goTo(currentPage - 1)"
+      >
+        ‹ 上一页
+      </button>
+      <span class="pagination-current" aria-live="polite">
+        第 <strong>{{ currentPage }}</strong> / {{ totalPages }} 页
+      </span>
+      <button
+        type="button"
+        class="pagination-btn"
+        [disabled]="currentPage === totalPages"
+        [attr.aria-label]="label + '下一页'"
+        (click)="goTo(currentPage + 1)"
+      >
+        下一页 ›
+      </button>
+      <button
+        type="button"
+        class="pagination-btn pagination-edge"
+        [disabled]="currentPage === totalPages"
+        [attr.aria-label]="label + '末页'"
+        title="末页"
+        (click)="goTo(totalPages)"
+      >
+        »
+      </button>
+    </div>
+  </nav>
+}

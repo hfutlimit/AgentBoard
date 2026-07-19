@@ -461,26 +461,38 @@
             }
             <!-- Tab bar -->
             <div class="tab-bar">
-              <button class="tab-btn" [class.active]="activeTab() === 'epics'" (click)="activeTab.set('epics')">
-                Epics <span class="tab-count">{{ epics().length }}</span>
+              <button class="tab-btn" [class.active]="activeTab() === 'epics'" (click)="selectProjectTab('epics')">
+                Epics
+                @if (isProjectTabLoaded('epics')) { <span class="tab-count">{{ epics().length }}</span> }
+                @else if (isProjectTabLoading('epics')) { <span class="tab-loading-dot" title="加载中"></span> }
               </button>
-              <button class="tab-btn" [class.active]="activeTab() === 'sprints'" (click)="activeTab.set('sprints')">
-                Sprints <span class="tab-count">{{ sprints().length }}</span>
+              <button class="tab-btn" [class.active]="activeTab() === 'sprints'" (click)="selectProjectTab('sprints')">
+                Sprints
+                @if (isProjectTabLoaded('sprints')) { <span class="tab-count">{{ sprints().length }}</span> }
+                @else if (isProjectTabLoading('sprints')) { <span class="tab-loading-dot" title="加载中"></span> }
               </button>
-              <button class="tab-btn" [class.active]="activeTab() === 'backlog'" (click)="activeTab.set('backlog')">
-                Backlog <span class="tab-count">{{ backlogVisibleTasks().length }}</span>
+              <button class="tab-btn" [class.active]="activeTab() === 'backlog'" (click)="selectProjectTab('backlog')">
+                Backlog
+                @if (isProjectTabLoaded('backlog')) { <span class="tab-count">{{ backlogVisibleTasks().length }}</span> }
+                @else if (isProjectTabLoading('backlog')) { <span class="tab-loading-dot" title="加载中"></span> }
               </button>
-              <button class="tab-btn" [class.active]="activeTab() === 'members'" (click)="activeTab.set('members')">
-                成员 <span class="tab-count">{{ members().length }}</span>
+              <button class="tab-btn" [class.active]="activeTab() === 'members'" (click)="selectProjectTab('members')">
+                成员
+                @if (isProjectTabLoaded('members')) { <span class="tab-count">{{ members().length }}</span> }
+                @else if (isProjectTabLoading('members')) { <span class="tab-loading-dot" title="加载中"></span> }
               </button>
-              <button class="tab-btn" [class.active]="activeTab() === 'stats'" (click)="activeTab.set('stats')">
+              <button class="tab-btn" [class.active]="activeTab() === 'stats'" (click)="selectProjectTab('stats')">
                 统计
+                @if (isProjectTabLoading('stats')) { <span class="tab-loading-dot" title="加载中"></span> }
               </button>
-              <button class="tab-btn" [class.active]="activeTab() === 'schedules'" (click)="activeTab.set('schedules')">
+              <button class="tab-btn" [class.active]="activeTab() === 'schedules'" (click)="selectProjectTab('schedules')">
                 定时计划
+                @if (isProjectTabLoaded('schedules')) { <span class="tab-count">{{ schedules().length }}</span> }
+                @else if (isProjectTabLoading('schedules')) { <span class="tab-loading-dot" title="加载中"></span> }
               </button>
-              <button class="tab-btn" [class.active]="activeTab() === 'settings'" (click)="activeTab.set('settings')">
+              <button class="tab-btn" [class.active]="activeTab() === 'settings'" (click)="selectProjectTab('settings')">
                 设置
+                @if (isProjectTabLoading('settings')) { <span class="tab-loading-dot" title="加载中"></span> }
               </button>
             </div>
 
@@ -493,35 +505,56 @@
                     ＋ 新建 Epic
                   </button>
                 </div>
-                <div class="entity-list">
-                  @for (item of visibleEpics(); track item.id) {
-                    <a [routerLink]="['/epic', item.id]" class="entity-item">
-                      <div class="entity-item-main">
-                        <span class="type-icon epic">E</span>
-                        <span class="entity-item-title">{{ item.title }}</span>
-                      </div>
-                      @if (epicProgress(item.id).stories > 0) {
-                        <div class="epic-progress-mini" title="{{ epicProgress(item.id).doneStories }}/{{ epicProgress(item.id).stories }} Story · {{ epicProgress(item.id).pct }}%">
-                          <span class="epic-progress-text">{{ epicProgress(item.id).doneStories }}/{{ epicProgress(item.id).stories }}</span>
-                          <div class="epic-progress-track">
-                            <div class="epic-progress-fill" [style.width.%]="epicProgress(item.id).pct"></div>
-                          </div>
+                @if (isProjectTabLoading('epics')) {
+                  <div class="tab-list-skeleton" role="status" aria-label="正在加载 Epic 列表">
+                    <div class="tab-loading-caption"><span class="spinner"></span>正在加载 Epic 列表…</div>
+                    @for (row of tabSkeletonRows; track row) {
+                      <div class="tab-skeleton-row"><span class="tab-skeleton-icon"></span><span class="tab-skeleton-line"></span><span class="tab-skeleton-badge"></span></div>
+                    }
+                  </div>
+                } @else if (projectTabError('epics')) {
+                  <div class="tab-load-error" role="alert">
+                    <span>Epic 列表加载失败：{{ projectTabError('epics') }}</span>
+                    <button class="ghost-sm" type="button" (click)="retryProjectTab('epics')">重试</button>
+                  </div>
+                } @else {
+                  <div class="entity-list" id="epics-list">
+                    @for (item of paginatedItems(visibleEpics(), epicsPage()); track item.id) {
+                      <a [routerLink]="['/epic', item.id]" class="entity-item">
+                        <div class="entity-item-main">
+                          <span class="type-icon epic">E</span>
+                          <span class="entity-item-title">{{ item.title }}</span>
                         </div>
-                      }
-                      <span class="badge status status--{{ item.status }}">{{ statusLabel(item.status) }}</span>
-                    </a>
-                  } @empty {
-                    <!-- Task 811: 空项目引导创建第一个 Epic -->
-                    <div class="empty-state-guide">
-                      <div class="empty-state-icon">🎯</div>
-                      <div class="empty-state-title">还没有 Epic</div>
-                      <div class="empty-state-desc">Epic 是大一点的目标或功能模块，帮助你组织和管理大型工作。</div>
-                      <button class="btn-primary-sm" (click)="openCreate('epic', current.id)">
-                        ＋ 创建第一个 Epic
-                      </button>
-                    </div>
-                  }
-                </div>
+                        @if (epicProgress(item.id).stories > 0) {
+                          <div class="epic-progress-mini" title="{{ epicProgress(item.id).doneStories }}/{{ epicProgress(item.id).stories }} Story · {{ epicProgress(item.id).pct }}%">
+                            <span class="epic-progress-text">{{ epicProgress(item.id).doneStories }}/{{ epicProgress(item.id).stories }}</span>
+                            <div class="epic-progress-track">
+                              <div class="epic-progress-fill" [style.width.%]="epicProgress(item.id).pct"></div>
+                            </div>
+                          </div>
+                        }
+                        <span class="badge status status--{{ item.status }}">{{ statusLabel(item.status) }}</span>
+                      </a>
+                    } @empty {
+                      <!-- Task 811: 空项目引导创建第一个 Epic -->
+                      <div class="empty-state-guide">
+                        <div class="empty-state-icon">🎯</div>
+                        <div class="empty-state-title">还没有 Epic</div>
+                        <div class="empty-state-desc">Epic 是大一点的目标或功能模块，帮助你组织和管理大型工作。</div>
+                        <button class="btn-primary-sm" (click)="openCreate('epic', current.id)">
+                          ＋ 创建第一个 Epic
+                        </button>
+                      </div>
+                    }
+                  </div>
+                  <app-pagination
+                    label="Epic 列表"
+                    [total]="visibleEpics().length"
+                    [page]="epicsPage()"
+                    [pageSize]="projectListPageSize"
+                    (pageChange)="setProjectListPage('epics', $event)"
+                  />
+                }
               </div>
             }
 
@@ -539,9 +572,21 @@
                     </form>
                   </details>
                 </div>
-                @if (sprints().length) {
-                  <div class="entity-list">
-                    @for (item of sprints(); track item.id) {
+                @if (isProjectTabLoading('sprints')) {
+                  <div class="tab-list-skeleton" role="status" aria-label="正在加载 Sprint 列表">
+                    <div class="tab-loading-caption"><span class="spinner"></span>正在加载 Sprint 列表…</div>
+                    @for (row of tabSkeletonRows; track row) {
+                      <div class="tab-skeleton-row"><span class="tab-skeleton-icon"></span><span class="tab-skeleton-line"></span><span class="tab-skeleton-badge"></span></div>
+                    }
+                  </div>
+                } @else if (projectTabError('sprints')) {
+                  <div class="tab-load-error" role="alert">
+                    <span>Sprint 列表加载失败：{{ projectTabError('sprints') }}</span>
+                    <button class="ghost-sm" type="button" (click)="retryProjectTab('sprints')">重试</button>
+                  </div>
+                } @else if (sprints().length) {
+                  <div class="entity-list" id="sprints-list">
+                    @for (item of paginatedItems(sprints(), sprintsPage()); track item.id) {
                       <div class="entity-item sprint-item">
                         <a [routerLink]="['/sprint', item.id]" class="entity-item-main">
                           <span class="type-icon sprint-{{ item.status }}" [title]="sprintStatusLabel(item.status)">S</span>
@@ -557,6 +602,13 @@
                       </div>
                     }
                   </div>
+                  <app-pagination
+                    label="Sprint 列表"
+                    [total]="sprints().length"
+                    [page]="sprintsPage()"
+                    [pageSize]="projectListPageSize"
+                    (pageChange)="setProjectListPage('sprints', $event)"
+                  />
                 } @else {
                   <div class="empty-inline">暂无 Sprint</div>
                 }
@@ -569,9 +621,21 @@
                 <div class="section-header">
                   <h3>Backlog <span class="count">{{ backlogVisibleTasks().length }}</span></h3>
                 </div>
-                @if (backlogVisibleTasks().length) {
-                  <div class="entity-list">
-                    @for (task of backlogVisibleTasks(); track task.id) {
+                @if (isProjectTabLoading('backlog')) {
+                  <div class="tab-list-skeleton" role="status" aria-label="正在加载 Backlog 列表">
+                    <div class="tab-loading-caption"><span class="spinner"></span>正在加载 Backlog 列表…</div>
+                    @for (row of tabSkeletonRows; track row) {
+                      <div class="tab-skeleton-row"><span class="tab-skeleton-icon"></span><span class="tab-skeleton-line"></span><span class="tab-skeleton-badge"></span></div>
+                    }
+                  </div>
+                } @else if (projectTabError('backlog')) {
+                  <div class="tab-load-error" role="alert">
+                    <span>Backlog 加载失败：{{ projectTabError('backlog') }}</span>
+                    <button class="ghost-sm" type="button" (click)="retryProjectTab('backlog')">重试</button>
+                  </div>
+                } @else if (backlogVisibleTasks().length) {
+                  <div class="entity-list" id="backlog-list">
+                    @for (task of paginatedItems(backlogVisibleTasks(), backlogPage()); track task.id) {
                       <div class="entity-item">
                         <a [routerLink]="['/task', task.id]" class="entity-item-main">
                           <span class="type-icon {{ task.type }}">{{ task.type === 'bug' ? '!' : '✓' }}</span>
@@ -586,6 +650,13 @@
                       </div>
                     }
                   </div>
+                  <app-pagination
+                    label="Backlog 列表"
+                    [total]="backlogVisibleTasks().length"
+                    [page]="backlogPage()"
+                    [pageSize]="projectListPageSize"
+                    (pageChange)="setProjectListPage('backlog', $event)"
+                  />
                 } @else {
                   <div class="empty-inline">Backlog 为空，所有任务已分配 Sprint</div>
                 }
@@ -613,10 +684,22 @@
                     </details>
                   }
                 </div>
-                @if (members().length) {
+                @if (isProjectTabLoading('members')) {
+                  <div class="tab-list-skeleton" role="status" aria-label="正在加载成员列表">
+                    <div class="tab-loading-caption"><span class="spinner"></span>正在加载成员列表…</div>
+                    @for (row of tabSkeletonRows; track row) {
+                      <div class="tab-skeleton-row"><span class="tab-skeleton-icon"></span><span class="tab-skeleton-line"></span><span class="tab-skeleton-badge"></span></div>
+                    }
+                  </div>
+                } @else if (projectTabError('members')) {
+                  <div class="tab-load-error" role="alert">
+                    <span>成员列表加载失败：{{ projectTabError('members') }}</span>
+                    <button class="ghost-sm" type="button" (click)="retryProjectTab('members')">重试</button>
+                  </div>
+                } @else if (members().length) {
                   <!-- Task 809: 项目成员头像显示 -->
-                  <div class="members-grid">
-                    @for (m of members(); track m.id) {
+                  <div class="members-grid" id="members-list">
+                    @for (m of paginatedItems(members(), membersPage()); track m.id) {
                       <div class="member-card">
                         <div class="member-avatar">{{ getMemberAvatar(m) }}</div>
                         <div class="member-info">
@@ -637,6 +720,13 @@
                       </div>
                     }
                   </div>
+                  <app-pagination
+                    label="成员列表"
+                    [total]="members().length"
+                    [page]="membersPage()"
+                    [pageSize]="projectListPageSize"
+                    (pageChange)="setProjectListPage('members', $event)"
+                  />
                 } @else {
                   <div class="empty-inline">暂无成员</div>
                 }
@@ -649,7 +739,21 @@
             <!-- Tab: Stats -->
             @if (activeTab() === 'stats') {
               <div class="tab-content">
-                @if (projectStats(); as stats) {
+                @if (isProjectTabLoading('stats')) {
+                  <div class="tab-stats-skeleton" role="status" aria-label="正在加载项目统计">
+                    <div class="tab-loading-caption"><span class="spinner"></span>正在加载项目统计…</div>
+                    <div class="stats-grid">
+                      @for (row of tabSkeletonRows; track row) {
+                        <div class="tab-skeleton-stat"></div>
+                      }
+                    </div>
+                  </div>
+                } @else if (projectTabError('stats')) {
+                  <div class="tab-load-error" role="alert">
+                    <span>项目统计加载失败：{{ projectTabError('stats') }}</span>
+                    <button class="ghost-sm" type="button" (click)="retryProjectTab('stats')">重试</button>
+                  </div>
+                } @else if (projectStats(); as stats) {
                   <div class="stats-grid">
                     <div class="stat-card">
                       <div class="stat-value">{{ stats.total_tasks }}</div>
@@ -699,7 +803,7 @@
                     </div>
                   }
                 } @else {
-                  <div class="empty-inline">加载统计数据…</div>
+                  <div class="empty-inline">暂无统计数据</div>
                 }
               </div>
             }
@@ -711,9 +815,21 @@
                   <h3>定时 Agent 计划</h3>
                   <button class="btn-primary-sm" (click)="openCreateSchedule(current.id)">＋ 新建计划</button>
                 </div>
-                @if (schedules().length) {
-                  <div class="schedule-list">
-                    @for (sch of schedules(); track sch.id) {
+                @if (isProjectTabLoading('schedules')) {
+                  <div class="tab-list-skeleton" role="status" aria-label="正在加载定时计划列表">
+                    <div class="tab-loading-caption"><span class="spinner"></span>正在加载定时计划…</div>
+                    @for (row of tabSkeletonRows; track row) {
+                      <div class="tab-skeleton-row"><span class="tab-skeleton-icon"></span><span class="tab-skeleton-line"></span><span class="tab-skeleton-badge"></span></div>
+                    }
+                  </div>
+                } @else if (projectTabError('schedules')) {
+                  <div class="tab-load-error" role="alert">
+                    <span>定时计划加载失败：{{ projectTabError('schedules') }}</span>
+                    <button class="ghost-sm" type="button" (click)="retryProjectTab('schedules')">重试</button>
+                  </div>
+                } @else if (schedules().length) {
+                  <div class="schedule-list" id="schedules-list">
+                    @for (sch of paginatedItems(schedules(), schedulesPage()); track sch.id) {
                       <div class="schedule-item">
                         <div class="schedule-info">
                           <div class="schedule-title">
@@ -740,6 +856,13 @@
                       </div>
                     }
                   </div>
+                  <app-pagination
+                    label="定时计划列表"
+                    [total]="schedules().length"
+                    [page]="schedulesPage()"
+                    [pageSize]="projectListPageSize"
+                    (pageChange)="setProjectListPage('schedules', $event)"
+                  />
                 } @else {
                   <div class="empty-inline">暂无定时计划，配置 Agent 自动运行任务</div>
                 }
@@ -749,7 +872,19 @@
             <!-- Tab: Settings -->
             @if (activeTab() === 'settings') {
               <div class="tab-content">
-                @if (isOwner() || isAdmin()) {
+                @if (isProjectTabLoading('settings')) {
+                  <div class="tab-list-skeleton tab-settings-skeleton" role="status" aria-label="正在加载项目设置">
+                    <div class="tab-loading-caption"><span class="spinner"></span>正在检查项目权限…</div>
+                    @for (row of tabSkeletonRows.slice(0, 3); track row) {
+                      <div class="tab-skeleton-field"><span class="tab-skeleton-label"></span><span class="tab-skeleton-input"></span></div>
+                    }
+                  </div>
+                } @else if (projectTabError('settings')) {
+                  <div class="tab-load-error" role="alert">
+                    <span>项目设置加载失败：{{ projectTabError('settings') }}</span>
+                    <button class="ghost-sm" type="button" (click)="retryProjectTab('settings')">重试</button>
+                  </div>
+                } @else if (isOwner() || isAdmin()) {
                   <div class="card form-section">
                     <h4>项目设置</h4>
                     <form
@@ -1919,6 +2054,70 @@
     (modeChange)="authMode.set($event)"
     (authenticate)="authenticate($event.username, $event.password)"
   />
+}
+
+@if (confirmation(); as dialog) {
+  <div
+    class="confirmation-overlay"
+    (click)="cancelConfirmation()"
+    role="presentation"
+  >
+    <section
+      class="confirmation-dialog confirmation-dialog--{{ dialog.tone }}"
+      role="alertdialog"
+      aria-modal="true"
+      aria-labelledby="confirmation-title"
+      aria-describedby="confirmation-message"
+      (click)="$event.stopPropagation()"
+    >
+      <div class="confirmation-content">
+        <div class="confirmation-icon" aria-hidden="true">
+          @if (dialog.tone === 'danger') {
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M12 8v5m0 3h.01M10.3 3.8 2.1 18a2 2 0 0 0 1.74 3h16.32a2 2 0 0 0 1.74-3L13.7 3.8a2 2 0 0 0-3.4 0Z" />
+            </svg>
+          } @else if (dialog.tone === 'warning') {
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M12 8v5m0 3h.01M10.3 3.8 2.1 18a2 2 0 0 0 1.74 3h16.32a2 2 0 0 0 1.74-3L13.7 3.8a2 2 0 0 0-3.4 0Z" />
+            </svg>
+          } @else {
+            <svg viewBox="0 0 24 24" focusable="false">
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 11v5m0-8h.01" />
+            </svg>
+          }
+        </div>
+        <div class="confirmation-copy">
+          <h2 id="confirmation-title">{{ dialog.title }}</h2>
+          <p id="confirmation-message">{{ dialog.message }}</p>
+        </div>
+      </div>
+      <footer class="confirmation-actions">
+        <button
+          type="button"
+          class="confirmation-cancel"
+          [disabled]="confirmationBusy()"
+          (click)="cancelConfirmation()"
+        >
+          {{ dialog.cancelLabel }}
+        </button>
+        <button
+          id="confirmation-primary"
+          type="button"
+          class="confirmation-primary confirmation-primary--{{ dialog.tone }}"
+          [disabled]="confirmationBusy()"
+          (click)="acceptConfirmation()"
+        >
+          @if (confirmationBusy()) {
+            <span class="confirmation-spinner" aria-hidden="true"></span>
+            <span>处理中…</span>
+          } @else {
+            <span>{{ dialog.confirmLabel }}</span>
+          }
+        </button>
+      </footer>
+    </section>
+  </div>
 }
 
 <div id="toast">
