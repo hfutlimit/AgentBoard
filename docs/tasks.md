@@ -1,5 +1,8 @@
 # AgentBoard 任务列表
 
+> ⚠️ 本清单的任务项已迁移至 **AgentBoard MCP（project 3，远程部署）**。请以 MCP 为唯一真相源；此文件仅保留 Epic / Story 骨架供速览，任务行（共 250 条）已清理。
+
+
 > 工作清单（Superpowers / OpenSpec 风格）。每个 Epic 对应一个能力，Story 对应一个可交付切片，Task 为可执行单元。
 > 约定：`[ ]` 未开始，`[x]` 已完成。状态参考 `docs/requirements.md` FR-5。
 > 开发顺序建议自上而下；Epic 6 用于以本项目的规范来管理本项目自身。
@@ -10,15 +13,8 @@
 > 目标：可切换的双后端（SQLite / MariaDB）存储，承载项目树。
 
 ### Story 1.1 定义数据模型
-- [ ] Task：绘制 ER 模型并固化到 `docs/requirements.md` §6
-- [ ] Task：实现 SQLAlchemy 模型（Project / Epic / Story / Task）
-- [ ] Task：定义状态枚举与合法迁移规则
 
 ### Story 1.2 存储抽象与切换
-- [ ] Task：基于 `AGENTBOARD_DB_URL` 实现数据库引擎工厂（SQLite / MariaDB）
-- [ ] Task：编写连接池与健康检查
-- [ ] Task：Alembic 初始化与首版迁移脚本
-- [ ] Task：存储层单元测试（SQLite 下跑通，验证 MariaDB DDL 兼容）
 
 ---
 
@@ -26,21 +22,10 @@
 > 目标：业务服务封装，供 MCP 与未来 UI 复用。
 
 ### Story 2.1 项目树 CRUD
-- [ ] Task：`create_project / get_project / list_projects / update_project / delete_project`
-- [ ] Task：`create_epic / get_epic / list_epics`
-- [ ] Task：`create_story / get_story / list_stories`
-- [ ] Task：`create_task`（type=task|bug）/ `get_task` / `list_tasks`
-- [ ] Task：级联删除策略（Project 删除时处理子节点）
 
 ### Story 2.2 描述与规范读写
-- [ ] Task：`set_task_description` / `get_task_description`
-- [ ] Task：`set_task_spec` / `get_task_spec` / `append_task_spec`
-- [ ] Task：spec 内容校验（markdown 解析不报错即接受）
 
 ### Story 2.3 查询、过滤与搜索
-- [ ] Task：按 project / epic / story / type / status 过滤
-- [ ] Task：关键字搜索 title / description / spec
-- [ ] Task：服务层单元测试
 
 ---
 
@@ -48,16 +33,8 @@
 > 目标：暴露工具给 AI Agent，驱动开发闭环。
 
 ### Story 3.1 基础 CRUD 工具
-- [ ] Task：FastMCP 服务骨架 + 启动入口
-- [ ] Task：注册项目树 CRUD 工具
-- [ ] Task：注册 task 描述 / spec 读写工具
-- [ ] Task：注册搜索 / 过滤工具
-- [ ] Task：注册状态流转工具（校验合法迁移）
 
 ### Story 3.2 工具契约与返回结构
-- [ ] Task：统一 JSON 返回结构（含 id / 错误信息）
-- [ ] Task：MCP 工具入参 schema 校验
-- [ ] Task：本地以 MCP 客户端联调（SQLite）
 
 ---
 
@@ -65,14 +42,8 @@
 > 目标：把规范驱动开发留在任务里。
 
 ### Story 4.1 Spec 模板
-- [ ] Task：定义 change-proposal 模板（背景 / 目标 / 范围 / 任务清单 / 验收）
-- [ ] Task：提供"生成变更提案"工具，写入 task.spec
-- [ ] Task：定义执行计划（plan）模板
 
 ### Story 4.2 规范与任务联动（可选）
-- [x] Task：从 spec 解析清单项（- [ ] 标题）并批量建同级子 task（generate_tasks_from_spec）
-- [x] Task：task 与 spec 双向引用（子任务记录 source_spec_id，源 spec 回写链接）
-- [ ] Task：状态联动（spec 进入 review 时关联 task 转 in_review）
 
 ---
 
@@ -80,13 +51,8 @@
 > 目标：人类可用的可视化管理。
 
 ### Story 5.1 REST API
-- [ ] Task：FastAPI 暴露核心 CRUD
-- [ ] Task：与 MCP 共用同一 service 层
 
 ### Story 5.2 简易 Web UI
-- [ ] Task：项目树浏览
-- [ ] Task：任务详情 + markdown 渲染（description / spec）
-- [ ] Task：状态切换交互
 
 ---
 
@@ -94,13 +60,8 @@
 > 用 OpenSpec 结构沉淀 AgentBoard 自身的规格与变更。
 
 ### Story 6.1 规范目录
-- [x] Task：建立 `openspec/specs/agentboard/spec.md`（能力规格 = 当前事实来源）
-- [x] Task：建立 `openspec/changes/` 目录 + `openspec/AGENTS.md`（Agent 指引）
-- [x] Task：将本 `docs/tasks.md` 与 OpenSpec `tasks.md` 对齐（后续变更走 `openspec/changes/*/tasks.md`）
 
 ### Story 6.2 首个变更提案
-- [x] Task：以 OpenSpec 提案形式描述后续变更（见 `openspec/changes/mariadb-alembic/`）
-- [ ] Task：MariaDB 接入 + Alembic 迁移 + MCP 工具补全（进行中，见 change 的 tasks.md）
 
 ---
 
@@ -146,19 +107,10 @@
 > **优先级说明**：Epic 7 已完成（所有 Story [x]）。MCP 鉴权（Task 102）**暂不加**，避免影响 Agent 交互体验。
 
 ### Story 7.1 前端鉴权骨架
-- [x] Task：`app.js` 增加 `getToken/setToken/clearToken`（localStorage）
-- [x] Task：改造 `api()` 自动注入 `Authorization`；收到 401 清 token 回登录
-- [x] Task：`index.html` 预留登录 / 注册容器（复用顶栏 `#user-info` 作为登录入口 / 用户态容器）
 
 ### Story 7.2 登录 / 注册界面
-- [x] Task：`renderAuth()`：用户名 / 密码 + 登录/注册切换，调用 `/api/auth/register|login`
-- [x] Task：成功存 token 进应用；失败（409/401）展示错误
-- [x] Task：启动守卫：有 token 且 `/api/auth/me` 通过则进应用，否则显示登录（动态：后端开放时免登可用，要求鉴权时自动跳登录）
 
 ### Story 7.3 应用内用户态
-- [x] Task：顶部栏显示当前用户名 + 登出按钮
-- [x] Task：`style.css` 补充登录卡片 / 用户信息条样式
-- [ ] Task（暂缓）：`api.py` 增加 `AGENTBOARD_REQUIRE_AUTH` 强制 CRUD 鉴权（MCP 鉴权先行时再加，避免破坏 Agent 交互）
 
 ---
 
@@ -166,17 +118,10 @@
 > 目标：独立 `.sql` 脚本 + 真实集成验证。Alembic 迁移与 MCP 工具已就绪（见 `openspec/changes/mariadb-alembic/`）。
 
 ### Story 8.1 独立 MariaDB 脚本
-- [x] Task：新增 `scripts/mariadb/schema.sql`（建库 utf8mb4、建用户授权、五表与 `models.py` 对齐、含 `source_spec_id`）
-- [x] Task：`scripts/mariadb/README.md` 说明初始化与离线评审用法
 
 ### Story 8.2 真实集成验证
-- [x] Task：用户提供 MariaDB 连接信息（`AGENTBOARD_DB_URL=mysql+pymysql://...`）
-- [x] Task：验证 Alembic `upgrade head` 在 MariaDB 11 建表 DDL 兼容
-- [x] Task：MariaDB 下跑通 service 层冒烟（CRUD + 状态机 + 搜索 + 生成子任务）
-- [x] Task：更新 `docker-compose.yml` 的 `db` profile 与 API 对接示例
 
 ### Story 8.3 集成测试
-- [x] Task：新增 `tests/test_mariadb_integration.py`（`skipif` 无 `AGENTBOARD_TEST_MARIADB`）
 
 ---
 
@@ -184,23 +129,11 @@
 > 目标：真实浏览器驱动 SPA 的 E2E。与 `test_web_flow.py` 互补（见 `openspec/changes/playwright-e2e/`）。
 
 ### Story 9.1 测试骨架
-- [x] Task：`requirements.txt` 增加 `playwright` / `pytest-playwright`
-- [x] Task：新增 `tests/test_playwright_e2e.py`：fixture 启动真实 API + Web（临时 SQLite）
-- [x] Task：UI 辅助函数 `ui_register / ui_login`
 
 ### Story 9.3 静态资源契约与回归保护
 > 目的：防止 2026-07-14 「web_app.py 资源路径/MIME 错误导致页面空白」事故复现。
-- [x] Task：新增 `tests/test_web_assets_e2e.py`：8 项契约测试（首页 200/app-root/无 404/Angular 启动/品牌文案/JS MIME/CSS MIME/资源路径解析）
-- [x] Task：所有测试通过（8/8 PASSED），与现有 test_playwright_e2e.py 互补
 
 ### Story 9.2 真实交互用例
-- [x] Task：注册 UI 流（进入应用 + localStorage 含 token）
-- [x] Task：登录 UI 流（注册后登出再登录重新进入应用）
-- [x] Task：错误密码 / 重复注册报错（UI 错误分支）
-- [x] Task：项目树 CRUD UI（Project→Epic→Story→Task/Bug）
-- [x] Task：状态流转 UI（徽标更新）
-- [x] Task：spec 编辑与 markdown 渲染
-- [x] Task：README 补充 `playwright install chromium` 与运行命令
 
 ---
 
@@ -208,19 +141,10 @@
 > 已完成：完整项目树工具、统一登录 Token、远程 Streamable HTTP、Bearer 鉴权、Docker 与真实协议测试。
 
 ### Story 10.1 MCP 用户管理工具
-- [x] Task：`mcp_server.py` 新增 `auth_register` / `auth_login` / `auth_me`（api + db 双后端）
 
 ### Story 10.2 Token 透传与运维
-- [x] Task：`api` 后端透传当前远程 MCP Token，stdio 回退 `AGENTBOARD_MCP_TOKEN`
-- [x] Task：`python -m agentboard.mcp_server` 支持 stdio/http 环境配置
-- [x] Task：客户端配置样例 `examples/mcp-stdio.json` / `examples/mcp-remote.json`
-- [x] Task：完整 Project/Epic/Story/Task list/get/update/delete 工具
-- [x] Task：Docker Compose 远程 MCP 服务与 REST 强制鉴权
 
 ### Story 10.3 验证与文档
-- [x] Task：新增 `tests/test_mcp_smoke.py`（真实 HTTP、Bearer、API Token 透传、完整项目树）
-- [x] Task：README「MCP 运行与接入」章节
-- [x] Task：更新 `openspec/specs/agentboard/spec.md` 的 MCP 工具清单
 
 ---
 
@@ -296,29 +220,12 @@
 > 权威变更提案：`openspec/changes/jira-agent-core/`。按纵向切片交付，保证每一片都同时覆盖存储、REST、MCP、Web 与测试。
 
 ### Story 12.1 优先级与评论（本轮）
-- [x] Task：任务增加五级 `priority`，支持创建、编辑、筛选及迁移
-- [x] Task：评论表与服务层 CRUD，删除任务/父级时同步清理
-- [x] Task：REST API 暴露优先级与评论端点
-- [x] Task：MCP 支持设置/筛选优先级、添加/读取/删除评论
-- [x] Task：Web 任务列表/详情显示优先级，详情页支持评论流
-- [x] Task：补充服务、REST 与 MCP 回归测试
 
 ### Story 12.2 Sprint 规划
-- [x] Task：Sprint 数据模型、迁移、状态机与"单 active Sprint"约束
-- [x] Task：Sprint CRUD、任务入 Sprint、关闭时搬迁未完成任务
-- [x] Task：Sprint/Backlog Web 视图与 MCP 工具
 
 ### Story 12.3 附件
-- [x] Task：附件元数据模型、本地安全存储与大小/MIME 限制
-- [x] Task：上传、列表、下载、删除 REST API
-- [x] Task：任务详情附件区与 MCP 资源信息工具
 
 ### Story 12.4 定时 Agent 开发
-- [x] Task：AgentSchedule / AgentRun 模型、一次性与 cron 表达式校验（Task 88 → in_review）
-- [x] Task：带租约和幂等键的调度扫描器，避免重复运行（Task 89 → in_review）
-- [x] Task：Codex / WorkBuddy / Qoder 执行器适配契约与最小安全策略
-- [x] Task：Web 计划配置、运行历史、失败重试与停用入口
-- [x] Task：MCP 提供领取任务，心跳、状态/评论同步与运行完成工具
 
 ### 完成记录
 | 日期 | 项 | 简述 |
@@ -366,22 +273,12 @@
 > 目标：项目成员管理、通知系统、项目统计面板、管理员后台。
 
 ### Story 13.1 成员管理与项目可见性
-- [x] Task 93：数据模型：新增 `is_private`/`is_admin` 字段、`ProjectMember` 表、`Notification` 表
-- [x] Task 94：后端 API：成员 CRUD、角色变更、项目可见性过滤、创建项目自动分配 owner
-- [x] Task 95：前端 Members Tab：成员列表、邀请表单（用户名+角色）、移除、角色变更；Settings Tab 编辑 `is_private`
 
 ### Story 13.2 用户通知系统
-- [x] Task 96：后端 API：通知 CRUD、未读计数、标记已读、全部已读；`create_project` 发送邀请通知
-- [x] Task 97：前端通知面板：导航栏铃铛图标+未读徽章+下拉面板
 
 ### Story 13.3 项目统计 Tab
-- [x] Task 98：后端 API：`GET /api/projects/{pid}/stats`（每日新增/完成任务量、总任务/开发中/Backlog/完成率）
-- [x] Task 99：前端 Stats Tab：5 个统计卡片 + 每日柱状图（最近30天）
 
 ### Story 13.4 管理员后台
-- [x] Task 100：后端 API：`/api/admin/users`（设管理员）、`/api/admin/projects`（删除项目）；首个注册用户自动 admin
-- [x] Task 101：前端 Admin 视图：`/admin` 路由、用户/项目管理表格、Admin 专属导航入口
-- [ ] Task 102（**暂缓**）：MCP 工具补全：将新增 API 暴露到 `mcp_server.py` MCP 工具。**暂不推进**，避免 MCP 鉴权影响 Agent 交互体验；待 Epic 7 MCP 鉴权方案明确后再评估。
 
 ### 完成记录
 | 日期 | 项 | 简述 |
@@ -394,17 +291,10 @@
 > 目标：Sprint 燃尽图、API 速率限制、Dashboard 增强。
 
 ### Story 14.1 健康检查与 MCP 工具
-- [x] Task 204: GET /api/health 后端健康检查端点（Task 204 → in_review）
-- [x] Task 206: 前端 API 健康指示器（Task 206 → in_review）
-- [x] Task 210: MCP get_project_stats 工具（Task 210 → in_review）
 
 ### Story 14.2 Dashboard 与 Sprint 增强
-- [x] Task 207: Dashboard Hero 增强（健康状态胶囊 + 完成率统计卡）
-- [x] Task 208: Sprint 燃尽图（GET /api/sprints/{id}/burndown + Angular 图表）
-- [x] Task 209: 任务卡片丰富化（timeAgo + Sprint 指示器）
 
 ### Story 14.3 API 速率限制
-- [x] Task 205: 线程安全 token-bucket 限流（60 req/min/IP，环境变量可配置）
 
 ### Story 14.4 通知增强
 - [x] 全局通知优化（动画 + 类型图标 + timeAgo + 脉冲徽章）
@@ -439,12 +329,8 @@
 > 目标：修复测试失败项，优化本地开发体验。
 
 ### Story 16.1 测试稳定性修复
-- [x] Task 220: 修复 Sprint 单活跃约束测试（API 采用交换模式，测试验证 swap 行为而非 400 拒绝）
-- [x] Task 221: 修复速率限制器绕过本地测试请求（localhost/127.0.0.1 跳过限流）
 
 ### Story 16.2 本地开发体验
-- [x] Task 222: Docker Compose 镜像预热脚本（避免每次构建拉取基础镜像）
-- [x] Task 223: 本地开发 hot-reload 配置
 
 ### 完成记录
 | 日期 | 项 | 简述 |
@@ -457,12 +343,8 @@
 > 目标：数据库查询优化与 API 缓存机制，提升响应速度。
 
 ### Story 18.1 数据库索引优化
-- [x] Task 300: 添加复合索引优化常见查询模式（project_id+status, epic_id+status 等）
-- [x] Task 301: 添加单字段 status 索引优化任务列表查询
 
 ### Story 18.2 API 缓存机制
-- [x] Task 302: 实现 SimpleCache 内存缓存模块（TTL 支持、线程安全、前缀失效）
-- [x] Task 303: 创建性能测试用例验证缓存功能
 
 ### 完成记录
 | 日期 | 项 | 简述 |
@@ -478,10 +360,8 @@
 - [x] 主要列表 API 已返回 total 字段（projects, notifications, users, admin projects 等）
 
 ### Story 19.2 统计查询优化
-- [x] Task: get_project_stats 使用条件聚合（case when）替代多个单独查询
 
 ### Story 19.3 索引管理工具
-- [x] Task: 创建 scripts/create_indexes.py 辅助脚本，支持 SQLite/MariaDB 自动检测
 
 ### 完成记录
 | 日期 | 项 | 简述 |
@@ -494,17 +374,10 @@
 > 目标：批量任务操作、增强搜索排序、数据导出功能。
 
 ### Story 20.1 批量任务操作
-- [x] Task 103: 批量更新任务状态 API（POST /api/tasks/bulk-update，支持 status/priority/sprint_id）
-- [x] Task 104: 批量分配 Sprint API（通过 bulk-update 的 sprint_id 参数实现）
-- [x] Task 105: 批量删除任务 API（POST /api/tasks/bulk-delete）
 
 ### Story 20.2 高级搜索与过滤 API
-- [x] Task 106: 增强排序参数（GET /api/tasks/search 支持 sort_by=created_at/updated_at/priority/status & sort_order=asc/desc）
-- [x] Task 107: 多条件组合过滤 API（GET /api/tasks/search 支持 status[]=xx&priority[]=xx 多值过滤）
 
 ### Story 20.3 数据导出功能
-- [x] Task 108: 导出项目数据 API（GET /api/projects/{pid}/export 返回完整项目树 JSON）
-- [x] Task 109: 导出 Epic/Story 数据（GET /api/stories/{sid}/export 返回 Story 及所有子任务）
 
 ### 完成记录
 | 日期 | 项 | 简述 |
@@ -519,9 +392,6 @@
 > 目标：健康检查自动轮询、通知轮询、API 缓存强化、批量操作 UX 增强、前端错误处理优化。
 
 ### Story 21.1 健康检查与通知自动轮询
-- [x] Task 400: 健康检查定时轮询（60s）+ 可开关存储在 localStorage
-- [x] Task 401: 通知未读数自动轮询（60s）+ 面板打开时立即刷新
-- [x] Task 402: API 离线检测：网络断开时显示离线提示条
 
 ### Story 21.2 API 缓存强化与性能优化
 - [x] 扩展缓存到 stats 端点 + 配置化 TTL + 优化缓存失效逻辑
@@ -538,26 +408,14 @@
 > 目标：API 审计日志、任务依赖关系管理、Webhook 配置、数据导入导出增强。
 
 ### Story 22.1 审计日志
-- [x] Task：审计日志模型（audit_logs 表：user_id/action/entity_type/entity_id/method/path/ip/user_agent/response_status/duration_ms）
-- [x] Task：API 中间件自动记录所有非 health/meta/auth 的 API 请求
-- [x] Task：审计日志查询 API（GET /api/audit-logs，支持 entity_type/entity_id/user_id/action 过滤）
 
 ### Story 22.2 任务依赖关系
-- [x] Task：任务依赖模型（task_dependencies 表：task_id/depends_on_id/dependency_type）
-- [x] Task：依赖 CRUD API（POST /api/tasks/{tid}/dependencies、DELETE /api/dependencies/{did}）
-- [x] Task：前端依赖管理面板（任务详情抽屉内：blockers/blocked_by 显示 + 添加/删除）
 
 ### Story 22.3 数据导入
-- [x] Task：JSON 数据批量导入 API（POST /api/projects/{pid}/import）
 
 ### Story 22.4 Webhook 配置
-- [x] Task：Webhook 配置模型（webhook_configs 表：project_id/name/url/secret/events/enabled）
-- [x] Task：Webhook CRUD API（POST/GET/DELETE/PATCH /api/webhooks）
-- [x] Task：前端 Webhooks Tab（项目详情页：列表/创建/启用停用/删除）
 
 ### Story 22.5 MCP 工具扩展
-- [x] Task：MCP 审计日志工具（list_audit_logs）
-- [x] Task：MCP 依赖管理工具（get_task_dependencies、remove_task_dependency）
 
 ### 完成记录
 | 日期 | 项 | 简述 |
@@ -570,21 +428,14 @@
 > 目标：看板交互增强、搜索优化、详情页导航、无障碍访问。
 
 ### Story 27.1 看板卡片动画优化（Stories 40-44）
-- [x] Task 700: 看板卡片 hover 动画增强（cubic-bezier spring + shimmer + `::before` 渐变）
-- [x] Task 701: 看板列拖拽占位符动画（`::after` + `@keyframes` 指示器）
 
 ### Story 27.2 搜索体验优化
-- [x] Task 702: 搜索框历史记录下拉（localStorage，最多 10 条）
-- [x] Task 703: 搜索结果高亮关键词（`<mark>` 高亮 + 深色适配）
 
 ### Story 27.3 任务详情页增强
-- [x] Task 704: 任务详情页上一条/下一条导航
 
 ### Story 27.4 无障碍访问优化
-- [x] Task 706: 关键元素 ARIA 属性添加（`.skip-link`/`.sr-only`/`.live-region`）
 
 ### Story 27.5 API 性能优化
-- [x] Task 705: API 响应缓存与防抖（300ms debounce on search）
 
 ### 完成记录
 | 日期 | 项 | 简述 |
@@ -598,15 +449,10 @@
 > 目标：性能指标显示、快捷键面板增强、批量操作键盘支持。
 
 ### Story 29.1 性能监控与优化提示（Story 45）
-- [x] Task 708: 性能指标显示（加载时间/API响应时间/成功率）
-- [x] Task 709: 慢操作提示（骨架屏/进度指示）
 
 ### Story 29.2 键盘导航增强（Story 46）
-- [x] Task 710: 快捷键提示面板增强（批量操作快捷键说明）
-- [x] Task 711: 任务列表批量选择键盘支持（Ctrl+A/Del）
 
 ### Story 29.3 动画与过渡优化（Story 47）
-- [x] Task 712: 页面切换过渡动画
 
 ### 完成记录
 | 日期 | 项 | 简述 |
@@ -619,15 +465,10 @@
 > 目标：看板交互增强、虚拟滚动、全局快捷键。
 
 ### Story 28.1 看板卡片动画优化（Stories 49）
-- [x] Task 712: 看板卡片 hover 效果增强（`will-change` + cubic-bezier(0.34,1.56,0.64,1) spring + shimmer `::before`）
-- [x] Task 713: 卡片拖拽占位符动画（`.dragging`/`.drag-over`/`.drag-over::after` + `@keyframes drag-drop-indicator`）
 
 ### Story 28.2 列表渲染性能优化（Stories 50）
-- [x] Task 714: 虚拟滚动优化大型列表（`taskPageSize`/`taskPageCount` signals + 加载更多按钮）
-- [x] Task 715: 增量渲染优化（`tasksForStatus` memoize + Angular signals computed cache）
 
 ### Story 28.3 快捷键增强（Stories 51）
-- [x] Task 716: 全局快捷键面板（`showShortcuts` signal + `shortcuts` data + `?` 键 + 顶部 `?` 按钮）
 
 ### 完成记录
 | 日期 | 项 | 简述 |
@@ -641,18 +482,10 @@
 > 目标：API 缓存强化、批量操作 UX 增强、前端错误处理。
 
 ### Story 30.1 API 缓存强化（Story 37）
-- [ ] Task 801: 扩展 API 缓存 TTL 配置
-- [ ] Task 802: 添加缓存命中率统计
 
 ### Story 30.2 批量操作 UX 增强（Story 38）
-- [x] Task 803: 批量选择全选/取消功能（Ctrl+A 快捷键）
-- [x] Task 804: 批量操作进度条显示（百分比+进度条）
-- [x] Task 805: 批量操作结果反馈
 
 ### Story 30.3 前端错误处理与离线支持（Story 39）
-- [x] Task 806: 全局错误边界组件
-- [x] Task 807: 错误重试机制
-- [x] Task 808: 离线操作队列可视化
 
 ### 完成记录
 | 日期 | 项 | 简述 |
@@ -666,13 +499,8 @@
 > 目标：通知搜索过滤、看板视觉增强、任务列表排序、项目卡片 3D 效果。
 
 ### Story 31.1 通知与看板增强
-- [x] Task 727: 通知面板搜索过滤（`notifSearchQuery` signal + `filteredGroupedNotifications` computed）
-- [x] Task 728: 看板列交替背景色（`nth-child(odd/even)` + color-mix 微妙区分）
-- [x] Task 729: 看板卡片显示 Epic 名称徽章（`taskEpicName()` helper + CSS）
-- [x] Task 731: 项目卡片 3D 悬浮效果 + 项目计数徽章
 
 ### Story 31.2 任务列表排序
-- [x] Task 730: 任务列表排序下拉（`taskSortKey`/`taskSortOrder` signals + 按创建/更新/优先级/标题排序）
 
 ### 完成记录
 | 日期 | 项 | 简述 |
@@ -685,7 +513,6 @@
 > 目标：任务列表信息密度向 Jira/Linear 靠拢；纯前端，不改后端契约。
 
 ### Story 34.1 任务列表汇总栏
-- [x] Task 903: 任务列表汇总栏 - computed + 模板 + CSS
 
 ### 完成记录
 | 日期 | 项 | 简述 |
