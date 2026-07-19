@@ -387,6 +387,17 @@ export class App implements OnInit, OnDestroy {
       this.groupLabel('assignee', a).localeCompare(this.groupLabel('assignee', b), 'zh'));
     return keys.map((k) => ({ key: k, label: this.groupLabel(g, k), count: buckets[k].length, items: buckets[k] }));
   });
+  // v1.8: Collapsible task groups — persist collapsed keys in localStorage
+  readonly collapsedGroups = signal<Set<string>>(
+    new Set(JSON.parse(localStorage.getItem('agentboard_collapsed_groups') || '[]'))
+  );
+  isGroupCollapsed(key: string): boolean { return this.collapsedGroups().has(key); }
+  toggleGroup(key: string): void {
+    const s = new Set(this.collapsedGroups());
+    if (s.has(key)) s.delete(key); else s.add(key);
+    this.collapsedGroups.set(s);
+    localStorage.setItem('agentboard_collapsed_groups', JSON.stringify([...s]));
+  }
   readonly doneTasks = computed(() => this.tasks().filter((t) => t.status === 'done').length);
   // Epic 34.1: 任务列表汇总栏（总数/完成率/状态分布堆叠条）
   readonly taskListSummary = computed(() => {

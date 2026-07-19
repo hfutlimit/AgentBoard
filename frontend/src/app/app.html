@@ -1189,11 +1189,13 @@
               <div class="entity-list" [class.density-compact]="listDensity() === 'compact'" (keydown)="handleTaskKeydown($event)" tabindex="0">
                 @for (grp of groupedTasks(); track grp.key) {
                   @if (grp.key) {
-                    <div class="task-group-header">
+                    <div class="task-group-header" [class.collapsed]="isGroupCollapsed(grp.key)" (click)="toggleGroup(grp.key)">
+                      <span class="task-group-chevron">{{ isGroupCollapsed(grp.key) ? '▸' : '▾' }}</span>
                       <span class="task-group-label">{{ grp.label }}</span>
                       <span class="task-group-count">{{ grp.count }}</span>
                     </div>
                   }
+                  @if (!grp.key || !isGroupCollapsed(grp.key)) {
                   @for (item of grp.items; track item.id) {
                   <div class="entity-item entity-item--rich" [class.selected]="selectedTasks().has(item.id)" [class.kbd-focused]="isTaskFocused(item.id)">
                     <input
@@ -1270,6 +1272,7 @@
                       (click)="duplicateTask(item.id); $event.stopPropagation()"
                     >⎘</button>
                   </div>
+                  }
                   }
                 } @empty {
                   <div class="empty-inline">暂无任务</div>
