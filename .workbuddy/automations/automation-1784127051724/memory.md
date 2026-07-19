@@ -69,3 +69,11 @@
 - **验证**: Playwright E2E `test_v19_collapse_all_groups_e2e.py` 全绿（0 page/console/404 错误）；Epic 34 汇总栏回归全绿。
 - **提交**: commit `bee0ee2`，push 成功（`22bb34c..bee0ee2`）。
 - **硬约束**: 未触碰 18001/8080/docker；刻意排除 data/、autodev.lock、其他 automation 的 MEMORY.md。
+
+## 2026-07-20 07:37 运行（Epic 30 收尾：Task 801/802 → in_review）
+- **目标**: 至少 1 个 task → in_review（状态对账 + 验收，无代码改动）。
+- **完成**: 经 MCP 将 Epic 30（id=63）下 Story 59(Task 801 TTL 可配置) 与 Story 60(Task 802 命中率统计) 由 backlog 置 **in_review**；Epic 63 三 story 全 in_review → 置 Epic 63 **in_review**。
+- **关键经验**: `set_status` 只作用于 tasks 表；MCP 中名为「Task 801/802」的条目实为 **stories**(id=59/60)，须用 `update_story(story_id,status=)` 置位（不做 FR-5 校验）。直接 `set_status(59,in_review)` 会命中 tasks 表另一个 id=59 的 done 任务而报 `done->in_review 不合法`。
+- **验收**: live `/api/cache/stats` 正常（default_ttl=30 印证 env 默认）；`pytest test_epic30_cache.py` 8 passed；Playwright `test_epic30_cache_e2e.py` 全绿（0 错误）。无代码改动→无回归。
+- **提交**: 仅 memory 更新 → git commit + push origin main 成功。
+- **硬约束**: 未触碰 18001/8080/docker；排除 data/、autodev.lock、其他 automation MEMORY.md。
