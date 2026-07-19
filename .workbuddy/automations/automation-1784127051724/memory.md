@@ -48,3 +48,16 @@
 - **验证**: 2 个 Playwright E2E 全部通过 (test_epic35_search_e2e, test_epic36_inline_edit_e2e)
 - **关键发现**: Angular HttpClient PATCH Observable 不 emit（fetch 正常），改用 fetch() workaround
 - **下次可执行**: 继续新建前端优化 Epic 或修复 mcp_server.py _api 缺陷
+
+## 2026-07-20 01:17 运行（续 07-19 收尾）
+- **目标**: 完成 Epic 30 (前端体验升级 v0.8) 收尾并 push；本次目标 task → in_review。
+- **完成**:
+  - Task 801 (id=838) TTL 可配置 + Task 802 (id=839) 命中率统计 → 均 in_review（运行时 SQLite）
+  - 新增 `GET /api/cache/stats` 端点；`SimpleCache` 加线程安全命中统计
+  - 测试: `tests/test_epic30_cache.py` (8 pytest 通过) + `tests/test_epic30_cache_e2e.py` (Playwright 通过)
+  - `openspec/changes/epic30-cache-v08/{proposal,design,tasks}.md` 已写
+- **提交**: commit `7597fe2`, `git push origin main` 成功 (`840b3cb..7597fe2`)
+- **验证**: 8/8 pytest + Playwright e2e 全绿（登录/project 导航/跨域 fetch/零错误）
+- **偏差(已记录)**: MCP create/set_status 因三库不同步失效 → 改用 REST 脚本 `scripts/track_epic30_tasks.py` 在运行时 SQLite 追踪状态
+- **硬约束**: 未触碰 18001(MCP)/8080(web)/docker 配置；未提交 data/、其他 automation 的 MEMORY.md、screenshots
+- **收尾**: 已写 `.workbuddy/memory/2026-07-20.md`；已删除 `.workbuddy/autodev.lock`
