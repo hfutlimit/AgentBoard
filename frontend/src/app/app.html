@@ -1108,6 +1108,14 @@
                     <option [value]="opt.key">{{ opt.label }}</option>
                   }
                 </select>
+                <button
+                  class="ghost-sm task-group-toggle-all"
+                  [disabled]="taskGroupBy() === 'none' || groupedTasks().length === 0"
+                  (click)="allGroupsCollapsed() ? expandAllGroups() : collapseAllGroups()"
+                  [title]="allGroupsCollapsed() ? '展开全部分组' : '折叠全部分组'"
+                >
+                  {{ allGroupsCollapsed() ? '▸ 全展开' : '▾ 全折叠' }}
+                </button>
               </div>
               <!-- Task 602: 高级筛选面板 -->
               <button class="ghost-sm" (click)="filterOpen.set(!filterOpen())" [class.active]="filterOpen()">

@@ -487,11 +487,15 @@
 
 ### Story 30.3 前端错误处理与离线支持（Story 39）
 
+### Story 30.5 任务列表分组交互增强
+- [x] **v1.9 分组一键全折叠/全展开**：任务列表「分组」工具条增加「全折叠/全展开」按钮（`.task-group-toggle-all`），分组态下点击即把所有分组头折叠/展开，按钮文案与状态联动（▾全折叠 ↔ ▸全展开），折叠集合持久化 `localStorage`（复用现有 `agentboard_collapsed_groups` 机制）；仅改 `app.ts`(+19)/`app.html`(+10)/`app.css`(+3)（净增 ~32 行，符合 R2 <80），未改 `models.py`/`api.py` 契约；Playwright E2E（`tests/test_v19_collapse_all_groups_e2e.py`）：登录→Story 25→按状态分组(4 组)→全折叠(4 头 collapsed + 行归零 + 文案转全展开)→全展开(行恢复 158 + 文案转全折叠)、零 page/console/.js+.css 错误；Epic 30 / Story 65 / Task 710 → in_review。
+
 ### 完成记录
 | 日期 | 项 | 简述 |
 |------|----|------|
 | 2026-07-15 | Epic 29 | Task 708/709 → in_review（性能指标 + 骨架屏） |
 | 2026-07-15 | Epic 30 | Task 803/804/805/806/807/808 → in_review（批量操作 + 错误处理） |
+| 2026-07-20 | v1.9 分组全折叠/全展开 | Epic 30 / Story 65 / Task 710 → in_review：`.task-group-toggle-all` 一键折叠展开所有分组，持久化 localStorage；Playwright E2E 全绿 |
 
 ---
 

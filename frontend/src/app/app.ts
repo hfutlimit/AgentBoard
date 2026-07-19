@@ -398,6 +398,22 @@ export class App implements OnInit, OnDestroy {
     this.collapsedGroups.set(s);
     localStorage.setItem('agentboard_collapsed_groups', JSON.stringify([...s]));
   }
+  // v1.9: 分组一键全折叠 / 全展开（互补 v1.8 单组折叠）
+  readonly allGroupsCollapsed = computed(() => {
+    if (this.taskGroupBy() === 'none') return false;
+    const groups = this.groupedTasks();
+    if (!groups.length) return false;
+    return groups.every((g) => !!g.key && this.collapsedGroups().has(g.key));
+  });
+  collapseAllGroups(): void {
+    const s = new Set(this.groupedTasks().map((g) => g.key).filter((k) => !!k));
+    this.collapsedGroups.set(s);
+    localStorage.setItem('agentboard_collapsed_groups', JSON.stringify([...s]));
+  }
+  expandAllGroups(): void {
+    this.collapsedGroups.set(new Set<string>());
+    localStorage.setItem('agentboard_collapsed_groups', JSON.stringify([]));
+  }
   readonly doneTasks = computed(() => this.tasks().filter((t) => t.status === 'done').length);
   // Epic 34.1: 任务列表汇总栏（总数/完成率/状态分布堆叠条）
   readonly taskListSummary = computed(() => {
