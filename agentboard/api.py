@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from .database import get_session, init_db, SessionLocal
 from . import service, auth
 from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES
-from .cache import get_cache
+from .cache import get_cache, API_CACHE_TTL
 
 
 @asynccontextmanager
@@ -1370,21 +1370,34 @@ def delete_notification(
 
 
 # ---------- Project Statistics ----------
-# 配置化 TTL（默认 60 秒）
-_CACHE_TTL_STATS = int(os.getenv("AGENTBOARD_CACHE_TTL_STATS", "60"))
-_CACHE_TTL_LIST  = int(os.getenv("AGENTBOARD_CACHE_TTL_LIST", "30"))
+# 配置化 TTL：全局默认 AGENTBOARD_CACHE_TTL，各端点可单独覆盖
+# 统计端点默认回退到全局默认 TTL
+_CACHE_TTL_STATS = int(os.getenv("AGENTBOARD_CACHE_TTL_STATS", str(API_CACHE_TTL)))
+# 列表端点缓存 TTL（预留；如需为列表端点启用缓存，可设置此变量）
+_CACHE_TTL_LIST  = int(os.getenv("AGENTBOARD_CACHE_TTL_LIST", str(API_CACHE_TTL)))
 @app.get("/api/projects/{pid}/stats")
 def project_stats(pid: int, s: Session = Depends(get_session)):
-    from agentboard.cache import get_cache, STATS_CACHE_TTL
-    _need(service.get_project(s, pid), "project")
     cache = get_cache()
     cache_key = f"stats:{pid}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
+    _need(service.get_project(s, pid), "project")
     result = service.get_project_stats(s, pid)
     cache.set(cache_key, result, _CACHE_TTL_STATS)
     return result
+
+
+# ---------- Cache Statistics (Epic 30 / Story 30.1 Task 802) ----------
+@app.get("/api/cache/stats")
+def cache_stats(s: Session = Depends(get_session)):
+    """缓存命中率与容量统计。
+
+    鉴权由 require_business_auth 中间件统一处理：
+    - AGENTBOARD_REQUIRE_AUTH=1 时，需携带具备 api:read 权限的 Bearer/API Key；
+    - 本地开放模式（默认）下公开可读。
+    """
+    return get_cache().stats()
 
 
 # ---------- Admin: Users ----------
