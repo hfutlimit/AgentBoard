@@ -61,3 +61,11 @@
 - **偏差(已记录)**: MCP create/set_status 因三库不同步失效 → 改用 REST 脚本 `scripts/track_epic30_tasks.py` 在运行时 SQLite 追踪状态
 - **硬约束**: 未触碰 18001(MCP)/8080(web)/docker 配置；未提交 data/、其他 automation 的 MEMORY.md、screenshots
 - **收尾**: 已写 `.workbuddy/memory/2026-07-20.md`；已删除 `.workbuddy/autodev.lock`
+
+## 2026-07-20 04:34 运行（v1.9 分组全折叠/全展开）
+- **目标**: 至少 1 个 task → in_review。选中最高优先级未完成 Epic = Epic 30（id=63）。
+- **完成**: 任务列表分组「一键全折叠/全展开」按钮（纯前端 ~32 行，不改后端契约）。
+- **MCP**: 新建 Story 65 / Task 710 → 经 `backlog→todo→in_progress→in_review` 置 **in_review**；Story 65→in_review、Epic 63→in_progress。本次 MCP set_status 正常（01:17 沙箱三库不同步已不复现）。
+- **验证**: Playwright E2E `test_v19_collapse_all_groups_e2e.py` 全绿（0 page/console/404 错误）；Epic 34 汇总栏回归全绿。
+- **提交**: commit `bee0ee2`，push 成功（`22bb34c..bee0ee2`）。
+- **硬约束**: 未触碰 18001/8080/docker；刻意排除 data/、autodev.lock、其他 automation 的 MEMORY.md。
