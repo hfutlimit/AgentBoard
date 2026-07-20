@@ -1866,6 +1866,7 @@ router-outlet {
 .qf-chip.active .qf-count {
   background: rgba(255, 255, 255, 0.25);
 }
+.qf-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; }
 /* ===== Epic 33 (v2.2): 只看指派给我的任务 快速筛选 ===== */
 .mine-toggle {
   display: inline-flex;

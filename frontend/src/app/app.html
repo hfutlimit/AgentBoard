@@ -495,6 +495,9 @@
                 设置
                 @if (isProjectTabLoading('settings')) { <span class="tab-loading-dot" title="加载中"></span> }
               </button>
+              <button class="tab-btn" [class.active]="activeTab() === 'documents'" (click)="selectProjectTab('documents')">
+                文档
+              </button>
             </div>
 
             <!-- Tab: Epics -->
@@ -927,6 +930,111 @@
                 </div>
               </div>
             }
+            @if (activeTab() === 'documents') {
+              <div class="tab-content">
+                <div class="section-header">
+                  <h3>项目文档</h3>
+                  <button class="btn-primary-sm" (click)="openDocCreate()">＋ 新建文档</button>
+                </div>
+                <div class="doc-toolbar">
+                  <select class="doc-filter-select" [value]="docFilterType()" (change)="docFilterType.set($any($event.target).value)">
+                    <option value="">全部类型</option>
+                    @for (t of docTypes; track t) { <option [value]="t">{{ docTypeLabel(t) }}</option> }
+                  </select>
+                  <select class="doc-filter-select" [value]="docFilterStatus()" (change)="docFilterStatus.set($any($event.target).value)">
+                    <option value="">全部状态</option>
+                    @for (s of docStatuses; track s) { <option [value]="s">{{ docStatusLabel(s) }}</option> }
+                  </select>
+                  <input class="doc-search-input" [value]="docSearchQuery()" (input)="docSearchQuery.set($any($event.target).value)" placeholder="搜索文档…" />
+                </div>
+                @if (docCreateOpen()) {
+                  <form class="card doc-create" (submit)="createDocument($event, docCTitle, docCType, docCContent)">
+                    <h3>新建文档</h3>
+                    <label>标题<input #docCTitle required maxlength="300" placeholder="文档标题" /></label>
+                    <label>类型<select #docCType>@for (t of docTypes; track t) { <option [value]="t">{{ docTypeLabel(t) }}</option> }</select></label>
+                    <label>内容（支持 Markdown / Mermaid）<textarea #docCContent rows="8" placeholder="# 标题&#10;正文…"></textarea></label>
+                    <div class="row"><button type="submit" class="btn-primary-sm">创建</button><button type="button" class="ghost-sm" (click)="closeDocCreate()">取消</button></div>
+                  </form>
+                }
+                @if (isProjectTabLoading('documents')) {
+                  <div class="tab-list-skeleton" role="status">@for (row of tabSkeletonRows.slice(0,4); track row) { <div class="tab-skeleton-row"><span class="tab-skeleton-icon"></span><span class="tab-skeleton-line long"></span><span class="tab-skeleton-badge"></span></div> }</div>
+                } @else if (projectTabError('documents')) {
+                  <div class="tab-load-error" role="alert"><span>文档加载失败：{{ projectTabError('documents') }}</span><button class="ghost-sm" type="button" (click)="retryProjectTab('documents')">重试</button></div>
+                } @else if (projectDocVisible().length === 0) {
+                  <div class="empty-state">还没有文档。点击上方「＋ 新建文档」开始记录。</div>
+                } @else {
+                  <div class="doc-list">
+                    @for (d of projectDocVisible(); track d.id) {
+                      <div class="doc-row" [class.selected]="docItem()?.id === d.id" (click)="openDocTab(d)">
+                        <div class="doc-row-main">
+                          <span class="doc-row-title">{{ d.title }}</span>
+                          <span class="doctype--{{ d.type }}">{{ docTypeLabel(d.type) }}</span>
+                          <span class="docstatus--{{ d.status }}">{{ docStatusLabel(d.status) }}</span>
+                        </div>
+                        @if (d.epic_id) { <span class="doc-meta">Epic {{ epicTitle(d.epic_id) }}</span> }
+                        <span class="doc-meta">{{ d.updated_at | date }}</span>
+                      </div>
+                    }
+                  </div>
+                }
+                @if (activeTab() === 'documents' && docItem()) {
+                  <div class="card doc-detail-inline">
+                    <div class="crumb-bar">
+                      <a (click)="docItem.set(null)">← 返回列表</a>
+                      <button class="ghost-sm" (click)="openDocEdit()">✎ 编辑</button>
+                    </div>
+                    @if (docItem(); as d) {
+                      <div class="doc-status-bar">
+                        @if (d.status === 'draft') {
+                          <button class="btn-primary-sm" (click)="setDocStatus('in_review')">提交评审</button>
+                          <button class="danger btn-sm" (click)="deleteDoc()">删除</button>
+                        } @else if (d.status === 'in_review') {
+                          <button class="btn-primary-sm" (click)="setDocStatus('approved')">批准</button>
+                          <button class="ghost-sm" (click)="setDocStatus('draft')">退回草稿</button>
+                          <button class="ghost-sm" (click)="setDocStatus('cancelled')">取消文档</button>
+                        } @else if (d.status === 'approved') {
+                          <button class="ghost-sm" (click)="setDocStatus('draft')">退回草稿</button>
+                        } @else {
+                          <button class="btn-primary-sm" (click)="setDocStatus('draft')">复活为草稿</button>
+                        }
+                      </div>
+                      @if (docEditing()) {
+                        <form class="doc-edit" (submit)="saveDocEdit()">
+                          <label>标题<input [value]="docEditTitle()" (input)="docEditTitle.set($any($event.target).value)" maxlength="300" /></label>
+                          <label>类型<select [value]="docEditType()" (change)="docEditType.set($any($event.target).value)">@for (t of docTypes; track t) { <option [value]="t">{{ docTypeLabel(t) }}</option> }</select></label>
+                          <label>内容<textarea [value]="docEditContent()" (input)="docEditContent.set($any($event.target).value)" rows="12"></textarea></label>
+                          <div class="row"><button type="submit" class="btn-primary-sm">保存</button><button type="button" class="ghost-sm" (click)="cancelDocEdit()">取消</button></div>
+                        </form>
+                      } @else {
+                        <div class="doc-content" [innerHTML]="renderMarkdown(d.content)"></div>
+                      }
+                      <div class="doc-comments-section">
+                        <h4>评论（{{ documentComments().length }}）</h4>
+                        @for (c of documentComments(); track c.id) {
+                          <div class="doc-comment-item">
+                            <strong>{{ c.author }}</strong>
+                            @if (docCommentPreview()) {
+                              <div class="md text-pre" [innerHTML]="renderMarkdown(c.content)"></div>
+                            } @else {
+                              <p>{{ c.content }}</p>
+                            }
+                            <small>{{ c.created_at | date }}</small>
+                            <div class="row">
+                              <button class="ghost-xs" (click)="toggleDocCommentPreview()">预览/原文</button>
+                              <button class="ghost-xs danger" (click)="deleteDocComment(c.id)">删除</button>
+                            </div>
+                          </div>
+                        }
+                        <form class="doc-comment-form" (submit)="addDocComment($event)">
+                          <textarea [value]="docCommentContent()" (input)="docCommentContent.set($any($event.target).value)" rows="3" placeholder="添加评论…"></textarea>
+                          <button type="submit" class="btn-primary-sm">发送</button>
+                        </form>
+                      </div>
+                    }
+                  </div>
+                }
+              </div>
+            }
           }
         }
         @case ('epic') {
@@ -1099,6 +1207,18 @@
                 @for (p of priorities; track p) {
                   <button class="qf-chip" [class.active]="filterPriorities().includes(p)" (click)="setQuickPriority(p)">
                     {{ priorityLabel(p) }} <span class="qf-count">{{ priorityCounts()[p] }}</span>
+                  </button>
+                }
+              </div>
+              <!-- Epic 37 (v2.5): 状态快速筛选 chips（常驻工具条，单选带计数与色点，持久化） -->
+              <div class="task-quickfilter-bar" role="group" aria-label="按状态快速筛选">
+                <button class="qf-chip" [class.active]="!filterStatus()" (click)="setQuickStatus('')">
+                  全部 <span class="qf-count">{{ tasks().length }}</span>
+                </button>
+                @for (s of statuses; track s) {
+                  <button class="qf-chip" [class.active]="filterStatus() === s" (click)="setQuickStatus(s)">
+                    <span class="qf-dot" [style.background]="statusColor(s)"></span>
+                    {{ statusLabel(s) }} <span class="qf-count">{{ statusCounts()[s] }}</span>
                   </button>
                 }
               </div>

@@ -100,6 +100,18 @@
 - MCP 状态（上一轮已置）：Task 718 / Story 69 / Epic 68 均 **in_review**；本次「task → in_review」目标达成。
 - **硬约束**: 未触碰 18001(MCP)/8080(web)/docker 配置；已删除 `.workbuddy/autodev.lock`。
 
+## 2026-07-20 23:39 运行（Epic 37 v2.5 状态快速筛选 chips → in_review，达成）
+- **目标**: 至少 1 个 task → in_review。MCP 连接器全部断开 → 沿用 REST 兜底（58125/8000 同源共享 DB，数据一致）。backlog 大 Epic(15 文档维护/64 腾讯云 COS) 依赖重 → 新建增量 Epic（延续 v 系列小步迭代）。
+- **MCP/REST**: 新建 Epic 33(id=33)→Story 73(id=73)→Task 862(high)「Epic 37: 任务列表状态快速筛选 chips」；状态机禁止 `backlog→in_review`，经 `backlog→todo→in_progress→in_review` 合法链置 **in_review**；Story 73、Epic 33 同步 in_review。两端(58125/8000)均确认 in_review。
+- **实现（纯前端，无后端契约变更）**:
+  - `app.ts`: `filterStatus` 信号初始化读 `localStorage['agentboard_quick_status']`；新增 `statusCounts` computed；新增 `setQuickStatus(s)` 单选切换 + `persistQuickStatus()` 持久化；`clearFilters()` 联动重置 + `activeFilterCount` 纳入状态筛选；复用既有 `statusLabel()`（不再新增同名方法，避免 TS2393 重复定义）；新增 `statusColor()` 色点。
+  - `app.html`: 优先级 chips 后追加第二个 `.task-quickfilter-bar`（全部 + 6 状态 + 色点）。
+  - `app.css`: 复用 `.qf-chip`/`.qf-count`，新增 `.qf-dot` 8px 圆点。
+- **坑(已解决)**: ① Edit 3 误删 `allLabels` 开括号致语法级联报错 → 补回；② `statusLabel` 已存在（全局用于通知/批量更新）→ 删除我新增的重复定义，复用既有；③ `npm run build` 必须走 `npm`（不可 `node ng`）；④ 构建产物在 `frontend/dist/frontend/browser/`，cp 至 `agentboard/web/static/` 即时生效（web 8080 直读静态，无需 docker rebuild）。
+- **验证**: Playwright `scripts/e2e_status_chips.py` 全绿 —— 13 个 qf-chip / 2 个 bar 渲染；状态 chips 实时计数（全部 180 / 待规划 16 / 进行中 1 / 完成 163）；点「进行中」→active 切换；**0** pageerror / console / .js+.css 404。
+- **提交**: `feat(ui): 前端体验升级 v2.5 - 任务列表状态快速筛选 chips (Task 862 → in_review)` + `git push origin main` 成功。刻意排除：data/、autodev.lock、其他 automation 的 MEMORY.md、screenshots、documents 特性等他人运行中改动。
+- **硬约束**: 未触碰 18001(MCP)/8080(web)/docker 配置。
+
 ## 20:26 自动开发 — Epic 34 v2.3 任务列表筛选结果引导 → in_review（达成）
 - **目标**: 至少 1 个 task → in_review。MCP backlog 大 Epic(15 文档维护 / 64 腾讯云 COS) 依赖重 → 新建增量 Epic（延续 Epic 11 小步迭代）。
 - **MCP**: 新建 Epic 34(id=69)→Story 70(id=70)→Task 719(high)；状态链 `backlog→todo→in_progress→in_review`；Story 70、Epic 69 同步 **in_review**（本次目标达成）。

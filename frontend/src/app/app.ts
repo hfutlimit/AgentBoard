@@ -14,7 +14,7 @@ import { PaginationComponent } from './pagination/pagination';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
-type ProjectTabKind = 'epics' | 'sprints' | 'backlog' | 'settings' | 'members' | 'stats' | 'schedules';
+type ProjectTabKind = 'epics' | 'sprints' | 'backlog' | 'settings' | 'members' | 'stats' | 'schedules' | 'documents';
 type ProjectListKind = 'epics' | 'sprints' | 'backlog' | 'members' | 'schedules';
 
 interface CreateModal {
@@ -131,6 +131,7 @@ export class App implements OnInit, OnDestroy {
     members: false,
     stats: false,
     schedules: false,
+    documents: false,
   });
   readonly projectTabLoaded = signal<Record<ProjectTabKind, boolean>>({
     epics: false,
@@ -140,6 +141,7 @@ export class App implements OnInit, OnDestroy {
     members: false,
     stats: false,
     schedules: false,
+    documents: false,
   });
   readonly projectTabErrors = signal<Record<ProjectTabKind, string>>({
     epics: '',
@@ -149,6 +151,7 @@ export class App implements OnInit, OnDestroy {
     members: '',
     stats: '',
     schedules: '',
+    documents: '',
   });
   private projectTabGeneration = 0;
   readonly statsMaxCreated = computed(() => {
@@ -310,7 +313,10 @@ export class App implements OnInit, OnDestroy {
     };
   }
   // Task 602: 高级筛选面板 - 状态/优先级过滤
-  readonly filterStatus = signal('');
+  // Epic 37 (v2.5): 状态快速筛选 chips —— 初始化读取持久化选择
+  readonly filterStatus = signal(
+    (() => { try { return localStorage.getItem('agentboard_quick_status') || ''; } catch { return ''; } })()
+  );
   readonly filterPriority = signal('');
   // Task 602: 高级筛选面板 - 多选过滤
   readonly filterOpen = signal(false);
@@ -329,7 +335,7 @@ export class App implements OnInit, OnDestroy {
   // Epic 36: Inline task title editing
   readonly editingTaskId = signal<number | null>(null);
   readonly editingTaskTitle = signal('');
-  readonly activeFilterCount = computed(() => this.filterPriorities().length + this.filterTypes().length + (this.filterOnlyOverdue() ? 1 : 0) + (this.labelFilter() ? 1 : 0) + (this.filterMineOnly() ? 1 : 0));
+  readonly activeFilterCount = computed(() => this.filterPriorities().length + this.filterTypes().length + (this.filterStatus() ? 1 : 0) + (this.filterOnlyOverdue() ? 1 : 0) + (this.labelFilter() ? 1 : 0) + (this.filterMineOnly() ? 1 : 0));
   // Epic 34 (v2.3): 工具条「清除全部筛选」按钮显隐 —— 搜索框非空或任一筛选活跃时显示
   readonly showClearAll = computed(() => this.taskSearchQuery().trim() !== '' || this.activeFilterCount() > 0);
   // Task 716: 优先级快速筛选 chips —— 各优先级任务计数（基于当前 story 全量任务，不受筛选影响）
@@ -337,6 +343,14 @@ export class App implements OnInit, OnDestroy {
     const counts: Record<string, number> = { highest: 0, high: 0, medium: 0, low: 0, lowest: 0 };
     for (const t of this.tasks()) {
       if (t.priority in counts) counts[t.priority]++;
+    }
+    return counts;
+  });
+  // Epic 37 (v2.5): 状态快速筛选 chips —— 各状态任务计数（基于当前 story 全量任务，不受筛选影响）
+  readonly statusCounts = computed<Record<string, number>>(() => {
+    const counts: Record<string, number> = { backlog: 0, todo: 0, in_progress: 0, in_review: 0, verifying: 0, done: 0 };
+    for (const t of this.tasks()) {
+      if (t.status in counts) counts[t.status]++;
     }
     return counts;
   });
@@ -931,6 +945,7 @@ export class App implements OnInit, OnDestroy {
     this.members.set([]);
     this.projectStats.set(null);
     this.schedules.set([]);
+    this.documents.set([]);
     this.isOwner.set(false);
     this.projectTabLoading.set({
       epics: false,
@@ -940,6 +955,7 @@ export class App implements OnInit, OnDestroy {
       members: false,
       stats: false,
       schedules: false,
+      documents: false,
     });
     this.projectTabLoaded.set({
       epics: false,
@@ -949,6 +965,7 @@ export class App implements OnInit, OnDestroy {
       members: false,
       stats: false,
       schedules: false,
+      documents: false,
     });
     this.projectTabErrors.set({
       epics: '',
@@ -958,6 +975,7 @@ export class App implements OnInit, OnDestroy {
       members: '',
       stats: '',
       schedules: '',
+      documents: '',
     });
   }
 
@@ -1003,6 +1021,10 @@ export class App implements OnInit, OnDestroy {
         const schedules = await firstValueFrom(this.api.listSchedules(projectId));
         if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
         this.schedules.set(schedules);
+      } else if (tab === 'documents') {
+        const docs = await firstValueFrom(this.api.listDocuments({ project_id: projectId }));
+        if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
+        this.documents.set(docs || []);
       }
 
       this.projectTabLoaded.update((state) => ({ ...state, [tab]: true }));
@@ -2590,6 +2612,12 @@ export class App implements OnInit, OnDestroy {
       )[priority] || priority
     );
   }
+  // Epic 37 (v2.5): 状态色点（复用既有 statusLabel 做文案）
+  statusColor(status: string): string {
+    return (
+      { backlog: '#94a3b8', todo: '#64748b', in_progress: '#3b82f6', in_review: '#a855f7', verifying: '#f59e0b', done: '#22c55e' } as Record<string, string>
+    )[status] || '#94a3b8';
+  }
 
   // Task 821: 任务类型图标
   taskTypeIcon(type: string): string {
@@ -3028,6 +3056,15 @@ export class App implements OnInit, OnDestroy {
   private persistQuickPriority(): void {
     try { localStorage.setItem('agentboard_quick_priority', JSON.stringify(this.filterPriorities())); } catch { /* ignore */ }
   }
+  // Epic 37 (v2.5): 状态快速筛选 chips —— 单选切换（空串=全部）；再次点击同状态则取消
+  setQuickStatus(s: string): void {
+    const next = !s || this.filterStatus() === s ? '' : s;
+    this.filterStatus.set(next);
+    this.persistQuickStatus();
+  }
+  private persistQuickStatus(): void {
+    try { localStorage.setItem('agentboard_quick_status', this.filterStatus()); } catch { /* ignore */ }
+  }
   toggleFilterType(t: string): void {
     const cur = this.filterTypes();
     this.filterTypes.set(cur.includes(t) ? cur.filter(x => x !== t) : [...cur, t]);
@@ -3035,11 +3072,13 @@ export class App implements OnInit, OnDestroy {
   clearFilters(): void {
     this.filterPriorities.set([]);
     this.filterTypes.set([]);
+    this.filterStatus.set('');
     this.filterOnlyOverdue.set(false);
     this.labelFilter.set('');
     this.filterMineOnly.set(false);
     try { localStorage.removeItem('agentboard_filter_mine'); } catch { /* ignore */ }
     this.persistQuickPriority();
+    this.persistQuickStatus();
   }
   // Epic 34 (v2.3): 工具栏「清除全部筛选」—— 重置搜索 + 优先级 chips + 只看我 + 高级面板全部筛选条件
   clearAllFilters(): void {
@@ -3173,6 +3212,20 @@ export class App implements OnInit, OnDestroy {
     return list;
   }
 
+  /** Project-scoped doc list for the project tab (filters by current project ID). */
+  projectDocVisible(): DocumentItem[] {
+    const pid = this.project()?.id;
+    if (!pid) return [];
+    let list = this.documents().filter((d) => d.project_id === pid);
+    const type = this.docFilterType();
+    if (type) list = list.filter((d) => d.type === type);
+    const status = this.docFilterStatus();
+    if (status) list = list.filter((d) => d.status === status);
+    const q = this.docSearchQuery().trim().toLowerCase();
+    if (q) list = list.filter((d) => d.title.toLowerCase().includes(q) || (d.content || '').toLowerCase().includes(q));
+    return list;
+  }
+
   async loadDocuments(): Promise<void> {
     const params: Record<string, any> = {};
     if (this.docFilterType()) params['type'] = this.docFilterType();
@@ -3255,6 +3308,24 @@ export class App implements OnInit, OnDestroy {
   }
   cancelDocEdit(): void {
     this.docEditing.set(false);
+  }
+  /** 在项目 Tab 内打开文档详情：写入当前文档并加载其评论（不走路由）。 */
+  async openDocTab(d: DocumentItem): Promise<void> {
+    this.docItem.set(d);
+    this.docEditTitle.set(d.title);
+    this.docEditContent.set(d.content);
+    this.docEditType.set(d.type);
+    this.docEditEpicId.set(d.epic_id);
+    this.docEditStoryId.set(d.story_id);
+    this.docEditing.set(false);
+    this.docCommentPreview.set(false);
+    this.docCommentContent.set('');
+    try {
+      const comments = await firstValueFrom(this.api.listDocumentComments(d.id));
+      this.documentComments.set(comments);
+    } catch (error) {
+      this.documentComments.set([]);
+    }
   }
   async onDocEditEpicChange(eid: number | null): Promise<void> {
     this.docEditEpicId.set(eid);
