@@ -296,12 +296,14 @@ export class App implements OnInit, OnDestroy {
   readonly filterOnlyOverdue = signal(false);
   // B-01: Label filter
   readonly labelFilter = signal('');
+  // Epic 33 (v2.2): 只看指派给我的任务（快速筛选）
+  readonly filterMineOnly = signal<boolean>(localStorage.getItem('agentboard_filter_mine') === '1');
   // Epic 35: Task keyword search (local to story task list)
   readonly taskSearchQuery = signal('');
   // Epic 36: Inline task title editing
   readonly editingTaskId = signal<number | null>(null);
   readonly editingTaskTitle = signal('');
-  readonly activeFilterCount = computed(() => this.filterPriorities().length + this.filterTypes().length + (this.filterOnlyOverdue() ? 1 : 0) + (this.labelFilter() ? 1 : 0));
+  readonly activeFilterCount = computed(() => this.filterPriorities().length + this.filterTypes().length + (this.filterOnlyOverdue() ? 1 : 0) + (this.labelFilter() ? 1 : 0) + (this.filterMineOnly() ? 1 : 0));
   // Task 716: 优先级快速筛选 chips —— 各优先级任务计数（基于当前 story 全量任务，不受筛选影响）
   readonly priorityCounts = computed<Record<string, number>>(() => {
     const counts: Record<string, number> = { highest: 0, high: 0, medium: 0, low: 0, lowest: 0 };
@@ -338,6 +340,11 @@ export class App implements OnInit, OnDestroy {
       // Epic 35: Local task keyword search (title + description, case-insensitive)
       const tq = this.taskSearchQuery().trim().toLocaleLowerCase();
       if (tq && !(`${t.title} ${t.description}`.toLocaleLowerCase().includes(tq))) return false;
+      // Epic 33 (v2.2): 只看指派给我的任务（成员已加载且命中当前用户时生效，否则无操作）
+      if (this.filterMineOnly()) {
+        const myId = this.myUserId();
+        if (myId != null && this.members().length > 0 && t.assignee_id !== myId) return false;
+      }
       return true;
     });
     // Task 730: 排序
@@ -2973,7 +2980,22 @@ export class App implements OnInit, OnDestroy {
     this.filterTypes.set([]);
     this.filterOnlyOverdue.set(false);
     this.labelFilter.set('');
+    this.filterMineOnly.set(false);
+    try { localStorage.removeItem('agentboard_filter_mine'); } catch { /* ignore */ }
     this.persistQuickPriority();
+  }
+  // Epic 33 (v2.2): 当前登录用户在成员列表中的 user_id
+  myUserId(): number | null {
+    const me = this.currentUser();
+    if (!me) return null;
+    const m = this.members().find((x) => x.username === me);
+    return m ? m.user_id : null;
+  }
+  // Epic 33 (v2.2): 切换「只看我」并持久化
+  toggleFilterMine(): void {
+    const next = !this.filterMineOnly();
+    this.filterMineOnly.set(next);
+    try { localStorage.setItem('agentboard_filter_mine', next ? '1' : '0'); } catch { /* ignore */ }
   }
 
   // Task 603: 抽屉内快速操作

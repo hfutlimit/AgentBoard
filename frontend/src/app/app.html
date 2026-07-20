@@ -1101,6 +1101,10 @@
                   </button>
                 }
               </div>
+              <!-- Epic 33 (v2.2): 只看指派给我的任务 快速筛选 -->
+              <button class="mine-toggle" [class.active]="filterMineOnly()" (click)="toggleFilterMine()" title="仅显示指派给我的任务">
+                只看我
+              </button>
               <!-- Task 730: 任务列表排序下拉 -->
               <div class="task-sort-bar">
                 <span class="task-sort-label">排序：</span>
