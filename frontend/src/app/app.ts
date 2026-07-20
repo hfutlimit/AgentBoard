@@ -1349,8 +1349,9 @@ export class App implements OnInit, OnDestroy {
     this.submitting.set(true);
     try {
       if (modal.kind === 'project') {
+        const isPrivate = data.get('is_private') != null;
         await firstValueFrom(
-          this.api.createProject({ name: title.trim(), key: key.trim() || undefined, description }),
+          this.api.createProject({ name: title.trim(), key: key.trim() || undefined, description, is_private: isPrivate }),
         );
       } else if (modal.kind === 'epic' && modal.parentId) {
         await firstValueFrom(

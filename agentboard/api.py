@@ -142,6 +142,7 @@ class ProjectIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     key: str | None = Field(None, max_length=20)
     description: str = ""
+    is_private: bool | None = None
 
 
 class ProjectPatch(BaseModel):
@@ -447,6 +448,95 @@ def _require_project_owner(
         raise HTTPException(status_code=403, detail="project owner or admin required")
 
 
+# ---------- Project-scoped access control ----------
+def _caller_uid_admin(authorization: str | None) -> tuple[int | None, bool]:
+    """Resolve ``(user_id, is_admin)`` from the Authorization header.
+
+    Handles both Bearer user tokens and ``abk_`` API keys. Returns ``(None, False)``
+    when no valid credential is present.
+    """
+    if not authorization:
+        return None, False
+    token = authorization.split(" ", 1)[1] if authorization.startswith("Bearer ") else None
+    if not token:
+        return None, False
+    uid = auth.parse_token(token)
+    if not uid and token.startswith(auth.API_KEY_PREFIX):
+        with SessionLocal() as s:
+            ak = service.lookup_api_key_by_hash(s, auth.hash_api_key(token))
+            if ak and ak.enabled:
+                uid = ak.user_id
+    if uid is None:
+        return None, False
+    with SessionLocal() as s:
+        u = service.get_user(s, uid)
+        return uid, bool(u and u.is_admin)
+
+
+def _enforce_owner_or_admin(s: Session, project_id: int, uid: int | None, is_admin: bool) -> None:
+    if is_admin:
+        return
+    if not uid or not service.user_is_project_owner(s, project_id, uid):
+        raise HTTPException(status_code=403, detail="project owner or admin required")
+
+
+def _enforce_member_or_admin(s: Session, project_id: int, uid: int | None, is_admin: bool) -> None:
+    if is_admin:
+        return
+    if not uid or not service.user_is_project_member(s, project_id, uid):
+        raise HTTPException(status_code=403, detail="project membership required")
+
+
+def _resolve_project_id_from_request(request: Request) -> int | None:
+    """Map a request to the project it targets, or ``None`` if not project-scoped."""
+    path = request.url.path
+    m = re.match(r"^/api/projects/(\d+)", path)
+    if m:
+        return int(m.group(1))
+    qp = request.query_params
+    with SessionLocal() as s:
+        m = re.match(r"^/api/epics/(\d+)", path)
+        if m:
+            return service.get_epic_project_id(s, int(m.group(1)))
+        m = re.match(r"^/api/stories/(\d+)", path)
+        if m:
+            return service.get_story_project_id(s, int(m.group(1)))
+        m = re.match(r"^/api/tasks/(\d+)", path)
+        if m:
+            return service.get_task_project_id(s, int(m.group(1)))
+        m = re.match(r"^/api/sprints/(\d+)", path)
+        if m:
+            return service.get_sprint_project_id(s, int(m.group(1)))
+        m = re.match(r"^/api/schedules/(\d+)", path)
+        if m:
+            return service.get_schedule_project_id(s, int(m.group(1)))
+        m = re.match(r"^/api/comments/(\d+)", path)
+        if m:
+            return service.get_comment_project_id(s, int(m.group(1)))
+        m = re.match(r"^/api/attachments/(\d+)", path)
+        if m:
+            return service.get_attachment_project_id(s, int(m.group(1)))
+        m = re.match(r"^/api/dependencies/(\d+)", path)
+        if m:
+            return service.get_dependency_project_id(s, int(m.group(1)))
+        if "project_id" in qp:
+            return int(qp["project_id"])
+        if "epic_id" in qp:
+            return service.get_epic_project_id(s, int(qp["epic_id"]))
+        if "story_id" in qp:
+            return service.get_story_project_id(s, int(qp["story_id"]))
+        if "sprint_id" in qp:
+            sp = s.get(Sprint, int(qp["sprint_id"]))
+            return sp.project_id if sp else None
+        if path == "/api/webhooks" or path.startswith("/api/webhooks/"):
+            if "project_id" in qp:
+                return int(qp["project_id"])
+            m = re.match(r"^/api/webhooks/(\d+)", path)
+            if m:
+                return service.get_webhook_project_id(s, int(m.group(1)))
+    return None
+
+
 def _user_response(user) -> dict:
     return {
         "id": user.id,
@@ -637,7 +727,7 @@ def create_project(
     authorization: str | None = Header(None),
 ):
     user = _current_user(authorization, s, required_permission="api:write") if authorization or _auth_is_required() else None
-    p = service.create_project(s, name=body.name, key=body.key, description=body.description)
+    p = service.create_project(s, name=body.name, key=body.key, description=body.description, is_private=body.is_private)
     # 创建者自动成为项目 owner；本地显式开放模式仍兼容匿名项目。
     uid = user.id if user else None
     if uid:
@@ -650,10 +740,11 @@ def get_project_ext(
     pid: int, s: Session = Depends(get_session),
     authorization: str | None = Header(None),
 ):
-    """获取项目：private 项目仅成员可见"""
+    """获取项目：private 项目仅成员可见（系统管理员始终可见）"""
     p = _need(service.get_project(s, pid), "project")
     uid = _optional_user_id(authorization, s)
-    if p.is_private and not service.user_is_project_member(s, pid, uid):
+    user = service.get_user(s, uid) if uid else None
+    if p.is_private and not (user and user.is_admin) and not service.user_is_project_member(s, pid, uid):
         raise HTTPException(status_code=403, detail="access denied: private project")
     return service._ser(p)
 
@@ -1713,3 +1804,73 @@ async def audit_log_middleware(request: Request, call_next):
         pass  # 不阻塞主流程
 
     return response
+
+
+@app.middleware("http")
+async def project_access_middleware(request: Request, call_next):
+    """Enforce project-scoped access control on all /api routes.
+
+    Active only when ``AGENTBOARD_REQUIRE_AUTH=1`` (the Docker / production posture).
+    Local open-CRUD mode (``REQUIRE_AUTH=0``) is intentionally left untouched.
+
+    Rules:
+    - Resolve the target project from the route (direct ``/api/projects/{pid}`` or via a
+      child resource such as epic/story/task/sprint/schedule, by id or query param).
+    - Routes that are not project-scoped pass through.
+    - Reads (GET/HEAD): public projects are visible to every authenticated user; private
+      projects are visible only to members and system admins.
+    - Writes (POST/PUT/PATCH/DELETE): the project root (settings / deletion) requires the
+      owner or an admin; sub-resources require membership or admin.
+    - System admins (``is_admin``) always pass.
+    """
+    if not _auth_is_required():
+        return await call_next(request)
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    path = request.url.path
+    if not path.startswith("/api/"):
+        return await call_next(request)
+    if path in {"/api/meta", "/api/health", "/api/auth/register", "/api/auth/login"}:
+        return await call_next(request)
+
+    try:
+        pid = _resolve_project_id_from_request(request)
+        if pid is None:
+            return await call_next(request)
+
+        is_project_root = bool(re.match(r"^/api/projects/\d+/?$", path))
+        is_write = request.method not in {"GET", "HEAD"}
+
+        with SessionLocal() as s:
+            p = service.get_project(s, pid)
+            if p is None:
+                # Unknown project: let the endpoint return 404.
+                return await call_next(request)
+            uid, is_admin = _caller_uid_admin(request.headers.get("authorization"))
+            if _auth_is_required() and uid is None:
+                return JSONResponse(status_code=401, content={"detail": "unauthorized"})
+            if p.is_private:
+                if is_admin:
+                    return await call_next(request)
+                if uid is None:
+                    return JSONResponse(status_code=403, content={"detail": "access denied: private project"})
+                if not service.user_is_project_member(s, pid, uid):
+                    return JSONResponse(status_code=403, content={"detail": "access denied: private project"})
+                if is_write and is_project_root:
+                    try:
+                        _enforce_owner_or_admin(s, pid, uid, is_admin)
+                    except HTTPException as e:
+                        return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+                return await call_next(request)
+            # Public project
+            if is_write:
+                try:
+                    if is_project_root:
+                        _enforce_owner_or_admin(s, pid, uid, is_admin)
+                    else:
+                        _enforce_member_or_admin(s, pid, uid, is_admin)
+                except HTTPException as e:
+                    return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+            return await call_next(request)
+    except HTTPException as e:
+        return JSONResponse(status_code=e.status_code, content={"detail": e.detail})

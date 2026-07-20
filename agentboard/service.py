@@ -96,12 +96,14 @@ def _commit(s: Session, *, duplicate: str | None = None) -> None:
 
 
 # ---------- Project ----------
-def create_project(s: Session, *, name: str, key=None, description: str = "") -> Project:
+def create_project(s: Session, *, name: str, key=None, description: str = "", is_private: bool | None = None) -> Project:
     name = _required(name, "name", 200)
     key = (key or "").strip() or None
     if key and len(key) > 20:
         raise InvalidValue("key must be at most 20 characters")
     p = Project(name=name, key=key, description=description or "")
+    if is_private is not None:
+        p.is_private = bool(is_private)
     s.add(p)
     _commit(s, duplicate=f"project key '{key}' already exists" if key else None)
     s.refresh(p)
@@ -1091,6 +1093,63 @@ def get_project_member(s: Session, project_id: int, user_id: int) -> ProjectMemb
     )
 
 
+# ---------- Child-resource -> project resolution (access control) ----------
+def get_epic_project_id(s: Session, epic_id: int) -> int | None:
+    e = s.get(Epic, epic_id)
+    return e.project_id if e else None
+
+
+def get_story_project_id(s: Session, story_id: int) -> int | None:
+    st = s.get(Story, story_id)
+    if not st:
+        return None
+    e = s.get(Epic, st.epic_id)
+    return e.project_id if e else None
+
+
+def get_task_project_id(s: Session, task_id: int) -> int | None:
+    t = s.get(Task, task_id)
+    if not t:
+        return None
+    return get_story_project_id(s, t.story_id)
+
+
+def get_sprint_project_id(s: Session, sprint_id: int) -> int | None:
+    sp = s.get(Sprint, sprint_id)
+    return sp.project_id if sp else None
+
+
+def get_schedule_project_id(s: Session, schedule_id: int) -> int | None:
+    sch = s.get(AgentSchedule, schedule_id)
+    return sch.project_id if sch else None
+
+
+def get_comment_project_id(s: Session, comment_id: int) -> int | None:
+    c = s.get(Comment, comment_id)
+    if not c:
+        return None
+    return get_task_project_id(s, c.task_id)
+
+
+def get_attachment_project_id(s: Session, attachment_id: int) -> int | None:
+    a = s.get(Attachment, attachment_id)
+    if not a:
+        return None
+    return get_task_project_id(s, a.task_id)
+
+
+def get_dependency_project_id(s: Session, dependency_id: int) -> int | None:
+    d = s.get(TaskDependency, dependency_id)
+    if not d:
+        return None
+    return get_task_project_id(s, d.task_id)
+
+
+def get_webhook_project_id(s: Session, webhook_id: int) -> int | None:
+    wh = s.get(WebhookConfig, webhook_id)
+    return wh.project_id if wh else None
+
+
 # ---------- Notification ----------
 def create_notification(
     s: Session, *, user_id: int, notif_type: str, title: str,
@@ -1236,9 +1295,9 @@ def list_all_projects_admin(s: Session, limit: int | None = None, offset: int = 
     for p in projects:
         row = _ser(p)
         row["member_count"] = (
-            s.query(func.count(ProjectMember.id))
+            s.query(ProjectMember)
             .filter(ProjectMember.project_id == p.id)
-            .scalar()
+            .count()
         ) or 0
         result.append(row)
     return result, total

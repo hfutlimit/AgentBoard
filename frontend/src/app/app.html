@@ -2022,6 +2022,12 @@
             <div class="form-field">
               <label>短码</label><input id="create-key" name="key" maxlength="20" />
             </div>
+            <div class="form-field form-field-inline">
+              <label class="checkbox-label">
+                <input #createPrivate type="checkbox" name="is_private" checked />
+                私有项目（仅成员可见，不在项目里的成员无法看到）
+              </label>
+            </div>
           }
           <div class="form-field">
             <label>描述</label
