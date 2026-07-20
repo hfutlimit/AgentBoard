@@ -324,7 +324,10 @@ export class App implements OnInit, OnDestroy {
   readonly filterPriorities = signal<string[]>(
     (() => { try { return JSON.parse(localStorage.getItem('agentboard_quick_priority') || '[]'); } catch { return []; } })()
   );
-  readonly filterTypes = signal<string[]>([]);
+  // Epic 38 (v2.4): 任务类型快速筛选 chips —— 初始化读取持久化选择
+  readonly filterTypes = signal<string[]>(
+    (() => { try { return JSON.parse(localStorage.getItem('agentboard_quick_type') || '[]'); } catch { return []; } })()
+  );
   readonly filterOnlyOverdue = signal(false);
   // B-01: Label filter
   readonly labelFilter = signal('');
@@ -351,6 +354,14 @@ export class App implements OnInit, OnDestroy {
     const counts: Record<string, number> = { backlog: 0, todo: 0, in_progress: 0, in_review: 0, verifying: 0, done: 0 };
     for (const t of this.tasks()) {
       if (t.status in counts) counts[t.status]++;
+    }
+    return counts;
+  });
+  // Epic 38 (v2.4): 任务类型快速筛选 chips —— 各类型任务计数（基于当前 story 全量任务，不受筛选影响）
+  readonly typeCounts = computed<Record<string, number>>(() => {
+    const counts: Record<string, number> = { task: 0, bug: 0 };
+    for (const t of this.tasks()) {
+      if (t.type in counts) counts[t.type]++;
     }
     return counts;
   });
@@ -3065,6 +3076,15 @@ export class App implements OnInit, OnDestroy {
   private persistQuickStatus(): void {
     try { localStorage.setItem('agentboard_quick_status', this.filterStatus()); } catch { /* ignore */ }
   }
+  // Epic 38 (v2.4): 任务类型快速筛选 chips —— 单选切换（空串=全部）；再次点击同类型则取消
+  setQuickType(t: string): void {
+    const next = !t || this.filterTypes().includes(t) ? [] : [t];
+    this.filterTypes.set(next);
+    this.persistQuickType();
+  }
+  private persistQuickType(): void {
+    try { localStorage.setItem('agentboard_quick_type', JSON.stringify(this.filterTypes())); } catch { /* ignore */ }
+  }
   toggleFilterType(t: string): void {
     const cur = this.filterTypes();
     this.filterTypes.set(cur.includes(t) ? cur.filter(x => x !== t) : [...cur, t]);
@@ -3079,6 +3099,7 @@ export class App implements OnInit, OnDestroy {
     try { localStorage.removeItem('agentboard_filter_mine'); } catch { /* ignore */ }
     this.persistQuickPriority();
     this.persistQuickStatus();
+    this.persistQuickType();
   }
   // Epic 34 (v2.3): 工具栏「清除全部筛选」—— 重置搜索 + 优先级 chips + 只看我 + 高级面板全部筛选条件
   clearAllFilters(): void {

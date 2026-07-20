@@ -1222,6 +1222,17 @@
                   </button>
                 }
               </div>
+              <!-- Epic 38 (v2.4): 任务类型快速筛选 chips（常驻工具条，单选带计数，持久化） -->
+              <div class="task-quickfilter-bar" role="group" aria-label="按类型快速筛选">
+                <button class="qf-chip" [class.active]="filterTypes().length === 0" (click)="setQuickType('')">
+                  全部 <span class="qf-count">{{ tasks().length }}</span>
+                </button>
+                @for (t of ['task', 'bug']; track t) {
+                  <button class="qf-chip" [class.active]="filterTypes().includes(t)" (click)="setQuickType(t)">
+                    {{ t === 'bug' ? 'Bug' : '任务' }} <span class="qf-count">{{ typeCounts()[t] }}</span>
+                  </button>
+                }
+              </div>
               <!-- Epic 33 (v2.2): 只看指派给我的任务 快速筛选 -->
               <button class="mine-toggle" [class.active]="filterMineOnly()" (click)="toggleFilterMine()" title="仅显示指派给我的任务">
                 只看我

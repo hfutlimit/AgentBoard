@@ -79,12 +79,12 @@ async def main() -> bool:
 
         # Step 3: Verify quick-filter bar + chips
         print("Step 3: Verify .task-quickfilter-bar and .qf-chip...")
-        bar = page.locator(".task-quickfilter-bar")
+        bar = page.locator('.task-quickfilter-bar[aria-label="按优先级快速筛选"]')
         if await bar.count() == 0:
             print("FAIL: .task-quickfilter-bar not found")
             await browser.close()
             return False
-        chips = page.locator(".qf-chip")
+        chips = bar.locator(".qf-chip")
         chip_count = await chips.count()
         print(f"  .qf-chip count: {chip_count} (expected 6: 全部 + 5 优先级)")
         if chip_count != 6:
@@ -154,7 +154,7 @@ async def main() -> bool:
         await page.reload(wait_until="networkidle")
         await page.wait_for_timeout(3500)
         # chips re-rendered; verify target chip still active
-        chips2 = page.locator(".qf-chip")
+        chips2 = bar.locator(".qf-chip")
         active_after_reload = await chips2.nth(target_idx).get_attribute("class") or ""
         if "active" not in active_after_reload:
             print("FAIL: priority chip not active after reload (persistence broken)")
