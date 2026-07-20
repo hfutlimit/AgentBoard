@@ -3311,7 +3311,14 @@ export class App implements OnInit, OnDestroy {
       }));
       this.docCreateOpen.set(false);
       this.notify('文档已创建');
-      await this.router.navigateByUrl(`/documents/${created.id}`);
+      // 追加到列表，使新建文档在当前视图（含项目 Tab）中立即可见
+      this.documents.set([created, ...this.documents()]);
+      const inProjectTab = this.view() === 'project' && this.activeTab() === 'documents';
+      if (inProjectTab) {
+        await this.openDocTab(created);
+      } else {
+        await this.router.navigateByUrl(`/documents/${created.id}`);
+      }
     } catch (error) {
       this.notify(`创建失败：${this.message(error)}`, 'error');
     }
@@ -3371,6 +3378,7 @@ export class App implements OnInit, OnDestroy {
         story_id: this.docEditStoryId(),
       }));
       this.docItem.set(updated);
+      this.documents.set(this.documents().map((x) => (x.id === updated.id ? updated : x)));
       this.docEditing.set(false);
       this.notify('文档已保存');
       setTimeout(() => this.enhanceMermaid(), 80);
@@ -3384,6 +3392,7 @@ export class App implements OnInit, OnDestroy {
     try {
       const updated = await firstValueFrom(this.api.setDocumentStatus(d.id, status));
       this.docItem.set(updated);
+      this.documents.set(this.documents().map((x) => (x.id === updated.id ? updated : x)));
       this.notify(`状态已更新为「${this.docStatusLabel(status)}」`);
     } catch (error) {
       this.notify(`状态更新失败：${this.message(error)}`, 'error');
@@ -3400,7 +3409,13 @@ export class App implements OnInit, OnDestroy {
     }, async () => {
       await firstValueFrom(this.api.deleteDocument(d.id));
       this.notify('文档已删除');
-      await this.router.navigateByUrl('/documents');
+      this.documents.set(this.documents().filter((x) => x.id !== d.id));
+      const inProjectTab = this.view() === 'project' && this.activeTab() === 'documents';
+      if (inProjectTab) {
+        this.docItem.set(null);
+      } else {
+        await this.router.navigateByUrl('/documents');
+      }
     });
   }
 
