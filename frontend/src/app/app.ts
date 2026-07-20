@@ -288,7 +288,10 @@ export class App implements OnInit, OnDestroy {
   readonly filterPriority = signal('');
   // Task 602: 高级筛选面板 - 多选过滤
   readonly filterOpen = signal(false);
-  readonly filterPriorities = signal<string[]>([]);
+  // Task 716: 优先级快速筛选 chips —— 初始化读取持久化选择
+  readonly filterPriorities = signal<string[]>(
+    (() => { try { return JSON.parse(localStorage.getItem('agentboard_quick_priority') || '[]'); } catch { return []; } })()
+  );
   readonly filterTypes = signal<string[]>([]);
   readonly filterOnlyOverdue = signal(false);
   // B-01: Label filter
@@ -299,6 +302,14 @@ export class App implements OnInit, OnDestroy {
   readonly editingTaskId = signal<number | null>(null);
   readonly editingTaskTitle = signal('');
   readonly activeFilterCount = computed(() => this.filterPriorities().length + this.filterTypes().length + (this.filterOnlyOverdue() ? 1 : 0) + (this.labelFilter() ? 1 : 0));
+  // Task 716: 优先级快速筛选 chips —— 各优先级任务计数（基于当前 story 全量任务，不受筛选影响）
+  readonly priorityCounts = computed<Record<string, number>>(() => {
+    const counts: Record<string, number> = { highest: 0, high: 0, medium: 0, low: 0, lowest: 0 };
+    for (const t of this.tasks()) {
+      if (t.priority in counts) counts[t.priority]++;
+    }
+    return counts;
+  });
   readonly allLabels = computed(() => {
     const set = new Set<string>();
     for (const t of this.tasks()) {
@@ -2933,6 +2944,16 @@ export class App implements OnInit, OnDestroy {
   toggleFilterPriority(p: string): void {
     const cur = this.filterPriorities();
     this.filterPriorities.set(cur.includes(p) ? cur.filter(x => x !== p) : [...cur, p]);
+    this.persistQuickPriority();
+  }
+  // Task 716: 优先级快速筛选 chips —— 单选切换（空串=全部）；再次点击同优先级则取消
+  setQuickPriority(p: string): void {
+    const next = !p || this.filterPriorities().includes(p) ? [] : [p];
+    this.filterPriorities.set(next);
+    this.persistQuickPriority();
+  }
+  private persistQuickPriority(): void {
+    try { localStorage.setItem('agentboard_quick_priority', JSON.stringify(this.filterPriorities())); } catch { /* ignore */ }
   }
   toggleFilterType(t: string): void {
     const cur = this.filterTypes();
@@ -2943,6 +2964,7 @@ export class App implements OnInit, OnDestroy {
     this.filterTypes.set([]);
     this.filterOnlyOverdue.set(false);
     this.labelFilter.set('');
+    this.persistQuickPriority();
   }
 
   // Task 603: 抽屉内快速操作

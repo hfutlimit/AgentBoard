@@ -70,6 +70,14 @@
 - **提交**: commit `bee0ee2`，push 成功（`22bb34c..bee0ee2`）。
 - **硬约束**: 未触碰 18001/8080/docker；刻意排除 data/、autodev.lock、其他 automation 的 MEMORY.md。
 
+## 2026-07-20 10:34 运行（Epic 31 v2.0 优先级快速筛选 chips → in_review）
+- **目标**: 至少 1 个 task → in_review。MCP backlog 大 Epic（15 文档维护 / 64 腾讯云 COS）均无已启动项、依赖重 → 新建增量 Epic。
+- **完成**: 新建 Epic 31(id=66)→Story 67(id=67)→Task 716(high)「优先级快速筛选 chips」；状态 backlog→todo→in_progress→in_review（状态机禁止 backlog 直转 in_progress）。
+- **实现**: 纯前端。`app.ts` filterPriorities 读/写 localStorage.agentboard_quick_priority + priorityCounts computed + setQuickPriority 单选；`app.html` 工具条新增 .task-quickfilter-bar（全部+5优先级带计数）；`app.css` chip 样式。
+- **验证**: Playwright `test_epic31_priority_quickfilter_e2e.py` 全绿（0 错误）；点击「高」→30 行、reload 后持久化保留、点「全部」清空。回归 v1.9/Epic34/35/36 E2E 全绿；pytest epic30_cache 8 passed。
+- **提交**: commit + git push origin main 成功。
+- **硬约束**: 未触碰 18001/8080/docker；排除 data/、autodev.lock、其他 automation MEMORY.md、screenshots。
+
 ## 2026-07-20 07:37 运行（Epic 30 收尾：Task 801/802 → in_review）
 - **目标**: 至少 1 个 task → in_review（状态对账 + 验收，无代码改动）。
 - **完成**: 经 MCP 将 Epic 30（id=63）下 Story 59(Task 801 TTL 可配置) 与 Story 60(Task 802 命中率统计) 由 backlog 置 **in_review**；Epic 63 三 story 全 in_review → 置 Epic 63 **in_review**。

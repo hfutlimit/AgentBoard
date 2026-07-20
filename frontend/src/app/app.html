@@ -1088,6 +1088,17 @@
                   <button class="task-search-clear" title="清除搜索" (click)="taskSearchQuery.set('')">✕</button>
                 }
               </div>
+              <!-- Task 716: 优先级快速筛选 chips（常驻工具条，单选带计数，持久化） -->
+              <div class="task-quickfilter-bar" role="group" aria-label="按优先级快速筛选">
+                <button class="qf-chip" [class.active]="filterPriorities().length === 0" (click)="setQuickPriority('')">
+                  全部 <span class="qf-count">{{ tasks().length }}</span>
+                </button>
+                @for (p of priorities; track p) {
+                  <button class="qf-chip" [class.active]="filterPriorities().includes(p)" (click)="setQuickPriority(p)">
+                    {{ priorityLabel(p) }} <span class="qf-count">{{ priorityCounts()[p] }}</span>
+                  </button>
+                }
+              </div>
               <!-- Task 730: 任务列表排序下拉 -->
               <div class="task-sort-bar">
                 <span class="task-sort-label">排序：</span>
