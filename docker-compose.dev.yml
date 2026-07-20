@@ -20,8 +20,6 @@ services:
     environment:
       # 开发模式：SQLite 方便调试
       AGENTBOARD_DB_URL: "sqlite:////app/data/agentboard.db"
-      # 关闭速率限制方便调试
-      AGENTBOARD_RATE_LIMIT_ENABLED: "0"
 
   web:
     # Web 静态文件已通过 docker-compose.yml 的 volume mount 热更新

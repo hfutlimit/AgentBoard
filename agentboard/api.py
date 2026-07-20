@@ -49,52 +49,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------- Rate Limiting ----------
-import threading
-import time
-from collections import defaultdict
-
-RATE_LIMIT = int(os.getenv("AGENTBOARD_RATE_LIMIT", "60"))  # requests per window
-RATE_WINDOW = int(os.getenv("AGENTBOARD_RATE_WINDOW", "60"))  # seconds
-
-_rate_limits: dict[str, list[float]] = defaultdict(list)
-_rate_lock = threading.Lock()
-
-@app.middleware("http")
-async def rate_limit_middleware(request: Request, call_next):
-    """Simple token-bucket rate limiting: RATE_LIMIT requests per RATE_WINDOW seconds per IP."""
-    if RATE_LIMIT <= 0:
-        return await call_next(request)
-    # Skip rate limiting for health/meta/auth endpoints and CORS preflight
-    if request.method == "OPTIONS":
-        return await call_next(request)
-    if request.url.path in {"/api/meta", "/api/health", "/api/auth/register", "/api/auth/login"}:
-        return await call_next(request)
-    # Get client IP (handle proxies)
-    ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
-    if "," in ip:
-        ip = ip.split(",")[0].strip()
-    # Skip rate limiting for localhost/127.0.0.1 (test environments)
-    if ip in {"127.0.0.1", "localhost", "::1", "::ffff:127.0.0.1"}:
-        return await call_next(request)
-    now = time.time()
-    with _rate_lock:
-        # Remove expired timestamps
-        _rate_limits[ip] = [t for t in _rate_limits[ip] if now - t < RATE_WINDOW]
-        if len(_rate_limits[ip]) >= RATE_LIMIT:
-            resp = JSONResponse(
-                status_code=429,
-                content={"detail": f"Rate limit exceeded: {RATE_LIMIT} requests per {RATE_WINDOW}s. Retry after {RATE_WINDOW}s."},
-            )
-            resp.headers["Retry-After"] = str(RATE_WINDOW)
-            origin = request.headers.get("origin")
-            if origin:
-                resp.headers["Access-Control-Allow-Origin"] = origin
-            return resp
-        _rate_limits[ip].append(now)
-    return await call_next(request)
-
-
 @app.middleware("http")
 async def require_business_auth(request: Request, call_next):
     """可选统一保护 REST 业务端点，避免新增路由遗漏鉴权依赖。"""

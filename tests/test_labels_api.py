@@ -15,7 +15,6 @@ import tempfile
 # Setup: use temp SQLite before importing agentboard
 _DB = tempfile.mktemp(suffix=".db")
 os.environ["AGENTBOARD_DB_URL"] = f"sqlite:///{_DB}"
-os.environ["AGENTBOARD_RATE_LIMIT"] = "0"
 os.environ["AGENTBOARD_MCP_BACKEND"] = "db"
 
 # Reload agentboard modules
