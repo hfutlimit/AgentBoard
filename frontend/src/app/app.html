@@ -1131,6 +1131,12 @@
                   {{ allGroupsCollapsed() ? '▸ 全展开' : '▾ 全折叠' }}
                 </button>
               </div>
+              <!-- Epic 34 (v2.3): 工具条「清除全部筛选」 -->
+              @if (showClearAll()) {
+                <button class="ghost-sm clear-all-btn" (click)="clearAllFilters()" title="清除全部筛选条件（搜索 / 优先级 / 只看我 / 高级筛选）">
+                  ✕ 清除筛选
+                </button>
+              }
               <!-- Task 602: 高级筛选面板 -->
               <button class="ghost-sm" (click)="filterOpen.set(!filterOpen())" [class.active]="filterOpen()">
                 ⚙ 筛选{{ activeFilterCount() > 0 ? ' (' + activeFilterCount() + ')' : '' }}
@@ -1297,7 +1303,18 @@
                   }
                   }
                 } @empty {
-                  <div class="empty-inline">暂无任务</div>
+                  @if (tasks().length === 0) {
+                    <div class="empty-inline">暂无任务</div>
+                  } @else {
+                    <div class="filter-empty-state">
+                      <div class="filter-empty-icon">🔍</div>
+                      <div class="filter-empty-title">没有符合当前筛选条件的任务</div>
+                      <div class="filter-empty-desc">尝试调整关键词、优先级或筛选条件</div>
+                      @if (showClearAll()) {
+                        <button class="btn-primary-sm" (click)="clearAllFilters()">清除全部筛选</button>
+                      }
+                    </div>
+                  }
                 }
               </div>
               <div class="kbd-hint">j/k 上下导航 · Enter 打开 · Space 选择 · Ctrl+A 全选 · Esc 取消</div>

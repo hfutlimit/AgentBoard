@@ -1290,6 +1290,42 @@ router-outlet {
   font-size: 14px;
 }
 
+/* Epic 34 (v2.3): 筛选无结果空状态 */
+.filter-empty-state {
+  text-align: center;
+  padding: 48px 20px;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  margin: 12px 4px;
+}
+.filter-empty-icon {
+  font-size: 44px;
+  margin-bottom: 12px;
+  opacity: .55;
+}
+.filter-empty-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  color: var(--text);
+}
+.filter-empty-desc {
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+/* Epic 34 (v2.3): 工具条「清除筛选」按钮 */
+.clear-all-btn {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+.clear-all-btn:hover {
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
 /* Task 816: 面包屑导航可点击 */
 .crumb-bar a {
   color: var(--primary);

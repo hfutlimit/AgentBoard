@@ -85,10 +85,11 @@ async def main():
         print(f"[OK] After non-matching search: {empty_count} tasks")
         assert empty_count == 0, f"Expected 0 results for non-matching query, got {empty_count}"
 
-        # Check empty state
-        empty_msg = page.locator(".empty-inline")
-        assert await empty_msg.count() > 0, "Empty state message not shown"
-        print("[OK] Empty state shown for no results")
+        # Check empty state (filtered results now render the friendly filter-empty-state)
+        empty_msg = page.locator(".filter-empty-state")
+        assert await empty_msg.count() > 0, "Filtered empty state not shown for no results"
+        assert await page.locator(".empty-inline").count() == 0, "Generic empty-inline should not show for filtered results"
+        print("[OK] Filtered empty state shown for no results")
 
         # Step 9: Clear search and verify all tasks return
         clear_btn = page.locator(".task-search-clear")

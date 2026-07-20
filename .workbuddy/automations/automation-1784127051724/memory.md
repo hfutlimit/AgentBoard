@@ -94,3 +94,16 @@
 - **提交**: commit + git push origin main 成功。
 - **坑(已记 MEMORY.md)**: ① `node ng build` 报错须 `npm run build`；② app.css 组件作用域，规则进 main.js 非 styles.css。
 - **硬约束**: 未触碰 18001/8080/docker；排除 data/、autodev.lock、其他 automation MEMORY.md、screenshots。
+
+## 16:5x 自动开发 — Epic 33 v2.2 收尾（提交/推送/删锁）
+- 本运行接续上一轮（代码已完成、但未提交/未删锁）。执行：① 向 `.workbuddy/memory/2026-07-20.md` 追加 Epic 33 完成日志；② 复跑 Playwright E2E `test_epic33_v22_mine_filter_e2e.py` → 全绿（161→1 收敛、reload 持久化、0 pageerror/console/.js+.css 404）；③ `git add`（刻意排除 data/、autodev.lock、其他 automation 的 memory.md、screenshots）→ commit `40f0b4b` → `git push origin main` 成功（`ecad6bf..40f0b4b`）。
+- MCP 状态（上一轮已置）：Task 718 / Story 69 / Epic 68 均 **in_review**；本次「task → in_review」目标达成。
+- **硬约束**: 未触碰 18001(MCP)/8080(web)/docker 配置；已删除 `.workbuddy/autodev.lock`。
+
+## 20:26 自动开发 — Epic 34 v2.3 任务列表筛选结果引导 → in_review（达成）
+- **目标**: 至少 1 个 task → in_review。MCP backlog 大 Epic(15 文档维护 / 64 腾讯云 COS) 依赖重 → 新建增量 Epic（延续 Epic 11 小步迭代）。
+- **MCP**: 新建 Epic 34(id=69)→Story 70(id=70)→Task 719(high)；状态链 `backlog→todo→in_progress→in_review`；Story 70、Epic 69 同步 **in_review**（本次目标达成）。
+- **实现（纯前端 <60 行）**: `showClearAll` computed + `clearAllFilters()`；工具条「✕ 清除筛选」按钮；任务列表 `@empty` 二分 `.empty-inline`(无任务) / `.filter-empty-state`(筛选无匹配)。`npm run build` → cp `browser/.` → `agentboard/web/static/`。
+- **验证**: `tests/test_epic34_v23_filter_guide_e2e.py` 全绿（0 错误）；回归 `pytest test_epic30_cache.py` 8 passed + E2E epic34_summary/epic35_search/epic33_mine_filter/v19_collapse_all 全绿（epic35_search 空状态断言随改进更新）。
+- **提交**: `feat(ui): 前端体验升级 v2.3 - 任务列表筛选结果引导` + push origin main 成功。
+- **硬约束**: 未触碰 18001(MCP)/8080(web)/docker；排除 data/、autodev.lock、其他 automation MEMORY.md、screenshots。

@@ -304,6 +304,8 @@ export class App implements OnInit, OnDestroy {
   readonly editingTaskId = signal<number | null>(null);
   readonly editingTaskTitle = signal('');
   readonly activeFilterCount = computed(() => this.filterPriorities().length + this.filterTypes().length + (this.filterOnlyOverdue() ? 1 : 0) + (this.labelFilter() ? 1 : 0) + (this.filterMineOnly() ? 1 : 0));
+  // Epic 34 (v2.3): 工具条「清除全部筛选」按钮显隐 —— 搜索框非空或任一筛选活跃时显示
+  readonly showClearAll = computed(() => this.taskSearchQuery().trim() !== '' || this.activeFilterCount() > 0);
   // Task 716: 优先级快速筛选 chips —— 各优先级任务计数（基于当前 story 全量任务，不受筛选影响）
   readonly priorityCounts = computed<Record<string, number>>(() => {
     const counts: Record<string, number> = { highest: 0, high: 0, medium: 0, low: 0, lowest: 0 };
@@ -2984,6 +2986,11 @@ export class App implements OnInit, OnDestroy {
     this.filterMineOnly.set(false);
     try { localStorage.removeItem('agentboard_filter_mine'); } catch { /* ignore */ }
     this.persistQuickPriority();
+  }
+  // Epic 34 (v2.3): 工具栏「清除全部筛选」—— 重置搜索 + 优先级 chips + 只看我 + 高级面板全部筛选条件
+  clearAllFilters(): void {
+    this.taskSearchQuery.set('');
+    this.clearFilters();
   }
   // Epic 33 (v2.2): 当前登录用户在成员列表中的 user_id
   myUserId(): number | null {
