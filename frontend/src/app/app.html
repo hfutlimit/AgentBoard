@@ -201,9 +201,6 @@
             @if (showUserMenu()) {
               <div class="user-dropdown">
                 <a routerLink="/settings" class="user-dropdown-item" (click)="showUserMenu.set(false)">⚙ 个人设置</a>
-                @if (isAdmin()) {
-                  <a routerLink="/admin" class="user-dropdown-item" (click)="showUserMenu.set(false)">🛡 管理员后台</a>
-                }
                 <button class="user-dropdown-item" (click)="showUserMenu.set(false); logout()">🚪 退出登录</button>
               </div>
             }
