@@ -34,7 +34,7 @@
 - 任务改状态用 `PUT /api/tasks/{tid}/status` body=`{"status":"..."}`；**真实迁移表**（`service.py` TRANSITIONS，L30-37）：`BACKLOG→{TODO}`、`TODO→{IN_PROGRESS,BACKLOG,DONE}`、`IN_PROGRESS→{IN_REVIEW,VERIFYING,TODO,DONE}`、`IN_REVIEW→{DONE,IN_PROGRESS}`、`VERIFYING→{DONE,IN_PROGRESS}`、`DONE→{IN_PROGRESS,TODO}`。**注意：无 `in_review → verifying` 边**（旧记忆里的线性链是错的），从 in_review 只能直接→done 或回 in_progress。状态同步脚本应在 TRANSITIONS 上 BFS 求最短合法路径，勿硬编码线性顺序。**例外（A-22 快速完成）**：允许 `TODO/IN_PROGRESS→DONE` 与 `DONE→TODO`，`IN_PROGRESS→BACKLOG` 仍禁止。
 - Story/Epic 改状态用 `PATCH /api/{stories|epics}/{id}` body=`{"status":"..."}`。
 - `TaskIn` 必须含 `project_id`；`TaskPatch` 含 `sprint_id`（可 null）。
-- CORS：`require_business_auth` 对 401 响应手动注入 `Access-Control-Allow-Origin`（`agentboard/api.py` L49-55）；`rate_limit_middleware` 跳过 OPTIONS preflight（commit `4a486cf`）。
+- CORS：`require_business_auth` 对 401 响应手动注入 `Access-Control-Allow-Origin`（`agentboard/api.py` L49-55）。后端速率限制中间件已于 2026-07-20 移除（commit `8036b1e`）。
 
 ## 自动化任务经验（关键）
 - **MCP 优先**：AgentBoard MCP 是进度唯一权威来源。`mcp__agentboard__set_status` 沙箱有序列化 bug → 改用 curl REST API 更新状态。
@@ -43,6 +43,12 @@
 - **多 DB 注意**：本地 uvicorn (58125) 用 `agentboard.db`（root，数据完整），Docker API (18000) 用不同 DB。Playwright 测试须用 8080 端口。
 - **并发锁**：自动开发前检查 `.workbuddy/autodev.lock`；90 分钟内存在则停，否则建锁、结束删锁。
 - **禁止触碰端口 18001**：WorkBuddy MCP 通信端口，任何 docker 操作不得影响。
+
+## 项目访问控制架构（2026-07-20 加固）
+- 仅 `REQUIRE_AUTH=1`（Docker 默认）下生效；本地开放模式（`REQUIRE_AUTH=0`）不强制。
+- `project_access_middleware`（`agentboard/api.py`）统一拦截所有 `/api` 项目级路由：按路径/子资源 id/query 解析目标 project；**私有项目仅成员/系统管理员可见**，公开项目可读但写入需成员；项目根 PATCH/DELETE 需 owner 或管理员；**系统管理员 `is_admin` 全局绕过**。
+- 子资源→project 解析器在 `service.py`（`get_epic_project_id`/`get_story_project_id`/`get_task_project_id` 等）。`create_project` 支持 `is_private`（前端新建弹窗默认勾选「私有项目」）。
+- 新增/修改项目级接口时勿绕过该中间件（已覆盖 epics/stories/tasks/sprints/schedules/webhooks/评论/附件/统计/导出）。`/api/admin/projects` 需用系统管理员 token；`list_all_projects_admin` 内曾因 `func` 未导入 500，已改为 `.count()`。
 
 ## Playwright 验证经验
 - **登录流程**：无 `localStorage.agentboard_token` 时 SPA 重定向到 `/login`；脚本里先走注册流程（点 `.auth-tab` 注册、填 `input[name=username]/[name=password]`、提交 `.login-submit`）。
