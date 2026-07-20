@@ -85,3 +85,12 @@
 - **验收**: live `/api/cache/stats` 正常（default_ttl=30 印证 env 默认）；`pytest test_epic30_cache.py` 8 passed；Playwright `test_epic30_cache_e2e.py` 全绿（0 错误）。无代码改动→无回归。
 - **提交**: 仅 memory 更新 → git commit + push origin main 成功。
 - **硬约束**: 未触碰 18001/8080/docker；排除 data/、autodev.lock、其他 automation MEMORY.md。
+
+## 2026-07-20 13:43 运行（Epic 32 v2.1 任务列表键盘快捷键 → in_review）
+- **目标**: 至少 1 个 task → in_review。MCP backlog 大 Epic(15/64) 依赖重 → 新建增量 Epic 32(id=67)。
+- **完成**: Epic 32→Story 68(id=68)→Task 717(high)「快捷键聚焦搜索框（/）与 Esc 清空」→ in_review（链 backlog→todo→in_progress→in_review）；Story/Epic 同步 in_review。
+- **实现**: 纯前端。`app.ts` handleTaskKeydown 加 `case '/'` 聚焦 `.task-search-input`；`app.html` 搜索框加 `(keydown.escape)` 清空+失焦 + `<kbd class="search-kbd">/`；`app.css` 补 `.search-kbd`。
+- **验证**: Playwright `test_epic32_tasklist_hotkeys_e2e.py` 全绿（0 错误；含「输入框内按 / 正常输入、不触发聚焦」无冲突断言）。回归 pytest 8 passed + E2E epic31/35/36/v1.9 全绿。
+- **提交**: commit + git push origin main 成功。
+- **坑(已记 MEMORY.md)**: ① `node ng build` 报错须 `npm run build`；② app.css 组件作用域，规则进 main.js 非 styles.css。
+- **硬约束**: 未触碰 18001/8080/docker；排除 data/、autodev.lock、其他 automation MEMORY.md、screenshots。

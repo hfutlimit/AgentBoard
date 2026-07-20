@@ -1851,6 +1851,15 @@ export class App implements OnInit, OnDestroy {
           this.toggleTaskSelection(tasks[idx].id);
         }
         break;
+      case '/':
+        // Epic 32: 快速聚焦任务搜索框（与 GitHub/Jira 一致）
+        event.preventDefault();
+        const searchEl = document.querySelector<HTMLInputElement>('.task-search-input');
+        if (searchEl) {
+          searchEl.focus();
+          searchEl.select();
+        }
+        break;
       case 'Escape':
         this.focusedTaskId.set(null);
         this.clearTaskSelection();

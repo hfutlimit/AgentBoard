@@ -757,6 +757,21 @@ router-outlet {
   line-height: 1;
 }
 .task-search-clear:hover { color: var(--text); background: var(--surface-3); }
+/* Epic 32: 搜索框快捷键可视提示 */
+.search-kbd {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 0.72rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  line-height: 1.4;
+  cursor: default;
+  user-select: none;
+}
+.search-kbd:hover { color: var(--text); border-color: var(--border-3); }
 
 /* Task 836: 任务列表分组 */
 .task-group-bar { display: inline-flex; align-items: center; gap: 4px; }
