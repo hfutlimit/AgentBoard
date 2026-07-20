@@ -211,3 +211,34 @@ export interface WebhookConfig {
   events: string[];
   created_at: string;
 }
+
+/* ---------- Epic 15: 项目文档维护（多成员 / 多 Agent 协作） ---------- */
+export type DocumentType = 'memory' | 'plan' | 'knowledge' | 'design';
+export type DocumentStatus = 'draft' | 'in_review' | 'approved' | 'cancelled';
+
+export const DOCUMENT_TYPES: DocumentType[] = ['memory', 'plan', 'knowledge', 'design'];
+export const DOCUMENT_STATUSES: DocumentStatus[] = ['draft', 'in_review', 'approved', 'cancelled'];
+
+export interface DocumentItem {
+  id: number;
+  project_id: number;
+  epic_id: number | null;
+  story_id: number | null;
+  title: string;
+  content: string;
+  type: DocumentType;
+  status: DocumentStatus;
+  author_id: number | null;
+  author: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DocumentCommentItem {
+  id: number;
+  document_id: number;
+  author: string;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}

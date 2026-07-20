@@ -2087,3 +2087,157 @@ router-outlet {
   border-radius: 50%;
   animation: confirmation-spin 650ms linear infinite;
 }
+
+/* ================= Epic 15: 项目文档维护 ================= */
+.doc-toolbar {
+  gap: 10px;
+  margin: 14px 0;
+  flex-wrap: wrap;
+}
+.doc-search-input {
+  flex: 1 1 220px;
+  min-width: 180px;
+  padding: 8px 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  color: inherit;
+}
+.doc-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.doc-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.05s;
+}
+.doc-row:hover {
+  border-color: #6366f1;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.12);
+}
+.doc-row-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-row-project, .doc-row-time {
+  font-size: 12px;
+  color: var(--text-muted, #94a3b8);
+}
+.doctype, .docstatus {
+  font-size: 12px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.doctype--memory { background: #ede9fe; color: #6d28d9; }
+.doctype--plan { background: #dbeafe; color: #1d4ed8; }
+.doctype--knowledge { background: #dcfce7; color: #15803d; }
+.doctype--design { background: #fef3c7; color: #b45309; }
+.docstatus--draft { background: #f1f5f9; color: #64748b; }
+.docstatus--in_review { background: #fef9c3; color: #a16207; }
+.docstatus--approved { background: #dcfce7; color: #15803d; }
+.docstatus--cancelled { background: #fee2e2; color: #b91c1c; }
+
+.doc-create, .doc-edit { margin: 14px 0; display: flex; flex-direction: column; gap: 12px; }
+.doc-edit-title {
+  font-size: 20px;
+  font-weight: 700;
+  padding: 8px 10px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  color: inherit;
+}
+.doc-status-bar {
+  display: flex;
+  gap: 10px;
+  margin: 14px 0;
+  flex-wrap: wrap;
+}
+.doc-content {
+  line-height: 1.7;
+  overflow-x: auto;
+}
+.doc-content h1, .doc-content h2, .doc-content h3,
+.doc-content h4, .doc-content h5, .doc-content h6 {
+  margin: 1.1em 0 0.5em;
+  line-height: 1.3;
+}
+.doc-content h1 { font-size: 1.7em; }
+.doc-content h2 { font-size: 1.4em; }
+.doc-content h3 { font-size: 1.2em; }
+.doc-content p { margin: 0.6em 0; }
+.doc-content ul, .doc-content ol { margin: 0.6em 0; padding-left: 1.5em; }
+.doc-content li { margin: 0.25em 0; }
+.doc-content blockquote {
+  margin: 0.8em 0;
+  padding: 0.5em 1em;
+  border-left: 4px solid #c7d2fe;
+  background: #f5f3ff;
+  color: #4c4c6d;
+  border-radius: 0 8px 8px 0;
+}
+.doc-content code {
+  background: #f1f5f9;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+.doc-content pre.code-block {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 14px 16px;
+  border-radius: 10px;
+  overflow-x: auto;
+}
+.doc-content pre.code-block code { background: transparent; color: inherit; padding: 0; }
+.doc-content .mermaid-block { margin: 1em 0; }
+.doc-content .mermaid-lang {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  margin-bottom: 4px;
+}
+.doc-content pre.mermaid {
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 10px;
+  padding: 12px 14px;
+  overflow-x: auto;
+  color: #334155;
+}
+.doc-content .mermaid-svg { margin: 1em 0; overflow-x: auto; }
+.doc-content table.md-table {
+  border-collapse: collapse;
+  margin: 0.8em 0;
+  width: 100%;
+}
+.doc-content table.md-table th, .doc-content table.md-table td {
+  border: 1px solid var(--border, #e2e8f0);
+  padding: 6px 10px;
+  text-align: left;
+}
+.doc-content table.md-table th { background: #f8fafc; }
+.count-badge {
+  background: #eef2ff;
+  color: #4338ca;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 13px;
+  font-weight: 600;
+}

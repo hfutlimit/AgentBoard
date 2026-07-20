@@ -34,6 +34,7 @@
 - Jira 核心协作：任务优先级、评论、附件、Sprint 规划
 - Agent 协作：Codex、WorkBuddy、Qoder 等通过 MCP 查询/领取任务、同步状态、追加评论与交付记录
 - 自动开发：用户可为任务配置一次性或周期性计划，由 Agent 执行器按时领取并回写运行结果
+- **项目文档维护（多成员 / 多 Agent 协作）**：独立于任务 `spec` 的「项目文档」实体，承载 memory / plan / knowledge / design 四类长文，自带 `draft → in_review → approved / cancelled` 评审状态机、评论流与 Markdown/Mermaid 渲染；可按 Epic / Story 归属，支持 REST + Web SPA + MCP 三方读写（详见 `openspec/changes/documents-maintenance/` 与 `docs/tasks.md` Epic 35）
 
 **进行中 / 待实现（见 Epic 7–12）**
 - FR-8 前端注册 / 登录 UI 与 token 持久化（后端已就绪）
@@ -161,6 +162,16 @@ MVP 不做权限区分，所有调用方等价。
 - 任务可配置 `AgentSchedule`：`task_id, agent, schedule_type(once|cron), schedule_expr/run_at, enabled, next_run_at, last_run_at`。
 - 调度器只负责生成可审计的 Agent Run/触发请求，不在 Web 进程中直接执行任意 shell；执行器通过明确的命令模板/适配器运行，并回写 `queued|running|succeeded|failed|cancelled`、摘要与日志引用。
 - 每次运行必须具备幂等键和租约，避免多实例重复执行；默认不自动 push/merge，除非具体任务策略明确授权。
+
+**FR-18 项目文档维护（多成员 / 多 Agent 协作）**
+- 引入独立实体 `Document`（`documents` 表）与 `DocumentComment`（`document_comments` 表），与任务 `spec` 解耦：`spec` 仍是任务级"如何做"的规范，文档是项目级"是什么 / 为什么 / 设计"的长文知识载体。
+- 文档字段：`id, project_id, epic_id(可空), story_id(可空), title, content(markdown), type, status, author_id, created_at, updated_at`。
+- `type ∈ {memory, plan, knowledge, design}`：分别对应团队记忆 / 计划方案 / 知识沉淀 / 设计文档四类协作素材。
+- `status` 走评审状态机 `DOCUMENT_TRANSITIONS`：`draft → {in_review}`、`in_review → {approved, cancelled}`、`approved → {in_review}`（修订重审）、`cancelled → {draft}`（复活）；`draft` 不可直接 `approved`，强制评审闭环。
+- 评论流 `DocumentComment`（`document_id, author, content(markdown), created_at, updated_at`）支持增 / 列表 / 改 / 删，人类与 Agent 共用。
+- 提供完整 REST 接口：`GET/POST /api/documents`、`GET/PUT/PATCH/DELETE /api/documents/{id}`、`PUT /api/documents/{id}/status`、`GET/POST /api/documents/{id}/comments`、`PATCH/DELETE /api/documents/comments/{cid}`；受既有 `project_access_middleware` 约束（私有项目仅成员可写）。
+- Web SPA 新增「项目文档」模块：列表页（类型 / 状态筛选 + 关键字搜索 + 状态徽章）、详情页（Markdown + Mermaid 自渲染、评审状态条、评论区）、新建 / 内联编辑；Markdown 渲染为前端自包含实现（标题 / 粗斜体 / 列表 / 引用 / 代码 / 表格 / 链接 / 分隔线 / ```mermaid 块），Mermaid 走 CDN 懒加载、离线降级为代码块。
+- 暴露 MCP 工具集（11 个）：文档 CRUD、状态流转、评论读写与按项目 / 类型 / 状态查询，使 AI Agent 可像人类一样协作维护项目文档。
 
 ---
 

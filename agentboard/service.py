@@ -9,6 +9,11 @@ from .models import (
     ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES,
     Project, Epic, Story, Task, Comment, Sprint, Attachment, AgentSchedule, AgentRun,
     ProjectMember, Notification, User, ApiKey, AuditLog, TaskDependency, WebhookConfig,
+    Document, DocumentComment,
+)
+from .domains.documents.models import (
+    DocumentStatus, DocumentType,
+    ALL_DOCUMENT_TYPES, ALL_DOCUMENT_STATUSES, DOCUMENT_TRANSITIONS,
 )
 
 DEFAULT_PAGE_SIZE = 100
@@ -1716,3 +1721,169 @@ def import_tasks_from_json(s: Session, project_id: int, data: dict) -> dict:
             errors.append({"title": item.get("title", "?"), "error": str(e)})
     _commit(s)
     return {"imported": imported, "errors": errors}
+
+
+# ---------- Documents (Epic 15：项目文档维护 / 多成员·多 Agent 协作) ----------
+def _check_document_type(value: str) -> None:
+    if value not in ALL_DOCUMENT_TYPES:
+        raise InvalidValue(f"invalid document type '{value}'")
+
+
+def _check_document_status(value: str) -> None:
+    if value not in ALL_DOCUMENT_STATUSES:
+        raise InvalidValue(f"invalid document status '{value}'")
+
+
+def create_document(
+    s: Session, *, project_id: int, title: str, content: str = "",
+    type: str = "plan", status: str = "draft",
+    epic_id: int | None = None, story_id: int | None = None,
+    author_id: int | None = None,
+) -> Document:
+    if not s.get(Project, project_id):
+        raise NotFound(f"project {project_id} not found")
+    if epic_id is not None and not s.get(Epic, epic_id):
+        raise NotFound(f"epic {epic_id} not found")
+    if story_id is not None and not s.get(Story, story_id):
+        raise NotFound(f"story {story_id} not found")
+    _check_document_type(type)
+    _check_document_status(status)
+    if author_id is not None and not s.get(User, author_id):
+        raise InvalidValue(f"author {author_id} not found")
+    doc = Document(
+        project_id=project_id, epic_id=epic_id, story_id=story_id,
+        title=_required(title, "title", 300), content=content or "",
+        type=type, status=status, author_id=author_id,
+    )
+    s.add(doc); _commit(s); s.refresh(doc); return doc
+
+
+def get_document(s: Session, id: int) -> Document | None:
+    return s.get(Document, id)
+
+
+def list_documents(
+    s: Session, *, project_id: int | None = None, type: str | None = None,
+    status: str | None = None, q: str | None = None,
+    limit: int | None = None, offset: int = 0,
+):
+    qry = s.query(Document)
+    if project_id is not None:
+        qry = qry.filter(Document.project_id == project_id)
+    if type is not None:
+        _check_document_type(type)
+        qry = qry.filter(Document.type == type)
+    if status is not None:
+        _check_document_status(status)
+        qry = qry.filter(Document.status == status)
+    if q:
+        like = f"%{q}%"
+        qry = qry.filter(or_(Document.title.ilike(like), Document.content.ilike(like)))
+    qry = qry.order_by(Document.updated_at.desc(), Document.id.desc())
+    return _paginate(qry, limit, offset).all()
+
+
+def update_document(s: Session, id: int, **fields) -> Document | None:
+    d = s.get(Document, id)
+    if not d:
+        return None
+    allowed = {"title", "content", "type"}
+    for k, v in fields.items():
+        if k not in allowed:
+            continue
+        if v is None:
+            continue
+        if k == "title":
+            v = _required(v, "title", 300)
+        elif k == "type":
+            _check_document_type(v)
+        setattr(d, k, v)
+    _commit(s); s.refresh(d); return d
+
+
+def delete_document(s: Session, id: int) -> bool:
+    d = s.get(Document, id)
+    if not d:
+        return False
+    # 级联删除评论（外键 ondelete=CASCADE 也会兜底）
+    s.query(DocumentComment).filter(DocumentComment.document_id == id).delete(synchronize_session=False)
+    s.delete(d); _commit(s); return True
+
+
+def set_document_status(s: Session, id: int, new_status: str) -> Document | None:
+    d = s.get(Document, id)
+    if not d:
+        raise NotFound(f"document {id} not found")
+    _check_document_status(new_status)
+    new = DocumentStatus(new_status)
+    current = DocumentStatus(d.status)
+    if current != new and new not in DOCUMENT_TRANSITIONS.get(current, set()):
+        raise IllegalTransition(f"{d.status} -> {new} 不合法")
+    d.status = new
+    _commit(s); s.refresh(d); return d
+
+
+def create_document_comment(
+    s: Session, *, document_id: int, author: str, content: str,
+    author_id: int | None = None,
+) -> DocumentComment:
+    if not s.get(Document, document_id):
+        raise NotFound(f"document {document_id} not found")
+    author = (author or "").strip()
+    content = (content or "").strip()
+    if not author or not content:
+        raise InvalidValue("author and content are required")
+    if author_id is not None and not s.get(User, author_id):
+        raise InvalidValue(f"author {author_id} not found")
+    c = DocumentComment(
+        document_id=document_id, author=author[:100], content=content, author_id=author_id,
+    )
+    s.add(c); _commit(s); s.refresh(c); return c
+
+
+def list_document_comments(s: Session, document_id: int):
+    if not s.get(Document, document_id):
+        raise NotFound(f"document {document_id} not found")
+    return (
+        s.query(DocumentComment)
+        .filter(DocumentComment.document_id == document_id)
+        .order_by(DocumentComment.created_at, DocumentComment.id)
+        .all()
+    )
+
+
+def update_document_comment(
+    s: Session, id: int, content: str, *, author: str,
+) -> DocumentComment | None:
+    """编辑文档评论：仅作者（成员或 Agent 账号）可编辑自己的评论。"""
+    c = s.get(DocumentComment, id)
+    if not c:
+        return None
+    content = (content or "").strip()
+    if not content:
+        raise InvalidValue("content is required")
+    if c.author != (author or "").strip():
+        raise InvalidValue("only the author can edit this comment")
+    c.content = content
+    _commit(s); s.refresh(c); return c
+
+
+def delete_document_comment(s: Session, id: int) -> bool:
+    c = s.get(DocumentComment, id)
+    if not c:
+        return False
+    s.delete(c); _commit(s); return True
+
+
+def get_document_project_id(s: Session, document_id: int) -> int | None:
+    d = s.get(Document, document_id)
+    return d.project_id if d else None
+
+
+def get_document_comment_project_id(s: Session, comment_id: int) -> int | None:
+    c = s.get(DocumentComment, comment_id)
+    if not c:
+        return None
+    d = s.get(Document, c.document_id)
+    return d.project_id if d else None
+

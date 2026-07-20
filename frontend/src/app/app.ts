@@ -9,10 +9,10 @@ import { filter } from 'rxjs/operators';
 
 import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric } from './api.service';
 import { LoginComponent } from './login/login';
-import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig } from './models';
+import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES } from './models';
 import { PaginationComponent } from './pagination/pagination';
 
-type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'admin' | 'settings' | 'not-found';
+type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
 type ProjectTabKind = 'epics' | 'sprints' | 'backlog' | 'settings' | 'members' | 'stats' | 'schedules';
 type ProjectListKind = 'epics' | 'sprints' | 'backlog' | 'members' | 'schedules';
@@ -90,6 +90,32 @@ export class App implements OnInit, OnDestroy {
   readonly showUserMenu = signal(false);
   readonly projectStats = signal<ProjectStats | null>(null);
   readonly schedules = signal<AgentSchedule[]>([]);
+  // Epic 15: 文档维护
+  readonly documents = signal<DocumentItem[]>([]);
+  readonly docItem = signal<DocumentItem | null>(null);
+  readonly documentComments = signal<DocumentCommentItem[]>([]);
+  readonly docFilterType = signal<DocumentType | ''>('');
+  readonly docFilterStatus = signal<DocumentStatus | ''>('');
+  readonly docSearchQuery = signal('');
+  readonly docEditing = signal(false);
+  readonly docEditTitle = signal('');
+  readonly docEditContent = signal('');
+  readonly docEditType = signal<DocumentType>('plan');
+  readonly docEditEpicId = signal<number | null>(null);
+  readonly docEditStoryId = signal<number | null>(null);
+  readonly docCommentContent = signal('');
+  readonly docCommentPreview = signal(false);
+  readonly docMermaidReady = signal(false);
+  readonly docDetailEpics = signal<Epic[]>([]);
+  readonly docDetailStories = signal<Story[]>([]);
+  private _docMermaidLoading = false;
+  // 新建文档表单状态
+  readonly docCreateOpen = signal(false);
+  readonly docCreateProjectId = signal<number | null>(null);
+  readonly docCreateEpics = signal<Epic[]>([]);
+  readonly docCreateStories = signal<Story[]>([]);
+  readonly docCreateEpicId = signal<number | null>(null);
+  readonly docCreateStoryId = signal<number | null>(null);
   readonly projectListPageSize = 20;
   readonly epicsPage = signal(1);
   readonly sprintsPage = signal(1);
@@ -1138,6 +1164,34 @@ export class App implements OnInit, OnDestroy {
         }
         this.view.set('settings');
         await Promise.all([this.loadProfile(), this.loadMyProjects(), this.loadApiKeys()]);
+      } else if (kind === 'documents') {
+        if (id > 0) {
+          this.view.set('document');
+          const [doc, comments] = await Promise.all([
+            firstValueFrom(this.api.getDocument(id)),
+            firstValueFrom(this.api.listDocumentComments(id)),
+          ]);
+          this.docItem.set(doc);
+          this.documentComments.set(comments);
+          this.docEditTitle.set(doc.title);
+          this.docEditContent.set(doc.content);
+          this.docEditType.set(doc.type);
+          this.docEditEpicId.set(doc.epic_id);
+          this.docEditStoryId.set(doc.story_id);
+          this.docEditing.set(false);
+          this.project.set(await firstValueFrom(this.api.getProject(doc.project_id)));
+          const eps = await firstValueFrom(this.api.listEpics(doc.project_id));
+          this.docDetailEpics.set(eps);
+          if (doc.epic_id) {
+            this.docDetailStories.set(await firstValueFrom(this.api.listStories(doc.epic_id)));
+          } else {
+            this.docDetailStories.set([]);
+          }
+          setTimeout(() => this.enhanceMermaid(), 80);
+        } else {
+          this.view.set('documents');
+          await this.loadDocuments();
+        }
       } else {
         this.view.set('not-found');
       }
@@ -3094,6 +3148,322 @@ export class App implements OnInit, OnDestroy {
   quickDeleteTask(): void {
     const task = this.task();
     if (task) void this.remove('task', task.id);
+  }
+
+  /* ================= Epic 15: 项目文档维护 ================= */
+  docTypeLabel(t: DocumentType): string {
+    return { memory: '记忆', plan: '计划', knowledge: '知识', design: '设计' }[t] || t;
+  }
+  docStatusLabel(s: DocumentStatus): string {
+    return { draft: '草稿', in_review: '评审中', approved: '已批准', cancelled: '已取消' }[s] || s;
+  }
+  readonly docTypes = DOCUMENT_TYPES;
+  readonly docStatuses = DOCUMENT_STATUSES;
+  epicTitle(eid: number | null): string {
+    if (!eid) return '';
+    return this.docDetailEpics().find((e) => e.id === eid)?.title || this.epics().find((e) => e.id === eid)?.title || `Epic #${eid}`;
+  }
+  projectName(pid: number): string {
+    return this.projects().find((p) => p.id === pid)?.name || `#${pid}`;
+  }
+  docVisible(): DocumentItem[] {
+    let list = this.documents();
+    const q = this.docSearchQuery().trim().toLowerCase();
+    if (q) list = list.filter((d) => d.title.toLowerCase().includes(q) || (d.content || '').toLowerCase().includes(q));
+    return list;
+  }
+
+  async loadDocuments(): Promise<void> {
+    const params: Record<string, any> = {};
+    if (this.docFilterType()) params['type'] = this.docFilterType();
+    if (this.docFilterStatus()) params['status'] = this.docFilterStatus();
+    const list = await firstValueFrom(this.api.listDocuments(params));
+    this.documents.set(list || []);
+  }
+  onDocFilterChange(): void {
+    void this.loadDocuments();
+  }
+  onDocSearchChange(value: string): void {
+    this.docSearchQuery.set(value);
+    void this.loadDocuments();
+  }
+
+  async openDocCreate(): Promise<void> {
+    const first = this.projects()[0];
+    const pid = this.project()?.id ?? first?.id ?? null;
+    this.docCreateProjectId.set(pid);
+    this.docCreateEpicId.set(null);
+    this.docCreateStoryId.set(null);
+    if (pid) {
+      this.docCreateEpics.set(await firstValueFrom(this.api.listEpics(pid)));
+      this.docCreateStories.set([]);
+    }
+    this.docCreateOpen.set(true);
+  }
+  closeDocCreate(): void {
+    this.docCreateOpen.set(false);
+  }
+  async onDocCreateProjectChange(pid: number): Promise<void> {
+    this.docCreateProjectId.set(pid);
+    this.docCreateEpicId.set(null);
+    this.docCreateStoryId.set(null);
+    if (pid) {
+      this.docCreateEpics.set(await firstValueFrom(this.api.listEpics(pid)));
+      this.docCreateStories.set([]);
+    }
+  }
+  async onDocCreateEpicChange(eid: number | null): Promise<void> {
+    this.docCreateEpicId.set(eid);
+    this.docCreateStoryId.set(null);
+    if (eid) {
+      this.docCreateStories.set(await firstValueFrom(this.api.listStories(eid)));
+    } else {
+      this.docCreateStories.set([]);
+    }
+  }
+  async createDocument(event: Event, titleEl: HTMLInputElement, typeEl: HTMLSelectElement, contentEl: HTMLTextAreaElement): Promise<void> {
+    event.preventDefault();
+    const title = titleEl.value.trim();
+    const pid = this.docCreateProjectId();
+    if (!title || !pid) { this.notify('请填写标题并选择项目', 'error'); return; }
+    try {
+      const created = await firstValueFrom(this.api.createDocument({
+        project_id: pid,
+        title,
+        type: (typeEl.value as DocumentType) || 'plan',
+        content: contentEl.value,
+        epic_id: this.docCreateEpicId(),
+        story_id: this.docCreateStoryId(),
+      }));
+      this.docCreateOpen.set(false);
+      this.notify('文档已创建');
+      await this.router.navigateByUrl(`/documents/${created.id}`);
+    } catch (error) {
+      this.notify(`创建失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  openDocEdit(): void {
+    const d = this.docItem();
+    if (!d) return;
+    this.docEditTitle.set(d.title);
+    this.docEditContent.set(d.content);
+    this.docEditType.set(d.type);
+    this.docEditEpicId.set(d.epic_id);
+    this.docEditStoryId.set(d.story_id);
+    this.docEditing.set(true);
+  }
+  cancelDocEdit(): void {
+    this.docEditing.set(false);
+  }
+  async onDocEditEpicChange(eid: number | null): Promise<void> {
+    this.docEditEpicId.set(eid);
+    this.docEditStoryId.set(null);
+    if (eid) {
+      this.docDetailStories.set(await firstValueFrom(this.api.listStories(eid)));
+    } else {
+      this.docDetailStories.set([]);
+    }
+  }
+  async saveDocEdit(): Promise<void> {
+    const d = this.docItem();
+    if (!d) return;
+    const title = this.docEditTitle().trim();
+    if (!title) { this.notify('标题不能为空', 'error'); return; }
+    try {
+      const updated = await firstValueFrom(this.api.updateDocument(d.id, {
+        title,
+        content: this.docEditContent(),
+        type: this.docEditType(),
+        epic_id: this.docEditEpicId(),
+        story_id: this.docEditStoryId(),
+      }));
+      this.docItem.set(updated);
+      this.docEditing.set(false);
+      this.notify('文档已保存');
+      setTimeout(() => this.enhanceMermaid(), 80);
+    } catch (error) {
+      this.notify(`保存失败：${this.message(error)}`, 'error');
+    }
+  }
+  async setDocStatus(status: DocumentStatus): Promise<void> {
+    const d = this.docItem();
+    if (!d) return;
+    try {
+      const updated = await firstValueFrom(this.api.setDocumentStatus(d.id, status));
+      this.docItem.set(updated);
+      this.notify(`状态已更新为「${this.docStatusLabel(status)}」`);
+    } catch (error) {
+      this.notify(`状态更新失败：${this.message(error)}`, 'error');
+    }
+  }
+  deleteDoc(): void {
+    const d = this.docItem();
+    if (!d) return;
+    this.openConfirmation({
+      title: '删除文档？',
+      message: `确定删除「${d.title}」？该操作不可恢复，关联评论也会一并删除。`,
+      confirmLabel: '删除文档',
+      tone: 'danger',
+    }, async () => {
+      await firstValueFrom(this.api.deleteDocument(d.id));
+      this.notify('文档已删除');
+      await this.router.navigateByUrl('/documents');
+    });
+  }
+
+  async addDocComment(event: Event): Promise<void> {
+    event.preventDefault();
+    const d = this.docItem();
+    const content = this.docCommentContent().trim();
+    const author = this.commentAuthor();
+    if (!d || !content) return;
+    try {
+      const c = await firstValueFrom(this.api.addDocumentComment(d.id, { author, content }));
+      this.documentComments.set([...this.documentComments(), c]);
+      this.docCommentContent.set('');
+      this.notify('评论已发布');
+    } catch (error) {
+      this.notify(`评论失败：${this.message(error)}`, 'error');
+    }
+  }
+  async saveDocComment(cid: number, content: string): Promise<void> {
+    const trimmed = content.trim();
+    if (!trimmed) return;
+    try {
+      const updated = await firstValueFrom(this.api.updateDocumentComment(cid, { content: trimmed }));
+      this.documentComments.set(this.documentComments().map((c) => (c.id === cid ? updated : c)));
+      this.notify('评论已更新');
+    } catch (error) {
+      this.notify(`更新失败：${this.message(error)}`, 'error');
+    }
+  }
+  async deleteDocComment(cid: number): Promise<void> {
+    try {
+      await firstValueFrom(this.api.deleteDocumentComment(cid));
+      this.documentComments.set(this.documentComments().filter((c) => c.id !== cid));
+      this.notify('评论已删除');
+    } catch (error) {
+      this.notify(`删除失败：${this.message(error)}`, 'error');
+    }
+  }
+  toggleDocCommentPreview(): void {
+    this.docCommentPreview.set(!this.docCommentPreview());
+  }
+
+  /* 轻量 Markdown 渲染（无第三方依赖，离线可用）。
+     支持：标题、粗体/斜体、行内/块代码、有序/无序列表、引用、链接、分隔线、表格、以及 ```mermaid 代码块。 */
+  renderMarkdown(src: string): string {
+    if (!src) return '';
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const lines = src.replace(/\r\n/g, '\n').split('\n');
+    const out: string[] = [];
+    let i = 0;
+    const inline = (text: string): string => {
+      let t = esc(text);
+      t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
+      t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      t = t.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
+      t = t.replace(/_([^_]+)_/g, '<em>$1</em>');
+      t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      return t;
+    };
+    while (i < lines.length) {
+      const line = lines[i];
+      // 围栏代码块 / mermaid
+      const fence = line.match(/^```(\w*)\s*$/);
+      if (fence) {
+        const lang = fence[1];
+        const buf: string[] = [];
+        i++;
+        while (i < lines.length && !/^```\s*$/.test(lines[i])) { buf.push(lines[i]); i++; }
+        i++; // 跳过结束围栏
+        if (lang === 'mermaid') {
+          out.push(`<div class="mermaid-block"><div class="mermaid-lang">Mermaid</div><pre class="mermaid">${esc(buf.join('\n'))}</pre></div>`);
+        } else {
+          out.push(`<pre class="code-block"><code>${esc(buf.join('\n'))}</code></pre>`);
+        }
+        continue;
+      }
+      // 标题
+      const h = line.match(/^(#{1,6})\s+(.*)$/);
+      if (h) { const lvl = h[1].length; out.push(`<h${lvl}>${inline(h[2])}</h${lvl}>`); i++; continue; }
+      // 分隔线
+      if (/^(\*{3,}|-{3,}|_{3,})\s*$/.test(line)) { out.push('<hr/>'); i++; continue; }
+      // 引用
+      if (/^>\s?/.test(line)) {
+        const buf: string[] = [];
+        while (i < lines.length && /^>\s?/.test(lines[i])) { buf.push(lines[i].replace(/^>\s?/, '')); i++; }
+        out.push(`<blockquote>${inline(buf.join(' '))}</blockquote>`);
+        continue;
+      }
+      // 无序列表
+      if (/^\s*[-*]\s+/.test(line)) {
+        const buf: string[] = [];
+        while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) { buf.push(`<li>${inline(lines[i].replace(/^\s*[-*]\s+/, ''))}</li>`); i++; }
+        out.push(`<ul>${buf.join('')}</ul>`);
+        continue;
+      }
+      // 有序列表
+      if (/^\s*\d+\.\s+/.test(line)) {
+        const buf: string[] = [];
+        while (i < lines.length && /^\s*\d+\.\s+/.test(lines[i])) { buf.push(`<li>${inline(lines[i].replace(/^\s*\d+\.\s+/, ''))}</li>`); i++; }
+        out.push(`<ol>${buf.join('')}</ol>`);
+        continue;
+      }
+      // 表格（首行 | 列 |，次行分隔）
+      if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length && /^\s*\|?[\s:|-]+\|?\s*$/.test(lines[i + 1]) && lines[i + 1].includes('-')) {
+        const header = line.split('|').filter((c, idx, arr) => idx !== 0 && idx !== arr.length - 1 || (arr.length === 1)).map((c) => c.trim());
+        // 简化：按 | 切分并去掉首尾空段
+        const parseRow = (r: string) => r.replace(/^\s*\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+        const heads = parseRow(line);
+        i += 2;
+        const rows: string[] = [];
+        while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) { rows.push(`<tr>${parseRow(lines[i]).map((c) => `<td>${inline(c)}</td>`).join('')}</tr>`); i++; }
+        out.push(`<table class="md-table"><thead><tr>${heads.map((c) => `<th>${inline(c)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table>`);
+        continue;
+      }
+      // 空行
+      if (line.trim() === '') { i++; continue; }
+      // 段落（合并连续非空行）
+      const buf: string[] = [line];
+      i++;
+      while (i < lines.length && lines[i].trim() !== '' && !/^(#{1,6}\s|>\s?|\s*[-*]\s+|\s*\d+\.\s+|```|\*{3,}|-{3,})/.test(lines[i])) { buf.push(lines[i]); i++; }
+      out.push(`<p>${inline(buf.join(' '))}</p>`);
+    }
+    return out.join('\n');
+  }
+
+  // 懒加载 mermaid（CDN），离线时优雅降级为代码块
+  private enhanceMermaid(): void {
+    const blocks = document.querySelectorAll('pre.mermaid');
+    if (blocks.length === 0) return;
+    if ((window as any).mermaid) { this._renderMermaid(); return; }
+    if (this._docMermaidLoading) return;
+    this._docMermaidLoading = true;
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
+    s.onload = () => {
+      try { (window as any).mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' }); } catch { /* ignore */ }
+      this._renderMermaid();
+    };
+    s.onerror = () => { /* 离线：保留原始代码块 */ };
+    document.head.appendChild(s);
+  }
+  private _renderMermaid(): void {
+    const mermaid = (window as any).mermaid;
+    if (!mermaid) return;
+    document.querySelectorAll('pre.mermaid').forEach((el, idx) => {
+      const code = (el.textContent || '').trim();
+      try {
+        mermaid.render(`doc-mermaid-${Date.now()}-${idx}`, code).then(({ svg }: any) => {
+          const wrap = document.createElement('div');
+          wrap.className = 'mermaid-svg';
+          wrap.innerHTML = svg;
+          el.replaceWith(wrap);
+        }).catch(() => { /* 保留代码块 */ });
+      } catch { /* ignore */ }
+    });
   }
 
   // Task 604: 通知分组批量操作

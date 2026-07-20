@@ -222,6 +222,10 @@
           <span class="sidebar-nav-icon">📊</span>
           <span class="sidebar-nav-label">仪表盘</span>
         </a>
+        <a routerLink="/documents" [class.active]="view() === 'documents' || view() === 'document'" class="sidebar-nav-item">
+          <span class="sidebar-nav-icon">📄</span>
+          <span class="sidebar-nav-label">项目文档</span>
+        </a>
         <div class="sidebar-nav-group">
           <a routerLink="/projects" [class.active]="view() === 'projects'" class="sidebar-nav-item">
             <span class="sidebar-nav-icon">📁</span>
@@ -1727,6 +1731,177 @@
             </div>
           }
         }
+        @case ('documents') {
+          <div class="crumb-bar"><span>项目文档</span></div>
+          <div class="page-header">
+            <div class="page-title-row">
+              <h2>项目文档</h2>
+              <span class="badge count-badge">{{ docVisible().length }}</span>
+            </div>
+            <div class="page-actions">
+              <button class="btn-primary-sm" (click)="openDocCreate()">＋ 新建文档</button>
+            </div>
+          </div>
+
+          @if (docCreateOpen()) {
+            <form class="card doc-create" (submit)="createDocument($event, docCTitle, docCType, docCContent)">
+              <h3>新建文档</h3>
+              <div class="row">
+                <label>项目<select [value]="docCreateProjectId()" (change)="onDocCreateProjectChange(+$any($event.target).value)">
+                  @for (p of projects(); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
+                </select></label>
+                <label>类型<select #docCType [value]="'plan'">
+                  @for (t of docTypes; track t) { <option [value]="t">{{ docTypeLabel(t) }}</option> }
+                </select></label>
+              </div>
+              <div class="row">
+                <label>关联 Epic<select [value]="docCreateEpicId() ?? 0" (change)="onDocCreateEpicChange(+$any($event.target).value || null)">
+                  <option [value]="0">— 不关联 —</option>
+                  @for (e of docCreateEpics(); track e.id) { <option [value]="e.id">{{ e.title }}</option> }
+                </select></label>
+                <label>关联 Story<select [value]="docCreateStoryId() ?? 0" (change)="docCreateStoryId.set(+$any($event.target).value || null)">
+                  <option [value]="0">— 不关联 —</option>
+                  @for (s of docCreateStories(); track s.id) { <option [value]="s.id">{{ s.title }}</option> }
+                </select></label>
+              </div>
+              <label>标题<input #docCTitle required maxlength="300" placeholder="文档标题" /></label>
+              <label>内容（支持 Markdown / Mermaid）<textarea #docCContent rows="8" placeholder="# 标题&#10;正文…&#10;```mermaid&#10;graph TD; A-->B;&#10;```"></textarea></label>
+              <div class="row">
+                <button type="submit" class="btn-primary-sm">💾 创建</button>
+                <button type="button" class="ghost-sm" (click)="closeDocCreate()">取消</button>
+              </div>
+            </form>
+          }
+
+          <div class="row doc-toolbar">
+            <select [value]="docFilterType()" (change)="docFilterType.set($any($event.target).value); onDocFilterChange()">
+              <option [value]="''">全部类型</option>
+              @for (t of docTypes; track t) { <option [value]="t">{{ docTypeLabel(t) }}</option> }
+            </select>
+            <select [value]="docFilterStatus()" (change)="docFilterStatus.set($any($event.target).value); onDocFilterChange()">
+              <option [value]="''">全部状态</option>
+              @for (s of docStatuses; track s) { <option [value]="s">{{ docStatusLabel(s) }}</option> }
+            </select>
+            <input type="search" class="doc-search-input" placeholder="搜索标题 / 内容…"
+              [value]="docSearchQuery()" (input)="onDocSearchChange($any($event.target).value)" />
+          </div>
+
+          @if (docVisible().length === 0) {
+            <div class="empty-state">还没有文档。点击右上角「＋ 新建文档」开始记录项目知识。</div>
+          } @else {
+            <div class="doc-list">
+              @for (d of docVisible(); track d.id) {
+                <a class="doc-row" [routerLink]="['/documents', d.id]">
+                  <span class="doc-row-title">{{ d.title }}</span>
+                  <span class="badge doctype doctype--{{ d.type }}">{{ docTypeLabel(d.type) }}</span>
+                  <span class="badge docstatus docstatus--{{ d.status }}">{{ docStatusLabel(d.status) }}</span>
+                  <span class="doc-row-project">{{ projectName(d.project_id) }}</span>
+                  <time class="doc-row-time">{{ timeAgo(d.updated_at) }}</time>
+                </a>
+              }
+            </div>
+          }
+        }
+
+        @case ('document') {
+          @if (docItem(); as d) {
+            <div class="crumb-bar">
+              <a [routerLink]="['/project', project()?.id]">{{ project()?.name }}</a
+              ><span>›</span>@if (d.epic_id) {<a [routerLink]="['/epic', d.epic_id]">{{ epicTitle(d.epic_id) }}</a><span>›</span>}<span>{{ d.title }}</span>
+            </div>
+            <div class="page-header">
+              <div class="page-title-row">
+                @if (docEditing()) {
+                  <input class="doc-edit-title" [value]="docEditTitle()" (input)="docEditTitle.set($any($event.target).value)" />
+                } @else {
+                  <h2>{{ d.title }}</h2>
+                }
+                <span class="badge doctype doctype--{{ d.type }}">{{ docTypeLabel(d.type) }}</span>
+                <span class="badge docstatus docstatus--{{ d.status }}">{{ docStatusLabel(d.status) }}</span>
+              </div>
+              <div class="page-actions">
+                @if (!docEditing()) {
+                  <button class="ghost-sm" (click)="openDocEdit()">✎ 编辑</button>
+                  <button class="danger" (click)="deleteDoc()">🗑 删除</button>
+                }
+              </div>
+            </div>
+
+            @if (!docEditing()) {
+              <!-- 评审状态流转 -->
+              <div class="doc-status-bar">
+                @if (d.status === 'draft') {
+                  <button class="btn-primary-sm" (click)="setDocStatus('in_review')">提交评审</button>
+                } @else if (d.status === 'in_review') {
+                  <button class="btn-primary-sm" (click)="setDocStatus('approved')">批准</button>
+                  <button class="ghost-sm" (click)="setDocStatus('draft')">退回草稿</button>
+                  <button class="ghost-sm" (click)="setDocStatus('cancelled')">取消文档</button>
+                } @else if (d.status === 'approved') {
+                  <button class="ghost-sm" (click)="setDocStatus('draft')">退回草稿</button>
+                }
+              </div>
+            }
+
+            @if (docEditing()) {
+              <form class="card doc-edit" (submit)="$event.preventDefault(); saveDocEdit()">
+                <div class="row">
+                  <label>类型<select [value]="docEditType()" (change)="docEditType.set($any($event.target).value)">
+                    @for (t of docTypes; track t) { <option [value]="t">{{ docTypeLabel(t) }}</option> }
+                  </select></label>
+                  <label>关联 Epic<select [value]="docEditEpicId() ?? 0" (change)="onDocEditEpicChange(+$any($event.target).value || null)">
+                    <option [value]="0">— 不关联 —</option>
+                    @for (e of docDetailEpics(); track e.id) { <option [value]="e.id">{{ e.title }}</option> }
+                  </select></label>
+                  <label>关联 Story<select [value]="docEditStoryId() ?? 0" (change)="docEditStoryId.set(+$any($event.target).value || null)">
+                    <option [value]="0">— 不关联 —</option>
+                    @for (s of docDetailStories(); track s.id) { <option [value]="s.id">{{ s.title }}</option> }
+                  </select></label>
+                </div>
+                <label>内容（支持 Markdown / Mermaid）<textarea rows="16" [value]="docEditContent()" (input)="docEditContent.set($any($event.target).value)" placeholder="# 标题&#10;正文…"></textarea></label>
+                <div class="row">
+                  <button type="submit" class="btn-primary-sm">💾 保存</button>
+                  <button type="button" class="ghost-sm" (click)="cancelDocEdit()">取消</button>
+                </div>
+              </form>
+            } @else {
+              <article class="card md doc-content" [innerHTML]="renderMarkdown(d.content)"></article>
+            }
+
+            <div class="card comments-card">
+              <div class="section-header">
+                <h3>评论 / 协作者讨论 <span class="count">{{ documentComments().length }}</span></h3>
+                <button class="ghost-sm" (click)="toggleDocCommentPreview()" [class.active]="docCommentPreview()">
+                  {{ docCommentPreview() ? '✏ 编辑' : '👁 预览' }}
+                </button>
+              </div>
+              <div class="comment-list">
+                @for (c of documentComments(); track c.id) {
+                  <article class="comment-item">
+                    <span class="avatar comment-avatar">{{ c.author.slice(0, 2) }}</span>
+                    <div class="comment-body">
+                      <div class="comment-meta"><strong>{{ c.author }}</strong><time>{{ timeAgo(c.created_at) }}</time></div>
+                      <div class="md text-pre">{{ c.content }}</div>
+                    </div>
+                  </article>
+                } @empty {
+                  <div class="empty-inline">还没有评论。协作者可在此记录评审意见或决策。</div>
+                }
+              </div>
+              <form class="comment-form" (submit)="addDocComment($event)">
+                <input #docCAuthor name="author" [value]="commentAuthor()" required maxlength="100" placeholder="你的名字" />
+                @if (docCommentPreview()) {
+                  <div class="comment-preview md text-pre">{{ docCommentContent() || '（预览区域）' }}</div>
+                }
+                <textarea #docCContent name="content" rows="4" required
+                  [placeholder]="docCommentPreview() ? '切换到编辑模式输入…' : '记录评审意见、决策或阻塞…'"
+                  [disabled]="docCommentPreview()"
+                  [value]="docCommentContent()" (input)="docCommentContent.set($any($event.target).value)"></textarea>
+                <button type="submit" class="btn-primary-sm" [disabled]="docCommentPreview()">发表评论</button>
+              </form>
+            </div>
+          }
+        }
+
         @case ('sprint') {
           @if (sprint(); as current) {
             <div class="crumb-bar">

@@ -524,3 +524,42 @@
 | 2026-07-18 | Epic 34 | Task 903 → done（任务列表汇总栏：堆叠条 + 总数/完成率文案） |
 | 2026-07-18 | B-02 负责人指派 | Epic 37/Story 63/Task 835 → done：创建弹窗 + 任务详情「负责人」下拉（`loadMembers` 在 story/task 视图加载成员）、`saveTaskAssignee()` 走 `fetch()`、`assignee-chip` 看板头像；顺带修复 `add_member` 端点 `get_user_by_username` 返回 ORM 对象误用 `.get("id")` 的 500 后端 bug；Playwright E2E 全绿（零 page/console/404 错误） |
 
+---
+
+## Epic 35（Epic 106 in DB）：项目文档维护（多成员 / 多 Agent 协作）（2026-07-20 完成）
+> 目标：在任务 `spec`（"如何做"的规范）之外，提供项目级「长文知识载体」`Document`，承载 memory / plan / knowledge / design 四类协作素材，自带评审状态机、评论流与 Markdown/Mermaid 渲染，供人类与 AI Agent 共同维护。后端（模型/迁移/service/api/mcp）+ 前端（列表/详情/编辑/评论）+ 测试全链路落地，已在 Docker 生产栈（API 18000）验证。
+> 设计细节与变更提案见 `openspec/changes/documents-maintenance/`；需求基线见 `docs/requirements.md` FR-18。
+
+### Story 35.1 文档数据模型与迁移（Story 164）
+> `Document` / `DocumentComment` 实体（`agentboard/domains/documents/models.py`）+ `models.py` 门面导入 + Alembic 迁移 `f2a3b4c5d6e7_add_documents.py`（建 `documents` / `document_comments` 两表，含 type/status CHECK 约束与级联 FK）。
+
+### Story 35.2 文档 REST CRUD（Story 165）
+> `GET/POST /api/documents`、`GET/PUT/PATCH/DELETE /api/documents/{id}`，受 `project_access_middleware` 约束；`DocumentIn` 校验必填字段。
+
+### Story 35.3 文档评审状态机与状态流转（Story 166）
+> `DOCUMENT_TRANSITIONS`（`draft→in_review→approved/cancelled`，`approved→in_review`，`cancelled→draft`）；`PUT /api/documents/{id}/status` 校验合法迁移，非法迁移返回 400。
+
+### Story 35.4 文档评论 API（Story 167）
+> `GET/POST /api/documents/{id}/comments`、`PATCH/DELETE /api/documents/comments/{cid}`；评论 `content` 支持 Markdown。
+
+### Story 35.5 MCP 文档工具集（Story 168）
+> 11 个 MCP 工具：文档 CRUD、状态流转、评论读写、按项目/类型/状态查询，使 AI Agent 可协作维护文档。
+
+### Story 35.6 前端文档列表页（Story 169）
+> 侧栏「📄 项目文档」导航；列表页含类型/状态筛选 + 关键字搜索 + 类型/状态徽章 + Epic/Story 归属显示。
+
+### Story 35.7 前端文档详情页（Story 170）
+> 面包屑 + Markdown 自渲染（`renderMarkdown`，支持标题/粗斜体/列表/引用/代码/表格/链接/分隔线/` ```mermaid ` 块）+ Mermaid CDN 懒加载（离线降级代码块）+ 评审状态条（`draft→in_review→approved/cancelled`）。
+
+### Story 35.8 前端文档新建与内联编辑（Story 171）
+> 新建表单（标题/类型/内容/Epic/Story 关联）；详情页内联编辑标题/内容/类型，状态变更按钮条。
+
+### Story 35.9 前端文档评论区 + 端到端验证（Story 172）
+> 评论区增/改/删 + Markdown 预览；`test_doc_api.py`（17 断言 ALL PASS）+ `test_doc_frontend.py`（Playwright 真实浏览器 15/15 PASS：Markdown/Mermaid/评论/状态机/新建/零错误）。
+
+### 完成记录
+| 日期 | 项 | 简述 |
+|------|----|------|
+| 2026-07-20 | Epic 35 全量 | 代码、迁移、前端、测试、live 跟踪全部完成：Epic 106（DB）/ Story 164–172 / Task 863–871 全部 `done`；Docker API 18000 自动迁移建 `documents` 表，admin 验证 list/create/get/status 流转/comment 全链路 200/201。关键技术决策与坑：① 后端采用 `domains/documents` 分包 + `models.py` 门面 re-export，`init_db()` 自动 `alembic upgrade head`；② 前端 `HttpClient` 的 PATCH 不 emit，统一用 `fetch()` 的 `patchJson` 绕过（`updateDocument`/`updateDocumentComment`）；③ 文档 signal 初版命名 `document` 与第 553 行 `@Inject(DOCUMENT)` 注入的 DOM `Document` 冲突，全局改名为 `docItem`；④ `angular.json` budget 调高（anyComponentStyle 40kB→80kB、initial 1MB→2MB）以容纳 app.css(41.89kB) 与 main bundle(624kB)；⑤ Playwright 用 API register/login 取 token 经 `add_init_script` 注入 `localStorage` 绕过登录重定向；外部 mermaid CDN 失败按预期降级，E2E 仅统计本机 `.js/.css` 失败。 |
+
+

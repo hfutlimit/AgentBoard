@@ -488,6 +488,13 @@ def _resolve_project_id_from_request(request: Request) -> int | None:
             m = re.match(r"^/api/webhooks/(\d+)", path)
             if m:
                 return service.get_webhook_project_id(s, int(m.group(1)))
+        # Documents（Epic 15）
+        m = re.match(r"^/api/documents/(\d+)", path)
+        if m:
+            return service.get_document_project_id(s, int(m.group(1)))
+        m = re.match(r"^/api/document-comments/(\d+)", path)
+        if m:
+            return service.get_document_comment_project_id(s, int(m.group(1)))
     return None
 
 
@@ -1688,6 +1695,146 @@ def toggle_webhook(
     }
 
 
+# ---------- Documents (Epic 15：项目文档维护 / 多成员·多 Agent 协作) ----------
+class DocumentIn(BaseModel):
+    project_id: int = Field(gt=0)
+    title: str = Field(min_length=1, max_length=300)
+    content: str = ""
+    type: str = "plan"  # memory / plan / knowledge / design
+    status: str = "draft"  # draft / in_review / approved / cancelled
+    epic_id: int | None = None
+    story_id: int | None = None
+    author_id: int | None = None
+
+
+class DocumentPatch(BaseModel):
+    title: str | None = Field(None, min_length=1, max_length=300)
+    content: str | None = None
+    type: str | None = None
+
+
+class DocumentCommentIn(BaseModel):
+    author: str = Field(min_length=1, max_length=100)
+    content: str = Field(min_length=1)
+    author_id: int | None = None
+
+
+class DocumentCommentPatch(BaseModel):
+    content: str = Field(min_length=1)
+    author: str = Field(min_length=1, max_length=100)
+
+
+@app.post("/api/documents", status_code=201)
+def create_document(body: DocumentIn, s: Session = Depends(get_session)):
+    """新建文档（title/content/type/project_id 必填，status 默认 draft）。"""
+    try:
+        d = service.create_document(
+            s, project_id=body.project_id, title=body.title, content=body.content,
+            type=body.type, status=body.status, epic_id=body.epic_id,
+            story_id=body.story_id, author_id=body.author_id,
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(d)
+
+
+@app.get("/api/documents")
+def list_documents(
+    project_id: int | None = Query(None),
+    type: str | None = Query(None),
+    status: str | None = Query(None),
+    q: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
+    s: Session = Depends(get_session),
+):
+    """列出文档，支持按 project_id / type / status 过滤与关键词搜索。默认按 updated_at 倒序。"""
+    try:
+        rows = service.list_documents(
+            s, project_id=project_id, type=type, status=status, q=q,
+            limit=limit, offset=offset,
+        )
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return [service._ser(d) for d in rows]
+
+
+@app.get("/api/documents/{did}")
+def get_document(did: int, s: Session = Depends(get_session)):
+    return service._ser(_need(service.get_document(s, did), "document"))
+
+
+@app.patch("/api/documents/{did}")
+def update_document(did: int, body: DocumentPatch, s: Session = Depends(get_session)):
+    """编辑文档 title/content/type（状态流转请用 PUT /status）。"""
+    try:
+        r = service.update_document(s, did, **body.model_dump(exclude_none=True))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(_need(r, "document"))
+
+
+@app.put("/api/documents/{did}/status")
+def set_document_status(did: int, body: StatusIn, s: Session = Depends(get_session)):
+    """文档评审状态流转：draft→in_review→approved/cancelled/draft；approved→draft。非法迁移返回 400。"""
+    try:
+        result = service.set_document_status(s, did, body.status)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.IllegalTransition as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return service._ser(_need(result, "document"))
+
+
+@app.delete("/api/documents/{did}")
+def delete_document(did: int, s: Session = Depends(get_session)):
+    if not service.delete_document(s, did):
+        raise HTTPException(status_code=404, detail="document not found")
+    return {"ok": True}
+
+
+@app.post("/api/documents/{did}/comments", status_code=201)
+def create_document_comment(did: int, body: DocumentCommentIn, s: Session = Depends(get_session)):
+    """对文档添加评论（markdown），author 为成员或 Agent 账号名。"""
+    try:
+        c = service.create_document_comment(
+            s, document_id=did, author=body.author, content=body.content,
+            author_id=body.author_id,
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(c)
+
+
+@app.get("/api/documents/{did}/comments")
+def list_document_comments(did: int, s: Session = Depends(get_session)):
+    """列出文档评论，按 created_at 正序。"""
+    try:
+        return [service._ser(x) for x in service.list_document_comments(s, did)]
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.patch("/api/document-comments/{cid}")
+def update_document_comment(cid: int, body: DocumentCommentPatch, s: Session = Depends(get_session)):
+    """编辑文档评论：仅作者（成员或 Agent 账号）可编辑自己的评论。"""
+    try:
+        c = service.update_document_comment(s, cid, content=body.content, author=body.author)
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(_need(c, "comment"))
+
+
+@app.delete("/api/document-comments/{cid}")
+def delete_document_comment(cid: int, s: Session = Depends(get_session)):
+    if not service.delete_document_comment(s, cid):
+        raise HTTPException(status_code=404, detail="comment not found")
+    return {"ok": True}
+
+
 # ---------- Epic 22 Story 22.1: 审计日志中间件 ----------
 @app.middleware("http")
 async def audit_log_middleware(request: Request, call_next):
@@ -1737,6 +1884,8 @@ async def audit_log_middleware(request: Request, call_next):
         (r"^/api/comments/(\d+)", "comment"),
         (r"^/api/attachments/(\d+)", "attachment"),
         (r"^/api/schedules/(\d+)", "schedule"),
+        (r"^/api/documents/(\d+)", "document"),
+        (r"^/api/document-comments/(\d+)", "document_comment"),
     ]:
         m = re.match(pattern, path)
         if m:

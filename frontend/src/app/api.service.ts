@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable, of, throwError, timer, Subject } from 'rxjs';
 import { catchError, tap, switchMap, mergeMap, debounceTime, takeUntil } from 'rxjs/operators';
 
-import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig } from './models';
+import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentType, DocumentStatus } from './models';
 
 export const AUTH_EXPIRED_EVENT = 'agentboard:auth-expired';
 
@@ -738,5 +738,78 @@ export class ApiService {
   }
   revokeApiKey(keyId: number) {
     return this.request<void>('DELETE', `/api/api-keys/${keyId}`);
+  }
+
+  /* ---------- Epic 15: 项目文档维护 ---------- */
+  // HttpClient PATCH 在 AgentBoard 中不会 emit（已知缺陷），文档更新统一用 fetch 绕过
+  private patchJson<T>(path: string, body: unknown): Observable<T> {
+    const apiUrl = window.AGENTBOARD_API || 'http://127.0.0.1:8000';
+    const token = localStorage.getItem('agentboard_token');
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return new Observable<T>((observer) => {
+      fetch(`${apiUrl}${path}`, {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify(body),
+      })
+        .then(async (r) => {
+          if (!r.ok) {
+            let detail = r.statusText;
+            try {
+              const payload = await r.json();
+              detail = Array.isArray(payload?.detail)
+                ? payload.detail.map((i: any) => i.msg || '参数错误').join('；')
+                : (payload?.detail || detail);
+            } catch { /* ignore */ }
+            throw new Error(detail);
+          }
+          const data = (r.status === 204 || r.headers.get('content-length') === '0')
+            ? (undefined as unknown as T)
+            : ((await r.json()) as T);
+          observer.next(data);
+          observer.complete();
+        })
+        .catch((err) => observer.error(err));
+    });
+  }
+
+  listDocuments(params?: { project_id?: number; epic_id?: number; story_id?: number; type?: DocumentType; status?: DocumentStatus; q?: string }) {
+    return this.request<DocumentItem[]>('GET', '/api/documents', undefined, params as Record<string, string | number | undefined> | undefined);
+  }
+  getDocument(id: number) {
+    return this.request<DocumentItem>('GET', `/api/documents/${id}`);
+  }
+  createDocument(body: { project_id: number; title: string; content?: string; type?: DocumentType; status?: DocumentStatus; epic_id?: number | null; story_id?: number | null }) {
+    return this.request<DocumentItem>('POST', '/api/documents', body).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/documents'))
+    );
+  }
+  updateDocument(id: number, body: Partial<DocumentItem>) {
+    return this.patchJson<DocumentItem>(`/api/documents/${id}`, body).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/documents'))
+    );
+  }
+  setDocumentStatus(id: number, status: DocumentStatus) {
+    return this.request<DocumentItem>('PUT', `/api/documents/${id}/status`, { status }).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/documents'))
+    );
+  }
+  deleteDocument(id: number) {
+    return this.request<{ ok: boolean }>('DELETE', `/api/documents/${id}`).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/documents'))
+    );
+  }
+  listDocumentComments(id: number) {
+    return this.request<DocumentCommentItem[]>('GET', `/api/documents/${id}/comments`);
+  }
+  addDocumentComment(id: number, body: { author: string; content: string }) {
+    return this.request<DocumentCommentItem>('POST', `/api/documents/${id}/comments`, body);
+  }
+  updateDocumentComment(commentId: number, body: { content: string }) {
+    return this.patchJson<DocumentCommentItem>(`/api/document-comments/${commentId}`, body);
+  }
+  deleteDocumentComment(commentId: number) {
+    return this.request<{ ok: boolean }>('DELETE', `/api/document-comments/${commentId}`);
   }
 }
