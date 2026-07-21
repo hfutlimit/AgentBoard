@@ -954,16 +954,19 @@
                 } @else if (projectDocVisible().length === 0) {
                   <div class="empty-state">还没有文档。点击上方「＋ 新建文档」开始记录。</div>
                 } @else {
-                  <div class="doc-list">
+                  <div class="doc-list tile-view">
                     @for (d of projectDocVisible(); track d.id) {
-                      <div class="doc-row" [class.selected]="docItem()?.id === d.id" (click)="openDocTab(d)">
-                        <div class="doc-row-main">
-                          <span class="doc-row-title">{{ d.title }}</span>
-                          <span class="doctype--{{ d.type }}">{{ docTypeLabel(d.type) }}</span>
-                          <span class="docstatus--{{ d.status }}">{{ docStatusLabel(d.status) }}</span>
+                      <div class="doc-row doc-tile" [class.selected]="docItem()?.id === d.id" (click)="openDocTab(d)">
+                        <div class="doc-tile-icon">📄</div>
+                        <div class="doc-tile-title" [title]="d.title">{{ d.title }}</div>
+                        <div class="doc-tile-badges">
+                          <span class="badge doctype doctype--{{ d.type }}">{{ docTypeLabel(d.type) }}</span>
+                          <span class="badge docstatus docstatus--{{ d.status }}">{{ docStatusLabel(d.status) }}</span>
                         </div>
-                        @if (d.epic_id) { <span class="doc-meta">Epic {{ epicTitle(d.epic_id) }}</span> }
-                        <span class="doc-meta">{{ d.updated_at | date }}</span>
+                        <div class="doc-tile-meta">
+                          @if (d.epic_id) { <span>Epic {{ epicTitle(d.epic_id) }}</span> }
+                          <span>{{ d.updated_at | date }}</span>
+                        </div>
                       </div>
                     }
                   </div>
@@ -1858,14 +1861,19 @@
           @if (docVisible().length === 0) {
             <div class="empty-state">还没有文档。点击右上角「＋ 新建文档」开始记录项目知识。</div>
           } @else {
-            <div class="doc-list">
+            <div class="doc-list tile-view">
               @for (d of docVisible(); track d.id) {
-                <a class="doc-row" [routerLink]="['/documents', d.id]">
-                  <span class="doc-row-title">{{ d.title }}</span>
-                  <span class="badge doctype doctype--{{ d.type }}">{{ docTypeLabel(d.type) }}</span>
-                  <span class="badge docstatus docstatus--{{ d.status }}">{{ docStatusLabel(d.status) }}</span>
-                  <span class="doc-row-project">{{ projectName(d.project_id) }}</span>
-                  <time class="doc-row-time">{{ timeAgo(d.updated_at) }}</time>
+                <a class="doc-row doc-tile" [routerLink]="['/documents', d.id]">
+                  <div class="doc-tile-icon">📄</div>
+                  <div class="doc-tile-title" [title]="d.title">{{ d.title }}</div>
+                  <div class="doc-tile-badges">
+                    <span class="badge doctype doctype--{{ d.type }}">{{ docTypeLabel(d.type) }}</span>
+                    <span class="badge docstatus docstatus--{{ d.status }}">{{ docStatusLabel(d.status) }}</span>
+                  </div>
+                  <div class="doc-tile-meta">
+                    <span>{{ projectName(d.project_id) }}</span>
+                    <time>{{ timeAgo(d.updated_at) }}</time>
+                  </div>
                 </a>
               }
             </div>
