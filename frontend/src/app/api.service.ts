@@ -343,7 +343,12 @@ export class ApiService {
           const detail = Array.isArray(payload?.detail)
             ? payload?.detail.map((item) => item.msg || '参数错误').join('；')
             : payload?.detail;
-          return throwError(() => new Error(detail || error.message || `HTTP ${error.status}`));
+          // 保留 HTTP 状态码，便于调用方做权限错误自动跳转等场景
+          const wrapped: Error & { status?: number } = new Error(
+            detail || error.message || `HTTP ${error.status}`,
+          );
+          wrapped.status = error.status;
+          return throwError(() => wrapped);
         }),
       );
   }

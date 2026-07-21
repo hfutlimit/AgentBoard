@@ -1257,6 +1257,13 @@ export class App implements OnInit, OnDestroy {
         this.view.set('not-found');
       }
     } catch (error) {
+      const status = (error as Error & { status?: number })?.status;
+      // 403（无权访问） / 404（项目不存在）→ toast 提示并回首页
+      if (status === 403 || status === 404) {
+        this.notify(`访问受限：${this.message(error)}`, 'error');
+        await this.router.navigateByUrl('/');
+        return;
+      }
       this.error.set(this.message(error));
     } finally {
       this.loading.set(false);
