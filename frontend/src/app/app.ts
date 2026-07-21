@@ -116,6 +116,16 @@ export class App implements OnInit, OnDestroy {
   readonly docCreateStories = signal<Story[]>([]);
   readonly docCreateEpicId = signal<number | null>(null);
   readonly docCreateStoryId = signal<number | null>(null);
+  // 文档弹窗（新建 / 编辑统一）
+  readonly docModal = signal<{ mode: 'create' | 'edit' } | null>(null);
+  readonly docCreateTitle = signal('');
+  readonly docCreateType = signal<DocumentType>('plan');
+  readonly docCreateContent = signal('');
+  // 计划（Sprint）创建弹窗
+  readonly sprintModalOpen = signal<number | null>(null);
+  readonly sprintName = signal('');
+  readonly sprintType = signal<'cron' | 'once'>('cron');
+  readonly sprintCron = signal('');
   readonly projectListPageSize = 20;
   readonly epicsPage = signal(1);
   readonly sprintsPage = signal(1);
@@ -1414,15 +1424,26 @@ export class App implements OnInit, OnDestroy {
   }
 
   openCreateSchedule(projectId: number): void {
-    const title = prompt('计划名称：');
-    if (!title?.trim()) return;
-    const type = prompt('类型（cron/once，默认 cron）：') || 'cron';
-    const cron = type === 'cron' ? prompt('Cron 表达式（5字段，如 */5 * * * *）：') : '';
-    if (type === 'cron' && !cron?.trim()) {
+    this.sprintModalOpen.set(projectId);
+    this.sprintName.set('');
+    this.sprintType.set('cron');
+    this.sprintCron.set('');
+  }
+  closeSprintModal(): void {
+    this.sprintModalOpen.set(null);
+  }
+  async submitSprintModal(): Promise<void> {
+    const pid = this.sprintModalOpen();
+    const title = this.sprintName().trim();
+    if (!pid || !title) { this.notify('请填写计划名称', 'error'); return; }
+    const type = this.sprintType();
+    const cron = type === 'cron' ? this.sprintCron().trim() : '';
+    if (type === 'cron' && !cron) {
       this.notify('Cron 类型需要 cron 表达式', 'error');
       return;
     }
-    void this.createNewSchedule(projectId, title.trim(), type, cron || '');
+    this.sprintModalOpen.set(null);
+    await this.createNewSchedule(pid, title, type, cron);
   }
 
   closeCreate(): void {
@@ -3278,20 +3299,40 @@ export class App implements OnInit, OnDestroy {
     void this.loadDocuments();
   }
 
-  async openDocCreate(): Promise<void> {
-    const first = this.projects()[0];
-    const pid = this.project()?.id ?? first?.id ?? null;
-    this.docCreateProjectId.set(pid);
-    this.docCreateEpicId.set(null);
-    this.docCreateStoryId.set(null);
-    if (pid) {
-      this.docCreateEpics.set(await firstValueFrom(this.api.listEpics(pid)));
-      this.docCreateStories.set([]);
+  async openDocModal(mode: 'create' | 'edit'): Promise<void> {
+    if (mode === 'create') {
+      const first = this.projects()[0];
+      const pid = this.project()?.id ?? first?.id ?? null;
+      this.docCreateProjectId.set(pid);
+      this.docCreateEpicId.set(null);
+      this.docCreateStoryId.set(null);
+      this.docCreateTitle.set('');
+      this.docCreateType.set('plan');
+      this.docCreateContent.set('');
+      if (pid) {
+        this.docCreateEpics.set(await firstValueFrom(this.api.listEpics(pid)));
+        this.docCreateStories.set([]);
+      }
+      this.docModal.set({ mode: 'create' });
+    } else {
+      const d = this.docItem();
+      if (!d) return;
+      this.docEditTitle.set(d.title);
+      this.docEditContent.set(d.content);
+      this.docEditType.set(d.type);
+      this.docEditEpicId.set(d.epic_id);
+      this.docEditStoryId.set(d.story_id);
+      try {
+        this.docDetailEpics.set(await firstValueFrom(this.api.listEpics(d.project_id)));
+        this.docDetailStories.set(d.epic_id ? await firstValueFrom(this.api.listStories(d.epic_id)) : []);
+      } catch {
+        /* 关联选项加载失败不阻断编辑 */
+      }
+      this.docModal.set({ mode: 'edit' });
     }
-    this.docCreateOpen.set(true);
   }
-  closeDocCreate(): void {
-    this.docCreateOpen.set(false);
+  closeDocModal(): void {
+    this.docModal.set(null);
   }
   async onDocCreateProjectChange(pid: number): Promise<void> {
     this.docCreateProjectId.set(pid);
@@ -3311,32 +3352,56 @@ export class App implements OnInit, OnDestroy {
       this.docCreateStories.set([]);
     }
   }
-  async createDocument(event: Event, titleEl: HTMLInputElement, typeEl: HTMLSelectElement, contentEl: HTMLTextAreaElement): Promise<void> {
-    event.preventDefault();
-    const title = titleEl.value.trim();
-    const pid = this.docCreateProjectId();
-    if (!title || !pid) { this.notify('请填写标题并选择项目', 'error'); return; }
-    try {
-      const created = await firstValueFrom(this.api.createDocument({
-        project_id: pid,
-        title,
-        type: (typeEl.value as DocumentType) || 'plan',
-        content: contentEl.value,
-        epic_id: this.docCreateEpicId(),
-        story_id: this.docCreateStoryId(),
-      }));
-      this.docCreateOpen.set(false);
-      this.notify('文档已创建');
-      // 追加到列表，使新建文档在当前视图（含项目 Tab）中立即可见
-      this.documents.set([created, ...this.documents()]);
-      const inProjectTab = this.view() === 'project' && this.activeTab() === 'documents';
-      if (inProjectTab) {
-        await this.openDocTab(created);
-      } else {
-        await this.router.navigateByUrl(`/documents/${created.id}`);
+  async submitDocModal(): Promise<void> {
+    const dm = this.docModal();
+    if (!dm) return;
+    if (dm.mode === 'create') {
+      const title = this.docCreateTitle().trim();
+      const pid = this.docCreateProjectId();
+      if (!title || !pid) { this.notify('请填写标题并选择项目', 'error'); return; }
+      try {
+        const created = await firstValueFrom(this.api.createDocument({
+          project_id: pid,
+          title,
+          type: this.docCreateType(),
+          content: this.docCreateContent(),
+          epic_id: this.docCreateEpicId(),
+          story_id: this.docCreateStoryId(),
+        }));
+        this.docModal.set(null);
+        this.notify('文档已创建');
+        // 追加到列表，使新建文档在当前视图（含项目 Tab）中立即可见
+        this.documents.set([created, ...this.documents()]);
+        const inProjectTab = this.view() === 'project' && this.activeTab() === 'documents';
+        if (inProjectTab) {
+          await this.openDocTab(created);
+        } else {
+          await this.router.navigateByUrl(`/documents/${created.id}`);
+        }
+      } catch (error) {
+        this.notify(`创建失败：${this.message(error)}`, 'error');
       }
-    } catch (error) {
-      this.notify(`创建失败：${this.message(error)}`, 'error');
+    } else {
+      const d = this.docItem();
+      if (!d) return;
+      const title = this.docEditTitle().trim();
+      if (!title) { this.notify('标题不能为空', 'error'); return; }
+      try {
+        const updated = await firstValueFrom(this.api.updateDocument(d.id, {
+          title,
+          content: this.docEditContent(),
+          type: this.docEditType(),
+          epic_id: this.docEditEpicId(),
+          story_id: this.docEditStoryId(),
+        }));
+        this.docItem.set(updated);
+        this.documents.set(this.documents().map((x) => (x.id === updated.id ? updated : x)));
+        this.docModal.set(null);
+        this.notify('文档已保存');
+        setTimeout(() => this.enhanceMermaid(), 80);
+      } catch (error) {
+        this.notify(`保存失败：${this.message(error)}`, 'error');
+      }
     }
   }
 

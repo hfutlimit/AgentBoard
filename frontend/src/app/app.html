@@ -934,7 +934,7 @@
               <div class="tab-content">
                 <div class="section-header">
                   <h3>项目文档</h3>
-                  <button class="btn-primary-sm" (click)="openDocCreate()">＋ 新建文档</button>
+                  <button class="btn-primary-sm" (click)="openDocModal('create')">＋ 新建文档</button>
                 </div>
                 <div class="doc-toolbar">
                   <select class="doc-filter-select" [value]="docFilterType()" (change)="docFilterType.set($any($event.target).value)">
@@ -947,15 +947,6 @@
                   </select>
                   <input class="doc-search-input" [value]="docSearchQuery()" (input)="docSearchQuery.set($any($event.target).value)" placeholder="搜索文档…" />
                 </div>
-                @if (docCreateOpen()) {
-                  <form class="card doc-create" (submit)="createDocument($event, docCTitle, docCType, docCContent)">
-                    <h3>新建文档</h3>
-                    <label>标题<input #docCTitle required maxlength="300" placeholder="文档标题" /></label>
-                    <label>类型<select #docCType>@for (t of docTypes; track t) { <option [value]="t">{{ docTypeLabel(t) }}</option> }</select></label>
-                    <label>内容（支持 Markdown / Mermaid）<textarea #docCContent rows="8" placeholder="# 标题&#10;正文…"></textarea></label>
-                    <div class="row"><button type="submit" class="btn-primary-sm">创建</button><button type="button" class="ghost-sm" (click)="closeDocCreate()">取消</button></div>
-                  </form>
-                }
                 @if (isProjectTabLoading('documents')) {
                   <div class="tab-list-skeleton" role="status">@for (row of tabSkeletonRows.slice(0,4); track row) { <div class="tab-skeleton-row"><span class="tab-skeleton-icon"></span><span class="tab-skeleton-line long"></span><span class="tab-skeleton-badge"></span></div> }</div>
                 } @else if (projectTabError('documents')) {
@@ -981,7 +972,7 @@
                   <div class="card doc-detail-inline">
                     <div class="crumb-bar">
                       <a (click)="docItem.set(null)">← 返回列表</a>
-                      <button class="ghost-sm" (click)="openDocEdit()">✎ 编辑</button>
+                      <button class="ghost-sm" (click)="openDocModal('edit')">✎ 编辑</button>
                     </div>
                     @if (docItem(); as d) {
                       <div class="doc-status-bar">
@@ -998,16 +989,7 @@
                           <button class="btn-primary-sm" (click)="setDocStatus('draft')">复活为草稿</button>
                         }
                       </div>
-                      @if (docEditing()) {
-                        <form class="doc-edit" (submit)="saveDocEdit()">
-                          <label>标题<input [value]="docEditTitle()" (input)="docEditTitle.set($any($event.target).value)" maxlength="300" /></label>
-                          <label>类型<select [value]="docEditType()" (change)="docEditType.set($any($event.target).value)">@for (t of docTypes; track t) { <option [value]="t">{{ docTypeLabel(t) }}</option> }</select></label>
-                          <label>内容<textarea [value]="docEditContent()" (input)="docEditContent.set($any($event.target).value)" rows="12"></textarea></label>
-                          <div class="row"><button type="submit" class="btn-primary-sm">保存</button><button type="button" class="ghost-sm" (click)="cancelDocEdit()">取消</button></div>
-                        </form>
-                      } @else {
-                        <div class="doc-content" [innerHTML]="renderMarkdown(d.content)"></div>
-                      }
+                      <div class="doc-content" [innerHTML]="renderMarkdown(d.content)"></div>
                       <div class="doc-comments-section">
                         <h4>评论（{{ documentComments().length }}）</h4>
                         @for (c of documentComments(); track c.id) {
@@ -1870,39 +1852,9 @@
               <span class="badge count-badge">{{ docVisible().length }}</span>
             </div>
             <div class="page-actions">
-              <button class="btn-primary-sm" (click)="openDocCreate()">＋ 新建文档</button>
+              <button class="btn-primary-sm" (click)="openDocModal('create')">＋ 新建文档</button>
             </div>
           </div>
-
-          @if (docCreateOpen()) {
-            <form class="card doc-create" (submit)="createDocument($event, docCTitle, docCType, docCContent)">
-              <h3>新建文档</h3>
-              <div class="row">
-                <label>项目<select [value]="docCreateProjectId()" (change)="onDocCreateProjectChange(+$any($event.target).value)">
-                  @for (p of projects(); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
-                </select></label>
-                <label>类型<select #docCType [value]="'plan'">
-                  @for (t of docTypes; track t) { <option [value]="t">{{ docTypeLabel(t) }}</option> }
-                </select></label>
-              </div>
-              <div class="row">
-                <label>关联 Epic<select [value]="docCreateEpicId() ?? 0" (change)="onDocCreateEpicChange(+$any($event.target).value || null)">
-                  <option [value]="0">— 不关联 —</option>
-                  @for (e of docCreateEpics(); track e.id) { <option [value]="e.id">{{ e.title }}</option> }
-                </select></label>
-                <label>关联 Story<select [value]="docCreateStoryId() ?? 0" (change)="docCreateStoryId.set(+$any($event.target).value || null)">
-                  <option [value]="0">— 不关联 —</option>
-                  @for (s of docCreateStories(); track s.id) { <option [value]="s.id">{{ s.title }}</option> }
-                </select></label>
-              </div>
-              <label>标题<input #docCTitle required maxlength="300" placeholder="文档标题" /></label>
-              <label>内容（支持 Markdown / Mermaid）<textarea #docCContent rows="8" placeholder="# 标题&#10;正文…&#10;```mermaid&#10;graph TD; A-->B;&#10;```"></textarea></label>
-              <div class="row">
-                <button type="submit" class="btn-primary-sm">💾 创建</button>
-                <button type="button" class="ghost-sm" (click)="closeDocCreate()">取消</button>
-              </div>
-            </form>
-          }
 
           <div class="row doc-toolbar">
             <select [value]="docFilterType()" (change)="docFilterType.set($any($event.target).value); onDocFilterChange()">
@@ -1942,61 +1894,30 @@
             </div>
             <div class="page-header">
               <div class="page-title-row">
-                @if (docEditing()) {
-                  <input class="doc-edit-title" [value]="docEditTitle()" (input)="docEditTitle.set($any($event.target).value)" />
-                } @else {
-                  <h2>{{ d.title }}</h2>
-                }
+                <h2>{{ d.title }}</h2>
                 <span class="badge doctype doctype--{{ d.type }}">{{ docTypeLabel(d.type) }}</span>
                 <span class="badge docstatus docstatus--{{ d.status }}">{{ docStatusLabel(d.status) }}</span>
               </div>
               <div class="page-actions">
-                @if (!docEditing()) {
-                  <button class="ghost-sm" (click)="openDocEdit()">✎ 编辑</button>
-                  <button class="danger" (click)="deleteDoc()">🗑 删除</button>
-                }
+                <button class="ghost-sm" (click)="openDocModal('edit')">✎ 编辑</button>
+                <button class="danger" (click)="deleteDoc()">🗑 删除</button>
               </div>
             </div>
 
-            @if (!docEditing()) {
-              <!-- 评审状态流转 -->
-              <div class="doc-status-bar">
-                @if (d.status === 'draft') {
-                  <button class="btn-primary-sm" (click)="setDocStatus('in_review')">提交评审</button>
-                } @else if (d.status === 'in_review') {
-                  <button class="btn-primary-sm" (click)="setDocStatus('approved')">批准</button>
-                  <button class="ghost-sm" (click)="setDocStatus('draft')">退回草稿</button>
-                  <button class="ghost-sm" (click)="setDocStatus('cancelled')">取消文档</button>
-                } @else if (d.status === 'approved') {
-                  <button class="ghost-sm" (click)="setDocStatus('draft')">退回草稿</button>
-                }
-              </div>
-            }
+            <!-- 评审状态流转 -->
+            <div class="doc-status-bar">
+              @if (d.status === 'draft') {
+                <button class="btn-primary-sm" (click)="setDocStatus('in_review')">提交评审</button>
+              } @else if (d.status === 'in_review') {
+                <button class="btn-primary-sm" (click)="setDocStatus('approved')">批准</button>
+                <button class="ghost-sm" (click)="setDocStatus('draft')">退回草稿</button>
+                <button class="ghost-sm" (click)="setDocStatus('cancelled')">取消文档</button>
+              } @else if (d.status === 'approved') {
+                <button class="ghost-sm" (click)="setDocStatus('draft')">退回草稿</button>
+              }
+            </div>
 
-            @if (docEditing()) {
-              <form class="card doc-edit" (submit)="$event.preventDefault(); saveDocEdit()">
-                <div class="row">
-                  <label>类型<select [value]="docEditType()" (change)="docEditType.set($any($event.target).value)">
-                    @for (t of docTypes; track t) { <option [value]="t">{{ docTypeLabel(t) }}</option> }
-                  </select></label>
-                  <label>关联 Epic<select [value]="docEditEpicId() ?? 0" (change)="onDocEditEpicChange(+$any($event.target).value || null)">
-                    <option [value]="0">— 不关联 —</option>
-                    @for (e of docDetailEpics(); track e.id) { <option [value]="e.id">{{ e.title }}</option> }
-                  </select></label>
-                  <label>关联 Story<select [value]="docEditStoryId() ?? 0" (change)="docEditStoryId.set(+$any($event.target).value || null)">
-                    <option [value]="0">— 不关联 —</option>
-                    @for (s of docDetailStories(); track s.id) { <option [value]="s.id">{{ s.title }}</option> }
-                  </select></label>
-                </div>
-                <label>内容（支持 Markdown / Mermaid）<textarea rows="16" [value]="docEditContent()" (input)="docEditContent.set($any($event.target).value)" placeholder="# 标题&#10;正文…"></textarea></label>
-                <div class="row">
-                  <button type="submit" class="btn-primary-sm">💾 保存</button>
-                  <button type="button" class="ghost-sm" (click)="cancelDocEdit()">取消</button>
-                </div>
-              </form>
-            } @else {
-              <article class="card md doc-content" [innerHTML]="renderMarkdown(d.content)"></article>
-            }
+            <article class="card md doc-content" [innerHTML]="renderMarkdown(d.content)"></article>
 
             <div class="card comments-card">
               <div class="section-header">
@@ -2401,6 +2322,131 @@
     </section>
   </div>
 }
+
+@if (docModal(); as dm) {
+  <div class="modal-overlay" (click)="closeDocModal()">
+    <section class="modal doc-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+      <header class="modal-header">
+        <div>
+          <span class="modal-eyebrow">{{ dm.mode === 'create' ? 'NEW DOCUMENT' : 'EDIT DOCUMENT' }}</span>
+          <h3>{{ dm.mode === 'create' ? '新建文档' : '编辑文档' }}</h3>
+        </div>
+        <button type="button" class="modal-close" (click)="closeDocModal()">×</button>
+      </header>
+      <form (submit)="submitDocModal()">
+        <div class="modal-body">
+          @if (dm.mode === 'create') {
+            <div class="form-field">
+              <label>项目 <span class="required">*</span></label>
+              <select [value]="docCreateProjectId() ?? 0" (change)="onDocCreateProjectChange(+$any($event.target).value)">
+                <option [value]="0">— 选择项目 —</option>
+                @for (p of projects(); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
+              </select>
+            </div>
+          }
+          <div class="form-field">
+            <label>标题 <span class="required">*</span></label>
+            <input [value]="dm.mode === 'create' ? docCreateTitle() : docEditTitle()"
+                   (input)="dm.mode === 'create' ? docCreateTitle.set($any($event.target).value) : docEditTitle.set($any($event.target).value)"
+                   maxlength="300" placeholder="文档标题" />
+          </div>
+          <div class="form-grid">
+            <div class="form-field">
+              <label>类型</label>
+              <select [value]="dm.mode === 'create' ? docCreateType() : docEditType()" (change)="dm.mode === 'create' ? docCreateType.set($any($event.target).value) : docEditType.set($any($event.target).value)">
+                @for (t of docTypes; track t) { <option [value]="t">{{ docTypeLabel(t) }}</option> }
+              </select>
+            </div>
+            @if (dm.mode === 'create') {
+              <div class="form-field">
+                <label>关联 Epic</label>
+                <select [value]="docCreateEpicId() ?? 0" (change)="onDocCreateEpicChange(+$any($event.target).value || null)">
+                  <option [value]="0">— 不关联 —</option>
+                  @for (e of docCreateEpics(); track e.id) { <option [value]="e.id">{{ e.title }}</option> }
+                </select>
+              </div>
+            } @else {
+              <div class="form-field">
+                <label>关联 Epic</label>
+                <select [value]="docEditEpicId() ?? 0" (change)="onDocEditEpicChange(+$any($event.target).value || null)">
+                  <option [value]="0">— 不关联 —</option>
+                  @for (e of docDetailEpics(); track e.id) { <option [value]="e.id">{{ e.title }}</option> }
+                </select>
+              </div>
+            }
+          </div>
+          @if (dm.mode === 'create') {
+            <div class="form-field">
+              <label>关联 Story</label>
+              <select [value]="docCreateStoryId() ?? 0" (change)="docCreateStoryId.set(+$any($event.target).value || null)">
+                <option [value]="0">— 不关联 —</option>
+                @for (s of docCreateStories(); track s.id) { <option [value]="s.id">{{ s.title }}</option> }
+              </select>
+            </div>
+          } @else {
+            <div class="form-field">
+              <label>关联 Story</label>
+              <select [value]="docEditStoryId() ?? 0" (change)="docEditStoryId.set(+$any($event.target).value || null)">
+                <option [value]="0">— 不关联 —</option>
+                @for (s of docDetailStories(); track s.id) { <option [value]="s.id">{{ s.title }}</option> }
+              </select>
+            </div>
+          }
+          <div class="form-field">
+            <label>内容（支持 Markdown / Mermaid）</label>
+            <textarea rows="10" [value]="dm.mode === 'create' ? docCreateContent() : docEditContent()"
+                      (input)="dm.mode === 'create' ? docCreateContent.set($any($event.target).value) : docEditContent.set($any($event.target).value)"
+                      placeholder="# 标题&#10;正文…"></textarea>
+          </div>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" class="ghost" (click)="closeDocModal()">取消</button>
+          <button type="submit" class="btn-primary">{{ dm.mode === 'create' ? '创建文档' : '保存' }}</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+}
+
+@if (sprintModalOpen(); as pid) {
+  <div class="modal-overlay" (click)="closeSprintModal()">
+    <section class="modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+      <header class="modal-header">
+        <div>
+          <span class="modal-eyebrow">NEW SCHEDULE</span>
+          <h3>新建计划</h3>
+        </div>
+        <button type="button" class="modal-close" (click)="closeSprintModal()">×</button>
+      </header>
+      <form (submit)="submitSprintModal()">
+        <div class="modal-body">
+          <div class="form-field">
+            <label>名称 <span class="required">*</span></label>
+            <input [value]="sprintName()" (input)="sprintName.set($any($event.target).value)" maxlength="200" placeholder="计划名称" />
+          </div>
+          <div class="form-field">
+            <label>类型</label>
+            <select [value]="sprintType()" (change)="sprintType.set($any($event.target).value)">
+              <option value="cron">周期 (cron)</option>
+              <option value="once">单次 (once)</option>
+            </select>
+          </div>
+          @if (sprintType() === 'cron') {
+            <div class="form-field">
+              <label>Cron 表达式 <span class="muted" style="font-size:11px">5 字段</span></label>
+              <input [value]="sprintCron()" (input)="sprintCron.set($any($event.target).value)" placeholder="*/5 * * * *" />
+            </div>
+          }
+        </div>
+        <footer class="modal-footer">
+          <button type="button" class="ghost" (click)="closeSprintModal()">取消</button>
+          <button type="submit" class="btn-primary">创建</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+}
+
 } @else {
   <app-login
     [mode]="authMode()"
