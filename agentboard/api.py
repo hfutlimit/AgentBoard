@@ -82,12 +82,7 @@ async def require_business_auth(request: Request, call_next):
                 )
         with SessionLocal() as s:
             if not uid or service.get_user(s, uid) is None:
-                resp = JSONResponse(status_code=401, content={"detail": "unauthorized"})
-                origin = request.headers.get("origin")
-                if origin:
-                    resp.headers["Access-Control-Allow-Origin"] = origin
-                    resp.headers["Access-Control-Allow-Credentials"] = "true"
-                return resp
+                return _apply_cors(request, JSONResponse(status_code=401, content={"detail": "unauthorized"}))
     return await call_next(request)
 
 
@@ -378,6 +373,21 @@ def _current_user(
     if u is None:
         raise HTTPException(status_code=401, detail="unauthorized")
     return u
+
+
+def _apply_cors(request: Request, resp: JSONResponse) -> JSONResponse:
+    """为 middleware 早返回的 JSONResponse 注入 CORS 头（防 CORS 拦截致 0 status）。
+
+    FastAPI 的 CORSMiddleware 只对经过路由的响应补 CORS 头；从 middleware 直接
+    return 的 JSONResponse 会绕过该步骤，浏览器看到 4xx 没 CORS 头会判定为
+    "0 Unknown Error" 而非 403，导致前端无法正确处理。
+    """
+    origin = request.headers.get("origin")
+    if origin:
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers["Access-Control-Allow-Credentials"] = "true"
+        resp.headers["Vary"] = "Origin"
+    return resp
 
 
 def _optional_user_id(authorization: str | None, s: Session) -> int | None:
@@ -1966,22 +1976,22 @@ async def project_access_middleware(request: Request, call_next):
                 return await call_next(request)
             uid, is_admin = _caller_uid_admin(request.headers.get("authorization"))
             if _auth_is_required() and uid is None:
-                return JSONResponse(status_code=401, content={"detail": "unauthorized"})
+                return _apply_cors(request, JSONResponse(status_code=401, content={"detail": "unauthorized"}))
 
             # All projects are member-only for non-admin users
             if is_admin:
                 return await call_next(request)
             if uid is None:
-                return JSONResponse(status_code=403, content={"detail": "access denied: project membership required"})
+                return _apply_cors(request, JSONResponse(status_code=403, content={"detail": "access denied: project membership required"}))
             if not service.user_is_project_member(s, pid, uid):
-                return JSONResponse(status_code=403, content={"detail": "access denied: project membership required"})
+                return _apply_cors(request, JSONResponse(status_code=403, content={"detail": "access denied: project membership required"}))
 
             # Write operations: project root requires owner/admin; sub-resources require membership
             if is_write and is_project_root:
                 try:
                     _enforce_owner_or_admin(s, pid, uid, is_admin)
                 except HTTPException as e:
-                    return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+                    return _apply_cors(request, JSONResponse(status_code=e.status_code, content={"detail": e.detail}))
             return await call_next(request)
     except HTTPException as e:
-        return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+        return _apply_cors(request, JSONResponse(status_code=e.status_code, content={"detail": e.detail}))
