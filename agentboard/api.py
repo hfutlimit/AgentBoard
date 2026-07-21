@@ -1711,6 +1711,7 @@ class DocumentPatch(BaseModel):
     title: str | None = Field(None, min_length=1, max_length=300)
     content: str | None = None
     type: str | None = None
+    status: str | None = None
 
 
 class DocumentCommentIn(BaseModel):

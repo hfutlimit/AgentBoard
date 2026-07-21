@@ -1787,7 +1787,7 @@ def update_document(s: Session, id: int, **fields) -> Document | None:
     d = s.get(Document, id)
     if not d:
         return None
-    allowed = {"title", "content", "type"}
+    allowed = {"title", "content", "type", "status"}
     for k, v in fields.items():
         if k not in allowed:
             continue
@@ -1797,6 +1797,15 @@ def update_document(s: Session, id: int, **fields) -> Document | None:
             v = _required(v, "title", 300)
         elif k == "type":
             _check_document_type(v)
+        elif k == "status":
+            _check_document_status(v)
+            new = DocumentStatus(v)
+            current = DocumentStatus(d.status)
+            if current != new and new not in DOCUMENT_TRANSITIONS.get(current, set()):
+                raise IllegalTransition(f"{d.status} -> {new.value} 不合法")
+            d.status = new.value
+            status_changed = True
+            continue
         setattr(d, k, v)
     _commit(s); s.refresh(d); return d
 

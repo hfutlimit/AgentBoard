@@ -101,6 +101,7 @@ export class App implements OnInit, OnDestroy {
   readonly docEditTitle = signal('');
   readonly docEditContent = signal('');
   readonly docEditType = signal<DocumentType>('plan');
+  readonly docEditStatus = signal<DocumentStatus>('draft');
   readonly docEditEpicId = signal<number | null>(null);
   readonly docEditStoryId = signal<number | null>(null);
   readonly docCommentContent = signal('');
@@ -1235,6 +1236,7 @@ export class App implements OnInit, OnDestroy {
           this.docEditTitle.set(doc.title);
           this.docEditContent.set(doc.content);
           this.docEditType.set(doc.type);
+          this.docEditStatus.set(doc.status);
           this.docEditEpicId.set(doc.epic_id);
           this.docEditStoryId.set(doc.story_id);
           this.docEditing.set(false);
@@ -3320,6 +3322,7 @@ export class App implements OnInit, OnDestroy {
       this.docEditTitle.set(d.title);
       this.docEditContent.set(d.content);
       this.docEditType.set(d.type);
+      this.docEditStatus.set(d.status);
       this.docEditEpicId.set(d.epic_id);
       this.docEditStoryId.set(d.story_id);
       try {
@@ -3391,6 +3394,7 @@ export class App implements OnInit, OnDestroy {
           title,
           content: this.docEditContent(),
           type: this.docEditType(),
+          status: this.docEditStatus(),
           epic_id: this.docEditEpicId(),
           story_id: this.docEditStoryId(),
         }));
@@ -3424,6 +3428,7 @@ export class App implements OnInit, OnDestroy {
     this.docEditTitle.set(d.title);
     this.docEditContent.set(d.content);
     this.docEditType.set(d.type);
+    this.docEditStatus.set(d.status);
     this.docEditEpicId.set(d.epic_id);
     this.docEditStoryId.set(d.story_id);
     this.docEditing.set(false);

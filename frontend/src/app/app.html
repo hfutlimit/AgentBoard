@@ -975,20 +975,6 @@
                       <button class="ghost-sm" (click)="openDocModal('edit')">✎ 编辑</button>
                     </div>
                     @if (docItem(); as d) {
-                      <div class="doc-status-bar">
-                        @if (d.status === 'draft') {
-                          <button class="btn-primary-sm" (click)="setDocStatus('in_review')">提交评审</button>
-                          <button class="danger btn-sm" (click)="deleteDoc()">删除</button>
-                        } @else if (d.status === 'in_review') {
-                          <button class="btn-primary-sm" (click)="setDocStatus('approved')">批准</button>
-                          <button class="ghost-sm" (click)="setDocStatus('draft')">退回草稿</button>
-                          <button class="ghost-sm" (click)="setDocStatus('cancelled')">取消文档</button>
-                        } @else if (d.status === 'approved') {
-                          <button class="ghost-sm" (click)="setDocStatus('draft')">退回草稿</button>
-                        } @else {
-                          <button class="btn-primary-sm" (click)="setDocStatus('draft')">复活为草稿</button>
-                        }
-                      </div>
                       <div class="doc-content" [innerHTML]="renderMarkdown(d.content)"></div>
                       <div class="doc-comments-section">
                         <h4>评论（{{ documentComments().length }}）</h4>
@@ -1900,21 +1886,7 @@
               </div>
               <div class="page-actions">
                 <button class="ghost-sm" (click)="openDocModal('edit')">✎ 编辑</button>
-                <button class="danger" (click)="deleteDoc()">🗑 删除</button>
               </div>
-            </div>
-
-            <!-- 评审状态流转 -->
-            <div class="doc-status-bar">
-              @if (d.status === 'draft') {
-                <button class="btn-primary-sm" (click)="setDocStatus('in_review')">提交评审</button>
-              } @else if (d.status === 'in_review') {
-                <button class="btn-primary-sm" (click)="setDocStatus('approved')">批准</button>
-                <button class="ghost-sm" (click)="setDocStatus('draft')">退回草稿</button>
-                <button class="ghost-sm" (click)="setDocStatus('cancelled')">取消文档</button>
-              } @else if (d.status === 'approved') {
-                <button class="ghost-sm" (click)="setDocStatus('draft')">退回草稿</button>
-              }
             </div>
 
             <article class="card md doc-content" [innerHTML]="renderMarkdown(d.content)"></article>
@@ -2357,6 +2329,14 @@
                 @for (t of docTypes; track t) { <option [value]="t">{{ docTypeLabel(t) }}</option> }
               </select>
             </div>
+            @if (dm.mode === 'edit') {
+              <div class="form-field">
+                <label>状态</label>
+                <select [value]="docEditStatus()" (change)="docEditStatus.set($any($event.target).value)">
+                  @for (s of docStatuses; track s) { <option [value]="s">{{ docStatusLabel(s) }}</option> }
+                </select>
+              </div>
+            }
             @if (dm.mode === 'create') {
               <div class="form-field">
                 <label>关联 Epic</label>
