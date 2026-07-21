@@ -2093,13 +2093,26 @@ router-outlet {
 
 /* ================= Epic 15: 项目文档维护 ================= */
 .doc-toolbar {
+  display: inline-flex;
+  align-items: center;
   gap: 10px;
   margin: 14px 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+}
+.doc-filter-select {
+  flex: 0 0 auto;
+  width: 130px;
+  padding: 8px 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  color: inherit;
+  font-size: 14px;
 }
 .doc-search-input {
-  flex: 1 1 220px;
-  min-width: 180px;
+  flex: 0 0 auto;
+  width: 200px;
+  max-width: 100%;
   padding: 8px 12px;
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 8px;
