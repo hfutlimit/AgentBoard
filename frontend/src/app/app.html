@@ -1240,12 +1240,12 @@
               <!-- Task 730: 任务列表排序下拉 -->
               <div class="task-sort-bar">
                 <span class="task-sort-label">排序：</span>
-                <select class="task-sort-select" [value]="taskSortKey()" (change)="taskSortKey.set($any($event.target).value)">
+                <select class="task-sort-select" (change)="setTaskSortKey($any($event.target).value)">
                   @for (opt of taskSortOptions; track opt.key) {
-                    <option [value]="opt.key">{{ opt.label }}</option>
+                    <option [value]="opt.key" [selected]="opt.key === taskSortKey()">{{ opt.label }}</option>
                   }
                 </select>
-                <button class="ghost-sm task-sort-dir-btn" (click)="taskSortOrder.set(taskSortOrder() === 'asc' ? 'desc' : 'asc')" [title]="taskSortOrder() === 'asc' ? '升序' : '降序'">
+                <button class="ghost-sm task-sort-dir-btn" (click)="toggleTaskSortOrder()" [title]="taskSortOrder() === 'asc' ? '升序' : '降序'">
                   {{ taskSortOrder() === 'asc' ? '↑' : '↓' }}
                 </button>
               </div>

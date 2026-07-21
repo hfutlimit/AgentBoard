@@ -119,3 +119,24 @@
 - **验证**: `tests/test_epic34_v23_filter_guide_e2e.py` 全绿（0 错误）；回归 `pytest test_epic30_cache.py` 8 passed + E2E epic34_summary/epic35_search/epic33_mine_filter/v19_collapse_all 全绿（epic35_search 空状态断言随改进更新）。
 - **提交**: `feat(ui): 前端体验升级 v2.3 - 任务列表筛选结果引导` + push origin main 成功。
 - **硬约束**: 未触碰 18001(MCP)/8080(web)/docker；排除 data/、autodev.lock、其他 automation MEMORY.md、screenshots。
+
+## 2026-07-21 19:09 用户指令 — v2.6（按状态排序）验收 + 推送
+- **背景**: 06:17 自动开发已实现 v2.6（任务列表「按状态」排序 + 偏好持久化 + 方向切换），但当时未提交。用户指令：测试 v2.6，有问题修、没问题就 push。
+- **验收（Playwright，managed venv playwright 1.61.0，web 28080 / API 18000）**: `tests/test_epic39_v26_status_sort_e2e.py` 全绿：
+  - 登录 admin OK；story 25 加载 268 行任务。
+  - 排序下拉含「状态」选项（value=status）。
+  - 选「状态」→ 列表按状态工作流顺序降序（done 在前、backlog 在后，序列单调不增）；切方向→升序（backlog 在前，单调不减）。
+  - 刷新后偏好持久化：`<select>` 仍选中「状态」、`localStorage.agentboard_sort_key=='status'`、列表仍按状态有序。
+  - **0** pageerror / console error / .js+.css 404。
+  - 测试末尾恢复默认排序（创建时间），不污染人类用户默认偏好。
+- **修复(端口漂移)**: E2E 测试 BASE 由 8080 改为 28080（本机 web 现跑 28080，8080 已不可达）。
+- **提交**: `feat(ui): 前端体验升级 v2.6 - 任务列表按状态排序 + 偏好持久化` + `git push origin main` 成功。
+- **硬约束**: 未触碰 18001(MCP)/docker；刻意排除 data/、autodev.lock、其他 automation MEMORY.md、screenshots、运行时 db-journal。
+
+## 2026-07-21 03:03 自动开发 — Epic 38 v2.4 类型快速筛选 chips → in_review（达成）
+- **目标**: 至少 1 个 task → in_review。填补 v 系列缺口 v2.4（v2.0 优先级 / v2.5 状态 chips 之后，类型 chips 缺失）。
+- **MCP/REST**: 新建 Epic 34(id=34)→Story 74(id=74)→Task 865(high)；状态链 `backlog→todo→in_progress→in_review` 全 200；Story 74、Epic 34 同步 **in_review**（达成）。
+- **实现（纯前端 ~30 行）**: app.ts `filterTypes` 初始化读 `localStorage.agentboard_quick_type` + 新增 `typeCounts` computed + `setQuickType()` 单选 + `persistQuickType()`；`clearFilters` 联动；app.html 状态 chips 后追加第三个 `task-quickfilter-bar`（全部+任务+Bug 带计数），复用 `.qf-chip`/`.qf-count`。无后端契约变更。
+- **验证**: `tests/test_epic38_v24_type_quickfilter_e2e.py` 全绿（0 错误）；为制造双向过滤证据临时在 story 25 注入 bug 任务(id 865) 验证后删除，项目干净。回归 pytest 8 passed + E2E epic31(v2.0 修复 scope)/v2.3/v2.2/v1.9/v2.5搜索/v2.5状态 全绿。
+- **提交**: `feat(ui): 前端体验升级 v2.4 - 任务类型快速筛选 chips (Task 865 -> in_review)` + push origin main 成功（`fb173db..3e5fbb1`）。
+- **硬约束**: 未触碰 18001(MCP)/8080(web)/docker；排除 data/、autodev.lock、其他 automation MEMORY.md、screenshots、前端 dist。

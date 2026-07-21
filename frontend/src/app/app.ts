@@ -271,14 +271,28 @@ export class App implements OnInit, OnDestroy {
   readonly visibleStories = computed(() =>
     this.match(this.stories(), (s) => `${s.title} ${s.description}`),
   );
-  // Task 730: 任务列表排序
-  readonly taskSortKey = signal<'created_at' | 'updated_at' | 'priority' | 'title'>('created_at');
-  readonly taskSortOrder = signal<'asc' | 'desc'>('desc');
+  // Task 730 / v2.6: 任务列表排序（含「按状态」排序 + 偏好持久化）
+  readonly taskSortKey = signal<'created_at' | 'updated_at' | 'priority' | 'title' | 'status'>(
+    (() => { try { return (localStorage.getItem('agentboard_sort_key') as any) || 'created_at'; } catch { return 'created_at'; } })()
+  );
+  readonly taskSortOrder = signal<'asc' | 'desc'>(
+    (() => { try { return (localStorage.getItem('agentboard_sort_order') as 'asc' | 'desc') || 'desc'; } catch { return 'desc'; } })()
+  );
+  setTaskSortKey(v: string): void {
+    this.taskSortKey.set(v as any);
+    try { localStorage.setItem('agentboard_sort_key', v); } catch { /* ignore */ }
+  }
+  toggleTaskSortOrder(): void {
+    const next = this.taskSortOrder() === 'asc' ? 'desc' : 'asc';
+    this.taskSortOrder.set(next);
+    try { localStorage.setItem('agentboard_sort_order', next); } catch { /* ignore */ }
+  }
   readonly taskSortOptions = [
     { key: 'created_at', label: '创建时间' },
     { key: 'updated_at', label: '更新时间' },
     { key: 'priority', label: '优先级' },
     { key: 'title', label: '标题' },
+    { key: 'status', label: '状态' },
   ];
   // Task 813: 搜索结果空状态
   readonly searchResultEmpty = signal(false);
@@ -400,7 +414,7 @@ export class App implements OnInit, OnDestroy {
       }
       return true;
     });
-    // Task 730: 排序
+    // Task 730 / v2.6: 排序（含按状态工作流顺序）
     filtered.sort((a, b) => {
       let cmp = 0;
       if (sortKey === 'created_at' || sortKey === 'updated_at') {
@@ -409,6 +423,8 @@ export class App implements OnInit, OnDestroy {
         cmp = PRIORITY_ORDER.indexOf(a.priority) - PRIORITY_ORDER.indexOf(b.priority);
       } else if (sortKey === 'title') {
         cmp = (a.title || '').localeCompare(b.title || '');
+      } else if (sortKey === 'status') {
+        cmp = this.statuses.indexOf(a.status) - this.statuses.indexOf(b.status);
       }
       return sortOrder === 'asc' ? cmp : -cmp;
     });

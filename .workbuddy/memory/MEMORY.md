@@ -65,6 +65,14 @@
 - **angular.json font inlining 间歇失败**（2026-07-18）：Google Fonts `@import` 在构建时被 CSS optimizer 试图内联，网络不可达时构建失败。**修复**：`angular.json` production 配置加 `"optimization": {"fonts": false}`。
 - **web_app.py SPA fallback 有效**：`page.goto(f"{BASE}/story/33")` 直接触发 Angular Router `loadRoute()`，无需 hash 导航或侧栏点击。
 
+## 文档模块前端 API 约定（复用要点）
+- 既有 signals：`documents`/`docItem`(Signal<DocumentItem|null>)/`docCommentPreview`(**boolean** 全局预览开关)/`docCommentContent`(string)/`docFilterType`/`docFilterStatus`/`docSearchQuery`/`docTypes`/`docStatuses`。
+- 方法签名（易错）：`toggleDocCommentPreview()` **0 参**；`addDocComment(event)` 读 `docCommentContent()` 信号；`openDocEdit()` **0 参**（操作 `docItem()`）；`docTypeLabel(t: DocumentType)`/`docStatusLabel(s: DocumentStatus)` 入参为枚举值字符串；`openDocTab(d)` 写入 docItem+加载评论（不走路由，供 Tab 行点击）。
+- `createDocument`/`deleteDoc` 默认会 `router.navigateByUrl('/documents...')` 跳走——**在 Tab 内使用时需改为就地更新 `documents()` 列表、用 `view()==='project' && activeTab()==='documents'` 判断上下文是否跳转**。
+- `onDocFilterChange()`/`onDocSearchChange()` 会调 `loadDocuments()` 重拉**全量**文档（不按 project_id），Tab 内改用客户端筛选（`projectDocVisible` 读 filter 信号），勿触发这两个函数。
+- `DOCUMENT_TYPES = ['memory','plan','knowledge','design']`（无 `guide` 等）。
+- 模板控制流：`} @else {` 必须带 `@`，写 `} else {` 会 NG 编译失败（EOF/parse）。
+
 ## Windows/IIS 原生部署（非 Docker）
 - 拓扑：IIS(ARR) 统一反代，WebAPI 127.0.0.1:8000、MCP 127.0.0.1:8001，均 NSSM 服务；DB MariaDB。前端静态由 IIS 直接托管，`web.config` 含 `/api`、`/mcp` 反代 + SPA 回退。
 - 打包：`scripts/package_windows.py` → `dist/*.zip`（webapi/mcp/web 三份）。运行时脚本：`scripts/deploy/`。文档：`docs/deploy-windows-iis.md`。
