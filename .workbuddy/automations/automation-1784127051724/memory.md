@@ -140,3 +140,13 @@
 - **验证**: `tests/test_epic38_v24_type_quickfilter_e2e.py` 全绿（0 错误）；为制造双向过滤证据临时在 story 25 注入 bug 任务(id 865) 验证后删除，项目干净。回归 pytest 8 passed + E2E epic31(v2.0 修复 scope)/v2.3/v2.2/v1.9/v2.5搜索/v2.5状态 全绿。
 - **提交**: `feat(ui): 前端体验升级 v2.4 - 任务类型快速筛选 chips (Task 865 -> in_review)` + push origin main 成功（`fb173db..3e5fbb1`）。
 - **硬约束**: 未触碰 18001(MCP)/8080(web)/docker；排除 data/、autodev.lock、其他 automation MEMORY.md、screenshots、前端 dist。
+
+## 2026-07-21 21:46 运行（Epic 39 v2.7 指派人快速筛选 chips → in_review，达成）
+- **目标**: 至少 1 个 task → in_review。MCP 连接器断开 → REST 兜底（Docker API 18000 / web 28080）。
+- **选型**: chips 家族缺指派人维度（已有 priority/status/type）→ 新建增量 Epic 39 v2.7 补齐第 4 组 chips（纯前端，无后端契约变更）。
+- **MCP/REST**: 新建 project 99 / epic 107 / story 173 / task 872 → 经 `backlog→todo→in_progress→in_review` 合法链置 **in_review**；story 173、epic 107 同步 **in_review**（达成）。
+- **实现（纯前端）**: app.ts `filterAssignees`(localStorage `agentboard_quick_assignee`)+ `assigneeCounts`/`assigneeChipList` computed + `setQuickAssignee()` 单选 + `persistQuickAssignee()`；`visibleTasks` 加指派人过滤；`activeFilterCount`/`clearFilters`/`clearAllFilters` 联动；app.html 第 4 个 `.task-quickfilter-bar`（全部+指派人头像+未指派）；app.css 新增 `.qf-avatar`。
+- **构建**: `npm run build`(node22.22.2) → cp `dist/frontend/browser/.` → `agentboard/web/static/`，删旧 main；28080 服务新 `main-2U2SBUHH.js`。
+- **验证**: `tests/test_epic39_v27_assignee_quickfilter_e2e.py` 全绿（点 admin chip→行数==chip 计数(6)、持久化 reload 后 `["54"]` 仍 active；0 pageerror/console/.js+.css 404）。顺手修 v2.4/v2.3 E2E 陈旧端口 8080→28080。回归 pytest 8 passed + E2E v2.6/v2.4 全绿（v2.3 因硬编码 STORY_ID=69 无任务 0 行，历史数据漂移非回归）。
+- **提交**: `feat(ui): 前端体验升级 v2.7 - 任务列表指派人快速筛选 chips (task 872 -> in_review)` + push origin main 成功。
+- **硬约束**: 未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation MEMORY.md、screenshots、scratch 脚本(_v27_ids.txt/set_status_v27.py/ab_track_v27.py)。

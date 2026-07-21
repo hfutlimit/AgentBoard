@@ -363,7 +363,7 @@ export class App implements OnInit, OnDestroy {
   // Epic 36: Inline task title editing
   readonly editingTaskId = signal<number | null>(null);
   readonly editingTaskTitle = signal('');
-  readonly activeFilterCount = computed(() => this.filterPriorities().length + this.filterTypes().length + (this.filterStatus() ? 1 : 0) + (this.filterOnlyOverdue() ? 1 : 0) + (this.labelFilter() ? 1 : 0) + (this.filterMineOnly() ? 1 : 0));
+  readonly activeFilterCount = computed(() => this.filterPriorities().length + this.filterTypes().length + this.filterAssignees().length + (this.filterStatus() ? 1 : 0) + (this.filterOnlyOverdue() ? 1 : 0) + (this.labelFilter() ? 1 : 0) + (this.filterMineOnly() ? 1 : 0));
   // Epic 34 (v2.3): 工具条「清除全部筛选」按钮显隐 —— 搜索框非空或任一筛选活跃时显示
   readonly showClearAll = computed(() => this.taskSearchQuery().trim() !== '' || this.activeFilterCount() > 0);
   // Task 716: 优先级快速筛选 chips —— 各优先级任务计数（基于当前 story 全量任务，不受筛选影响）
@@ -390,6 +390,34 @@ export class App implements OnInit, OnDestroy {
     }
     return counts;
   });
+  // Epic 39 (v2.7): 指派人快速筛选 chips —— 初始化读取持久化选择（user_id 列表，含 'unassigned' 哨兵）
+  readonly filterAssignees = signal<string[]>(
+    (() => { try { return JSON.parse(localStorage.getItem('agentboard_quick_assignee') || '[]'); } catch { return []; } })()
+  );
+  // Epic 39 (v2.7): 指派人快速筛选 chips —— 各指派人任务计数（基于当前 story 全量任务，不受筛选影响）
+  readonly assigneeCounts = computed<Record<string, number>>(() => {
+    const counts: Record<string, number> = {};
+    for (const t of this.tasks()) {
+      const key = t.assignee_id != null ? String(t.assignee_id) : 'unassigned';
+      counts[key] = (counts[key] || 0) + 1;
+    }
+    return counts;
+  });
+  // Epic 39 (v2.7): 渲染用指派人 chips（按计数降序，仅展示 count>0 的指派人 + 未指派）
+  readonly assigneeChipList = computed<{ key: string; label: string; initials: string; count: number }[]>(() => {
+    const counts = this.assigneeCounts();
+    const keys = Object.keys(counts).sort((a, b) => counts[b] - counts[a]);
+    const out: { key: string; label: string; initials: string; count: number }[] = [];
+    for (const k of keys) {
+      if (k === 'unassigned') {
+        out.push({ key: k, label: '未指派', initials: '?', count: counts[k] });
+      } else {
+        const id = Number(k);
+        out.push({ key: k, label: this.getAssigneeName(id) || `用户${id}`, initials: this.getAssigneeInitials(id) || '?', count: counts[k] });
+      }
+    }
+    return out;
+  });
   readonly allLabels = computed(() => {
     const set = new Set<string>();
     for (const t of this.tasks()) {
@@ -411,6 +439,12 @@ export class App implements OnInit, OnDestroy {
       if (fp.length && !fp.includes(t.priority)) return false;
       const ft = this.filterTypes();
       if (ft.length && !ft.includes(t.type)) return false;
+      // Epic 39 (v2.7): 指派人快速筛选 chips —— 单选指派人（含未指派哨兵）时过滤
+      const fa = this.filterAssignees();
+      if (fa.length) {
+        const key = t.assignee_id != null ? String(t.assignee_id) : 'unassigned';
+        if (!fa.includes(key)) return false;
+      }
       if (this.filterOnlyOverdue() && !(t.due_date && this.isOverdue(t.due_date) && t.status !== 'done')) return false;
       // B-01: Label filter
       const lf = this.labelFilter();
@@ -3130,6 +3164,15 @@ export class App implements OnInit, OnDestroy {
   private persistQuickType(): void {
     try { localStorage.setItem('agentboard_quick_type', JSON.stringify(this.filterTypes())); } catch { /* ignore */ }
   }
+  // Epic 39 (v2.7): 指派人快速筛选 chips —— 单选切换（空串=全部）；再次点击同指派人则取消
+  setQuickAssignee(id: string): void {
+    const next = !id || this.filterAssignees().includes(id) ? [] : [id];
+    this.filterAssignees.set(next);
+    this.persistQuickAssignee();
+  }
+  private persistQuickAssignee(): void {
+    try { localStorage.setItem('agentboard_quick_assignee', JSON.stringify(this.filterAssignees())); } catch { /* ignore */ }
+  }
   toggleFilterType(t: string): void {
     const cur = this.filterTypes();
     this.filterTypes.set(cur.includes(t) ? cur.filter(x => x !== t) : [...cur, t]);
@@ -3137,6 +3180,7 @@ export class App implements OnInit, OnDestroy {
   clearFilters(): void {
     this.filterPriorities.set([]);
     this.filterTypes.set([]);
+    this.filterAssignees.set([]);
     this.filterStatus.set('');
     this.filterOnlyOverdue.set(false);
     this.labelFilter.set('');
@@ -3145,6 +3189,7 @@ export class App implements OnInit, OnDestroy {
     this.persistQuickPriority();
     this.persistQuickStatus();
     this.persistQuickType();
+    this.persistQuickAssignee();
   }
   // Epic 34 (v2.3): 工具栏「清除全部筛选」—— 重置搜索 + 优先级 chips + 只看我 + 高级面板全部筛选条件
   clearAllFilters(): void {

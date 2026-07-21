@@ -1196,6 +1196,18 @@
                   </button>
                 }
               </div>
+              <!-- Epic 39 (v2.7): 指派人快速筛选 chips（常驻工具条，单选带计数与头像，持久化） -->
+              <div class="task-quickfilter-bar" role="group" aria-label="按指派人快速筛选">
+                <button class="qf-chip" [class.active]="filterAssignees().length === 0" (click)="setQuickAssignee('')">
+                  全部 <span class="qf-count">{{ tasks().length }}</span>
+                </button>
+                @for (a of assigneeChipList(); track a.key) {
+                  <button class="qf-chip" [class.active]="filterAssignees().includes(a.key)" (click)="setQuickAssignee(a.key)" [title]="a.label">
+                    <span class="qf-avatar">{{ a.initials }}</span>
+                    {{ a.label }} <span class="qf-count">{{ a.count }}</span>
+                  </button>
+                }
+              </div>
               <!-- Epic 33 (v2.2): 只看指派给我的任务 快速筛选 -->
               <button class="mine-toggle" [class.active]="filterMineOnly()" (click)="toggleFilterMine()" title="仅显示指派给我的任务">
                 只看我

@@ -21,7 +21,7 @@ TYPE_BAR = '.task-quickfilter-bar[aria-label="按类型快速筛选"]'
 async def main() -> bool:
     from playwright.async_api import async_playwright
 
-    WEB_URL = "http://localhost:8080"  # 本地 web 代理到 58125（agentboard.db，数据完整）
+    WEB_URL = "http://localhost:28080"  # 本地 web 直读 agentboard/web/static
 
     errors: list[str] = []
     page_errors: list[str] = []

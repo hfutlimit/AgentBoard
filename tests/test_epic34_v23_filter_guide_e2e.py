@@ -28,7 +28,7 @@ def _rows(page):
 async def main() -> bool:
     from playwright.async_api import async_playwright
 
-    WEB_URL = "http://localhost:8080"
+    WEB_URL = "http://localhost:28080"
 
     errors: list[str] = []
     page_errors: list[str] = []

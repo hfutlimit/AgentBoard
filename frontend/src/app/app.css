@@ -1869,6 +1869,20 @@ router-outlet {
   background: rgba(255, 255, 255, 0.25);
 }
 .qf-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.qf-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 9px;
+  font-weight: 700;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.35);
+  color: var(--text, #e2e8f0);
+  flex: none;
+}
+.qf-chip.active .qf-avatar { background: rgba(255, 255, 255, 0.28); color: #fff; }
 /* ===== Epic 33 (v2.2): 只看指派给我的任务 快速筛选 ===== */
 .mine-toggle {
   display: inline-flex;
