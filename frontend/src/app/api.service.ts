@@ -371,7 +371,7 @@ export class ApiService {
   getProject(id: number) {
     return this.request<Project>('GET', `/api/projects/${id}`);
   }
-  createProject(body: { name: string; key?: string; description?: string; is_private?: boolean }) {
+  createProject(body: { name: string; key?: string; description?: string }) {
     return this.request<Project>('POST', '/api/projects', body).pipe(
       tap(() => this.invalidateProjectCache())
     );

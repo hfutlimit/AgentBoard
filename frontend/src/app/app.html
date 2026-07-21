@@ -450,11 +450,7 @@
                 @if (current.key) {
                   <span class="badge lg">{{ current.key }}</span>
                 }
-                @if (current.is_private) {
-                  <span class="badge" title="私有项目，仅成员可见">🔒 私有</span>
-                } @else {
-                  <span class="badge" title="公开项目">🌐 公开</span>
-                }
+                <span class="badge" title="邀请制项目">🔒 邀请制</span>
               </div>
             </div>
             @if (current.description) {
@@ -892,14 +888,11 @@
                   <div class="card form-section">
                     <h4>项目设置</h4>
                     <form
-                      (submit)="saveProjectSettings(sName.value, sKey.value, sDesc.value, sPrivate.checked); $event.preventDefault()"
+                      (submit)="saveProjectSettings(sName.value, sKey.value, sDesc.value); $event.preventDefault()"
                     >
                       <label>名称<input #sName [value]="current.name" required maxlength="200" /></label>
                       <label>短码<input #sKey [value]="current.key || ''" maxlength="20" placeholder="如 AB" /></label>
                       <label>描述<textarea #sDesc rows="4">{{ current.description }}</textarea></label>
-                      <label class="checkbox-label">
-                        <input #sPrivate type="checkbox" [checked]="current.is_private" /> 私有项目（仅成员可见）
-                      </label>
                       <div class="row">
                         <button class="btn-primary-sm" type="submit">保存设置</button>
                       </div>
@@ -916,7 +909,6 @@
                     <dl class="setting-list">
                       <dt>项目名称</dt><dd>{{ current.name }}</dd>
                       <dt>短码</dt><dd>{{ current.key || '—' }}</dd>
-                      <dt>可见性</dt><dd>{{ current.is_private ? '🔒 私有' : '🌐 公开' }}</dd>
                       <dt>创建时间</dt><dd>{{ current.created_at | date }}</dd>
                     </dl>
                   </div>
@@ -2077,14 +2069,13 @@
             @if (myProjects().length) {
               <div class="table-wrap">
                 <table class="data-table">
-                  <thead><tr><th>项目</th><th>短码</th><th>角色</th><th>可见性</th><th>操作</th></tr></thead>
+                  <thead><tr><th>项目</th><th>短码</th><th>角色</th><th>操作</th></tr></thead>
                   <tbody>
                     @for (p of myProjects(); track p.id) {
                       <tr>
                         <td><a [routerLink]="['/project', p.id]" class="link-bold">{{ p.name }}</a></td>
                         <td>{{ p.key || '—' }}</td>
                         <td><span class="badge">{{ p.membership_role === 'owner' ? 'Owner / 我创建的' : 'Member / 我参与的' }}</span></td>
-                        <td>{{ p.is_private ? '🔒 私有' : '🌐 公开' }}</td>
                         <td><a [routerLink]="['/project', p.id]" (click)="activeTab.set('settings')" class="ghost-sm">{{ p.membership_role === 'owner' ? '管理设置' : '查看' }}</a></td>
                       </tr>
                     }
@@ -2192,14 +2183,13 @@
             <p class="muted">查看所有项目，可执行删除操作。</p>
             @if (adminProjects().length) {
               <table class="data-table">
-                <thead><tr><th>ID</th><th>名称</th><th>短码</th><th>私有</th><th>成员数</th><th>创建时间</th><th>操作</th></tr></thead>
+                <thead><tr><th>ID</th><th>名称</th><th>短码</th><th>成员数</th><th>创建时间</th><th>操作</th></tr></thead>
                 <tbody>
                   @for (p of adminProjects(); track p.id) {
                     <tr>
                       <td>{{ p.id }}</td>
                       <td><a [routerLink]="['/project', p.id]">{{ p.name }}</a></td>
                       <td>{{ p.key || '—' }}</td>
-                      <td>{{ p.is_private ? '🔒' : '🌐' }}</td>
                       <td>{{ p.member_count || 0 }}</td>
                       <td>{{ p.created_at | date:'yyyy-MM-dd' }}</td>
                       <td>
@@ -2245,12 +2235,6 @@
           @if (currentModal.kind === 'project') {
             <div class="form-field">
               <label>短码</label><input id="create-key" name="key" maxlength="20" />
-            </div>
-            <div class="form-field form-field-inline">
-              <label class="checkbox-label">
-                <input #createPrivate type="checkbox" name="is_private" checked />
-                私有项目（仅成员可见，不在项目里的成员无法看到）
-              </label>
             </div>
           }
           <div class="form-field">

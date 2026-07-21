@@ -96,7 +96,6 @@ class ProjectIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     key: str | None = Field(None, max_length=20)
     description: str = ""
-    is_private: bool | None = None
 
 
 class ProjectPatch(BaseModel):
@@ -662,7 +661,7 @@ def list_projects_ext(
     limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
     authorization: str | None = Header(None),
 ):
-    """列表 API：public 项目所有人可见；private 项目仅成员可见"""
+    """列表 API：admin 可见全部项目；普通用户仅见受邀（成员）项目"""
     uid = _optional_user_id(authorization, s)
     projects, total = service.list_accessible_projects(s, uid, limit=limit, offset=offset)
     return {"items": [service._ser(p) for p in projects], "total": total}
@@ -688,7 +687,7 @@ def create_project(
     authorization: str | None = Header(None),
 ):
     user = _current_user(authorization, s, required_permission="api:write") if authorization or _auth_is_required() else None
-    p = service.create_project(s, name=body.name, key=body.key, description=body.description, is_private=body.is_private)
+    p = service.create_project(s, name=body.name, key=body.key, description=body.description)
     # 创建者自动成为项目 owner；本地显式开放模式仍兼容匿名项目。
     uid = user.id if user else None
     if uid:
@@ -701,12 +700,12 @@ def get_project_ext(
     pid: int, s: Session = Depends(get_session),
     authorization: str | None = Header(None),
 ):
-    """获取项目：private 项目仅成员可见（系统管理员始终可见）"""
+    """获取项目：admin 可见全部，普通用户仅可见其成员项目（邀请制）"""
     p = _need(service.get_project(s, pid), "project")
     uid = _optional_user_id(authorization, s)
     user = service.get_user(s, uid) if uid else None
-    if p.is_private and not (user and user.is_admin) and not service.user_is_project_member(s, pid, uid):
-        raise HTTPException(status_code=403, detail="access denied: private project")
+    if not (user and user.is_admin) and not service.user_is_project_member(s, pid, uid):
+        raise HTTPException(status_code=403, detail="access denied: project membership required")
     return service._ser(p)
 
 
@@ -1726,8 +1725,16 @@ class DocumentCommentPatch(BaseModel):
 
 
 @app.post("/api/documents", status_code=201)
-def create_document(body: DocumentIn, s: Session = Depends(get_session)):
-    """新建文档（title/content/type/project_id 必填，status 默认 draft）。"""
+def create_document(body: DocumentIn, s: Session = Depends(get_session),
+                    authorization: str | None = Header(None)):
+    """新建文档（title/content/type/project_id 必填，status 默认 draft）。
+
+    权限控制（2026-07-21）：需为目标项目成员或管理员。
+    """
+    # 权限检查：必须在目标项目中是成员或管理员
+    uid, is_admin = _caller_uid_admin(authorization)
+    if not is_admin and not service.user_is_project_member(s, body.project_id, uid):
+        raise HTTPException(status_code=403, detail="project membership required")
     try:
         d = service.create_document(
             s, project_id=body.project_id, title=body.title, content=body.content,
@@ -1749,12 +1756,19 @@ def list_documents(
     q: str | None = Query(None),
     limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
     s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
 ):
-    """列出文档，支持按 project_id / type / status 过滤与关键词搜索。默认按 updated_at 倒序。"""
+    """列出文档，支持按 project_id / type / status 过滤与关键词搜索。默认按 updated_at 倒序。
+
+    权限控制（2026-07-21）：
+    - 指定 project_id 时：通过中间件校验项目成员身份
+    - 未指定 project_id 时：仅返回用户有权限的项目文档
+    """
+    uid = _optional_user_id(authorization, s)
     try:
         rows = service.list_documents(
             s, project_id=project_id, type=type, status=status, q=q,
-            limit=limit, offset=offset,
+            limit=limit, offset=offset, user_id=uid,
         )
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -1917,15 +1931,15 @@ async def project_access_middleware(request: Request, call_next):
     Active only when ``AGENTBOARD_REQUIRE_AUTH=1`` (the Docker / production posture).
     Local open-CRUD mode (``REQUIRE_AUTH=0``) is intentionally left untouched.
 
-    Rules:
+    Rules (2026-07-21 — 邀请制):
     - Resolve the target project from the route (direct ``/api/projects/{pid}`` or via a
-      child resource such as epic/story/task/sprint/schedule, by id or query param).
+      child resource such as epic/story/task/sprint/schedule/document, by id or query param).
     - Routes that are not project-scoped pass through.
-    - Reads (GET/HEAD): public projects are visible to every authenticated user; private
-      projects are visible only to members and system admins.
+    - All projects are member-only for non-admin users.
+    - System admins (``is_admin``) always pass.
+    - Reads (GET/HEAD): requires membership or admin.
     - Writes (POST/PUT/PATCH/DELETE): the project root (settings / deletion) requires the
       owner or an admin; sub-resources require membership or admin.
-    - System admins (``is_admin``) always pass.
     """
     if not _auth_is_required():
         return await call_next(request)
@@ -1953,26 +1967,19 @@ async def project_access_middleware(request: Request, call_next):
             uid, is_admin = _caller_uid_admin(request.headers.get("authorization"))
             if _auth_is_required() and uid is None:
                 return JSONResponse(status_code=401, content={"detail": "unauthorized"})
-            if p.is_private:
-                if is_admin:
-                    return await call_next(request)
-                if uid is None:
-                    return JSONResponse(status_code=403, content={"detail": "access denied: private project"})
-                if not service.user_is_project_member(s, pid, uid):
-                    return JSONResponse(status_code=403, content={"detail": "access denied: private project"})
-                if is_write and is_project_root:
-                    try:
-                        _enforce_owner_or_admin(s, pid, uid, is_admin)
-                    except HTTPException as e:
-                        return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+
+            # All projects are member-only for non-admin users
+            if is_admin:
                 return await call_next(request)
-            # Public project
-            if is_write:
+            if uid is None:
+                return JSONResponse(status_code=403, content={"detail": "access denied: project membership required"})
+            if not service.user_is_project_member(s, pid, uid):
+                return JSONResponse(status_code=403, content={"detail": "access denied: project membership required"})
+
+            # Write operations: project root requires owner/admin; sub-resources require membership
+            if is_write and is_project_root:
                 try:
-                    if is_project_root:
-                        _enforce_owner_or_admin(s, pid, uid, is_admin)
-                    else:
-                        _enforce_member_or_admin(s, pid, uid, is_admin)
+                    _enforce_owner_or_admin(s, pid, uid, is_admin)
                 except HTTPException as e:
                     return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
             return await call_next(request)

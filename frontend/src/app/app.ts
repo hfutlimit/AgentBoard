@@ -1477,9 +1477,8 @@ export class App implements OnInit, OnDestroy {
     this.submitting.set(true);
     try {
       if (modal.kind === 'project') {
-        const isPrivate = data.get('is_private') != null;
         await firstValueFrom(
-          this.api.createProject({ name: title.trim(), key: key.trim() || undefined, description, is_private: isPrivate }),
+          this.api.createProject({ name: title.trim(), key: key.trim() || undefined, description }),
         );
       } else if (modal.kind === 'epic' && modal.parentId) {
         await firstValueFrom(
@@ -2229,11 +2228,11 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  async saveProjectSettings(name: string, key: string, description: string, isPrivate: boolean): Promise<void> {
+  async saveProjectSettings(name: string, key: string, description: string): Promise<void> {
     const project = this.project();
     if (!project) return;
     try {
-      await firstValueFrom(this.api.updateProject(project.id, { name, key: key || null, description, is_private: isPrivate }));
+      await firstValueFrom(this.api.updateProject(project.id, { name, key: key || null, description }));
       this.notify('项目设置已保存');
       await this.loadRoute();
     } catch (error) {

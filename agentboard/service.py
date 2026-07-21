@@ -107,8 +107,8 @@ def create_project(s: Session, *, name: str, key=None, description: str = "", is
     if key and len(key) > 20:
         raise InvalidValue("key must be at most 20 characters")
     p = Project(name=name, key=key, description=description or "")
-    if is_private is not None:
-        p.is_private = bool(is_private)
+    # 2026-07-21: 所有项目默认为邀请制（is_private=True）
+    p.is_private = True
     s.add(p)
     _commit(s, duplicate=f"project key '{key}' already exists" if key else None)
     s.refresh(p)
@@ -1312,12 +1312,24 @@ def list_all_projects_admin(s: Session, limit: int | None = None, offset: int = 
 def list_accessible_projects(
     s: Session, user_id: int | None, limit: int | None = None, offset: int = 0,
 ) -> tuple[list, int]:
-    """返回用户可见的项目列表（public 项目 + 用户所在的 private 项目）"""
+    """返回用户可见的项目列表。
+
+    新规则（2026-07-21）：
+    - 管理员：可见全部项目
+    - 普通用户：仅可见自己是成员的项目（邀请制）
+    - 未登录：空列表
+    """
     if user_id is None:
-        # 未登录：只能看 public 项目
-        q = s.query(Project).filter(Project.is_private == False)
+        q = s.query(Project).filter(False)  # 未登录 → 空
+        total = 0
+        return _paginate(q.order_by(Project.id.desc()), limit, offset).all(), total
+
+    user = s.get(User, user_id)
+    if user and user.is_admin:
+        # 管理员：全量
+        q = s.query(Project)
     else:
-        # 查看用户是成员的 private 项目
+        # 普通用户：仅成员项目
         member_project_ids = [
             r[0]
             for r in s.query(ProjectMember.project_id)
@@ -1325,14 +1337,9 @@ def list_accessible_projects(
             .all()
         ]
         if member_project_ids:
-            q = s.query(Project).filter(
-                or_(
-                    Project.is_private == False,
-                    Project.id.in_(member_project_ids),
-                )
-            )
+            q = s.query(Project).filter(Project.id.in_(member_project_ids))
         else:
-            q = s.query(Project).filter(Project.is_private == False)
+            q = s.query(Project).filter(False)  # 无成员项目 → 空
     total = q.count()
     return _paginate(q.order_by(Project.id.desc()), limit, offset).all(), total
 
@@ -1765,11 +1772,25 @@ def get_document(s: Session, id: int) -> Document | None:
 def list_documents(
     s: Session, *, project_id: int | None = None, type: str | None = None,
     status: str | None = None, q: str | None = None,
-    limit: int | None = None, offset: int = 0,
+    limit: int | None = None, offset: int = 0, user_id: int | None = None,
 ):
     qry = s.query(Document)
     if project_id is not None:
         qry = qry.filter(Document.project_id == project_id)
+    elif user_id is not None:
+        # 未指定 project_id 但有用户身份：仅返回该用户有权限的项目文档
+        user = s.get(User, user_id)
+        if user and not user.is_admin:
+            member_pids = [
+                r[0]
+                for r in s.query(ProjectMember.project_id)
+                .filter(ProjectMember.user_id == user_id)
+                .all()
+            ]
+            if member_pids:
+                qry = qry.filter(Document.project_id.in_(member_pids))
+            else:
+                qry = qry.filter(False)  # 非 admin 无成员项目 → 空
     if type is not None:
         _check_document_type(type)
         qry = qry.filter(Document.type == type)
