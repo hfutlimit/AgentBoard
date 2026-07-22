@@ -353,7 +353,10 @@ export class App implements OnInit, OnDestroy {
   readonly filterTypes = signal<string[]>(
     (() => { try { return JSON.parse(localStorage.getItem('agentboard_quick_type') || '[]'); } catch { return []; } })()
   );
-  readonly filterOnlyOverdue = signal(false);
+  // Epic 40 (v2.8): 截止日期快速筛选 chips —— 单选（''=全部）：overdue/today/week/none
+  readonly filterDueDate = signal<string>(
+    (() => { try { return localStorage.getItem('agentboard_quick_due') || ''; } catch { return ''; } })()
+  );
   // B-01: Label filter
   readonly labelFilter = signal('');
   // Epic 33 (v2.2): 只看指派给我的任务（快速筛选）
@@ -363,7 +366,7 @@ export class App implements OnInit, OnDestroy {
   // Epic 36: Inline task title editing
   readonly editingTaskId = signal<number | null>(null);
   readonly editingTaskTitle = signal('');
-  readonly activeFilterCount = computed(() => this.filterPriorities().length + this.filterTypes().length + this.filterAssignees().length + (this.filterStatus() ? 1 : 0) + (this.filterOnlyOverdue() ? 1 : 0) + (this.labelFilter() ? 1 : 0) + (this.filterMineOnly() ? 1 : 0));
+  readonly activeFilterCount = computed(() => this.filterPriorities().length + this.filterTypes().length + this.filterAssignees().length + (this.filterStatus() ? 1 : 0) + (this.filterDueDate() ? 1 : 0) + (this.labelFilter() ? 1 : 0) + (this.filterMineOnly() ? 1 : 0));
   // Epic 34 (v2.3): 工具条「清除全部筛选」按钮显隐 —— 搜索框非空或任一筛选活跃时显示
   readonly showClearAll = computed(() => this.taskSearchQuery().trim() !== '' || this.activeFilterCount() > 0);
   // Task 716: 优先级快速筛选 chips —— 各优先级任务计数（基于当前 story 全量任务，不受筛选影响）
@@ -418,6 +421,17 @@ export class App implements OnInit, OnDestroy {
     }
     return out;
   });
+  // Epic 40 (v2.8): 截止日期快速筛选 chips —— 各日期分桶任务计数（基于当前 story 全量任务，不受筛选影响）
+  // 分桶：overdue(已逾期且未完成) / today(今天到期) / week(未来 1~7 天到期) / none(无截止日期)
+  readonly dueCounts = computed<Record<string, number>>(() => {
+    const counts: Record<string, number> = { overdue: 0, today: 0, week: 0, none: 0 };
+    for (const t of this.tasks()) {
+      const b = this.dueBucket(t);
+      if (b === 'overdue' && t.status === 'done') continue; // 逾期桶不含已完成
+      if (b in counts) counts[b]++;
+    }
+    return counts;
+  });
   readonly allLabels = computed(() => {
     const set = new Set<string>();
     for (const t of this.tasks()) {
@@ -445,7 +459,13 @@ export class App implements OnInit, OnDestroy {
         const key = t.assignee_id != null ? String(t.assignee_id) : 'unassigned';
         if (!fa.includes(key)) return false;
       }
-      if (this.filterOnlyOverdue() && !(t.due_date && this.isOverdue(t.due_date) && t.status !== 'done')) return false;
+      // Epic 40 (v2.8): 截止日期快速筛选 chips —— 单选分桶（overdue/today/week/none）
+      const fd = this.filterDueDate();
+      if (fd) {
+        const b = this.dueBucket(t);
+        const overdueDone = b === 'overdue' && t.status === 'done';
+        if (overdueDone || b !== fd) return false;
+      }
       // B-01: Label filter
       const lf = this.labelFilter();
       if (lf && !this.parseLabels(t.labels).includes(lf)) return false;
@@ -2798,6 +2818,19 @@ export class App implements OnInit, OnDestroy {
     const diffDays = Math.floor((due.getTime() - today.getTime()) / 86400000);
     return diffDays >= 0 && diffDays <= 3;
   }
+  // Epic 40 (v2.8): 将任务按截止日期归入分桶：overdue(过去且未完成) / today(今天) / week(未来1~7天) / later(更晚) / none(无日期)
+  private dueBucket(t: Task): 'overdue' | 'today' | 'week' | 'later' | 'none' {
+    if (!t.due_date) return 'none';
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const due = new Date(t.due_date);
+    if (isNaN(due.getTime())) return 'none';
+    const diff = Math.floor((due.getTime() - today.getTime()) / 86400000);
+    if (diff < 0) return 'overdue';
+    if (diff === 0) return 'today';
+    if (diff >= 1 && diff <= 7) return 'week';
+    return 'later';
+  }
 
   formatDueDate(dueDate: string | null | undefined): string {
     if (!dueDate) return '';
@@ -3173,6 +3206,12 @@ export class App implements OnInit, OnDestroy {
   private persistQuickAssignee(): void {
     try { localStorage.setItem('agentboard_quick_assignee', JSON.stringify(this.filterAssignees())); } catch { /* ignore */ }
   }
+  // Epic 40 (v2.8): 截止日期快速筛选 chips —— 单选切换（空串=全部）；再次点击同分桶则取消
+  setQuickDue(d: string): void {
+    const next = !d || this.filterDueDate() === d ? '' : d;
+    this.filterDueDate.set(next);
+    try { localStorage.setItem('agentboard_quick_due', next); } catch { /* ignore */ }
+  }
   toggleFilterType(t: string): void {
     const cur = this.filterTypes();
     this.filterTypes.set(cur.includes(t) ? cur.filter(x => x !== t) : [...cur, t]);
@@ -3182,10 +3221,11 @@ export class App implements OnInit, OnDestroy {
     this.filterTypes.set([]);
     this.filterAssignees.set([]);
     this.filterStatus.set('');
-    this.filterOnlyOverdue.set(false);
+    this.filterDueDate.set('');
     this.labelFilter.set('');
     this.filterMineOnly.set(false);
     try { localStorage.removeItem('agentboard_filter_mine'); } catch { /* ignore */ }
+    try { localStorage.removeItem('agentboard_quick_due'); } catch { /* ignore */ }
     this.persistQuickPriority();
     this.persistQuickStatus();
     this.persistQuickType();

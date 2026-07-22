@@ -1883,6 +1883,9 @@ router-outlet {
   flex: none;
 }
 .qf-chip.active .qf-avatar { background: rgba(255, 255, 255, 0.28); color: #fff; }
+/* ===== Epic 40 (v2.8): 截止日期快速筛选 chips 图标 ===== */
+.qf-due-icon { font-size: 11px; line-height: 1; flex: none; }
+.qf-chip.active.qf-due { background: linear-gradient(135deg, #f59e0b, #ef4444); border-color: transparent; color: #fff; }
 /* ===== Epic 33 (v2.2): 只看指派给我的任务 快速筛选 ===== */
 .mine-toggle {
   display: inline-flex;

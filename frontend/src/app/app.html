@@ -1208,6 +1208,24 @@
                   </button>
                 }
               </div>
+              <!-- Epic 40 (v2.8): 截止日期快速筛选 chips（常驻工具条，单选带计数，持久化） -->
+              <div class="task-quickfilter-bar" role="group" aria-label="按截止日期快速筛选">
+                <button class="qf-chip" [class.active]="!filterDueDate()" (click)="setQuickDue('')">
+                  全部 <span class="qf-count">{{ tasks().length }}</span>
+                </button>
+                <button class="qf-chip qf-due" [class.active]="filterDueDate() === 'overdue'" (click)="setQuickDue('overdue')" title="已逾期（未完成）">
+                  <span class="qf-due-icon">⏰</span> 逾期 <span class="qf-count">{{ dueCounts()['overdue'] }}</span>
+                </button>
+                <button class="qf-chip qf-due" [class.active]="filterDueDate() === 'today'" (click)="setQuickDue('today')" title="今天到期">
+                  <span class="qf-due-icon">📅</span> 今天 <span class="qf-count">{{ dueCounts()['today'] }}</span>
+                </button>
+                <button class="qf-chip qf-due" [class.active]="filterDueDate() === 'week'" (click)="setQuickDue('week')" title="未来 7 天内到期">
+                  <span class="qf-due-icon">🗓️</span> 本周 <span class="qf-count">{{ dueCounts()['week'] }}</span>
+                </button>
+                <button class="qf-chip qf-due" [class.active]="filterDueDate() === 'none'" (click)="setQuickDue('none')" title="未设置截止日期">
+                  <span class="qf-due-icon">∅</span> 无截止 <span class="qf-count">{{ dueCounts()['none'] }}</span>
+                </button>
+              </div>
               <!-- Epic 33 (v2.2): 只看指派给我的任务 快速筛选 -->
               <button class="mine-toggle" [class.active]="filterMineOnly()" (click)="toggleFilterMine()" title="仅显示指派给我的任务">
                 只看我
@@ -1265,7 +1283,7 @@
                     <button class="filter-chip" [class.active]="filterTypes().includes('bug')" (click)="toggleFilterType('bug')">Bug</button>
                   </div>
                   <div class="filter-group">
-                    <label class="filter-check"><input type="checkbox" [checked]="filterOnlyOverdue()" (change)="filterOnlyOverdue.set(!filterOnlyOverdue())" /> 仅看逾期</label>
+                    <label class="filter-check"><input type="checkbox" [checked]="filterDueDate() === 'overdue'" (change)="setQuickDue(filterDueDate() === 'overdue' ? '' : 'overdue')" /> 仅看逾期</label>
                   </div>
                   @if (allLabels().length > 0) {
                     <div class="filter-group">
