@@ -1307,6 +1307,7 @@
                 <button class="ghost-sm" (click)="clearTaskSelection()">清除</button>
                 <div class="bulk-actions">
                   <button class="btn-primary-sm" (click)="showBulkActionPanel('status')">批量修改状态</button>
+                  <button class="btn-primary-sm" (click)="showBulkActionPanel('priority')">批量修改优先级</button>
                   <button class="danger ghost-sm" (click)="showBulkActionPanel('delete')">批量删除</button>
                 </div>
               </div>
@@ -1316,6 +1317,17 @@
                   @for (status of statuses; track status) {
                     <button class="status-btn badge status--{{ status }}" (click)="bulkUpdateStatus(status); closeBulkActionPanel()">
                       {{ statusLabel(status) }}
+                    </button>
+                  }
+                  <button class="ghost-sm" (click)="closeBulkActionPanel()">取消</button>
+                </div>
+              }
+              @if (bulkActionTarget() === 'priority') {
+                <div class="bulk-panel">
+                  <span>选择新优先级：</span>
+                  @for (p of priorities; track p) {
+                    <button class="status-btn badge priority--{{ p }}" (click)="bulkUpdatePriority(p); closeBulkActionPanel()">
+                      {{ priorityLabel(p) }}
                     </button>
                   }
                   <button class="ghost-sm" (click)="closeBulkActionPanel()">取消</button>

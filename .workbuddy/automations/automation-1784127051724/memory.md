@@ -150,3 +150,28 @@
 - **验证**: `tests/test_epic39_v27_assignee_quickfilter_e2e.py` 全绿（点 admin chip→行数==chip 计数(6)、持久化 reload 后 `["54"]` 仍 active；0 pageerror/console/.js+.css 404）。顺手修 v2.4/v2.3 E2E 陈旧端口 8080→28080。回归 pytest 8 passed + E2E v2.6/v2.4 全绿（v2.3 因硬编码 STORY_ID=69 无任务 0 行，历史数据漂移非回归）。
 - **提交**: `feat(ui): 前端体验升级 v2.7 - 任务列表指派人快速筛选 chips (task 872 -> in_review)` + push origin main 成功。
 - **硬约束**: 未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation MEMORY.md、screenshots、scratch 脚本(_v27_ids.txt/set_status_v27.py/ab_track_v27.py)。
+
+## 2026-07-22 18:5x 自动开发 — Epic 40 v2.8 截止日期快速筛选 chips → in_review（达成）
+- **目标**: 至少 1 个 task → in_review。MCP 连接器全部断开 → REST 兜底（本地 uvicorn 58125 + web 8080 为权威）。backlog 大 Epic(15 文档维护/64 腾讯云 COS/850-861 admin-portal 整站级) 1 小时内无法独立收尾 → 新建增量 Epic 40 v2.8 补齐第 5 组 chips，延续 v 系列。
+- **选型**: chips 家族已有 priority/status/type/assignee，缺「截止日期」维度；且旧 `filterOnlyOverdue` 信号有逻辑无 UI → 新建增量 Epic 40 v2.8 补齐第 5 组 chips（纯前端，无后端契约变更）。
+- **MCP/REST**: 本地 dev 库 admin(id=18) 提升 is_admin（仅用于创建追踪实体，可回滚，不改契约）；新建 Epic 40→Story 76→Task 866 → 经 `backlog→todo→in_progress→in_review` 合法链置 **in_review**；Story 76、Epic 40 同步 **in_review**（达成）。
+- **实现（纯前端）**:
+  - `app.ts`: 用 `filterDueDate`('all'|'overdue'|'today'|'week'|'none') 替换孤立 `filterOnlyOverdue`；新增 `dueCounts` computed、`setQuickDue()`/`persistQuickDue()`(localStorage `agentboard_quick_due`)、`dueBucket()` 分桶（overdue=due<今天且 status≠done；today=今天；week=1..7天；none=无due）；`visibleTasks` 改分桶匹配；`activeFilterCount`/`clearFilters` 联动。
+  - `app.html`: chips 工具条新增第 5 个「截止日期」筛选条（逾期/今天/本周/无截止带计数）；高级筛选面板旧「仅看逾期」复选框改复用 `filterDueDate('overdue')`。
+  - `app.css`: 为截止日期 chip 补图标样式（复用 `.qf-chip`）。
+- **构建**: `npm run build`(node22.22.2, NODE_OPTIONS=--max_old_space_size=4096) → cp `dist/frontend/browser/.` → `agentboard/web/static/`，删旧 `main-2U2SBUHH.js`，新产物 `main-VDSF2FMS.js`。
+- **验证**: `tests/test_epic40_v28_due_quickfilter_e2e.py` 全绿（UI 自洽：5 chip、各分桶计数==过滤行数、分区不变量、逾期排除已完成、刷新持久化、清除恢复；0 pageerror/console/.js+.css 404）。临时带 due_date 任务注入后清理、无泄漏。后端 `pytest test_epic30_cache.py` 8 passed。前端回归 9 项：priority/type/assignee/status_sort/collapse/mine/search/inline_edit 全绿；`filter_guide` 失败为「story 无任务」本地数据依赖（预先存在，未触碰其逻辑）→ 本次改动零回归。
+- **提交**: `feat(ui): 前端小优化 - 任务列表截止日期快速筛选条 (Epic 40 v2.8)` + `git push origin main` 成功（`fb63863..5b13595`，9 文件 +349/-13）。
+- **硬约束**: 未触碰 18001(MCP)/8080(web)/docker；排除 data/、autodev.lock、其他 automation MEMORY.md、screenshots、临时脚本(_probe_story25.py/_track_epic40.py 已删)。
+- **下次可执行**: chips 家族已齐（priority/status/type/assignee/due），可转向排序默认/分组持久化或新需求；仍建议完成 850-861 admin-portal 前先做小步增量。
+
+## 2026-07-22 22:35 自动开发 — Epic 41 v2.9 批量修改优先级 → in_review（达成）
+- **目标**：本次 task → in_review。MCP 全断 → REST 兜底（API 58125 / web 8080&28080）。Epic 11 增量轨道已高度完整（A-01~A-22/B-01~B-06/P-01~P-15/v1.5~v2.8 全 done；bulk 面板已有「状态」「删除」缺「优先级」）→ 补齐批量第 3 操作。
+- **选型**：后端 `bulkUpdateTasks(ids,{priority})` 早已支持 → 纯前端补齐「批量修改优先级」，零契约变更。
+- **MCP/REST**：新建 project 36→epic 46→story 95→task 1105(high) → 经 `backlog→todo→in_progress→in_review` 合法链置 **in_review**；story 95、epic 46 同步 **in_review**（达成）。
+- **实现（纯前端 ~35 行）**：`app.ts` 新增 `bulkUpdatePriority(newPriority)`（镜像 `bulkUpdateStatus`，调 `api.bulkUpdateTasks(ids,{priority})`）+ `showBulkActionPanel(type)` 扩 `'priority'`；`app.html` bulk-action-bar 加「批量修改优先级」按钮 + 新增 `bulkActionTarget()==='priority'` 面板（`@for(p of priorities)` 渲染 `status-btn badge priority--{{p}}` 五档）；复用既有 `.status-btn`/`.priority--*` 样式，无新增 CSS。
+- **构建坑（已记录）**：① Angular `.angular/cache` 缓存致 app.html 模板未重编 → `rm -rf frontend/.angular/cache` 重建解决；② esbuild 将中文转义为 `\uXXXX` **大写十六进制**，grep 小写匹配误判“模板未进包”，实际用 `showBulkActionPanel("priority")` 上下文验证命中。
+- **验证**：`tests/test_bulk_priority_e2e.py` 全绿 —— 登录 admin→/story/25→勾选 3 任务(864/863/81)→批量栏出现→点「批量修改优先级」→点「高」→3 任务经 API 校验 priority 全变 high→**0** pageerror/console/.js+.css 404；测试末 PATCH 还原原优先级（不污染数据）。后端 `pytest test_epic30_cache.py` 8 passed；前端回归 `test_epic40_v28_due_quickfilter_e2e.py` 全绿。
+- **提交**：`feat(ui): 前端小优化 - 任务列表批量修改优先级 (Epic 41 v2.9)` + `git push origin main`。
+- **硬约束**：未触碰 18001(MCP)/8080(web 端口)/docker；排除 data/、autodev.lock、其他 automation MEMORY.md、`.workbuddy/memory/MEMORY.md`(他人改动)、screenshots、e2e_status_chips.png、前端 dist。
+- **下次可执行**：bulk「状态/优先级/删除」三件套齐；可转向「批量指派」「保存筛选预设」或新需求。
