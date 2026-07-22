@@ -218,6 +218,10 @@ export class App implements OnInit, OnDestroy {
   // Task 714: 虚拟滚动 - 列表分页加载（初始显示数量）
   readonly taskPageSize = signal(50);
   readonly taskPageCount = signal(1);
+  // Story 任务分页（修复：Story 只显示自己的 task/bug，带分页）
+  readonly storyTaskPage = signal(1);
+  readonly storyTaskTotal = signal(0);
+  readonly storyTaskPageSize = 50;
   // Task 716: 全局快捷键面板
   readonly showShortcuts = signal(false);
   readonly createdKeyPlaintext = signal('');
@@ -1216,12 +1220,11 @@ export class App implements OnInit, OnDestroy {
         this.project.set(await firstValueFrom(this.api.getProject(epic.project_id)));
       } else if (kind === 'story' && id > 0) {
         this.view.set('story');
-        const [story, tasks] = await Promise.all([
-          firstValueFrom(this.api.getStory(id)),
-          firstValueFrom(this.api.listTasks(id)),
-        ]);
+        this.storyTaskPage.set(1);
+        const story = await firstValueFrom(this.api.getStory(id));
         this.story.set(story);
-        this.tasks.set(tasks);
+        // 分页加载 story 任务，确保只属于当前 story
+        await this.loadStoryTasks(id, 1);
         const epic = await firstValueFrom(this.api.getEpic(story.epic_id));
         this.epic.set(epic);
         this.project.set(await firstValueFrom(this.api.getProject(epic.project_id)));
@@ -1768,6 +1771,34 @@ export class App implements OnInit, OnDestroy {
     } catch {
       this.backlogTasks.set([]);
     }
+  }
+
+  /** 分页加载 Story 的任务（修复：确保只加载当前 story 的 task/bug） */
+  async loadStoryTasks(storyId: number, page: number): Promise<void> {
+    const limit = this.storyTaskPageSize;
+    const offset = (page - 1) * limit;
+    try {
+      const result = await firstValueFrom(this.api.listTasksPaginated(storyId, limit, offset));
+      // result: { items: Task[], total: number }
+      this.tasks.set(result.items || []);
+      this.storyTaskTotal.set(result.total || (result.items || []).length);
+      this.storyTaskPage.set(page);
+      // 计算总页数
+      const totalPages = Math.max(1, Math.ceil((result.total || 0) / limit));
+      this.taskPageCount.set(totalPages);
+    } catch {
+      this.tasks.set([]);
+      this.storyTaskTotal.set(0);
+    }
+  }
+
+  /** Story 任务翻页 */
+  async goStoryTaskPage(page: number): Promise<void> {
+    const storyId = this.story()?.id;
+    if (!storyId || page < 1) return;
+    const maxPages = this.taskPageCount();
+    if (page > maxPages) return;
+    await this.loadStoryTasks(storyId, page);
   }
 
   readonly backlogVisibleTasks = computed(() => {

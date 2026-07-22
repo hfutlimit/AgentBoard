@@ -1,7 +1,7 @@
 import { HttpClient, HttpErrorResponse, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable, of, throwError, timer, Subject } from 'rxjs';
-import { catchError, tap, switchMap, mergeMap, debounceTime, takeUntil } from 'rxjs/operators';
+import { catchError, tap, map, switchMap, mergeMap, debounceTime, takeUntil } from 'rxjs/operators';
 
 import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentType, DocumentStatus } from './models';
 
@@ -444,9 +444,16 @@ export class ApiService {
     const cacheKey = `/api/stories/${storyId}/tasks`;
     const cached = apiCache.get<Task[]>(cacheKey);
     if (cached) return of(cached);
-    return this.request<Task[]>('GET', cacheKey).pipe(
-      tap(data => apiCache.set(cacheKey, data))
+    return this.request<{ items: Task[]; total: number }>('GET', cacheKey).pipe(
+      tap(data => apiCache.set(cacheKey, data.items)),
+      map(data => data.items)
     );
+  }
+
+  /** 分页加载 Story 任务，返回 { items, total } */
+  listTasksPaginated(storyId: number, limit: number, offset: number) {
+    const cacheKey = `/api/stories/${storyId}/tasks?limit=${limit}&offset=${offset}`;
+    return this.request<{ items: Task[]; total: number }>('GET', `/api/stories/${storyId}/tasks`, undefined, { limit, offset });
   }
   searchTasks(params: Record<string, string | number | undefined>) {
     // Build cache key from params

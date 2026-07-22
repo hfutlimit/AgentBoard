@@ -1465,6 +1465,61 @@ router-outlet {
   min-width: 2px;
 }
 
+/* Story 标题栏：精简布局（修复标题栏混乱） */
+.story-header {
+  margin-bottom: 6px;
+}
+.story-title-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.story-title-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.story-title-left h2 {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 进度条内嵌到标题行右侧 */
+.story-progress-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.story-progress-track-inline {
+  width: 140px;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.story-progress-text-inline {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  white-space: nowrap;
+}
+
+/* Story 任务分页 */
+.story-pagination-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 12px 0 8px;
+  border-top: 1px solid var(--border-2);
+  margin-top: 8px;
+}
+
 /* Epic 33.1: Epic progress mini bar */
 .epic-progress-mini {
   display: flex;

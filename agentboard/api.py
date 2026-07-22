@@ -807,7 +807,10 @@ def delete_story(sid: int, s: Session = Depends(get_session)):
 @app.get("/api/stories/{sid}/tasks")
 def list_tasks(sid: int, s: Session = Depends(get_session), limit: int = Query(100, ge=1, le=200),
                offset: int = Query(0, ge=0), sprint_id: int | None = Query(None)):
-    return [service._ser(t) for t in service.list_tasks(s, sid, sprint_id=sprint_id, limit=limit, offset=offset)]
+    q_base = service.query_task_count(s, sid, sprint_id=sprint_id)
+    total = q_base
+    items = [service._ser(t) for t in service.list_tasks(s, sid, sprint_id=sprint_id, limit=limit, offset=offset)]
+    return {"items": items, "total": total}
 
 
 @app.post("/api/stories/{sid}/tasks", status_code=201)

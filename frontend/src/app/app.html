@@ -1073,37 +1073,37 @@
         }
         @case ('story') {
           @if (story(); as current) {
-            <div class="crumb-bar">
-              <a [routerLink]="['/project', project()?.id]">{{ project()?.name }}</a
-              ><span>›</span><a [routerLink]="['/epic', epic()?.id]">{{ epic()?.title }}</a
-              ><span>›</span><span>{{ current.title }}</span>
-            </div>
-            <div class="page-header">
-              <div class="page-title-row">
-                <h2>{{ current.title }}</h2>
-                <span class="badge status status--{{ current.status }}">{{
-                  statusLabel(current.status)
-                }}</span>
+            <!-- Story 标题栏：精简布局 -->
+            <div class="story-header">
+              <div class="crumb-bar">
+                <a [routerLink]="['/project', project()?.id]">{{ project()?.name }}</a
+                ><span>›</span><a [routerLink]="['/epic', epic()?.id]">{{ epic()?.title }}</a
+                ><span>›</span><span class="crumb-current">{{ current.title }}</span>
+              </div>
+              <div class="story-title-row">
+                <div class="story-title-left">
+                  <h2>{{ current.title }}</h2>
+                  <span class="badge status status--{{ current.status }}">{{
+                    statusLabel(current.status)
+                  }}</span>
+                </div>
+                <!-- 进度条内嵌到标题行右侧 -->
+                @if (storyTaskTotal() > 0) {
+                  <div class="story-progress-inline">
+                    <div class="story-progress-track-inline">
+                      <div class="story-progress-fill" [style.width.%]="storyTaskProgress().pct"></div>
+                    </div>
+                    <span class="story-progress-text-inline">{{ storyTaskProgress().done }}/{{ storyTaskProgress().total }} ({{ storyTaskProgress().pct }}%)</span>
+                  </div>
+                }
               </div>
             </div>
             @if (current.description) {
-              <div class="card md text-pre">{{ current.description }}</div>
-            }
-            <!-- Task 822: Story 子任务完成进度条 -->
-            @if (tasks().length > 0) {
-              <div class="story-progress-bar">
-                <div class="story-progress-label">
-                  <span>进度</span>
-                  <span class="story-progress-text">{{ storyTaskProgress().done }}/{{ storyTaskProgress().total }} ({{ storyTaskProgress().pct }}%)</span>
-                </div>
-                <div class="story-progress-track">
-                  <div class="story-progress-fill" [style.width.%]="storyTaskProgress().pct"></div>
-                </div>
-              </div>
+              <div class="card md text-pre" style="margin-top:10px">{{ current.description }}</div>
             }
             <div class="section-header">
               <h3>
-                Tasks / Bugs <span class="count">{{ tasks().length }}</span>
+                Tasks / Bugs <span class="count">{{ storyTaskTotal() }}</span>
               </h3>
               <div class="page-actions">
                 <div class="seg">
@@ -1165,7 +1165,7 @@
               <!-- Task 716: 优先级快速筛选 chips（常驻工具条，单选带计数，持久化） -->
               <div class="task-quickfilter-bar" role="group" aria-label="按优先级快速筛选">
                 <button class="qf-chip" [class.active]="filterPriorities().length === 0" (click)="setQuickPriority('')">
-                  全部 <span class="qf-count">{{ tasks().length }}</span>
+                  全部 <span class="qf-count">{{ storyTaskTotal() }}</span>
                 </button>
                 @for (p of priorities; track p) {
                   <button class="qf-chip" [class.active]="filterPriorities().includes(p)" (click)="setQuickPriority(p)">
@@ -1176,7 +1176,7 @@
               <!-- Epic 37 (v2.5): 状态快速筛选 chips（常驻工具条，单选带计数与色点，持久化） -->
               <div class="task-quickfilter-bar" role="group" aria-label="按状态快速筛选">
                 <button class="qf-chip" [class.active]="!filterStatus()" (click)="setQuickStatus('')">
-                  全部 <span class="qf-count">{{ tasks().length }}</span>
+                  全部 <span class="qf-count">{{ storyTaskTotal() }}</span>
                 </button>
                 @for (s of statuses; track s) {
                   <button class="qf-chip" [class.active]="filterStatus() === s" (click)="setQuickStatus(s)">
@@ -1188,7 +1188,7 @@
               <!-- Epic 38 (v2.4): 任务类型快速筛选 chips（常驻工具条，单选带计数，持久化） -->
               <div class="task-quickfilter-bar" role="group" aria-label="按类型快速筛选">
                 <button class="qf-chip" [class.active]="filterTypes().length === 0" (click)="setQuickType('')">
-                  全部 <span class="qf-count">{{ tasks().length }}</span>
+                  全部 <span class="qf-count">{{ storyTaskTotal() }}</span>
                 </button>
                 @for (t of ['task', 'bug']; track t) {
                   <button class="qf-chip" [class.active]="filterTypes().includes(t)" (click)="setQuickType(t)">
@@ -1199,7 +1199,7 @@
               <!-- Epic 39 (v2.7): 指派人快速筛选 chips（常驻工具条，单选带计数与头像，持久化） -->
               <div class="task-quickfilter-bar" role="group" aria-label="按指派人快速筛选">
                 <button class="qf-chip" [class.active]="filterAssignees().length === 0" (click)="setQuickAssignee('')">
-                  全部 <span class="qf-count">{{ tasks().length }}</span>
+                  全部 <span class="qf-count">{{ storyTaskTotal() }}</span>
                 </button>
                 @for (a of assigneeChipList(); track a.key) {
                   <button class="qf-chip" [class.active]="filterAssignees().includes(a.key)" (click)="setQuickAssignee(a.key)" [title]="a.label">
@@ -1211,7 +1211,7 @@
               <!-- Epic 40 (v2.8): 截止日期快速筛选 chips（常驻工具条，单选带计数，持久化） -->
               <div class="task-quickfilter-bar" role="group" aria-label="按截止日期快速筛选">
                 <button class="qf-chip" [class.active]="!filterDueDate()" (click)="setQuickDue('')">
-                  全部 <span class="qf-count">{{ tasks().length }}</span>
+                  全部 <span class="qf-count">{{ storyTaskTotal() }}</span>
                 </button>
                 <button class="qf-chip qf-due" [class.active]="filterDueDate() === 'overdue'" (click)="setQuickDue('overdue')" title="已逾期（未完成）">
                   <span class="qf-due-icon">⏰</span> 逾期 <span class="qf-count">{{ dueCounts()['overdue'] }}</span>
@@ -1330,15 +1330,19 @@
               }
             }
             @if (!boardMode()) {
-              @if (tasks().length > 0) {
+              @if (storyTaskTotal() > 0) {
                 <div class="task-list-summary" role="status" aria-label="任务汇总">
-                  <div class="summary-stack" title="状态分布">
+                  <div class="summary-stack" title="状态分布（当前页）">
                     @for (seg of taskListSummary().segments; track seg.status) {
-                      <span class="summary-seg status--{{ seg.status }}" [style.width.%]="(seg.count / taskListSummary().total) * 100" [title]="statusLabel(seg.status) + ' ' + seg.count"></span>
+                      <span class="summary-seg status--{{ seg.status }}" [style.width.%]="taskListSummary().total > 0 ? (seg.count / taskListSummary().total) * 100 : 0" [title]="statusLabel(seg.status) + ' ' + seg.count"></span>
                     }
                   </div>
                   <div class="summary-text">
-                    共 <strong>{{ taskListSummary().total }}</strong> 项 · 已完成 <strong>{{ taskListSummary().done }}</strong> · 进行中 <strong>{{ taskListSummary().inProgress }}</strong> · 完成率 <strong>{{ taskListSummary().rate }}%</strong>
+                    共 <strong>{{ storyTaskTotal() }}</strong> 项
+                    @if (storyTaskTotal() > storyTaskPageSize) {
+                       · 第 <strong>{{ storyTaskPage() }}</strong>/<strong>{{ taskPageCount() }}</strong> 页
+                    }
+                     · 本页完成 <strong>{{ taskListSummary().done }}</strong>/<strong>{{ tasks().length }}</strong>
                   </div>
                 </div>
               }
@@ -1446,6 +1450,18 @@
                 }
               </div>
               <div class="kbd-hint">j/k 上下导航 · Enter 打开 · Space 选择 · Ctrl+A 全选 · Esc 取消</div>
+              <!-- Story 任务分页 -->
+              @if (storyTaskTotal() > storyTaskPageSize) {
+                <div class="story-pagination-wrap">
+                  <app-pagination
+                    [total]="storyTaskTotal()"
+                    [page]="storyTaskPage()"
+                    [pageSize]="storyTaskPageSize"
+                    label="任务"
+                    (pageChange)="goStoryTaskPage($event)"
+                  />
+                </div>
+              }
             } @else {
               <!-- Task 823: 状态徽章图例 -->
               <div class="status-legend">

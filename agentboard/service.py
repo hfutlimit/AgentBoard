@@ -1,6 +1,6 @@
 import re
 from datetime import date
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from . import models, auth
@@ -310,6 +310,16 @@ def list_tasks(s: Session, story_id: int | None = None, sprint_id: int | None = 
         q = q.filter(Task.sprint_id == sprint_id)
     q = q.order_by(Task.id.desc())
     return _paginate(q, limit, offset).all()
+
+
+def query_task_count(s: Session, story_id: int | None = None, sprint_id: int | None = None) -> int:
+    """返回满足条件的任务总数（用于分页）"""
+    q = s.query(func.count(Task.id))
+    if story_id is not None:
+        q = q.filter(Task.story_id == story_id)
+    if sprint_id is not None:
+        q = q.filter(Task.sprint_id == sprint_id)
+    return q.scalar() or 0
 
 
 def update_task(s: Session, id: int, **fields) -> Task | None:
