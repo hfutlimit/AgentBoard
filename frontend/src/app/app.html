@@ -1226,6 +1226,33 @@
                     ✕ 清除筛选
                   </button>
                 }
+                <!-- v3.1: 筛选预设（保存 / 应用 / 删除当前筛选组合） -->
+                <div class="preset-wrap">
+                  <button class="ghost-sm preset-toggle" (click)="togglePresetOpen()" [class.active]="presetOpen()">
+                    📑 预设 <span class="preset-count" [class.has]="filterPresets().length > 0">{{ filterPresets().length }}</span>
+                  </button>
+                  @if (presetOpen()) {
+                    <div class="preset-panel">
+                      <div class="preset-save">
+                        <input class="preset-name-input" [value]="presetName()" (input)="presetName.set($any($event.target).value)" placeholder="预设名称…" (keydown.enter)="saveFilterPreset()" />
+                        <button class="btn-primary-sm" (click)="saveFilterPreset()">保存当前</button>
+                      </div>
+                      @if (filterPresets().length === 0) {
+                        <div class="preset-empty">调整筛选后点「保存当前」</div>
+                      }
+                      @if (filterPresets().length > 0) {
+                        <div class="preset-list">
+                          @for (p of filterPresets(); track p.name; let i = $index) {
+                            <div class="preset-item">
+                              <button class="preset-apply" (click)="applyFilterPreset(i)" [title]="p.name">{{ p.name }}</button>
+                              <button class="preset-del" (click)="deleteFilterPreset(i)" title="删除预设">✕</button>
+                            </div>
+                          }
+                        </div>
+                      }
+                    </div>
+                  }
+                </div>
               </div>
             </div>
             @if (selectedTaskCount > 0) {

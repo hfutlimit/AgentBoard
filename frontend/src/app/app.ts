@@ -25,6 +25,18 @@ interface CreateModal {
 
 type ConfirmationTone = 'danger' | 'warning' | 'info';
 
+// v3.1: 筛选预设 —— 保存当前筛选组合（5 维度 chips + 搜索 + 只看我），localStorage 持久化
+interface FilterPreset {
+  name: string;
+  status: string;      // ''=全部
+  priority: string;    // ''=全部
+  type: string;        // ''=全部
+  assignee: string;    // ''=全部（user_id 字符串）
+  due: string;         // ''=全部（overdue/today/week/none）
+  search: string;
+  mineOnly: boolean;
+}
+
 interface ConfirmationDialog {
   title: string;
   message: string;
@@ -402,6 +414,21 @@ export class App implements OnInit, OnDestroy {
   readonly filterAssignees = signal<string[]>(
     (() => { try { return JSON.parse(localStorage.getItem('agentboard_quick_assignee') || '[]'); } catch { return []; } })()
   );
+  // v3.1: 筛选预设（保存/应用/删除当前筛选组合，纯前端 localStorage 持久化）
+  readonly filterPresets = signal<FilterPreset[]>(this.loadFilterPresets());
+  readonly presetName = signal('');
+  readonly presetOpen = signal(false);
+  private loadFilterPresets(): FilterPreset[] {
+    try {
+      const raw = localStorage.getItem('agentboard_filter_presets');
+      if (!raw) return [];
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? arr : [];
+    } catch { return []; }
+  }
+  private persistFilterPresets(): void {
+    try { localStorage.setItem('agentboard_filter_presets', JSON.stringify(this.filterPresets())); } catch { /* ignore */ }
+  }
   // Epic 39 (v2.7): 指派人快速筛选 chips —— 各指派人任务计数（基于当前 story 全量任务，不受筛选影响）
   readonly assigneeCounts = computed<Record<string, number>>(() => {
     const counts: Record<string, number> = {};
@@ -3350,6 +3377,42 @@ export class App implements OnInit, OnDestroy {
     const next = !this.filterMineOnly();
     this.filterMineOnly.set(next);
     try { localStorage.setItem('agentboard_filter_mine', next ? '1' : '0'); } catch { /* ignore */ }
+  }
+  // v3.1: 筛选预设 —— 保存当前筛选组合（5 维度 chips + 搜索 + 只看我）
+  togglePresetOpen(): void { this.presetOpen.update((v) => !v); }
+  saveFilterPreset(): void {
+    const name = this.presetName().trim();
+    if (!name) return;
+    const preset: FilterPreset = {
+      name,
+      status: this.filterStatus(),
+      priority: this.filterPriorities()[0] ?? '',
+      type: this.filterTypes()[0] ?? '',
+      assignee: this.filterAssignees()[0] ?? '',
+      due: this.filterDueDate(),
+      search: this.taskSearchQuery().trim(),
+      mineOnly: this.filterMineOnly(),
+    };
+    this.filterPresets.set([...this.filterPresets(), preset]);
+    this.persistFilterPresets();
+    this.presetName.set('');
+  }
+  applyFilterPreset(idx: number): void {
+    const p = this.filterPresets()[idx];
+    if (!p) return;
+    this.clearAllFilters();
+    if (p.status) this.setQuickStatus(p.status);
+    if (p.priority) this.setQuickPriority(p.priority);
+    if (p.type) this.setQuickType(p.type);
+    if (p.assignee) this.setQuickAssignee(p.assignee);
+    if (p.due) this.setQuickDue(p.due);
+    if (p.search) this.taskSearchQuery.set(p.search);
+    if (p.mineOnly) this.filterMineOnly.set(true);
+    this.presetOpen.set(false);
+  }
+  deleteFilterPreset(idx: number): void {
+    this.filterPresets.set(this.filterPresets().filter((_, i) => i !== idx));
+    this.persistFilterPresets();
   }
 
   // Task 603: 抽屉内快速操作
