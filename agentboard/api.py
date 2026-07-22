@@ -327,6 +327,9 @@ class BulkTaskUpdate(BaseModel):
     status: str | None = None
     priority: str | None = None
     sprint_id: int | None = None
+    # v3.0 批量指派：新增 assignee_id / clear_assignee（增量字段，向后兼容）
+    assignee_id: int | None = None
+    clear_assignee: bool = False
 
     @field_validator("task_ids")
     @classmethod
@@ -960,6 +963,10 @@ def bulk_update_tasks(body: BulkTaskUpdate, s: Session = Depends(get_session)):
                 updates["priority"] = body.priority
             if body.sprint_id is not None:
                 updates["sprint_id"] = body.sprint_id
+            if body.assignee_id is not None:
+                updates["assignee_id"] = body.assignee_id
+            elif body.clear_assignee:
+                updates["assignee_id"] = None
             if updates:
                 service.update_task(s, tid, **updates)
             results.append({"task_id": tid, "ok": True})

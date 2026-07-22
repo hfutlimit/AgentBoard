@@ -581,6 +581,17 @@ router-outlet {
   border-color: var(--danger, #ef4444);
 }
 
+.bulk-assignee-select {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--input-bg, var(--card-bg));
+  color: var(--text);
+  font-size: 13px;
+  min-width: 160px;
+  cursor: pointer;
+}
+
 .status-btn {
   cursor: pointer;
   transition: transform 0.15s;

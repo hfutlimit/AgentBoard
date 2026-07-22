@@ -188,7 +188,8 @@ export class App implements OnInit, OnDestroy {
   readonly adminUsers = signal<any[]>([]);
   readonly adminProjects = signal<any[]>([]);
   readonly selectedTasks = signal<Set<number>>(new Set());
-  readonly bulkActionTarget = signal<string | null>(null); // 'status' | 'delete' | null
+  readonly bulkActionTarget = signal<string | null>(null); // 'status' | 'priority' | 'assignee' | 'delete' | null
+  readonly bulkAssigneeId = signal<number | null>(null); // v3.0 批量指派：当前选中的指派人
   // Epic 21 Story 21.3: 批量操作进度跟踪
   readonly bulkProgress = signal<{ current: number; total: number; message: string } | null>(null);
   readonly focusedTaskId = signal<number | null>(null);
@@ -1983,6 +1984,39 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  // v3.0: 批量指派（复用现有 bulkUpdateTasks 的 assignee_id / clear_assignee 字段，增量后端变更）
+  async bulkUpdateAssignee(newAssigneeId: number | null): Promise<void> {
+    const ids = Array.from(this.selectedTasks());
+    if (ids.length === 0) return;
+
+    this.bulkProgress.set({ current: 0, total: ids.length, message: `正在指派 0/${ids.length} 个任务…` });
+
+    try {
+      const updates = newAssigneeId === null
+        ? { clear_assignee: true }
+        : { assignee_id: newAssigneeId };
+      const result = await firstValueFrom(this.api.bulkUpdateTasks(ids, updates));
+      const successCount = result.updated?.length ?? 0;
+      const errorCount = result.errors?.length ?? 0;
+
+      if (errorCount > 0) {
+        const failedIds = result.errors.map((e: any) => e.id || e.task_id).filter(Boolean).slice(0, 3);
+        const failedMsg = failedIds.length > 0 ? `（失败 ID: ${failedIds.join(', ')}${errorCount > 3 ? '…' : ''}）` : '';
+        this.notify(`批量指派完成：${successCount} 成功，${errorCount} 失败${failedMsg}`, 'error');
+      } else {
+        const name = newAssigneeId === null ? '未指派' : this.getAssigneeName(newAssigneeId);
+        this.notify(`已批量指派 ${successCount} 个任务给「${name}」`);
+      }
+      this.clearTaskSelection();
+      await this.refresh();
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.notify(`批量指派失败：${errorMsg}`, 'error');
+    } finally {
+      this.bulkProgress.set(null);
+    }
+  }
+
   // v2.9: 批量修改优先级（复用现有 bulkUpdateTasks 的 priority 字段，零后端契约变更）
   async bulkUpdatePriority(newPriority: string): Promise<void> {
     const ids = Array.from(this.selectedTasks());
@@ -2064,7 +2098,7 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  showBulkActionPanel(type: 'status' | 'delete' | 'priority'): void {
+  showBulkActionPanel(type: 'status' | 'delete' | 'priority' | 'assignee'): void {
     this.bulkActionTarget.set(type);
   }
 

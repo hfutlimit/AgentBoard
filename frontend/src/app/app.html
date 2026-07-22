@@ -1236,6 +1236,7 @@
                 <div class="bulk-actions">
                   <button class="btn-primary-sm" (click)="showBulkActionPanel('status')">批量修改状态</button>
                   <button class="btn-primary-sm" (click)="showBulkActionPanel('priority')">批量修改优先级</button>
+                  <button class="btn-primary-sm" (click)="showBulkActionPanel('assignee')">批量指派</button>
                   <button class="danger ghost-sm" (click)="showBulkActionPanel('delete')">批量删除</button>
                 </div>
               </div>
@@ -1265,6 +1266,19 @@
                 <div class="bulk-panel bulk-panel--danger">
                   <span>确认删除 {{ selectedTaskCount }} 个任务？</span>
                   <button class="danger ghost-sm" (click)="bulkDeleteTasks()">确认删除</button>
+                  <button class="ghost-sm" (click)="closeBulkActionPanel()">取消</button>
+                </div>
+              }
+              @if (bulkActionTarget() === 'assignee') {
+                <div class="bulk-panel">
+                  <span>选择指派人：</span>
+                  <select class="bulk-assignee-select" [value]="bulkAssigneeId() ?? ''" (change)="bulkAssigneeId.set($any($event.target).value === '' ? null : +$any($event.target).value)">
+                    <option value="">未指派</option>
+                    @for (m of members(); track m.user_id) {
+                      <option [value]="m.user_id">{{ getAssigneeName(m.user_id) }}</option>
+                    }
+                  </select>
+                  <button class="btn-primary-sm" (click)="bulkUpdateAssignee(bulkAssigneeId()); closeBulkActionPanel()">应用</button>
                   <button class="ghost-sm" (click)="closeBulkActionPanel()">取消</button>
                 </div>
               }
