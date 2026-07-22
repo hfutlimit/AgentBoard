@@ -1168,7 +1168,10 @@ export class App implements OnInit, OnDestroy {
       const tasks = (
         await Promise.all(stories.map((story) => firstValueFrom(this.api.listTasks(story.id))))
       ).flat();
-      if (this.isCurrentProjectTabRequest(projectId, generation)) this.tasks.set(tasks);
+      // Story 视图使用 loadStoryTasks 独立加载自身任务；非 story 视图才写入全局 tasks()
+      if (this.isCurrentProjectTabRequest(projectId, generation) && this.view() !== 'story') {
+        this.tasks.set(tasks);
+      }
     } catch {
       // Epic 列表已经可用；进度数据加载失败不阻塞主列表。
     }
@@ -1420,7 +1423,8 @@ export class App implements OnInit, OnDestroy {
     const allTasks = (
       await Promise.all(allStories.map((story) => firstValueFrom(this.api.listTasks(story.id))))
     ).flat();
-    this.tasks.set(allTasks);
+    // Story 视图使用 loadStoryTasks 独立加载自身任务；非 story 视图才写入全局 tasks()
+    if (this.view() !== 'story') this.tasks.set(allTasks);
   }
 
   async refresh(): Promise<void> {
