@@ -1162,17 +1162,6 @@
                   <button class="task-search-clear" title="清除搜索" (click)="taskSearchQuery.set('')">✕</button>
                 }
               </div>
-              <!-- Task 716: 优先级快速筛选 chips（常驻工具条，单选带计数，持久化） -->
-              <div class="task-quickfilter-bar" role="group" aria-label="按优先级快速筛选">
-                <button class="qf-chip" [class.active]="filterPriorities().length === 0" (click)="setQuickPriority('')">
-                  全部 <span class="qf-count">{{ storyTaskTotal() }}</span>
-                </button>
-                @for (p of priorities; track p) {
-                  <button class="qf-chip" [class.active]="filterPriorities().includes(p)" (click)="setQuickPriority(p)">
-                    {{ priorityLabel(p) }} <span class="qf-count">{{ priorityCounts()[p] }}</span>
-                  </button>
-                }
-              </div>
               <!-- Epic 37 (v2.5): 状态快速筛选 chips（常驻工具条，单选带计数与色点，持久化） -->
               <div class="task-quickfilter-bar" role="group" aria-label="按状态快速筛选">
                 <button class="qf-chip" [class.active]="!filterStatus()" (click)="setQuickStatus('')">
@@ -1182,17 +1171,6 @@
                   <button class="qf-chip" [class.active]="filterStatus() === s" (click)="setQuickStatus(s)">
                     <span class="qf-dot" [style.background]="statusColor(s)"></span>
                     {{ statusLabel(s) }} <span class="qf-count">{{ statusCounts()[s] }}</span>
-                  </button>
-                }
-              </div>
-              <!-- Epic 38 (v2.4): 任务类型快速筛选 chips（常驻工具条，单选带计数，持久化） -->
-              <div class="task-quickfilter-bar" role="group" aria-label="按类型快速筛选">
-                <button class="qf-chip" [class.active]="filterTypes().length === 0" (click)="setQuickType('')">
-                  全部 <span class="qf-count">{{ storyTaskTotal() }}</span>
-                </button>
-                @for (t of ['task', 'bug']; track t) {
-                  <button class="qf-chip" [class.active]="filterTypes().includes(t)" (click)="setQuickType(t)">
-                    {{ t === 'bug' ? 'Bug' : '任务' }} <span class="qf-count">{{ typeCounts()[t] }}</span>
                   </button>
                 }
               </div>
@@ -1208,97 +1186,47 @@
                   </button>
                 }
               </div>
-              <!-- Epic 40 (v2.8): 截止日期快速筛选 chips（常驻工具条，单选带计数，持久化） -->
-              <div class="task-quickfilter-bar" role="group" aria-label="按截止日期快速筛选">
-                <button class="qf-chip" [class.active]="!filterDueDate()" (click)="setQuickDue('')">
-                  全部 <span class="qf-count">{{ storyTaskTotal() }}</span>
+              <!-- Epic 33 (v2.2): 次要筛选与操作统一收进单行工具条 -->
+              <div class="task-toolbar-secondary">
+                <button class="mine-toggle" [class.active]="filterMineOnly()" (click)="toggleFilterMine()" title="仅显示指派给我的任务">
+                  只看我
                 </button>
-                <button class="qf-chip qf-due" [class.active]="filterDueDate() === 'overdue'" (click)="setQuickDue('overdue')" title="已逾期（未完成）">
-                  <span class="qf-due-icon">⏰</span> 逾期 <span class="qf-count">{{ dueCounts()['overdue'] }}</span>
-                </button>
-                <button class="qf-chip qf-due" [class.active]="filterDueDate() === 'today'" (click)="setQuickDue('today')" title="今天到期">
-                  <span class="qf-due-icon">📅</span> 今天 <span class="qf-count">{{ dueCounts()['today'] }}</span>
-                </button>
-                <button class="qf-chip qf-due" [class.active]="filterDueDate() === 'week'" (click)="setQuickDue('week')" title="未来 7 天内到期">
-                  <span class="qf-due-icon">🗓️</span> 本周 <span class="qf-count">{{ dueCounts()['week'] }}</span>
-                </button>
-                <button class="qf-chip qf-due" [class.active]="filterDueDate() === 'none'" (click)="setQuickDue('none')" title="未设置截止日期">
-                  <span class="qf-due-icon">∅</span> 无截止 <span class="qf-count">{{ dueCounts()['none'] }}</span>
-                </button>
-              </div>
-              <!-- Epic 33 (v2.2): 只看指派给我的任务 快速筛选 -->
-              <button class="mine-toggle" [class.active]="filterMineOnly()" (click)="toggleFilterMine()" title="仅显示指派给我的任务">
-                只看我
-              </button>
-              <!-- Task 730: 任务列表排序下拉 -->
-              <div class="task-sort-bar">
-                <span class="task-sort-label">排序：</span>
-                <select class="task-sort-select" (change)="setTaskSortKey($any($event.target).value)">
-                  @for (opt of taskSortOptions; track opt.key) {
-                    <option [value]="opt.key" [selected]="opt.key === taskSortKey()">{{ opt.label }}</option>
-                  }
-                </select>
-                <button class="ghost-sm task-sort-dir-btn" (click)="toggleTaskSortOrder()" [title]="taskSortOrder() === 'asc' ? '升序' : '降序'">
-                  {{ taskSortOrder() === 'asc' ? '↑' : '↓' }}
-                </button>
-              </div>
-              <!-- Task 836: 任务列表分组 -->
-              <div class="task-group-bar">
-                <span class="task-group-label">分组：</span>
-                <select class="task-group-select" [value]="taskGroupBy()" (change)="setTaskGroup($any($event.target).value)">
-                  @for (opt of taskGroupOptions; track opt.key) {
-                    <option [value]="opt.key">{{ opt.label }}</option>
-                  }
-                </select>
-                <button
-                  class="ghost-sm task-group-toggle-all"
-                  [disabled]="taskGroupBy() === 'none' || groupedTasks().length === 0"
-                  (click)="allGroupsCollapsed() ? expandAllGroups() : collapseAllGroups()"
-                  [title]="allGroupsCollapsed() ? '展开全部分组' : '折叠全部分组'"
-                >
-                  {{ allGroupsCollapsed() ? '▸ 全展开' : '▾ 全折叠' }}
-                </button>
-              </div>
-              <!-- Epic 34 (v2.3): 工具条「清除全部筛选」 -->
-              @if (showClearAll()) {
-                <button class="ghost-sm clear-all-btn" (click)="clearAllFilters()" title="清除全部筛选条件（搜索 / 优先级 / 只看我 / 高级筛选）">
-                  ✕ 清除筛选
-                </button>
-              }
-              <!-- Task 602: 高级筛选面板 -->
-              <button class="ghost-sm" (click)="filterOpen.set(!filterOpen())" [class.active]="filterOpen()">
-                ⚙ 筛选{{ activeFilterCount() > 0 ? ' (' + activeFilterCount() + ')' : '' }}
-              </button>
-              @if (filterOpen()) {
-                <div class="filter-panel">
-                  <div class="filter-group">
-                    <span class="filter-label">优先级</span>
-                    @for (p of priorities; track p) {
-                      <button class="filter-chip" [class.active]="filterPriorities().includes(p)" (click)="toggleFilterPriority(p)">{{ priorityLabel(p) }}</button>
+                <!-- Task 730: 任务列表排序下拉 -->
+                <div class="task-sort-bar">
+                  <span class="task-sort-label">排序</span>
+                  <select class="task-sort-select" (change)="setTaskSortKey($any($event.target).value)">
+                    @for (opt of taskSortOptions; track opt.key) {
+                      <option [value]="opt.key" [selected]="opt.key === taskSortKey()">{{ opt.label }}</option>
                     }
-                  </div>
-                  <div class="filter-group">
-                    <span class="filter-label">类型</span>
-                    <button class="filter-chip" [class.active]="filterTypes().includes('task')" (click)="toggleFilterType('task')">任务</button>
-                    <button class="filter-chip" [class.active]="filterTypes().includes('bug')" (click)="toggleFilterType('bug')">Bug</button>
-                  </div>
-                  <div class="filter-group">
-                    <label class="filter-check"><input type="checkbox" [checked]="filterDueDate() === 'overdue'" (change)="setQuickDue(filterDueDate() === 'overdue' ? '' : 'overdue')" /> 仅看逾期</label>
-                  </div>
-                  @if (allLabels().length > 0) {
-                    <div class="filter-group">
-                      <span class="filter-label">标签</span>
-                      <button class="filter-chip" [class.active]="!labelFilter()" (click)="labelFilter.set('')">全部</button>
-                      @for (lbl of allLabels(); track lbl) {
-                        <button class="filter-chip" [class.active]="labelFilter() === lbl" [style.border-color]="labelColor(lbl)" (click)="labelFilter.set(lbl)">{{ lbl }}</button>
-                      }
-                    </div>
-                  }
-                  @if (activeFilterCount() > 0) {
-                    <button class="ghost-sm" (click)="clearFilters()">清除筛选</button>
-                  }
+                  </select>
+                  <button class="ghost-sm task-sort-dir-btn" (click)="toggleTaskSortOrder()" [title]="taskSortOrder() === 'asc' ? '升序' : '降序'">
+                    {{ taskSortOrder() === 'asc' ? '↑' : '↓' }}
+                  </button>
                 </div>
-              }
+                <!-- Task 836: 任务列表分组 -->
+                <div class="task-group-bar">
+                  <span class="task-group-label">分组</span>
+                  <select class="task-group-select" [value]="taskGroupBy()" (change)="setTaskGroup($any($event.target).value)">
+                    @for (opt of taskGroupOptions; track opt.key) {
+                      <option [value]="opt.key">{{ opt.label }}</option>
+                    }
+                  </select>
+                  <button
+                    class="ghost-sm task-group-toggle-all"
+                    [disabled]="taskGroupBy() === 'none' || groupedTasks().length === 0"
+                    (click)="allGroupsCollapsed() ? expandAllGroups() : collapseAllGroups()"
+                    [title]="allGroupsCollapsed() ? '展开全部分组' : '折叠全部分组'"
+                  >
+                    {{ allGroupsCollapsed() ? '▸ 全展开' : '▾ 全折叠' }}
+                  </button>
+                </div>
+                <!-- Epic 34 (v2.3): 工具条「清除全部筛选」 -->
+                @if (showClearAll()) {
+                  <button class="ghost-sm clear-all-btn" (click)="clearAllFilters()" title="清除全部筛选条件（搜索 / 只看我）">
+                    ✕ 清除筛选
+                  </button>
+                }
+              </div>
             </div>
             @if (selectedTaskCount > 0) {
               <div class="bulk-action-bar">

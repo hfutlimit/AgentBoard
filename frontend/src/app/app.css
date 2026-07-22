@@ -1884,6 +1884,13 @@ router-outlet {
   flex-wrap: wrap;
   margin: 8px 0 2px;
 }
+.task-toolbar-secondary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
 .qf-chip {
   display: inline-flex;
   align-items: center;
