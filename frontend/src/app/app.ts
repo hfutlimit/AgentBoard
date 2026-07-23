@@ -3000,6 +3000,24 @@ export class App implements OnInit, OnDestroy {
   validNextStatuses(task: Task): string[] {
     return this.statusTransitions[task.status] || [];
   }
+  // v3.5: 批量状态变更状态机感知 —— 仅展示「所选任务」状态机交集内的合法目标状态，
+  // 避免对部分任务应用非法流转（后端会拒绝，造成部分成功/部分失败）。无交集时返回空数组。
+  readonly bulkLegalStatuses = computed<string[]>(() => {
+    const ids = this.selectedTasks();
+    if (ids.size === 0) return [];
+    const selected = this.tasks().filter((t) => ids.has(t.id));
+    if (selected.length === 0) return [];
+    let common: string[] | null = null;
+    for (const t of selected) {
+      const next = this.statusTransitions[t.status] || [];
+      if (common === null) {
+        common = [...next];
+      } else {
+        common = common.filter((s) => next.includes(s));
+      }
+    }
+    return common ?? [];
+  });
   statusMenuTask(): Task | undefined {
     const id = this.statusMenuTaskId();
     if (id == null) return undefined;

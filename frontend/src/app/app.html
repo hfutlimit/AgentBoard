@@ -1270,11 +1270,15 @@
               </div>
               @if (bulkActionTarget() === 'status') {
                 <div class="bulk-panel">
-                  <span>选择新状态：</span>
-                  @for (status of statuses; track status) {
-                    <button class="status-btn badge status--{{ status }}" (click)="bulkUpdateStatus(status); closeBulkActionPanel()">
-                      {{ statusLabel(status) }}
-                    </button>
+                  @if (bulkLegalStatuses().length > 0) {
+                    <span>选择新状态：</span>
+                    @for (status of bulkLegalStatuses(); track status) {
+                      <button class="status-btn badge status--{{ status }}" (click)="bulkUpdateStatus(status); closeBulkActionPanel()">
+                        {{ statusLabel(status) }}
+                      </button>
+                    }
+                  } @else {
+                    <span class="muted">所选任务状态无共同可流转目标（受状态机限制）</span>
                   }
                   <button class="ghost-sm" (click)="closeBulkActionPanel()">取消</button>
                 </div>
