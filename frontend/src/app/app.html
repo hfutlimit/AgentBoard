@@ -1347,6 +1347,9 @@
                     <div class="task-group-header" [class.collapsed]="isGroupCollapsed(grp.key)" (click)="toggleGroup(grp.key)">
                       <span class="task-group-chevron">{{ isGroupCollapsed(grp.key) ? '▸' : '▾' }}</span>
                       <span class="task-group-label">{{ grp.label }}</span>
+                      @if (taskGroupBy() === 'priority') {
+                        <span class="badge priority priority--{{ grp.key }}">{{ priorityLabel(grp.key) }}</span>
+                      }
                       <span class="task-group-count">{{ grp.count }}</span>
                     </div>
                   }

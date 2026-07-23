@@ -562,14 +562,15 @@ export class App implements OnInit, OnDestroy {
     });
     return filtered;
   });
-  // Task 836: 任务列表分组（不分组 / 按状态 / 按类型 / 按负责人）
-  readonly taskGroupBy = signal<'none' | 'status' | 'type' | 'assignee'>(
-    (localStorage.getItem('agentboard_story_group') as 'none' | 'status' | 'type' | 'assignee') || 'none'
+  // Task 836: 任务列表分组（不分组 / 按状态 / 按类型 / 按负责人 / 按优先级）
+  readonly taskGroupBy = signal<'none' | 'status' | 'type' | 'assignee' | 'priority'>(
+    (localStorage.getItem('agentboard_story_group') as 'none' | 'status' | 'type' | 'assignee' | 'priority') || 'none'
   );
   readonly taskGroupOptions = [
     { key: 'none', label: '不分组' },
     { key: 'status', label: '按状态' },
     { key: 'type', label: '按类型' },
+    { key: 'priority', label: '按优先级' },
     { key: 'assignee', label: '按负责人' },
   ];
   setTaskGroup(v: string): void {
@@ -579,6 +580,7 @@ export class App implements OnInit, OnDestroy {
   private groupLabel(mode: string, key: string): string {
     if (mode === 'status') return this.statusLabel(key);
     if (mode === 'type') return key === 'bug' ? 'Bug' : '任务';
+    if (mode === 'priority') return this.priorityLabel(key);
     if (key === '' || key === 'unassigned') return '未指派';
     return this.getAssigneeName(Number(key)) || '未指派';
   }
@@ -594,14 +596,17 @@ export class App implements OnInit, OnDestroy {
           ? t.status
           : g === 'type'
             ? t.type
-            : t.assignee_id == null
-              ? 'unassigned'
-              : String(t.assignee_id);
+            : g === 'priority'
+              ? (t.priority || 'medium')
+              : t.assignee_id == null
+                ? 'unassigned'
+                : String(t.assignee_id);
       (buckets[k] ||= []).push(t);
     }
     let keys: string[];
     if (g === 'status') keys = this.statuses.filter((s) => buckets[s]);
     else if (g === 'type') keys = ['task', 'bug'].filter((k) => buckets[k]);
+    else if (g === 'priority') keys = this.priorities.filter((p) => buckets[p]);
     else keys = Object.keys(buckets).sort((a, b) =>
       this.groupLabel('assignee', a).localeCompare(this.groupLabel('assignee', b), 'zh'));
     return keys.map((k) => ({ key: k, label: this.groupLabel(g, k), count: buckets[k].length, items: buckets[k] }));

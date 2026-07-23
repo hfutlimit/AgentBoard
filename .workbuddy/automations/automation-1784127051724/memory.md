@@ -196,3 +196,44 @@
 - **提交**：`feat(ui): 前端小优化 + 后端增量 - 任务列表批量改截止日期 (Epic 45 v3.2)` → push origin main。
 - **硬约束**：未触碰 18001(MCP)/docker compose/端口；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist 源码（仅提交 static 产物）。
 - **下次可执行**：bulk 五件套齐；可转向「筛选预设增强（命名/多预设）」或新需求。
+
+## 2026-07-23 21:57 自动开发 — Epic 46 v3.3 排序维度增强（截止日期/指派人）→ in_review（达成）
+- **目标**：本次 task → in_review。MCP 全断 → REST 兜底（Docker API 18000 / web 28080，admin id=54）。
+- **选型**：v 系列排序下拉仅 5 维（创建/更新时间·优先级·标题·状态），缺「截止日期」「指派人」→ 新建增量 Epic 46 v3.3 补齐两维（纯前端，零契约变更）。
+- **追踪（REST 新建）**：project 108(AUTODEV46)→epic 116(Epic 46 v3.3)→story 183→task 895(high) → 合法链 `backlog→todo→in_progress→in_review`；story 183、epic 116 同步 **in_review**（达成）。
+- **实现（纯前端，~25 行）**：
+  - `app.ts`：`taskSortKey` 联合类型加 `'due_date'|'assignee'`；`visibleTasks` 排序加两 `else if` 分支；新增 `compareDueDate(da,db)`（无日期按标准语义：升序置后/降序置前）+ `assigneeSortLabel(t)`（未指派哨兵 `\uFFFF` 置后）；`taskSortOptions` 加 `{due_date,截止日期}`、`{assignee,指派人}`。
+  - `app.html` 无需改（`<select>` 已 `@for(opt of taskSortOptions)` 渲染）；偏好复用 `localStorage.agentboard_sort_key/order`。
+- **坑(已记)**：① `npm run build` 须 managed node 22.22.2 + 清 `.angular/cache`；② 产物 `frontend/dist/frontend/browser/` → cp 至 `agentboard/web/static/`（docker volume 挂载即时生效），删旧 `main-45AUETER.js`、新 `main-GEAJLC5P.js`；③ 列表默认排序方向为 `desc`（`||'desc'`），测试须显式 `set_dir(True)` 置 asc；④ `enumerate(sublist)` 会丢失原行位置 → 断言须携带原始 index。
+- **验证**：`tests/test_epic46_v33_sort_dims_e2e.py` 全绿 —— 7 选项含「截止日期/指派人」；截止日期升序 dated 行按 ISO 单调不增且全部置前、无日期置后；降序反转；指派人升序未指派置后、降序置前；刷新持久化（键+方向）；**0** pageerror/console/.js+.css 404；自建 7 任务测试末清理、不污染数据。回归 `pytest test_epic30_cache.py`（7 passed/1 skipped）+ `test_epic39_v26_status_sort_e2e.py`（ALL PASS）无回归。
+- **提交**：`feat(ui): 前端小优化 - 任务列表排序维度增强（按截止日期/指派人）(Epic 46 v3.3)` → push 成功 `09a452e..f727c34`；刻意排除 data/、autodev.lock、其他 automation 的 memory.md、screenshots、frontend/dist。
+- **硬约束**：未触碰 18001(MCP)/docker compose/端口；web 28080 仍读 `agentboard/web/static` 挂载。
+- **下次可执行**：可转向「筛选预设增强（命名/多预设）」「批量改状态面板增强」或新需求；旧 v2.x 部分 E2E 因 story 25 数据漂移（268→6 任务）可能需迁移断言。
+
+## 2026-07-23 22:44 自动开发 — Epic 47 v3.4 任务列表行内快速状态切换 → in_review（达成）
+- **目标**：task → in_review。MCP 连接器断开 → REST 兜底（API 18000 / web 28080）。
+- **选型**：v 系列排序/筛选/chips/bulk 五件套已齐；任务行状态徽章仅展示 → 新增「行内快速状态切换」（状态机感知，纯前端）。
+- **追踪**：REST 新建 project 110(AUTODEV47)→epic 118(Epic 47 v3.4)→story 185→task 945(high) → 合法链 backlog→todo→in_progress→in_review；story 185 / epic 118 同步 in_review（达成）。
+- **实现**：app.ts（`statusTransitions` 镜像后端状态机 + `openStatusMenu`/`quickSetStatus` 调 setTaskStatus 后 tasks.update 局部刷新）；app.html（`.status-pill` 可点 + fixed `.status-menu` 浮层 + 遮罩）；app.css 样式（含 dark）。
+- **验证**：`tests/test_epic47_v34_status_quick_switch_e2e.py` 全绿（backlog→1 项 / todo→3 项 / 遮罩关闭 / 即时更新 / 0 错误）；回归 pytest epic30_cache 7passed/1skip + E2E v3.3/v2.7 全绿。
+- **提交**：`feat(ui): 前端小优化 - 任务列表行内快速状态切换 (Epic 47 v3.4)` → push 成功 `f727c34..6326686`，锁已删。
+- **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation memory.md、screenshots、frontend/dist、scratch 脚本。
+
+## 2026-07-24 01:57 自动开发 — Epic 48 v3.5 批量状态变更状态机感知（达成）
+- **目标**：本次 task → in_review。MCP 连接器全断 → REST 兜底（API 18000 / web 28080）。
+- **选型**：v 系列 bulk 五件套已齐（status/priority/assignee/due/delete），但批量状态面板仍遍历全部 6 状态（与 v3.4 行内切换状态机感知不一致）→ 补齐「批量状态面板状态机感知」。
+- **追踪（REST 新建）**：project 111(ADV35)→epic 119(Epic 48 v3.5)→story 186→task 946(high) → 合法链 `backlog→todo→in_progress→in_review`；story 186、epic 119 同步 **in_review**（达成）。
+- **实现（纯前端，零后端契约变更）**：`app.ts` 新增 `bulkLegalStatuses` computed（选中任务 `statusTransitions` 逐任务交集）；`app.html` 批量状态面板仅渲染交集内合法状态，交集为空显示空态提示。
+- **验证**：Playwright `test_epic48_v35_bulk_status_fsm_e2e.py` 全绿（选 todo+todo+in_progress→仅「完成」；选 backlog+todo→0 按钮+空态提示；0 错误）；回归 pytest epic30_cache 7passed/1skip + E2E v3.4 全绿。
+- **提交**：`a34e7d0` `feat(ui): 前端小优化 - 批量状态变更状态机感知 (Epic 48 v3.5)` → push 成功 `6326686..a34e7d0`。
+- **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist 源码（仅提交 static 产物）。
+- **下次可执行**：v 系列 bulk 五件套 + 状态机感知已齐；可转向「筛选预设增强（默认/持久化）」或新需求。
+
+## 2026-07-24 05:13 运行（Epic 49 v3.6 任务列表分组新增按优先级 → in_review，达成）
+- **目标**：task → in_review。MCP 连接器全断 → REST 兜底（API 18000 / web 28080，admin id=54）。
+- **选型**：分组维度已有 none/status/type/assignee + 折叠持久化，缺「按优先级」→ 补齐第 5 维度（纯前端，零契约变更）。
+- **追踪（REST 新建）**：project 112(AUTODEV49)→epic 120(Epic 49 v3.6)→story 187→task 969(high) → 合法链 `backlog→todo→in_progress→in_review`；story 187、epic 120 同步 **in_review**（达成）。
+- **实现**：`app.ts`（`taskGroupBy` 加 `'priority'`、`taskGroupOptions` 加「按优先级」、`groupedTasks` 加 priority 分桶且键序用 `this.priorities`、groupLabel 复用 `priorityLabel`）；`app.html` 分组头加 `priority--{x}` 色徽章；构建 main-OG767NBY.js cp→web/static。
+- **验证**：Playwright `test_epic49_v36_priority_group_e2e.py` 全绿（story 50 6 任务→3 组 high/medium/low、顺序高→低、徽章文案 高/中/低、计数和==6、0 错误）；回归 pytest epic30_cache 7passed/1skip + E2E v3.5/v3.4 全绿。
+- **提交**：`feat(ui): 前端小优化 - 任务列表分组新增按优先级维度 (Epic 49 v3.6)` → push origin main。
+- **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist 源码、scratch 脚本。
