@@ -139,6 +139,17 @@ export class App implements OnInit, OnDestroy {
   readonly sprintName = signal('');
   readonly sprintType = signal<'cron' | 'once'>('cron');
   readonly sprintCron = signal('');
+  // Task 编辑弹窗（替代详情页内联表单）
+  readonly taskEditModal = signal<Task | null>(null);
+  readonly taskEditTitle = signal('');
+  readonly taskEditType = signal<ItemType>('task');
+  readonly taskEditPriority = signal<Priority>('medium');
+  readonly taskEditDueDate = signal<string | null>(null);
+  readonly taskEditLabels = signal('');
+  readonly taskEditSprintId = signal<number | null>(null);
+  readonly taskEditAssigneeId = signal<number | null>(null);
+  readonly taskEditDescription = signal('');
+  readonly taskEditSpec = signal('');
   readonly projectListPageSize = 20;
   readonly epicsPage = signal(1);
   readonly sprintsPage = signal(1);
@@ -1645,6 +1656,60 @@ export class App implements OnInit, OnDestroy {
     await this.run('任务已保存', () =>
       firstValueFrom(this.api.updateTask(task.id, { title, description, spec, type, priority, due_date: dueDate })),
     );
+  }
+
+  // Task 编辑弹窗：打开并预填充当前任务字段
+  openTaskEditModal(task: Task): void {
+    this.taskEditModal.set(task);
+    this.taskEditTitle.set(task.title);
+    this.taskEditType.set(task.type);
+    this.taskEditPriority.set(task.priority);
+    this.taskEditDueDate.set(task.due_date || null);
+    this.taskEditLabels.set(this.labelsToString(task.labels));
+    this.taskEditSprintId.set(task.sprint_id || null);
+    this.taskEditAssigneeId.set(task.assignee_id || null);
+    this.taskEditDescription.set(task.description || '');
+    this.taskEditSpec.set(task.spec || '');
+  }
+
+  closeTaskEditModal(): void {
+    this.taskEditModal.set(null);
+  }
+
+  async submitTaskEditModal(): Promise<void> {
+    const task = this.taskEditModal();
+    if (!task) return;
+    const title = this.taskEditTitle().trim();
+    if (!title) {
+      this.notify('标题不能为空', 'error');
+      return;
+    }
+    const labels = this.taskEditLabels().trim()
+      ? JSON.stringify(this.taskEditLabels().split(',').map(s => s.trim()).filter(Boolean))
+      : '[]';
+    this.submitting.set(true);
+    try {
+      await firstValueFrom(
+        this.api.updateTask(task.id, {
+          title,
+          type: this.taskEditType(),
+          priority: this.taskEditPriority(),
+          due_date: this.taskEditDueDate() || null,
+          labels,
+          sprint_id: this.taskEditSprintId(),
+          assignee_id: this.taskEditAssigneeId(),
+          description: this.taskEditDescription(),
+          spec: this.taskEditSpec(),
+        }),
+      );
+      this.taskEditModal.set(null);
+      this.notify('任务已更新');
+      await this.refresh();
+    } catch (error) {
+      this.notify(`更新失败：${this.message(error)}`, 'error');
+    } finally {
+      this.submitting.set(false);
+    }
   }
 
   // B-01: Save task labels
@@ -3495,11 +3560,6 @@ export class App implements OnInit, OnDestroy {
     this.editingTaskTitle.set('');
   }
 
-  scrollToEdit(): void {
-    setTimeout(() => {
-      document.getElementById('task-edit-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }, 0);
-  }
   quickDeleteTask(): void {
     const task = this.task();
     if (task) void this.remove('task', task.id);

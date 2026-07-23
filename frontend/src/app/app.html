@@ -1636,7 +1636,8 @@
             <div class="quick-actions">
               <button class="ghost-sm" (click)="quickAdvanceStatus()" title="推进到下一状态">→ 下一状态</button>
               <button class="ghost-sm" (click)="quickCompleteTask()" title="标记为完成">✓ 完成</button>
-              <button class="ghost-sm" (click)="scrollToEdit()" title="跳转到编辑表单">✎ 编辑</button>
+              <button class="ghost-sm" (click)="openTaskEditModal(current)" title="编辑任务">✎ 编辑</button>
+              <button class="ghost-sm" (click)="generate()" title="生成子任务">⚡ 生成子任务</button>
               <button class="ghost-sm danger" (click)="quickDeleteTask()" title="删除当前任务">🗑 删除</button>
             </div>
             </div>
@@ -1705,96 +1706,6 @@
                 <button class="btn-ghost-sm" (click)="$any($event.target).previousElementSibling.click()">＋ 上传附件</button>
                 <span class="muted" style="margin-left:8px;font-size:12px">支持图片、PDF、文本等，最大 10MB</span>
               </div>
-            </div>
-            <div class="card form-section" id="task-edit-form">
-              <h3>编辑任务</h3>
-              <form
-                (submit)="
-                  saveTask(
-                    tTitle.value,
-                    tDesc.value,
-                    tSpec.value,
-                    $any(tType.value),
-                    $any(tPriority.value),
-                    tDueDate.value || null
-                  );
-                  $event.preventDefault()
-                "
-              >
-                <label>标题<input #tTitle [value]="current.title" required /></label>
-                <div class="form-grid">
-                  <label
-                    >类型<select #tType [value]="current.type">
-                      <option value="task">Task</option>
-                      <option value="bug">Bug</option>
-                    </select></label
-                  ><label
-                    >优先级<select #tPriority [value]="current.priority">
-                      @for (priority of priorities; track priority) {
-                        <option [value]="priority">{{ priorityLabel(priority) }}</option>
-                      }
-                    </select></label
-                  >
-                </div>
-                <label
-                  >截止日期<input #tDueDate type="date" [value]="current.due_date || ''" />
-                </label>
-                <label
-                  >标签 <span class="muted" style="font-size:11px">逗号分隔</span
-                  ><input #tLabels [value]="labelsToString(current.labels)" placeholder="如: 前端,紧急" autocomplete="off" />
-                  <button class="ghost-sm" type="button" style="margin-top:4px" (click)="saveTaskLabels(tLabels.value); tLabels.value = tLabels.value">💾 保存标签</button>
-                </label>
-                @if (project()?.id) {
-                  <label
-                    >Sprint<select
-                      #tSprint
-                      [value]="current.sprint_id || 0"
-                      (change)="
-                        $any($event.target).value > 0
-                          ? assignTaskToSprint(current.id, +$any($event.target).value)
-                          : removeTaskFromSprint(current.id)
-                      "
-                    >
-                      <option value="0">— 无 —</option>
-                      @if (sprints().length === 0) {
-                        @defer {
-                          <!-- loaded in project view -->
-                        }
-                      }
-                      @for (s of sprints(); track s.id) {
-                        <option [value]="s.id">
-                          {{ s.title }} ({{ sprintStatusLabel(s.status) }})
-                        </option>
-                      }
-                    </select></label
-                  >
-                  <label
-                    >负责人<select
-                      #tAssignee
-                      id="task-assignee"
-                      [value]="current.assignee_id || 0"
-                      (change)="saveTaskAssignee(current.id, +$any($event.target).value); $event.preventDefault()"
-                    >
-                      <option value="0">— 未指派 —</option>
-                      @for (m of members(); track m.user_id) {
-                        <option [value]="m.user_id">{{ m.username }}</option>
-                      }
-                    </select></label
-                  >
-                }
-                <label
-                  >Description<textarea #tDesc rows="5">{{ current.description }}</textarea></label
-                ><label
-                  >Spec<textarea #tSpec rows="10">{{ current.spec }}</textarea>
-                </label>
-                <div class="row">
-                  <button class="btn-primary-sm" type="submit">💾 保存</button
-                  ><button class="ghost-sm" type="button" (click)="generate()">⚡ 生成子任务</button
-                  ><button class="danger" type="button" (click)="remove('task', current.id)">
-                    🗑 删除
-                  </button>
-                </div>
-              </form>
             </div>
             <!-- Task 808: 评论 Markdown 实时预览切换 -->
             <div class="card comments-card">
@@ -2440,6 +2351,87 @@
         <footer class="modal-footer">
           <button type="button" class="ghost" (click)="closeSprintModal()">取消</button>
           <button type="submit" class="btn-primary">创建</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+}
+
+@if (taskEditModal(); as editTask) {
+  <div class="modal-overlay" (click)="closeTaskEditModal()">
+    <section class="modal modal-create" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+      <header class="modal-header">
+        <div>
+          <span class="modal-eyebrow">EDIT TASK</span>
+          <h3>编辑任务</h3>
+        </div>
+        <button type="button" class="modal-close" (click)="closeTaskEditModal()">×</button>
+      </header>
+      <form (submit)="submitTaskEditModal(); $event.preventDefault()">
+        <div class="modal-body">
+          <div class="form-field">
+            <label>标题 <span class="required">*</span></label>
+            <input [value]="taskEditTitle()" (input)="taskEditTitle.set($any($event.target).value)" maxlength="200" required />
+          </div>
+          <div class="form-grid">
+            <div class="form-field">
+              <label>类型</label>
+              <select [value]="taskEditType()" (change)="taskEditType.set($any($event.target).value)">
+                <option value="task">Task</option>
+                <option value="bug">Bug</option>
+              </select>
+            </div>
+            <div class="form-field">
+              <label>优先级</label>
+              <select [value]="taskEditPriority()" (change)="taskEditPriority.set($any($event.target).value)">
+                @for (priority of priorities; track priority) {
+                  <option [value]="priority">{{ priorityLabel(priority) }}</option>
+                }
+              </select>
+            </div>
+          </div>
+          <div class="form-field">
+            <label>截止日期</label>
+            <input type="date" [value]="taskEditDueDate() || ''" (input)="taskEditDueDate.set($any($event.target).value || null)" />
+          </div>
+          <div class="form-field">
+            <label>标签 <span class="muted" style="font-size:11px">逗号分隔</span></label>
+            <input [value]="taskEditLabels()" (input)="taskEditLabels.set($any($event.target).value)" placeholder="如: 前端,紧急" autocomplete="off" />
+          </div>
+          <div class="form-grid">
+            <div class="form-field">
+              <label>Sprint</label>
+              <select [value]="taskEditSprintId() ?? 0" (change)="taskEditSprintId.set(+$any($event.target).value || null)">
+                <option [value]="0">— 无 —</option>
+                @for (s of sprints(); track s.id) {
+                  <option [value]="s.id">{{ s.title }} ({{ sprintStatusLabel(s.status) }})</option>
+                }
+              </select>
+            </div>
+            <div class="form-field">
+              <label>负责人</label>
+              <select [value]="taskEditAssigneeId() ?? 0" (change)="taskEditAssigneeId.set(+$any($event.target).value || null)">
+                <option [value]="0">— 未指派 —</option>
+                @for (m of members(); track m.user_id) {
+                  <option [value]="m.user_id">{{ m.username }}</option>
+                }
+              </select>
+            </div>
+          </div>
+          <div class="form-field">
+            <label>Description</label>
+            <textarea rows="5" [value]="taskEditDescription()" (input)="taskEditDescription.set($any($event.target).value)"></textarea>
+          </div>
+          <div class="form-field">
+            <label>Spec（OpenSpec）</label>
+            <textarea rows="10" [value]="taskEditSpec()" (input)="taskEditSpec.set($any($event.target).value)"></textarea>
+          </div>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" class="ghost" (click)="closeTaskEditModal()">取消</button>
+          <button type="submit" class="btn-primary" [disabled]="submitting()">
+            {{ submitting() ? '保存中…' : '保存' }}
+          </button>
         </footer>
       </form>
     </section>
