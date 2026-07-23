@@ -1264,6 +1264,7 @@
                   <button class="btn-primary-sm" (click)="showBulkActionPanel('status')">批量修改状态</button>
                   <button class="btn-primary-sm" (click)="showBulkActionPanel('priority')">批量修改优先级</button>
                   <button class="btn-primary-sm" (click)="showBulkActionPanel('assignee')">批量指派</button>
+                  <button class="btn-primary-sm" (click)="showBulkActionPanel('due')">批量改截止日期</button>
                   <button class="danger ghost-sm" (click)="showBulkActionPanel('delete')">批量删除</button>
                 </div>
               </div>
@@ -1306,6 +1307,15 @@
                     }
                   </select>
                   <button class="btn-primary-sm" (click)="bulkUpdateAssignee(bulkAssigneeId()); closeBulkActionPanel()">应用</button>
+                  <button class="ghost-sm" (click)="closeBulkActionPanel()">取消</button>
+                </div>
+              }
+              @if (bulkActionTarget() === 'due') {
+                <div class="bulk-panel">
+                  <span>设置截止日期：</span>
+                  <input type="date" class="bulk-date-input" [value]="bulkDueDateValue()" (change)="bulkDueDateValue.set($any($event.target).value)" />
+                  <button class="btn-primary-sm" [disabled]="!bulkDueDateValue()" (click)="bulkUpdateDueDate(bulkDueDateValue()); closeBulkActionPanel()">应用</button>
+                  <button class="ghost-sm" (click)="bulkUpdateDueDate(null); closeBulkActionPanel()">清除截止日期</button>
                   <button class="ghost-sm" (click)="closeBulkActionPanel()">取消</button>
                 </div>
               }

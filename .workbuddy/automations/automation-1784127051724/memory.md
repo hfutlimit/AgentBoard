@@ -175,3 +175,24 @@
 - **提交**：`feat(ui): 前端小优化 - 任务列表批量修改优先级 (Epic 41 v2.9)` + `git push origin main`。
 - **硬约束**：未触碰 18001(MCP)/8080(web 端口)/docker；排除 data/、autodev.lock、其他 automation MEMORY.md、`.workbuddy/memory/MEMORY.md`(他人改动)、screenshots、e2e_status_chips.png、前端 dist。
 - **下次可执行**：bulk「状态/优先级/删除」三件套齐；可转向「批量指派」「保存筛选预设」或新需求。
+
+## 2026-07-23 05:13 自动开发 — Epic 43 v3.1 筛选预设 → in_review（达成）
+- **目标**：本次 task → in_review。MCP 全断 → REST 兜底（58125 权威）。
+- **选型**：v 系列 chips + bulk 四件套已齐 → 新建增量 Epic 43 v3.1「筛选预设」（保存/应用/删除当前筛选组合），纯前端 localStorage 零契约变更。
+- **追踪**：REST 新建 project 38→epic 47→story 96→task 1106(high)，合法链 backlog→todo→in_progress→in_review；story/epic 同步 in_review（达成）。
+- **实现**：app.ts（FilterPreset 接口 + filterPresets/presetName/presetOpen 信号 + save/apply/delete/toggle 方法）、app.html（📑 预设按钮+浮层）、app.css（preset-* 样式）；构建 main-ZDJNSU6T.js cp→web/static。
+- **验证**：Playwright `test_epic43_filter_presets_e2e.py` 全绿（保存→清除→应用→刷新持久化→删除，0 错误）；后端 pytest 8 passed；v2.7/v2.8 旧 E2E 失败为预先存在/过时（非本次回归）。
+- **提交**：`feat(ui): 前端小优化 - 任务列表筛选预设 (Epic 43 v3.1)` → push 成功 `ae2daea..cdbda99`。
+- **坑(已记 MEMORY/日志)**：① commit `2aa4155 精简筛选条` 已把 priority/type/due chips 收进高级面板，工具条现仅剩状态+指派人 2 条 → 旧 v2.8/v2.0/v2.4 E2E 过时；② 误建空 project 37 因 `delete_project` 不级联 project_members 无法删（后端局限，非阻塞）。
+- **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation MEMORY.md、screenshots、前端 dist。
+- **下次可执行**：可转向「批量改截止日期」或新需求；旧 due/priority/type E2E 需迁移断言。
+
+## 2026-07-23 21:46 自动开发 — Epic 45 v3.2 批量改截止日期 → in_review（达成）
+- **目标**：本次 task → in_review。MCP 全断 → REST 兜底（Docker API 18000 / web 28080）。
+- **选型**：bulk 四件套已齐（status/priority/assignee/delete），缺「截止日期」→ 补齐批量第 5 项；前端面板 + 后端增量字段 `due_date`/`clear_due_date`（service.update_task 已支持 due_date，零契约破坏）。
+- **追踪**：REST 新建 project 107(AUTODEV45)→epic 115(Epic 45 v3.2)→story 182→task 894(high) → 合法链 `backlog→todo→in_progress→in_review`；story 182、epic 115 同步 in_review（达成）。
+- **实现**：`agentboard/api.py`（BulkTaskUpdate + 端点逻辑）；前端 api.service.ts/app.ts/app.html/app.css（批量改截止日期面板 + `.bulk-date-input`）；构建 main-45AUETER.js cp→web/static；后端经 `docker restart agentboard-api-1`（只读挂载 ./agentboard）生效。
+- **验证**：pytest `test_epic45_bulk_due_date.py` 4 passed；Playwright `test_epic45_bulk_due_date_e2e.py` 全绿（set/clear + 0 错误 + 还原）。
+- **提交**：`feat(ui): 前端小优化 + 后端增量 - 任务列表批量改截止日期 (Epic 45 v3.2)` → push origin main。
+- **硬约束**：未触碰 18001(MCP)/docker compose/端口；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist 源码（仅提交 static 产物）。
+- **下次可执行**：bulk 五件套齐；可转向「筛选预设增强（命名/多预设）」或新需求。

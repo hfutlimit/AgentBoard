@@ -685,7 +685,7 @@ export class ApiService {
 
   /* ---------- Bulk Operations ---------- */
   // Epic 21 Story 21.2: 写入操作时清除相关缓存
-  bulkUpdateTasks(taskIds: number[], updates: { status?: string; priority?: string; sprint_id?: number; assignee_id?: number; clear_assignee?: boolean }) {
+  bulkUpdateTasks(taskIds: number[], updates: { status?: string; priority?: string; sprint_id?: number; assignee_id?: number; clear_assignee?: boolean; due_date?: string | null; clear_due_date?: boolean }) {
     return this.request<{ updated: any[]; errors: any[] }>('POST', '/api/tasks/bulk-update', { task_ids: taskIds, ...updates }).pipe(
       tap(() => {
         apiCache.invalidatePrefix('/api/stories');

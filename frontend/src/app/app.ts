@@ -211,8 +211,9 @@ export class App implements OnInit, OnDestroy {
   readonly adminUsers = signal<any[]>([]);
   readonly adminProjects = signal<any[]>([]);
   readonly selectedTasks = signal<Set<number>>(new Set());
-  readonly bulkActionTarget = signal<string | null>(null); // 'status' | 'priority' | 'assignee' | 'delete' | null
+  readonly bulkActionTarget = signal<string | null>(null); // 'status' | 'priority' | 'assignee' | 'due' | 'delete' | null
   readonly bulkAssigneeId = signal<number | null>(null); // v3.0 批量指派：当前选中的指派人
+  readonly bulkDueDateValue = signal<string>(''); // v3.2 批量改截止日期：当前选中的日期（YYYY-MM-DD）
   // Epic 21 Story 21.3: 批量操作进度跟踪
   readonly bulkProgress = signal<{ current: number; total: number; message: string } | null>(null);
   readonly focusedTaskId = signal<number | null>(null);
@@ -2109,6 +2110,44 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  // v3.2: 批量改截止日期（复用现有 bulkUpdateTasks 的 due_date / clear_due_date 字段，增量后端变更）
+  async bulkUpdateDueDate(newDueDate: string | null): Promise<void> {
+    const ids = Array.from(this.selectedTasks());
+    if (ids.length === 0) return;
+
+    this.bulkProgress.set({ current: 0, total: ids.length, message: `正在更新 0/${ids.length} 个任务…` });
+
+    try {
+      const updates = newDueDate === null
+        ? { clear_due_date: true }
+        : { due_date: newDueDate };
+      const result = await firstValueFrom(this.api.bulkUpdateTasks(ids, updates));
+      const successCount = result.updated?.length ?? 0;
+      const errorCount = result.errors?.length ?? 0;
+
+      if (errorCount > 0) {
+        const failedIds = result.errors.map((e: any) => e.id || e.task_id).filter(Boolean).slice(0, 3);
+        const failedMsg = failedIds.length > 0 ? `（失败 ID: ${failedIds.join(', ')}${errorCount > 3 ? '…' : ''}）` : '';
+        this.notify(`批量更新完成：${successCount} 成功，${errorCount} 失败${failedMsg}`, 'error');
+      } else {
+        const label = newDueDate === null ? '已清除截止日期' : `截止日期设为 ${newDueDate}`;
+        this.notify(`已批量更新 ${successCount} 个任务的${label}`);
+      }
+      this.clearTaskSelection();
+      await this.refresh();
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      if (errorMsg.includes('离线')) {
+        this.notify('操作已加入离线队列，将在网络恢复后自动重试', 'error');
+      } else {
+        this.notify(`批量更新失败：${errorMsg}`, 'error');
+      }
+    } finally {
+      this.bulkProgress.set(null);
+      this.bulkDueDateValue.set('');
+    }
+  }
+
   // v2.9: 批量修改优先级（复用现有 bulkUpdateTasks 的 priority 字段，零后端契约变更）
   async bulkUpdatePriority(newPriority: string): Promise<void> {
     const ids = Array.from(this.selectedTasks());
@@ -2190,7 +2229,7 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  showBulkActionPanel(type: 'status' | 'delete' | 'priority' | 'assignee'): void {
+  showBulkActionPanel(type: 'status' | 'delete' | 'priority' | 'assignee' | 'due'): void {
     this.bulkActionTarget.set(type);
   }
 

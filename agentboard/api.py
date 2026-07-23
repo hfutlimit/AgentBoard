@@ -330,6 +330,9 @@ class BulkTaskUpdate(BaseModel):
     # v3.0 批量指派：新增 assignee_id / clear_assignee（增量字段，向后兼容）
     assignee_id: int | None = None
     clear_assignee: bool = False
+    # v3.2 批量改截止日期：新增 due_date / clear_due_date（增量字段，向后兼容）
+    due_date: str | None = None
+    clear_due_date: bool = False
 
     @field_validator("task_ids")
     @classmethod
@@ -946,7 +949,7 @@ def delete_task(tid: int, s: Session = Depends(get_session)):
 # ---------- Bulk Task Operations ----------
 @app.post("/api/tasks/bulk-update")
 def bulk_update_tasks(body: BulkTaskUpdate, s: Session = Depends(get_session)):
-    """批量更新任务：支持 status / priority / sprint_id"""
+    """批量更新任务：支持 status / priority / sprint_id / assignee_id / due_date"""
     results = []
     errors = []
     affected_pids = set()
@@ -967,6 +970,11 @@ def bulk_update_tasks(body: BulkTaskUpdate, s: Session = Depends(get_session)):
                 updates["assignee_id"] = body.assignee_id
             elif body.clear_assignee:
                 updates["assignee_id"] = None
+            # v3.2 批量改截止日期：clear_due_date 优先清空；否则按传入 due_date 设置
+            if body.clear_due_date:
+                updates["due_date"] = None
+            elif body.due_date is not None:
+                updates["due_date"] = body.due_date
             if updates:
                 service.update_task(s, tid, **updates)
             results.append({"task_id": tid, "ok": True})

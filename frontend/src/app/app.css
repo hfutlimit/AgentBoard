@@ -592,6 +592,17 @@ router-outlet {
   cursor: pointer;
 }
 
+/* v3.2 批量改截止日期：日期输入框 */
+.bulk-date-input {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--input-bg, var(--card-bg));
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
 .status-btn {
   cursor: pointer;
   transition: transform 0.15s;
