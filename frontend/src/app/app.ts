@@ -312,7 +312,7 @@ export class App implements OnInit, OnDestroy {
     this.match(this.stories(), (s) => `${s.title} ${s.description}`),
   );
   // Task 730 / v2.6: 任务列表排序（含「按状态」排序 + 偏好持久化）
-  readonly taskSortKey = signal<'created_at' | 'updated_at' | 'priority' | 'title' | 'status'>(
+  readonly taskSortKey = signal<'created_at' | 'updated_at' | 'priority' | 'title' | 'status' | 'due_date' | 'assignee'>(
     (() => { try { return (localStorage.getItem('agentboard_sort_key') as any) || 'created_at'; } catch { return 'created_at'; } })()
   );
   readonly taskSortOrder = signal<'asc' | 'desc'>(
@@ -333,7 +333,24 @@ export class App implements OnInit, OnDestroy {
     { key: 'priority', label: '优先级' },
     { key: 'title', label: '标题' },
     { key: 'status', label: '状态' },
+    { key: 'due_date', label: '截止日期' },
+    { key: 'assignee', label: '指派人' },
   ];
+  // v3.3: 按截止日期比较（无日期按标准语义：升序置后、降序置前）
+  private compareDueDate(da: string | null, db: string | null): number {
+    const aNull = !da;
+    const bNull = !db;
+    if (aNull && bNull) return 0;
+    if (aNull) return 1;
+    if (bNull) return -1;
+    return new Date(da as string).getTime() - new Date(db as string).getTime();
+  }
+  // v3.3: 指派人的排序标签（未指派排最后）
+  private assigneeSortLabel(t: Task): string {
+    if (t.assignee_id == null) return '￿';
+    const name = this.getAssigneeName(Number(t.assignee_id));
+    return name || `u${t.assignee_id}`;
+  }
   // Task 813: 搜索结果空状态
   readonly searchResultEmpty = signal(false);
   // Task 817: 快捷键导航增强 - 方向键导航状态
@@ -534,6 +551,12 @@ export class App implements OnInit, OnDestroy {
         cmp = (a.title || '').localeCompare(b.title || '');
       } else if (sortKey === 'status') {
         cmp = this.statuses.indexOf(a.status) - this.statuses.indexOf(b.status);
+      } else if (sortKey === 'due_date') {
+        // v3.3: 按截止日期排序（无截止日期按标准语义：升序置后、降序置前）
+        cmp = this.compareDueDate(a.due_date, b.due_date);
+      } else if (sortKey === 'assignee') {
+        // v3.3: 按指派人排序（未指派置后）
+        cmp = this.assigneeSortLabel(a).localeCompare(this.assigneeSortLabel(b));
       }
       return sortOrder === 'asc' ? cmp : -cmp;
     });
