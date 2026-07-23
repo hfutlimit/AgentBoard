@@ -1386,9 +1386,15 @@
                         <span class="badge priority priority--{{ item.priority }}">{{
                           priorityLabel(item.priority)
                         }}</span
-                        ><span class="badge status status--{{ item.status }}">{{
-                          statusLabel(item.status)
-                        }}</span>
+                        ><span
+                          class="badge status status--{{ item.status }} status-pill"
+                          role="button"
+                          tabindex="0"
+                          [title]="'点击切换状态：' + statusLabel(item.status)"
+                          (click)="openStatusMenu(item, $event); $event.stopPropagation(); $event.preventDefault()"
+                          (keydown.enter)="openStatusMenu(item, $event); $event.stopPropagation(); $event.preventDefault()"
+                          >{{ statusLabel(item.status) }} <span class="status-pill-caret">▾</span></span
+                        >
                         @if (item.sprint_id) {
                           <span class="badge sprint-badge" title="已分配 Sprint">🏃</span>
                         }
@@ -1438,6 +1444,27 @@
                       }
                     </div>
                   }
+                }
+                <!-- Epic 47 (v3.4): 行内快速状态切换浮层（fixed 定位，避免被滚动容器裁剪） -->
+                @if (statusMenuTaskId() !== null && statusMenuTask()) {
+                  <div class="status-menu-backdrop" (click)="closeStatusMenu(); $event.preventDefault()"></div>
+                  <div
+                    class="status-menu status-menu--fixed"
+                    [style.left.px]="(statusMenuPos()?.x) ?? 0"
+                    [style.top.px]="(statusMenuPos()?.y) ?? 0"
+                    (click)="$event.stopPropagation()"
+                  >
+                    <div class="status-menu-head">切换状态 → {{ statusLabel(statusMenuTask()!.status) }}</div>
+                    @for (st of validNextStatuses(statusMenuTask()!); track st) {
+                      <button
+                        type="button"
+                        class="status-menu-item status--{{ st }}"
+                        (click)="quickSetStatus(statusMenuTask()!, st); $event.stopPropagation(); $event.preventDefault()"
+                      >
+                        <span class="status-dot" [style.background]="statusColor(st)"></span>{{ statusLabel(st) }}
+                      </button>
+                    }
+                  </div>
                 }
               </div>
               <div class="kbd-hint">j/k 上下导航 · Enter 打开 · Space 选择 · Ctrl+A 全选 · Esc 取消</div>

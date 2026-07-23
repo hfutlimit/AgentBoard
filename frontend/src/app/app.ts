@@ -2985,6 +2985,49 @@ export class App implements OnInit, OnDestroy {
     )[status] || '#94a3b8';
   }
 
+  // Epic 47 (v3.4): 任务列表行内快速状态切换 —— 前端镜像后端 TRANSITIONS 状态机，
+  // 仅展示合法的目标状态，调用既有 setTaskStatus 端点，零后端契约变更。
+  readonly statusTransitions: Record<string, string[]> = {
+    backlog: ['todo'],
+    todo: ['in_progress', 'backlog', 'done'],
+    in_progress: ['in_review', 'verifying', 'todo', 'done'],
+    in_review: ['done', 'in_progress'],
+    verifying: ['done', 'in_progress'],
+    done: ['in_progress', 'todo'],
+  };
+  readonly statusMenuTaskId = signal<number | null>(null);
+  readonly statusMenuPos = signal<{ x: number; y: number } | null>(null);
+  validNextStatuses(task: Task): string[] {
+    return this.statusTransitions[task.status] || [];
+  }
+  statusMenuTask(): Task | undefined {
+    const id = this.statusMenuTaskId();
+    if (id == null) return undefined;
+    return this.tasks().find((t) => t.id === id) || this.visibleTasks().find((t) => t.id === id);
+  }
+  openStatusMenu(task: Task, event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    this.statusMenuTaskId.set(task.id);
+    this.statusMenuPos.set({ x: rect.left, y: rect.bottom + 4 });
+  }
+  closeStatusMenu(): void {
+    this.statusMenuTaskId.set(null);
+    this.statusMenuPos.set(null);
+  }
+  async quickSetStatus(task: Task, target: string): Promise<void> {
+    this.closeStatusMenu();
+    if (task.status === target) return;
+    try {
+      await firstValueFrom(this.api.setTaskStatus(task.id, target));
+      this.tasks.update((list) => list.map((t) => (t.id === task.id ? { ...t, status: target as Status } : t)));
+      this.notify(`已将「${task.title}」状态更新为「${this.statusLabel(target)}」`);
+    } catch {
+      this.notify('状态切换失败：该流转不被允许', 'error');
+    }
+  }
+
   // Task 821: 任务类型图标
   taskTypeIcon(type: string): string {
     return type === 'bug' ? '🐛' : '📋';

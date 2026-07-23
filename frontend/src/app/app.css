@@ -1684,6 +1684,89 @@ router-outlet {
   align-items: center;
 }
 
+/* Epic 47 (v3.4): 任务列表行内快速状态切换 */
+.status-pill {
+  cursor: pointer;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+.status-pill:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.04);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+.status-pill:focus-visible {
+  outline: 2px solid var(--brand-500, #6366f1);
+  outline-offset: 1px;
+}
+.status-pill-caret {
+  font-size: 9px;
+  opacity: 0.7;
+  margin-left: 1px;
+}
+.status-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 190;
+  background: transparent;
+}
+.status-menu {
+  position: fixed;
+  z-index: 200;
+  min-width: 168px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: statusMenuIn 0.14s ease;
+}
+@keyframes statusMenuIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.status-menu-head {
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+  padding: 4px 8px 6px;
+  border-bottom: 1px solid var(--border, #e5e7eb);
+  margin-bottom: 2px;
+}
+.status-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  padding: 7px 8px;
+  font-size: 13px;
+  color: var(--text, #1f2937);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.status-menu-item:hover {
+  background: var(--surface-2, #f1f5f9);
+}
+.status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.04);
+}
+[data-theme="dark"] .status-menu-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 /* Task 826: 任务列表移动端横向滚动 */
 .entity-list {
   overflow-x: auto;
