@@ -3095,6 +3095,42 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  // v3.9: 任务列表行内快速编辑截止日期（与 v3.4 状态 / v3.8 指派 对称；状态机无关，直接 updateTask due_date）
+  readonly dueMenuTaskId = signal<number | null>(null);
+  readonly dueMenuPos = signal<{ x: number; y: number } | null>(null);
+  dueMenuTask(): Task | undefined {
+    const id = this.dueMenuTaskId();
+    return id == null ? undefined : this.tasks().find((t) => t.id === id);
+  }
+  dueMenuInitial(): string {
+    const t = this.dueMenuTask();
+    if (!t || !t.due_date) return '';
+    return (t.due_date as string).slice(0, 10);
+  }
+  openDueMenu(task: Task, event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    this.dueMenuTaskId.set(task.id);
+    this.dueMenuPos.set({ x: rect.left, y: rect.bottom + 4 });
+  }
+  closeDueMenu(): void {
+    this.dueMenuTaskId.set(null);
+    this.dueMenuPos.set(null);
+  }
+  async quickSetDue(task: Task, dateStr: string | null): Promise<void> {
+    this.closeDueMenu();
+    const next = dateStr && dateStr.trim() ? dateStr.trim() : null;
+    if ((task.due_date || '').slice(0, 10) === (next || '')) return;
+    try {
+      await firstValueFrom(this.api.updateTask(task.id, { due_date: next }));
+      this.tasks.update((list) => list.map((t) => (t.id === task.id ? { ...t, due_date: next } : t)));
+      this.notify(next ? `已将「${task.title}」截止日期设为 ${next}` : `已清除「${task.title}」的截止日期`);
+    } catch {
+      this.notify('更新截止日期失败，请重试', 'error');
+    }
+  }
+
   // Task 821: 任务类型图标
   taskTypeIcon(type: string): string {
     return type === 'bug' ? '🐛' : '📋';

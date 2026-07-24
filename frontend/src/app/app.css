@@ -1895,6 +1895,69 @@ router-outlet {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.7; }
 }
+/* v3.9: 行内快速编辑截止日期 */
+.due-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  color: var(--text-2);
+  white-space: nowrap;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+  user-select: none;
+}
+.due-pill:hover {
+  background: var(--surface-4);
+  border-color: var(--accent-soft);
+}
+.due-pill:active {
+  transform: scale(0.97);
+}
+.due-pill.due-soon {
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-weight: 600;
+}
+.due-pill.due-overdue {
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-weight: 700;
+  animation: pulse-overdue 2s ease-in-out infinite;
+}
+.due-pill-empty {
+  opacity: 0.7;
+  font-style: italic;
+}
+.due-menu-body {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.due-menu-input {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-1);
+  font-size: 13px;
+}
+.due-menu-actions {
+  display: flex;
+  gap: 8px;
+}
+.due-menu-apply {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.due-menu-clear {
+  color: var(--text-2);
+}
 .task-meta-item.overdue .meta-value {
   color: var(--danger);
   font-weight: 700;

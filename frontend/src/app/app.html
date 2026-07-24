@@ -1407,11 +1407,21 @@
                         @if (item.sprint_id) {
                           <span class="badge sprint-badge" title="已分配 Sprint">🏃</span>
                         }
-                        @if (item.due_date) {
-                          <span class="badge due-badge" [class.due-overdue]="isOverdue(item.due_date)" [class.due-soon]="isDueSoon(item.due_date)" title="截止日期">
-                            ⏰ {{ formatDueDate(item.due_date) }}
-                          </span>
-                        }
+                        <span
+                          class="due-pill"
+                          role="button"
+                          tabindex="0"
+                          [class.has-due]="item.due_date"
+                          [class.due-overdue]="item.due_date && isOverdue(item.due_date)"
+                          [class.due-soon]="item.due_date && isDueSoon(item.due_date)"
+                          [title]="item.due_date ? ('点击修改截止日期：' + formatDueDate(item.due_date)) : '点击设置截止日期'"
+                          (click)="openDueMenu(item, $event); $event.stopPropagation(); $event.preventDefault()"
+                          (keydown.enter)="openDueMenu(item, $event); $event.stopPropagation(); $event.preventDefault()"
+                        >@if (item.due_date) {
+                          <span class="due-pill-date">⏰ {{ formatDueDate(item.due_date) }}</span>
+                        } @else {
+                          <span class="due-pill-empty">⏰ 设截止</span>
+                        }</span>
                         @for (lbl of parseLabels(item.labels); track lbl) {
                           <span class="label-badge" [style.color]="labelColor(lbl)" [style.background]="labelBg(lbl)">{{ lbl }}</span>
                         }
@@ -1510,6 +1520,33 @@
                     >
                       <span class="assignee-avatar-sm unassigned">?</span>未指派
                     </button>
+                  </div>
+                }
+                <!-- v3.9: 行内快速编辑截止日期浮层（复用 .status-menu fixed 定位，避免被滚动容器裁剪） -->
+                @if (dueMenuTaskId() !== null && dueMenuTask()) {
+                  <div class="status-menu-backdrop" (click)="closeDueMenu(); $event.preventDefault()"></div>
+                  <div
+                    class="status-menu status-menu--fixed due-menu"
+                    [style.left.px]="(dueMenuPos()?.x) ?? 0"
+                    [style.top.px]="(dueMenuPos()?.y) ?? 0"
+                    (click)="$event.stopPropagation()"
+                  >
+                    <div class="status-menu-head">设置截止日期 → {{ dueMenuTask()!.title }}</div>
+                    <div class="due-menu-body">
+                      <input #dueInput type="date" class="due-menu-input" [value]="dueMenuInitial()" />
+                      <div class="due-menu-actions">
+                        <button
+                          type="button"
+                          class="status-menu-item due-menu-apply"
+                          (click)="quickSetDue(dueMenuTask()!, dueInput.value); $event.stopPropagation(); $event.preventDefault()"
+                        >应用</button>
+                        <button
+                          type="button"
+                          class="status-menu-item due-menu-clear"
+                          (click)="quickSetDue(dueMenuTask()!, null); $event.stopPropagation(); $event.preventDefault()"
+                        >清除</button>
+                      </div>
+                    </div>
                   </div>
                 }
               </div>
