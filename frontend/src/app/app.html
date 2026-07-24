@@ -1101,6 +1101,28 @@
             @if (current.description) {
               <div class="card md text-pre" style="margin-top:10px">{{ current.description }}</div>
             }
+            <!-- Story 199: 可折叠「编辑 Story」区（描述） -->
+            <details class="edit-story" [class.is-open]="editStoryOpen()" (toggle)="editStoryOpen.set($any($event.target).open)">
+              <summary>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                编辑 Story 描述
+              </summary>
+              <div class="edit-story__body">
+                <textarea
+                  class="edit-story-textarea"
+                  placeholder="描述 Story 的内容、验收标准或补充说明…"
+                  [value]="editStoryDesc()"
+                  (input)="editStoryDesc.set($any($event.target).value)"
+                  rows="4"
+                ></textarea>
+                <div class="edit-story__actions">
+                  <button class="btn-primary-sm" (click)="saveEditStory(current)" [disabled]="savingStory()">
+                    {{ savingStory() ? '保存中…' : '更新' }}
+                  </button>
+                  <button class="ghost-sm" (click)="cancelEditStory()" type="button">取消</button>
+                </div>
+              </div>
+            </details>
             <div class="section-header">
               <h3>
                 Tasks / Bugs <span class="count">{{ storyTaskTotal() }}</span>
@@ -1468,7 +1490,21 @@
                   }
                 } @empty {
                   @if (tasks().length === 0) {
-                    <div class="empty-inline">暂无任务</div>
+                    <div class="task-empty-state" role="status" aria-live="polite">
+                      <div class="task-empty-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                          <rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="4" x2="9" y2="10"/>
+                        </svg>
+                      </div>
+                      <p class="task-empty-title">暂无任务</p>
+                      <p class="task-empty-desc">当前 Story 还没有任何任务或缺陷，点击下方按钮开始添加。</p>
+                      <button class="btn-primary-sm task-empty-cta" (click)="openCreate('task', current.id, project()?.id)">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px">
+                          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                        </svg>
+                        新建任务
+                      </button>
+                    </div>
                   } @else {
                     <div class="filter-empty-state">
                       <div class="filter-empty-icon">🔍</div>

@@ -56,22 +56,22 @@
   --font-mono: 'JetBrains Mono', ui-monospace, Consolas, "Cascadia Code", monospace;
 
   /* 布局 */
-  --sidebar-width: 250px;
+  --sidebar-width: 240px;
   --topbar-h: 52px;
 
-  /* 状态色 */
-  --status-backlog-bg: #f1f5f9;
-  --status-backlog-text: #475569;
-  --status-todo-bg: #e0e7ff;
-  --status-todo-text: #4338ca;
-  --status-in_progress-bg: #fef3c7;
-  --status-in_progress-text: #b45309;
-  --status-in_review-bg: #fce7f3;
-  --status-in_review-text: #be185d;
-  --status-verifying-bg: #dbeafe;
-  --status-verifying-text: #1d4ed8;
-  --status-done-bg: #d1fae5;
-  --status-done-text: #047857;
+  /* 状态色 —— Story 199：按 DESIGN.md 映射 (待规划=warning、待办=info、进行中=primary、评审中=violet、验证中=sky、完成=success) */
+  --status-backlog-bg: var(--color-warning-soft, #FEF3E2);
+  --status-backlog-text: var(--color-warning-text, #B45309);
+  --status-todo-bg: var(--color-info-soft, #E6F6FE);
+  --status-todo-text: var(--color-info-text, #0369A1);
+  --status-in_progress-bg: var(--color-primary-soft, #EEEEFB);
+  --status-in_progress-text: var(--color-primary, #5B5BD6);
+  --status-in_review-bg: var(--color-violet-soft, #F3EDFD);
+  --status-in_review-text: var(--color-violet-text, #7C3AED);
+  --status-verifying-bg: var(--color-sky-soft, #E6F6FE);
+  --status-verifying-text: var(--color-sky-text, #0369A1);
+  --status-done-bg: var(--color-success-soft, #E7F6EC);
+  --status-done-text: var(--color-success-text, #15803D);
 
   /* 优先级色 */
   --priority-highest-bg: #dc2626;
@@ -84,6 +84,38 @@
   --priority-low-text: #fff;
   --priority-lowest-bg: #94a3b8;
   --priority-lowest-text: #fff;
+
+  /* ===== Story 199 / DESIGN.md 蓝紫令牌（与 --brand-* 共存，新代码优先用 --color-*） ===== */
+  --color-primary: #5B5BD6;
+  --color-primary-hover: #4A4AC4;
+  --color-primary-active: #3F3FB0;
+  --color-primary-soft: #EEEEFB;
+  --color-primary-subtle: #F5F4FE;
+  --color-text-primary: #1A1A2E;
+  --color-text-secondary: #6B6B80;
+  --color-text-tertiary: #9A9AB0;
+  --color-border-strong: #D4D4DC;
+  --color-violet-soft: #F3EDFD;
+  --color-violet-text: #7C3AED;
+  --color-sky-soft: #E6F6FE;
+  --color-sky-text: #0369A1;
+  --color-warning-soft: #FEF3E2;
+  --color-warning-text: #B45309;
+  --color-success-soft: #E7F6EC;
+  --color-success-text: #15803D;
+  --color-danger-soft: #FDECEC;
+  --color-danger-text: #B91C1C;
+  --color-info-soft: #E6F6FE;
+  --color-info-text: #0369A1;
+  --focus-ring: 0 0 0 3px rgba(91, 91, 214, .25);
+  --shadow-xs: 0 1px 2px rgba(26, 26, 46, .04);
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px;
 }
 
 /* 深色主题 */
@@ -100,10 +132,16 @@
   --surface-3: #334155;
 
   --brand-soft: #1e1b4b;
-  --status-backlog-bg: #334155;
-  --status-backlog-text: #94a3b8;
-  --status-todo-bg: #312e81;
-  --status-todo-text: #c7d2fe;
+  --status-backlog-bg: #3a2e0a;
+  --status-backlog-text: #fcd34d;
+  --status-todo-bg: #0c3a4a;
+  --status-todo-text: #67e8f9;
+  --status-in_progress-bg: #1e1b4b;
+  --status-in_progress-text: #c7d2fe;
+  --status-in_review-bg: #2e1065;
+  --status-in_review-text: #c4b5fd;
+  --status-verifying-bg: #0c3a4a;
+  --status-verifying-text: #67e8f9;
   --status-done-bg: #064e3b;
   --status-done-text: #6ee7b7;
 }
@@ -273,7 +311,7 @@ a:hover { color: var(--brand-700); text-decoration: underline; }
 .sidebar {
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
-  background: var(--surface);
+  background: var(--surface-2);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -429,8 +467,10 @@ a:hover { color: var(--brand-700); text-decoration: underline; }
 /* ========== Main Content ========== */
 main {
   flex: 1;
-  max-width: 100%;
-  padding: 24px 32px;
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 24px;
   min-width: 0;
   animation: fadeIn .2s ease-out;
 }
@@ -547,22 +587,31 @@ main {
 .btn-primary:active { transform: translateY(0); }
 
 .btn-primary-sm {
-  background: var(--brand-500);
+  background: var(--brand-500, var(--color-primary, #5B5BD6));
   color: #fff;
-  border: none;
-  padding: 6px 14px;
-  border-radius: 6px;
+  border: 1px solid transparent;
+  padding: 0 14px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-md, 8px);
   cursor: pointer;
   font-family: inherit;
   font-size: .85rem;
   font-weight: 600;
-  transition: all .15s;
+  transition: background .15s, box-shadow .15s, transform .15s;
+  box-shadow: 0 1px 2px rgba(91, 91, 214, .12);
 }
 .btn-primary-sm:hover {
-  background: var(--brand-600);
+  background: var(--brand-600, var(--color-primary-hover, #4A4AC4));
   transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(91, 91, 214, .25);
   text-decoration: none;
   color: #fff;
+}
+.btn-primary-sm:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring, 0 0 0 3px rgba(91, 91, 214, .25));
 }
 
 .ghost {
@@ -611,13 +660,16 @@ main {
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: 3px 10px;
-  border-radius: 999px;
-  font-size: .75rem;
+  gap: 4px;
+  padding: 0 8px;
+  height: 20px;
+  border-radius: var(--radius-full, 9999px);
+  font-size: .75rem;       /* 12px，对齐原型 Micro */
   font-weight: 600;
+  line-height: 1;
   white-space: nowrap;
 }
-.badge.lg { padding: 4px 14px; font-size: .82rem; }
+.badge.lg { padding: 4px 14px; font-size: .82rem; height: auto; }
 
 /* Status badges */
 .status--backlog { background: var(--status-backlog-bg); color: var(--status-backlog-text); }
@@ -1364,9 +1416,13 @@ details.form-section > form { padding: 16px; }
   background: var(--surface-3);
   border-radius: var(--r-sm);
   padding: 3px;
+  gap: 2px;
 }
 .seg-btn {
-  padding: 6px 14px;
+  padding: 0 12px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
   border: none;
   background: none;
   font-family: inherit;
@@ -1374,13 +1430,14 @@ details.form-section > form { padding: 16px; }
   font-weight: 500;
   color: var(--text-2);
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--radius-sm, 6px);
   transition: all .15s;
 }
 .seg-btn:hover { color: var(--text); }
 .seg-btn.active {
-  background: var(--surface);
-  color: var(--brand-600);
+  background: var(--surface, #fff);
+  color: var(--brand-600, var(--color-primary, #5B5BD6));
+  box-shadow: var(--shadow-xs, 0 1px 2px rgba(26, 26, 46, .04));
   box-shadow: var(--sh-sm);
 }
 

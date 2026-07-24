@@ -418,6 +418,10 @@ export class App implements OnInit, OnDestroy {
   // Epic 36: Inline task title editing
   readonly editingTaskId = signal<number | null>(null);
   readonly editingTaskTitle = signal('');
+  // Story 199: 可折叠「编辑 Story」表单（描述）
+  readonly editStoryDesc = signal('');
+  readonly editStoryOpen = signal(false);
+  readonly savingStory = signal(false);
   readonly activeFilterCount = computed(() => this.filterPriorities().length + this.filterTypes().length + this.filterAssignees().length + (this.filterStatus() ? 1 : 0) + (this.filterDueDate() ? 1 : 0) + (this.labelFilter() ? 1 : 0) + (this.filterMineOnly() ? 1 : 0));
   // Epic 34 (v2.3): 工具条「清除全部筛选」按钮显隐 —— 搜索框非空或任一筛选活跃时显示
   readonly showClearAll = computed(() => this.taskSearchQuery().trim() !== '' || this.activeFilterCount() > 0);
@@ -3849,6 +3853,32 @@ export class App implements OnInit, OnDestroy {
   cancelInlineEdit(): void {
     this.editingTaskId.set(null);
     this.editingTaskTitle.set('');
+  }
+
+  // Story 199: 可折叠「编辑 Story」表单
+  toggleEditStory(story: { description?: string }): void {
+    const next = !this.editStoryOpen();
+    this.editStoryOpen.set(next);
+    if (next) this.editStoryDesc.set(story.description ?? '');
+  }
+  cancelEditStory(): void {
+    this.editStoryOpen.set(false);
+    this.editStoryDesc.set('');
+  }
+  async saveEditStory(story: { id: number }): Promise<void> {
+    if (this.savingStory()) return;
+    const desc = this.editStoryDesc();
+    this.savingStory.set(true);
+    try {
+      await firstValueFrom(this.api.updateStory(story.id, { description: desc }));
+      this.story.update((s) => (s ? { ...s, description: desc } : s));
+      this.editStoryOpen.set(false);
+      this.notify('Story 已更新', 'success');
+    } catch (e: any) {
+      this.notify('更新失败：' + (e?.error?.detail ?? e?.message ?? '未知错误'), 'error');
+    } finally {
+      this.savingStory.set(false);
+    }
   }
 
   quickDeleteTask(): void {
