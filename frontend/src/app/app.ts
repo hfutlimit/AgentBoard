@@ -616,6 +616,12 @@ export class App implements OnInit, OnDestroy {
     this.taskGroupBy.set(v as any);
     localStorage.setItem('agentboard_story_group', v);
   }
+  taskSortLabel(): string {
+    return this.taskSortOptions.find((o) => o.key === this.taskSortKey())?.label || this.taskSortKey();
+  }
+  taskGroupLabel(): string {
+    return this.taskGroupOptions.find((o) => o.key === this.taskGroupBy())?.label || this.taskGroupBy();
+  }
   private groupLabel(mode: string, key: string): string {
     if (mode === 'status') return this.statusLabel(key);
     if (mode === 'type') return key === 'bug' ? 'Bug' : '任务';
@@ -3029,8 +3035,15 @@ export class App implements OnInit, OnDestroy {
   // Epic 37 (v2.5): 状态色点（复用既有 statusLabel 做文案）
   statusColor(status: string): string {
     return (
-      { backlog: '#94a3b8', todo: '#64748b', in_progress: '#3b82f6', in_review: '#a855f7', verifying: '#f59e0b', done: '#22c55e' } as Record<string, string>
+      { backlog: '#F59E0B', todo: '#0EA5E9', in_progress: '#5B5BD6', in_review: '#7C3AED', verifying: '#0EA5E9', done: '#16A34A' } as Record<string, string>
     )[status] || '#94a3b8';
+  }
+
+  // Story 199: 状态语义色类（warning/info/primary/violet/sky/success）
+  statusSemanticClass(status: string): string {
+    return (
+      { backlog: 'warning', todo: 'info', in_progress: 'primary', in_review: 'violet', verifying: 'sky', done: 'success' } as Record<string, string>
+    )[status] || 'info';
   }
 
   // Epic 47 (v3.4): 任务列表行内快速状态切换 —— 前端镜像后端 TRANSITIONS 状态机，

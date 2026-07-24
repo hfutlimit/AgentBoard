@@ -1,4 +1,4 @@
-"""Story 199 视觉与功能验证（Playwright 真实浏览器，针对 Docker 部署）
+"""Story 199 高保真原型视觉与功能验证（Playwright 真实浏览器，针对 Docker 部署）
 
 WEB  = http://127.0.0.1:28080   (docker: agentboard-web-1, compose 端口映射 28080:8080)
 API  = http://127.0.0.1:18000   (docker: agentboard-api-1, 端口映射 18000:8000)
@@ -28,6 +28,14 @@ STATUS_BG = {
     "in_review": "rgb(243, 237, 253)",
     "verifying": "rgb(230, 246, 254)",
     "done": "rgb(231, 246, 236)",
+}
+STATUS_SEMANTIC = {
+    "backlog": "warning",
+    "todo": "info",
+    "in_progress": "primary",
+    "in_review": "violet",
+    "verifying": "sky",
+    "done": "success",
 }
 
 
@@ -80,37 +88,45 @@ async def main():
         await page.goto(WEB + f"/story/{STORY_ID}", wait_until="domcontentloaded")
         await page.wait_for_timeout(2500)
 
-        # 2) Title
-        title = await page.locator(".story-title-left h2").first.text_content()
+        # 2) Title row
+        title = await page.locator(".title-row h1").first.text_content()
         print(f"[story] title={title!r}")
 
-        # 3) Status badge — semantic color for ACTUAL story status
+        # 3) Status tag — semantic color for ACTUAL story status
         story = api_get(f"/api/stories/{STORY_ID}", token)
         actual_status = story.get("status")
         exp_bg = STATUS_BG.get(actual_status)
-        badge = page.locator(f".badge.status.status--{actual_status}").first
+        semantic = STATUS_SEMANTIC.get(actual_status, "info")
+        badge = page.locator(f".title-row .tag.tag--{semantic}").first
         if await badge.count() > 0:
             bg = await badge.evaluate("e => getComputedStyle(e).backgroundColor")
             color = await badge.evaluate("e => getComputedStyle(e).color")
             ok = (bg == exp_bg)
-            print(f"[status--{actual_status}] bg={bg} color={color} expected={exp_bg} {'OK' if ok else 'MISMATCH'}")
+            print(f"[tag.tag--{semantic}] bg={bg} color={color} expected={exp_bg} {'OK' if ok else 'MISMATCH'}")
         else:
-            print(f"[status--{actual_status}] NOT FOUND")
+            print(f"[tag.tag--{semantic}] NOT FOUND")
 
         # 4) Empty state — only assert structure when story has zero tasks
         tasks = api_get(f"/api/stories/{STORY_ID}/tasks", token)
         task_n = len(tasks) if isinstance(tasks, list) else len(tasks.get("items", []))
-        empty = page.locator(".task-empty-state")
+        empty = page.locator(".story-view .empty")
         cnt = await empty.count()
-        print(f"[task-empty-state] count={cnt} (story tasks={task_n})")
+        print(f"[empty-state] count={cnt} (story tasks={task_n})")
         if task_n == 0:
             if cnt == 1:
                 text = await empty.first.text_content()
-                print(f"[task-empty-state] text={text!r}")
+                print(f"[empty-state] text={text!r}")
             else:
-                print("[task-empty-state] WARN: expected 1 empty-state when no tasks")
+                print("[empty-state] WARN: expected 1 empty-state when no tasks")
         else:
-            print("[task-empty-state] skipped (story has tasks — non-empty expected)")
+            print("[empty-state] skipped (story has tasks — non-empty expected)")
+
+        # 4a) Prototype structure: taskbar, filterbar, chips, legend, search
+        print(f"[taskbar] count={await page.locator('.story-view .taskbar').count()}")
+        print(f"[filterbar] count={await page.locator('.story-view .filterbar').count()}")
+        print(f"[chips] count={await page.locator('.story-view .chips').count()}")
+        print(f"[legend] count={await page.locator('.story-view .legend').count()}")
+        print(f"[search] count={await page.locator('.story-view .search').count()}")
 
         # 5) Edit Story details
         edit = page.locator(".edit-story")
@@ -141,10 +157,10 @@ async def main():
               f"padding={await m.evaluate('e => getComputedStyle(e).padding')}")
 
         # 9) Story H1 20px/600
-        h2 = page.locator(".story-title-left h2").first
-        if await h2.count() > 0:
-            print(f"[story-h1] size={await h2.evaluate('e => getComputedStyle(e).fontSize')} "
-                  f"weight={await h2.evaluate('e => getComputedStyle(e).fontWeight')}")
+        h1 = page.locator(".title-row h1").first
+        if await h1.count() > 0:
+            print(f"[story-h1] size={await h1.evaluate('e => getComputedStyle(e).fontSize')} "
+                  f"weight={await h1.evaluate('e => getComputedStyle(e).fontWeight')}")
 
         # 10) Full-page screenshot
         await page.screenshot(path=str(SHOTS / "story199_full.png"), full_page=True)
