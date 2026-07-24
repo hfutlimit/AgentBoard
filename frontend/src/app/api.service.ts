@@ -14,6 +14,21 @@ declare global {
   }
 }
 
+// Task 261: resolve the API base URL for both production and local dev.
+// Production: web_app.py injects the real URL into window.AGENTBOARD_API
+// (replacing the "__API_URL__" placeholder in index.html). In local dev
+// (ng serve) that placeholder is left as-is, so we treat it as unset and use a
+// relative base URL — letting proxy.conf.json forward /api to the local
+// backend. When served from a non-localhost origin without an injected URL we
+// fall back to the historical default.
+export function resolveApiBase(): string {
+  const injected = (window as any).AGENTBOARD_API as string | undefined;
+  if (injected && injected !== '__API_URL__') return injected;
+  const h = location.hostname;
+  if (h === 'localhost' || h === '127.0.0.1' || h === '[::1]') return '';
+  return 'http://127.0.0.1:8000';
+}
+
 // ========== Debounce Helper for Task 705 ==========
 class RequestDebouncer {
   private pending = new Map<string, Subject<() => void>>();
@@ -221,7 +236,10 @@ export const OFFLINE_QUEUE_FLUSH_EVENT = 'agentboard:flush-offline-queue';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
-  readonly baseUrl = window.AGENTBOARD_API || 'http://127.0.0.1:8000';
+  // Task 261: local dev hot-reload support — resolveApiBase() returns a relative
+  // base on the dev server so proxy.conf.json can forward /api to the local
+  // backend. Production keeps the injected absolute URL.
+  readonly baseUrl = resolveApiBase();
   private _isOnline = navigator.onLine;
   private _retryCount = 3; // Task 470: max retries for exponential backoff
 
@@ -755,7 +773,7 @@ export class ApiService {
   /* ---------- Epic 15: 项目文档维护 ---------- */
   // HttpClient PATCH 在 AgentBoard 中不会 emit（已知缺陷），文档更新统一用 fetch 绕过
   private patchJson<T>(path: string, body: unknown): Observable<T> {
-    const apiUrl = window.AGENTBOARD_API || 'http://127.0.0.1:8000';
+    const apiUrl = resolveApiBase();
     const token = localStorage.getItem('agentboard_token');
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (token) headers['Authorization'] = `Bearer ${token}`;

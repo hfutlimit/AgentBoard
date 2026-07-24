@@ -7,7 +7,7 @@ import { DOCUMENT } from '@angular/common';
 import { Inject } from '@angular/core';
 import { filter } from 'rxjs/operators';
 
-import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric } from './api.service';
+import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric, resolveApiBase } from './api.service';
 import { LoginComponent } from './login/login';
 import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES } from './models';
 import { PaginationComponent } from './pagination/pagination';
@@ -3833,7 +3833,7 @@ export class App implements OnInit, OnDestroy {
     if (task && task.title !== newTitle) {
       this._savingInline = true;
       const token = localStorage.getItem('agentboard_token');
-      const apiUrl = (window as any).AGENTBOARD_API || 'http://127.0.0.1:8000';
+      const apiUrl = resolveApiBase();
       fetch(`${apiUrl}/api/tasks/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
