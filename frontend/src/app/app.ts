@@ -562,16 +562,22 @@ export class App implements OnInit, OnDestroy {
     });
     return filtered;
   });
-  // Task 836: 任务列表分组（不分组 / 按状态 / 按类型 / 按负责人 / 按优先级）
-  readonly taskGroupBy = signal<'none' | 'status' | 'type' | 'assignee' | 'priority'>(
-    (localStorage.getItem('agentboard_story_group') as 'none' | 'status' | 'type' | 'assignee' | 'priority') || 'none'
+  // Task 836: 任务列表分组（不分组 / 按状态 / 按类型 / 按负责人 / 按优先级 / 按截止日期）
+  readonly taskGroupBy = signal<'none' | 'status' | 'type' | 'assignee' | 'priority' | 'due'>(
+    (localStorage.getItem('agentboard_story_group') as 'none' | 'status' | 'type' | 'assignee' | 'priority' | 'due') || 'none'
   );
+  // v3.7: 截止日期分桶顺序（逾期→今天→本周→更晚→无截止）
+  readonly dueBucketOrder = ['overdue', 'today', 'week', 'later', 'none'];
+  readonly dueBucketLabels: Record<string, string> = {
+    overdue: '逾期', today: '今天到期', week: '本周内', later: '更晚', none: '无截止日期',
+  };
   readonly taskGroupOptions = [
     { key: 'none', label: '不分组' },
     { key: 'status', label: '按状态' },
     { key: 'type', label: '按类型' },
     { key: 'priority', label: '按优先级' },
     { key: 'assignee', label: '按负责人' },
+    { key: 'due', label: '按截止日期' },
   ];
   setTaskGroup(v: string): void {
     this.taskGroupBy.set(v as any);
@@ -581,6 +587,7 @@ export class App implements OnInit, OnDestroy {
     if (mode === 'status') return this.statusLabel(key);
     if (mode === 'type') return key === 'bug' ? 'Bug' : '任务';
     if (mode === 'priority') return this.priorityLabel(key);
+    if (mode === 'due') return this.dueBucketLabels[key] || '无截止日期';
     if (key === '' || key === 'unassigned') return '未指派';
     return this.getAssigneeName(Number(key)) || '未指派';
   }
@@ -598,15 +605,18 @@ export class App implements OnInit, OnDestroy {
             ? t.type
             : g === 'priority'
               ? (t.priority || 'medium')
-              : t.assignee_id == null
-                ? 'unassigned'
-                : String(t.assignee_id);
+              : g === 'due'
+                ? this.dueBucket(t)
+                : t.assignee_id == null
+                  ? 'unassigned'
+                  : String(t.assignee_id);
       (buckets[k] ||= []).push(t);
     }
     let keys: string[];
     if (g === 'status') keys = this.statuses.filter((s) => buckets[s]);
     else if (g === 'type') keys = ['task', 'bug'].filter((k) => buckets[k]);
     else if (g === 'priority') keys = this.priorities.filter((p) => buckets[p]);
+    else if (g === 'due') keys = this.dueBucketOrder.filter((b) => buckets[b]);
     else keys = Object.keys(buckets).sort((a, b) =>
       this.groupLabel('assignee', a).localeCompare(this.groupLabel('assignee', b), 'zh'));
     return keys.map((k) => ({ key: k, label: this.groupLabel(g, k), count: buckets[k].length, items: buckets[k] }));

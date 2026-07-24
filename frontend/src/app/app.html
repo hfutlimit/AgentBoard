@@ -1349,6 +1349,8 @@
                       <span class="task-group-label">{{ grp.label }}</span>
                       @if (taskGroupBy() === 'priority') {
                         <span class="badge priority priority--{{ grp.key }}">{{ priorityLabel(grp.key) }}</span>
+                      } @else if (taskGroupBy() === 'due') {
+                        <span class="badge due due--{{ grp.key }}">{{ dueBucketLabels[grp.key] }}</span>
                       }
                       <span class="task-group-count">{{ grp.count }}</span>
                     </div>

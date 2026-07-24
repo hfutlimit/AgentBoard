@@ -640,6 +640,14 @@ main {
 .badge.epic { background: var(--violet-soft); color: var(--violet); }
 .badge.story { background: var(--brand-soft); color: var(--brand-700); }
 
+/* Due-date group badges (v3.7) */
+.badge.due { font-weight: 700; }
+.due--overdue { background: var(--danger-soft); color: var(--danger); }
+.due--today { background: var(--warning-soft); color: var(--warning); }
+.due--week { background: var(--info-soft); color: var(--info); }
+.due--later { background: var(--surface-3); color: var(--text-2); }
+.due--none { background: var(--surface-3); color: var(--text-3); }
+
 /* ========== Type Icons ========== */
 .type-icon {
   display: inline-flex;
