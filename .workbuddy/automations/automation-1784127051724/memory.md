@@ -262,3 +262,70 @@
 - **提交**：`feat(ui): 前端小优化 - 任务列表行内快速指派 (Epic 51 v3.8)` → push origin main。
 - **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist 源码（仅提交 static 产物）。
 - **下次可执行**：可转向「批量指派优化（已是 bulk 五件套之一）」「筛选预设增强」或新需求；行内交互家族（状态 v3.4 / 指派 v3.8）齐。
+
+## 2026-07-24 14:36 运行（Epic 52 v3.9 行内快速编辑截止日期 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 连接器全断 → REST 兜底（API 18000 / web 28080，admin id=54）。
+- **选型**：行内交互家族已有状态(v3.4)/指派(v3.8)，缺「截止日期」→ 补齐第 3 件（纯前端，零后端契约变更）；任务行截止日期徽章仅展示、改期须进详情页或 bulk 面板。
+- **追踪（REST 新建）**：project 115(AUTODEV52)→epic 123(Epic 52 v3.9)→story 193→task 999(high) → 合法链 `backlog→todo→in_progress→in_review`；story 193、epic 123 同步 **in_review**（达成）。
+- **实现（纯前端）**：`app.ts`（`dueMenuTaskId`/`dueMenuPos` 信号 + `dueMenuInitial` 预填 + `openDueMenu`/`closeDueMenu`/`quickSetDue` 调 `api.updateTask(id,{due_date})` + `tasks.update` 局部刷新；同值早退用 `(due_date||'').slice(0,10)`）；`app.html`（`.due-pill` 常驻可点 + `.due-menu` 浮层含原生 `type=date` 输入框 `#dueInput` + 应用/清除 + 遮罩，复用 v3.4 定位）；`app.css`（`.due-pill`/`.due-menu-*` 复用既有一致主题变量，含 dark）。
+- **构建**：`npm run build`(node22.22.2, NODE_OPTIONS=--max_old_space_size=4096, 清 `.angular/cache`) → cp `dist/frontend/browser/.` → `agentboard/web/static/`，删旧 `main-DXSJYRMB.js`/`styles-XKIGUZPX.css`、新 `main-65OMIUYJ.js`。
+- **验证**：Playwright `tests/test_epic52_v39_inline_due_e2e.py` 全绿（设/改/清 + API 复核 + 0 pageerror/console/.js+.css 404；测试末 PATCH 还原 task 999 due_date=null）；回归 pytest epic30_cache 7passed/1skip + E2E v3.8/v3.7 全绿。
+- **提交**：`feat(ui): 前端小优化 - 任务列表行内快速编辑截止日期 (Epic 52 v3.9)` → push origin main 成功（`e67aabb..d4e3ded`）。
+- **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist 源码（仅提交 static 产物 + 源码 + 测试）。
+- **下次可执行**：行内交互家族（状态/指派/截止日期）齐；可转向「筛选预设增强（多预设命名/默认）」「批量指派优化」或新需求。
+
+## 2026-07-24 17:49 运行（Epic 53 v4.0 筛选预设增强 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 连接器全断 → REST 兜底（API 18000 / web 28080，admin id=54）。
+- **选型**：v 系列（v1.5~v3.9）已齐；最高优先级 backlog（文档维护 Epic 15 / 腾讯云 COS Epic 64）依赖重、1 小时不可独立收尾 → 延续增量，做 v4.0「筛选预设增强 — 多命名预设 + 默认预设」。
+- **追踪（REST 新建）**：project 116(AUTODEV53)→epic 124(Epic 53 v4.0)→story 195→task 1006(high) → 合法链 `backlog→todo→in_progress→in_review`；story 195、epic 124 同步 **in_review**（达成）。
+- **实现（纯前端，零后端契约变更）**：
+  - `FilterPreset` 接口加 `id`/`isDefault` + 全量多选数组（statuses/priorities/types/assignees）+ groupBy/sortKey/sortOrder；`loadFilterPresets` 兼容 v3.1 旧单值结构迁移。
+  - `saveFilterPreset` 捕获全量状态；`applyFilterPreset(id)`/`deleteFilterPreset(id)` 改按 id；新增 `setDefaultPreset(id)`（同时仅一个默认）+ `applyDefaultPreset()` + `defaultPreset` computed。
+  - `app.html` 预设面板列出命名预设 + 星标（默认）切换 + 「应用默认」按钮；`app.css` 补 `.preset-apply-default`/`.preset-star`/`.preset-item.is-default`。
+- **关键发现**：当前 UI 仅剩 status+assignee 两条 chip bar（priority/type/due chips 已不在 UI 渲染，grep 无 `toggleFilterPriority` 引用），且 status/assignee/due 均为单选 → 多选数组捕获在 UI 不可触发，仅为前向兼容。
+- **验证**：Playwright `test_epic53_v40_presets_enhanced_e2e.py` 全绿（保存多命名预设/设默认/应用默认/应用指定/刷新持久化/删除、0 错误）；受控 story 195（8 QA 任务，确定性状态/指派人）规避 story 25 数据漂移（全 done/全未指派）。回归 `test_epic43_filter_presets_e2e.py`（迁 story195+API 18000 端口修复）全绿；pytest `test_epic30_cache.py` 7passed/1skip；`test_epic52_v39_inline_due_e2e.py` 全绿。零回归。
+- **构建**：`npm run build`(node22.22.2, 清 `.angular/cache`) → cp `dist/frontend/browser/.` → `agentboard/web/static/`，删旧 `main-65OMIUYJ.js`、新 `main-D3SGJYRX.js`（web 28080 直读挂载，即时生效）。
+- **提交**：`feat(ui): 前端小优化 - 任务列表筛选预设增强（多命名预设+默认预设）(Epic 53 v4.0)` → push origin main 成功（`d4e3ded..53a1584`）。
+- **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist 源码（仅提交 static 产物 + 源码 + 测试）。
+- **下次可执行**：筛选预设可增强「默认预设加载时自动应用」或「预设含分组/排序维度可视化标签」；或转向新需求（真实 backlog Epic 15 文档维护 / Epic 64 腾讯云 COS 仍依赖重）。
+
+## 2026-07-24 21:17 运行（Epic 54 v4.1 行内快速修改优先级 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 连接器全断 → REST 兜底（API 18000 / web 28080，admin id=54）。
+- **选型**：行内交互家族已有状态(v3.4)/指派(v3.8)/截止日期(v3.9)，缺「优先级」→ 补齐第 4 件（纯前端，零后端契约变更）。
+- **追踪（REST 新建）**：project 118(ADV41)→epic 127(Epic 54 v4.1)→story 200→task 1017(high) → 合法链 `backlog→todo→in_progress→in_review`；story 200、epic 127 同步 **in_review**（达成）。
+- **实现（纯前端）**：`app.ts` 新增 `priorityMenu*` 信号+方法（镜像 v3.4，调 `api.updateTask(id,{priority})`）；`app.html` 优先级徽章改可点击 `.priority-pill` + 新增固定浮层 `.priority-menu`（5 档+active 高亮+遮罩）；`app.css` 补 `.priority-pill`/`.priority-dot`/`.priority-menu-item.active`（含 dark）。
+- **验证**：Playwright `tests/test_epic54_v41_inline_priority_e2e.py` 全绿（5 档/当前 active/改 highest+medium API 复核/遮罩关闭/0 错误）；回归 `pytest test_epic30_cache.py` 7 passed/1 skipped + E2E v3.4/v3.8/v3.9 全绿（无回归）。
+- **构建**：`main-4DFFXVGN.js` cp→`agentboard/web/static/`，删旧 `main-D3SGJYRX.js`。
+- **提交**：`feat(ui): 前端小优化 - 任务列表行内快速修改优先级 (Epic 54 v4.1)` → push origin main 成功（`780b3e0..50108c2`）。
+- **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist 源码（仅提交 static 产物）。
+- **下次可执行**：行内交互家族（状态/指派/截止日期/优先级）齐；可转向「批量指派面板状态机感知」或新需求。
+
+## 2026-07-24 21:52 运行（Task 261 本地开发 hot-reload 配置 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 全断 → REST 兜底（API 18000 / web 28080，admin id=54）。
+- **选型**：扫描 project 3 未完成任务，最高优先级为 high：Task 260（Docker 预热，碰 docker 风险高）/ Task 261（本地 dev hot-reload，纯 dev-config 零端口影响）→ 选 **Task 261** 独立交付。
+- **根因修复**：`index.html` 的 `window.AGENTBOARD_API="__API_URL__"` 占位符在 `ng serve` 下不被 `web_app.py` 替换，原逻辑误当绝对地址 → 请求打到 `4200/__API_URL__/api` 致 dev 登录失败。新增 `resolveApiBase()` 将占位符视为未设置，localhost 下用相对地址经 proxy 转发；生产仍用注入地址（零影响）。
+- **实现**：`frontend/proxy.conf.json`（`/api`→58125）+ `package.json` `dev` 脚本 + `api.service.ts` 导出 `resolveApiBase()`（3 处改用）；新增 `tests/test_dev_hotreload_e2e.py`。
+- **验证**：Playwright dev e2e 全绿（0 游离 :8000 请求、369 代理 2xx、0 错误、渲染 40 项目）；回归 pytest 7passed/1skip + E2E v4.1 0 错误。
+- **状态**：Task 261 经 `backlog→todo→in_progress→in_review` 置 **in_review**（high）。Story 134 已 done 不回退。
+- **提交**：`518313e` `feat(dev): 本地开发热重载配置 ...` → push 成功（`50108c2..518313e`）。仅 add 本任务 8 文件。
+- **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist。
+
+## 2026-07-25 00:30 运行（Task 809 面包屑 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 连接器全断 → REST 兜底（Docker API 18000 / web 28080，admin id=54）。
+- **选型**：111 条 backlog+in_progress 按优先级排序；最高优先级非垃圾为 high/in_progress 的 Task 809/813/816/819（Epic 16）。813(看板) 代码无实现→风险大排除；选 **Task 809**（任务详情 Epic/Story 面包屑，已实现、可独立验证）。
+- **验证**：Playwright `tests/test_task809_breadcrumb_e2e.py` 全绿 —— 钻取 /project/117 → /epic/126(架构设计) → /story/199 → /task/1032；`.crumb-bar` 渲染 `AgentBoard › 架构设计 › 实现 Story 任务视图界面 › [199/10]…`；0 pageerror/console/.js+.css 404。关键坑：`getEpicName()` 依赖 `stories()/epics()` 数组，仅项目视图装载，须走点击钻取（直接 /task 跳转 Epic 名为空）。
+- **状态（REST）**：`PUT /api/tasks/809/status {in_review}` → 200，Task 809 **in_review**（in_progress→in_review 合法）。Story 48/Epic 16 已 done 未回退。
+- **提交**：仅新增测试文件 → `git push origin main` 成功（`d2f72ff..83c43bb`）。本次无业务代码改动，零回归。
+- **硬约束**：未触碰 18001(MCP)/docker/8080；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist。
+
+## 2026-07-25 03:35 运行（Epic 55 v4.2 任务列表行内快速查看抽屉 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 全断 → REST 兜底（API 18000 / web 28080，admin id=54）。
+- **选型**：v 系列（v1.5~v4.1）行内交互/筛选/排序/分组/预设已齐；补齐「任务快速查看抽屉（Quick View Drawer）」——点击任务行 👁 打开右侧抽屉，展示面包屑/标题/#id/状态·优先级·指派·截止 四字段/子任务进度/描述，并复用既有行内菜单做快速操作，Jira 式体验，纯前端零契约变更。
+- **追踪（REST 新建）**：project 121(AUTODEV55)→epic 128(Epic 55 v4.2)→story 201→task 1043(high) → 合法链 `backlog→todo→in_progress→in_review`；story 201、epic 128 同步 **in_review**（达成）。
+- **实现**：`app.ts`(qvTaskId/qvTask/openQuickView/closeQuickView/qvBreadcrumb/qvSubtask*)+ `app.html`(.task-quick-view-btn + .quick-view-drawer 复用 openStatusMenu 等 + `(document:keydown.escape)` 关闭) + `app.css`(.qv-backdrop z-index 150 / .quick-view-drawer 滑入动画 + 暗色)。
+- **顺带修复历史回归**：v4.1 行内改优先级的 `.priority-menu` 模板块在 git HEAD 即缺失（priority-pill 点击无浮层，E2E 一直失败），补齐 `priorityMenuTaskId()` 模板块 + `.priority-menu-item.active` 高亮。非本次引入。
+- **构建**：`npm run build`(node22.22.2) → cp `dist/frontend/browser/.` → `agentboard/web/static/`，新 `main-MITIXBIA.js`（删旧 `main-ESGJ3UF5.js`）。
+- **验证**：`tests/test_epic55_v42_quick_view_drawer_e2e.py` 全绿（抽屉渲染/面包屑/四字段/行内改状态 API 复核/Esc+遮罩关闭；0 错误）；回归 `pytest test_epic30_cache.py` 7passed/1skipped + E2E v4.1(修复)/v3.4/v3.8 全绿。
+- **提交**：`feat(ui): 前端小优化 - 任务列表行内快速查看抽屉 (Epic 55 v4.2)` → push origin main 成功。
+- **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist、scratch 脚本。
+- **下次可执行**：抽屉内行内编辑描述/标题、批量指派面板增强，或新需求。

@@ -3207,6 +3207,51 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  // Epic 55 (v4.2): 任务列表行内快速查看抽屉（Quick View Drawer）
+  // 复用既有行内菜单（状态/优先级/指派/截止）与列表数据，零后端契约变更。
+  readonly qvTaskId = signal<number | null>(null);
+  qvTask(): Task | undefined {
+    const id = this.qvTaskId();
+    if (id == null) return undefined;
+    return this.tasks().find((t) => t.id === id);
+  }
+  openQuickView(task: Task): void {
+    if (this.qvTaskId() === task.id) {
+      this.qvTaskId.set(null);
+      return;
+    }
+    this.qvTaskId.set(task.id);
+  }
+  closeQuickView(): void {
+    this.qvTaskId.set(null);
+  }
+  // 抽屉面包屑：基于已加载的 projects/stories/epics 数组推导（带兜底）
+  qvBreadcrumb(): { project: string; epic: string; story: string } {
+    const t = this.qvTask();
+    if (!t) return { project: '', epic: '', story: '' };
+    const project = this.projects().find((p) => p.id === t.project_id);
+    const story = t.story_id ? this.stories().find((s) => s.id === t.story_id) : undefined;
+    const epic = story ? this.epics().find((e) => e.id === story.epic_id) : undefined;
+    return {
+      project: project?.name || `项目#${t.project_id}`,
+      epic: epic?.title || '',
+      story: story?.title || '',
+    };
+  }
+  // 抽屉内展示的子任务进度（复用 Task 811 既有方法）
+  qvSubtaskTotal(): number {
+    const t = this.qvTask();
+    return t ? this.getSubtaskCount(t.id).total : 0;
+  }
+  qvSubtaskDone(): number {
+    const t = this.qvTask();
+    return t ? this.getSubtaskCount(t.id).done : 0;
+  }
+  qvSubtaskPct(): number {
+    const t = this.qvTask();
+    return t ? this.getSubtaskProgress(t.id) : 0;
+  }
+
   // Task 821: 任务类型图标
   taskTypeIcon(type: string): string {
     return type === 'bug' ? '🐛' : '📋';

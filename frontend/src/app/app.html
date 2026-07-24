@@ -1465,6 +1465,14 @@
                             aria-label="复制任务"
                             (click)="duplicateTask(item.id); $event.stopPropagation()"
                           >⎘</button>
+                          <button
+                            type="button"
+                            class="task-quick-view-btn"
+                            [class.active]="qvTaskId() === item.id"
+                            title="快速查看"
+                            aria-label="快速查看"
+                            (click)="openQuickView(item); $event.stopPropagation()"
+                          >👁</button>
                         </div>
                       }
                     }
@@ -1533,6 +1541,17 @@
                         <button class="btn" (click)="closeDueMenu()">取消</button>
                       </div>
                     </div>
+                  </div>
+                }
+
+                <!-- Epic 54 (v4.1): 行内快速修改优先级浮层（与状态/指派/截止对称） -->
+                @if (priorityMenuTaskId() !== null && priorityMenuTask()) {
+                  <div class="status-menu-backdrop" (click)="closePriorityMenu(); $event.preventDefault()"></div>
+                  <div class="status-menu status-menu--fixed priority-menu" [style.left.px]="(priorityMenuPos()?.x) ?? 0" [style.top.px]="(priorityMenuPos()?.y) ?? 0" (click)="$event.stopPropagation()">
+                    <div class="status-menu-head">修改优先级 → {{ priorityLabel(priorityMenuTask()!.priority) }}</div>
+                    @for (pr of priorities; track pr) {
+                      <button type="button" class="status-menu-item priority-menu-item priority--{{ pr }}" [class.active]="priorityMenuTask()!.priority === pr" (click)="quickSetPriority(priorityMenuTask()!, pr); $event.stopPropagation(); $event.preventDefault()">{{ priorityLabel(pr) }}</button>
+                    }
                   </div>
                 }
               }
@@ -2141,6 +2160,75 @@
     }
   </main>
 </div>
+
+@if (qvTask(); as qt) {
+  <div class="qv-backdrop" (click)="closeQuickView()"></div>
+  <aside class="quick-view-drawer" role="dialog" aria-label="任务快速查看" (document:keydown.escape)="closeQuickView()">
+    <header class="qv-header">
+      <nav class="qv-breadcrumb" aria-label="位置">
+        <span class="qv-crumb">{{ qvBreadcrumb().project }}</span>
+        @if (qvBreadcrumb().epic) {
+          <span class="qv-sep">›</span><span class="qv-crumb">{{ qvBreadcrumb().epic }}</span>
+        }
+        @if (qvBreadcrumb().story) {
+          <span class="qv-sep">›</span><span class="qv-crumb">{{ qvBreadcrumb().story }}</span>
+        }
+      </nav>
+      <button type="button" class="qv-close" title="关闭" aria-label="关闭" (click)="closeQuickView()">✕</button>
+    </header>
+    <div class="qv-body">
+      <div class="qv-title-row">
+        <span class="qv-type-icon {{ qt.type }}">{{ qt.type === 'bug' ? 'Bug' : 'Task' }}</span>
+        <span class="qv-id">#{{ qt.id }}</span>
+      </div>
+      <h2 class="qv-title">{{ qt.title }}</h2>
+
+      <div class="qv-fields">
+        <button type="button" class="qv-field" (click)="openStatusMenu(qt, $event); $event.stopPropagation(); $event.preventDefault()">
+          <span class="qv-label">状态</span>
+          <span class="badge status status--{{ qt.status }}">{{ statusLabel(qt.status) }} <span class="qv-caret">▾</span></span>
+        </button>
+        <button type="button" class="qv-field" (click)="openPriorityMenu(qt, $event); $event.stopPropagation(); $event.preventDefault()">
+          <span class="qv-label">优先级</span>
+          <span class="badge priority priority--{{ qt.priority }}">{{ priorityLabel(qt.priority) }} <span class="qv-caret">▾</span></span>
+        </button>
+        <button type="button" class="qv-field" (click)="openAssignMenu(qt, $event); $event.stopPropagation(); $event.preventDefault()">
+          <span class="qv-label">指派</span>
+          @if (qt.assignee_id) {
+            <span class="qv-assignee"><span class="assignee-avatar-sm" title="{{ getAssigneeName(qt.assignee_id) }}">{{ getAssigneeInitials(qt.assignee_id) }}</span> {{ getAssigneeName(qt.assignee_id) }} <span class="qv-caret">▾</span></span>
+          } @else {
+            <span class="qv-assignee unassigned">未指派 <span class="qv-caret">▾</span></span>
+          }
+        </button>
+        <button type="button" class="qv-field" (click)="openDueMenu(qt, $event); $event.stopPropagation(); $event.preventDefault()">
+          <span class="qv-label">截止</span>
+          @if (qt.due_date) {
+            <span class="badge due" [class.due-overdue]="isOverdue(qt.due_date)" [class.due-soon]="isDueSoon(qt.due_date)">⏰ {{ formatDueDate(qt.due_date) }} <span class="qv-caret">▾</span></span>
+          } @else {
+            <span class="badge due empty">⏰ 设截止 <span class="qv-caret">▾</span></span>
+          }
+        </button>
+      </div>
+
+      @if (qvSubtaskTotal() > 0) {
+        <div class="qv-subtasks">
+          <div class="qv-subtasks-bar"><div class="qv-subtasks-fill" [style.width.%]="qvSubtaskPct()"></div></div>
+          <span class="qv-subtasks-text">子任务 {{ qvSubtaskDone() }}/{{ qvSubtaskTotal() }} ({{ qvSubtaskPct() }}%)</span>
+        </div>
+      }
+
+      <div class="qv-section-label">描述</div>
+      @if (qt.description) {
+        <div class="qv-desc text-pre">{{ qt.description }}</div>
+      } @else {
+        <div class="qv-desc empty">暂无描述</div>
+      }
+    </div>
+    <footer class="qv-footer">
+      <a class="qv-open" [routerLink]="['/task', qt.id]">在详情页打开 ↗</a>
+    </footer>
+  </aside>
+}
 
 @if (modal(); as currentModal) {
   <div class="modal-overlay" id="create-modal">
