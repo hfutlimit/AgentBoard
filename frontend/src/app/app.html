@@ -1226,7 +1226,7 @@
                     ✕ 清除筛选
                   </button>
                 }
-                <!-- v3.1: 筛选预设（保存 / 应用 / 删除当前筛选组合） -->
+                <!-- v4.0: 筛选预设增强（多命名预设 + 默认预设） -->
                 <div class="preset-wrap">
                   <button class="ghost-sm preset-toggle" (click)="togglePresetOpen()" [class.active]="presetOpen()">
                     📑 预设 <span class="preset-count" [class.has]="filterPresets().length > 0">{{ filterPresets().length }}</span>
@@ -1237,15 +1237,19 @@
                         <input class="preset-name-input" [value]="presetName()" (input)="presetName.set($any($event.target).value)" placeholder="预设名称…" (keydown.enter)="saveFilterPreset()" />
                         <button class="btn-primary-sm" (click)="saveFilterPreset()">保存当前</button>
                       </div>
+                      @if (defaultPreset(); as dp) {
+                        <button class="preset-apply-default" (click)="applyDefaultPreset()" title="一键应用默认预设">★ 应用默认「{{ dp.name }}」</button>
+                      }
                       @if (filterPresets().length === 0) {
                         <div class="preset-empty">调整筛选后点「保存当前」</div>
                       }
                       @if (filterPresets().length > 0) {
                         <div class="preset-list">
-                          @for (p of filterPresets(); track p.name; let i = $index) {
-                            <div class="preset-item">
-                              <button class="preset-apply" (click)="applyFilterPreset(i)" [title]="p.name">{{ p.name }}</button>
-                              <button class="preset-del" (click)="deleteFilterPreset(i)" title="删除预设">✕</button>
+                          @for (p of filterPresets(); track p.id) {
+                            <div class="preset-item" [class.is-default]="p.isDefault">
+                              <button class="preset-star" (click)="setDefaultPreset(p.id)" [title]="p.isDefault ? '取消默认' : '设为默认'" [class.on]="p.isDefault">{{ p.isDefault ? '★' : '☆' }}</button>
+                              <button class="preset-apply" (click)="applyFilterPreset(p.id)" [title]="p.name">{{ p.name }}</button>
+                              <button class="preset-del" (click)="deleteFilterPreset(p.id)" title="删除预设">✕</button>
                             </div>
                           }
                         </div>

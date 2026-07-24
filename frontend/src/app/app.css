@@ -1424,6 +1424,31 @@ router-outlet {
   font-size: 12px;
 }
 .preset-del:hover { color: #fff; background: var(--danger, #ef4444); border-color: var(--danger, #ef4444); }
+/* v4.0: 多预设命名 + 默认预设 */
+.preset-apply-default {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--accent, #6366f1);
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent, #6366f1);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.preset-apply-default:hover { background: rgba(99, 102, 241, 0.22); }
+.preset-star {
+  width: 26px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: transparent;
+  color: var(--text-muted, #9ca3af);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+}
+.preset-star.on { color: #f59e0b; border-color: #f59e0b; background: rgba(245, 158, 11, 0.12); }
+.preset-item.is-default .preset-apply { border-color: #f59e0b; }
 
 /* Task 816: 面包屑导航可点击 */
 .crumb-bar a {

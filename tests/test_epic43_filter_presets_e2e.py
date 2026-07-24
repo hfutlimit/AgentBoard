@@ -1,6 +1,6 @@
 """
-Epic 43 (v3.1) 筛选预设 —— 端到端验证
-- 登录 admin -> 进入 story 25（任务列表）
+Epic 43 (v3.1) 筛选预设 —— 端到端验证（回归）
+- 登录 admin -> 进入 story 195（受控测试 story，8 个确定性任务）
 - 组合一个筛选（状态=完成 + 指派人=未指派），保存为预设「P1」
 - 验证：面板出现「P1」、数量徽标 +1
 - 清除全部筛选 -> 行数恢复全部
@@ -17,8 +17,9 @@ import urllib.error
 from playwright.sync_api import sync_playwright
 
 WEB = "http://127.0.0.1:28080"
-API = "http://127.0.0.1:58125"
-STORY_ID = 25
+API = "http://127.0.0.1:18000"
+# 使用受控测试 story（AUTODEV53 项目下 story 195），避免 story 25 数据漂移（全 done/全未指派）
+STORY_ID = 195
 PRESET = "__E2E_PRESET_P1__"
 
 
@@ -58,8 +59,10 @@ def main():
                 f"localStorage.setItem('agentboard_token','{token}');"
                 f"localStorage.setItem('agentboard_user','{username}');"
             )
-            page.goto(WEB + "/story/25", wait_until="networkidle")
+            page.goto(WEB + f"/story/{STORY_ID}", wait_until="networkidle")
             page.wait_for_selector(".task-quickfilter-bar", timeout=15000)
+            page.wait_for_selector(".entity-item--rich", timeout=15000)
+            page.wait_for_timeout(1500)  # 等待 tasks() 信号稳定（规避既有 race）
 
             def row_count():
                 return page.locator(".entity-item--rich").count()
@@ -137,6 +140,8 @@ def main():
             # --- 刷新：持久化 + 筛选仍生效 ---
             page.reload(wait_until="networkidle")
             page.wait_for_selector(".preset-toggle", timeout=10000)
+            page.wait_for_selector(".entity-item--rich", timeout=15000)
+            page.wait_for_timeout(1000)
             open_panel()
             assert page.locator(".preset-item").count() == 1, "preset not persisted after reload"
             close_panel()

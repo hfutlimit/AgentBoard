@@ -25,16 +25,22 @@ interface CreateModal {
 
 type ConfirmationTone = 'danger' | 'warning' | 'info';
 
-// v3.1: 筛选预设 —— 保存当前筛选组合（5 维度 chips + 搜索 + 只看我），localStorage 持久化
+// v3.1 / v4.0: 筛选预设 —— 保存当前筛选组合，localStorage 持久化
+// v4.0 增强：支持多命名预设 + 默认预设（一键应用）；捕获全量多选 chips 数组（不再仅取首个）
 interface FilterPreset {
-  name: string;
-  status: string;      // ''=全部
-  priority: string;    // ''=全部
-  type: string;        // ''=全部
-  assignee: string;    // ''=全部（user_id 字符串）
-  due: string;         // ''=全部（overdue/today/week/none）
+  id: string;          // 稳定唯一 id
+  name: string;        // 预设名称（用户命名）
+  isDefault: boolean;  // 是否默认预设（面板提供一键应用）
+  statuses: string[];  // 状态多选（当前 UI 单选，最多 1 个）
+  priorities: string[];// 优先级多选 chips
+  types: string[];     // 类型多选 chips
+  assignees: string[]; // 指派人多选 chips（含 'unassigned' 哨兵）
+  due: string;         // 截止日期单选分桶（''=全部）
   search: string;
   mineOnly: boolean;
+  groupBy: string;     // 分组维度
+  sortKey: string;     // 排序维度
+  sortOrder: string;   // 排序方向 asc/desc
 }
 
 interface ConfirmationDialog {
@@ -452,9 +458,32 @@ export class App implements OnInit, OnDestroy {
       const raw = localStorage.getItem('agentboard_filter_presets');
       if (!raw) return [];
       const arr = JSON.parse(raw);
-      return Array.isArray(arr) ? arr : [];
+      if (!Array.isArray(arr)) return [];
+      return arr.map((p: any, idx: number) => this.migratePreset(p, idx));
     } catch { return []; }
   }
+  // v4.0: 兼容 v3.1 旧结构（单值 status/priority/type/assignee 字段）迁移到新数组结构
+  private migratePreset(p: any, idx: number): FilterPreset {
+    return {
+      id: p.id || `preset-${Date.now()}-${idx}`,
+      name: p.name || `预设${idx + 1}`,
+      isDefault: !!p.isDefault,
+      statuses: Array.isArray(p.statuses) ? p.statuses : (p.status ? [p.status] : []),
+      priorities: Array.isArray(p.priorities) ? p.priorities : (p.priority ? [p.priority] : []),
+      types: Array.isArray(p.types) ? p.types : (p.type ? [p.type] : []),
+      assignees: Array.isArray(p.assignees) ? p.assignees : (p.assignee ? [p.assignee] : []),
+      due: p.due || '',
+      search: p.search || '',
+      mineOnly: !!p.mineOnly,
+      groupBy: p.groupBy || 'none',
+      sortKey: p.sortKey || 'created_at',
+      sortOrder: p.sortOrder || 'desc',
+    };
+  }
+  // v4.0: 当前默认预设（用于面板「一键应用默认」按钮）
+  readonly defaultPreset = computed<FilterPreset | null>(() =>
+    this.filterPresets().find((p) => p.isDefault) || null
+  );
   private persistFilterPresets(): void {
     try { localStorage.setItem('agentboard_filter_presets', JSON.stringify(this.filterPresets())); } catch { /* ignore */ }
   }
@@ -3651,41 +3680,65 @@ export class App implements OnInit, OnDestroy {
     this.filterMineOnly.set(next);
     try { localStorage.setItem('agentboard_filter_mine', next ? '1' : '0'); } catch { /* ignore */ }
   }
-  // v3.1: 筛选预设 —— 保存当前筛选组合（5 维度 chips + 搜索 + 只看我）
+  // v3.1 / v4.0: 筛选预设
   togglePresetOpen(): void { this.presetOpen.update((v) => !v); }
   saveFilterPreset(): void {
     const name = this.presetName().trim();
     if (!name) return;
     const preset: FilterPreset = {
+      id: `preset-${Date.now()}`,
       name,
-      status: this.filterStatus(),
-      priority: this.filterPriorities()[0] ?? '',
-      type: this.filterTypes()[0] ?? '',
-      assignee: this.filterAssignees()[0] ?? '',
+      isDefault: false,
+      statuses: this.filterStatus() ? [this.filterStatus()] : [],
+      priorities: [...this.filterPriorities()],
+      types: [...this.filterTypes()],
+      assignees: [...this.filterAssignees()],
       due: this.filterDueDate(),
       search: this.taskSearchQuery().trim(),
       mineOnly: this.filterMineOnly(),
+      groupBy: this.taskGroupBy(),
+      sortKey: this.taskSortKey(),
+      sortOrder: this.taskSortOrder(),
     };
     this.filterPresets.set([...this.filterPresets(), preset]);
     this.persistFilterPresets();
     this.presetName.set('');
   }
-  applyFilterPreset(idx: number): void {
-    const p = this.filterPresets()[idx];
+  applyFilterPreset(id: string): void {
+    const p = this.filterPresets().find((x) => x.id === id);
     if (!p) return;
     this.clearAllFilters();
-    if (p.status) this.setQuickStatus(p.status);
-    if (p.priority) this.setQuickPriority(p.priority);
-    if (p.type) this.setQuickType(p.type);
-    if (p.assignee) this.setQuickAssignee(p.assignee);
+    // 状态 / 截止日期 单选 chips
+    if (p.statuses[0]) this.setQuickStatus(p.statuses[0]);
     if (p.due) this.setQuickDue(p.due);
+    // 多选 chips：直接置数组并持久化
+    if (p.priorities.length) { this.filterPriorities.set([...p.priorities]); this.persistQuickPriority(); }
+    if (p.types.length) { this.filterTypes.set([...p.types]); this.persistQuickType(); }
+    if (p.assignees.length) { this.filterAssignees.set([...p.assignees]); this.persistQuickAssignee(); }
     if (p.search) this.taskSearchQuery.set(p.search);
-    if (p.mineOnly) this.filterMineOnly.set(true);
+    if (p.mineOnly) { this.filterMineOnly.set(true); try { localStorage.setItem('agentboard_filter_mine', '1'); } catch { /* ignore */ } }
+    // 分组 / 排序维度
+    if (p.groupBy && p.groupBy !== 'none') {
+      this.taskGroupBy.set(p.groupBy as any);
+      try { localStorage.setItem('agentboard_story_group', p.groupBy); } catch { /* ignore */ }
+    }
+    if (p.sortKey) this.setTaskSortKey(p.sortKey);
+    if (p.sortOrder) { this.taskSortOrder.set(p.sortOrder as any); try { localStorage.setItem('agentboard_sort_order', p.sortOrder); } catch { /* ignore */ } }
     this.presetOpen.set(false);
   }
-  deleteFilterPreset(idx: number): void {
-    this.filterPresets.set(this.filterPresets().filter((_, i) => i !== idx));
+  deleteFilterPreset(id: string): void {
+    this.filterPresets.set(this.filterPresets().filter((p) => p.id !== id));
     this.persistFilterPresets();
+  }
+  // v4.0: 标记/取消默认预设（同时仅一个默认）
+  setDefaultPreset(id: string): void {
+    this.filterPresets.set(this.filterPresets().map((p) => ({ ...p, isDefault: p.id === id ? !p.isDefault : false })));
+    this.persistFilterPresets();
+  }
+  // v4.0: 一键应用默认预设
+  applyDefaultPreset(): void {
+    const d = this.defaultPreset();
+    if (d) this.applyFilterPreset(d.id);
   }
 
   // Task 603: 抽屉内快速操作
