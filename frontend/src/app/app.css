@@ -1767,6 +1767,33 @@ router-outlet {
   background: rgba(255, 255, 255, 0.08);
 }
 
+/* v3.8: 行内快速指派 */
+.assignee-pill {
+  display: inline-flex;
+  cursor: pointer;
+  border-radius: 999px;
+  transition: filter 0.12s ease, outline-color 0.12s ease;
+  outline: 2px solid transparent;
+}
+.assignee-pill:hover {
+  filter: brightness(1.06);
+  outline-color: rgba(99, 102, 241, 0.55);
+}
+.assignee-pill:focus-visible {
+  outline-color: rgba(99, 102, 241, 0.9);
+}
+.assign-menu-item.active {
+  background: rgba(99, 102, 241, 0.16);
+  color: var(--text, #1f2937);
+}
+.assign-menu-item.active .assignee-avatar-sm {
+  outline: 2px solid rgba(99, 102, 241, 0.85);
+  outline-offset: 1px;
+}
+[data-theme="dark"] .assign-menu-item.active {
+  background: rgba(99, 102, 241, 0.28);
+}
+
 /* Task 826: 任务列表移动端横向滚动 */
 .entity-list {
   overflow-x: auto;

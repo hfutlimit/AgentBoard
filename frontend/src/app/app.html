@@ -1415,11 +1415,18 @@
                         @for (lbl of parseLabels(item.labels); track lbl) {
                           <span class="label-badge" [style.color]="labelColor(lbl)" [style.background]="labelBg(lbl)">{{ lbl }}</span>
                         }
-                        @if (item.assignee_id) {
+                        <span
+                          class="assignee-pill"
+                          role="button"
+                          tabindex="0"
+                          [title]="item.assignee_id ? ('点击改派：' + getAssigneeName(item.assignee_id)) : '点击指派'"
+                          (click)="openAssignMenu(item, $event); $event.stopPropagation(); $event.preventDefault()"
+                          (keydown.enter)="openAssignMenu(item, $event); $event.stopPropagation(); $event.preventDefault()"
+                        >                        @if (item.assignee_id) {
                           <span class="assignee-avatar-sm" title="{{ getAssigneeName(item.assignee_id) }}">{{ getAssigneeInitials(item.assignee_id) }}</span>
                         } @else {
                           <span class="assignee-avatar-sm unassigned" title="未指派">?</span>
-                        }
+                        }</span>
                         <span class="entity-item-time" title="最后更新">{{ timeAgo(item.updated_at) }}</span>
                       </div>
                     </a>
@@ -1473,6 +1480,36 @@
                         <span class="status-dot" [style.background]="statusColor(st)"></span>{{ statusLabel(st) }}
                       </button>
                     }
+                  </div>
+                }
+                <!-- v3.8: 行内快速指派浮层（复用 .status-menu fixed 定位，避免被滚动容器裁剪） -->
+                @if (assignMenuTaskId() !== null && assignMenuTask()) {
+                  <div class="status-menu-backdrop" (click)="closeAssignMenu(); $event.preventDefault()"></div>
+                  <div
+                    class="status-menu status-menu--fixed assign-menu"
+                    [style.left.px]="(assignMenuPos()?.x) ?? 0"
+                    [style.top.px]="(assignMenuPos()?.y) ?? 0"
+                    (click)="$event.stopPropagation()"
+                  >
+                    <div class="status-menu-head">指派给 → {{ assignMenuTask()!.title }}</div>
+                    @for (m of members(); track m.user_id) {
+                      <button
+                        type="button"
+                        class="status-menu-item assign-menu-item"
+                        [class.active]="assignMenuTask()!.assignee_id === m.user_id"
+                        (click)="quickAssign(assignMenuTask()!, m.user_id); $event.stopPropagation(); $event.preventDefault()"
+                      >
+                        <span class="assignee-avatar-sm">{{ getAssigneeInitials(m.user_id) }}</span>{{ getAssigneeName(m.user_id) }}
+                      </button>
+                    }
+                    <button
+                      type="button"
+                      class="status-menu-item assign-menu-item assign-menu-clear"
+                      [class.active]="assignMenuTask()!.assignee_id == null"
+                      (click)="quickAssign(assignMenuTask()!, null); $event.stopPropagation(); $event.preventDefault()"
+                    >
+                      <span class="assignee-avatar-sm unassigned">?</span>未指派
+                    </button>
                   </div>
                 }
               </div>

@@ -3061,6 +3061,40 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  // v3.8: 任务列表行内快速指派（与 v3.4 行内快速状态切换对称；状态机无关，直接 updateTask assignee_id）
+  readonly assignMenuTaskId = signal<number | null>(null);
+  readonly assignMenuPos = signal<{ x: number; y: number } | null>(null);
+  assignMenuTask(): Task | undefined {
+    const id = this.assignMenuTaskId();
+    return id == null ? undefined : this.tasks().find((t) => t.id === id);
+  }
+  async openAssignMenu(task: Task, event: Event): Promise<void> {
+    event.stopPropagation();
+    event.preventDefault();
+    if (this.members().length === 0 && task.project_id) {
+      await this.loadMembers(task.project_id);
+    }
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    this.assignMenuTaskId.set(task.id);
+    this.assignMenuPos.set({ x: rect.left, y: rect.bottom + 4 });
+  }
+  closeAssignMenu(): void {
+    this.assignMenuTaskId.set(null);
+    this.assignMenuPos.set(null);
+  }
+  async quickAssign(task: Task, userId: number | null): Promise<void> {
+    this.closeAssignMenu();
+    if (task.assignee_id === userId) return;
+    const next = userId && userId > 0 ? userId : null;
+    try {
+      await firstValueFrom(this.api.updateTask(task.id, { assignee_id: next }));
+      this.tasks.update((list) => list.map((t) => (t.id === task.id ? { ...t, assignee_id: next } : t)));
+      this.notify(`已将「${task.title}」指派给「${next ? this.getAssigneeName(next) : '未指派'}」`);
+    } catch {
+      this.notify('指派失败，请重试', 'error');
+    }
+  }
+
   // Task 821: 任务类型图标
   taskTypeIcon(type: string): string {
     return type === 'bug' ? '🐛' : '📋';

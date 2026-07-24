@@ -237,3 +237,28 @@
 - **验证**：Playwright `test_epic49_v36_priority_group_e2e.py` 全绿（story 50 6 任务→3 组 high/medium/low、顺序高→低、徽章文案 高/中/低、计数和==6、0 错误）；回归 pytest epic30_cache 7passed/1skip + E2E v3.5/v3.4 全绿。
 - **提交**：`feat(ui): 前端小优化 - 任务列表分组新增按优先级维度 (Epic 49 v3.6)` → push origin main。
 - **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist 源码、scratch 脚本。
+
+## 2026-07-24 08:27 运行（Epic 50 v3.7 分组新增按截止日期 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 连接器全断 → REST 兜底（API 18000 / web 28080，admin id=54）。
+- **选型**：分组维度已有 none/status/type/assignee/priority（v3.6），缺「按截止日期」→ 补齐第 6 维（纯前端，零后端契约变更），与既有截止日期 chips(v2.8)/排序(v3.3) 体系一致。
+- **追踪（REST 新建）**：project 113(AUTODEV50)→epic 121(Epic 50 v3.7)→story 188→task 976(high) → 合法链 `backlog→todo→in_progress→in_review`；story 188、epic 121 经 PATCH 同步 **in_review**（达成）。
+- **实现**：app.ts（`taskGroupBy` 加 `'due'` + `dueBucketOrder`/`dueBucketLabels` + `groupedTasks` 分桶复用 `dueBucket()`）；app.html（due 徽章 `@else if`）；styles.css（`.badge.due` + 五档配色，复用既有 `--*-soft` 变量）。构建 main-S2P5C5D2.js cp→web/static，删旧 main-OG767NBY.js。
+- **验证**：Playwright `test_epic50_v37_due_group_e2e.py` 全绿（5 桶顺序 overdue→today→week→later→none、计数各 1、徽章文案正确、0 pageerror/console/.js+.css 404）；回归 pytest epic30_cache 7passed/1skip + E2E v3.6/v3.5/v3.4 全绿。
+- **提交**：`feat(ui): 前端小优化 - 任务列表分组新增按截止日期维度 (Epic 50 v3.7)` → push origin main 成功（`b65bf08..4bbf86a`，9 文件 +275/-11）。
+- **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist 源码（仅提交 static 产物）。
+- **下次可执行**：分组 6 维齐；可转向「筛选预设增强」「批量指派优化」「分组维度记忆」或新需求。
+
+## 2026-07-24 11:26 运行（Epic 51 v3.8 行内快速指派 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 连接器全断 → REST 兜底（API 18000 / web 28080，admin id=54）。
+- **选型**：v 系列 chips/sort/group/bulk/presets 已高度完整；任务行指派人头像仅展示、改派须进详情页或 bulk 面板 → 补齐「行内快速指派」，与 v3.4 行内状态切换对称（纯前端，零后端契约变更）。
+- **追踪（REST 新建）**：project 114(ADV38)→epic 122(Epic 51 v3.8)→story 192→task 998(high) → 合法链 `backlog→todo→in_progress→in_review`；story 192、epic 122 同步 **in_review**（达成）。
+- **实现（纯前端）**：
+  - `app.ts`：`assignMenuTaskId`/`assignMenuPos` 信号 + `assignMenuTask()` computed + `openAssignMenu()`（点击防跳转；`members()` 为空时按 `task.project_id` 懒加载 `loadMembers`）+ `closeAssignMenu()` + `quickAssign()`（调 `api.updateTask(id,{assignee_id})` 后 `tasks.update` 局部刷新 + `notify`）。
+  - `app.html`：指派人头像外层包可点击 `.assignee-pill`（stopPropagation/preventDefault 防跳转，键盘可达）；新增固定浮层 `.assign-menu`（遍历 `members()` + 「未指派」项，`active` 高亮当前指派）+ `.status-menu-backdrop` 遮罩关闭（复用 v3.4 样式）。
+  - `app.css`：`.assignee-pill` / `.assign-menu-item.active`（含 dark）。
+- **坑(已修)**：首次 Edit 误删指派人头像 `title` 属性（回归丢失 tooltip）→ 还原 `title="{{ getAssigneeName(...) }}"` 与「未指派」`title`。
+- **构建**：`npm run build`(node22.22.2) → cp `dist/frontend/browser/.` → `agentboard/web/static/`，删旧 `main-WXZPDYFU.js`，新 `main-DXSJYRMB.js`。
+- **验证**：Playwright `tests/test_epic51_v38_inline_assign_e2e.py` 全绿（登录 admin→/story/25→点击指派人头像→浮层列成员→点成员指派 API 复核 assignee_id 变更→点「未指派」取消 API 复核 null→遮罩关闭/即时更新；0 pageerror/console/.js+.css 404）；为造成员临时把 admin 加 project 3 成员、测试末还原。回归 pytest epic30_cache 7passed/1skip + E2E v3.4/v3.7 全绿（无回归）。
+- **提交**：`feat(ui): 前端小优化 - 任务列表行内快速指派 (Epic 51 v3.8)` → push origin main。
+- **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist 源码（仅提交 static 产物）。
+- **下次可执行**：可转向「批量指派优化（已是 bulk 五件套之一）」「筛选预设增强」或新需求；行内交互家族（状态 v3.4 / 指派 v3.8）齐。
