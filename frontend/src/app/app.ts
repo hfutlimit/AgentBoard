@@ -3160,6 +3160,36 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  // v4.1: 任务列表行内快速修改优先级（与 v3.4 状态 / v3.8 指派 / v3.9 截止日期 对称；状态机无关，直接 updateTask priority）
+  readonly priorityMenuTaskId = signal<number | null>(null);
+  readonly priorityMenuPos = signal<{ x: number; y: number } | null>(null);
+  priorityMenuTask(): Task | undefined {
+    const id = this.priorityMenuTaskId();
+    return id == null ? undefined : this.tasks().find((t) => t.id === id);
+  }
+  openPriorityMenu(task: Task, event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    this.priorityMenuTaskId.set(task.id);
+    this.priorityMenuPos.set({ x: rect.left, y: rect.bottom + 4 });
+  }
+  closePriorityMenu(): void {
+    this.priorityMenuTaskId.set(null);
+    this.priorityMenuPos.set(null);
+  }
+  async quickSetPriority(task: Task, newPriority: string): Promise<void> {
+    this.closePriorityMenu();
+    if (task.priority === newPriority) return;
+    try {
+      await firstValueFrom(this.api.updateTask(task.id, { priority: newPriority as Priority }));
+      this.tasks.update((list) => list.map((t) => (t.id === task.id ? { ...t, priority: newPriority as Priority } : t)));
+      this.notify(`已将「${task.title}」优先级改为「${this.priorityLabel(newPriority)}」`);
+    } catch {
+      this.notify('更新优先级失败，请重试', 'error');
+    }
+  }
+
   // Task 821: 任务类型图标
   taskTypeIcon(type: string): string {
     return type === 'bug' ? '🐛' : '📋';

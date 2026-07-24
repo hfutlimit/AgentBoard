@@ -1819,6 +1819,46 @@ router-outlet {
   background: rgba(99, 102, 241, 0.28);
 }
 
+/* v4.1: 行内快速修改优先级（与 v3.4 状态 / v3.8 指派 / v3.9 截止日期 对称） */
+.priority-pill {
+  cursor: pointer;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+.priority-pill:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.04);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+.priority-pill:focus-visible {
+  outline: 2px solid var(--brand-500, #6366f1);
+  outline-offset: 1px;
+}
+.priority-pill-caret {
+  font-size: 9px;
+  opacity: 0.7;
+  margin-left: 1px;
+}
+.priority-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: currentColor;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.04);
+}
+.priority-menu-item.active {
+  outline: 2px solid rgba(99, 102, 241, 0.85);
+  outline-offset: -2px;
+  font-weight: 600;
+}
+[data-theme="dark"] .priority-menu-item.active {
+  background: rgba(99, 102, 241, 0.22);
+}
+
 /* Task 826: 任务列表移动端横向滚动 */
 .entity-list {
   overflow-x: auto;

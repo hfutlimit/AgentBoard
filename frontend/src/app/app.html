@@ -1396,9 +1396,14 @@
                         }
                       </div>
                       <div class="entity-item-meta">
-                        <span class="badge priority priority--{{ item.priority }}">{{
-                          priorityLabel(item.priority)
-                        }}</span
+                        <span
+                          class="badge priority priority--{{ item.priority }} priority-pill"
+                          role="button"
+                          tabindex="0"
+                          [title]="'点击修改优先级：' + priorityLabel(item.priority)"
+                          (click)="openPriorityMenu(item, $event); $event.stopPropagation(); $event.preventDefault()"
+                          (keydown.enter)="openPriorityMenu(item, $event); $event.stopPropagation(); $event.preventDefault()"
+                        >{{ priorityLabel(item.priority) }} <span class="priority-pill-caret">▾</span></span
                         ><span
                           class="badge status status--{{ item.status }} status-pill"
                           role="button"
@@ -1551,6 +1556,28 @@
                         >清除</button>
                       </div>
                     </div>
+                  </div>
+                }
+                <!-- v4.1: 行内快速修改优先级浮层（复用 .status-menu fixed 定位，避免被滚动容器裁剪） -->
+                @if (priorityMenuTaskId() !== null && priorityMenuTask()) {
+                  <div class="status-menu-backdrop" (click)="closePriorityMenu(); $event.preventDefault()"></div>
+                  <div
+                    class="status-menu status-menu--fixed priority-menu"
+                    [style.left.px]="(priorityMenuPos()?.x) ?? 0"
+                    [style.top.px]="(priorityMenuPos()?.y) ?? 0"
+                    (click)="$event.stopPropagation()"
+                  >
+                    <div class="status-menu-head">修改优先级 → {{ priorityMenuTask()!.title }}</div>
+                    @for (p of priorities; track p) {
+                      <button
+                        type="button"
+                        class="status-menu-item priority-menu-item priority--{{ p }}"
+                        [class.active]="priorityMenuTask()!.priority === p"
+                        (click)="quickSetPriority(priorityMenuTask()!, p); $event.stopPropagation(); $event.preventDefault()"
+                      >
+                        <span class="priority-dot priority--{{ p }}"></span>{{ priorityLabel(p) }}
+                      </button>
+                    }
                   </div>
                 }
               </div>
