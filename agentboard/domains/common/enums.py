@@ -4,6 +4,7 @@ from enum import StrEnum
 class ItemType(StrEnum):
     TASK = "task"
     BUG = "bug"
+    TEST_EXECUTION = "test_execution"
 
 
 class Status(StrEnum):
@@ -13,6 +14,7 @@ class Status(StrEnum):
     IN_REVIEW = "in_review"
     VERIFYING = "verifying"
     DONE = "done"
+    BLOCKED = "blocked"
 
 
 class Priority(StrEnum):
@@ -41,7 +43,7 @@ class RunStatus(StrEnum):
     FAILED = "failed"
 
 
-ALL_TYPES = [ItemType.TASK, ItemType.BUG]
+ALL_TYPES = [ItemType.TASK, ItemType.BUG, ItemType.TEST_EXECUTION]
 ALL_STATUSES = list(Status)
 ALL_PRIORITIES = list(Priority)
 ALL_SPRINT_STATUSES = list(SprintStatus)

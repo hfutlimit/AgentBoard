@@ -2870,6 +2870,7 @@ router-outlet {
 .tag--violet { background: var(--color-violet-soft, #F3EDFD); color: var(--color-violet-text, #7C3AED); }
 .tag--sky { background: var(--color-sky-soft, #E6F6FE); color: var(--color-sky-text, #0369A1); }
 .tag--success { background: var(--color-success-soft, #E7F6EC); color: var(--color-success-text, #15803D); }
+.tag--danger { background: var(--danger-soft, #fee2e2); color: var(--danger, #dc2626); }
 
 /* Divider */
 .divider {
@@ -3188,6 +3189,7 @@ router-outlet {
   background: rgba(91,91,214,.12); color: var(--color-primary, #5B5BD6);
 }
 .qv-type-icon.bug { background: rgba(220,38,38,.12); color: #dc2626; }
+.qv-type-icon.test_execution { background: rgba(13,148,136,.12); color: #0d9488; }
 .qv-id { font-size: 12px; color: var(--color-text-tertiary, #9A9AB0); }
 .qv-title { font-size: 1.15rem; font-weight: 700; line-height: 1.35; margin: 0 0 14px; color: var(--color-text, #1e293b); }
 .qv-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }

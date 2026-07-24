@@ -33,12 +33,13 @@ def _parse_due_date(value):
 # 注：允许从 TODO / IN_PROGRESS 直接标记完成(DONE)，以及 DONE 直接重新打开(TODO)，
 # 以支持任务列表/看板的「快速完成」勾选（A-22）。未改变 API 契约，仅放宽迁移规则。
 TRANSITIONS = {
-    Status.BACKLOG: {Status.TODO},
-    Status.TODO: {Status.IN_PROGRESS, Status.BACKLOG, Status.DONE},
-    Status.IN_PROGRESS: {Status.IN_REVIEW, Status.VERIFYING, Status.TODO, Status.DONE},
-    Status.IN_REVIEW: {Status.DONE, Status.IN_PROGRESS},
-    Status.VERIFYING: {Status.DONE, Status.IN_PROGRESS},
+    Status.BACKLOG: {Status.TODO, Status.BLOCKED},
+    Status.TODO: {Status.IN_PROGRESS, Status.BACKLOG, Status.DONE, Status.BLOCKED},
+    Status.IN_PROGRESS: {Status.IN_REVIEW, Status.VERIFYING, Status.TODO, Status.DONE, Status.BLOCKED},
+    Status.IN_REVIEW: {Status.DONE, Status.IN_PROGRESS, Status.BLOCKED},
+    Status.VERIFYING: {Status.DONE, Status.IN_PROGRESS, Status.BLOCKED},
     Status.DONE: {Status.IN_PROGRESS, Status.TODO},
+    Status.BLOCKED: {Status.TODO, Status.IN_PROGRESS},
 }
 
 EDITABLE = {

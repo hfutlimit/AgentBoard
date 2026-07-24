@@ -638,7 +638,7 @@
                     @for (task of paginatedItems(backlogVisibleTasks(), backlogPage()); track task.id) {
                       <div class="entity-item">
                         <a [routerLink]="['/task', task.id]" class="entity-item-main">
-                          <span class="type-icon {{ task.type }}">{{ task.type === 'bug' ? '!' : '✓' }}</span>
+                          <span class="type-icon {{ task.type }}">{{ typeGlyph(task.type) }}</span>
                           <span class="entity-item-title">{{ task.title }}</span>
                         </a>
                         <div class="entity-item-badges">
@@ -1054,7 +1054,7 @@
                 <label>标题<input #eTitle [value]="current.title" required /></label
                 ><label
                   >状态<select #eStatus [value]="current.status">
-                    @for (status of statuses; track status) {
+                    @for (status of statuses.filter((s) => s !== 'blocked'); track status) {
                       <option [value]="status">{{ statusLabel(status) }}</option>
                     }
                   </select></label
@@ -1391,7 +1391,7 @@
                           ><span class="qc-check">{{ item.status === 'done' ? '✓' : '' }}</span></button>
                           <a [routerLink]="['/task', item.id]" class="entity-item-link">
                             <div class="entity-item-main">
-                              <span class="type-icon {{ item.type }}">{{ item.type === 'bug' ? 'B' : 'T' }}</span>
+                              <span class="type-icon {{ item.type }}">{{ typeGlyph(item.type) }}</span>
                               @if (editingTaskId() === item.id) {
                                 <input
                                   class="inline-edit-input"
@@ -1574,7 +1574,7 @@
               <div class="page-title-row">
                 <h2 id="task-title">{{ current.title }}</h2>
                 <span class="badge {{ current.type }}">{{
-                  current.type === 'bug' ? 'Bug' : 'Task'
+                  typeLabel(current.type)
                 }}</span
                 ><span id="stbadge" class="badge status status--{{ current.status }}">{{
                   statusLabel(current.status)
@@ -1945,7 +1945,7 @@
                   <div class="entity-item">
                     <a [routerLink]="['/task', item.id]" class="entity-item-main">
                       <span class="type-icon {{ item.type }}">{{
-                        item.type === 'bug' ? 'B' : 'T'
+                        typeGlyph(item.type)
                       }}</span
                       ><span class="entity-item-title">{{ item.title }}</span>
                     </a>
@@ -2178,7 +2178,7 @@
     </header>
     <div class="qv-body">
       <div class="qv-title-row">
-        <span class="qv-type-icon {{ qt.type }}">{{ qt.type === 'bug' ? 'Bug' : 'Task' }}</span>
+        <span class="qv-type-icon {{ qt.type }}">{{ typeLabel(qt.type) }}</span>
         <span class="qv-id">#{{ qt.id }}</span>
       </div>
       <h2 class="qv-title">{{ qt.title }}</h2>
@@ -2259,9 +2259,10 @@
             <div class="form-grid">
               <div class="form-field">
                 <label>类型</label
-                ><select id="create-type" name="type">
+                >                <select id="create-type" name="type">
                   <option value="task">Task</option>
                   <option value="bug">Bug</option>
+                  <option value="test_execution">Test Execution</option>
                 </select>
               </div>
               <div class="form-field">
@@ -2455,6 +2456,7 @@
               <select [value]="taskEditType()" (change)="taskEditType.set($any($event.target).value)">
                 <option value="task">Task</option>
                 <option value="bug">Bug</option>
+                <option value="test_execution">Test Execution</option>
               </select>
             </div>
             <div class="form-field">

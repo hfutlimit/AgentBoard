@@ -1,5 +1,5 @@
-export type ItemType = 'task' | 'bug';
-export type Status = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'verifying' | 'done';
+export type ItemType = 'task' | 'bug' | 'test_execution';
+export type Status = 'backlog' | 'todo' | 'in_progress' | 'in_review' | 'verifying' | 'done' | 'blocked';
 export type Priority = 'highest' | 'high' | 'medium' | 'low' | 'lowest';
 
 export interface Project {

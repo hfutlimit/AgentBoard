@@ -305,6 +305,7 @@ export class App implements OnInit, OnDestroy {
     'in_review',
     'verifying',
     'done',
+    'blocked',
   ];
   readonly priorities: Priority[] = ['highest', 'high', 'medium', 'low', 'lowest'];
 
@@ -624,11 +625,25 @@ export class App implements OnInit, OnDestroy {
   }
   private groupLabel(mode: string, key: string): string {
     if (mode === 'status') return this.statusLabel(key);
-    if (mode === 'type') return key === 'bug' ? 'Bug' : '任务';
+    if (mode === 'type') return this.typeLabel(key);
     if (mode === 'priority') return this.priorityLabel(key);
     if (mode === 'due') return this.dueBucketLabels[key] || '无截止日期';
     if (key === '' || key === 'unassigned') return '未指派';
     return this.getAssigneeName(Number(key)) || '未指派';
+  }
+
+  // 任务类型中文标签（含新增的 Test Execution）
+  typeLabel(type: string): string {
+    if (type === 'bug') return 'Bug';
+    if (type === 'test_execution') return 'Test Execution';
+    return 'Task';
+  }
+
+  // 任务类型短代号（用于小图标圆圈）
+  typeGlyph(type: string): string {
+    if (type === 'bug') return 'B';
+    if (type === 'test_execution') return 'TE';
+    return 'T';
   }
   readonly groupedTasks = computed(() => {
     const g = this.taskGroupBy();
@@ -653,7 +668,7 @@ export class App implements OnInit, OnDestroy {
     }
     let keys: string[];
     if (g === 'status') keys = this.statuses.filter((s) => buckets[s]);
-    else if (g === 'type') keys = ['task', 'bug'].filter((k) => buckets[k]);
+    else if (g === 'type') keys = ['task', 'bug', 'test_execution'].filter((k) => buckets[k]);
     else if (g === 'priority') keys = this.priorities.filter((p) => buckets[p]);
     else if (g === 'due') keys = this.dueBucketOrder.filter((b) => buckets[b]);
     else keys = Object.keys(buckets).sort((a, b) =>
@@ -3017,6 +3032,7 @@ export class App implements OnInit, OnDestroy {
           in_review: '评审中',
           verifying: '验证中',
           done: '完成',
+          blocked: '已阻塞',
         } as Record<string, string>
       )[status] || status
     );
@@ -3035,26 +3051,27 @@ export class App implements OnInit, OnDestroy {
   // Epic 37 (v2.5): 状态色点（复用既有 statusLabel 做文案）
   statusColor(status: string): string {
     return (
-      { backlog: '#F59E0B', todo: '#0EA5E9', in_progress: '#5B5BD6', in_review: '#7C3AED', verifying: '#0EA5E9', done: '#16A34A' } as Record<string, string>
+      { backlog: '#F59E0B', todo: '#0EA5E9', in_progress: '#5B5BD6', in_review: '#7C3AED', verifying: '#0EA5E9', done: '#16A34A', blocked: '#DC2626' } as Record<string, string>
     )[status] || '#94a3b8';
   }
 
-  // Story 199: 状态语义色类（warning/info/primary/violet/sky/success）
+  // Story 199: 状态语义色类（warning/info/primary/violet/sky/success/danger）
   statusSemanticClass(status: string): string {
     return (
-      { backlog: 'warning', todo: 'info', in_progress: 'primary', in_review: 'violet', verifying: 'sky', done: 'success' } as Record<string, string>
+      { backlog: 'warning', todo: 'info', in_progress: 'primary', in_review: 'violet', verifying: 'sky', done: 'success', blocked: 'danger' } as Record<string, string>
     )[status] || 'info';
   }
 
   // Epic 47 (v3.4): 任务列表行内快速状态切换 —— 前端镜像后端 TRANSITIONS 状态机，
   // 仅展示合法的目标状态，调用既有 setTaskStatus 端点，零后端契约变更。
   readonly statusTransitions: Record<string, string[]> = {
-    backlog: ['todo'],
-    todo: ['in_progress', 'backlog', 'done'],
-    in_progress: ['in_review', 'verifying', 'todo', 'done'],
-    in_review: ['done', 'in_progress'],
-    verifying: ['done', 'in_progress'],
+    backlog: ['todo', 'blocked'],
+    todo: ['in_progress', 'backlog', 'done', 'blocked'],
+    in_progress: ['in_review', 'verifying', 'todo', 'done', 'blocked'],
+    in_review: ['done', 'in_progress', 'blocked'],
+    verifying: ['done', 'in_progress', 'blocked'],
     done: ['in_progress', 'todo'],
+    blocked: ['todo', 'in_progress'],
   };
   readonly statusMenuTaskId = signal<number | null>(null);
   readonly statusMenuPos = signal<{ x: number; y: number } | null>(null);
@@ -3254,7 +3271,9 @@ export class App implements OnInit, OnDestroy {
 
   // Task 821: 任务类型图标
   taskTypeIcon(type: string): string {
-    return type === 'bug' ? '🐛' : '📋';
+    if (type === 'bug') return '🐛';
+    if (type === 'test_execution') return '🧪';
+    return '📋';
   }
 
   // Task 824: 复制任务链接

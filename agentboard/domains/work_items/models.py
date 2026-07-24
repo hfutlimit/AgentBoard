@@ -10,8 +10,8 @@ from ..common.models import Base, utc_now
 class Task(Base):
     __tablename__ = "tasks"
     __table_args__ = (
-        CheckConstraint("type IN ('task','bug')", name="ck_tasks_type"),
-        CheckConstraint("status IN ('backlog','todo','in_progress','in_review','verifying','done')", name="ck_tasks_status"),
+        CheckConstraint("type IN ('task','bug','test_execution')", name="ck_tasks_type"),
+        CheckConstraint("status IN ('backlog','todo','in_progress','in_review','verifying','done','blocked')", name="ck_tasks_status"),
         CheckConstraint("priority IN ('highest','high','medium','low','lowest')", name="ck_tasks_priority"),
     )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

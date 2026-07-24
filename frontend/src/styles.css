@@ -678,6 +678,7 @@ main {
 .status--in_review { background: var(--status-in_review-bg); color: var(--status-in_review-text); }
 .status--verifying { background: var(--status-verifying-bg); color: var(--status-verifying-text); }
 .status--done { background: var(--status-done-bg); color: var(--status-done-text); }
+.status--blocked { background: var(--danger-soft); color: var(--danger); }
 
 /* Priority badges */
 .priority--highest { background: var(--priority-highest-bg); color: var(--priority-highest-text); }
@@ -691,6 +692,7 @@ main {
 .badge.bug { background: var(--danger-soft); color: var(--danger); }
 .badge.epic { background: var(--violet-soft); color: var(--violet); }
 .badge.story { background: var(--brand-soft); color: var(--brand-700); }
+.badge.test_execution { background: #ccfbf1; color: #0d9488; }
 
 /* Due-date group badges (v3.7) */
 .badge.due { font-weight: 700; }
@@ -716,6 +718,7 @@ main {
 .type-icon.story { background: var(--brand-soft); color: var(--brand-700); }
 .type-icon.task { background: var(--info-soft); color: var(--info); }
 .type-icon.bug { background: var(--danger-soft); color: var(--danger); }
+.type-icon.test_execution { background: #ccfbf1; color: #0d9488; }
 
 /* ========== Entity List ========== */
 .entity-list { display: flex; flex-direction: column; gap: 8px; }
