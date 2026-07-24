@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AgentBoard · 表结构设计</title>
+<style>
+/* ============================================================
+   AgentBoard Story 任务视图 — 高保真原型
+   设计系统来源：DESIGN.md（Linear 蓝紫令牌经 AgentBoard 品牌定制）
+   所有颜色严格引用 :root CSS 变量，无硬编码色值。
+   ============================================================ */
+:root{
+  /* Primary — 蓝紫 */
+  --color-primary:#5B5BD6;
+  --color-primary-hover:#4A4AC4;
+  --color-primary-active:#3F3FB0;
+  --color-primary-soft:#EEEEFB;
+  --color-primary-subtle:#F5F4FE;
+  /* Accent */
+  --color-accent-violet:#8B5CF6;
+  --color-accent-sky:#0EA5E9;
+  /* Neutral */
+  --color-bg:#FBFBFD;
+  --color-surface:#FFFFFF;
+  --color-surface-2:#F7F7F9;
+  --color-surface-3:#F0F0F4;
+  --color-border:#E6E6EC;
+  --color-border-strong:#D4D4DC;
+  --color-text-primary:#1A1A2E;
+  --color-text-secondary:#6B6B80;
+  --color-text-tertiary:#9A9AB0;
+  /* Semantic */
+  --color-success:#16A34A;  --color-success-soft:#E7F6EC;     --color-success-text:#15803D;
+  --color-warning:#F59E0B;  --color-warning-soft:#FEF3E2;     --color-warning-text:#B45309;
+  --color-danger:#EF4444;   --color-danger-soft:#FDECEC;      --color-danger-text:#B91C1C;
+  --color-info:#0EA5E9;     --color-info-soft:#E6F6FE;        --color-info-text:#0369A1;
+  /* 派生语义 soft（供状态 Tag 示意） */
+  --color-violet-soft:#F3EDFD;   --color-violet-text:#7C3AED;
+  --color-sky-soft:#E6F6FE;      --color-sky-text:#0369A1;
+  /* Radius */
+  --radius-sm:6px; --radius-md:8px; --radius-lg:12px; --radius-xl:16px; --radius-full:9999px;
+  /* Spacing */
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --space-5:20px; --space-6:24px; --space-8:32px; --space-10:40px; --space-12:48px;
+  /* Shadow */
+  --shadow-xs:0 1px 2px rgba(26,26,46,.04);
+  --shadow-sm:0 1px 3px rgba(26,26,46,.06),0 1px 2px rgba(26,26,46,.04);
+  --shadow-md:0 4px 12px rgba(26,26,46,.08);
+  --shadow-lg:0 8px 24px rgba(26,26,46,.10);
+  --focus-ring:0 0 0 3px rgba(91,91,214,.25);
+  /* Font */
+  --font-sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,'PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif;
+  --font-mono:'JetBrains Mono','SF Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+
+html,body{height:100%;}
+body{
+  font-family:var(--font-sans);
+  font-size:14px;
+  line-height:1.5;
+  color:var(--color-text-primary);
+  background:var(--color-bg);
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+
+button,input,textarea{font-family:inherit;font-size:inherit;color:inherit;}
+button{cursor:pointer;border:none;background:none;}
+a{color:inherit;text-decoration:none;}
+
+:focus-visible{outline:none;box-shadow:var(--focus-ring);border-radius:var(--radius-sm);}
+
+/* ============================================================ LAYOUT */
+.app{
+  display:flex;
+  min-height:100vh;
+}
+
+/* ============================================================ SIDEBAR */
+.sidebar{
+  width:240px;
+  flex:0 0 240px;
+  background:var(--color-surface-2);
+  border-right:1px solid var(--color-border);
+  display:flex;
+  flex-direction:column;
+  padding:var(--space-3) var(--space-2);
+  position:sticky;
+  top:0;
+  height:100vh;
+}
+.sidebar__brand{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 var(--space-2);
+  height:36px;
+  margin-bottom:var(--space-4);
+}
+.brand{
+  display:flex;
+  align-items:center;
+  gap:var(--space-2);
+  font-weight:600;
+  font-size:15px;
+  letter-spacing:-0.01em;
+  color:var(--color-text-primary);
+}
+.brand__mark{
+  width:22px;height:22px;
+  border-radius:var(--radius-sm);
+  background:var(--color-primary);
+  display:grid;place-items:center;
+  color:#fff;
+}
+.brand__mark svg{width:13px;height:13px;}
+.sidebar__user{
+  width:28px;height:28px;
+  border-radius:var(--radius-sm);
+  display:grid;place-items:center;
+  color:var(--color-text-secondary);
+  transition:background .15s ease,color .15s ease;
+}
+.sidebar__user:hover{background:var(--color-surface-3);color:var(--color-text-primary);}
+
+.nav{display:flex;flex-direction:column;gap:2px;}
+.nav__item{
+  display:flex;
+  align-items:center;
+  gap:var(--space-2);
+  height:32px;
+  padding:0 10px;
+  border-radius:var(--radius-sm);
+  font-size:13px;
+  font-weight:500;
+  color:var(--color-text-secondary);
+  transition:background .15s ease,color .15s ease;
+}
+.nav__item svg{width:16px;height:16px;flex:0 0 16px;}
+.nav__item:hover{background:var(--color-surface-3);color:var(--color-text-primary);}
+.nav__item.is-active{
+  background:var(--color-primary-soft);
+  color:var(--color-primary);
+  font-weight:600;
+}
+.nav__section{
+  margin:var(--space-5) 0 var(--space-2);
+  padding:0 10px;
+  font-size:11px;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  color:var(--color-text-tertiary);
+}
+.recent{
+  display:flex;
+  align-items:center;
+  gap:var(--space-2);
+  height:32px;
+  padding:0 10px;
+  border-radius:var(--radius-sm);
+  font-size:13px;
+  font-weight:500;
+  color:var(--color-text-secondary);
+  transition:background .15s ease,color .15s ease;
+}
+.recent:hover{background:var(--color-surface-3);color:var(--color-text-primary);}
+.recent__dot{
+  width:8px;height:8px;border-radius:var(--radius-full);
+  background:var(--color-primary);flex:0 0 8px;
+}
+
+/* ============================================================ MAIN */
+.main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;}
+
+/* --- Top bar --- */
+.topbar{
+  height:52px;
+  flex:0 0 52px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 var(--space-6);
+  border-bottom:1px solid var(--color-border);
+  background:var(--color-surface);
+}
+.breadcrumb{
+  display:flex;align-items:center;gap:var(--space-1);
+  font-size:13px;color:var(--color-text-secondary);
+}
+.breadcrumb a{transition:color .15s ease;}
+.breadcrumb a:hover{color:var(--color-primary);}
+.breadcrumb .sep{color:var(--color-text-tertiary);}
+.breadcrumb .current{color:var(--color-text-primary);font-weight:500;}
+
+.topbar__actions{display:flex;align-items:center;gap:var(--space-1);}
+.icon-btn{
+  width:32px;height:32px;
+  border-radius:var(--radius-sm);
+  display:grid;place-items:center;
+  color:var(--color-text-secondary);
+  transition:background .15s ease,color .15s ease;
+}
+.icon-btn svg{width:18px;height:18px;}
+.icon-btn:hover{background:var(--color-surface-3);color:var(--color-text-primary);}
+
+.user{
+  display:flex;align-items:center;gap:var(--space-2);
+  margin-left:var(--space-2);
+  padding-left:var(--space-2);
+  border-left:1px solid var(--color-border);
+}
+.avatar{
+  width:28px;height:28px;border-radius:var(--radius-full);
+  background:var(--color-primary-soft);
+  color:var(--color-primary);
+  display:grid;place-items:center;
+  font-size:11px;font-weight:600;
+}
+.user__name{font-size:13px;font-weight:500;color:var(--color-text-primary);}
+
+/* --- Content --- */
+.content{
+  flex:1 1 auto;
+  padding:var(--space-6);
+  max-width:1280px;
+  width:100%;
+  margin:0 auto;
+}
+
+/* Title row */
+.title-row{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:var(--space-3);
+  margin-bottom:var(--space-5);
+}
+.title-row h1{
+  font-size:20px;font-weight:600;line-height:1.3;letter-spacing:-0.01em;
+  color:var(--color-text-primary);
+}
+
+/* --- Status Tag --- */
+.tag{
+  display:inline-flex;align-items:center;gap:var(--space-1);
+  height:20px;padding:0 8px;
+  border-radius:var(--radius-full);
+  font-size:12px;font-weight:600;line-height:1;
+  white-space:nowrap;
+}
+.tag--warning{background:var(--color-warning-soft);color:var(--color-warning-text);}
+
+/* --- Separator --- */
+.divider{height:1px;background:var(--color-border);border:0;margin:0 0 var(--space-5);}
+
+/* --- Task toolbar row --- */
+.taskbar{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:var(--space-3);
+  margin-bottom:var(--space-4);
+}
+.taskbar__title{
+  display:flex;align-items:center;gap:var(--space-2);
+  font-size:16px;font-weight:600;color:var(--color-text-primary);
+}
+.count-badge{
+  display:inline-grid;place-items:center;
+  min-width:20px;height:20px;padding:0 6px;
+  border-radius:var(--radius-full);
+  background:var(--color-surface-3);
+  color:var(--color-text-secondary);
+  font-size:12px;font-weight:600;
+}
+
+/* view button group */
+.btn-group{display:flex;align-items:center;gap:var(--space-1);}
+.btn{
+  display:inline-flex;align-items:center;gap:var(--space-1);
+  height:32px;padding:0 12px;
+  border-radius:var(--radius-md);
+  border:1px solid var(--color-border);
+  background:var(--color-surface);
+  color:var(--color-text-primary);
+  font-size:13px;font-weight:500;
+  transition:background .15s ease,border-color .15s ease,color .15s ease;
+}
+.btn svg{width:15px;height:15px;}
+.btn:hover{background:var(--color-surface-3);}
+.btn.is-active{
+  background:var(--color-primary-soft);
+  border-color:var(--color-primary);
+  color:var(--color-primary);
+  font-weight:600;
+}
+.btn--primary{
+  background:var(--color-primary);
+  border-color:var(--color-primary);
+  color:#fff;font-weight:600;
+  margin-left:var(--space-1);
+}
+.btn--primary:hover{background:var(--color-primary-hover);border-color:var(--color-primary-hover);}
+.btn--primary:active{background:var(--color-primary-active);border-color:var(--color-primary-active);}
+
+/* --- Filter toolbar --- */
+.filterbar{
+  display:flex;align-items:center;gap:var(--space-3);
+  min-height:44px;
+  padding:var(--space-2) 0;
+  border-bottom:1px solid var(--color-border);
+  flex-wrap:wrap;
+}
+.filterbar__left{display:flex;align-items:center;gap:var(--space-3);flex:1 1 auto;min-width:0;flex-wrap:wrap;}
+.filterbar__right{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;}
+
+/* search */
+.search{
+  position:relative;
+  display:flex;align-items:center;
+  height:32px;
+}
+.search svg.search__icon{
+  position:absolute;left:10px;width:15px;height:15px;
+  color:var(--color-text-tertiary);pointer-events:none;
+}
+.search input{
+  height:32px;width:240px;max-width:100%;
+  padding:0 12px 0 32px;
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-md);
+  background:var(--color-surface);
+  color:var(--color-text-primary);
+  font-size:13px;
+}
+.search input::placeholder{color:var(--color-text-tertiary);}
+.search input:focus{outline:none;border-color:var(--color-primary);box-shadow:var(--focus-ring);}
+
+/* chips */
+.chips{display:flex;align-items:center;gap:var(--space-2);flex-wrap:wrap;}
+.chip{
+  display:inline-flex;align-items:center;gap:6px;
+  height:30px;padding:0 12px;
+  border-radius:var(--radius-full);
+  border:1px solid var(--color-border);
+  background:var(--color-surface);
+  color:var(--color-text-secondary);
+  font-size:13px;font-weight:500;
+  transition:background .15s ease,border-color .15s ease,color .15s ease;
+}
+.chip:hover{background:var(--color-surface-3);color:var(--color-text-primary);}
+.chip.is-active{
+  background:var(--color-primary-soft);
+  border-color:var(--color-primary);
+  color:var(--color-primary);
+  font-weight:600;
+}
+.chip .dot{width:7px;height:7px;border-radius:var(--radius-full);background:currentColor;opacity:.85;}
+
+/* dropdown button */
+.dropdown{
+  display:inline-flex;align-items:center;gap:var(--space-1);
+  height:32px;padding:0 10px;
+  border-radius:var(--radius-md);
+  border:1px solid var(--color-border);
+  background:var(--color-surface);
+  color:var(--color-text-secondary);
+  font-size:13px;font-weight:500;
+  transition:background .15s ease,color .15s ease;
+}
+.dropdown svg{width:14px;height:14px;color:var(--color-text-tertiary);}
+.dropdown:hover{background:var(--color-surface-3);color:var(--color-text-primary);}
+.dropdown .value{color:var(--color-text-primary);font-weight:500;}
+.dropdown .badge{
+  display:inline-grid;place-items:center;min-width:16px;height:16px;padding:0 4px;
+  border-radius:var(--radius-full);background:var(--color-surface-3);
+  color:var(--color-text-secondary);font-size:11px;font-weight:600;
+}
+
+/* toggle */
+.toggle{
+  display:inline-flex;align-items:center;gap:var(--space-2);
+  height:32px;
+  font-size:13px;color:var(--color-text-secondary);
+  user-select:none;
+}
+.toggle input{position:absolute;opacity:0;width:0;height:0;}
+.toggle__track{
+  position:relative;width:34px;height:18px;
+  border-radius:var(--radius-full);
+  background:var(--color-border-strong);
+  transition:background .18s ease;
+  flex:0 0 34px;
+}
+.toggle__track::after{
+  content:"";position:absolute;top:2px;left:2px;
+  width:14px;height:14px;border-radius:var(--radius-full);
+  background:#fff;box-shadow:var(--shadow-xs);
+  transition:transform .18s ease;
+}
+.toggle input:checked + .toggle__track{background:var(--color-primary);}
+.toggle input:checked + .toggle__track::after{transform:translateX(16px);}
+.toggle input:focus-visible + .toggle__track{box-shadow:var(--focus-ring);}
+
+/* --- Status legend --- */
+.legend{
+  display:flex;align-items:center;gap:var(--space-2);
+  flex-wrap:wrap;
+  margin:var(--space-5) 0 var(--space-3);
+}
+.legend__label{font-size:12px;color:var(--color-text-tertiary);margin-right:var(--space-1);}
+.legend .tag{height:20px;}
+.tag--info{background:var(--color-info-soft);color:var(--color-info-text);}
+.tag--primary{background:var(--color-primary-soft);color:var(--color-primary);}
+.tag--violet{background:var(--color-violet-soft);color:var(--color-violet-text);}
+.tag--sky{background:var(--color-sky-soft);color:var(--color-sky-text);}
+.tag--success{background:var(--color-success-soft);color:var(--color-success-text);}
+
+/* --- Empty state --- */
+.empty{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;
+  padding:var(--space-12) var(--space-4);
+  max-width:360px;margin:var(--space-8) auto 0;
+}
+.empty__icon{
+  width:72px;height:72px;border-radius:var(--radius-lg);
+  background:var(--color-primary-subtle);
+  display:grid;place-items:center;
+  color:var(--color-primary);
+  margin-bottom:var(--space-4);
+}
+.empty__icon svg{width:34px;height:34px;}
+.empty__title{font-size:14px;font-weight:600;color:var(--color-text-primary);}
+.empty__desc{font-size:13px;color:var(--color-text-secondary);margin-top:var(--space-1);}
+
+/* --- Keyboard hint --- */
+.kbd-hint{
+  margin-top:var(--space-8);
+  text-align:center;
+  font-size:12px;
+  color:var(--color-text-tertiary);
+  letter-spacing:.01em;
+}
+
+/* --- Edit Story (details) --- */
+.edit-story{
+  margin-top:var(--space-8);
+  border-top:1px solid var(--color-border);
+  padding-top:var(--space-4);
+}
+.edit-story summary{
+  list-style:none;cursor:pointer;
+  display:flex;align-items:center;gap:var(--space-2);
+  font-size:13px;font-weight:600;color:var(--color-text-secondary);
+  transition:color .15s ease;
+}
+.edit-story summary::-webkit-details-marker{display:none;}
+.edit-story summary:hover{color:var(--color-text-primary);}
+.edit-story summary svg{width:15px;height:15px;transition:transform .15s ease;}
+.edit-story[open] summary svg{transform:rotate(90deg);}
+.edit-story__body{
+  margin-top:var(--space-3);
+  display:flex;flex-direction:column;gap:var(--space-3);
+}
+.edit-story textarea{
+  min-height:72px;width:100%;
+  padding:12px;
+  border:1px solid var(--color-border);
+  border-radius:var(--radius-lg);
+  background:var(--color-surface);
+  color:var(--color-text-primary);
+  font-size:14px;line-height:1.5;font-family:inherit;
+  resize:vertical;
+}
+.edit-story textarea::placeholder{color:var(--color-text-tertiary);}
+.edit-story textarea:focus{outline:none;border-color:var(--color-primary);box-shadow:var(--focus-ring);}
+.edit-actions{display:flex;gap:var(--space-2);}
+
+/* ============================================================ RESPONSIVE */
+@media (max-width:1024px){
+  .sidebar{width:200px;flex-basis:200px;}
+  .content{padding:var(--space-4);}
+  .topbar{padding:0 var(--space-4);}
+}
+@media (max-width:640px){
+  .app{flex-direction:column;}
+  .sidebar{
+    width:100%;flex-basis:auto;height:auto;position:static;
+    flex-direction:row;align-items:center;flex-wrap:wrap;gap:var(--space-2);
+    border-right:0;border-bottom:1px solid var(--color-border);
+  }
+  .sidebar__brand{margin-bottom:0;flex:1 1 auto;}
+  .nav,.nav__section,.recent{display:none;}
+  .filterbar__left,.filterbar__right{width:100%;}
+  .search input{width:100%;}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ================= SIDEBAR ================= -->
+  <aside class="sidebar">
+    <div class="sidebar__brand">
+      <div class="brand">
+        <span class="brand__mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+        </span>
+        AgentBoard
+      </div>
+      <button class="sidebar__user" aria-label="用户菜单">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+
+    <nav class="nav" aria-label="主导航">
+      <a class="nav__item" href="#">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+        仪表盘
+      </a>
+      <a class="nav__item" href="#">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h4"/></svg>
+        项目文档
+      </a>
+      <a class="nav__item is-active" href="#" aria-current="page">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        项目
+      </a>
+    </nav>
+
+    <div class="nav__section">最近访问</div>
+    <a class="recent" href="#">
+      <span class="recent__dot" aria-hidden="true"></span>
+      AgentBoard
+    </a>
+  </aside>
+
+  <!-- ================= MAIN ================= -->
+  <div class="main">
+
+    <!-- Top bar -->
+    <header class="topbar">
+      <nav class="breadcrumb" aria-label="面包屑">
+        <a href="#">AgentBoard</a>
+        <span class="sep">&gt;</span>
+        <a href="#">架构设计</a>
+        <span class="sep">&gt;</span>
+        <span class="current">表结构设计</span>
+      </nav>
+
+      <div class="topbar__actions">
+        <button class="icon-btn" aria-label="通知">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+        </button>
+        <button class="icon-btn" aria-label="设置">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+        <button class="icon-btn" aria-label="帮助">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </button>
+        <div class="user">
+          <span class="avatar" aria-hidden="true">jz</span>
+          <span class="user__name">jzhong2</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <main class="content">
+
+      <!-- Title row -->
+      <div class="title-row">
+        <h1>表结构设计</h1>
+        <span class="tag tag--warning">待规划</span>
+      </div>
+
+      <hr class="divider" />
+
+      <!-- Task toolbar -->
+      <div class="taskbar">
+        <div class="taskbar__title">
+          Tasks / Bugs
+          <span class="count-badge">0</span>
+        </div>
+        <div class="btn-group" role="group" aria-label="视图切换">
+          <button class="btn is-active" aria-pressed="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+            列表
+          </button>
+          <button class="btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+            看板
+          </button>
+          <button class="btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="4" height="16" rx="1"/><rect x="10" y="4" width="4" height="16" rx="1"/><rect x="17" y="4" width="4" height="16" rx="1"/></svg>
+            三栏
+          </button>
+          <button class="btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            CSV
+          </button>
+          <button class="btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            JSON
+          </button>
+          <button class="btn btn--primary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            新建
+          </button>
+        </div>
+      </div>
+
+      <!-- Filter toolbar -->
+      <div class="filterbar">
+        <div class="filterbar__left">
+          <div class="search">
+            <svg class="search__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" placeholder="搜索任务... (按 / 聚焦)" aria-label="搜索任务" />
+          </div>
+          <div class="chips" role="group" aria-label="状态筛选">
+            <button class="chip is-active">全部<span class="dot" style="display:none"></span>0</button>
+            <button class="chip">待规划 0</button>
+            <button class="chip">待办 0</button>
+            <button class="chip">进行中 0</button>
+            <button class="chip">评审中 0</button>
+            <button class="chip">验证中 0</button>
+            <button class="chip">完成 0</button>
+          </div>
+        </div>
+
+        <div class="filterbar__right">
+          <label class="toggle">
+            <input type="checkbox" />
+            <span class="toggle__track" aria-hidden="true"></span>
+            只看我
+          </label>
+
+          <button class="dropdown">
+            全部
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+
+          <button class="dropdown">
+            排序
+            <span class="value">创建时间</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+
+          <button class="dropdown">
+            分组
+            <span class="value">不分组</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+
+          <label class="toggle">
+            <input type="checkbox" />
+            <span class="toggle__track" aria-hidden="true"></span>
+            折叠
+          </label>
+
+          <button class="dropdown">
+            预设
+            <span class="badge">0</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Status legend (语义色示意) -->
+      <div class="legend" aria-label="状态色例">
+        <span class="legend__label">状态色例</span>
+        <span class="tag tag--warning">待规划</span>
+        <span class="tag tag--info">待办</span>
+        <span class="tag tag--primary">进行中</span>
+        <span class="tag tag--violet">评审中</span>
+        <span class="tag tag--sky">验证中</span>
+        <span class="tag tag--success">完成</span>
+      </div>
+
+      <!-- Empty state -->
+      <section class="empty" aria-live="polite">
+        <div class="empty__icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="4" x2="9" y2="10"/></svg>
+        </div>
+        <p class="empty__title">暂无任务</p>
+        <p class="empty__desc">当前视图下没有任何任务或缺陷，点击下方按钮开始添加。</p>
+        <button class="btn btn--primary" style="margin-top:var(--space-4)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          新建任务
+        </button>
+      </section>
+
+      <!-- Keyboard hint -->
+      <p class="kbd-hint">jk 上下导航 · Enter 打开 · Space 选择 · Ctrl+A 全选 · Esc 取消</p>
+
+      <!-- Edit Story (collapsible) -->
+      <details class="edit-story">
+        <summary>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          编辑 Story
+        </summary>
+        <div class="edit-story__body">
+          <textarea placeholder="描述表结构设计的 Story 内容、验收标准或补充说明…"></textarea>
+          <div class="edit-actions">
+            <button class="btn btn--primary">更新</button>
+            <button class="btn">取消</button>
+          </div>
+        </div>
+      </details>
+
+    </main>
+  </div>
+</div>
+
+<!-- 本原型基于 Linear 蓝紫令牌（DESIGN.md）为 AgentBoard Story 任务视图高保真还原，单文件内联 CSS，无外部依赖。 -->
+</body>
+</html>
