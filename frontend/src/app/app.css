@@ -3182,6 +3182,16 @@ router-outlet {
   color: var(--color-text-secondary, #475569);
 }
 .qv-close:hover { background: rgba(0,0,0,.06); }
+/* Epic 58 (v4.5): 抽屉头部上一项/下一项导航 */
+.qv-nav-group { display: flex; align-items: center; gap: 4px; flex: none; }
+.qv-nav {
+  border: 1px solid var(--border, #e2e8f0); background: transparent; cursor: pointer;
+  width: 28px; height: 28px; border-radius: 7px; font-size: 16px; line-height: 1;
+  color: var(--color-text-secondary, #475569);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.qv-nav:hover:not(:disabled) { background: rgba(0,0,0,.06); }
+.qv-nav:disabled { opacity: .35; cursor: not-allowed; }
 .qv-body { padding: 16px; overflow-y: auto; flex: 1; }
 .qv-title-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .qv-type-icon {
@@ -3290,6 +3300,8 @@ router-outlet {
 [data-theme="dark"] .task-quick-view-btn:hover { background: rgba(129,140,248,.18); }
 [data-theme="dark"] .task-quick-view-btn.active { background: var(--color-primary, #818cf8); }
 [data-theme="dark"] .qv-close:hover { background: rgba(255,255,255,.08); }
+[data-theme="dark"] .qv-nav { border-color: rgba(255,255,255,.14); color: #c7cde0; }
+[data-theme="dark"] .qv-nav:hover:not(:disabled) { background: rgba(255,255,255,.08); }
 [data-theme="dark"] .quick-view-drawer { box-shadow: -12px 0 40px rgba(0,0,0,.5); }
 [data-theme="dark"] .qv-field { background: rgba(255,255,255,.04); }
 [data-theme="dark"] .qv-field:hover { background: rgba(129,140,248,.12); }

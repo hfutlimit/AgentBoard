@@ -368,3 +368,13 @@
 - **验证**：`tests/test_epic57_v44_drawer_comments_e2e.py` 全绿（查看/Markdown/计数/行内添加/行内删除 + API 复核；0 错误）；回归 `pytest test_epic30_cache.py` 8 passed + E2E v4.2/v4.3 全绿。
 - **提交**：`a7bfee9` `feat(ui): 前端小优化 - 快速查看抽屉评论区（Epic 57 v4.4）` → push origin main 成功（`39523c4..a7bfee9`）。
 - **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist。
+
+## 2026-07-26 02:22 运行（Epic 58 v4.5 抽屉任务前后导航 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 连接器全断 → REST 兜底（本地 58125 / web 8090）。
+- **选型**：项目 3 最高优先级未完成为 admin-portal(850-861, high) 整站级、1 小时不可独立收尾 → 延续 v 系列增量，新建 Epic 58 v4.5「快速查看抽屉内任务前后导航」（纯前端、零后端契约变更）。
+- **追踪（REST 新建）**：project 43(AUTO58)→epic 48(Epic 58 v4.5)→story 97(Story 58.1)→task 1108(high) → 合法链 `backlog→todo→in_progress→in_review`；story 97、epic 48 经 PATCH 同步 **in_review**（达成）。
+- **实现**：`app.ts`(`qvHasPrev`/`qvHasNext`/`qvNav` + `onDrawerKeydown` 处理 `[`/`]` + `openQuickView` 重置编辑态) / `app.html`(.qv-nav-group 按钮 + aside 绑 document keydown) / `app.css`(.qv-nav 含 dark)。
+- **验证**：`tests/test_epic58_v45_drawer_nav_e2e.py` 全绿（按钮+键盘导航、边界禁用、Esc 关闭、0 错误）；`pytest test_epic30_cache.py` 8 passed。
+- **关键发现**：① 本地 web 8080 的 `AGENTBOARD_API_URL` 默认 58124≠实际 58125 → 登录被拒；本次另起 web 8090（正确 API base）验证，未扰动 8080/18001/18000/28080。② 抽屉评论「添加后列表刷新」在原始代码上也失败（既有 v4.4 缺陷，与 v4.5 无关），未修复。
+- **提交**：`feat(ui): 前端小优化 - 任务列表快速查看抽屉任务前后导航 (Epic 58 v4.5)` → push 成功。
+- **硬约束**：未触碰 18001(MCP)/docker/端口；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist。

@@ -2169,7 +2169,7 @@
 
 @if (qvTask(); as qt) {
   <div class="qv-backdrop" (click)="closeQuickView()"></div>
-  <aside class="quick-view-drawer" role="dialog" aria-label="任务快速查看" (document:keydown.escape)="closeQuickView()">
+  <aside class="quick-view-drawer" role="dialog" aria-label="任务快速查看" (document:keydown.escape)="closeQuickView()" (document:keydown)="onDrawerKeydown($event)">
     <header class="qv-header">
       <nav class="qv-breadcrumb" aria-label="位置">
         <span class="qv-crumb">{{ qvBreadcrumb().project }}</span>
@@ -2180,6 +2180,10 @@
           <span class="qv-sep">›</span><span class="qv-crumb">{{ qvBreadcrumb().story }}</span>
         }
       </nav>
+      <div class="qv-nav-group">
+        <button type="button" class="qv-nav" title="上一项 ( [ )" aria-label="上一项" [disabled]="!qvHasPrev()" (click)="qvNav(-1)">‹</button>
+        <button type="button" class="qv-nav" title="下一项 ( ] )" aria-label="下一项" [disabled]="!qvHasNext()" (click)="qvNav(1)">›</button>
+      </div>
       <button type="button" class="qv-close" title="关闭" aria-label="关闭" (click)="closeQuickView()">✕</button>
     </header>
     <div class="qv-body">

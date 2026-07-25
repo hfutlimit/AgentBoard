@@ -3242,12 +3242,53 @@ export class App implements OnInit, OnDestroy {
     }
     this.qvTaskId.set(task.id);
     this.qvCommentDraft.set('');
+    // Epic 58 (v4.5): 切换到其它任务时清空残留的行内编辑态
+    this.qvEditingTitle.set(false);
+    this.qvEditingDesc.set(false);
     void this.qvLoadComments();
   }
   closeQuickView(): void {
     this.qvTaskId.set(null);
     this.qvComments.set([]);
     this.qvCommentDraft.set('');
+  }
+  // Epic 58 (v4.5): 快速查看抽屉内任务前后导航（Jira/Linear 式 triage）
+  qvHasPrev(): boolean {
+    const t = this.qvTask();
+    if (!t) return false;
+    const list = this.visibleTasks();
+    const idx = list.findIndex((x) => x.id === t.id);
+    return idx > 0;
+  }
+  qvHasNext(): boolean {
+    const t = this.qvTask();
+    if (!t) return false;
+    const list = this.visibleTasks();
+    const idx = list.findIndex((x) => x.id === t.id);
+    return idx >= 0 && idx < list.length - 1;
+  }
+  qvNav(delta: number): void {
+    const t = this.qvTask();
+    if (!t) return;
+    const list = this.visibleTasks();
+    const idx = list.findIndex((x) => x.id === t.id);
+    if (idx < 0) return;
+    const ni = idx + delta;
+    if (ni < 0 || ni >= list.length) return;
+    this.openQuickView(list[ni]);
+  }
+  // 抽屉内键盘导航：'[' 上一项 / ']' 下一项（输入框聚焦时不触发）
+  onDrawerKeydown(event: KeyboardEvent): void {
+    const tgt = event.target as HTMLElement;
+    if (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT') return;
+    if (this.qvTaskId() == null) return;
+    if (event.key === '[') {
+      event.preventDefault();
+      this.qvNav(-1);
+    } else if (event.key === ']') {
+      event.preventDefault();
+      this.qvNav(1);
+    }
   }
   // 抽屉面包屑：基于已加载的 projects/stories/epics 数组推导（带兜底）
   qvBreadcrumb(): { project: string; epic: string; story: string } {
