@@ -2262,6 +2262,38 @@
       } @else {
         <div class="qv-desc empty">暂无描述</div>
       }
+
+      <div class="qv-comments">
+        <div class="qv-section-label">评论 @if (qvComments().length) { <span class="qv-comments-count">{{ qvComments().length }}</span> }</div>
+        @if (qvLoadingComments()) {
+          <div class="qv-comments-loading">加载中…</div>
+        } @else if (qvComments().length === 0) {
+          <div class="qv-comments-empty">暂无评论</div>
+        } @else {
+          <div class="qv-comment-list">
+            @for (c of qvComments(); track c.id) {
+              <div class="qv-comment">
+                <div class="qv-comment-head">
+                  <span class="qv-comment-author">{{ c.author }}</span>
+                  <span class="qv-comment-time">{{ timeAgo(c.created_at) }}</span>
+                  <button type="button" class="qv-comment-del" title="删除评论" aria-label="删除评论" (click)="qvDeleteComment(c.id)">🗑</button>
+                </div>
+                <div class="qv-comment-body" [innerHTML]="renderMarkdown(c.content)"></div>
+              </div>
+            }
+          </div>
+        }
+        <div class="qv-comment-compose">
+          <textarea class="qv-comment-input" rows="2" placeholder="添加评论…（支持 Markdown，⌘/Ctrl+Enter 发送）"
+            [value]="qvCommentDraft()"
+            (input)="qvCommentDraft.set($any($event.target).value)"
+            (keydown.meta.enter)="qvAddComment(); $event.preventDefault()"
+            (keydown.control.enter)="qvAddComment(); $event.preventDefault()"></textarea>
+          <div class="qv-comment-actions">
+            <button type="button" class="btn btn--primary btn--sm" [disabled]="!qvCommentDraft().trim()" (click)="qvAddComment()">发送</button>
+          </div>
+        </div>
+      </div>
     </div>
     <footer class="qv-footer">
       <a class="qv-open" [routerLink]="['/task', qt.id]">在详情页打开 ↗</a>

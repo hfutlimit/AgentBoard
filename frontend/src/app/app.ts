@@ -3241,9 +3241,13 @@ export class App implements OnInit, OnDestroy {
       return;
     }
     this.qvTaskId.set(task.id);
+    this.qvCommentDraft.set('');
+    void this.qvLoadComments();
   }
   closeQuickView(): void {
     this.qvTaskId.set(null);
+    this.qvComments.set([]);
+    this.qvCommentDraft.set('');
   }
   // 抽屉面包屑：基于已加载的 projects/stories/epics 数组推导（带兜底）
   qvBreadcrumb(): { project: string; epic: string; story: string } {
@@ -3322,6 +3326,47 @@ export class App implements OnInit, OnDestroy {
       this.notify('描述已更新');
     } catch {
       this.notify('更新描述失败，请重试', 'error');
+    }
+  }
+
+  // Epic 57 (v4.4): 快速查看抽屉评论区 — 查看任务评论 + 行内快速添加/删除评论（复用现有评论 API）
+  readonly qvComments = signal<Comment[]>([]);
+  readonly qvCommentDraft = signal<string>('');
+  readonly qvLoadingComments = signal<boolean>(false);
+
+  async qvLoadComments(): Promise<void> {
+    const t = this.qvTask();
+    if (!t) return;
+    this.qvLoadingComments.set(true);
+    try {
+      const list = await firstValueFrom(this.api.listComments(t.id));
+      this.qvComments.set(Array.isArray(list) ? list : []);
+    } catch {
+      this.qvComments.set([]);
+    } finally {
+      this.qvLoadingComments.set(false);
+    }
+  }
+  async qvAddComment(): Promise<void> {
+    const t = this.qvTask();
+    const content = this.qvCommentDraft().trim();
+    if (!t || !content) return;
+    try {
+      await firstValueFrom(this.api.addComment(t.id, { author: this.commentAuthor(), content }));
+      this.qvCommentDraft.set('');
+      await this.qvLoadComments();
+    } catch {
+      this.notify('添加评论失败，请重试', 'error');
+    }
+  }
+  async qvDeleteComment(id: number): Promise<void> {
+    const t = this.qvTask();
+    if (!t) return;
+    try {
+      await firstValueFrom(this.api.deleteComment(id));
+      await this.qvLoadComments();
+    } catch {
+      this.notify('删除评论失败', 'error');
     }
   }
 
