@@ -3272,6 +3272,59 @@ export class App implements OnInit, OnDestroy {
     return t ? this.getSubtaskProgress(t.id) : 0;
   }
 
+  // Epic 56 (v4.3): 快速查看抽屉内联编辑标题与描述（扩展 v4.2；状态机无关，直接 updateTask）
+  readonly qvEditingTitle = signal<boolean>(false);
+  readonly qvEditTitle = signal<string>('');
+  readonly qvEditingDesc = signal<boolean>(false);
+  readonly qvEditDesc = signal<string>('');
+
+  startQvEditTitle(): void {
+    const t = this.qvTask();
+    if (!t) return;
+    this.qvEditTitle.set(t.title);
+    this.qvEditingTitle.set(true);
+  }
+  cancelQvEditTitle(): void {
+    this.qvEditingTitle.set(false);
+  }
+  async saveQvTitle(): Promise<void> {
+    const t = this.qvTask();
+    const v = this.qvEditTitle().trim();
+    if (!t || !v) { this.qvEditingTitle.set(false); return; }
+    if (v === t.title) { this.qvEditingTitle.set(false); return; }
+    try {
+      await firstValueFrom(this.api.updateTask(t.id, { title: v }));
+      this.tasks.update((list) => list.map((x) => (x.id === t.id ? { ...x, title: v } : x)));
+      this.qvEditingTitle.set(false);
+      this.notify(`已将标题更新为「${v}」`);
+    } catch {
+      this.notify('更新标题失败，请重试', 'error');
+    }
+  }
+  startQvEditDesc(): void {
+    const t = this.qvTask();
+    if (!t) return;
+    this.qvEditDesc.set(t.description || '');
+    this.qvEditingDesc.set(true);
+  }
+  cancelQvEditDesc(): void {
+    this.qvEditingDesc.set(false);
+  }
+  async saveQvDesc(): Promise<void> {
+    const t = this.qvTask();
+    const v = this.qvEditDesc();
+    if (!t) { this.qvEditingDesc.set(false); return; }
+    if (v === (t.description || '')) { this.qvEditingDesc.set(false); return; }
+    try {
+      await firstValueFrom(this.api.updateTask(t.id, { description: v }));
+      this.tasks.update((list) => list.map((x) => (x.id === t.id ? { ...x, description: v } : x)));
+      this.qvEditingDesc.set(false);
+      this.notify('描述已更新');
+    } catch {
+      this.notify('更新描述失败，请重试', 'error');
+    }
+  }
+
   // Task 821: 任务类型图标
   taskTypeIcon(type: string): string {
     if (type === 'bug') return '🐛';

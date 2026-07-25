@@ -2186,8 +2186,25 @@
       <div class="qv-title-row">
         <span class="qv-type-icon {{ qt.type }}">{{ typeLabel(qt.type) }}</span>
         <span class="qv-id">#{{ qt.id }}</span>
+        @if (!qvEditingTitle()) {
+          <button type="button" class="qv-edit-btn" title="编辑标题" aria-label="编辑标题"
+            (click)="startQvEditTitle(); $event.stopPropagation(); $event.preventDefault()">✎</button>
+        }
       </div>
-      <h2 class="qv-title">{{ qt.title }}</h2>
+      @if (qvEditingTitle()) {
+        <div class="qv-title-edit">
+          <input class="qv-title-input" [value]="qvEditTitle()"
+            (input)="qvEditTitle.set($any($event.target).value)"
+            (keydown.enter)="saveQvTitle(); $event.preventDefault()"
+            (keydown.escape)="cancelQvEditTitle(); $event.preventDefault()" />
+          <div class="qv-edit-actions">
+            <button type="button" class="btn btn--primary btn--sm" (click)="saveQvTitle()">保存</button>
+            <button type="button" class="btn btn--sm" (click)="cancelQvEditTitle()">取消</button>
+          </div>
+        </div>
+      } @else {
+        <h2 class="qv-title">{{ qt.title }}</h2>
+      }
 
       <div class="qv-fields">
         <button type="button" class="qv-field" (click)="openStatusMenu(qt, $event); $event.stopPropagation(); $event.preventDefault()">
@@ -2223,8 +2240,24 @@
         </div>
       }
 
-      <div class="qv-section-label">描述</div>
-      @if (qt.description) {
+      <div class="qv-desc-head">
+        <div class="qv-section-label">描述</div>
+        @if (!qvEditingDesc()) {
+          <button type="button" class="qv-edit-btn" title="编辑描述" aria-label="编辑描述"
+            (click)="startQvEditDesc(); $event.stopPropagation(); $event.preventDefault()">✎</button>
+        }
+      </div>
+      @if (qvEditingDesc()) {
+        <div class="qv-desc-edit">
+          <textarea class="qv-desc-input" rows="6" [value]="qvEditDesc()"
+            (input)="qvEditDesc.set($any($event.target).value)"
+            (keydown.escape)="cancelQvEditDesc(); $event.preventDefault()"></textarea>
+          <div class="qv-edit-actions">
+            <button type="button" class="btn btn--primary btn--sm" (click)="saveQvDesc()">保存</button>
+            <button type="button" class="btn btn--sm" (click)="cancelQvEditDesc()">取消</button>
+          </div>
+        </div>
+      } @else if (qt.description) {
         <div class="qv-desc text-pre">{{ qt.description }}</div>
       } @else {
         <div class="qv-desc empty">暂无描述</div>
