@@ -623,6 +623,26 @@ export class App implements OnInit, OnDestroy {
   taskGroupLabel(): string {
     return this.taskGroupOptions.find((o) => o.key === this.taskGroupBy())?.label || this.taskGroupBy();
   }
+  // v4.7: 预设可视化标签 — 在预设列表中展示分组 / 排序维度与筛选计数
+  presetGroupLabel(p: FilterPreset): string {
+    return this.taskGroupOptions.find((o) => o.key === p.groupBy)?.label || '不分组';
+  }
+  presetSortLabel(p: FilterPreset): string {
+    const opt = this.taskSortOptions.find((o) => o.key === p.sortKey);
+    const label = opt?.label || p.sortKey || '创建时间';
+    return `${label} ${p.sortOrder === 'asc' ? '↑' : '↓'}`;
+  }
+  presetFilterCount(p: FilterPreset): number {
+    let n = 0;
+    if (p.statuses.length) n++;
+    if (p.priorities.length) n++;
+    if (p.types.length) n++;
+    if (p.assignees.length) n++;
+    if (p.due) n++;
+    if (p.search) n++;
+    if (p.mineOnly) n++;
+    return n;
+  }
   private groupLabel(mode: string, key: string): string {
     if (mode === 'status') return this.statusLabel(key);
     if (mode === 'type') return this.typeLabel(key);

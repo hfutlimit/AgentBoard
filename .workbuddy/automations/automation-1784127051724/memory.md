@@ -389,3 +389,13 @@
 - **提交**：`feat(ui): 前端小优化 - 筛选预设默认加载时自动应用 (Epic 59 v4.6)` → push origin main 成功。
 - **硬约束**：未触碰 18001(MCP)/docker/端口；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist。
 - **下次可执行**：可转向「分组/排序维度持久化」「筛选预设含分组/排序可视化标签」或新需求；admin-portal（850-861）仍最高优先级真实 backlog（整站级，需更大拆分）。
+
+## 2026-07-26 06:24 运行（Epic 60 v4.7 筛选预设可视化标签 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 连接器全断 → REST 兜底（API 58125 / web 8090，admin id=18）。
+- **选型**：v 系列（v1.5~v4.6）预设已支持保存/应用/默认/自动加载，但预设列表项仅显示名称、不展示其捕获的分组/排序维度 → 新建增量 Epic 60 v4.7「筛选预设可视化标签」，纯前端、零后端契约变更。
+- **追踪（REST 新建）**：project 46(AUTO60)→epic 50(Epic 60 v4.7)→story 99(Story 60.1)→task 1110(high) → 合法链 `backlog→todo→in_progress→in_review`；story 99、epic 50 同步 **in_review**（达成）。
+- **实现**：`app.ts` 新增 `presetGroupLabel/presetSortLabel/presetFilterCount`；`app.html` 预设项加 `.preset-body` + `.preset-meta` 行（📂 分组 / ↕ 排序含方向 / ⚲ N 筛选）；`app.css` 补样式（dark 自适应）。
+- **验证**：`tests/test_epic60_v47_preset_meta_e2e.py` 全绿（meta chips 渲染「📂 按状态」「↕ 创建时间 ↓」；0 错误；清理种子）；回归 `pytest test_epic30_cache.py` 8 passed + v4.6 preset autoload E2E 全绿（v4.0 E2E 因硬编码 18000/28080 端口+DB 废弃属既有失败，非回归）。
+- **提交**：`feat(ui): 前端小优化 - 筛选预设可视化标签（分组/排序维度与筛选计数）(Epic 60 v4.7)` → push origin main 成功。
+- **硬约束**：未触碰 18001(MCP)/docker/端口；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist（仅提交 static 产物）、scratch 脚本。
+- **下次可执行**：分组维度持久化（taskGroupBy 已持久化至 agentboard_story_group，无缺口）、批量指派面板增强、或新需求。

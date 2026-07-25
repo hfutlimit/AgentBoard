@@ -1248,7 +1248,16 @@
                             @for (p of filterPresets(); track p.id) {
                               <div class="preset-item" [class.is-default]="p.isDefault">
                                 <button class="preset-star" (click)="setDefaultPreset(p.id)" [title]="p.isDefault ? '取消默认' : '设为默认'" [class.on]="p.isDefault">{{ p.isDefault ? '★' : '☆' }}</button>
-                                <button class="preset-apply" (click)="applyFilterPreset(p.id)" [title]="p.name">{{ p.name }}</button>
+                                <div class="preset-body">
+                                  <button class="preset-apply" (click)="applyFilterPreset(p.id)" [title]="p.name">{{ p.name }}</button>
+                                  <div class="preset-meta">
+                                    <span class="preset-meta-chip">📂 {{ presetGroupLabel(p) }}</span>
+                                    <span class="preset-meta-chip">↕ {{ presetSortLabel(p) }}</span>
+                                    @if (presetFilterCount(p) > 0) {
+                                      <span class="preset-meta-chip">⚲ {{ presetFilterCount(p) }} 筛选</span>
+                                    }
+                                  </div>
+                                </div>
                                 <button class="preset-del" (click)="deleteFilterPreset(p.id)" title="删除预设">✕</button>
                               </div>
                             }
