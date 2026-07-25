@@ -2621,30 +2621,51 @@ details.form-section > form { padding: 16px; }
   margin-left: auto;
 }
 
-/* Task 811: 空项目引导创建第一个 Epic */
+/* Task 819: 空项目引导创建第一个 Epic — premium empty state */
 .empty-state-guide {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 40px 20px;
   text-align: center;
+  padding: 48px 24px;
+  max-width: 420px;
+  margin: 12px auto 4px;
+  border: 1px dashed var(--border, #e2e8f0);
+  border-radius: var(--radius-lg, 16px);
+  background: linear-gradient(180deg, var(--brand-soft, #eef2ff), transparent 72%);
 }
 .empty-state-icon {
-  font-size: 48px;
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-lg, 16px);
+  background: var(--color-primary-subtle, #F5F4FE);
+  display: grid;
+  place-items: center;
+  color: var(--color-primary, #5B5BD6);
   margin-bottom: 16px;
+  box-shadow: 0 6px 18px rgba(91, 91, 214, 0.18);
+}
+.empty-state-icon svg {
+  width: 36px;
+  height: 36px;
 }
 .empty-state-title {
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text, #0f172a);
   margin-bottom: 8px;
 }
 .empty-state-desc {
   font-size: 13px;
-  color: var(--text-secondary, #64748b);
-  margin-bottom: 16px;
-  max-width: 300px;
+  line-height: 1.6;
+  color: var(--text-2, #475569);
+  margin-bottom: 20px;
+  max-width: 340px;
+}
+.empty-state-hint {
+  font-size: 12px;
+  color: var(--text-2, #94a3b8);
+  margin-top: 14px;
 }
 
 /* Dark theme adjustments */

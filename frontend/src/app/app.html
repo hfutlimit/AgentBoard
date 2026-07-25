@@ -536,14 +536,20 @@
                         <span class="badge status status--{{ item.status }}">{{ statusLabel(item.status) }}</span>
                       </a>
                     } @empty {
-                      <!-- Task 811: 空项目引导创建第一个 Epic -->
+                      <!-- Task 819: 空项目引导创建第一个 Epic -->
                       <div class="empty-state-guide">
-                        <div class="empty-state-icon">🎯</div>
-                        <div class="empty-state-title">还没有 Epic</div>
-                        <div class="empty-state-desc">Epic 是大一点的目标或功能模块，帮助你组织和管理大型工作。</div>
+                        <div class="empty-state-icon">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
+                            <line x1="4" y1="22" x2="4" y2="15"/>
+                          </svg>
+                        </div>
+                        <div class="empty-state-title">开启你的第一个 Epic</div>
+                        <div class="empty-state-desc">Epic 是更大粒度的目标或功能模块，用来组织与管理大型工作。先建一个 Epic，再往里拆分 Story 与任务。</div>
                         <button class="btn-primary-sm" (click)="openCreate('epic', current.id)">
                           ＋ 创建第一个 Epic
                         </button>
+                        <div class="empty-state-hint">提示：Epic → Story → 任务，形成清晰的项目层级。</div>
                       </div>
                     }
                   </div>
