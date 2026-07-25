@@ -817,7 +817,11 @@ export class App implements OnInit, OnDestroy {
     void this.validateAuth();
     this.routeSub = this.router.events
       .pipe(filter((event) => event instanceof NavigationEnd))
-      .subscribe(() => this.loadRoute());
+      .subscribe(() => {
+        // Epic 59 (v4.6): 路由加载完成后自动应用默认筛选预设（loadRoute 内部会在开头 clearFilters，
+        // 故必须在 .then 中、clear 之后应用；defaultPresetApplied 保证仅应用一次，不覆盖后续手动筛选/导航）
+        void this.loadRoute().then(() => this.applyDefaultPresetOnLoad());
+      });
     void this.loadRoute();
     // Task 400: 健康检查轮询（默认开启，可通过 localStorage 关闭）
     if (localStorage.getItem('agentboard_health_poll') !== 'disabled') {
@@ -3993,6 +3997,13 @@ export class App implements OnInit, OnDestroy {
   applyDefaultPreset(): void {
     const d = this.defaultPreset();
     if (d) this.applyFilterPreset(d.id);
+  }
+  // Epic 59 (v4.6): 应用加载时自动应用默认筛选预设（仅初始化执行一次，避免路由切换重复应用覆盖手动筛选）
+  private defaultPresetApplied = false;
+  applyDefaultPresetOnLoad(): void {
+    if (this.defaultPresetApplied) return;
+    this.defaultPresetApplied = true;
+    if (this.defaultPreset()) this.applyDefaultPreset();
   }
 
   // Task 603: 抽屉内快速操作

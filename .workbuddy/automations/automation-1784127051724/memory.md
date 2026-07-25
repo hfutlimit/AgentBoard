@@ -378,3 +378,14 @@
 - **关键发现**：① 本地 web 8080 的 `AGENTBOARD_API_URL` 默认 58124≠实际 58125 → 登录被拒；本次另起 web 8090（正确 API base）验证，未扰动 8080/18001/18000/28080。② 抽屉评论「添加后列表刷新」在原始代码上也失败（既有 v4.4 缺陷，与 v4.5 无关），未修复。
 - **提交**：`feat(ui): 前端小优化 - 任务列表快速查看抽屉任务前后导航 (Epic 58 v4.5)` → push 成功。
 - **硬约束**：未触碰 18001(MCP)/docker/端口；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist。
+
+## 2026-07-26 02:57 运行（Epic 59 v4.6 筛选预设默认加载自动应用 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 连接器全断 → REST 兜底（API 58125 / web 8090，admin id=54）。
+- **选型**：v 系列（v1.5~v4.5）已齐；v4.0 默认预设仅手动应用 → 新建增量 Epic 59 v4.6「默认预设加载时自动应用」，纯前端、零后端契约变更。
+- **追踪（REST 新建）**：project 45(AUTO59)→epic 49(Epic 59 v4.6)→story 98(Story 59.1)→task 1109(high) → 合法链 `backlog→todo→in_progress→in_review`；story 98、epic 49 同步 **in_review**（达成）。
+- **实现**：`app.ts` 新增 `applyDefaultPresetOnLoad()`（幂等，`defaultPresetApplied` 标志保证仅应用一次）+ 在 `router.events` NavigationEnd 订阅的 `loadRoute().then()` 中调用（晚于 loadRoute 内部 `clearFilters`，避免被路由加载重置）；复用既有 `applyDefaultPreset()`。
+- **关键坑（已解决）**：`applyDefaultPresetOnLoad` 若同步/`setTimeout(0)` 调用，会被 NavigationEnd 触发的二次 `loadRoute` 的 `clearFilters` 覆盖（NavigationEnd 晚于 setTimeout macrotask）；须置于 `loadRoute().then()` 内。
+- **验证**：`tests/test_epic59_v46_preset_autoload_e2e.py` 全绿（默认预设刷新后自动套用、chip 激活、0 错误）；回归 `pytest test_epic30_cache.py` 8 passed + v4.5 抽屉导航 E2E 全绿。
+- **提交**：`feat(ui): 前端小优化 - 筛选预设默认加载时自动应用 (Epic 59 v4.6)` → push origin main 成功。
+- **硬约束**：未触碰 18001(MCP)/docker/端口；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist。
+- **下次可执行**：可转向「分组/排序维度持久化」「筛选预设含分组/排序可视化标签」或新需求；admin-portal（850-861）仍最高优先级真实 backlog（整站级，需更大拆分）。
