@@ -1761,7 +1761,7 @@
                   placeholder="你的名字"
                 />
                 @if (isCommentPreviewMode()) {
-                  <div class="comment-preview md text-pre">{{ cContent.value || '（预览区域）' }}</div>
+                  <div class="comment-preview md" [innerHTML]="renderMarkdown(cContent.value)"></div>
                 }
                 <textarea
                   #cContent

@@ -2563,6 +2563,90 @@ details.form-section > form { padding: 16px; }
   cursor: not-allowed;
 }
 
+/* Task 816: 评论 Markdown 实时预览渲染 —— 复用既有 renderMarkdown，渲染后 HTML 不再需要 pre-wrap */
+.comment-preview.md {
+  white-space: normal;
+  line-height: 1.6;
+  color: var(--text, #1e293b);
+}
+.comment-preview h1, .comment-preview h2, .comment-preview h3,
+.comment-preview h4, .comment-preview h5, .comment-preview h6 {
+  margin: 12px 0 6px;
+  line-height: 1.3;
+}
+.comment-preview h1:first-child, .comment-preview h2:first-child,
+.comment-preview h3:first-child {
+  margin-top: 0;
+}
+.comment-preview p {
+  margin: 0 0 8px;
+}
+.comment-preview p:last-child {
+  margin-bottom: 0;
+}
+.comment-preview ul, .comment-preview ol {
+  margin: 0 0 8px;
+  padding-left: 22px;
+}
+.comment-preview li {
+  margin: 2px 0;
+}
+.comment-preview code {
+  background: rgba(127, 127, 127, 0.16);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+.comment-preview pre {
+  background: rgba(127, 127, 127, 0.12);
+  padding: 10px 12px;
+  border-radius: 8px;
+  overflow: auto;
+  margin: 0 0 8px;
+}
+.comment-preview pre code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  white-space: pre;
+}
+.comment-preview a {
+  color: var(--brand-500, #4f46e5);
+  text-decoration: underline;
+}
+.comment-preview blockquote {
+  border-left: 3px solid var(--border, #e2e8f0);
+  margin: 0 0 8px;
+  padding: 4px 12px;
+  color: var(--text-muted, #64748b);
+}
+.comment-preview hr {
+  border: none;
+  border-top: 1px solid var(--border, #e2e8f0);
+  margin: 10px 0;
+}
+.comment-preview table {
+  border-collapse: collapse;
+  margin: 0 0 8px;
+  width: 100%;
+  font-size: 12px;
+}
+.comment-preview table th,
+.comment-preview table td {
+  border: 1px solid var(--border, #e2e8f0);
+  padding: 4px 8px;
+  text-align: left;
+}
+.comment-preview table th {
+  background: var(--surface-2, #f8fafc);
+}
+[data-theme="dark"] .comment-preview {
+  color: var(--text, #e2e8f0);
+}
+[data-theme="dark"] .comment-preview a {
+  color: var(--brand-400, #818cf8);
+}
+
 /* Task 809: 项目成员头像显示 */
 .members-grid {
   display: grid;

@@ -329,3 +329,22 @@
 - **提交**：`feat(ui): 前端小优化 - 任务列表行内快速查看抽屉 (Epic 55 v4.2)` → push origin main 成功。
 - **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist、scratch 脚本。
 - **下次可执行**：抽屉内行内编辑描述/标题、批量指派面板增强，或新需求。
+
+## 2026-07-25 09:41 运行（Task 819 空项目引导创建第一个 Epic → in_review，达成）
+- **目标**：本次 task → in_review。MCP 全断 → REST 兜底（Docker API 18000 / web 28080，admin id=54）。
+- **选型**：high 未完成任务 111 条；项目 1 三个 in_progress high（819/816/813）。选 819（空项目引导创建第一个 Epic）纯前端、零契约变更、可独立交付；813(看板)高风险排除。
+- **实现**：epics 标签 `@empty` 引导升级为 premium 卡片（72px SVG 圆块图标 + 虚线边框 + 品牌渐变 + hint 行）；CTA 复用 `openCreate('epic')`。零后端契约变更。
+- **验证**：`tests/test_task819_empty_epic_guide_e2e.py` 全绿（0 错误）；pytest epic30_cache 7passed/1skip；v4.2 E2E 全绿；v3.4 E2E 失败为既有 statusTransitions 数据漂移（无关）。测试末直连 MariaDB(13306) 清理空项目 122。
+- **状态**：`PUT /api/tasks/819/status in_review` → 200，Task 819 **in_review**。Story 50 已 done / Epic 15 仍 backlog，不联动。
+- **提交**：`44dd760` feat(ui): 前端优化 - 项目空状态引导创建第一个 Epic (Task 819 -> in_review) → push `b2140b7..44dd760`。
+- **硬约束**：未触碰 18001(MCP)/docker/端口；排除 data/、autodev.lock、其他 automation memory、screenshots、前端 dist。
+
+## 2026-07-25 12:57 运行（Task 816 评论 Markdown 实时预览渲染 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 全断 → REST 兜底（Docker API 18000 / web 28080，admin id=54）。
+- **选型**：172 条未完成按优先级排序；highest 的 226/227 为 E2E junk 排除；high/in_progress 中 130(项目4 重)、813(看板,高风险排除)；选 **Task 816**（评论 Markdown 实时预览，纯前端可独立）。
+- **关键发现**：`app.ts` 已有完整 `renderMarkdown(src):string` 渲染器（被文档详情/评论复用，Angular sanitizer 防护）；Task 808 已加切换按钮但预览当时仅渲染纯文本 → 816 缺口即「预览未渲染 Markdown」。
+- **实现（纯前端 ~3 行模板+样式，零契约变更）**：评论预览 `<div>` 由 `{{ cContent.value }}` 改 `[innerHTML]="renderMarkdown(cContent.value)"`；styles.css 补 `.comment-preview` 下 Markdown 渲染样式（h1-6/p/ul/ol/li/code/pre/a/blockquote/hr/table + dark）。
+- **验证**：`tests/test_task816_comment_md_preview_e2e.py` 全绿（渲染 `<strong>/<em>/<ul><li>/<a>/<code>`、按钮切换、0 错误）；回归 `pytest test_epic30_cache.py` 7passed/1skipped。
+- **踩坑**：① 自写 `renderMarkdown` 与既有同名冲突(TS2393)→复用既有；② `#cContent` 是模板引用变量非 DOM id→Playwright 用 `form#comment-form textarea[name='content']`。
+- **提交**：`feat(ui): 前端小优化 - 评论 Markdown 实时预览渲染 (Task 816 -> in_review)` → push 成功。
+- **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist。
