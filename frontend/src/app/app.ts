@@ -1356,6 +1356,9 @@ export class App implements OnInit, OnDestroy {
       } else if (kind === 'story' && id > 0) {
         this.view.set('story');
         this.storyTaskPage.set(1);
+        // 防止全局搜索词 / 其他视图的筛选条件泄漏到 Story 任务列表导致空白
+        this.search.set('');
+        this.clearFilters();
         const story = await firstValueFrom(this.api.getStory(id));
         this.story.set(story);
         // 分页加载 story 任务，确保只属于当前 story
@@ -3775,6 +3778,7 @@ export class App implements OnInit, OnDestroy {
   }
   // Epic 34 (v2.3): 工具栏「清除全部筛选」—— 重置搜索 + 优先级 chips + 只看我 + 高级面板全部筛选条件
   clearAllFilters(): void {
+    this.search.set('');
     this.taskSearchQuery.set('');
     this.clearFilters();
   }
