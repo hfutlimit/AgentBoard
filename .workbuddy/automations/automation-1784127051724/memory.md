@@ -348,3 +348,23 @@
 - **踩坑**：① 自写 `renderMarkdown` 与既有同名冲突(TS2393)→复用既有；② `#cContent` 是模板引用变量非 DOM id→Playwright 用 `form#comment-form textarea[name='content']`。
 - **提交**：`feat(ui): 前端小优化 - 评论 Markdown 实时预览渲染 (Task 816 -> in_review)` → push 成功。
 - **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist。
+
+## 2026-07-25 20:02 运行（Epic 56 v4.3 快速查看抽屉内联编辑标题与描述 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 全断 → REST 兜底（Docker API 18000 / web 28080，admin id=54）。
+- **选型**：`GET /api/tasks` 仅前 100 行、无 limit 参数；按优先级最高为 **Task 1055 (high, in_progress)**「v4.3 抽屉内联编辑标题与描述」（p123/ep129/st202）。已 in_progress、零契约变更、可独立交付 → 续推（规则优先 in_progress 条目）。
+- **发现**：v4.3 半完成态——TS 方法与标题编辑模板已在 v4.2 后落地，但描述区仅展示无编辑入口，且编辑类 CSS 缺失。17:01 残留锁即来自此任务被中断的运行。
+- **实现（纯前端）**：`app.html` 描述区新增 `✎` 编辑按钮 + `@if/@else if/@else` 三态（编辑 textarea / 展示 / 空态）；`app.css` 补齐 `.qv-edit-btn/.qv-title-input/.qv-title-edit/.qv-edit-actions/.qv-desc-head/.qv-desc-edit/.qv-desc-input`（含 dark）；`app.ts` 既有 v4.3 方法直接复用。
+- **构建**：`npm run build`(node22.22.2, 清 cache) → cp → `agentboard/web/static/`，新 `main-QESQBPTU.js`；web 28080 已 servings 新包。
+- **验证**：`tests/test_epic56_v43_inline_edit_title_desc_e2e.py` 全绿（标题/描述编辑 API 复核+列表同步、取消无副作用；0 错误）；回归 v4.2 抽屉 E2E + `pytest test_epic30_cache.py` 8 passed。
+- **状态**：Task 1055→in_review；Story 202 / Epic 129 经 PATCH 同步 in_review（达成）。
+- **提交**：`39523c4` `feat(ui): 前端小优化 - 快速查看抽屉内联编辑标题与描述 (Epic 56 v4.3)` → push `c897ab3..39523c4`。
+- **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist。
+
+## 2026-07-25 23:12 运行（Epic 57 v4.4 快速查看抽屉评论区 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 连接器全断 → REST 兜底（API 18000 / web 28080，admin id=54）。
+- **选型**：108 条未完成；highest 226/227 为 E2E junk；high 中 130/260/813 不宜独立交付 → 延续 v 系列补齐「快速查看抽屉评论区」（复用现有评论 API，纯前端）。
+- **追踪（REST 新建）**：project 124(AUTODEV57)→epic 130(Epic 57 v4.4)→story 203→task 1059(high) → 合法链 `backlog→todo→in_progress→in_review`；story 203、epic 130 同步 in_review（达成）。
+- **实现**：app.ts(qvComments/qvCommentDraft/qvLoadingComments + qvLoadComments/qvAddComment/qvDeleteComment；openQuickView 触发加载)+ app.html(.qv-comments 区块)+ app.css(评论区样式含 dark)；零后端契约变更。
+- **验证**：`tests/test_epic57_v44_drawer_comments_e2e.py` 全绿（查看/Markdown/计数/行内添加/行内删除 + API 复核；0 错误）；回归 `pytest test_epic30_cache.py` 8 passed + E2E v4.2/v4.3 全绿。
+- **提交**：`a7bfee9` `feat(ui): 前端小优化 - 快速查看抽屉评论区（Epic 57 v4.4）` → push origin main 成功（`39523c4..a7bfee9`）。
+- **硬约束**：未触碰 18001(MCP)/docker；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist。
