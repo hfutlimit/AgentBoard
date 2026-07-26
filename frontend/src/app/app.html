@@ -2271,7 +2271,7 @@
           </div>
         </div>
       } @else if (qt.description) {
-        <div class="qv-desc text-pre">{{ qt.description }}</div>
+        <div class="qv-desc md" [innerHTML]="renderMarkdown(qt.description)"></div>
       } @else {
         <div class="qv-desc empty">暂无描述</div>
       }

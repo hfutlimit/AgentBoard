@@ -3240,6 +3240,53 @@ router-outlet {
   border-radius: 10px; padding: 12px 14px; white-space: pre-wrap; word-break: break-word;
 }
 .qv-desc.empty { color: var(--color-text-tertiary, #9A9AB0); font-style: italic; }
+/* Epic 61 (v4.8): 抽屉任务描述 Markdown 渲染（与评论/文档一致，复用 renderMarkdown） */
+.qv-desc.md {
+  white-space: normal;
+  word-break: break-word;
+}
+.qv-desc.md > :first-child { margin-top: 0; }
+.qv-desc.md > :last-child { margin-bottom: 0; }
+.qv-desc.md h1, .qv-desc.md h2, .qv-desc.md h3,
+.qv-desc.md h4, .qv-desc.md h5, .qv-desc.md h6 {
+  margin: 14px 0 8px; line-height: 1.3; font-weight: 700; color: var(--color-text, #1e293b);
+}
+.qv-desc.md h1 { font-size: 19px; }
+.qv-desc.md h2 { font-size: 17px; }
+.qv-desc.md h3 { font-size: 15.5px; }
+.qv-desc.md h4, .qv-desc.md h5, .qv-desc.md h6 { font-size: 14px; }
+.qv-desc.md p { margin: 8px 0; }
+.qv-desc.md ul, .qv-desc.md ol { margin: 8px 0; padding-left: 22px; }
+.qv-desc.md li { margin: 4px 0; }
+.qv-desc.md a { color: var(--brand-500, #6366f1); text-decoration: underline; }
+.qv-desc.md strong { font-weight: 700; }
+.qv-desc.md em { font-style: italic; }
+.qv-desc.md code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px; background: rgba(99,102,241,.12); color: #4f46e5;
+  padding: 1px 5px; border-radius: 5px;
+}
+.qv-desc.md pre {
+  margin: 10px 0; padding: 12px 14px; border-radius: 8px; overflow: auto;
+  background: #0f172a; color: #e2e8f0; font-size: 12px; line-height: 1.5;
+}
+.qv-desc.md pre code { background: transparent; color: inherit; padding: 0; }
+.qv-desc.md blockquote {
+  margin: 10px 0; padding: 6px 14px; border-left: 3px solid var(--brand-300, #a5b4fc);
+  color: var(--color-text-secondary, #475569); background: rgba(99,102,241,.06); border-radius: 0 8px 8px 0;
+}
+.qv-desc.md hr { border: 0; border-top: 1px solid var(--border, #e2e8f0); margin: 12px 0; }
+.qv-desc.md table { border-collapse: collapse; margin: 10px 0; width: 100%; font-size: 12.5px; }
+.qv-desc.md th, .qv-desc.md td { border: 1px solid var(--border, #e2e8f0); padding: 6px 10px; text-align: left; }
+.qv-desc.md th { background: var(--surface-2, #f8fafc); font-weight: 700; }
+[data-theme="dark"] .qv-desc.md { color: var(--color-text, #e2e8f0); }
+[data-theme="dark"] .qv-desc.md h1, .qv-desc.md h2, .qv-desc.md h3,
+[data-theme="dark"] .qv-desc.md h4, .qv-desc.md h5, .qv-desc.md h6 { color: #f1f5f9; }
+[data-theme="dark"] .qv-desc.md code { background: rgba(129,140,248,.18); color: #c7d2fe; }
+[data-theme="dark"] .qv-desc.md a { color: #a5b4fc; }
+[data-theme="dark"] .qv-desc.md blockquote { color: #cbd5e1; background: rgba(129,140,248,.1); border-left-color: #6366f1; }
+[data-theme="dark"] .qv-desc.md th { background: rgba(255,255,255,.06); }
+[data-theme="dark"] .qv-desc.md th, [data-theme="dark"] .qv-desc.md td { border-color: rgba(255,255,255,.12); }
 /* Epic 56 (v4.3): 抽屉内标题/描述行内编辑 */
 .qv-edit-btn {
   border: 0; background: transparent; cursor: pointer; flex: none;
