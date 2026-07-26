@@ -1335,15 +1335,22 @@
                   </div>
                 }
                 @if (bulkActionTarget() === 'assignee') {
-                  <div class="bulk-panel">
+                  <div class="bulk-panel bulk-panel--assignee">
                     <span>选择指派人：</span>
-                    <select class="bulk-assignee-select" [value]="bulkAssigneeId() ?? ''" (change)="bulkAssigneeId.set($any($event.target).value === '' ? null : +$any($event.target).value)">
-                      <option value="">未指派</option>
-                      @for (m of members(); track m.user_id) {
-                        <option [value]="m.user_id">{{ getAssigneeName(m.user_id) }}</option>
+                    <input type="text" class="bulk-assign-search" placeholder="搜索成员…" [value]="bulkAssignSearch()" (input)="bulkAssignSearch.set($any($event.target).value)" />
+                    <div class="bulk-member-list">
+                      <button type="button" class="bulk-member-chip unassigned" [class.active]="bulkAssigneeId() == null" (click)="bulkAssigneeId.set(null); bulkUpdateAssignee(null); closeBulkActionPanel()">
+                        <span class="assignee-avatar-sm unassigned">?</span>未指派
+                      </button>
+                      @for (m of filteredBulkMembers(); track m.user_id) {
+                        <button type="button" class="bulk-member-chip" [class.active]="bulkAssigneeId() === m.user_id" (click)="bulkAssigneeId.set(m.user_id); bulkUpdateAssignee(m.user_id); closeBulkActionPanel()">
+                          <span class="assignee-avatar-sm">{{ getAssigneeInitials(m.user_id) }}</span>{{ getAssigneeName(m.user_id) }}
+                        </button>
                       }
-                    </select>
-                    <button class="btn btn--primary" (click)="bulkUpdateAssignee(bulkAssigneeId()); closeBulkActionPanel()">应用</button>
+                      @if (filteredBulkMembers().length === 0) {
+                        <span class="muted bulk-member-empty">无匹配成员</span>
+                      }
+                    </div>
                     <button class="btn" (click)="closeBulkActionPanel()">取消</button>
                   </div>
                 }

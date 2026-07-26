@@ -223,6 +223,7 @@ export class App implements OnInit, OnDestroy {
   readonly selectedTasks = signal<Set<number>>(new Set());
   readonly bulkActionTarget = signal<string | null>(null); // 'status' | 'priority' | 'assignee' | 'due' | 'delete' | null
   readonly bulkAssigneeId = signal<number | null>(null); // v3.0 批量指派：当前选中的指派人
+  readonly bulkAssignSearch = signal<string>(''); // v5.1 批量指派：成员搜索关键字
   readonly bulkDueDateValue = signal<string>(''); // v3.2 批量改截止日期：当前选中的日期（YYYY-MM-DD）
   // Epic 21 Story 21.3: 批量操作进度跟踪
   readonly bulkProgress = signal<{ current: number; total: number; message: string } | null>(null);
@@ -2255,6 +2256,14 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  // v5.1: 批量指派面板成员搜索过滤（按用户名匹配，空关键字返回全部）
+  filteredBulkMembers(): ProjectMember[] {
+    const q = this.bulkAssignSearch().trim().toLowerCase();
+    const list = this.members();
+    if (!q) return list;
+    return list.filter((m) => (m.username || '').toLowerCase().includes(q));
+  }
+
   // v3.2: 批量改截止日期（复用现有 bulkUpdateTasks 的 due_date / clear_due_date 字段，增量后端变更）
   async bulkUpdateDueDate(newDueDate: string | null): Promise<void> {
     const ids = Array.from(this.selectedTasks());
@@ -2376,10 +2385,12 @@ export class App implements OnInit, OnDestroy {
 
   showBulkActionPanel(type: 'status' | 'delete' | 'priority' | 'assignee' | 'due'): void {
     this.bulkActionTarget.set(type);
+    if (type === 'assignee') this.bulkAssignSearch.set('');
   }
 
   closeBulkActionPanel(): void {
     this.bulkActionTarget.set(null);
+    this.bulkAssignSearch.set('');
   }
 
   /* ---------- Keyboard Navigation ---------- */

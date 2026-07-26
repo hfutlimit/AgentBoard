@@ -410,3 +410,33 @@
 - **提交**：`feat(ui): 前端小优化 - 任务列表快速查看抽屉任务描述 Markdown 渲染 (Epic 61 v4.8)` → push 成功 `dfe7ff4..c7a6301`。
 - **硬约束**：未触碰 18001(MCP)/docker/端口；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist、agentboard-audit/。
 - **下次可执行**：可将同样 Markdown 渲染推广到「任务详情页描述」（app.html:1697 当前亦为 text-pre），或新需求。
+
+## 2026-07-26 12:44 运行（Epic 62 v4.9 任务详情页描述/Spec Markdown 渲染 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 连接器全断 → REST 兜底（API 58125 / web 8090，admin id=18）。
+- **选型**：依上次「下次可执行」建议，将 Markdown 渲染推广到任务详情页 Description/Spec（v4.8 仅做了抽屉）；纯前端、零后端契约变更。最高优先级 1112-1116「Playwright验证-文档Story路径」为重复空描述 junk → 排除，新建高优先级增量 Epic 62 v4.9。
+- **追踪（REST 新建）**：project 48(AUTODEV62)→epic 52(Epic 62 v4.9)→story 101(Story 62.1)→task 1117(high) → 合法链 `backlog→todo→in_progress→in_review`；story 101、epic 52 经 PATCH 同步 **in_review**（达成）。
+- **实现（纯前端）**：`app.html` 任务详情页 Description/Spec 卡由 `md text-pre` 改为 `@if/else` `.task-md`([innerHTML]=renderMarkdown) + `.task-md-empty`（空态）；`app.css` 新增 `.task-md`（镜像 v4.8 `.qv-desc.md` 样式 + dark）+ `.task-md-empty`。构建 `main-LMPCWHDD.js` cp→`agentboard/web/static/`，删旧 `main-GDVLBW25.js`。
+- **验证**：`tests/test_epic62_v49_task_desc_markdown_e2e.py` 全绿（Description 渲染 h1/strong/em/ul>li/code/a、Spec 渲染 h2、空态「（空）」、0 错误）；回归 `pytest test_epic30_cache.py` 8 passed + E2E v4.8/v4.5/v4.7 全绿。
+- **提交**：`6d8befd` `feat(ui): 前端小优化 - 任务详情页描述/Spec Markdown 渲染 (Epic 62 v4.9)` → push 成功 `0c7a13a..6d8befd`。
+- **硬约束**：未触碰 18001(MCP)/docker/端口；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist 源码（仅提交 static 产物）。
+- **下次可执行**：可将 Markdown 渲染推广到「Story/Epic 详情页描述」，或新需求。
+
+## 2026-07-26 16:0x 自动开发 — Epic 63 v5.0 Story/Epic 详情页描述 Markdown 渲染 → in_review（达成）
+- **目标**：本次 task → in_review。MCP 连接器全断 → REST 兜底（API 58125 / web 8090，admin id=18）。
+- **选型**：依上次「下次可执行」建议，将 Markdown 渲染推广到 Story/Epic 详情页（v4.8 抽屉、v4.9 任务详情页已渲染，仅 Story/Epic 详情页仍 `text-pre` 纯文本）→ 补齐，纯前端、零后端契约变更。最高优先级 1112-1116 为 junk、850-861 为整站级 admin-portal（1h 不可独立收尾）、708(medium,in_progress) 无描述且 scope 模糊（性能指标显示）→ 均排除，新建高优先级增量 Epic 63 v5.0。
+- **追踪（REST 新建）**：project 49(AUTODEV63)→epic 53(Epic 63 v5.0)→story 102(Story 63.1)→task 1118(high) → 合法链 `backlog→todo→in_progress→in_review`；story 102、epic 53 经 PATCH 同步 **in_review**（达成）。
+- **实现（纯前端，零新增 CSS）**：`app.html` Epic/Story 详情页描述块由 `text-pre` 改为 `@if/else` 三态——有描述 `<div class="card md task-md" [innerHTML]="renderMarkdown(current.description)">`，无描述 `.task-md-empty`「（空）」；复用 v4.9 `.task-md`/`.task-md-empty`（含 dark）。构建 `main-6IRL5C5X.js` cp→`agentboard/web/static/`，删旧 `main-LMPCWHDD.js`。`openspec/changes/frontend-detail-markdown-v50/{proposal,design,tasks}.md` 已写。
+- **验证**：`tests/test_epic63_v50_detail_md_e2e.py` 全绿（/story/102 渲染 h2/strong/em/ol>li/blockquote/code、/epic/53 渲染 h1/strong/em/ul>li/code/a，均无原始 `**` 标记；0 pageerror/console/.js+.css 404）。回归 `pytest test_epic30_cache.py` 8 passed + E2E v4.9/v4.5 全绿（无回归）。
+- **提交**：`feat(ui): 前端小优化 - Story/Epic 详情页描述 Markdown 渲染 (Epic 63 v5.0)` → push 成功 `6d8befd..89c2805`。
+- **硬约束**：未触碰 18001(MCP)/docker/端口（API 58125 / web 8090 / 8080 均原样）；排除 data/、autodev.lock、其他 automation 的 memory.md、screenshots、前端 dist 源码（仅提交 static 产物 + 源码 + 测试 + openspec）。
+- **下次可执行**：Markdown 渲染体系已覆盖 抽屉/任务详情/Story 详情/Epic 详情 四处；可转向「批量指派面板增强」或新需求。
+
+## 2026-07-26 19:04 自动开发 — Epic 64 v5.1 批量指派面板增强（成员头像/姓名 + 搜索）→ in_review（达成）
+- **目标**：本次 task → in_review。MCP 连接器全断 → REST 兜底（API 58125 / web 8090，admin id=18）。
+- **选型**：依 v5.0 运行「下次可执行」提示，将批量指派面板原生 `<select>` 升级为成员头像/姓名 chip 选择器 + 搜索（与 v3.8 行内改指派一致）；纯前端、零后端契约变更。
+- **追踪（REST 新建）**：project 50(AUTODEV64)→epic 54(Epic 64 v5.1)→story 103(Story 64.1)→task 1119(high) → 合法链 `backlog→todo→in_progress→in_review`；story 103、epic 54 经 PATCH 同步 **in_review**（达成）。
+- **实现（纯前端）**：`app.ts` 新增 `bulkAssignSearch`+`filteredBulkMembers()`（按 username 过滤 members），开/关面板重置搜索；`app.html` assignee 面板改搜索框+成员 chip 列表（含未指派，点击即应用/清除）；`app.css` 删 `.bulk-assignee-select`，新增 `.bulk-member-*` 样式。构建 `main-WEVKENIO.js` cp→`agentboard/web/static/`，删旧 `main-6IRL5C5X.js`。
+- **验证**：`tests/test_epic64_v51_bulk_assign_picker_e2e.py` 全绿（chip+头像、搜索 qa1→1 / zzzz→空态、点击 chip API 复核指派、点击未指派复核清除、0 错误；清理种子）；回归 `pytest test_epic30_cache.py` 8 passed + E2E v5.0/v4.5 全绿。
+- **提交**：`feat(ui): 前端小优化 - 批量指派面板增强（成员头像/姓名 + 搜索）(Epic 64 v5.1)` → push 成功。
+- **硬约束**：未触碰 18001(MCP)/docker/端口；排除 data/、autodev.lock、其他 automation 的 memory.md、screenshots、前端 dist。
+- **下次可执行**：批量指派体验已统一；可转向分组/排序维度持久化或新需求（admin-portal 850-861 仍整站级高优先级 backlog）。
