@@ -1,0 +1,52 @@
+/* ===== Admin Portal 全局主题 (Task 856) ===== */
+:root {
+  --brand: #6366f1;
+  --brand-soft: rgba(99, 102, 241, 0.14);
+  --bg: #f6f7fb;
+  --surface: #ffffff;
+  --input-bg: #f1f3f9;
+  --border: #e5e7eb;
+  --text: #0f172a;
+  --text-soft: #475569;
+  --muted: #94a3b8;
+  --danger: #dc2626;
+  --danger-soft: #fef2f2;
+  --danger-border: #fecaca;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1020;
+    --surface: #131a2e;
+    --input-bg: #1b2440;
+    --border: #283353;
+    --text: #e8ecf6;
+    --text-soft: #aeb8d4;
+    --muted: #6b779b;
+    --danger: #f87171;
+    --danger-soft: #2a1416;
+    --danger-border: #5b2a2e;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--brand);
+}

@@ -28,6 +28,9 @@
     },
     {
       "path": "./tsconfig.spec.json"
+    },
+    {
+      "path": "./projects/admin-portal/tsconfig.app.json"
     }
   ]
 }

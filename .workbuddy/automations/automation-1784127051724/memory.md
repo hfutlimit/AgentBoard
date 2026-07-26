@@ -440,3 +440,28 @@
 - **提交**：`feat(ui): 前端小优化 - 批量指派面板增强（成员头像/姓名 + 搜索）(Epic 64 v5.1)` → push 成功。
 - **硬约束**：未触碰 18001(MCP)/docker/端口；排除 data/、autodev.lock、其他 automation 的 memory.md、screenshots、前端 dist。
 - **下次可执行**：批量指派体验已统一；可转向分组/排序维度持久化或新需求（admin-portal 850-861 仍整站级高优先级 backlog）。
+
+## 2026-07-26 22:28 自动开发 — Epic 65 v5.2 批量复制选中任务（克隆）→ in_review（达成）
+- **目标**：本次 task → in_review。MCP 全断 → REST 兜底（API 58125 / web 8090，admin id=18）。
+- **选型**：任务行已有单行 `duplicateTask` 复制，批量栏缺等价「批量复制」→ 补齐，纯前端零契约变更。最高优先级 1112-1116 junk、850-861 整站级、708 无描述 → 排除，新建高优先级增量 Epic 65 v5.2。
+- **追踪（REST 新建）**：project 52(AUTODEV65)→epic 55(Epic 65 v5.2)→story 104(Story 65.1)→task 1120(high) → `backlog→todo→in_progress→in_review`；story/epic 同步 **in_review**（达成）。
+- **实现**：`app.ts` 新增 `bulkDuplicate()`（遍历 selectedTasks 调 api.createTask 克隆到各自 Story，含 bulkProgress/notify/单次 refresh）；`app.html` 批量栏加「批量复制」按钮；构建 `main-62TA2BLF.js` cp→web/static。
+- **坑**：`createTask` 的 `tap(invalidatePrefix)` 使每次创建偏慢（3 任务≈12s），初版直接 await 在 E2E 中表现异常；改循环内 try/catch 不刷新 + 末次 refresh 后稳定。
+- **验证**：`tests/test_epic65_v52_bulk_duplicate_e2e.py` 全绿（3 副本 + toast + 0 错误）；回归 `pytest test_epic30_cache.py` 8 passed + E2E v5.1 全绿（v4.2 因硬编码 28080/18000 端口漂移属既有失败）。
+- **提交**：`feat(ui): 前端小优化 - 任务列表批量复制选中任务 (Epic 65 v5.2)` → push `175cf75..7420156`。
+- **硬约束**：未触碰 18001(MCP)/docker/端口；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist、scratch 脚本。
+
+## 2026-07-27 02:04 自动开发 — admin-portal 基础框架（Task 850/851/856 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 连接器全断 → REST 兜底（API 58125，admin id=18）。
+- **选型**：最高优先级真实 backlog 为 **admin-portal（Task 850–861，high，项目 3）**，整站级不可 1h 收尾；highest 的 1112–1116 为 junk。按规则取最小可独立交付增量：Task 850(初始化)/851(登录页)/856(样式与主题)，纯前端、零后端契约变更。
+- **实现（在 frontend/ Angular 21 工作区新增第二应用 `admin-portal`，复用 node_modules）**：
+  - `ng generate application admin-portal --routing --style=css --ssr=false --skip-tests`（自动更新 angular.json/tsconfig.json，主应用构建不受影响）。
+  - `app.config.ts` provideRouter+provideHttpClient；`app.routes.ts` login/dashboard(`authGuard`)/**；`auth.guard.ts` 函数式 CanActivateFn 校验 `localStorage['admin_portal_token']`。
+  - `api.service.ts`(login/me 注入 Authorization) + `login/`(表单调 `/api/auth/login`、存 token、跳 dashboard、错误告警) + `dashboard/`(受守卫保护占位、调 `/api/auth/me`、退出)。
+  - `styles.css` 全局 premium 主题（light/dark 自适应、品牌渐变、卡片/按钮）。
+  - `proxy.conf.json` dev `/api → 127.0.0.1:58125`。
+  - **修复**：登录响应字段为 `token`（非 `access_token`），初版误用致 `me()` 401。
+- **验证**：`ng build admin-portal` 通过（login/dashboard 懒加载 chunk 正常）；`tests/test_admin_portal_login_e2e.py` 全绿（渲染/错误凭据告警/正确登录存 token 跳转/守卫拦截未登录/重新登录；0 pageerror/console/.js+.css 404，无预期外 401）；回归 `pytest test_epic30_cache.py` 8 passed + `ng build frontend` 主应用构建通过（仅预存 CSS budget 警告）。
+- **状态（REST 合法链 `backlog→todo→in_progress→in_review`）**：Task 850 / 851 / 856 → **in_review**；Story 71 / 其 Epic 保持部分完成（仅 3/7 任务推进），不误标 done。
+- **提交**：`feat(ui): admin-portal 基础框架 - 初始化/登录页/主题 (Task 850/851/856 -> in_review)` + push origin main。
+- **硬约束**：未触碰 18001(MCP)/docker/端口；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist、scratch 脚本。

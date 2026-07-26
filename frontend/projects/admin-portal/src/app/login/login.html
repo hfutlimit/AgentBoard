@@ -1,0 +1,51 @@
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="brand">
+      <div class="brand-mark">AB</div>
+      <div class="brand-text">
+        <h1>AgentBoard</h1>
+        <span>管理控制台 · Admin Portal</span>
+      </div>
+    </div>
+
+    <h2 class="auth-title">登录到控制台</h2>
+    <p class="auth-sub">使用管理员账号访问项目管理后台</p>
+
+    <form (ngSubmit)="submit()" #f="ngForm" novalidate>
+      <label class="field">
+        <span>用户名</span>
+        <input
+          type="text"
+          name="username"
+          autocomplete="username"
+          placeholder="admin"
+          [ngModel]="username()"
+          (ngModelChange)="username.set($event)"
+        />
+      </label>
+
+      <label class="field">
+        <span>密码</span>
+        <input
+          type="password"
+          name="password"
+          autocomplete="current-password"
+          placeholder="••••••••"
+          [ngModel]="password()"
+          (ngModelChange)="password.set($event)"
+          (keyup.enter)="submit()"
+        />
+      </label>
+
+      @if (error()) {
+        <div class="alert" role="alert">{{ error() }}</div>
+      }
+
+      <button class="btn-primary" type="submit" [disabled]="loading()">
+        @if (loading()) { 登录中… } @else { 登录 }
+      </button>
+    </form>
+
+    <p class="hint">默认管理员账号：admin / admin123</p>
+  </div>
+</div>
