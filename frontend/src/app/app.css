@@ -2864,7 +2864,18 @@ router-outlet {
   overflow-x: auto;
   color: #334155;
 }
-.doc-content .mermaid-svg { margin: 1em 0; overflow-x: auto; }
+.doc-content .mermaid-svg {
+  margin: 1em 0;
+  overflow-x: auto;
+  text-align: center;
+  background: #fff;
+  border-radius: 10px;
+  padding: 12px 8px;
+}
+.doc-content .mermaid-svg svg {
+  max-width: 100%;
+  height: auto;
+}
 .doc-content table.md-table {
   border-collapse: collapse;
   margin: 0.8em 0;

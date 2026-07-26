@@ -4556,35 +4556,63 @@ export class App implements OnInit, OnDestroy {
     return out.join('\n');
   }
 
-  // 懒加载 mermaid（CDN），离线时优雅降级为代码块
+  // 懒加载 mermaid（多级 CDN fallback），离线时优雅降级为代码块
+  private _docMermaidTried = 0;
+  private static readonly MERMAID_CDN_URLS = [
+    'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js',
+    'https://unpkg.com/mermaid@11/dist/mermaid.min.js',
+    'https://lib.baomitu.com/mermaid/11.4.0/mermaid.min.js',
+  ];
   private enhanceMermaid(): void {
     const blocks = document.querySelectorAll('pre.mermaid');
     if (blocks.length === 0) return;
     if ((window as any).mermaid) { this._renderMermaid(); return; }
     if (this._docMermaidLoading) return;
+    if (this._docMermaidTried >= App.MERMAID_CDN_URLS.length) return; // 全部失败
     this._docMermaidLoading = true;
+    const url = App.MERMAID_CDN_URLS[this._docMermaidTried];
     const s = document.createElement('script');
-    s.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
+    s.src = url;
+    const tryIdx = this._docMermaidTried;
+    // 超时 8s 自动尝试下一个源
+    const timer = setTimeout(() => {
+      if (this._docMermaidLoading) { s.remove(); this._onMermaidLoadFail(); }
+    }, 8000);
     s.onload = () => {
-      try { (window as any).mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' }); } catch { /* ignore */ }
+      clearTimeout(timer);
+      try { (window as any).mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', theme: 'default' }); } catch { /* ignore */ }
       this._renderMermaid();
     };
-    s.onerror = () => { /* 离线：保留原始代码块 */ };
+    s.onerror = () => { clearTimeout(timer); this._onMermaidLoadFail(); };
     document.head.appendChild(s);
+  }
+  private _onMermaidLoadFail(): void {
+    this._docMermaidLoading = false;
+    this._docMermaidTried++;
+    if (this._docMermaidTried < App.MERMAID_CDN_URLS.length) {
+      this.enhanceMermaid(); // 尝试下一个
+    }
+    // 全部失败：保留原始代码块（降级）
   }
   private _renderMermaid(): void {
     const mermaid = (window as any).mermaid;
     if (!mermaid) return;
     document.querySelectorAll('pre.mermaid').forEach((el, idx) => {
       const code = (el.textContent || '').trim();
+      if (!code) return;
+      const id = `doc-mermaid-${Date.now()}-${idx}`;
       try {
-        mermaid.render(`doc-mermaid-${Date.now()}-${idx}`, code).then(({ svg }: any) => {
+        mermaid.render(id, code).then(({ svg }: any) => {
           const wrap = document.createElement('div');
           wrap.className = 'mermaid-svg';
           wrap.innerHTML = svg;
           el.replaceWith(wrap);
-        }).catch(() => { /* 保留代码块 */ });
-      } catch { /* ignore */ }
+        }).catch((err: any) => {
+          console.warn('[AgentBoard] Mermaid render error:', err?.message || err);
+        });
+      } catch (err) {
+        console.warn('[AgentBoard] Mermaid render exception:', err);
+      }
     });
   }
 
