@@ -1021,7 +1021,9 @@
               </div>
             </div>
             @if (current.description) {
-              <div class="card md text-pre">{{ current.description }}</div>
+              <div class="card md task-md" [innerHTML]="renderMarkdown(current.description)"></div>
+            } @else {
+              <div class="card md task-md-empty">（空）</div>
             }
             <div class="section-header">
               <h3>
@@ -1097,7 +1099,9 @@
 
               <!-- Description -->
               @if (current.description) {
-                <div class="card md story-description text-pre">{{ current.description }}</div>
+                <div class="card md story-description task-md" [innerHTML]="renderMarkdown(current.description)"></div>
+              } @else {
+                <div class="card md story-description task-md-empty">（空）</div>
               }
 
               <!-- Edit Story (collapsible) -->
