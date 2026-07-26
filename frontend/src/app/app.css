@@ -2759,6 +2759,15 @@ router-outlet {
   line-height: 1.7;
   overflow-x: auto;
 }
+.doc-linked-card { margin-top: 1rem; }
+.doc-linked-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.4rem; }
+.link-chip {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  padding: 0.3rem 0.75rem; border-radius: 999px;
+  background: #eef2ff; color: #4338ca; font-size: 0.85rem; font-weight: 600;
+  text-decoration: none; border: 1px solid #e0e7ff; cursor: pointer;
+}
+.link-chip:hover { background: #e0e7ff; }
 .doc-content h1, .doc-content h2, .doc-content h3,
 .doc-content h4, .doc-content h5, .doc-content h6 {
   margin: 1.1em 0 0.5em;

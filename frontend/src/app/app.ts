@@ -21,6 +21,8 @@ interface CreateModal {
   kind: CreateKind;
   parentId?: number;
   projectId?: number;
+  epicId?: number;
+  storyId?: number;
 }
 
 type ConfirmationTone = 'danger' | 'warning' | 'info';
@@ -127,6 +129,8 @@ export class App implements OnInit, OnDestroy {
   readonly docMermaidReady = signal(false);
   readonly docDetailEpics = signal<Epic[]>([]);
   readonly docDetailStories = signal<Story[]>([]);
+  // 从文档（仅关联 Epic）新增任务时，供弹窗选择 Story 的选项
+  readonly createStoryOptions = signal<Story[]>([]);
   private _docMermaidLoading = false;
   // 新建文档表单状态
   readonly docCreateOpen = signal(false);
@@ -1648,8 +1652,24 @@ export class App implements OnInit, OnDestroy {
     this.notify('已退出登录');
   }
 
-  openCreate(kind: CreateKind, parentId?: number, projectId?: number): void {
-    this.modal.set({ kind, parentId, projectId });
+  openCreate(kind: CreateKind, parentId?: number, projectId?: number, ctx?: { epicId?: number; storyId?: number }): void {
+    this.modal.set({ kind, parentId, projectId, epicId: ctx?.epicId, storyId: ctx?.storyId });
+    if (kind === 'task' && ctx?.epicId) {
+      this.api.listStories(ctx.epicId).subscribe((stories) => this.createStoryOptions.set(stories));
+    }
+  }
+
+  // 在文档关联的 Epic / Story 下新增任务：优先使用 Story，仅关联 Epic 时弹窗选 Story
+  addTaskFromDoc(): void {
+    const d = this.docItem();
+    if (!d) return;
+    if (d.story_id) {
+      this.openCreate('task', d.story_id, d.project_id);
+    } else if (d.epic_id) {
+      this.openCreate('task', undefined, d.project_id, { epicId: d.epic_id });
+    } else {
+      this.notify('该文档尚未关联 Epic / Story，无法在其下新增任务', 'error');
+    }
   }
 
   openCreateSchedule(projectId: number): void {
@@ -1715,9 +1735,15 @@ export class App implements OnInit, OnDestroy {
         await firstValueFrom(
           this.api.createStory(modal.parentId, { title: title.trim(), description }),
         );
-      } else if (modal.kind === 'task' && modal.parentId && modal.projectId) {
+      } else if (modal.kind === 'task' && modal.projectId) {
+        // 从文档（仅关联 Epic）进入时，以弹窗所选 Story 为准；否则沿用 parentId（Story）
+        const storyId = modal.epicId ? Number(data.get('story_id')) : modal.parentId;
+        if (!storyId) {
+          this.notify('请先选择 Story', 'error');
+          return;
+        }
         await firstValueFrom(
-          this.api.createTask(modal.parentId, {
+          this.api.createTask(storyId, {
             project_id: modal.projectId,
             title: title.trim(),
             description,
@@ -4149,6 +4175,10 @@ export class App implements OnInit, OnDestroy {
   epicTitle(eid: number | null): string {
     if (!eid) return '';
     return this.docDetailEpics().find((e) => e.id === eid)?.title || this.epics().find((e) => e.id === eid)?.title || `Epic #${eid}`;
+  }
+  storyTitle(sid: number | null): string {
+    if (!sid) return '';
+    return this.docDetailStories().find((s) => s.id === sid)?.title || this.stories().find((s) => s.id === sid)?.title || `Story #${sid}`;
   }
   projectName(pid: number): string {
     return this.projects().find((p) => p.id === pid)?.name || `#${pid}`;
