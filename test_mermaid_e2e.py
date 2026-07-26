@@ -121,12 +121,14 @@ def main():
         context = browser.new_context()
 
         # 内部 route：web 注入的 API URL 是 58124，内部改写为 58125
+        # 拦截 API 请求 redirect 到实际 API 端口
         def route_handler(route):
             url = route.request.url
-            if "127.0.0.1:58124" in url:
-                route.continue_(url=url.replace("127.0.0.1:58124", "127.0.0.1:58125"))
-            else:
-                route.continue_()
+            for src in ("127.0.0.1:58124", "127.0.0.1:8000", "localhost:8000"):
+                if src in url:
+                    route.continue_(url=url.replace(src, "127.0.0.1:58125"))
+                    return
+            route.continue_()
         context.route("**/*", route_handler)
 
         page = context.new_page()

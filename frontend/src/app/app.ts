@@ -4556,9 +4556,11 @@ export class App implements OnInit, OnDestroy {
     return out.join('\n');
   }
 
-  // 懒加载 mermaid（多级 CDN fallback），离线时优雅降级为代码块
-  private _docMermaidTried = 0;
-  private static readonly MERMAID_CDN_URLS = [
+  // 懒加载 mermaid：本地 static/mermaid.min.js → CDN fallback → 降级代码块
+  // 消除 ERR_NAME_NOT_RESOLVED 控制台错误（本地文件不依赖外网）
+  private _docMermaidTried = 0; // 0=local, 1=jsdelivr, 2=unpkg, 3=baomitu
+  private static readonly MERMAID_SOURCES = [
+    '/static/mermaid.min.js',                        // 本地（首选，无网络依赖）
     'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js',
     'https://unpkg.com/mermaid@11/dist/mermaid.min.js',
     'https://lib.baomitu.com/mermaid/11.4.0/mermaid.min.js',
@@ -4567,32 +4569,36 @@ export class App implements OnInit, OnDestroy {
     const blocks = document.querySelectorAll('pre.mermaid');
     if (blocks.length === 0) return;
     if ((window as any).mermaid) { this._renderMermaid(); return; }
-    if (this._docMermaidLoading) return;
-    if (this._docMermaidTried >= App.MERMAID_CDN_URLS.length) return; // 全部失败
+    if (this._docMermaidTried >= App.MERMAID_SOURCES.length) return;
     this._docMermaidLoading = true;
-    const url = App.MERMAID_CDN_URLS[this._docMermaidTried];
+    const url = App.MERMAID_SOURCES[this._docMermaidTried];
     const s = document.createElement('script');
     s.src = url;
-    const tryIdx = this._docMermaidTried;
-    // 超时 8s 自动尝试下一个源
-    const timer = setTimeout(() => {
-      if (this._docMermaidLoading) { s.remove(); this._onMermaidLoadFail(); }
-    }, 8000);
-    s.onload = () => {
-      clearTimeout(timer);
+    // 本地文件无超时；CDN 源 8s 超时切换下一个
+    const isLocal = url.startsWith('/');
+    if (!isLocal) {
+      const timer = setTimeout(() => {
+        if (this._docMermaidLoading) { s.remove(); this._onMermaidLoadFail(); }
+      }, 8000);
+      s.addEventListener('load', () => { clearTimeout(timer); });
+      s.addEventListener('error', () => { clearTimeout(timer); this._onMermaidLoadFail(); });
+    } else {
+      s.addEventListener('error', () => { this._onMermaidLoadFail(); });
+    }
+    s.addEventListener('load', () => {
+      this._docMermaidLoading = false;
       try { (window as any).mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', theme: 'default' }); } catch { /* ignore */ }
       this._renderMermaid();
-    };
-    s.onerror = () => { clearTimeout(timer); this._onMermaidLoadFail(); };
+    });
     document.head.appendChild(s);
   }
   private _onMermaidLoadFail(): void {
     this._docMermaidLoading = false;
     this._docMermaidTried++;
-    if (this._docMermaidTried < App.MERMAID_CDN_URLS.length) {
+    if (this._docMermaidTried < App.MERMAID_SOURCES.length) {
       this.enhanceMermaid(); // 尝试下一个
     }
-    // 全部失败：保留原始代码块（降级）
+    // 全部失败：保留原始代码块（降级），无网络错误
   }
   private _renderMermaid(): void {
     const mermaid = (window as any).mermaid;
