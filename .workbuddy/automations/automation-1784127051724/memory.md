@@ -399,3 +399,14 @@
 - **提交**：`feat(ui): 前端小优化 - 筛选预设可视化标签（分组/排序维度与筛选计数）(Epic 60 v4.7)` → push origin main 成功。
 - **硬约束**：未触碰 18001(MCP)/docker/端口；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist（仅提交 static 产物）、scratch 脚本。
 - **下次可执行**：分组维度持久化（taskGroupBy 已持久化至 agentboard_story_group，无缺口）、批量指派面板增强、或新需求。
+
+## 2026-07-26 09:30 运行（Epic 61 v4.8 抽屉描述 Markdown 渲染 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 连接器全断 → REST 兜底（API 58125 / web 8090，admin id=18）。
+- **选型**：未完成任务按优先级排序，最高优先级 high 全为 admin-portal（850-861，整站级、1h 不可独立收尾）→ 依规则新建高优先级增量 Epic 61 v4.8「快速查看抽屉任务描述 Markdown 渲染」。核查键盘导航（j/k/Enter/空格//Esc/Ctrl+A）与 bulk 五件套（status/priority/assignee/due/delete）均已完整，未重复。
+- **追踪（REST 新建）**：project 47(AUTO61)→epic 51(Epic 61 v4.8)→story 100(Story 61.1)→task 1111(high) → 合法链 `backlog→todo→in_progress→in_review`；story 100、epic 51 经 PATCH 同步 **in_review**（达成）。
+- **实现（纯前端，零后端契约变更）**：`app.html` 抽屉描述 `{{ qt.description }}`(text-pre) 改 `[innerHTML]="renderMarkdown(qt.description)"` + class `qv-desc md`；`app.css` 补 `.qv-desc.md` 渲染样式（h1-h6/p/ul/ol/li/a/code/pre/blockquote/hr/table，含 dark；覆盖 `.qv-desc` 原 `white-space:pre-wrap` 为 normal 避免多余换行）。
+- **验证**：`tests/test_epic61_v48_desc_markdown_e2e.py` 全绿（种子 task Markdown → 抽屉渲染 h1/strong/em/ul/li/code/a，inner_text 无原始 `**` 标记；0 pageerror/console/.js+.css 404；测试末清理种子）；回归 `pytest test_epic30_cache.py` 8 passed + v4.5 抽屉导航 E2E 全绿 + v4.7 预设标签 E2E 全绿（无回归）。
+- **构建**：`npm run build`(node22.22.2, 清 cache) → `main-GDVLBW25.js` cp→`agentboard/web/static/`，删旧 `main-I3OWIP4M.js`。
+- **提交**：`feat(ui): 前端小优化 - 任务列表快速查看抽屉任务描述 Markdown 渲染 (Epic 61 v4.8)` → push 成功 `dfe7ff4..c7a6301`。
+- **硬约束**：未触碰 18001(MCP)/docker/端口；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist、agentboard-audit/。
+- **下次可执行**：可将同样 Markdown 渲染推广到「任务详情页描述」（app.html:1697 当前亦为 text-pre），或新需求。
