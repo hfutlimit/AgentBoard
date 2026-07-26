@@ -1694,11 +1694,19 @@
             <div class="two-col">
               <div class="card">
                 <h3>Description</h3>
-                <div class="md text-pre">{{ current.description || '（空）' }}</div>
+                @if (current.description) {
+                  <div class="task-md" [innerHTML]="renderMarkdown(current.description)"></div>
+                } @else {
+                  <div class="task-md-empty">（空）</div>
+                }
               </div>
               <div class="card">
                 <h3>Spec（OpenSpec）</h3>
-                <div class="md text-pre">{{ current.spec || '（空）' }}</div>
+                @if (current.spec) {
+                  <div class="task-md" [innerHTML]="renderMarkdown(current.spec)"></div>
+                } @else {
+                  <div class="task-md-empty">（空）</div>
+                }
               </div>
             </div>
             <!-- Attachment section -->
