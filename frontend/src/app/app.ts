@@ -4104,6 +4104,46 @@ export class App implements OnInit, OnDestroy {
     );
   }
 
+  // v5.2: 批量复制（克隆）选中任务到各自 Story —— 对称于单行 duplicateTask，纯前端零后端契约变更
+  // v5.2: 批量复制（克隆）选中任务到各自 Story —— 对称于单行 duplicateTask，纯前端零后端契约变更
+  async bulkDuplicate(): Promise<void> {
+    const ids = Array.from(this.selectedTasks());
+    if (ids.length === 0) return;
+    this.bulkProgress.set({ current: 0, total: ids.length, message: `正在复制 0/${ids.length} 个任务…` });
+    let ok = 0;
+    const failed: string[] = [];
+    try {
+      for (let i = 0; i < ids.length; i++) {
+        const id = ids[i];
+        const task = this.tasks().find((t) => t.id === id);
+        if (!task || !task.story_id) continue;
+        try {
+          await firstValueFrom(this.api.createTask(task.story_id, {
+            project_id: task.project_id,
+            title: task.title + ' (副本)',
+            type: task.type,
+            priority: task.priority,
+            description: task.description,
+            labels: task.labels,
+          }));
+          ok++;
+        } catch (e) {
+          failed.push(task.title);
+        }
+        this.bulkProgress.set({ current: i + 1, total: ids.length, message: `正在复制 ${i + 1}/${ids.length} 个任务…` });
+      }
+      if (failed.length) {
+        this.notify(`已复制 ${ok} 个任务，${failed.length} 个失败`, 'error');
+      } else {
+        this.notify(`已批量复制 ${ok} 个任务（副本已创建到各自 Story）`);
+      }
+    } finally {
+      this.bulkProgress.set(null);
+      this.clearTaskSelection();
+      await this.refresh();
+    }
+  }
+
   // Epic 36: Inline task title editing
   startInlineEdit(id: number): void {
     const task = this.tasks().find((t) => t.id === id);
