@@ -475,3 +475,26 @@
 - **关键坑**：① 02:04 残留 `ng serve` 占 IPv4 127.0.0.1:4300，新 serve 默绑 IPv6 致 Playwright 命中旧代码（/stats 重定向 /login）→ PowerShell 按端口杀残留 + 清 .angular/cache + `--host 127.0.0.1` 重启解决。② 首次状态 PUT 遇 API 58125 瞬时 000，重试成功。
 - **提交**：`a111025` `feat(ui): admin-portal 统计页 - 任务趋势日/周/月聚合 + 汇总卡片 (Task 854 -> in_review)` → push origin main 成功。git add 仅 admin-portal 源码树 + 新 E2E（补齐 02:04 未提交源码使仓库可构建）；排除 data/、autodev.lock、其他 automation memory、screenshots、前端 dist。
 - **硬约束**：未触碰 18001(MCP)/docker/端口；验证后已停 4300 serve。
+
+## 2026-07-27 11:33 运行（admin-portal E2E 测试骨架收拢，Task 857-861 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 全断 → REST 兜底（API 58125，admin id=18）。
+- **选型**：Story 71（前端 850-856）已全部 in_review；Story 72（Playwright 自动化 857-861）仍为 backlog，是最高优先级真实 backlog。四页（login/users/projects/stats）已有散落根级 E2E 脚本（硬编码 4300、依赖手动 ng serve），缺乏统一可独立运行基础设施 → 收拢为骨架。
+- **实现（纯测试基础设施，零前端/后端契约变更）**：`scripts/serve_admin_portal.py`（静态托管 `frontend/dist/admin-portal/browser` + `/api` 反向代理到 58125，同源免 CORS；SPA 路由回退）；`tests/admin_portal/` 包（`__init__.py` + `_harness.py` 共享 start_browser/login_ui/check_errors + `run_all.py` 编排 + test_login/test_users_projects/test_stats 三用例，`BASE` 改读 `ADMIN_PORTAL_URL` 环境变量默认 4321）；根级旧脚本经 git mv 收拢。
+- **验证**：`ng build admin-portal --configuration development` 通过；`python scripts/serve_admin_portal.py --port 4321 &` + `python tests/admin_portal/run_all.py` 全绿（login PASS / users_projects PASS users=51,projects=50 / stats PASS；0 pageerror/console/.js+.css 404，无预期外 401）。后端回归 `pytest test_epic30_cache.py` 8 passed（零源码改动）。
+- **状态（REST）**：Task 857/858/859/860/861 经合法链 `backlog→todo→in_progress→in_review` → in_review；`PATCH /api/stories/72` Story 72 → in_review；`PATCH /api/epics/32` Epic 32 → in_review（Story 71 亦 in_review）。
+- **坑（已解决）**：① serve 脚本 `global TARGET` 声明在 main 内 TARGET 首次使用之后 → SyntaxError，提到首行修复；② Git Bash `/tmp` 与 Python `/tmp` 路径不一致 → token 改用环境变量 `AB_TOKEN`；③ `taskkill //PID` 在 Git Bash 被转义失败 → PowerShell `Stop-Process -Id` 停 4321。
+- **提交**：`132d62a` `feat(test): admin-portal E2E 测试骨架 ... (Story 72 / Task 857-861 -> in_review)` → push origin main 成功（`3504036..132d62a`，11 文件）。git add 仅交付文件，刻意排除 data/、autodev.lock、其他 automation 的 memory、screenshots、前端 dist、agentboard-audit/、scratch 脚本。
+- **硬约束**：未触碰 18001(MCP)/docker/端口（验证服务用 4321，已停）；API 58125 / web 8080/8090/28080 原样。
+- **下次可执行**：admin-portal 全部 Story（71 前端 + 72 E2E）均 in_review → Epic 32 可标 done；或转向其它高优先级需求。
+
+
+## 2026-07-27 14:5x 自动开发 — Epic 66 v5.3 任务列表行密度切换 → in_review（达成）
+- 目标：本次 task → in_review。MCP 连接器全断 → REST 兜底（API 58125 / web 8090，admin id=18）。
+- 选型：项目 3 真实高优先级 backlog 仅剩 junk（1112-1116 重复空描述、1107/864/863 探针/临时任务）；admin-portal(850-861) 已全部 in_review → 新建增量 Epic 66 v5.3 补齐「任务列表行密度切换」工具条按钮（能力骨架 listDensity 信号/toggleListDensity 方法/.density-compact 样式早已存在，唯缺触发按钮）。
+- 追踪（REST 新建）：project 53(AUTODEV66)→epic 56(Epic 66 v5.3)→story 105→task 1121(high) → 合法链 backlog→todo→in_progress→in_review；story 105、epic 56 同步 in_review（达成）。
+- 实现（纯前端，零后端契约变更）：app.html filterbar__right 新增 #densityToggle 按钮（调 toggleListDensity()，文案舒适/紧凑 + aria-pressed）；app.css 补 .btn.density-toggle 样式；复用既有 .entity-list.density-compact（行内边距 10px→6px）。
+- 构建：npm run build(node22.22.2, 清 .angular/cache, NODE_OPTIONS=--max_old_space_size=4096) → main-NYXBDWD5.js + styles-XJWX23MR.css cp→agentboard/web/static，删旧 main-62TA2BLF.js；web 8090 直读挂载即时生效。
+- 验证：tests/test_epic66_v53_row_density_e2e.py 全绿（断言计算样式 padding 10px→6px、再点恢复、刷新持久化 localStorage='compact' + 类 + 文案；0 pageerror/console/.js+.css 404）；回归 pytest test_epic30_cache.py 8 passed + E2E v5.2 bulk_duplicate 全绿（无回归）。
+- 提交：feat(ui): 前端小优化 - 任务列表行密度切换（紧凑/舒适）(Epic 66 v5.3) → push origin main 成功。
+- 硬约束：未触碰 18001(MCP)/docker/端口（API 58125 / web 8090/8080/28080/18000 原样）；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist 源码（仅提交 static 产物 + 源码 + 测试 + openspec）。
+- 下次可执行：admin-portal Epic 32 可标 done（将 850-861 置 done 并完成验收）；或新需求。

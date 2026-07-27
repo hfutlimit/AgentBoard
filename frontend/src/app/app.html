@@ -1230,6 +1230,11 @@
                     折叠
                   </label>
 
+                  <button id="densityToggle" class="btn density-toggle" type="button" (click)="toggleListDensity()" [title]="listDensity() === 'compact' ? '切换为舒适模式' : '切换为紧凑模式'" [attr.aria-pressed]="listDensity() === 'compact'">
+                    <span class="density-glyph">{{ listDensity() === 'compact' ? '▤' : '▦' }}</span>
+                    <span class="density-label">{{ listDensity() === 'compact' ? '紧凑' : '舒适' }}</span>
+                  </button>
+
                   <div class="preset-wrap">
                     <button class="dropdown" (click)="togglePresetOpen()" [class.active]="presetOpen()">
                       <span>预设</span>

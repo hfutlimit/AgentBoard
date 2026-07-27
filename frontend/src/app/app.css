@@ -989,6 +989,23 @@ router-outlet {
   margin-left: 2px;
 }
 
+/* Task 831 / 1121: 列表密度切换按钮 */
+.btn.density-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+.btn.density-toggle .density-glyph {
+  font-size: 1rem;
+  line-height: 1;
+}
+.btn.density-toggle[aria-pressed="true"] {
+  background: var(--accent, #6366f1);
+  color: #fff;
+  border-color: transparent;
+}
+
 /* Task 818: 任务列表指派人头像 */
 .assignee-avatar-sm {
   display: inline-flex;
