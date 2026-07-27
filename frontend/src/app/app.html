@@ -62,6 +62,10 @@
       <button id="shortcuts-toggle" class="icon-btn" title="键盘快捷键 (?)" (click)="toggleShortcuts()">
         <span>?</span>
       </button>
+      <!-- Epic 67 v5.4: 命令面板触发 -->
+      <button id="command-palette-toggle" class="icon-btn" title="命令面板 (Ctrl/Cmd+K)" (click)="openPalette()">
+        <span class="cmd-k-icon">⌘</span>
+      </button>
       <button id="theme-toggle" class="icon-btn" [title]="getThemeLabel()" (click)="toggleTheme()">
         <span class="theme-icon">{{ isDarkTheme() ? '🌙' : '☀️' }}</span>
       </button>
@@ -2760,6 +2764,53 @@
       <!-- Task 605: 快捷键提示增强 - 任务详情页快捷键说明 -->
       <div class="shortcuts-note">
         在任务详情页：<kbd>c</kbd> 推进状态 · <kbd>d</kbd> 标记完成 · <kbd>x</kbd> 删除任务
+      </div>
+    </div>
+  </div>
+}
+
+@if (paletteOpen()) {
+  <div class="command-palette-overlay" (click)="closePalette()">
+    <div class="command-palette" (click)="$event.stopPropagation()">
+      <div class="command-palette-input-wrap">
+        <span class="command-palette-search-icon">⌕</span>
+        <input
+          id="paletteInput"
+          class="command-palette-input"
+          type="text"
+          placeholder="输入命令或搜索…（↑↓ 选择，Enter 执行，Esc 关闭）"
+          [value]="paletteQuery()"
+          (input)="paletteQuery.set($any($event.target).value); paletteIndex.set(0)"
+          (keydown)="onPaletteKeydown($event)"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <kbd class="command-palette-esc">Esc</kbd>
+      </div>
+      <div id="paletteList" class="command-palette-list">
+        @if (paletteItems().length === 0) {
+          <div class="command-palette-empty">无匹配命令</div>
+        }
+        @for (cmd of paletteItems(); track cmd.id; let i = $index) {
+          <button
+            type="button"
+            class="palette-item"
+            [class.active]="i === paletteIndex()"
+            (mouseenter)="paletteIndex.set(i)"
+            (click)="paletteRun(cmd)"
+          >
+            <span class="palette-item-title">{{ cmd.title }}</span>
+            @if (cmd.hint) {
+              <span class="palette-item-hint">{{ cmd.hint }}</span>
+            }
+          </button>
+        }
+      </div>
+      <div class="command-palette-footer">
+        <span><kbd>↑</kbd><kbd>↓</kbd> 导航</span>
+        <span><kbd>Enter</kbd> 执行</span>
+        <span><kbd>Esc</kbd> 关闭</span>
+        <span class="command-palette-footer-right">AgentBoard 命令面板</span>
       </div>
     </div>
   </div>

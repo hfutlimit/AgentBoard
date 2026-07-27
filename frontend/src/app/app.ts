@@ -54,6 +54,14 @@ interface ConfirmationDialog {
   action: () => Promise<void>;
 }
 
+interface PaletteCommand {
+  id: string;
+  title: string;
+  hint?: string;
+  keywords?: string;
+  run: () => void;
+}
+
 @Component({
   selector: 'app-root',
   imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, PaginationComponent],
@@ -260,6 +268,10 @@ export class App implements OnInit, OnDestroy {
   readonly storyTaskPageSize = 50;
   // Task 716: 全局快捷键面板
   readonly showShortcuts = signal(false);
+  // Epic 67 v5.4: 命令面板 (Ctrl/Cmd+K)
+  readonly paletteOpen = signal(false);
+  readonly paletteQuery = signal('');
+  readonly paletteIndex = signal(0);
   readonly createdKeyPlaintext = signal('');
   // Epic 22: 任务依赖
   readonly taskDependencies = signal<TaskDependencies | null>(null);
@@ -871,6 +883,12 @@ export class App implements OnInit, OnDestroy {
     this.loadSearchHistory();
     // Task 716/711/815/817: 全局快捷键 - '?' 键打开快捷键帮助，Ctrl+A 全选，Del 删除选中，/ 聚焦搜索，←→ 导航
     window.addEventListener('keydown', (e: KeyboardEvent) => {
+      // Epic 67 v5.4: Ctrl/Cmd+K 切换命令面板（全局，优先于其它快捷键）
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        this.togglePalette();
+        return;
+      }
       if (this.confirmation()) {
         if (e.key === 'Escape') {
           e.preventDefault();
@@ -3861,6 +3879,129 @@ export class App implements OnInit, OnDestroy {
   toggleShortcuts(): void {
     this.showShortcuts.set(!this.showShortcuts());
   }
+
+  /* ---------- Epic 67 v5.4: 命令面板 (Ctrl/Cmd+K) ---------- */
+  openPalette(): void {
+    this.paletteQuery.set('');
+    this.paletteIndex.set(0);
+    this.paletteOpen.set(true);
+    setTimeout(() => {
+      const el = document.getElementById('paletteInput') as HTMLInputElement | null;
+      el?.focus();
+    }, 0);
+  }
+
+  togglePalette(): void {
+    if (this.paletteOpen()) {
+      this.closePalette();
+    } else {
+      this.openPalette();
+    }
+  }
+
+  closePalette(): void {
+    this.paletteOpen.set(false);
+    this.paletteQuery.set('');
+    this.paletteIndex.set(0);
+  }
+
+  /** 构建命令列表（含基于 recentProjects 的动态命令）。在 computed 内访问以跟踪信号变化。 */
+  private buildPaletteCommands(): PaletteCommand[] {
+    const cmds: PaletteCommand[] = [
+      { id: 'home', title: '首页仪表盘', hint: 'Home', keywords: 'home dashboard shouye 首页 仪表盘', run: () => { void this.router.navigateByUrl('/'); } },
+      { id: 'projects', title: '项目列表', hint: 'Projects', keywords: 'projects xiangmu 项目 列表', run: () => { void this.router.navigateByUrl('/projects'); } },
+      { id: 'documents', title: '文档中心', hint: 'Docs', keywords: 'documents wendang 文档 中心', run: () => { void this.router.navigateByUrl('/documents'); } },
+      { id: 'settings', title: '设置', hint: 'Settings', keywords: 'settings shezhi 设置 个人', run: () => { void this.router.navigateByUrl('/settings'); } },
+      {
+        id: 'new-task', title: '新建任务', hint: 'Task', keywords: 'new task xinjian 新建 任务',
+        run: () => {
+          const s = this.story();
+          const p = this.project();
+          if (s) { this.openCreate('task', s.id, p?.id); }
+          else { this.notify('请在 Story 视图中新建任务', 'error'); }
+        },
+      },
+      {
+        id: 'new-story', title: '新建 Story', hint: 'Story', keywords: 'new story xinjian 新建 故事',
+        run: () => {
+          const e = this.epic();
+          const p = this.project();
+          if (e) { this.openCreate('story', e.id, p?.id); }
+          else { this.notify('请在 Epic 视图中新建 Story', 'error'); }
+        },
+      },
+      {
+        id: 'new-epic', title: '新建 Epic', hint: 'Epic', keywords: 'new epic xinjian 新建 史诗',
+        run: () => {
+          const p = this.project();
+          if (p) { this.openCreate('epic', undefined, p.id); }
+          else { this.notify('请在项目视图中新建 Epic', 'error'); }
+        },
+      },
+      { id: 'density', title: '切换行密度（紧凑 / 舒适）', hint: 'Density', keywords: 'density hangmidu 密度 紧凑 舒适 切换', run: () => this.toggleListDensity() },
+      { id: 'shortcuts', title: '键盘快捷键帮助', hint: '?', keywords: 'shortcuts kuaijiejian 快捷键 帮助', run: () => this.toggleShortcuts() },
+      { id: 'export', title: '导出当前任务列表 (CSV)', hint: 'Export', keywords: 'export daochu 导出 csv 任务', run: () => this.exportToCSV() },
+    ];
+    // 动态：最近访问的项目
+    for (const p of this.recentProjects()) {
+      cmds.push({
+        id: `project-${p.id}`,
+        title: `打开项目：${p.name}`,
+        hint: p.key || 'Project',
+        keywords: `project ${p.name} ${p.key || ''} xiangmu 项目 打开 ${p.id}`,
+        run: () => { void this.router.navigateByUrl(`/project/${p.id}`); },
+      });
+    }
+    return cmds;
+  }
+
+  /** 过滤后的命令列表（computed，随 query 与 recentProjects 变化） */
+  readonly paletteItems = computed<PaletteCommand[]>(() => {
+    const all = this.buildPaletteCommands();
+    const q = this.paletteQuery().trim().toLowerCase();
+    if (!q) return all;
+    return all.filter((c) => `${c.title} ${c.keywords || ''} ${c.hint || ''}`.toLowerCase().includes(q));
+  });
+
+  paletteMove(delta: number): void {
+    const n = this.paletteItems().length;
+    if (n === 0) return;
+    const next = (this.paletteIndex() + delta + n) % n;
+    this.paletteIndex.set(next);
+    this.scrollPaletteIntoView(next);
+  }
+
+  private scrollPaletteIntoView(index: number): void {
+    setTimeout(() => {
+      const list = document.getElementById('paletteList');
+      const el = list?.querySelectorAll('.palette-item')[index] as HTMLElement | undefined;
+      el?.scrollIntoView({ block: 'nearest' });
+    }, 0);
+  }
+
+  paletteRun(cmd?: PaletteCommand): void {
+    const target = cmd || this.paletteItems()[this.paletteIndex()];
+    if (!target) return;
+    this.closePalette();
+    target.run();
+  }
+
+  onPaletteKeydown(event: KeyboardEvent): void {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      this.paletteMove(1);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      this.paletteMove(-1);
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      this.paletteRun();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      this.closePalette();
+    }
+  }
+
 
   // Task 716: 全局快捷键面板 - 快捷键说明
   // Task 710/711: 增强快捷键提示面板 + 批量选择键盘支持
