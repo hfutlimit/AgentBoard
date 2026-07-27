@@ -1305,6 +1305,7 @@
                   <div class="bulk-actions">
                     <button class="btn btn--primary" (click)="showBulkActionPanel('status')">批量修改状态</button>
                     <button class="btn btn--primary" (click)="showBulkActionPanel('priority')">批量修改优先级</button>
+                    <button class="btn btn--primary" (click)="showBulkActionPanel('type')">批量修改类型</button>
                     <button class="btn btn--primary" (click)="showBulkActionPanel('assignee')">批量指派</button>
                     <button class="btn btn--primary" (click)="showBulkActionPanel('due')">批量改截止日期</button>
                     <button class="btn" (click)="bulkDuplicate()">批量复制</button>
@@ -1332,6 +1333,17 @@
                     @for (p of priorities; track p) {
                       <button class="status-btn badge priority--{{ p }}" (click)="bulkUpdatePriority(p); closeBulkActionPanel()">
                         {{ priorityLabel(p) }}
+                      </button>
+                    }
+                    <button class="btn" (click)="closeBulkActionPanel()">取消</button>
+                  </div>
+                }
+                @if (bulkActionTarget() === 'type') {
+                  <div class="bulk-panel">
+                    <span>选择新类型：</span>
+                    @for (t of taskTypes; track t) {
+                      <button class="status-btn badge type--{{ t }}" (click)="bulkUpdateType(t); closeBulkActionPanel()">
+                        {{ typeLabel(t) }}
                       </button>
                     }
                     <button class="btn" (click)="closeBulkActionPanel()">取消</button>

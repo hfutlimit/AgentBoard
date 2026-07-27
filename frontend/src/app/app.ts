@@ -325,6 +325,8 @@ export class App implements OnInit, OnDestroy {
     'blocked',
   ];
   readonly priorities: Priority[] = ['highest', 'high', 'medium', 'low', 'lowest'];
+  // v5.5: 批量修改任务类型 —— 任务类型枚举（与分组/类型筛选一致）
+  readonly taskTypes: string[] = ['task', 'bug', 'test_execution'];
 
   readonly visibleProjects = computed(() =>
     this.match(this.projects(), (p) => `${p.name} ${p.key || ''} ${p.description}`),
@@ -2354,6 +2356,39 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  // v5.5: 批量修改任务类型（复用 bulkDuplicate 的逐任务 updateTask 循环模式，零后端契约变更）
+  async bulkUpdateType(newType: string): Promise<void> {
+    const ids = Array.from(this.selectedTasks());
+    if (ids.length === 0) return;
+    this.bulkProgress.set({ current: 0, total: ids.length, message: `正在更新类型 0/${ids.length} 个任务…` });
+    let ok = 0;
+    const failed: string[] = [];
+    try {
+      for (let i = 0; i < ids.length; i++) {
+        const id = ids[i];
+        const task = this.tasks().find((t) => t.id === id);
+        if (!task) continue;
+        try {
+          await firstValueFrom(this.api.updateTask(id, { type: newType as ItemType }));
+          this.tasks.update((list) => list.map((t) => (t.id === id ? { ...t, type: newType as ItemType } : t)));
+          ok++;
+        } catch (e) {
+          failed.push(String(id));
+        }
+        this.bulkProgress.set({ current: i + 1, total: ids.length, message: `正在更新类型 ${i + 1}/${ids.length} 个任务…` });
+      }
+      if (failed.length) {
+        this.notify(`已更新 ${ok} 个任务类型为「${this.typeLabel(newType)}」，${failed.length} 个失败`, 'error');
+      } else {
+        this.notify(`已批量更新 ${ok} 个任务的类型为「${this.typeLabel(newType)}」`);
+      }
+    } finally {
+      this.bulkProgress.set(null);
+      this.clearTaskSelection();
+      await this.refresh();
+    }
+  }
+
   bulkDeleteTasks(): void {
     const ids = Array.from(this.selectedTasks());
     if (ids.length === 0) return;
@@ -2402,7 +2437,7 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  showBulkActionPanel(type: 'status' | 'delete' | 'priority' | 'assignee' | 'due'): void {
+  showBulkActionPanel(type: 'status' | 'delete' | 'priority' | 'assignee' | 'due' | 'type'): void {
     this.bulkActionTarget.set(type);
     if (type === 'assignee') this.bulkAssignSearch.set('');
   }

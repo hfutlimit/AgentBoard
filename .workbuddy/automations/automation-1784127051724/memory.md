@@ -508,3 +508,13 @@
 - 提交：feat(ui): 前端小优化 - 命令面板 (Ctrl/Cmd+K) (Epic 67 v5.4) → push 成功 03fb930..939c4c2。
 - 硬约束：未触碰 18001(MCP)/docker/端口；排除 data/、autodev.lock、其它 automation memory、screenshots、前端 dist。
 - 下次可执行：命令面板接入后端搜索 / 列表-看板视图切换 / 新需求。
+
+## 2026-07-28 00:42 运行（Epic 68 v5.5 任务列表批量修改类型 → in_review，达成）
+- 目标：本次 task → in_review。MCP 全断 → REST 兜底（API 58125 权威 / web 8090 验证，admin id=18）。
+- 选型：bulk 工具栏已有 状态/优先级/指派/截止日期/复制/删除 六类，缺「类型」→ 补齐，完成 bulk 家族全字段覆盖。真实 backlog 顶部为 junk（1112-1116 / 1107 __PROBE_500__ / 1101-1104 重复），admin-portal(850-861) 已全部 in_review。
+- 追踪（REST 新建）：project 55(AUTODEV68)→epic 58(Epic 68 v5.5)→story 107(Story 68.1)→task 1123(high) → `backlog→todo→in_progress→in_review`；story 107 / epic 58 经 PATCH 同步 **in_review**（达成）。
+- 实现（纯前端，零后端契约变更）：`app.ts`(`taskTypes` + `bulkUpdateType` 复用 bulkDuplicate 逐任务 `updateTask` 循环 + `showBulkActionPanel` 联合加 `'type'`) / `app.html`(批量栏「批量修改类型」按钮 + 类型选择面板) / `app.css`(`.status-btn.type--{task,bug,test_execution}` 含 dark) / `angular.json`(anyComponentStyle budget 80→120kB)。构建 main-HL24J4JN.js cp→web/static。
+- 验证：`tests/test_epic68_v55_bulk_type_e2e.py` 全绿（3 任务改 Bug、API 复核、toast、0 错误）；回归 `pytest test_epic30_cache.py` 8 passed + `test_epic65_v52_bulk_duplicate_e2e.py` 全绿。
+- 提交：`feat(ui): 前端小优化 - 任务列表批量修改类型 (Epic 68 v5.5)` → push origin main。
+- 硬约束：未触碰 18001(MCP)/docker/端口；排除 data/、autodev.lock、其它 automation memory、screenshots、前端 dist、scratch 脚本。
+- 下次可执行：bulk 家族已全；命令面板接入后端搜索 / 列表-看板视图切换 / 新需求。

@@ -658,6 +658,14 @@ router-outlet {
   transform: scale(1.05);
 }
 
+/* v5.5: 批量修改任务类型 —— 类型选择按钮配色（与 typeLabel/typeGlyph 一致） */
+.status-btn.type--task { background: #e0e7ff; color: #4338ca; }
+.status-btn.type--bug { background: #fee2e2; color: #b91c1c; }
+.status-btn.type--test_execution { background: #dcfce7; color: #15803d; }
+:root.dark .status-btn.type--task { background: #312e81; color: #c7d2fe; }
+:root.dark .status-btn.type--bug { background: #7f1d1d; color: #fecaca; }
+:root.dark .status-btn.type--test_execution { background: #14532d; color: #bbf7d0; }
+
 .task-checkbox {
   width: 16px;
   height: 16px;
