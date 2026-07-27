@@ -484,6 +484,15 @@ export class ApiService {
       tap(data => apiCache.set(cacheKey, data))
     );
   }
+  /** Epic 70 v5.7: 全局 Story 关键词搜索 */
+  searchStories(params: { q: string; limit?: number }) {
+    const cacheKey = `/api/search/stories?q=${params.q}&limit=${params.limit ?? 20}`;
+    const cached = apiCache.getWithTTL<any[]>(cacheKey, 30000);
+    if (cached) return of(cached);
+    return this.request<any[]>('GET', '/api/search/stories', undefined, params).pipe(
+      tap(data => apiCache.set(cacheKey, data))
+    );
+  }
   getTask(id: number) {
     return this.request<Task>('GET', `/api/tasks/${id}`);
   }

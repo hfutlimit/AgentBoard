@@ -1081,6 +1081,17 @@ def search_tasks(project_id: int | None = None, epic_id: int | None = None,
     return [service._ser(t) for t in rows]
 
 
+# 全局 Story 关键词搜索（命令面板等场景）；路径用 /api/search/stories 避免与 /api/stories/{sid} 冲突
+@app.get("/api/search/stories")
+def search_stories_api(
+    q: str = Query(..., min_length=1, description="关键词"),
+    limit: int = Query(20, ge=1, le=50),
+    s: Session = Depends(get_session),
+):
+    rows = service.search_stories(s, q=q, limit=limit)
+    return [service._ser(x) for x in rows]
+
+
 # ---------- Sprint ----------
 @app.get("/api/projects/{pid}/sprints")
 def list_sprints(pid: int, s: Session = Depends(get_session),

@@ -227,6 +227,14 @@ def list_stories(s: Session, epic_id: int, limit: int | None = None, offset: int
     return _paginate(q, limit, offset).all()
 
 
+def search_stories(s: Session, q: str, limit: int = 20):
+    """全局 Story 关键词搜索（标题/描述），供命令面板等场景使用。"""
+    like = f"%{q}%"
+    qry = s.query(Story).filter(or_(Story.title.ilike(like), Story.description.ilike(like)))
+    qry = qry.order_by(Story.id.desc())
+    return qry.limit(limit).all()
+
+
 def update_story(s: Session, id: int, **fields) -> Story | None:
     st = s.get(Story, id)
     if not st:

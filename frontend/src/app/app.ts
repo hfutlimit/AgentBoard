@@ -59,7 +59,7 @@ interface PaletteCommand {
   title: string;
   hint?: string;
   keywords?: string;
-  category?: 'command' | 'task' | 'project';
+  category?: 'command' | 'task' | 'project' | 'story' | 'document';
   run: () => void;
 }
 
@@ -277,6 +277,8 @@ export class App implements OnInit, OnDestroy {
   readonly paletteSearching = signal(false);
   readonly paletteTaskResults = signal<PaletteCommand[]>([]);
   readonly paletteProjectResults = signal<PaletteCommand[]>([]);
+  readonly paletteStoryResults = signal<PaletteCommand[]>([]);
+  readonly paletteDocumentResults = signal<PaletteCommand[]>([]);
   private paletteDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   readonly createdKeyPlaintext = signal('');
   // Epic 22: 任务依赖
@@ -3929,6 +3931,8 @@ export class App implements OnInit, OnDestroy {
     this.paletteIndex.set(0);
     this.paletteTaskResults.set([]);
     this.paletteProjectResults.set([]);
+    this.paletteStoryResults.set([]);
+    this.paletteDocumentResults.set([]);
     this.paletteSearching.set(false);
     this.paletteOpen.set(true);
     setTimeout(() => {
@@ -3951,6 +3955,8 @@ export class App implements OnInit, OnDestroy {
     this.paletteIndex.set(0);
     this.paletteTaskResults.set([]);
     this.paletteProjectResults.set([]);
+    this.paletteStoryResults.set([]);
+    this.paletteDocumentResults.set([]);
     this.paletteSearching.set(false);
   }
 
@@ -3966,12 +3972,14 @@ export class App implements OnInit, OnDestroy {
     this.paletteDebounceTimer = setTimeout(() => this.paletteRunSearch(v), 200);
   }
 
-  /** Epic 69 v5.6: 实时搜索后端任务（按关键词）与本地项目（按名称/key），结果写入信号供 computed 合并 */
+  /** Epic 70 v5.7: 实时搜索后端任务/Story/文档（按关键词）与本地项目（按名称/key），结果写入信号供 computed 合并 */
   paletteRunSearch(q: string): void {
     const query = q.trim();
     if (query.length < 2) {
       this.paletteTaskResults.set([]);
       this.paletteProjectResults.set([]);
+      this.paletteStoryResults.set([]);
+      this.paletteDocumentResults.set([]);
       this.paletteSearching.set(false);
       return;
     }
@@ -4009,6 +4017,38 @@ export class App implements OnInit, OnDestroy {
       })
       .finally(() => {
         this.paletteSearching.set(false);
+      });
+    // Story：后端 /api/stories/search 搜索
+    firstValueFrom(this.api.searchStories({ q: query, limit: 10 }))
+      .then((stories) => {
+        const cmds: PaletteCommand[] = (stories || []).map((st) => ({
+          id: `story-${st.id}`,
+          title: `Story #${st.id}：${(st.title || '').slice(0, 60)}`,
+          hint: `Epic #${st.epic_id} · ${st.status}`,
+          category: 'story',
+          keywords: `story ${st.id} ${st.title}`,
+          run: () => { void this.router.navigateByUrl(`/story/${st.id}`); },
+        }));
+        this.paletteStoryResults.set(cmds);
+      })
+      .catch(() => {
+        this.paletteStoryResults.set([]);
+      });
+    // 文档：后端 /api/documents?q= 搜索
+    firstValueFrom(this.api.listDocuments({ q: query }))
+      .then((docs) => {
+        const cmds: PaletteCommand[] = (docs || []).map((d) => ({
+          id: `document-${d.id}`,
+          title: `文档 #${d.id}：${(d.title || '').slice(0, 60)}`,
+          hint: `${d.type || 'doc'} · ${d.status || ''}`,
+          category: 'document',
+          keywords: `document ${d.id} ${d.title}`,
+          run: () => { void this.router.navigateByUrl(`/documents/${d.id}`); },
+        }));
+        this.paletteDocumentResults.set(cmds);
+      })
+      .catch(() => {
+        this.paletteDocumentResults.set([]);
       });
   }
 
@@ -4067,8 +4107,13 @@ export class App implements OnInit, OnDestroy {
     const all = this.buildPaletteCommands();
     const q = this.paletteQuery().trim().toLowerCase();
     if (!q) return all;
-    // 后端搜索结果（任务 + 项目）
-    const results = [...this.paletteTaskResults(), ...this.paletteProjectResults()];
+    // 后端搜索结果（任务 + 项目 + Story + 文档）
+    const results = [
+      ...this.paletteTaskResults(),
+      ...this.paletteProjectResults(),
+      ...this.paletteStoryResults(),
+      ...this.paletteDocumentResults(),
+    ];
     const staticMatches = all.filter((c) => `${c.title} ${c.keywords || ''} ${c.hint || ''}`.toLowerCase().includes(q));
     // 命中命令时命令优先（保持 Enter 执行命令的既有行为），后端实体结果作为补充列于其后；
     // 未命中命令时直接展示后端搜索结果。

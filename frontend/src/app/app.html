@@ -2790,7 +2790,7 @@
           id="paletteInput"
           class="command-palette-input"
           type="text"
-          placeholder="输入命令或搜索任务 / 项目…（↑↓ 选择，Enter 执行，Esc 关闭）"
+          placeholder="输入命令或搜索任务 / 项目 / Story / 文档…（↑↓ 选择，Enter 执行，Esc 关闭）"
           [value]="paletteQuery()"
           (input)="onPaletteInput($any($event.target).value)"
           (keydown)="onPaletteKeydown($event)"
@@ -2817,7 +2817,7 @@
             (click)="paletteRun(cmd)"
           >
             @if (cmd.category) {
-              <span class="palette-item-cat cat-{{ cmd.category }}">{{ cmd.category === 'task' ? '任务' : cmd.category === 'project' ? '项目' : '命令' }}</span>
+              <span class="palette-item-cat cat-{{ cmd.category }}">{{ cmd.category === 'task' ? '任务' : cmd.category === 'project' ? '项目' : cmd.category === 'story' ? 'Story' : cmd.category === 'document' ? '文档' : '命令' }}</span>
             }
             <span class="palette-item-title">{{ cmd.title }}</span>
             @if (cmd.hint) {

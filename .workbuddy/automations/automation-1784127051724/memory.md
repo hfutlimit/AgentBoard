@@ -518,3 +518,23 @@
 - 提交：`feat(ui): 前端小优化 - 任务列表批量修改类型 (Epic 68 v5.5)` → push origin main。
 - 硬约束：未触碰 18001(MCP)/docker/端口；排除 data/、autodev.lock、其它 automation memory、screenshots、前端 dist、scratch 脚本。
 - 下次可执行：bulk 家族已全；命令面板接入后端搜索 / 列表-看板视图切换 / 新需求。
+
+## 2026-07-28 03:51 运行（Epic 69 v5.6 命令面板接入后端搜索 → in_review，达成）
+- 目标：本次 task → in_review。MCP 全断 → REST 兜底（API 58125 权威，admin id=18）。
+- 选型：项目 3 backlog 仅剩 junk；admin-portal(850-861) 全 in_review；v1.5~v5.5 全 done/in_review。依上次「下次可执行」建议新建增量 Epic 69 v5.6「命令面板接入后端搜索」。
+- 追踪（REST 新建，复用 project 57/ADV56）：epic 59(Epic 69 v5.6)→story 108(Story 69.1)→task 1124(high) → 合法链 `backlog→todo→in_progress→in_review`；story 108 / epic 59 经 PATCH 同步 **in_review**（达成）。
+- 实现（纯前端，零后端契约变更）：PaletteCommand 加 category；新增 paletteSearching/TaskResults/ProjectResults 信号 + 200ms 防抖；`onPaletteInput`→`paletteRunSearch`（后端 `/api/tasks?q=` 任务搜索 + 客户端 projects() 项目过滤）；`paletteItems` 命令优先、实体结果补充其后（修复 v5.4 回归）；模板加搜索转圈/分类标签/空态；styles.css 加 .palette-item-cat/.cat-task/.cat-project/.command-palette-spinner（含暗色）。构建 main-HUVLU7XG.js cp→web/static。
+- 验证：`tests/test_epic69_v56_palette_search_e2e.py` 全绿（任务/项目搜索跳转、无匹配空态、0 错误）；回归 `test_epic67_v54_command_palette_e2e.py` 全绿（命令优先 Enter 执行命令不变）；`pytest test_epic30_cache.py` 8 passed。已知无关失败：`test_epic68_v55_bulk_type_e2e.py`（硬编码 STORY_ID 数据漂移，非本次引入）。
+- 提交：`feat(ui): 前端小优化 - 命令面板接入后端搜索 (Epic 69 v5.6)` → push origin main 成功（`11bc628..7cc9635`）。刻意排除 data/、autodev.lock、其它 automation memory、screenshots、前端 dist、agentboard-audit/。
+- 硬约束：未触碰 18001(MCP)/docker/端口；API 58125 / web 8090/8080 原样。
+- 下次可执行：命令面板接入 Story/文档后端搜索，或新需求。
+
+## 2026-07-28 07:08 运行（Epic 70 v5.7 命令面板接入 Story/文档后端搜索 → in_review，达成）
+- 目标：本次 task → in_review。MCP 连接器全断 → REST 兜底（API 58125 权威 / web 8090 验证，admin id=18）。
+- 选型：依 03:51「下次可执行」建议新建增量 Epic 70 v5.7，补齐命令面板第 3/4 类实体（Story/文档）搜索。
+- 实现：后端 `service.search_stories` + `GET /api/search/stories`（避开 `/api/stories/{sid}` 路由冲突）；文档搜索复用 `/api/documents?q=`。前端 `searchStories()` + `paletteStoryResults`/`paletteDocumentResults` 信号 + `paletteItems` 合并四类 + `.cat-story`(青)/`.cat-document`(橙)。
+- 部署：本地 uvicorn 58125 重启 + docker `agentboard-api-1` restart（bind-mount 只读，无需 cp）；前端 build → `main-J3WWIUIZ.js`+`styles-O6FQPGRB.css` cp→`agentboard/web/static/`。
+- 验证：`tests/test_epic70_v57_palette_story_doc_e2e.py` ALL PASS；回归 `pytest test_epic30_cache.py` 8 passed + v5.6/v5.4 palette E2E ALL PASS（无回归）。
+- 状态（REST 新建）：project 59(AUTODEV70)→epic 60(Epic 70 v5.7)→story 109→task 1125(high) → `backlog→todo→in_progress→in_review`；story 109、epic 60 经 PATCH 同步 **in_review**（达成）。
+- 提交：`feat(ui): 前端小优化 - 命令面板接入 Story/文档后端搜索 (Epic 70 v5.7)` → push origin main。刻意排除 data/、autodev.lock、其它 automation memory、screenshots、frontend/dist。
+- 硬约束：未触碰 18001(MCP)/docker 端口；API 58125 / web 8090/8080 / docker 18000/28080 原样。
