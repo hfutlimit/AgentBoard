@@ -1,0 +1,80 @@
+<app-nav-bar></app-nav-bar>
+
+<main class="page">
+  <div class="page-head">
+    <div>
+      <h1>统计</h1>
+      <p class="sub">按日 / 周 / 月聚合任务创建与完成趋势，并展示项目整体概览。</p>
+    </div>
+    <div class="head-controls">
+      <select class="select" (change)="onProjectChange($event)">
+        <option value="all">全部项目</option>
+        @for (p of projects(); track p.id) {
+          <option [value]="p.id">{{ p.name }}</option>
+        }
+      </select>
+      <button class="btn-primary" (click)="loadStats()" [disabled]="loading()">刷新</button>
+    </div>
+  </div>
+
+  @if (error()) {
+    <div class="alert">{{ error() }}</div>
+  }
+
+  <div class="grid">
+    <div class="card stat">
+      <span class="stat-label">任务总数</span>
+      <span class="stat-value">{{ summary().total }}</span>
+    </div>
+    <div class="card stat">
+      <span class="stat-label">已完成</span>
+      <span class="stat-value ok">{{ summary().done }}</span>
+    </div>
+    <div class="card stat">
+      <span class="stat-label">进行中</span>
+      <span class="stat-value warn">{{ summary().active }}</span>
+    </div>
+    <div class="card stat">
+      <span class="stat-label">待办</span>
+      <span class="stat-value">{{ summary().backlog }}</span>
+    </div>
+    <div class="card stat">
+      <span class="stat-label">完成率</span>
+      <span class="stat-value">{{ summary().completion_rate }}%</span>
+    </div>
+  </div>
+
+  <div class="card chart-card">
+    <div class="chart-head">
+      <h2>任务创建 / 完成趋势</h2>
+      <div class="seg">
+        <button [class.active]="granularity() === 'day'" (click)="setGran('day')">日</button>
+        <button [class.active]="granularity() === 'week'" (click)="setGran('week')">周</button>
+        <button [class.active]="granularity() === 'month'" (click)="setGran('month')">月</button>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span class="lg"><i class="dot created"></i>创建</span>
+      <span class="lg"><i class="dot done"></i>完成</span>
+    </div>
+
+    @if (loading()) {
+      <div class="empty">加载中…</div>
+    } @else if (chartData().length === 0) {
+      <div class="empty">暂无数据</div>
+    } @else {
+      <div class="chart">
+        @for (b of chartData(); track b.key) {
+          <div class="col" [title]="b.label + ' · 创建 ' + b.created + ' / 完成 ' + b.done">
+            <div class="bars">
+              <div class="bar created" [style.height.%]="barHeight(b.created)"></div>
+              <div class="bar done" [style.height.%]="barHeight(b.done)"></div>
+            </div>
+            <div class="xlabel">{{ b.label }}</div>
+          </div>
+        }
+      </div>
+    }
+  </div>
+</main>

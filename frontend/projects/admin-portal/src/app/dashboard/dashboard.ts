@@ -2,10 +2,11 @@ import { Component, inject, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { ApiService } from '../api.service';
+import { NavBar } from '../nav-bar/nav-bar';
 
 @Component({
   selector: 'app-dashboard',
-  imports: [CommonModule],
+  imports: [CommonModule, NavBar],
   templateUrl: './dashboard.html',
   styleUrl: './dashboard.css',
 })

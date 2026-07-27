@@ -1,39 +1,23 @@
-<div class="dash">
-  <header class="topbar">
-    <div class="topbar-brand">
-      <div class="brand-mark">AB</div>
-      <span>AgentBoard 管理控制台</span>
-    </div>
-    <div class="topbar-right">
-      @if (user()) {
-        <span class="who">
-          {{ user().username }}
-          @if (user().is_admin) { <em class="badge">管理员</em> }
-        </span>
-      }
-      <button class="btn-ghost" (click)="logout()">退出登录</button>
-    </div>
-  </header>
+<app-nav-bar></app-nav-bar>
 
-  <main class="content">
-    <section class="welcome card">
-      <h1>欢迎回来 👋</h1>
-      <p>管理控制台基础框架已就绪。后续将在此集成项目管理、用户管理、统计等模块。</p>
-    </section>
+<main class="content">
+  <section class="welcome card">
+    <h1>欢迎回来，<span class="who">{{ user()?.username || 'Admin' }}</span> 👋</h1>
+    <p>管理控制台已就绪。使用上方导航进入「用户管理」「项目管理」等模块。</p>
+  </section>
 
-    <div class="grid">
-      <div class="card stat">
-        <span class="stat-label">模块状态</span>
-        <span class="stat-value">骨架已搭建</span>
-      </div>
-      <div class="card stat">
-        <span class="stat-label">路由守卫</span>
-        <span class="stat-value">已启用</span>
-      </div>
-      <div class="card stat">
-        <span class="stat-label">鉴权接口</span>
-        <span class="stat-value">/api/auth/*</span>
-      </div>
+  <div class="grid">
+    <div class="card stat">
+      <span class="stat-label">当前账户</span>
+      <span class="stat-value">{{ user()?.username || 'Admin' }}</span>
     </div>
-  </main>
-</div>
+    <div class="card stat">
+      <span class="stat-label">角色</span>
+      <span class="stat-value">{{ user()?.is_admin ? '管理员' : '普通用户' }}</span>
+    </div>
+    <div class="card stat">
+      <span class="stat-label">路由守卫</span>
+      <span class="stat-value">已启用</span>
+    </div>
+  </div>
+</main>

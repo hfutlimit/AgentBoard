@@ -1,0 +1,63 @@
+<app-nav-bar></app-nav-bar>
+
+<main class="page">
+  <div class="page-head">
+    <div>
+      <h1>用户管理</h1>
+      <p class="sub">查看与管理系统用户，可切换管理员权限。</p>
+    </div>
+    <button class="btn-primary" (click)="load()" [disabled]="loading()">刷新</button>
+  </div>
+
+  @if (error()) {
+    <div class="alert">{{ error() }}</div>
+  }
+
+  @if (loading()) {
+    <div class="empty">加载中…</div>
+  } @else {
+    <div class="table-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>用户名</th>
+            <th>显示名</th>
+            <th>邮箱</th>
+            <th>角色</th>
+            <th>创建时间</th>
+            <th class="col-act">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (u of users(); track u.id) {
+            <tr>
+              <td class="mono">{{ u.id }}</td>
+              <td class="strong mono">{{ u.username }}</td>
+              <td>{{ u.display_name || '—' }}</td>
+              <td class="soft">{{ u.email || '—' }}</td>
+              <td>
+                @if (u.is_admin) {
+                  <span class="badge badge-admin">管理员</span>
+                } @else {
+                  <span class="badge badge-user">普通用户</span>
+                }
+              </td>
+              <td class="mono small">{{ fmtDate(u.created_at) }}</td>
+              <td class="col-act">
+                <button
+                  class="btn-toggle"
+                  [class.on]="u.is_admin"
+                  [disabled]="busyId() === u.id"
+                  (click)="toggleAdmin(u)"
+                >
+                  {{ u.is_admin ? '取消管理员' : '设为管理员' }}
+                </button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</main>

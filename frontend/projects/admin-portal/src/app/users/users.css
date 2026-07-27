@@ -1,0 +1,167 @@
+:host {
+  display: block;
+}
+
+.page {
+  padding: 28px 32px 48px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.page-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  margin-bottom: 22px;
+}
+
+.page-head h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.sub {
+  margin: 6px 0 0;
+  color: var(--text-soft);
+  font-size: 13.5px;
+}
+
+.btn-primary {
+  padding: 9px 18px;
+  border: none;
+  background: var(--brand);
+  color: #fff;
+  border-radius: 10px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: filter 0.18s;
+}
+
+.btn-primary:hover {
+  filter: brightness(1.08);
+}
+
+.btn-primary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.alert {
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
+  color: var(--danger);
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13.5px;
+  margin-bottom: 16px;
+}
+
+.empty {
+  padding: 48px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.table-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+
+.tbl th,
+.tbl td {
+  padding: 12px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.tbl th {
+  background: var(--input-bg);
+  color: var(--text-soft);
+  font-weight: 600;
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.tbl tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.tbl tbody tr:hover {
+  background: var(--brand-soft);
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.small {
+  font-size: 12.5px;
+  color: var(--text-soft);
+}
+
+.strong {
+  font-weight: 600;
+}
+
+.soft {
+  color: var(--text-soft);
+}
+
+.col-act {
+  text-align: right;
+  width: 140px;
+  white-space: nowrap;
+}
+
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge-admin {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+.badge-user {
+  background: var(--input-bg);
+  color: var(--text-soft);
+}
+
+.btn-toggle {
+  padding: 7px 14px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s, color 0.18s;
+}
+
+.btn-toggle:hover {
+  border-color: var(--brand);
+  color: var(--brand);
+}
+
+.btn-toggle.on {
+  background: var(--brand-soft);
+  border-color: transparent;
+  color: var(--brand);
+}
+
+.btn-toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

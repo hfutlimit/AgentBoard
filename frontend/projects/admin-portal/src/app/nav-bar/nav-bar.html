@@ -1,0 +1,15 @@
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">AB</div>
+    <span class="brand-name">AgentBoard 管理控制台</span>
+  </div>
+
+  <nav class="nav-links">
+    <a routerLink="/dashboard" routerLinkActive="active">仪表盘</a>
+    <a routerLink="/users" routerLinkActive="active">用户管理</a>
+    <a routerLink="/projects" routerLinkActive="active">项目管理</a>
+    <a routerLink="/stats" routerLinkActive="active">统计</a>
+  </nav>
+
+  <button class="btn-ghost" (click)="logout()">退出登录</button>
+</header>

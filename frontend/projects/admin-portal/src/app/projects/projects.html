@@ -1,0 +1,54 @@
+<app-nav-bar></app-nav-bar>
+
+<main class="page">
+  <div class="page-head">
+    <div>
+      <h1>项目管理</h1>
+      <p class="sub">查看全部项目及其成员规模与可见性。</p>
+    </div>
+    <button class="btn-primary" (click)="load()" [disabled]="loading()">刷新</button>
+  </div>
+
+  @if (error()) {
+    <div class="alert">{{ error() }}</div>
+  }
+
+  @if (loading()) {
+    <div class="empty">加载中…</div>
+  } @else {
+    <div class="table-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>名称</th>
+            <th>Key</th>
+            <th>描述</th>
+            <th>可见性</th>
+            <th>成员</th>
+            <th>创建时间</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (p of projects(); track p.id) {
+            <tr>
+              <td class="mono">{{ p.id }}</td>
+              <td class="strong">{{ p.name }}</td>
+              <td class="mono">{{ p.key }}</td>
+              <td class="soft">{{ p.description || '—' }}</td>
+              <td>
+                @if (p.is_private) {
+                  <span class="badge badge-priv">私有</span>
+                } @else {
+                  <span class="badge badge-pub">公开</span>
+                }
+              </td>
+              <td><span class="count-pill">{{ p.member_count }}</span></td>
+              <td class="mono small">{{ fmtDate(p.created_at) }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</main>

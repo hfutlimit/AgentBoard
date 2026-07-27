@@ -1,0 +1,82 @@
+:host {
+  display: block;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+}
+
+.brand-mark {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  color: #fff;
+  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+}
+
+.brand-name {
+  font-size: 15px;
+  letter-spacing: 0.2px;
+}
+
+.nav-links {
+  display: flex;
+  gap: 6px;
+  margin-left: 8px;
+}
+
+.nav-links a {
+  padding: 8px 14px;
+  border-radius: 10px;
+  color: var(--text-soft);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.18s, color 0.18s;
+}
+
+.nav-links a:hover {
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+.nav-links a.active {
+  background: var(--brand);
+  color: #fff;
+}
+
+.btn-ghost {
+  margin-left: auto;
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.18s, border-color 0.18s, color 0.18s;
+}
+
+.btn-ghost:hover {
+  background: var(--danger-soft);
+  border-color: var(--danger-border);
+  color: var(--danger);
+}

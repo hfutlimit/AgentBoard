@@ -26,4 +26,32 @@ export class ApiService {
   me(): Observable<any> {
     return this.http.get('/api/auth/me', { headers: this.authHeaders() });
   }
+
+  // ---- Admin: users ----
+  listUsers(limit = 200): Observable<any> {
+    return this.http.get('/api/admin/users?limit=' + limit, {
+      headers: this.authHeaders(),
+    });
+  }
+
+  setUserAdmin(uid: number, isAdmin: boolean): Observable<any> {
+    return this.http.patch(
+      '/api/admin/users/' + uid,
+      { is_admin: isAdmin },
+      { headers: this.authHeaders() },
+    );
+  }
+
+  // ---- Admin: projects ----
+  listProjects(): Observable<any> {
+    return this.http.get('/api/admin/projects', {
+      headers: this.authHeaders(),
+    });
+  }
+
+  getProjectStats(pid: number): Observable<any> {
+    return this.http.get('/api/projects/' + pid + '/stats', {
+      headers: this.authHeaders(),
+    });
+  }
 }
