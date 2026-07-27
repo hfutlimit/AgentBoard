@@ -59,6 +59,7 @@ interface PaletteCommand {
   title: string;
   hint?: string;
   keywords?: string;
+  category?: 'command' | 'task' | 'project';
   run: () => void;
 }
 
@@ -272,6 +273,11 @@ export class App implements OnInit, OnDestroy {
   readonly paletteOpen = signal(false);
   readonly paletteQuery = signal('');
   readonly paletteIndex = signal(0);
+  // Epic 69 v5.6: 命令面板接入后端搜索
+  readonly paletteSearching = signal(false);
+  readonly paletteTaskResults = signal<PaletteCommand[]>([]);
+  readonly paletteProjectResults = signal<PaletteCommand[]>([]);
+  private paletteDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   readonly createdKeyPlaintext = signal('');
   // Epic 22: 任务依赖
   readonly taskDependencies = signal<TaskDependencies | null>(null);
@@ -3921,6 +3927,9 @@ export class App implements OnInit, OnDestroy {
   openPalette(): void {
     this.paletteQuery.set('');
     this.paletteIndex.set(0);
+    this.paletteTaskResults.set([]);
+    this.paletteProjectResults.set([]);
+    this.paletteSearching.set(false);
     this.paletteOpen.set(true);
     setTimeout(() => {
       const el = document.getElementById('paletteInput') as HTMLInputElement | null;
@@ -3940,6 +3949,67 @@ export class App implements OnInit, OnDestroy {
     this.paletteOpen.set(false);
     this.paletteQuery.set('');
     this.paletteIndex.set(0);
+    this.paletteTaskResults.set([]);
+    this.paletteProjectResults.set([]);
+    this.paletteSearching.set(false);
+  }
+
+  /** Epic 69 v5.6: 命令面板输入框处理函数（含 200ms 防抖触发后端搜索） */
+  onPaletteInput(value: string): void {
+    this.paletteQuery.set(value);
+    this.paletteIndex.set(0);
+    if (this.paletteDebounceTimer) {
+      clearTimeout(this.paletteDebounceTimer);
+      this.paletteDebounceTimer = null;
+    }
+    const v = value;
+    this.paletteDebounceTimer = setTimeout(() => this.paletteRunSearch(v), 200);
+  }
+
+  /** Epic 69 v5.6: 实时搜索后端任务（按关键词）与本地项目（按名称/key），结果写入信号供 computed 合并 */
+  paletteRunSearch(q: string): void {
+    const query = q.trim();
+    if (query.length < 2) {
+      this.paletteTaskResults.set([]);
+      this.paletteProjectResults.set([]);
+      this.paletteSearching.set(false);
+      return;
+    }
+    this.paletteSearching.set(true);
+    // 项目：客户端过滤已加载的可见项目池（projects 优先，回退 recentProjects）
+    const pool = this.projects().length ? this.projects() : this.recentProjects();
+    const pq = query.toLowerCase();
+    const projCmds: PaletteCommand[] = pool
+      .filter((p) => `${p.name} ${p.key || ''}`.toLowerCase().includes(pq))
+      .slice(0, 8)
+      .map((p) => ({
+        id: `project-${p.id}`,
+        title: `项目：${p.name}`,
+        hint: p.key || 'Project',
+        category: 'project',
+        keywords: `project ${p.name} ${p.key || ''}`,
+        run: () => { void this.router.navigateByUrl(`/project/${p.id}`); },
+      }));
+    this.paletteProjectResults.set(projCmds);
+    // 任务：后端 /api/tasks?q= 搜索（跨可见项目）
+    firstValueFrom(this.api.searchTasks({ q: query, limit: 10 }))
+      .then((tasks) => {
+        const cmds: PaletteCommand[] = (tasks || []).map((t) => ({
+          id: `task-${t.id}`,
+          title: `任务 #${t.id}：${(t.title || '').slice(0, 60)}`,
+          hint: `${this.projectName(t.project_id)} · ${t.status}`,
+          category: 'task',
+          keywords: `task ${t.id} ${t.title}`,
+          run: () => { void this.router.navigateByUrl(`/task/${t.id}`); },
+        }));
+        this.paletteTaskResults.set(cmds);
+      })
+      .catch(() => {
+        this.paletteTaskResults.set([]);
+      })
+      .finally(() => {
+        this.paletteSearching.set(false);
+      });
   }
 
   /** 构建命令列表（含基于 recentProjects 的动态命令）。在 computed 内访问以跟踪信号变化。 */
@@ -3992,12 +4062,20 @@ export class App implements OnInit, OnDestroy {
     return cmds;
   }
 
-  /** 过滤后的命令列表（computed，随 query 与 recentProjects 变化） */
+  /** 过滤后的命令列表（computed，随 query、recentProjects、搜索结果变化） */
   readonly paletteItems = computed<PaletteCommand[]>(() => {
     const all = this.buildPaletteCommands();
     const q = this.paletteQuery().trim().toLowerCase();
     if (!q) return all;
-    return all.filter((c) => `${c.title} ${c.keywords || ''} ${c.hint || ''}`.toLowerCase().includes(q));
+    // 后端搜索结果（任务 + 项目）
+    const results = [...this.paletteTaskResults(), ...this.paletteProjectResults()];
+    const staticMatches = all.filter((c) => `${c.title} ${c.keywords || ''} ${c.hint || ''}`.toLowerCase().includes(q));
+    // 命中命令时命令优先（保持 Enter 执行命令的既有行为），后端实体结果作为补充列于其后；
+    // 未命中命令时直接展示后端搜索结果。
+    if (staticMatches.length > 0) {
+      return [...staticMatches, ...results];
+    }
+    return results;
   });
 
   paletteMove(delta: number): void {

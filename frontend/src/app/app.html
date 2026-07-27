@@ -2790,18 +2790,23 @@
           id="paletteInput"
           class="command-palette-input"
           type="text"
-          placeholder="输入命令或搜索…（↑↓ 选择，Enter 执行，Esc 关闭）"
+          placeholder="输入命令或搜索任务 / 项目…（↑↓ 选择，Enter 执行，Esc 关闭）"
           [value]="paletteQuery()"
-          (input)="paletteQuery.set($any($event.target).value); paletteIndex.set(0)"
+          (input)="onPaletteInput($any($event.target).value)"
           (keydown)="onPaletteKeydown($event)"
           autocomplete="off"
           spellcheck="false"
         />
+        @if (paletteSearching()) {
+          <span class="command-palette-spinner" aria-hidden="true"></span>
+        }
         <kbd class="command-palette-esc">Esc</kbd>
       </div>
       <div id="paletteList" class="command-palette-list">
         @if (paletteItems().length === 0) {
-          <div class="command-palette-empty">无匹配命令</div>
+          <div class="command-palette-empty">
+            @if (paletteSearching()) { 搜索中… } @else { 无匹配命令 }
+          </div>
         }
         @for (cmd of paletteItems(); track cmd.id; let i = $index) {
           <button
@@ -2811,6 +2816,9 @@
             (mouseenter)="paletteIndex.set(i)"
             (click)="paletteRun(cmd)"
           >
+            @if (cmd.category) {
+              <span class="palette-item-cat cat-{{ cmd.category }}">{{ cmd.category === 'task' ? '任务' : cmd.category === 'project' ? '项目' : '命令' }}</span>
+            }
             <span class="palette-item-title">{{ cmd.title }}</span>
             @if (cmd.hint) {
               <span class="palette-item-hint">{{ cmd.hint }}</span>

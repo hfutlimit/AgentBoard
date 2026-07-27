@@ -1206,6 +1206,32 @@ kbd.shortcut-key {
   font-family: var(--font-mono, monospace);
 }
 .palette-item.active .palette-item-hint { color: rgba(255,255,255,.85); }
+/* Epic 69 v5.6: 命令面板搜索结果分类标签 + 搜索中指示器 */
+.palette-item-cat {
+  flex: 0 0 auto;
+  font-size: .68rem;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 999px;
+  letter-spacing: .02em;
+  background: var(--surface-2);
+  color: var(--text-3);
+  border: 1px solid var(--border, rgba(0,0,0,.08));
+}
+.palette-item-cat.cat-task { color: #2563eb; background: rgba(37,99,235,.1); border-color: rgba(37,99,235,.18); }
+.palette-item-cat.cat-project { color: #7c3aed; background: rgba(124,58,237,.1); border-color: rgba(124,58,237,.18); }
+.palette-item.active .palette-item-cat { color: #fff; background: rgba(255,255,255,.22); border-color: rgba(255,255,255,.3); }
+.command-palette-spinner {
+  width: 14px; height: 14px;
+  flex: 0 0 auto;
+  border: 2px solid var(--text-3);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: palette-spin .6s linear infinite;
+  opacity: .7;
+}
+@keyframes palette-spin { to { transform: rotate(360deg); } }
 .command-palette-footer {
   display: flex;
   align-items: center;
