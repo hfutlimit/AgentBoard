@@ -43,8 +43,8 @@ export class ApiService {
   }
 
   // ---- Admin: projects ----
-  listProjects(): Observable<any> {
-    return this.http.get('/api/admin/projects', {
+  listProjects(limit = 200): Observable<any> {
+    return this.http.get('/api/admin/projects?limit=' + limit, {
       headers: this.authHeaders(),
     });
   }
