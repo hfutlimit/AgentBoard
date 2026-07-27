@@ -1778,7 +1778,7 @@
                         <strong>{{ comment.author }}</strong
                         ><time>{{ timeAgo(comment.created_at) }}</time>
                       </div>
-                      <div class="md text-pre">{{ comment.content }}</div>
+                      <div class="md text-pre" [innerHTML]="renderMarkdown(comment.content)"></div>
                     </div>
                   </article>
                 } @empty {

@@ -1423,6 +1423,7 @@ export class App implements OnInit, OnDestroy {
         ]);
         this.task.set(task);
         this.comments.set(comments);
+        setTimeout(() => this.enhanceMermaid(), 80);
         await this.loadAttachments(id);
         if (task.story_id) {
           const story = await firstValueFrom(this.api.getStory(task.story_id));
@@ -3461,6 +3462,7 @@ export class App implements OnInit, OnDestroy {
     try {
       const list = await firstValueFrom(this.api.listComments(t.id));
       this.qvComments.set(Array.isArray(list) ? list : []);
+      setTimeout(() => this.enhanceMermaid(), 80);
     } catch {
       this.qvComments.set([]);
     } finally {
