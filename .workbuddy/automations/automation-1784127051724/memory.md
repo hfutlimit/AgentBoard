@@ -465,3 +465,13 @@
 - **状态（REST 合法链 `backlog→todo→in_progress→in_review`）**：Task 850 / 851 / 856 → **in_review**；Story 71 / 其 Epic 保持部分完成（仅 3/7 任务推进），不误标 done。
 - **提交**：`feat(ui): admin-portal 基础框架 - 初始化/登录页/主题 (Task 850/851/856 -> in_review)` + push origin main。
 - **硬约束**：未触碰 18001(MCP)/docker/端口；排除 data/、autodev.lock、其他 automation memory.md、screenshots、前端 dist、scratch 脚本。
+
+## 2026-07-27 08:16 运行（Task 854 实现统计页 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 连接器全断 → REST 兜底（API 58125 / web 8090，admin id=18）。
+- **选型**：admin-portal（Epic 32 / Story 71）最高优先级真实 backlog；850/851/852/853/855/856 已 in_review，仅 Task 854（实现统计页）仍 backlog → 独立交付。
+- **实现（纯前端，零后端契约变更，复用 `/api/projects/{pid}/stats`）**：`api.service.getProjectStats` + `stats` 路由 + nav 链接 + `stats` 组件（5 汇总卡片 + 纯 CSS 双系列柱状图 + 日/周/月聚合 + 项目下拉 forkJoin 并行聚合）。
+- **验证**：`ng build admin-portal` 通过；`tests/test_admin_portal_stats_e2e.py` 全绿（0 错误）；回归登录 E2E + `pytest test_epic30_cache.py` 8 passed 无回归。
+- **状态（REST 合法链）**：Task 854 `backlog→in_review`；Story 71 → in_review；Epic 32 仍 backlog（Story 72 E2E 未完）。
+- **关键坑**：① 02:04 残留 `ng serve` 占 IPv4 127.0.0.1:4300，新 serve 默绑 IPv6 致 Playwright 命中旧代码（/stats 重定向 /login）→ PowerShell 按端口杀残留 + 清 .angular/cache + `--host 127.0.0.1` 重启解决。② 首次状态 PUT 遇 API 58125 瞬时 000，重试成功。
+- **提交**：`a111025` `feat(ui): admin-portal 统计页 - 任务趋势日/周/月聚合 + 汇总卡片 (Task 854 -> in_review)` → push origin main 成功。git add 仅 admin-portal 源码树 + 新 E2E（补齐 02:04 未提交源码使仓库可构建）；排除 data/、autodev.lock、其他 automation memory、screenshots、前端 dist。
+- **硬约束**：未触碰 18001(MCP)/docker/端口；验证后已停 4300 serve。
