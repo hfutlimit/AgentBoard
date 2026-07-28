@@ -64,7 +64,12 @@ def _http(method, path, **kw):
         return r.json() if r.content else {"ok": True}
 
 def _proj_list(limit=None, offset=0):
-    resp = _http("GET", "/api/projects", params={"limit": limit, "offset": offset} if limit is not None else {})
+    # 作用域限制：仅返回当前令牌身份「自己创建或作为成员」的项目，
+    # 不复用 /api/projects 的管理员全量视图，避免 MCP 越权浏览全部项目。
+    params = {"offset": offset}
+    if limit is not None:
+        params["limit"] = limit
+    resp = _http("GET", "/api/users/me/projects", params=params)
     return resp.get("items", resp) if isinstance(resp, dict) else resp
 
 def _proj_create(name, key, description):
@@ -258,7 +263,7 @@ def _run_delete(run_id):
 # ===================== MCP 工具 =====================
 @mcp.tool()
 def list_projects(limit: int | None = None, offset: int = 0) -> list:
-    """列出所有项目。limit / offset 用于分页。"""
+    """列出当前用户可见的项目（自己创建或作为成员的项目）。limit / offset 用于分页。"""
     return _proj_list(limit=limit, offset=offset)
 
 
