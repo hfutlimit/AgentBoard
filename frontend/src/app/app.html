@@ -1244,6 +1244,15 @@
                     <span class="view-label">{{ boardMode() ? '列表' : '看板' }}</span>
                   </button>
 
+                  @if (boardMode()) {
+                    <button id="boardColsToggle" class="btn board-cols-toggle" type="button"
+                      (click)="allColumnsCollapsed() ? expandAllColumns() : collapseAllColumns()"
+                      [title]="allColumnsCollapsed() ? '展开全部状态列' : '折叠全部状态列'">
+                      <span class="board-cols-glyph">{{ allColumnsCollapsed() ? '⊞' : '⊟' }}</span>
+                      <span class="board-cols-label">{{ allColumnsCollapsed() ? '全展开' : '全折叠' }}</span>
+                    </button>
+                  }
+
                   <div class="preset-wrap">
                     <button class="dropdown" (click)="togglePresetOpen()" [class.active]="presetOpen()">
                       <span>预设</span>

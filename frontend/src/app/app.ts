@@ -2982,6 +2982,21 @@ export class App implements OnInit, OnDestroy {
     return this.collapsedColumns().has(status);
   }
 
+  // v6.0: 看板列全部折叠 / 全部展开（互补 v5.8 单列折叠）
+  readonly allColumnsCollapsed = computed(() => {
+    const total = this.statuses.length;
+    return total > 0 && this.collapsedColumns().size >= total;
+  });
+  collapseAllColumns(): void {
+    const set = new Set<string>(this.statuses);
+    this.collapsedColumns.set(set);
+    localStorage.setItem('agentboard_collapsed_cols', JSON.stringify([...set]));
+  }
+  expandAllColumns(): void {
+    this.collapsedColumns.set(new Set<string>());
+    localStorage.setItem('agentboard_collapsed_cols', JSON.stringify([]));
+  }
+
   // B-04: 看板拖拽改状态
   onKanbanDragStart(event: DragEvent, task: Task): void {
     this.dragTaskId.set(task.id);

@@ -1032,6 +1032,18 @@ router-outlet {
   border-color: transparent;
 }
 
+/* v6.0: 看板列全部折叠 / 全部展开按钮 */
+.btn.board-cols-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+.btn.board-cols-toggle .board-cols-glyph {
+  font-size: 1rem;
+  line-height: 1;
+}
+
 /* Task 818: 任务列表指派人头像 */
 .assignee-avatar-sm {
   display: inline-flex;
