@@ -1625,6 +1625,11 @@
                         <span class="kanban-col-dot" [style.background]="statusColor(s)"></span>
                         <span class="kanban-col-title">{{ statusLabel(s) }}</span>
                         <span class="kanban-col-count">{{ getStatusTaskCount(s) }}</span>
+                        @if (hasSubgroups(s)) {
+                          <button type="button" class="kanban-col-subgroups-toggle" (click)="$event.stopPropagation(); allSubgroupsCollapsed(s) ? expandAllSubgroups(s) : collapseAllSubgroups(s)" [title]="allSubgroupsCollapsed(s) ? '展开该列所有子分组' : '折叠该列所有子分组'">
+                            <span class="kanban-subgroups-glyph">{{ allSubgroupsCollapsed(s) ? '⊞' : '⊟' }}</span>
+                          </button>
+                        }
                         <span class="kanban-col-collapse">{{ isColumnCollapsed(s) ? '▸' : '▾' }}</span>
                       </header>
                       @if (!isColumnCollapsed(s)) {
@@ -1635,11 +1640,13 @@
                           @for (grp of boardSubGroups(s); track grp.key || 'flat') {
                             <div class="kanban-subgroup" [class.has-header]="!!grp.key">
                               @if (grp.key) {
-                                <div class="kanban-subgroup-header">
+                                <div class="kanban-subgroup-header" (click)="toggleSubgroupCollapse(s, grp.key)" [class.collapsed]="isSubgroupCollapsed(s, grp.key)" [title]="isSubgroupCollapsed(s, grp.key) ? '展开子分组' : '折叠子分组'">
+                                  <span class="kanban-subgroup-chevron">{{ isSubgroupCollapsed(s, grp.key) ? '▸' : '▾' }}</span>
                                   <span class="kanban-subgroup-label">{{ grp.label }}</span>
                                   <span class="kanban-subgroup-count">{{ grp.count }}</span>
                                 </div>
                               }
+                              @if (!grp.key || !isSubgroupCollapsed(s, grp.key)) {
                               <div class="kanban-subgroup-body">
                                 @for (t of grp.items; track t.id) {
                                   <article
@@ -1686,6 +1693,7 @@
                                   </article>
                                 }
                               </div>
+                              }
                             </div>
                           } @empty {
                             <div class="kanban-col-empty">暂无任务</div>

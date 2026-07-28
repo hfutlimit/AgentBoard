@@ -538,3 +538,58 @@
 - 状态（REST 新建）：project 59(AUTODEV70)→epic 60(Epic 70 v5.7)→story 109→task 1125(high) → `backlog→todo→in_progress→in_review`；story 109、epic 60 经 PATCH 同步 **in_review**（达成）。
 - 提交：`feat(ui): 前端小优化 - 命令面板接入 Story/文档后端搜索 (Epic 70 v5.7)` → push origin main。刻意排除 data/、autodev.lock、其它 automation memory、screenshots、frontend/dist。
 - 硬约束：未触碰 18001(MCP)/docker 端口；API 58125 / web 8090/8080 / docker 18000/28080 原样。
+
+
+## 2026-07-28 10:19 运行（Epic 71 v5.8 任务列表看板视图渲染 → in_review，达成）
+- **目标**：本次 task → in_review。MCP 连接器全断 → REST 兜底（API 58125 权威 / web 8090 验证，admin id=18）。
+- **选型**：最高优先级真实 backlog 仅剩 junk；admin-portal(850-861) 全 in_review。核查发现 `boardMode` 信号/`setBoardMode`/看板 CSS/拖拽处理器/`tasksForStatus`/`toggleColumnCollapse`/`openQuickView` 等基础设施早已落地，但 `app.html` 仅有 `@if (!boardMode())` 列表分支、**缺 `@else` 看板渲染分支**，且工具栏无切换入口、`v` 键提示未接线 —— 看板功能从未真正可用。补齐「最后一公里」。
+- **追踪（REST 新建）**：project 60(AUTODEV71)→epic 61(Epic 71 v5.8)→story 110(Story 71.1)→task 1126(high) → 合法链 `backlog→todo→in_progress→in_review`；story 110、epic 61 经 PATCH 同步 **in_review**（达成）。
+- **实现（纯前端，零后端契约变更）**：
+  - `app.html`：任务列表区 `@if (!boardMode())` 收尾改为 `@if/@else`，新增看板分支（`@for (s of statuses)` 渲染 7 列；`.kanban-col-header` 含状态色点+名称+`getStatusTaskCount` 计数徽章+`toggleColumnCollapse` 折叠箭头；`.kanban-col-body` 为拖拽目标，`.kanban-card` 可拖拽+点击 `openQuickView`+角标 `toggleTaskComplete`+优先级色边框+类型图标+`taskEpicName`+指派人头像+截止日期+`taskProgressPct` 进度条，全部复用既有方法/CSS）。工具栏 `#densityToggle` 后新增 `#boardToggle`（列表/看板切换，`setBoardMode(!boardMode())`）。
+  - `app.ts`：`handleTaskKeydown` 新增 `case 'v'` 切换 `boardMode`。
+  - `app.css`：新增看板基础布局（`.kanban/.kanban-col/.kanban-col-header/.kanban-col-body/.kanban-card/...`，含 `[data-theme=dark]` 与列折叠态），复用既有优先级/进度/角标样式。
+- **构建**：`npm run build`(node22.22.2, 清 `.angular/cache`, NODE_OPTIONS=--max_old_space_size=4096) → `main-MSF7W5XL.js`+`styles-O6FQPGRB.css` cp→`agentboard/web/static/`，删旧 `main-J3WWIUIZ.js`。组件级 app.css 经 ViewEncapsulation.None 注入主 JS 包（styles hash 未变属正常）。
+- **验证**：`tests/test_epic71_v58_board_view_e2e.py` 全绿 —— 7 列渲染/各状态列正确渲染种子卡片+计数徽章/点击打开快速查看抽屉+Esc 关闭/**拖拽 backlog→todo 经 API 复核 status=todo**（关键发现：backlog→done 被状态机合法拒绝，非 bug）/切回列表/0 pageerror·console·.js+.css 404；测试末清理种子 story 110+任务，无泄漏。回归 `pytest test_epic30_cache.py` 8 passed + E2E v5.7/v5.6 全绿（无回归）。
+- **提交**：`feat(ui): 前端体验升级 v5.8 - 任务列表看板视图渲染 (Epic 71, Task 1126 -> in_review)` → push origin main 成功（`29263a7..ba1c5e7`，10 文件 +407/-14）。
+- **硬约束**：未触碰 18001(MCP)/docker 端口；刻意排除 data/、autodev.lock、其它 automation memory、screenshots、前端 dist 源码（仅提交 static 产物）、agentboard-audit/、其它 automation 的 MEMORY.md。
+- **下次可执行**：看板列分组/筛选联动、看板视图下批量操作、或新需求。
+
+## 2026-07-28 13:53 自动开发 — Epic 72 v5.9 看板视图批量操作（达成，task 1127 → in_review）
+- 目标：本次 task → in_review。MCP 全断 → REST 兜底（API 58125 / web 8090，admin id=18）。
+- 选型：真实 backlog 顶部为 junk（1112-1116），high 项 1123-1126 全 in_review；依 v5.8「下次可执行」新建增量 Epic 72 v5.9「看板视图批量操作」。
+- 发现：`bulk-action-bar` 本就在 board/list 分支之外共用，随 `selectedTasks().size>0` 出现；缺口仅是看板卡片无选择入口。
+- 实现（纯前端，零契约变更）：看板卡片加 `.kanban-card-check` 复选框（复用 `toggleTaskSelection`，mousedown/click 双 stopPropagation 防误开抽屉/防拖拽）+ `[class.selected]` + `.kanban-card.selected` 样式（含暗色）。app.ts 无改动。
+- 构建：`main-GS2YFXXM.js` cp→`agentboard/web/static/`，删旧 `main-MSF7W5XL.js`。
+- 验证：`tests/test_epic72_v59_board_bulk_select_e2e.py` ALL PASS（勾选→选中态+不触发抽屉+批量工具栏「2 项已选」→状态机感知批量改状态 API 复核→Esc 清除→0 错误）；回归 `pytest test_epic30_cache.py` 8 passed + v5.8 看板 E2E 全绿。`test_epic55_v42` 因硬编码 28080 宕机失败，非回归。
+- 状态（REST 新建）：project 61→epic 62→story 111→task 1127(high) 合法链 `backlog→todo→in_progress→in_review`；story/epic 同步 **in_review**（达成）。
+- 提交：`feat(ui): 前端体验升级 v5.9 - 看板视图批量操作（卡片多选 + 复用批量工具栏）(Epic 72, Task 1127 -> in_review)` → push `ba1c5e7..580bed7`。
+- 硬约束：未触碰 18001(MCP)/docker 端口；排除 data/、autodev.lock、其它 automation memory、screenshots、前端 dist、agentboard-audit/。
+- 下次可执行：看板列分组维度分列、看板筛选预设联动可视化、或新需求。
+
+## 2026-07-28 17:0x 自动开发 — Epic 73 v6.0 看板视图列全折叠/全展开 → in_review（达成）
+- 目标：本次 task → in_review。MCP 全断 → REST 兜底（API 58125 / web 8090，admin id=18）。
+- 选型：真实 backlog 仅 junk(1112-1116)；high 项 1123-1127 全 in_review；依 v5.9 建议补齐看板对称能力（列表 v1.9 已有分组全折叠/全展开，看板仅 v5.8 单列折叠）→ 新建增量 Epic 73 v6.0。
+- 实现：纯前端，零契约变更。`app.ts` 加 `allColumnsCollapsed` computed + `collapseAllColumns`/`expandAllColumns`（复用 `collapsedColumns` 信号 + localStorage）；`app.html` `#boardToggle` 后加 `@if(boardMode())` 的 `#boardColsToggle` 切换按钮；`app.css` 加 `.btn.board-cols-toggle`。构建 `main-A6KMV6OY.js` cp→`agentboard/web/static/`，删旧 `main-GS2YFXXM.js`。
+- 验证：`tests/test_epic73_v60_board_collapse_e2e.py` 全绿（7 列全折叠/全展开/刷新持久化/0 错误）；回归 `pytest test_epic30_cache.py` 8 passed + v5.8/v5.9 看板 E2E 全绿。
+- 追踪（REST 新建）：project 62→epic 63→story 112→task 1128(high) 合法链 `backlog→todo→in_progress→in_review`；story/epic 同步 in_review（达成）。
+- 提交：`0a68883` feat(ui): 前端体验升级 v6.0 - 看板视图列全折叠/全展开 → push `580bed7..0a68883`。硬约束：未触碰 18001(MCP)/docker 端口。
+
+## 2026-07-28 20:xx 自动开发 — Epic 74 v6.1 看板视图列内按维度子分组 → in_review（达成）
+- 目标：本次 task → in_review。MCP 全断 → REST 兜底（API 58125 权威 / web 8090 验证，admin id=18）。
+- 选型：真实 backlog 仅剩 junk(#1112-1116)；high 项 #1123-1128 全 in_review；`filterMineOnly`(我的任务)/`boardMode` 持久化均已落地 → 依 v5.9 提示新建增量 Epic 74 v6.1「看板视图列内按维度子分组」。
+- 追踪（REST 新建）：project 63(AUTODEV74)→epic 64(Epic 74 v6.1)→story 113(Story 74.1)→task 1136(high) → 合法链 `backlog→todo→in_progress→in_review`；story 113、epic 64 经 PATCH 同步 **in_review**（达成）。
+- 实现（纯前端，零后端契约变更）：`app.ts` 新增 `boardSubGroups(status)`（复用 `taskGroupBy`/`groupLabel`/`dueBucket`/`priorities` 分桶，与列表 `groupedTasks` 一致；空列返回 `[]`）；`app.html` 看板 `.kanban-col-body` 由平铺 `@for(tasksForStatus)` 改 `@for(boardSubGroups)`（有 key 渲染子分组头标签+计数，卡片移入 `.kanban-subgroup-body`）；`styles.css` 补 `.kanban-subgroup*`（sticky 子分组头+胶囊计数，主题变量含暗色）。构建 `main-FOZ5QS6F.js`+`styles-W5HB4YXQ.css` cp→`agentboard/web/static/`，删旧 `main-A6KMV6OY.js`。
+- 验证：`tests/test_epic74_v61_board_subgroup_e2e.py` 全绿（默认不分组=平铺/按优先级 3 子分组头计数[1,1,1]+卡片归位+拖拽目标仍在/按类型 3 头 Task·Bug·Test Execution/切回退化/0 错误；测试末清理种子）；回归 `pytest test_epic30_cache.py` 8 passed + E2E v5.8(拖拽)/v5.9(批量)/v6.0(折叠) 全绿（无回归）。
+- 提交：`feat(ui): 前端体验升级 v6.1 - 看板视图列内按维度子分组 (Epic 74, Task 1136 -> in_review)` → push 成功 `0a68883..7eb4032`，11 文件 +385/-94。
+- 硬约束：未触碰 18001(MCP)/docker 端口；API 58125 / web 8090/8080 原样；排除 data/、autodev.lock、其它 automation 的 memory.md、其它日期 daily memory、screenshots、agentboard-audit/、deliverables/、docs/design-prototypes/、其它 scratch 脚本。
+- 下次可执行：看板子分组头折叠/展开、看板视图下筛选预设联动可视化、或新需求。
+
+## 2026-07-28 23:xx 自动开发 — Epic 75 v6.2 看板子分组头折叠/展开 → in_review（达成）
+- 目标 task→in_review。MCP 全断 → REST 兜底（API 58125 / web 8090，admin id=18）。
+- 选型：真实 backlog 顶部 junk(#1112-1116)+测试种子；唯一 in_progress #708 scope 模糊 → 依 v6.1 建议新建增量 Epic 75 v6.2。
+- 追踪（REST 新建）：project 64(AUTODEV75)→epic 65→story 114→task 1137(high) 合法链 → in_review；story/epic 同步 in_review。
+- 实现（纯前端）：`collapsedSubgroups` 信号(key=`status::key`, localStorage) + toggle/has/all/collapseAll/expandAll 方法；子分组头可点击折叠 + 列头一键折叠/展开全部；`@if` 包裹 body。零后端契约变更。
+- 坑：helper 形参误用 string 触发 TS2345（boardSubGroups 形参为 Status）→ 改 Status。
+- 验证：`tests/test_epic75_v62_board_subgroup_collapse_e2e.py` 全绿（单折叠/列全折叠/reload 持久化/0 错误）；回归 pytest epic30_cache 8 passed + v6.1 board E2E ALL PASS。
+- 提交：`feat(ui): 前端体验升级 v6.2 - 看板视图子分组头折叠/展开 (Epic 75, Task 1137 -> in_review)` → push origin main。
+- 硬约束：未触碰 18001(MCP)/docker 端口。

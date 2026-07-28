@@ -297,6 +297,10 @@ export class App implements OnInit, OnDestroy {
   readonly collapsedColumns = signal<Set<string>>(new Set(
     JSON.parse(localStorage.getItem('agentboard_collapsed_cols') || '[]')
   ));
+  // v6.2: 看板子分组折叠状态（key = status + '::' + subgroupKey；flat 分组 key='' 不参与）
+  readonly collapsedSubgroups = signal<Set<string>>(new Set(
+    JSON.parse(localStorage.getItem('agentboard_collapsed_subgroups') || '[]')
+  ));
   // Task 719: 通知按类型分组
   readonly groupedNotifications = computed(() => {
     const notifs = this.notifications();
@@ -3022,6 +3026,41 @@ export class App implements OnInit, OnDestroy {
   expandAllColumns(): void {
     this.collapsedColumns.set(new Set<string>());
     localStorage.setItem('agentboard_collapsed_cols', JSON.stringify([]));
+  }
+
+  // v6.2: 看板子分组折叠/展开（key = status + '::' + subgroupKey；flat 分组 key='' 不参与折叠）
+  private persistCollapsedSubgroups(): void {
+    localStorage.setItem('agentboard_collapsed_subgroups', JSON.stringify([...this.collapsedSubgroups()]));
+  }
+  isSubgroupCollapsed(status: Status, key: string): boolean {
+    return this.collapsedSubgroups().has(status + '::' + key);
+  }
+  toggleSubgroupCollapse(status: Status, key: string): void {
+    const collapsed = new Set(this.collapsedSubgroups());
+    const k = status + '::' + key;
+    if (collapsed.has(k)) collapsed.delete(k); else collapsed.add(k);
+    this.collapsedSubgroups.set(collapsed);
+    this.persistCollapsedSubgroups();
+  }
+  hasSubgroups(status: Status): boolean {
+    return this.boardSubGroups(status).some((g) => !!g.key);
+  }
+  allSubgroupsCollapsed(status: Status): boolean {
+    const groups = this.boardSubGroups(status).filter((g) => !!g.key);
+    if (!groups.length) return false;
+    return groups.every((g) => this.collapsedSubgroups().has(status + '::' + g.key));
+  }
+  collapseAllSubgroups(status: Status): void {
+    const collapsed = new Set(this.collapsedSubgroups());
+    for (const g of this.boardSubGroups(status)) if (g.key) collapsed.add(status + '::' + g.key);
+    this.collapsedSubgroups.set(collapsed);
+    this.persistCollapsedSubgroups();
+  }
+  expandAllSubgroups(status: Status): void {
+    const collapsed = new Set(this.collapsedSubgroups());
+    for (const g of this.boardSubGroups(status)) if (g.key) collapsed.delete(status + '::' + g.key);
+    this.collapsedSubgroups.set(collapsed);
+    this.persistCollapsedSubgroups();
   }
 
   // B-04: 看板拖拽改状态
