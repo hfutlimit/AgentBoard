@@ -891,6 +891,41 @@ main {
   box-shadow: var(--sh-sm);
   transition-duration: .08s;
 }
+/* v6.1: 看板列内按维度子分组（复用 taskGroupBy 选择器） */
+.kanban-subgroup { margin-bottom: 6px; }
+.kanban-subgroup.has-header { margin-bottom: 12px; }
+.kanban-subgroup-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  margin-bottom: 6px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  backdrop-filter: blur(6px);
+}
+.kanban-subgroup-label { flex: 1; }
+.kanban-subgroup-count {
+  min-width: 18px;
+  text-align: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand-600, var(--brand-500));
+  font-size: 11px;
+}
+.kanban-subgroup-body { display: block; }
+[data-theme="dark"] .kanban-subgroup-header {
+  background: color-mix(in srgb, var(--surface-2) 56%, transparent);
+}
 /* Task 713: 卡片拖拽占位符动画 */
 .kanban-card.dragging {
   opacity: .45;

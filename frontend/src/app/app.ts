@@ -2961,6 +2961,33 @@ export class App implements OnInit, OnDestroy {
     return all.slice(0, this.taskPageSize() * this.taskPageCount());
   }
 
+  // v6.1: 看板列内按维度子分组（复用 taskGroupBy 选择器与 groupLabel 分桶逻辑，与列表分组一致）
+  // 保持状态列（status）为拖拽主轴不变；taskGroupBy='none'/'status' 时退化为当前平铺行为。
+  boardSubGroups(status: Status): { key: string; label: string; count: number; items: Task[] }[] {
+    const g = this.taskGroupBy();
+    const list = this.tasksForStatus(status);
+    if (!list.length) return [];
+    if (g === 'none' || g === 'status') {
+      return [{ key: '', label: '', count: list.length, items: list }];
+    }
+    const buckets: Record<string, Task[]> = {};
+    for (const t of list) {
+      const k =
+        g === 'type' ? t.type
+        : g === 'priority' ? (t.priority || 'medium')
+        : g === 'due' ? this.dueBucket(t)
+        : t.assignee_id == null ? 'unassigned' : String(t.assignee_id);
+      (buckets[k] ||= []).push(t);
+    }
+    let keys: string[];
+    if (g === 'type') keys = ['task', 'bug', 'test_execution'].filter((k) => buckets[k]);
+    else if (g === 'priority') keys = this.priorities.filter((p) => buckets[p]);
+    else if (g === 'due') keys = this.dueBucketOrder.filter((b) => buckets[b]);
+    else keys = Object.keys(buckets).sort((a, b) =>
+      this.groupLabel('assignee', a).localeCompare(this.groupLabel('assignee', b), 'zh'));
+    return keys.map((k) => ({ key: k, label: this.groupLabel(g, k), count: buckets[k].length, items: buckets[k] }));
+  }
+
   private applyTheme(theme: string): void {
     this.document.documentElement.dataset['theme'] = theme;
     localStorage.setItem('agentboard_theme', theme);

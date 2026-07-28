@@ -1632,49 +1632,61 @@
                              (dragover)="onKanbanDragOver($event, s)"
                              (dragleave)="onKanbanDragLeave($event, s)"
                              (drop)="onKanbanDrop($event, s)">
-                          @for (t of tasksForStatus(s); track t.id) {
-                            <article
-                              class="kanban-card kanban-card--pri-{{ t.priority }} priority--{{ t.priority }}"
-                              draggable="true"
-                              [class.dragging]="dragTaskId() === t.id"
-                              [class.selected]="selectedTasks().has(t.id)"
-                              (dragstart)="onKanbanDragStart($event, t)"
-                              (dragend)="onKanbanDragEnd()"
-                              (click)="openQuickView(t)"
-                            >
-                              <button type="button" class="task-quick-complete kanban-qc" [class.done]="t.status === 'done'"
-                                [title]="t.status === 'done' ? '重新打开' : '标记为完成'"
-                                (click)="$event.stopPropagation(); toggleTaskComplete(t.id)"><span class="qc-check">{{ t.status === 'done' ? '✓' : '' }}</span></button>
-                              <div class="kanban-card-top">
-                                <input
-                                  type="checkbox"
-                                  class="kanban-card-check"
-                                  [checked]="selectedTasks().has(t.id)"
-                                  [attr.aria-label]="'选择任务 ' + t.title"
-                                  (mousedown)="$event.stopPropagation()"
-                                  (click)="$event.stopPropagation()"
-                                  (change)="toggleTaskSelection(t.id); $event.stopPropagation()"
-                                />
-                                <span class="kanban-card-type-icon type-icon {{ t.type }}">{{ typeGlyph(t.type) }}</span>
-                                @if (taskEpicName(t)) {
-                                  <span class="kanban-card-epic">{{ taskEpicName(t) }}</span>
+                          @for (grp of boardSubGroups(s); track grp.key || 'flat') {
+                            <div class="kanban-subgroup" [class.has-header]="!!grp.key">
+                              @if (grp.key) {
+                                <div class="kanban-subgroup-header">
+                                  <span class="kanban-subgroup-label">{{ grp.label }}</span>
+                                  <span class="kanban-subgroup-count">{{ grp.count }}</span>
+                                </div>
+                              }
+                              <div class="kanban-subgroup-body">
+                                @for (t of grp.items; track t.id) {
+                                  <article
+                                    class="kanban-card kanban-card--pri-{{ t.priority }} priority--{{ t.priority }}"
+                                    draggable="true"
+                                    [class.dragging]="dragTaskId() === t.id"
+                                    [class.selected]="selectedTasks().has(t.id)"
+                                    (dragstart)="onKanbanDragStart($event, t)"
+                                    (dragend)="onKanbanDragEnd()"
+                                    (click)="openQuickView(t)"
+                                  >
+                                    <button type="button" class="task-quick-complete kanban-qc" [class.done]="t.status === 'done'"
+                                      [title]="t.status === 'done' ? '重新打开' : '标记为完成'"
+                                      (click)="$event.stopPropagation(); toggleTaskComplete(t.id)"><span class="qc-check">{{ t.status === 'done' ? '✓' : '' }}</span></button>
+                                    <div class="kanban-card-top">
+                                      <input
+                                        type="checkbox"
+                                        class="kanban-card-check"
+                                        [checked]="selectedTasks().has(t.id)"
+                                        [attr.aria-label]="'选择任务 ' + t.title"
+                                        (mousedown)="$event.stopPropagation()"
+                                        (click)="$event.stopPropagation()"
+                                        (change)="toggleTaskSelection(t.id); $event.stopPropagation()"
+                                      />
+                                      <span class="kanban-card-type-icon type-icon {{ t.type }}">{{ typeGlyph(t.type) }}</span>
+                                      @if (taskEpicName(t)) {
+                                        <span class="kanban-card-epic">{{ taskEpicName(t) }}</span>
+                                      }
+                                    </div>
+                                    <div class="kanban-card-title">{{ t.title }}</div>
+                                    <div class="kanban-card-meta">
+                                      @if (t.assignee_id) {
+                                        <span class="assignee-avatar-sm" title="{{ getAssigneeName(t.assignee_id) }}">{{ getAssigneeInitials(t.assignee_id) }}</span>
+                                      } @else {
+                                        <span class="assignee-avatar-sm unassigned" title="未指派">?</span>
+                                      }
+                                      @if (t.due_date) {
+                                        <span class="kanban-card-due" [class.due-overdue]="isOverdue(t.due_date)" title="截止：{{ formatDueDate(t.due_date) }}">⏰ {{ formatDueDate(t.due_date) }}</span>
+                                      }
+                                    </div>
+                                    <div class="kanban-card-progress">
+                                      <div class="kanban-card-progress-fill" [style.width.%]="taskProgressPct(t.status)"></div>
+                                    </div>
+                                  </article>
                                 }
                               </div>
-                              <div class="kanban-card-title">{{ t.title }}</div>
-                              <div class="kanban-card-meta">
-                                @if (t.assignee_id) {
-                                  <span class="assignee-avatar-sm" title="{{ getAssigneeName(t.assignee_id) }}">{{ getAssigneeInitials(t.assignee_id) }}</span>
-                                } @else {
-                                  <span class="assignee-avatar-sm unassigned" title="未指派">?</span>
-                                }
-                                @if (t.due_date) {
-                                  <span class="kanban-card-due" [class.due-overdue]="isOverdue(t.due_date)" title="截止：{{ formatDueDate(t.due_date) }}">⏰ {{ formatDueDate(t.due_date) }}</span>
-                                }
-                              </div>
-                              <div class="kanban-card-progress">
-                                <div class="kanban-card-progress-fill" [style.width.%]="taskProgressPct(t.status)"></div>
-                              </div>
-                            </article>
+                            </div>
                           } @empty {
                             <div class="kanban-col-empty">暂无任务</div>
                           }
