@@ -677,19 +677,14 @@ def list_projects_ext(
     limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
     authorization: str | None = Header(None),
 ):
-    """项目列表（访问作用域）：
+    """列表 API：admin 可见全部项目；普通用户仅见受邀（成员）项目。
 
-    - 交互式用户令牌（Bearer 登录令牌）：管理员可见全部，普通用户仅见成员项目。
-    - 服务账号（``abk_`` API Key）：即使对应账号是管理员，也只返回其成员 / 创建者
-      项目，防止 MCP 等服务越权浏览全量项目（修复 MCP 可查看所有项目的缺陷）。
-      全量视图仍可通过 ``/api/admin/projects`` 获取。
+    访问权限由 ``list_accessible_projects`` 中 ``user.is_admin`` 控制。
+    API Key（``abk_``）的身份解析完全等同于其关联用户 —— 若 key 属于非管理
+    员，则仅返回该用户的成员项目；若属于管理员，则可见全部。
     """
     uid = _optional_user_id(authorization, s)
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    is_api_key = bool(token and token.startswith(auth.API_KEY_PREFIX))
-    projects, total = service.list_accessible_projects(
-        s, uid, limit=limit, offset=offset, include_admin=not is_api_key
-    )
+    projects, total = service.list_accessible_projects(s, uid, limit=limit, offset=offset)
     return {"items": [service._ser(p) for p in projects], "total": total}
 
 

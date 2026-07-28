@@ -1330,17 +1330,17 @@ def list_all_projects_admin(s: Session, limit: int | None = None, offset: int = 
 # ---------- Visibility-filtered project list ----------
 def list_accessible_projects(
     s: Session, user_id: int | None, limit: int | None = None, offset: int = 0,
-    *, include_admin: bool = True,
 ) -> tuple[list, int]:
     """返回用户可见的项目列表。
 
-    访问规则（2026-07-21 邀请制 + 2026-07-28 API Key 作用域）：
-    - 管理员令牌：默认可见全部项目（``include_admin=True``）。
+    访问规则（2026-07-21 邀请制）：
+    - 管理员：可见全部项目（``user.is_admin=True``）。
     - 普通用户：仅可见自己是成员的项目（邀请制）。
-    - 服务账号（``abk_`` API Key）调用：显式 ``include_admin=False``，即使对应账号
-      是管理员，也只返回其作为成员 / 创建者可见的项目，防止 MCP 等服务令牌
-      越权浏览全量项目（修复 MCP 可查看所有项目的缺陷）。
     - 未登录：空列表。
+
+    ``abk_`` API Key 经 ``_current_user()`` 解析为关联用户的完整身份
+    （含 ``is_admin``），因此权限与用户一致 —— 管理员 key 可见全部，
+    普通用户 key 仅见成员项目。
     """
     if user_id is None:
         q = s.query(Project).filter(False)  # 未登录 → 空
@@ -1348,7 +1348,7 @@ def list_accessible_projects(
         return _paginate(q.order_by(Project.id.desc()), limit, offset).all(), total
 
     user = s.get(User, user_id)
-    if user and user.is_admin and include_admin:
+    if user and user.is_admin:
         # 管理员：全量
         q = s.query(Project)
     else:
