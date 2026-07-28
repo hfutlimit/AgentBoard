@@ -457,6 +457,32 @@ export class App implements OnInit, OnDestroy {
   readonly activeFilterCount = computed(() => this.filterPriorities().length + this.filterTypes().length + this.filterAssignees().length + (this.filterStatus() ? 1 : 0) + (this.filterDueDate() ? 1 : 0) + (this.labelFilter() ? 1 : 0) + (this.filterMineOnly() ? 1 : 0));
   // Epic 34 (v2.3): 工具条「清除全部筛选」按钮显隐 —— 搜索框非空或任一筛选活跃时显示
   readonly showClearAll = computed(() => this.taskSearchQuery().trim() !== '' || this.activeFilterCount() > 0);
+  // Epic 76 (v6.3): 看板/列表视图「激活筛选条件」可视化 chips 条 —— 展示当前生效的筛选，点击单条即可移除
+  readonly activeFilterChips = computed<{ key: string; label: string }[]>(() => {
+    const chips: { key: string; label: string }[] = [];
+    if (this.filterStatus()) chips.push({ key: 'status', label: '状态 · ' + this.statusLabel(this.filterStatus()) });
+    for (const p of this.filterPriorities()) chips.push({ key: 'priority:' + p, label: this.priorityLabel(p) });
+    for (const t of this.filterTypes()) chips.push({ key: 'type:' + t, label: this.typeLabel(t) });
+    for (const a of this.filterAssignees()) chips.push({ key: 'assignee:' + a, label: '指派 · ' + (a === 'unassigned' ? '未指派' : this.getAssigneeName(Number(a))) });
+    if (this.filterDueDate()) chips.push({ key: 'due', label: '截止 · ' + (this.dueBucketLabels[this.filterDueDate()] || this.filterDueDate()) });
+    if (this.labelFilter()) chips.push({ key: 'label', label: '标签 · ' + this.labelFilter() });
+    if (this.filterMineOnly()) chips.push({ key: 'mine', label: '指派给我' });
+    const q = this.taskSearchQuery().trim();
+    if (q) chips.push({ key: 'search', label: '搜索 · ' + q });
+    return chips;
+  });
+
+  // Epic 76 (v6.3): 移除单条激活筛选（供 chips 条的 ✕ 使用）
+  clearFilterChip(key: string): void {
+    if (key === 'status') this.setQuickStatus('');
+    else if (key.startsWith('priority:')) this.filterPriorities.set(this.filterPriorities().filter((p) => p !== key.slice(9)));
+    else if (key.startsWith('type:')) this.filterTypes.set(this.filterTypes().filter((t) => t !== key.slice(5)));
+    else if (key.startsWith('assignee:')) this.filterAssignees.set(this.filterAssignees().filter((a) => a !== key.slice(9)));
+    else if (key === 'due') this.filterDueDate.set('');
+    else if (key === 'label') this.labelFilter.set('');
+    else if (key === 'mine') { this.filterMineOnly.set(false); try { localStorage.removeItem('agentboard_filter_mine'); } catch { /* ignore */ } }
+    else if (key === 'search') this.taskSearchQuery.set('');
+  }
   // Task 716: 优先级快速筛选 chips —— 各优先级任务计数（基于当前 story 全量任务，不受筛选影响）
   readonly priorityCounts = computed<Record<string, number>>(() => {
     const counts: Record<string, number> = { highest: 0, high: 0, medium: 0, low: 0, lowest: 0 };

@@ -1310,6 +1310,22 @@
                 }
               </div>
 
+              <!-- Epic 76 (v6.3): 激活筛选条件可视化 chips 条（列表与看板视图共用） -->
+              @if (activeFilterChips().length > 0) {
+                <div class="active-filter-bar" role="status" aria-label="当前激活的筛选条件">
+                  <span class="active-filter-bar__label">筛选中</span>
+                  @for (chip of activeFilterChips(); track chip.key) {
+                    <button type="button" class="active-filter-chip" (click)="clearFilterChip(chip.key)" [title]="'点击移除：' + chip.label">
+                      <span class="active-filter-chip__text">{{ chip.label }}</span>
+                      <span class="active-filter-chip__x">✕</span>
+                    </button>
+                  }
+                  @if (showClearAll()) {
+                    <button type="button" class="active-filter-bar__clear" (click)="clearAllFilters()" title="清除全部筛选条件">全部清除</button>
+                  }
+                </div>
+              }
+
               <!-- Bulk actions -->
               @if (selectedTaskCount > 0) {
                 <div class="bulk-action-bar">
