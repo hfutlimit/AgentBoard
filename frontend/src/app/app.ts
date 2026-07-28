@@ -293,6 +293,15 @@ export class App implements OnInit, OnDestroy {
   readonly apiSuccessRate = signal<number>(100);
   readonly pageLoadTime = signal<number>(0);
   readonly showPerformance = signal(false);
+  // Task 708: 常驻性能徽标（持续显示页面加载 / API 延迟）
+  readonly showPerfBadge = signal<boolean>(localStorage.getItem('agentboard_perf_badge') !== 'off');
+  readonly perfHealthLevel = computed<'good' | 'warn' | 'bad'>(() => {
+    const avg = this.avgApiDuration();
+    const rate = this.apiSuccessRate();
+    if (avg > 0 && avg <= 300 && rate >= 95) return 'good';
+    if (avg > 1000 || rate < 80) return 'bad';
+    return 'warn';
+  });
   // Task 721: 看板列折叠状态
   readonly collapsedColumns = signal<Set<string>>(new Set(
     JSON.parse(localStorage.getItem('agentboard_collapsed_cols') || '[]')
@@ -797,6 +806,7 @@ export class App implements OnInit, OnDestroy {
   private toastTimer?: ReturnType<typeof setTimeout>;
   private healthTimer?: ReturnType<typeof setInterval>;   // Task 400: 健康检查轮询
   private notifTimer?: ReturnType<typeof setInterval>;    // Task 401: 通知轮询
+  private perfTimer?: ReturnType<typeof setInterval>;      // Task 708: 性能指标实时刷新
   private readonly colorScheme = window.matchMedia?.('(prefers-color-scheme: dark)');
   private readonly handleColorSchemeChange = (event: MediaQueryListEvent): void => {
     if (!localStorage.getItem('agentboard_theme')) {
@@ -873,8 +883,9 @@ export class App implements OnInit, OnDestroy {
   ) {}
 
   ngOnInit(): void {
-    // Task 708: 记录页面加载时间
-    this.pageLoadTime.set(performance.now());
+    // Task 708: 准确的页面加载时间（Navigation Timing API；loadEventEnd 为完整加载耗时）
+    const navEntry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+    this.pageLoadTime.set(navEntry && navEntry.loadEventEnd > 0 ? navEntry.loadEventEnd : performance.now());
     window.addEventListener(AUTH_EXPIRED_EVENT, this.handleAuthExpired);
     window.addEventListener('online', this.handleOnline);    // Task 402: 离线检测
     window.addEventListener('offline', this.handleOffline);
@@ -892,6 +903,8 @@ export class App implements OnInit, OnDestroy {
     window.addEventListener('unhandledrejection', this.handleUnhandledRejection);
     // 启动时校验已有 token，失败则清除并显示登录
     void this.validateAuth();
+    // Task 708: 每 2s 自动刷新性能指标，实时反映 API 延迟（常驻徽标依赖此数据）
+    this.perfTimer = setInterval(() => this.updatePerformanceMetrics(), 2000);
     this.routeSub = this.router.events
       .pipe(filter((event) => event instanceof NavigationEnd))
       .subscribe(() => {
@@ -1187,6 +1200,7 @@ export class App implements OnInit, OnDestroy {
     if (this.toastTimer) clearTimeout(this.toastTimer);
     if (this.healthTimer) clearInterval(this.healthTimer);    // Task 400
     if (this.notifTimer) clearInterval(this.notifTimer);     // Task 401
+    if (this.perfTimer) clearInterval(this.perfTimer);       // Task 708
   }
 
   private match<T>(items: T[], text: (item: T) => string): T[] {
@@ -2971,6 +2985,13 @@ export class App implements OnInit, OnDestroy {
 
   isDarkTheme(): boolean {
     return this.document.documentElement.dataset['theme'] === 'dark';
+  }
+
+  // Task 708: 切换常驻性能徽标显隐（持久化到 localStorage）
+  togglePerfBadge(): void {
+    const next = !this.showPerfBadge();
+    this.showPerfBadge.set(next);
+    localStorage.setItem('agentboard_perf_badge', next ? 'on' : 'off');
   }
 
   setBoardMode(board: boolean): void {

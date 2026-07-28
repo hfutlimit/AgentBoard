@@ -69,6 +69,10 @@
       <button id="theme-toggle" class="icon-btn" [title]="getThemeLabel()" (click)="toggleTheme()">
         <span class="theme-icon">{{ isDarkTheme() ? '🌙' : '☀️' }}</span>
       </button>
+      <!-- Task 708: 常驻性能徽标开关 -->
+      <button id="perf-toggle" class="icon-btn" [title]="showPerfBadge() ? '隐藏性能徽标' : '显示性能徽标'" (click)="togglePerfBadge()">
+        <span>{{ showPerfBadge() ? '📊' : '📈' }}</span>
+      </button>
       <span id="user-info" class="muted">
         <!-- Notification bell -->
         @if (currentUser()) {
@@ -2952,4 +2956,13 @@
     </div>
   </div>
 }
+    <!-- Task 708: 常驻性能徽标（持续显示页面加载 / API 延迟，点击展开系统状态详情） -->
+    @if (showPerfBadge()) {
+      <div class="perf-badge perf-badge--{{ perfHealthLevel() }}" (click)="toggleHealth()" title="性能指标 · 点击查看详情">
+        <span class="perf-badge-dot"></span>
+        <span class="perf-badge-metric"><span class="perf-badge-label">加载</span>{{ formatLoadTime() }}</span>
+        <span class="perf-badge-sep">/</span>
+        <span class="perf-badge-metric"><span class="perf-badge-label">API</span>{{ avgApiDuration() > 0 ? formatMetricTime(avgApiDuration()) : '—' }}</span>
+      </div>
+    }
 <router-outlet />
