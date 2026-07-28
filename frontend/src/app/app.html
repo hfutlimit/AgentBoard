@@ -1239,6 +1239,11 @@
                     <span class="density-label">{{ listDensity() === 'compact' ? '紧凑' : '舒适' }}</span>
                   </button>
 
+                  <button id="boardToggle" class="btn view-toggle" type="button" (click)="setBoardMode(!boardMode())" [title]="boardMode() ? '切换为列表视图' : '切换为看板视图'" [attr.aria-pressed]="boardMode()">
+                    <span class="view-glyph">{{ boardMode() ? '▤' : '▦' }}</span>
+                    <span class="view-label">{{ boardMode() ? '列表' : '看板' }}</span>
+                  </button>
+
                   <div class="preset-wrap">
                     <button class="dropdown" (click)="togglePresetOpen()" [class.active]="presetOpen()">
                       <span>预设</span>
@@ -1602,6 +1607,63 @@
                     }
                   </div>
                 }
+              } @else {
+                <!-- v5.8: 看板视图 —— 列按状态分桶，卡片可拖拽改状态 -->
+                <div class="kanban" (keydown)="handleTaskKeydown($event)" tabindex="0">
+                  @for (s of statuses; track s) {
+                    <section class="kanban-col status--{{ s }}" [class.drag-over]="dragOverStatus() === s" [class.collapsed]="isColumnCollapsed(s)">
+                      <header class="kanban-col-header" (click)="toggleColumnCollapse(s)" [title]="isColumnCollapsed(s) ? '展开' : '折叠'">
+                        <span class="kanban-col-dot" [style.background]="statusColor(s)"></span>
+                        <span class="kanban-col-title">{{ statusLabel(s) }}</span>
+                        <span class="kanban-col-count">{{ getStatusTaskCount(s) }}</span>
+                        <span class="kanban-col-collapse">{{ isColumnCollapsed(s) ? '▸' : '▾' }}</span>
+                      </header>
+                      @if (!isColumnCollapsed(s)) {
+                        <div class="kanban-col-body"
+                             (dragover)="onKanbanDragOver($event, s)"
+                             (dragleave)="onKanbanDragLeave($event, s)"
+                             (drop)="onKanbanDrop($event, s)">
+                          @for (t of tasksForStatus(s); track t.id) {
+                            <article
+                              class="kanban-card kanban-card--pri-{{ t.priority }} priority--{{ t.priority }}"
+                              draggable="true"
+                              [class.dragging]="dragTaskId() === t.id"
+                              (dragstart)="onKanbanDragStart($event, t)"
+                              (dragend)="onKanbanDragEnd()"
+                              (click)="openQuickView(t)"
+                            >
+                              <button type="button" class="task-quick-complete kanban-qc" [class.done]="t.status === 'done'"
+                                [title]="t.status === 'done' ? '重新打开' : '标记为完成'"
+                                (click)="$event.stopPropagation(); toggleTaskComplete(t.id)"><span class="qc-check">{{ t.status === 'done' ? '✓' : '' }}</span></button>
+                              <div class="kanban-card-top">
+                                <span class="kanban-card-type-icon type-icon {{ t.type }}">{{ typeGlyph(t.type) }}</span>
+                                @if (taskEpicName(t)) {
+                                  <span class="kanban-card-epic">{{ taskEpicName(t) }}</span>
+                                }
+                              </div>
+                              <div class="kanban-card-title">{{ t.title }}</div>
+                              <div class="kanban-card-meta">
+                                @if (t.assignee_id) {
+                                  <span class="assignee-avatar-sm" title="{{ getAssigneeName(t.assignee_id) }}">{{ getAssigneeInitials(t.assignee_id) }}</span>
+                                } @else {
+                                  <span class="assignee-avatar-sm unassigned" title="未指派">?</span>
+                                }
+                                @if (t.due_date) {
+                                  <span class="kanban-card-due" [class.due-overdue]="isOverdue(t.due_date)" title="截止：{{ formatDueDate(t.due_date) }}">⏰ {{ formatDueDate(t.due_date) }}</span>
+                                }
+                              </div>
+                              <div class="kanban-card-progress">
+                                <div class="kanban-card-progress-fill" [style.width.%]="taskProgressPct(t.status)"></div>
+                              </div>
+                            </article>
+                          } @empty {
+                            <div class="kanban-col-empty">暂无任务</div>
+                          }
+                        </div>
+                      }
+                    </section>
+                  }
+                </div>
               }
 
               <!-- Keyboard hint -->

@@ -2507,6 +2507,11 @@ export class App implements OnInit, OnDestroy {
           searchEl.select();
         }
         break;
+      case 'v':
+        // v5.8: 切换列表/看板视图（与命令面板提示一致）
+        event.preventDefault();
+        this.setBoardMode(!this.boardMode());
+        break;
       case 'Escape':
         this.focusedTaskId.set(null);
         this.clearTaskSelection();
