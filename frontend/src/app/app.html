@@ -1628,6 +1628,7 @@
                               class="kanban-card kanban-card--pri-{{ t.priority }} priority--{{ t.priority }}"
                               draggable="true"
                               [class.dragging]="dragTaskId() === t.id"
+                              [class.selected]="selectedTasks().has(t.id)"
                               (dragstart)="onKanbanDragStart($event, t)"
                               (dragend)="onKanbanDragEnd()"
                               (click)="openQuickView(t)"
@@ -1636,6 +1637,15 @@
                                 [title]="t.status === 'done' ? '重新打开' : '标记为完成'"
                                 (click)="$event.stopPropagation(); toggleTaskComplete(t.id)"><span class="qc-check">{{ t.status === 'done' ? '✓' : '' }}</span></button>
                               <div class="kanban-card-top">
+                                <input
+                                  type="checkbox"
+                                  class="kanban-card-check"
+                                  [checked]="selectedTasks().has(t.id)"
+                                  [attr.aria-label]="'选择任务 ' + t.title"
+                                  (mousedown)="$event.stopPropagation()"
+                                  (click)="$event.stopPropagation()"
+                                  (change)="toggleTaskSelection(t.id); $event.stopPropagation()"
+                                />
                                 <span class="kanban-card-type-icon type-icon {{ t.type }}">{{ typeGlyph(t.type) }}</span>
                                 @if (taskEpicName(t)) {
                                   <span class="kanban-card-epic">{{ taskEpicName(t) }}</span>

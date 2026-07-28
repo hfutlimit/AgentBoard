@@ -727,6 +727,24 @@ router-outlet {
   background: rgba(99, 102, 241, 0.15);
 }
 
+/* v5.9: 看板视图卡片多选 + 选中态（复用列表选择体系） */
+.kanban-card-check {
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  cursor: pointer;
+  accent-color: var(--brand-500, #6366f1);
+  flex-shrink: 0;
+}
+.kanban-card.selected {
+  background: var(--brand-soft, #e0e7ff);
+  border-color: var(--brand-500, #6366f1);
+  box-shadow: 0 0 0 1px var(--brand-500, #6366f1);
+}
+[data-theme="dark"] .kanban-card.selected {
+  background: rgba(99, 102, 241, 0.15);
+}
+
 .entity-item {
   display: flex;
   align-items: center;
