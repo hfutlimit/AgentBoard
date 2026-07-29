@@ -1496,17 +1496,29 @@ def cache_stats(s: Session = Depends(get_session)):
 
 
 # ---------- Admin: Users ----------
+def _require_admin(authorization: str | None, s: Session, *, permission: str = "api:read"):
+    """校验调用方为管理员，同时支持 Bearer 登录 token 与 ``abk_`` API key。
+
+    权限模型（2026-07-29）：API key 的身份完全等同其关联用户 —— 管理员用户的
+    key 可走 admin 通道；普通用户的 key 一律 403。无凭证/无效凭证与历史行为
+    保持一致，统一返回 403 "admin only"。
+    """
+    try:
+        user = _current_user(authorization, s, required_permission=permission)
+    except HTTPException:
+        raise HTTPException(status_code=403, detail="admin only")
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="admin only")
+    return user
+
+
 @app.get("/api/admin/users")
 def admin_list_users(
     s: Session = Depends(get_session),
     limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0),
     authorization: str | None = Header(None),
 ):
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    uid = auth.parse_token(token) if token else None
-    u = service.get_user(s, uid) if uid else None
-    if not (u and u.is_admin):
-        raise HTTPException(status_code=403, detail="admin only")
+    _require_admin(authorization, s)
     users, total = service.list_users(s, limit=limit, offset=offset)
     return {"items": [service._ser(x) for x in users], "total": total}
 
@@ -1516,11 +1528,7 @@ def admin_update_user(
     uid: int, body: UserAdminPatch, s: Session = Depends(get_session),
     authorization: str | None = Header(None),
 ):
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    current_uid = auth.parse_token(token) if token else None
-    current_user = service.get_user(s, current_uid) if current_uid else None
-    if not (current_user and current_user.is_admin):
-        raise HTTPException(status_code=403, detail="admin only")
+    _require_admin(authorization, s, permission="api:write")
     u = service.set_user_admin(s, uid, body.is_admin)
     if not u:
         raise HTTPException(status_code=404, detail="user not found")
@@ -1534,11 +1542,7 @@ def admin_list_projects(
     limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0),
     authorization: str | None = Header(None),
 ):
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    uid = auth.parse_token(token) if token else None
-    u = service.get_user(s, uid) if uid else None
-    if not (u and u.is_admin):
-        raise HTTPException(status_code=403, detail="admin only")
+    _require_admin(authorization, s)
     projects, total = service.list_all_projects_admin(s, limit=limit, offset=offset)
     return {"items": projects, "total": total}
 
@@ -1548,11 +1552,7 @@ def admin_delete_project(
     pid: int, s: Session = Depends(get_session),
     authorization: str | None = Header(None),
 ):
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    uid = auth.parse_token(token) if token else None
-    u = service.get_user(s, uid) if uid else None
-    if not (u and u.is_admin):
-        raise HTTPException(status_code=403, detail="admin only")
+    _require_admin(authorization, s, permission="api:write")
     if not service.delete_project(s, pid):
         raise HTTPException(status_code=404, detail="project not found")
     return {"ok": True}

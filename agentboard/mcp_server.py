@@ -64,12 +64,19 @@ def _http(method, path, **kw):
         return r.json() if r.content else {"ok": True}
 
 def _proj_list(limit=None, offset=0):
-    # 作用域限制：仅返回当前令牌身份「自己创建或作为成员」的项目，
-    # 不复用 /api/projects 的管理员全量视图，避免 MCP 越权浏览全部项目。
+    # 作用域 = 令牌关联用户的权限（2026-07-29 修正）：
+    # - 管理员身份 → /api/projects 全量视图（与 REST API 行为一致）；
+    # - 普通用户 → /api/users/me/projects 成员作用域，防止越权浏览全部项目。
+    # 防越权的正确边界是"给 MCP 配非管理员 key"（make-mcp-token.py 默认
+    # mcp-service 用户），而不是在这里无视 is_admin 一刀切。
     params = {"offset": offset}
     if limit is not None:
         params["limit"] = limit
-    resp = _http("GET", "/api/users/me/projects", params=params)
+    me = _http("GET", "/api/auth/me")
+    if isinstance(me, dict) and me.get("is_admin"):
+        resp = _http("GET", "/api/projects", params=params)
+    else:
+        resp = _http("GET", "/api/users/me/projects", params=params)
     return resp.get("items", resp) if isinstance(resp, dict) else resp
 
 def _proj_create(name, key, description):
@@ -263,7 +270,7 @@ def _run_delete(run_id):
 # ===================== MCP 工具 =====================
 @mcp.tool()
 def list_projects(limit: int | None = None, offset: int = 0) -> list:
-    """列出当前用户可见的项目（自己创建或作为成员的项目）。limit / offset 用于分页。"""
+    """列出当前用户可见的项目（管理员可见全部；普通用户仅见自己创建或作为成员的项目）。limit / offset 用于分页。"""
     return _proj_list(limit=limit, offset=offset)
 
 

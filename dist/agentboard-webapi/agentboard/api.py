@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from .database import get_session, init_db, SessionLocal
 from . import service, auth
 from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES
-from .cache import get_cache
+from .cache import get_cache, API_CACHE_TTL
 
 
 @asynccontextmanager
@@ -48,52 +48,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# ---------- Rate Limiting ----------
-import threading
-import time
-from collections import defaultdict
-
-RATE_LIMIT = int(os.getenv("AGENTBOARD_RATE_LIMIT", "60"))  # requests per window
-RATE_WINDOW = int(os.getenv("AGENTBOARD_RATE_WINDOW", "60"))  # seconds
-
-_rate_limits: dict[str, list[float]] = defaultdict(list)
-_rate_lock = threading.Lock()
-
-@app.middleware("http")
-async def rate_limit_middleware(request: Request, call_next):
-    """Simple token-bucket rate limiting: RATE_LIMIT requests per RATE_WINDOW seconds per IP."""
-    if RATE_LIMIT <= 0:
-        return await call_next(request)
-    # Skip rate limiting for health/meta/auth endpoints and CORS preflight
-    if request.method == "OPTIONS":
-        return await call_next(request)
-    if request.url.path in {"/api/meta", "/api/health", "/api/auth/register", "/api/auth/login"}:
-        return await call_next(request)
-    # Get client IP (handle proxies)
-    ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "unknown")
-    if "," in ip:
-        ip = ip.split(",")[0].strip()
-    # Skip rate limiting for localhost/127.0.0.1 (test environments)
-    if ip in {"127.0.0.1", "localhost", "::1", "::ffff:127.0.0.1"}:
-        return await call_next(request)
-    now = time.time()
-    with _rate_lock:
-        # Remove expired timestamps
-        _rate_limits[ip] = [t for t in _rate_limits[ip] if now - t < RATE_WINDOW]
-        if len(_rate_limits[ip]) >= RATE_LIMIT:
-            resp = JSONResponse(
-                status_code=429,
-                content={"detail": f"Rate limit exceeded: {RATE_LIMIT} requests per {RATE_WINDOW}s. Retry after {RATE_WINDOW}s."},
-            )
-            resp.headers["Retry-After"] = str(RATE_WINDOW)
-            origin = request.headers.get("origin")
-            if origin:
-                resp.headers["Access-Control-Allow-Origin"] = origin
-            return resp
-        _rate_limits[ip].append(now)
-    return await call_next(request)
-
 
 @app.middleware("http")
 async def require_business_auth(request: Request, call_next):
@@ -128,12 +82,7 @@ async def require_business_auth(request: Request, call_next):
                 )
         with SessionLocal() as s:
             if not uid or service.get_user(s, uid) is None:
-                resp = JSONResponse(status_code=401, content={"detail": "unauthorized"})
-                origin = request.headers.get("origin")
-                if origin:
-                    resp.headers["Access-Control-Allow-Origin"] = origin
-                    resp.headers["Access-Control-Allow-Credentials"] = "true"
-                return resp
+                return _apply_cors(request, JSONResponse(status_code=401, content={"detail": "unauthorized"}))
     return await call_next(request)
 
 
@@ -378,6 +327,12 @@ class BulkTaskUpdate(BaseModel):
     status: str | None = None
     priority: str | None = None
     sprint_id: int | None = None
+    # v3.0 批量指派：新增 assignee_id / clear_assignee（增量字段，向后兼容）
+    assignee_id: int | None = None
+    clear_assignee: bool = False
+    # v3.2 批量改截止日期：新增 due_date / clear_due_date（增量字段，向后兼容）
+    due_date: str | None = None
+    clear_due_date: bool = False
 
     @field_validator("task_ids")
     @classmethod
@@ -426,6 +381,21 @@ def _current_user(
     return u
 
 
+def _apply_cors(request: Request, resp: JSONResponse) -> JSONResponse:
+    """为 middleware 早返回的 JSONResponse 注入 CORS 头（防 CORS 拦截致 0 status）。
+
+    FastAPI 的 CORSMiddleware 只对经过路由的响应补 CORS 头；从 middleware 直接
+    return 的 JSONResponse 会绕过该步骤，浏览器看到 4xx 没 CORS 头会判定为
+    "0 Unknown Error" 而非 403，导致前端无法正确处理。
+    """
+    origin = request.headers.get("origin")
+    if origin:
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.headers["Access-Control-Allow-Credentials"] = "true"
+        resp.headers["Vary"] = "Origin"
+    return resp
+
+
 def _optional_user_id(authorization: str | None, s: Session) -> int | None:
     if not authorization:
         return None
@@ -445,6 +415,102 @@ def _require_project_owner(
     user = _current_user(authorization, s, required_permission="api:write")
     if not user.is_admin and not service.user_is_project_owner(s, project_id, user.id):
         raise HTTPException(status_code=403, detail="project owner or admin required")
+
+
+# ---------- Project-scoped access control ----------
+def _caller_uid_admin(authorization: str | None) -> tuple[int | None, bool]:
+    """Resolve ``(user_id, is_admin)`` from the Authorization header.
+
+    Handles both Bearer user tokens and ``abk_`` API keys. Returns ``(None, False)``
+    when no valid credential is present.
+    """
+    if not authorization:
+        return None, False
+    token = authorization.split(" ", 1)[1] if authorization.startswith("Bearer ") else None
+    if not token:
+        return None, False
+    uid = auth.parse_token(token)
+    if not uid and token.startswith(auth.API_KEY_PREFIX):
+        with SessionLocal() as s:
+            ak = service.lookup_api_key_by_hash(s, auth.hash_api_key(token))
+            if ak and ak.enabled:
+                uid = ak.user_id
+    if uid is None:
+        return None, False
+    with SessionLocal() as s:
+        u = service.get_user(s, uid)
+        return uid, bool(u and u.is_admin)
+
+
+def _enforce_owner_or_admin(s: Session, project_id: int, uid: int | None, is_admin: bool) -> None:
+    if is_admin:
+        return
+    if not uid or not service.user_is_project_owner(s, project_id, uid):
+        raise HTTPException(status_code=403, detail="project owner or admin required")
+
+
+def _enforce_member_or_admin(s: Session, project_id: int, uid: int | None, is_admin: bool) -> None:
+    if is_admin:
+        return
+    if not uid or not service.user_is_project_member(s, project_id, uid):
+        raise HTTPException(status_code=403, detail="project membership required")
+
+
+def _resolve_project_id_from_request(request: Request) -> int | None:
+    """Map a request to the project it targets, or ``None`` if not project-scoped."""
+    path = request.url.path
+    m = re.match(r"^/api/projects/(\d+)", path)
+    if m:
+        return int(m.group(1))
+    qp = request.query_params
+    with SessionLocal() as s:
+        m = re.match(r"^/api/epics/(\d+)", path)
+        if m:
+            return service.get_epic_project_id(s, int(m.group(1)))
+        m = re.match(r"^/api/stories/(\d+)", path)
+        if m:
+            return service.get_story_project_id(s, int(m.group(1)))
+        m = re.match(r"^/api/tasks/(\d+)", path)
+        if m:
+            return service.get_task_project_id(s, int(m.group(1)))
+        m = re.match(r"^/api/sprints/(\d+)", path)
+        if m:
+            return service.get_sprint_project_id(s, int(m.group(1)))
+        m = re.match(r"^/api/schedules/(\d+)", path)
+        if m:
+            return service.get_schedule_project_id(s, int(m.group(1)))
+        m = re.match(r"^/api/comments/(\d+)", path)
+        if m:
+            return service.get_comment_project_id(s, int(m.group(1)))
+        m = re.match(r"^/api/attachments/(\d+)", path)
+        if m:
+            return service.get_attachment_project_id(s, int(m.group(1)))
+        m = re.match(r"^/api/dependencies/(\d+)", path)
+        if m:
+            return service.get_dependency_project_id(s, int(m.group(1)))
+        if "project_id" in qp:
+            return int(qp["project_id"])
+        if "epic_id" in qp:
+            return service.get_epic_project_id(s, int(qp["epic_id"]))
+        if "story_id" in qp:
+            return service.get_story_project_id(s, int(qp["story_id"]))
+        if "sprint_id" in qp:
+            sp = s.get(Sprint, int(qp["sprint_id"]))
+            return sp.project_id if sp else None
+        if path == "/api/webhooks" or path.startswith("/api/webhooks/"):
+            if "project_id" in qp:
+                return int(qp["project_id"])
+            m = re.match(r"^/api/webhooks/(\d+)", path)
+            if m:
+                return service.get_webhook_project_id(s, int(m.group(1)))
+        # Documents（Epic 15）
+        m = re.match(r"^/api/documents/(\d+)", path)
+        if m:
+            return service.get_document_project_id(s, int(m.group(1)))
+        m = re.match(r"^/api/document-comments/(\d+)", path)
+        if m:
+            return service.get_document_comment_project_id(s, int(m.group(1)))
+    return None
 
 
 def _user_response(user) -> dict:
@@ -611,7 +677,12 @@ def list_projects_ext(
     limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
     authorization: str | None = Header(None),
 ):
-    """列表 API：public 项目所有人可见；private 项目仅成员可见"""
+    """列表 API：admin 可见全部项目；普通用户仅见受邀（成员）项目。
+
+    访问权限由 ``list_accessible_projects`` 中 ``user.is_admin`` 控制。
+    API Key（``abk_``）的身份解析完全等同于其关联用户 —— 若 key 属于非管理
+    员，则仅返回该用户的成员项目；若属于管理员，则可见全部。
+    """
     uid = _optional_user_id(authorization, s)
     projects, total = service.list_accessible_projects(s, uid, limit=limit, offset=offset)
     return {"items": [service._ser(p) for p in projects], "total": total}
@@ -650,11 +721,12 @@ def get_project_ext(
     pid: int, s: Session = Depends(get_session),
     authorization: str | None = Header(None),
 ):
-    """获取项目：private 项目仅成员可见"""
+    """获取项目：admin 可见全部，普通用户仅可见其成员项目（邀请制）"""
     p = _need(service.get_project(s, pid), "project")
     uid = _optional_user_id(authorization, s)
-    if p.is_private and not service.user_is_project_member(s, pid, uid):
-        raise HTTPException(status_code=403, detail="access denied: private project")
+    user = service.get_user(s, uid) if uid else None
+    if not (user and user.is_admin) and not service.user_is_project_member(s, pid, uid):
+        raise HTTPException(status_code=403, detail="access denied: project membership required")
     return service._ser(p)
 
 
@@ -746,7 +818,10 @@ def delete_story(sid: int, s: Session = Depends(get_session)):
 @app.get("/api/stories/{sid}/tasks")
 def list_tasks(sid: int, s: Session = Depends(get_session), limit: int = Query(100, ge=1, le=200),
                offset: int = Query(0, ge=0), sprint_id: int | None = Query(None)):
-    return [service._ser(t) for t in service.list_tasks(s, sid, sprint_id=sprint_id, limit=limit, offset=offset)]
+    q_base = service.query_task_count(s, sid, sprint_id=sprint_id)
+    total = q_base
+    items = [service._ser(t) for t in service.list_tasks(s, sid, sprint_id=sprint_id, limit=limit, offset=offset)]
+    return {"items": items, "total": total}
 
 
 @app.post("/api/stories/{sid}/tasks", status_code=201)
@@ -879,7 +954,7 @@ def delete_task(tid: int, s: Session = Depends(get_session)):
 # ---------- Bulk Task Operations ----------
 @app.post("/api/tasks/bulk-update")
 def bulk_update_tasks(body: BulkTaskUpdate, s: Session = Depends(get_session)):
-    """批量更新任务：支持 status / priority / sprint_id"""
+    """批量更新任务：支持 status / priority / sprint_id / assignee_id / due_date"""
     results = []
     errors = []
     affected_pids = set()
@@ -896,6 +971,15 @@ def bulk_update_tasks(body: BulkTaskUpdate, s: Session = Depends(get_session)):
                 updates["priority"] = body.priority
             if body.sprint_id is not None:
                 updates["sprint_id"] = body.sprint_id
+            if body.assignee_id is not None:
+                updates["assignee_id"] = body.assignee_id
+            elif body.clear_assignee:
+                updates["assignee_id"] = None
+            # v3.2 批量改截止日期：clear_due_date 优先清空；否则按传入 due_date 设置
+            if body.clear_due_date:
+                updates["due_date"] = None
+            elif body.due_date is not None:
+                updates["due_date"] = body.due_date
             if updates:
                 service.update_task(s, tid, **updates)
             results.append({"task_id": tid, "ok": True})
@@ -1000,6 +1084,17 @@ def search_tasks(project_id: int | None = None, epic_id: int | None = None,
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     return [service._ser(t) for t in rows]
+
+
+# 全局 Story 关键词搜索（命令面板等场景）；路径用 /api/search/stories 避免与 /api/stories/{sid} 冲突
+@app.get("/api/search/stories")
+def search_stories_api(
+    q: str = Query(..., min_length=1, description="关键词"),
+    limit: int = Query(20, ge=1, le=50),
+    s: Session = Depends(get_session),
+):
+    rows = service.search_stories(s, q=q, limit=limit)
+    return [service._ser(x) for x in rows]
 
 
 # ---------- Sprint ----------
@@ -1370,35 +1465,60 @@ def delete_notification(
 
 
 # ---------- Project Statistics ----------
-# 配置化 TTL（默认 60 秒）
-_CACHE_TTL_STATS = int(os.getenv("AGENTBOARD_CACHE_TTL_STATS", "60"))
-_CACHE_TTL_LIST  = int(os.getenv("AGENTBOARD_CACHE_TTL_LIST", "30"))
+# 配置化 TTL：全局默认 AGENTBOARD_CACHE_TTL，各端点可单独覆盖
+# 统计端点默认回退到全局默认 TTL
+_CACHE_TTL_STATS = int(os.getenv("AGENTBOARD_CACHE_TTL_STATS", str(API_CACHE_TTL)))
+# 列表端点缓存 TTL（预留；如需为列表端点启用缓存，可设置此变量）
+_CACHE_TTL_LIST  = int(os.getenv("AGENTBOARD_CACHE_TTL_LIST", str(API_CACHE_TTL)))
 @app.get("/api/projects/{pid}/stats")
 def project_stats(pid: int, s: Session = Depends(get_session)):
-    from agentboard.cache import get_cache, STATS_CACHE_TTL
-    _need(service.get_project(s, pid), "project")
     cache = get_cache()
     cache_key = f"stats:{pid}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
+    _need(service.get_project(s, pid), "project")
     result = service.get_project_stats(s, pid)
     cache.set(cache_key, result, _CACHE_TTL_STATS)
     return result
 
 
+# ---------- Cache Statistics (Epic 30 / Story 30.1 Task 802) ----------
+@app.get("/api/cache/stats")
+def cache_stats(s: Session = Depends(get_session)):
+    """缓存命中率与容量统计。
+
+    鉴权由 require_business_auth 中间件统一处理：
+    - AGENTBOARD_REQUIRE_AUTH=1 时，需携带具备 api:read 权限的 Bearer/API Key；
+    - 本地开放模式（默认）下公开可读。
+    """
+    return get_cache().stats()
+
+
 # ---------- Admin: Users ----------
+def _require_admin(authorization: str | None, s: Session, *, permission: str = "api:read"):
+    """校验调用方为管理员，同时支持 Bearer 登录 token 与 ``abk_`` API key。
+
+    权限模型（2026-07-29）：API key 的身份完全等同其关联用户 —— 管理员用户的
+    key 可走 admin 通道；普通用户的 key 一律 403。无凭证/无效凭证与历史行为
+    保持一致，统一返回 403 "admin only"。
+    """
+    try:
+        user = _current_user(authorization, s, required_permission=permission)
+    except HTTPException:
+        raise HTTPException(status_code=403, detail="admin only")
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="admin only")
+    return user
+
+
 @app.get("/api/admin/users")
 def admin_list_users(
     s: Session = Depends(get_session),
     limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0),
     authorization: str | None = Header(None),
 ):
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    uid = auth.parse_token(token) if token else None
-    u = service.get_user(s, uid) if uid else None
-    if not (u and u.is_admin):
-        raise HTTPException(status_code=403, detail="admin only")
+    _require_admin(authorization, s)
     users, total = service.list_users(s, limit=limit, offset=offset)
     return {"items": [service._ser(x) for x in users], "total": total}
 
@@ -1408,11 +1528,7 @@ def admin_update_user(
     uid: int, body: UserAdminPatch, s: Session = Depends(get_session),
     authorization: str | None = Header(None),
 ):
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    current_uid = auth.parse_token(token) if token else None
-    current_user = service.get_user(s, current_uid) if current_uid else None
-    if not (current_user and current_user.is_admin):
-        raise HTTPException(status_code=403, detail="admin only")
+    _require_admin(authorization, s, permission="api:write")
     u = service.set_user_admin(s, uid, body.is_admin)
     if not u:
         raise HTTPException(status_code=404, detail="user not found")
@@ -1426,11 +1542,7 @@ def admin_list_projects(
     limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0),
     authorization: str | None = Header(None),
 ):
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    uid = auth.parse_token(token) if token else None
-    u = service.get_user(s, uid) if uid else None
-    if not (u and u.is_admin):
-        raise HTTPException(status_code=403, detail="admin only")
+    _require_admin(authorization, s)
     projects, total = service.list_all_projects_admin(s, limit=limit, offset=offset)
     return {"items": projects, "total": total}
 
@@ -1440,11 +1552,7 @@ def admin_delete_project(
     pid: int, s: Session = Depends(get_session),
     authorization: str | None = Header(None),
 ):
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    uid = auth.parse_token(token) if token else None
-    u = service.get_user(s, uid) if uid else None
-    if not (u and u.is_admin):
-        raise HTTPException(status_code=403, detail="admin only")
+    _require_admin(authorization, s, permission="api:write")
     if not service.delete_project(s, pid):
         raise HTTPException(status_code=404, detail="project not found")
     return {"ok": True}
@@ -1630,6 +1738,162 @@ def toggle_webhook(
     }
 
 
+# ---------- Documents (Epic 15：项目文档维护 / 多成员·多 Agent 协作) ----------
+class DocumentIn(BaseModel):
+    project_id: int = Field(gt=0)
+    title: str = Field(min_length=1, max_length=300)
+    content: str = ""
+    type: str = "plan"  # memory / plan / knowledge / design
+    status: str = "draft"  # draft / in_review / approved / cancelled
+    epic_id: int | None = None
+    story_id: int | None = None
+    author_id: int | None = None
+
+
+class DocumentPatch(BaseModel):
+    title: str | None = Field(None, min_length=1, max_length=300)
+    content: str | None = None
+    type: str | None = None
+    status: str | None = None
+
+
+class DocumentCommentIn(BaseModel):
+    author: str = Field(min_length=1, max_length=100)
+    content: str = Field(min_length=1)
+    author_id: int | None = None
+
+
+class DocumentCommentPatch(BaseModel):
+    content: str = Field(min_length=1)
+    author: str = Field(min_length=1, max_length=100)
+
+
+@app.post("/api/documents", status_code=201)
+def create_document(body: DocumentIn, s: Session = Depends(get_session),
+                    authorization: str | None = Header(None)):
+    """新建文档（title/content/type/project_id 必填，status 默认 draft）。
+
+    权限控制（2026-07-21）：需为目标项目成员或管理员。
+    """
+    # 权限检查：必须在目标项目中是成员或管理员
+    uid, is_admin = _caller_uid_admin(authorization)
+    if not is_admin and not service.user_is_project_member(s, body.project_id, uid):
+        raise HTTPException(status_code=403, detail="project membership required")
+    try:
+        d = service.create_document(
+            s, project_id=body.project_id, title=body.title, content=body.content,
+            type=body.type, status=body.status, epic_id=body.epic_id,
+            story_id=body.story_id, author_id=body.author_id,
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(d)
+
+
+@app.get("/api/documents")
+def list_documents(
+    project_id: int | None = Query(None),
+    type: str | None = Query(None),
+    status: str | None = Query(None),
+    q: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
+    s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
+):
+    """列出文档，支持按 project_id / type / status 过滤与关键词搜索。默认按 updated_at 倒序。
+
+    权限控制（2026-07-21）：
+    - 指定 project_id 时：通过中间件校验项目成员身份
+    - 未指定 project_id 时：仅返回用户有权限的项目文档
+    """
+    uid = _optional_user_id(authorization, s)
+    try:
+        rows = service.list_documents(
+            s, project_id=project_id, type=type, status=status, q=q,
+            limit=limit, offset=offset, user_id=uid,
+        )
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return [service._ser(d) for d in rows]
+
+
+@app.get("/api/documents/{did}")
+def get_document(did: int, s: Session = Depends(get_session)):
+    return service._ser(_need(service.get_document(s, did), "document"))
+
+
+@app.patch("/api/documents/{did}")
+def update_document(did: int, body: DocumentPatch, s: Session = Depends(get_session)):
+    """编辑文档 title/content/type（状态流转请用 PUT /status）。"""
+    try:
+        r = service.update_document(s, did, **body.model_dump(exclude_none=True))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(_need(r, "document"))
+
+
+@app.put("/api/documents/{did}/status")
+def set_document_status(did: int, body: StatusIn, s: Session = Depends(get_session)):
+    """文档评审状态流转：draft→in_review→approved/cancelled/draft；approved→draft。非法迁移返回 400。"""
+    try:
+        result = service.set_document_status(s, did, body.status)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.IllegalTransition as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return service._ser(_need(result, "document"))
+
+
+@app.delete("/api/documents/{did}")
+def delete_document(did: int, s: Session = Depends(get_session)):
+    if not service.delete_document(s, did):
+        raise HTTPException(status_code=404, detail="document not found")
+    return {"ok": True}
+
+
+@app.post("/api/documents/{did}/comments", status_code=201)
+def create_document_comment(did: int, body: DocumentCommentIn, s: Session = Depends(get_session)):
+    """对文档添加评论（markdown），author 为成员或 Agent 账号名。"""
+    try:
+        c = service.create_document_comment(
+            s, document_id=did, author=body.author, content=body.content,
+            author_id=body.author_id,
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(c)
+
+
+@app.get("/api/documents/{did}/comments")
+def list_document_comments(did: int, s: Session = Depends(get_session)):
+    """列出文档评论，按 created_at 正序。"""
+    try:
+        return [service._ser(x) for x in service.list_document_comments(s, did)]
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.patch("/api/document-comments/{cid}")
+def update_document_comment(cid: int, body: DocumentCommentPatch, s: Session = Depends(get_session)):
+    """编辑文档评论：仅作者（成员或 Agent 账号）可编辑自己的评论。"""
+    try:
+        c = service.update_document_comment(s, cid, content=body.content, author=body.author)
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(_need(c, "comment"))
+
+
+@app.delete("/api/document-comments/{cid}")
+def delete_document_comment(cid: int, s: Session = Depends(get_session)):
+    if not service.delete_document_comment(s, cid):
+        raise HTTPException(status_code=404, detail="comment not found")
+    return {"ok": True}
+
+
 # ---------- Epic 22 Story 22.1: 审计日志中间件 ----------
 @app.middleware("http")
 async def audit_log_middleware(request: Request, call_next):
@@ -1679,6 +1943,8 @@ async def audit_log_middleware(request: Request, call_next):
         (r"^/api/comments/(\d+)", "comment"),
         (r"^/api/attachments/(\d+)", "attachment"),
         (r"^/api/schedules/(\d+)", "schedule"),
+        (r"^/api/documents/(\d+)", "document"),
+        (r"^/api/document-comments/(\d+)", "document_comment"),
     ]:
         m = re.match(pattern, path)
         if m:
@@ -1700,3 +1966,66 @@ async def audit_log_middleware(request: Request, call_next):
         pass  # 不阻塞主流程
 
     return response
+
+
+@app.middleware("http")
+async def project_access_middleware(request: Request, call_next):
+    """Enforce project-scoped access control on all /api routes.
+
+    Active only when ``AGENTBOARD_REQUIRE_AUTH=1`` (the Docker / production posture).
+    Local open-CRUD mode (``REQUIRE_AUTH=0``) is intentionally left untouched.
+
+    Rules (2026-07-21 — 邀请制):
+    - Resolve the target project from the route (direct ``/api/projects/{pid}`` or via a
+      child resource such as epic/story/task/sprint/schedule/document, by id or query param).
+    - Routes that are not project-scoped pass through.
+    - All projects are member-only for non-admin users.
+    - System admins (``is_admin``) always pass.
+    - Reads (GET/HEAD): requires membership or admin.
+    - Writes (POST/PUT/PATCH/DELETE): the project root (settings / deletion) requires the
+      owner or an admin; sub-resources require membership or admin.
+    """
+    if not _auth_is_required():
+        return await call_next(request)
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    path = request.url.path
+    if not path.startswith("/api/"):
+        return await call_next(request)
+    if path in {"/api/meta", "/api/health", "/api/auth/register", "/api/auth/login"}:
+        return await call_next(request)
+
+    try:
+        pid = _resolve_project_id_from_request(request)
+        if pid is None:
+            return await call_next(request)
+
+        is_project_root = bool(re.match(r"^/api/projects/\d+/?$", path))
+        is_write = request.method not in {"GET", "HEAD"}
+
+        with SessionLocal() as s:
+            p = service.get_project(s, pid)
+            if p is None:
+                # Unknown project: let the endpoint return 404.
+                return await call_next(request)
+            uid, is_admin = _caller_uid_admin(request.headers.get("authorization"))
+            if _auth_is_required() and uid is None:
+                return _apply_cors(request, JSONResponse(status_code=401, content={"detail": "unauthorized"}))
+
+            # All projects are member-only for non-admin users
+            if is_admin:
+                return await call_next(request)
+            if uid is None:
+                return _apply_cors(request, JSONResponse(status_code=403, content={"detail": "access denied: project membership required"}))
+            if not service.user_is_project_member(s, pid, uid):
+                return _apply_cors(request, JSONResponse(status_code=403, content={"detail": "access denied: project membership required"}))
+
+            # Write operations: project root requires owner/admin; sub-resources require membership
+            if is_write and is_project_root:
+                try:
+                    _enforce_owner_or_admin(s, pid, uid, is_admin)
+                except HTTPException as e:
+                    return _apply_cors(request, JSONResponse(status_code=e.status_code, content={"detail": e.detail}))
+            return await call_next(request)
+    except HTTPException as e:
+        return _apply_cors(request, JSONResponse(status_code=e.status_code, content={"detail": e.detail}))

@@ -64,7 +64,19 @@ def _http(method, path, **kw):
         return r.json() if r.content else {"ok": True}
 
 def _proj_list(limit=None, offset=0):
-    resp = _http("GET", "/api/projects", params={"limit": limit, "offset": offset} if limit is not None else {})
+    # 作用域 = 令牌关联用户的权限（2026-07-29 修正）：
+    # - 管理员身份 → /api/projects 全量视图（与 REST API 行为一致）；
+    # - 普通用户 → /api/users/me/projects 成员作用域，防止越权浏览全部项目。
+    # 防越权的正确边界是"给 MCP 配非管理员 key"（make-mcp-token.py 默认
+    # mcp-service 用户），而不是在这里无视 is_admin 一刀切。
+    params = {"offset": offset}
+    if limit is not None:
+        params["limit"] = limit
+    me = _http("GET", "/api/auth/me")
+    if isinstance(me, dict) and me.get("is_admin"):
+        resp = _http("GET", "/api/projects", params=params)
+    else:
+        resp = _http("GET", "/api/users/me/projects", params=params)
     return resp.get("items", resp) if isinstance(resp, dict) else resp
 
 def _proj_create(name, key, description):
@@ -258,7 +270,7 @@ def _run_delete(run_id):
 # ===================== MCP 工具 =====================
 @mcp.tool()
 def list_projects(limit: int | None = None, offset: int = 0) -> list:
-    """列出所有项目。limit / offset 用于分页。"""
+    """列出当前用户可见的项目（管理员可见全部；普通用户仅见自己创建或作为成员的项目）。limit / offset 用于分页。"""
     return _proj_list(limit=limit, offset=offset)
 
 
@@ -1080,6 +1092,149 @@ def admin_list_projects(limit: int = 50, offset: int = 0) -> dict:
 def admin_delete_project(project_id: int) -> dict:
     """（管理员）删除项目（危险操作，级联删除其下全部数据）。"""
     return _admin_delete_project(project_id)
+
+
+# ---------- Documents MCP 工具（Epic 15：项目文档维护）----------
+def _doc_create(project_id, title, content="", type="plan", status="draft",
+                epic_id=None, story_id=None, author_id=None):
+    body = {"project_id": project_id, "title": title, "content": content,
+            "type": type, "status": status}
+    if epic_id is not None:
+        body["epic_id"] = epic_id
+    if story_id is not None:
+        body["story_id"] = story_id
+    if author_id is not None:
+        body["author_id"] = author_id
+    return _http("POST", "/api/documents", json=body)
+
+
+def _doc_get(document_id):
+    return _http("GET", f"/api/documents/{document_id}")
+
+
+def _doc_list(project_id=None, type=None, status=None, q=None, limit=None, offset=0):
+    params = {"offset": offset}
+    if project_id is not None:
+        params["project_id"] = project_id
+    if type is not None:
+        params["type"] = type
+    if status is not None:
+        params["status"] = status
+    if q is not None:
+        params["q"] = q
+    if limit is not None:
+        params["limit"] = limit
+    return _http("GET", "/api/documents", params=params)
+
+
+def _doc_update(document_id, fields):
+    return _http("PATCH", f"/api/documents/{document_id}", json=fields)
+
+
+def _doc_delete(document_id):
+    return _http("DELETE", f"/api/documents/{document_id}")
+
+
+def _doc_status(document_id, status):
+    return _http("PUT", f"/api/documents/{document_id}/status", json={"status": status})
+
+
+def _doc_comment_create(document_id, author, content, author_id=None):
+    body = {"author": author, "content": content}
+    if author_id is not None:
+        body["author_id"] = author_id
+    return _http("POST", f"/api/documents/{document_id}/comments", json=body)
+
+
+def _doc_comment_list(document_id):
+    return _http("GET", f"/api/documents/{document_id}/comments")
+
+
+def _doc_comment_update(comment_id, content, author):
+    return _http("PATCH", f"/api/document-comments/{comment_id}",
+                 json={"content": content, "author": author})
+
+
+def _doc_comment_delete(comment_id):
+    return _http("DELETE", f"/api/document-comments/{comment_id}")
+
+
+@mcp.tool()
+def create_document(project_id: int, title: str, content: str = "",
+                   type: str = "plan", status: str = "draft",
+                   epic_id: int | None = None, story_id: int | None = None,
+                   author_id: int | None = None) -> dict:
+    """新建文档。type: memory/plan/knowledge/design；status 默认 draft。"""
+    return _doc_create(project_id, title, content=content, type=type, status=status,
+                       epic_id=epic_id, story_id=story_id, author_id=author_id)
+
+
+@mcp.tool()
+def get_document(document_id: int) -> dict:
+    """获取文档详情（含 title / content / type / status）。"""
+    return _doc_get(document_id)
+
+
+@mcp.tool()
+def list_documents(project_id: int | None = None, type: str | None = None,
+                  status: str | None = None, limit: int = 100, offset: int = 0) -> list:
+    """按 project_id / type / status 过滤列出文档。返回文档列表。"""
+    return _doc_list(project_id=project_id, type=type, status=status,
+                     limit=limit, offset=offset)
+
+
+@mcp.tool()
+def update_document(document_id: int, title: str | None = None,
+                   content: str | None = None, type: str | None = None) -> dict:
+    """编辑文档标题 / 正文 / 类型。仅传入需要修改的字段。"""
+    fields = {k: v for k, v in dict(title=title, content=content, type=type).items() if v is not None}
+    return _doc_update(document_id, fields)
+
+
+@mcp.tool()
+def delete_document(document_id: int) -> dict:
+    """删除文档（级联删除其评论）。"""
+    return _doc_delete(document_id)
+
+
+@mcp.tool()
+def set_document_status(document_id: int, status: str) -> dict:
+    """文档评审状态流转：draft→in_review→approved/cancelled/draft；approved→draft。"""
+    return _doc_status(document_id, status)
+
+
+@mcp.tool()
+def add_document_comment(document_id: int, author: str, content: str,
+                         author_id: int | None = None) -> dict:
+    """对文档追加 markdown 评论；author 为成员或 Agent 账号名。"""
+    return _doc_comment_create(document_id, author, content, author_id=author_id)
+
+
+@mcp.tool()
+def list_document_comments(document_id: int) -> list | dict:
+    """按时间顺序读取文档评论，供多成员 / 多 Agent 互相 review。"""
+    return _doc_comment_list(document_id)
+
+
+@mcp.tool()
+def update_document_comment(comment_id: int, content: str, author: str) -> dict:
+    """编辑文档评论：仅作者（成员或 Agent 账号）可编辑自己的评论。"""
+    return _doc_comment_update(comment_id, content, author)
+
+
+@mcp.tool()
+def delete_document_comment(comment_id: int) -> dict:
+    """删除指定文档评论。"""
+    return _doc_comment_delete(comment_id)
+
+
+@mcp.tool()
+def search_documents(project_id: int | None = None, q: str | None = None,
+                     type: str | None = None, status: str | None = None,
+                     limit: int = 100, offset: int = 0) -> list:
+    """关键词搜索文档（匹配 title / content）。可按 type / status 进一步过滤。"""
+    return _doc_list(project_id=project_id, q=q, type=type, status=status,
+                     limit=limit, offset=offset)
 
 
 if __name__ == "__main__":
