@@ -642,3 +642,39 @@
 - 验证：test_epic79_v67_refresh_toast_e2e.py 全绿；回归 cache 8 passed + v6.6/v6.3 e2e 全绿。
 - 追踪（REST 新建）：project 74→epic 72→story 121→task 1145(high) → in_review；story/epic 同步 in_review。
 - 提交 push origin main（9090fb5）。下次可执行：后台轮询自动刷新联动 / 刷新失败提示 / 新需求。
+
+## 2026-07-29 18:4x 自动开发 — Epic 80 v6.8 手动刷新失败 toast 提示（达成，Task 1146 → in_review）
+- 目标 task→in_review。MCP 全断 → REST 兜底（API 58125 / web 8080，admin id=18）。未触碰 18001(MCP)/docker 端口。
+- 实现（纯前端零契约变更）：`manualRefresh()` 检测 `this.error()` → 失败清空 error 免「加载失败」横幅 + `notify('刷新失败：…','error')` 保留内容可重试；成功 `notify('视图已刷新','success')`（v6.7）。
+- 构建 main-E5CCJ55P.js cp→web/static（整目录含 index.html）；验证 `tests/test_epic80_v68_refresh_failure_e2e.py` 全绿（成功+失败双路径，0 报错）。
+- 回归：v6.6/v6.7 E2E 连续串行偶发 #refreshBtn 超时（侧栏预加载 74 项目整棵树压垮本地 API，与本次无关）→ 测试改为先等 .skeleton 消失再定位；隔离运行 v6.6/v6.7/v6.8 全 PASS；pytest test_epic30_cache 8 passed。
+- 追踪（REST 新建）：project 75(AUTODEV80)→epic 73→story 122→task 1146(high) 合法链 → in_review；story/epic 同步 in_review。
+- 提交 push origin main（c2ab9e2）。下次可执行：后台轮询自动刷新联动 / 刷新失败重试提示 / 新需求。
+
+## 2026-07-29 21:5x 自动开发 — Epic 81 v6.9 后台自动轮询刷新 → in_review（达成）
+- 目标 task→in_review。MCP 全断 → REST 兜底（API 58125 / web 8080，admin id=18）。未触碰 18001(MCP)/docker 端口。
+- 选型：真实 backlog 仅 junk(#1112-1116)+Demo 项目 #1141；high 全 in_review → 新建增量 Epic 81 v6.9。
+- 追踪（REST 新建）：project 76(AUTODEV81)→epic 74→story 123→task 1147(high) 合法链 → in_review；story/epic 同步 in_review（达成）。
+- 实现（纯前端）：autoRefresh 信号/计时器/倒计时/状态点/静默同步(loadRoute(false)，与 manualRefresh 共享 refreshing 互斥，不打 toast)/偏好持久化(document.hidden 冻结)；#autoRefreshBtn UI + CSS。openspec v69 proposal/design/tasks。
+- 验证：tests/test_epic81_v69_auto_refresh_e2e.py 全绿；回归 cache 8 passed + v6.8/v6.7 e2e 全绿（无回归）。
+- 提交 push origin main（feat(ui): v6.9 后台自动轮询刷新, Task 1147 -> in_review）。
+- 下次可执行：自动同步轻提示联动 / 失败重试退避 / 新需求。
+
+## 2026-07-30 自动开发 — Epic 82 v6.10 后台自动刷新失败提示与一键重试 → in_review（达成）
+- 目标 task→in_review。MCP 全断 → REST 兜底（API 58125 / web 8080，admin id=18）。未触碰 18001(MCP)/docker 端口。
+- 选型：真实 backlog 仅 junk；high 全 in_review；依 v6.9 建议新建增量 Epic 82 v6.10。
+- 追踪（REST 新建）：project 77(AUTODEV82)→epic 75→story 124→task 1148(high) 合法链 backlog→todo→in_progress→in_review；story/epic 同步 in_review（达成）。
+- 实现（纯前端零契约变更）：autoRefreshFailing 粘性告警；retryAutoRefresh 去除 refreshing 早退，允许刷新中强制重试；模板 .auto-refresh-fail 提示条 + #autoRefreshRetryBtn 去掉 disabled 绑定（失败态始终可点）。app.css 低调告警样式。
+- 根因：api.service.ts 对 5xx 指数退避重试(1+2+4s)使失败同步 refreshing 持续数~数十秒，旧 [disabled]=refreshing() 使重试按钮无可用窗口 → 解耦修复。
+- 验证：tests/test_epic82_v610_autorefresh_fail_retry_e2e.py 全绿；回归 cache 8 passed + v6.6~v6.9 E2E 全绿。
+- 提交 push origin main（feat(ui): v6.10 后台自动刷新失败提示与一键重试, Task 1148 -> in_review）。
+- 下次可执行：自动同步成功轻提示联动 / 失败重试退避计数 / 新需求。
+
+## 2026-07-30 自动开发 — Epic 83 v6.11 后台自动刷新成功轻提示 → in_review（达成）
+- 目标 task→in_review。MCP 全断 → REST 兜底（API 58125 / web 8080，admin id=18）。未触碰 18001(MCP)/docker 端口。
+- 选型：真实 backlog 仅 junk；high 全 in_review；依 v6.10「下次可执行」新建增量 Epic 83 v6.11。
+- 实现（纯前端零契约变更）：autoRefreshTick 捕获 wasFailing，成功分支 pulseSynced() 点亮绿点+.synced 类+「已同步」胶囊；仅恢复瞬间 notify('后台已恢复同步','success')（与 v6.10 失败条联动闭环，不每周期打扰）。
+- 验证：tests/test_epic83_v611_autorefresh_success_hint_e2e.py 全绿（恢复 toast+已同步胶囊+绿点脉冲+0 报错）；回归 cache 8 passed + v6.8/v6.9/v6.10 E2E 全绿（v6.8 首次冷启动 #refreshBtn 超时系 flake，隔离复跑 PASS）。
+- 追踪（REST 新建）：project 78(AUTODEV83)→epic 76→story 125→task 1149(high) 合法链 → in_review；story/epic 同步 in_review（达成）。
+- 提交 push origin main（feat(ui): v6.11 后台自动刷新成功轻提示, Task 1149 -> in_review）。
+- 下次可执行：失败重试退避计数显示 / 同步成功 toast 与失败条统一轻提示体系 / 新需求。

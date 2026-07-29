@@ -99,6 +99,9 @@ export class App implements OnInit, OnDestroy {
   readonly autoRefreshCountdown = signal(this.autoRefreshSeconds); // 距下次自动刷新的倒计时（秒）
   readonly lastSyncedAt = signal<number | null>(null); // 上次成功自动同步的时间戳
   readonly autoRefreshFailing = signal(false); // 连续自动同步失败时置位（用于低调告警点，不打扰式 toast）
+  /** Epic 83 (v6.11): 自动同步成功瞬时标记——点亮绿点并短暂显示「已同步」轻提示（不每周期打扰） */
+  readonly autoSynced = signal(false);
+  private autoSyncedTimer: ReturnType<typeof setTimeout> | null = null;
   private autoTimer: ReturnType<typeof setInterval> | null = null;
   readonly error = signal('');
   readonly search = signal('');
@@ -1773,6 +1776,7 @@ export class App implements OnInit, OnDestroy {
   private async autoRefreshTick(): Promise<void> {
     if (this.refreshing()) return; // 手动刷新或其它自动同步进行中，跳过本拍
     this.refreshing.set(true);
+    const wasFailing = this.autoRefreshFailing(); // v6.11: 记录进入本拍前的失败态，用于「恢复」判定
     try {
       await this.loadRoute(false);
       if (this.error()) {
@@ -1781,12 +1785,24 @@ export class App implements OnInit, OnDestroy {
       } else {
         this.lastSyncedAt.set(Date.now());
         this.autoRefreshFailing.set(false);
+        this.pulseSynced(); // v6.11: 同步成功瞬时点亮绿点 + 短暂「已同步」轻提示
+        // v6.11: 从失败中恢复时给一次成功 toast，与 v6.10 失败提示联动（不每周期打扰）
+        if (wasFailing) {
+          this.notify('后台已恢复同步', 'success');
+        }
       }
     } catch {
       this.autoRefreshFailing.set(true);
     } finally {
       this.refreshing.set(false);
     }
+  }
+
+  /** Epic 83 (v6.11): 同步成功瞬时点亮绿点并短暂显示「已同步」轻提示（1.5s 后自动熄灭，避免每周期打扰） */
+  private pulseSynced(): void {
+    this.autoSynced.set(true);
+    if (this.autoSyncedTimer !== null) clearTimeout(this.autoSyncedTimer);
+    this.autoSyncedTimer = setTimeout(() => this.autoSynced.set(false), 1500);
   }
 
   /** Epic 82 (v6.10): 后台自动刷新失败时的一键重试——立即触发一次静默同步并重置倒计时，

@@ -1115,10 +1115,20 @@ router-outlet {
   background: var(--warning, #f59e0b);
   animation: none;
 }
+/* Epic 83 (v6.11): 同步成功瞬时绿点闪烁（轻提示），优先级高于常驻 auto-pulse */
+.btn.auto-refresh-btn.active .auto-refresh-dot.synced {
+  background: var(--success, #22c55e);
+  animation: auto-synced-flash .8s ease-out;
+}
 @keyframes auto-pulse {
   0%   { box-shadow: 0 0 0 0 rgba(34, 197, 94, .55); }
   70%  { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
   100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+@keyframes auto-synced-flash {
+  0%   { box-shadow: 0 0 0 0 rgba(34, 197, 94, .7); transform: scale(1); }
+  40%  { box-shadow: 0 0 0 7px rgba(34, 197, 94, 0); transform: scale(1.35); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); transform: scale(1); }
 }
 .auto-refresh-count {
   font-variant-numeric: tabular-nums;
@@ -1195,6 +1205,32 @@ router-outlet {
   .auto-refresh-fail { animation: none; }
   .auto-refresh-fail-dot { animation: none; }
   .auto-refresh-retry { transition: none; }
+}
+
+/* Epic 83 (v6.11): 自动同步成功轻提示——短暂「已同步」徽标，与 v6.10 失败提示呼应 */
+.auto-refresh-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--success, #22c55e);
+  background: color-mix(in srgb, var(--success, #22c55e) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--success, #22c55e) 40%, transparent);
+  animation: arok-in .2s ease;
+  white-space: nowrap;
+}
+@keyframes arok-in { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
+[data-theme="dark"] .auto-refresh-ok {
+  background: color-mix(in srgb, var(--success, #22c55e) 18%, transparent);
+  border-color: color-mix(in srgb, var(--success, #22c55e) 50%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn.auto-refresh-btn.active .auto-refresh-dot.synced { animation: none; }
+  .auto-refresh-ok { animation: none; }
 }
 
 /* Task 818: 任务列表指派人头像 */

@@ -1273,7 +1273,7 @@
                   <button id="autoRefreshBtn" class="btn auto-refresh-btn" type="button"
                     (click)="toggleAutoRefresh()" [class.active]="autoRefresh()"
                     [title]="autoRefresh() ? ('自动刷新已开启（每 ' + autoRefreshSeconds + ' 秒，' + lastSyncedLabel() + '）') : '开启后台自动刷新'">
-                    <span class="auto-refresh-dot" [class.failing]="autoRefreshFailing() && autoRefresh()"></span>
+                    <span class="auto-refresh-dot" [class.failing]="autoRefreshFailing() && autoRefresh()" [class.synced]="autoSynced() && autoRefresh()"></span>
                     <svg class="auto-refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
                     <span class="auto-refresh-label">自动</span>
                     @if (autoRefresh() && !refreshing()) {
@@ -1290,6 +1290,11 @@
                         (click)="retryAutoRefresh()"
                         title="立即重试后台自动刷新">重试</button>
                     </span>
+                  }
+
+                  <!-- Epic 83 (v6.11): 自动同步成功轻提示——短暂显示「已同步」，与 v6.10 失败提示呼应（不每周期打扰） -->
+                  @if (autoRefresh() && autoSynced()) {
+                    <span class="auto-refresh-ok" role="status" aria-live="polite">已同步</span>
                   }
 
                   <div class="preset-wrap">
