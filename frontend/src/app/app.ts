@@ -1701,8 +1701,16 @@ export class App implements OnInit, OnDestroy {
     this.refreshing.set(true);
     try {
       await this.loadRoute(false);
-      // v6.7: 手动刷新成功后给出成功反馈，形成操作闭环（复用既有 toast 基础设施）
-      this.notify('视图已刷新', 'success');
+      if (this.error()) {
+        // v6.8: 手动刷新失败（网络/服务端异常）。清空 error 以保留当前内容（不渲染「加载失败」横幅），
+        // 仅以 toast 提示失败，按钮保持可用以便重试
+        const msg = this.error();
+        this.error.set('');
+        this.notify(msg ? `刷新失败：${msg}` : '刷新失败，请重试', 'error');
+      } else {
+        // v6.7: 手动刷新成功后给出成功反馈，形成操作闭环（复用既有 toast 基础设施）
+        this.notify('视图已刷新', 'success');
+      }
     } finally {
       this.refreshing.set(false);
     }

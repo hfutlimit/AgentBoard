@@ -60,8 +60,11 @@ def main():
         ))
 
         page.goto(WEB + '/story/' + str(STORY_ID), wait_until='domcontentloaded')
-        page.wait_for_selector('#refreshBtn', timeout=20000)
-        page.wait_for_selector('.entity-item, .kanban-card', timeout=20000)
+        # 等待首屏初始加载完成（骨架屏消失）再定位刷新按钮：侧栏会预加载全部 74 个项目→epic→story→task
+        # 树，数据集较大时首屏渲染可能接近 20s，固定超时会在冷启动时偶发抖动
+        page.wait_for_function("!document.querySelector('.skeleton')", timeout=60000)
+        page.wait_for_selector('#refreshBtn', timeout=15000)
+        page.wait_for_selector('.entity-item, .kanban-card', timeout=15000)
         print('[ok] 任务视图与刷新按钮渲染；任务列表已加载')
 
         # 初始态
