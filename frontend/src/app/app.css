@@ -1044,6 +1044,43 @@ router-outlet {
   line-height: 1;
 }
 
+/* Epic 78 (v6.6): 手动刷新按钮 + 刷新中加载态 */
+.btn.refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  transition: background-color .15s ease, color .15s ease, opacity .15s ease;
+}
+.btn.refresh-btn .refresh-icon {
+  width: 15px;
+  height: 15px;
+  transition: transform .3s ease;
+}
+.btn.refresh-btn:not(:disabled):hover .refresh-icon {
+  transform: rotate(90deg);
+}
+.btn.refresh-btn:disabled {
+  cursor: progress;
+  opacity: .75;
+}
+.refresh-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--border, rgba(148, 163, 184, .35));
+  border-top-color: var(--primary, #6366f1);
+  animation: refresh-spin .7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes refresh-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .refresh-spinner { animation-duration: 1.4s; }
+  .btn.refresh-btn .refresh-icon { transition: none; }
+}
+
 /* Task 818: 任务列表指派人头像 */
 .assignee-avatar-sm {
   display: inline-flex;

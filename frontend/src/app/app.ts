@@ -91,6 +91,8 @@ export class App implements OnInit, OnDestroy {
   readonly task = signal<Task | null>(null);
   readonly view = signal<ViewKind>('home');
   readonly loading = signal(true);
+  /** Epic 78 (v6.6): 手动刷新进行中标记，用于刷新按钮的加载态与防重复点击 */
+  readonly refreshing = signal(false);
   readonly error = signal('');
   readonly search = signal('');
   readonly sidebarOpen = signal(true);
@@ -1437,10 +1439,11 @@ export class App implements OnInit, OnDestroy {
     return this.project()?.id === projectId && this.projectTabGeneration === generation;
   }
 
-  private async loadRoute(): Promise<void> {
+  private async loadRoute(skeleton: boolean = true): Promise<void> {
     // 未登录时不加载任何业务数据，由独立登录页接管
     if (this.authVisible()) return;
-    this.loading.set(true);
+    // Epic 78 (v6.6): 手动刷新时 skeleton=false，保留当前内容，仅由刷新按钮显示加载态
+    if (skeleton) this.loading.set(true);
     this.error.set('');
     const path = this.router.url.split('?')[0].replace(/^\//, '');
     const [kind = '', rawId] = path.split('/');
@@ -1586,7 +1589,8 @@ export class App implements OnInit, OnDestroy {
       }
       this.error.set(this.message(error));
     } finally {
-      this.loading.set(false);
+      // Epic 78 (v6.6): 手动刷新（skeleton=false）时不切换骨架屏
+      if (skeleton) this.loading.set(false);
     }
   }
 
@@ -1689,6 +1693,17 @@ export class App implements OnInit, OnDestroy {
 
   async refresh(): Promise<void> {
     await this.loadRoute();
+  }
+
+  /** Epic 78 (v6.6): 手动刷新当前视图（任务列表/看板）。刷新期间按钮显示加载态并禁用重复触发，保留当前内容不闪骨架屏 */
+  async manualRefresh(): Promise<void> {
+    if (this.refreshing()) return;
+    this.refreshing.set(true);
+    try {
+      await this.loadRoute(false);
+    } finally {
+      this.refreshing.set(false);
+    }
   }
 
   openAuth(mode: 'login' | 'register' = 'login'): void {

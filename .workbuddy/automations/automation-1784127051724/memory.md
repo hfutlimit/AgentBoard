@@ -593,3 +593,44 @@
 - 验证：`tests/test_epic75_v62_board_subgroup_collapse_e2e.py` 全绿（单折叠/列全折叠/reload 持久化/0 错误）；回归 pytest epic30_cache 8 passed + v6.1 board E2E ALL PASS。
 - 提交：`feat(ui): 前端体验升级 v6.2 - 看板视图子分组头折叠/展开 (Epic 75, Task 1137 -> in_review)` → push origin main。
 - 硬约束：未触碰 18001(MCP)/docker 端口。
+
+## 2026-07-29 02:xx 自动开发 — Epic 76 v6.3 看板/列表「激活筛选条件」可视化 chips 条 → in_review（达成）
+- 目标 task→in_review。MCP 全断 → REST 兜底（API 58125 / web 8080，admin id=18）。
+- 选型：真实 backlog 仅 junk(#1112-1116)；high 项 #1123-1128 全 in_review；依 v6.2「下次可执行」新建增量 Epic 76 v6.3。
+- 实现（纯前端）：app.ts `activeFilterChips` computed + `clearFilterChip(key)`；app.html `.active-filter-bar`（列表+看板共用，`@if(activeFilterChips().length>0)`）；app.css chip 条样式（含暗色）。零后端契约变更。
+- 验证：`tests/test_epic76_v63_active_filter_chips_e2e.py` ALL PASS；回归 `pytest test_epic30_cache.py` 8 passed + v5.8/v6.1/v6.2 看板 E2E 全绿（无回归）。
+- 追踪（REST 新建）：project 65→epic 66→story 115→task 1138(high) → in_review；story/epic 同步 in_review（达成）。
+- 提交：`feat(ui): 前端体验升级 v6.3 - 看板/列表视图「激活筛选条件」可视化 chips 条 (Epic 76, Task 1138 -> in_review)` → push `d7ac788..901043d`。
+- 硬约束：未触碰 18001(MCP)/docker 端口。
+- 下次可执行：筛选预设保存后高亮当前预设、或新需求。
+
+## 2026-07-29 06:xx 自动开发 — Task 708 v6.4 性能指标常驻徽标（达成，Task 708 → in_review，Story 45 → done）
+- 目标：Task → in_review。MCP 全断 → REST 兜底（API 58125 / web 8080，admin id=18）。
+- 选型：REST 列出 open 任务仅剩 #708（in_progress，Story 45）。Story 45 仅剩此任务，推进后完整完成该 Story。
+- 实现（纯前端）：已有 perfTracker 基础上，补全 Navigation Timing 准确页面加载时间、2s 实时刷新、常驻 `.perf-badge` 徽标（主题/状态色/点击展开系统状态弹层）、顶部栏开关持久化。
+- 验证：`tests/test_task708_perf_metrics_e2e.py` PASS（0 错误）；回归 cache 8 passed + v6.3 chips + v5.8 board E2E 全绿。
+- 追踪：task 708 → in_review；story 45 → done。Epic 15 原 done，其下 story 46/47 仍为 in_review，未回退 epic。
+- 提交并 push：`3dc70d5` feat(ui): 前端体验升级 v6.4 - 性能指标常驻徽标 + 实时刷新 (Task 708 -> in_review, Story 45 -> done)。
+
+## 2026-07-29 09:xx 自动开发 — Epic 77 v6.5 筛选预设当前激活高亮 -> in_review（达成）
+- 目标 task->in_review。MCP 本次可达但指向远程 prod（仅 2 项目 / mcp-service 用户），本地验证回路为权威 -> 本地 REST(58125)+web(8080) 验证。未触碰 18001(MCP)/docker 端口。
+- 选型：真实 backlog 仅 junk；依 v6.3「下次可执行」新建增量 Epic 77 v6.5。filterPresets(v3.1) 已具备保存/应用/删除/默认，缺口为「当前激活预设高亮」。
+- 实现（纯前端，零后端契约变更）：app.ts matchesPreset+activePresetId computed；app.html preset-item [class.active]+「当前」徽标；app.css 高亮样式(含暗色)。
+- 验证：tests/test_epic77_v65_preset_active_e2e.py 全绿（空预设自动高亮/应用筛选高亮消失/保存 P2 高亮切换/回归）；回归 pytest test_epic30_cache.py 8 passed + v5.8~v6.4 E2E 全绿（无回归）。
+- 追踪（REST 新建）：project 66(AUTODEV77)->epic 67->story 116->task 1139(high) 合法链 backlog->todo->in_progress->in_review；story 116 / epic 67 经 PATCH 同步 in_review。
+- 提交 push origin main（68492dd）。刻意排除 data/、autodev.lock、其它 automation memory、screenshots、agentboard-audit/、前端 dist。
+- 下次可执行：筛选预设与看板视图联动 / 预设分组维度记忆 / 新需求。
+
+## 2026-07-29 12:xx 自动开发 — Epic 78 v6.6 任务视图手动刷新 + 刷新中加载态 -> in_review（达成）
+- 目标 task→in_review。MCP 全断 -> REST 兜底（API 58125 / web 8080，admin id=18）。
+- 选型：真实 backlog 仅 junk(#1112-1116)；high 项 #1123-1139 全 in_review；依 v6.5「下次可执行」新建增量 Epic 78 v6.6。
+- 实现（纯前端，零后端契约变更）：
+  - app.ts：`refreshing` signal + `manualRefresh()`（guard 防重复触发；`finally` 复位）；`loadRoute(skeleton=true)` 新增参数，手动刷新传 `false` 以**保留当前内容、不闪骨架屏**，仅由刷新按钮显示加载态。
+  - app.html：filterbar__right 新增 `#refreshBtn`（列表/看板共用），`@if(refreshing())` 渲染 `.refresh-spinner` + 文案「刷新中」，`[disabled]="refreshing()"`，否则刷新图标 + 「刷新」。
+  - app.css：`.btn.refresh-btn` + `.refresh-spinner` 旋转动画（含 prefers-reduced-motion 降级）。
+- 关键修复：初版 `manualRefresh` 调 `loadRoute()`（默认 skeleton=true）会整体切骨架屏，导致 `#refreshBtn` 在刷新期间被卸载、按钮级 spinner 不可见。改用 `loadRoute(false)` 后按钮常驻、spinner 可见（经延迟 API 拦截验证）。
+- 部署坑：仅 cp main/styles 不够——`index.html` 仍引用旧 hash 主包导致整页不启动；须 `cp -r frontend/dist/frontend/browser/. agentboard/web/static/`（含新 index.html）。首版 e2e 因此 #refreshBtn 超时。
+- 验证：tests/test_epic78_v66_refresh_e2e.py 全绿（渲染/初始态/点击后按钮 disabled+spinner+「刷新中」/完成后恢复+内容无丢失/0 错误）；回归 pytest test_epic30_cache.py 8 passed + v5.8(看板)/v6.3(chips)/v6.4(perf)/v6.5(preset) E2E 全绿（无回归）。注：v6.5 一次超时系部署后冷启动 API 慢（非回归），热服复跑 PASS。
+- 追踪（REST 新建）：project 69(AUTODEV78,key A78X)->epic 68->story 117->task 1140(high) 合法链 backlog->todo->in_progress->in_review；story 117 / epic 68 经 PATCH 同步 in_review（达成）。
+- 提交 push origin main（main-5WS7TJ4B.js）。刻意排除 data/、autodev.lock、其它 automation memory、screenshots、agentboard-audit/、前端 dist、dist/* 部署产物。
+- 下次可执行：刷新按钮与后台轮询自动刷新联动 / 刷新成功 toast 提示 / 新需求。
