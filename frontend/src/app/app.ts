@@ -555,6 +555,29 @@ export class App implements OnInit, OnDestroy {
   readonly defaultPreset = computed<FilterPreset | null>(() =>
     this.filterPresets().find((p) => p.isDefault) || null
   );
+  // v6.5: 筛选预设「当前激活」高亮 —— 若当前筛选维度与某已保存预设完全一致，则其被标记为活跃
+  private sameSet(a: string[], b: string[]): boolean {
+    if (a.length !== b.length) return false;
+    const sa = [...a].sort();
+    const sb = [...b].sort();
+    return sa.every((v, i) => v === sb[i]);
+  }
+  matchesPreset(p: FilterPreset): boolean {
+    const curStatus = this.filterStatus() ? [this.filterStatus()!] : [];
+    if (!this.sameSet(curStatus, p.statuses)) return false;
+    if (!this.sameSet(this.filterPriorities(), p.priorities)) return false;
+    if (!this.sameSet(this.filterTypes(), p.types)) return false;
+    if (!this.sameSet(this.filterAssignees(), p.assignees)) return false;
+    if ((this.filterDueDate() || '') !== (p.due || '')) return false;
+    if (this.taskSearchQuery().trim() !== (p.search || '')) return false;
+    if (this.filterMineOnly() !== !!p.mineOnly) return false;
+    // labelFilter 不在预设捕获范围内；若其处于活跃则视为不匹配，避免误高亮
+    if (this.labelFilter()) return false;
+    return true;
+  }
+  readonly activePresetId = computed<string | null>(() =>
+    this.filterPresets().find((p) => this.matchesPreset(p))?.id ?? null
+  );
   private persistFilterPresets(): void {
     try { localStorage.setItem('agentboard_filter_presets', JSON.stringify(this.filterPresets())); } catch { /* ignore */ }
   }

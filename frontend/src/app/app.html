@@ -1277,10 +1277,13 @@
                         @if (filterPresets().length > 0) {
                           <div class="preset-list">
                             @for (p of filterPresets(); track p.id) {
-                              <div class="preset-item" [class.is-default]="p.isDefault">
+                              <div class="preset-item" [class.is-default]="p.isDefault" [class.active]="p.id === activePresetId()">
                                 <button class="preset-star" (click)="setDefaultPreset(p.id)" [title]="p.isDefault ? '取消默认' : '设为默认'" [class.on]="p.isDefault">{{ p.isDefault ? '★' : '☆' }}</button>
                                 <div class="preset-body">
-                                  <button class="preset-apply" (click)="applyFilterPreset(p.id)" [title]="p.name">{{ p.name }}</button>
+                                  <div class="preset-title-row">
+                                    <button class="preset-apply" (click)="applyFilterPreset(p.id)" [title]="p.name">{{ p.name }}</button>
+                                    @if (p.id === activePresetId()) { <span class="preset-active-tag">当前</span> }
+                                  </div>
                                   <div class="preset-meta">
                                     <span class="preset-meta-chip">📂 {{ presetGroupLabel(p) }}</span>
                                     <span class="preset-meta-chip">↕ {{ presetSortLabel(p) }}</span>

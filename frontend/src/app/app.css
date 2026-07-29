@@ -1717,6 +1717,20 @@ router-outlet {
 }
 .preset-item.is-default .preset-meta-chip { background: rgba(245, 158, 11, 0.14); color: #b45309; }
 
+/* v6.5: 筛选预设「当前激活」高亮 —— 当前筛选维度与预设一致时高亮该项 */
+.preset-title-row { display: flex; align-items: center; gap: 6px; }
+.preset-active-tag {
+  font-size: 11px; font-weight: 600; line-height: 1.4;
+  padding: 1px 7px; border-radius: 999px;
+  background: var(--accent, #6366f1); color: #fff;
+  white-space: nowrap;
+}
+.preset-item.active { background: rgba(99, 102, 241, 0.10); border-radius: 8px; }
+.preset-item.active .preset-apply { border-color: var(--accent, #6366f1); color: var(--accent, #6366f1); }
+.preset-item.active .preset-star { border-color: var(--accent, #6366f1); }
+[data-theme="dark"] .preset-item.active { background: rgba(129, 140, 248, 0.16); }
+[data-theme="dark"] .preset-active-tag { background: #818cf8; }
+
 /* Task 816: 面包屑导航可点击 */
 .crumb-bar a {
   color: var(--primary);
