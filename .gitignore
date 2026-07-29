@@ -15,3 +15,7 @@ ng-serve.err
 venv/
 nul
 backups/
+
+# E2E 测试凭据（含 API Key 明文，勿提交）
+scripts/e2e_setup.json
+scripts/e2e_entities.json
