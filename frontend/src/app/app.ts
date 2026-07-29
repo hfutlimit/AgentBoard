@@ -93,6 +93,13 @@ export class App implements OnInit, OnDestroy {
   readonly loading = signal(true);
   /** Epic 78 (v6.6): 手动刷新进行中标记，用于刷新按钮的加载态与防重复点击 */
   readonly refreshing = signal(false);
+  /** Epic 81 (v6.9): 后台自动轮询刷新 */
+  readonly autoRefreshSeconds = 30; // 轮询间隔（秒）
+  readonly autoRefresh = signal(this.isAutoRefreshEnabled());
+  readonly autoRefreshCountdown = signal(this.autoRefreshSeconds); // 距下次自动刷新的倒计时（秒）
+  readonly lastSyncedAt = signal<number | null>(null); // 上次成功自动同步的时间戳
+  readonly autoRefreshFailing = signal(false); // 连续自动同步失败时置位（用于低调告警点，不打扰式 toast）
+  private autoTimer: ReturnType<typeof setInterval> | null = null;
   readonly error = signal('');
   readonly search = signal('');
   readonly sidebarOpen = signal(true);
@@ -952,6 +959,8 @@ export class App implements OnInit, OnDestroy {
       if (this.authVisible()) return;
       void this.loadNotifications();
     }, 60000);
+    // Epic 81 (v6.9): 后台自动刷新轮询（若用户偏好已开启则沿用，默认关闭）
+    if (this.autoRefresh()) this.startAutoTimer();
     // Story 21.4: 初始化时更新离线队列计数
     try {
       const queue = JSON.parse(localStorage.getItem('agentboard_offline_queue') || '[]');
@@ -1716,6 +1725,82 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  /** Epic 81 (v6.9): 是否已开启后台自动刷新（偏好持久化于 localStorage） */
+  isAutoRefreshEnabled(): boolean {
+    return localStorage.getItem('agentboard_auto_refresh') === 'on';
+  }
+
+  /** Epic 81 (v6.9): 切换后台自动刷新；开启时重置倒计时并启动轮询，关闭时停表并复位告警 */
+  toggleAutoRefresh(): void {
+    if (this.autoRefresh()) {
+      this.autoRefresh.set(false);
+      localStorage.removeItem('agentboard_auto_refresh');
+      this.stopAutoTimer();
+      this.autoRefreshFailing.set(false);
+    } else {
+      this.autoRefresh.set(true);
+      localStorage.setItem('agentboard_auto_refresh', 'on');
+      this.autoRefreshCountdown.set(this.autoRefreshSeconds);
+      this.startAutoTimer();
+    }
+  }
+
+  private startAutoTimer(): void {
+    this.stopAutoTimer();
+    this.autoTimer = setInterval(() => this.autoTick(), 1000);
+  }
+
+  private stopAutoTimer(): void {
+    if (this.autoTimer !== null) {
+      clearInterval(this.autoTimer);
+      this.autoTimer = null;
+    }
+  }
+
+  /** Epic 81 (v6.9): 每秒心跳——页面不可见时冻结倒计时（不浪费请求），归零时触发一次静默自动同步 */
+  private autoTick(): void {
+    if (!this.autoRefresh() || document.hidden) return;
+    let c = this.autoRefreshCountdown() - 1;
+    if (c <= 0) {
+      c = this.autoRefreshSeconds;
+      void this.autoRefreshTick();
+    }
+    this.autoRefreshCountdown.set(c);
+  }
+
+  /** Epic 81 (v6.9): 静默自动同步——复用 loadRoute(false) 保留当前视图，不弹 toast；
+   *  成功则记录 lastSyncedAt 并清除告警，失败则低调置位 failing（与手动刷新 toast 解耦） */
+  private async autoRefreshTick(): Promise<void> {
+    if (this.refreshing()) return; // 手动刷新或其它自动同步进行中，跳过本拍
+    this.refreshing.set(true);
+    try {
+      await this.loadRoute(false);
+      if (this.error()) {
+        this.autoRefreshFailing.set(true);
+      } else {
+        this.lastSyncedAt.set(Date.now());
+        this.autoRefreshFailing.set(false);
+      }
+    } catch {
+      this.autoRefreshFailing.set(true);
+    } finally {
+      this.refreshing.set(false);
+    }
+  }
+
+  /** Epic 81 (v6.9): 上次同步的相对时间文案，用于低调提示（如「刚刚 / 12s前 / 3分钟前」） */
+  lastSyncedLabel(): string {
+    const ts = this.lastSyncedAt();
+    if (!ts) return '';
+    const sec = Math.max(0, Math.round((Date.now() - ts) / 1000));
+    if (sec < 5) return '刚刚同步';
+    if (sec < 60) return `${sec}秒前同步`;
+    const min = Math.round(sec / 60);
+    if (min < 60) return `${min}分钟前同步`;
+    const hr = Math.round(min / 60);
+    return `${hr}小时前同步`;
+  }
+
   openAuth(mode: 'login' | 'register' = 'login'): void {
     this.showLogin(mode);
   }
@@ -1764,6 +1849,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   logout(): void {
+    this.stopAutoTimer();
     localStorage.removeItem('agentboard_token');
     localStorage.removeItem('agentboard_user');
     localStorage.removeItem('agentboard_is_admin');

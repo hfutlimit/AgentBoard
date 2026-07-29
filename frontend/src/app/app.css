@@ -1081,6 +1081,68 @@ router-outlet {
   .btn.refresh-btn .refresh-icon { transition: none; }
 }
 
+/* Epic 81 (v6.9): 后台自动刷新轮询开关 */
+.btn.auto-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  transition: background-color .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.btn.auto-refresh-btn .auto-refresh-icon {
+  width: 15px;
+  height: 15px;
+  transition: transform .3s ease;
+}
+.btn.auto-refresh-btn:not(:disabled):hover .auto-refresh-icon {
+  transform: rotate(120deg);
+}
+/* 同步状态点：开启时呼吸脉冲（绿色），失败时转琥珀告警 */
+.auto-refresh-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border, rgba(148, 163, 184, .5));
+  flex-shrink: 0;
+  transition: background-color .2s ease;
+}
+.btn.auto-refresh-btn.active .auto-refresh-dot {
+  background: var(--success, #22c55e);
+  box-shadow: 0 0 0 0 rgba(34, 197, 94, .6);
+  animation: auto-pulse 2s ease-out infinite;
+}
+.btn.auto-refresh-btn.active .auto-refresh-dot.failing {
+  background: var(--warning, #f59e0b);
+  animation: none;
+}
+@keyframes auto-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(34, 197, 94, .55); }
+  70%  { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+.auto-refresh-count {
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary, #6366f1) 16%, transparent);
+  color: var(--primary, #6366f1);
+  min-width: 26px;
+  text-align: center;
+}
+.btn.auto-refresh-btn.active {
+  border-color: color-mix(in srgb, var(--success, #22c55e) 50%, transparent);
+  color: var(--success, #22c55e);
+  background: color-mix(in srgb, var(--success, #22c55e) 10%, transparent);
+}
+[data-theme="dark"] .btn.auto-refresh-btn.active {
+  background: color-mix(in srgb, var(--success, #22c55e) 16%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn.auto-refresh-btn.active .auto-refresh-dot { animation: none; }
+  .btn.auto-refresh-btn .auto-refresh-icon { transition: none; }
+}
+
 /* Task 818: 任务列表指派人头像 */
 .assignee-avatar-sm {
   display: inline-flex;
