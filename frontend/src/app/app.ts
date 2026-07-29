@@ -1701,6 +1701,8 @@ export class App implements OnInit, OnDestroy {
     this.refreshing.set(true);
     try {
       await this.loadRoute(false);
+      // v6.7: 手动刷新成功后给出成功反馈，形成操作闭环（复用既有 toast 基础设施）
+      this.notify('视图已刷新', 'success');
     } finally {
       this.refreshing.set(false);
     }
