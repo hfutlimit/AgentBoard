@@ -634,3 +634,11 @@
 - 追踪（REST 新建）：project 69(AUTODEV78,key A78X)->epic 68->story 117->task 1140(high) 合法链 backlog->todo->in_progress->in_review；story 117 / epic 68 经 PATCH 同步 in_review（达成）。
 - 提交 push origin main（main-5WS7TJ4B.js）。刻意排除 data/、autodev.lock、其它 automation memory、screenshots、agentboard-audit/、前端 dist、dist/* 部署产物。
 - 下次可执行：刷新按钮与后台轮询自动刷新联动 / 刷新成功 toast 提示 / 新需求。
+
+## 2026-07-29 15:4x 自动开发 — Epic 79 v6.7 手动刷新成功 toast 提示（达成，Task 1145 → in_review）
+- 目标 task→in_review。MCP 全断 → REST 兜底（API 58125 / web 8080，admin id=18）。
+- 选型：真实 backlog 仅 junk；high 项全 in_review；依 v6.6 建议新建增量 Epic 79 v6.7。
+- 实现（纯前端）：manualRefresh 成功后 notify('视图已刷新','success')；零后端契约变更。
+- 验证：test_epic79_v67_refresh_toast_e2e.py 全绿；回归 cache 8 passed + v6.6/v6.3 e2e 全绿。
+- 追踪（REST 新建）：project 74→epic 72→story 121→task 1145(high) → in_review；story/epic 同步 in_review。
+- 提交 push origin main（9090fb5）。下次可执行：后台轮询自动刷新联动 / 刷新失败提示 / 新需求。
