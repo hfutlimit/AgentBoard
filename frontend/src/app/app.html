@@ -1281,6 +1281,17 @@
                     }
                   </button>
 
+                  <!-- Epic 82 (v6.10): 自动刷新失败时低调提示 + 一键重试入口（不打扰式，复用 failing 状态） -->
+                  @if (autoRefresh() && autoRefreshFailing()) {
+                    <span class="auto-refresh-fail" role="status" aria-live="polite">
+                      <span class="auto-refresh-fail-dot" aria-hidden="true"></span>
+                      <span class="auto-refresh-fail-text">自动刷新失败</span>
+                      <button id="autoRefreshRetryBtn" class="auto-refresh-retry" type="button"
+                        (click)="retryAutoRefresh()"
+                        title="立即重试后台自动刷新">重试</button>
+                    </span>
+                  }
+
                   <div class="preset-wrap">
                     <button class="dropdown" (click)="togglePresetOpen()" [class.active]="presetOpen()">
                       <span>预设</span>

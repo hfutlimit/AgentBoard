@@ -1776,6 +1776,7 @@ export class App implements OnInit, OnDestroy {
     try {
       await this.loadRoute(false);
       if (this.error()) {
+        // 失败：低调置位 failing（粘性，直到一次成功的自动同步才复位）
         this.autoRefreshFailing.set(true);
       } else {
         this.lastSyncedAt.set(Date.now());
@@ -1786,6 +1787,17 @@ export class App implements OnInit, OnDestroy {
     } finally {
       this.refreshing.set(false);
     }
+  }
+
+  /** Epic 82 (v6.10): 后台自动刷新失败时的一键重试——立即触发一次静默同步并重置倒计时，
+   *  给用户明确的可恢复入口；与手动刷新 toast 解耦，重试本身不打扰式提示。
+   *  允许在刷新进行中强制重试：先复位刷新态，立即发起一次新同步（旧的在途同步会被取代）。 */
+  retryAutoRefresh(): void {
+    if (!this.autoRefresh()) return;
+    this.autoRefreshCountdown.set(this.autoRefreshSeconds);
+    // 若当前恰有同步在途，先复位以便本拍立即生效（避免被 refreshing 守卫跳过）
+    if (this.refreshing()) this.refreshing.set(false);
+    void this.autoRefreshTick();
   }
 
   /** Epic 81 (v6.9): 上次同步的相对时间文案，用于低调提示（如「刚刚 / 12s前 / 3分钟前」） */
