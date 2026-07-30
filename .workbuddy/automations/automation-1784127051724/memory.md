@@ -678,3 +678,17 @@
 - 追踪（REST 新建）：project 78(AUTODEV83)→epic 76→story 125→task 1149(high) 合法链 → in_review；story/epic 同步 in_review（达成）。
 - 提交 push origin main（feat(ui): v6.11 后台自动刷新成功轻提示, Task 1149 -> in_review）。
 - 下次可执行：失败重试退避计数显示 / 同步成功 toast 与失败条统一轻提示体系 / 新需求。
+
+## 2026-07-30 自动开发 — Epic 84 v6.12 后台自动刷新失败重试退避计数显示 → in_review（达成）
+- 目标 task→in_review。**本次 MCP 可用**（testadmin/admin），按「MCP 优先」以 MCP 为权威：建 epic 95→story 153→task 905(high) 并置 in_review（task/story/epic 全 in_review）。实现+验证在本地 Docker 栈（web 28080 卷挂载 static 实时生效；API 18000；story 206）。
+- 实现（纯前端零契约变更）：app.ts 新增 `autoRefreshAttempts`（失败分支自增、成功归零）；app.html 失败条文案升级为「自动同步失败（第 N 次）· Ms 后自动重试」。零后端改动。
+- 验证：tests/test_epic84_v612_autorefresh_retry_count_e2e.py 全绿（计数+实时倒计时/重试递增/归零/恢复 toast+已同步/0 报错）；回归 pytest test_epic30_cache 7 passed+1 skipped。
+- 提交 push origin main（`f07d2e2`）。未触碰 18001(MCP)/docker 端口。
+- 下次可执行：统一轻提示体系 / 失败重试退避曲线可视化 / 新需求。
+
+## 2026-07-30 自动开发 — Epic 96 P0 Proposal 后端基座（后端三表+状态机+REST） → in_review（达成）
+- 目标 task→in_review。**本次 MCP 可用**（testadmin/admin），按「MCP 优先」以 MCP 为权威：在既有 Story 154 / Epic 96 下新建 task 922（high）并实现，set_status → in_review（task/story/epic 全 in_review）。
+- 实现（纯后端增量，零前端/契约破坏）：`domains/proposals` 三表（proposal / proposal_round / proposal_question，不复用 Task.spec）+ `ProposalStatus` 枚举 + `PROPOSAL_TRANSITIONS` 状态机；`models.py` facade 导出；Alembic `h4i5j6k7l8m9`（CHECK/FK/唯一约束，双后端兼容，`init_db` 启动自动 `upgrade head`）；`service.py` 提案 CRUD + `set_proposal_status`(校验迁移) + round 幂等(同一 proposal+round 唯一约束防重投) + 问答自动 awaiting→answered；`api.py` `/api/proposals`（CRUD+status+rounds+questions+answer+pending）+ 中间件项目成员作用域 + 审计 entity 映射。
+- 验证：pytest `test_epic96_p0_proposals` 17 passed（真实 uvicorn 子进程+httpx）；`test_domain_boundaries` 3 passed（修既有硬编码表数断言）；Playwright `test_epic96_p0_proposals_e2e` 1 passed（UI 登录+仪表盘/看板 0 报错 + 真实栈 POST/GET/状态机迁移全链路）。
+- 关键坑：① TestClient + `audit_log_middleware(request.body())` 死锁 → 真实子进程+httpx；② SPA 未登录重定向 `/login`（旧 `#login-btn`/`#auth-form` 失效）→ `input[name=username]`/`button.login-submit`；③ 侧栏 `#sidebar` 非 `#sidebar-tree`；④ UI 新建项目弹窗未即时刷新侧栏 → 项目经 API 创建。
+- 未触碰 18001(MCP)/docker 端口。下次可执行（P1）：MCP 4 工具 + Worker 消费者 + 无头 WorkBuddy；前端问答工作台 UI（Story 154 前端部分）。

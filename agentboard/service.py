@@ -10,11 +10,16 @@ from .models import (
     Project, Epic, Story, Task, Comment, Sprint, Attachment, AgentSchedule, AgentRun,
     ProjectMember, Notification, User, ApiKey, AuditLog, TaskDependency, WebhookConfig,
     Document, DocumentComment,
+    Proposal, ProposalRound, ProposalQuestion,
 )
 from .domains.documents.models import (
     DocumentStatus, DocumentType,
     ALL_DOCUMENT_TYPES, ALL_DOCUMENT_STATUSES, DOCUMENT_TRANSITIONS,
 )
+from .domains.proposals.models import (
+    ProposalStatus, ALL_PROPOSAL_STATUSES, PROPOSAL_TRANSITIONS, ASKABLE_STATUSES,
+)
+from .domains.common.models import utc_now
 
 DEFAULT_PAGE_SIZE = 100
 MAX_PAGE_SIZE = 200
@@ -1939,4 +1944,270 @@ def get_document_comment_project_id(s: Session, comment_id: int) -> int | None:
         return None
     d = s.get(Document, c.document_id)
     return d.project_id if d else None
+
+
+# ---------- Proposals (Epic 96 P0：Proposal 澄清回路 / 人机协同需求分析) ----------
+def _check_proposal_status(value: str) -> None:
+    if value not in ALL_PROPOSAL_STATUSES:
+        raise InvalidValue(f"invalid proposal status '{value}'")
+
+
+def _proposal_or_404(s: Session, proposal_id: int) -> Proposal:
+    p = s.get(Proposal, proposal_id)
+    if not p:
+        raise NotFound(f"proposal {proposal_id} not found")
+    return p
+
+
+def create_proposal(
+    s: Session, *, project_id: int, title: str, content: str = "",
+    author_id: int | None = None,
+) -> Proposal:
+    """新建需求提案，初始状态 draft、current_round=0。"""
+    if not s.get(Project, project_id):
+        raise NotFound(f"project {project_id} not found")
+    if author_id is not None and not s.get(User, author_id):
+        raise InvalidValue(f"author {author_id} not found")
+    p = Proposal(
+        project_id=project_id,
+        title=_required(title, "title", 300),
+        content=content or "",
+        status=ProposalStatus.DRAFT.value,
+        current_round=0,
+        author_id=author_id,
+    )
+    s.add(p); _commit(s); s.refresh(p); return p
+
+
+def get_proposal(s: Session, id: int) -> Proposal | None:
+    return s.get(Proposal, id)
+
+
+def list_proposals(
+    s: Session, *, project_id: int | None = None, status: str | None = None,
+    q: str | None = None, limit: int | None = None, offset: int = 0,
+    user_id: int | None = None,
+):
+    """列出提案。未指定 project_id 时按调用者可见项目收敛（与文档模块一致）。"""
+    qry = s.query(Proposal)
+    if project_id is not None:
+        qry = qry.filter(Proposal.project_id == project_id)
+    elif user_id is not None:
+        user = s.get(User, user_id)
+        if user and not user.is_admin:
+            member_pids = [
+                r[0]
+                for r in s.query(ProjectMember.project_id)
+                .filter(ProjectMember.user_id == user_id)
+                .all()
+            ]
+            if member_pids:
+                qry = qry.filter(Proposal.project_id.in_(member_pids))
+            else:
+                qry = qry.filter(False)
+    if status is not None:
+        _check_proposal_status(status)
+        qry = qry.filter(Proposal.status == status)
+    if q:
+        like = f"%{q}%"
+        qry = qry.filter(or_(Proposal.title.ilike(like), Proposal.content.ilike(like)))
+    qry = qry.order_by(Proposal.updated_at.desc(), Proposal.id.desc())
+    return _paginate(qry, limit, offset).all()
+
+
+def update_proposal(s: Session, id: int, **fields) -> Proposal | None:
+    """编辑提案正文（状态流转请用 set_proposal_status）。"""
+    p = s.get(Proposal, id)
+    if not p:
+        return None
+    allowed = {"title", "content", "converged_spec", "story_id"}
+    for k, v in fields.items():
+        if k not in allowed or v is None:
+            continue
+        if k == "title":
+            v = _required(v, "title", 300)
+        elif k == "story_id" and not s.get(Story, v):
+            raise NotFound(f"story {v} not found")
+        setattr(p, k, v)
+    _commit(s); s.refresh(p); return p
+
+
+def delete_proposal(s: Session, id: int) -> bool:
+    p = s.get(Proposal, id)
+    if not p:
+        return False
+    # 显式清理子表（外键 ondelete=CASCADE 也会兜底；SQLite 默认不强制外键）
+    s.query(ProposalQuestion).filter(ProposalQuestion.proposal_id == id).delete(
+        synchronize_session=False,
+    )
+    s.query(ProposalRound).filter(ProposalRound.proposal_id == id).delete(
+        synchronize_session=False,
+    )
+    s.delete(p); _commit(s); return True
+
+
+def set_proposal_status(
+    s: Session, id: int, new_status: str, *, error: str | None = None,
+) -> Proposal:
+    """澄清状态机流转，非法迁移抛 IllegalTransition。"""
+    p = _proposal_or_404(s, id)
+    _check_proposal_status(new_status)
+    new = ProposalStatus(new_status)
+    current = ProposalStatus(p.status)
+    if current != new and new not in PROPOSAL_TRANSITIONS.get(current, set()):
+        raise IllegalTransition(f"{p.status} -> {new.value} 不合法")
+    p.status = new.value
+    if new is ProposalStatus.FAILED:
+        p.error = error or p.error or "unspecified failure"
+    elif error is None and new is not ProposalStatus.FAILED:
+        p.error = ""
+    _commit(s); s.refresh(p); return p
+
+
+def create_proposal_round(
+    s: Session, *, proposal_id: int, round_no: int | None = None,
+    summary: str = "", agent: str = "",
+) -> ProposalRound:
+    """开启一轮澄清。
+
+    ``(proposal_id, round_no)`` 唯一：消息 at-least-once 重投时，同一轮次重复创建
+    会命中唯一约束并直接复用既有轮次，天然幂等。
+    """
+    p = _proposal_or_404(s, proposal_id)
+    if ProposalStatus(p.status) not in ASKABLE_STATUSES:
+        raise IllegalTransition(
+            f"proposal {proposal_id} 当前状态 {p.status}，仅 analyzing 可提问",
+        )
+    if round_no is None:
+        round_no = (p.current_round or 0) + 1
+    if round_no < 1:
+        raise InvalidValue("round_no must be >= 1")
+    existing = (
+        s.query(ProposalRound)
+        .filter(ProposalRound.proposal_id == proposal_id,
+                ProposalRound.round_no == round_no)
+        .first()
+    )
+    if existing:  # 幂等：重投同一轮次直接复用
+        return existing
+    r = ProposalRound(
+        proposal_id=proposal_id, round_no=round_no,
+        summary=summary or "", agent=(agent or "")[:100],
+    )
+    s.add(r)
+    p.current_round = max(p.current_round or 0, round_no)
+    _commit(s); s.refresh(r); return r
+
+
+def add_proposal_questions(
+    s: Session, *, proposal_id: int, questions: list[str],
+    round_no: int | None = None, summary: str = "", agent: str = "",
+) -> dict:
+    """Agent 回写一轮 open questions，并把提案推进到 awaiting。
+
+    返回 ``{"round": <round dict>, "questions": [...]}``。
+    """
+    if not questions:
+        raise InvalidValue("questions must not be empty")
+    cleaned = [str(q).strip() for q in questions if str(q).strip()]
+    if not cleaned:
+        raise InvalidValue("questions must not be empty")
+    r = create_proposal_round(
+        s, proposal_id=proposal_id, round_no=round_no, summary=summary, agent=agent,
+    )
+    # 幂等：同一轮次已有问题则不再重复写入
+    already = (
+        s.query(ProposalQuestion).filter(ProposalQuestion.round_id == r.id).count()
+    )
+    if already == 0:
+        for i, text in enumerate(cleaned, start=1):
+            s.add(ProposalQuestion(
+                proposal_id=proposal_id, round_id=r.id, seq=i, question=text,
+            ))
+        _commit(s)
+    p = _proposal_or_404(s, proposal_id)
+    if ProposalStatus(p.status) is ProposalStatus.ANALYZING:
+        p.status = ProposalStatus.AWAITING.value
+        _commit(s); s.refresh(p)
+    rows = (
+        s.query(ProposalQuestion)
+        .filter(ProposalQuestion.round_id == r.id)
+        .order_by(ProposalQuestion.seq.asc(), ProposalQuestion.id.asc())
+        .all()
+    )
+    return {"round": _ser(r), "questions": [_ser(x) for x in rows]}
+
+
+def answer_proposal_question(
+    s: Session, question_id: int, *, answer: str = "", unsure: bool = False,
+    user_id: int | None = None,
+) -> ProposalQuestion:
+    """用户作答单条问题；``unsure=True`` 表示标记不确定（视为已处理）。"""
+    qs = s.get(ProposalQuestion, question_id)
+    if not qs:
+        raise NotFound(f"proposal question {question_id} not found")
+    answer = (answer or "").strip()
+    if not answer and not unsure:
+        raise InvalidValue("answer is required unless marked unsure")
+    if user_id is not None and not s.get(User, user_id):
+        raise InvalidValue(f"user {user_id} not found")
+    qs.answer = answer
+    qs.unsure = bool(unsure)
+    qs.answered_at = utc_now()
+    qs.answered_by = user_id
+    _commit(s); s.refresh(qs)
+    _maybe_mark_answered(s, qs.proposal_id)
+    return qs
+
+
+def _maybe_mark_answered(s: Session, proposal_id: int) -> None:
+    """当前轮次问题全部处理完毕时，自动把 awaiting 推进到 answered。"""
+    p = s.get(Proposal, proposal_id)
+    if not p or ProposalStatus(p.status) is not ProposalStatus.AWAITING:
+        return
+    r = (
+        s.query(ProposalRound)
+        .filter(ProposalRound.proposal_id == proposal_id,
+                ProposalRound.round_no == p.current_round)
+        .first()
+    )
+    if not r:
+        return
+    pending = (
+        s.query(ProposalQuestion)
+        .filter(ProposalQuestion.round_id == r.id,
+                ProposalQuestion.answered_at.is_(None))
+        .count()
+    )
+    if pending == 0:
+        p.status = ProposalStatus.ANSWERED.value
+        _commit(s)
+
+
+def list_proposal_rounds(s: Session, proposal_id: int) -> list[dict]:
+    """按轮次正序返回澄清历史（含每轮问题），供前端问答工作台渲染。"""
+    _proposal_or_404(s, proposal_id)
+    rounds = (
+        s.query(ProposalRound)
+        .filter(ProposalRound.proposal_id == proposal_id)
+        .order_by(ProposalRound.round_no.asc())
+        .all()
+    )
+    out = []
+    for r in rounds:
+        qs = (
+            s.query(ProposalQuestion)
+            .filter(ProposalQuestion.round_id == r.id)
+            .order_by(ProposalQuestion.seq.asc(), ProposalQuestion.id.asc())
+            .all()
+        )
+        item = _ser(r)
+        item["questions"] = [_ser(x) for x in qs]
+        out.append(item)
+    return out
+
+
+def get_proposal_project_id(s: Session, proposal_id: int) -> int | None:
+    p = s.get(Proposal, proposal_id)
+    return p.project_id if p else None
 
