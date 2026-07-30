@@ -99,6 +99,8 @@ export class App implements OnInit, OnDestroy {
   readonly autoRefreshCountdown = signal(this.autoRefreshSeconds); // 距下次自动刷新的倒计时（秒）
   readonly lastSyncedAt = signal<number | null>(null); // 上次成功自动同步的时间戳
   readonly autoRefreshFailing = signal(false); // 连续自动同步失败时置位（用于低调告警点，不打扰式 toast）
+  /** Epic 84 (v6.12): 自动同步失败重试计数——每次失败同步（含手动「重试」触发）自增，成功同步归零 */
+  readonly autoRefreshAttempts = signal(0);
   /** Epic 83 (v6.11): 自动同步成功瞬时标记——点亮绿点并短暂显示「已同步」轻提示（不每周期打扰） */
   readonly autoSynced = signal(false);
   private autoSyncedTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1780,11 +1782,13 @@ export class App implements OnInit, OnDestroy {
     try {
       await this.loadRoute(false);
       if (this.error()) {
-        // 失败：低调置位 failing（粘性，直到一次成功的自动同步才复位）
+        // 失败：低调置位 failing（粘性，直到一次成功的自动同步才复位）+ v6.12 重试计数自增
         this.autoRefreshFailing.set(true);
+        this.autoRefreshAttempts.update(n => n + 1);
       } else {
         this.lastSyncedAt.set(Date.now());
         this.autoRefreshFailing.set(false);
+        this.autoRefreshAttempts.set(0); // v6.12: 成功即归零
         this.pulseSynced(); // v6.11: 同步成功瞬时点亮绿点 + 短暂「已同步」轻提示
         // v6.11: 从失败中恢复时给一次成功 toast，与 v6.10 失败提示联动（不每周期打扰）
         if (wasFailing) {
@@ -1793,6 +1797,7 @@ export class App implements OnInit, OnDestroy {
       }
     } catch {
       this.autoRefreshFailing.set(true);
+      this.autoRefreshAttempts.update(n => n + 1); // v6.12: 异常也计一次重试
     } finally {
       this.refreshing.set(false);
     }

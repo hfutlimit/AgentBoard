@@ -1282,10 +1282,11 @@
                   </button>
 
                   <!-- Epic 82 (v6.10): 自动刷新失败时低调提示 + 一键重试入口（不打扰式，复用 failing 状态） -->
+                  <!-- Epic 84 (v6.12): 失败条升级为「第 N 次重试 · M 秒后重试」的可量化反馈 -->
                   @if (autoRefresh() && autoRefreshFailing()) {
                     <span class="auto-refresh-fail" role="status" aria-live="polite">
                       <span class="auto-refresh-fail-dot" aria-hidden="true"></span>
-                      <span class="auto-refresh-fail-text">自动刷新失败</span>
+                      <span class="auto-refresh-fail-text">自动同步失败（第 {{ autoRefreshAttempts() }} 次）· {{ autoRefreshCountdown() }}s 后自动重试</span>
                       <button id="autoRefreshRetryBtn" class="auto-refresh-retry" type="button"
                         (click)="retryAutoRefresh()"
                         title="立即重试后台自动刷新">重试</button>
