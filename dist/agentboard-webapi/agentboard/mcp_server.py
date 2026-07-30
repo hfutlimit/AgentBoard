@@ -747,7 +747,7 @@ def batch_update_task_status(task_ids: list[int], new_status: str) -> dict:
     - new_status: 新状态（backlog/todo/in_progress/in_review/verifying/done）
     """
     payload = {"task_ids": task_ids, "status": new_status}
-    return _api("POST", "/tasks/bulk-update", payload)
+    return _http("POST", "/api/tasks/bulk-update", json=payload)
 
 
 @mcp.tool()
@@ -757,7 +757,7 @@ def batch_assign_sprint(task_ids: list[int], sprint_id: int | None) -> dict:
     - sprint_id: Sprint ID（设为 null 可移除分配）
     """
     payload = {"task_ids": task_ids, "sprint_id": sprint_id}
-    return _api("POST", "/tasks/bulk-update", payload)
+    return _http("POST", "/api/tasks/bulk-update", json=payload)
 
 
 @mcp.tool()
@@ -765,7 +765,7 @@ def batch_delete_tasks(task_ids: list[int]) -> dict:
     """批量删除任务。
     - task_ids: 任务 ID 列表（最多 100 个）
     """
-    return _api("POST", "/tasks/bulk-delete", {"task_ids": task_ids})
+    return _http("POST", "/api/tasks/bulk-delete", json={"task_ids": task_ids})
 
 
 # ---------- Epic 20: Enhanced Search ----------
@@ -803,21 +803,22 @@ def search_tasks_enhanced(
         params["sprint_id"] = sprint_id
     if type is not None:
         params["type"] = type
+    # 多值过滤：httpx 会把 list 值自动展开成重复查询参数
+    # （status=todo&status=in_progress），与 FastAPI 的 list[str] 声明对齐。
+    # 传单值 str 时保持原样，两种形式后端都能解析。
     if status is not None:
-        if isinstance(status, list):
-            for s_val in status:
-                params.setdefault("status", status if not params.get("status") else params["status"])
-        else:
-            params["status"] = status
+        params["status"] = status
     if priority is not None:
-        if isinstance(priority, list):
-            for p_val in priority:
-                params.setdefault("priority", priority if not params.get("priority") else params["priority"])
-        else:
-            params["priority"] = priority
+        params["priority"] = priority
     if q is not None:
         params["q"] = q
-    resp = _api("GET", "/tasks/search", params=params)
+    resp = _http("GET", "/api/tasks/search", params=params)
+    if isinstance(resp, dict):
+        # 后端分页信封 {"items": [...]} 或错误 {"error": ...}
+        if "error" in resp:
+            return []
+        items = resp.get("items")
+        return items if isinstance(items, list) else []
     return resp if isinstance(resp, list) else []
 
 
@@ -825,13 +826,13 @@ def search_tasks_enhanced(
 @mcp.tool()
 def export_project_data(project_id: int) -> dict:
     """导出项目完整数据（项目 + Epics + Stories + Tasks）。"""
-    return _api("GET", f"/projects/{project_id}/export")
+    return _http("GET", f"/api/projects/{project_id}/export")
 
 
 @mcp.tool()
 def export_story_data(story_id: int) -> dict:
     """导出 Story 及所有子任务数据。"""
-    return _api("GET", f"/stories/{story_id}/export")
+    return _http("GET", f"/api/stories/{story_id}/export")
 
 
 # ---------- Epic 22 Story 22.1: 审计日志工具 ----------
@@ -859,7 +860,7 @@ def list_audit_logs(
         params["user_id"] = user_id
     if action:
         params["action"] = action
-    resp = _api("GET", "/audit-logs", params=params)
+    resp = _http("GET", "/api/audit-logs", params=params)
     return resp if isinstance(resp, dict) else {"items": resp}
 
 
@@ -876,21 +877,21 @@ def add_task_dependency(
     - dependency_type: blocks / blocked_by / relates_to
     """
     params = {"depends_on_id": depends_on_id, "dependency_type": dependency_type}
-    resp = _api("POST", f"/tasks/{task_id}/dependencies", params=params)
+    resp = _http("POST", f"/api/tasks/{task_id}/dependencies", params=params)
     return resp
 
 
 @mcp.tool()
 def get_task_dependencies(task_id: int) -> dict:
     """获取任务的依赖关系（blockers 阻塞当前任务的 + blocked_by 被当前任务阻塞的）。"""
-    resp = _api("GET", f"/tasks/{task_id}/dependencies")
+    resp = _http("GET", f"/api/tasks/{task_id}/dependencies")
     return resp if isinstance(resp, dict) else {"blockers": [], "blocked_by": []}
 
 
 @mcp.tool()
 def remove_task_dependency(dependency_id: int) -> dict:
     """删除依赖关系。"""
-    resp = _api("DELETE", f"/dependencies/{dependency_id}")
+    resp = _http("DELETE", f"/api/dependencies/{dependency_id}")
     return resp if isinstance(resp, dict) else {"ok": True}
 
 
@@ -901,7 +902,7 @@ def import_tasks(project_id: int, tasks_data: list[dict]) -> dict:
     - project_id: 目标项目 ID
     - tasks_data: 任务数据列表，每个元素包含 title/type/description/priority/status
     """
-    resp = _api("POST", f"/projects/{project_id}/import", json={"tasks": tasks_data})
+    resp = _http("POST", f"/api/projects/{project_id}/import", json={"tasks": tasks_data})
     return resp
 
 
@@ -929,7 +930,7 @@ def create_webhook(
         payload["secret"] = secret
     if events:
         payload["events"] = events
-    resp = _api("POST", "/webhooks", params=params, json=payload)
+    resp = _http("POST", "/api/webhooks", params=params, json=payload)
     return resp
 
 
@@ -939,21 +940,21 @@ def list_webhooks(project_id: int | None = None) -> dict:
     params = {}
     if project_id is not None:
         params["project_id"] = project_id
-    resp = _api("GET", "/webhooks", params=params)
+    resp = _http("GET", "/api/webhooks", params=params)
     return resp if isinstance(resp, dict) else {"items": resp}
 
 
 @mcp.tool()
 def delete_webhook(webhook_id: int) -> dict:
     """删除 Webhook 配置。"""
-    resp = _api("DELETE", f"/webhooks/{webhook_id}")
+    resp = _http("DELETE", f"/api/webhooks/{webhook_id}")
     return resp if isinstance(resp, dict) else {"ok": True}
 
 
 @mcp.tool()
 def toggle_webhook(webhook_id: int, enabled: bool) -> dict:
     """启用/停用 Webhook。"""
-    resp = _api("PATCH", f"/webhooks/{webhook_id}", params={"enabled": enabled})
+    resp = _http("PATCH", f"/api/webhooks/{webhook_id}", params={"enabled": enabled})
     return resp
 
 

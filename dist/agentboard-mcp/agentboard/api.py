@@ -510,6 +510,10 @@ def _resolve_project_id_from_request(request: Request) -> int | None:
         m = re.match(r"^/api/document-comments/(\d+)", path)
         if m:
             return service.get_document_comment_project_id(s, int(m.group(1)))
+        # Proposals（Epic 96 P0）— /api/proposals/pending 为 Worker 轮询端点，不绑项目
+        m = re.match(r"^/api/proposals/(\d+)", path)
+        if m:
+            return service.get_proposal_project_id(s, int(m.group(1)))
     return None
 
 
@@ -1894,6 +1898,176 @@ def delete_document_comment(cid: int, s: Session = Depends(get_session)):
     return {"ok": True}
 
 
+# ---------- Proposals (Epic 96 P0：Proposal 澄清回路 / 人机协同需求分析) ----------
+class ProposalIn(BaseModel):
+    project_id: int
+    title: str = Field(min_length=1, max_length=300)
+    content: str = ""
+    author_id: int | None = None
+
+
+class ProposalPatch(BaseModel):
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+    content: str | None = None
+    converged_spec: str | None = None
+    story_id: int | None = None
+
+
+class ProposalStatusIn(BaseModel):
+    status: str
+    error: str | None = None
+
+
+class ProposalAskIn(BaseModel):
+    """Agent 回写一轮 open questions。round 省略时自动取下一轮。"""
+
+    questions: list[str] = Field(min_length=1)
+    round: int | None = None
+    summary: str = ""
+    agent: str = ""
+
+
+class ProposalAnswerIn(BaseModel):
+    answer: str = ""
+    unsure: bool = False
+
+
+@app.post("/api/proposals", status_code=201)
+def create_proposal(body: ProposalIn, s: Session = Depends(get_session),
+                    authorization: str | None = Header(None)):
+    """新建需求提案（初始 draft）。需为目标项目成员或管理员。"""
+    uid, is_admin = _caller_uid_admin(authorization)
+    if not is_admin and not service.user_is_project_member(s, body.project_id, uid):
+        raise HTTPException(status_code=403, detail="project membership required")
+    try:
+        p = service.create_proposal(
+            s, project_id=body.project_id, title=body.title, content=body.content,
+            author_id=body.author_id if body.author_id is not None else uid,
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(p)
+
+
+@app.get("/api/proposals")
+def list_proposals(
+    project_id: int | None = Query(None),
+    status: str | None = Query(None),
+    q: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
+    s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
+):
+    """列出提案，支持按 project_id / status 过滤与关键词搜索，默认 updated_at 倒序。"""
+    uid = _optional_user_id(authorization, s)
+    try:
+        rows = service.list_proposals(
+            s, project_id=project_id, status=status, q=q,
+            limit=limit, offset=offset, user_id=uid,
+        )
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return [service._ser(p) for p in rows]
+
+
+@app.get("/api/proposals/pending")
+def list_pending_proposals(
+    limit: int = Query(20, ge=1, le=200),
+    s: Session = Depends(get_session),
+):
+    """Worker 拉取待认领提案（P1 先用 DB 轮询，P2 由 MQ 替换）。"""
+    rows = service.list_proposals(s, status="queued", limit=limit)
+    return [service._ser(p) for p in rows]
+
+
+@app.get("/api/proposals/{pid}")
+def get_proposal(pid: int, s: Session = Depends(get_session)):
+    return service._ser(_need(service.get_proposal(s, pid), "proposal"))
+
+
+@app.patch("/api/proposals/{pid}")
+def update_proposal(pid: int, body: ProposalPatch, s: Session = Depends(get_session)):
+    """编辑提案正文 / 收敛规格 / 回填 story_id（状态流转请用 PUT /status）。"""
+    try:
+        r = service.update_proposal(s, pid, **body.model_dump(exclude_none=True))
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(_need(r, "proposal"))
+
+
+@app.put("/api/proposals/{pid}/status")
+def set_proposal_status(pid: int, body: ProposalStatusIn, s: Session = Depends(get_session)):
+    """澄清状态机流转：draft→queued→analyzing→awaiting→answered→converged→story_created。
+
+    非法迁移返回 400。失败态可带 error 说明并回退 queued 重投。
+    """
+    try:
+        p = service.set_proposal_status(s, pid, body.status, error=body.error)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.IllegalTransition as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(p)
+
+
+@app.delete("/api/proposals/{pid}")
+def delete_proposal(pid: int, s: Session = Depends(get_session)):
+    if not service.delete_proposal(s, pid):
+        raise HTTPException(status_code=404, detail="proposal not found")
+    return {"ok": True}
+
+
+@app.post("/api/proposals/{pid}/questions", status_code=201)
+def ask_proposal_questions(pid: int, body: ProposalAskIn, s: Session = Depends(get_session)):
+    """Agent 回写一轮 open questions，并把提案推进到 awaiting（仅 analyzing 可提问）。
+
+    同一 (proposal, round) 重复提交幂等复用既有轮次，兜底 at-least-once 重投。
+    """
+    try:
+        return service.add_proposal_questions(
+            s, proposal_id=pid, questions=body.questions, round_no=body.round,
+            summary=body.summary, agent=body.agent,
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.IllegalTransition as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.get("/api/proposals/{pid}/rounds")
+def list_proposal_rounds(pid: int, s: Session = Depends(get_session)):
+    """按轮次正序返回澄清历史（含每轮问题与作答），供前端问答工作台渲染。"""
+    try:
+        return service.list_proposal_rounds(s, pid)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.put("/api/proposal-questions/{qid}/answer")
+def answer_proposal_question(qid: int, body: ProposalAnswerIn,
+                             s: Session = Depends(get_session),
+                             authorization: str | None = Header(None)):
+    """用户逐条作答；unsure=true 表示标记不确定。整轮处理完自动推进 awaiting→answered。"""
+    uid = _optional_user_id(authorization, s)
+    try:
+        q = service.answer_proposal_question(
+            s, qid, answer=body.answer, unsure=body.unsure, user_id=uid,
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(q)
+
+
 # ---------- Epic 22 Story 22.1: 审计日志中间件 ----------
 @app.middleware("http")
 async def audit_log_middleware(request: Request, call_next):
@@ -1945,6 +2119,8 @@ async def audit_log_middleware(request: Request, call_next):
         (r"^/api/schedules/(\d+)", "schedule"),
         (r"^/api/documents/(\d+)", "document"),
         (r"^/api/document-comments/(\d+)", "document_comment"),
+        (r"^/api/proposals/(\d+)", "proposal"),
+        (r"^/api/proposal-questions/(\d+)", "proposal_question"),
     ]:
         m = re.match(pattern, path)
         if m:

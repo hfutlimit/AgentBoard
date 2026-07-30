@@ -1,6 +1,6 @@
 import re
 from datetime import date
-from sqlalchemy import or_
+from sqlalchemy import or_, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from . import models, auth
@@ -9,7 +9,17 @@ from .models import (
     ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES,
     Project, Epic, Story, Task, Comment, Sprint, Attachment, AgentSchedule, AgentRun,
     ProjectMember, Notification, User, ApiKey, AuditLog, TaskDependency, WebhookConfig,
+    Document, DocumentComment,
+    Proposal, ProposalRound, ProposalQuestion,
 )
+from .domains.documents.models import (
+    DocumentStatus, DocumentType,
+    ALL_DOCUMENT_TYPES, ALL_DOCUMENT_STATUSES, DOCUMENT_TRANSITIONS,
+)
+from .domains.proposals.models import (
+    ProposalStatus, ALL_PROPOSAL_STATUSES, PROPOSAL_TRANSITIONS, ASKABLE_STATUSES,
+)
+from .domains.common.models import utc_now
 
 DEFAULT_PAGE_SIZE = 100
 MAX_PAGE_SIZE = 200
@@ -28,12 +38,13 @@ def _parse_due_date(value):
 # 注：允许从 TODO / IN_PROGRESS 直接标记完成(DONE)，以及 DONE 直接重新打开(TODO)，
 # 以支持任务列表/看板的「快速完成」勾选（A-22）。未改变 API 契约，仅放宽迁移规则。
 TRANSITIONS = {
-    Status.BACKLOG: {Status.TODO},
-    Status.TODO: {Status.IN_PROGRESS, Status.BACKLOG, Status.DONE},
-    Status.IN_PROGRESS: {Status.IN_REVIEW, Status.VERIFYING, Status.TODO, Status.DONE},
-    Status.IN_REVIEW: {Status.DONE, Status.IN_PROGRESS},
-    Status.VERIFYING: {Status.DONE, Status.IN_PROGRESS},
+    Status.BACKLOG: {Status.TODO, Status.BLOCKED},
+    Status.TODO: {Status.IN_PROGRESS, Status.BACKLOG, Status.DONE, Status.BLOCKED},
+    Status.IN_PROGRESS: {Status.IN_REVIEW, Status.VERIFYING, Status.TODO, Status.DONE, Status.BLOCKED},
+    Status.IN_REVIEW: {Status.DONE, Status.IN_PROGRESS, Status.BLOCKED},
+    Status.VERIFYING: {Status.DONE, Status.IN_PROGRESS, Status.BLOCKED},
     Status.DONE: {Status.IN_PROGRESS, Status.TODO},
+    Status.BLOCKED: {Status.TODO, Status.IN_PROGRESS},
 }
 
 EDITABLE = {
@@ -96,12 +107,14 @@ def _commit(s: Session, *, duplicate: str | None = None) -> None:
 
 
 # ---------- Project ----------
-def create_project(s: Session, *, name: str, key=None, description: str = "") -> Project:
+def create_project(s: Session, *, name: str, key=None, description: str = "", is_private: bool | None = None) -> Project:
     name = _required(name, "name", 200)
     key = (key or "").strip() or None
     if key and len(key) > 20:
         raise InvalidValue("key must be at most 20 characters")
     p = Project(name=name, key=key, description=description or "")
+    # 2026-07-21: 所有项目默认为邀请制（is_private=True）
+    p.is_private = True
     s.add(p)
     _commit(s, duplicate=f"project key '{key}' already exists" if key else None)
     s.refresh(p)
@@ -219,6 +232,14 @@ def list_stories(s: Session, epic_id: int, limit: int | None = None, offset: int
     return _paginate(q, limit, offset).all()
 
 
+def search_stories(s: Session, q: str, limit: int = 20):
+    """全局 Story 关键词搜索（标题/描述），供命令面板等场景使用。"""
+    like = f"%{q}%"
+    qry = s.query(Story).filter(or_(Story.title.ilike(like), Story.description.ilike(like)))
+    qry = qry.order_by(Story.id.desc())
+    return qry.limit(limit).all()
+
+
 def update_story(s: Session, id: int, **fields) -> Story | None:
     st = s.get(Story, id)
     if not st:
@@ -303,6 +324,16 @@ def list_tasks(s: Session, story_id: int | None = None, sprint_id: int | None = 
         q = q.filter(Task.sprint_id == sprint_id)
     q = q.order_by(Task.id.desc())
     return _paginate(q, limit, offset).all()
+
+
+def query_task_count(s: Session, story_id: int | None = None, sprint_id: int | None = None) -> int:
+    """返回满足条件的任务总数（用于分页）"""
+    q = s.query(func.count(Task.id))
+    if story_id is not None:
+        q = q.filter(Task.story_id == story_id)
+    if sprint_id is not None:
+        q = q.filter(Task.sprint_id == sprint_id)
+    return q.scalar() or 0
 
 
 def update_task(s: Session, id: int, **fields) -> Task | None:
@@ -1091,6 +1122,63 @@ def get_project_member(s: Session, project_id: int, user_id: int) -> ProjectMemb
     )
 
 
+# ---------- Child-resource -> project resolution (access control) ----------
+def get_epic_project_id(s: Session, epic_id: int) -> int | None:
+    e = s.get(Epic, epic_id)
+    return e.project_id if e else None
+
+
+def get_story_project_id(s: Session, story_id: int) -> int | None:
+    st = s.get(Story, story_id)
+    if not st:
+        return None
+    e = s.get(Epic, st.epic_id)
+    return e.project_id if e else None
+
+
+def get_task_project_id(s: Session, task_id: int) -> int | None:
+    t = s.get(Task, task_id)
+    if not t:
+        return None
+    return get_story_project_id(s, t.story_id)
+
+
+def get_sprint_project_id(s: Session, sprint_id: int) -> int | None:
+    sp = s.get(Sprint, sprint_id)
+    return sp.project_id if sp else None
+
+
+def get_schedule_project_id(s: Session, schedule_id: int) -> int | None:
+    sch = s.get(AgentSchedule, schedule_id)
+    return sch.project_id if sch else None
+
+
+def get_comment_project_id(s: Session, comment_id: int) -> int | None:
+    c = s.get(Comment, comment_id)
+    if not c:
+        return None
+    return get_task_project_id(s, c.task_id)
+
+
+def get_attachment_project_id(s: Session, attachment_id: int) -> int | None:
+    a = s.get(Attachment, attachment_id)
+    if not a:
+        return None
+    return get_task_project_id(s, a.task_id)
+
+
+def get_dependency_project_id(s: Session, dependency_id: int) -> int | None:
+    d = s.get(TaskDependency, dependency_id)
+    if not d:
+        return None
+    return get_task_project_id(s, d.task_id)
+
+
+def get_webhook_project_id(s: Session, webhook_id: int) -> int | None:
+    wh = s.get(WebhookConfig, webhook_id)
+    return wh.project_id if wh else None
+
+
 # ---------- Notification ----------
 def create_notification(
     s: Session, *, user_id: int, notif_type: str, title: str,
@@ -1236,9 +1324,9 @@ def list_all_projects_admin(s: Session, limit: int | None = None, offset: int = 
     for p in projects:
         row = _ser(p)
         row["member_count"] = (
-            s.query(func.count(ProjectMember.id))
+            s.query(ProjectMember)
             .filter(ProjectMember.project_id == p.id)
-            .scalar()
+            .count()
         ) or 0
         result.append(row)
     return result, total
@@ -1248,12 +1336,28 @@ def list_all_projects_admin(s: Session, limit: int | None = None, offset: int = 
 def list_accessible_projects(
     s: Session, user_id: int | None, limit: int | None = None, offset: int = 0,
 ) -> tuple[list, int]:
-    """返回用户可见的项目列表（public 项目 + 用户所在的 private 项目）"""
+    """返回用户可见的项目列表。
+
+    访问规则（2026-07-21 邀请制）：
+    - 管理员：可见全部项目（``user.is_admin=True``）。
+    - 普通用户：仅可见自己是成员的项目（邀请制）。
+    - 未登录：空列表。
+
+    ``abk_`` API Key 经 ``_current_user()`` 解析为关联用户的完整身份
+    （含 ``is_admin``），因此权限与用户一致 —— 管理员 key 可见全部，
+    普通用户 key 仅见成员项目。
+    """
     if user_id is None:
-        # 未登录：只能看 public 项目
-        q = s.query(Project).filter(Project.is_private == False)
+        q = s.query(Project).filter(False)  # 未登录 → 空
+        total = 0
+        return _paginate(q.order_by(Project.id.desc()), limit, offset).all(), total
+
+    user = s.get(User, user_id)
+    if user and user.is_admin:
+        # 管理员：全量
+        q = s.query(Project)
     else:
-        # 查看用户是成员的 private 项目
+        # 普通用户：仅成员项目
         member_project_ids = [
             r[0]
             for r in s.query(ProjectMember.project_id)
@@ -1261,14 +1365,9 @@ def list_accessible_projects(
             .all()
         ]
         if member_project_ids:
-            q = s.query(Project).filter(
-                or_(
-                    Project.is_private == False,
-                    Project.id.in_(member_project_ids),
-                )
-            )
+            q = s.query(Project).filter(Project.id.in_(member_project_ids))
         else:
-            q = s.query(Project).filter(Project.is_private == False)
+            q = s.query(Project).filter(False)  # 无成员项目 → 空
     total = q.count()
     return _paginate(q.order_by(Project.id.desc()), limit, offset).all(), total
 
@@ -1657,3 +1756,458 @@ def import_tasks_from_json(s: Session, project_id: int, data: dict) -> dict:
             errors.append({"title": item.get("title", "?"), "error": str(e)})
     _commit(s)
     return {"imported": imported, "errors": errors}
+
+
+# ---------- Documents (Epic 15：项目文档维护 / 多成员·多 Agent 协作) ----------
+def _check_document_type(value: str) -> None:
+    if value not in ALL_DOCUMENT_TYPES:
+        raise InvalidValue(f"invalid document type '{value}'")
+
+
+def _check_document_status(value: str) -> None:
+    if value not in ALL_DOCUMENT_STATUSES:
+        raise InvalidValue(f"invalid document status '{value}'")
+
+
+def create_document(
+    s: Session, *, project_id: int, title: str, content: str = "",
+    type: str = "plan", status: str = "draft",
+    epic_id: int | None = None, story_id: int | None = None,
+    author_id: int | None = None,
+) -> Document:
+    if not s.get(Project, project_id):
+        raise NotFound(f"project {project_id} not found")
+    if epic_id is not None and not s.get(Epic, epic_id):
+        raise NotFound(f"epic {epic_id} not found")
+    if story_id is not None and not s.get(Story, story_id):
+        raise NotFound(f"story {story_id} not found")
+    _check_document_type(type)
+    _check_document_status(status)
+    if author_id is not None and not s.get(User, author_id):
+        raise InvalidValue(f"author {author_id} not found")
+    doc = Document(
+        project_id=project_id, epic_id=epic_id, story_id=story_id,
+        title=_required(title, "title", 300), content=content or "",
+        type=type, status=status, author_id=author_id,
+    )
+    s.add(doc); _commit(s); s.refresh(doc); return doc
+
+
+def get_document(s: Session, id: int) -> Document | None:
+    return s.get(Document, id)
+
+
+def list_documents(
+    s: Session, *, project_id: int | None = None, type: str | None = None,
+    status: str | None = None, q: str | None = None,
+    limit: int | None = None, offset: int = 0, user_id: int | None = None,
+):
+    qry = s.query(Document)
+    if project_id is not None:
+        qry = qry.filter(Document.project_id == project_id)
+    elif user_id is not None:
+        # 未指定 project_id 但有用户身份：仅返回该用户有权限的项目文档
+        user = s.get(User, user_id)
+        if user and not user.is_admin:
+            member_pids = [
+                r[0]
+                for r in s.query(ProjectMember.project_id)
+                .filter(ProjectMember.user_id == user_id)
+                .all()
+            ]
+            if member_pids:
+                qry = qry.filter(Document.project_id.in_(member_pids))
+            else:
+                qry = qry.filter(False)  # 非 admin 无成员项目 → 空
+    if type is not None:
+        _check_document_type(type)
+        qry = qry.filter(Document.type == type)
+    if status is not None:
+        _check_document_status(status)
+        qry = qry.filter(Document.status == status)
+    if q:
+        like = f"%{q}%"
+        qry = qry.filter(or_(Document.title.ilike(like), Document.content.ilike(like)))
+    qry = qry.order_by(Document.updated_at.desc(), Document.id.desc())
+    return _paginate(qry, limit, offset).all()
+
+
+def update_document(s: Session, id: int, **fields) -> Document | None:
+    d = s.get(Document, id)
+    if not d:
+        return None
+    allowed = {"title", "content", "type", "status"}
+    for k, v in fields.items():
+        if k not in allowed:
+            continue
+        if v is None:
+            continue
+        if k == "title":
+            v = _required(v, "title", 300)
+        elif k == "type":
+            _check_document_type(v)
+        elif k == "status":
+            _check_document_status(v)
+            new = DocumentStatus(v)
+            current = DocumentStatus(d.status)
+            if current != new and new not in DOCUMENT_TRANSITIONS.get(current, set()):
+                raise IllegalTransition(f"{d.status} -> {new.value} 不合法")
+            d.status = new.value
+            status_changed = True
+            continue
+        setattr(d, k, v)
+    _commit(s); s.refresh(d); return d
+
+
+def delete_document(s: Session, id: int) -> bool:
+    d = s.get(Document, id)
+    if not d:
+        return False
+    # 级联删除评论（外键 ondelete=CASCADE 也会兜底）
+    s.query(DocumentComment).filter(DocumentComment.document_id == id).delete(synchronize_session=False)
+    s.delete(d); _commit(s); return True
+
+
+def set_document_status(s: Session, id: int, new_status: str) -> Document | None:
+    d = s.get(Document, id)
+    if not d:
+        raise NotFound(f"document {id} not found")
+    _check_document_status(new_status)
+    new = DocumentStatus(new_status)
+    current = DocumentStatus(d.status)
+    if current != new and new not in DOCUMENT_TRANSITIONS.get(current, set()):
+        raise IllegalTransition(f"{d.status} -> {new} 不合法")
+    d.status = new
+    _commit(s); s.refresh(d); return d
+
+
+def create_document_comment(
+    s: Session, *, document_id: int, author: str, content: str,
+    author_id: int | None = None,
+) -> DocumentComment:
+    if not s.get(Document, document_id):
+        raise NotFound(f"document {document_id} not found")
+    author = (author or "").strip()
+    content = (content or "").strip()
+    if not author or not content:
+        raise InvalidValue("author and content are required")
+    if author_id is not None and not s.get(User, author_id):
+        raise InvalidValue(f"author {author_id} not found")
+    c = DocumentComment(
+        document_id=document_id, author=author[:100], content=content, author_id=author_id,
+    )
+    s.add(c); _commit(s); s.refresh(c); return c
+
+
+def list_document_comments(s: Session, document_id: int):
+    if not s.get(Document, document_id):
+        raise NotFound(f"document {document_id} not found")
+    return (
+        s.query(DocumentComment)
+        .filter(DocumentComment.document_id == document_id)
+        .order_by(DocumentComment.created_at, DocumentComment.id)
+        .all()
+    )
+
+
+def update_document_comment(
+    s: Session, id: int, content: str, *, author: str,
+) -> DocumentComment | None:
+    """编辑文档评论：仅作者（成员或 Agent 账号）可编辑自己的评论。"""
+    c = s.get(DocumentComment, id)
+    if not c:
+        return None
+    content = (content or "").strip()
+    if not content:
+        raise InvalidValue("content is required")
+    if c.author != (author or "").strip():
+        raise InvalidValue("only the author can edit this comment")
+    c.content = content
+    _commit(s); s.refresh(c); return c
+
+
+def delete_document_comment(s: Session, id: int) -> bool:
+    c = s.get(DocumentComment, id)
+    if not c:
+        return False
+    s.delete(c); _commit(s); return True
+
+
+def get_document_project_id(s: Session, document_id: int) -> int | None:
+    d = s.get(Document, document_id)
+    return d.project_id if d else None
+
+
+def get_document_comment_project_id(s: Session, comment_id: int) -> int | None:
+    c = s.get(DocumentComment, comment_id)
+    if not c:
+        return None
+    d = s.get(Document, c.document_id)
+    return d.project_id if d else None
+
+
+# ---------- Proposals (Epic 96 P0：Proposal 澄清回路 / 人机协同需求分析) ----------
+def _check_proposal_status(value: str) -> None:
+    if value not in ALL_PROPOSAL_STATUSES:
+        raise InvalidValue(f"invalid proposal status '{value}'")
+
+
+def _proposal_or_404(s: Session, proposal_id: int) -> Proposal:
+    p = s.get(Proposal, proposal_id)
+    if not p:
+        raise NotFound(f"proposal {proposal_id} not found")
+    return p
+
+
+def create_proposal(
+    s: Session, *, project_id: int, title: str, content: str = "",
+    author_id: int | None = None,
+) -> Proposal:
+    """新建需求提案，初始状态 draft、current_round=0。"""
+    if not s.get(Project, project_id):
+        raise NotFound(f"project {project_id} not found")
+    if author_id is not None and not s.get(User, author_id):
+        raise InvalidValue(f"author {author_id} not found")
+    p = Proposal(
+        project_id=project_id,
+        title=_required(title, "title", 300),
+        content=content or "",
+        status=ProposalStatus.DRAFT.value,
+        current_round=0,
+        author_id=author_id,
+    )
+    s.add(p); _commit(s); s.refresh(p); return p
+
+
+def get_proposal(s: Session, id: int) -> Proposal | None:
+    return s.get(Proposal, id)
+
+
+def list_proposals(
+    s: Session, *, project_id: int | None = None, status: str | None = None,
+    q: str | None = None, limit: int | None = None, offset: int = 0,
+    user_id: int | None = None,
+):
+    """列出提案。未指定 project_id 时按调用者可见项目收敛（与文档模块一致）。"""
+    qry = s.query(Proposal)
+    if project_id is not None:
+        qry = qry.filter(Proposal.project_id == project_id)
+    elif user_id is not None:
+        user = s.get(User, user_id)
+        if user and not user.is_admin:
+            member_pids = [
+                r[0]
+                for r in s.query(ProjectMember.project_id)
+                .filter(ProjectMember.user_id == user_id)
+                .all()
+            ]
+            if member_pids:
+                qry = qry.filter(Proposal.project_id.in_(member_pids))
+            else:
+                qry = qry.filter(False)
+    if status is not None:
+        _check_proposal_status(status)
+        qry = qry.filter(Proposal.status == status)
+    if q:
+        like = f"%{q}%"
+        qry = qry.filter(or_(Proposal.title.ilike(like), Proposal.content.ilike(like)))
+    qry = qry.order_by(Proposal.updated_at.desc(), Proposal.id.desc())
+    return _paginate(qry, limit, offset).all()
+
+
+def update_proposal(s: Session, id: int, **fields) -> Proposal | None:
+    """编辑提案正文（状态流转请用 set_proposal_status）。"""
+    p = s.get(Proposal, id)
+    if not p:
+        return None
+    allowed = {"title", "content", "converged_spec", "story_id"}
+    for k, v in fields.items():
+        if k not in allowed or v is None:
+            continue
+        if k == "title":
+            v = _required(v, "title", 300)
+        elif k == "story_id" and not s.get(Story, v):
+            raise NotFound(f"story {v} not found")
+        setattr(p, k, v)
+    _commit(s); s.refresh(p); return p
+
+
+def delete_proposal(s: Session, id: int) -> bool:
+    p = s.get(Proposal, id)
+    if not p:
+        return False
+    # 显式清理子表（外键 ondelete=CASCADE 也会兜底；SQLite 默认不强制外键）
+    s.query(ProposalQuestion).filter(ProposalQuestion.proposal_id == id).delete(
+        synchronize_session=False,
+    )
+    s.query(ProposalRound).filter(ProposalRound.proposal_id == id).delete(
+        synchronize_session=False,
+    )
+    s.delete(p); _commit(s); return True
+
+
+def set_proposal_status(
+    s: Session, id: int, new_status: str, *, error: str | None = None,
+) -> Proposal:
+    """澄清状态机流转，非法迁移抛 IllegalTransition。"""
+    p = _proposal_or_404(s, id)
+    _check_proposal_status(new_status)
+    new = ProposalStatus(new_status)
+    current = ProposalStatus(p.status)
+    if current != new and new not in PROPOSAL_TRANSITIONS.get(current, set()):
+        raise IllegalTransition(f"{p.status} -> {new.value} 不合法")
+    p.status = new.value
+    if new is ProposalStatus.FAILED:
+        p.error = error or p.error or "unspecified failure"
+    elif error is None and new is not ProposalStatus.FAILED:
+        p.error = ""
+    _commit(s); s.refresh(p); return p
+
+
+def create_proposal_round(
+    s: Session, *, proposal_id: int, round_no: int | None = None,
+    summary: str = "", agent: str = "",
+) -> ProposalRound:
+    """开启一轮澄清。
+
+    ``(proposal_id, round_no)`` 唯一：消息 at-least-once 重投时，同一轮次重复创建
+    会命中唯一约束并直接复用既有轮次，天然幂等。
+    """
+    p = _proposal_or_404(s, proposal_id)
+    if ProposalStatus(p.status) not in ASKABLE_STATUSES:
+        raise IllegalTransition(
+            f"proposal {proposal_id} 当前状态 {p.status}，仅 analyzing 可提问",
+        )
+    if round_no is None:
+        round_no = (p.current_round or 0) + 1
+    if round_no < 1:
+        raise InvalidValue("round_no must be >= 1")
+    existing = (
+        s.query(ProposalRound)
+        .filter(ProposalRound.proposal_id == proposal_id,
+                ProposalRound.round_no == round_no)
+        .first()
+    )
+    if existing:  # 幂等：重投同一轮次直接复用
+        return existing
+    r = ProposalRound(
+        proposal_id=proposal_id, round_no=round_no,
+        summary=summary or "", agent=(agent or "")[:100],
+    )
+    s.add(r)
+    p.current_round = max(p.current_round or 0, round_no)
+    _commit(s); s.refresh(r); return r
+
+
+def add_proposal_questions(
+    s: Session, *, proposal_id: int, questions: list[str],
+    round_no: int | None = None, summary: str = "", agent: str = "",
+) -> dict:
+    """Agent 回写一轮 open questions，并把提案推进到 awaiting。
+
+    返回 ``{"round": <round dict>, "questions": [...]}``。
+    """
+    if not questions:
+        raise InvalidValue("questions must not be empty")
+    cleaned = [str(q).strip() for q in questions if str(q).strip()]
+    if not cleaned:
+        raise InvalidValue("questions must not be empty")
+    r = create_proposal_round(
+        s, proposal_id=proposal_id, round_no=round_no, summary=summary, agent=agent,
+    )
+    # 幂等：同一轮次已有问题则不再重复写入
+    already = (
+        s.query(ProposalQuestion).filter(ProposalQuestion.round_id == r.id).count()
+    )
+    if already == 0:
+        for i, text in enumerate(cleaned, start=1):
+            s.add(ProposalQuestion(
+                proposal_id=proposal_id, round_id=r.id, seq=i, question=text,
+            ))
+        _commit(s)
+    p = _proposal_or_404(s, proposal_id)
+    if ProposalStatus(p.status) is ProposalStatus.ANALYZING:
+        p.status = ProposalStatus.AWAITING.value
+        _commit(s); s.refresh(p)
+    rows = (
+        s.query(ProposalQuestion)
+        .filter(ProposalQuestion.round_id == r.id)
+        .order_by(ProposalQuestion.seq.asc(), ProposalQuestion.id.asc())
+        .all()
+    )
+    return {"round": _ser(r), "questions": [_ser(x) for x in rows]}
+
+
+def answer_proposal_question(
+    s: Session, question_id: int, *, answer: str = "", unsure: bool = False,
+    user_id: int | None = None,
+) -> ProposalQuestion:
+    """用户作答单条问题；``unsure=True`` 表示标记不确定（视为已处理）。"""
+    qs = s.get(ProposalQuestion, question_id)
+    if not qs:
+        raise NotFound(f"proposal question {question_id} not found")
+    answer = (answer or "").strip()
+    if not answer and not unsure:
+        raise InvalidValue("answer is required unless marked unsure")
+    if user_id is not None and not s.get(User, user_id):
+        raise InvalidValue(f"user {user_id} not found")
+    qs.answer = answer
+    qs.unsure = bool(unsure)
+    qs.answered_at = utc_now()
+    qs.answered_by = user_id
+    _commit(s); s.refresh(qs)
+    _maybe_mark_answered(s, qs.proposal_id)
+    return qs
+
+
+def _maybe_mark_answered(s: Session, proposal_id: int) -> None:
+    """当前轮次问题全部处理完毕时，自动把 awaiting 推进到 answered。"""
+    p = s.get(Proposal, proposal_id)
+    if not p or ProposalStatus(p.status) is not ProposalStatus.AWAITING:
+        return
+    r = (
+        s.query(ProposalRound)
+        .filter(ProposalRound.proposal_id == proposal_id,
+                ProposalRound.round_no == p.current_round)
+        .first()
+    )
+    if not r:
+        return
+    pending = (
+        s.query(ProposalQuestion)
+        .filter(ProposalQuestion.round_id == r.id,
+                ProposalQuestion.answered_at.is_(None))
+        .count()
+    )
+    if pending == 0:
+        p.status = ProposalStatus.ANSWERED.value
+        _commit(s)
+
+
+def list_proposal_rounds(s: Session, proposal_id: int) -> list[dict]:
+    """按轮次正序返回澄清历史（含每轮问题），供前端问答工作台渲染。"""
+    _proposal_or_404(s, proposal_id)
+    rounds = (
+        s.query(ProposalRound)
+        .filter(ProposalRound.proposal_id == proposal_id)
+        .order_by(ProposalRound.round_no.asc())
+        .all()
+    )
+    out = []
+    for r in rounds:
+        qs = (
+            s.query(ProposalQuestion)
+            .filter(ProposalQuestion.round_id == r.id)
+            .order_by(ProposalQuestion.seq.asc(), ProposalQuestion.id.asc())
+            .all()
+        )
+        item = _ser(r)
+        item["questions"] = [_ser(x) for x in qs]
+        out.append(item)
+    return out
+
+
+def get_proposal_project_id(s: Session, proposal_id: int) -> int | None:
+    p = s.get(Proposal, proposal_id)
+    return p.project_id if p else None
+
