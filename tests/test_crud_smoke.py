@@ -1,15 +1,36 @@
 #!/usr/bin/env python3
 """Smoke test for Task #33 (FastAPI CRUD) & Task #34 (MCP shares service layer).
 
-Tests against the running Docker API at http://localhost:8000.
+Tests against an **already running** AgentBoard API（默认 http://localhost:8000，
+可用环境变量 AGENTBOARD_SMOKE_BASE 覆盖，例如本地 Docker 栈映射到 18000 时
+`AGENTBOARD_SMOKE_BASE=http://localhost:18000`）。
 Verifies all core CRUD operations: Projects, Epics, Stories, Tasks, Comments, Search, Sprint.
+
+注意：本模块**依赖外部常驻服务**，不自带 uvicorn 子进程。服务不可达时整模块 skip
+而非 fail——否则会在没起栈的环境里制造 9 个假阳性失败，淹没真实回归信号
+（Epic 97 修复期实测到该噪声）。
 """
 import json
+import os
 import sys
 import time
 import httpx
+import pytest
 
-BASE = "http://localhost:8000"
+BASE = os.getenv("AGENTBOARD_SMOKE_BASE", "http://localhost:8000")
+
+
+def _api_reachable() -> bool:
+    try:
+        return httpx.get(f"{BASE}/api/meta", timeout=2).status_code == 200
+    except Exception:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _api_reachable(),
+    reason=f"外部 AgentBoard API 未在 {BASE} 运行（设置 AGENTBOARD_SMOKE_BASE 指向实际地址后再跑）",
+)
 PASS = 0
 FAIL = 0
 ERRORS = []
