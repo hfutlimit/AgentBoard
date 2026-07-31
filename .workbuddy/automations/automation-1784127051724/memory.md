@@ -692,3 +692,49 @@
 - 验证：pytest `test_epic96_p0_proposals` 17 passed（真实 uvicorn 子进程+httpx）；`test_domain_boundaries` 3 passed（修既有硬编码表数断言）；Playwright `test_epic96_p0_proposals_e2e` 1 passed（UI 登录+仪表盘/看板 0 报错 + 真实栈 POST/GET/状态机迁移全链路）。
 - 关键坑：① TestClient + `audit_log_middleware(request.body())` 死锁 → 真实子进程+httpx；② SPA 未登录重定向 `/login`（旧 `#login-btn`/`#auth-form` 失效）→ `input[name=username]`/`button.login-submit`；③ 侧栏 `#sidebar` 非 `#sidebar-tree`；④ UI 新建项目弹窗未即时刷新侧栏 → 项目经 API 创建。
 - 未触碰 18001(MCP)/docker 端口。下次可执行（P1）：MCP 4 工具 + Worker 消费者 + 无头 WorkBuddy；前端问答工作台 UI（Story 154 前端部分）。
+
+## 2026-07-31 自动开发 — Epic 97 MCP 工具可用性修复与回归护栏（达成 task→in_review）
+- 目标 task→in_review。MCP 可用（admin/admin123），但巡检暴露致命缺陷：`mcp_server.py` 辅助函数 `_api` 改名 `_http` 后 15 处调用点漏改 → 15 个 MCP 工具运行期 `NameError`（含选任务主力 `search_tasks_enhanced`）。按「最高优先级」原则，优先修复该 critical 级闭环自身 bug。
+- 实现（纯 MCP 客户端侧，零 REST 契约变更）：`agentboard/mcp_server.py` 15 处 `_api(...)`→`_http(method,"/api/...",json=/params=)`（批量/增强搜索/导入导出/审计/依赖/Webhook 六大类）；重写 `search_tasks_enhanced` 多值过滤死代码（list 与单值 str 皆支持）。`grep -c "_api("`→0。
+- MCP 状态流转：`set_status`/`update_task`/`update_story`/`update_epic` 走 `_task_status`/`_epic_update`/`_story_update` 私有 helper（均用 `_http`，不受该 bug 影响）→ Task 923(highest)→in_review，Story 160→in_review，Epic 97→in_review（全 in_review，达成）。
+- 双层回归护栏（新增 2 pytest）：① AST 静态层断言模块内所有 `foo(...)` 可解析（防改名漏改复发）；② 真实 uvicorn 子进程+直接调 MCP 工具 `.fn` 集成测试（含 search 多值 ⊇ 单值之并）；③ Playwright E2E 自起 uvicorn+Chromium 证明「MCP 写入→Web 读回」闭环，0 报错。`tests/test_crud_smoke.py` 治理：BASE 可配 `AGENTBOARD_SMOKE_BASE`+skipif 守卫（Docker 栈映射 18000 下 9 假阳性→skip 非 fail）。
+- 验证：后台回归 `nMjLcl` 27 passed, 0 failed（8m11s，含 epic96/domain_boundaries/admin_api_key_scope 回归 + epic97 单测5 + E2E1）。两测试均自包含（不依赖 18001）。
+- **关键决策**：不重启 18001 MCP 容器（会切断 WorkBuddy MCP 连接，自动化硬约束）；容器内存仍是旧代码，修复仅自包含测试验证，容器重部署留独立运维窗口。`dist/agentboard-*/agentboard/mcp_server.py` 仍带 bug（Windows/IIS 构建产物，非 docker），重建 dist 须同步。docker 栈实际 api=18000/web=28080（旧记忆 58125/8080 系 local-dev 残留）。
+- 提交 `git add` 仅本次 8 文件（未 add .，工作树有大量其它自动运行遗留变更）；push origin main 成功（`c4aea20..2dfb742`）。OpenSpec change `mcp-tool-availability-fix-e97/` 已写（status=in_review）。
+- 下次可执行（P1，须运维窗口）：重启/重建 18001 MCP 容器使 `_api` 修复生效；重建 dist 同步修复；前端问答工作台 UI（Story 154）。
+
+## 2026-07-31 自动开发 — Epic 98 P0 发布产物一致性护栏 + 重建 dist（达成，Task 926 → in_review）
+- 目标 task→in_review。MCP 可用，但 `search_tasks_enhanced` 因 18001 容器旧 `_api` bug 仍抛 NameError；巡检发现源码已修而 dist 产物仍坏，遂新建 Epic 98 修复发布产物本身 + 防复发护栏。
+- 实现：重构 `scripts/package_windows.py` 为清单驱动，build/check 同源；新增 `--check`/`--python-only`，校验缺失/多余/内容不符并同步 zip 与目录。新增 `tests/test_epic98_release_artifact_parity.py`（10 项）与 `test_epic98_release_artifact_e2e.py`（4 项）。重新生成 `dist/*` 三个包。
+- 修复的关键 P0：`dist/*/mcp_server.py` 的 `_api(` 由 15→0；缺失的 `domains/proposals` 整包与 `add_proposals` 迁移入包；zip 与目录同步。
+- 验证：`package_windows.py --check` 退出 0；回归 43 passed 1 skipped；运行层 E2E 4 passed（解压 zip 真实启动 → proposals 全链路/三张表/产物内 MCP 无 NameError/Playwright 零报错）。
+- 提交 push origin main（`2dfb742..aefc490`）。
+- 状态：Task 926 / Story 163 / Epic 99 全 in_review（达成）。
+- 硬约束：未触碰端口 18001 / docker；未改 REST 契约。
+- 下次可执行：把 `--check` 挂进 CI/pre-push；评估 dist/ 移出 Git 改由流水线产出；运维窗口重建 18001 MCP 容器。
+
+## 2026-07-31 自动开发 — Epic 96 P0-2 Proposal 问答工作台前端 UI → in_review（达成）
+- 目标 task→in_review。MCP 可用，以 MCP 为权威同步状态。
+- 选型：926/923/922 已 in_review；Story 154 半成品（P0-1 仅后端）→ 新建 Task 930（highest）补齐前端问答工作台。
+- 实现：纯前端增量（models/api/routes/app.ts/html/css + 构建 main-TB32GTKM.js 部署 web/static）+ 后端非契约修复。
+- 关键修复：审计中间件 async 内同步写库阻塞事件循环 → 改 `asyncio.to_thread`；SQLite 加 `PRAGMA synchronous=NORMAL`。逐条作答卡顿(~15s)消除。deploy 误删新包(同名 hash)已修正。
+- 验证：test_epic96_p02_proposal_workbench_e2e 2 passed(21.6s)；回归 cache(独立7/1)/epic96_p0 全绿。epic97/98 需 fastmcp(本机 venv 缺)非回归。
+- 状态：Task 930/Story 154/Epic 96 全 in_review。OpenSpec change epic96-p02-proposal-workbench-frontend 已写。
+- 提交 push origin main。硬约束：未触碰 18001/docker 端口；零 REST 契约变更。
+
+## 2026-07-31 自动开发 — Epic 96 P1-1 Proposal MCP 工具集 → in_review（达成）
+- 目标 task 931→in_review（显式指令）。选型：Story 155(P1) 缺无头 Agent MCP 入口，新建 Task 931(highest) 交付 6 个 proposal_* 工具。
+- 交付：mcp_server.py 6 工具(零 REST 变更) + service.py 幂等分支修复；pytest 9 passed + Playwright E2E 1 passed(0 报错)；回归 31 passed。
+- 状态(MCP)：Task 931/Story 155 → in_review，Epic 96 已 in_review。
+- push origin main fc79220，仅 add 本次文件。未触碰 18001/docker 端口。
+
+## 2026-07-31 自动开发 — Epic 96 P1-2 Proposal 澄清 Worker 消费者 → in_review（达成）
+- 目标：Task 932 → in_review（本次显式终态指令）。MCP 可用（testadmin/admin），以 MCP 为权威同步状态。
+- 选型：Story 155(P1) 仅 931(MCP 工具集) 达 in_review，但 agentboard/ 无 worker 模块 → 提案提交后永远停 queued，澄清回路无法自动运转 → 新建 Task 932(highest) 补齐消费者，收尾 Story 155。
+- 实现（新增独立模块 + 零 REST 契约变更）：`agentboard/worker.py` 常驻消费者，仅经既有 REST 工作 —— 双源发现(GET /api/proposals/pending + answered)、GET 复核后 PUT analyzing 认领、全量重放上下文、SubprocessAgentsInvoker 无头 Agent 子进程(prompt 走 stdin、stdout 抽取最后 JSON 决策)、崩溃恢复租约回退、轮次上限。
+- 验证：p12 单测 27 passed（纯函数/闭环/鲁棒/真实子进程 fake CLI）；p12 Playwright E2E 1 passed（真实 Worker+真实 Agent 子进程，0 报错）；聚焦回归 parity 10 + p0 17 + p11 9 + p12 27 = 63 passed，0 失败。
+- 关键坑：① search_tasks_enhanced 仍受 18001 容器旧 _api bug 影响 → 绕开用 get_task/search_tasks/set_status；② Windows shlex.split(posix=False) 把外层引号留进 argv 致 WinError 2 → split_command() 剥离修复；③ service 对 analyzing→analyzing 同态迁移幂等 no-op(200 非 400)，原"靠状态机仲裁"成立 → claim() 改先 GET 复核再 PUT，残留 TOCTOU 由唯一约束+全量重放兜底（P2 需服务端 CAS 认领端点）。
+- 状态(MCP)：Task 932 → in_review；Story 155 已 in_review（一致）；Epic 96 已 in_review。
+- 提交 push origin main（feat(worker): Epic 96 P1-2 Proposal 澄清 Worker 消费者, Task 932 -> in_review）。仅 add 本次文件。dist 经 package_windows.py 重建且 --check 一致。
+- 硬约束：未触碰 18001(MCP)/docker 端口；零 REST 契约变更。
+- 下次可执行（P2）：RabbitMQ 接入点（待服务端引入 CAS 认领端点彻底消灭 TOCTOU）；proposal→story 自动生成（P3）。

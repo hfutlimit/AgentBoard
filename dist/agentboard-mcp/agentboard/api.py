@@ -5,6 +5,7 @@
 """
 import os
 import re
+import asyncio
 from datetime import datetime
 from contextlib import asynccontextmanager
 from sqlalchemy import text
@@ -2128,7 +2129,23 @@ async def audit_log_middleware(request: Request, call_next):
             entity_id = int(m.group(1))
             break
 
-    # 异步记录日志（避免阻塞响应）
+    # 异步记录日志：把同步 DB 写入移到线程池，避免阻塞 asyncio 事件循环
+    # （此前在 async 中间件里直接 with SessionLocal() 写审计，会阻塞事件循环，
+    #  在串行请求场景下（如逐条作答）累积成秒级延迟）。
+    try:
+        await asyncio.to_thread(
+            _write_audit_log, uid, action, entity_type, entity_id, path,
+            request, body_text, status_code, duration_ms,
+        )
+    except Exception:
+        pass  # 不阻塞主流程
+
+    return response
+
+
+def _write_audit_log(uid, action, entity_type, entity_id, path, request,
+                    body_text, status_code, duration_ms) -> None:
+    """在线程池中执行的审计落库（不阻塞事件循环）。"""
     try:
         with SessionLocal() as ss:
             service.create_audit_log(
@@ -2140,8 +2157,6 @@ async def audit_log_middleware(request: Request, call_next):
             )
     except Exception:
         pass  # 不阻塞主流程
-
-    return response
 
 
 @app.middleware("http")
