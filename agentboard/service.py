@@ -2072,13 +2072,21 @@ def create_proposal_round(
 
     ``(proposal_id, round_no)`` 唯一：消息 at-least-once 重投时，同一轮次重复创建
     会命中唯一约束并直接复用既有轮次，天然幂等。
+
+    注意状态校验与幂等复用的**先后顺序**：一次成功提问会把提案推进到 awaiting，
+    若先校验状态再查重，任何重投都会在 awaiting 上被 IllegalTransition 挡下，
+    「幂等复用」分支永远走不到——即 at-least-once 保证形同虚设。
+    因此这里的规则是：**新开轮次**需要 analyzing；**重投已存在的轮次**在任何
+    状态下都安全返回既有轮次（不改动任何数据）。
     """
     p = _proposal_or_404(s, proposal_id)
-    if ProposalStatus(p.status) not in ASKABLE_STATUSES:
-        raise IllegalTransition(
-            f"proposal {proposal_id} 当前状态 {p.status}，仅 analyzing 可提问",
-        )
+    askable = ProposalStatus(p.status) in ASKABLE_STATUSES
     if round_no is None:
+        # 未显式指定轮次时无法判定是否重投，只能按「新开一轮」处理
+        if not askable:
+            raise IllegalTransition(
+                f"proposal {proposal_id} 当前状态 {p.status}，仅 analyzing 可提问",
+            )
         round_no = (p.current_round or 0) + 1
     if round_no < 1:
         raise InvalidValue("round_no must be >= 1")
@@ -2088,8 +2096,12 @@ def create_proposal_round(
                 ProposalRound.round_no == round_no)
         .first()
     )
-    if existing:  # 幂等：重投同一轮次直接复用
+    if existing:  # 幂等：重投同一轮次直接复用（任何状态下都不产生副作用）
         return existing
+    if not askable:
+        raise IllegalTransition(
+            f"proposal {proposal_id} 当前状态 {p.status}，仅 analyzing 可提问",
+        )
     r = ProposalRound(
         proposal_id=proposal_id, round_no=round_no,
         summary=summary or "", agent=(agent or "")[:100],

@@ -1238,6 +1238,159 @@ def search_documents(project_id: int | None = None, q: str | None = None,
                      limit=limit, offset=offset)
 
 
+# ===================== Proposals（Epic 96 P1-1：澄清回路 Worker 侧工具面） =====================
+#
+# Epic 96 P0 已交付完整 REST 层与前端问答工作台，但无头 Agent / Worker 侧此前没有任何入口。
+# 本组工具让 Worker 能完整跑通澄清回路：
+#
+#     proposal_pending → proposal_claim → proposal_get（全量重放）
+#                              → proposal_ask（回写一轮问题，等用户作答）
+#                              → proposal_get（含历史答案）→ … 多轮收敛 …
+#                              → proposal_finalize / proposal_fail
+#
+# 会话续接采用**全量重放**（Story 155 设计）：不保存 Agent 侧会话，每轮把
+# 原始需求 + 全量历史问答重新拼进上下文重跑，天然幂等、可横向扩容、崩溃可恢复。
+
+def _is_http_error(resp) -> bool:
+    """判定 `_http` 是否返回了传输层错误。
+
+    不能简单用 ``"error" in resp``——提案实体自身就带一个 ``error`` 字段
+    （status=failed 时的失败原因），任何正常的提案 dict 都含该键。
+    `_http` 失败时返回的恰好是**只有 error 一个键**的 dict，据此精确区分。
+    """
+    return isinstance(resp, dict) and set(resp.keys()) == {"error"}
+
+
+def _proposal_status(proposal_id: int, status: str, error: str | None = None) -> dict:
+    """提案状态机流转（私有 helper，供 claim / finalize / fail 复用）。"""
+    body: dict = {"status": status}
+    if error is not None:
+        body["error"] = error
+    return _http("PUT", f"/api/proposals/{proposal_id}/status", json=body)
+
+
+def _proposal_replay(proposal: dict, rounds: list) -> dict:
+    """把提案正文与全部历史轮次压成一份可直接重放的上下文。
+
+    ``history`` 为按轮次正序的扁平问答（含 unsure 标记），Agent 只要读这一份
+    就能无状态地续接澄清——这正是全量重放策略的落点。
+    ``open_questions`` 单独列出尚未作答的问题，便于 Agent 判断是否还在等人。
+    """
+    history: list[dict] = []
+    open_questions: list[dict] = []
+    for r in rounds or []:
+        for q in r.get("questions", []) or []:
+            answered = bool(q.get("answered_at"))
+            item = {
+                "round": r.get("round_no"),
+                "question_id": q.get("id"),
+                "seq": q.get("seq"),
+                "question": q.get("question"),
+                "answer": q.get("answer") or "",
+                "unsure": bool(q.get("unsure")),
+                "answered": answered,
+            }
+            history.append(item)
+            if not answered:
+                open_questions.append(item)
+    return {
+        "proposal_id": proposal.get("id"),
+        "project_id": proposal.get("project_id"),
+        "title": proposal.get("title"),
+        "content": proposal.get("content") or "",
+        "status": proposal.get("status"),
+        "current_round": proposal.get("current_round", 0),
+        "converged_spec": proposal.get("converged_spec") or "",
+        "error": proposal.get("error") or "",
+        "rounds": rounds or [],
+        "history": history,
+        "open_questions": open_questions,
+        "answered_count": sum(1 for h in history if h["answered"]),
+        "total_questions": len(history),
+    }
+
+
+@mcp.tool()
+def proposal_pending(limit: int = 20) -> list | dict:
+    """轮询待认领的需求提案（status=queued），供 Worker 领取澄清任务。
+
+    P1 先用 DB 轮询，P2 由 RabbitMQ 替换；返回顺序为 updated_at 倒序。
+    """
+    return _http("GET", "/api/proposals/pending", params={"limit": limit})
+
+
+@mcp.tool()
+def proposal_claim(proposal_id: int, agent: str = "") -> dict:
+    """认领一个待处理提案：queued → analyzing。
+
+    已被其他 Worker 认领（或状态不为 queued）时返回明确 error，绝不静默成功，
+    避免多个 Worker 对同一提案重复分析。``agent`` 为 Worker 服务账号名，
+    会在后续 proposal_ask 时落到轮次记录上。
+    """
+    p = _http("GET", f"/api/proposals/{proposal_id}")
+    if _is_http_error(p):
+        return p
+    status = p.get("status")
+    if status != "queued":
+        return {"error": f"proposal {proposal_id} 无法认领：当前状态为 {status}，仅 queued 可认领"}
+    r = _proposal_status(proposal_id, "analyzing")
+    if _is_http_error(r):
+        return r
+    return {"ok": True, "claimed_by": agent, "proposal": r}
+
+
+@mcp.tool()
+def proposal_get(proposal_id: int) -> dict:
+    """拉取提案的**全量重放上下文**：原始需求正文 + 全部历史轮次问答。
+
+    返回 ``history``（扁平问答，含 answer 与 unsure 标记）与 ``open_questions``
+    （尚未作答的问题）。Agent 每轮只需调用本工具一次即可无状态续接澄清，
+    无需在本地保存任何会话——崩溃后重跑结果一致。
+    """
+    p = _http("GET", f"/api/proposals/{proposal_id}")
+    if _is_http_error(p):
+        return p
+    rounds = _http("GET", f"/api/proposals/{proposal_id}/rounds")
+    if _is_http_error(rounds):
+        return rounds
+    return _proposal_replay(p, rounds)
+
+
+@mcp.tool()
+def proposal_ask(proposal_id: int, questions: list, round: int | None = None,
+                 summary: str = "", agent: str = "") -> dict:
+    """回写一轮 open questions，并把提案推进到 awaiting 等待用户作答。
+
+    ``round`` 省略时自动取下一轮。同一 (proposal, round) 重复提交会幂等复用
+    既有轮次，不产生重复问题——兜底消息 at-least-once 重投与 LLM 非确定性。
+    """
+    body: dict = {"questions": list(questions), "summary": summary, "agent": agent}
+    if round is not None:
+        body["round"] = round
+    return _http("POST", f"/api/proposals/{proposal_id}/questions", json=body)
+
+
+@mcp.tool()
+def proposal_finalize(proposal_id: int, converged_spec: str) -> dict:
+    """澄清收敛：写入最终需求规格并推进到 converged，等待人工终审转 Story。
+
+    保留人类最后一道闸——本工具不直接创建 Story（P3 由服务端在终审后转化）。
+    """
+    if not (converged_spec or "").strip():
+        return {"error": "converged_spec 不能为空：收敛定稿必须给出最终需求规格"}
+    r = _http("PATCH", f"/api/proposals/{proposal_id}",
+              json={"converged_spec": converged_spec})
+    if _is_http_error(r):
+        return r
+    return _proposal_status(proposal_id, "converged")
+
+
+@mcp.tool()
+def proposal_fail(proposal_id: int, error: str) -> dict:
+    """标记提案分析失败并记录原因，供后续回退 queued 重投。"""
+    return _proposal_status(proposal_id, "failed", error=error or "unspecified failure")
+
+
 if __name__ == "__main__":
     transport = os.getenv("AGENTBOARD_MCP_TRANSPORT", "stdio").lower()
     if transport in {"http", "streamable-http"}:
