@@ -738,3 +738,5 @@
 - 提交 push origin main（feat(worker): Epic 96 P1-2 Proposal 澄清 Worker 消费者, Task 932 -> in_review）。仅 add 本次文件。dist 经 package_windows.py 重建且 --check 一致。
 - 硬约束：未触碰 18001(MCP)/docker 端口；零 REST 契约变更。
 - 下次可执行（P2）：RabbitMQ 接入点（待服务端引入 CAS 认领端点彻底消灭 TOCTOU）；proposal→story 自动生成（P3）。
+
+- 收尾验证(2026-07-31 完整回归 q1rpvT)：11 个测试模块 83 passed / 1 skipped / 0 failed (exit 0, 119s)。确认 Task 932→in_review 交付未引入跨模块回归。
