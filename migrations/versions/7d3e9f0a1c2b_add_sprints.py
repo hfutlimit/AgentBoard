@@ -49,10 +49,16 @@ def upgrade() -> None:
             "status IN ('planning','active','completed')",
         )
 
-    with op.batch_alter_table("tasks") as batch:
-        batch.create_foreign_key(
-            "fk_tasks_sprint_id_sprints", "tasks", ["sprint_id"], ["sprints.id"],
-            ondelete="SET NULL",
+    if is_sqlite:
+        with op.batch_alter_table("tasks") as batch:
+            batch.create_foreign_key(
+                "fk_tasks_sprint_id_sprints", "sprints", ["sprint_id"], ["id"],
+                ondelete="SET NULL",
+            )
+    else:
+        op.create_foreign_key(
+            "fk_tasks_sprint_id_sprints", "tasks", "sprints",
+            ["sprint_id"], ["id"], ondelete="SET NULL",
         )
 
     if is_sqlite:
@@ -65,8 +71,13 @@ def downgrade() -> None:
     if is_sqlite:
         bind.exec_driver_sql("PRAGMA foreign_keys=OFF")
 
-    with op.batch_alter_table("tasks") as batch:
-        batch.drop_constraint("fk_tasks_sprint_id_sprints", type_="foreignkey")
+    if is_sqlite:
+        with op.batch_alter_table("tasks") as batch:
+            batch.drop_constraint("fk_tasks_sprint_id_sprints", type_="foreignkey")
+    else:
+        op.drop_constraint(
+            "fk_tasks_sprint_id_sprints", "tasks", type_="foreignkey"
+        )
     op.drop_index("ix_tasks_sprint_id", table_name="tasks")
     with op.batch_alter_table("tasks") as batch:
         batch.drop_column("sprint_id")
