@@ -1321,19 +1321,21 @@ def proposal_pending(limit: int = 20) -> list | dict:
 
 @mcp.tool()
 def proposal_claim(proposal_id: int, agent: str = "") -> dict:
-    """认领一个待处理提案：queued → analyzing。
+    """**原子**认领一个待处理提案：queued/answered → analyzing。
 
-    已被其他 Worker 认领（或状态不为 queued）时返回明确 error，绝不静默成功，
+    已被其他 Worker 认领（或状态不可认领）时返回明确 error，绝不静默成功，
     避免多个 Worker 对同一提案重复分析。``agent`` 为 Worker 服务账号名，
-    会在后续 proposal_ask 时落到轮次记录上。
+    会记入租约并在后续 proposal_ask 时落到轮次记录上。
+
+    走服务端 CAS 端点 ``POST /api/proposals/{id}/claim``：判定与写入压在单条条件
+    UPDATE 内由数据库仲裁，无 TOCTOU 窗口。不要改回「先 GET 查状态再 PUT
+    /status」——状态机对同状态迁移是幂等 no-op（返回 200），PUT 本身不具备仲裁
+    能力，并发下多个 Worker 会同时「认领成功」。
+
+    ``answered`` 同样可认领：用户作答后需由 Worker 接手进入下一轮澄清，该语义与
+    worker.py 的 CLAIMABLE_STATUSES 对齐。
     """
-    p = _http("GET", f"/api/proposals/{proposal_id}")
-    if _is_http_error(p):
-        return p
-    status = p.get("status")
-    if status != "queued":
-        return {"error": f"proposal {proposal_id} 无法认领：当前状态为 {status}，仅 queued 可认领"}
-    r = _proposal_status(proposal_id, "analyzing")
+    r = _http("POST", f"/api/proposals/{proposal_id}/claim", json={"agent": agent})
     if _is_http_error(r):
         return r
     return {"ok": True, "claimed_by": agent, "proposal": r}

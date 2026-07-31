@@ -27,16 +27,21 @@ unsure 标记）」重新拼成一份完整上下文喂给 Agent。因此：
 
 崩溃恢复
 --------
-Worker 在 ``analyzing`` 中途崩溃，提案会卡在 ``analyzing``。任一 Worker 在
-`reclaim_stale()` 中发现 ``analyzing`` 且 ``updated_at`` 超过租约时长（默认
-30 分钟）即回退 ``queued`` 重投——这条回退边在 ``PROPOSAL_TRANSITIONS`` 中已
-预留（analyzing → queued「超时回退」）。
+Worker 在 ``analyzing`` 中途崩溃，提案会卡在 ``analyzing``。任一 Worker 调用
+``POST /api/proposals/reclaim-stale`` 即可把租约过期者批量回退 ``queued`` 重投
+——这条回退边在 ``PROPOSAL_TRANSITIONS`` 中已预留（analyzing → queued「超时回退」）。
 
-并发安全
---------
-认领即 ``PUT /status`` 到 ``analyzing``；状态机保证只有 ``queued``/``answered``
-可迁入，竞争失败方拿到 400 IllegalTransition，视为「别人抢到了」静默跳过。
-无需分布式锁。
+租约判定由服务端依据 ``claimed_at`` 完成，**不再使用 ``updated_at``**：后者带
+onupdate，用户作答等与持有者无关的写入都会刷新它，会让崩溃 Worker 的租约被无限
+续期，提案永久卡死。
+
+并发安全（P2-0）
+----------------
+认领走服务端 **CAS 原子端点** ``POST /api/proposals/{pid}/claim``：判定与写入压在
+单条条件 UPDATE 里由数据库仲裁，恰好一个 Worker 拿到 200，其余全部 409。
+
+不能退回用 ``PUT /status`` 认领：状态机对同状态迁移（analyzing→analyzing）是
+幂等 no-op 返回 200，根本不具备仲裁能力，N 个 Worker 会同时「认领成功」。
 
 约束
 ----
@@ -464,61 +469,50 @@ class ProposalWorker:
 
         这是整个自动化闭环唯一的「丢单兜底」——没有它，一次进程被 kill
         就会让提案永久卡在 analyzing。
+
+        判定与回退整体下沉到服务端 ``POST /api/proposals/reclaim-stale``：
+        一次批量条件 UPDATE 完成，既避免「拉全表再逐个 PUT」的 N+1，也让多个
+        Worker 同时回收时不会互相打架（未命中者 rowcount 为 0，天然幂等）。
         """
-        try:
-            rows = self._get_json(
-                "/api/proposals", params={"status": "analyzing", "limit": 200},
-            )
-        except Exception as e:
-            log.warning("扫描 analyzing 提案失败：%s", e)
+        r = self._request(
+            "POST", "/api/proposals/reclaim-stale",
+            json={"lease_seconds": self.config.lease_seconds},
+        )
+        if r.status_code != 200:
+            log.warning("回收超租约提案失败：%s %s", r.status_code, r.text[:200])
             return []
-        cutoff = datetime.now(timezone.utc) - timedelta(seconds=self.config.lease_seconds)
-        reclaimed: list[int] = []
-        for p in rows or []:
-            updated = _parse_dt(p.get("updated_at")) or _parse_dt(p.get("created_at"))
-            if updated is None or updated > cutoff:
-                continue
-            pid = p.get("id")
-            r = self._request("PUT", f"/api/proposals/{pid}/status",
-                              json={"status": "queued"})
-            if r.status_code == 200:
-                log.warning("提案 #%s 租约超时（analyzing 停滞 >%ss），已回退 queued 重投",
-                            pid, self.config.lease_seconds)
-                reclaimed.append(pid)
-            else:
-                log.warning("提案 #%s 回退 queued 失败：%s %s", pid, r.status_code, r.text[:200])
-        return reclaimed
+        try:
+            ids = (r.json() or {}).get("reclaimed") or []
+        except Exception as e:
+            log.warning("回收响应解析失败：%s", e)
+            return []
+        for pid in ids:
+            log.warning("提案 #%s 租约超时（analyzing 停滞 >%ss），已回退 queued 重投",
+                        pid, self.config.lease_seconds)
+        return list(ids)
 
     # ---------- 认领 ----------
 
     def claim(self, proposal: dict) -> bool:
         """queued/answered → analyzing。竞争失败返回 False 并静默跳过。
 
-        注意：服务端状态机对「同状态迁移」是幂等 no-op（``analyzing → analyzing``
-        返回 200 而非 400），因此单靠 PUT 无法仲裁并发——两个 Worker 都会拿到
-        200 并同时开工。这里先读一次当前状态做前置判定，只有仍处于可认领状态
-        才真正迁移。
+        走服务端 **CAS 原子认领端点**，单次调用完成判定与写入，无 TOCTOU 窗口：
+        并发下数据库仲裁出恰好一个赢家（200），其余一律 409。
 
-        剩余的 TOCTOU 窗口（读到 queued 与写入 analyzing 之间）由下游兜底：
-        ``(proposal_id, round_no)`` 唯一约束让重复提问幂等复用同一轮次，叠加
-        全量重放的无状态特性，最坏结果只是一次冗余的 Agent 调用，不会污染数据。
-        彻底消灭需要服务端提供 CAS 语义的认领端点（P2 随 MQ 一并引入）。
+        不要退回「先 GET 复核状态再 PUT /status」的老写法：状态机对同状态迁移是
+        幂等 no-op（analyzing→analyzing 返回 200 而非 400），PUT 本身无仲裁能力，
+        前置 GET 只能收窄窗口而不能消除它。
         """
         pid = proposal.get("id")
-        try:
-            current = self._get_json(f"/api/proposals/{pid}").get("status")
-        except Exception as e:
-            log.warning("提案 #%s 认领前状态复核失败：%s", pid, e)
-            return False
-        if current not in CLAIMABLE_STATUSES:
-            log.info("提案 #%s 已不可认领（当前状态 %s），跳过", pid, current)
-            return False
-        r = self._request("PUT", f"/api/proposals/{pid}/status",
-                          json={"status": "analyzing"})
+        r = self._request("POST", f"/api/proposals/{pid}/claim",
+                          json={"agent": self.config.agent})
         if r.status_code == 200:
             return True
-        if r.status_code == 400:
+        if r.status_code == 409:
             log.info("提案 #%s 认领竞争失败（已被其它 Worker 抢到或状态已变）", pid)
+            return False
+        if r.status_code == 404:
+            log.info("提案 #%s 已不存在，跳过", pid)
             return False
         log.warning("提案 #%s 认领异常：%s %s", pid, r.status_code, r.text[:200])
         return False

@@ -21,6 +21,11 @@ if URL.startswith("sqlite"):
         # 仅在 OS 断电时存在极小损坏风险，对开发/调试 SQLite 完全可接受。
         # 不影响生产 MariaDB（该分支仅在 sqlite URL 下生效）。
         cursor.execute("PRAGMA synchronous=NORMAL")
+        # 多个 Worker 并发认领同一提案时，SQLite 的写锁会把它们串行化（这正是
+        # CAS 认领得以原子的前提）。默认 5s busy timeout 在并发下偏紧，抬到 10s
+        # 让后到者安静排队并读到已提交状态（从而 rowcount=0 判负），
+        # 而不是抛 "database is locked"。
+        cursor.execute("PRAGMA busy_timeout=10000")
         cursor.close()
 
 

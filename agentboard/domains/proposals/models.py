@@ -79,6 +79,11 @@ PROPOSAL_TRANSITIONS: dict[ProposalStatus, set[ProposalStatus]] = {
 # 允许 Agent 在其中提问的状态（提问即产出一轮问题）
 ASKABLE_STATUSES = {ProposalStatus.ANALYZING}
 
+# 可被 Worker 原子认领进入 analyzing 的状态：
+# queued = 首轮待分析；answered = 用户已作答，需进入下一轮澄清。
+# 服务端 CAS 认领端点与 Worker 侧发现逻辑共用该集合，避免两处定义漂移。
+CLAIMABLE_STATUSES = {ProposalStatus.QUEUED, ProposalStatus.ANSWERED}
+
 
 class Proposal(Base):
     __tablename__ = "proposals"
@@ -109,6 +114,14 @@ class Proposal(Base):
     )
     # 失败原因（status=failed 时填充）
     error: Mapped[str] = mapped_column(Text, default="")
+    # --- 认领租约（P2-0）---
+    # 当前持有 analyzing 租约的 Worker 服务账号名，空串表示无人持有。
+    claimed_by: Mapped[str] = mapped_column(String(100), default="")
+    # 租约起算时刻。**只在认领成功时写入**，与 updated_at 严格区分：
+    # updated_at 带 onupdate，任何无关写入（用户作答 / PATCH converged_spec / 补写轮次）
+    # 都会刷新它 —— 若用它判定租约，崩溃 Worker 的租约会被旁人写操作不断续期，
+    # 提案永久卡死在 analyzing。故租约必须挂在这个独立、只由认领动作推进的字段上。
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 

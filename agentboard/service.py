@@ -1,6 +1,6 @@
 import re
-from datetime import date
-from sqlalchemy import or_, func
+from datetime import date, timedelta
+from sqlalchemy import or_, and_, func, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from . import models, auth
@@ -18,6 +18,7 @@ from .domains.documents.models import (
 )
 from .domains.proposals.models import (
     ProposalStatus, ALL_PROPOSAL_STATUSES, PROPOSAL_TRANSITIONS, ASKABLE_STATUSES,
+    CLAIMABLE_STATUSES,
 )
 from .domains.common.models import utc_now
 
@@ -2061,7 +2062,115 @@ def set_proposal_status(
         p.error = error or p.error or "unspecified failure"
     elif error is None and new is not ProposalStatus.FAILED:
         p.error = ""
+    # 租约随状态同步维护，避免脏租约：
+    # - 进入 analyzing（含旧版 PUT /status 认领路径）：盖上租约时间戳，
+    #   否则这类行的 claimed_at 恒为 NULL，崩溃后永远不会被回收。
+    # - 离开 analyzing：清空租约，防止已收敛/失败的提案仍挂着持有者。
+    if new is ProposalStatus.ANALYZING:
+        p.claimed_at = utc_now()
+    else:
+        p.claimed_by = ""
+        p.claimed_at = None
     _commit(s); s.refresh(p); return p
+
+
+# Worker 认领租约默认时长（秒）；与 worker.py AGENTBOARD_WORKER_LEASE 默认值一致。
+DEFAULT_CLAIM_LEASE_SECONDS = 1800
+
+
+def claim_proposal(s: Session, id: int, *, agent: str = "") -> Proposal | None:
+    """**原子**认领提案：queued/answered → analyzing。
+
+    返回 Proposal 表示认领成功；返回 ``None`` 表示竞争失败（已被他人持有或状态
+    不可认领）；提案不存在抛 NotFound。
+
+    为什么必须是单条条件 UPDATE，而不能「先 GET 复核状态再 PUT」：
+    ``set_proposal_status`` 对同状态迁移（analyzing→analyzing）是幂等 no-op，
+    直接返回 200 而非 400 —— 也就是说 PUT 本身**不具备仲裁能力**，N 个 Worker
+    会全部拿到 200 并同时开工。加一次前置 GET 只能收窄窗口，读与写之间的
+    TOCTOU 依然存在。这里把「判定」和「写入」压进同一条 SQL：
+
+        UPDATE proposals SET status='analyzing', ...
+         WHERE id=:id AND status IN ('queued','answered')
+
+    单行条件更新的原子性由存储引擎保证（SQLite 写锁全局串行化；MariaDB/InnoDB
+    行级排他锁 + 加锁读），后到者必然读到已提交的 'analyzing' 而匹配不到任何行，
+    ``rowcount`` 恰为 0。竞争由数据库仲裁，不留任何窗口。
+
+    注意语句顺序：UPDATE 必须是本会话的**第一条** SQL。若先 SELECT 会先取到读锁
+    再升级为写锁，在并发下平白增加锁冲突（WAL 模式下还可能触发 BUSY_SNAPSHOT）。
+    因此「区分 404 与竞争失败」的查询放在 rowcount=0 之后才执行。
+    """
+    now = utc_now()
+    claimable = sorted(st.value for st in CLAIMABLE_STATUSES)
+    res = s.execute(
+        update(Proposal)
+        .where(Proposal.id == id, Proposal.status.in_(claimable))
+        .values(
+            status=ProposalStatus.ANALYZING.value,
+            claimed_by=(agent or "").strip()[:100],
+            claimed_at=now,
+            updated_at=now,
+            error="",
+        )
+        .execution_options(synchronize_session=False),
+    )
+    if res.rowcount == 1:
+        _commit(s)
+        p = s.get(Proposal, id)
+        s.refresh(p)
+        return p
+    # 一行都没命中：可能是提案不存在，也可能是竞争失败 —— 此时才去读一次区分。
+    s.rollback()
+    if not s.get(Proposal, id):
+        raise NotFound(f"proposal {id} not found")
+    return None
+
+
+def reclaim_stale_proposals(
+    s: Session, *, lease_seconds: int = DEFAULT_CLAIM_LEASE_SECONDS,
+) -> list[int]:
+    """把租约过期的 analyzing 提案批量回退 queued，返回被回收的 id 列表。
+
+    这是整个自动化闭环唯一的丢单兜底：持有者进程被 kill 后，提案必须能重新入队。
+
+    判定依据是 ``claimed_at`` 而非 ``updated_at``：后者带 onupdate，用户作答、
+    PATCH converged_spec 等**与持有者无关**的写入都会刷新它，导致一个早已崩溃的
+    Worker 的租约被旁人不断续期，提案永久卡死在 analyzing。
+    """
+    if lease_seconds < 0:
+        raise InvalidValue("lease_seconds must be >= 0")
+    now = utc_now()
+    cutoff = now - timedelta(seconds=lease_seconds)
+    analyzing = ProposalStatus.ANALYZING.value
+    # claimed_at 为 NULL 的 analyzing 行只可能来自本迁移之前（历史遗留），
+    # 对它们退回用 updated_at 兜底，避免升级后这批行永远无法回收。
+    stale = or_(
+        Proposal.claimed_at < cutoff,
+        and_(Proposal.claimed_at.is_(None), Proposal.updated_at < cutoff),
+    )
+    ids = [
+        row[0]
+        for row in s.query(Proposal.id)
+        .filter(Proposal.status == analyzing, stale)
+        .all()
+    ]
+    if not ids:
+        return []
+    s.execute(
+        update(Proposal)
+        .where(Proposal.id.in_(ids), Proposal.status == analyzing)
+        .values(
+            status=ProposalStatus.QUEUED.value,
+            claimed_by="",
+            claimed_at=None,
+            updated_at=now,
+        )
+        .execution_options(synchronize_session=False),
+    )
+    _commit(s)
+    s.expire_all()
+    return ids
 
 
 def create_proposal_round(

@@ -488,3 +488,211 @@ def test_prompt_contains_protocol_and_history():
     })
     assert '"action":"ask"' in prompt and '"action":"finalize"' in prompt
     assert "Q1" in prompt and "A1" in prompt and "不确定" in prompt
+
+
+# ===================== Epic 96 P2-0：服务端 CAS 原子认领 + 显式租约 =====================
+#
+# 这批用例专门守住「消灭 Worker TOCTOU 竞态」与「租约挂靠 claimed_at 而非 updated_at」
+# 两个真实缺陷。旧实现用「先 GET 复核状态再 PUT /status」认领，而状态机对同状态迁移
+# （analyzing→analyzing）是幂等 no-op 返回 200，根本无法仲裁并发 —— 换回旧写法这些
+# 用例会真失败，因此它们是实现正确性的硬证明。
+
+
+def _new_draft(stack, title: str) -> int:
+    """只创建、不推进，保持 draft，用于验证非 queued/answered 不可认领。"""
+    c = stack["c"]
+    r = c.post("/api/proposals", json={
+        "project_id": stack["project_id"], "title": title,
+        "content": f"{title} 的原始需求正文",
+    })
+    assert r.status_code in (200, 201), r.text
+    return r.json()["id"]
+
+
+def _to_answered(stack, title: str) -> int:
+    """走一轮 ask→用户作答，把提案推进到 answered（下一轮澄清的起点）。"""
+    pid = _new_queued(stack, title)
+    with _make_worker(stack, lambda ctx: {"action": "ask", "questions": ["目标用户是谁？"]}) as w:
+        w.poll_once()  # claim + ask → awaiting
+    assert _status(stack, pid) == "awaiting"
+    _answer_all_open(stack, pid)  # → answered
+    assert _status(stack, pid) == "answered"
+    return pid
+
+
+def _claim(stack, pid, agent: str = "endpoint-tester"):
+    """直接打 CAS 原子认领端点，返回 (status_code, json)。"""
+    return stack["c"].post(f"/api/proposals/{pid}/claim", json={"agent": agent}), None
+
+
+def test_claim_endpoint_returns_200_with_lease_fields(stack):
+    """queued 提案认领成功：200 + 带上 claimed_by / claimed_at 租约。"""
+    pid = _new_queued(stack, "P2-0 认领端点 200")
+    c = stack["c"]
+    r = c.post(f"/api/proposals/{pid}/claim", json={"agent": "worker-A"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "analyzing"
+    assert body["claimed_by"] == "worker-A"
+    assert body["claimed_at"], "认领后必须盖上 claimed_at 租约时间戳"
+    # 二次读取状态机已流转
+    assert _status(stack, pid) == "analyzing"
+
+
+def test_claim_endpoint_409_when_already_analyzing(stack):
+    """已被认领（analyzing）再认领必须 409，绝不静默成功（否则双 Agent 并行分析）。"""
+    pid = _new_queued(stack, "P2-0 重复认领 409")
+    c = stack["c"]
+    assert c.post(f"/api/proposals/{pid}/claim", json={"agent": "w1"}).status_code == 200
+    r2 = c.post(f"/api/proposals/{pid}/claim", json={"agent": "w2"})
+    assert r2.status_code == 409, r2.text
+    assert "analyzing" in r2.json()["detail"]
+
+
+def test_claim_endpoint_404_for_unknown_proposal(stack):
+    """认领不存在的提案必须 404，而不是把竞争失败和不存在混为一谈。"""
+    r = stack["c"].post("/api/proposals/999999/claim", json={"agent": "x"})
+    assert r.status_code == 404, r.text
+
+
+def test_claim_endpoint_409_for_unclaimable_status(stack):
+    """仅 queued/answered 可认领；draft 等其它状态必须 409（与非法迁移 400 区分）。"""
+    pid = _new_draft(stack, "P2-0 draft 不可认领")
+    r = stack["c"].post(f"/api/proposals/{pid}/claim", json={"agent": "x"})
+    assert r.status_code == 409, r.text
+    assert "draft" in r.json()["detail"]
+
+
+def test_claim_endpoint_answered_to_analyzing(stack):
+    """用户作答后的 answered 提案应可被 Worker 接手进入下一轮澄清（MCP proposal_claim 语义）。"""
+    pid = _to_answered(stack, "P2-0 answered 可再认领")
+    r = stack["c"].post(f"/api/proposals/{pid}/claim", json={"agent": "worker-B"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "analyzing"
+    assert body["claimed_by"] == "worker-B"
+    assert _status(stack, pid) == "analyzing"
+
+
+def test_concurrent_claim_exactly_one_winner_per_proposal(stack):
+    """≥8 个提案各被 12 条线程同时抢：每个提案恰好 1 个 200、其余全部 409。
+
+    这是原子性的最强证明 —— 若退回「GET 复核 + PUT」的非原子写法，多线程会偶发
+    多个 200（都在 analyzing 上拿到 no-op 200）。单条条件 UPDATE 由 SQLite 写锁串行化，
+    后到者必然 rowcount=0 → 409。
+    """
+    import concurrent.futures as cf
+
+    N_PROP = 8
+    BURST = 12
+    pids = [_new_queued(stack, f"P2-0 并发认领-{i}") for i in range(N_PROP)]
+    wins = {p: 0 for p in pids}
+    conflicts = {p: 0 for p in pids}
+
+    def try_claim(pid):
+        cl = httpx.Client(base_url=stack["base"], timeout=30)
+        cl.headers.update({"Authorization": f"Bearer {stack['token']}"})
+        code = cl.post(f"/api/proposals/{pid}/claim", json={"agent": "racer"}).status_code
+        cl.close()
+        return pid, code
+
+    with cf.ThreadPoolExecutor(max_workers=64) as ex:
+        futs = [ex.submit(try_claim, pid) for pid in pids for _ in range(BURST)]
+        for f in cf.as_completed(futs):
+            pid, code = f.result()
+            assert code in (200, 409), f"非预期状态码 {code}"
+            (wins if code == 200 else conflicts)[pid] += 1
+
+    for pid in pids:
+        assert wins[pid] == 1, f"提案 {pid} 赢家数={wins[pid]}（必须恰好 1）"
+        assert conflicts[pid] == BURST - 1, f"提案 {pid} 冲突数={conflicts[pid]}"
+    # 总计：8 个赢家 + 8*11 个冲突
+    assert sum(wins.values()) == N_PROP
+    assert sum(conflicts.values()) == N_PROP * (BURST - 1)
+
+
+def test_claimed_at_not_refreshed_by_unrelated_patch(stack):
+    """认领后 claimed_at 必须不被无关写入刷新，这是租约隔离的核心。
+
+    `updated_at` 带 onupdate，PATCH 正文会刷新它；但 claimed_at 是显式租约字段，
+    只应由认领动作写入。若二者混用，崩溃 Worker 的租约会被旁人 PATCH 无限续期。
+    """
+    pid = _new_queued(stack, "P2-0 claimed_at 不被 PATCH 刷新")
+    c = stack["c"]
+    claimed = c.post(f"/api/proposals/{pid}/claim", json={"agent": "lease-owner"}).json()
+    t0_claimed = claimed["claimed_at"]
+    t0_updated = claimed["updated_at"]
+    assert t0_claimed and t0_updated
+
+    # 模拟无关写入：用户在工作台编辑正文（刷新 updated_at，但与持有者无关）
+    r = c.patch(f"/api/proposals/{pid}", json={"content": "被旁人编辑过的内容"})
+    assert r.status_code == 200, r.text
+
+    after = c.get(f"/api/proposals/{pid}").json()
+    assert after["claimed_at"] == t0_claimed, "claimed_at 被无关 PATCH 改写了 —— 租约隔离失效"
+    assert after["updated_at"] != t0_updated, "updated_at 应当被 PATCH 刷新（对照组）"
+    assert after["updated_at"] > t0_updated
+
+
+def test_reclaim_stale_uses_claimed_at_not_updated_at(stack):
+    """决定性用例：崩溃 Worker 的租约靠 claimed_at 判定，不因他人 PATCH 续期而失活。
+
+    构造：认领 → sleep 让 claimed_at 变旧 → 他人 PATCH 刷新 updated_at（变新）
+    → 以短租约回收。若实现错误地用 updated_at，会被判为「新鲜」永不回收 → 永久卡死；
+    正确实现依据 claimed_at，应当回收。
+    """
+    import time
+
+    pid = _new_queued(stack, "P2-0 回收依据 claimed_at")
+    c = stack["c"]
+    claimed = c.post(f"/api/proposals/{pid}/claim", json={"agent": "crashed"}).json()
+    assert claimed["status"] == "analyzing"
+
+    time.sleep(1.1)  # 让 claimed_at 明显早于「现在」
+    r = c.patch(f"/api/proposals/{pid}", json={"content": "续期陷阱：旁人编辑"})
+    assert r.status_code == 200
+
+    # lease_seconds=1：cutoff = now - 1s。
+    #   claimed_at（≈1.1s 前）< cutoff → 陈旧，应回收
+    #   updated_at（刚刚 PATCH）≥ cutoff → 若用 updated_at 则判为新鲜，不回收
+    resp = c.post("/api/proposals/reclaim-stale", json={"lease_seconds": 1})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert set(body.keys()) >= {"reclaimed", "count", "lease_seconds"}
+    assert body["lease_seconds"] == 1
+    assert pid in body["reclaimed"], "依据 claimed_at 应回收，但实现漏回收（可能误用了 updated_at）"
+    assert _status(stack, pid) == "queued", "回收后必须回退 queued 重投"
+
+
+def test_reclaim_stale_endpoint_contract_and_fresh_untouched(stack):
+    """回收端点契约：返回标准字段；租约未到期的 analyzing 不被抢走（避免双 Agent）。"""
+    pid = _new_queued(stack, "P2-0 未到期不回收")
+    c = stack["c"]
+    assert c.post(f"/api/proposals/{pid}/claim", json={"agent": "live"}).status_code == 200
+
+    # lease_seconds 很大 → cutoff 远在过去 → 刚认领的不算陈旧
+    resp = c.post("/api/proposals/reclaim-stale", json={"lease_seconds": 3600})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["count"] == 0 and body["reclaimed"] == []
+    assert _status(stack, pid) == "analyzing", "租约未到期却被回收，会出现两个 Agent 并行"
+
+
+def test_reclaim_stale_only_touches_analyzing(stack):
+    """回收只回退 analyzing 行；answered / converged 等其它状态必须纹丝不动。"""
+    c = stack["c"]
+    answered_pid = _to_answered(stack, "P2-0 回收不碰 answered")
+    # 构造一个 converged 行
+    conv_pid = _new_queued(stack, "P2-0 回收不碰 converged")
+    with _make_worker(stack, lambda ctx: {"action": "finalize",
+                                          "converged_spec": "收敛规格"}) as w:
+        w.poll_once()
+    assert _status(stack, conv_pid) == "converged"
+
+    resp = c.post("/api/proposals/reclaim-stale", json={"lease_seconds": 0})
+    assert resp.status_code == 200
+    reclaimed = resp.json()["reclaimed"]
+    assert answered_pid not in reclaimed, "answered 提案不应被回收"
+    assert conv_pid not in reclaimed, "converged 提案不应被回收"
+    assert _status(stack, answered_pid) == "answered"
+    assert _status(stack, conv_pid) == "converged"

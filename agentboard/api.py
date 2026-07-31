@@ -1919,6 +1919,18 @@ class ProposalStatusIn(BaseModel):
     error: str | None = None
 
 
+class ProposalClaimIn(BaseModel):
+    """Worker 原子认领提案。agent 为服务账号名，仅用于排障与轮次署名。"""
+
+    agent: str = ""
+
+
+class ProposalReclaimIn(BaseModel):
+    """回收租约过期的 analyzing 提案。省略 lease_seconds 时用服务端默认值。"""
+
+    lease_seconds: int | None = Field(default=None, ge=0)
+
+
 class ProposalAskIn(BaseModel):
     """Agent 回写一轮 open questions。round 省略时自动取下一轮。"""
 
@@ -1983,6 +1995,25 @@ def list_pending_proposals(
     return [service._ser(p) for p in rows]
 
 
+# 必须声明在 /api/proposals/{pid} 之前，否则 "reclaim-stale" 会被当作 pid 捕获。
+@app.post("/api/proposals/reclaim-stale")
+def reclaim_stale_proposals(
+    body: ProposalReclaimIn | None = None, s: Session = Depends(get_session),
+):
+    """回收租约过期的 analyzing 提案（持有 Worker 已崩溃），批量回退 queued。
+
+    判定依据是 claimed_at 而非 updated_at —— 后者会被用户作答等无关写入刷新，
+    会让崩溃 Worker 的租约被无限续期。返回被回收的 proposal id 列表。
+    """
+    lease = (body.lease_seconds if body and body.lease_seconds is not None
+             else service.DEFAULT_CLAIM_LEASE_SECONDS)
+    try:
+        ids = service.reclaim_stale_proposals(s, lease_seconds=lease)
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"reclaimed": ids, "count": len(ids), "lease_seconds": lease}
+
+
 @app.get("/api/proposals/{pid}")
 def get_proposal(pid: int, s: Session = Depends(get_session)):
     return service._ser(_need(service.get_proposal(s, pid), "proposal"))
@@ -2014,6 +2045,35 @@ def set_proposal_status(pid: int, body: ProposalStatusIn, s: Session = Depends(g
         raise HTTPException(status_code=400, detail=str(e))
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(p)
+
+
+@app.post("/api/proposals/{pid}/claim")
+def claim_proposal(pid: int, body: ProposalClaimIn | None = None,
+                   s: Session = Depends(get_session)):
+    """**原子**认领提案：queued/answered → analyzing，供 Worker 竞争消费。
+
+    与 `PUT /status` 的关键区别：状态机对同状态迁移是幂等 no-op（返回 200），
+    因此 PUT 无法仲裁并发认领 —— N 个 Worker 会全部「认领成功」。本端点把判定与
+    写入压进单条条件 UPDATE，由数据库仲裁，恰好一个胜出。
+
+    - 200：认领成功，返回提案（含 claimed_by / claimed_at 租约字段）
+    - 409：已被他人持有或当前状态不可认领（与 400 非法迁移语义区分）
+    - 404：提案不存在
+    """
+    agent = body.agent if body else ""
+    try:
+        p = service.claim_proposal(s, pid, agent=agent)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    if p is None:
+        current = service.get_proposal(s, pid)
+        raise HTTPException(
+            status_code=409,
+            detail=(f"proposal {pid} 无法认领：当前状态为 "
+                    f"{current.status if current else 'unknown'}，"
+                    f"仅 queued/answered 可认领"),
+        )
     return service._ser(p)
 
 

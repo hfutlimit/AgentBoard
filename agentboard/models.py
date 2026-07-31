@@ -26,6 +26,7 @@ from .domains.work_items.models import Attachment, AuditLog, Comment, Task, Task
 from .domains.documents.models import Document, DocumentComment
 from .domains.proposals.models import (
     ALL_PROPOSAL_STATUSES,
+    CLAIMABLE_STATUSES,
     PROPOSAL_TRANSITIONS,
     Proposal,
     ProposalQuestion,
@@ -36,8 +37,8 @@ from .domains.proposals.models import (
 __all__ = [
     "ALL_PRIORITIES", "ALL_PROPOSAL_STATUSES", "ALL_RUN_STATUSES", "ALL_SCHEDULE_TYPES",
     "ALL_SPRINT_STATUSES", "ALL_STATUSES", "ALL_TYPES", "AgentRun",
-    "AgentSchedule", "ApiKey", "Attachment", "AuditLog", "Base", "Comment", "Document",
-    "DocumentComment", "Epic", "ItemType",
+    "AgentSchedule", "ApiKey", "Attachment", "AuditLog", "Base", "CLAIMABLE_STATUSES",
+    "Comment", "Document", "DocumentComment", "Epic", "ItemType",
     "Notification", "PROPOSAL_TRANSITIONS", "Priority", "Project", "ProjectMember",
     "Proposal", "ProposalQuestion", "ProposalRound", "ProposalStatus", "RunStatus",
     "ScheduleType", "Sprint", "SprintStatus", "Status", "Story", "Task",
