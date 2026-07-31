@@ -9,10 +9,10 @@ import { filter } from 'rxjs/operators';
 
 import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric, resolveApiBase } from './api.service';
 import { LoginComponent } from './login/login';
-import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES } from './models';
+import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES } from './models';
 import { PaginationComponent } from './pagination/pagination';
 
-type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'admin' | 'settings' | 'not-found';
+type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
 type ProjectTabKind = 'epics' | 'sprints' | 'backlog' | 'settings' | 'members' | 'stats' | 'schedules' | 'documents';
 type ProjectListKind = 'epics' | 'sprints' | 'backlog' | 'members' | 'schedules';
@@ -126,6 +126,10 @@ export class App implements OnInit, OnDestroy {
   readonly confirmation = signal<ConfirmationDialog | null>(null);
   readonly confirmationBusy = signal(false);
   readonly activeTab = signal<ProjectTabKind>('epics');
+  // Tab state for epic / story detail+list views
+  readonly epicTab = signal<'detail' | 'list'>('detail');
+  readonly storyTab = signal<'detail' | 'list'>('detail');
+  readonly epicEditOpen = signal(false);
   readonly members = signal<ProjectMember[]>([]);
   readonly notifications = signal<Notification[]>([]);
   readonly unreadCount = signal(0);
@@ -167,6 +171,27 @@ export class App implements OnInit, OnDestroy {
   readonly docCreateTitle = signal('');
   readonly docCreateType = signal<DocumentType>('plan');
   readonly docCreateContent = signal('');
+
+  /* ---------- Epic 96 P0: Proposal 澄清回路 —— 问答工作台 ---------- */
+  readonly proposals = signal<ProposalItem[]>([]);
+  readonly proposalItem = signal<ProposalItem | null>(null);
+  readonly proposalRounds = signal<ProposalRoundItem[]>([]);
+  readonly proposalFilterStatus = signal<ProposalStatus | ''>('');
+  readonly proposalSearchQuery = signal('');
+  /** 本地草稿：questionId -> 用户尚未提交的答案文本 */
+  readonly proposalDrafts = signal<Record<number, string>>({});
+  /** 本地草稿：questionId -> 是否标记「不确定」 */
+  readonly proposalUnsure = signal<Record<number, boolean>>({});
+  /** 单条保存 / 整轮提交进行中的问题 id 集合，用于禁用按钮防重复提交 */
+  readonly proposalSaving = signal<Set<number>>(new Set<number>());
+  readonly proposalSubmitting = signal(false);
+  // 新建提案弹窗
+  readonly proposalModalOpen = signal(false);
+  readonly proposalNewTitle = signal('');
+  readonly proposalNewContent = signal('');
+  readonly proposalNewProjectId = signal<number | null>(null);
+  readonly proposalStatuses = PROPOSAL_STATUSES;
+
   // 计划（Sprint）创建弹窗
   readonly sprintModalOpen = signal<number | null>(null);
   readonly sprintName = signal('');
@@ -1487,6 +1512,7 @@ export class App implements OnInit, OnDestroy {
         void this.loadProjectTab('epics', id);
       } else if (kind === 'epic' && id > 0) {
         this.view.set('epic');
+        this.epicTab.set('detail');
         const [epic, stories] = await Promise.all([
           firstValueFrom(this.api.getEpic(id)),
           firstValueFrom(this.api.listStories(id)),
@@ -1496,6 +1522,7 @@ export class App implements OnInit, OnDestroy {
         this.project.set(await firstValueFrom(this.api.getProject(epic.project_id)));
       } else if (kind === 'story' && id > 0) {
         this.view.set('story');
+        this.storyTab.set('detail');
         this.storyTaskPage.set(1);
         // 防止全局搜索词 / 其他视图的筛选条件泄漏到 Story 任务列表导致空白
         this.search.set('');
@@ -1589,6 +1616,25 @@ export class App implements OnInit, OnDestroy {
         } else {
           this.view.set('documents');
           await this.loadDocuments();
+        }
+      } else if (kind === 'proposals') {
+        // Epic 96 P0: Proposal 澄清回路 —— 列表 / 问答工作台
+        if (!localStorage.getItem('agentboard_token')) {
+          this.router.navigateByUrl('/login');
+          return;
+        }
+        if (id > 0) {
+          this.view.set('proposal');
+          await this.loadProposalDetail(id);
+          const p = this.proposalItem();
+          if (p) {
+            if (!this.projects().length) await this.loadProjects();
+            this.project.set(await firstValueFrom(this.api.getProject(p.project_id)));
+          }
+        } else {
+          this.view.set('proposals');
+          if (!this.projects().length) await this.loadProjects();
+          await this.loadProposals();
         }
       } else {
         this.view.set('not-found');
@@ -4358,6 +4404,7 @@ export class App implements OnInit, OnDestroy {
       { id: 'home', title: '首页仪表盘', hint: 'Home', keywords: 'home dashboard shouye 首页 仪表盘', run: () => { void this.router.navigateByUrl('/'); } },
       { id: 'projects', title: '项目列表', hint: 'Projects', keywords: 'projects xiangmu 项目 列表', run: () => { void this.router.navigateByUrl('/projects'); } },
       { id: 'documents', title: '文档中心', hint: 'Docs', keywords: 'documents wendang 文档 中心', run: () => { void this.router.navigateByUrl('/documents'); } },
+      { id: 'proposals', title: '需求提案', hint: 'Proposals', keywords: 'proposals xuqiu tian 需求 提案 澄清 问答', run: () => { void this.router.navigateByUrl('/proposals'); } },
       { id: 'settings', title: '设置', hint: 'Settings', keywords: 'settings shezhi 设置 个人', run: () => { void this.router.navigateByUrl('/settings'); } },
       {
         id: 'new-task', title: '新建任务', hint: 'Task', keywords: 'new task xinjian 新建 任务',
@@ -4813,6 +4860,235 @@ export class App implements OnInit, OnDestroy {
   quickDeleteTask(): void {
     const task = this.task();
     if (task) void this.remove('task', task.id);
+  }
+
+  /* ================= Epic 96 P0: Proposal 澄清回路 —— 问答工作台 ================= */
+
+  proposalStatusLabel(s: ProposalStatus): string {
+    return ({
+      draft: '草稿',
+      queued: '已入队',
+      analyzing: '分析中',
+      awaiting: '待作答',
+      answered: '已作答',
+      converged: '已收敛',
+      story_created: '已转 Story',
+      failed: '失败',
+    } as Record<string, string>)[s] || s;
+  }
+
+  /** 列表视图：客户端二次过滤（状态由服务端过滤，关键词在本地做即时反馈） */
+  proposalVisible(): ProposalItem[] {
+    let list = this.proposals();
+    const st = this.proposalFilterStatus();
+    if (st) list = list.filter((p) => p.status === st);
+    const q = this.proposalSearchQuery().trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (p) => p.title.toLowerCase().includes(q) || (p.content || '').toLowerCase().includes(q),
+      );
+    }
+    return list;
+  }
+
+  async loadProposals(): Promise<void> {
+    const params: Record<string, any> = { limit: 200 };
+    if (this.proposalFilterStatus()) params['status'] = this.proposalFilterStatus();
+    const rows = await firstValueFrom(this.api.listProposals(params));
+    this.proposals.set(Array.isArray(rows) ? rows : []);
+  }
+
+  async onProposalFilterChange(): Promise<void> {
+    try {
+      await this.loadProposals();
+    } catch (e) {
+      this.notify(`加载提案失败：${this.message(e)}`, 'error');
+    }
+  }
+
+  /** 详情工作台：拉提案主体 + 轮次问答，并用服务端已有答案初始化本地草稿 */
+  async loadProposalDetail(id: number): Promise<void> {
+    const [item, rounds] = await Promise.all([
+      firstValueFrom(this.api.getProposal(id)),
+      firstValueFrom(this.api.listProposalRounds(id)),
+    ]);
+    this.proposalItem.set(item);
+    this.proposalRounds.set(Array.isArray(rounds) ? rounds : []);
+    this.syncProposalDrafts();
+  }
+
+  private syncProposalDrafts(): void {
+    const drafts: Record<number, string> = {};
+    const unsure: Record<number, boolean> = {};
+    for (const r of this.proposalRounds()) {
+      for (const q of r.questions || []) {
+        drafts[q.id] = q.answer || '';
+        unsure[q.id] = !!q.unsure;
+      }
+    }
+    this.proposalDrafts.set(drafts);
+    this.proposalUnsure.set(unsure);
+  }
+
+  proposalDraftOf(qid: number): string {
+    return this.proposalDrafts()[qid] ?? '';
+  }
+  setProposalDraft(qid: number, value: string): void {
+    this.proposalDrafts.update((m) => ({ ...m, [qid]: value }));
+  }
+  proposalUnsureOf(qid: number): boolean {
+    return !!this.proposalUnsure()[qid];
+  }
+  toggleProposalUnsure(qid: number): void {
+    this.proposalUnsure.update((m) => ({ ...m, [qid]: !m[qid] }));
+  }
+  isProposalQuestionSaving(qid: number): boolean {
+    return this.proposalSaving().has(qid);
+  }
+  /** 已处理 = 有答案或被标记不确定（与后端 answered_at 判定口径一致） */
+  isProposalQuestionAnswered(q: ProposalQuestionItem): boolean {
+    return !!q.answered_at || !!q.unsure || !!(q.answer && q.answer.trim());
+  }
+
+  /** 当前轮（= proposal.current_round）尚未处理的问题数，用于「一键提交」按钮计数 */
+  proposalPendingCount(): number {
+    const cur = this.currentProposalRound();
+    if (!cur) return 0;
+    return (cur.questions || []).filter((q) => !this.isProposalQuestionAnswered(q)).length;
+  }
+
+  currentProposalRound(): ProposalRoundItem | null {
+    const p = this.proposalItem();
+    if (!p) return null;
+    const rounds = this.proposalRounds();
+    if (!rounds.length) return null;
+    return rounds.find((r) => r.round_no === p.current_round) || rounds[rounds.length - 1];
+  }
+
+  /** 本轮是否存在「已填写但尚未提交」的草稿 */
+  proposalHasDraftToSubmit(): boolean {
+    const cur = this.currentProposalRound();
+    if (!cur) return false;
+    return (cur.questions || []).some((q) => {
+      if (this.isProposalQuestionAnswered(q)) return false;
+      return !!this.proposalDraftOf(q.id).trim() || this.proposalUnsureOf(q.id);
+    });
+  }
+
+  /** 单条保存 */
+  async saveProposalAnswer(q: ProposalQuestionItem): Promise<void> {
+    if (this.isProposalQuestionSaving(q.id)) return;
+    const answer = this.proposalDraftOf(q.id).trim();
+    const unsure = this.proposalUnsureOf(q.id);
+    if (!answer && !unsure) {
+      this.notify('请填写答案，或标记为「暂不确定」', 'error');
+      return;
+    }
+    this.proposalSaving.update((s) => new Set(s).add(q.id));
+    try {
+      await firstValueFrom(this.api.answerProposalQuestion(q.id, { answer, unsure }));
+      await this.loadProposalDetail(q.proposal_id);
+      this.notify('答案已保存', 'success');
+    } catch (e) {
+      this.notify(`保存失败：${this.message(e)}`, 'error');
+    } finally {
+      this.proposalSaving.update((s) => {
+        const next = new Set(s);
+        next.delete(q.id);
+        return next;
+      });
+    }
+  }
+
+  /** 一键提交本轮：把本轮所有已填草稿串行提交，末条提交后后端自动 awaiting→answered */
+  async submitProposalRound(): Promise<void> {
+    if (this.proposalSubmitting()) return;
+    const cur = this.currentProposalRound();
+    const p = this.proposalItem();
+    if (!cur || !p) return;
+
+    const targets = (cur.questions || []).filter((q) => {
+      if (this.isProposalQuestionAnswered(q)) return false;
+      return !!this.proposalDraftOf(q.id).trim() || this.proposalUnsureOf(q.id);
+    });
+    if (!targets.length) {
+      this.notify('本轮没有待提交的答案', 'error');
+      return;
+    }
+
+    this.proposalSubmitting.set(true);
+    let ok = 0;
+    try {
+      // 串行提交：后端在整轮处理完时才推进状态，串行可避免并发下的状态竞态
+      for (const q of targets) {
+        await firstValueFrom(
+          this.api.answerProposalQuestion(q.id, {
+            answer: this.proposalDraftOf(q.id).trim(),
+            unsure: this.proposalUnsureOf(q.id),
+          }),
+        );
+        ok += 1;
+      }
+      await this.loadProposalDetail(p.id);
+      this.notify(`已提交本轮 ${ok} 条答案`, 'success');
+    } catch (e) {
+      // 部分成功也要刷新，避免界面与服务端不一致
+      try { await this.loadProposalDetail(p.id); } catch { /* ignore */ }
+      this.notify(`提交中断（已提交 ${ok}/${targets.length}）：${this.message(e)}`, 'error');
+    } finally {
+      this.proposalSubmitting.set(false);
+    }
+  }
+
+  /* ---- 新建提案 ---- */
+  async openProposalModal(): Promise<void> {
+    // 刷新项目列表，确保下拉框包含用户最新创建的项目（避免模态框打开时缺选项）
+    try {
+      this.api.invalidateProjectCache();
+      await this.loadProjects();
+    } catch { /* 加载失败时使用已有列表 */ }
+    this.proposalNewTitle.set('');
+    this.proposalNewContent.set('');
+    this.proposalNewProjectId.set(this.project()?.id ?? this.projects()[0]?.id ?? null);
+    this.proposalModalOpen.set(true);
+  }
+  closeProposalModal(): void {
+    this.proposalModalOpen.set(false);
+  }
+  async submitProposalCreate(): Promise<void> {
+    const title = this.proposalNewTitle().trim();
+    const pid = this.proposalNewProjectId();
+    if (!title) {
+      this.notify('请填写提案标题', 'error');
+      return;
+    }
+    if (!pid) {
+      this.notify('请选择所属项目', 'error');
+      return;
+    }
+    try {
+      const created = await firstValueFrom(
+        this.api.createProposal({ project_id: pid, title, content: this.proposalNewContent() }),
+      );
+      this.proposalModalOpen.set(false);
+      this.notify('提案已创建', 'success');
+      await this.router.navigateByUrl(`/proposals/${created.id}`);
+    } catch (e) {
+      this.notify(`创建失败：${this.message(e)}`, 'error');
+    }
+  }
+
+  /** 状态流转（草稿 → 入队派发；失败 → 重投） */
+  async advanceProposalStatus(status: ProposalStatus): Promise<void> {
+    const p = this.proposalItem();
+    if (!p) return;
+    try {
+      await firstValueFrom(this.api.setProposalStatus(p.id, status));
+      await this.loadProposalDetail(p.id);
+      this.notify(`状态已更新为「${this.proposalStatusLabel(status)}」`, 'success');
+    } catch (e) {
+      this.notify(`状态更新失败：${this.message(e)}`, 'error');
+    }
   }
 
   /* ================= Epic 15: 项目文档维护 ================= */

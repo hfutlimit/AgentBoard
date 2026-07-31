@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable, of, throwError, timer, Subject } from 'rxjs';
 import { catchError, tap, map, switchMap, mergeMap, debounceTime, takeUntil } from 'rxjs/operators';
 
-import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentType, DocumentStatus } from './models';
+import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus } from './models';
 
 export const AUTH_EXPIRED_EVENT = 'agentboard:auth-expired';
 
@@ -850,5 +850,44 @@ export class ApiService {
   }
   deleteDocumentComment(commentId: number) {
     return this.request<{ ok: boolean }>('DELETE', `/api/document-comments/${commentId}`);
+  }
+
+  /* ---------- Epic 96 P0: Proposal 澄清回路（问答工作台） ---------- */
+  listProposals(params?: { project_id?: number; status?: ProposalStatus | ''; q?: string; limit?: number }) {
+    return this.request<ProposalItem[]>(
+      'GET', '/api/proposals', undefined,
+      params as Record<string, string | number | undefined> | undefined,
+    );
+  }
+  getProposal(id: number) {
+    return this.request<ProposalItem>('GET', `/api/proposals/${id}`);
+  }
+  createProposal(body: { project_id: number; title: string; content?: string }) {
+    return this.request<ProposalItem>('POST', '/api/proposals', body).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/proposals'))
+    );
+  }
+  updateProposal(id: number, body: { title?: string; content?: string; converged_spec?: string }) {
+    return this.patchJson<ProposalItem>(`/api/proposals/${id}`, body).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/proposals'))
+    );
+  }
+  setProposalStatus(id: number, status: ProposalStatus, error?: string) {
+    return this.request<ProposalItem>('PUT', `/api/proposals/${id}/status`, { status, error }).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/proposals'))
+    );
+  }
+  deleteProposal(id: number) {
+    return this.request<{ ok: boolean }>('DELETE', `/api/proposals/${id}`).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/proposals'))
+    );
+  }
+  listProposalRounds(id: number) {
+    return this.request<ProposalRoundItem[]>('GET', `/api/proposals/${id}/rounds`);
+  }
+  answerProposalQuestion(qid: number, body: { answer?: string; unsure?: boolean }) {
+    return this.request<ProposalQuestionItem>('PUT', `/api/proposal-questions/${qid}/answer`, body).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/proposals'))
+    );
   }
 }

@@ -16,6 +16,11 @@ if URL.startswith("sqlite"):
     def _enable_sqlite_foreign_keys(dbapi_connection, _connection_record) -> None:
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        # NORMAL：仅在检查点（而非每次提交）刷盘，彻底消除 Windows 上单连接
+        # 多提交（端点提交 + 状态机提交 + 审计写入）累积的秒级 fsync 延迟；
+        # 仅在 OS 断电时存在极小损坏风险，对开发/调试 SQLite 完全可接受。
+        # 不影响生产 MariaDB（该分支仅在 sqlite URL 下生效）。
+        cursor.execute("PRAGMA synchronous=NORMAL")
         cursor.close()
 
 

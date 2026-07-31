@@ -242,3 +242,53 @@ export interface DocumentCommentItem {
   created_at: string;
   updated_at: string;
 }
+
+/* ---------- Epic 96 P0: Proposal 澄清回路（人机协同需求分析） ---------- */
+export type ProposalStatus =
+  | 'draft' | 'queued' | 'analyzing' | 'awaiting'
+  | 'answered' | 'converged' | 'story_created' | 'failed';
+
+export const PROPOSAL_STATUSES: ProposalStatus[] = [
+  'draft', 'queued', 'analyzing', 'awaiting',
+  'answered', 'converged', 'story_created', 'failed',
+];
+
+export interface ProposalItem {
+  id: number;
+  project_id: number;
+  title: string;
+  content: string;
+  status: ProposalStatus;
+  current_round: number;
+  converged_spec: string;
+  story_id: number | null;
+  author_id: number | null;
+  error: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProposalQuestionItem {
+  id: number;
+  proposal_id: number;
+  round_id: number;
+  seq: number;
+  question: string;
+  answer: string;
+  unsure: boolean;
+  answered_at: string | null;
+  answered_by: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProposalRoundItem {
+  id: number;
+  proposal_id: number;
+  round_no: number;
+  summary: string;
+  agent: string;
+  created_at: string;
+  updated_at: string;
+  questions: ProposalQuestionItem[];
+}
