@@ -52,7 +52,7 @@ export class App implements OnInit, OnDestroy {
   readonly loading = signal(true);
   readonly error = signal('');
   readonly search = signal('');
-  readonly sidebarOpen = signal(true);
+  readonly sidebarOpen = signal(window.innerWidth > 800);
   readonly boardMode = signal(localStorage.getItem('agentboard_story_view') === 'board');
   // Task 831: 列表密度切换（舒适 / 紧凑），偏好持久化
   readonly listDensity = signal<'comfortable' | 'compact'>(

@@ -48,14 +48,18 @@
           <rect x="9" y="23" width="6" height="2" rx="1" fill="white" opacity=".5"/>
           <defs>
             <linearGradient id="logo-grad" x1="0" y1="0" x2="32" y2="32">
-              <stop offset="0%" stop-color="#6366f1"/>
-              <stop offset="55%" stop-color="#8b5cf6"/>
-              <stop offset="100%" stop-color="#a855f7"/>
+              <stop offset="0%" stop-color="#1d4ed8"/>
+              <stop offset="55%" stop-color="#2563eb"/>
+              <stop offset="100%" stop-color="#0891b2"/>
             </linearGradient>
           </defs>
         </svg>
         <span class="logo-text">Agent<b>Board</b></span>
       </a>
+      <div class="topbar-context">
+        <span class="topbar-divider"></span>
+        <span class="topbar-product">企业项目协作平台</span>
+      </div>
     </div>
     <div class="topbar-right">
       <!-- Task 716: 快捷键帮助按钮 -->
@@ -219,8 +223,14 @@
 <div class="layout">
   @if (sidebarOpen()) {
     <aside id="sidebar" class="sidebar">
+      <div class="sidebar-workspace">
+        <span class="sidebar-workspace-kicker">WORKSPACE</span>
+        <strong>项目协作中心</strong>
+        <span>规划 · 执行 · 交付</span>
+      </div>
       <!-- 一级导航 -->
       <nav class="sidebar-nav">
+        <div class="sidebar-nav-caption">核心工作台</div>
         <a routerLink="/" [class.active]="view() === 'home'" class="sidebar-nav-item">
           <span class="sidebar-nav-icon">📊</span>
           <span class="sidebar-nav-label">仪表盘</span>

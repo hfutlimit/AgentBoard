@@ -8,7 +8,12 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 
-STATIC_DIR = Path(__file__).parent / "web" / "static"
+_legacy_static_dir = Path(__file__).parent / "web" / "static"
+_angular_dist_dir = Path(__file__).parent.parent / "frontend" / "dist" / "frontend" / "browser"
+STATIC_DIR = Path(os.getenv(
+    "AGENTBOARD_WEB_STATIC_DIR",
+    str(_angular_dist_dir if _angular_dist_dir.is_dir() else _legacy_static_dir),
+))
 API_URL = os.getenv("AGENTBOARD_API_URL", "http://127.0.0.1:58124")
 
 app = FastAPI(title="AgentBoard Web (Angular)")
