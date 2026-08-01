@@ -73,147 +73,40 @@
       <button id="theme-toggle" class="icon-btn" [title]="getThemeLabel()" (click)="toggleTheme()">
         <span class="theme-icon">{{ isDarkTheme() ? '🌙' : '☀️' }}</span>
       </button>
-      <!-- Task 708: 常驻性能徽标开关 -->
-      <button id="perf-toggle" class="icon-btn" [title]="showPerfBadge() ? '隐藏性能徽标' : '显示性能徽标'" (click)="togglePerfBadge()">
-        <span>{{ showPerfBadge() ? '📊' : '📈' }}</span>
-      </button>
       <span id="user-info" class="muted">
         <!-- Notification bell -->
         @if (currentUser()) {
-          <!-- Health indicator -->
-          <button class="ghost-sm health-btn" style="margin-right:6px" (click)="toggleHealth()" title="API 健康状态">
-            @if (healthStatus() === 'ok') {
-              <span class="health-dot ok" title="API 正常"></span>
-            } @else if (healthStatus() === 'error') {
-              <span class="health-dot error" title="API 异常"></span>
-            } @else {
-              <span class="health-dot unknown" title="检测中…"></span>
-            }
-          </button>
-          @if (showHealth()) {
-            <div class="health-popover">
-              <div class="health-header"><strong>系统状态</strong></div>
-              @if (healthDetail(); as h) {
-                <div class="health-row"><span>API</span><span class="badge status--done">{{ h.status }}</span></div>
-                <div class="health-row"><span>Database</span><span [class]="h.database === 'ok' ? 'badge status--done' : 'badge status--verifying'">{{ h.database }}</span></div>
-                <div class="health-row"><span>Version</span><span>{{ h.version }}</span></div>
-                <div class="health-row"><span>Timestamp</span><span style="font-size:11px">{{ h.timestamp | date:'HH:mm:ss' }}</span></div>
-              } @else {
-                <div class="health-row"><span>状态</span><span class="badge status--verifying">无法获取</span></div>
-              }
-              <!-- Task 708/725: 性能指标显示 + Network请求详情 -->
-              <div class="perf-section">
-                <div class="perf-header">📊 性能指标</div>
-                <div class="health-row"><span>页面加载</span><span class="perf-value">{{ formatLoadTime() }}</span></div>
-                <div class="health-row"><span>API 平均</span><span class="perf-value">{{ avgApiDuration() > 0 ? formatMetricTime(avgApiDuration()) : '-' }}</span></div>
-                <div class="health-row"><span>API 成功率</span><span [class]="apiSuccessRate() >= 95 ? 'perf-value perf-good' : apiSuccessRate() >= 80 ? 'perf-value perf-warn' : 'perf-value perf-bad'">{{ apiSuccessRate() }}%</span></div>
-                <!-- Task 725: Network请求详情 -->
-                @if (apiMetrics().length > 0) {
-                  <div class="perf-metrics">
-                    <div class="perf-metrics-header">最近 {{ apiMetrics().length > 5 ? 5 : apiMetrics().length }} 条请求</div>
-                    @for (m of apiMetrics().slice(-5); track m.timestamp) {
-                      <div class="perf-metric-row">
-                        <span class="perf-method perf-method--{{ m.method.toLowerCase() }}">{{ m.method }}</span>
-                        <span class="perf-path" [title]="m.path">{{ m.path | slice:0:22 }}</span>
-                        <span [class]="m.status === 'success' ? 'perf-duration perf-good' : 'perf-duration perf-bad'">{{ formatMetricTime(m.duration) }}</span>
-                      </div>
-                    }
-                  </div>
-                  <!-- Task 726: 性能建议 -->
-                  <div class="perf-advice">
-                    @if (avgApiDuration() > 1000) {
-                      <div class="perf-advice-warn">⚠️ API 平均响应超过 1s，建议检查服务端性能</div>
-                    }
-                    @if (apiSuccessRate() < 95) {
-                      <div class="perf-advice-warn">⚠️ API 成功率偏低 ({{ apiSuccessRate() }}%)，请检查网络或服务端状态</div>
-                    }
-                    @if (apiSuccessRate() >= 95 && avgApiDuration() <= 1000) {
-                      <div class="perf-advice-ok">✅ 系统运行正常</div>
-                    }
-                  </div>
-                }
-              </div>
-              <button class="ghost-sm" style="width:100%;margin-top:8px" (click)="checkHealth(); updatePerformanceMetrics()">刷新</button>
-              <button class="ghost-sm" style="width:100%;margin-top:4px" (click)="toggleHealthPoll()">
-                {{ isHealthPollEnabled() ? '⏸ 关闭轮询' : '▶ 开启轮询' }}
-              </button>
-            </div>
-          }
-          <div class="notif-wrap" style="position:relative;display:inline-block;margin-right:8px">
-            <button class="ghost-sm notif-btn notif-btn--bell" (click)="toggleNotifications()" title="通知">
+          <div class="notif-wrap">
+            <button class="ghost-sm notif-btn notif-btn--bell" (click)="openNotificationsWindow()" title="在新窗口打开通知">
               <span class="bell-icon">🔔</span>
               @if (unreadCount() > 0) {
                 <span class="notif-badge notif-badge--pulse">{{ unreadCount() > 9 ? '9+' : unreadCount() }}</span>
               }
             </button>
-            @if (showNotifications()) {
-              <div class="notif-panel notif-panel--animate">
-                <div class="notif-header">
-                  <strong>通知</strong>
-                  @if (unreadCount() > 0) {
-                    <span class="notif-unread-tag">{{ unreadCount() }} 条未读</span>
-                    <button class="ghost-sm" (click)="markAllRead()">全部已读</button>
-                    <button class="ghost-sm danger" (click)="deleteAllNotifications()">清空全部</button>
-                  } @else {
-                    <span class="notif-all-read-tag">全部已读 ✓</span>
-                  }
-                </div>
-                <!-- Task 727: 通知面板搜索过滤 -->
-                <div class="notif-search-wrap">
-                  <input
-                    class="notif-search-input"
-                    type="search"
-                    placeholder="搜索通知…"
-                    [value]="notifSearchQuery()"
-                    (input)="notifSearchQuery.set($any($event.target).value)"
-                  />
-                </div>
-                @if (notifications().length) {
-                  <div class="notif-list notif-list--grouped">
-                    <!-- Task 719: 按类型分组显示通知 -->
-                    @for (group of objectEntries(filteredGroupedNotifications()); track group[0]) {
-                      <details class="notif-group" [open]="!isNotifGroupCollapsed(group[0])">
-                        <summary class="notif-group-header" (click)="toggleNotifGroup(group[0]); $event.preventDefault()">
-                          {{ notifTypeLabel(group[0]) }}
-                          <span class="notif-group-count">{{ group[1].length }}</span>
-                          <span class="notif-group-actions">
-                            <button class="notif-group-btn" title="标记组为已读" (click)="markGroupRead(group[0]); $event.stopPropagation()">✓</button>
-                            <button class="notif-group-btn" title="删除整组" (click)="deleteNotifGroup(group[0]); $event.stopPropagation()">🗑</button>
-                          </span>
-                        </summary>
-                        @for (n of group[1]; track n.id) {
-                          <div class="notif-item" [class.unread]="!n.is_read" (click)="openNotification(n)" [class.clickable]="!!n.link">
-                            <span class="notif-item-icon" [style.background]="notifTypeIcon(n.type).color + '20'" [style.color]="notifTypeIcon(n.type).color">
-                              {{ notifTypeIcon(n.type).emoji }}
-                            </span>
-                            <div class="notif-item-body">
-                              <div class="notif-title">{{ n.title }}</div>
-                              @if (n.content) { <div class="notif-content">{{ n.content }}</div> }
-                              <div class="notif-time">{{ timeAgo(n.created_at) }}</div>
-                            </div>
-                            @if (!n.is_read) {
-                              <span class="notif-dot"></span>
-                            }
-                            <button class="notif-delete" title="删除通知" (click)="deleteNotification(n.id); $event.stopPropagation()">×</button>
-                          </div>
-                        }
-                      </details>
-                    }
-                  </div>
-                } @else {
-                  <div class="notif-empty">暂无通知</div>
-                }
-              </div>
-            }
           </div>
           <span class="user-chip">
-            <button class="user-name user-menu-trigger" (click)="showUserMenu.set(!showUserMenu())">
-              {{ currentUser() }} <span aria-hidden="true">⌄</span>
+            <button class="user-menu-trigger" (click)="showUserMenu.set(!showUserMenu())" [attr.aria-expanded]="showUserMenu()">
+              <span class="user-avatar">{{ currentUser().slice(0, 1).toUpperCase() }}</span>
+              <span class="user-identity">
+                <strong>{{ currentUser() }}</strong>
+                <small>{{ isAdmin() ? '系统管理员' : '协作成员' }}</small>
+              </span>
+              <span class="user-chevron" [class.open]="showUserMenu()" aria-hidden="true">⌄</span>
             </button>
             @if (showUserMenu()) {
               <div class="user-dropdown">
-                <a routerLink="/settings" class="user-dropdown-item" (click)="showUserMenu.set(false)">⚙ 个人设置</a>
-                <button class="user-dropdown-item" (click)="showUserMenu.set(false); logout()">🚪 退出登录</button>
+                <div class="user-dropdown-profile">
+                  <span class="user-avatar user-avatar--large">{{ currentUser().slice(0, 1).toUpperCase() }}</span>
+                  <span><strong>{{ currentUser() }}</strong><small>{{ isAdmin() ? '系统管理员' : '协作成员' }}</small></span>
+                </div>
+                <div class="user-dropdown-divider"></div>
+                <a routerLink="/projects" class="user-dropdown-item" (click)="showUserMenu.set(false)"><span>▦</span><span>项目空间</span></a>
+                @if (isAdmin()) {
+                  <a routerLink="/admin" class="user-dropdown-item" (click)="showUserMenu.set(false)"><span>◇</span><span>管理员后台</span></a>
+                }
+                <a routerLink="/settings" class="user-dropdown-item" (click)="showUserMenu.set(false)"><span>⚙</span><span>个人设置</span></a>
+                <div class="user-dropdown-divider"></div>
+                <button class="user-dropdown-item user-dropdown-item--danger" (click)="showUserMenu.set(false); logout()"><span>↪</span><span>退出登录</span></button>
               </div>
             }
           </span>
@@ -331,10 +224,6 @@
                 <p>{{ projects().length }} 个项目 · {{ tasks().length }} 项任务 · {{ doneTasks() }} 项已完成</p>
               </div>
               <div class="hero-right">
-                <span class="hero-pill" [class.ok]="healthStatus() === 'ok'" [class.error]="healthStatus() === 'error'">
-                  <span class="health-dot" [class.ok]="healthStatus() === 'ok'" [class.error]="healthStatus() === 'error'" [class.unknown]="healthStatus() === 'unknown'"></span>
-                  {{ healthStatus() === 'ok' ? '系统正常' : healthStatus() === 'error' ? '系统异常' : '检测中' }}
-                </span>
                 @if (tasks().length > 0) {
                   <span class="hero-pill hero-progress">
                     完成率 {{ ((doneTasks() / tasks().length) * 100).toFixed(0) }}%
@@ -2566,12 +2455,119 @@
             </div>
           }
         }
+        @case ('notifications') {
+          <div class="crumb-bar"><a routerLink="/">首页</a><span>›</span><span>通知中心</span></div>
+          <div class="page-header notification-page-header">
+            <div>
+              <div class="page-title-row"><h2>通知中心</h2><span class="badge count-badge">{{ notifications().length }}</span></div>
+              <p class="muted">集中处理项目邀请、任务分配、状态变更和协作提醒。</p>
+            </div>
+            <div class="page-actions">
+              <button class="ghost-sm" type="button" (click)="loadNotifications()">刷新</button>
+              @if (unreadCount() > 0) {
+                <button class="ghost-sm" type="button" (click)="markAllRead()">全部标为已读</button>
+              }
+              @if (notifications().length > 0) {
+                <button class="ghost-sm danger" type="button" (click)="deleteAllNotifications()">清空通知</button>
+              }
+            </div>
+          </div>
+          <section class="card notification-page">
+            <div class="notification-page-toolbar">
+              <div class="notification-summary">
+                <strong>{{ unreadCount() }}</strong>
+                <span>条未读通知</span>
+              </div>
+              <div class="notif-search-wrap">
+                <input
+                  class="notif-search-input"
+                  type="search"
+                  placeholder="搜索标题或通知内容…"
+                  [value]="notifSearchQuery()"
+                  (input)="notifSearchQuery.set($any($event.target).value)"
+                />
+              </div>
+            </div>
+            @if (objectEntries(filteredGroupedNotifications()).length) {
+              <div class="notif-list notif-list--grouped">
+                @for (group of objectEntries(filteredGroupedNotifications()); track group[0]) {
+                  <details class="notif-group" [open]="!isNotifGroupCollapsed(group[0])">
+                    <summary class="notif-group-header" (click)="toggleNotifGroup(group[0]); $event.preventDefault()">
+                      {{ notifTypeLabel(group[0]) }}
+                      <span class="notif-group-count">{{ group[1].length }}</span>
+                      <span class="notif-group-actions">
+                        <button class="notif-group-btn" title="标记本组为已读" (click)="markGroupRead(group[0]); $event.stopPropagation()">✓</button>
+                        <button class="notif-group-btn" title="删除本组" (click)="deleteNotifGroup(group[0]); $event.stopPropagation()">🗑</button>
+                      </span>
+                    </summary>
+                    @for (n of group[1]; track n.id) {
+                      <div class="notif-item" [class.unread]="!n.is_read" (click)="openNotification(n)" [class.clickable]="!!n.link">
+                        <span class="notif-item-icon" [style.background]="notifTypeIcon(n.type).color + '20'" [style.color]="notifTypeIcon(n.type).color">
+                          {{ notifTypeIcon(n.type).emoji }}
+                        </span>
+                        <div class="notif-item-body">
+                          <div class="notif-title">{{ n.title }}</div>
+                          @if (n.content) { <div class="notif-content">{{ n.content }}</div> }
+                          <div class="notif-time">{{ timeAgo(n.created_at) }}</div>
+                        </div>
+                        @if (!n.is_read) { <span class="notif-dot"></span> }
+                        <button class="notif-delete" title="删除通知" (click)="deleteNotification(n.id); $event.stopPropagation()">×</button>
+                      </div>
+                    }
+                  </details>
+                }
+              </div>
+            } @else {
+              <div class="notification-empty">
+                <span>✓</span>
+                <h3>{{ notifSearchQuery() ? '没有匹配的通知' : '通知已全部处理' }}</h3>
+                <p class="muted">{{ notifSearchQuery() ? '换一个关键词再试试。' : '新的协作动态会显示在这里。' }}</p>
+              </div>
+            }
+          </section>
+        }
         @case ('admin') {
           <div class="crumb-bar"><a routerLink="/">首页</a><span>›</span><span>管理员后台</span></div>
           <div class="page-header">
             <div class="page-title-row">
               <h2>⚙ 管理员后台</h2>
             </div>
+          </div>
+          <div class="admin-section admin-health-section">
+            <div class="admin-section-header">
+              <div><h3>系统运行状态</h3><p class="muted">仅管理员可见的服务健康与性能信息。</p></div>
+              <button class="ghost-sm" type="button" (click)="checkHealth(); updatePerformanceMetrics()">刷新状态</button>
+            </div>
+            @if (healthDetail(); as h) {
+              <div class="admin-health-grid">
+                <div class="admin-health-card">
+                  <span class="admin-health-label">API 服务</span>
+                  <strong [class]="h.status === 'ok' ? 'admin-health-value good' : 'admin-health-value bad'">{{ h.status === 'ok' ? '运行正常' : h.status }}</strong>
+                </div>
+                <div class="admin-health-card">
+                  <span class="admin-health-label">数据库</span>
+                  <strong [class]="h.database === 'ok' ? 'admin-health-value good' : 'admin-health-value bad'">{{ h.database === 'ok' ? '连接正常' : h.database }}</strong>
+                </div>
+                <div class="admin-health-card">
+                  <span class="admin-health-label">应用版本</span>
+                  <strong class="admin-health-value">{{ h.version }}</strong>
+                </div>
+                <div class="admin-health-card">
+                  <span class="admin-health-label">最近检查</span>
+                  <strong class="admin-health-value">{{ h.timestamp | date:'HH:mm:ss' }}</strong>
+                </div>
+                <div class="admin-health-card">
+                  <span class="admin-health-label">API 平均响应</span>
+                  <strong class="admin-health-value">{{ avgApiDuration() > 0 ? formatMetricTime(avgApiDuration()) : '暂无数据' }}</strong>
+                </div>
+                <div class="admin-health-card">
+                  <span class="admin-health-label">API 成功率</span>
+                  <strong [class]="apiSuccessRate() >= 95 ? 'admin-health-value good' : 'admin-health-value warn'">{{ apiSuccessRate() }}%</strong>
+                </div>
+              </div>
+            } @else {
+              <div class="admin-health-unavailable"><span>!</span><div><strong>无法获取服务状态</strong><p class="muted">请确认 API 服务可访问后重试。</p></div></div>
+            }
           </div>
           <!-- Admin: Users section -->
           <div class="admin-section">
@@ -3284,13 +3280,4 @@
     </div>
   </div>
 }
-    <!-- Task 708: 常驻性能徽标（持续显示页面加载 / API 延迟，点击展开系统状态详情） -->
-    @if (showPerfBadge()) {
-      <div class="perf-badge perf-badge--{{ perfHealthLevel() }}" (click)="toggleHealth()" title="性能指标 · 点击查看详情">
-        <span class="perf-badge-dot"></span>
-        <span class="perf-badge-metric"><span class="perf-badge-label">加载</span>{{ formatLoadTime() }}</span>
-        <span class="perf-badge-sep">/</span>
-        <span class="perf-badge-metric"><span class="perf-badge-label">API</span>{{ avgApiDuration() > 0 ? formatMetricTime(avgApiDuration()) : '—' }}</span>
-      </div>
-    }
 <router-outlet />

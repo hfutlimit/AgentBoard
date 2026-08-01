@@ -20,6 +20,7 @@ export const routes: Routes = [
   { path: 'documents/:id', component: RouteAnchor },
   { path: 'proposals', component: RouteAnchor },
   { path: 'proposals/:id', component: RouteAnchor },
+  { path: 'notifications', component: RouteAnchor },
   { path: 'admin', component: RouteAnchor },
   { path: 'settings', component: RouteAnchor },
   { path: '**', component: RouteAnchor },

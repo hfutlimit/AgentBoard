@@ -12,7 +12,7 @@ import { LoginComponent } from './login/login';
 import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES } from './models';
 import { PaginationComponent } from './pagination/pagination';
 
-type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'admin' | 'settings' | 'not-found';
+type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'notifications' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
 type ProjectTabKind = 'epics' | 'sprints' | 'backlog' | 'proposals' | 'settings' | 'members' | 'stats' | 'schedules' | 'documents';
 type ProjectListKind = 'epics' | 'sprints' | 'backlog' | 'members' | 'schedules';
@@ -133,7 +133,6 @@ export class App implements OnInit, OnDestroy {
   readonly members = signal<ProjectMember[]>([]);
   readonly notifications = signal<Notification[]>([]);
   readonly unreadCount = signal(0);
-  readonly showNotifications = signal(false);
   readonly showUserMenu = signal(false);
   readonly projectStats = signal<ProjectStats | null>(null);
   readonly schedules = signal<AgentSchedule[]>([]);
@@ -263,7 +262,6 @@ export class App implements OnInit, OnDestroy {
   readonly isAdmin = signal(false);
   readonly healthStatus = signal<'ok' | 'error' | 'unknown'>('unknown');
   readonly healthDetail = signal<{ status: string; database: string; version: string; timestamp: string } | null>(null);
-  readonly showHealth = signal(false);
   readonly offlineBanner = signal(false);  // Task 402: API 离线检测
   // Epic 21 Story 21.4: 离线状态详细提示
   readonly offlineQueueCount = signal(0);
@@ -869,9 +867,7 @@ export class App implements OnInit, OnDestroy {
 
   private routeSub?: Subscription;
   private toastTimer?: ReturnType<typeof setTimeout>;
-  private healthTimer?: ReturnType<typeof setInterval>;   // Task 400: 健康检查轮询
   private notifTimer?: ReturnType<typeof setInterval>;    // Task 401: 通知轮询
-  private perfTimer?: ReturnType<typeof setInterval>;      // Task 708: 性能指标实时刷新
   private readonly colorScheme = window.matchMedia?.('(prefers-color-scheme: dark)');
   private readonly handleColorSchemeChange = (event: MediaQueryListEvent): void => {
     if (!localStorage.getItem('agentboard_theme')) {
@@ -968,8 +964,6 @@ export class App implements OnInit, OnDestroy {
     window.addEventListener('unhandledrejection', this.handleUnhandledRejection);
     // 启动时校验已有 token，失败则清除并显示登录
     void this.validateAuth();
-    // Task 708: 每 2s 自动刷新性能指标，实时反映 API 延迟（常驻徽标依赖此数据）
-    this.perfTimer = setInterval(() => this.updatePerformanceMetrics(), 2000);
     this.routeSub = this.router.events
       .pipe(filter((event) => event instanceof NavigationEnd))
       .subscribe(() => {
@@ -978,15 +972,6 @@ export class App implements OnInit, OnDestroy {
         void this.loadRoute().then(() => this.applyDefaultPresetOnLoad());
       });
     void this.loadRoute();
-    // Task 400: 健康检查轮询（默认开启，可通过 localStorage 关闭）
-    if (localStorage.getItem('agentboard_health_poll') !== 'disabled') {
-      void this.checkHealth();
-      this.healthTimer = setInterval(() => {
-        if (localStorage.getItem('agentboard_health_poll') !== 'disabled') {
-          void this.checkHealth();
-        }
-      }, 60000); // 60s
-    }
     // Task 401: 通知轮询（每 60s）
     this.notifTimer = setInterval(() => {
       if (this.authVisible()) return;
@@ -1182,15 +1167,6 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  toggleHealth(): void {
-    this.showHealth.set(!this.showHealth());
-    if (this.showHealth()) {
-      void this.checkHealth();
-      // Task 708: 更新性能指标
-      this.updatePerformanceMetrics();
-    }
-  }
-
   // Task 708: 更新性能指标
   updatePerformanceMetrics(): void {
     this.apiMetrics.set(perfTracker.getRecentMetrics(10));
@@ -1209,22 +1185,6 @@ export class App implements OnInit, OnDestroy {
     const ms = this.pageLoadTime();
     if (ms < 1000) return `${Math.round(ms)}ms`;
     return `${(ms / 1000).toFixed(2)}s`;
-  }
-
-  // Task 400: 切换健康检查轮询
-  toggleHealthPoll(): void {
-    const current = localStorage.getItem('agentboard_health_poll');
-    if (current === 'disabled') {
-      localStorage.removeItem('agentboard_health_poll');
-      this.notify('健康检查轮询已开启（每 60s）');
-    } else {
-      localStorage.setItem('agentboard_health_poll', 'disabled');
-      this.notify('健康检查轮询已关闭');
-    }
-  }
-
-  isHealthPollEnabled(): boolean {
-    return localStorage.getItem('agentboard_health_poll') !== 'disabled';
   }
 
   /** 启动时验证 localStorage 中的 token，有效则恢复登录态，无效则清除并进入登录页 */
@@ -1265,9 +1225,7 @@ export class App implements OnInit, OnDestroy {
     this.colorScheme?.removeEventListener('change', this.handleColorSchemeChange);
     this.routeSub?.unsubscribe();
     if (this.toastTimer) clearTimeout(this.toastTimer);
-    if (this.healthTimer) clearInterval(this.healthTimer);    // Task 400
     if (this.notifTimer) clearInterval(this.notifTimer);     // Task 401
-    if (this.perfTimer) clearInterval(this.perfTimer);       // Task 708
   }
 
   private match<T>(items: T[], text: (item: T) => string): T[] {
@@ -1613,6 +1571,13 @@ export class App implements OnInit, OnDestroy {
         }
         this.view.set('settings');
         await Promise.all([this.loadProfile(), this.loadMyProjects(), this.loadApiKeys()]);
+      } else if (kind === 'notifications') {
+        if (!localStorage.getItem('agentboard_token')) {
+          await this.router.navigateByUrl('/login');
+          return;
+        }
+        this.view.set('notifications');
+        await this.loadNotifications();
       } else if (kind === 'documents') {
         if (id > 0) {
           const doc = await firstValueFrom(this.api.getDocument(id));
@@ -2916,10 +2881,18 @@ export class App implements OnInit, OnDestroy {
     } catch { /* ignore */ }
   }
 
-  toggleNotifications(): void {
-    const current = this.showNotifications();
-    this.showNotifications.set(!current);
-    if (!current) { void this.loadNotifications(); }
+  openNotificationsWindow(): void {
+    const url = new URL('/notifications', this.document.baseURI).toString();
+    const opened = this.document.defaultView?.open(
+      url,
+      'agentboard-notifications',
+      'popup=yes,width=1120,height=780,resizable=yes,scrollbars=yes',
+    );
+    if (!opened) {
+      this.notify('浏览器阻止了通知窗口，请允许此站点打开窗口', 'error');
+      return;
+    }
+    opened.focus();
   }
 
   /* ---------- Project Stats ---------- */
@@ -3030,6 +3003,8 @@ export class App implements OnInit, OnDestroy {
   }
 
   async loadAdminData(): Promise<void> {
+    this.updatePerformanceMetrics();
+    await this.checkHealth();
     try {
       const [usersResult, projectsResult] = await Promise.all([
         firstValueFrom(this.api.adminListUsers({ limit: 100 })),
@@ -3175,7 +3150,6 @@ export class App implements OnInit, OnDestroy {
 
   async openNotification(notification: Notification): Promise<void> {
     if (!notification.is_read) await this.markRead(notification.id);
-    this.showNotifications.set(false);
     if (notification.link) await this.router.navigateByUrl(notification.link);
   }
 

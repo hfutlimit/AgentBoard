@@ -37,6 +37,73 @@ describe('App', () => {
     expect(compiled.querySelector('.logo-text')?.textContent).toContain('AgentBoard');
   });
 
+  it('should hide technical health controls and render the enterprise user menu', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    app.authVisible.set(false);
+    app.loading.set(false);
+    app.currentUser.set('alice');
+    app.isAdmin.set(true);
+    app.showUserMenu.set(true);
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('[title="API 健康状态"]')).toBeNull();
+    expect(element.querySelector('#perf-toggle')).toBeNull();
+    expect(element.querySelector('.user-avatar')?.textContent).toContain('A');
+    expect(element.querySelector('.user-dropdown')?.textContent).toContain('项目空间');
+    expect(element.querySelector('.user-dropdown')?.textContent).toContain('管理员后台');
+    expect(element.querySelector('.user-dropdown')?.textContent).toContain('个人设置');
+  });
+
+  it('should open the standalone notification center in a dedicated window', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const focus = vi.fn();
+    const open = vi.spyOn(window, 'open').mockReturnValue({ focus } as unknown as Window);
+
+    app.openNotificationsWindow();
+
+    expect(open).toHaveBeenCalledWith(
+      expect.stringContaining('/notifications'),
+      'agentboard-notifications',
+      expect.stringContaining('width=1120'),
+    );
+    expect(focus).toHaveBeenCalled();
+    open.mockRestore();
+  });
+
+  it('should render notifications as a full page', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    app.authVisible.set(false);
+    app.loading.set(false);
+    app.view.set('notifications');
+    app.notifications.set([{
+      id: 21,
+      user_id: 1,
+      type: 'task_assigned',
+      title: 'Review the proposal',
+      content: 'A task has been assigned to you.',
+      is_read: false,
+      link: '/task/1',
+      created_at: '2026-08-01T00:00:00',
+    }]);
+    app.unreadCount.set(1);
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('.notification-page')).not.toBeNull();
+    expect(element.textContent).toContain('通知中心');
+    expect(element.textContent).toContain('Review the proposal');
+  });
+
   it('should render the user settings console', () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
