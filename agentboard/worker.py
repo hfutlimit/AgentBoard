@@ -70,6 +70,8 @@ from typing import Any, Callable, Iterable, Protocol
 
 import httpx
 
+from . import mq
+
 log = logging.getLogger("agentboard.worker")
 
 # Agent 可以给出的三种决策
@@ -130,10 +132,17 @@ class WorkerConfig:
     # 单次 Agent 调用超时（秒）
     agent_timeout: int = 900
     http_timeout: float = 30.0
+    # 消息总线（P2）。url 为空即禁用，Worker 回退 P1 轮询模式。
+    mq: "mq.MQConfig" = field(default_factory=lambda: mq.MQConfig())
+    # MQ 模式下的维护周期（秒）：回收超租约 + 自愈重投遗留工作项
+    maintenance_interval: float = 60.0
 
     @classmethod
     def from_env(cls) -> "WorkerConfig":
         return cls(
+            mq=mq.MQConfig.from_env(),
+            maintenance_interval=float(
+                _env_int("AGENTBOARD_WORKER_MAINTENANCE_INTERVAL", 60)),
             api_url=os.getenv("AGENTBOARD_API_URL", cls.api_url).rstrip("/"),
             token=os.getenv("AGENTBOARD_WORKER_TOKEN")
             or os.getenv("AGENTBOARD_MCP_TOKEN"),
@@ -672,6 +681,124 @@ class ProposalWorker:
         log.info("Worker 退出，共执行 %s 轮", cycles)
         return cycles
 
+    # ---------- MQ 消费（P2） ----------
+
+    def handle_message(self, message: "mq.ProposalMessage") -> bool:
+        """处理一条派发消息。返回 False 表示拒收，消息转入死信队列。
+
+        **消息只是提示，数据库才是事实源**：这里一律先回查提案再决策。因此
+        重投、过期消息、乱序消息都不会造成错误处理——最坏只是一次空回查。
+
+        ack（返回 True）的三种情形：
+        - 提案已删除（404）——工作项不存在了，重投多少次都没意义；
+        - 当前状态不可认领——已被其它 Worker 处理或用户尚未答完，正常丢弃；
+        - 正常走完 ``handle()`` 流水线（其内部已把各类失败收敛成 failed）。
+
+        拒收（返回 False → 死信）只留给「消息本身没救」的情况：回查 API 持续
+        异常。这类消息进死信后可人工排查重投；同时提案仍留在 queued/answered，
+        维护线程的自愈重投也会把它捞回来，不存在丢单。
+        """
+        pid = message.proposal_id
+        try:
+            r = self._request("GET", f"/api/proposals/{pid}")
+        except Exception as e:
+            log.warning("提案 #%s 回查失败（%s），消息转入死信待人工重投", pid, e)
+            return False
+        if r.status_code == 404:
+            log.info("提案 #%s 已不存在，丢弃消息", pid)
+            return True
+        if r.status_code != 200:
+            log.warning("提案 #%s 回查异常：%s %s，消息转入死信",
+                        pid, r.status_code, r.text[:200])
+            return False
+        proposal = r.json()
+        status = str(proposal.get("status") or "")
+        if status not in CLAIMABLE_STATUSES:
+            log.info("提案 #%s 当前状态 %s 不可认领（已被处理或尚未就绪），丢弃消息",
+                     pid, status)
+            return True
+        outcome = self.handle(proposal)
+        log.info("提案 #%s 消费完成：%s", pid, outcome)
+        return True
+
+    def sweep(self, publisher: "mq.ProposalPublisher") -> int:
+        """自愈重投：把仍滞留在 queued/answered 的工作项重新投递。
+
+        MQ 是 at-least-once，但**不是 exactly-once，也不是永不丢**：broker 重启、
+        消息进死信、发布时 broker 恰好不可达，都可能让某个提案没有对应消息。
+        这条周期性清扫让「消息丢失」自愈——数据库里还挂着的活，总会被重新推一遍。
+
+        只投递 queued/answered（analyzing 说明有人正在干），叠加服务端 CAS，
+        重复投递不会造成重复处理。
+        """
+        count = 0
+        for proposal in self.fetch_work():
+            pid = proposal.get("id")
+            if pid and publisher.publish(pid, proposal.get("current_round") or 0,
+                                         "sweep"):
+                count += 1
+        if count:
+            log.info("自愈重投 %s 个滞留工作项", count)
+        return count
+
+    def _maintenance_loop(self, publisher: "mq.ProposalPublisher",
+                          stop: threading.Event) -> None:
+        """后台维护：回收超租约 + 自愈重投。与消费主循环解耦，互不阻塞。"""
+        while not stop.wait(self.config.maintenance_interval):
+            try:
+                self.reclaim_stale()
+                self.sweep(publisher)
+            except Exception:
+                log.exception("维护周期异常，将在下个周期重试")
+
+    def run_mq_forever(self, stop: threading.Event | None = None,
+                       max_messages: int | None = None,
+                       idle_timeout: float | None = None,
+                       broker: Any | None = None,
+                       publisher: "mq.ProposalPublisher | None" = None) -> dict:
+        """MQ 竞争消费模式（P2，替换 P1 的 DB 轮询）。
+
+        多个 Worker 连同一个队列，broker 按 ``prefetch=1`` 分发，服务端 CAS 认领
+        做第二重仲裁——即便消息被重复投递给两个 Worker，也只有一个能真正开工。
+
+        未配置 MQ 时**自动回退轮询**，保证部署未就绪不影响功能。
+        """
+        broker = broker if broker is not None else mq.build_broker(self.config.mq)
+        if broker is None:
+            log.warning("未配置 AGENTBOARD_MQ_URL（或 pika 不可用），回退 P1 轮询模式")
+            cycles = self.run_forever(stop=stop)
+            return {"mode": "poll", "cycles": cycles}
+
+        stop = stop or threading.Event()
+        publisher = publisher or mq.ProposalPublisher(self.config.mq)
+        broker.declare_topology()
+        log.info("Worker 以 MQ 模式启动：ns=%s prefetch=%s api=%s agent=%s",
+                 self.config.mq.namespace, self.config.mq.prefetch,
+                 self.config.api_url, self.config.agent)
+
+        # 启动即做一次崩溃恢复：上一代 Worker 可能带着租约挂了
+        try:
+            self.reclaim_stale()
+        except Exception:
+            log.exception("启动期回收超租约提案失败，继续消费")
+
+        keeper = threading.Thread(
+            target=self._maintenance_loop, args=(publisher, stop),
+            name="proposal-worker-maintenance", daemon=True,
+        )
+        keeper.start()
+        try:
+            stats = broker.consume(
+                self.handle_message, max_messages=max_messages,
+                idle_timeout=idle_timeout, stop=stop,
+            )
+        finally:
+            stop.set()
+            keeper.join(timeout=2)
+        stats["mode"] = "mq"
+        log.info("Worker MQ 模式退出：%s", stats)
+        return stats
+
 
 # ===================== CLI =====================
 
@@ -683,6 +810,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--once", action="store_true", help="只跑一轮后退出")
     group.add_argument("--loop", action="store_true", help="常驻轮询（默认）")
+    group.add_argument("--mq", action="store_true",
+                       help="MQ 竞争消费模式（未配置 AGENTBOARD_MQ_URL 时自动回退轮询）")
+    parser.add_argument("--mq-url", default=None, help="覆盖 AGENTBOARD_MQ_URL")
     parser.add_argument("--api-url", default=None, help="覆盖 AGENTBOARD_API_URL")
     parser.add_argument("--agent-cmd", default=None, help="覆盖无头 Agent 命令模板")
     parser.add_argument("--interval", type=float, default=None, help="轮询间隔（秒）")
@@ -703,6 +833,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         cfg.poll_interval = args.interval
     if args.max_rounds is not None:
         cfg.max_rounds = args.max_rounds
+    if args.mq_url:
+        cfg.mq.url = args.mq_url
 
     try:
         worker = ProposalWorker(cfg)
@@ -717,7 +849,10 @@ def main(argv: Iterable[str] | None = None) -> int:
             return 0
         stop = threading.Event()
         try:
-            worker.run_forever(stop)
+            if args.mq:
+                worker.run_mq_forever(stop)
+            else:
+                worker.run_forever(stop)
         except KeyboardInterrupt:
             stop.set()
             print("收到中断信号，Worker 已停止", file=sys.stderr)

@@ -132,6 +132,10 @@ def _wait_ready(base: str, timeout: float = 30.0) -> None:
 def stack():
     port = _free_port()
     env = os.environ.copy()
+    # 隔离 DB：避免继承同会话中其它模块（如 p0）写入进程环境的 AGENTBOARD_DB_URL，
+    # 否则本模块的 Worker 会顺手处理到别的模块的遗留提案，导致断言失真。
+    env["AGENTBOARD_DB_URL"] = f"sqlite:///{tempfile.mktemp(suffix='.db')}"
+    env["AGENTBOARD_MCP_BACKEND"] = "db"
     env["PYTHONPATH"] = _ROOT + os.pathsep + env.get("PYTHONPATH", "")
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "agentboard.api:app",

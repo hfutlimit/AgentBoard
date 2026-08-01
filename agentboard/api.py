@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from .database import get_session, init_db, SessionLocal
-from . import service, auth
+from . import service, auth, mq
 from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES
 from .cache import get_cache, API_CACHE_TTL
 
@@ -1945,6 +1945,19 @@ class ProposalAnswerIn(BaseModel):
     unsure: bool = False
 
 
+def _dispatch_proposal(proposal_id: int, round_no: int = 0, reason: str = "") -> None:
+    """把提案投递到澄清工作队列（Epic 96 P2-1）。
+
+    **best-effort**：MQ 未启用时是静默 no-op，broker 宕机时只记告警——派发通道
+    出问题绝不能让用户的 REST 请求失败。真丢了消息也有兜底：Worker 的轮询模式与
+    ``reclaim-stale`` 都能把工作项重新捞回来。
+    """
+    try:
+        mq.publish_proposal_event(proposal_id, round_no, reason)
+    except Exception:  # pragma: no cover - 双保险，publish 内部已兜底
+        pass
+
+
 @app.post("/api/proposals", status_code=201)
 def create_proposal(body: ProposalIn, s: Session = Depends(get_session),
                     authorization: str | None = Header(None)):
@@ -2011,6 +2024,9 @@ def reclaim_stale_proposals(
         ids = service.reclaim_stale_proposals(s, lease_seconds=lease)
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
+    # 回收即重投：崩溃 Worker 留下的工作项重新进入队列，闭合「超时回退重投」回路。
+    for pid in ids:
+        _dispatch_proposal(pid, 0, mq.REASON_RECLAIMED)
     return {"reclaimed": ids, "count": len(ids), "lease_seconds": lease}
 
 
@@ -2045,6 +2061,11 @@ def set_proposal_status(pid: int, body: ProposalStatusIn, s: Session = Depends(g
         raise HTTPException(status_code=400, detail=str(e))
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
+    # 进入 queued 即投递派发消息：覆盖 draft→queued 提交、failed→queued 重投、
+    # analyzing→queued 超时回退三条入队边，无需各调用方各自记得发消息。
+    if p is not None and str(p.status) == "queued":
+        _dispatch_proposal(pid, getattr(p, "current_round", 0) or 0,
+                           mq.REASON_QUEUED)
     return service._ser(p)
 
 
@@ -2126,6 +2147,12 @@ def answer_proposal_question(qid: int, body: ProposalAnswerIn,
         raise HTTPException(status_code=404, detail=str(e))
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
+    # 整轮答完会自动 awaiting→answered，此时立刻推一条消息触发下一轮澄清，
+    # 免去「用户答完还要干等一个轮询周期」的延迟。
+    p = service.get_proposal(s, q.proposal_id)
+    if p is not None and str(p.status) == "answered":
+        _dispatch_proposal(p.id, getattr(p, "current_round", 0) or 0,
+                           mq.REASON_ANSWERED)
     return service._ser(q)
 
 
