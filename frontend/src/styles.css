@@ -724,6 +724,7 @@ main {
 .entity-list { display: flex; flex-direction: column; gap: 8px; }
 
 .entity-item {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -738,12 +739,32 @@ main {
   transition: all .2s;
   cursor: pointer;
 }
+/* 左侧品牌色指示条：hover 时由中心 scaleY 展开。
+   替代原先的 transform: translateX(4px)，后者会让卡片命中区在 hover 时
+   整体平移 4px，光标落在左/右边缘时会反复进出卡片 → 边缘抖动 (edge tremor)。
+   伪元素 + scaleY 不改变卡片几何，光标永远在命中区内，零抖动。 */
+.entity-item::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--brand-500);
+  border-radius: var(--r-sm) 0 0 var(--r-sm);
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform .2s ease;
+  pointer-events: none;
+}
 .entity-item:hover {
   border-color: var(--brand-500);
   box-shadow: 0 4px 12px var(--brand-ring);
-  transform: translateX(4px);
   text-decoration: none;
   color: inherit;
+}
+.entity-item:hover::before {
+  transform: scaleY(1);
 }
 
 .entity-item-main { display: flex; align-items: center; gap: 12px; min-width: 0; flex: 1; }
