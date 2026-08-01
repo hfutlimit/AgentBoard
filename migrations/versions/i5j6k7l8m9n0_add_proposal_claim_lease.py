@@ -26,18 +26,24 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "proposals",
-        sa.Column("claimed_by", sa.String(length=100), nullable=True, server_default=""),
-    )
-    op.add_column(
-        "proposals",
-        sa.Column("claimed_at", sa.DateTime(), nullable=True),
-    )
+    inspector = sa.inspect(op.get_bind())
+    columns = {column["name"] for column in inspector.get_columns("proposals")}
+    if "claimed_by" not in columns:
+        op.add_column(
+            "proposals",
+            sa.Column("claimed_by", sa.String(length=100), nullable=True, server_default=""),
+        )
+    if "claimed_at" not in columns:
+        op.add_column(
+            "proposals",
+            sa.Column("claimed_at", sa.DateTime(), nullable=True),
+        )
     # 租约回收扫描按 (status, claimed_at) 过滤，建复合索引避免全表扫描。
-    op.create_index(
-        "ix_proposals_status_claimed_at", "proposals", ["status", "claimed_at"],
-    )
+    indexes = {index["name"] for index in inspector.get_indexes("proposals")}
+    if "ix_proposals_status_claimed_at" not in indexes:
+        op.create_index(
+            "ix_proposals_status_claimed_at", "proposals", ["status", "claimed_at"],
+        )
 
 
 def downgrade() -> None:

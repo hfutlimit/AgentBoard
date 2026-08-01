@@ -1,13 +1,13 @@
 """add documents & document_comments (Epic 15：项目文档维护)
 
 Revision ID: f2a3b4c5d6e7
-Revises: e1f2a3b4c5d6
+Revises: f7a6b5c4d3e2
 """
 from alembic import op
 import sqlalchemy as sa
 
 revision = "f2a3b4c5d6e7"
-down_revision = "e1f2a3b4c5d6"
+down_revision = "f7a6b5c4d3e2"
 branch_labels = None
 depends_on = None
 

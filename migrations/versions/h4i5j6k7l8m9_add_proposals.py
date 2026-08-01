@@ -22,6 +22,11 @@ _STATUS_CHECK = (
 
 
 def upgrade() -> None:
+    inspector = sa.inspect(op.get_bind())
+    if inspector.has_table("proposals"):
+        _upgrade_legacy_schema(inspector)
+        return
+
     op.create_table(
         "proposals",
         sa.Column("id", sa.Integer(), nullable=False),
@@ -86,6 +91,60 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
 
+
+def _upgrade_legacy_schema(inspector: sa.Inspector) -> None:
+    """Convert the pre-upstream Proposal schema without deleting user data."""
+    proposal_columns = {column["name"] for column in inspector.get_columns("proposals")}
+    if "body" in proposal_columns and "content" not in proposal_columns:
+        with op.batch_alter_table("proposals") as batch:
+            batch.alter_column(
+                "body", new_column_name="content", existing_type=sa.Text(), nullable=True,
+            )
+    if "created_by" in proposal_columns and "author_id" not in proposal_columns:
+        with op.batch_alter_table("proposals") as batch:
+            batch.alter_column(
+                "created_by", new_column_name="author_id",
+                existing_type=sa.Integer(), nullable=True,
+            )
+
+    round_columns = {
+        column["name"] for column in inspector.get_columns("proposal_rounds")
+    }
+    with op.batch_alter_table("proposal_rounds") as batch:
+        if "round_number" in round_columns and "round_no" not in round_columns:
+            batch.alter_column(
+                "round_number", new_column_name="round_no",
+                existing_type=sa.Integer(), nullable=False,
+            )
+        if "updated_at" not in round_columns:
+            batch.add_column(sa.Column("updated_at", sa.DateTime(), nullable=True))
+
+    question_columns = {
+        column["name"] for column in inspector.get_columns("proposal_questions")
+    }
+    with op.batch_alter_table("proposal_questions") as batch:
+        if "seq" not in question_columns:
+            batch.add_column(sa.Column("seq", sa.Integer(), nullable=True))
+        if "answered_by" not in question_columns:
+            batch.add_column(sa.Column("answered_by", sa.Integer(), nullable=True))
+            batch.create_foreign_key(
+                "fk_proposal_questions_answered_by_users",
+                "users", ["answered_by"], ["id"], ondelete="SET NULL",
+            )
+        if "updated_at" not in question_columns:
+            batch.add_column(sa.Column("updated_at", sa.DateTime(), nullable=True))
+        if "round_number" in question_columns:
+            batch.alter_column(
+                "round_number", existing_type=sa.Integer(), nullable=True,
+            )
+
+    question_indexes = {
+        index["name"] for index in sa.inspect(op.get_bind()).get_indexes("proposal_questions")
+    }
+    if "ix_proposal_questions_answered_by" not in question_indexes:
+        op.create_index(
+            "ix_proposal_questions_answered_by", "proposal_questions", ["answered_by"],
+        )
 
 def downgrade() -> None:
     op.drop_table("proposal_questions")
