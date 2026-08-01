@@ -1342,6 +1342,8 @@ export class App implements OnInit, OnDestroy {
     this.projectStats.set(null);
     this.schedules.set([]);
     this.documents.set([]);
+    this.docItem.set(null);
+    this.documentComments.set([]);
     this.proposals.set([]);
     this.isOwner.set(false);
     this.projectTabLoading.set({
@@ -1496,8 +1498,9 @@ export class App implements OnInit, OnDestroy {
     if (skeleton) this.loading.set(true);
     this.error.set('');
     const path = this.router.url.split('?')[0].replace(/^\//, '');
-    const [kind = '', rawId, section = ''] = path.split('/');
+    const [kind = '', rawId, section = '', rawChildId = ''] = path.split('/');
     const id = Number(rawId);
+    const childId = Number(rawChildId);
     // 已登录用户直接访问 /login 时回首页
     if (kind === 'login') {
       await this.router.navigateByUrl('/');
@@ -1514,14 +1517,24 @@ export class App implements OnInit, OnDestroy {
         this.view.set('projects');
       } else if (kind === 'project' && id > 0) {
         this.view.set('project');
-        const projectTab: ProjectTabKind = section === 'proposals' ? 'proposals' : 'epics';
+        const projectTab: ProjectTabKind = section === 'proposals'
+          ? 'proposals'
+          : section === 'documents'
+            ? 'documents'
+            : 'epics';
         this.activeTab.set(projectTab);
         this.resetProjectListPages();
         this.resetProjectTabs();
         const project = await firstValueFrom(this.api.getProject(id));
         this.project.set(project);
         this.trackRecentProject(project);
-        void this.loadProjectTab(projectTab, id);
+        if (projectTab === 'documents' && childId > 0) {
+          await this.loadProjectTab(projectTab, id);
+          const doc = this.documents().find((item) => item.id === childId);
+          if (doc) await this.openDocTab(doc);
+        } else {
+          void this.loadProjectTab(projectTab, id);
+        }
       } else if (kind === 'epic' && id > 0) {
         this.view.set('epic');
         this.epicTab.set('detail');
@@ -1602,32 +1615,12 @@ export class App implements OnInit, OnDestroy {
         await Promise.all([this.loadProfile(), this.loadMyProjects(), this.loadApiKeys()]);
       } else if (kind === 'documents') {
         if (id > 0) {
-          this.view.set('document');
-          const [doc, comments] = await Promise.all([
-            firstValueFrom(this.api.getDocument(id)),
-            firstValueFrom(this.api.listDocumentComments(id)),
-          ]);
-          this.docItem.set(doc);
-          this.documentComments.set(comments);
-          this.docEditTitle.set(doc.title);
-          this.docEditContent.set(doc.content);
-          this.docEditType.set(doc.type);
-          this.docEditStatus.set(doc.status);
-          this.docEditEpicId.set(doc.epic_id);
-          this.docEditStoryId.set(doc.story_id);
-          this.docEditing.set(false);
-          this.project.set(await firstValueFrom(this.api.getProject(doc.project_id)));
-          const eps = await firstValueFrom(this.api.listEpics(doc.project_id));
-          this.docDetailEpics.set(eps);
-          if (doc.epic_id) {
-            this.docDetailStories.set(await firstValueFrom(this.api.listStories(doc.epic_id)));
-          } else {
-            this.docDetailStories.set([]);
-          }
-          setTimeout(() => this.enhanceMermaid(), 80);
+          const doc = await firstValueFrom(this.api.getDocument(id));
+          await this.router.navigateByUrl(`/project/${doc.project_id}/documents/${doc.id}`);
+          return;
         } else {
-          this.view.set('documents');
-          await this.loadDocuments();
+          await this.router.navigateByUrl('/projects');
+          return;
         }
       } else if (kind === 'proposals') {
         // Epic 96 P0: Proposal 澄清回路 —— 列表 / 问答工作台
@@ -4400,7 +4393,7 @@ export class App implements OnInit, OnDestroy {
           hint: `${d.type || 'doc'} · ${d.status || ''}`,
           category: 'document',
           keywords: `document ${d.id} ${d.title}`,
-          run: () => { void this.router.navigateByUrl(`/documents/${d.id}`); },
+          run: () => { void this.router.navigateByUrl(`/project/${d.project_id}/documents/${d.id}`); },
         }));
         this.paletteDocumentResults.set(cmds);
       })
@@ -4414,7 +4407,14 @@ export class App implements OnInit, OnDestroy {
     const cmds: PaletteCommand[] = [
       { id: 'home', title: '首页仪表盘', hint: 'Home', keywords: 'home dashboard shouye 首页 仪表盘', run: () => { void this.router.navigateByUrl('/'); } },
       { id: 'projects', title: '项目列表', hint: 'Projects', keywords: 'projects xiangmu 项目 列表', run: () => { void this.router.navigateByUrl('/projects'); } },
-      { id: 'documents', title: '文档中心', hint: 'Docs', keywords: 'documents wendang 文档 中心', run: () => { void this.router.navigateByUrl('/documents'); } },
+      {
+        id: 'documents', title: '当前项目文档', hint: 'Project Docs', keywords: 'project documents wendang 项目 文档 中心',
+        run: () => {
+          const p = this.project();
+          if (p) void this.router.navigateByUrl(`/project/${p.id}/documents`);
+          else this.notify('请先进入一个项目，再查看项目文档', 'error');
+        },
+      },
       {
         id: 'proposals', title: '当前项目提案', hint: 'Project Proposals',
         keywords: 'project proposals xuqiu tian 项目 需求 提案 澄清 问答',
@@ -5169,8 +5169,11 @@ export class App implements OnInit, OnDestroy {
 
   async openDocModal(mode: 'create' | 'edit'): Promise<void> {
     if (mode === 'create') {
-      const first = this.projects()[0];
-      const pid = this.project()?.id ?? first?.id ?? null;
+      const pid = this.project()?.id ?? null;
+      if (!pid) {
+        this.notify('请先进入一个项目，再创建文档', 'error');
+        return;
+      }
       this.docCreateProjectId.set(pid);
       this.docCreateEpicId.set(null);
       this.docCreateStoryId.set(null);

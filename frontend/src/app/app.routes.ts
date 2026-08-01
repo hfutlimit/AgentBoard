@@ -9,6 +9,8 @@ export const routes: Routes = [
   { path: 'login', component: RouteAnchor },
   { path: 'projects', component: RouteAnchor },
   { path: 'project/:id/proposals', component: RouteAnchor },
+  { path: 'project/:id/documents/:docId', component: RouteAnchor },
+  { path: 'project/:id/documents', component: RouteAnchor },
   { path: 'project/:id', component: RouteAnchor },
   { path: 'epic/:id', component: RouteAnchor },
   { path: 'story/:id', component: RouteAnchor },

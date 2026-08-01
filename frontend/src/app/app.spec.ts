@@ -6,7 +6,7 @@ import { vi } from 'vitest';
 import { ApiService } from './api.service';
 import { App } from './app';
 import { routes } from './app.routes';
-import { ProposalItem, Sprint } from './models';
+import { DocumentItem, ProposalItem, Sprint } from './models';
 
 describe('App', () => {
   beforeEach(async () => {
@@ -158,6 +158,44 @@ describe('App', () => {
     const projectField = (fixture.nativeElement as HTMLElement).querySelector('#proposal-project') as HTMLInputElement;
     expect(app.proposalNewProjectId()).toBe(7);
     expect(projectField.value).toBe('Project Proposal Scope');
+    expect(projectField.readOnly).toBe(true);
+  });
+
+  it('should scope documents to the active project and lock creation to it', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const api = TestBed.inject(ApiService) as ApiService & {
+      listDocuments: ReturnType<typeof vi.fn>;
+      listEpics: ReturnType<typeof vi.fn>;
+    };
+    const documents = new Subject<DocumentItem[]>();
+    api.listDocuments = vi.fn(() => documents.asObservable());
+    api.listEpics = vi.fn(() => of([]));
+    app.authVisible.set(false);
+    app.loading.set(false);
+    app.view.set('project');
+    app.project.set({
+      id: 7,
+      name: 'Project Document Scope',
+      key: 'PDS',
+      description: '',
+      is_private: false,
+      created_at: '2026-08-01T00:00:00',
+    });
+
+    app.selectProjectTab('documents');
+    expect(api.listDocuments).toHaveBeenCalledWith({ project_id: 7 });
+    documents.next([]);
+    documents.complete();
+    await fixture.whenStable();
+
+    await app.openDocModal('create');
+    fixture.detectChanges();
+    const projectField = (fixture.nativeElement as HTMLElement).querySelector('#document-project') as HTMLInputElement;
+    expect(app.docCreateProjectId()).toBe(7);
+    expect(projectField.value).toBe('Project Document Scope');
     expect(projectField.readOnly).toBe(true);
   });
 
