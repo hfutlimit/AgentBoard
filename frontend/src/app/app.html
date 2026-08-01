@@ -244,10 +244,6 @@
           <span class="sidebar-nav-icon">📄</span>
           <span class="sidebar-nav-label">项目文档</span>
         </a>
-        <a id="nav-proposals" routerLink="/proposals" [class.active]="view() === 'proposals' || view() === 'proposal'" class="sidebar-nav-item">
-          <span class="sidebar-nav-icon">💡</span>
-          <span class="sidebar-nav-label">需求提案</span>
-        </a>
         <div class="sidebar-nav-group">
           <a routerLink="/projects" [class.active]="view() === 'projects'" class="sidebar-nav-item">
             <span class="sidebar-nav-icon">📁</span>
@@ -494,6 +490,11 @@
                 Backlog
                 @if (isProjectTabLoaded('backlog')) { <span class="tab-count">{{ backlogVisibleTasks().length }}</span> }
                 @else if (isProjectTabLoading('backlog')) { <span class="tab-loading-dot" title="加载中"></span> }
+              </button>
+              <button class="tab-btn" [class.active]="activeTab() === 'proposals'" (click)="selectProjectTab('proposals')">
+                提案
+                @if (isProjectTabLoaded('proposals')) { <span class="tab-count">{{ proposalVisible().length }}</span> }
+                @else if (isProjectTabLoading('proposals')) { <span class="tab-loading-dot" title="加载中"></span> }
               </button>
               <button class="tab-btn" [class.active]="activeTab() === 'members'" (click)="selectProjectTab('members')">
                 成员
@@ -948,6 +949,57 @@
                     <button class="ghost-sm" (click)="exportProjectTasks()">📥 导出全部任务</button>
                   </div>
                 </div>
+              </div>
+            }
+            @if (activeTab() === 'proposals') {
+              <div class="tab-content">
+                <div class="section-header">
+                  <div>
+                    <h3>项目提案</h3>
+                    <p class="muted proposal-intro">围绕当前项目提交需求，由 Agent 逐轮澄清并收敛为可执行 Story。</p>
+                  </div>
+                  <button id="new-project-proposal-btn" class="btn-primary-sm" (click)="openProposalModal()">＋ 新建提案</button>
+                </div>
+                <div class="row doc-toolbar">
+                  <select id="project-proposal-status-filter" [value]="proposalFilterStatus()"
+                    (change)="proposalFilterStatus.set($any($event.target).value)">
+                    <option [value]="''">全部状态</option>
+                    @for (s of proposalStatuses; track s) { <option [value]="s">{{ proposalStatusLabel(s) }}</option> }
+                  </select>
+                  <input type="search" id="project-proposal-search" class="doc-search-input"
+                    placeholder="搜索标题 / 正文…" [value]="proposalSearchQuery()"
+                    (input)="proposalSearchQuery.set($any($event.target).value)" />
+                </div>
+                @if (isProjectTabLoading('proposals')) {
+                  <div class="tab-list-skeleton" role="status">
+                    @for (row of tabSkeletonRows.slice(0,4); track row) {
+                      <div class="tab-skeleton-row"><span class="tab-skeleton-icon"></span><span class="tab-skeleton-line long"></span><span class="tab-skeleton-badge"></span></div>
+                    }
+                  </div>
+                } @else if (projectTabError('proposals')) {
+                  <div class="tab-load-error" role="alert">
+                    <span>提案加载失败：{{ projectTabError('proposals') }}</span>
+                    <button class="ghost-sm" type="button" (click)="retryProjectTab('proposals')">重试</button>
+                  </div>
+                } @else if (proposalVisible().length === 0) {
+                  <div class="empty-state">当前项目还没有提案。点击上方「＋ 新建提案」，把想法交给 Agent 澄清。</div>
+                } @else {
+                  <div class="proposal-list">
+                    @for (p of proposalVisible(); track p.id) {
+                      <a class="proposal-row" [routerLink]="['/proposals', p.id]">
+                        <div class="proposal-row-main">
+                          <div class="proposal-row-title">{{ p.title }}</div>
+                          <div class="proposal-row-meta">
+                            <span>第 {{ p.current_round }} 轮</span>
+                            <span class="dot-sep">·</span>
+                            <time>{{ timeAgo(p.updated_at) }}</time>
+                          </div>
+                        </div>
+                        <span class="badge pstatus pstatus--{{ p.status }}">{{ proposalStatusLabel(p.status) }}</span>
+                      </a>
+                    }
+                  </div>
+                }
               </div>
             }
             @if (activeTab() === 'documents') {
@@ -2282,7 +2334,7 @@
         @case ('proposal') {
           @if (proposalItem(); as p) {
             <div class="crumb-bar">
-              <a routerLink="/proposals">需求提案</a><span>›</span><span>{{ p.title }}</span>
+              <a [routerLink]="['/project', p.project_id, 'proposals']">{{ projectName(p.project_id) }} · 项目提案</a><span>›</span><span>{{ p.title }}</span>
             </div>
             <div class="page-header">
               <div class="page-title-row">
@@ -2833,12 +2885,9 @@
       <form (submit)="$event.preventDefault(); submitProposalCreate()">
         <div class="modal-body">
           <div class="form-field">
-            <label>项目 <span class="required">*</span></label>
-            <select id="proposal-project" [value]="proposalNewProjectId() ?? 0"
-              (change)="proposalNewProjectId.set(+$any($event.target).value || null)">
-              <option [value]="0">— 选择项目 —</option>
-              @for (p of projects(); track p.id) { <option [value]="p.id">{{ p.name }}</option> }
-            </select>
+            <label>所属项目</label>
+            <input id="proposal-project" [value]="project()?.name || ''" readonly />
+            <small class="muted">提案创建后固定归属于当前项目。</small>
           </div>
           <div class="form-field">
             <label>标题 <span class="required">*</span></label>

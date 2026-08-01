@@ -14,7 +14,7 @@ import { PaginationComponent } from './pagination/pagination';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
-type ProjectTabKind = 'epics' | 'sprints' | 'backlog' | 'settings' | 'members' | 'stats' | 'schedules' | 'documents';
+type ProjectTabKind = 'epics' | 'sprints' | 'backlog' | 'proposals' | 'settings' | 'members' | 'stats' | 'schedules' | 'documents';
 type ProjectListKind = 'epics' | 'sprints' | 'backlog' | 'members' | 'schedules';
 
 interface CreateModal {
@@ -224,6 +224,7 @@ export class App implements OnInit, OnDestroy {
     stats: false,
     schedules: false,
     documents: false,
+    proposals: false,
   });
   readonly projectTabLoaded = signal<Record<ProjectTabKind, boolean>>({
     epics: false,
@@ -234,6 +235,7 @@ export class App implements OnInit, OnDestroy {
     stats: false,
     schedules: false,
     documents: false,
+    proposals: false,
   });
   readonly projectTabErrors = signal<Record<ProjectTabKind, string>>({
     epics: '',
@@ -244,6 +246,7 @@ export class App implements OnInit, OnDestroy {
     stats: '',
     schedules: '',
     documents: '',
+    proposals: '',
   });
   private projectTabGeneration = 0;
   readonly statsMaxCreated = computed(() => {
@@ -1339,6 +1342,7 @@ export class App implements OnInit, OnDestroy {
     this.projectStats.set(null);
     this.schedules.set([]);
     this.documents.set([]);
+    this.proposals.set([]);
     this.isOwner.set(false);
     this.projectTabLoading.set({
       epics: false,
@@ -1349,6 +1353,7 @@ export class App implements OnInit, OnDestroy {
       stats: false,
       schedules: false,
       documents: false,
+      proposals: false,
     });
     this.projectTabLoaded.set({
       epics: false,
@@ -1359,6 +1364,7 @@ export class App implements OnInit, OnDestroy {
       stats: false,
       schedules: false,
       documents: false,
+      proposals: false,
     });
     this.projectTabErrors.set({
       epics: '',
@@ -1369,6 +1375,7 @@ export class App implements OnInit, OnDestroy {
       stats: '',
       schedules: '',
       documents: '',
+      proposals: '',
     });
   }
 
@@ -1418,6 +1425,10 @@ export class App implements OnInit, OnDestroy {
         const docs = await firstValueFrom(this.api.listDocuments({ project_id: projectId }));
         if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
         this.documents.set(docs || []);
+      } else if (tab === 'proposals') {
+        const proposals = await firstValueFrom(this.api.listProposals({ project_id: projectId, limit: 200 }));
+        if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
+        this.proposals.set(Array.isArray(proposals) ? proposals : []);
       }
 
       this.projectTabLoaded.update((state) => ({ ...state, [tab]: true }));
@@ -1485,7 +1496,7 @@ export class App implements OnInit, OnDestroy {
     if (skeleton) this.loading.set(true);
     this.error.set('');
     const path = this.router.url.split('?')[0].replace(/^\//, '');
-    const [kind = '', rawId] = path.split('/');
+    const [kind = '', rawId, section = ''] = path.split('/');
     const id = Number(rawId);
     // 已登录用户直接访问 /login 时回首页
     if (kind === 'login') {
@@ -1503,13 +1514,14 @@ export class App implements OnInit, OnDestroy {
         this.view.set('projects');
       } else if (kind === 'project' && id > 0) {
         this.view.set('project');
-        this.activeTab.set('epics');
+        const projectTab: ProjectTabKind = section === 'proposals' ? 'proposals' : 'epics';
+        this.activeTab.set(projectTab);
         this.resetProjectListPages();
         this.resetProjectTabs();
         const project = await firstValueFrom(this.api.getProject(id));
         this.project.set(project);
         this.trackRecentProject(project);
-        void this.loadProjectTab('epics', id);
+        void this.loadProjectTab(projectTab, id);
       } else if (kind === 'epic' && id > 0) {
         this.view.set('epic');
         this.epicTab.set('detail');
@@ -1632,9 +1644,8 @@ export class App implements OnInit, OnDestroy {
             this.project.set(await firstValueFrom(this.api.getProject(p.project_id)));
           }
         } else {
-          this.view.set('proposals');
-          if (!this.projects().length) await this.loadProjects();
-          await this.loadProposals();
+          await this.router.navigateByUrl('/projects');
+          return;
         }
       } else {
         this.view.set('not-found');
@@ -4404,7 +4415,15 @@ export class App implements OnInit, OnDestroy {
       { id: 'home', title: '首页仪表盘', hint: 'Home', keywords: 'home dashboard shouye 首页 仪表盘', run: () => { void this.router.navigateByUrl('/'); } },
       { id: 'projects', title: '项目列表', hint: 'Projects', keywords: 'projects xiangmu 项目 列表', run: () => { void this.router.navigateByUrl('/projects'); } },
       { id: 'documents', title: '文档中心', hint: 'Docs', keywords: 'documents wendang 文档 中心', run: () => { void this.router.navigateByUrl('/documents'); } },
-      { id: 'proposals', title: '需求提案', hint: 'Proposals', keywords: 'proposals xuqiu tian 需求 提案 澄清 问答', run: () => { void this.router.navigateByUrl('/proposals'); } },
+      {
+        id: 'proposals', title: '当前项目提案', hint: 'Project Proposals',
+        keywords: 'project proposals xuqiu tian 项目 需求 提案 澄清 问答',
+        run: () => {
+          const p = this.project();
+          if (p) void this.router.navigateByUrl(`/project/${p.id}/proposals`);
+          else this.notify('请先进入一个项目，再查看项目提案', 'error');
+        },
+      },
       { id: 'settings', title: '设置', hint: 'Settings', keywords: 'settings shezhi 设置 个人', run: () => { void this.router.navigateByUrl('/settings'); } },
       {
         id: 'new-task', title: '新建任务', hint: 'Task', keywords: 'new task xinjian 新建 任务',
@@ -4891,8 +4910,9 @@ export class App implements OnInit, OnDestroy {
     return list;
   }
 
-  async loadProposals(): Promise<void> {
+  async loadProposals(projectId?: number): Promise<void> {
     const params: Record<string, any> = { limit: 200 };
+    if (projectId) params['project_id'] = projectId;
     if (this.proposalFilterStatus()) params['status'] = this.proposalFilterStatus();
     const rows = await firstValueFrom(this.api.listProposals(params));
     this.proposals.set(Array.isArray(rows) ? rows : []);
@@ -4900,7 +4920,7 @@ export class App implements OnInit, OnDestroy {
 
   async onProposalFilterChange(): Promise<void> {
     try {
-      await this.loadProposals();
+      await this.loadProposals(this.project()?.id);
     } catch (e) {
       this.notify(`加载提案失败：${this.message(e)}`, 'error');
     }
@@ -5042,14 +5062,14 @@ export class App implements OnInit, OnDestroy {
 
   /* ---- 新建提案 ---- */
   async openProposalModal(): Promise<void> {
-    // 刷新项目列表，确保下拉框包含用户最新创建的项目（避免模态框打开时缺选项）
-    try {
-      this.api.invalidateProjectCache();
-      await this.loadProjects();
-    } catch { /* 加载失败时使用已有列表 */ }
+    const project = this.project();
+    if (!project) {
+      this.notify('请先进入一个项目，再创建提案', 'error');
+      return;
+    }
     this.proposalNewTitle.set('');
     this.proposalNewContent.set('');
-    this.proposalNewProjectId.set(this.project()?.id ?? this.projects()[0]?.id ?? null);
+    this.proposalNewProjectId.set(project.id);
     this.proposalModalOpen.set(true);
   }
   closeProposalModal(): void {
@@ -5057,7 +5077,7 @@ export class App implements OnInit, OnDestroy {
   }
   async submitProposalCreate(): Promise<void> {
     const title = this.proposalNewTitle().trim();
-    const pid = this.proposalNewProjectId();
+    const pid = this.project()?.id ?? this.proposalNewProjectId();
     if (!title) {
       this.notify('请填写提案标题', 'error');
       return;

@@ -6,7 +6,7 @@ import { vi } from 'vitest';
 import { ApiService } from './api.service';
 import { App } from './app';
 import { routes } from './app.routes';
-import { Sprint } from './models';
+import { ProposalItem, Sprint } from './models';
 
 describe('App', () => {
   beforeEach(async () => {
@@ -105,6 +105,60 @@ describe('App', () => {
     app.selectProjectTab('sprints');
     await fixture.whenStable();
     expect(listSprints).toHaveBeenCalledTimes(1);
+  });
+
+  it('should scope proposals to the active project and lock creation to it', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    const api = TestBed.inject(ApiService) as ApiService & {
+      listProposals: ReturnType<typeof vi.fn>;
+    };
+    const proposals = new Subject<ProposalItem[]>();
+    api.listProposals = vi.fn(() => proposals.asObservable());
+    app.authVisible.set(false);
+    app.loading.set(false);
+    app.view.set('project');
+    app.project.set({
+      id: 7,
+      name: 'Project Proposal Scope',
+      key: 'PPS',
+      description: '',
+      is_private: false,
+      created_at: '2026-08-01T00:00:00',
+    });
+
+    app.selectProjectTab('proposals');
+    expect(api.listProposals).toHaveBeenCalledWith({ project_id: 7, limit: 200 });
+    proposals.next([{
+      id: 11,
+      project_id: 7,
+      title: 'Project-only proposal',
+      content: 'Scoped requirement',
+      status: 'draft',
+      current_round: 0,
+      converged_spec: '',
+      story_id: null,
+      author_id: 1,
+      error: '',
+      created_at: '2026-08-01T00:00:00',
+      updated_at: '2026-08-01T00:00:00',
+    }]);
+    proposals.complete();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    expect(app.proposals()).toHaveLength(1);
+    expect(app.isProjectTabLoaded('proposals')).toBe(true);
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain('Project-only proposal');
+
+    await app.openProposalModal();
+    fixture.detectChanges();
+    const projectField = (fixture.nativeElement as HTMLElement).querySelector('#proposal-project') as HTMLInputElement;
+    expect(app.proposalNewProjectId()).toBe(7);
+    expect(projectField.value).toBe('Project Proposal Scope');
+    expect(projectField.readOnly).toBe(true);
   });
 
   it('should use the in-app confirmation dialog and show its busy state', async () => {
