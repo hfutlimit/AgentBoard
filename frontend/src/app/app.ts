@@ -852,6 +852,78 @@ export class App implements OnInit, OnDestroy {
     localStorage.setItem('agentboard_collapsed_groups', JSON.stringify([]));
   }
   readonly doneTasks = computed(() => this.tasks().filter((t) => t.status === 'done').length);
+  readonly dashboardStatusChart = computed(() => {
+    const definitions = [
+      { status: 'backlog', label: '待规划', color: '#94a3b8' },
+      { status: 'todo', label: '待办', color: '#3b82f6' },
+      { status: 'in_progress', label: '进行中', color: '#06b6d4' },
+      { status: 'in_review', label: '评审中', color: '#8b5cf6' },
+      { status: 'verifying', label: '验证中', color: '#f59e0b' },
+      { status: 'blocked', label: '已阻塞', color: '#ef4444' },
+      { status: 'done', label: '已完成', color: '#10b981' },
+    ];
+    const tasks = this.tasks();
+    const total = tasks.length;
+    let cursor = 0;
+    const segments = definitions
+      .map((definition) => {
+        const count = tasks.filter((task) => task.status === definition.status).length;
+        const percent = total ? Math.round((count / total) * 100) : 0;
+        const start = cursor;
+        cursor += total ? (count / total) * 360 : 0;
+        return { ...definition, count, percent, start, end: cursor };
+      })
+      .filter((segment) => segment.count > 0);
+    const gradient = total
+      ? `conic-gradient(${segments.map((segment) => `${segment.color} ${segment.start}deg ${segment.end}deg`).join(', ')})`
+      : 'conic-gradient(var(--surface-3) 0deg 360deg)';
+    return { total, segments, gradient };
+  });
+
+  readonly dashboardProjectProgress = computed(() => this.projects()
+    .map((project) => {
+      const tasks = this.tasks().filter((task) => task.project_id === project.id);
+      const done = tasks.filter((task) => task.status === 'done').length;
+      return {
+        id: project.id,
+        name: project.name,
+        total: tasks.length,
+        done,
+        percent: tasks.length ? Math.round((done / tasks.length) * 100) : 0,
+      };
+    })
+    .sort((left, right) => right.total - left.total || left.name.localeCompare(right.name))
+    .slice(0, 6));
+
+  readonly dashboardActivity = computed(() => {
+    const today = new Date();
+    const dateKey = (date: Date): string => [
+      date.getFullYear(),
+      String(date.getMonth() + 1).padStart(2, '0'),
+      String(date.getDate()).padStart(2, '0'),
+    ].join('-');
+    const raw = Array.from({ length: 7 }, (_, index) => {
+      const date = new Date(today);
+      date.setHours(0, 0, 0, 0);
+      date.setDate(today.getDate() - (6 - index));
+      const key = dateKey(date);
+      const count = this.tasks().filter((task) => dateKey(new Date(task.updated_at)) === key).length;
+      return { key, label: date.toLocaleDateString('zh-CN', { weekday: 'short' }), count };
+    });
+    const max = Math.max(1, ...raw.map((point) => point.count));
+    const data = raw.map((point, index) => ({
+      ...point,
+      x: index * 100,
+      y: Math.round(125 - (point.count / max) * 90),
+    }));
+    const points = data.map((point) => `${point.x},${point.y}`).join(' ');
+    return {
+      data,
+      points,
+      areaPoints: `0,140 ${points} 600,140`,
+      total: raw.reduce((sum, point) => sum + point.count, 0),
+    };
+  });
   // Epic 34.1: 任务列表汇总栏（总数/完成率/状态分布堆叠条）
   readonly taskListSummary = computed(() => {
     const list = this.tasks();

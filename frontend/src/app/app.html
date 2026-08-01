@@ -62,14 +62,6 @@
       </div>
     </div>
     <div class="topbar-right">
-      <!-- Task 716: 快捷键帮助按钮 -->
-      <button id="shortcuts-toggle" class="icon-btn" title="键盘快捷键 (?)" (click)="toggleShortcuts()">
-        <span>?</span>
-      </button>
-      <!-- Epic 67 v5.4: 命令面板触发 -->
-      <button id="command-palette-toggle" class="icon-btn" title="命令面板 (Ctrl/Cmd+K)" (click)="openPalette()">
-        <span class="cmd-k-icon">⌘</span>
-      </button>
       <button id="theme-toggle" class="icon-btn" [title]="getThemeLabel()" (click)="toggleTheme()">
         <span class="theme-icon">{{ isDarkTheme() ? '🌙' : '☀️' }}</span>
       </button>
@@ -104,6 +96,8 @@
                 @if (isAdmin()) {
                   <a routerLink="/admin" class="user-dropdown-item" (click)="showUserMenu.set(false)"><span>◇</span><span>管理员后台</span></a>
                 }
+                <button class="user-dropdown-item" (click)="showUserMenu.set(false); openPalette()"><span>⌘</span><span>命令面板</span><kbd>Ctrl K</kbd></button>
+                <button class="user-dropdown-item" (click)="showUserMenu.set(false); toggleShortcuts()"><span>?</span><span>快捷操作</span><kbd>?</kbd></button>
                 <a routerLink="/settings" class="user-dropdown-item" (click)="showUserMenu.set(false)"><span>⚙</span><span>个人设置</span></a>
                 <div class="user-dropdown-divider"></div>
                 <button class="user-dropdown-item user-dropdown-item--danger" (click)="showUserMenu.set(false); logout()"><span>↪</span><span>退出登录</span></button>
@@ -270,6 +264,75 @@
                 </div>
               }
             </div>
+            <section class="dashboard-analytics" aria-label="交付数据图表">
+              <div class="analytics-heading">
+                <div><span class="eyebrow">DELIVERY INTELLIGENCE</span><h2>交付态势</h2></div>
+                <span class="analytics-live"><i></i> 实时数据</span>
+              </div>
+              <div class="analytics-grid">
+                <article class="analytics-card analytics-card--activity">
+                  <header>
+                    <div><span class="analytics-kicker">ACTIVITY</span><h3>近 7 日任务活动</h3></div>
+                    <div class="analytics-total"><strong>{{ dashboardActivity().total }}</strong><span>次更新</span></div>
+                  </header>
+                  <div class="activity-chart-wrap">
+                    <svg class="activity-chart" viewBox="0 0 600 160" role="img" aria-label="近 7 日任务更新趋势">
+                      <defs>
+                        <linearGradient id="activity-area-gradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stop-color="#4f46e5" stop-opacity=".42"/>
+                          <stop offset="100%" stop-color="#4f46e5" stop-opacity=".02"/>
+                        </linearGradient>
+                        <linearGradient id="activity-line-gradient" x1="0" y1="0" x2="1" y2="0">
+                          <stop offset="0%" stop-color="#06b6d4"/>
+                          <stop offset="52%" stop-color="#6366f1"/>
+                          <stop offset="100%" stop-color="#a855f7"/>
+                        </linearGradient>
+                      </defs>
+                      <g class="activity-grid-lines">
+                        <line x1="0" y1="35" x2="600" y2="35"/><line x1="0" y1="75" x2="600" y2="75"/><line x1="0" y1="115" x2="600" y2="115"/>
+                      </g>
+                      <polygon [attr.points]="dashboardActivity().areaPoints" fill="url(#activity-area-gradient)"/>
+                      <polyline [attr.points]="dashboardActivity().points" fill="none" stroke="url(#activity-line-gradient)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                      @for (point of dashboardActivity().data; track point.label) {
+                        <circle [attr.cx]="point.x" [attr.cy]="point.y" r="5" class="activity-point"/>
+                      }
+                    </svg>
+                    <div class="activity-axis">
+                      @for (point of dashboardActivity().data; track point.label) { <span>{{ point.label }}</span> }
+                    </div>
+                  </div>
+                </article>
+                <article class="analytics-card analytics-card--status">
+                  <header><div><span class="analytics-kicker">WORKFLOW</span><h3>任务状态分布</h3></div></header>
+                  <div class="status-chart-layout">
+                    <div class="status-donut" [style.background]="dashboardStatusChart().gradient">
+                      <div><strong>{{ dashboardStatusChart().total }}</strong><span>任务总数</span></div>
+                    </div>
+                    <div class="status-chart-legend">
+                      @for (segment of dashboardStatusChart().segments; track segment.status) {
+                        <div><i [style.background]="segment.color"></i><span>{{ segment.label }}</span><strong>{{ segment.count }}</strong><small>{{ segment.percent }}%</small></div>
+                      } @empty {
+                        <p class="muted">暂无任务数据</p>
+                      }
+                    </div>
+                  </div>
+                </article>
+                <article class="analytics-card analytics-card--projects">
+                  <header><div><span class="analytics-kicker">PORTFOLIO</span><h3>项目交付进度</h3></div></header>
+                  <div class="project-progress-chart">
+                    @for (item of dashboardProjectProgress(); track item.id) {
+                      <a [routerLink]="['/project', item.id]" class="project-progress-row">
+                        <div><strong>{{ item.name }}</strong><span>{{ item.done }}/{{ item.total }} 任务</span></div>
+                        <div class="project-progress-track"><i [style.width.%]="item.percent"></i></div>
+                        <b>{{ item.percent }}%</b>
+                      </a>
+                    } @empty {
+                      <div class="analytics-empty">创建项目和任务后，这里会显示实时交付进度。</div>
+                    }
+                  </div>
+                </article>
+              </div>
+            </section>
             <div class="section-header">
               <h2>项目空间 <span class="project-count-badge">{{ projects().length }}</span></h2>
               <button id="home-new-project" class="btn-primary-sm" (click)="openCreate('project')">

@@ -6,7 +6,7 @@ import { vi } from 'vitest';
 import { ApiService } from './api.service';
 import { App } from './app';
 import { routes } from './app.routes';
-import { DocumentItem, ProposalItem, Sprint } from './models';
+import { DocumentItem, ProposalItem, Sprint, Task } from './models';
 
 describe('App', () => {
   beforeEach(async () => {
@@ -55,7 +55,59 @@ describe('App', () => {
     expect(element.querySelector('.user-avatar')?.textContent).toContain('A');
     expect(element.querySelector('.user-dropdown')?.textContent).toContain('项目空间');
     expect(element.querySelector('.user-dropdown')?.textContent).toContain('管理员后台');
+    expect(element.querySelector('.user-dropdown')?.textContent).toContain('命令面板');
+    expect(element.querySelector('.user-dropdown')?.textContent).toContain('快捷操作');
     expect(element.querySelector('.user-dropdown')?.textContent).toContain('个人设置');
+    expect(element.querySelector('#shortcuts-toggle')).toBeNull();
+    expect(element.querySelector('#command-palette-toggle')).toBeNull();
+  });
+
+  it('should render dashboard delivery charts from live task data', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    app.authVisible.set(false);
+    app.loading.set(false);
+    app.view.set('home');
+    app.projects.set([{
+      id: 7,
+      name: 'Analytics Project',
+      key: 'AP',
+      description: '',
+      is_private: false,
+      created_at: '2026-08-01T00:00:00',
+    }]);
+    const now = new Date().toISOString();
+    const baseTask: Task = {
+      id: 1,
+      project_id: 7,
+      story_id: 1,
+      sprint_id: null,
+      type: 'task',
+      title: 'Dashboard task',
+      status: 'done',
+      priority: 'medium',
+      description: '',
+      spec: '',
+      source_spec_id: null,
+      due_date: null,
+      assignee_id: null,
+      labels: '[]',
+      estimate: null,
+      created_at: now,
+      updated_at: now,
+    };
+    app.tasks.set([baseTask, { ...baseTask, id: 2, status: 'in_progress' }]);
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('.dashboard-analytics')).not.toBeNull();
+    expect(element.querySelector('.activity-chart')).not.toBeNull();
+    expect(element.querySelector('.status-donut')?.textContent).toContain('2');
+    expect(element.querySelector('.project-progress-row')?.textContent).toContain('50%');
+    expect(app.dashboardStatusChart().segments).toHaveLength(2);
+    expect(app.dashboardActivity().total).toBe(2);
   });
 
   it('should open the standalone notification center in a dedicated window', async () => {
