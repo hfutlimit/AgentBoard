@@ -4943,15 +4943,14 @@ select:focus {
 /* Proposal workbench */
 .proposal-page { max-width: 1420px; }
 .proposal-grid { grid-template-columns: minmax(320px, 380px) minmax(0, 1fr); gap: 18px; }
-.proposal-create { top: 84px; gap: 9px; }
-.proposal-create h2 { margin-bottom: 5px; font-size: 17px; }
-.proposal-create label { color: var(--text-2); font-size: 12px; font-weight: 620; }
 .proposal-card { padding: 18px 20px; border-left: 3px solid var(--brand-500); }
 .proposal-card:hover { border-color: #b8c6d8; border-left-color: var(--brand-600); transform: translateY(-1px); }
 .proposal-status { padding: 3px 7px; font-size: 10px; }
 .proposal-detail-grid { grid-template-columns: minmax(0, 1fr); max-width: 980px; }
 .proposal-question { padding: 16px 0 0; }
 .proposal-result pre { background: #0f1e33; color: #dce8f5; border: 1px solid #243c5e; border-radius: 7px; }
+
+.proposal-create-modal { max-width: 620px; overflow: hidden; }
 
 /* Dialogs and popovers */
 .modal-overlay { background: rgba(9, 20, 38, .55); backdrop-filter: blur(3px); }
@@ -5013,7 +5012,7 @@ select:focus {
   .hero-right { align-items: flex-start; }
   .stats-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .proposal-grid { grid-template-columns: 1fr; }
-  .proposal-create { position: static; }
+  .proposal-create-modal { max-height: calc(100vh - 24px); }
 }
 
 @media (max-width: 520px) {

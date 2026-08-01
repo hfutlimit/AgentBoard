@@ -2929,13 +2929,15 @@
 
 @if (proposalModalOpen()) {
   <div class="modal-overlay" (click)="closeProposalModal()">
-    <section class="modal doc-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+    <section id="proposal-create-dialog" class="modal proposal-create-modal" role="dialog" aria-modal="true"
+      aria-labelledby="proposal-create-title" (click)="$event.stopPropagation()">
       <header class="modal-header">
         <div>
           <span class="modal-eyebrow">NEW PROPOSAL</span>
-          <h3>新建需求提案</h3>
+          <h3 id="proposal-create-title">新建需求提案</h3>
         </div>
-        <button type="button" class="modal-close" (click)="closeProposalModal()">×</button>
+        <button type="button" class="modal-close" aria-label="关闭新增提案弹窗"
+          (click)="closeProposalModal()">×</button>
       </header>
       <form (submit)="$event.preventDefault(); submitProposalCreate()">
         <div class="modal-body">

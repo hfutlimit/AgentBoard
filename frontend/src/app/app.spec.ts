@@ -271,10 +271,16 @@ describe('App', () => {
     expect(app.proposals()).toHaveLength(1);
     expect(app.isProjectTabLoaded('proposals')).toBe(true);
     expect((fixture.nativeElement as HTMLElement).textContent).toContain('Project-only proposal');
+    expect((fixture.nativeElement as HTMLElement).querySelector('#proposal-create-dialog')).toBeNull();
 
-    await app.openProposalModal();
+    const createButton = (fixture.nativeElement as HTMLElement).querySelector('#new-project-proposal-btn') as HTMLButtonElement;
+    createButton.click();
     fixture.detectChanges();
+    const dialog = (fixture.nativeElement as HTMLElement).querySelector('#proposal-create-dialog');
     const projectField = (fixture.nativeElement as HTMLElement).querySelector('#proposal-project') as HTMLInputElement;
+    expect(dialog).not.toBeNull();
+    expect(dialog?.getAttribute('role')).toBe('dialog');
+    expect(dialog?.getAttribute('aria-modal')).toBe('true');
     expect(app.proposalNewProjectId()).toBe(7);
     expect(projectField.value).toBe('Project Proposal Scope');
     expect(projectField.readOnly).toBe(true);
