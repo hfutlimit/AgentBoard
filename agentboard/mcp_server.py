@@ -1043,6 +1043,55 @@ def delete_notification(notification_id: int) -> dict:
 
 
 # ---------- Epic 13 / Story 32: 管理员工具 ----------
+# ---------- Proposal clarification worker tools ----------
+@mcp.tool()
+def proposal_pending(limit: int = 100, offset: int = 0) -> list:
+    """List queued or answered Proposals that are ready for an agent worker."""
+    return _http("GET", "/api/proposals/pending", params={"limit": limit, "offset": offset})
+
+
+@mcp.tool()
+def proposal_claim(proposal_id: int, agent: str = "workbuddy") -> dict:
+    """Atomically claim a Proposal. A competing claim returns an error."""
+    return _http("POST", f"/api/proposals/{proposal_id}/claim", json={"agent": agent})
+
+
+@mcp.tool()
+def proposal_get(proposal_id: int) -> dict:
+    """Get a Proposal together with every clarification round and answer."""
+    return _http("GET", f"/api/proposals/{proposal_id}/context")
+
+
+@mcp.tool()
+def proposal_ask(proposal_id: int, round_number: int, questions: list[str],
+                 summary: str = "", agent: str = "workbuddy") -> list:
+    """Record one clarification round and return the Proposal to the human."""
+    return _http(
+        "POST",
+        f"/api/proposals/{proposal_id}/questions",
+        json={
+            "round_number": round_number,
+            "questions": questions,
+            "summary": summary,
+            "agent": agent,
+        },
+    )
+
+
+@mcp.tool()
+def proposal_finalize(proposal_id: int, converged_spec: str) -> dict:
+    """Store the converged Markdown specification after agent analysis."""
+    return _http(
+        "POST", f"/api/proposals/{proposal_id}/finalize", json={"converged_spec": converged_spec}
+    )
+
+
+@mcp.tool()
+def proposal_fail(proposal_id: int, error: str) -> dict:
+    """Mark an agent-owned Proposal failed and release its worker lease."""
+    return _http("POST", f"/api/proposals/{proposal_id}/fail", json={"error": error})
+
+
 def _admin_list_users(limit: int = 50, offset: int = 0):
     return _http("GET", "/api/admin/users", params={"limit": limit, "offset": offset})
 

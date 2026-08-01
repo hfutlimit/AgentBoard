@@ -216,6 +216,56 @@ class SpecAppendIn(BaseModel):
     text: str = Field(min_length=1)
 
 
+class ProposalIn(BaseModel):
+    project_id: int = Field(gt=0)
+    title: str = Field(min_length=1, max_length=300)
+    body: str = ""
+    max_rounds: int = Field(5, ge=1, le=20)
+
+
+class ProposalPatch(BaseModel):
+    title: str | None = Field(None, min_length=1, max_length=300)
+    body: str | None = None
+    max_rounds: int | None = Field(None, ge=1, le=20)
+
+
+class ProposalStatusIn(BaseModel):
+    status: str
+
+
+class ProposalClaimIn(BaseModel):
+    agent: str = Field(min_length=1, max_length=100)
+
+
+class ProposalReclaimIn(BaseModel):
+    lease_seconds: int = Field(1800, ge=30, le=86400)
+
+
+class ProposalQuestionsIn(BaseModel):
+    round_number: int = Field(gt=0)
+    questions: list[str] = Field(min_length=1, max_length=20)
+    summary: str = ""
+    agent: str = Field("", max_length=100)
+
+
+class ProposalAnswerIn(BaseModel):
+    answer: str = ""
+    unsure: bool = False
+
+
+class ProposalFinalizeIn(BaseModel):
+    converged_spec: str = Field(min_length=1)
+
+
+class ProposalFailIn(BaseModel):
+    error: str = Field(min_length=1)
+
+
+class ProposalConvertIn(BaseModel):
+    epic_id: int = Field(gt=0)
+    story_title: str | None = Field(None, min_length=1, max_length=300)
+
+
 class AuthRegister(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=8, max_length=1024)
@@ -479,6 +529,11 @@ async def handle_illegal_transition(_request: Request, exc: service.IllegalTrans
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
+@app.exception_handler(service.Conflict)
+async def handle_conflict(_request: Request, exc: service.Conflict):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
 
 # ---------- Meta ----------
 @app.get("/api/meta")
@@ -602,6 +657,148 @@ def revoke_api_key(api_key_id: int, authorization: str | None = Header(None), s:
     user = _current_user(authorization, s)
     if not service.revoke_api_key(s, user_id=user.id, api_key_id=api_key_id):
         raise HTTPException(status_code=404, detail="api key not found")
+
+
+# ---------- Proposal clarification ----------
+def _publish_proposal(proposal_id: int, event: str) -> None:
+    """Best-effort wake-up; database polling remains the reliability fallback."""
+    try:
+        from .mq import publish_proposal_event
+        publish_proposal_event(proposal_id, event)
+    except Exception:
+        pass
+
+
+@app.get("/api/proposals")
+def list_proposals(
+    project_id: int | None = Query(None, gt=0),
+    status: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    s: Session = Depends(get_session),
+):
+    return [service._ser(item) for item in service.list_proposals(
+        s, project_id=project_id, status=status, limit=limit, offset=offset,
+    )]
+
+
+@app.get("/api/proposals/pending")
+def list_pending_proposals(
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    s: Session = Depends(get_session),
+):
+    return [service._ser(item) for item in service.list_pending_proposals(s, limit=limit, offset=offset)]
+
+
+@app.post("/api/proposals/reclaim-stale")
+def reclaim_stale_proposals(body: ProposalReclaimIn, s: Session = Depends(get_session)):
+    items = service.reclaim_stale_proposals(s, lease_seconds=body.lease_seconds)
+    for item in items:
+        _publish_proposal(item.id, "reclaimed")
+    return {"items": [service._ser(item) for item in items], "count": len(items)}
+
+
+@app.post("/api/proposals", status_code=201)
+def create_proposal(
+    body: ProposalIn,
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    user = _current_user(authorization, s, required_permission="api:write") if authorization or _auth_is_required() else None
+    proposal = service.create_proposal(
+        s,
+        project_id=body.project_id,
+        title=body.title,
+        body=body.body,
+        max_rounds=body.max_rounds,
+        created_by=user.id if user else None,
+    )
+    return service._ser(proposal)
+
+
+@app.get("/api/proposals/{proposal_id}")
+def get_proposal(proposal_id: int, s: Session = Depends(get_session)):
+    return service._ser(_need(service.get_proposal(s, proposal_id), "proposal"))
+
+
+@app.get("/api/proposals/{proposal_id}/context")
+def get_proposal_context(proposal_id: int, s: Session = Depends(get_session)):
+    return service.proposal_context(s, proposal_id)
+
+
+@app.patch("/api/proposals/{proposal_id}")
+def update_proposal(proposal_id: int, body: ProposalPatch, s: Session = Depends(get_session)):
+    return service._ser(_need(
+        service.update_proposal(s, proposal_id, **body.model_dump(exclude_none=True)), "proposal"
+    ))
+
+
+@app.delete("/api/proposals/{proposal_id}")
+def delete_proposal(proposal_id: int, s: Session = Depends(get_session)):
+    if not service.delete_proposal(s, proposal_id):
+        raise HTTPException(status_code=404, detail="proposal not found")
+    return {"ok": True}
+
+
+@app.put("/api/proposals/{proposal_id}/status")
+def update_proposal_status(proposal_id: int, body: ProposalStatusIn, s: Session = Depends(get_session)):
+    proposal = service.set_proposal_status(s, proposal_id, body.status)
+    if proposal.status == "queued":
+        _publish_proposal(proposal.id, "queued")
+    return service._ser(proposal)
+
+
+@app.post("/api/proposals/{proposal_id}/claim")
+def claim_proposal(proposal_id: int, body: ProposalClaimIn, s: Session = Depends(get_session)):
+    return service._ser(service.claim_proposal(s, proposal_id, agent=body.agent))
+
+
+@app.post("/api/proposals/{proposal_id}/questions", status_code=201)
+def add_proposal_questions(proposal_id: int, body: ProposalQuestionsIn, s: Session = Depends(get_session)):
+    items = service.add_proposal_questions(
+        s,
+        proposal_id,
+        round_number=body.round_number,
+        questions=body.questions,
+        summary=body.summary,
+        agent=body.agent,
+    )
+    return [service._ser(item) for item in items]
+
+
+@app.put("/api/proposal-questions/{question_id}/answer")
+def answer_proposal_question(question_id: int, body: ProposalAnswerIn, s: Session = Depends(get_session)):
+    question, proposal, ready = service.answer_proposal_question(
+        s, question_id, answer=body.answer, unsure=body.unsure,
+    )
+    if ready:
+        _publish_proposal(proposal.id, "answered")
+    return {"question": service._ser(question), "proposal": service._ser(proposal), "ready": ready}
+
+
+@app.post("/api/proposals/{proposal_id}/finalize")
+def finalize_proposal(proposal_id: int, body: ProposalFinalizeIn, s: Session = Depends(get_session)):
+    return service._ser(service.finalize_proposal(s, proposal_id, converged_spec=body.converged_spec))
+
+
+@app.post("/api/proposals/{proposal_id}/fail")
+def fail_proposal(proposal_id: int, body: ProposalFailIn, s: Session = Depends(get_session)):
+    return service._ser(service.fail_proposal(s, proposal_id, error=body.error))
+
+
+@app.post("/api/proposals/{proposal_id}/create-story", status_code=201)
+def convert_proposal(
+    proposal_id: int,
+    body: ProposalConvertIn,
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    _require_project_owner(s, _need(service.get_proposal(s, proposal_id), "proposal").project_id, authorization)
+    story, tasks = service.convert_proposal_to_story(
+        s, proposal_id, epic_id=body.epic_id, story_title=body.story_title,
+    )
+    return {"story": service._ser(story), "tasks": [service._ser(task) for task in tasks]}
 
 
 # ---------- Projects ----------
@@ -1679,6 +1876,8 @@ async def audit_log_middleware(request: Request, call_next):
         (r"^/api/comments/(\d+)", "comment"),
         (r"^/api/attachments/(\d+)", "attachment"),
         (r"^/api/schedules/(\d+)", "schedule"),
+        (r"^/api/proposals/(\d+)", "proposal"),
+        (r"^/api/proposal-questions/(\d+)", "proposal_question"),
     ]:
         m = re.match(pattern, path)
         if m:

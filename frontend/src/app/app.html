@@ -225,6 +225,10 @@
           <span class="sidebar-nav-icon">📊</span>
           <span class="sidebar-nav-label">仪表盘</span>
         </a>
+        <a routerLink="/proposals" [class.active]="view() === 'proposals' || view() === 'proposal'" class="sidebar-nav-item">
+          <span class="sidebar-nav-icon">💡</span>
+          <span class="sidebar-nav-label">Proposals</span>
+        </a>
         <div class="sidebar-nav-group">
           <a routerLink="/projects" [class.active]="view() === 'projects'" class="sidebar-nav-item">
             <span class="sidebar-nav-icon">📁</span>
@@ -437,6 +441,117 @@
               </tbody>
             </table>
           </div>
+        }
+        @case ('proposals') {
+          <section class="proposal-page">
+            <div class="page-heading">
+              <div>
+                <span class="eyebrow">HUMAN + AGENT</span>
+                <h1>Proposal 澄清工作台</h1>
+                <p class="muted">提交初步想法，由 Agent 多轮提问，确认后转换为 Story 和 Tasks。</p>
+              </div>
+            </div>
+            <div class="proposal-grid">
+              <form class="card proposal-create" (submit)="$event.preventDefault(); createProposal(proposalProject.value, proposalTitle.value, proposalBody.value, proposalRounds.value)">
+                <h2>新建 Proposal</h2>
+                <label>项目</label>
+                <select #proposalProject required>
+                  <option value="">请选择项目</option>
+                  @for (item of projects(); track item.id) {
+                    <option [value]="item.id">{{ item.name }}</option>
+                  }
+                </select>
+                <label>标题</label>
+                <input #proposalTitle maxlength="300" required placeholder="要解决什么问题？" />
+                <label>原始想法</label>
+                <textarea #proposalBody rows="8" placeholder="背景、目标、约束和已知信息"></textarea>
+                <label>最多澄清轮次</label>
+                <input #proposalRounds type="number" min="1" max="20" value="5" />
+                <button class="btn-primary" type="submit" [disabled]="submitting()">提交并开始分析</button>
+              </form>
+              <div class="proposal-list">
+                @for (item of proposals(); track item.id) {
+                  <a class="card proposal-card" [routerLink]="['/proposal', item.id]">
+                    <div class="proposal-card-head">
+                      <strong>{{ item.title }}</strong>
+                      <span class="proposal-status status-{{ item.status }}">{{ item.status }}</span>
+                    </div>
+                    <p>{{ item.body || '暂无说明' }}</p>
+                    <small>Project #{{ item.project_id }} · Round {{ item.current_round }}/{{ item.max_rounds }}</small>
+                  </a>
+                } @empty {
+                  <div class="card empty-state">还没有 Proposal。</div>
+                }
+              </div>
+            </div>
+          </section>
+        }
+        @case ('proposal') {
+          @if (proposalContext(); as context) {
+            <section class="proposal-page proposal-detail">
+              <div class="page-heading">
+                <div>
+                  <a routerLink="/proposals" class="muted">← Proposals</a>
+                  <h1>{{ context.proposal.title }}</h1>
+                  <span class="proposal-status status-{{ context.proposal.status }}">{{ context.proposal.status }}</span>
+                </div>
+                <div class="muted">Round {{ context.proposal.current_round }}/{{ context.proposal.max_rounds }}</div>
+              </div>
+              <div class="proposal-detail-grid">
+                <article class="card">
+                  <h2>原始想法</h2>
+                  <p class="proposal-copy">{{ context.proposal.body || '暂无说明' }}</p>
+                </article>
+                @if (context.questions.length > 0) {
+                  <article class="card proposal-questions">
+                    <h2>澄清问题</h2>
+                    @for (question of context.questions; track question.id) {
+                      <div class="proposal-question">
+                        <small>Round {{ question.round_number }}</small>
+                        <h3>{{ question.question }}</h3>
+                        @if (question.status === 'open') {
+                          <textarea #answer rows="3" placeholder="输入回答；不确定时可勾选下方选项"></textarea>
+                          <label class="proposal-unsure"><input #unsure type="checkbox" /> 暂不确定</label>
+                          <button class="btn-primary-sm" (click)="answerProposalQuestion(question.id, answer.value, unsure.checked)">提交回答</button>
+                        } @else {
+                          <p>{{ question.unsure ? '暂不确定' : question.answer }}</p>
+                        }
+                      </div>
+                    }
+                  </article>
+                }
+                @if (context.proposal.status === 'failed') {
+                  <article class="card error-state">
+                    <h2>分析失败</h2>
+                    <p>{{ context.proposal.error }}</p>
+                    <button class="btn-primary-sm" (click)="retryProposal()">重新入队</button>
+                  </article>
+                }
+                @if (context.proposal.status === 'converged') {
+                  <article class="card proposal-result">
+                    <h2>最终规格</h2>
+                    <pre>{{ context.proposal.converged_spec }}</pre>
+                    <div class="proposal-convert">
+                      <select #targetEpic>
+                        <option value="">选择目标 Epic</option>
+                        @for (item of epics(); track item.id) {
+                          <option [value]="item.id">{{ item.title }}</option>
+                        }
+                      </select>
+                      <input #storyTitle [value]="context.proposal.title" placeholder="Story 标题" />
+                      <button class="btn-primary" (click)="convertProposal(targetEpic.value, storyTitle.value)">创建 Story / Tasks</button>
+                    </div>
+                  </article>
+                }
+                @if (context.proposal.status === 'story_created' && context.proposal.story_id) {
+                  <article class="card success-state">
+                    <h2>已转换完成</h2>
+                    <a [routerLink]="['/story', context.proposal.story_id]">打开 Story #{{ context.proposal.story_id }}</a>
+                  </article>
+                }
+              </div>
+            </section>
+          }
         }
         @case ('project') {
           @if (project(); as current) {

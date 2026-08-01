@@ -41,8 +41,12 @@ services:
       # 速率限制：300 req/60s/IP（开发环境避免测试时被 429 卡住）
       AGENTBOARD_RATE_LIMIT: "${AGENTBOARD_RATE_LIMIT:-300}"
       AGENTBOARD_RATE_WINDOW: "${AGENTBOARD_RATE_WINDOW:-60}"
+      AGENTBOARD_MQ_URL: "amqp://guest:guest@rabbitmq:5672/%2F"
+      AGENTBOARD_MQ_NAMESPACE: "${AGENTBOARD_MQ_NAMESPACE:-agentboard.proposals}"
     depends_on:
       db:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     ports:
       - "18000:8000"
@@ -99,6 +103,42 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  proposal-worker:
+    profiles: ["proposal-worker"]
+    build: .
+    command: python -m agentboard.worker --mq
+    environment:
+      AGENTBOARD_API_URL: "http://api:8000"
+      AGENTBOARD_MQ_URL: "amqp://guest:guest@rabbitmq:5672/%2F"
+      AGENTBOARD_MQ_NAMESPACE: "${AGENTBOARD_MQ_NAMESPACE:-agentboard.proposals}"
+      AGENTBOARD_WORKER_TOKEN: "${AGENTBOARD_WORKER_TOKEN:-}"
+      AGENTBOARD_WORKER_USERNAME: "${AGENTBOARD_WORKER_USERNAME:-}"
+      AGENTBOARD_WORKER_PASSWORD: "${AGENTBOARD_WORKER_PASSWORD:-}"
+      AGENTBOARD_WORKER_NAME: "${AGENTBOARD_WORKER_NAME:-workbuddy}"
+      AGENTBOARD_PROPOSAL_AGENT_COMMAND: "${AGENTBOARD_PROPOSAL_AGENT_COMMAND:-}"
+      AGENTBOARD_WORKER_LEASE_SECONDS: "${AGENTBOARD_WORKER_LEASE_SECONDS:-1800}"
+    depends_on:
+      api:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    ports:
+      - "35672:5672"
+      - "31567:15672"
+    volumes:
+      - agentboard_rabbitmq:/var/lib/rabbitmq
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
   # 生产数据库：MariaDB（随 up -d 默认启动）
   db:
     image: mariadb:11
@@ -123,3 +163,4 @@ services:
 
 volumes:
   agentboard_mariadb:
+  agentboard_rabbitmq:

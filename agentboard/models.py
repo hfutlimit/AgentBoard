@@ -21,6 +21,7 @@ from .domains.common.enums import (
 from .domains.common.models import Base, utc_now as _now
 from .domains.identity.models import ApiKey, Notification, User
 from .domains.projects.models import Epic, Project, ProjectMember, Sprint, Story
+from .domains.proposals.models import Proposal, ProposalQuestion, ProposalRound
 from .domains.scheduling.models import AgentRun, AgentSchedule
 from .domains.work_items.models import Attachment, AuditLog, Comment, Task, TaskDependency, WebhookConfig
 
@@ -28,7 +29,8 @@ __all__ = [
     "ALL_PRIORITIES", "ALL_RUN_STATUSES", "ALL_SCHEDULE_TYPES",
     "ALL_SPRINT_STATUSES", "ALL_STATUSES", "ALL_TYPES", "AgentRun",
     "AgentSchedule", "ApiKey", "Attachment", "AuditLog", "Base", "Comment", "Epic", "ItemType",
-    "Notification", "Priority", "Project", "ProjectMember", "RunStatus",
+    "Notification", "Priority", "Project", "ProjectMember", "Proposal", "ProposalQuestion",
+    "ProposalRound", "RunStatus",
     "ScheduleType", "Sprint", "SprintStatus", "Status", "Story", "Task",
     "TaskDependency", "User", "WebhookConfig",
 ]

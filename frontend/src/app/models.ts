@@ -211,3 +211,59 @@ export interface WebhookConfig {
   events: string[];
   created_at: string;
 }
+
+export type ProposalStatus =
+  | 'draft'
+  | 'queued'
+  | 'analyzing'
+  | 'awaiting'
+  | 'answered'
+  | 'converged'
+  | 'story_created'
+  | 'failed';
+
+export interface Proposal {
+  id: number;
+  project_id: number;
+  created_by: number | null;
+  story_id: number | null;
+  title: string;
+  body: string;
+  status: ProposalStatus;
+  converged_spec: string;
+  error: string;
+  max_rounds: number;
+  current_round: number;
+  claimed_by: string;
+  claimed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProposalRound {
+  id: number;
+  proposal_id: number;
+  round_number: number;
+  summary: string;
+  agent: string;
+  created_at: string;
+}
+
+export interface ProposalQuestion {
+  id: number;
+  proposal_id: number;
+  round_id: number;
+  round_number: number;
+  question: string;
+  answer: string;
+  unsure: boolean;
+  status: 'open' | 'answered';
+  created_at: string;
+  answered_at: string | null;
+}
+
+export interface ProposalContext {
+  proposal: Proposal;
+  rounds: ProposalRound[];
+  questions: ProposalQuestion[];
+}

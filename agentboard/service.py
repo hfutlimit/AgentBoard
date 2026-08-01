@@ -1,6 +1,6 @@
 import re
-from datetime import date
-from sqlalchemy import or_
+from datetime import date, datetime, timedelta
+from sqlalchemy import or_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from . import models, auth
@@ -9,10 +9,26 @@ from .models import (
     ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES,
     Project, Epic, Story, Task, Comment, Sprint, Attachment, AgentSchedule, AgentRun,
     ProjectMember, Notification, User, ApiKey, AuditLog, TaskDependency, WebhookConfig,
+    Proposal, ProposalQuestion, ProposalRound,
 )
 
 DEFAULT_PAGE_SIZE = 100
 MAX_PAGE_SIZE = 200
+
+PROPOSAL_STATUSES = {
+    "draft", "queued", "analyzing", "awaiting", "answered", "converged",
+    "story_created", "failed",
+}
+PROPOSAL_TRANSITIONS = {
+    "draft": {"queued"},
+    "queued": {"analyzing", "failed"},
+    "analyzing": {"awaiting", "converged", "queued", "failed"},
+    "awaiting": {"answered", "failed"},
+    "answered": {"analyzing", "failed"},
+    "converged": {"story_created", "failed"},
+    "story_created": set(),
+    "failed": {"draft", "queued"},
+}
 
 
 def _parse_due_date(value):
@@ -845,6 +861,307 @@ def delete_run(s: Session, id: int) -> bool:
     s.delete(run); _commit(s); return True
 
 
+# ---------- Proposal clarification ----------
+def create_proposal(s: Session, *, project_id: int, title: str, body: str = "",
+                    max_rounds: int = 5, created_by: int | None = None) -> Proposal:
+    if not s.get(Project, project_id):
+        raise NotFound(f"project {project_id} not found")
+    if created_by is not None and not s.get(User, created_by):
+        raise InvalidValue(f"user {created_by} not found")
+    if max_rounds < 1 or max_rounds > 20:
+        raise InvalidValue("max_rounds must be between 1 and 20")
+    proposal = Proposal(
+        project_id=project_id,
+        created_by=created_by,
+        title=_required(title, "title", 300),
+        body=body or "",
+        max_rounds=max_rounds,
+    )
+    s.add(proposal)
+    _commit(s)
+    s.refresh(proposal)
+    return proposal
+
+
+def get_proposal(s: Session, id: int) -> Proposal | None:
+    return s.get(Proposal, id)
+
+
+def list_proposals(s: Session, *, project_id: int | None = None,
+                   status: str | None = None, limit: int | None = None, offset: int = 0):
+    q = s.query(Proposal)
+    if project_id is not None:
+        q = q.filter(Proposal.project_id == project_id)
+    if status is not None:
+        if status not in PROPOSAL_STATUSES:
+            raise InvalidValue(f"invalid proposal status '{status}'")
+        q = q.filter(Proposal.status == status)
+    return _paginate(q.order_by(Proposal.id.desc()), limit, offset).all()
+
+
+def list_pending_proposals(s: Session, *, limit: int | None = None, offset: int = 0):
+    q = s.query(Proposal).filter(Proposal.status.in_(("queued", "answered")))
+    return _paginate(q.order_by(Proposal.updated_at.asc(), Proposal.id.asc()), limit, offset).all()
+
+
+def update_proposal(s: Session, id: int, **fields) -> Proposal | None:
+    proposal = s.get(Proposal, id)
+    if not proposal:
+        return None
+    if proposal.status not in {"draft", "failed"}:
+        raise InvalidValue("only draft or failed proposals can be edited")
+    if fields.get("title") is not None:
+        proposal.title = _required(fields["title"], "title", 300)
+    if fields.get("body") is not None:
+        proposal.body = fields["body"] or ""
+    if fields.get("max_rounds") is not None:
+        max_rounds = int(fields["max_rounds"])
+        if max_rounds < 1 or max_rounds > 20:
+            raise InvalidValue("max_rounds must be between 1 and 20")
+        proposal.max_rounds = max_rounds
+    _commit(s)
+    s.refresh(proposal)
+    return proposal
+
+
+def delete_proposal(s: Session, id: int) -> bool:
+    proposal = s.get(Proposal, id)
+    if not proposal:
+        return False
+    if proposal.status not in {"draft", "failed"}:
+        raise InvalidValue("only draft or failed proposals can be deleted")
+    s.delete(proposal)
+    _commit(s)
+    return True
+
+
+def set_proposal_status(s: Session, id: int, target: str) -> Proposal:
+    proposal = s.get(Proposal, id)
+    if not proposal:
+        raise NotFound(f"proposal {id} not found")
+    if target not in PROPOSAL_STATUSES:
+        raise InvalidValue(f"invalid proposal status '{target}'")
+    if target == proposal.status:
+        return proposal
+    if target not in PROPOSAL_TRANSITIONS[proposal.status]:
+        raise IllegalTransition(f"cannot transition proposal from {proposal.status} to {target}")
+    proposal.status = target
+    if target != "analyzing":
+        proposal.claimed_by = ""
+        proposal.claimed_at = None
+    if target in {"draft", "queued"}:
+        proposal.error = ""
+    _commit(s)
+    s.refresh(proposal)
+    return proposal
+
+
+def claim_proposal(s: Session, id: int, *, agent: str) -> Proposal:
+    agent = _required(agent, "agent", 100)
+    result = s.execute(
+        update(Proposal)
+        .where(Proposal.id == id, Proposal.status.in_(("queued", "answered")))
+        .values(status="analyzing", claimed_by=agent, claimed_at=datetime.utcnow())
+    )
+    if result.rowcount != 1:
+        s.rollback()
+        if not s.get(Proposal, id):
+            raise NotFound(f"proposal {id} not found")
+        raise Conflict(f"proposal {id} is not claimable")
+    if s.info.get("auto_commit", True):
+        s.commit()
+    proposal = s.get(Proposal, id)
+    s.refresh(proposal)
+    return proposal
+
+
+def reclaim_stale_proposals(s: Session, *, lease_seconds: int = 1800) -> list[Proposal]:
+    if lease_seconds < 30 or lease_seconds > 86400:
+        raise InvalidValue("lease_seconds must be between 30 and 86400")
+    cutoff = datetime.utcnow() - timedelta(seconds=lease_seconds)
+    stale = s.query(Proposal).filter(
+        Proposal.status == "analyzing",
+        Proposal.claimed_at.is_not(None),
+        Proposal.claimed_at < cutoff,
+    ).all()
+    for proposal in stale:
+        proposal.status = "queued"
+        proposal.claimed_by = ""
+        proposal.claimed_at = None
+        proposal.error = "worker lease expired"
+    if stale:
+        _commit(s)
+    return stale
+
+
+def proposal_context(s: Session, id: int) -> dict:
+    proposal = s.get(Proposal, id)
+    if not proposal:
+        raise NotFound(f"proposal {id} not found")
+    rounds = s.query(ProposalRound).filter_by(proposal_id=id).order_by(ProposalRound.round_number).all()
+    questions = s.query(ProposalQuestion).filter_by(proposal_id=id).order_by(
+        ProposalQuestion.round_number, ProposalQuestion.id
+    ).all()
+    return {
+        "proposal": _ser(proposal),
+        "rounds": [_ser(item) for item in rounds],
+        "questions": [_ser(item) for item in questions],
+    }
+
+
+def add_proposal_questions(s: Session, id: int, *, round_number: int,
+                           questions: list[str], summary: str = "", agent: str = "") -> list[ProposalQuestion]:
+    proposal = s.get(Proposal, id)
+    if not proposal:
+        raise NotFound(f"proposal {id} not found")
+    if proposal.status != "analyzing":
+        raise Conflict(f"proposal {id} is not being analyzed")
+    if round_number != proposal.current_round + 1:
+        raise InvalidValue(f"expected round {proposal.current_round + 1}")
+    if round_number > proposal.max_rounds:
+        raise InvalidValue("proposal has reached max_rounds")
+    normalized = [_required(q, "question", 4000) for q in questions if (q or "").strip()]
+    if not normalized:
+        raise InvalidValue("at least one question is required")
+    existing = s.query(ProposalRound).filter_by(proposal_id=id, round_number=round_number).first()
+    if existing:
+        return s.query(ProposalQuestion).filter_by(round_id=existing.id).order_by(ProposalQuestion.id).all()
+    proposal_round = ProposalRound(
+        proposal_id=id, round_number=round_number, summary=summary or "", agent=(agent or "")[:100]
+    )
+    s.add(proposal_round)
+    s.flush()
+    items = [
+        ProposalQuestion(
+            proposal_id=id,
+            round_id=proposal_round.id,
+            round_number=round_number,
+            question=question,
+        )
+        for question in normalized
+    ]
+    s.add_all(items)
+    proposal.current_round = round_number
+    proposal.status = "awaiting"
+    proposal.claimed_by = ""
+    proposal.claimed_at = None
+    _commit(s)
+    for item in items:
+        s.refresh(item)
+    return items
+
+
+def answer_proposal_question(s: Session, question_id: int, *, answer: str = "",
+                             unsure: bool = False) -> tuple[ProposalQuestion, Proposal, bool]:
+    question = s.get(ProposalQuestion, question_id)
+    if not question:
+        raise NotFound(f"proposal question {question_id} not found")
+    proposal = s.get(Proposal, question.proposal_id)
+    if not proposal or proposal.status != "awaiting":
+        raise Conflict("proposal is not awaiting answers")
+    if question.status == "answered":
+        raise Conflict(f"proposal question {question_id} was already answered")
+    if not unsure and not (answer or "").strip():
+        raise InvalidValue("answer is required unless unsure is true")
+    question.answer = (answer or "").strip()
+    question.unsure = bool(unsure)
+    question.status = "answered"
+    question.answered_at = datetime.utcnow()
+    remaining = s.query(ProposalQuestion.id).filter(
+        ProposalQuestion.proposal_id == proposal.id,
+        ProposalQuestion.round_number == question.round_number,
+        ProposalQuestion.status == "open",
+        ProposalQuestion.id != question.id,
+    ).first()
+    ready = remaining is None
+    if ready:
+        proposal.status = "answered"
+    _commit(s)
+    s.refresh(question)
+    s.refresh(proposal)
+    return question, proposal, ready
+
+
+def finalize_proposal(s: Session, id: int, *, converged_spec: str) -> Proposal:
+    proposal = s.get(Proposal, id)
+    if not proposal:
+        raise NotFound(f"proposal {id} not found")
+    if proposal.status != "analyzing":
+        raise Conflict(f"proposal {id} is not being analyzed")
+    proposal.converged_spec = _required(converged_spec, "converged_spec", 200000)
+    proposal.status = "converged"
+    proposal.claimed_by = ""
+    proposal.claimed_at = None
+    proposal.error = ""
+    _commit(s)
+    s.refresh(proposal)
+    return proposal
+
+
+def fail_proposal(s: Session, id: int, *, error: str) -> Proposal:
+    proposal = s.get(Proposal, id)
+    if not proposal:
+        raise NotFound(f"proposal {id} not found")
+    if proposal.status == "story_created":
+        raise Conflict("a converted proposal cannot be failed")
+    proposal.error = _required(error, "error", 20000)
+    proposal.status = "failed"
+    proposal.claimed_by = ""
+    proposal.claimed_at = None
+    _commit(s)
+    s.refresh(proposal)
+    return proposal
+
+
+_CHECKLIST_RE = re.compile(r"^\s*[-*]\s+\[[ xX]\]\s+(.+?)\s*$")
+
+
+def convert_proposal_to_story(s: Session, id: int, *, epic_id: int,
+                              story_title: str | None = None) -> tuple[Story, list[Task]]:
+    proposal = s.get(Proposal, id)
+    if not proposal:
+        raise NotFound(f"proposal {id} not found")
+    if proposal.status != "converged":
+        raise Conflict("only a converged proposal can be converted")
+    epic = s.get(Epic, epic_id)
+    if not epic:
+        raise NotFound(f"epic {epic_id} not found")
+    if epic.project_id != proposal.project_id:
+        raise InvalidValue("epic and proposal must belong to the same project")
+    story = Story(
+        epic_id=epic_id,
+        title=_required(story_title or proposal.title, "story_title", 300),
+        description=proposal.converged_spec,
+    )
+    s.add(story)
+    s.flush()
+    tasks: list[Task] = []
+    for line in proposal.converged_spec.splitlines():
+        match = _CHECKLIST_RE.match(line)
+        if not match:
+            continue
+        task = Task(
+            project_id=proposal.project_id,
+            story_id=story.id,
+            title=_required(match.group(1), "task title", 300),
+            type=ItemType.TASK,
+            description="",
+            spec=proposal.converged_spec,
+            priority=Priority.MEDIUM,
+            labels="[]",
+        )
+        s.add(task)
+        tasks.append(task)
+    proposal.story_id = story.id
+    proposal.status = "story_created"
+    _commit(s)
+    s.refresh(story)
+    for task in tasks:
+        s.refresh(task)
+    _invalidate_project_stats_cache(proposal.project_id)
+    return story, tasks
+
+
 class DomainError(Exception):
     pass
 
@@ -862,6 +1179,10 @@ class Duplicate(DomainError):
 
 
 class InvalidValue(DomainError):
+    pass
+
+
+class Conflict(DomainError):
     pass
 
 

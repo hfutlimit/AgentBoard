@@ -1,5 +1,7 @@
 # AgentBoard
 
+本机 Docker、原生 Python/Node、MCP、RabbitMQ 和 Proposal Worker 安装步骤见 [docs/local-installation.md](docs/local-installation.md)。
+
 轻量项目管理工具，内嵌 **OpenSpec / Superpowers 风格的规范能力**：任务的 `spec` 字段存放 markdown 规范文档，并通过 **MCP** 暴露给 AI 编程工具。
 
 ## 功能

@@ -9,9 +9,9 @@ import { filter } from 'rxjs/operators';
 
 import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric } from './api.service';
 import { LoginComponent } from './login/login';
-import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig } from './models';
+import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig, Proposal, ProposalContext } from './models';
 
-type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'admin' | 'settings' | 'not-found';
+type ViewKind = 'home' | 'projects' | 'project' | 'proposals' | 'proposal' | 'epic' | 'story' | 'task' | 'sprint' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
 
 interface CreateModal {
@@ -36,6 +36,8 @@ export class App implements OnInit, OnDestroy {
   readonly epics = signal<Epic[]>([]);
   readonly stories = signal<Story[]>([]);
   readonly tasks = signal<Task[]>([]);
+  readonly proposals = signal<Proposal[]>([]);
+  readonly proposalContext = signal<ProposalContext | null>(null);
   readonly comments = signal<Comment[]>([]);
   readonly sprints = signal<Sprint[]>([]);
   readonly sprint = signal<Sprint | null>(null);
@@ -756,6 +758,19 @@ export class App implements OnInit, OnDestroy {
         await this.loadDashboard();
       } else if (kind === 'projects') {
         this.view.set('projects');
+      } else if (kind === 'proposals') {
+        this.view.set('proposals');
+        this.proposals.set(await firstValueFrom(this.api.listProposals()));
+      } else if (kind === 'proposal' && id > 0) {
+        this.view.set('proposal');
+        const context = await firstValueFrom(this.api.getProposalContext(id));
+        this.proposalContext.set(context);
+        const [project, epics] = await Promise.all([
+          firstValueFrom(this.api.getProject(context.proposal.project_id)),
+          firstValueFrom(this.api.listEpics(context.proposal.project_id)),
+        ]);
+        this.project.set(project);
+        this.epics.set(epics);
       } else if (kind === 'project' && id > 0) {
         this.view.set('project');
         this.activeTab.set('epics');
@@ -1022,6 +1037,74 @@ export class App implements OnInit, OnDestroy {
     this.isOwner.set(false);
     this.showLogin('login');
     this.notify('已退出登录');
+  }
+
+  async createProposal(projectIdValue: string, title: string, body: string, maxRoundsValue: string): Promise<void> {
+    const projectId = Number(projectIdValue);
+    const maxRounds = Number(maxRoundsValue || 5);
+    if (!projectId || !title.trim()) {
+      this.notify('请选择项目并填写 Proposal 标题', 'error');
+      return;
+    }
+    this.submitting.set(true);
+    try {
+      const proposal = await firstValueFrom(this.api.createProposal({
+        project_id: projectId,
+        title: title.trim(),
+        body: body.trim(),
+        max_rounds: maxRounds,
+      }));
+      await firstValueFrom(this.api.updateProposalStatus(proposal.id, 'queued'));
+      await this.router.navigate(['/proposal', proposal.id]);
+      this.notify('Proposal 已提交分析');
+    } catch (error) {
+      this.notify(`创建 Proposal 失败：${this.message(error)}`, 'error');
+    } finally {
+      this.submitting.set(false);
+    }
+  }
+
+  async answerProposalQuestion(questionId: number, answer: string, unsure: boolean): Promise<void> {
+    const proposal = this.proposalContext()?.proposal;
+    if (!proposal) return;
+    try {
+      await firstValueFrom(this.api.answerProposalQuestion(questionId, answer.trim(), unsure));
+      this.proposalContext.set(await firstValueFrom(this.api.getProposalContext(proposal.id)));
+      this.notify('回答已保存');
+    } catch (error) {
+      this.notify(`保存回答失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  async retryProposal(): Promise<void> {
+    const proposal = this.proposalContext()?.proposal;
+    if (!proposal) return;
+    try {
+      await firstValueFrom(this.api.updateProposalStatus(proposal.id, 'queued'));
+      this.proposalContext.set(await firstValueFrom(this.api.getProposalContext(proposal.id)));
+      this.notify('Proposal 已重新入队');
+    } catch (error) {
+      this.notify(`重新入队失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  async convertProposal(epicIdValue: string, storyTitle: string): Promise<void> {
+    const proposal = this.proposalContext()?.proposal;
+    const epicId = Number(epicIdValue);
+    if (!proposal || !epicId) {
+      this.notify('请选择目标 Epic', 'error');
+      return;
+    }
+    if (!confirm('确认根据最终规格创建 Story 和清单中的 Tasks？')) return;
+    try {
+      const result = await firstValueFrom(this.api.convertProposal(
+        proposal.id, epicId, storyTitle.trim() || undefined
+      ));
+      this.notify(`已创建 Story #${result.story.id} 和 ${result.tasks.length} 个 Task`);
+      await this.router.navigate(['/story', result.story.id]);
+    } catch (error) {
+      this.notify(`转换失败：${this.message(error)}`, 'error');
+    }
   }
 
   openCreate(kind: CreateKind, parentId?: number, projectId?: number): void {

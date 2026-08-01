@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable, of, throwError, timer, Subject } from 'rxjs';
 import { catchError, tap, switchMap, mergeMap, debounceTime, takeUntil } from 'rxjs/operators';
 
-import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig } from './models';
+import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, Proposal, ProposalContext } from './models';
 
 export const AUTH_EXPIRED_EVENT = 'agentboard:auth-expired';
 
@@ -382,6 +382,32 @@ export class ApiService {
   deleteProject(id: number) {
     return this.request<{ ok: boolean }>('DELETE', `/api/projects/${id}`).pipe(
       tap(() => this.invalidateProjectCache())
+    );
+  }
+
+  listProposals(projectId?: number, status?: string) {
+    return this.request<Proposal[]>('GET', '/api/proposals', undefined, {
+      project_id: projectId,
+      status,
+    });
+  }
+  createProposal(body: { project_id: number; title: string; body?: string; max_rounds?: number }) {
+    return this.request<Proposal>('POST', '/api/proposals', body);
+  }
+  getProposalContext(id: number) {
+    return this.request<ProposalContext>('GET', `/api/proposals/${id}/context`);
+  }
+  updateProposalStatus(id: number, status: string) {
+    return this.request<Proposal>('PUT', `/api/proposals/${id}/status`, { status });
+  }
+  answerProposalQuestion(id: number, answer: string, unsure: boolean) {
+    return this.request<{ question: unknown; proposal: Proposal; ready: boolean }>(
+      'PUT', `/api/proposal-questions/${id}/answer`, { answer, unsure }
+    );
+  }
+  convertProposal(id: number, epicId: number, storyTitle?: string) {
+    return this.request<{ story: Story; tasks: Task[] }>(
+      'POST', `/api/proposals/${id}/create-story`, { epic_id: epicId, story_title: storyTitle }
     );
   }
 
