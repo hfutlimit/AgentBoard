@@ -2953,17 +2953,14 @@ export class App implements OnInit, OnDestroy {
     } catch { /* ignore */ }
   }
 
-  openNotificationsWindow(): void {
+  openNotificationsTab(): void {
     const url = new URL('/notifications', this.document.baseURI).toString();
-    const opened = this.document.defaultView?.open(
-      url,
-      'agentboard-notifications',
-      'popup=yes,width=1120,height=780,resizable=yes,scrollbars=yes',
-    );
+    const opened = this.document.defaultView?.open(url, '_blank');
     if (!opened) {
-      this.notify('浏览器阻止了通知窗口，请允许此站点打开窗口', 'error');
+      this.notify('浏览器阻止了新标签页，请允许此站点打开标签页', 'error');
       return;
     }
+    opened.opener = null;
     opened.focus();
   }
 

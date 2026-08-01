@@ -110,7 +110,7 @@ describe('App', () => {
     expect(app.dashboardActivity().total).toBe(2);
   });
 
-  it('should open the standalone notification center in a dedicated window', async () => {
+  it('should open the standalone notification center in a new browser tab', async () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;
     fixture.detectChanges();
@@ -118,13 +118,13 @@ describe('App', () => {
     const focus = vi.fn();
     const open = vi.spyOn(window, 'open').mockReturnValue({ focus } as unknown as Window);
 
-    app.openNotificationsWindow();
+    app.openNotificationsTab();
 
     expect(open).toHaveBeenCalledWith(
       expect.stringContaining('/notifications'),
-      'agentboard-notifications',
-      expect.stringContaining('width=1120'),
+      '_blank',
     );
+    expect((open.mock.results[0].value as Window).opener).toBeNull();
     expect(focus).toHaveBeenCalled();
     open.mockRestore();
   });
