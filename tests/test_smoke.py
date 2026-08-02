@@ -5,6 +5,7 @@
 import os
 import tempfile
 import hashlib
+import re
 
 # 必须在导入 agentboard 之前设置临时 SQLite
 _DB = tempfile.mktemp(suffix=".db")
@@ -27,6 +28,18 @@ def _mcp_over_api():
     from agentboard.api import app
     from agentboard import mcp_server as m
 
+    with TestClient(app) as client:
+        login = client.post(
+            "/api/auth/login",
+            json={"username": "mcp-smoke", "password": "secret123"},
+        )
+        if login.status_code == 401:
+            login = client.post(
+                "/api/auth/register",
+                json={"username": "mcp-smoke", "password": "secret123"},
+            )
+        assert login.status_code in {200, 201}, login.text
+        os.environ["AGENTBOARD_MCP_TOKEN"] = login.json()["token"]
     m.httpx = types.SimpleNamespace(Client=lambda *a, **k: TestClient(app))
     return m
 
@@ -82,7 +95,7 @@ def test_rest_api():
     from fastapi.testclient import TestClient
     from agentboard.api import app
     with TestClient(app) as c:
-        assert c.get("/api/meta").json()["types"] == ["task", "bug"]
+        assert c.get("/api/meta").json()["types"] == ["task", "bug", "test_execution"]
         # 分页：列表 API 返回 {items, total}
         page = c.get("/api/projects", params={"limit": 1}).json()
         assert len(page["items"]) <= 1 and "total" in page
@@ -114,7 +127,8 @@ def test_rest_api():
 
         # 状态流转（合法/非法）
         assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "todo"}).status_code == 200
-        assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "done"}).status_code == 400
+        assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "done"}).status_code == 200
+        assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "backlog"}).status_code == 400
 
         # 搜索
         assert len(c.get("/api/tasks", params={"q": "spec", "priority": "low"}).json()) >= 1
@@ -133,7 +147,9 @@ def test_web_serving():
         assert "AgentBoard" in r.text
         assert "__API_URL__" not in r.text  # 已注入
         assert "app-root" in r.text
-        assert c.get("/static/style.css").status_code == 200
+        css_match = re.search(r'href="/static/(styles-[^"]+\.css)"', r.text)
+        assert css_match, "hashed Angular stylesheet was not injected"
+        assert c.get(f"/static/{css_match.group(1)}").status_code == 200
         assert c.get("/project/123").status_code == 200  # Angular history 路由回退
 
 

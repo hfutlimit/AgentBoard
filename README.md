@@ -113,7 +113,9 @@ python -c "import secrets; print(secrets.token_hex(32))"
 docker compose up -d --build
 ```
 
-默认端口：API `8000`、MCP `8001/mcp`、Web `8080`。生产环境应由 Nginx/Caddy/云网关终止 TLS，只向 Agent 暴露 `https://.../mcp`；不要在公网使用明文 HTTP，也不要直接暴露数据库。Nginx 样例见 [examples/nginx-agentboard.conf](examples/nginx-agentboard.conf)，其中已关闭 MCP 响应缓冲并转发 Authorization。
+生产部署的 `.env` 必须同时设置 `AGENTBOARD_WEB_API_URL`、`AGENTBOARD_CORS_ORIGINS`、`MARIADB_PASSWORD` 和 `MARIADB_ROOT_PASSWORD`；Compose 默认以 `AGENTBOARD_ENV=production`、`AGENTBOARD_ALLOW_REGISTRATION=0` 启动。宿主机端口为 API `18000`、MCP `18001/mcp`、Web `28080`，MariaDB 仅绑定 `127.0.0.1:13306`。
+
+容器内部端口：API `8000`、MCP `8001/mcp`、Web `8080`。生产环境应由 Nginx/Caddy/云网关终止 TLS，只向 Agent 暴露 `https://.../mcp`；不要在公网使用明文 HTTP，也不要直接暴露数据库。Nginx 样例见 [examples/nginx-agentboard.conf](examples/nginx-agentboard.conf)，其中已关闭 MCP 响应缓冲并转发 Authorization。
 
 ### 获取 Agent Token
 

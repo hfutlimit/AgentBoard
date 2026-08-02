@@ -155,6 +155,35 @@ def delete_project(s: Session, id: int) -> bool:
     p = s.get(Project, id)
     if not p:
         return False
+
+    document_ids = [x[0] for x in s.query(Document.id).filter(Document.project_id == id).all()]
+    if document_ids:
+        s.query(DocumentComment).filter(
+            DocumentComment.document_id.in_(document_ids)
+        ).delete(synchronize_session=False)
+        s.query(Document).filter(Document.id.in_(document_ids)).delete(synchronize_session=False)
+
+    proposal_ids = [x[0] for x in s.query(Proposal.id).filter(Proposal.project_id == id).all()]
+    if proposal_ids:
+        s.query(ProposalQuestion).filter(
+            ProposalQuestion.proposal_id.in_(proposal_ids)
+        ).delete(synchronize_session=False)
+        s.query(ProposalRound).filter(
+            ProposalRound.proposal_id.in_(proposal_ids)
+        ).delete(synchronize_session=False)
+        s.query(Proposal).filter(Proposal.id.in_(proposal_ids)).delete(synchronize_session=False)
+
+    schedule_ids = [
+        x[0] for x in s.query(AgentSchedule.id).filter(AgentSchedule.project_id == id).all()
+    ]
+    if schedule_ids:
+        s.query(AgentRun).filter(AgentRun.schedule_id.in_(schedule_ids)).delete(
+            synchronize_session=False
+        )
+        s.query(AgentSchedule).filter(AgentSchedule.id.in_(schedule_ids)).delete(
+            synchronize_session=False
+        )
+
     epic_ids = [x[0] for x in s.query(Epic.id).filter(Epic.project_id == id).all()]
     story_ids = []
     if epic_ids:
@@ -164,11 +193,27 @@ def delete_project(s: Session, id: int) -> bool:
         task_filter = or_(task_filter, Task.story_id.in_(story_ids))
     task_ids = [x[0] for x in s.query(Task.id).filter(task_filter).all()]
     if task_ids:
+        s.query(AgentRun).filter(AgentRun.task_id.in_(task_ids)).update(
+            {AgentRun.task_id: None}, synchronize_session=False,
+        )
+        s.query(Task).filter(Task.source_spec_id.in_(task_ids)).update(
+            {Task.source_spec_id: None}, synchronize_session=False,
+        )
+        s.query(TaskDependency).filter(or_(
+            TaskDependency.task_id.in_(task_ids),
+            TaskDependency.depends_on_id.in_(task_ids),
+        )).delete(synchronize_session=False)
+        s.query(Attachment).filter(Attachment.task_id.in_(task_ids)).delete(
+            synchronize_session=False
+        )
         s.query(Comment).filter(Comment.task_id.in_(task_ids)).delete(synchronize_session=False)
         s.query(Task).filter(Task.id.in_(task_ids)).delete(synchronize_session=False)
     if story_ids:
         s.query(Story).filter(Story.id.in_(story_ids)).delete(synchronize_session=False)
-    s.query(Epic).filter(Epic.project_id == id).delete()
+    s.query(Epic).filter(Epic.project_id == id).delete(synchronize_session=False)
+    s.query(Sprint).filter(Sprint.project_id == id).delete(synchronize_session=False)
+    s.query(ProjectMember).filter(ProjectMember.project_id == id).delete(synchronize_session=False)
+    s.query(WebhookConfig).filter(WebhookConfig.project_id == id).delete(synchronize_session=False)
     s.delete(p); _commit(s); return True
 
 
@@ -390,6 +435,17 @@ def delete_task(s: Session, id: int) -> bool:
     if not t:
         return False
     pid = t.project_id
+    s.query(AgentRun).filter(AgentRun.task_id == id).update(
+        {AgentRun.task_id: None}, synchronize_session=False,
+    )
+    s.query(Task).filter(Task.source_spec_id == id).update(
+        {Task.source_spec_id: None}, synchronize_session=False,
+    )
+    s.query(TaskDependency).filter(or_(
+        TaskDependency.task_id == id,
+        TaskDependency.depends_on_id == id,
+    )).delete(synchronize_session=False)
+    s.query(Attachment).filter(Attachment.task_id == id).delete(synchronize_session=False)
     s.query(Comment).filter(Comment.task_id == id).delete(synchronize_session=False)
     s.delete(t); _commit(s)
     _invalidate_project_stats_cache(pid)

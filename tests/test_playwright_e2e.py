@@ -538,3 +538,63 @@ def test_e2e_spec_editing(page, servers):
     spec_val = page.locator(".form-section textarea").nth(1).input_value()
     assert "验收标准" in spec_val, \
         f"刷新后 spec 应持久化保存，实际: {spec_val[:80]}"
+
+
+def test_e2e_deep_link_keeps_story_scope(page, servers):
+    """直接打开或刷新 Epic 深链时，首页异步加载不得覆盖当前 Epic 的 Story。"""
+    import httpx
+
+    api_base, web_base = servers
+    ts = str(int(time.time() * 1000))
+    with httpx.Client(base_url=api_base, timeout=20) as client:
+        registered = client.post(
+            "/api/auth/register",
+            json={"username": "e2escope" + ts, "password": "secret123"},
+        )
+        assert registered.status_code == 201, registered.text
+        token = registered.json()["token"]
+        client.headers.update({"Authorization": f"Bearer {token}"})
+
+        projects = []
+        try:
+            for suffix in ("A", "B"):
+                project = client.post(
+                    "/api/projects", json={"name": f"Scope Project {suffix} {ts}"},
+                ).json()
+                projects.append(project["id"])
+                epic = client.post(
+                    f"/api/projects/{project['id']}/epics",
+                    json={"title": f"Scope Epic {suffix} {ts}"},
+                ).json()
+                story = client.post(
+                    f"/api/epics/{epic['id']}/stories",
+                    json={"title": f"Scope Story {suffix} {ts}"},
+                ).json()
+                if suffix == "A":
+                    other_story = story
+                else:
+                    target_epic = epic
+                    target_story = story
+
+            page.add_init_script(
+                "localStorage.setItem('agentboard_token', " + json.dumps(token) + ");"
+            )
+            page.goto(web_base + f"/epic/{target_epic['id']}")
+            page.wait_for_selector("button.tab-btn", state="visible", timeout=10000)
+            page.get_by_role("button", name="📚 Story 列表", exact=True).click()
+            page.wait_for_selector(
+                f"a[href='/story/{target_story['id']}']", state="visible", timeout=10000,
+            )
+            assert page.locator(f"a[href='/story/{other_story['id']}']").count() == 0
+
+            page.reload()
+            page.wait_for_selector("button.tab-btn", state="visible", timeout=10000)
+            page.get_by_role("button", name="📚 Story 列表", exact=True).click()
+            page.wait_for_selector(
+                f"a[href='/story/{target_story['id']}']", state="visible", timeout=10000,
+            )
+            assert page.locator(f"a[href='/story/{other_story['id']}']").count() == 0
+        finally:
+            for project_id in reversed(projects):
+                deleted = client.delete(f"/api/projects/{project_id}")
+                assert deleted.status_code == 200, deleted.text

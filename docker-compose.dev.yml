@@ -16,16 +16,17 @@ services:
       - ./agentboard:/app/agentboard
       - ./migrations:/app/migrations
       - ./data:/app/data
-      - agentboard_mariadb:/var/lib/mysql
     environment:
       # 开发模式：SQLite 方便调试
       AGENTBOARD_DB_URL: "sqlite:////app/data/agentboard.db"
+      AGENTBOARD_ENV: "development"
+      AGENTBOARD_ALLOW_REGISTRATION: "1"
+      AGENTBOARD_CORS_ORIGINS: "http://localhost:28080,http://localhost:4200"
 
   web:
-    # Web 静态文件已通过 docker-compose.yml 的 volume mount 热更新
-    # 如需完全热重载，可取消注释下面一行
-    # volumes:
-    #   - ./agentboard/web/static:/app/agentboard/web/static:ro
+    # 开发模式挂载静态文件目录，更新旧版 Web 静态资源后无需重建容器
+    volumes:
+      - ./agentboard/web/static:/app/agentboard/web/static:ro
 
   mcp:
     # MCP 服务暂不支持热重载（需要重启）

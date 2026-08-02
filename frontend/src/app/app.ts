@@ -938,6 +938,7 @@ export class App implements OnInit, OnDestroy {
   });
 
   private routeSub?: Subscription;
+  private routeLoadGeneration = 0;
   private toastTimer?: ReturnType<typeof setTimeout>;
   private notifTimer?: ReturnType<typeof setInterval>;    // Task 401: 通知轮询
   private readonly colorScheme = window.matchMedia?.('(prefers-color-scheme: dark)');
@@ -1524,6 +1525,7 @@ export class App implements OnInit, OnDestroy {
   private async loadRoute(skeleton: boolean = true): Promise<void> {
     // 未登录时不加载任何业务数据，由独立登录页接管
     if (this.authVisible()) return;
+    const generation = ++this.routeLoadGeneration;
     // Epic 78 (v6.6): 手动刷新时 skeleton=false，保留当前内容，仅由刷新按钮显示加载态
     if (skeleton) this.loading.set(true);
     this.error.set('');
@@ -1538,11 +1540,12 @@ export class App implements OnInit, OnDestroy {
     }
     try {
       await this.loadProjects();
+      if (generation !== this.routeLoadGeneration) return;
       this.syncRecentProjects();
       this.syncFavorites();
       if (!kind) {
         this.view.set('home');
-        await this.loadDashboard();
+        await this.loadDashboard(generation);
       } else if (kind === 'projects') {
         this.view.set('projects');
       } else if (kind === 'project' && id > 0) {
@@ -1681,6 +1684,7 @@ export class App implements OnInit, OnDestroy {
         this.view.set('not-found');
       }
     } catch (error) {
+      if (generation !== this.routeLoadGeneration) return;
       const status = (error as Error & { status?: number })?.status;
       // 403（无权访问） / 404（项目不存在）→ toast 提示并回首页
       if (status === 403 || status === 404) {
@@ -1691,7 +1695,7 @@ export class App implements OnInit, OnDestroy {
       this.error.set(this.message(error));
     } finally {
       // Epic 78 (v6.6): 手动刷新（skeleton=false）时不切换骨架屏
-      if (skeleton) this.loading.set(false);
+      if (skeleton && generation === this.routeLoadGeneration) this.loading.set(false);
     }
   }
 
@@ -1774,20 +1778,23 @@ export class App implements OnInit, OnDestroy {
     } catch { /* ignore */ }
   }
 
-  private async loadDashboard(): Promise<void> {
+  private async loadDashboard(generation: number = this.routeLoadGeneration): Promise<void> {
     const allEpics = (
       await Promise.all(
         this.projects().map((project) => firstValueFrom(this.api.listEpics(project.id))),
       )
     ).flat();
+    if (generation !== this.routeLoadGeneration || this.view() !== 'home') return;
     this.epics.set(allEpics);
     const allStories = (
       await Promise.all(allEpics.map((epic) => firstValueFrom(this.api.listStories(epic.id))))
     ).flat();
+    if (generation !== this.routeLoadGeneration || this.view() !== 'home') return;
     this.stories.set(allStories);
     const allTasks = (
       await Promise.all(allStories.map((story) => firstValueFrom(this.api.listTasks(story.id))))
     ).flat();
+    if (generation !== this.routeLoadGeneration || this.view() !== 'home') return;
     // Story 视图使用 loadStoryTasks 独立加载自身任务；非 story 视图才写入全局 tasks()
     if (this.view() !== 'story') this.tasks.set(allTasks);
   }

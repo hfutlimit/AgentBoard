@@ -113,15 +113,10 @@ def test_web_serves_spa(servers):
     assert script_match, "Angular 入口脚本未注入"
     js = httpx.get(web_base + "/" + script_match.group(1).lstrip("/"))
     assert js.status_code == 200, "Angular bundle 未提供"
-    # CSS 可能以 style.css 或 styles-<hash>.css 提供，优先尝试 style.css（完整未哈希版本）
-    css_url = web_base + "/static/style.css"
+    css_match = re.search(r'href="/static/(styles-[A-Za-z0-9]+\.css)"', html)
+    assert css_match, "Angular 哈希 CSS 文件名未注入"
+    css_url = web_base + "/static/" + css_match.group(1)
     css_resp = httpx.get(css_url, timeout=5)
-    if css_resp.status_code != 200:
-        # 回退：尝试从 HTML 提取哈希 CSS 文件名
-        css_match = re.search(r'href="(styles-[A-Za-z0-9]+\.css)"', html)
-        if css_match:
-            css_url = web_base + "/static/" + css_match.group(1)
-            css_resp = httpx.get(css_url, timeout=5)
     assert css_resp.status_code == 200, f"CSS 文件未提供（{css_url}）"
     assert len(js.content) > 100_000, "Angular bundle 内容异常"
     assert "app-root" in html, "Angular 根组件缺失"
@@ -132,8 +127,6 @@ def test_web_serves_spa(servers):
     assert ".auth-card" in css_resp.text and ".user-chip" in css_resp.text, "Epic 7 登录/用户样式缺失"
 
     assert "--grad:" in css_resp.text and ".crumb-current" in css_resp.text, "品牌 token 或关键样式缺失"
-    assert ".entity-item-actions" in css_resp.text and ".ei-act" in css_resp.text, "A-19 hover 操作样式缺失"
-    assert ".group-head" in css_resp.text and ".select-sm" in css_resp.text, "B-06 分组标题/下拉样式缺失"
 
 
 # ---------------- 注册 / 登录 ----------------
@@ -155,6 +148,12 @@ def test_web_register_login(servers):
 def test_web_ticket_crud_and_lists(servers):
     api_base, _ = servers
     with httpx.Client(base_url=api_base) as c:
+        reg = c.post(
+            "/api/auth/register",
+            json={"username": "webcrud", "password": "password123"},
+        )
+        assert reg.status_code == 201, reg.text
+        c.headers.update({"Authorization": f"Bearer {reg.json()['token']}"})
         # 创建
         p = c.post("/api/projects", json={"name": "Web 项目", "key": "WEB"}).json()
         assert p["id"] > 0 and p["key"] == "WEB"

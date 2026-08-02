@@ -154,9 +154,10 @@ def test_auth_edge_cases_via_api(api_url):
 # ---------------- 全链路 CRUD（含 task/bug） ----------------
 def test_full_crud_flow(api_url):
     with httpx.Client(base_url=api_url) as c:
-        # 先登录拿到 token（仅演示鉴权接口可用，CRUD 接口当前为单用户开放）
+        # 先登录拿到 token，后续 CRUD 按生产鉴权配置执行
         reg = c.post("/api/auth/register", json={"username": "carol", "password": "password-carol"})
         token = reg.json()["token"]
+        c.headers.update({"Authorization": f"Bearer {token}"})
 
         # project
         p = c.post("/api/projects", json={"name": "Flow 项目", "key": "FLOW"}).json()
@@ -170,11 +171,22 @@ def test_full_crud_flow(api_url):
         st = c.post(f"/api/epics/{e['id']}/stories", json={"title": "Story 1"}).json()
         assert st["id"] > 0
 
+        sprint = c.post(
+            f"/api/projects/{p['id']}/sprints", json={"title": "Release Sprint"},
+        ).json()
+        schedule = c.post(
+            f"/api/projects/{p['id']}/schedules",
+            json={"title": "Release Check", "schedule_type": "cron", "cron_expr": "0 * * * *"},
+        ).json()
+
         # task（type=task）
         t = c.post(f"/api/stories/{st['id']}/tasks",
                    json={"project_id": p["id"], "title": "实现登录", "type": "task",
                          "priority": "high"}).json()
         assert t["type"] == ItemType.TASK and t["priority"] == "high"
+        run = c.post(
+            f"/api/schedules/{schedule['id']}/runs", json={"task_id": t["id"]},
+        ).json()
 
         # bug（type=bug）
         b = c.post(f"/api/stories/{st['id']}/tasks",
@@ -183,7 +195,7 @@ def test_full_crud_flow(api_url):
 
         # 列表同时含 task 与 bug
         rows = c.get(f"/api/stories/{st['id']}/tasks").json()
-        assert len(rows) == 2
+        assert len(rows["items"]) == 2 and rows["total"] == 2
 
         # 状态流转：task 合法迁移
         assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "todo"}).status_code == 200
@@ -211,12 +223,15 @@ def test_full_crud_flow(api_url):
         # 删除 task 不影响 bug
         assert c.delete(f"/api/tasks/{t['id']}").status_code == 200
         remain = c.get(f"/api/stories/{st['id']}/tasks").json()
-        assert len(remain) == 1 and remain[0]["id"] == b["id"]
+        assert remain["total"] == 1 and remain["items"][0]["id"] == b["id"]
 
         # 级联删除 project（epic/story/bug 一并删除）
         assert c.delete(f"/api/projects/{p['id']}").status_code == 200
         assert c.get(f"/api/epics/{e['id']}").status_code == 404
         assert c.get(f"/api/stories/{st['id']}").status_code == 404
+        assert c.get(f"/api/sprints/{sprint['id']}").status_code == 404
+        assert c.get(f"/api/schedules/{schedule['id']}").status_code == 404
+        assert c.get(f"/api/runs/{run['id']}").status_code == 404
 
         # token 仍然有效（用户与项目数据相互独立）
         me = c.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
