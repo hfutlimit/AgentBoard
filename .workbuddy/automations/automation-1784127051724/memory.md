@@ -740,3 +740,47 @@
 - 下次可执行（P2）：RabbitMQ 接入点（待服务端引入 CAS 认领端点彻底消灭 TOCTOU）；proposal→story 自动生成（P3）。
 
 - 收尾验证(2026-07-31 完整回归 q1rpvT)：11 个测试模块 83 passed / 1 skipped / 0 failed (exit 0, 119s)。确认 Task 932→in_review 交付未引入跨模块回归。
+
+## 2026-07-31 自动开发 — Epic 96 P2-0 服务端 CAS 原子认领 + 显式租约 → in_review（达成）
+- 目标：Task 933 → in_review（本次显式终态指令）。MCP 可用（testadmin/admin），以 MCP 为权威同步状态。
+- 选型：backlog 仅剩 medium/测试种子 → 基于 P1-2 记录的认领 TOCTOU 与「租约挂 updated_at 被无关写入续期致永久卡死」两个真实缺陷，新建最高优先级 Task 933（Story 156/P2 RabbitMQ 硬前置）根治。
+- 实现：服务端 CAS 原子认领端点 `POST /api/proposals/{pid}/claim`（单条条件 UPDATE，DB 仲裁恰好一胜 200 / 其余 409）+ `POST /api/proposals/reclaim-stale`（依据显式 claimed_at 批量回退）；Proposal 新增 claimed_by/claimed_at + Alembic 双后端迁移；set_proposal_status 进入/离开 analyzing 维护租约；worker.py/mcp_server.py 认领路径切 CAS；SQLite 加 busy_timeout=10000。零 REST 契约破坏（纯新增端点+可空列）。
+- 验证：claim/reclaim 子集 13 passed（含 8 提案×12 线程并发恰好每提案 1×200 其余 409 的原子性最强证明；及 claimed_at 不被 PATCH 刷新、短租约仍按 claimed_at 回收的决定性证明）；Playwright 工作台 E2E 2 passed(0 报错)；全量回归 121 passed 无新增失败（46 失败全为环境性/预存在导入错误，与本次无关）。
+- 部署：仅 `docker compose restart api` 重载 bind-mount 新码（未碰 18001/mcp-1）；前端/dist 零改动。
+- 状态(MCP)：Task 933 → in_review；Story 156 仍 backlog（RabbitMQ 本体未做，仅先交付其硬前置）；Epic 96 已 in_review。
+- 提交 push origin main（04900f8，13 文件 +714/−62）。仅 add 本次文件，未 add .。
+- 硬约束：未触碰 18001/docker 端口映射；零既有 REST 契约破坏。
+- 下次可执行（P2 续）：Story 156 RabbitMQ 接入（aio-pika + 多 Worker 竞争消费，CAS 端点已就位）；P3 proposal→story 自动生成。
+
+## 2026-08-01 (run) — 续 Task 934 + 用户指令「拉取最新代码 部署docker」
+- 完成并部署 Task 934（Epic 96 P2-1 RabbitMQ 消息总线接入）。提交 0b2a386 → rebase 至 origin/main(a71f435) → 推送 16833df（0/0）。
+- 部署：手动启动 Docker Desktop（com.docker.service 此前 Stopped）→ `docker compose restart api web`，绑定挂载生效；api 容器内 `pip install pika==1.4.1`。
+- 验证：/api/meta=200, web /=200, MQ 测试 7 passed/6 skipped。mcp(18001) 未动。
+- MCP：Task 934 → in_review；Story 156 → in_review。autodev.lock 已删。
+- 坑：agentboard-rabbitmq 无 restart 策略，Docker 重启后被 kill，已 docker start 恢复。
+
+## 2026-08-03 (run) — 遗留任务状态同步验收（Task 87/88/89/102 → in_review，达成）
+- 目标：task→in_review。AgentBoard MCP 连接器断连 + 生产 /api 502 → **直连生产 MCP http://124.220.44.12/mcp（Streamable HTTP）** 成功（AgentBoard v3.4.4，103 工具，无需 token）。编码坑：响应无 charset，requests 默认 ISO-8859-1 破坏 UTF-8 → `resp.content.decode('utf-8')`。客户端脚本 tmp/mcp_client.py（gitignore）。
+- 巡检（生产库，项目 id=3）：未完成仅 4 任务（87/88/89 in_progress、102 backlog，medium）→ 代码均已实现（调度/附件/MCP 工具补全 14 工具全注册），Story 27/28/32 done，历史遗留状态未同步。
+- 验收：test_scheduler 11 passed；回归 16 passed/9 skipped；生产 MCP 实测成员/通知/统计/管理员/附件/调度工具全部可用。
+- 状态：87/88/89 in_progress→in_review；102 backlog→todo→in_progress→in_review（生产状态机禁跨级跳转）。
+- 提交 push origin main `c15ac71..102b346`（仅 openspec change 3 文件）。未触碰 18001/docker；零代码改动。
+
+## 2026-08-04 (run) — Epic 96 P3 Proposal 定稿转化 → Epic 96 done（达成）
+- 目标：task→in_review；扩展：完成 1 个 Epic。MCP 连生产 http://124.220.44.12/mcp（testadmin is_admin）。
+- 选型：项目 3 所有 highest/high 任务均 in_review，无 backlog/in_progress 高优待办 → 按规则新建最高优先级任务。Epic 96（P0/P1/P2 in_review）+ P3（Story 157 backlog）为唯一可收尾 Epic → 新建 Task 963（highest）承接。
+- 实现：service.py `convert_proposal_to_story()`（converged 校验/epic 归属/Story 创建/`- [ ]` 解析生成子 Task（复用 `generate_tasks_from_spec` 同款正则，`[x]` 也生成）/回填 story_id & 推进 story_created/幂等防重放）+ api.py `POST /api/proposals/{pid}/convert` + mcp_server.py `proposal_convert`（_http）。
+- 验证：P3 单测 9 passed（真 uvicorn+REST 全链路：主链路/显式 title/幂等/非 converged/空 spec/跨项目 epic/404/MCP 注册+AST 护栏）；P3 E2E Playwright 1 passed（项目级 `/project/{pid}/proposals` Tab 渲染"已转 Story"徽标+收敛规格+子任务落库，0 控制台报错）；回归 79 passed/6 skipped（P0+P11+P12+P2+P3）。
+- 状态（MCP）：Task 963 in_review / Story 157 done / Epic 96 done（整体收尾）。
+- 提交 push origin main `922f5d7`（8 文件 +773）。autodev.lock 已删。
+- 硬约束：未触碰 18001/docker 端口；零既有 REST 契约破坏（仅新增 `POST /api/proposals/{pid}/convert` + `ProposalConvertIn`）。
+- 下次可执行：Epic 78（AgentRun 执行器，7 Story 全 backlog）/ Epic 15（文档模块）/ Epic 64（COS 上传）。
+
+## 2026-08-04 (run) — Epic 15 文档模块验收与状态同步 → Epic 15 done（达成）
+- 目标：task→in_review；扩展：完成 1 个 Epic。MCP 连生产（testadmin is_admin）。
+- 选型：Epic 96 已 done；Epic 78 全 backlog 大工程；Epic 15（9 Story 全 backlog）实现代码早已完整落地（domains/documents + REST + 前端项目 Tab + MCP 10 工具 + 文件夹/拖拽）仅状态未同步 → 验收+同步收尾整 Epic。
+- 验证：MCP 文档工具全链路实测（create/status/comment/search/delete）通过；新增 tests/test_epic15_doc_module_e2e.py 15/15 PASS 0 报错；回归 39 passed/1 skipped。
+- 状态（MCP）：Story 45-53 → done（逐级）；Task 707 → done；新建 Task 964（highest）→ in_review；Epic 15 → done（整体收尾）。
+- 关键发现：全局 /documents 入口已不可达（重定向 /projects），文档并入项目级 Tab（与 #nav-proposals 同模式）。
+- OpenSpec change epic15-doc-module-acceptance-20260804 三件套已写；提交 push origin main（仅本次文件）。未触碰 18001/docker；零 REST 变更。
+- 下次可执行：Epic 78（AgentRun 执行器，Story 105 RunStatus 枚举对齐为最小切入）/ Epic 64（COS 上传）。
