@@ -224,12 +224,23 @@ export interface DocumentItem {
   project_id: number;
   epic_id: number | null;
   story_id: number | null;
+  folder_id: number | null;
   title: string;
   content: string;
   type: DocumentType;
   status: DocumentStatus;
   author_id: number | null;
   author: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 文档文件夹（Epic 15 增强）：parent_id 自引用形成任意层级子文件夹，null = 顶层。 */
+export interface DocumentFolder {
+  id: number;
+  project_id: number;
+  parent_id: number | null;
+  name: string;
   created_at: string;
   updated_at: string;
 }

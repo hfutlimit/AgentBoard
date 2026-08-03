@@ -511,6 +511,15 @@ def _resolve_project_id_from_request(request: Request) -> int | None:
         m = re.match(r"^/api/document-comments/(\d+)", path)
         if m:
             return service.get_document_comment_project_id(s, int(m.group(1)))
+        # Document folders（Epic 15 增强：文件夹/子文件夹）
+        if path == "/api/document-folders":
+            if "project_id" in qp:
+                return int(qp["project_id"])
+            # 未指定 project_id 时仅返回有权限项目的文件夹 → 不绑定项目，放行
+            return None
+        m = re.match(r"^/api/document-folders/(\d+)", path)
+        if m:
+            return service.get_document_folder_project_id(s, int(m.group(1)))
         # Proposals（Epic 96 P0）— /api/proposals/pending 为 Worker 轮询端点，不绑项目
         m = re.match(r"^/api/proposals/(\d+)", path)
         if m:
@@ -1752,6 +1761,7 @@ class DocumentIn(BaseModel):
     status: str = "draft"  # draft / in_review / approved / cancelled
     epic_id: int | None = None
     story_id: int | None = None
+    folder_id: int | None = None
     author_id: int | None = None
 
 
@@ -1760,6 +1770,18 @@ class DocumentPatch(BaseModel):
     content: str | None = None
     type: str | None = None
     status: str | None = None
+    folder_id: int | None = None  # null = 移出文件夹到根目录
+
+
+class DocumentFolderIn(BaseModel):
+    project_id: int = Field(gt=0)
+    name: str = Field(min_length=1, max_length=300)
+    parent_id: int | None = None
+
+
+class DocumentFolderPatch(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=300)
+    parent_id: int | None = None  # null = 移动到根目录
 
 
 class DocumentCommentIn(BaseModel):
@@ -1788,13 +1810,72 @@ def create_document(body: DocumentIn, s: Session = Depends(get_session),
         d = service.create_document(
             s, project_id=body.project_id, title=body.title, content=body.content,
             type=body.type, status=body.status, epic_id=body.epic_id,
-            story_id=body.story_id, author_id=body.author_id,
+            story_id=body.story_id, folder_id=body.folder_id, author_id=body.author_id,
         )
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     return service._ser(d)
+
+
+@app.get("/api/document-folders", response_model=None)
+def list_document_folders(
+    project_id: int | None = Query(None),
+    s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
+):
+    """列出项目文档文件夹（含全部层级，前端组装树）。
+
+    权限：与文档列表一致——指定 project_id 时由中间件校验成员身份；
+    未指定时仅返回当前用户有权限项目的文件夹。
+    """
+    uid = _optional_user_id(authorization, s)
+    return [service._ser(f) for f in service.list_document_folders(
+        s, project_id=project_id, user_id=uid,
+    )]
+
+
+@app.post("/api/document-folders", status_code=201)
+def create_document_folder(body: DocumentFolderIn, s: Session = Depends(get_session),
+                           authorization: str | None = Header(None)):
+    """新建文档文件夹（name 必填，parent_id 可选 = 创建子文件夹）。
+
+    权限：需为目标项目成员或管理员。
+    """
+    uid, is_admin = _caller_uid_admin(authorization)
+    if not is_admin and not service.user_is_project_member(s, body.project_id, uid):
+        raise HTTPException(status_code=403, detail="project membership required")
+    try:
+        f = service.create_document_folder(
+            s, project_id=body.project_id, name=body.name, parent_id=body.parent_id,
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(f)
+
+
+@app.patch("/api/document-folders/{fid}")
+def update_document_folder(fid: int, body: DocumentFolderPatch, s: Session = Depends(get_session)):
+    """重命名 / 移动文件夹。parent_id=null 移动到根目录；防环校验由 service 完成。"""
+    try:
+        fields = body.model_dump(exclude_none=True)
+        if "parent_id" in body.model_fields_set:
+            fields["parent_id"] = body.parent_id  # 显式 null = 移动到根
+        r = service.update_document_folder(s, fid, **fields)
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(_need(r, "document folder"))
+
+
+@app.delete("/api/document-folders/{fid}")
+def delete_document_folder(fid: int, s: Session = Depends(get_session)):
+    """删除文件夹：直接子文档与子文件夹上提至父级，不级联删除子项。"""
+    if not service.delete_document_folder(s, fid):
+        raise HTTPException(status_code=404, detail="document folder not found")
+    return {"ok": True}
 
 
 @app.get("/api/documents")
@@ -1831,9 +1912,15 @@ def get_document(did: int, s: Session = Depends(get_session)):
 
 @app.patch("/api/documents/{did}")
 def update_document(did: int, body: DocumentPatch, s: Session = Depends(get_session)):
-    """编辑文档 title/content/type（状态流转请用 PUT /status）。"""
+    """编辑文档 title/content/type（状态流转请用 PUT /status）。
+
+    folder_id 显式传 null 表示移出文件夹到根目录；未传该字段则保持不变。
+    """
     try:
-        r = service.update_document(s, did, **body.model_dump(exclude_none=True))
+        fields = body.model_dump(exclude_none=True)
+        if "folder_id" in body.model_fields_set:
+            fields["folder_id"] = body.folder_id
+        r = service.update_document(s, did, **fields)
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     return service._ser(_need(r, "document"))
@@ -2207,6 +2294,7 @@ async def audit_log_middleware(request: Request, call_next):
         (r"^/api/schedules/(\d+)", "schedule"),
         (r"^/api/documents/(\d+)", "document"),
         (r"^/api/document-comments/(\d+)", "document_comment"),
+        (r"^/api/document-folders/(\d+)", "document_folder"),
         (r"^/api/proposals/(\d+)", "proposal"),
         (r"^/api/proposal-questions/(\d+)", "proposal_question"),
     ]:

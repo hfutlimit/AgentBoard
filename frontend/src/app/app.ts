@@ -9,7 +9,7 @@ import { filter } from 'rxjs/operators';
 
 import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric, resolveApiBase } from './api.service';
 import { LoginComponent } from './login/login';
-import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES } from './models';
+import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES } from './models';
 import { PaginationComponent } from './pagination/pagination';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'notifications' | 'admin' | 'settings' | 'not-found';
@@ -170,6 +170,20 @@ export class App implements OnInit, OnDestroy {
   readonly docCreateTitle = signal('');
   readonly docCreateType = signal<DocumentType>('plan');
   readonly docCreateContent = signal('');
+  readonly docCreateFolderId = signal<number | null>(null);
+  // 文档文件夹（Epic 15 增强：文件夹 / 子文件夹 + 拖拽归档）
+  readonly docFolders = signal<DocumentFolder[]>([]);
+  /** 当前所在文件夹 id；null = 根目录 */
+  readonly docFolderId = signal<number | null>(null);
+  /** 新建 / 重命名文件夹弹窗 */
+  readonly docFolderModal = signal<{ mode: 'create' | 'rename'; folderId?: number; parentId?: number | null } | null>(null);
+  readonly docFolderName = signal('');
+  /** 拖拽状态：当前拖拽对象（仅本应用内部拖拽） */
+  readonly docDrag = signal<{ kind: 'document' | 'folder'; id: number } | null>(null);
+  /** 拖拽悬停高亮的 drop 目标（null=无，'root'=根目录） */
+  readonly docDropId = signal<number | 'root' | null>(null);
+  /** drop 处理防重入（drop 事件在嵌套 drop 目标间冒泡会触发多次） */
+  private _docDropBusy = false;
 
   /* ---------- Epic 96 P0: Proposal 澄清回路 —— 问答工作台 ---------- */
   readonly proposals = signal<ProposalItem[]>([]);
@@ -1455,9 +1469,14 @@ export class App implements OnInit, OnDestroy {
         if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
         this.schedules.set(schedules);
       } else if (tab === 'documents') {
-        const docs = await firstValueFrom(this.api.listDocuments({ project_id: projectId }));
+        const [docs, folders] = await Promise.all([
+          firstValueFrom(this.api.listDocuments({ project_id: projectId })),
+          firstValueFrom(this.api.listDocumentFolders({ project_id: projectId })),
+        ]);
         if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
         this.documents.set(docs || []);
+        this.docFolders.set(folders || []);
+        this.docFolderId.set(null);
       } else if (tab === 'proposals') {
         const proposals = await firstValueFrom(this.api.listProposals({ project_id: projectId, limit: 200 }));
         if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
@@ -5184,8 +5203,10 @@ export class App implements OnInit, OnDestroy {
   docVisible(): DocumentItem[] {
     let list = this.documents();
     const q = this.docSearchQuery().trim().toLowerCase();
-    if (q) list = list.filter((d) => d.title.toLowerCase().includes(q) || (d.content || '').toLowerCase().includes(q));
-    return list;
+    if (q) return list.filter((d) => d.title.toLowerCase().includes(q) || (d.content || '').toLowerCase().includes(q));
+    // 搜索词为空时按当前文件夹浏览
+    const fid = this.docFolderId();
+    return list.filter((d) => d.folder_id === fid);
   }
 
   /** Project-scoped doc list for the project tab (filters by current project ID). */
@@ -5198,8 +5219,225 @@ export class App implements OnInit, OnDestroy {
     const status = this.docFilterStatus();
     if (status) list = list.filter((d) => d.status === status);
     const q = this.docSearchQuery().trim().toLowerCase();
-    if (q) list = list.filter((d) => d.title.toLowerCase().includes(q) || (d.content || '').toLowerCase().includes(q));
-    return list;
+    if (q) return list.filter((d) => d.title.toLowerCase().includes(q) || (d.content || '').toLowerCase().includes(q));
+    // 搜索词为空时按当前文件夹浏览
+    const fid = this.docFolderId();
+    return list.filter((d) => d.folder_id === fid);
+  }
+
+  /* ---------- 文档文件夹：层级 / 面包屑 / 拖拽（Epic 15 增强） ---------- */
+  /** 当前上下文可见的文件夹（项目 Tab 仅当前项目；全局视图全部有权限项目）。 */
+  docScopeFolders(): DocumentFolder[] {
+    const pid = this.project()?.id;
+    if (!pid) return this.docFolders();
+    return this.docFolders().filter((f) => f.project_id === pid);
+  }
+  /** 当前所在文件夹的直接子文件夹。 */
+  docChildFolders(): DocumentFolder[] {
+    const fid = this.docFolderId();
+    return this.docScopeFolders().filter((f) => f.parent_id === fid);
+  }
+  /** 当前所在文件夹的祖先链（含自身），用于面包屑。 */
+  docBreadcrumb(): Array<{ id: number | null; name: string }> {
+    const chain: Array<{ id: number | null; name: string }> = [{ id: null, name: '全部文档' }];
+    const byId = new Map(this.docScopeFolders().map((f) => [f.id, f]));
+    let cur = this.docFolderId();
+    const seen = new Set<number>();
+    const path: Array<{ id: number | null; name: string }> = [];
+    while (cur !== null && !seen.has(cur)) {
+      seen.add(cur);
+      const f = byId.get(cur);
+      if (!f) break;
+      path.unshift({ id: f.id, name: f.name });
+      cur = f.parent_id;
+    }
+    return chain.concat(path);
+  }
+  docFolderLabel(fid: number | null): string {
+    if (fid === null) return '全部文档';
+    return this.docScopeFolders().find((f) => f.id === fid)?.name || `文件夹 #${fid}`;
+  }
+  /** 文件夹内直接文档数（含项目上下文过滤）。 */
+  docFolderCount(fid: number): number {
+    const pid = this.project()?.id;
+    return this.documents().filter(
+      (d) => d.folder_id === fid && (!pid || d.project_id === pid),
+    ).length;
+  }
+  /** 文件夹层级深度（顶层 = 0），用于下拉选项缩进。 */
+  docFolderDepth(fid: number): number {
+    const byId = new Map(this.docScopeFolders().map((f) => [f.id, f]));
+    let depth = 0;
+    let cur: number | null = fid;
+    const seen = new Set<number>();
+    while (cur !== null && !seen.has(cur)) {
+      seen.add(cur);
+      const f = byId.get(cur);
+      if (!f) break;
+      depth++;
+      cur = f.parent_id;
+    }
+    return Math.max(0, depth - 1);
+  }
+  /** 下拉选项标签：按层级缩进显示。 */
+  docFolderOptionLabel(f: DocumentFolder): string {
+    const depth = this.docFolderDepth(f.id);
+    return '　'.repeat(depth) + (depth > 0 ? '└ ' : '') + f.name;
+  }
+  /** 进入文件夹（面包屑 / 文件夹卡片点击）。 */
+  enterDocFolder(fid: number | null): void {
+    this.docFolderId.set(fid);
+    this.docItem.set(null);
+  }
+  async loadDocFolders(): Promise<void> {
+    const pid = this.project()?.id;
+    try {
+      const folders = await firstValueFrom(
+        this.api.listDocumentFolders(pid ? { project_id: pid } : undefined),
+      );
+      this.docFolders.set(folders || []);
+    } catch {
+      this.docFolders.set([]);
+    }
+  }
+  openDocFolderModal(mode: 'create' | 'rename', folder?: DocumentFolder): void {
+    if (mode === 'create') {
+      const parentId = this.docFolderId(); // 默认建在当前文件夹内（创建子文件夹）
+      this.docFolderName.set('');
+      this.docFolderModal.set({ mode, parentId });
+    } else if (folder) {
+      this.docFolderName.set(folder.name);
+      this.docFolderModal.set({ mode, folderId: folder.id, parentId: folder.parent_id });
+    }
+  }
+  closeDocFolderModal(): void {
+    this.docFolderModal.set(null);
+  }
+  async submitDocFolderModal(): Promise<void> {
+    const m = this.docFolderModal();
+    if (!m) return;
+    const name = this.docFolderName().trim();
+    if (!name) { this.notify('文件夹名称不能为空', 'error'); return; }
+    try {
+      if (m.mode === 'create') {
+        const pid = this.project()?.id;
+        if (!pid) { this.notify('请先进入项目', 'error'); return; }
+        await firstValueFrom(this.api.createDocumentFolder({ project_id: pid, name, parent_id: m.parentId ?? null }));
+        this.notify('文件夹已创建');
+        await this.loadDocFolders();
+        if (m.parentId !== null && m.parentId !== undefined) this.docFolderId.set(m.parentId);
+      } else if (m.folderId !== undefined) {
+        await firstValueFrom(this.api.updateDocumentFolder(m.folderId, { name }));
+        this.notify('文件夹已重命名');
+        await this.loadDocFolders();
+      }
+      this.docFolderModal.set(null);
+    } catch (error) {
+      this.notify(`操作失败：${this.message(error)}`, 'error');
+    }
+  }
+  deleteDocFolder(folder: DocumentFolder): void {
+    this.openConfirmation({
+      title: '删除文件夹？',
+      message: `确定删除文件夹「${folder.name}」？其内部文档与子文件夹会移动到上一级，不会被删除。`,
+      confirmLabel: '删除文件夹',
+      tone: 'danger',
+    }, async () => {
+      try {
+        await firstValueFrom(this.api.deleteDocumentFolder(folder.id));
+        this.notify('文件夹已删除');
+        await this.loadDocFolders();
+        await this.loadDocuments();
+        if (this.docFolderId() === folder.id) this.docFolderId.set(folder.parent_id);
+      } catch (error) {
+        this.notify(`删除失败：${this.message(error)}`, 'error');
+      }
+    });
+  }
+  /** 拖拽开始：记录拖拽对象供 drop 目标识别。 */
+  onDocDragStart(event: DragEvent, drag: { kind: 'document' | 'folder'; id: number }): void {
+    // 首选通道：window 全局（手动构造的 DataTransfer 在 drop 阶段 getData 不可靠）
+    (window as unknown as Record<string, unknown>)['__agentboardDrag'] = drag;
+    this.docDrag.set(drag);
+    const dt = event.dataTransfer;
+    if (!dt) return;
+    try {
+      const payload = JSON.stringify(drag);
+      dt.setData('application/x-agentboard-drag', payload);
+      dt.setData('text/plain', payload);
+      dt.effectAllowed = 'move';
+    } catch {
+      /* 自定义 MIME 在某些实现下受限，window 通道已兜底 */
+    }
+  }
+  onDocDragEnd(): void {
+    delete (window as unknown as Record<string, unknown>)['__agentboardDrag'];
+    this.docDrag.set(null);
+    this.docDropId.set(null);
+  }
+  /** 解析本次拖拽对象：window 全局 → dataTransfer 自定义 MIME → 组件信号。 */
+  private docDragPayload(event: DragEvent): { kind: 'document' | 'folder'; id: number } | null {
+    const g = (window as unknown as Record<string, unknown>)['__agentboardDrag'] as
+      | { kind: 'document' | 'folder'; id: number } | undefined;
+    if (g && typeof g.id === 'number') return g;
+    const types = event.dataTransfer?.types;
+    if (types) {
+      try {
+        const raw = event.dataTransfer?.getData('application/x-agentboard-drag');
+        if (raw) {
+          const parsed = JSON.parse(raw) as { kind: 'document' | 'folder'; id: number };
+          if (parsed && typeof parsed.id === 'number') return parsed;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    return this.docDrag();
+  }
+  onDocDropOver(event: DragEvent, target: number | 'root'): void {
+    if (!this.docDragPayload(event)) return; // 仅响应本应用内部拖拽
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    this.docDropId.set(target);
+  }
+  onDocDropLeave(): void {
+    if (this.docDropId()) this.docDropId.set(null);
+  }
+  async onDocDrop(event: DragEvent, target: number | 'root'): Promise<void> {
+    if (this._docDropBusy) return; // drop 事件在 crumb 与面包屑容器间冒泡会触发两次
+    this._docDropBusy = true;
+    event.preventDefault();
+    this.docDropId.set(null);
+    const drag = this.docDragPayload(event) || this.docDrag();
+    if (!drag) {
+      this._docDropBusy = false;
+      return;
+    }
+    const folderId = target === 'root' ? null : target;
+    try {
+      if (drag.kind === 'document') {
+        await firstValueFrom(this.api.updateDocument(drag.id, { folder_id: folderId }));
+        const patch = (x: DocumentItem) => (x.id === drag.id ? { ...x, folder_id: folderId } : x);
+        this.documents.set(this.documents().map(patch));
+        const current = this.docItem();
+        if (current && current.id === drag.id) this.docItem.set({ ...current, folder_id: folderId });
+        this.notify(folderId !== null ? `已移动到「${this.docFolderLabel(folderId)}」` : '已移动到根目录');
+      } else {
+        // 文件夹移动（防环由后端校验）
+        await firstValueFrom(this.api.updateDocumentFolder(drag.id, { parent_id: folderId }));
+        this.notify(folderId !== null ? '文件夹已移动' : '文件夹已移动到根目录');
+        await this.loadDocFolders();
+      }
+    } catch (error) {
+      this.notify(`移动失败：${this.message(error)}`, 'error');
+    } finally {
+      this._docDropBusy = false;
+      this.docDrag.set(null);
+    }
+  }
+  /** drop 目标是否处于高亮态。 */
+  docDropActive(target: number | 'root'): boolean {
+    return this.docDropId() === target && !!this.docDrag();
   }
 
   async loadDocuments(): Promise<void> {
@@ -5230,6 +5468,7 @@ export class App implements OnInit, OnDestroy {
       this.docCreateTitle.set('');
       this.docCreateType.set('plan');
       this.docCreateContent.set('');
+      this.docCreateFolderId.set(this.docFolderId()); // 默认建在当前浏览的文件夹内
       if (pid) {
         this.docCreateEpics.set(await firstValueFrom(this.api.listEpics(pid)));
         this.docCreateStories.set([]);
@@ -5289,6 +5528,7 @@ export class App implements OnInit, OnDestroy {
           content: this.docCreateContent(),
           epic_id: this.docCreateEpicId(),
           story_id: this.docCreateStoryId(),
+          folder_id: this.docCreateFolderId(),
         }));
         this.docModal.set(null);
         this.notify('文档已创建');

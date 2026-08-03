@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable, of, throwError, timer, Subject } from 'rxjs';
 import { catchError, tap, map, switchMap, mergeMap, debounceTime, takeUntil } from 'rxjs/operators';
 
-import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus } from './models';
+import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus } from './models';
 
 export const AUTH_EXPIRED_EVENT = 'agentboard:auth-expired';
 
@@ -816,10 +816,30 @@ export class ApiService {
   listDocuments(params?: { project_id?: number; epic_id?: number; story_id?: number; type?: DocumentType; status?: DocumentStatus; q?: string }) {
     return this.request<DocumentItem[]>('GET', '/api/documents', undefined, params as Record<string, string | number | undefined> | undefined);
   }
+
+  /* ---------- Document folders (Epic 15 增强：文件夹 / 子文件夹) ---------- */
+  listDocumentFolders(params?: { project_id?: number }) {
+    return this.request<DocumentFolder[]>('GET', '/api/document-folders', undefined, params as Record<string, string | number | undefined> | undefined);
+  }
+  createDocumentFolder(body: { project_id: number; name: string; parent_id?: number | null }) {
+    return this.request<DocumentFolder>('POST', '/api/document-folders', body).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/document-folders'))
+    );
+  }
+  updateDocumentFolder(id: number, body: { name?: string; parent_id?: number | null }) {
+    return this.patchJson<DocumentFolder>(`/api/document-folders/${id}`, body).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/document-folders'))
+    );
+  }
+  deleteDocumentFolder(id: number) {
+    return this.request<{ ok: boolean }>('DELETE', `/api/document-folders/${id}`).pipe(
+      tap(() => apiCache.invalidatePrefix('/api/document-folders'))
+    );
+  }
   getDocument(id: number) {
     return this.request<DocumentItem>('GET', `/api/documents/${id}`);
   }
-  createDocument(body: { project_id: number; title: string; content?: string; type?: DocumentType; status?: DocumentStatus; epic_id?: number | null; story_id?: number | null }) {
+  createDocument(body: { project_id: number; title: string; content?: string; type?: DocumentType; status?: DocumentStatus; epic_id?: number | null; story_id?: number | null; folder_id?: number | null }) {
     return this.request<DocumentItem>('POST', '/api/documents', body).pipe(
       tap(() => apiCache.invalidatePrefix('/api/documents'))
     );

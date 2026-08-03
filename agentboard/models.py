@@ -23,7 +23,7 @@ from .domains.identity.models import ApiKey, Notification, User
 from .domains.projects.models import Epic, Project, ProjectMember, Sprint, Story
 from .domains.scheduling.models import AgentRun, AgentSchedule
 from .domains.work_items.models import Attachment, AuditLog, Comment, Task, TaskDependency, WebhookConfig
-from .domains.documents.models import Document, DocumentComment
+from .domains.documents.models import Document, DocumentComment, DocumentFolder
 from .domains.proposals.models import (
     ALL_PROPOSAL_STATUSES,
     CLAIMABLE_STATUSES,

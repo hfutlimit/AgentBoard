@@ -51,6 +51,30 @@ DOCUMENT_TRANSITIONS = {
 }
 
 
+class DocumentFolder(Base):
+    """文档文件夹（Epic 15 增强：项目文档支持文件夹 / 子文件夹）。
+
+    与 Document 分离建模（而非在 documents 上自引用），避免触碰
+    ``type IN ('memory','plan','knowledge','design')`` 的既有 CheckConstraint。
+
+    - ``parent_id``：自引用上级文件夹，NULL = 顶层文件夹。
+    - 删除文件夹时，其直接子文档与子文件夹上提至父文件夹（service 层处理），
+      因此子项在数据库层均不会因文件夹删除而级联丢失。
+    """
+
+    __tablename__ = "document_folders"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True,
+    )
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("document_folders.id", ondelete="CASCADE"), nullable=True, index=True,
+    )
+    name: Mapped[str] = mapped_column(String(300), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
+
+
 class Document(Base):
     __tablename__ = "documents"
     __table_args__ = (
@@ -72,6 +96,9 @@ class Document(Base):
     )
     story_id: Mapped[int | None] = mapped_column(
         ForeignKey("stories.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
+    folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("document_folders.id", ondelete="SET NULL"), nullable=True, index=True,
     )
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     content: Mapped[str] = mapped_column(Text, default="")

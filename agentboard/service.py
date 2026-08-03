@@ -9,7 +9,7 @@ from .models import (
     ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES,
     Project, Epic, Story, Task, Comment, Sprint, Attachment, AgentSchedule, AgentRun,
     ProjectMember, Notification, User, ApiKey, AuditLog, TaskDependency, WebhookConfig,
-    Document, DocumentComment,
+    Document, DocumentComment, DocumentFolder,
     Proposal, ProposalRound, ProposalQuestion,
 )
 from .domains.documents.models import (
@@ -1826,11 +1826,116 @@ def _check_document_status(value: str) -> None:
         raise InvalidValue(f"invalid document status '{value}'")
 
 
+def _check_document_folder(s: Session, folder_id: int, project_id: int) -> DocumentFolder:
+    """校验文件夹存在且属于指定项目；通过则返回该文件夹，否则抛 InvalidValue。"""
+    f = s.get(DocumentFolder, folder_id)
+    if not f:
+        raise InvalidValue(f"folder {folder_id} not found")
+    if f.project_id != project_id:
+        raise InvalidValue("folder does not belong to the document's project")
+    return f
+
+
+def _folder_is_descendant(s: Session, folder_id: int, ancestor_id: int) -> bool:
+    """ancestor_id 是否为 folder_id 的祖先（含自身）？用于移动文件夹时防环。"""
+    cur: int | None = ancestor_id
+    seen: set[int] = set()
+    while cur is not None:
+        if cur == folder_id:
+            return True
+        if cur in seen:
+            return False
+        seen.add(cur)
+        f = s.get(DocumentFolder, cur)
+        cur = f.parent_id if f else None
+    return False
+
+
+def create_document_folder(
+    s: Session, *, project_id: int, name: str, parent_id: int | None = None,
+) -> DocumentFolder:
+    if not s.get(Project, project_id):
+        raise NotFound(f"project {project_id} not found")
+    name = _required(name, "name", 300)
+    if parent_id is not None:
+        _check_document_folder(s, parent_id, project_id)
+    f = DocumentFolder(project_id=project_id, parent_id=parent_id, name=name)
+    s.add(f); _commit(s); s.refresh(f); return f
+
+
+def list_document_folders(
+    s: Session, *, project_id: int | None = None, user_id: int | None = None,
+):
+    """列出文件夹（含所有层级，由前端组装树）。
+
+    权限口径与 list_documents 一致：指定 project_id 时按项目过滤；
+    未指定但带用户身份时，仅返回该用户有权限项目的文件夹。
+    """
+    qry = s.query(DocumentFolder)
+    if project_id is not None:
+        qry = qry.filter(DocumentFolder.project_id == project_id)
+    elif user_id is not None:
+        user = s.get(User, user_id)
+        if user and not user.is_admin:
+            member_pids = [
+                r[0]
+                for r in s.query(ProjectMember.project_id)
+                .filter(ProjectMember.user_id == user_id)
+                .all()
+            ]
+            if member_pids:
+                qry = qry.filter(DocumentFolder.project_id.in_(member_pids))
+            else:
+                qry = qry.filter(False)
+    return qry.order_by(DocumentFolder.name, DocumentFolder.id).all()
+
+
+def update_document_folder(
+    s: Session, id: int, **fields,
+) -> DocumentFolder | None:
+    f = s.get(DocumentFolder, id)
+    if not f:
+        return None
+    if "name" in fields and fields["name"] is not None:
+        f.name = _required(fields["name"], "name", 300)
+    if "parent_id" in fields:
+        new_parent = fields["parent_id"]
+        if new_parent is not None:
+            _check_document_folder(s, new_parent, f.project_id)
+            if _folder_is_descendant(s, id, new_parent):
+                raise InvalidValue("cannot move a folder into itself or its descendant")
+        f.parent_id = new_parent
+    _commit(s); s.refresh(f); return f
+
+
+def delete_document_folder(s: Session, id: int) -> bool:
+    """删除文件夹：直接子文档与子文件夹上提至被删文件夹的父级（根则置 NULL）。
+
+    不级联删除子项，避免用户误删文件夹时连带丢失文档。
+    """
+    f = s.get(DocumentFolder, id)
+    if not f:
+        return False
+    parent_id = f.parent_id
+    s.query(Document).filter(Document.folder_id == id).update(
+        {Document.folder_id: parent_id}, synchronize_session=False,
+    )
+    s.query(DocumentFolder).filter(DocumentFolder.parent_id == id).update(
+        {DocumentFolder.parent_id: parent_id}, synchronize_session=False,
+    )
+    s.delete(f); _commit(s); return True
+
+
+def get_document_folder_project_id(s: Session, folder_id: int) -> int | None:
+    f = s.get(DocumentFolder, folder_id)
+    return f.project_id if f else None
+
+
 def create_document(
     s: Session, *, project_id: int, title: str, content: str = "",
     type: str = "plan", status: str = "draft",
     epic_id: int | None = None, story_id: int | None = None,
-    author_id: int | None = None,
+    folder_id: int | None = None, author_id: int | None = None,
 ) -> Document:
     if not s.get(Project, project_id):
         raise NotFound(f"project {project_id} not found")
@@ -1838,6 +1943,8 @@ def create_document(
         raise NotFound(f"epic {epic_id} not found")
     if story_id is not None and not s.get(Story, story_id):
         raise NotFound(f"story {story_id} not found")
+    if folder_id is not None:
+        _check_document_folder(s, folder_id, project_id)
     _check_document_type(type)
     _check_document_status(status)
     if author_id is not None and not s.get(User, author_id):
@@ -1845,7 +1952,7 @@ def create_document(
     doc = Document(
         project_id=project_id, epic_id=epic_id, story_id=story_id,
         title=_required(title, "title", 300), content=content or "",
-        type=type, status=status, author_id=author_id,
+        type=type, status=status, folder_id=folder_id, author_id=author_id,
     )
     s.add(doc); _commit(s); s.refresh(doc); return doc
 
@@ -1893,9 +2000,15 @@ def update_document(s: Session, id: int, **fields) -> Document | None:
     d = s.get(Document, id)
     if not d:
         return None
-    allowed = {"title", "content", "type", "status"}
+    allowed = {"title", "content", "type", "status", "folder_id"}
     for k, v in fields.items():
         if k not in allowed:
+            continue
+        if k == "folder_id":
+            # 显式 null = 移出文件夹到根目录（合法值，不可跳过）
+            if v is not None:
+                _check_document_folder(s, v, d.project_id)
+            d.folder_id = v
             continue
         if v is None:
             continue

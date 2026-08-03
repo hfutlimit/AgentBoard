@@ -954,8 +954,28 @@
               <div class="tab-content">
                 <div class="section-header">
                   <h3>项目文档</h3>
-                  <button class="btn-primary-sm" (click)="openDocModal('create')">＋ 新建文档</button>
+                  <div class="row">
+                    <button class="btn-primary-sm" (click)="openDocModal('create')">＋ 新建文档</button>
+                    <button class="ghost-sm" (click)="openDocFolderModal('create')">＋ 新建文件夹</button>
+                  </div>
                 </div>
+                @if (!isProjectTabLoading('documents') && !projectTabError('documents')) {
+                  <nav class="doc-breadcrumb" aria-label="文档目录"
+                    (dragover)="onDocDropOver($event, 'root')" (dragleave)="onDocDropLeave()" (drop)="onDocDrop($event, 'root')"
+                    [class.doc-drop-target]="docDropActive('root')">
+                    @for (crumb of docBreadcrumb(); track $index) {
+                      <button type="button" class="doc-crumb" (click)="enterDocFolder(crumb.id)"
+                        [class.doc-drop-target]="docDropActive(crumb.id === null ? 'root' : crumb.id)"
+                        (dragover)="onDocDropOver($event, crumb.id === null ? 'root' : crumb.id)"
+                        (dragleave)="onDocDropLeave()"
+                        (drop)="onDocDrop($event, crumb.id === null ? 'root' : crumb.id)">
+                        @if (crumb.id === null) { <span class="doc-crumb-icon">🗂</span> {{ crumb.name }} }
+                        @else { <span class="doc-crumb-icon">📁</span> {{ crumb.name }} }
+                      </button>
+                      @if (!$last) { <span class="doc-crumb-sep">›</span> }
+                    }
+                  </nav>
+                }
                 <div class="doc-toolbar">
                   <select class="doc-filter-select" [value]="docFilterType()" (change)="docFilterType.set($any($event.target).value)">
                     <option value="">全部类型</option>
@@ -971,25 +991,53 @@
                   <div class="tab-list-skeleton" role="status">@for (row of tabSkeletonRows.slice(0,4); track row) { <div class="tab-skeleton-row"><span class="tab-skeleton-icon"></span><span class="tab-skeleton-line long"></span><span class="tab-skeleton-badge"></span></div> }</div>
                 } @else if (projectTabError('documents')) {
                   <div class="tab-load-error" role="alert"><span>文档加载失败：{{ projectTabError('documents') }}</span><button class="ghost-sm" type="button" (click)="retryProjectTab('documents')">重试</button></div>
-                } @else if (projectDocVisible().length === 0) {
-                  <div class="empty-state">还没有文档。点击上方「＋ 新建文档」开始记录。</div>
                 } @else {
-                  <div class="doc-list tile-view">
-                    @for (d of projectDocVisible(); track d.id) {
-                      <button type="button" class="doc-row doc-tile" (click)="openDocTab(d)">
-                        <div class="doc-tile-icon">📄</div>
-                        <div class="doc-tile-title" [title]="d.title">{{ d.title }}</div>
-                        <div class="doc-tile-badges">
-                          <span class="badge doctype doctype--{{ d.type }}">{{ docTypeLabel(d.type) }}</span>
-                          <span class="badge docstatus docstatus--{{ d.status }}">{{ docStatusLabel(d.status) }}</span>
+                  @if (docChildFolders().length > 0) {
+                    <div class="doc-list folder-view">
+                      @for (f of docChildFolders(); track f.id) {
+                        <div class="doc-folder-tile"
+                          [class.doc-dragging]="docDrag()?.kind === 'folder' && docDrag()?.id === f.id"
+                          [class.doc-drop-target]="docDropActive(f.id)"
+                          draggable="true"
+                          (dragstart)="onDocDragStart($event, { kind: 'folder', id: f.id })" (dragend)="onDocDragEnd()"
+                          (dragover)="onDocDropOver($event, f.id)" (dragleave)="onDocDropLeave()" (drop)="onDocDrop($event, f.id)">
+                          <button type="button" class="doc-folder-main" (click)="enterDocFolder(f.id)">
+                            <span class="doc-folder-icon">📁</span>
+                            <span class="doc-folder-name" [title]="f.name">{{ f.name }}</span>
+                          </button>
+                          <span class="doc-folder-count" [title]="'含 ' + docFolderCount(f.id) + ' 篇文档'">{{ docFolderCount(f.id) }}</span>
+                          <div class="doc-folder-actions">
+                            <button type="button" class="ghost-xs" (click)="openDocFolderModal('rename', f)" title="重命名文件夹">✎</button>
+                            <button type="button" class="ghost-xs danger" (click)="deleteDocFolder(f)" title="删除文件夹">🗑</button>
+                          </div>
                         </div>
-                        <div class="doc-tile-meta">
-                          @if (d.epic_id) { <span>Epic {{ epicTitle(d.epic_id) }}</span> }
-                          <span>{{ d.updated_at | date }}</span>
-                        </div>
-                      </button>
-                    }
-                  </div>
+                      }
+                    </div>
+                  }
+                  @if (projectDocVisible().length === 0 && docChildFolders().length === 0) {
+                    <div class="empty-state">当前目录还没有内容。可点击上方「＋ 新建文档 / 新建文件夹」，或将其他文档拖拽到此处归档。</div>
+                  } @else if (projectDocVisible().length > 0) {
+                    <div class="doc-list tile-view">
+                      @for (d of projectDocVisible(); track d.id) {
+                        <button type="button" class="doc-row doc-tile"
+                          [class.doc-dragging]="docDrag()?.kind === 'document' && docDrag()?.id === d.id"
+                          draggable="true"
+                          (click)="openDocTab(d)"
+                          (dragstart)="onDocDragStart($event, { kind: 'document', id: d.id })" (dragend)="onDocDragEnd()">
+                          <div class="doc-tile-icon">📄</div>
+                          <div class="doc-tile-title" [title]="d.title">{{ d.title }}</div>
+                          <div class="doc-tile-badges">
+                            <span class="badge doctype doctype--{{ d.type }}">{{ docTypeLabel(d.type) }}</span>
+                            <span class="badge docstatus docstatus--{{ d.status }}">{{ docStatusLabel(d.status) }}</span>
+                          </div>
+                          <div class="doc-tile-meta">
+                            @if (d.epic_id) { <span>Epic {{ epicTitle(d.epic_id) }}</span> }
+                            <span>{{ d.updated_at | date }}</span>
+                          </div>
+                        </button>
+                      }
+                    </div>
+                  }
                 }
                 @if (activeTab() === 'documents' && docItem()) {
                   <div class="card doc-detail-inline">
@@ -2019,8 +2067,27 @@
             </div>
             <div class="page-actions">
               <button class="btn-primary-sm" (click)="openDocModal('create')">＋ 新建文档</button>
+              @if (project(); as p) {
+                <button class="ghost-sm" (click)="openDocFolderModal('create')">＋ 新建文件夹</button>
+              }
             </div>
           </div>
+
+          <nav class="doc-breadcrumb" aria-label="文档目录"
+            (dragover)="onDocDropOver($event, 'root')" (dragleave)="onDocDropLeave()" (drop)="onDocDrop($event, 'root')"
+            [class.doc-drop-target]="docDropActive('root')">
+            @for (crumb of docBreadcrumb(); track $index) {
+              <button type="button" class="doc-crumb" (click)="enterDocFolder(crumb.id)"
+                [class.doc-drop-target]="docDropActive(crumb.id === null ? 'root' : crumb.id)"
+                (dragover)="onDocDropOver($event, crumb.id === null ? 'root' : crumb.id)"
+                (dragleave)="onDocDropLeave()"
+                (drop)="onDocDrop($event, crumb.id === null ? 'root' : crumb.id)">
+                @if (crumb.id === null) { <span class="doc-crumb-icon">🗂</span> {{ crumb.name }} }
+                @else { <span class="doc-crumb-icon">📁</span> {{ crumb.name }} }
+              </button>
+              @if (!$last) { <span class="doc-crumb-sep">›</span> }
+            }
+          </nav>
 
           <div class="row doc-toolbar">
             <select [value]="docFilterType()" (change)="docFilterType.set($any($event.target).value); onDocFilterChange()">
@@ -2035,12 +2102,39 @@
               [value]="docSearchQuery()" (input)="onDocSearchChange($any($event.target).value)" />
           </div>
 
-          @if (docVisible().length === 0) {
-            <div class="empty-state">还没有文档。点击右上角「＋ 新建文档」开始记录项目知识。</div>
+          @if (docChildFolders().length > 0) {
+            <div class="doc-list folder-view">
+              @for (f of docChildFolders(); track f.id) {
+                <div class="doc-folder-tile"
+                  [class.doc-dragging]="docDrag()?.kind === 'folder' && docDrag()?.id === f.id"
+                  [class.doc-drop-target]="docDropActive(f.id)"
+                  draggable="true"
+                  (dragstart)="onDocDragStart($event, { kind: 'folder', id: f.id })" (dragend)="onDocDragEnd()"
+                  (dragover)="onDocDropOver($event, f.id)" (dragleave)="onDocDropLeave()" (drop)="onDocDrop($event, f.id)">
+                  <button type="button" class="doc-folder-main" (click)="enterDocFolder(f.id)">
+                    <span class="doc-folder-icon">📁</span>
+                    <span class="doc-folder-name" [title]="f.name">{{ f.name }}</span>
+                    <span class="doc-folder-project">{{ projectName(f.project_id) }}</span>
+                  </button>
+                  <span class="doc-folder-count" [title]="'含 ' + docFolderCount(f.id) + ' 篇文档'">{{ docFolderCount(f.id) }}</span>
+                  <div class="doc-folder-actions">
+                    <button type="button" class="ghost-xs" (click)="openDocFolderModal('rename', f)" title="重命名文件夹">✎</button>
+                    <button type="button" class="ghost-xs danger" (click)="deleteDocFolder(f)" title="删除文件夹">🗑</button>
+                  </div>
+                </div>
+              }
+            </div>
+          }
+
+          @if (docVisible().length === 0 && docChildFolders().length === 0) {
+            <div class="empty-state">当前目录还没有内容。可点击右上角「＋ 新建文档 / 新建文件夹」，或将其他文档拖拽到此处归档。</div>
           } @else {
             <div class="doc-list tile-view">
               @for (d of docVisible(); track d.id) {
-                <a class="doc-row doc-tile" [attr.href]="'/documents/' + d.id" target="_blank" rel="noopener noreferrer">
+                <a class="doc-row doc-tile" [attr.href]="'/documents/' + d.id" target="_blank" rel="noopener noreferrer"
+                  [class.doc-dragging]="docDrag()?.kind === 'document' && docDrag()?.id === d.id"
+                  draggable="true"
+                  (dragstart)="onDocDragStart($event, { kind: 'document', id: d.id })" (dragend)="onDocDragEnd()">
                   <div class="doc-tile-icon">📄</div>
                   <div class="doc-tile-title" [title]="d.title">{{ d.title }}</div>
                   <div class="doc-tile-badges">
@@ -2987,6 +3081,15 @@
               <small class="muted">文档创建后固定归属于当前项目。</small>
             </div>
           }
+          @if (dm.mode === 'create') {
+            <div class="form-field">
+              <label>所在文件夹</label>
+              <select [value]="docCreateFolderId() ?? 0" (change)="docCreateFolderId.set(+$any($event.target).value || null)">
+                <option [value]="0">根目录</option>
+                @for (f of docScopeFolders(); track f.id) { <option [value]="f.id">{{ docFolderOptionLabel(f) }}</option> }
+              </select>
+            </div>
+          }
           <div class="form-field">
             <label>标题 <span class="required">*</span></label>
             <input [value]="dm.mode === 'create' ? docCreateTitle() : docEditTitle()"
@@ -3053,6 +3156,42 @@
         <footer class="modal-footer">
           <button type="button" class="ghost" (click)="closeDocModal()">取消</button>
           <button type="submit" class="btn-primary">{{ dm.mode === 'create' ? '创建文档' : '保存' }}</button>
+        </footer>
+      </form>
+    </section>
+  </div>
+}
+
+@if (docFolderModal(); as fm) {
+  <div class="modal-overlay" (click)="closeDocFolderModal()">
+    <section class="modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+      <header class="modal-header">
+        <div>
+          <span class="modal-eyebrow">{{ fm.mode === 'create' ? 'NEW FOLDER' : 'RENAME FOLDER' }}</span>
+          <h3>{{ fm.mode === 'create' ? '新建文件夹' : '重命名文件夹' }}</h3>
+        </div>
+        <button type="button" class="modal-close" (click)="closeDocFolderModal()">×</button>
+      </header>
+      <form (submit)="submitDocFolderModal()">
+        <div class="modal-body">
+          @if (fm.mode === 'create') {
+            <div class="form-field">
+              <label>上级文件夹</label>
+              <select [value]="fm.parentId ?? 0" (change)="docFolderModal.update(m => m ? { ...m, parentId: +$any($event.target).value || null } : m)">
+                <option [value]="0">根目录</option>
+                @for (f of docScopeFolders(); track f.id) { <option [value]="f.id">{{ docFolderOptionLabel(f) }}</option> }
+              </select>
+              <small class="muted">选择根目录 = 顶层文件夹；选择其他文件夹 = 创建子文件夹。</small>
+            </div>
+          }
+          <div class="form-field">
+            <label>文件夹名称 <span class="required">*</span></label>
+            <input [value]="docFolderName()" (input)="docFolderName.set($any($event.target).value)" maxlength="300" placeholder="如：需求评审 / 设计方案" />
+          </div>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" class="ghost" (click)="closeDocFolderModal()">取消</button>
+          <button type="submit" class="btn-primary">{{ fm.mode === 'create' ? '创建文件夹' : '保存' }}</button>
         </footer>
       </form>
     </section>

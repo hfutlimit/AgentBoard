@@ -3366,6 +3366,134 @@ router-outlet {
   white-space: nowrap;
   max-width: 100%;
 }
+/* ---- Epic 15 增强：文档文件夹 / 子文件夹 + 拖拽归档 ---- */
+.doc-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 10px 0 4px;
+  padding: 8px 12px;
+  border: 1px dashed var(--border, #e2e8f0);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+  transition: border-color 0.15s, background 0.15s;
+}
+.doc-breadcrumb.doc-drop-target {
+  border-color: #6366f1;
+  background: #f5f7ff;
+}
+.doc-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted, #64748b);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.doc-crumb:hover {
+  background: #f1f5f9;
+  color: inherit;
+}
+.doc-crumb.doc-drop-target {
+  border-color: #6366f1;
+  background: #eef2ff;
+  color: #3730a3;
+}
+.doc-crumb-icon { font-size: 13px; }
+.doc-crumb-sep { color: var(--text-muted, #94a3b8); font-size: 13px; }
+
+.doc-list.folder-view {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 14px;
+  padding: 4px;
+  margin-bottom: 18px;
+}
+.doc-folder-tile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  background: #fafbff;
+  cursor: grab;
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.05s, opacity 0.15s;
+}
+.doc-folder-tile:hover {
+  border-color: #818cf8;
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.12);
+}
+.doc-folder-tile.doc-drop-target {
+  border-color: #6366f1;
+  border-style: dashed;
+  background: #eef2ff;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+.doc-folder-tile.doc-dragging {
+  opacity: 0.45;
+}
+.doc-folder-main {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.doc-folder-icon { font-size: 18px; flex: 0 0 auto; }
+.doc-folder-name {
+  font-weight: 600;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-folder-project {
+  font-size: 11px;
+  color: var(--text-muted, #94a3b8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 90px;
+}
+.doc-folder-count {
+  flex: 0 0 auto;
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4f46e5;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+}
+.doc-folder-actions {
+  display: flex;
+  gap: 2px;
+  flex: 0 0 auto;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.doc-folder-tile:hover .doc-folder-actions,
+.doc-folder-tile:focus-within .doc-folder-actions {
+  opacity: 1;
+}
+.doc-dragging {
+  opacity: 0.45;
+}
 .doctype, .docstatus {
   font-size: 12px;
   padding: 2px 9px;
