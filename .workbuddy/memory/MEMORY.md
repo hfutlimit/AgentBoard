@@ -30,6 +30,12 @@
 - **前端流程**：改前端 → `npm run build` → cp 到 `agentboard/web/static/` → Playwright 验证（Page Errors、404 Resources、Angular 渲染）。无需 docker rebuild（static 挂载即时生效）。
 - **部署**：Docker 改后端需 `docker cp` 注入 + `docker restart`；本地 uvicorn (58125) + web (8080) 用于开发验证。
 
+## 测试产物约定
+- **测试脚本（tests/*.py、scripts/*e2e*.py 等）生成的截图/临时文件必须写到 `tmp/`**，根目录有占位 `tmp/.gitkeep`。
+- `tmp/`、`screenshots/`、`tests/screenshots/`、`scripts/*.png` 已在 `.gitignore` 中，**禁止 `git add` 强行追踪**。新脚本若要写图，统一写到 `tmp/<module>/<case>.png`。
+- 历史遗留在仓库里的截图（如 `screenshots/...`、`docs/sprint_ui_*.png`、`scripts/verify_*.png`）已批量清理（commit `5482451`、`37859ab`）。如发现新遗留，先 git rm 再 commit，不要 `git add` 重新纳入。
+- 一次性调试脚本（如 `tests/debug_spa.py`、`tests/shot_epic76_v63.py`）若脚本内仍有硬编码绝对路径，优先改写为相对 `tmp/...`，避免污染工作区外路径。
+
 ## API/状态机约定
 - 任务改状态用 `PUT /api/tasks/{tid}/status` body=`{"status":"..."}`；**真实迁移表**（`service.py` TRANSITIONS，L30-37）：`BACKLOG→{TODO}`、`TODO→{IN_PROGRESS,BACKLOG,DONE}`、`IN_PROGRESS→{IN_REVIEW,VERIFYING,TODO,DONE}`、`IN_REVIEW→{DONE,IN_PROGRESS}`、`VERIFYING→{DONE,IN_PROGRESS}`、`DONE→{IN_PROGRESS,TODO}`。**注意：无 `in_review → verifying` 边**（旧记忆里的线性链是错的），从 in_review 只能直接→done 或回 in_progress。状态同步脚本应在 TRANSITIONS 上 BFS 求最短合法路径，勿硬编码线性顺序。**例外（A-22 快速完成）**：允许 `TODO/IN_PROGRESS→DONE` 与 `DONE→TODO`，`IN_PROGRESS→BACKLOG` 仍禁止。
 - Story/Epic 改状态用 `PATCH /api/{stories|epics}/{id}` body=`{"status":"..."}`。

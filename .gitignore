@@ -19,3 +19,16 @@ backups/
 # E2E 测试凭据（含 API Key 明文，勿提交）
 scripts/e2e_setup.json
 scripts/e2e_entities.json
+
+# 本地临时目录（脚本运行期产物：截图、临时 dump 等），不要提交
+# 仅忽略目录内容，保留 tmp/.gitkeep 让目录结构在版本库里可见
+tmp/**
+!tmp/.gitkeep
+
+# 测试运行期自动生成的截图（脚本本身写出的副产物，不入库）
+screenshots/
+screenshots/**
+tests/screenshots/
+tests/screenshots/**
+# scripts/ 下散落的 *.png 是各 verify_* 调试脚本的副产物
+scripts/*.png
