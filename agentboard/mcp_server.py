@@ -1393,6 +1393,24 @@ def proposal_fail(proposal_id: int, error: str) -> dict:
     return _proposal_status(proposal_id, "failed", error=error or "unspecified failure")
 
 
+@mcp.tool()
+def proposal_convert(proposal_id: int, epic_id: int, title: str | None = None) -> dict:
+    """人工终审确认：把已收敛（converged）提案转化为 Story + 子 Task（Epic 96 P3）。
+
+    保留人类最后一道闸 —— 本工具不直接 create_story，而是经服务端转化端点
+    ``POST /api/proposals/{pid}/convert`` 完成：基于 converged_spec 生成 Story
+    （description 存原文）与子 Task（``- [ ]`` 清单项），回填 proposal.story_id
+    并推进 converged → story_created。幂等：重复调用返回既有 Story，不重复创建。
+
+    epic_id 必填，且必须属于提案所在项目；title 可覆盖 Story 标题（省略用提案标题）。
+    仅人工/管理员终审时调用。
+    """
+    body = {"epic_id": epic_id}
+    if title:
+        body["title"] = title
+    return _http("POST", f"/api/proposals/{proposal_id}/convert", json=body)
+
+
 if __name__ == "__main__":
     transport = os.getenv("AGENTBOARD_MCP_TRANSPORT", "stdio").lower()
     if transport in {"http", "streamable-http"}:

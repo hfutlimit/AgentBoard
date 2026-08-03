@@ -2501,3 +2501,87 @@ def get_proposal_project_id(s: Session, proposal_id: int) -> int | None:
     p = s.get(Proposal, proposal_id)
     return p.project_id if p else None
 
+
+# P3：converged_spec 中生成子 Task 的清单项前缀（与 generate_tasks_from_spec 一致）
+_SPEC_TASK_RE = re.compile(r"\s*[-*]\s*\[\s*[ xX]\s*\]\s*(.*)")
+
+
+def convert_proposal_to_story(
+    s: Session, proposal_id: int, *, epic_id: int, title: str | None = None,
+) -> tuple[Story, list[Task], Proposal]:
+    """人工终审确认后，把已收敛提案转化为 Story + 子 Task（Epic 96 P3）。
+
+    - 要求提案状态为 converged，且 converged_spec 非空（否则 400/422 拒绝）；
+    - 要求目标 Epic 存在且属于提案所在项目；
+    - Story 标题 = 显式 title 或提案标题，description = converged_spec 原文；
+    - 解析 converged_spec 中的 ``- [ ]`` 清单项生成子 Task
+      （同 project/story，type=task，status=backlog，priority=medium）；
+    - 回填 proposal.story_id 并推进 converged → story_created；
+    - **幂等防重放**：story_id 已回填且 Story 仍存在时直接返回既有结果，
+      不重复创建（呼应 P1 全量重放 / P2 at-least-once 的既有兜底策略）。
+
+    返回 ``(story, tasks, proposal)``。
+    """
+    p = _proposal_or_404(s, proposal_id)
+
+    # 幂等：已转化过且 Story 还在 → 直接复用，避免重放产生重复 Story。
+    if p.story_id is not None:
+        existing = s.get(Story, p.story_id)
+        if existing is not None:
+            tasks = (
+                s.query(Task).filter(Task.story_id == existing.id).all()
+            )
+            return existing, tasks, p
+
+    if ProposalStatus(p.status) is not ProposalStatus.CONVERGED:
+        raise InvalidValue(
+            f"proposal {proposal_id} 当前状态为 {p.status}，仅 converged 可转化为 Story",
+        )
+    if not (p.converged_spec or "").strip():
+        raise InvalidValue(
+            f"proposal {proposal_id} 的 converged_spec 为空，无法生成 Story",
+        )
+
+    epic = s.get(Epic, epic_id)
+    if epic is None:
+        raise NotFound(f"epic {epic_id} not found")
+    if epic.project_id != p.project_id:
+        raise InvalidValue(
+            f"epic {epic_id} 不属于提案所在项目 {p.project_id}",
+        )
+
+    story = create_story(
+        s, epic_id=epic_id,
+        title=_required(title or p.title, "title", 300),
+        description=p.converged_spec,
+    )
+    created: list[Task] = []
+    seen: set[str] = set()
+    for line in (p.converged_spec or "").splitlines():
+        m = _SPEC_TASK_RE.match(line)
+        if not m:
+            continue
+        t_title = m.group(1).strip()
+        if not t_title or t_title in seen:
+            continue
+        seen.add(t_title)
+        created.append(
+            create_task(
+                s, project_id=p.project_id, story_id=story.id,
+                title=t_title[:300], description=t_title,
+                priority=Priority.MEDIUM,
+            )
+        )
+
+    p.story_id = story.id
+    # converged → story_created（终态）；直接改状态字段，不经 set_proposal_status
+    # 的租约维护逻辑（这里不涉及 analyzing，无租约可清理）。
+    p.status = ProposalStatus.STORY_CREATED.value
+    p.error = ""
+    _commit(s)
+    s.refresh(story)
+    s.refresh(p)
+    for t in created:
+        s.refresh(t)
+    return story, created, p
+

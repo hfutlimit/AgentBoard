@@ -2032,6 +2032,17 @@ class ProposalAnswerIn(BaseModel):
     unsure: bool = False
 
 
+class ProposalConvertIn(BaseModel):
+    """人工终审确认：把已收敛提案转化为 Story + 子 Task（Epic 96 P3）。
+
+    epic_id 必填（目标 Epic 必须属于提案所在项目）；title 可覆盖 Story 标题，
+    省略时用提案标题。
+    """
+
+    epic_id: int
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+
+
 def _dispatch_proposal(proposal_id: int, round_no: int = 0, reason: str = "") -> None:
     """把提案投递到澄清工作队列（Epic 96 P2-1）。
 
@@ -2183,6 +2194,34 @@ def claim_proposal(pid: int, body: ProposalClaimIn | None = None,
                     f"仅 queued/answered 可认领"),
         )
     return service._ser(p)
+
+
+@app.post("/api/proposals/{pid}/convert")
+def convert_proposal(pid: int, body: ProposalConvertIn, s: Session = Depends(get_session)):
+    """人工终审确认：把已收敛提案转化为 Story + 子 Task（Epic 96 P3）。
+
+    保留人类最后一道闸 —— 不直接由 WorkBuddy/Worker 调 create_story，必须经
+    本端点由人工/管理员确认后才转化。基于 converged_spec 生成 Story（description
+    存原文）与子 Task（``- [ ]`` 清单项），回填 proposal.story_id 并推进
+    converged → story_created。幂等：重复调用返回既有 Story，不重复创建。
+
+    - 200：转化成功，返回 {proposal, story, tasks}
+    - 400：提案非 converged / converged_spec 为空 / Epic 不属于提案项目
+    - 404：提案或 Epic 不存在
+    """
+    try:
+        story, tasks, p = service.convert_proposal_to_story(
+            s, pid, epic_id=body.epic_id, title=body.title,
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {
+        "proposal": service._ser(p),
+        "story": service._ser(story),
+        "tasks": [service._ser(t) for t in tasks],
+    }
 
 
 @app.delete("/api/proposals/{pid}")
