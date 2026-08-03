@@ -783,4 +783,14 @@
 - 状态（MCP）：Story 45-53 → done（逐级）；Task 707 → done；新建 Task 964（highest）→ in_review；Epic 15 → done（整体收尾）。
 - 关键发现：全局 /documents 入口已不可达（重定向 /projects），文档并入项目级 Tab（与 #nav-proposals 同模式）。
 - OpenSpec change epic15-doc-module-acceptance-20260804 三件套已写；提交 push origin main（仅本次文件）。未触碰 18001/docker；零 REST 变更。
+
+## 2026-08-04 (run) — Epic 78 Story 101 执行器适配器框架 → Task 965 in_review（达成）
+- 目标 task→in_review。MCP 可用（生产 124.220.44.12/mcp，testadmin is_admin），以 MCP 为权威。
+- 选型：项目 3 所有 highest/high 均 in_review；backlog 大 Epic 78（AgentRun 执行器 7 Story）最高优先级，过大不可一次收尾 → 选地基 Story 101（执行器适配器框架）交付。
+- 实现（纯新增 agentboard/executor.py，零 REST/DB 变更）：AgentAdapter(ABC) launch/poll_status + LauncherAdapter/TriggerAdapter 基类 + NotConfiguredAdapter 兜底 + RunHandle/AgentRunContext + ADAPTERS 注册表（register_adapter/@adapter/get_adapter/resolve_adapter，重复注册默认抛错 replace 覆盖）+ KNOWN_AGENTS 预留。
+- 验证：24 passed（1.5s）；聚焦回归 22 passed 1 skipped；Playwright 冒烟 7/7 PASS 0 报错；全量 170 passed/16 failed（全为预存在环境性：sys.modules 断言/未起服务/未提交 dist 产物，与本次纯新增无关）。
+- 状态（MCP）：Task 965 → in_review；Story 101 → in_review；Epic 78 → in_progress。
+- 提交 push origin main（仅本次文件：executor.py + test + openspec 3 文档 + memory）。autodev.lock 已删。
+- 硬约束：未触碰 18001/docker；零既有 REST 契约变更。
+- 下次可执行（Epic 78 续）：Story 102 Launcher / Story 103 Trigger / Story 104 Executor 主循环 / Story 105 RunStatus 对齐。
 - 下次可执行：Epic 78（AgentRun 执行器，Story 105 RunStatus 枚举对齐为最小切入）/ Epic 64（COS 上传）。
