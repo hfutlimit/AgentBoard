@@ -137,6 +137,12 @@ export interface AgentSchedule {
   title: string;
   schedule_type: 'once' | 'cron';
   cron_expr: string | null;
+  // Story 106：绑定松绑（agent / 固定任务 / 可选筛选）
+  agent: string | null;
+  task_id: number | null;
+  task_priority: string | null;
+  task_type: string | null;
+  epic_id: number | null;
   enabled: boolean;
   next_run_at: string | null;
   last_run_at: string | null;

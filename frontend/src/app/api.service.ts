@@ -692,7 +692,7 @@ export class ApiService {
   listSchedules(projectId: number) {
     return this.request<AgentSchedule[]>('GET', `/api/projects/${projectId}/schedules`);
   }
-  createSchedule(projectId: number, body: { title: string; schedule_type: string; cron_expr?: string }) {
+  createSchedule(projectId: number, body: { title: string; schedule_type: string; cron_expr?: string; agent?: string }) {
     return this.request<AgentSchedule>('POST', `/api/projects/${projectId}/schedules`, body);
   }
   updateSchedule(scheduleId: number, body: Partial<AgentSchedule>) {

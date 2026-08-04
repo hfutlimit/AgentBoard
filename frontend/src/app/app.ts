@@ -210,6 +210,7 @@ export class App implements OnInit, OnDestroy {
   readonly sprintName = signal('');
   readonly sprintType = signal<'cron' | 'once'>('cron');
   readonly sprintCron = signal('');
+  readonly sprintAgent = signal('');  // Story 106：绑定 Agent（空 = 系统默认）
   // Task 编辑弹窗（替代详情页内联表单）
   readonly taskEditModal = signal<Task | null>(null);
   readonly taskEditTitle = signal('');
@@ -2031,6 +2032,7 @@ export class App implements OnInit, OnDestroy {
     this.sprintName.set('');
     this.sprintType.set('cron');
     this.sprintCron.set('');
+    this.sprintAgent.set('');
   }
   closeSprintModal(): void {
     this.sprintModalOpen.set(null);
@@ -2045,8 +2047,9 @@ export class App implements OnInit, OnDestroy {
       this.notify('Cron 类型需要 cron 表达式', 'error');
       return;
     }
+    const agent = this.sprintAgent().trim() || null;
     this.sprintModalOpen.set(null);
-    await this.createNewSchedule(pid, title, type, cron);
+    await this.createNewSchedule(pid, title, type, cron, agent);
   }
 
   closeCreate(): void {
@@ -3060,13 +3063,15 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  async createNewSchedule(projectId: number, title: string, scheduleType: string, cronExpr: string): Promise<void> {
+  async createNewSchedule(projectId: number, title: string, scheduleType: string,
+                          cronExpr: string, agent: string | null = null): Promise<void> {
     try {
       await firstValueFrom(this.api.createSchedule(projectId, {
         title,
         schedule_type: scheduleType as 'cron' | 'once',
         cron_expr: cronExpr || undefined,
-      }));
+        agent: agent || undefined,
+      } satisfies Partial<AgentSchedule>));
       this.notify('计划已创建');
       await this.loadSchedules(projectId);
     } catch (error) {

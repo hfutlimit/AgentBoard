@@ -815,9 +815,23 @@
                               {{ sch.enabled ? '启用' : '停用' }}
                             </span>
                             <span class="badge">{{ sch.schedule_type === 'cron' ? 'Cron' : '一次性' }}</span>
+                            @if (sch.agent) {
+                              <span class="badge schedule-agent" title="执行 Agent">{{ sch.agent }}</span>
+                            }
+                            @if (sch.task_id) {
+                              <span class="badge" title="固定任务">#{{ sch.task_id }} 固定任务</span>
+                            }
                           </div>
                           @if (sch.cron_expr) {
                             <div class="schedule-cron muted">{{ sch.cron_expr }}</div>
+                          }
+                          @if (sch.task_priority || sch.task_type || sch.epic_id) {
+                            <div class="schedule-meta muted">
+                              自动挑活：
+                              @if (sch.task_priority) { 优先级 ≥ {{ sch.task_priority }} }
+                              @if (sch.task_type) { · 类型 {{ sch.task_type }} }
+                              @if (sch.epic_id) { · Epic #{{ sch.epic_id }} }
+                            </div>
                           }
                           <div class="schedule-meta muted">
                             下次运行：{{ sch.next_run_at || '—' }} ·
@@ -3227,6 +3241,16 @@
               <input [value]="sprintCron()" (input)="sprintCron.set($any($event.target).value)" placeholder="*/5 * * * *" />
             </div>
           }
+          <div class="form-field">
+            <label>执行 Agent</label>
+            <select [value]="sprintAgent()" (change)="sprintAgent.set($any($event.target).value)">
+              <option value="">默认（系统配置）</option>
+              <option value="codex">Codex</option>
+              <option value="claude">Claude</option>
+              <option value="workbuddy">WorkBuddy</option>
+              <option value="qoder">Qoder</option>
+            </select>
+          </div>
         </div>
         <footer class="modal-footer">
           <button type="button" class="ghost" (click)="closeSprintModal()">取消</button>

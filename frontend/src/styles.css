@@ -2150,6 +2150,17 @@ details.form-section > form { padding: 16px; }
   color: #94a3b8;
 }
 
+/* Story 106：执行 Agent 徽标（紫色系，light/dark 均高对比） */
+.badge.schedule-agent {
+  background: #ede9fe;
+  color: #6d28d9;
+}
+
+[data-theme="dark"] .badge.schedule-agent {
+  background: #3b2f6e;
+  color: #c4b5fd;
+}
+
 /* ========== Health Indicator ========== */
 .health-btn {
   display: inline-flex;
