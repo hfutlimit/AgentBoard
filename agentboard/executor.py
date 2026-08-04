@@ -548,7 +548,8 @@ def build_run_context(s, run: Any) -> AgentRunContext | None:
         schedule_id=schedule.id,
         run_id=run.id,
         task_id=run.task_id,
-        agent=os.environ.get("AGENTBOARD_DEFAULT_AGENT", "codex"),
+        # Story 106：schedule.agent 优先（项目/Agent 级绑定），fallback env 默认
+        agent=schedule.agent or os.environ.get("AGENTBOARD_DEFAULT_AGENT", "codex"),
         project_key=project.key if project else None,
         project_name=project.name if project else None,
         task_title=task.title if task else None,

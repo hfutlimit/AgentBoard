@@ -172,12 +172,25 @@ def _trigger_one(s, schedule: AgentSchedule, now: datetime) -> bool:
         _advance_next_run(s, schedule)
         return False
 
+    # Story 106：固定 task_id 或自动挑下一个 eligible task；无 eligible 则跳过本次
+    task_id = schedule.task_id
+    if task_id is None:
+        eligible = service.pick_eligible_task(s, schedule)
+        if eligible is None:
+            log.info(
+                "schedule %d '%s': no eligible task, skip this run",
+                schedule.id, schedule.title,
+            )
+            _advance_next_run(s, schedule)
+            return False
+        task_id = eligible.id
+
     # 创建 AgentRun（pending 状态）
     try:
         run = service.create_run(
             s,
             schedule_id=schedule.id,
-            task_id=None,
+            task_id=task_id,
             idempotency_key=idempotency_key,
         )
         run = service.update_run(s, run.id, status=RunStatus.PENDING)

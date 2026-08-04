@@ -202,6 +202,12 @@ class ScheduleIn(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     schedule_type: str = "cron"
     cron_expr: str | None = None
+    # Story 106：绑定松绑（agent / 固定 task / 可选筛选，全部可选）
+    agent: str | None = None
+    task_id: int | None = None
+    task_priority: str | None = None
+    task_type: str | None = None
+    epic_id: int | None = None
 
 
 class SchedulePatch(BaseModel):
@@ -210,6 +216,12 @@ class SchedulePatch(BaseModel):
     cron_expr: str | None = None
     enabled: bool | None = None
     next_run_at: str | None = None
+    # Story 106：显式 null = 解除绑定 / 清除筛选
+    agent: str | None = None
+    task_id: int | None = None
+    task_priority: str | None = None
+    task_type: str | None = None
+    epic_id: int | None = None
 
 
 class RunIn(BaseModel):
@@ -1261,11 +1273,17 @@ def list_schedules(pid: int, s: Session = Depends(get_session),
 def create_schedule(pid: int, body: ScheduleIn, s: Session = Depends(get_session)):
     _need(service.get_project(s, pid), "project")
     try:
-        sch = service.create_schedule(s, project_id=pid, title=body.title,
-                                      schedule_type=body.schedule_type,
-                                      cron_expr=body.cron_expr)
+        sch = service.create_schedule(
+            s, project_id=pid, title=body.title,
+            schedule_type=body.schedule_type, cron_expr=body.cron_expr,
+            agent=body.agent, task_id=body.task_id,
+            task_priority=body.task_priority, task_type=body.task_type,
+            epic_id=body.epic_id,
+        )
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
     return service._ser(sch)
 
 
@@ -1276,10 +1294,16 @@ def get_schedule(sid: int, s: Session = Depends(get_session)):
 
 @app.patch("/api/schedules/{sid}")
 def update_schedule(sid: int, body: SchedulePatch, s: Session = Depends(get_session)):
+    fields = body.model_dump(exclude_none=True)
+    for k in ("agent", "task_id", "task_priority", "task_type", "epic_id"):
+        if k in body.model_fields_set:
+            fields[k] = getattr(body, k)  # 显式 null = 解除绑定 / 清除筛选
     try:
-        r = service.update_schedule(s, sid, **body.model_dump(exclude_none=True))
+        r = service.update_schedule(s, sid, **fields)
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
     return service._ser(_need(r, "schedule"))
 
 

@@ -826,8 +826,81 @@ def _validate_cron(expr: str) -> None:
         raise InvalidValue(f"invalid cron expression: {expr}")
 
 
+#: 可绑定到 AgentSchedule.agent 的合法 Agent 名（与 executor.KNOWN_AGENTS 对应；
+#: 校验仅防手滑，松绑后实际分发由 executor 注册表决定）
+SCHEDULE_AGENTS = ("codex", "claude", "workbuddy", "qoder")
+
+#: 任务优先级权重（值越大优先级越高；用于 pick_eligible_task 排序与门槛）
+PRIORITY_RANK = {
+    Priority.HIGHEST: 5, Priority.HIGH: 4, Priority.MEDIUM: 3,
+    Priority.LOW: 2, Priority.LOWEST: 1,
+}
+
+#: 执行器可自动领取的任务状态（未开始、可执行的活）
+ELIGIBLE_TASK_STATUSES = (Status.BACKLOG, Status.TODO)
+
+
+def _validate_schedule_filters(*, agent, task_priority, task_type, epic_id) -> None:
+    """校验 AgentSchedule 绑定/筛选字段（None = 不设，均合法）。"""
+    if agent is not None and agent not in SCHEDULE_AGENTS:
+        raise InvalidValue(
+            f"invalid agent '{agent}', must be one of {', '.join(SCHEDULE_AGENTS)}"
+        )
+    if task_priority is not None and task_priority not in ALL_PRIORITIES:
+        raise InvalidValue(f"invalid task_priority '{task_priority}'")
+    if task_type is not None and task_type not in ALL_TYPES:
+        raise InvalidValue(f"invalid task_type '{task_type}'")
+
+
+def pick_eligible_task(s: Session, schedule: AgentSchedule):
+    """
+    为「项目/Agent 级」schedule 挑选下一个 eligible task。
+
+    规则：
+    - 固定 ``task_id`` → 直接返回该 task（存在即返回，兼容旧单任务语义）；
+    - 项目级：``status ∈ (backlog, todo)``，按 ``epic_id`` / ``task_type`` 过滤，
+      ``task_priority`` 为**最低门槛**（≥ 该优先级才 eligible），
+      结果按优先级降序 + id 升序取第一个；
+    - 无匹配返回 None（调用方跳过本次触发）。
+
+    Returns:
+        Task | None
+    """
+    if schedule.task_id is not None:
+        return s.get(Task, schedule.task_id)
+    q = s.query(Task).filter(
+        Task.project_id == schedule.project_id,
+        Task.status.in_(ELIGIBLE_TASK_STATUSES),
+    )
+    if schedule.epic_id is not None:
+        # Task 不直接挂 epic_id，经 story 归属过滤
+        q = q.filter(
+            Task.story_id.in_(
+                s.query(Story.id).filter(Story.epic_id == schedule.epic_id)
+            )
+        )
+    if schedule.task_type is not None:
+        q = q.filter(Task.type == schedule.task_type)
+    if schedule.task_priority is not None:
+        threshold = PRIORITY_RANK[schedule.task_priority]
+        eligible_priorities = [
+            p for p, rank in PRIORITY_RANK.items() if rank >= threshold
+        ]
+        q = q.filter(Task.priority.in_(eligible_priorities))
+    # 优先级降序（highest 优先）+ id 升序（稳定、可预测）
+    from sqlalchemy import case
+    rank_case = case(
+        *[(Task.priority == p, r) for p, r in PRIORITY_RANK.items()],
+        else_=0,
+    )
+    return q.order_by(rank_case.desc(), Task.id.asc()).first()
+
+
 def create_schedule(s: Session, *, project_id: int, title: str,
-                    schedule_type: str = "cron", cron_expr: str | None = None) -> AgentSchedule:
+                    schedule_type: str = "cron", cron_expr: str | None = None,
+                    agent: str | None = None, task_id: int | None = None,
+                    task_priority: str | None = None, task_type: str | None = None,
+                    epic_id: int | None = None) -> AgentSchedule:
     if not s.get(Project, project_id):
         raise NotFound(f"project {project_id} not found")
     title = _required(title, "title", 300)
@@ -839,8 +912,19 @@ def create_schedule(s: Session, *, project_id: int, title: str,
         _validate_cron(cron_expr)
     else:
         cron_expr = None
-    sch = AgentSchedule(project_id=project_id, title=title,
-                        schedule_type=schedule_type, cron_expr=cron_expr)
+    _validate_schedule_filters(
+        agent=agent, task_priority=task_priority, task_type=task_type, epic_id=epic_id,
+    )
+    if task_id is not None and not s.get(Task, task_id):
+        raise NotFound(f"task {task_id} not found")
+    if epic_id is not None and not s.get(Epic, epic_id):
+        raise NotFound(f"epic {epic_id} not found")
+    sch = AgentSchedule(
+        project_id=project_id, title=title,
+        schedule_type=schedule_type, cron_expr=cron_expr,
+        agent=agent, task_id=task_id,
+        task_priority=task_priority, task_type=task_type, epic_id=epic_id,
+    )
     s.add(sch); _commit(s); s.refresh(sch); return sch
 
 
@@ -857,6 +941,22 @@ def update_schedule(s: Session, id: int, **fields) -> AgentSchedule | None:
     sch = s.get(AgentSchedule, id)
     if not sch:
         return None
+    # 预校验（先于赋值，失败不产生半写）
+    if "agent" in fields:
+        _validate_schedule_filters(
+            agent=fields.get("agent"), task_priority=fields.get("task_priority"),
+            task_type=fields.get("task_type"), epic_id=fields.get("epic_id"),
+        )
+    elif any(k in fields for k in ("task_priority", "task_type", "epic_id")):
+        _validate_schedule_filters(
+            agent=sch.agent, task_priority=fields.get("task_priority", sch.task_priority),
+            task_type=fields.get("task_type", sch.task_type),
+            epic_id=fields.get("epic_id", sch.epic_id),
+        )
+    if "task_id" in fields and fields["task_id"] is not None and not s.get(Task, fields["task_id"]):
+        raise NotFound(f"task {fields['task_id']} not found")
+    if "epic_id" in fields and fields["epic_id"] is not None and not s.get(Epic, fields["epic_id"]):
+        raise NotFound(f"epic {fields['epic_id']} not found")
     for k, v in fields.items():
         if k == "title" and v is not None:
             v = _required(v, "title", 300)
@@ -872,6 +972,9 @@ def update_schedule(s: Session, id: int, **fields) -> AgentSchedule | None:
             sch.enabled = v
         elif k == "next_run_at" and v is not None:
             sch.next_run_at = v
+        elif k in ("agent", "task_id", "task_priority", "task_type", "epic_id"):
+            # Story 106：显式 null = 解除绑定/清除筛选；已过预校验，直接赋值
+            setattr(sch, k, v)
     _commit(s); s.refresh(sch); return sch
 
 

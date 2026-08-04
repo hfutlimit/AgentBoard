@@ -230,10 +230,17 @@ def _schedule_list(project_id, limit=None, offset=0):
 def _schedule_get(schedule_id):
     return _http("GET", f"/api/schedules/{schedule_id}")
 
-def _schedule_create(project_id, title, schedule_type="cron", cron_expr=None):
+def _schedule_create(project_id, title, schedule_type="cron", cron_expr=None,
+                     agent=None, task_id=None, task_priority=None,
+                     task_type=None, epic_id=None):
     body = {"title": title, "schedule_type": schedule_type}
     if cron_expr:
         body["cron_expr"] = cron_expr
+    # Story 106：绑定松绑字段（None 不传 = 不设置）
+    for k, v in dict(agent=agent, task_id=task_id, task_priority=task_priority,
+                     task_type=task_type, epic_id=epic_id).items():
+        if v is not None:
+            body[k] = v
     return _http("POST", f"/api/projects/{project_id}/schedules", json=body)
 
 def _schedule_update(schedule_id, fields):
@@ -549,19 +556,39 @@ def get_schedule(schedule_id: int) -> dict:
 
 @mcp.tool()
 def create_schedule(project_id: int, title: str, schedule_type: str = "cron",
-                    cron_expr: str | None = None) -> dict:
-    """创建定时计划。schedule_type: once/cron；cron_expr: 5 字段 cron 表达式。"""
-    return _schedule_create(project_id, title, schedule_type=schedule_type, cron_expr=cron_expr)
+                    cron_expr: str | None = None, agent: str | None = None,
+                    task_id: int | None = None, task_priority: str | None = None,
+                    task_type: str | None = None, epic_id: int | None = None) -> dict:
+    """创建定时计划。schedule_type: once/cron；cron_expr: 5 字段 cron 表达式。
+    agent: 指定执行 Agent（codex/claude/workbuddy/qoder，None=默认）；
+    task_id: 固定任务（旧单任务语义）；task_priority/task_type/epic_id: 可选筛选
+    （项目/Agent 级 schedule 触发时自动挑 backlog/todo 中最高优先级 eligible task）。"""
+    return _schedule_create(project_id, title, schedule_type=schedule_type,
+                            cron_expr=cron_expr, agent=agent, task_id=task_id,
+                            task_priority=task_priority, task_type=task_type,
+                            epic_id=epic_id)
 
 
 @mcp.tool()
 def update_schedule(schedule_id: int, title: str | None = None,
                     schedule_type: str | None = None, cron_expr: str | None = None,
-                    enabled: bool | None = None, next_run_at: str | None = None) -> dict:
-    """更新 AgentSchedule 配置。仅传入需要修改的字段。"""
+                    enabled: bool | None = None, next_run_at: str | None = None,
+                    agent: str | None = None, task_id: int | None = None,
+                    task_priority: str | None = None, task_type: str | None = None,
+                    epic_id: int | None = None) -> dict:
+    """更新 AgentSchedule 配置。仅传入需要修改的字段。
+    清除绑定/筛选：agent/task_priority/task_type 传空串 ""，task_id/epic_id 传 0。"""
     fields = {k: v for k, v in dict(title=title, schedule_type=schedule_type,
                                     cron_expr=cron_expr, enabled=enabled,
                                     next_run_at=next_run_at).items() if v is not None}
+    # Story 106：可清除字段——"" 与 0 为「清除」哨兵（MCP 无法区分 None=未传）
+    for k, v in dict(agent=agent, task_priority=task_priority,
+                     task_type=task_type).items():
+        if v is not None:
+            fields[k] = v if v != "" else None
+    for k, v in dict(task_id=task_id, epic_id=epic_id).items():
+        if v is not None:
+            fields[k] = v if v != 0 else None
     return _schedule_update(schedule_id, fields)
 
 

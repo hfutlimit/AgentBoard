@@ -122,6 +122,17 @@ def test_compute_next_run_for_once_past():
 
 # ---- scan_and_trigger tests ----
 # 直接调用 _trigger_one（不走 module patch）
+#
+# 注（Story 106）：项目级 schedule（未绑定 task_id）触发时会自动挑选 backlog/todo
+# 中最高优先级的 eligible task；**无 eligible task 则跳过本次不创建 run**。
+# 因此下列测试均先 seed 一个 backlog task，保持「触发 → 创建 run」的断言意图。
+
+def _seed_backlog_task(s, project_id, title="Seed Task"):
+    """创建项目下首个 backlog task（story_id=None，不挂 epic）。"""
+    from agentboard import service
+    t = service.create_task(s, project_id=project_id, story_id=None, title=title)
+    s.commit()
+    return t
 
 def test_scan_triggers_due_cron_schedule(test_db):
     """到期 cron schedule 应被触发，创建 AgentRun"""
@@ -132,6 +143,7 @@ def test_scan_triggers_due_cron_schedule(test_db):
     with test_db() as s:
         p = service.create_project(s, name="Test Proj")
         s.commit()
+        _seed_backlog_task(s, p.id)
         sch = service.create_schedule(
             s, project_id=p.id, title="Test Cron",
             schedule_type="cron", cron_expr="*/1 * * * *",
@@ -170,6 +182,7 @@ def test_scan_idempotent_no_duplicate_run(test_db):
     with test_db() as s:
         p = service.create_project(s, name="Idemp Test")
         s.commit()
+        _seed_backlog_task(s, p.id)
         sch = service.create_schedule(
             s, project_id=p.id, title="Idemp Sch",
             schedule_type="cron", cron_expr="*/1 * * * *",
@@ -265,6 +278,7 @@ def test_scan_once_schedule_disables_after_run(test_db):
     with test_db() as s:
         p = service.create_project(s, name="Once Test")
         s.commit()
+        _seed_backlog_task(s, p.id)
         sch = service.create_schedule(
             s, project_id=p.id, title="Once Sch",
             schedule_type="once",
@@ -302,6 +316,7 @@ def test_daemon_scheduler_single_scan(test_db):
     with test_db() as s:
         p = service.create_project(s, name="Daemon Test")
         s.commit()
+        _seed_backlog_task(s, p.id)
         sch = service.create_schedule(
             s, project_id=p.id, title="Daemon Sch",
             schedule_type="cron", cron_expr="*/1 * * * *",

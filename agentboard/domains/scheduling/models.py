@@ -17,6 +17,12 @@ class AgentSchedule(Base):
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     schedule_type: Mapped[str] = mapped_column(String(10), default=ScheduleType.CRON)
     cron_expr: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Story 106：绑定松绑 —— agent 维度 + 任务绑定 + 可选筛选（全部 nullable，旧行零迁移成本）
+    agent: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id"), nullable=True, index=True)
+    task_priority: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    task_type: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    epic_id: Mapped[int | None] = mapped_column(ForeignKey("epics.id"), nullable=True, index=True)
     enabled: Mapped[bool] = mapped_column(default=True)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
