@@ -974,6 +974,133 @@ def trigger_run(
         return service._ser(cur)
 
 
+def execute_run(
+    session_factory,
+    run_id: int,
+    *,
+    poll_interval: float = 1.0,
+    max_poll_seconds: float | None = None,
+) -> dict | None:
+    """
+    Story 104 统一状态机主循环：pending → running → success/failed。
+
+    流程：
+    1. 认领 pending run（非 pending 直接跳过，防重复执行）；
+    2. 标记 running（started_at）；
+    3. 按 agent 类型分派：TRIGGER_AGENTS → WebhookTrigger（模式 B），
+       其余 → LauncherAdapter（模式 A）；
+    4. 轮询：优先感知 DB 外部回写（Agent 经 report_run_result 落库终态），
+       其次适配器 poll_status（退出码），超时兜底判 failed；
+    5. finalize 为 success/failed，落库 summary + log_ref + finished_at。
+
+    Returns:
+        终态 run 序列化 dict；run 不存在或非 pending 返回 None。
+    """
+    from . import service
+
+    with session_factory() as s:
+        run = s.get(service.AgentRun, run_id)
+        if run is None:
+            log.warning("run %d not found", run_id)
+            return None
+        if run.status != RunStatus.PENDING:
+            log.info("run %d status=%s, skip (only pending executable)", run.id, run.status)
+            return None
+
+        ctx = build_run_context(s, run)
+        if ctx is None:
+            run = service.update_run(
+                s, run.id, status=RunStatus.FAILED,
+                error_message="run has no valid schedule/project context",
+                finished_at=_now_utc(),
+            )
+            return service._ser(run)
+
+        adapter_cls = resolve_adapter(ctx.agent)
+        adapter = adapter_cls() if isinstance(adapter_cls, type) else adapter_cls
+        if max_poll_seconds is not None:
+            try:
+                adapter.timeout_seconds = max_poll_seconds
+            except Exception:  # pragma: no cover - 属性不存在时忽略
+                pass
+
+        run = service.update_run(
+            s, run.id, status=RunStatus.RUNNING, started_at=_now_utc(),
+        )
+        log.info("run %d → running (agent=%s, adapter=%s)",
+                 run.id, ctx.agent, type(adapter).__name__)
+
+        try:
+            handle = adapter.launch(run, None, ctx)
+        except Exception as e:
+            log.exception("launch failed for run %d", run.id)
+            run = service.update_run(
+                s, run.id, status=RunStatus.FAILED,
+                error_message=f"launch failed: {e}",
+                finished_at=_now_utc(),
+            )
+            return service._ser(run)
+        handle_error = getattr(handle, "error", None)
+
+    # ---- 轮询：DB 外部回写（report_run_result）优先，其次 poll_status，超时兜底 ----
+    deadline = None
+    if max_poll_seconds is not None:
+        deadline = time.monotonic() + max_poll_seconds
+    final: RunStatus | None = None
+    summary: str | None = getattr(handle, "result", None)
+    log_ref: str | None = getattr(handle, "log_ref", None)
+    while True:
+        # 1) 感知 DB 外部回写（Agent 经 report_run_result 已落库终态）
+        with session_factory() as s:
+            cur = s.get(service.AgentRun, run_id)
+            if cur is None:
+                return None
+            if cur.status in (RunStatus.SUCCESS, RunStatus.FAILED, RunStatus.CANCELLED):
+                log.info("run %d → %s (external report)", run_id, cur.status)
+                return service._ser(cur)
+        # 2) 适配器 poll_status（退出码 / 进程状态）
+        final = adapter.poll_status(handle)
+        if final in (RunStatus.SUCCESS, RunStatus.FAILED):
+            break
+        # 3) 超时兜底
+        if deadline is not None and time.monotonic() >= deadline:
+            proc = getattr(handle, "process", None)
+            if proc is not None:
+                try:
+                    proc.kill()
+                except Exception:  # pragma: no cover
+                    pass
+            final = RunStatus.FAILED
+            handle_error = handle_error or f"timeout after {max_poll_seconds}s"
+            break
+        time.sleep(poll_interval)
+
+    finished = _now_utc()
+    with session_factory() as s:
+        cur = s.get(service.AgentRun, run_id)
+        if cur is None:
+            return None
+        # 外部已在轮询期间回写终态 → 以外部为准
+        if cur.status in (RunStatus.SUCCESS, RunStatus.FAILED, RunStatus.CANCELLED):
+            return service._ser(cur)
+        if final == RunStatus.SUCCESS:
+            run = service.update_run(
+                s, run_id, status=RunStatus.SUCCESS,
+                output=summary or "", summary=summary or "",
+                log_ref=log_ref, finished_at=finished,
+            )
+            log.info("run %d → success", run_id)
+        else:
+            run = service.update_run(
+                s, run_id, status=RunStatus.FAILED,
+                error_message=handle_error or "agent execution failed",
+                output=(summary or "")[:20000], summary=(summary or "")[:20000],
+                log_ref=log_ref, finished_at=finished,
+            )
+            log.info("run %d → failed: %s", run_id, handle_error)
+        return service._ser(run)
+
+
 def trigger_first_pending(
     session_factory,
     *,
@@ -1011,7 +1138,8 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    parser = argparse.ArgumentParser(description="AgentBoard Executor (Story 102/103)")
+    parser = argparse.ArgumentParser(
+        description="AgentBoard Executor (Story 102/103/104)")
     parser.add_argument("--run", type=int, help="execute a specific run id")
     parser.add_argument("--once", action="store_true",
                         help="execute the first pending run and exit")
@@ -1019,12 +1147,25 @@ def main() -> None:
                         help="webhook-trigger a specific run id (workbuddy/qoder)")
     parser.add_argument("--trigger-once", action="store_true",
                         help="webhook-trigger the first pending workbuddy/qoder run")
+    parser.add_argument("--execute", type=int,
+                        help="state-machine drive a specific run id (Story 104, auto mode)")
     parser.add_argument("--poll-interval", type=float, default=1.0)
     parser.add_argument("--max-poll-seconds", type=float, default=None,
                         help="timeout for one run (default: adapter timeout)")
     args = parser.parse_args()
 
-    if args.run:
+    if args.execute:
+        result = execute_run(_db.session_scope, args.execute,
+                             poll_interval=args.poll_interval,
+                             max_poll_seconds=args.max_poll_seconds)
+        if result is None:
+            print(f"run {args.execute}: not found or not pending (nothing to do)")
+        else:
+            print(f"run {args.execute}: status={result.get('status')} "
+                  f"summary_len={len(result.get('summary') or '')} "
+                  f"log_ref={result.get('log_ref') or ''!r} "
+                  f"error={result.get('error_message') or ''!r}")
+    elif args.run:
         result = launch_run(_db.session_scope, args.run,
                             poll_interval=args.poll_interval,
                             max_poll_seconds=args.max_poll_seconds)

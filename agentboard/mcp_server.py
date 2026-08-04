@@ -609,6 +609,27 @@ def delete_run(run_id: int) -> dict:
 
 
 @mcp.tool()
+def report_run_result(run_id: int, status: str, summary: str | None = None,
+                      log_ref: str | None = None) -> dict:
+    """Agent 主动报告一次运行（Run）的最终结果（Epic 78 Story 104）。
+
+    比心跳/退出码更可靠：Agent 执行完毕后显式上报 success/failed，
+    执行器据此 finalize run（落库 summary + log_ref + finished_at）。
+
+    - status: 仅 success / failed / cancelled 为合法终态；
+    - 仅 pending/running 可迁移到终态；终态不可再变（幂等重复上报同状态不报错）；
+    - summary: 运行结果摘要（markdown，可选）；
+    - log_ref: 日志/产物引用（如外部存储路径，可选）。
+    """
+    body = {"status": status}
+    if summary is not None:
+        body["summary"] = summary
+    if log_ref is not None:
+        body["log_ref"] = log_ref
+    return _http("POST", f"/api/runs/{run_id}/report", json=body)
+
+
+@mcp.tool()
 def auth_register(username: str, password: str) -> dict:
     """注册 AgentBoard 用户并返回带有效期的登录 Token。"""
     return _auth_register(username, password)

@@ -221,9 +221,18 @@ class RunPatch(BaseModel):
     status: str | None = None
     output: str | None = None
     error_message: str | None = None
+    summary: str | None = None
+    log_ref: str | None = None
     started_at: str | None = None
     finished_at: str | None = None
     task_id: int | None = None
+
+
+class RunReportIn(BaseModel):
+    """Agent 主动报告 run 最终结果（Story 104）"""
+    status: str
+    summary: str | None = None
+    log_ref: str | None = None
 
 
 # ---------- New schemas ----------
@@ -1313,6 +1322,24 @@ def update_run(rid: int, body: RunPatch, s: Session = Depends(get_session)):
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     return service._ser(_need(r, "run"))
+
+
+@app.post("/api/runs/{rid}/report")
+def report_run_result(rid: int, body: RunReportIn, s: Session = Depends(get_session)):
+    """Agent 主动报告 run 结果（Epic 78 Story 104）：
+    仅 pending/running → success/failed/cancelled 合法；终态不可再变（幂等除外）。
+    """
+    try:
+        r = service.report_run_result(
+            s, rid, status=body.status, summary=body.summary, log_ref=body.log_ref,
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except service.IllegalTransition as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return service._ser(r)
 
 
 @app.delete("/api/runs/{rid}")

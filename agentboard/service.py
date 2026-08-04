@@ -917,12 +917,61 @@ def update_run(s: Session, id: int, **fields) -> AgentRun | None:
             run.output = v
         elif k == "error_message" and v is not None:
             run.error_message = v
+        elif k == "summary" and v is not None:
+            run.summary = v
+        elif k == "log_ref" and v is not None:
+            run.log_ref = v
         elif k == "started_at" and v is not None:
             run.started_at = v
         elif k == "finished_at" and v is not None:
             run.finished_at = v
         elif k == "task_id" and v is not None:
             run.task_id = v
+    _commit(s); s.refresh(run); return run
+
+
+# AgentRun 状态机合法迁移表（Story 104）
+# pending → running（执行器认领）；running → success/failed/cancelled（Agent 回写或执行器检测）
+# 终态 success/failed/cancelled 不可再迁移。
+RUN_TRANSITIONS = {
+    "pending": {"running", "success", "failed", "cancelled"},
+    "running": {"success", "failed", "cancelled"},
+    "success": set(),
+    "failed": set(),
+    "cancelled": set(),
+}
+
+
+def report_run_result(s: Session, id: int, *, status: str, summary: str | None = None,
+                      log_ref: str | None = None) -> AgentRun:
+    """
+    Agent 主动报告一次 run 的最终结果（Story 104）。
+
+    - 仅 pending/running 可迁移到终态；终态不可再变（防重放覆盖）；
+    - 幂等：终态重复报告相同 status 直接返回现有值（不抛错）；
+    - 落库 summary/log_ref + finished_at。
+    """
+    run = s.get(AgentRun, id)
+    if not run:
+        raise NotFound(f"run {id} not found")
+    if status not in ALL_RUN_STATUSES:
+        raise InvalidValue(f"invalid run status '{status}'")
+    if status not in RUN_TRANSITIONS.get(run.status, set()):
+        if run.status == status:
+            # 幂等：重复报告同一终态，仅补齐缺失的 summary/log_ref
+            if summary is not None and run.summary is None:
+                run.summary = summary
+            if log_ref is not None and run.log_ref is None:
+                run.log_ref = log_ref
+            _commit(s); s.refresh(run); return run
+        raise IllegalTransition(f"run status {run.status} -> {status} 不合法")
+    run.status = status
+    if summary is not None:
+        run.summary = summary
+    if log_ref is not None:
+        run.log_ref = log_ref
+    if run.finished_at is None:
+        run.finished_at = utc_now()
     _commit(s); s.refresh(run); return run
 
 
