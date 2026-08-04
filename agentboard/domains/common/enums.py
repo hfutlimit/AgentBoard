@@ -41,6 +41,7 @@ class RunStatus(StrEnum):
     RUNNING = "running"
     SUCCESS = "success"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 ALL_TYPES = [ItemType.TASK, ItemType.BUG, ItemType.TEST_EXECUTION]

@@ -278,6 +278,7 @@ def register_adapter(
     *,
     name: str | None = None,
     replace: bool = False,
+    preserve_name: bool = False,
 ) -> type[AgentAdapter] | Any:
     """
     注册一个适配器类。
@@ -291,6 +292,10 @@ def register_adapter(
         class CodexLauncher(LauncherAdapter): ...
 
     同名重复注册默认抛 ``AdapterAlreadyRegistered``；``replace=True`` 允许覆盖。
+
+    ``preserve_name=True`` 时**不回写** ``cls.name``（默认 False：显式 name
+    会回写类属性）。用于「一个类注册多个别名」的场景（如 workbuddy / qoder
+    共享 WebhookTrigger），避免后续别名覆盖类的逻辑名。
     """
 
     def _register(cls: type[AgentAdapter]) -> type[AgentAdapter]:
@@ -301,8 +306,8 @@ def register_adapter(
         if existing is not None and existing is not cls and not replace:
             raise AdapterAlreadyRegistered(key, existing)
         ADAPTERS[key] = cls
-        if getattr(cls, "name", "") != key:
-            cls.name = key  # 保证 cls.name 与注册键一致
+        if not preserve_name:
+            cls.name = key  # 显式 name 回写类属性（保证 cls.name 与注册键一致）
         log.debug("adapter '%s' registered (%s)", key, cls.__name__)
         return cls
 
@@ -572,6 +577,26 @@ def build_run_context(s, run: Any) -> AgentRunContext | None:
             ctx.memory = joined[:MAX_MEMORY_CHARS]
     except Exception:  # pragma: no cover - 记忆加载失败不影响主流程
         log.exception("failed to load project memory for run %d", run.id)
+
+    # 模式 B：项目级 webhook 目标（WebhookTrigger 无 env 时的兜底来源）
+    try:
+        from .domains.work_items.models import WebhookConfig
+
+        webhook = (
+            s.query(WebhookConfig)
+            .filter(
+                WebhookConfig.project_id == schedule.project_id,
+                WebhookConfig.enabled == True,  # noqa: E712
+            )
+            .order_by(WebhookConfig.created_at.desc())
+            .first()
+        )
+        if webhook is not None:
+            ctx.extra["webhook_url"] = webhook.url
+            if webhook.secret:
+                ctx.extra["webhook_secret"] = webhook.secret
+    except Exception:  # pragma: no cover - webhook 配置加载失败不影响主流程
+        log.exception("failed to load webhook config for run %d", run.id)
     return ctx
 
 
@@ -702,8 +727,282 @@ def launch_first_pending(
                       max_poll_seconds=max_poll_seconds)
 
 
+# ===========================================================================
+# Story 103 — 模式 B：Trigger（Webhook 唤醒常驻 Runner）
+# ===========================================================================
+#
+# 在 Story 101 TriggerAdapter 骨架之上实现真实 webhook 触发：
+#   WebhookTrigger —— 把 pending run 打包成事件 POST 给常驻 Runner
+#                     （WorkBuddy / QoderWork 自动化），Runner 被叫醒后
+#                     直奔指定 task 执行，不再全量 list_tasks 轮询。
+#   trigger_run()  —— 最小单次驱动：pending → running → POST webhook
+#                     → 轮询 DB run.status（外部经 report_run_result 回写，
+#                     Story 104 落地 MCP 工具）→ success/failed 或超时。
+#
+# 目标 URL 来源优先级：
+#   1) env AGENTBOARD_TRIGGER_URL（测试 / 全局覆盖）
+#   2) 项目级 WebhookConfig（复用 create_webhook 基础设施，取 enabled 第一个）
+# 完成判定：poll_status 默认等待显式状态变更（TriggerAdapter 语义），
+#   trigger_run 轮询 DB run.status 感知外部回写。
+# ===========================================================================
+
+#: 走 Trigger 模式的 agent 名（常驻 Runner 场景）
+TRIGGER_AGENTS = ("workbuddy", "qoder")
+
+#: webhook 事件名（与既有 fire_webhook 事件生态同构）
+EVENT_RUN_TRIGGERED = "agent_run.triggered"
+
+
+class WebhookTrigger(TriggerAdapter):
+    """
+    模式 B：通过 Webhook POST 唤醒常驻 Runner（WorkBuddy / QoderWork）。
+
+    ``launch()`` 把 pending run 打包成事件负载 POST 到目标 URL，非 2xx 抛
+    ``AdapterError``（由 Executor 主循环转为 failed）。完成判定默认依赖
+    ``report_run_result`` 显式回写（Story 104 MCP 工具），``trigger_run``
+    轮询 DB run.status 感知。
+
+    事件负载结构::
+
+        {
+          "event": "agent_run.triggered",
+          "timestamp": "1739000000",
+          "data": {
+            "run_id": 1, "task_id": 2, "project_id": 3, "schedule_id": 4,
+            "agent": "workbuddy",
+            "task_title": "...", "task_spec": "...",
+            "prompt": "<build_prompt 输出>",
+            "token": "<env AGENTBOARD_TRIGGER_TOKEN，非 admin scoped token>",
+          }
+        }
+
+    配置了 secret 时附加 ``X-AgentBoard-Signature`` / ``X-AgentBoard-Timestamp``
+    头（HMAC-SHA256，与既有 ``fire_webhook`` 签名模式一致）。
+    """
+
+    name = "webhook"
+    description = "Webhook 唤醒常驻 Runner（WorkBuddy / QoderWork 自动化）"
+    timeout_seconds = 3600.0
+    url_env_var = "AGENTBOARD_TRIGGER_URL"
+    token_env_var = "AGENTBOARD_TRIGGER_TOKEN"
+
+    def build_payload(self, run: Any, task: Any, ctx: AgentRunContext,
+                      *, prompt: str | None = None) -> dict[str, Any]:
+        """组装事件负载：event + run 快照 + 供 Runner 直取任务的字段。"""
+        import time as _time
+        return {
+            "event": EVENT_RUN_TRIGGERED,
+            "timestamp": str(int(_time.time())),
+            "data": {
+                "run_id": ctx.run_id,
+                "task_id": ctx.task_id,
+                "project_id": ctx.project_id,
+                "schedule_id": ctx.schedule_id,
+                "agent": ctx.agent,
+                "task_title": ctx.task_title,
+                "task_spec": ctx.task_spec,
+                "prompt": prompt or self.build_prompt(run, task, ctx),
+                "token": os.environ.get(self.token_env_var, ""),
+            },
+        }
+
+    def resolve_url(self, ctx: AgentRunContext) -> tuple[str, str | None]:
+        """目标 URL + secret：env 优先，其次 ctx.extra（来自项目级 WebhookConfig）。"""
+        url = os.environ.get(self.url_env_var)
+        if url:
+            return url, None
+        url = (ctx.extra or {}).get("webhook_url")
+        if url:
+            return url, (ctx.extra or {}).get("webhook_secret")
+        raise AdapterError(
+            f"no webhook target for agent '{ctx.agent}': set {self.url_env_var} "
+            "or configure a project-level WebhookConfig"
+        )
+
+    def launch(self, run: Any, task: Any, ctx: AgentRunContext) -> RunHandle:
+        import hashlib
+        import hmac
+        import json
+
+        import httpx
+
+        handle = RunHandle(run_id=ctx.run_id, adapter=ctx.agent).mark_running()
+        url, secret = self.resolve_url(ctx)
+        payload = self.build_payload(run, task, ctx)
+        body = json.dumps(payload, ensure_ascii=False)
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "AgentBoard-Trigger/1.0",
+        }
+        if secret:
+            signature = hmac.new(
+                secret.encode(), body.encode(), hashlib.sha256,
+            ).hexdigest()
+            headers["X-AgentBoard-Signature"] = signature
+            headers["X-AgentBoard-Timestamp"] = payload["timestamp"]
+        handle.metadata["url"] = url
+        try:
+            resp = httpx.post(url, content=body, headers=headers, timeout=15.0)
+        except Exception as e:
+            raise AdapterError(f"webhook POST failed: {e}") from e
+        handle.metadata["status_code"] = resp.status_code
+        handle.metadata["response"] = (resp.text or "")[:500]
+        if not 200 <= resp.status_code < 300:
+            raise AdapterError(
+                f"webhook returned {resp.status_code}: {(resp.text or '')[:200]}"
+            )
+        log.info("run %d webhook triggered → %s (%s)", ctx.run_id, url, resp.status_code)
+        return handle
+
+    def poll_status(self, handle: RunHandle) -> RunStatus:
+        # 完成判定走外部 report_run_result 回写；保持当前状态即可
+        return handle.status
+
+
+#: 按名字注册 Trigger 适配器（同一实现服务多个常驻 Runner；
+#: preserve_name 防止别名覆盖类的逻辑名 "webhook"）
+register_adapter(WebhookTrigger, name="workbuddy", preserve_name=True)
+register_adapter(WebhookTrigger, name="qoder", preserve_name=True)
+
+
+def trigger_run(
+    session_factory,
+    run_id: int,
+    *,
+    poll_interval: float = 1.0,
+    max_poll_seconds: float | None = None,
+) -> dict | None:
+    """
+    模式 B 最小单次驱动：pending → running → POST webhook → 轮询 DB
+    run.status（外部经 report_run_result 回写）→ success/failed 或超时。
+
+    - 仅对 agent ∈ ``TRIGGER_AGENTS``（workbuddy / qoder）有意义；
+    - 非 pending 的 run 跳过（返回 None，避免重复触发）。
+    """
+    from . import service
+
+    with session_factory() as s:
+        run = s.get(service.AgentRun, run_id)
+        if run is None:
+            log.warning("run %d not found", run_id)
+            return None
+        if run.status != RunStatus.PENDING:
+            log.info("run %d status=%s, skip (only pending executable)", run.id, run.status)
+            return None
+
+        ctx = build_run_context(s, run)
+        if ctx is None:
+            service.update_run(
+                s, run.id, status=RunStatus.FAILED,
+                error_message="run has no valid schedule/project context",
+                finished_at=_now_utc(),
+            )
+            return service._ser(run)
+        if ctx.agent not in TRIGGER_AGENTS:
+            log.warning("run %d agent=%s not in %s, use launch_run instead",
+                        run.id, ctx.agent, TRIGGER_AGENTS)
+            return None
+
+        adapter_cls = resolve_adapter(ctx.agent)
+        adapter = adapter_cls() if isinstance(adapter_cls, type) else adapter_cls
+        if max_poll_seconds is not None:
+            try:
+                adapter.timeout_seconds = max_poll_seconds
+            except Exception:  # pragma: no cover
+                pass
+
+        run = service.update_run(
+            s, run.id, status=RunStatus.RUNNING, started_at=_now_utc(),
+        )
+        log.info("run %d → running (agent=%s, adapter=%s)",
+                 run.id, ctx.agent, type(adapter).__name__)
+        try:
+            handle = adapter.launch(run, None, ctx)
+        except Exception as e:
+            log.exception("webhook trigger failed for run %d", run.id)
+            service.update_run(
+                s, run.id, status=RunStatus.FAILED,
+                error_message=f"webhook trigger failed: {e}",
+                finished_at=_now_utc(),
+            )
+            return service._ser(run)
+        handle_error = getattr(handle, "error", None)
+
+    # ---- 轮询 DB：外部（Runner / report_run_result）回写终态 ----
+    deadline = None
+    if max_poll_seconds is not None:
+        deadline = time.monotonic() + max_poll_seconds
+    final = RunStatus.RUNNING
+    while final == RunStatus.RUNNING:
+        with session_factory() as s:
+            cur = s.get(service.AgentRun, run_id)
+            if cur is None:
+                return None
+            final = RunStatus(cur.status)
+        if final in (RunStatus.SUCCESS, RunStatus.FAILED, RunStatus.CANCELLED):
+            break
+        if deadline is not None and time.monotonic() >= deadline:
+            final = RunStatus.FAILED
+            handle_error = handle_error or f"timeout after {max_poll_seconds}s"
+            break
+        time.sleep(poll_interval)
+
+    finished = _now_utc()
+    with session_factory() as s:
+        cur = s.get(service.AgentRun, run_id)
+        if cur is None:
+            return None
+        if final == RunStatus.SUCCESS and cur.status == RunStatus.SUCCESS:
+            if cur.finished_at is None:
+                cur = service.update_run(s, run_id, finished_at=finished)
+            log.info("run %d → success (external report)", run_id)
+            return service._ser(cur)
+        if final == RunStatus.CANCELLED:
+            if cur.finished_at is None:
+                cur = service.update_run(s, run_id, finished_at=finished)
+            return service._ser(cur)
+        # FAILED：外部已回写 failed 或本执行器超时兜底
+        if cur.status != RunStatus.FAILED:
+            cur = service.update_run(
+                s, run_id, status=RunStatus.FAILED,
+                error_message=handle_error or "webhook trigger failed",
+                finished_at=finished,
+            )
+        elif cur.finished_at is None:
+            cur = service.update_run(s, run_id, finished_at=finished)
+        log.info("run %d → failed: %s", run_id, cur.error_message)
+        return service._ser(cur)
+
+
+def trigger_first_pending(
+    session_factory,
+    *,
+    poll_interval: float = 1.0,
+    max_poll_seconds: float | None = None,
+) -> dict | None:
+    """触发第一个 pending 且 agent ∈ TRIGGER_AGENTS 的 run（按 id 升序）。"""
+    from .domains.scheduling.models import AgentRun
+
+    with session_factory() as s:
+        runs = (
+            s.query(AgentRun)
+            .filter(AgentRun.status == RunStatus.PENDING)
+            .order_by(AgentRun.id.asc())
+            .all()
+        )
+        for r in runs:
+            ctx = build_run_context(s, r)
+            if ctx is not None and ctx.agent in TRIGGER_AGENTS:
+                rid = r.id
+                break
+        else:
+            return None
+    return trigger_run(session_factory, rid, poll_interval=poll_interval,
+                       max_poll_seconds=max_poll_seconds)
+
+
 def main() -> None:
-    """CLI 入口：python -m agentboard.executor --run <id> / --once"""
+    """CLI 入口：python -m agentboard.executor --run <id> / --once / --trigger <id>"""
     import argparse
 
     from . import database as _db
@@ -712,10 +1011,14 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    parser = argparse.ArgumentParser(description="AgentBoard Executor (Story 102 Launcher)")
+    parser = argparse.ArgumentParser(description="AgentBoard Executor (Story 102/103)")
     parser.add_argument("--run", type=int, help="execute a specific run id")
     parser.add_argument("--once", action="store_true",
                         help="execute the first pending run and exit")
+    parser.add_argument("--trigger", type=int,
+                        help="webhook-trigger a specific run id (workbuddy/qoder)")
+    parser.add_argument("--trigger-once", action="store_true",
+                        help="webhook-trigger the first pending workbuddy/qoder run")
     parser.add_argument("--poll-interval", type=float, default=1.0)
     parser.add_argument("--max-poll-seconds", type=float, default=None,
                         help="timeout for one run (default: adapter timeout)")
@@ -737,6 +1040,24 @@ def main() -> None:
                                       max_poll_seconds=args.max_poll_seconds)
         if result is None:
             print("no pending run (nothing to do)")
+        else:
+            print(f"run {result.get('id')}: status={result.get('status')}")
+    elif args.trigger:
+        result = trigger_run(_db.session_scope, args.trigger,
+                             poll_interval=args.poll_interval,
+                             max_poll_seconds=args.max_poll_seconds)
+        if result is None:
+            print(f"run {args.trigger}: not found / not pending / not a "
+                  f"trigger-agent run (nothing to do)")
+        else:
+            print(f"run {args.trigger}: status={result.get('status')} "
+                  f"error={result.get('error_message') or ''!r}")
+    elif args.trigger_once:
+        result = trigger_first_pending(_db.session_scope,
+                                       poll_interval=args.poll_interval,
+                                       max_poll_seconds=args.max_poll_seconds)
+        if result is None:
+            print("no pending workbuddy/qoder run (nothing to do)")
         else:
             print(f"run {result.get('id')}: status={result.get('status')}")
     else:

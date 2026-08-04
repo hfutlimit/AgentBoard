@@ -27,7 +27,7 @@ class AgentSchedule(Base):
 class AgentRun(Base):
     __tablename__ = "agent_runs"
     __table_args__ = (CheckConstraint(
-        "status IN ('pending','running','success','failed')", name="ck_runs_status",
+        "status IN ('pending','running','success','failed','cancelled')", name="ck_runs_status",
     ),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     schedule_id: Mapped[int] = mapped_column(ForeignKey("agent_schedules.id", ondelete="CASCADE"), nullable=False, index=True)
