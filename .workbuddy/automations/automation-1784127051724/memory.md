@@ -813,3 +813,32 @@ Epic 78 续作：模式 B WebhookTrigger 完整交付（executor.py 增量，零
 - 交付：AgentRun +summary/log_ref 列 + 迁移 l4m5n6o7p8q9；service.report_run_result（RUN_TRANSITIONS 状态机+幂等）；REST POST /api/runs/{rid}/report；executor.execute_run 统一主循环（外部回写优先/超时兜底/非 pending 跳过）；CLI --execute；MCP report_run_result。
 - 验证：单测 13 + E2E 2（Playwright 0 报错）+ 回归 72/86/17 全绿。部署 docker restart api（18000），生产 MariaDB 迁移已应用，report 端点 404 语义生效。
 - 状态：Task 969 / Story 104 → in_review；Epic 78 剩 105/106/107。push 0f918ef。autodev.lock 已删。
+
+## 2026-08-04 17:2x 自动开发 — Epic 78 续：Story 105 收尾 + Story 107 完整交付（Task 966/977 → in_review，达成）
+- 目标 task→in_review。MCP 可用（本地连接器 testadmin/admin），以 MCP 为权威。
+- **Story 105 RunStatus 枚举对齐收尾**（Task 966，highest，唯一 in_progress）：
+  - 发现实现已随 Story 104（0f918ef）落地（enums/models/migration k8l9m0n1o2p3/docs FR-17/service RUN_TRANSITIONS 全统一），测试文件写好未提交（上轮中断）。
+  - 修 E2E 3 处过时断言：`PUT /api/runs/{rid}/status`（不存在）→ `PATCH /api/runs/{rid}`（RunPatch.status 已支持），非法值 400→422；_seed 幂等化（login 优先 + project key/run idempotency_key 随机防 409）。
+  - 验证：单测 7 passed + E2E 2 passed；聚焦回归 35 passed/1 skipped/2 failed（2 failed 为 test_epic30_cache 被 story104 的 sys.modules 清理污染，预存在模式，单独跑全绿）。
+  - 提交 c87be40（docs FR-17 + openspec + 2 测试）。
+- **Story 107 Agent 记忆自动加载**（Task 977，highest，新建）：
+  - 选型：Epic 78 剩 106（模型改造风险高）/107（纯新增 MCP 工具独立可交付）→ 选 107。
+  - 实现（零 REST/DB 契约变更）：mcp_server.py 新增 `get_project_memory(project_id, agent=None)`（_doc_list type=memory → agent 过滤「项目级+该 Agent 级」→ documents+combined）与 `append_agent_memory(project_id, content, agent=None)`（title 约定 `项目记忆`/`Agent 记忆 · {agent}`，幂等累积：命中 _doc_update 续写、未命中 _doc_create）。
+  - 验证：单测 5 passed + E2E 1 passed（MCP 写入→Web 文档 Tab 可见 0 报错）+ 聚焦回归 34 passed。
+  - 状态：Task 977 合法链 backlog→todo→in_progress→in_review；Story 107 → in_review；Epic 78 仅剩 Story 106（backlog）。
+  - 提交 76a640e。
+- **坑（已记 MEMORY）**：① FastMCP 无 `_tool_manager._tools` → 注册验证用 `asyncio.run(mcp.list_tools())`；② 直调工具 .fn 须设 `os.environ['AGENTBOARD_MCP_TOKEN']` + `ms.API_URL`；③ AST 护栏须含 builtins。
+- 收尾：Epic 78 剩 Story 106 不开启（模型改造+迁移+双后端兼容，剩余时间不足完整收尾，禁止半成品）；autodev.lock 已删；git push 2 次成功（f12689c..c87be40..76a640e）。
+- 硬约束：未触碰 18001/docker 端口；零既有 REST/DB 契约变更。
+- 下次可执行（Epic 78 收尾）：Story 106 AgentSchedule 绑定松绑（项目/Agent 级+筛选，建议独立 1 次运行）。
+
+## 2026-08-04 19:3x 自动开发 — Epic 78 Story 106 AgentSchedule 绑定松绑 → Task 978 in_review（达成）
+- 目标 task→in_review。MCP 连生产（124.220.44.12/mcp，testadmin is_admin）。
+- 选型：Epic 78 唯一 backlog Story 106 → 新建 Task 978 (highest)。
+- 实现（增量、零契约破坏）：AgentSchedule 新增 agent/task_id/task_priority/task_type/epic_id 5 列 + 迁移 m0n1o2p3q4r5；service.pick_eligible_task（固定/项目级自动挑选 + 排序）；scheduler._trigger_one 触发绑定 + 无 eligible 跳过；executor agent 读 schedule.agent；REST/MCP 透传新字段；前端 schedule 表单 Agent 下拉 + 列表紫色徽标 + 筛选展示。
+- 验证：test_schedule_unbind 19 passed + test_scheduler 11 passed + test_smoke 8 passed；REST 冒烟（创建/PATCH置空/422）全 OK；E2E Playwright（注入token → schedules tab → 创建带 workbuddy 计划 → 列表显示）PASS，0 控制台错误，0 失败资源。
+- 状态：Task 978 → in_review；Story 106 → in_review；Epic 78 全部 7 Story 均 in_review（Epic 维持 in_progress）。
+- 提交 push origin main 2 次成功（851ff8d 后端 / c352b3a 前端）。
+- 坑：① SQLAlchemy 跨 session 块访问 ORM 属性需 expire_on_commit=False；② 无 eligible 不创建 run 行为变更需为旧 scheduler 测试 seed backlog task；③ MCP JSON schema 表达「显式清除」用 ""/0 哨兵。
+- 硬约束：未触碰 18001/docker 端口。
+- 下次可执行：Epic 78 全部 in_review 待 done；新 Epic 可选 Agent 隔离/项目记忆配套 / Proposal P4 / 文档 v2。
