@@ -1259,6 +1259,73 @@ def search_documents(project_id: int | None = None, q: str | None = None,
                      limit=limit, offset=offset)
 
 
+# ===================== Agent 记忆（Epic 78 Story 107：跨会话大脑） =====================
+#
+# 把 Document.type=memory 文本载体升维为 Agent 的跨会话记忆：Agent 每次会话启动时
+# 调 get_project_memory 自动加载项目记忆；会话中把新学到的约定 / 踩坑用
+# append_agent_memory 沉淀回去，同一项目多次会话间记忆可累积复用（对标 Mem0 / Zep，
+# 但长在 PM 里、与任务闭环打通）。
+#
+# 分层约定（零 DB 变更，title 前缀隔离）：
+#   - 项目级：title = "项目记忆" —— 团队规范 / 约定 / 踩坑，所有 Agent 共享；
+#   - Agent 级：title = "Agent 记忆 · {agent}" —— 某 Agent 个性 / 擅长领域，按 agent 隔离。
+
+_MEMORY_PROJECT_TITLE = "项目记忆"
+_MEMORY_AGENT_PREFIX = "Agent 记忆 · "
+
+
+def _memory_title(agent: str | None) -> str:
+    return f"{_MEMORY_AGENT_PREFIX}{agent}" if agent else _MEMORY_PROJECT_TITLE
+
+
+@mcp.tool()
+def get_project_memory(project_id: int, agent: str | None = None) -> dict:
+    """读取项目记忆（Document.type=memory，跨会话累积）。
+
+    agent 为空返回项目全部 memory 文档；给定 agent 时仅返回「项目级记忆 + 该
+    Agent 专属记忆」（Agent 级隔离）。返回 documents 列表 + combined 拼接文本，
+    供 Agent 会话启动时一次自动加载。
+    """
+    docs = _doc_list(project_id=project_id, type="memory", limit=100)
+    if not isinstance(docs, list):
+        return {"project_id": project_id, "agent": agent,
+                "documents": [], "combined": ""}
+    if agent:
+        docs = [d for d in docs
+                if d.get("title") == _MEMORY_PROJECT_TITLE
+                or d.get("title") == _memory_title(agent)]
+    for d in docs:
+        d["content"] = d.get("content") or ""
+    combined = "\n\n".join(
+        f"[{d.get('title', '')}]\n{d.get('content', '')}" for d in docs)
+    return {"project_id": project_id, "agent": agent,
+            "documents": docs, "combined": combined}
+
+
+@mcp.tool()
+def append_agent_memory(project_id: int, content: str, agent: str | None = None) -> dict:
+    """向项目记忆追加一段内容（幂等累积：同名记忆文档续写而非新建）。
+
+    agent 为空 → 项目级记忆（title=项目记忆）；给定 agent → 该 Agent 专属记忆
+    （title=Agent 记忆 · {agent}，与其他 Agent 隔离）。返回目标文档 id 与结果。
+    """
+    title = _memory_title(agent)
+    docs = _doc_list(project_id=project_id, type="memory", limit=100)
+    target = None
+    if isinstance(docs, list):
+        target = next((d for d in docs if d.get("title") == title), None)
+    if target is not None:
+        old = target.get("content") or ""
+        merged = (old + "\n\n" + content).strip()
+        _doc_update(target["id"], {"content": merged})
+        return {"document_id": target["id"], "title": title, "appended": True,
+                "content_length": len(merged)}
+    created = _doc_create(project_id, title, content=content, type="memory")
+    return {"document_id": created.get("id") or created.get("document_id"),
+            "title": title, "appended": False,
+            "content_length": len(content)}
+
+
 # ===================== Proposals（Epic 96 P1-1：澄清回路 Worker 侧工具面） =====================
 #
 # Epic 96 P0 已交付完整 REST 层与前端问答工作台，但无头 Agent / Worker 侧此前没有任何入口。
