@@ -160,7 +160,7 @@ MVP 不做权限区分，所有调用方等价。
 **FR-17 Agent MCP 与定时开发闭环**
 - MCP 提供面向 Codex、WorkBuddy、Qoder 等客户端的稳定工具：查询待办、读取上下文、更新状态/优先级、评论进展、读取 Sprint 与附件。
 - 任务可配置 `AgentSchedule`：`task_id, agent, schedule_type(once|cron), schedule_expr/run_at, enabled, next_run_at, last_run_at`。
-- 调度器只负责生成可审计的 Agent Run/触发请求，不在 Web 进程中直接执行任意 shell；执行器通过明确的命令模板/适配器运行，并回写 `queued|running|succeeded|failed|cancelled`、摘要与日志引用。
+- 调度器只负责生成可审计的 Agent Run/触发请求，不在 Web 进程中直接执行任意 shell；执行器通过明确的命令模板/适配器运行，并回写 `pending|running|success|failed|cancelled`、摘要与日志引用。
 - 每次运行必须具备幂等键和租约，避免多实例重复执行；默认不自动 push/merge，除非具体任务策略明确授权。
 
 **FR-18 项目文档维护（多成员 / 多 Agent 协作）**
