@@ -794,3 +794,22 @@
 - 硬约束：未触碰 18001/docker；零既有 REST 契约变更。
 - 下次可执行（Epic 78 续）：Story 102 Launcher / Story 103 Trigger / Story 104 Executor 主循环 / Story 105 RunStatus 对齐。
 - 下次可执行：Epic 78（AgentRun 执行器，Story 105 RunStatus 枚举对齐为最小切入）/ Epic 64（COS 上传）。
+
+## 2026-08-04 (run) — Epic 78 Story 102 模式 A Launcher → Task 967 in_review（达成）
+- 目标 task→in_review。MCP 可用（生产 124.220.44.12/mcp，testadmin is_admin）。
+- 选型：Epic 78（AgentRun 执行器）唯一 in_progress；续作 Story 102（模式 A：CLI Launcher）新建 Task 967（highest）。
+- 实现（纯新增 executor.py 增量，零 REST/DB 变更）：CliLauncher（env 覆盖命令 + Popen + communicate(input=prompt)）+ CodexLauncher/ClaudeLauncher 注册 ADAPTERS + build_prompt 四要素 + launch_run 最小单次驱动 + CLI --run/--once。
+- 关键坑：① 顶层注册与 Story101 测试 fixture 冲突 → 改「保存→清空→恢复」；② max_poll_seconds 需覆盖 adapter.timeout_seconds（communicate 同步等待）；③ E2E web 子进程须设 AGENTBOARD_API_URL；④ 修 test_due_date 预存在分页漂移。
+- 验证：单测 13 + E2E 2 + 聚焦回归 65/1skip + 中等回归 72 全绿。
+- 状态：Task 967 / Story 102 → in_review；Epic 78 → in_progress（剩 103/104/105/106/107）。
+- 提交 push origin main（375626b..bf84056）。未触碰 18001/docker。autodev.lock 已删。
+
+## 2026-08-04 (run) — Story 103 Trigger 达成 Task 968 in_review
+Epic 78 续作：模式 B WebhookTrigger 完整交付（executor.py 增量，零 REST/DB 表变更）。WebhookTrigger payload+HMAC 签名、URL 解析 env>项目级 WebhookConfig、trigger_run 轮询 DB 外部回写、CLI --trigger、register_adapter preserve_name 参数。验证：单测 15 + E2E 2 PASS，聚焦回归 72 passed。MCP：Task 968 / Story 103 → in_review，Epic 78 剩 104/105/106/107。push 851ff8d。坑：E2E 跨进程 SQLite 锁竞争卡死 → 删集成测试；test_review_84_85.py 模块级 sys.exit 打断收集（--ignore）。
+
+## 2026-08-04 (run) — Epic 78 Story 104 AgentRun 状态机驱动 + report_run_result → Task 969 in_review（达成）
+- 目标 task→in_review。MCP 连生产（124.220.44.12/mcp，testadmin is_admin）。
+- 选型：Epic 78 唯一 in_progress，Story 104（backlog，最高优先级续作）新建 Task 969（highest）。
+- 交付：AgentRun +summary/log_ref 列 + 迁移 l4m5n6o7p8q9；service.report_run_result（RUN_TRANSITIONS 状态机+幂等）；REST POST /api/runs/{rid}/report；executor.execute_run 统一主循环（外部回写优先/超时兜底/非 pending 跳过）；CLI --execute；MCP report_run_result。
+- 验证：单测 13 + E2E 2（Playwright 0 报错）+ 回归 72/86/17 全绿。部署 docker restart api（18000），生产 MariaDB 迁移已应用，report 端点 404 语义生效。
+- 状态：Task 969 / Story 104 → in_review；Epic 78 剩 105/106/107。push 0f918ef。autodev.lock 已删。
