@@ -37,8 +37,14 @@ from agentboard.domains.common.enums import RunStatus
 
 @pytest.fixture(autouse=True)
 def _isolate_registry():
-    """每个测试隔离全局注册表：保存→执行→恢复。"""
+    """每个测试隔离全局注册表：保存→清空→执行→恢复。
+
+    Story 102 起模块顶层会注册 codex/claude（CodexLauncher/ClaudeLauncher），
+    因此执行期间必须先清空，避免与顶层条目冲突（如 name="codex" 的测试类）；
+    结束后恢复快照（含顶层注册），保证模块级注册不丢失。
+    """
     snapshot = dict(ADAPTERS)
+    ADAPTERS.clear()
     yield
     ADAPTERS.clear()
     ADAPTERS.update(snapshot)

@@ -17,6 +17,10 @@ AgentRun 执行器适配器框架（Epic 78 Story 101）
 from __future__ import annotations
 
 import logging
+import os
+import shlex
+import subprocess
+import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -341,3 +345,403 @@ def registered_adapters() -> list[str]:
 def resolve_adapter(name: str) -> type[AgentAdapter]:
     """取适配器；未注册时返回 NotConfiguredAdapter 兜底（永不抛 KeyError）。"""
     return get_adapter(name, default=NotConfiguredAdapter)
+
+
+# ===========================================================================
+# Story 102 — 模式 A：Launcher（CLI Agent 主动拉起）
+# ===========================================================================
+#
+# 在 Story 101 适配器框架之上实现真实 CLI Agent 拉取：
+#   CliLauncher   —— 通用 CLI 基类：命令解析（env 覆盖）+ Popen + 输出捕获
+#   CodexLauncher —— `codex exec` 非交互拉起
+#   ClaudeLauncher —— `claude -p` 非交互拉起
+#   launch_run()  —— 最小单次驱动：pending → running → success/failed 回写 DB
+#
+# 完整 daemon 主循环（轮询 pending / 并发认领 / 租约续期）留 Story 104。
+# ===========================================================================
+
+#: prompt 中项目记忆的最大字符数（防超长 prompt 撑爆 stdin/模型上下文）
+MAX_MEMORY_CHARS = 8000
+
+#: 验收标准段落（spec 中提取）的最大字符数
+MAX_ACCEPTANCE_CHARS = 2000
+
+
+class CliLauncher(LauncherAdapter):
+    """
+    模式 A 的 CLI 基类：负责把 Agent 任务转成 CLI 子进程拉起并捕获输出。
+
+    - ``command``：默认命令列表（如 ``["codex", "exec", "--json"]``）；
+    - ``env_var``：环境变量名（如 ``AGENTBOARD_CODEX_BIN``）。若设置了
+      **完整命令串**（如 ``python /path/fake_codex.py --flag``），则以该串
+      覆盖默认命令（``shlex.split`` 拆分，Windows 保留引号语义）。
+    - prompt 通过 ``stdin`` 管道喂入（``communicate(input=prompt)``），
+      避免超长参数受 OS 命令行长度限制；``stderr`` 合并进 ``stdout``，
+      UTF-8 解码 + ``errors=replace`` 兼容 Windows 非 UTF-8 输出。
+    """
+
+    command: list[str] = []
+    env_var: str = ""
+
+    def build_command(self, ctx: AgentRunContext) -> list[str]:
+        """解析最终命令：env 覆盖优先，否则默认命令。"""
+        override = os.environ.get(self.env_var) if self.env_var else None
+        if override:
+            # Windows 下 shlex.split(posix=False) 保留引号；POSIX 用默认拆分
+            parts = shlex.split(override, posix=os.name != "nt")
+            if not parts:
+                raise AdapterError(f"env {self.env_var} is empty")
+            return parts
+        if not self.command:
+            raise AdapterError(f"{type(self).__name__} has no default command")
+        return list(self.command)
+
+    def build_prompt(self, run: Any, task: Any, ctx: AgentRunContext) -> str:
+        """组装完整任务上下文：title + spec + 项目记忆 + 验收标准。"""
+        lines = [f"你正在 AgentBoard 中执行一次 Agent 运行（run #{ctx.run_id}）。"]
+        if ctx.project_name or ctx.project_key:
+            proj = ctx.project_key or ""
+            lines.append(f"项目：{ctx.project_name or ''}{(' (' + proj + ')') if proj else ''}")
+        if ctx.task_title:
+            lines.append(f"任务：{ctx.task_title}")
+        if ctx.task_spec:
+            lines.append(f"需求/规格：\n{ctx.task_spec}")
+        if ctx.memory:
+            lines.append(f"项目记忆：\n{ctx.memory}")
+        acceptance = (ctx.extra or {}).get("acceptance")
+        if acceptance:
+            lines.append(f"验收标准：\n{acceptance}")
+        lines.append(
+            "\n请直接执行任务。完成后通过 AgentBoard MCP 自报进度（add_comment / "
+            "set_status），无需向执行器回传细节。"
+        )
+        return "\n".join(lines)
+
+    def launch(self, run: Any, task: Any, ctx: AgentRunContext) -> RunHandle:
+        handle = RunHandle(run_id=ctx.run_id, adapter=ctx.agent).mark_running()
+        command = self.build_command(ctx)
+        prompt = self.build_prompt(run, task, ctx)
+        timeout = self.timeout_seconds
+        try:
+            proc = subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=dict(os.environ),
+            )
+        except FileNotFoundError as e:
+            handle.fail(f"command not found: {command[0] if command else '?'} ({e})")
+            return handle
+        except OSError as e:
+            handle.fail(f"failed to launch {command}: {e}")
+            return handle
+
+        handle.process = proc
+        handle.metadata["command"] = command
+        try:
+            stdout, _ = proc.communicate(input=prompt, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()  # 收割僵尸进程
+            handle.fail(f"timeout after {timeout}s: {command}")
+            handle.finished_at = _now_utc()
+            return handle
+        except Exception as e:  # pragma: no cover - 防御性兜底
+            proc.kill()
+            proc.communicate()
+            handle.fail(f"unexpected error: {e}")
+            handle.finished_at = _now_utc()
+            return handle
+
+        handle.result = stdout or ""
+        handle.finished_at = _now_utc()
+        if proc.returncode == 0:
+            handle.complete(stdout)
+        else:
+            handle.fail(f"process exited with code {proc.returncode}")
+        return handle
+
+    def poll_status(self, handle: RunHandle) -> RunStatus:
+        # CLI 场景在 launch() 内同步等待退出码，poll 直接返回已判定的终态。
+        # （保留父类基于 process.poll() 的判定作为兜底）
+        if handle.status in (RunStatus.SUCCESS, RunStatus.FAILED):
+            return handle.status
+        return super().poll_status(handle)
+
+
+@adapter("codex")
+class CodexLauncher(CliLauncher):
+    """Codex CLI Agent：`codex exec --json` 非交互拉起。
+
+    环境变量 ``AGENTBOARD_CODEX_BIN`` 可覆盖完整命令（如
+    ``python C:/fakes/codex.py``），便于测试注入 Fake CLI。
+    """
+
+    name = "codex"
+    description = "Codex CLI Agent（codex exec，非交互 print 模式）"
+    command = ["codex", "exec", "--json"]
+    env_var = "AGENTBOARD_CODEX_BIN"
+
+
+@adapter("claude")
+class ClaudeLauncher(CliLauncher):
+    """Claude Code CLI Agent：`claude -p` 非交互拉起。
+
+    环境变量 ``AGENTBOARD_CLAUDE_BIN`` 可覆盖完整命令。
+    """
+
+    name = "claude"
+    description = "Claude Code CLI Agent（claude -p，print 模式）"
+    command = ["claude", "-p"]
+    env_var = "AGENTBOARD_CLAUDE_BIN"
+
+
+# ---------------------------------------------------------------------------
+# 最小单次驱动
+# ---------------------------------------------------------------------------
+def _extract_acceptance(spec: str | None) -> str:
+    """从 spec 中提取验收标准段落（含「验收」的行起，截断防超长）。"""
+    if not spec:
+        return ""
+    lines = spec.splitlines()
+    start = None
+    for i, ln in enumerate(lines):
+        if "验收" in ln:
+            start = i
+            break
+    if start is None:
+        return ""
+    block = "\n".join(lines[start:]).strip()
+    return block[:MAX_ACCEPTANCE_CHARS]
+
+
+def build_run_context(s, run: Any) -> AgentRunContext | None:
+    """
+    把 AgentRun 扁平化为 AgentRunContext（供 Adapter 使用，与 ORM 解耦）。
+
+    - agent 名：env ``AGENTBOARD_DEFAULT_AGENT``（默认 codex；Story 106 松绑后
+      改读 schedule 字段）；
+    - memory：该项目 ``Document.type=memory`` 的内容拼接（截断）。
+    """
+    from .domains.projects.models import Project
+    from .domains.scheduling.models import AgentSchedule
+    from .domains.work_items.models import Task
+
+    schedule = s.get(AgentSchedule, run.schedule_id)
+    if schedule is None:
+        log.warning("run %d has no schedule %s", run.id, run.schedule_id)
+        return None
+    project = s.get(Project, schedule.project_id)
+    task = s.get(Task, run.task_id) if run.task_id else None
+
+    ctx = AgentRunContext(
+        project_id=schedule.project_id,
+        schedule_id=schedule.id,
+        run_id=run.id,
+        task_id=run.task_id,
+        agent=os.environ.get("AGENTBOARD_DEFAULT_AGENT", "codex"),
+        project_key=project.key if project else None,
+        project_name=project.name if project else None,
+        task_title=task.title if task else None,
+        task_spec=task.spec if task else None,
+        memory="",
+        extra={"schedule_title": schedule.title},
+    )
+    acceptance = _extract_acceptance(task.spec) if task else ""
+    if acceptance:
+        ctx.extra["acceptance"] = acceptance
+
+    try:
+        from .domains.documents.models import Document
+
+        memories = (
+            s.query(Document)
+            .filter(
+                Document.project_id == schedule.project_id,
+                Document.type == "memory",
+            )
+            .order_by(Document.updated_at.desc())
+            .all()
+        )
+        if memories:
+            joined = "\n\n".join(doc.content or "" for doc in memories)
+            ctx.memory = joined[:MAX_MEMORY_CHARS]
+    except Exception:  # pragma: no cover - 记忆加载失败不影响主流程
+        log.exception("failed to load project memory for run %d", run.id)
+    return ctx
+
+
+def launch_run(
+    session_factory,
+    run_id: int,
+    *,
+    poll_interval: float = 1.0,
+    max_poll_seconds: float | None = None,
+) -> dict | None:
+    """
+    最小单次驱动：认领一个 pending run → running → success/failed 回写 DB。
+
+    - 非 pending 的 run 直接跳过（返回 None，避免重复执行）；
+    - 完整 daemon 主循环（并发认领 / 租约续期 / 后台轮询）留 Story 104。
+
+    Returns:
+        回写后的 run 序列化 dict；run 不存在或非 pending 返回 None。
+    """
+    from . import service
+
+    with session_factory() as s:
+        run = s.get(service.AgentRun, run_id)
+        if run is None:
+            log.warning("run %d not found", run_id)
+            return None
+        if run.status != RunStatus.PENDING:
+            log.info("run %d status=%s, skip (only pending executable)", run.id, run.status)
+            return None
+
+        ctx = build_run_context(s, run)
+        if ctx is None:
+            service.update_run(
+                s, run.id, status=RunStatus.FAILED,
+                error_message="run has no valid schedule/project context",
+                finished_at=_now_utc(),
+            )
+            return service._ser(run)
+
+        adapter_cls = resolve_adapter(ctx.agent)
+        adapter = adapter_cls() if isinstance(adapter_cls, type) else adapter_cls
+        # 显式 max_poll_seconds 覆盖适配器默认超时（CLI 在 launch 内同步等待，
+        # 该值同时约束 communicate() 的等待，否则默认 1800s 会吞掉小超时）
+        if max_poll_seconds is not None:
+            try:
+                adapter.timeout_seconds = max_poll_seconds
+            except Exception:  # pragma: no cover - 属性不存在时忽略
+                pass
+
+        started = _now_utc()
+        run = service.update_run(
+            s, run.id, status=RunStatus.RUNNING, started_at=started,
+        )
+        log.info("run %d → running (agent=%s, adapter=%s)",
+                 run.id, ctx.agent, type(adapter).__name__)
+
+        try:
+            handle = adapter.launch(run, None, ctx)
+        except Exception as e:
+            log.exception("launch failed for run %d", run.id)
+            service.update_run(
+                s, run.id, status=RunStatus.FAILED,
+                error_message=f"launch failed: {e}",
+                finished_at=_now_utc(),
+            )
+            return service._ser(run)
+
+        # poll 至终态（CLI launch 已同步等待，通常首轮即终态；兜底轮询）
+        deadline = None
+        if max_poll_seconds is not None:
+            deadline = time.monotonic() + max_poll_seconds
+        final = None
+        while True:
+            final = adapter.poll_status(handle)
+            if final in (RunStatus.SUCCESS, RunStatus.FAILED):
+                break
+            if deadline is not None and time.monotonic() >= deadline:
+                proc = getattr(handle, "process", None)
+                if proc is not None:
+                    try:
+                        proc.kill()
+                    except Exception:  # pragma: no cover
+                        pass
+                final = RunStatus.FAILED
+                handle.error = handle.error or f"timeout after {max_poll_seconds}s"
+                break
+            time.sleep(poll_interval)
+
+        finished = _now_utc()
+        if final == RunStatus.SUCCESS:
+            run = service.update_run(
+                s, run.id, status=RunStatus.SUCCESS,
+                output=handle.result or "",
+                finished_at=finished,
+            )
+            log.info("run %d → success", run.id)
+        else:
+            run = service.update_run(
+                s, run.id, status=RunStatus.FAILED,
+                error_message=handle.error or "agent execution failed",
+                output=(handle.result or "")[:20000],
+                finished_at=finished,
+            )
+            log.info("run %d → failed: %s", run.id, handle.error)
+        return service._ser(run)
+
+
+def launch_first_pending(
+    session_factory,
+    *,
+    poll_interval: float = 1.0,
+    max_poll_seconds: float | None = None,
+) -> dict | None:
+    """执行第一个 pending run（按 id 升序），返回其结果或 None。"""
+    from .domains.scheduling.models import AgentRun
+
+    with session_factory() as s:
+        run = (
+            s.query(AgentRun)
+            .filter(AgentRun.status == RunStatus.PENDING)
+            .order_by(AgentRun.id.asc())
+            .first()
+        )
+        if run is None:
+            return None
+        rid = run.id
+    return launch_run(session_factory, rid, poll_interval=poll_interval,
+                      max_poll_seconds=max_poll_seconds)
+
+
+def main() -> None:
+    """CLI 入口：python -m agentboard.executor --run <id> / --once"""
+    import argparse
+
+    from . import database as _db
+
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    parser = argparse.ArgumentParser(description="AgentBoard Executor (Story 102 Launcher)")
+    parser.add_argument("--run", type=int, help="execute a specific run id")
+    parser.add_argument("--once", action="store_true",
+                        help="execute the first pending run and exit")
+    parser.add_argument("--poll-interval", type=float, default=1.0)
+    parser.add_argument("--max-poll-seconds", type=float, default=None,
+                        help="timeout for one run (default: adapter timeout)")
+    args = parser.parse_args()
+
+    if args.run:
+        result = launch_run(_db.session_scope, args.run,
+                            poll_interval=args.poll_interval,
+                            max_poll_seconds=args.max_poll_seconds)
+        if result is None:
+            print(f"run {args.run}: not found or not pending (nothing to do)")
+        else:
+            print(f"run {args.run}: status={result.get('status')} "
+                  f"output_len={len(result.get('output') or '')} "
+                  f"error={result.get('error_message') or ''!r}")
+    elif args.once:
+        result = launch_first_pending(_db.session_scope,
+                                      poll_interval=args.poll_interval,
+                                      max_poll_seconds=args.max_poll_seconds)
+        if result is None:
+            print("no pending run (nothing to do)")
+        else:
+            print(f"run {result.get('id')}: status={result.get('status')}")
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()

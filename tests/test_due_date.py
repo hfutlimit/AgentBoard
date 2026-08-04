@@ -174,7 +174,9 @@ def test_due_date_in_task_list(api_url):
 
         r = c.get(f"/api/stories/{story_id}/tasks")
         assert r.status_code == 200, r.text
-        tasks = r.json()
+        payload = r.json()
+        # GET /api/stories/{sid}/tasks 返回分页结构 {items, total}
+        tasks = payload.get("items", payload)
         assert len(tasks) >= 2
 
         task_a = next(t for t in tasks if t["title"] == "Task A with due")
