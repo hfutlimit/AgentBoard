@@ -174,6 +174,20 @@ def _comment_create(task_id, author, content):
 def _comment_delete(comment_id):
     return _http("DELETE", f"/api/comments/{comment_id}")
 
+def _story_comment_list(story_id):
+    return _http("GET", f"/api/stories/{story_id}/comments")
+
+def _story_comment_create(story_id, author, content):
+    return _http("POST", f"/api/stories/{story_id}/comments",
+                 json={"author": author, "content": content})
+
+def _epic_comment_list(epic_id):
+    return _http("GET", f"/api/epics/{epic_id}/comments")
+
+def _epic_comment_create(epic_id, author, content):
+    return _http("POST", f"/api/epics/{epic_id}/comments",
+                 json={"author": author, "content": content})
+
 def _auth_register(username, password):
     return _http("POST", "/api/auth/register", json={"username": username, "password": password})
 
@@ -462,6 +476,30 @@ def add_comment(task_id: int, author: str, content: str) -> dict:
 def delete_comment(comment_id: int) -> dict:
     """删除指定评论。"""
     return _comment_delete(comment_id)
+
+
+@mcp.tool()
+def list_story_comments(story_id: int) -> list | dict:
+    """按时间顺序读取 Story 评论，供人类与开发 Agent 共享进展。"""
+    return _story_comment_list(story_id)
+
+
+@mcp.tool()
+def add_story_comment(story_id: int, author: str, content: str) -> dict:
+    """给 Story 追加 markdown 评论；Agent 可用它同步开始、阻塞和完成状态。"""
+    return _story_comment_create(story_id, author, content)
+
+
+@mcp.tool()
+def list_epic_comments(epic_id: int) -> list | dict:
+    """按时间顺序读取 Epic 评论，供人类与开发 Agent 共享进展。"""
+    return _epic_comment_list(epic_id)
+
+
+@mcp.tool()
+def add_epic_comment(epic_id: int, author: str, content: str) -> dict:
+    """给 Epic 追加 markdown 评论；Agent 可用它同步开始、阻塞和完成状态。"""
+    return _epic_comment_create(epic_id, author, content)
 
 
 @mcp.tool()

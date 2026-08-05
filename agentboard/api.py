@@ -1058,9 +1058,23 @@ def append_task_spec(tid: int, body: SpecAppendIn, s: Session = Depends(get_sess
 @app.get("/api/tasks/{tid}/comments")
 def list_comments(tid: int, s: Session = Depends(get_session)):
     try:
-        return [service._ser(x) for x in service.list_comments(s, tid)]
+        return [service._ser(x) for x in service.list_comments(s, task_id=tid)]
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+def _mention_notify(s: Session, *, author: str, content: str, link: str) -> None:
+    """扫描评论内容中的 @username 提及并创建 mentioned 通知（Task/Story/Epic 评论共用）。"""
+    mentioned_user_ids: set[int] = set()
+    for username in re.findall(r"@([A-Za-z0-9_.-]{1,64})", content):
+        mentioned = service.get_user_by_username(s, username)
+        if mentioned and mentioned.id not in mentioned_user_ids:
+            mentioned_user_ids.add(mentioned.id)
+            service.create_notification(
+                s, user_id=mentioned.id, notif_type="mentioned",
+                title=f"{author} 在评论中提到了你", content=content[:500],
+                link=link,
+            )
 
 
 @app.post("/api/tasks/{tid}/comments", status_code=201)
@@ -1070,16 +1084,54 @@ def create_comment(
 ):
     try:
         comment = service.create_comment(s, task_id=tid, author=body.author, content=body.content)
-        mentioned_user_ids: set[int] = set()
-        for username in re.findall(r"@([A-Za-z0-9_.-]{1,64})", body.content):
-            mentioned = service.get_user_by_username(s, username)
-            if mentioned and mentioned.id not in mentioned_user_ids:
-                mentioned_user_ids.add(mentioned.id)
-                service.create_notification(
-                    s, user_id=mentioned.id, notif_type="mentioned",
-                    title=f"{body.author} 在评论中提到了你", content=body.content[:500],
-                    link=f"/task/{tid}",
-                )
+        _mention_notify(s, author=body.author, content=body.content, link=f"/task/{tid}")
+        return service._ser(comment)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+# ---------- Story / Epic Comments ----------
+@app.get("/api/stories/{sid}/comments")
+def list_story_comments(sid: int, s: Session = Depends(get_session)):
+    try:
+        return [service._ser(x) for x in service.list_comments(s, story_id=sid)]
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/api/stories/{sid}/comments", status_code=201)
+def create_story_comment(
+    sid: int, body: CommentIn, authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    try:
+        comment = service.create_comment(s, story_id=sid, author=body.author, content=body.content)
+        _mention_notify(s, author=body.author, content=body.content, link=f"/story/{sid}")
+        return service._ser(comment)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+@app.get("/api/epics/{eid}/comments")
+def list_epic_comments(eid: int, s: Session = Depends(get_session)):
+    try:
+        return [service._ser(x) for x in service.list_comments(s, epic_id=eid)]
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/api/epics/{eid}/comments", status_code=201)
+def create_epic_comment(
+    eid: int, body: CommentIn, authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    try:
+        comment = service.create_comment(s, epic_id=eid, author=body.author, content=body.content)
+        _mention_notify(s, author=body.author, content=body.content, link=f"/epic/{eid}")
         return service._ser(comment)
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))

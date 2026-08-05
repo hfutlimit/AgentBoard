@@ -80,6 +80,8 @@ export class App implements OnInit, OnDestroy {
   readonly stories = signal<Story[]>([]);
   readonly tasks = signal<Task[]>([]);
   readonly comments = signal<Comment[]>([]);
+  readonly storyComments = signal<Comment[]>([]);
+  readonly epicComments = signal<Comment[]>([]);
   readonly sprints = signal<Sprint[]>([]);
   readonly sprint = signal<Sprint | null>(null);
   readonly sprintTasks = signal<Task[]>([]);
@@ -1591,12 +1593,14 @@ export class App implements OnInit, OnDestroy {
       } else if (kind === 'epic' && id > 0) {
         this.view.set('epic');
         this.epicTab.set('detail');
-        const [epic, stories] = await Promise.all([
+        const [epic, stories, epicComments] = await Promise.all([
           firstValueFrom(this.api.getEpic(id)),
           firstValueFrom(this.api.listStories(id)),
+          firstValueFrom(this.api.listEpicComments(id)),
         ]);
         this.epic.set(epic);
         this.stories.set(stories);
+        this.epicComments.set(epicComments);
         this.project.set(await firstValueFrom(this.api.getProject(epic.project_id)));
       } else if (kind === 'story' && id > 0) {
         this.view.set('story');
@@ -1609,8 +1613,12 @@ export class App implements OnInit, OnDestroy {
         this.story.set(story);
         // 分页加载 story 任务，确保只属于当前 story
         await this.loadStoryTasks(id, 1);
-        const epic = await firstValueFrom(this.api.getEpic(story.epic_id));
+        const [epic, storyComments] = await Promise.all([
+          firstValueFrom(this.api.getEpic(story.epic_id)),
+          firstValueFrom(this.api.listStoryComments(id)),
+        ]);
         this.epic.set(epic);
+        this.storyComments.set(storyComments);
         this.project.set(await firstValueFrom(this.api.getProject(epic.project_id)));
         // B-02: 负责人下拉依赖成员列表，进入 Story 视图时必须加载
         await this.loadMembers(epic.project_id);
@@ -2254,6 +2262,38 @@ export class App implements OnInit, OnDestroy {
 
   commentAuthor(): string {
     return localStorage.getItem('agentboard_comment_author') || this.currentUser() || '我';
+  }
+
+  async addStoryComment(event: Event, author: string, content: string): Promise<void> {
+    event.preventDefault();
+    const story = this.story();
+    if (!story || !author.trim() || !content.trim()) return;
+    localStorage.setItem('agentboard_comment_author', author.trim());
+    try {
+      await firstValueFrom(
+        this.api.addStoryComment(story.id, { author: author.trim(), content: content.trim() }),
+      );
+      this.notify('评论已发布');
+      this.storyComments.set(await firstValueFrom(this.api.listStoryComments(story.id)));
+    } catch (error) {
+      this.notify(`评论发布失败：${this.message(error)}`, 'error');
+    }
+  }
+
+  async addEpicComment(event: Event, author: string, content: string): Promise<void> {
+    event.preventDefault();
+    const epic = this.epic();
+    if (!epic || !author.trim() || !content.trim()) return;
+    localStorage.setItem('agentboard_comment_author', author.trim());
+    try {
+      await firstValueFrom(
+        this.api.addEpicComment(epic.id, { author: author.trim(), content: content.trim() }),
+      );
+      this.notify('评论已发布');
+      this.epicComments.set(await firstValueFrom(this.api.listEpicComments(epic.id)));
+    } catch (error) {
+      this.notify(`评论发布失败：${this.message(error)}`, 'error');
+    }
   }
 
   // Task 603: 复制文本到剪贴板

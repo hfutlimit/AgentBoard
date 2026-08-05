@@ -73,7 +73,9 @@ export interface Task {
 
 export interface Comment {
   id: number;
-  task_id: number;
+  task_id: number | null;
+  story_id: number | null;
+  epic_id: number | null;
   author: string;
   content: string;
   created_at: string;

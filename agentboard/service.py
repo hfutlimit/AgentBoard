@@ -257,6 +257,10 @@ def delete_epic(s: Session, id: int) -> bool:
         if task_ids:
             s.query(Comment).filter(Comment.task_id.in_(task_ids)).delete(synchronize_session=False)
         s.query(Task).filter(Task.story_id == st.id).delete()
+    s.query(Comment).filter(Comment.story_id.in_(
+        s.query(Story.id).filter(Story.epic_id == id)
+    )).delete(synchronize_session=False)
+    s.query(Comment).filter(Comment.epic_id == id).delete(synchronize_session=False)
     s.query(Story).filter(Story.epic_id == id).delete()
     s.delete(ep); _commit(s); return True
 
@@ -307,6 +311,7 @@ def delete_story(s: Session, id: int) -> bool:
     task_ids = [x[0] for x in s.query(Task.id).filter(Task.story_id == id).all()]
     if task_ids:
         s.query(Comment).filter(Comment.task_id.in_(task_ids)).delete(synchronize_session=False)
+    s.query(Comment).filter(Comment.story_id == id).delete(synchronize_session=False)
     s.query(Task).filter(Task.story_id == id).delete()
     s.delete(st); _commit(s); return True
 
@@ -574,20 +579,48 @@ def _check_priority(priority: str) -> None:
 
 
 # ---------- Comments ----------
-def create_comment(s: Session, *, task_id: int, author: str, content: str) -> Comment:
-    if not s.get(Task, task_id):
-        raise NotFound(f"task {task_id} not found")
+def _comment_target(
+    s: Session, *, task_id: int | None, story_id: int | None, epic_id: int | None
+) -> dict:
+    """校验评论挂载目标：task/story/epic 三者恰好其一非空，且实体存在。返回 {task_id|story_id|epic_id: id}。"""
+    candidates = {"task_id": (Task, task_id), "story_id": (Story, story_id), "epic_id": (Epic, epic_id)}
+    present = {k: v for k, v in candidates.items() if v[1] is not None}
+    if len(present) != 1:
+        raise InvalidValue("exactly one of task_id/story_id/epic_id must be set")
+    name, (model, obj_id) = next(iter(present.items()))
+    if not s.get(model, obj_id):
+        raise NotFound(f"{name.removesuffix('_id')} {obj_id} not found")
+    return {name: obj_id}
+
+
+def create_comment(s: Session, *, author: str, content: str,
+                   task_id: int | None = None, story_id: int | None = None,
+                   epic_id: int | None = None) -> Comment:
+    target = _comment_target(s, task_id=task_id, story_id=story_id, epic_id=epic_id)
     author, content = (author or "").strip(), (content or "").strip()
     if not author or not content:
         raise InvalidValue("author and content are required")
-    comment = Comment(task_id=task_id, author=author[:100], content=content)
+    comment = Comment(author=author[:100], content=content, **target)
     s.add(comment); _commit(s); s.refresh(comment); return comment
 
 
-def list_comments(s: Session, task_id: int):
-    if not s.get(Task, task_id):
-        raise NotFound(f"task {task_id} not found")
-    return s.query(Comment).filter(Comment.task_id == task_id).order_by(Comment.created_at, Comment.id).all()
+def list_comments(s: Session, *, task_id: int | None = None, story_id: int | None = None,
+                  epic_id: int | None = None):
+    if task_id is not None:
+        if not s.get(Task, task_id):
+            raise NotFound(f"task {task_id} not found")
+        q = s.query(Comment).filter(Comment.task_id == task_id)
+    elif story_id is not None:
+        if not s.get(Story, story_id):
+            raise NotFound(f"story {story_id} not found")
+        q = s.query(Comment).filter(Comment.story_id == story_id)
+    elif epic_id is not None:
+        if not s.get(Epic, epic_id):
+            raise NotFound(f"epic {epic_id} not found")
+        q = s.query(Comment).filter(Comment.epic_id == epic_id)
+    else:
+        raise InvalidValue("exactly one of task_id/story_id/epic_id must be set")
+    return q.order_by(Comment.created_at, Comment.id).all()
 
 
 def delete_comment(s: Session, id: int) -> bool:
@@ -1366,7 +1399,13 @@ def get_comment_project_id(s: Session, comment_id: int) -> int | None:
     c = s.get(Comment, comment_id)
     if not c:
         return None
-    return get_task_project_id(s, c.task_id)
+    if c.task_id is not None:
+        return get_task_project_id(s, c.task_id)
+    if c.story_id is not None:
+        return get_story_project_id(s, c.story_id)
+    if c.epic_id is not None:
+        return get_epic_project_id(s, c.epic_id)
+    return None
 
 
 def get_attachment_project_id(s: Session, attachment_id: int) -> int | None:

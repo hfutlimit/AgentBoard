@@ -530,6 +530,18 @@ export class ApiService {
   deleteComment(id: number) {
     return this.request<{ ok: boolean }>('DELETE', `/api/comments/${id}`);
   }
+  listStoryComments(storyId: number) {
+    return this.request<Comment[]>('GET', `/api/stories/${storyId}/comments`);
+  }
+  addStoryComment(storyId: number, body: { author: string; content: string }) {
+    return this.request<Comment>('POST', `/api/stories/${storyId}/comments`, body);
+  }
+  listEpicComments(epicId: number) {
+    return this.request<Comment[]>('GET', `/api/epics/${epicId}/comments`);
+  }
+  addEpicComment(epicId: number, body: { author: string; content: string }) {
+    return this.request<Comment>('POST', `/api/epics/${epicId}/comments`, body);
+  }
 
   register(username: string, password: string) {
     return this.request<AuthResult>('POST', '/api/auth/register', { username, password });

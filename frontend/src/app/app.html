@@ -1135,6 +1135,55 @@
                     </div>
                   </div>
                 }
+                <!-- Story/Epic 评论（Epic 97）：Epic 级评论 -->
+                <div class="card comments-card">
+                  <div class="section-header">
+                    <h3>
+                      评论 <span class="count">{{ epicComments().length }}</span>
+                    </h3>
+                    <button class="ghost-sm" (click)="toggleCommentPreview()" [class.active]="isCommentPreviewMode()">
+                      {{ isCommentPreviewMode() ? '✏ 编辑' : '👁 预览' }}
+                    </button>
+                  </div>
+                  <div class="comment-list">
+                    @for (comment of epicComments(); track comment.id) {
+                      <article class="comment-item">
+                        <span class="avatar comment-avatar">{{ comment.author.slice(0, 2) }}</span>
+                        <div class="comment-body">
+                          <div class="comment-meta">
+                            <strong>{{ comment.author }}</strong
+                            ><time>{{ timeAgo(comment.created_at) }}</time>
+                          </div>
+                          <div class="md text-pre" [innerHTML]="renderMarkdown(comment.content)"></div>
+                        </div>
+                      </article>
+                    } @empty {
+                      <div class="empty-inline">还没有评论。</div>
+                    }
+                  </div>
+                  <form class="comment-form" (submit)="addEpicComment($event, epAuthor.value, epContent.value)">
+                    <input
+                      #epAuthor
+                      name="author"
+                      [value]="commentAuthor()"
+                      required
+                      maxlength="100"
+                      placeholder="你的名字"
+                    />
+                    @if (isCommentPreviewMode()) {
+                      <div class="comment-preview md" [innerHTML]="renderMarkdown(epContent.value)"></div>
+                    }
+                    <textarea
+                      #epContent
+                      name="content"
+                      rows="4"
+                      required
+                      [placeholder]="isCommentPreviewMode() ? '切换到编辑模式输入…' : '记录进展、决策或阻塞…'"
+                      [disabled]="isCommentPreviewMode()"
+                    ></textarea
+                    ><button type="submit" class="btn-primary-sm" [disabled]="isCommentPreviewMode()">发表评论</button>
+                  </form>
+                </div>
               </div>
             } @else {
               <div class="list-panel">
@@ -1212,6 +1261,55 @@
                       </div>
                     </div>
                   }
+                  <!-- Story/Epic 评论（Epic 97）：Story 级评论 -->
+                  <div class="card comments-card">
+                    <div class="section-header">
+                      <h3>
+                        评论 <span class="count">{{ storyComments().length }}</span>
+                      </h3>
+                      <button class="ghost-sm" (click)="toggleCommentPreview()" [class.active]="isCommentPreviewMode()">
+                        {{ isCommentPreviewMode() ? '✏ 编辑' : '👁 预览' }}
+                      </button>
+                    </div>
+                    <div class="comment-list">
+                      @for (comment of storyComments(); track comment.id) {
+                        <article class="comment-item">
+                          <span class="avatar comment-avatar">{{ comment.author.slice(0, 2) }}</span>
+                          <div class="comment-body">
+                            <div class="comment-meta">
+                              <strong>{{ comment.author }}</strong
+                              ><time>{{ timeAgo(comment.created_at) }}</time>
+                            </div>
+                            <div class="md text-pre" [innerHTML]="renderMarkdown(comment.content)"></div>
+                          </div>
+                        </article>
+                      } @empty {
+                        <div class="empty-inline">还没有评论。</div>
+                      }
+                    </div>
+                    <form class="comment-form" (submit)="addStoryComment($event, stAuthor.value, stContent.value)">
+                      <input
+                        #stAuthor
+                        name="author"
+                        [value]="commentAuthor()"
+                        required
+                        maxlength="100"
+                        placeholder="你的名字"
+                      />
+                      @if (isCommentPreviewMode()) {
+                        <div class="comment-preview md" [innerHTML]="renderMarkdown(stContent.value)"></div>
+                      }
+                      <textarea
+                        #stContent
+                        name="content"
+                        rows="4"
+                        required
+                        [placeholder]="isCommentPreviewMode() ? '切换到编辑模式输入…' : '记录进展、决策或阻塞…'"
+                        [disabled]="isCommentPreviewMode()"
+                      ></textarea
+                      ><button type="submit" class="btn-primary-sm" [disabled]="isCommentPreviewMode()">发表评论</button>
+                    </form>
+                  </div>
                 </div>
               } @else {
 
