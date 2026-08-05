@@ -1129,8 +1129,101 @@ def trigger_first_pending(
                        max_poll_seconds=max_poll_seconds)
 
 
+def run_daemon(
+    session_factory,
+    *,
+    poll_interval: float = 1.0,
+    idle_sleep: float = 5.0,
+    max_runs: int | None = None,
+    stop_event=None,
+    max_poll_seconds: float | None = None,
+) -> dict:
+    """
+    Story 177 常驻主循环：循环扫描 pending AgentRun，逐个交 execute_run 驱动。
+
+    - 每轮取 id 升序第一个 pending run → ``execute_run``（已按 agent 自动
+      分派 Launcher / Trigger，外部 report_run_result 回写同样被感知）；
+    - 无 pending run 时 ``idle_sleep`` 后继续轮询（stop_event 提供时用
+      ``stop_event.wait(idle_sleep)`` 可被提前唤醒退出）；
+    - ``max_runs`` 限制总处理数（测试 / 单次验收用），None = 无限；
+    - ``stop_event``（threading.Event）置位或 KeyboardInterrupt 优雅退出。
+
+    Returns:
+        ``{"processed": int, "last_status": str|None, "stopped": bool}``。
+    """
+    from . import service
+    from .domains.scheduling.models import AgentRun
+
+    processed = 0
+    last_status: str | None = None
+    stopped = False
+    log.info("daemon started (idle_sleep=%.1fs, max_runs=%s)", idle_sleep, max_runs)
+    while True:
+        if stop_event is not None and stop_event.is_set():
+            stopped = True
+            log.info("daemon: stop_event set, exiting")
+            break
+        if max_runs is not None and processed >= max_runs:
+            log.info("daemon: reached max_runs=%s, exiting", max_runs)
+            break
+
+        with session_factory() as s:
+            run = (
+                s.query(AgentRun)
+                .filter(AgentRun.status == RunStatus.PENDING)
+                .order_by(AgentRun.id.asc())
+                .first()
+            )
+            rid = run.id if run is not None else None
+
+        if rid is None:
+            if stop_event is not None:
+                if stop_event.wait(idle_sleep):
+                    stopped = True
+                    log.info("daemon: stop_event set during idle, exiting")
+                    break
+            else:
+                log.info("daemon: no pending run, idle %.1fs", idle_sleep)
+                time.sleep(idle_sleep)
+            continue
+
+        log.info("daemon: claim pending run %d", rid)
+        try:
+            result = execute_run(
+                session_factory, rid,
+                poll_interval=poll_interval,
+                max_poll_seconds=max_poll_seconds,
+            )
+        except KeyboardInterrupt:
+            log.info("daemon: KeyboardInterrupt, exiting gracefully")
+            stopped = True
+            break
+        except Exception as e:  # noqa: BLE001 - 单个 run 异常不拖垮常驻循环
+            log.exception("daemon: execute_run(%d) raised, marking failed", rid)
+            try:
+                with session_factory() as s:
+                    service.update_run(
+                        s, rid, status=RunStatus.FAILED,
+                        error_message=f"daemon execute_run error: {e}",
+                        finished_at=_now_utc(),
+                    )
+            except Exception:  # noqa: BLE001 - 兜底记录
+                log.exception("daemon: failed to mark run %d failed", rid)
+            processed += 1
+            continue
+
+        if result is not None:
+            last_status = result.get("status")
+        processed += 1
+        log.info("daemon: run %d done (status=%s), processed=%d",
+                 rid, last_status, processed)
+    log.info("daemon stopped (processed=%d, last_status=%s, stopped=%s)",
+             processed, last_status, stopped)
+    return {"processed": processed, "last_status": last_status, "stopped": stopped}
+
+
 def main() -> None:
-    """CLI 入口：python -m agentboard.executor --run <id> / --once / --trigger <id>"""
+    """CLI 入口：python -m agentboard.executor --run <id> / --once / --trigger <id> / --daemon"""
     import argparse
 
     from . import database as _db
@@ -1140,7 +1233,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
     parser = argparse.ArgumentParser(
-        description="AgentBoard Executor (Story 102/103/104)")
+        description="AgentBoard Executor (Story 102/103/104/177)")
     parser.add_argument("--run", type=int, help="execute a specific run id")
     parser.add_argument("--once", action="store_true",
                         help="execute the first pending run and exit")
@@ -1153,9 +1246,27 @@ def main() -> None:
     parser.add_argument("--poll-interval", type=float, default=1.0)
     parser.add_argument("--max-poll-seconds", type=float, default=None,
                         help="timeout for one run (default: adapter timeout)")
+    parser.add_argument("--daemon", action="store_true",
+                        help="run forever: claim pending runs as they appear (Story 177)")
+    parser.add_argument("--daemon-poll-interval", type=float, default=1.0,
+                        help="poll interval per run in daemon mode")
+    parser.add_argument("--daemon-idle-sleep", type=float, default=5.0,
+                        help="idle seconds between scans when no pending run")
+    parser.add_argument("--daemon-max-runs", type=int, default=None,
+                        help="exit after processing N runs in daemon mode (0 = exit immediately)")
     args = parser.parse_args()
 
-    if args.execute:
+    if args.daemon:
+        result = run_daemon(
+            _db.session_scope,
+            poll_interval=args.daemon_poll_interval,
+            idle_sleep=args.daemon_idle_sleep,
+            max_runs=args.daemon_max_runs,
+            max_poll_seconds=args.max_poll_seconds,
+        )
+        print(f"daemon exit: processed={result['processed']} "
+              f"last_status={result['last_status']!r} stopped={result['stopped']}")
+    elif args.execute:
         result = execute_run(_db.session_scope, args.execute,
                              poll_interval=args.poll_interval,
                              max_poll_seconds=args.max_poll_seconds)
