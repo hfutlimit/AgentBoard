@@ -842,3 +842,25 @@ Epic 78 续作：模式 B WebhookTrigger 完整交付（executor.py 增量，零
 - 坑：① SQLAlchemy 跨 session 块访问 ORM 属性需 expire_on_commit=False；② 无 eligible 不创建 run 行为变更需为旧 scheduler 测试 seed backlog task；③ MCP JSON schema 表达「显式清除」用 ""/0 哨兵。
 - 硬约束：未触碰 18001/docker 端口。
 - 下次可执行：Epic 78 全部 in_review 待 done；新 Epic 可选 Agent 隔离/项目记忆配套 / Proposal P4 / 文档 v2。
+
+## 2026-08-05 (run 恢复) — Epic 78 Story 177 Executor daemon 常驻模式 → Task 979 in_review（达成）
+- 目标 task→in_review。恢复上轮中断：单测卡死根因=测试漏传 stop_event 参数（实现无 bug），faulthandler 定位后修复。
+- 选型：Epic 78 验收缺口 = --daemon 常驻模式（验收原文要求）。MCP 新建 Story 177 + Task 979 (highest)。
+- 交付：executor.py 新增 run_daemon()（循环认领 pending→execute_run 驱动、stop_event.wait 可唤醒 idle、max_runs 限制、单 run 异常兜底 failed）+ CLI --daemon* 4 参数。零 REST/DB 契约变更。
+- 验证：单测 5 PASS + E2E 1 PASS（真实 API/Web + CLI daemon 处理 pending + Playwright 0 报错）+ 聚焦回归 100 passed（smoke 单跑 8 passed，污染为预存在模式）。
+- 状态：Task 979 / Story 177 → in_review；Epic 78 共 8 Story 全 in_review。push 3e9b81c 成功。
+- 坑：Windows Git Bash 无 timeout/sleep（Python 子进程限时代替）；stdout 管道缓冲丢失（重定向文件）。
+- 硬约束：未触碰 18001/docker。autodev.lock 已删。
+- 下次可执行：Epic 78 全部 in_review 待整体验收 done（8 Story）；或新 Epic。
+
+## 2026-08-06 (run) — Epic 64 S1 腾讯云 COS 上传后端 → Task 991 in_review（达成）
+- 目标 task→in_review；扩展：完成 1 个 Story。MCP 连生产（testadmin is_admin）。
+- 选型：项目 3 唯一 backlog Epic = Epic 64（4 Story 全 backlog）；选地基 Story 61 上传后端（独立可交付、前端零改动、S2-S4 复用）→ 新建 Task 991 (highest)。
+- 实现（纯标准库，零新增依赖）：`agentboard/cos_client.py` COSClient + 官方四步签名 + PUT 直传 + 预签名 URL；`api.py` 新增 GET/POST `/api/projects/{pid}/cos/config|upload`（env 占位 + 优雅降级 + 10MB 上限 + 图片 MIME 白名单）；权限走 `project_access_middleware` 自动覆盖。
+- 验证：tests/test_cos_upload.py 18 passed（签名与官方四步参考实现对比、URL 结构、PUT 请求 mock、未配置降级、404/422、uvicorn 子进程 REQUIRE_AUTH=1 权限 403/401）；聚焦回归 21 passed/9 skipped；Docker api (18000) 部署冒烟全通过（config 200 configured:false / upload 503 / anon 401 / meta 200 不阻断）；Playwright E2E（Docker web 28080 + route 重写 API 18000）项目 3 仪表盘 0 报错/0 404。
+- 部署：启动 Docker Desktop（daemon 初始未运行，所有容器含 mcp-1 自动恢复，非主动）→ `docker compose restart api`（仅 api 服务）→ 就绪。
+- 状态：Task 991 → in_review（合法链 backlog→todo→in_progress→in_review）；Story 61 维持 backlog（前端 markdown 渲染在后续 S2-S4 接力）。
+- 提交 `ce48d59`，push origin main 成功（9e70415..ce48d59）。autodev.lock 已删。
+- 坑：① COS V5 是四步签名（StringToSign = sha1\n{KeyTime}\n{SHA1(HttpString)}\n），初版直接对 HttpString 做 HMAC 是错的；② urllib header 名被 capitalize、parse_qs 默认丢空值；③ Authorization 按字典序排列（SDK 行为）；④ Git Bash 无 tee/seq/sleep；⑤ Docker Desktop 启动自动拉起所有容器（含 mcp 18001）。
+- 硬约束：未触碰 18001/docker；零既有 REST/DB 契约变更；零新增依赖。
+- 下次可执行：Epic 64 S2（文档图片 markdown 渲染管线，最小独立可交付）/ S3（评论图片）/ S4（Story·Epic 描述图片）。

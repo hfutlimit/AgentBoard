@@ -1,3 +1,29 @@
+## COS V5 签名四步算法（2026-08-06 Epic 64 S1，commit `ce48d59`）
+- StringToSign = `sha1\n{KeyTime}\n{SHA1(HttpString)}\n`（**不是**直接对 HttpString 做 HMAC，初版易错）。
+- SignKey = HMAC-SHA1(SecretKey, KeyTime)；Signature = HMAC-SHA1(SignKey, StringToSign)。
+- HttpParameters / HttpHeaders 拼接：参数按 key **字典序**（`q-ak < q-header-list < q-key-time < q-sign-algorithm < q-sign-time < q-url-param-list`），值 URL 编码保留 `;/:=+,-_.~`。
+- Authorization/URL 参数顺序不影响验证（服务端解析后重建），但与 cos-python-sdk-v5 SDK 行为一致用 sorted。
+- `urllib.parse.parse_qs` 默认 `keep_blank_values=False` → 解析 `q-url-param-list=` 这种空值需加 `keep_blank_values=True`。
+- `urllib.request.Request.headers.items()` 返回的 header 名是 `capitalize()` 结果（`content-type`→`Content-type`）。
+- 纯标准库实现 7980 字节，**零第三方依赖**，SQLite/MariaDB/Windows IIS/dist 全环境免安装。
+
+## Proposal 闭环（2026-08-04 P3 完成 Epic 96 收尾）
+- 状态机：converged→story_created 终态；转化端点 `POST /api/proposals/{pid}/convert {epic_id, title?}` 走 service.convert_proposal_to_story。
+- 幂等：story_id 已回填+Story 仍在 → 直接复用，呼应 P1 全量重放/P2 at-least-once。
+- 子任务解析复用 `generate_tasks_from_spec` 同款正则 `r"\s*[-*]\s*\[\s*[ xX]\s*\]\s*(.*)"`；`- [x]` 已勾选项也生成任务。
+- proposals 现在是**项目级 Tab**（`/project/{pid}/proposals`），非侧栏全局入口（旧 `#nav-proposals` 已移除）。
+- Story 子任务列表端点分页：`GET /api/stories/{sid}/tasks` 返回 `{items,total}` 而非纯数组。
+
+## 评论三实体（2026-08-05，commit `9e70415`）
+- `comments` 表 task_id/story_id/epic_id 三者**恰好其一非空**；`task_id` 已由 NOT NULL 改可空（迁移 `n1o2p3q4r5s6`；SQLite 改列约束须 `batch_alter_table`）。
+- 端点：`GET/POST /api/{tasks|stories|epics}/{id}/comments`；删除统一 `DELETE /api/comments/{cid}`。@提及通知抽 `_mention_notify`（api.py），link=`/task|/story|/epic/{id}`。
+- service `create_comment`/`list_comments` 泛化为关键字参数（task_id=/story_id=/epic_id=，旧位置调用已全部迁移）；`get_comment_project_id` 按实体上溯；删 Story/Epic 级联清其评论。
+- 前端 Story/Epic 详情面板评论区复用 `.comments-card`（styles.css 全局），模板变量用 `epAuthor/epContent/stAuthor/stContent`；发布后**只重载评论列表**，勿用 `run()`（会全量 refresh 重置 storyTab/epicTab）。
+
+## E2E 模式
+- 中文标题 sorted() 不稳定，用 set 比较。
+- MCP 工具注册验证：`asyncio.run(mcp.list_tools())`（FastMCP 无 `_tool_manager._tools`）。
+
 # AgentBoard 项目长期记忆（2026-08-03 精简版）
 
 ## 定位与架构
