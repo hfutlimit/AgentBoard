@@ -6,6 +6,7 @@
 import os
 import re
 import asyncio
+import uuid
 from datetime import datetime
 from contextlib import asynccontextmanager
 from sqlalchemy import text
@@ -17,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from .database import get_session, init_db, SessionLocal
 from . import service, auth, mq
+from .cos_client import client as _cos_client, CosError
 from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES
 from .cache import get_cache, API_CACHE_TTL
 
@@ -1311,6 +1313,68 @@ def delete_attachment(aid: int, s: Session = Depends(get_session)):
     if not service.delete_attachment(s, aid):
         raise HTTPException(status_code=404, detail="attachment not found")
     return {"ok": True}
+
+
+# ---------- COS 图片上传（Epic 64 S1） ----------
+_COS_MAX_SIZE = 10 * 1024 * 1024  # 10MB
+_COS_ALLOWED_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+_COS_ALLOWED_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+
+
+def _ext_for_mime(mime: str) -> str:
+    return {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif",
+            "image/webp": ".webp"}.get(mime, ".png")
+
+
+@app.get("/api/projects/{pid}/cos/config")
+def cos_config(pid: int, s: Session = Depends(get_session)):
+    """COS 配置状态（前端据此显示上传入口/降级提示）。未配置不报错，返回 configured:false。"""
+    if not service.get_project(s, pid):
+        raise HTTPException(status_code=404, detail="project not found")
+    cfg = _cos_client.config_dict()
+    cfg["upload_endpoint"] = f"/api/projects/{pid}/cos/upload"
+    return cfg
+
+
+@app.post("/api/projects/{pid}/cos/upload", status_code=201)
+async def cos_upload(pid: int, file: UploadFile = File(...), s: Session = Depends(get_session)):
+    """服务端直传图片至腾讯云 COS，返回预签名 GET URL（24h）供 markdown 引用。
+
+    优雅降级：COS 环境变量未配置时返回 503 明确错误，不阻断其他功能。
+    权限：路由 /api/projects/{pid}/... 由 project_access_middleware 自动覆盖（成员写/管理员绕过）。
+    """
+    if not service.get_project(s, pid):
+        raise HTTPException(status_code=404, detail="project not found")
+    if not _cos_client.is_configured():
+        raise HTTPException(status_code=503,
+                            detail=f"COS not configured: {_cos_client.config_error} (set COS_SECRET_ID/COS_SECRET_KEY/COS_BUCKET/COS_REGION)")
+    try:
+        content = await file.read()
+    except Exception:
+        raise HTTPException(status_code=400, detail="failed to read file")
+    if len(content) > _COS_MAX_SIZE:
+        raise HTTPException(status_code=422, detail="file too large (max 10MB)")
+    mime = file.content_type or "application/octet-stream"
+    if mime not in _COS_ALLOWED_TYPES:
+        raise HTTPException(status_code=422,
+                            detail=f"unsupported content type: {mime} (allowed: image/png, image/jpeg, image/gif, image/webp)")
+    original_name = file.filename or "unnamed"
+    ext = os.path.splitext(original_name)[1].lower() or _ext_for_mime(mime)
+    if ext not in _COS_ALLOWED_EXTS:
+        ext = _ext_for_mime(mime)
+    key = f"uploads/{pid}/{uuid.uuid4().hex}{ext}"
+    try:
+        _cos_client.put_object(key, content, content_type=mime)
+    except CosError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return {
+        "key": key,
+        "url": _cos_client.presigned_get_url(key),
+        "size": len(content),
+        "content_type": mime,
+        "original_name": original_name,
+        "cos_configured": True,
+    }
 
 
 # ---------- AgentSchedule ----------
