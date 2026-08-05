@@ -5749,7 +5749,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   /* 轻量 Markdown 渲染（无第三方依赖，离线可用）。
-     支持：标题、粗体/斜体、行内/块代码、有序/无序列表、引用、链接、分隔线、表格、以及 ```mermaid 代码块。 */
+     支持：标题、粗体/斜体、行内/块代码、有序/无序列表、引用、链接、图片、分隔线、表格、以及 ```mermaid 代码块。 */
   renderMarkdown(src: string): string {
     if (!src) return '';
     const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -5759,6 +5759,15 @@ export class App implements OnInit, OnDestroy {
     const inline = (text: string): string => {
       let t = esc(text);
       t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
+      // 图片 ![alt](url)（Epic 64 S2）：协议白名单仅放行 http(s)（含 COS 预签名 URL），
+      // 拒绝 javascript:/data:/vbscript: 等危险协议与属性逃逸字符（" ' < > 空白），杜绝 XSS 注入。
+      t = t.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, (m, alt, url) => {
+        const href = url.replace(/&amp;/g, '&');
+        if (!/^https?:\/\//i.test(href) || /["'\s<>]/.test(href)) return m;
+        const safeAlt = (alt || '').replace(/"/g, '&quot;');
+        const safeSrc = url.replace(/"/g, '&quot;');
+        return `<img src="${safeSrc}" alt="${safeAlt}" loading="lazy" referrerpolicy="no-referrer">`;
+      });
       t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
       t = t.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
       t = t.replace(/_([^_]+)_/g, '<em>$1</em>');

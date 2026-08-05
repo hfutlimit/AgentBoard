@@ -3612,6 +3612,22 @@ router-outlet {
   text-align: left;
 }
 .doc-content table.md-table th { background: #f8fafc; }
+/* Epic 64 S2: markdown 图片渲染（文档/评论/描述共用 renderMarkdown，协议白名单 http(s) 含 COS 预签名 URL） */
+.doc-content img, .task-md img, .md img, .qv-desc img, .qv-comment-body img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  margin: 8px 0;
+  border-radius: 8px;
+  border: 1px solid var(--border, #e2e8f0);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+[data-theme="dark"] .doc-content img, [data-theme="dark"] .task-md img,
+[data-theme="dark"] .md img, [data-theme="dark"] .qv-desc img,
+[data-theme="dark"] .qv-comment-body img {
+  border-color: rgba(148, 163, 184, 0.25);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
 .count-badge {
   display: inline-grid;
   place-items: center;

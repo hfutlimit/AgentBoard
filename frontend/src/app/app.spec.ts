@@ -356,4 +356,37 @@ describe('App', () => {
     expect(app.confirmation()).toBeNull();
     expect(element.querySelector('[role="alertdialog"]')).toBeNull();
   });
+
+  describe('renderMarkdown 图片渲染（Epic 64 S2）', () => {
+    const render = (src: string): string => {
+      const fixture = TestBed.createComponent(App);
+      return fixture.componentInstance.renderMarkdown(src);
+    };
+
+    it('应该把 https 图片语法渲染为 <img>', () => {
+      const html = render('看架构图：\n\n![架构](https://cos.example.com/arch.png?x=1&y=2)');
+      expect(html).toContain('<img src="https://cos.example.com/arch.png?x=1&amp;y=2"');
+      expect(html).toContain('alt="架构"');
+      expect(html).toContain('loading="lazy"');
+      expect(html).toContain('referrerpolicy="no-referrer"');
+    });
+
+    it('应该拒绝 javascript:/data: 等危险协议的图片', () => {
+      const html = render('![x](javascript:alert(1)) ![](data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=)');
+      expect(html).not.toContain('<img');
+      expect(html).toContain('javascript:alert(1)'); // 原文保留，不执行
+    });
+
+    it('应该拒绝属性逃逸注入（onerror 等）并保留原文', () => {
+      const html = render('![x](https://ok.com/a.png" onerror="alert(1))');
+      expect(html).not.toContain('<img');
+      expect(html).toContain('![x](https://ok.com/a.png'); // 原文以纯文本保留，onerror 不会被解析为属性
+    });
+
+    it('应该拒绝带控制字符/引号的 URL 并保留原文', () => {
+      const html = render("![x](https://ok.com/a' onload='alert(2))");
+      expect(html).not.toContain('<img');
+      expect(html).toContain('onload');
+    });
+  });
 });
