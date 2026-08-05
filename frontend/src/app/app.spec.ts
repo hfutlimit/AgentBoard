@@ -388,5 +388,26 @@ describe('App', () => {
       expect(html).not.toContain('<img');
       expect(html).toContain('onload');
     });
+
+    it('评论场景：图片与加粗/代码/多行共存（Epic 64 S3）', () => {
+      const html = render('评审图 ![截图](https://cos.example.com/r1.png) **加粗** `code` 混合内容\n\n第二行 ![图2](https://cos.example.com/r2.png)');
+      const imgs = html.match(/<img /g);
+      expect(imgs?.length).toBe(2);
+      expect(html).toContain('<strong>加粗</strong>');
+      expect(html).toContain('<code>code</code>');
+    });
+
+    it('描述场景：标题+图片+列表共存，危险图片拒绝（Epic 64 S4）', () => {
+      const html = render('# 描述\n\n![架构图](https://cos.example.com/arch.png)\n\n- 项一\n- ![坏](javascript:alert(9))\n\n![数据](data:image/png;base64,xx)');
+      expect(html).toContain('<h1>描述</h1>');
+      expect(html).toContain('<img src="https://cos.example.com/arch.png"');
+      expect(html).toContain('<ul>');
+      expect((html.match(/<img /g) || []).length).toBe(1); // 危险协议不渲染
+    });
+
+    it('空 alt 图片应输出空 alt 属性（S3/S4 边界）', () => {
+      const html = render('![](https://cos.example.com/no-alt.png)');
+      expect(html).toContain('<img src="https://cos.example.com/no-alt.png" alt=""');
+    });
   });
 });

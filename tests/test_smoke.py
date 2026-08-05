@@ -84,7 +84,7 @@ def test_service_layer():
         assert len(service.search_tasks(s, project_id=p.id, q="这件事")) >= 1
         assert service.search_tasks(s, project_id=p.id, priority=Priority.HIGH)[0].id == t.id
         comment = service.create_comment(s, task_id=t.id, author="codex", content="开始实现")
-        assert service.list_comments(s, t.id)[0].id == comment.id
+        assert service.list_comments(s, task_id=t.id)[0].id == comment.id
         assert service.delete_comment(s, comment.id)
         # epic / story 更新
         assert service.update_epic(s, ep.id, status=Status.TODO).status == Status.TODO
