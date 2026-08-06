@@ -6,7 +6,7 @@ import { vi } from 'vitest';
 import { ApiService } from './api.service';
 import { App } from './app';
 import { routes } from './app.routes';
-import { DocumentItem, ProposalItem, Sprint, Task } from './models';
+import { DocumentItem, Epic, OverviewStats, ProposalItem, Sprint, Story, Task } from './models';
 
 describe('App', () => {
   beforeEach(async () => {
@@ -462,6 +462,91 @@ describe('App', () => {
     it('空 alt 图片应输出空 alt 属性（S3/S4 边界）', () => {
       const html = render('![](https://cos.example.com/no-alt.png)');
       expect(html).toContain('<img src="https://cos.example.com/no-alt.png" alt=""');
+    });
+  });
+
+  describe('loadDashboardFullTree 请求风暴治理（Epic 117 S2 / Task 996）', () => {
+    const ep1: Epic = { id: 11, project_id: 7, title: 'Epic A', description: '', status: 'in_progress', created_at: '2026-08-01T00:00:00' };
+    const ep2: Epic = { id: 12, project_id: 7, title: 'Epic B', description: '', status: 'backlog', created_at: '2026-08-01T00:00:00' };
+    const st1: Story = { id: 21, epic_id: 11, title: 'Story A1', description: '', status: 'todo', created_at: '2026-08-01T00:00:00' };
+    const st2: Story = { id: 22, epic_id: 12, title: 'Story B1', description: '', status: 'in_review', created_at: '2026-08-01T00:00:00' };
+    const overview: OverviewStats = {
+      counts: { projects: 1, epics: 2, stories: 2, tasks: 3, done_tasks: 1 },
+      projects: [{ id: 7, name: 'Analytics Project', total: 3, done: 1, percent: 33.3 }],
+      status_distribution: [{ status: 'done', count: 1 }, { status: 'todo', count: 2 }],
+      activity_7d: [{ day: '2026-08-05', count: 1 }],
+    };
+
+    function createAppWithApi(overrides: Record<string, unknown>): { app: any; listTasks: ReturnType<typeof vi.fn> } {
+      const listTasks = vi.fn(() => of([] as Task[]));
+      const apiMock = {
+        baseUrl: 'http://test',
+        listProjects: () => of([]),
+        getOverview: () => of(overview),
+        listEpics: (pid: number) => of(pid === 7 ? [ep1, ep2] : []),
+        listStories: (eid: number) => of(eid === 11 ? [st1] : eid === 12 ? [st2] : []),
+        listTasks,
+        ...overrides,
+      };
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance as any;
+      app.api = apiMock;
+      return { app, listTasks };
+    }
+
+    it('overview 成功时跳过 Task 级全量加载（listTasks 零调用），epics/stories 仍填充', async () => {
+      const { app, listTasks } = createAppWithApi({});
+      app.projects.set([{ id: 7, name: 'Analytics Project', key: 'AP', description: '', is_private: false, created_at: '2026-08-01T00:00:00' }]);
+      app.overviewStats.set(overview);
+      app.view.set('home');
+      app.routeLoadGeneration = 1;
+
+      await app.loadDashboardFullTree(1);
+
+      expect(listTasks).not.toHaveBeenCalled();
+      expect(app.epics()).toEqual([ep1, ep2]);
+      expect(app.stories()).toEqual([st1, st2]);
+      expect(app.tasks()).toEqual([]);
+    });
+
+    it('overview 失败（null）时保留全量回退：Task 级被调用并填充 tasks()', async () => {
+      const { app, listTasks } = createAppWithApi({});
+      app.projects.set([{ id: 7, name: 'Analytics Project', key: 'AP', description: '', is_private: false, created_at: '2026-08-01T00:00:00' }]);
+      app.overviewStats.set(null); // 阶段一失败 → 全量回退
+      app.view.set('home');
+      app.routeLoadGeneration = 1;
+
+      await app.loadDashboardFullTree(1);
+
+      expect(listTasks).toHaveBeenCalledTimes(2); // st1 + st2 各一次
+      expect(app.tasks()).toEqual([]); // listTasks 返回空数组
+    });
+
+    it('parallelMap 并发上限不超过 limit 且保留输入顺序', async () => {
+      const { app } = createAppWithApi({});
+      let active = 0;
+      let peak = 0;
+      const fn = vi.fn(async (x: number) => {
+        active++;
+        peak = Math.max(peak, active);
+        await new Promise((r) => setTimeout(r, 15));
+        active--;
+        return x * 2;
+      });
+      const result = await app.parallelMap([1, 2, 3, 4, 5, 6, 7, 8], 3, fn);
+      expect(peak).toBeLessThanOrEqual(3);
+      expect(result).toEqual([2, 4, 6, 8, 10, 12, 14, 16]);
+      expect(fn).toHaveBeenCalledTimes(8);
+    });
+
+    it('parallelMap 单项失败跳过、成功项保留，不中断整段', async () => {
+      const { app } = createAppWithApi({});
+      const fn = vi.fn(async (x: number) => {
+        if (x === 2) throw new Error('boom');
+        return x;
+      });
+      const result = await app.parallelMap([1, 2, 3, 4], 2, fn);
+      expect(result).toEqual([1, 3, 4]);
     });
   });
 });

@@ -1850,23 +1850,47 @@ export class App implements OnInit, OnDestroy {
     void this.loadDashboardFullTree(generation);
   }
 
-  /** 四级整树级联加载（Epics→Stories→Tasks），仅填充全局信号，不参与首页首屏渲染 */
+  /** Epic 117 S2 (Task 996)：并发受限 map —— 同一时刻最多 limit 个任务在跑；
+   *  单项失败跳过（成功项保留、按输入顺序），避免全量 Promise.all 的瞬时并发风暴与「一损俱损」。 */
+  private async parallelMap<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+    if (!items.length) return [];
+    const results: (R | undefined)[] = new Array(items.length);
+    let idx = 0;
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+      while (idx < items.length) {
+        const i = idx++;
+        try {
+          results[i] = await fn(items[i]);
+        } catch {
+          // 单项失败跳过，不中断整段加载
+        }
+      }
+    });
+    await Promise.all(workers);
+    return results.filter((r): r is R => r !== undefined);
+  }
+
+  /** 四级整树级联加载（Epics→Stories→Tasks），仅填充全局信号，不参与首页首屏渲染。
+   *  Epic 117 S2 (Task 996)：overview 成功时首页统计/图表已由 overview 驱动，
+   *  Task 级全量（每 Story 一请求，请求量最大一级）仅作回退/预热 → 跳过；
+   *  overview 失败时保留全量回退，保证图表/统计 computed 依赖的 tasks() 信号仍有数据。 */
   private async loadDashboardFullTree(generation: number): Promise<void> {
     try {
+      const overviewOk = this.overviewStats() !== null;
       const allEpics = (
-        await Promise.all(
-          this.projects().map((project) => firstValueFrom(this.api.listEpics(project.id))),
-        )
+        await this.parallelMap(this.projects(), 6, (project) => firstValueFrom(this.api.listEpics(project.id)))
       ).flat();
       if (generation !== this.routeLoadGeneration || this.view() !== 'home') return;
       this.epics.set(allEpics);
       const allStories = (
-        await Promise.all(allEpics.map((epic) => firstValueFrom(this.api.listStories(epic.id))))
+        await this.parallelMap(allEpics, 6, (epic) => firstValueFrom(this.api.listStories(epic.id)))
       ).flat();
       if (generation !== this.routeLoadGeneration || this.view() !== 'home') return;
       this.stories.set(allStories);
+      // overview 成功 → 统计卡/图表不依赖 tasks()，跳过请求量最大的 Task 级全量
+      if (overviewOk) return;
       const allTasks = (
-        await Promise.all(allStories.map((story) => firstValueFrom(this.api.listTasks(story.id))))
+        await this.parallelMap(allStories, 6, (story) => firstValueFrom(this.api.listTasks(story.id)))
       ).flat();
       if (generation !== this.routeLoadGeneration || this.view() !== 'home') return;
       // Story 视图使用 loadStoryTasks 独立加载自身任务；非 story 视图才写入全局 tasks()
