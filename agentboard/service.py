@@ -290,6 +290,14 @@ def search_stories(s: Session, q: str, limit: int = 20):
     return qry.limit(limit).all()
 
 
+def search_epics(s: Session, q: str, limit: int = 20):
+    """全局 Epic 关键词搜索（标题/描述），供命令面板等场景使用（Epic v6.13）。"""
+    like = f"%{q}%"
+    qry = s.query(Epic).filter(or_(Epic.title.ilike(like), Epic.description.ilike(like)))
+    qry = qry.order_by(Epic.id.desc())
+    return qry.limit(limit).all()
+
+
 def update_story(s: Session, id: int, **fields) -> Story | None:
     st = s.get(Story, id)
     if not st:

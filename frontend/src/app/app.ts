@@ -59,7 +59,7 @@ interface PaletteCommand {
   title: string;
   hint?: string;
   keywords?: string;
-  category?: 'command' | 'task' | 'project' | 'story' | 'document';
+  category?: 'command' | 'task' | 'project' | 'story' | 'document' | 'epic';
   run: () => void;
 }
 
@@ -338,6 +338,7 @@ export class App implements OnInit, OnDestroy {
   readonly paletteProjectResults = signal<PaletteCommand[]>([]);
   readonly paletteStoryResults = signal<PaletteCommand[]>([]);
   readonly paletteDocumentResults = signal<PaletteCommand[]>([]);
+  readonly paletteEpicResults = signal<PaletteCommand[]>([]);
   private paletteDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   readonly createdKeyPlaintext = signal('');
   // Epic 22: 任务依赖
@@ -4472,6 +4473,7 @@ export class App implements OnInit, OnDestroy {
     this.paletteProjectResults.set([]);
     this.paletteStoryResults.set([]);
     this.paletteDocumentResults.set([]);
+    this.paletteEpicResults.set([]);
     this.paletteSearching.set(false);
     this.paletteOpen.set(true);
     setTimeout(() => {
@@ -4496,6 +4498,7 @@ export class App implements OnInit, OnDestroy {
     this.paletteProjectResults.set([]);
     this.paletteStoryResults.set([]);
     this.paletteDocumentResults.set([]);
+    this.paletteEpicResults.set([]);
     this.paletteSearching.set(false);
   }
 
@@ -4511,7 +4514,7 @@ export class App implements OnInit, OnDestroy {
     this.paletteDebounceTimer = setTimeout(() => this.paletteRunSearch(v), 200);
   }
 
-  /** Epic 70 v5.7: 实时搜索后端任务/Story/文档（按关键词）与本地项目（按名称/key），结果写入信号供 computed 合并 */
+  /** Epic 70 v5.7 + Epic 119 v6.13: 实时搜索后端任务/Story/文档/Epic（按关键词）与本地项目（按名称/key），结果写入信号供 computed 合并 */
   paletteRunSearch(q: string): void {
     const query = q.trim();
     if (query.length < 2) {
@@ -4519,6 +4522,7 @@ export class App implements OnInit, OnDestroy {
       this.paletteProjectResults.set([]);
       this.paletteStoryResults.set([]);
       this.paletteDocumentResults.set([]);
+      this.paletteEpicResults.set([]);
       this.paletteSearching.set(false);
       return;
     }
@@ -4588,6 +4592,22 @@ export class App implements OnInit, OnDestroy {
       })
       .catch(() => {
         this.paletteDocumentResults.set([]);
+      });
+    // Epic（Epic 119 v6.13）：后端 /api/search/epics 搜索
+    firstValueFrom(this.api.searchEpics({ q: query, limit: 10 }))
+      .then((epics) => {
+        const cmds: PaletteCommand[] = (epics || []).map((e) => ({
+          id: `epic-${e.id}`,
+          title: `Epic #${e.id}：${(e.title || '').slice(0, 60)}`,
+          hint: `${this.projectName(e.project_id)} · ${e.status || ''}`,
+          category: 'epic',
+          keywords: `epic ${e.id} ${e.title}`,
+          run: () => { void this.router.navigateByUrl(`/epic/${e.id}`); },
+        }));
+        this.paletteEpicResults.set(cmds);
+      })
+      .catch(() => {
+        this.paletteEpicResults.set([]);
       });
   }
 
@@ -4662,12 +4682,13 @@ export class App implements OnInit, OnDestroy {
     const all = this.buildPaletteCommands();
     const q = this.paletteQuery().trim().toLowerCase();
     if (!q) return all;
-    // 后端搜索结果（任务 + 项目 + Story + 文档）
+    // 后端搜索结果（任务 + 项目 + Story + 文档 + Epic）
     const results = [
       ...this.paletteTaskResults(),
       ...this.paletteProjectResults(),
       ...this.paletteStoryResults(),
       ...this.paletteDocumentResults(),
+      ...this.paletteEpicResults(),
     ];
     const staticMatches = all.filter((c) => `${c.title} ${c.keywords || ''} ${c.hint || ''}`.toLowerCase().includes(q));
     // 命中命令时命令优先（保持 Enter 执行命令的既有行为），后端实体结果作为补充列于其后；

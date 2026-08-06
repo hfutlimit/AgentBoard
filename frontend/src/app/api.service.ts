@@ -493,6 +493,15 @@ export class ApiService {
       tap(data => apiCache.set(cacheKey, data))
     );
   }
+  /** Epic 119 v6.13: 全局 Epic 关键词搜索（命令面板补齐实体搜索结果） */
+  searchEpics(params: { q: string; limit?: number }) {
+    const cacheKey = `/api/search/epics?q=${params.q}&limit=${params.limit ?? 20}`;
+    const cached = apiCache.getWithTTL<any[]>(cacheKey, 30000);
+    if (cached) return of(cached);
+    return this.request<any[]>('GET', '/api/search/epics', undefined, params).pipe(
+      tap(data => apiCache.set(cacheKey, data))
+    );
+  }
   getTask(id: number) {
     return this.request<Task>('GET', `/api/tasks/${id}`);
   }

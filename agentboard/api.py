@@ -1186,6 +1186,17 @@ def search_stories_api(
     return [service._ser(x) for x in rows]
 
 
+# 全局 Epic 关键词搜索（命令面板等场景，Epic v6.13）；路径用 /api/search/epics 避免与 /api/epics/{eid} 冲突
+@app.get("/api/search/epics")
+def search_epics_api(
+    q: str = Query(..., min_length=1, description="关键词"),
+    limit: int = Query(20, ge=1, le=50),
+    s: Session = Depends(get_session),
+):
+    rows = service.search_epics(s, q=q, limit=limit)
+    return [service._ser(x) for x in rows]
+
+
 # ---------- Sprint ----------
 @app.get("/api/projects/{pid}/sprints")
 def list_sprints(pid: int, s: Session = Depends(get_session),
