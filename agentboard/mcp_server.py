@@ -1587,6 +1587,81 @@ def proposal_convert(proposal_id: int, epic_id: int, title: str | None = None) -
     return _http("POST", f"/api/proposals/{proposal_id}/convert", json=body)
 
 
+# ---------- Epic 122 S1 M3: Agent 注册 / 评审闭环 MCP 工具 ----------
+@mcp.tool()
+def agent_register(agent_id: str, name: str, roles: str = "[]",
+                   capabilities: str = "[]", cli_command: str = "",
+                   auth_key: str = "") -> dict:
+    """注册/更新 Agent 身份（幂等）。
+
+    - agent_id: 外部 Agent 自报唯一标识（幂等键）
+    - name: 显示名
+    - roles: JSON 数组串，如 ``["reviewer","developer"]``（评审分配按 role 过滤）
+    - capabilities: JSON 数组串能力标签
+    - cli_command: CLI 拉起命令模板（执行器用）
+    - auth_key: 绑定 abk_ key 指纹（可选）
+    注册即绑定当前 MCP 身份对应的服务账号（AgentBoard 用户）。
+    """
+    return _http("POST", "/api/agents/register", json={
+        "agent_id": agent_id, "name": name, "roles": roles,
+        "capabilities": capabilities, "cli_command": cli_command,
+        "auth_key": auth_key,
+    })
+
+
+@mcp.tool()
+def agent_heartbeat(agent_id: str) -> dict:
+    """Agent 心跳保活：置 online=True 并刷新 last_heartbeat。
+
+    在线 Agent 才会被随机评审分配器（assign-reviewer）选为候选。
+    """
+    return _http("POST", f"/api/agents/{agent_id}/heartbeat")
+
+
+@mcp.tool()
+def agent_deregister(agent_id: str) -> dict:
+    """Agent 注销下线（保留注册记录，online=False）。仅 Agent 自身或 admin 可操作。"""
+    return _http("POST", f"/api/agents/{agent_id}/deregister")
+
+
+@mcp.tool()
+def list_agents(online: bool | None = None, role: str | None = None) -> list | dict:
+    """列出已注册 Agent。
+
+    - online=true 只看在线；role=reviewer 只看含该角色的 Agent。
+    """
+    params: dict = {}
+    if online is not None:
+        params["online"] = "true" if online else "false"
+    if role:
+        params["role"] = role
+    return _http("GET", "/api/agents", params=params)
+
+
+@mcp.tool()
+def review_story(story_id: int, verdict: str, comment: str) -> dict:
+    """评审投票（approve/reject + 评论，CAS）：仅被指派 reviewer 可操作。
+
+    - verdict: approve（通过，Story → ready）| reject（打回，评论往返收敛）
+    - comment: 评审意见（必填，作为 Story 评论落库，是评审意见唯一载体）
+    - reject 连续 5 轮未收敛 → Story 置 blocked 护栏（待人工仲裁）
+    """
+    return _http("POST", f"/api/stories/{story_id}/review",
+                 json={"verdict": verdict, "comment": comment})
+
+
+@mcp.tool()
+def list_review_tasks(status: str | None = None) -> list | dict:
+    """拉取指派给当前 Agent 的评审任务（Story 列表）。
+
+    - status 可选：pending_review / ready / blocked（省略返回全部指派给我的）
+    """
+    params: dict = {"reviewer_id": "me"}
+    if status:
+        params["status"] = status
+    return _http("GET", "/api/stories", params=params)
+
+
 if __name__ == "__main__":
     transport = os.getenv("AGENTBOARD_MCP_TRANSPORT", "stdio").lower()
     if transport in {"http", "streamable-http"}:

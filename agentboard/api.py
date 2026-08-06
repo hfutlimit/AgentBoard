@@ -18,6 +18,10 @@ from sqlalchemy.orm import Session
 
 from .database import get_session, init_db, SessionLocal
 from . import service, auth, mq
+from .mq import (
+    EVENT_STORY_CREATED, EVENT_REVIEW_REQUESTED, EVENT_REVIEW_REJECTED,
+    EVENT_STORY_READY, EVENT_COMMENT_REPLIED, publish_workflow_event,
+)
 from .cos_client import client as _cos_client, CosError
 from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES
 from .cache import get_cache, API_CACHE_TTL
@@ -845,7 +849,10 @@ def list_stories(eid: int, s: Session = Depends(get_session), limit: int = Query
 @app.post("/api/epics/{eid}/stories", status_code=201)
 def create_story(eid: int, body: StoryIn, s: Session = Depends(get_session)):
     _need(service.get_epic(s, eid), "epic")
-    return service._ser(service.create_story(s, epic_id=eid, title=body.title, description=body.description))
+    st = service.create_story(s, epic_id=eid, title=body.title, description=body.description)
+    # 事件源：Story 创建广播（分配器 worker 消费后自动指派 reviewer）
+    publish_workflow_event(EVENT_STORY_CREATED, "story", st.id, ref_id=eid)
+    return service._ser(st)
 
 
 @app.get("/api/stories/{sid}")
@@ -914,6 +921,15 @@ def assign_story_reviewer(sid: int, authorization: str | None = Header(None),
     if _auth_is_required() and uid is None:
         raise HTTPException(status_code=401, detail="unauthorized")
     st = service.assign_reviewer(s, sid, user_id=uid)
+    # 事件源：指派成功 → review.requested 定向投递给 reviewer 的 Agent 队列
+    # （reviewer 是 users.id；找到其绑定的 Agent 才能定向，否则退化为广播）
+    reviewer_agent_id = None
+    if st.reviewer_id is not None:
+        agent = s.query(service.Agent).filter(service.Agent.user_id == st.reviewer_id).first()
+        if agent is not None:
+            reviewer_agent_id = agent.agent_id
+    publish_workflow_event(EVENT_REVIEW_REQUESTED, "story", st.id,
+                           ref_id=st.reviewer_id, agent_id=reviewer_agent_id)
     return service._ser(st)
 
 
@@ -928,6 +944,12 @@ def review_story(sid: int, body: AgentReviewIn, authorization: str | None = Head
         raise HTTPException(status_code=422, detail="review requires login")
     st = service.review_story(s, story_id=sid, reviewer_user_id=uid,
                               verdict=body.verdict, comment=body.comment)
+    # 事件源：approve → story.ready 广播（开发任务分配入口，切片 2 消费）；
+    # reject → review.rejected 广播（ref_id=评审轮次，作者侧感知后回复收敛）
+    if st.status == "ready":
+        publish_workflow_event(EVENT_STORY_READY, "story", st.id, ref_id=st.reviewer_id)
+    else:
+        publish_workflow_event(EVENT_REVIEW_REJECTED, "story", st.id, ref_id=st.review_round)
     return service._ser(st)
 
 
@@ -1239,6 +1261,15 @@ def create_story_comment(
     try:
         comment = service.create_comment(s, story_id=sid, author=body.author, content=body.content)
         _mention_notify(s, author=body.author, content=body.content, link=f"/story/{sid}")
+        # 事件源：评审往返收敛 —— 评论者非 reviewer 时定向通知 reviewer；
+        # 评论者即 reviewer（评审意见）时退化为广播，作者侧消费者感知。
+        st = service.get_story(s, sid)
+        reviewer_agent_id = None
+        if st is not None and st.reviewer_id is not None:
+            agent = s.query(service.Agent).filter(service.Agent.user_id == st.reviewer_id).first()
+            reviewer_agent_id = agent.agent_id if agent is not None else None
+        publish_workflow_event(EVENT_COMMENT_REPLIED, "story", sid,
+                               ref_id=comment.id, agent_id=reviewer_agent_id)
         return service._ser(comment)
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))

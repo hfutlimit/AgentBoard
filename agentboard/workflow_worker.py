@@ -1,0 +1,282 @@
+"""AgentBoard Workflow 分配器 Worker（Epic 122 S1 M3）。
+
+消费 M2 泛化的 Workflow 事件总线（``agentboard.workflow`` 命名空间）：
+
+- ``story.created``（广播）→ 自动指派在线 reviewer（``POST /api/stories/{sid}/assign-reviewer``，
+  随机选择 + CAS 幂等，指派的最终裁决在服务端）；
+- ``story.ready``（广播）→ 日志记录（切片 2 开发任务 ``task.available`` 广播预留）；
+- ``review.rejected`` / ``comment.replied`` → 日志记录（评审往返收敛主要由
+  Reviewer/作者 Agent 各自订阅**定向队列**感知，本 Worker 不介入业务决策）。
+
+设计原则（与 Proposal Worker 一致）：**消息只做通知、状态一律回查数据库。**
+本 Worker 收到 ``story.created`` 后不携带任何状态，而是回查 REST 再触发分配，
+因此消息重投 / 丢失都不会产生重复轮次或漏单。
+
+MQ 未配置（``AGENTBOARD_MQ_URL`` 为空）时回退 **DB 轮询**：定期扫描
+``status=backlog`` 且未指派 reviewer 的 Story 触发分配，正确性不变。
+
+运行：
+    python -m agentboard.workflow_worker --mq     # MQ 消费模式（未配置自动回退轮询）
+    python -m agentboard.workflow_worker --loop   # 轮询常驻
+    python -m agentboard.workflow_worker --once   # 只跑一轮
+"""
+from __future__ import annotations
+
+import argparse
+import logging
+import os
+import threading
+from dataclasses import dataclass, field
+from typing import Any, Iterable
+
+import httpx
+
+from . import mq
+from .mq import (
+    EVENT_COMMENT_REPLIED,
+    EVENT_REVIEW_REJECTED,
+    EVENT_STORY_CREATED,
+    EVENT_STORY_READY,
+    EVENT_TASK_AVAILABLE,
+    EVENT_TASK_READY_FOR_REVIEW,
+    EVENT_TASK_REVIEWED,
+    EVENT_TASK_REJECTED,
+    WORKFLOW_DEFAULT_NAMESPACE,
+    WorkflowMessage,
+    WorkflowTopology,
+)
+
+log = logging.getLogger(__name__)
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        return int(str(raw).strip())
+    except ValueError:
+        log.warning("环境变量 %s=%r 不是整数，回退默认值 %s", name, raw, default)
+        return default
+
+
+@dataclass
+class WorkflowConsumerConfig:
+    """分配器 Worker 运行参数，全部可由环境变量覆盖。"""
+
+    api_url: str = "http://127.0.0.1:58124"
+    # 服务账号 abk_ key（或登录 token）；REST 调用身份
+    token: str | None = None
+    # 轮询间隔（秒）—— MQ 未配置时的兜底扫描节奏
+    poll_interval: float = 10.0
+    # 单轮最多处理多少个 Story，避免一个 Worker 长时间独占
+    batch_size: int = 20
+    http_timeout: float = 30.0
+    # 消息总线（M2 泛化 Workflow 拓扑）
+    mq: "mq.MQConfig" = field(default_factory=lambda: mq.MQConfig())
+    namespace: str = WORKFLOW_DEFAULT_NAMESPACE
+
+    @classmethod
+    def from_env(cls) -> "WorkflowConsumerConfig":
+        return cls(
+            mq=mq.MQConfig.from_env(),
+            namespace=os.getenv("AGENTBOARD_WORKFLOW_NAMESPACE",
+                                WORKFLOW_DEFAULT_NAMESPACE),
+            api_url=os.getenv("AGENTBOARD_API_URL", cls.api_url).rstrip("/"),
+            token=os.getenv("AGENTBOARD_WORKER_TOKEN")
+            or os.getenv("AGENTBOARD_MCP_TOKEN"),
+            poll_interval=float(_env_int("AGENTBOARD_WORKFLOW_WORKER_INTERVAL", 10)),
+            batch_size=_env_int("AGENTBOARD_WORKFLOW_WORKER_BATCH", 20),
+        )
+
+
+class WorkflowConsumer:
+    """Workflow 事件消费者：分配评审 + 预留开发任务分配入口。"""
+
+    #: 本 Worker 关心的广播事件 → 处理函数（未列出的事件直接 ack 忽略）
+    _HANDLERS = {
+        EVENT_STORY_CREATED: "story.created",
+    }
+
+    def __init__(self, config: WorkflowConsumerConfig,
+                 client: httpx.Client | None = None):
+        self.config = config
+        self._owns_client = client is None
+        self.client = client or httpx.Client(
+            base_url=config.api_url, timeout=config.http_timeout,
+            headers=({"Authorization": f"Bearer {config.token}"} if config.token else {}),
+        )
+
+    def close(self) -> None:
+        if self._owns_client:
+            self.client.close()
+
+    def __enter__(self) -> "WorkflowConsumer":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+    # ---------- HTTP ----------
+
+    def _request(self, method: str, path: str, **kw) -> httpx.Response:
+        return self.client.request(method, path, **kw)
+
+    # ---------- 分配动作 ----------
+
+    def _assign_reviewer(self, story_id: int) -> bool:
+        """触发随机指派（幂等）：成功/已指派 → True；无在线 reviewer → warn + True（轮询兜底）。"""
+        try:
+            r = self._request("POST", f"/api/stories/{story_id}/assign-reviewer")
+        except Exception as e:
+            log.warning("story %s 指派评审请求失败（网络异常）：%s", story_id, e)
+            return False
+        if r.status_code in (200, 201):
+            st = r.json()
+            log.info("story %s 已指派 reviewer=%s（status=%s）",
+                     story_id, st.get("reviewer_id"), st.get("status"))
+            return True
+        if r.status_code == 404:
+            log.info("story %s 不存在（可能已删除），忽略", story_id)
+            return True
+        # 422（无在线 reviewer）/ 其它 —— 暂时性条件，ack 后由轮询兜底重试
+        log.warning("story %s 指派评审未成功（HTTP %s）：%s",
+                    story_id, r.status_code, r.text[:200])
+        return True
+
+    def handle_message(self, msg: WorkflowMessage) -> bool:
+        """处理一条 Workflow 消息。返回 False → broker 转死信（重投语义留给轮询兜底）。"""
+        event = msg.event
+        if event == EVENT_STORY_CREATED:
+            return self._assign_reviewer(msg.entity_id)
+        if event in (EVENT_STORY_READY, EVENT_TASK_AVAILABLE):
+            log.info("事件 %s（story=%s）：开发任务分配入口预留（切片 2）", event, msg.entity_id)
+            return True
+        if event in (EVENT_REVIEW_REJECTED, EVENT_COMMENT_REPLIED):
+            log.info("事件 %s（story=%s）：评审往返收敛，由 Agent 定向订阅处理", event, msg.entity_id)
+            return True
+        if event in (EVENT_TASK_READY_FOR_REVIEW, EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED):
+            log.info("事件 %s（task=%s）：任务评审链路预留（切片 2）", event, msg.entity_id)
+            return True
+        log.warning("收到未识别事件 %s（entity=%s#%s），直接 ack 忽略",
+                    event, msg.entity_type, msg.entity_id)
+        return True
+
+    # ---------- 轮询模式（无 MQ 兜底） ----------
+
+    def run_poll_once(self) -> int:
+        """扫描一轮 backlog 未指派 Story 并触发分配。返回处理条数。"""
+        assigned = 0
+        try:
+            r = self.client.get("/api/stories", params={
+                "status": "backlog", "limit": max(1, self.config.batch_size),
+            })
+            r.raise_for_status()
+            items = (r.json() or {}).get("items", []) or []
+        except Exception as e:
+            log.warning("轮询拉取 backlog Story 失败：%s", e)
+            return 0
+        for st in items:
+            if st.get("reviewer_id") is not None:
+                continue  # 已指派（幂等跳过）
+            if self._assign_reviewer(st["id"]):
+                assigned += 1
+        if assigned:
+            log.info("轮询本轮指派 %s 个 Story", assigned)
+        return assigned
+
+    def run_forever(self, stop: threading.Event | None = None,
+                    interval: float | None = None) -> int:
+        """轮询常驻循环（MQ 未配置时使用）。"""
+        stop = stop or threading.Event()
+        interval = interval if interval is not None else self.config.poll_interval
+        cycles = 0
+        while not stop.wait(interval):
+            cycles += 1
+            try:
+                self.run_poll_once()
+            except Exception:
+                log.exception("轮询周期异常，将在下个周期重试")
+        return cycles
+
+    # ---------- MQ 模式 ----------
+
+    def run_mq_forever(self, stop: threading.Event | None = None,
+                       max_messages: int | None = None,
+                       idle_timeout: float | None = None,
+                       broker: Any | None = None) -> dict:
+        """MQ 消费模式：订阅广播队列（story.created 等）。
+
+        未配置 MQ 时自动回退轮询模式，部署未就绪不影响功能。
+        """
+        if not self.config.mq.enabled:
+            log.warning("未配置 AGENTBOARD_MQ_URL（或 pika 不可用），回退轮询模式")
+            cycles = self.run_forever(stop=stop)
+            return {"mode": "poll", "cycles": cycles}
+
+        stop = stop or threading.Event()
+        broker = broker or mq.PikaWorkflowBroker(self.config.mq, self.config.namespace)
+        topology = WorkflowTopology(self.config.namespace)
+        broker.declare_topology()
+        log.info("Workflow 分配器以 MQ 模式启动：ns=%s api=%s",
+                 self.config.namespace, self.config.api_url)
+        try:
+            stats = broker.consume(
+                topology.broadcast_queue, self.handle_message,
+                max_messages=max_messages, idle_timeout=idle_timeout, stop=stop,
+            )
+        finally:
+            try:
+                broker.close()
+            except Exception:  # pragma: no cover
+                pass
+        stats["mode"] = "mq"
+        log.info("Workflow 分配器 MQ 模式退出：%s", stats)
+        return stats
+
+
+# ===================== CLI =====================
+
+def main(argv: Iterable[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="python -m agentboard.workflow_worker",
+        description="AgentBoard Workflow 分配器 Worker（Epic 122 S1 M3）",
+    )
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument("--once", action="store_true", help="只跑一轮轮询后退出")
+    group.add_argument("--loop", action="store_true", help="常驻轮询（默认）")
+    group.add_argument("--mq", action="store_true",
+                       help="MQ 消费模式（未配置 AGENTBOARD_MQ_URL 时自动回退轮询）")
+    parser.add_argument("--mq-url", default=None, help="覆盖 AGENTBOARD_MQ_URL")
+    parser.add_argument("--api-url", default=None, help="覆盖 AGENTBOARD_API_URL")
+    parser.add_argument("--interval", type=float, default=None, help="轮询间隔（秒）")
+    parser.add_argument("-v", "--verbose", action="store_true", help="输出调试日志")
+    args = parser.parse_args(list(argv) if argv is not None else None)
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    cfg = WorkflowConsumerConfig.from_env()
+    if args.api_url:
+        cfg.api_url = args.api_url.rstrip("/")
+    if args.interval is not None:
+        cfg.poll_interval = args.interval
+    if args.mq_url:
+        cfg.mq = mq.MQConfig(url=args.mq_url, enabled=True)
+
+    with WorkflowConsumer(cfg) as worker:
+        if args.mq:
+            stats = worker.run_mq_forever()
+            log.info("Workflow 分配器退出统计：%s", stats)
+        elif args.once:
+            n = worker.run_poll_once()
+            log.info("单轮完成，处理 %s 个 Story", n)
+        else:  # --loop（默认）
+            cycles = worker.run_forever()
+            log.info("轮询退出，共 %s 个周期", cycles)
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())
