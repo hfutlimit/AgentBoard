@@ -1,3 +1,5 @@
+import json
+import random
 import re
 from datetime import date, timedelta
 from sqlalchemy import or_, and_, func, update
@@ -7,11 +9,12 @@ from . import models, auth
 from .models import (
     ItemType, Status, Priority, SprintStatus, ALL_TYPES, ALL_STATUSES,
     ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES,
-    Project, Epic, Story, Task, Comment, Sprint, Attachment, AgentSchedule, AgentRun,
+    Agent, Project, Epic, Story, Task, Comment, Sprint, Attachment, AgentSchedule, AgentRun,
     ProjectMember, Notification, User, ApiKey, AuditLog, TaskDependency, WebhookConfig,
     Document, DocumentComment, DocumentFolder,
     Proposal, ProposalRound, ProposalQuestion,
 )
+from .domains.projects.models import STORY_REVIEW_STATUSES
 from .domains.documents.models import (
     DocumentStatus, DocumentType,
     ALL_DOCUMENT_TYPES, ALL_DOCUMENT_STATUSES, DOCUMENT_TRANSITIONS,
@@ -315,7 +318,9 @@ def update_story(s: Session, id: int, **fields) -> Story | None:
             if k == "title":
                 v = _required(v, "title", 300)
             elif k == "status":
-                _check_status(v)
+                # Story 额外允许评审态（pending_review/ready），Task/Epic 不受影响
+                if v not in ALL_STATUSES and v not in STORY_REVIEW_STATUSES:
+                    raise InvalidValue(f"invalid status '{v}'")
             setattr(st, k, v)
     _commit(s); s.refresh(st); return st
 
@@ -330,6 +335,233 @@ def delete_story(s: Session, id: int) -> bool:
     s.query(Comment).filter(Comment.story_id == id).delete(synchronize_session=False)
     s.query(Task).filter(Task.story_id == id).delete()
     s.delete(st); _commit(s); return True
+
+
+# ---------- Agent 注册表（Epic 122 S1） ----------
+def _parse_json_list(raw: str | None, field: str) -> list:
+    """解析 roles/capabilities JSON 数组字符串；非法输入抛 InvalidValue。"""
+    raw = (raw or "[]").strip()
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        raise InvalidValue(f"{field} must be a JSON array string")
+    if not isinstance(parsed, list):
+        raise InvalidValue(f"{field} must be a JSON array string")
+    return [str(x) for x in parsed]
+
+
+def register_agent(s: Session, *, agent_id: str, name: str, roles: str = "[]",
+                   capabilities: str = "[]", cli_command: str = "",
+                   auth_key: str = "", user_id: int | None = None) -> Agent:
+    """注册/更新 Agent（幂等：agent_id 已存在则更新字段）。
+
+    agent_id 为外部 Agent 自报唯一标识；roles/capabilities 为 JSON 数组串。
+    user_id 绑定服务账号用户（经 ProjectMember 授权参与项目协作）。
+    """
+    agent_id = _required(agent_id, "agent_id", 64)
+    name = _required(name, "name", 100)
+    roles_list = _parse_json_list(roles, "roles")
+    caps_list = _parse_json_list(capabilities, "capabilities")
+    if user_id is not None and not s.get(User, user_id):
+        raise NotFound(f"user {user_id} not found")
+    existing = s.query(Agent).filter(Agent.agent_id == agent_id).first()
+    if existing:
+        existing.name = name
+        existing.roles = json.dumps(roles_list, ensure_ascii=False)
+        existing.capabilities = json.dumps(caps_list, ensure_ascii=False)
+        existing.cli_command = (cli_command or "")[:500]
+        existing.auth_key = (auth_key or "")[:100]
+        if user_id is not None:
+            existing.user_id = user_id
+        _commit(s); s.refresh(existing); return existing
+    agent = Agent(
+        agent_id=agent_id,
+        name=name,
+        roles=json.dumps(roles_list, ensure_ascii=False),
+        capabilities=json.dumps(caps_list, ensure_ascii=False),
+        cli_command=(cli_command or "")[:500],
+        auth_key=(auth_key or "")[:100],
+        user_id=user_id,
+        online=False,
+    )
+    s.add(agent)
+    try:
+        _commit(s); s.refresh(agent); return agent
+    except Duplicate:
+        # 并发注册：回查返回既有记录
+        s.rollback()
+        existing = s.query(Agent).filter(Agent.agent_id == agent_id).first()
+        if existing:
+            return existing
+        raise
+
+
+def get_agent_by_agent_id(s: Session, agent_id: str) -> Agent | None:
+    return s.query(Agent).filter(Agent.agent_id == agent_id).first()
+
+
+def agent_heartbeat(s: Session, agent_id: str, *, user_id: int | None = None) -> Agent | None:
+    """心跳保活：置 online=True 并刷新 last_heartbeat。"""
+    agent = s.query(Agent).filter(Agent.agent_id == agent_id).first()
+    if not agent:
+        return None
+    if user_id is not None and agent.user_id not in (None, user_id):
+        raise InvalidValue("heartbeat rejected: agent belongs to another user")
+    agent.online = True
+    agent.last_heartbeat = utc_now()
+    if user_id is not None and agent.user_id is None:
+        agent.user_id = user_id
+    _commit(s); s.refresh(agent); return agent
+
+
+def agent_deregister(s: Session, agent_id: str, *, user_id: int | None = None,
+                     is_admin: bool = False) -> Agent | None:
+    """注销下线：置 online=False（保留注册记录）。"""
+    agent = s.query(Agent).filter(Agent.agent_id == agent_id).first()
+    if not agent:
+        return None
+    if not is_admin and user_id is not None and agent.user_id not in (None, user_id):
+        raise InvalidValue("deregister rejected: agent belongs to another user")
+    agent.online = False
+    _commit(s); s.refresh(agent); return agent
+
+
+def list_agents(s: Session, *, online: bool | None = None, role: str | None = None):
+    q = s.query(Agent)
+    if online is not None:
+        q = q.filter(Agent.online == online)
+    if role:
+        rows = q.order_by(Agent.id.desc()).all()
+        return [a for a in rows if role in _parse_json_list(a.roles, "roles")]
+    return q.order_by(Agent.id.desc()).all()
+
+
+# ---------- Story 评审闭环（Epic 122 S1） ----------
+MAX_REVIEW_ROUNDS = 5  # 与 Proposal max_rounds 对齐；超限置 blocked 护栏
+
+
+def _online_reviewer_candidates(s: Session, project_id: int) -> list[Agent]:
+    """在线 ∩ 角色含 reviewer ∩ 绑定 user 属项目成员 的 Agent 候选集。"""
+    member_ids = {
+        r[0] for r in s.query(ProjectMember.user_id).filter(
+            ProjectMember.project_id == project_id
+        ).all()
+    }
+    online_agents = s.query(Agent).filter(Agent.online == True).all()  # noqa: E712
+    candidates = []
+    for a in online_agents:
+        if a.user_id not in member_ids:
+            continue
+        if "reviewer" in _parse_json_list(a.roles, "roles"):
+            candidates.append(a)
+    return candidates
+
+
+def assign_reviewer(s: Session, story_id: int, *, user_id: int | None = None,
+                    is_admin: bool = False) -> Story:
+    """随机指派评审人（显式触发；幂等：已指派则复用）。
+
+    CAS：条件 UPDATE ``status=backlog AND reviewer_id IS NULL`` → ``pending_review + reviewer_id``，
+    rowcount=1 才成功；并发下另一个写者获胜时回查返回其指派结果。
+    Story 创建默认 backlog，评审流由本函数显式开启（兼容 Epic 96 转化链路）。
+    """
+    st = s.get(Story, story_id)
+    if not st:
+        raise NotFound(f"story {story_id} not found")
+    if st.reviewer_id is not None:
+        return st  # 幂等：已指派
+    epic = s.get(Epic, st.epic_id)
+    project_id = epic.project_id if epic else None
+    if project_id is None:
+        raise NotFound(f"epic {st.epic_id} not found")
+    candidates = _online_reviewer_candidates(s, project_id)
+    if not candidates:
+        raise InvalidValue("no online reviewer available (register an online reviewer agent first)")
+    reviewer = random.choice(candidates)
+    r = s.execute(
+        update(Story).where(
+            Story.id == story_id,
+            Story.reviewer_id.is_(None),
+            Story.status == Status.BACKLOG,
+        ).values(reviewer_id=reviewer.user_id, status="pending_review")
+    )
+    if r.rowcount != 1:
+        # 并发写者已抢先指派：回查返回现态
+        s.rollback()
+        return s.get(Story, story_id)
+    _commit(s)
+    s.refresh(st)
+    return st
+
+
+def review_story(s: Session, *, story_id: int, reviewer_user_id: int,
+                 verdict: str, comment: str) -> Story:
+    """评审投票（CAS）：仅被指派 reviewer 可操作 pending_review 状态的 Story。
+
+    - approve：状态 → ready（评论记录评审意见，发故事就绪语义）；
+    - reject ：review_round + 1，仍停留 pending_review（评论往返收敛）；
+    - 护栏：review_round 达 MAX_REVIEW_ROUNDS → blocked（待人工仲裁）。
+
+    评论是评审意见唯一载体（approve/reject 必须伴随 comment），形成审计轨迹。
+    """
+    st = s.get(Story, story_id)
+    if not st:
+        raise NotFound(f"story {story_id} not found")
+    if verdict not in ("approve", "reject"):
+        raise InvalidValue(f"invalid verdict '{verdict}' (expected approve|reject)")
+    comment = (comment or "").strip()
+    if not comment:
+        raise InvalidValue("review comment is required (approve/reject must carry a comment)")
+    if st.reviewer_id != reviewer_user_id:
+        raise InvalidValue("only the assigned reviewer can review this story")
+    if st.status != "pending_review":
+        raise InvalidValue(f"story is not pending_review (current status: {st.status})")
+    reviewer = s.get(User, reviewer_user_id)
+    author_name = reviewer.display_name or reviewer.username if reviewer else f"user#{reviewer_user_id}"
+
+    if verdict == "approve":
+        r = s.execute(
+            update(Story).where(
+                Story.id == story_id,
+                Story.reviewer_id == reviewer_user_id,
+                Story.status == "pending_review",
+            ).values(status="ready")
+        )
+        if r.rowcount != 1:
+            s.rollback()
+            raise InvalidValue("review conflict: story state changed concurrently")
+        _commit(s)
+    else:  # reject
+        new_round = (st.review_round or 0) + 1
+        target = "blocked" if new_round >= MAX_REVIEW_ROUNDS else "pending_review"
+        r = s.execute(
+            update(Story).where(
+                Story.id == story_id,
+                Story.reviewer_id == reviewer_user_id,
+                Story.status == "pending_review",
+            ).values(review_round=new_round, status=target)
+        )
+        if r.rowcount != 1:
+            s.rollback()
+            raise InvalidValue("review conflict: story state changed concurrently")
+        _commit(s)
+    # 评审意见落评论（唯一载体）
+    create_comment(s, author=author_name, content=comment, story_id=story_id)
+    s.refresh(st)
+    return st
+
+
+def list_review_tasks(s: Session, user_id: int, *, status: str | None = None):
+    """拉取指派给当前用户的评审任务（Story，按 pending_review 优先排序）。"""
+    q = s.query(Story).filter(Story.reviewer_id == user_id)
+    if status:
+        if status not in ALL_STATUSES and status not in STORY_REVIEW_STATUSES:
+            raise InvalidValue(f"invalid status '{status}'")
+        q = q.filter(Story.status == status)
+    q = q.order_by(Story.status.desc(), Story.id.desc())
+    return q.all()
 
 
 # ---------- Task ----------

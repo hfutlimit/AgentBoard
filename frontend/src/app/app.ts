@@ -3701,6 +3701,8 @@ export class App implements OnInit, OnDestroy {
           verifying: '验证中',
           done: '完成',
           blocked: '已阻塞',
+          pending_review: '待评审',
+          ready: '已就绪',
         } as Record<string, string>
       )[status] || status
     );
@@ -3719,14 +3721,14 @@ export class App implements OnInit, OnDestroy {
   // Epic 37 (v2.5): 状态色点（复用既有 statusLabel 做文案）
   statusColor(status: string): string {
     return (
-      { backlog: '#F59E0B', todo: '#0EA5E9', in_progress: '#5B5BD6', in_review: '#7C3AED', verifying: '#0EA5E9', done: '#16A34A', blocked: '#DC2626' } as Record<string, string>
+      { backlog: '#F59E0B', todo: '#0EA5E9', in_progress: '#5B5BD6', in_review: '#7C3AED', verifying: '#0EA5E9', done: '#16A34A', blocked: '#DC2626', pending_review: '#F59E0B', ready: '#10B981' } as Record<string, string>
     )[status] || '#94a3b8';
   }
 
   // Story 199: 状态语义色类（warning/info/primary/violet/sky/success/danger）
   statusSemanticClass(status: string): string {
     return (
-      { backlog: 'warning', todo: 'info', in_progress: 'primary', in_review: 'violet', verifying: 'sky', done: 'success', blocked: 'danger' } as Record<string, string>
+      { backlog: 'warning', todo: 'info', in_progress: 'primary', in_review: 'violet', verifying: 'sky', done: 'success', blocked: 'danger', pending_review: 'warning', ready: 'success' } as Record<string, string>
     )[status] || 'info';
   }
 

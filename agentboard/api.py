@@ -124,6 +124,21 @@ class StoryPatch(BaseModel):
     status: str | None = None
 
 
+# Epic 122 S1：Agent 注册表 + Story 评审闭环
+class AgentRegisterIn(BaseModel):
+    agent_id: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=100)
+    roles: str = "[]"
+    capabilities: str = "[]"
+    cli_command: str = ""
+    auth_key: str = ""
+
+
+class AgentReviewIn(BaseModel):
+    verdict: str = Field(pattern="^(approve|reject)$")
+    comment: str = Field(min_length=1, max_length=2000)
+
+
 class TaskIn(BaseModel):
     project_id: int = Field(gt=0)
     title: str = Field(min_length=1, max_length=300)
@@ -849,6 +864,119 @@ def delete_story(sid: int, s: Session = Depends(get_session)):
     if not service.delete_story(s, sid):
         raise HTTPException(status_code=404, detail="story not found")
     return {"ok": True}
+
+
+# ---------- Story 评审闭环（Epic 122 S1） ----------
+@app.get("/api/stories")
+def list_stories_global(status: str | None = Query(None), reviewer_id: str | None = Query(None),
+                        project_id: int | None = Query(None), limit: int = Query(100, ge=1, le=200),
+                        offset: int = Query(0, ge=0),
+                        authorization: str | None = Header(None),
+                        s: Session = Depends(get_session)):
+    """全局 Story 列表（供评审任务拉取等场景）。
+
+    - ``?reviewer_id=me`` 解析为当前登录用户，返回指派给我的评审任务；
+    - ``?status=pending_review`` 按评审态过滤；
+    - ``?project_id=N`` 限定项目（配合 project_access_middleware 权限）。
+    """
+    uid, _is_admin = _caller_uid_admin(authorization)
+    q = s.query(service.Story)
+    if status:
+        if status not in service.ALL_STATUSES and status not in service.STORY_REVIEW_STATUSES:
+            raise HTTPException(status_code=422, detail=f"invalid status '{status}'")
+        q = q.filter(service.Story.status == status)
+    if reviewer_id:
+        if reviewer_id == "me":
+            if _auth_is_required() and uid is None:
+                raise HTTPException(status_code=401, detail="unauthorized")
+            if uid is None:
+                raise HTTPException(status_code=422, detail="reviewer_id=me requires login")
+            q = q.filter(service.Story.reviewer_id == uid)
+        else:
+            try:
+                q = q.filter(service.Story.reviewer_id == int(reviewer_id))
+            except ValueError:
+                raise HTTPException(status_code=422, detail="invalid reviewer_id")
+    if project_id is not None:
+        q = q.join(service.Epic, service.Story.epic_id == service.Epic.id).filter(
+            service.Epic.project_id == project_id
+        )
+    total = q.count()
+    items = [service._ser(x) for x in q.order_by(service.Story.id.desc()).limit(limit).offset(offset).all()]
+    return {"items": items, "total": total}
+
+
+@app.post("/api/stories/{sid}/assign-reviewer")
+def assign_story_reviewer(sid: int, authorization: str | None = Header(None),
+                          s: Session = Depends(get_session)):
+    """随机指派评审人（幂等；CAS 并发安全）。项目成员写权限由中间件覆盖。"""
+    uid, _is_admin = _caller_uid_admin(authorization)
+    if _auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    st = service.assign_reviewer(s, sid, user_id=uid)
+    return service._ser(st)
+
+
+@app.post("/api/stories/{sid}/review")
+def review_story(sid: int, body: AgentReviewIn, authorization: str | None = Header(None),
+                 s: Session = Depends(get_session)):
+    """评审投票（approve/reject + 评论，CAS）：仅被指派 reviewer 可操作。"""
+    uid, _is_admin = _caller_uid_admin(authorization)
+    if _auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if uid is None:
+        raise HTTPException(status_code=422, detail="review requires login")
+    st = service.review_story(s, story_id=sid, reviewer_user_id=uid,
+                              verdict=body.verdict, comment=body.comment)
+    return service._ser(st)
+
+
+# ---------- Agents（Epic 122 S1） ----------
+@app.post("/api/agents/register", status_code=201)
+def register_agent(body: AgentRegisterIn, authorization: str | None = Header(None),
+                   s: Session = Depends(get_session)):
+    """注册/更新 Agent 身份（幂等）。绑定当前认证用户。"""
+    uid, _is_admin = _caller_uid_admin(authorization)
+    if _auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    agent = service.register_agent(s, agent_id=body.agent_id, name=body.name,
+                                   roles=body.roles, capabilities=body.capabilities,
+                                   cli_command=body.cli_command, auth_key=body.auth_key,
+                                   user_id=uid)
+    return service._ser(agent)
+
+
+@app.post("/api/agents/{agent_id}/heartbeat")
+def agent_heartbeat(agent_id: str, authorization: str | None = Header(None),
+                    s: Session = Depends(get_session)):
+    """Agent 心跳保活（置在线）。"""
+    uid, _is_admin = _caller_uid_admin(authorization)
+    if _auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    agent = service.agent_heartbeat(s, agent_id, user_id=uid)
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent not found")
+    return service._ser(agent)
+
+
+@app.post("/api/agents/{agent_id}/deregister")
+def agent_deregister(agent_id: str, authorization: str | None = Header(None),
+                     s: Session = Depends(get_session)):
+    """Agent 注销下线（自身或 admin）。"""
+    uid, is_admin = _caller_uid_admin(authorization)
+    if _auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    agent = service.agent_deregister(s, agent_id, user_id=uid, is_admin=is_admin)
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent not found")
+    return service._ser(agent)
+
+
+@app.get("/api/agents")
+def list_agents(online: bool | None = Query(None), role: str | None = Query(None),
+                s: Session = Depends(get_session)):
+    """列出已注册 Agent（?online=true&role=reviewer 过滤）。"""
+    return [service._ser(x) for x in service.list_agents(s, online=online, role=role)]
 
 
 # ---------- Tasks ----------
