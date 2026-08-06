@@ -20,7 +20,8 @@ from .database import get_session, init_db, SessionLocal
 from . import service, auth, mq
 from .mq import (
     EVENT_STORY_CREATED, EVENT_REVIEW_REQUESTED, EVENT_REVIEW_REJECTED,
-    EVENT_STORY_READY, EVENT_COMMENT_REPLIED, publish_workflow_event,
+    EVENT_STORY_READY, EVENT_COMMENT_REPLIED, EVENT_TASK_READY_FOR_REVIEW,
+    publish_workflow_event,
 )
 from .cos_client import client as _cos_client, CosError
 from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES
@@ -1125,6 +1126,56 @@ def set_status(
             link=f"/task/{result.id}",
         )
     return service._ser(result)
+
+
+@app.post("/api/tasks/{tid}/claim")
+def claim_task_for_development(tid: int, authorization: str | None = Header(None),
+                               s: Session = Depends(get_session)):
+    """开发任务竞争认领（Epic 122 切片 2，CAS 并发安全）。
+
+    条件 UPDATE ``status IN (backlog, todo)`` → ``in_progress + assignee_id=当前用户``，
+    rowcount=1 才成功；已认领/已结束返回 409 明确错误（复用 Epic 118 护栏语义）。
+    项目写权限由 project_access_middleware 自动覆盖。
+    """
+    uid, _is_admin = _caller_uid_admin(authorization)
+    if _auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if uid is None:
+        raise HTTPException(status_code=422, detail="claim requires login")
+    try:
+        t = service.claim_development_task(s, tid, user_id=uid)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    _invalidate_stats_cache(t.project_id)
+    return service._ser(t)
+
+
+@app.post("/api/tasks/{tid}/submit-review")
+def submit_task_review(tid: int, authorization: str | None = Header(None),
+                       s: Session = Depends(get_session)):
+    """开发完成提交评审（Epic 122 切片 2）：assignee 或 admin 操作。
+
+    - 校验 status=in_progress + assignee 匹配（admin 豁免）→ in_review；
+    - 成功 → 广播 ``task.ready_for_review``（分配器 worker 消费，切片 2 M2 指派 reviewer）。
+    """
+    uid, is_admin = _caller_uid_admin(authorization)
+    if _auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if uid is None:
+        raise HTTPException(status_code=422, detail="submit-review requires login")
+    try:
+        t = service.submit_task_for_review(s, tid, user_id=uid, is_admin=is_admin)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    _invalidate_stats_cache(t.project_id)
+    # 事件源：任务进入评审态 → 广播（消息只带定位信息，状态回查 DB）
+    publish_workflow_event(EVENT_TASK_READY_FOR_REVIEW, "task", t.id,
+                           ref_id=t.assignee_id)
+    return service._ser(t)
 
 
 @app.delete("/api/tasks/{tid}")

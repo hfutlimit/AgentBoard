@@ -4,7 +4,9 @@
 
 - ``story.created``（广播）→ 自动指派在线 reviewer（``POST /api/stories/{sid}/assign-reviewer``，
   随机选择 + CAS 幂等，指派的最终裁决在服务端）；
-- ``story.ready``（广播）→ 日志记录（切片 2 开发任务 ``task.available`` 广播预留）；
+- ``story.ready``（广播）→ 回查 Story 下 backlog/todo 任务 → 逐个广播 ``task.available``
+  （切片 2：在线 developer 竞争认领，CAS 恰一赢家）；
+- ``task.ready_for_review``（广播）→ 日志（切片 2 M2 指派 Task reviewer 预留）；
 - ``review.rejected`` / ``comment.replied`` → 日志记录（评审往返收敛主要由
   Reviewer/作者 Agent 各自订阅**定向队列**感知，本 Worker 不介入业务决策）。
 
@@ -144,19 +146,51 @@ class WorkflowConsumer:
                     story_id, r.status_code, r.text[:200])
         return True
 
+    def _broadcast_available_tasks(self, story_id: int) -> bool:
+        """Story ready → 回查 Story 下 backlog/todo 任务 → 逐个广播 ``task.available``。
+
+        消息只带定位信息（task_id + story_id），开发者收到后经 ``claim_development_task``
+        竞争认领（CAS，恰一赢家）。MQ 未配置时 ``publish_workflow_event`` 为 no-op，
+        开发者靠轮询（list_tasks?status=backlog）兜底，正确性不变。
+        """
+        try:
+            r = self._request("GET", f"/api/stories/{story_id}/tasks",
+                              params={"limit": 200})
+            r.raise_for_status()
+            items = (r.json() or {}).get("items", []) or []
+        except Exception as e:
+            log.warning("story %s 拉取任务列表失败：%s", story_id, e)
+            return False
+        claimed = 0
+        for t in items:
+            if t.get("status") in ("backlog", "todo"):
+                mq.publish_workflow_event(EVENT_TASK_AVAILABLE, "task", t["id"],
+                                          ref_id=story_id)
+                claimed += 1
+        log.info("story %s 评审通过（ready），广播 %s 个可认领任务",
+                 story_id, claimed)
+        return True
+
     def handle_message(self, msg: WorkflowMessage) -> bool:
         """处理一条 Workflow 消息。返回 False → broker 转死信（重投语义留给轮询兜底）。"""
         event = msg.event
         if event == EVENT_STORY_CREATED:
             return self._assign_reviewer(msg.entity_id)
-        if event in (EVENT_STORY_READY, EVENT_TASK_AVAILABLE):
-            log.info("事件 %s（story=%s）：开发任务分配入口预留（切片 2）", event, msg.entity_id)
+        if event == EVENT_STORY_READY:
+            # Story 评审通过 → 广播其下可认领任务（切片 2：developer 竞争认领）
+            return self._broadcast_available_tasks(msg.entity_id)
+        if event == EVENT_TASK_AVAILABLE:
+            log.info("事件 task.available（task=%s story=%s）：由在线 developer 竞争认领", event, msg.entity_id)
             return True
         if event in (EVENT_REVIEW_REJECTED, EVENT_COMMENT_REPLIED):
             log.info("事件 %s（story=%s）：评审往返收敛，由 Agent 定向订阅处理", event, msg.entity_id)
             return True
-        if event in (EVENT_TASK_READY_FOR_REVIEW, EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED):
-            log.info("事件 %s（task=%s）：任务评审链路预留（切片 2）", event, msg.entity_id)
+        if event == EVENT_TASK_READY_FOR_REVIEW:
+            log.info("事件 %s（task=%s assignee=%s）：待指派 Task reviewer（切片 2 M2 预留）",
+                     event, msg.entity_id, msg.ref_id)
+            return True
+        if event in (EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED):
+            log.info("事件 %s（task=%s）：任务评审链路预留（切片 2 M2）", event, msg.entity_id)
             return True
         log.warning("收到未识别事件 %s（entity=%s#%s），直接 ack 忽略",
                     event, msg.entity_type, msg.entity_id)

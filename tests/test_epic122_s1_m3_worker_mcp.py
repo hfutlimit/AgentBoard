@@ -124,12 +124,16 @@ def test_handle_story_created_no_online_reviewer_acks():
     assert w.handle_message(_msg(EVENT_STORY_CREATED, 10)) is True
 
 
-def test_handle_story_ready_rejected_no_http():
-    client = _FakeClient(_FakeResponse(200))
+def test_handle_story_ready_broadcasts_tasks_rejected_no_http():
+    """S2 M1 起 story.ready 会回查 Story 任务广播 task.available（切片 2）；
+    review.rejected / 无任务 story 不触发额外 HTTP 副作用。"""
+    client = _FakeClient(_FakeResponse(200, {"items": []}))  # 无可认领任务
     w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
     assert w.handle_message(_msg(EVENT_STORY_READY, 1)) is True
+    assert ("GET", "/api/stories/1/tasks") in client.calls
+    before = len(client.calls)
     assert w.handle_message(_msg(EVENT_REVIEW_REJECTED, 2, ref_id=1)) is True
-    assert client.calls == []  # 未触发任何 HTTP
+    assert len(client.calls) == before  # review.rejected 不触发 HTTP
 
 
 def test_handle_unknown_event_acks():

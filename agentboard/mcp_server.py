@@ -1662,6 +1662,27 @@ def list_review_tasks(status: str | None = None) -> list | dict:
     return _http("GET", "/api/stories", params=params)
 
 
+# ---------- Epic 122 切片 2 M1: 开发任务竞争认领 / 提交评审 ----------
+@mcp.tool()
+def claim_development_task(task_id: int) -> dict:
+    """开发任务竞争认领（CAS 并发安全，恰一赢家）。
+
+    - 任务状态为 backlog/todo → 置 in_progress 并回填 assignee=当前 Agent 绑定用户；
+    - 已认领（in_progress/in_review 等）或已结束（done/blocked）→ 409 明确错误，不重复认领；
+    - 配合 Story ready 后的 ``task.available`` 广播使用（开发者竞争认领同一任务）。
+    """
+    return _http("POST", f"/api/tasks/{task_id}/claim")
+
+
+@mcp.tool()
+def submit_task_for_review(task_id: int) -> dict:
+    """开发完成提交评审（assignee 或 admin）→ 任务置 in_review 并广播 task.ready_for_review。
+
+    提交后等待 Task reviewer 拉取任务 + 评论评审（切片 2 M2：review_task approve/reject）。
+    """
+    return _http("POST", f"/api/tasks/{task_id}/submit-review")
+
+
 if __name__ == "__main__":
     transport = os.getenv("AGENTBOARD_MCP_TRANSPORT", "stdio").lower()
     if transport in {"http", "streamable-http"}:

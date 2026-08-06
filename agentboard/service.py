@@ -739,6 +739,60 @@ def set_status(s: Session, id: int, new_status: str) -> Task | None:
     return t
 
 
+def claim_development_task(s: Session, task_id: int, *, user_id: int) -> Task:
+    """开发任务竞争认领（Epic 122 切片 2 M1，CAS 并发安全）。
+
+    - 条件 UPDATE ``status IN (backlog, todo)`` → ``in_progress + assignee_id=user_id``，
+      rowcount=1 才成功；并发下另一个写者获胜 → 明确错误（含现状）；
+    - 复用 Epic 118 护栏语义：已认领（in_progress/in_review 等）或已结束（done/blocked）
+      的任务拒绝重复认领，不创建 Run、不改状态；
+    - 认领是「系统操作」，绕开 TRANSITIONS 常规校验（backlog → in_progress 不在常规表内）。
+    """
+    t = s.get(Task, task_id)
+    if not t:
+        raise NotFound(f"task {task_id} not found")
+    if t.status not in (Status.BACKLOG, Status.TODO):
+        raise InvalidValue(
+            f"task {task_id} already claimed or not claimable (status={t.status})")
+    r = s.execute(
+        update(Task).where(
+            Task.id == task_id,
+            Task.status.in_([Status.BACKLOG, Status.TODO]),
+        ).values(status=Status.IN_PROGRESS, assignee_id=user_id)
+    )
+    if r.rowcount != 1:
+        s.rollback()
+        cur = s.get(Task, task_id)
+        raise InvalidValue(
+            f"task {task_id} claim conflict: already claimed "
+            f"(status={cur.status if cur else 'deleted'})")
+    _commit(s)
+    s.refresh(t)
+    _invalidate_project_stats_cache(t.project_id)
+    return t
+
+
+def submit_task_for_review(s: Session, task_id: int, *, user_id: int,
+                           is_admin: bool = False) -> Task:
+    """开发完成提交评审（Epic 122 切片 2 M1）。
+
+    - 校验 status == in_progress（开发态才可提交评审）；
+    - assignee 匹配（admin 豁免）：非认领者提交 → 明确错误；
+    - 通过 set_status 走合法迁移 in_progress → in_review，事件源由 API 层广播。
+    """
+    t = s.get(Task, task_id)
+    if not t:
+        raise NotFound(f"task {task_id} not found")
+    if t.status != Status.IN_PROGRESS:
+        raise InvalidValue(
+            f"task {task_id} is not in_progress (current status: {t.status})")
+    if not is_admin and t.assignee_id != user_id:
+        raise InvalidValue(
+            f"task {task_id} is assigned to user#{t.assignee_id}, "
+            "only the assignee (or admin) can submit for review")
+    return set_status(s, task_id, Status.IN_REVIEW)
+
+
 def _invalidate_project_stats_cache(project_id: int) -> None:
     """清除项目统计缓存（Epic 23 Story 23.1）"""
     try:
