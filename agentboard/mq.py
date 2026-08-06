@@ -626,3 +626,647 @@ def publish_proposal_event(proposal_id: int, round_no: int = 0,
 def unique_namespace(prefix: str = "agentboard.test") -> str:
     """生成唯一命名空间——测试在共享 broker 上隔离，避免干扰其它项目队列。"""
     return f"{prefix}.{uuid.uuid4().hex[:12]}"
+
+
+# =====================================================================
+# 通用工作流事件总线（Epic 122 · Story 230 · S1 M2）
+# ---------------------------------------------------------------------
+# 在 Proposal 专用总线之外**增量追加**，二者命名空间完全隔离：
+#   - Proposal：agentboard.proposals（direct + 单 work 队列，上文不变）
+#   - Workflow：agentboard.workflow（topic + 广播/定向双队列，见下）
+#
+# 拓扑（文档 #51 §6.2）::
+#
+#     exchange agentboard.workflow          (topic, durable)
+#       ├── queue <ns>.broadcast            绑定 workflow.broadcast.#
+#       └── queue <ns>.agent.{agent_id}     绑定 workflow.agent.{agent_id}
+#     exchange agentboard.workflow.dlx      (direct, durable)
+#       └── queue <ns>.dead
+#
+# 路由语义：
+#   - 广播（认领型，竞争消费）：story.created / story.ready / task.*
+#   - 定向（目标 Agent 专属）：review.requested / review.rejected / comment.replied
+# 铁律与 Proposal 一致：消息只带定位信息，业务状态一律回查 DB；
+# AGENTBOARD_MQ_URL 为空 → 发布 no-op，调用方回退轮询。
+# =====================================================================
+
+WORKFLOW_DEFAULT_NAMESPACE = "agentboard.workflow"
+WORKFLOW_ENV_NAMESPACE = "AGENTBOARD_WORKFLOW_NAMESPACE"
+
+# routing key 前缀（RabbitMQ topic 交换机的绑定模式）
+ROUTING_WORKFLOW_BROADCAST = "workflow.broadcast"
+ROUTING_WORKFLOW_AGENT = "workflow.agent"
+
+# ---- 事件常量（切片 1：Story 评审闭环；task.* 预留切片 2）----
+EVENT_STORY_CREATED = "story.created"
+EVENT_REVIEW_REQUESTED = "review.requested"
+EVENT_REVIEW_REJECTED = "review.rejected"
+EVENT_COMMENT_REPLIED = "comment.replied"
+EVENT_STORY_READY = "story.ready"
+# 切片 2 预留（消费侧未实现，先占事件名保证白名单稳定）
+EVENT_TASK_AVAILABLE = "task.available"
+EVENT_TASK_READY_FOR_REVIEW = "task.ready_for_review"
+EVENT_TASK_REVIEWED = "task.reviewed"
+EVENT_TASK_REJECTED = "task.rejected"
+
+WORKFLOW_EVENTS: frozenset[str] = frozenset({
+    EVENT_STORY_CREATED,
+    EVENT_REVIEW_REQUESTED,
+    EVENT_REVIEW_REJECTED,
+    EVENT_COMMENT_REPLIED,
+    EVENT_STORY_READY,
+    EVENT_TASK_AVAILABLE,
+    EVENT_TASK_READY_FOR_REVIEW,
+    EVENT_TASK_REVIEWED,
+    EVENT_TASK_REJECTED,
+})
+
+WORKFLOW_ENTITY_TYPES: frozenset[str] = frozenset({"story", "task"})
+
+
+class WorkflowTopology:
+    """Workflow 事件总线拓扑：topic 交换机 + 广播队列 + 每 Agent 定向队列 + DLX。"""
+
+    def __init__(self, namespace: str = WORKFLOW_DEFAULT_NAMESPACE):
+        self.namespace = namespace
+
+    @property
+    def exchange(self) -> str:
+        return self.namespace
+
+    @property
+    def broadcast_queue(self) -> str:
+        return f"{self.namespace}.broadcast"
+
+    def agent_queue(self, agent_id: str) -> str:
+        """某 Agent 的定向队列名（随注册幂等声明，注销时保留）。"""
+        return f"{self.namespace}.agent.{agent_id}"
+
+    @property
+    def dlx_exchange(self) -> str:
+        return f"{self.namespace}.dlx"
+
+    @property
+    def dead_queue(self) -> str:
+        return f"{self.namespace}.dead"
+
+    @property
+    def queue_arguments(self) -> dict:
+        """主队列参数：nack(requeue=False) 的消息自动路由到死信队列。"""
+        return {
+            "x-dead-letter-exchange": self.dlx_exchange,
+            "x-dead-letter-routing-key": ROUTING_DEAD,
+        }
+
+    # ---- routing key / 绑定模式 ----
+
+    def broadcast_routing(self, event: str) -> str:
+        """广播事件 routing key：workflow.broadcast.{event}"""
+        return f"{ROUTING_WORKFLOW_BROADCAST}.{event}"
+
+    def agent_routing(self, agent_id: str) -> str:
+        """定向事件 routing key：workflow.agent.{agent_id}（事件类型在消息体）"""
+        return f"{ROUTING_WORKFLOW_AGENT}.{agent_id}"
+
+    def broadcast_pattern(self) -> str:
+        return f"{ROUTING_WORKFLOW_BROADCAST}.#"
+
+    def agent_pattern(self, agent_id: str) -> str:
+        return f"{ROUTING_WORKFLOW_AGENT}.{agent_id}"
+
+
+@dataclass(frozen=True)
+class WorkflowMessage:
+    """通用工作流事件消息。刻意只带定位信息，不带业务状态——状态一律回查数据库。"""
+
+    event: str
+    entity_type: str
+    entity_id: int
+    ref_id: int | None = None
+    ts: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "event": self.event,
+            "entity_type": self.entity_type,
+            "entity_id": int(self.entity_id),
+            "ref_id": None if self.ref_id is None else int(self.ref_id),
+            "ts": self.ts or datetime.now(timezone.utc).isoformat(),
+        }
+
+    def to_bytes(self) -> bytes:
+        return json.dumps(self.to_dict(), ensure_ascii=False).encode("utf-8")
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "WorkflowMessage":
+        if not isinstance(data, dict):
+            raise MQMessageError(
+                f"消息体必须是 JSON 对象，实际为 {type(data).__name__}")
+        event = data.get("event")
+        if not isinstance(event, str) or event not in WORKFLOW_EVENTS:
+            raise MQMessageError(f"未知事件类型：{event!r}（白名单 {len(WORKFLOW_EVENTS)} 个）")
+        et = data.get("entity_type")
+        if not isinstance(et, str) or et not in WORKFLOW_ENTITY_TYPES:
+            raise MQMessageError(f"非法 entity_type：{et!r}")
+        raw_id = data.get("entity_id")
+        # 布尔是 int 的子类，显式挡掉，避免 True 被当成 entity_id=1
+        if isinstance(raw_id, bool) or raw_id is None:
+            raise MQMessageError(f"消息缺少合法 entity_id：{data!r}")
+        try:
+            eid = int(raw_id)
+        except (TypeError, ValueError):
+            raise MQMessageError(f"entity_id={raw_id!r} 不是整数") from None
+        if eid <= 0:
+            raise MQMessageError(f"entity_id={eid} 必须为正整数")
+        ref = data.get("ref_id")
+        if ref is not None and not isinstance(ref, bool):
+            try:
+                ref = int(ref)
+            except (TypeError, ValueError):
+                ref = None
+        return cls(
+            event=event,
+            entity_type=et,
+            entity_id=eid,
+            ref_id=None if ref is None else max(0, ref),
+            ts=str(data.get("ts") or ""),
+        )
+
+    @classmethod
+    def from_bytes(cls, body: bytes | str) -> "WorkflowMessage":
+        if isinstance(body, bytes):
+            try:
+                body = body.decode("utf-8")
+            except UnicodeDecodeError as e:
+                raise MQMessageError(f"消息不是合法 UTF-8：{e}") from None
+        try:
+            data = json.loads(body)
+        except (json.JSONDecodeError, TypeError) as e:
+            raise MQMessageError(f"消息不是合法 JSON：{e}") from None
+        return cls.from_dict(data)
+
+
+# 消费回调：返回 True=ack，False=拒收进死信；抛异常同样进死信。
+WorkflowMessageHandler = Callable[[WorkflowMessage], bool]
+
+
+def _topic_match(pattern: str, routing_key: str) -> bool:
+    """RabbitMQ topic 绑定模式匹配：`*` 匹配恰好一个段，`#` 匹配零或多个段。
+
+    段按 ``.`` 分隔。无通配符时为精确匹配整串。
+    """
+    pp = pattern.split(".")
+    rp = routing_key.split(".")
+
+    def rec(i: int, j: int) -> bool:
+        if i == len(pp):
+            return j == len(rp)
+        if pp[i] == "#":
+            for k in range(j, len(rp) + 1):
+                if rec(i + 1, k):
+                    return True
+            return False
+        if j >= len(rp):
+            return False
+        if pp[i] != "*" and pp[i] != rp[j]:
+            return False
+        return rec(i + 1, j + 1)
+
+    return rec(0, 0)
+
+
+class InMemoryWorkflowBroker:
+    """进程内 Workflow broker：支持 topic 匹配与多队列（广播 + 每 Agent 定向 + 死信）。
+
+    语义与 PikaWorkflowBroker 对齐，供单测与离线降级使用。
+    """
+
+    def __init__(self, namespace: str = WORKFLOW_DEFAULT_NAMESPACE):
+        self.topology = WorkflowTopology(namespace)
+        self._lock = threading.Lock()
+        # queue_name -> [routing pattern, ...]
+        self._bindings: dict[str, list[str]] = {}
+        self._queues: dict[str, list[bytes]] = {}
+        self._dead: list[bytes] = []
+        self.published = 0
+        self._default_topology_declared = False
+
+    def declare_topology(self) -> None:
+        if not self._default_topology_declared:
+            self._declare_queue(self.topology.broadcast_queue,
+                                self.topology.broadcast_pattern())
+            self._declare_queue(self.topology.dead_queue, None)
+            self._default_topology_declared = True
+
+    def declare_agent_queue(self, agent_id: str) -> None:
+        self._declare_queue(self.topology.agent_queue(agent_id),
+                            self.topology.agent_pattern(agent_id))
+
+    def _declare_queue(self, queue_name: str, pattern: str | None) -> None:
+        with self._lock:
+            if queue_name not in self._queues:
+                self._queues[queue_name] = []
+            if pattern is not None:
+                binds = self._bindings.setdefault(queue_name, [])
+                if pattern not in binds:
+                    binds.append(pattern)
+
+    def publish_raw(self, routing_key: str, body: bytes) -> bool:
+        """按 routing key 投递到所有匹配绑定的队列。"""
+        with self._lock:
+            self.published += 1
+            for queue_name, patterns in self._bindings.items():
+                if any(_topic_match(p, routing_key) for p in patterns):
+                    self._queues.setdefault(queue_name, []).append(body)
+        return True
+
+    def publish(self, routing_key: str, message: WorkflowMessage) -> bool:
+        return self.publish_raw(routing_key, message.to_bytes())
+
+    def queue_depth(self, queue: str, dead: bool = False) -> int:
+        with self._lock:
+            if dead:
+                return len(self._dead)
+            return len(self._queues.get(queue, []))
+
+    def dead_letters(self) -> list[bytes]:
+        with self._lock:
+            return list(self._dead)
+
+    def purge(self) -> None:
+        with self._lock:
+            for q in self._queues:
+                self._queues[q].clear()
+            self._dead.clear()
+
+    def consume(self, queue_name: str, handler: WorkflowMessageHandler, *,
+                max_messages: int | None = None,
+                idle_timeout: float | None = None,
+                stop: threading.Event | None = None) -> dict:
+        stats = {"consumed": 0, "acked": 0, "dead": 0}
+        deadline = time.monotonic() + (idle_timeout or 0) if idle_timeout else None
+        while True:
+            if stop is not None and stop.is_set():
+                break
+            if max_messages is not None and stats["consumed"] >= max_messages:
+                break
+            with self._lock:
+                q = self._queues.get(queue_name)
+                body = q.pop(0) if q else None
+            if body is None:
+                if deadline is None or time.monotonic() >= deadline:
+                    break
+                time.sleep(0.01)
+                continue
+            stats["consumed"] += 1
+            if self._dispatch(handler, body):
+                stats["acked"] += 1
+            else:
+                with self._lock:
+                    self._dead.append(body)
+                stats["dead"] += 1
+        return stats
+
+    def _dispatch(self, handler: WorkflowMessageHandler, body: bytes) -> bool:
+        try:
+            msg = WorkflowMessage.from_bytes(body)
+        except MQMessageError as e:
+            log.warning("丢弃 Workflow 毒消息（载荷非法）：%s", e)
+            return False
+        try:
+            return bool(handler(msg))
+        except Exception:
+            log.exception("Workflow 消息处理抛出未预期异常，转入死信：event=%s "
+                          "entity=%s#%s", msg.event, msg.entity_type, msg.entity_id)
+            return False
+
+    def close(self) -> None:
+        return None
+
+
+class PikaWorkflowBroker:
+    """基于 pika BlockingConnection 的 Workflow 事件总线实现（topic 语义）。
+
+    非线程安全（BlockingConnection 固有限制）：经 ``WorkflowPublisher`` 加锁串行化，
+    或每线程各持实例。
+    """
+
+    def __init__(self, config: MQConfig,
+                 namespace: str = WORKFLOW_DEFAULT_NAMESPACE):
+        if not config.enabled:
+            raise MQUnavailable("未配置 AGENTBOARD_MQ_URL，消息总线未启用")
+        self.config = config
+        self.topology = WorkflowTopology(namespace)
+        self._conn = None
+        self._channel = None
+        self._declared = False
+        self._declared_agents: set[str] = set()
+
+    # ---------- 连接（与 PikaBroker 同构） ----------
+
+    @staticmethod
+    def _pika():
+        try:
+            import pika  # noqa: PLC0415 - 惰性导入，未启用 MQ 时不应硬依赖
+        except ImportError as e:
+            raise MQUnavailable(f"未安装 pika，无法接入 RabbitMQ：{e}") from None
+        return pika
+
+    def _connect(self):
+        pika = self._pika()
+        try:
+            params = pika.URLParameters(self.config.url)
+            params.socket_timeout = self.config.connect_timeout
+            params.blocked_connection_timeout = self.config.connect_timeout
+            self._conn = pika.BlockingConnection(params)
+            self._channel = self._conn.channel()
+            self._channel.confirm_delivery()
+        except MQUnavailable:
+            raise
+        except Exception as e:
+            self._conn = self._channel = None
+            raise MQUnavailable(f"连接 RabbitMQ 失败（{self.config.url}）：{e}") from None
+        return self._channel
+
+    @property
+    def channel(self):
+        if self._channel is None or self._channel.is_closed:
+            self._declared = False
+            return self._connect()
+        return self._channel
+
+    def close(self) -> None:
+        try:
+            if self._conn is not None and self._conn.is_open:
+                self._conn.close()
+        except Exception:  # pragma: no cover - 关闭期异常无需上抛
+            log.debug("关闭 RabbitMQ 连接时出错", exc_info=True)
+        finally:
+            self._conn = self._channel = None
+            self._declared = False
+            self._declared_agents.clear()
+
+    def __enter__(self) -> "PikaWorkflowBroker":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+    # ---------- 拓扑 ----------
+
+    def declare_topology(self, force: bool = False) -> None:
+        """幂等声明 topic 交换机、广播队列、死信交换机与死信队列。"""
+        if self._declared and not force:
+            return
+        ch = self.channel
+        t = self.topology
+        ch.exchange_declare(t.dlx_exchange, exchange_type="direct", durable=True)
+        ch.queue_declare(t.dead_queue, durable=True)
+        ch.queue_bind(t.dead_queue, t.dlx_exchange, routing_key=ROUTING_DEAD)
+        ch.exchange_declare(t.exchange, exchange_type="topic", durable=True)
+        ch.queue_declare(t.broadcast_queue, durable=True, arguments=t.queue_arguments)
+        ch.queue_bind(t.broadcast_queue, t.exchange,
+                      routing_key=t.broadcast_pattern())
+        self._declared = True
+
+    def declare_agent_queue(self, agent_id: str) -> None:
+        """幂等声明某 Agent 的定向队列并绑定（随 Agent 注册调用）。"""
+        if agent_id in self._declared_agents:
+            return
+        t = self.topology
+        qname = t.agent_queue(agent_id)
+        ch = self.channel
+        ch.queue_declare(qname, durable=True, arguments=t.queue_arguments)
+        ch.queue_bind(qname, t.exchange, routing_key=t.agent_pattern(agent_id))
+        self._declared_agents.add(agent_id)
+
+    def queue_depth(self, queue_name: str, dead: bool = False) -> int:
+        self.declare_topology()
+        name = self.topology.dead_queue if dead else queue_name
+        res = self.channel.queue_declare(name, durable=True, passive=True)
+        return int(res.method.message_count)
+
+    def purge(self) -> None:
+        self.declare_topology()
+        t = self.topology
+        self.channel.queue_purge(t.broadcast_queue)
+        self.channel.queue_purge(t.dead_queue)
+        for agent_id in list(self._declared_agents):
+            self.channel.queue_purge(t.agent_queue(agent_id))
+
+    def teardown(self) -> None:
+        """删除本命名空间的队列与交换机——测试收尾用，避免污染共享 broker。"""
+        try:
+            ch = self.channel
+            t = self.topology
+            ch.queue_delete(t.broadcast_queue)
+            ch.queue_delete(t.dead_queue)
+            for agent_id in list(self._declared_agents):
+                ch.queue_delete(t.agent_queue(agent_id))
+            ch.exchange_delete(t.exchange)
+            ch.exchange_delete(t.dlx_exchange)
+        except Exception:  # pragma: no cover
+            log.debug("清理 Workflow MQ 拓扑失败", exc_info=True)
+
+    # ---------- 发布 ----------
+
+    def publish(self, routing_key: str, message: WorkflowMessage) -> bool:
+        return self.publish_raw(routing_key, message.to_bytes())
+
+    def publish_raw(self, routing_key: str, body: bytes) -> bool:
+        pika = self._pika()
+        self.declare_topology()
+        props = pika.BasicProperties(
+            content_type="application/json",
+            delivery_mode=2,  # 持久化：broker 重启不丢消息
+        )
+        try:
+            self.channel.basic_publish(
+                exchange=self.topology.exchange,
+                routing_key=routing_key,
+                body=body,
+                properties=props,
+                mandatory=True,
+            )
+        except Exception as e:
+            raise MQError(f"发布 Workflow 消息失败：{e}") from None
+        return True
+
+    # ---------- 消费 ----------
+
+    def consume(self, queue_name: str, handler: WorkflowMessageHandler, *,
+                max_messages: int | None = None,
+                idle_timeout: float | None = None,
+                stop: threading.Event | None = None) -> dict:
+        """从指定队列竞争消费。
+
+        ``prefetch=1`` 让 broker 按「谁空闲谁拿」分发；handler 返回 False 或抛异常
+        即 nack(requeue=False) 落入死信队列。
+        """
+        self.declare_topology()
+        ch = self.channel
+        ch.basic_qos(prefetch_count=max(1, self.config.prefetch))
+        stats = {"consumed": 0, "acked": 0, "dead": 0}
+        tick = 0.5 if idle_timeout is None else min(0.5, max(0.05, idle_timeout))
+        idle_started = time.monotonic()
+        try:
+            for method, _props, body in ch.consume(
+                queue_name, inactivity_timeout=tick,
+            ):
+                if method is None:  # 空闲心跳
+                    if stop is not None and stop.is_set():
+                        break
+                    if (idle_timeout is not None
+                            and time.monotonic() - idle_started >= idle_timeout):
+                        break
+                    continue
+                idle_started = time.monotonic()
+                stats["consumed"] += 1
+                ok = self._dispatch(handler, body)
+                if ok:
+                    ch.basic_ack(method.delivery_tag)
+                    stats["acked"] += 1
+                else:
+                    ch.basic_nack(method.delivery_tag, requeue=False)
+                    stats["dead"] += 1
+                if stop is not None and stop.is_set():
+                    break
+                if max_messages is not None and stats["consumed"] >= max_messages:
+                    break
+        finally:
+            try:
+                ch.cancel()
+            except Exception:  # pragma: no cover
+                log.debug("取消 Workflow 消费者失败", exc_info=True)
+        return stats
+
+    def _dispatch(self, handler: WorkflowMessageHandler, body: bytes) -> bool:
+        try:
+            msg = WorkflowMessage.from_bytes(body)
+        except MQMessageError as e:
+            log.warning("丢弃 Workflow 毒消息（载荷非法），转入死信队列：%s", e)
+            return False
+        try:
+            return bool(handler(msg))
+        except Exception:
+            log.exception("Workflow 消息处理抛出未预期异常，转入死信：event=%s",
+                          msg.event)
+            return False
+
+
+# ===================== Workflow 发布器（API 侧） =====================
+
+class WorkflowPublisher:
+    """Workflow 事件发布器：**best-effort**，永不让 MQ 故障影响 REST 返回。
+
+    - 加锁串行化：BlockingConnection 非线程安全，而 FastAPI 同步端点跑在线程池里；
+    - 断线自愈：发布失败先重连再试一次，仍失败则记告警返回 False；
+    - 未启用（未配置 URL / 未注入 broker）时所有调用都是静默 no-op 返回 False，
+      调用方回退轮询，正确性不变。
+    """
+
+    def __init__(self, config: MQConfig | None = None,
+                 broker: Any | None = None,
+                 namespace: str = WORKFLOW_DEFAULT_NAMESPACE):
+        self.config = config or MQConfig.from_env()
+        self._namespace = namespace
+        self._lock = threading.Lock()
+        self._broker = broker
+        self._injected = broker is not None
+
+    @property
+    def enabled(self) -> bool:
+        return self._injected or self.config.enabled
+
+    @property
+    def topology(self) -> WorkflowTopology:
+        return WorkflowTopology(self._namespace)
+
+    def _get_broker(self):
+        if self._broker is None:
+            self._broker = PikaWorkflowBroker(self.config, self._namespace)
+        return self._broker
+
+    def publish(self, event: str, entity_type: str, entity_id: int,
+                ref_id: int | None = None, *, agent_id: str | None = None) -> bool:
+        """发布一条工作流事件。
+
+        - ``agent_id`` 非空 → 定向投递到该 Agent 队列（review.requested 等）；
+        - ``agent_id`` 为空 → 广播（story.created / story.ready / task.* 认领型）；
+        - 返回是否投递成功；失败仅告警，不抛异常。
+        """
+        if not self.enabled:
+            return False
+        if event not in WORKFLOW_EVENTS:
+            log.warning("拒绝发布未知事件类型：%r", event)
+            return False
+        msg = WorkflowMessage(
+            event=event, entity_type=entity_type, entity_id=int(entity_id),
+            ref_id=None if ref_id is None else int(ref_id),
+            ts=datetime.now(timezone.utc).isoformat(),
+        )
+        routing_key = (self.topology.agent_routing(agent_id)
+                       if agent_id else self.topology.broadcast_routing(event))
+        with self._lock:
+            for attempt in (1, 2):
+                try:
+                    return bool(self._get_broker().publish(routing_key, msg))
+                except Exception as e:
+                    log.warning("发布工作流事件 %s 失败（第 %s 次）：%s",
+                                event, attempt, e)
+                    if self._injected or attempt == 2:
+                        break
+                    # 连接可能已失效，丢弃后重建再试一次
+                    try:
+                        self._broker.close()  # type: ignore[union-attr]
+                    except Exception:
+                        pass
+                    self._broker = None
+        return False
+
+    def close(self) -> None:
+        with self._lock:
+            if self._broker is not None and not self._injected:
+                try:
+                    self._broker.close()
+                except Exception:  # pragma: no cover
+                    pass
+            self._broker = None
+
+
+_workflow_publisher: WorkflowPublisher | None = None
+_workflow_publisher_lock = threading.Lock()
+
+
+def get_workflow_publisher() -> WorkflowPublisher:
+    """进程级单例 Workflow 发布器（按首次调用时的环境变量初始化）。"""
+    global _workflow_publisher
+    if _workflow_publisher is None:
+        with _workflow_publisher_lock:
+            if _workflow_publisher is None:
+                _workflow_publisher = WorkflowPublisher()
+    return _workflow_publisher
+
+
+def set_workflow_publisher(publisher: WorkflowPublisher | None) -> None:
+    """注入/重置发布器——测试用。"""
+    global _workflow_publisher
+    with _workflow_publisher_lock:
+        if _workflow_publisher is not None and publisher is not _workflow_publisher:
+            try:
+                _workflow_publisher.close()
+            except Exception:  # pragma: no cover
+                pass
+        _workflow_publisher = publisher
+
+
+def publish_workflow_event(event: str, entity_type: str, entity_id: int,
+                           ref_id: int | None = None, *,
+                           agent_id: str | None = None) -> bool:
+    """给 API 层用的一行式发布入口：**任何情况下都不抛异常**。"""
+    try:
+        return get_workflow_publisher().publish(
+            event, entity_type, entity_id, ref_id, agent_id=agent_id)
+    except Exception:  # pragma: no cover - 兜底，MQ 绝不影响主流程
+        log.warning("发布工作流事件 %s 时出现未预期异常", event, exc_info=True)
+        return False
