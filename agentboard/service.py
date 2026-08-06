@@ -1473,6 +1473,21 @@ def list_notifications(
     return _paginate(q.order_by(Notification.created_at.desc()), limit, offset).all(), total
 
 
+def search_notifications(s: Session, user_id: int, q: str, limit: int = 20):
+    """当前用户通知关键词搜索（title/content），供命令面板等场景使用（v6.15）。
+
+    通知属用户隐私数据，必须按 user_id 隔离，仅返回本人通知。
+    """
+    like = f"%{q}%"
+    qry = (
+        s.query(Notification)
+        .filter(Notification.user_id == user_id,
+                or_(Notification.title.ilike(like), Notification.content.ilike(like)))
+        .order_by(Notification.created_at.desc())
+    )
+    return qry.limit(limit).all()
+
+
 def mark_notification_read(s: Session, notif_id: int, user_id: int) -> Notification | None:
     n = s.get(Notification, notif_id)
     if not n or n.user_id != user_id:

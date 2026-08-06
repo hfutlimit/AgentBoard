@@ -511,6 +511,10 @@ export class ApiService {
       tap(data => apiCache.set(cacheKey, data))
     );
   }
+  /** Epic 121 v6.15: 当前用户通知关键词搜索（命令面板补齐第 7 类实体；后端按 user_id 隔离） */
+  searchNotifications(params: { q: string; limit?: number }) {
+    return this.request<Notification[]>('GET', '/api/search/notifications', undefined, params);
+  }
   getTask(id: number) {
     return this.request<Task>('GET', `/api/tasks/${id}`);
   }

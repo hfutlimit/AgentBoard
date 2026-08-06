@@ -671,4 +671,66 @@ describe('App', () => {
       app.paletteOpen.set(false);
     });
   });
+
+  describe('Epic 121 v6.15 命令面板通知搜索', () => {
+    it('paletteItems 合并通知搜索结果（category=notification）且短查询清空', () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteQuery.set('分配');
+      app.paletteNotificationResults.set([
+        {
+          id: 'notification-9',
+          title: '通知 #9：任务 #101 已分配给你',
+          hint: '任务分配 · 未读 · /task/101',
+          category: 'notification',
+          keywords: 'notification 通知 9',
+          run: () => {},
+        },
+      ]);
+      const items = app.paletteItems();
+      const notif = items.find((i) => i.id === 'notification-9');
+      expect(notif).toBeTruthy();
+      expect(notif?.category).toBe('notification');
+      // 短查询清空分支：<2 字符 → 通知结果清空
+      app.paletteRunSearch('x');
+      expect(app.paletteNotificationResults()).toEqual([]);
+    });
+
+    it('渲染通知分类标签（.cat-notification → "通知"）', async () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteOpen.set(true);
+      app.paletteQuery.set('分配');
+      app.paletteNotificationResults.set([
+        {
+          id: 'notification-9',
+          title: '通知 #9：任务 #101 已分配给你',
+          hint: '任务分配 · 未读 · /task/101',
+          category: 'notification',
+          keywords: 'notification 通知 9',
+          run: () => {},
+        },
+      ]);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+      const cat = el.querySelector('.palette-item-cat.cat-notification');
+      expect(cat).toBeTruthy();
+      expect(cat?.textContent?.trim()).toBe('通知');
+      expect(el.textContent).toContain('通知 #9：任务 #101 已分配给你');
+      app.paletteOpen.set(false);
+    });
+
+    it('openPalette / closePalette 清空通知结果', () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteNotificationResults.set([{ id: 'n1', title: 't', category: 'notification', run: () => {} }]);
+      app.openPalette();
+      expect(app.paletteNotificationResults()).toEqual([]);
+      app.paletteNotificationResults.set([{ id: 'n1', title: 't', category: 'notification', run: () => {} }]);
+      app.closePalette();
+      expect(app.paletteNotificationResults()).toEqual([]);
+    });
+  });
 });

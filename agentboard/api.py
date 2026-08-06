@@ -1208,6 +1208,19 @@ def search_sprints_api(
     return [service._ser(x) for x in rows]
 
 
+# 当前用户通知关键词搜索（命令面板等场景，v6.15）；通知属隐私数据，必须带鉴权且仅返回本人通知
+@app.get("/api/search/notifications")
+def search_notifications_api(
+    q: str = Query(..., min_length=1, description="关键词"),
+    limit: int = Query(20, ge=1, le=50),
+    s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
+):
+    uid = _current_user(authorization, s, required_permission="api:read").id
+    rows = service.search_notifications(s, user_id=uid, q=q, limit=limit)
+    return [service._ser(n) for n in rows]
+
+
 # ---------- Sprint ----------
 @app.get("/api/projects/{pid}/sprints")
 def list_sprints(pid: int, s: Session = Depends(get_session),

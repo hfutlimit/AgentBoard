@@ -59,7 +59,7 @@ interface PaletteCommand {
   title: string;
   hint?: string;
   keywords?: string;
-  category?: 'command' | 'task' | 'project' | 'story' | 'document' | 'epic' | 'sprint';
+  category?: 'command' | 'task' | 'project' | 'story' | 'document' | 'epic' | 'sprint' | 'notification';
   run: () => void;
 }
 
@@ -340,6 +340,7 @@ export class App implements OnInit, OnDestroy {
   readonly paletteDocumentResults = signal<PaletteCommand[]>([]);
   readonly paletteEpicResults = signal<PaletteCommand[]>([]);
   readonly paletteSprintResults = signal<PaletteCommand[]>([]);
+  readonly paletteNotificationResults = signal<PaletteCommand[]>([]);
   private paletteDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   readonly createdKeyPlaintext = signal('');
   // Epic 22: 任务依赖
@@ -4476,6 +4477,7 @@ export class App implements OnInit, OnDestroy {
     this.paletteDocumentResults.set([]);
     this.paletteEpicResults.set([]);
     this.paletteSprintResults.set([]);
+    this.paletteNotificationResults.set([]);
     this.paletteSearching.set(false);
     this.paletteOpen.set(true);
     setTimeout(() => {
@@ -4502,6 +4504,7 @@ export class App implements OnInit, OnDestroy {
     this.paletteDocumentResults.set([]);
     this.paletteEpicResults.set([]);
     this.paletteSprintResults.set([]);
+    this.paletteNotificationResults.set([]);
     this.paletteSearching.set(false);
   }
 
@@ -4527,6 +4530,7 @@ export class App implements OnInit, OnDestroy {
       this.paletteDocumentResults.set([]);
       this.paletteEpicResults.set([]);
       this.paletteSprintResults.set([]);
+      this.paletteNotificationResults.set([]);
       this.paletteSearching.set(false);
       return;
     }
@@ -4629,6 +4633,22 @@ export class App implements OnInit, OnDestroy {
       .catch(() => {
         this.paletteSprintResults.set([]);
       });
+    // 通知（Epic 121 v6.15）：后端 /api/search/notifications 搜索当前用户通知
+    firstValueFrom(this.api.searchNotifications({ q: query, limit: 10 }))
+      .then((notifs) => {
+        const cmds: PaletteCommand[] = (notifs || []).map((n) => ({
+          id: `notification-${n.id}`,
+          title: `通知 #${n.id}：${(n.title || '').slice(0, 60)}`,
+          hint: `${this.notifTypeLabel(n.type)}${n.is_read ? '' : ' · 未读'}${n.link ? ' · ' + n.link : ''}`,
+          category: 'notification',
+          keywords: `notification tongzhi 通知 ${n.id} ${n.title} ${n.content || ''}`,
+          run: () => { void this.openNotification(n); },
+        }));
+        this.paletteNotificationResults.set(cmds);
+      })
+      .catch(() => {
+        this.paletteNotificationResults.set([]);
+      });
   }
 
   /** 构建命令列表（含基于 recentProjects 的动态命令）。在 computed 内访问以跟踪信号变化。 */
@@ -4702,7 +4722,7 @@ export class App implements OnInit, OnDestroy {
     const all = this.buildPaletteCommands();
     const q = this.paletteQuery().trim().toLowerCase();
     if (!q) return all;
-    // 后端搜索结果（任务 + 项目 + Story + 文档 + Epic + Sprint）
+    // 后端搜索结果（任务 + 项目 + Story + 文档 + Epic + Sprint + 通知）
     const results = [
       ...this.paletteTaskResults(),
       ...this.paletteProjectResults(),
@@ -4710,6 +4730,7 @@ export class App implements OnInit, OnDestroy {
       ...this.paletteDocumentResults(),
       ...this.paletteEpicResults(),
       ...this.paletteSprintResults(),
+      ...this.paletteNotificationResults(),
     ];
     const staticMatches = all.filter((c) => `${c.title} ${c.keywords || ''} ${c.hint || ''}`.toLowerCase().includes(q));
     // 命中命令时命令优先（保持 Enter 执行命令的既有行为），后端实体结果作为补充列于其后；
