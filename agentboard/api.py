@@ -1197,6 +1197,17 @@ def search_epics_api(
     return [service._ser(x) for x in rows]
 
 
+# 全局 Sprint 关键词搜索（命令面板等场景，v6.14）；路径用 /api/search/sprints 避免与 /api/projects/{pid}/sprints 冲突
+@app.get("/api/search/sprints")
+def search_sprints_api(
+    q: str = Query(..., min_length=1, description="关键词"),
+    limit: int = Query(20, ge=1, le=50),
+    s: Session = Depends(get_session),
+):
+    rows = service.search_sprints(s, q=q, limit=limit)
+    return [service._ser(x) for x in rows]
+
+
 # ---------- Sprint ----------
 @app.get("/api/projects/{pid}/sprints")
 def list_sprints(pid: int, s: Session = Depends(get_session),

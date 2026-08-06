@@ -59,7 +59,7 @@ interface PaletteCommand {
   title: string;
   hint?: string;
   keywords?: string;
-  category?: 'command' | 'task' | 'project' | 'story' | 'document' | 'epic';
+  category?: 'command' | 'task' | 'project' | 'story' | 'document' | 'epic' | 'sprint';
   run: () => void;
 }
 
@@ -339,6 +339,7 @@ export class App implements OnInit, OnDestroy {
   readonly paletteStoryResults = signal<PaletteCommand[]>([]);
   readonly paletteDocumentResults = signal<PaletteCommand[]>([]);
   readonly paletteEpicResults = signal<PaletteCommand[]>([]);
+  readonly paletteSprintResults = signal<PaletteCommand[]>([]);
   private paletteDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   readonly createdKeyPlaintext = signal('');
   // Epic 22: 任务依赖
@@ -4474,6 +4475,7 @@ export class App implements OnInit, OnDestroy {
     this.paletteStoryResults.set([]);
     this.paletteDocumentResults.set([]);
     this.paletteEpicResults.set([]);
+    this.paletteSprintResults.set([]);
     this.paletteSearching.set(false);
     this.paletteOpen.set(true);
     setTimeout(() => {
@@ -4499,6 +4501,7 @@ export class App implements OnInit, OnDestroy {
     this.paletteStoryResults.set([]);
     this.paletteDocumentResults.set([]);
     this.paletteEpicResults.set([]);
+    this.paletteSprintResults.set([]);
     this.paletteSearching.set(false);
   }
 
@@ -4523,6 +4526,7 @@ export class App implements OnInit, OnDestroy {
       this.paletteStoryResults.set([]);
       this.paletteDocumentResults.set([]);
       this.paletteEpicResults.set([]);
+      this.paletteSprintResults.set([]);
       this.paletteSearching.set(false);
       return;
     }
@@ -4609,6 +4613,22 @@ export class App implements OnInit, OnDestroy {
       .catch(() => {
         this.paletteEpicResults.set([]);
       });
+    // Sprint（Epic 120 v6.14）：后端 /api/search/sprints 搜索
+    firstValueFrom(this.api.searchSprints({ q: query, limit: 10 }))
+      .then((sprints) => {
+        const cmds: PaletteCommand[] = (sprints || []).map((sp) => ({
+          id: `sprint-${sp.id}`,
+          title: `Sprint #${sp.id}：${(sp.title || '').slice(0, 60)}`,
+          hint: `${this.projectName(sp.project_id)} · ${this.sprintStatusLabel(sp.status || '')}`,
+          category: 'sprint',
+          keywords: `sprint ${sp.id} ${sp.title}`,
+          run: () => { void this.router.navigateByUrl(`/sprint/${sp.id}`); },
+        }));
+        this.paletteSprintResults.set(cmds);
+      })
+      .catch(() => {
+        this.paletteSprintResults.set([]);
+      });
   }
 
   /** 构建命令列表（含基于 recentProjects 的动态命令）。在 computed 内访问以跟踪信号变化。 */
@@ -4682,13 +4702,14 @@ export class App implements OnInit, OnDestroy {
     const all = this.buildPaletteCommands();
     const q = this.paletteQuery().trim().toLowerCase();
     if (!q) return all;
-    // 后端搜索结果（任务 + 项目 + Story + 文档 + Epic）
+    // 后端搜索结果（任务 + 项目 + Story + 文档 + Epic + Sprint）
     const results = [
       ...this.paletteTaskResults(),
       ...this.paletteProjectResults(),
       ...this.paletteStoryResults(),
       ...this.paletteDocumentResults(),
       ...this.paletteEpicResults(),
+      ...this.paletteSprintResults(),
     ];
     const staticMatches = all.filter((c) => `${c.title} ${c.keywords || ''} ${c.hint || ''}`.toLowerCase().includes(q));
     // 命中命令时命令优先（保持 Enter 执行命令的既有行为），后端实体结果作为补充列于其后；

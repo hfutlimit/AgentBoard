@@ -620,4 +620,55 @@ describe('App', () => {
       expect(app.tasks()).toEqual([]);
     });
   });
+
+  describe('Epic 120 v6.14 命令面板 Sprint 搜索', () => {
+    it('paletteItems 合并 Sprint 搜索结果（category=sprint）且短查询清空', () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteQuery.set('迭代');
+      app.paletteSprintResults.set([
+        {
+          id: 'sprint-5',
+          title: 'Sprint #5：迭代发布',
+          hint: 'AgentBoard · planning',
+          category: 'sprint',
+          keywords: 'sprint 5',
+          run: () => {},
+        },
+      ]);
+      const items = app.paletteItems();
+      const sprint = items.find((i) => i.id === 'sprint-5');
+      expect(sprint).toBeTruthy();
+      expect(sprint?.category).toBe('sprint');
+      // 短查询清空分支：<2 字符 → Sprint 结果清空
+      app.paletteRunSearch('x');
+      expect(app.paletteSprintResults()).toEqual([]);
+    });
+
+    it('渲染 Sprint 分类标签（.cat-sprint → "Sprint"）', async () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteOpen.set(true);
+      app.paletteQuery.set('迭代');
+      app.paletteSprintResults.set([
+        {
+          id: 'sprint-5',
+          title: 'Sprint #5：迭代发布',
+          hint: 'AgentBoard · planning',
+          category: 'sprint',
+          keywords: 'sprint 5',
+          run: () => {},
+        },
+      ]);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+      const cat = el.querySelector('.palette-item-cat.cat-sprint');
+      expect(cat).toBeTruthy();
+      expect(cat?.textContent?.trim()).toBe('Sprint');
+      expect(el.textContent).toContain('Sprint #5：迭代发布');
+      app.paletteOpen.set(false);
+    });
+  });
 });

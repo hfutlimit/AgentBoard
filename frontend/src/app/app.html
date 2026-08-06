@@ -3588,7 +3588,7 @@
             (click)="paletteRun(cmd)"
           >
             @if (cmd.category) {
-              <span class="palette-item-cat cat-{{ cmd.category }}">{{ cmd.category === 'task' ? '任务' : cmd.category === 'project' ? '项目' : cmd.category === 'story' ? 'Story' : cmd.category === 'document' ? '文档' : cmd.category === 'epic' ? 'Epic' : '命令' }}</span>
+              <span class="palette-item-cat cat-{{ cmd.category }}">{{ cmd.category === 'task' ? '任务' : cmd.category === 'project' ? '项目' : cmd.category === 'story' ? 'Story' : cmd.category === 'document' ? '文档' : cmd.category === 'epic' ? 'Epic' : cmd.category === 'sprint' ? 'Sprint' : '命令' }}</span>
             }
             <span class="palette-item-title">{{ cmd.title }}</span>
             @if (cmd.hint) {

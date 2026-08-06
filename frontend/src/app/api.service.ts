@@ -502,6 +502,15 @@ export class ApiService {
       tap(data => apiCache.set(cacheKey, data))
     );
   }
+  /** Epic 120 v6.14: 全局 Sprint 关键词搜索（命令面板补齐第 6 类实体） */
+  searchSprints(params: { q: string; limit?: number }) {
+    const cacheKey = `/api/search/sprints?q=${params.q}&limit=${params.limit ?? 20}`;
+    const cached = apiCache.getWithTTL<any[]>(cacheKey, 30000);
+    if (cached) return of(cached);
+    return this.request<any[]>('GET', '/api/search/sprints', undefined, params).pipe(
+      tap(data => apiCache.set(cacheKey, data))
+    );
+  }
   getTask(id: number) {
     return this.request<Task>('GET', `/api/tasks/${id}`);
   }
