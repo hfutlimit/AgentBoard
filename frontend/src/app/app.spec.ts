@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { of, Subject } from 'rxjs';
+import { delay, tap } from 'rxjs/operators';
 import { vi } from 'vitest';
 
 import { ApiService } from './api.service';
@@ -547,6 +548,76 @@ describe('App', () => {
       });
       const result = await app.parallelMap([1, 2, 3, 4], 2, fn);
       expect(result).toEqual([1, 3, 4]);
+    });
+  });
+
+  describe('loadEpicProgressData 并发分片治理（Epic 117 S3 / Task 997）', () => {
+    const ep1: Epic = { id: 31, project_id: 7, title: 'Epic X', description: '', status: 'in_progress', created_at: '2026-08-01T00:00:00' };
+    const ep2: Epic = { id: 32, project_id: 7, title: 'Epic Y', description: '', status: 'backlog', created_at: '2026-08-01T00:00:00' };
+    const st1: Story = { id: 41, epic_id: 31, title: 'Story X1', description: '', status: 'todo', created_at: '2026-08-01T00:00:00' };
+    const st2: Story = { id: 42, epic_id: 32, title: 'Story Y1', description: '', status: 'in_review', created_at: '2026-08-01T00:00:00' };
+    const t1: Task = { id: 51, project_id: 7, story_id: 41, sprint_id: null, type: 'task', title: 'Task X1-1', status: 'done', priority: 'medium', description: '', spec: '', source_spec_id: null, due_date: null, assignee_id: null, labels: '[]', estimate: null, created_at: '2026-08-01T00:00:00', updated_at: '2026-08-01T00:00:00' };
+
+    function createProjectApp(overrides: Record<string, unknown>): { app: any; listStories: ReturnType<typeof vi.fn>; listTasks: ReturnType<typeof vi.fn> } {
+      const listStories = vi.fn((eid: number) => of(eid === 31 ? [st1] : eid === 32 ? [st2] : []));
+      const listTasks = vi.fn((sid: number) => of(sid === 41 ? [t1] : []));
+      const apiMock = {
+        baseUrl: 'http://test',
+        listProjects: () => of([]),
+        getOverview: () => of(null as unknown as OverviewStats),
+        listEpics: (pid: number) => of(pid === 7 ? [ep1, ep2] : []),
+        listStories,
+        listTasks,
+        ...overrides,
+      };
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance as any;
+      app.api = apiMock;
+      app.project.set({ id: 7, name: 'Analytics Project', key: 'AP', description: '', is_private: false, created_at: '2026-08-01T00:00:00' });
+      app.projectTabGeneration = 1;
+      app.view.set('project');
+      return { app, listStories, listTasks };
+    }
+
+    it('两级加载均使用分片：并发上限不超过 6', async () => {
+      const { app } = createProjectApp({});
+      // 覆盖 listStories 为带并发计数的延迟 Observable，观测峰值并发
+      let active = 0;
+      let peak = 0;
+      app.api.listStories = vi.fn((eid: number) => {
+        active++;
+        peak = Math.max(peak, active);
+        return of(eid === 31 ? [st1] : eid === 32 ? [st2] : []).pipe(
+          delay(20),
+          tap(() => {
+            active--;
+          }),
+        );
+      });
+      await app.loadEpicProgressData(7, [ep1, ep2], 1);
+      expect(peak).toBeLessThanOrEqual(6);
+      expect(app.stories()).toEqual([st1, st2]);
+      expect(app.tasks()).toEqual([t1]);
+    });
+
+    it('单项失败跳过、成功项保留，不中断整段（任务级仍填充）', async () => {
+      const { app } = createProjectApp({});
+      // ep2 的 listStories 失败 → stories 保留 st1，tasks 继续加载 st1 的任务
+      app.api.listStories = vi.fn((eid: number) => {
+        if (eid === 32) throw new Error('boom');
+        return of([st1]);
+      });
+      await app.loadEpicProgressData(7, [ep1, ep2], 1);
+      expect(app.stories()).toEqual([st1]);
+      expect(app.tasks()).toEqual([t1]);
+    });
+
+    it('story 视图不写全局 tasks()（契约不变）', async () => {
+      const { app, listTasks } = createProjectApp({});
+      app.view.set('story');
+      await app.loadEpicProgressData(7, [ep1, ep2], 1);
+      expect(listTasks).toHaveBeenCalled();
+      expect(app.tasks()).toEqual([]);
     });
   });
 });

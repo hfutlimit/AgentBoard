@@ -1552,15 +1552,17 @@ export class App implements OnInit, OnDestroy {
     this.isOwner.set(membership?.role === 'owner');
   }
 
+  /** Epic 117 S3 (Task 997)：项目页 Epic 进度数据加载并发治理 ——
+   *  两级全量 Promise.all 改为 parallelMap 分片（≤6），避免瞬时请求风暴与「一损俱损」（单项失败跳过）。 */
   private async loadEpicProgressData(projectId: number, epics: Epic[], generation: number): Promise<void> {
     try {
       const stories = (
-        await Promise.all(epics.map((epic) => firstValueFrom(this.api.listStories(epic.id))))
+        await this.parallelMap(epics, 6, (epic) => firstValueFrom(this.api.listStories(epic.id)))
       ).flat();
       if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
       this.stories.set(stories);
       const tasks = (
-        await Promise.all(stories.map((story) => firstValueFrom(this.api.listTasks(story.id))))
+        await this.parallelMap(stories, 6, (story) => firstValueFrom(this.api.listTasks(story.id)))
       ).flat();
       // Story 视图使用 loadStoryTasks 独立加载自身任务；非 story 视图才写入全局 tasks()
       if (this.isCurrentProjectTabRequest(projectId, generation) && this.view() !== 'story') {
