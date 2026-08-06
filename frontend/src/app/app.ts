@@ -9,7 +9,7 @@ import { filter } from 'rxjs/operators';
 
 import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric, resolveApiBase } from './api.service';
 import { LoginComponent } from './login/login';
-import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES } from './models';
+import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, OverviewStats, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES } from './models';
 import { PaginationComponent } from './pagination/pagination';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'notifications' | 'admin' | 'settings' | 'not-found';
@@ -76,6 +76,8 @@ export class App implements OnInit, OnDestroy {
   readonly favoriteProjects = signal<Project[]>([]);
   private recentProjectIds: number[] = [];
   private favoriteProjectIds: Set<number> = new Set();
+  // Epic 117 (Task 995): 首页 Dashboard 单请求聚合统计（跨项目）
+  readonly overviewStats = signal<OverviewStats | null>(null);
   readonly epics = signal<Epic[]>([]);
   readonly stories = signal<Story[]>([]);
   readonly tasks = signal<Task[]>([]);
@@ -868,7 +870,12 @@ export class App implements OnInit, OnDestroy {
     this.collapsedGroups.set(new Set<string>());
     localStorage.setItem('agentboard_collapsed_groups', JSON.stringify([]));
   }
-  readonly doneTasks = computed(() => this.tasks().filter((t) => t.status === 'done').length);
+  readonly doneTasks = computed(() => this.overviewStats()?.counts.done_tasks ?? this.tasks().filter((t) => t.status === 'done').length);
+  // Epic 117 (Task 995): 首页统计卡数值，overview 优先、整树回退
+  readonly statProjects = computed(() => this.overviewStats()?.counts.projects ?? this.projects().length);
+  readonly statEpics = computed(() => this.overviewStats()?.counts.epics ?? this.epics().length);
+  readonly statStories = computed(() => this.overviewStats()?.counts.stories ?? this.stories().length);
+  readonly statTasks = computed(() => this.overviewStats()?.counts.tasks ?? this.tasks().length);
   readonly dashboardStatusChart = computed(() => {
     const definitions = [
       { status: 'backlog', label: '待规划', color: '#94a3b8' },
@@ -879,12 +886,16 @@ export class App implements OnInit, OnDestroy {
       { status: 'blocked', label: '已阻塞', color: '#ef4444' },
       { status: 'done', label: '已完成', color: '#10b981' },
     ];
+    const overview = this.overviewStats();
     const tasks = this.tasks();
-    const total = tasks.length;
+    const total = overview ? overview.counts.tasks : tasks.length;
+    const statusMap = overview
+      ? new Map(overview.status_distribution.map((row) => [row.status, row.count]))
+      : null;
     let cursor = 0;
     const segments = definitions
       .map((definition) => {
-        const count = tasks.filter((task) => task.status === definition.status).length;
+        const count = statusMap ? (statusMap.get(definition.status) ?? 0) : tasks.filter((task) => task.status === definition.status).length;
         const percent = total ? Math.round((count / total) * 100) : 0;
         const start = cursor;
         cursor += total ? (count / total) * 360 : 0;
@@ -897,20 +908,29 @@ export class App implements OnInit, OnDestroy {
     return { total, segments, gradient };
   });
 
-  readonly dashboardProjectProgress = computed(() => this.projects()
-    .map((project) => {
-      const tasks = this.tasks().filter((task) => task.project_id === project.id);
-      const done = tasks.filter((task) => task.status === 'done').length;
-      return {
-        id: project.id,
-        name: project.name,
-        total: tasks.length,
-        done,
-        percent: tasks.length ? Math.round((done / tasks.length) * 100) : 0,
-      };
-    })
-    .sort((left, right) => right.total - left.total || left.name.localeCompare(right.name))
-    .slice(0, 6));
+  readonly dashboardProjectProgress = computed(() => {
+    const overview = this.overviewStats();
+    if (overview) {
+      // 后端已按 total 降序并含 0 任务项目
+      return overview.projects
+        .slice(0, 6)
+        .map((p) => ({ id: p.id, name: p.name, total: p.total, done: p.done, percent: p.percent }));
+    }
+    return this.projects()
+      .map((project) => {
+        const tasks = this.tasks().filter((task) => task.project_id === project.id);
+        const done = tasks.filter((task) => task.status === 'done').length;
+        return {
+          id: project.id,
+          name: project.name,
+          total: tasks.length,
+          done,
+          percent: tasks.length ? Math.round((done / tasks.length) * 100) : 0,
+        };
+      })
+      .sort((left, right) => right.total - left.total || left.name.localeCompare(right.name))
+      .slice(0, 6);
+  });
 
   readonly dashboardActivity = computed(() => {
     const today = new Date();
@@ -919,14 +939,25 @@ export class App implements OnInit, OnDestroy {
       String(date.getMonth() + 1).padStart(2, '0'),
       String(date.getDate()).padStart(2, '0'),
     ].join('-');
-    const raw = Array.from({ length: 7 }, (_, index) => {
-      const date = new Date(today);
-      date.setHours(0, 0, 0, 0);
-      date.setDate(today.getDate() - (6 - index));
-      const key = dateKey(date);
-      const count = this.tasks().filter((task) => dateKey(new Date(task.updated_at)) === key).length;
-      return { key, label: date.toLocaleDateString('zh-CN', { weekday: 'short' }), count };
-    });
+    const overview = this.overviewStats();
+    let raw: Array<{ key: string; label: string; count: number }>;
+    if (overview) {
+      // 后端聚合近 7 日活动（day: YYYY-MM-DD, count）
+      raw = overview.activity_7d.map((row) => ({
+        key: row.day,
+        label: new Date(`${row.day}T00:00:00`).toLocaleDateString('zh-CN', { weekday: 'short' }),
+        count: row.count,
+      }));
+    } else {
+      raw = Array.from({ length: 7 }, (_, index) => {
+        const date = new Date(today);
+        date.setHours(0, 0, 0, 0);
+        date.setDate(today.getDate() - (6 - index));
+        const key = dateKey(date);
+        const count = this.tasks().filter((task) => dateKey(new Date(task.updated_at)) === key).length;
+        return { key, label: date.toLocaleDateString('zh-CN', { weekday: 'short' }), count };
+      });
+    }
     const max = Math.max(1, ...raw.map((point) => point.count));
     const data = raw.map((point, index) => ({
       ...point,
@@ -1807,24 +1838,42 @@ export class App implements OnInit, OnDestroy {
   }
 
   private async loadDashboard(generation: number = this.routeLoadGeneration): Promise<void> {
-    const allEpics = (
-      await Promise.all(
-        this.projects().map((project) => firstValueFrom(this.api.listEpics(project.id))),
-      )
-    ).flat();
-    if (generation !== this.routeLoadGeneration || this.view() !== 'home') return;
-    this.epics.set(allEpics);
-    const allStories = (
-      await Promise.all(allEpics.map((epic) => firstValueFrom(this.api.listStories(epic.id))))
-    ).flat();
-    if (generation !== this.routeLoadGeneration || this.view() !== 'home') return;
-    this.stories.set(allStories);
-    const allTasks = (
-      await Promise.all(allStories.map((story) => firstValueFrom(this.api.listTasks(story.id))))
-    ).flat();
-    if (generation !== this.routeLoadGeneration || this.view() !== 'home') return;
-    // Story 视图使用 loadStoryTasks 独立加载自身任务；非 story 视图才写入全局 tasks()
-    if (this.view() !== 'story') this.tasks.set(allTasks);
+    // 阶段一（Epic 117 / Task 995）：单请求聚合统计秒出 —— 统计卡/图表不再等整树
+    try {
+      const overview = await firstValueFrom(this.api.getOverview());
+      if (generation !== this.routeLoadGeneration || this.view() !== 'home') return;
+      this.overviewStats.set(overview);
+    } catch {
+      // overview 失败不阻断：整树回退仍在下方执行
+    }
+    // 阶段二：后台整树加载填充 epics/stories/tasks 全局信号（搜索/跳转等依赖），不阻塞首屏
+    void this.loadDashboardFullTree(generation);
+  }
+
+  /** 四级整树级联加载（Epics→Stories→Tasks），仅填充全局信号，不参与首页首屏渲染 */
+  private async loadDashboardFullTree(generation: number): Promise<void> {
+    try {
+      const allEpics = (
+        await Promise.all(
+          this.projects().map((project) => firstValueFrom(this.api.listEpics(project.id))),
+        )
+      ).flat();
+      if (generation !== this.routeLoadGeneration || this.view() !== 'home') return;
+      this.epics.set(allEpics);
+      const allStories = (
+        await Promise.all(allEpics.map((epic) => firstValueFrom(this.api.listStories(epic.id))))
+      ).flat();
+      if (generation !== this.routeLoadGeneration || this.view() !== 'home') return;
+      this.stories.set(allStories);
+      const allTasks = (
+        await Promise.all(allStories.map((story) => firstValueFrom(this.api.listTasks(story.id))))
+      ).flat();
+      if (generation !== this.routeLoadGeneration || this.view() !== 'home') return;
+      // Story 视图使用 loadStoryTasks 独立加载自身任务；非 story 视图才写入全局 tasks()
+      if (this.view() !== 'story') this.tasks.set(allTasks);
+    } catch {
+      // 整树加载失败不影响已渲染的首屏；下次路由刷新会重试
+    }
   }
 
   async refresh(): Promise<void> {

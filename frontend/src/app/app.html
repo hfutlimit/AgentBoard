@@ -215,12 +215,12 @@
               <div>
                 <span class="hero-kicker">AGENTBOARD</span>
                 <h1>项目协作一目了然</h1>
-                <p>{{ projects().length }} 个项目 · {{ tasks().length }} 项任务 · {{ doneTasks() }} 项已完成</p>
+                <p>{{ statProjects() }} 个项目 · {{ statTasks() }} 项任务 · {{ doneTasks() }} 项已完成</p>
               </div>
               <div class="hero-right">
-                @if (tasks().length > 0) {
+                @if (statTasks() > 0) {
                   <span class="hero-pill hero-progress">
-                    完成率 {{ ((doneTasks() / tasks().length) * 100).toFixed(0) }}%
+                    完成率 {{ ((doneTasks() / statTasks()) * 100).toFixed(0) }}%
                   </span>
                 }
               </div>
@@ -228,38 +228,38 @@
             <div class="stats-row">
               <div class="stat-card stat-brand">
                 <div class="stat-content">
-                  <div class="stat-number">{{ projects().length }}</div>
+                  <div class="stat-number">{{ statProjects() }}</div>
                   <div class="stat-label">项目</div>
                   <div class="stat-trend">协作空间总数</div>
                 </div>
               </div>
               <div class="stat-card stat-violet">
                 <div class="stat-content">
-                  <div class="stat-number">{{ epics().length }}</div>
+                  <div class="stat-number">{{ statEpics() }}</div>
                   <div class="stat-label">Epic</div>
                   <div class="stat-trend">目标持续拆解</div>
                 </div>
               </div>
               <div class="stat-card stat-warning">
                 <div class="stat-content">
-                  <div class="stat-number">{{ stories().length }}</div>
+                  <div class="stat-number">{{ statStories() }}</div>
                   <div class="stat-label">Story</div>
                   <div class="stat-trend">需求条目总数</div>
                 </div>
               </div>
               <div class="stat-card stat-success">
                 <div class="stat-content">
-                  <div class="stat-number">{{ tasks().length }}</div>
+                  <div class="stat-number">{{ statTasks() }}</div>
                   <div class="stat-label">任务</div>
                   <div class="stat-trend">{{ doneTasks() }} 项已完成</div>
                 </div>
               </div>
-              @if (tasks().length > 0) {
+              @if (statTasks() > 0) {
                 <div class="stat-card stat-info">
                   <div class="stat-content">
-                    <div class="stat-number">{{ ((doneTasks() / tasks().length) * 100).toFixed(0) }}%</div>
+                    <div class="stat-number">{{ ((doneTasks() / statTasks()) * 100).toFixed(0) }}%</div>
                     <div class="stat-label">完成率</div>
-                    <div class="stat-trend">{{ doneTasks() }}/{{ tasks().length }}</div>
+                    <div class="stat-trend">{{ doneTasks() }}/{{ statTasks() }}</div>
                   </div>
                 </div>
               }

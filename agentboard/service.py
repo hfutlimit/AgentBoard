@@ -1637,6 +1637,126 @@ def list_user_projects(
     return _paginate(q.order_by(Project.id.desc()), limit, offset).all(), total
 
 
+# ---------- Dashboard overview（跨项目聚合统计，首页性能优化） ----------
+def get_overview(s: Session, user_id: int | None) -> dict:
+    """跨项目聚合统计：首页 Dashboard 单请求数据源。
+
+    可见性规则与 ``list_accessible_projects`` 一致：
+    - 管理员：全部项目；
+    - 普通用户：仅成员项目；
+    - 未登录（user_id=None）：空。
+
+    返回结构：
+    {
+      "counts": {"projects": N, "epics": N, "stories": N, "tasks": N, "done_tasks": N},
+      "projects": [{"id", "name", "total", "done", "percent"}],   # 按 total 降序
+      "status_distribution": [{"status", "count"}],                # 仅 count>0，按 ALL_STATUSES 顺序
+      "activity_7d": [{"day", "count"}],                           # 近 7 天（含 0），按日升序
+    }
+    """
+    from datetime import timedelta, datetime as dt
+    from sqlalchemy import case
+
+    projects, _ = list_accessible_projects(s, user_id)
+    project_ids = [p.id for p in projects]
+    if not project_ids:
+        return {
+            "counts": {"projects": 0, "epics": 0, "stories": 0, "tasks": 0, "done_tasks": 0},
+            "projects": [],
+            "status_distribution": [],
+            "activity_7d": [],
+        }
+
+    epic_count = (
+        s.query(func.count(Epic.id)).filter(Epic.project_id.in_(project_ids)).scalar() or 0
+    )
+    story_count = (
+        s.query(func.count(Story.id))
+        .join(Epic, Story.epic_id == Epic.id)
+        .filter(Epic.project_id.in_(project_ids))
+        .scalar() or 0
+    )
+    task_count = (
+        s.query(func.count(Task.id)).filter(Task.project_id.in_(project_ids)).scalar() or 0
+    )
+    done_tasks = (
+        s.query(func.count(Task.id))
+        .filter(Task.project_id.in_(project_ids), Task.status == Status.DONE)
+        .scalar() or 0
+    )
+
+    # 各项目任务进度（含 0 任务项目，按 total 降序）
+    per_project = dict(
+        s.query(Task.project_id, func.count(Task.id))
+        .filter(Task.project_id.in_(project_ids))
+        .group_by(Task.project_id)
+        .all()
+    )
+    per_project_done = dict(
+        s.query(Task.project_id, func.count(Task.id))
+        .filter(Task.project_id.in_(project_ids), Task.status == Status.DONE)
+        .group_by(Task.project_id)
+        .all()
+    )
+    projects_out = []
+    for p in projects:
+        total = per_project.get(p.id, 0)
+        done = per_project_done.get(p.id, 0)
+        projects_out.append({
+            "id": p.id,
+            "name": p.name,
+            "total": total,
+            "done": done,
+            "percent": round(done / total * 100) if total else 0,
+        })
+    projects_out.sort(key=lambda row: (-row["total"], row["id"]))
+
+    # 状态分布（按 ALL_STATUSES 顺序，含 0）
+    status_counts = dict(
+        s.query(Task.status, func.count(Task.id))
+        .filter(Task.project_id.in_(project_ids))
+        .group_by(Task.status)
+        .all()
+    )
+    status_distribution = [
+        {"status": st, "count": status_counts.get(st, 0)} for st in ALL_STATUSES
+    ]
+
+    # 近 7 日活动（按 updated_at 日计数，含 0）
+    now = dt.now()
+    seven_days_ago = now - timedelta(days=6)
+    day_counts = {
+        str(day): count
+        for day, count in (
+            s.query(func.date(Task.updated_at).label("day"), func.count(Task.id))
+            .filter(
+                Task.project_id.in_(project_ids),
+                Task.updated_at >= seven_days_ago,
+            )
+            .group_by(func.date(Task.updated_at))
+            .all()
+        )
+    }
+    activity_7d = [
+        {"day": (seven_days_ago + timedelta(days=i)).date().isoformat(),
+         "count": day_counts.get((seven_days_ago + timedelta(days=i)).date().isoformat(), 0)}
+        for i in range(7)
+    ]
+
+    return {
+        "counts": {
+            "projects": len(project_ids),
+            "epics": epic_count,
+            "stories": story_count,
+            "tasks": task_count,
+            "done_tasks": done_tasks,
+        },
+        "projects": projects_out,
+        "status_distribution": status_distribution,
+        "activity_7d": activity_7d,
+    }
+
+
 # ---------- Epic 20: 批量操作 ----------
 def batch_update_task_status(s: Session, task_ids: list[int], new_status: str) -> dict:
     """批量更新任务状态，返回成功和失败的任务ID列表。"""

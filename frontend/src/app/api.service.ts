@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable, of, throwError, timer, Subject } from 'rxjs';
 import { catchError, tap, map, switchMap, mergeMap, debounceTime, takeUntil } from 'rxjs/operators';
 
-import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus } from './models';
+import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, OverviewStats, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus } from './models';
 
 export const AUTH_EXPIRED_EVENT = 'agentboard:auth-expired';
 
@@ -642,6 +642,19 @@ export class ApiService {
     const cached = apiCache.getWithTTL<ProjectStats>(cacheKey, this.STATS_CACHE_TTL);
     if (cached) return of(cached);
     return this.request<ProjectStats>('GET', cacheKey).pipe(
+      tap(data => apiCache.set(cacheKey, data))
+    );
+  }
+
+  /* ---------- Dashboard Overview (Epic 117 / Task 995) ---------- */
+  // 首页单请求聚合统计；短 TTL 缓存（默认 15s），写入操作时随 stats 一起失效
+  private readonly OVERVIEW_CACHE_TTL = 15000;
+
+  getOverview() {
+    const cacheKey = '/api/overview';
+    const cached = apiCache.getWithTTL<OverviewStats>(cacheKey, this.OVERVIEW_CACHE_TTL);
+    if (cached) return of(cached);
+    return this.request<OverviewStats>('GET', cacheKey).pipe(
       tap(data => apiCache.set(cacheKey, data))
     );
   }

@@ -1664,6 +1664,22 @@ def project_stats(pid: int, s: Session = Depends(get_session)):
     return result
 
 
+# ---------- Dashboard overview（跨项目聚合统计，首页性能优化） ----------
+@app.get("/api/overview")
+def dashboard_overview(
+    s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
+):
+    """首页 Dashboard 单请求聚合统计（替代四级整树预加载）。
+
+    可见性：admin → 全部项目；普通用户 → 成员项目；未登录（REQUIRE_AUTH=0
+    本地开放模式）→ 空统计。权限由 require_business_auth + project_access_middleware
+    整体把关：本端点非项目级路由，鉴权仅要求有效身份（若开启）。
+    """
+    uid = _optional_user_id(authorization, s)
+    return service.get_overview(s, uid)
+
+
 # ---------- Cache Statistics (Epic 30 / Story 30.1 Task 802) ----------
 @app.get("/api/cache/stats")
 def cache_stats(s: Session = Depends(get_session)):

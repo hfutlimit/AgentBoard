@@ -110,6 +110,60 @@ describe('App', () => {
     expect(app.dashboardActivity().total).toBe(2);
   });
 
+  it('should prefer overview aggregate stats when available (Epic 117)', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    app.authVisible.set(false);
+    app.loading.set(false);
+    app.view.set('home');
+    app.projects.set([{ id: 7, name: 'Analytics Project', key: 'AP', description: '', is_private: false, created_at: '2026-08-01T00:00:00' }]);
+    // 模拟 overview 返回（跨项目聚合：2 项目 / 4 任务 / 3 done）
+    app.overviewStats.set({
+      counts: { projects: 2, epics: 3, stories: 4, tasks: 4, done_tasks: 3 },
+      projects: [
+        { id: 7, name: 'Analytics Project', total: 3, done: 3, percent: 100 },
+        { id: 8, name: 'Empty Project', total: 1, done: 0, percent: 0 },
+      ],
+      status_distribution: [
+        { status: 'backlog', count: 0 },
+        { status: 'todo', count: 0 },
+        { status: 'in_progress', count: 0 },
+        { status: 'in_review', count: 0 },
+        { status: 'verifying', count: 0 },
+        { status: 'blocked', count: 0 },
+        { status: 'done', count: 3 },
+      ],
+      activity_7d: [
+        { day: '2026-08-01', count: 0 },
+        { day: '2026-08-02', count: 0 },
+        { day: '2026-08-03', count: 0 },
+        { day: '2026-08-04', count: 0 },
+        { day: '2026-08-05', count: 2 },
+        { day: '2026-08-06', count: 1 },
+        { day: '2026-08-07', count: 0 },
+      ],
+    });
+    fixture.detectChanges();
+
+    // 统计卡直接读 overview counts，不依赖整树
+    expect(app.statProjects()).toBe(2);
+    expect(app.statEpics()).toBe(3);
+    expect(app.statStories()).toBe(4);
+    expect(app.statTasks()).toBe(4);
+    expect(app.doneTasks()).toBe(3);
+    expect(app.dashboardStatusChart().total).toBe(4);
+    expect(app.dashboardStatusChart().segments).toHaveLength(1);
+    expect(app.dashboardProjectProgress().length).toBe(2);
+    expect(app.dashboardProjectProgress()[0].percent).toBe(100);
+    expect(app.dashboardActivity().total).toBe(3);
+    // 模板渲染 overview 计数
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('.hero')?.textContent).toContain('2 个项目');
+    expect(element.querySelector('.stat-number')?.textContent).toContain('2');
+  });
+
   it('should open the standalone notification center in a new browser tab', async () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;

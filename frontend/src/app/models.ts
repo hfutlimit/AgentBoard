@@ -175,6 +175,20 @@ export interface ProjectStats {
   completion_rate: number;
 }
 
+// Epic 117 (Task 995): 首页 Dashboard 单请求聚合统计（跨项目）
+export interface OverviewStats {
+  counts: {
+    projects: number;
+    epics: number;
+    stories: number;
+    tasks: number;
+    done_tasks: number;
+  };
+  projects: Array<{ id: number; name: string; total: number; done: number; percent: number }>;
+  status_distribution: Array<{ status: string; count: number }>;
+  activity_7d: Array<{ day: string; count: number }>;
+}
+
 export interface PagedResult<T> {
   items: T[];
   total: number;
