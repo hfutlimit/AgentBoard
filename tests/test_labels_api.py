@@ -198,7 +198,8 @@ def test_labels_with_special_characters():
         },
         headers={"Authorization": f"Bearer {token}"},
     )
-    assert resp.status_code == 200, f"Failed: {resp.text}"
+    # 创建资源返回 201 Created（创建端点统一语义），断言兼容 200/201
+    assert resp.status_code in (200, 201), f"Failed: {resp.text}"
     parsed = json.loads(resp.json()["labels"])
     assert parsed == special_labels, f"Mismatch: {parsed}"
     print(f"  Special labels stored correctly: {parsed}")

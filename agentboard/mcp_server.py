@@ -751,21 +751,44 @@ def get_project_stats(project_id: int) -> dict:
     return _project_stats(project_id)
 
 
-# ---------- Agent MCP 工具（Task 92）----------
+# ---------- Agent MCP 工具（Task 92 / Epic 118 并发护栏）----------
 def _agent_claim_task(task_id, agent_name="agent"):
+    """Agent 认领任务（Epic 118 并发护栏版）：
+    - 任务非 backlog/todo（已被认领或已结束）→ 返回明确错误，不创建 Run、不改状态；
+    - 同一 agent 对同一 task 已有 active Run（pending/running）→ 幂等复用；
+    - 空闲任务 → 创建 Run 并推进 in_progress。
+    """
     import uuid
     # 获取 task 详情
     t = _http("GET", f"/api/tasks/{task_id}")
     if "error" in t:
         return t
-    # 创建 run（临时用 schedule_id=0 表示手动触发）
+    status = t.get("status")
+    # 并发护栏：任务已被认领（in_progress 等）或已结束（done）时拒绝重复认领，
+    # 避免多 Agent 并行时重复创建 Run / 重复推进状态。
+    if status not in ("backlog", "todo"):
+        return {
+            "error": f"task {task_id} already claimed or not claimable (status={status})",
+            "task": t,
+            "run": None,
+        }
+    # Run 幂等复用：同一 task 已有 active Run（pending/running）则复用，不新建
+    runs = _http("GET", "/api/schedules/1/runs")
+    if isinstance(runs, list):
+        for r in runs:
+            if r.get("task_id") == task_id and r.get("status") in ("pending", "running"):
+                _http("PUT", f"/api/tasks/{task_id}/status", json={"status": "in_progress"})
+                t = _http("GET", f"/api/tasks/{task_id}")
+                return {"run": r, "task": t, "schedule": None, "reused": True}
+    # 创建 run（schedule 1 为手动触发占位，历史约定保持不变）
     idempotency_key = f"{agent_name}-{task_id}-{uuid.uuid4().hex[:8]}"
-    run = _http("POST", "/api/schedules/0/runs" if False else f"/api/schedules/1/runs",
-               json={"task_id": task_id, "idempotency_key": idempotency_key})
+    run = _http("POST", "/api/schedules/1/runs",
+                json={"task_id": task_id, "idempotency_key": idempotency_key})
+    if "error" in run:
+        return {"error": run["error"], "task": t, "run": None}
     # 同步任务状态
-    if t.get("status") in ("backlog", "todo"):
-        _http("PUT", f"/api/tasks/{task_id}/status", json={"status": "in_progress"})
-        t = _http("GET", f"/api/tasks/{task_id}")
+    _http("PUT", f"/api/tasks/{task_id}/status", json={"status": "in_progress"})
+    t = _http("GET", f"/api/tasks/{task_id}")
     return {"run": run, "task": t, "schedule": None}
 
 def _agent_heartbeat(run_id, status="running"):
