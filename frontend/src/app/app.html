@@ -779,6 +779,95 @@
                       </div>
                     </div>
                   }
+
+                  <!-- Epic 122 S4: 评审运营视图（评审统计 + 超时重派） -->
+                  <div class="review-ops-panel" id="review-ops-panel">
+                    <div class="section-header review-ops-header">
+                      <h3>评审运营</h3>
+                      <div class="review-ops-actions">
+                        <span class="review-ops-hint" title="扫描超时（30 分钟无活动）的待评审 Story/Task，自动解绑并重新指派 reviewer；超过轮次上限则置 blocked">
+                          超时未决：<strong>{{ reviewStats()?.timeout_pending ?? '–' }}</strong>
+                        </span>
+                        <button class="ghost-sm" id="review-reassign-btn" (click)="triggerReassignTimeout()"
+                                [disabled]="reviewReassignBusy()">
+                          {{ reviewReassignBusy() ? '⏳ 扫描中…' : '🔁 扫描超时并重派' }}
+                        </button>
+                      </div>
+                    </div>
+                    @if (reviewReassignResult(); as rr) {
+                      <div class="review-reassign-result">
+                        <span class="badge success">Story 重派 {{ rr.stories_reassigned ?? 0 }}</span>
+                        <span class="badge success">Task 重派 {{ rr.tasks_reassigned ?? 0 }}</span>
+                        @if ((rr.blocked ?? 0) > 0) {
+                          <span class="badge danger">置 blocked {{ rr.blocked }}</span>
+                        }
+                        @if ((rr.no_candidate ?? 0) > 0) {
+                          <span class="badge warning">无候选 {{ rr.no_candidate }}</span>
+                        }
+                        @if ((rr.stories_settled ?? 0) > 0) {
+                          <span class="badge">Story 结算 {{ rr.stories_settled }}</span>
+                        }
+                        @if ((rr.tasks_settled ?? 0) > 0) {
+                          <span class="badge">Task 结算 {{ rr.tasks_settled }}</span>
+                        }
+                      </div>
+                    }
+                    @if (reviewStatsLoading()) {
+                      <div class="tab-loading-caption"><span class="spinner"></span>正在加载评审统计…</div>
+                    } @else if (reviewStatsError()) {
+                      <div class="tab-load-error" role="alert">
+                        <span>评审统计加载失败：{{ reviewStatsError() }}</span>
+                        <button class="ghost-sm" type="button" (click)="loadReviewStats(current.id)">重试</button>
+                      </div>
+                    } @else if (reviewStats(); as rs) {
+                      @if (rs.stories.total === 0 && rs.tasks.total === 0) {
+                        <div class="empty-inline">暂无评审数据（Story/Task 评审闭环启用后展示统计）</div>
+                      } @else {
+                        <div class="review-ops-grid">
+                          <div class="stat-card">
+                            <div class="stat-value">{{ rs.stories.approved }}/{{ rs.stories.total }}</div>
+                            <div class="stat-label">Story 已通过评审</div>
+                            <div class="stat-sub">待评 {{ rs.stories.pending }} · 驳回 {{ rs.stories.rejected }} · blocked {{ rs.stories.blocked }}</div>
+                          </div>
+                          <div class="stat-card">
+                            <div class="stat-value">{{ rs.tasks.approved }}/{{ rs.tasks.total }}</div>
+                            <div class="stat-label">Task 已通过评审</div>
+                            <div class="stat-sub">待评 {{ rs.tasks.pending }} · 驳回 {{ rs.tasks.rejected }} · blocked {{ rs.tasks.blocked }}</div>
+                          </div>
+                          <div class="stat-card">
+                            <div class="stat-value">{{ rs.rounds.avg_story_round }}</div>
+                            <div class="stat-label">Story 平均轮次</div>
+                          </div>
+                          <div class="stat-card">
+                            <div class="stat-value">{{ rs.rounds.avg_task_round }}</div>
+                            <div class="stat-label">Task 平均轮次</div>
+                          </div>
+                          <div class="stat-card highlight">
+                            <div class="stat-value">{{ (rs.reject_rate * 100).toFixed(0) }}%</div>
+                            <div class="stat-label">驳回率</div>
+                          </div>
+                        </div>
+                        @if (rs.by_reviewer.length) {
+                          <div class="review-by-reviewer">
+                            <h4>评审人工作量</h4>
+                            <div class="review-reviewer-list">
+                              @for (r of rs.by_reviewer; track r.user_id) {
+                                <div class="review-reviewer-row">
+                                  <span class="review-reviewer-name">{{ r.name || ('#' + r.user_id) }}</span>
+                                  <span class="review-reviewer-bar"><span class="fill" [style.width.%]="maxReviewerReviewed(rs) ? (reviewerReviewed(r) / maxReviewerReviewed(rs) * 100) : 0"></span></span>
+                                  <span class="review-reviewer-counts">
+                                    <span class="badge">评审 {{ reviewerReviewed(r) }}</span>
+                                    <span class="badge success">通过 {{ r.story_approved + r.task_approved }}</span>
+                                    <span class="badge danger">驳回 {{ r.story_rejected + r.task_rejected }}</span>
+                                  </span>
+                                </div>
+                              }
+                            </div>
+                          </div>
+                        }
+                      }
+                    }
+                  </div>
                 } @else {
                   <div class="empty-inline">暂无统计数据</div>
                 }

@@ -9,7 +9,7 @@ import { filter } from 'rxjs/operators';
 
 import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric, resolveApiBase } from './api.service';
 import { LoginComponent } from './login/login';
-import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, OverviewStats, Priority, Project, ProjectMember, ProjectStats, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES } from './models';
+import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, OverviewStats, Priority, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES } from './models';
 import { PaginationComponent } from './pagination/pagination';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'notifications' | 'admin' | 'settings' | 'not-found';
@@ -139,6 +139,12 @@ export class App implements OnInit, OnDestroy {
   readonly unreadCount = signal(0);
   readonly showUserMenu = signal(false);
   readonly projectStats = signal<ProjectStats | null>(null);
+  // Epic 122 S4: 评审运营视图（统计 + 超时重派）
+  readonly reviewStats = signal<ReviewStats | null>(null);
+  readonly reviewStatsLoading = signal(false);
+  readonly reviewStatsError = signal('');
+  readonly reviewReassignBusy = signal(false);
+  readonly reviewReassignResult = signal<ReviewTimeoutResult | null>(null);
   readonly schedules = signal<AgentSchedule[]>([]);
   // Epic 15: 文档维护
   readonly documents = signal<DocumentItem[]>([]);
@@ -1422,6 +1428,9 @@ export class App implements OnInit, OnDestroy {
     this.backlogTasks.set([]);
     this.members.set([]);
     this.projectStats.set(null);
+    this.reviewStats.set(null);
+    this.reviewStatsError.set('');
+    this.reviewReassignResult.set(null);
     this.schedules.set([]);
     this.documents.set([]);
     this.docItem.set(null);
@@ -1498,9 +1507,14 @@ export class App implements OnInit, OnDestroy {
         this.applyProjectAccess(me, members.items);
         this.projectTabLoaded.update((state) => ({ ...state, settings: true }));
       } else if (tab === 'stats') {
-        const stats = await firstValueFrom(this.api.getProjectStats(projectId));
+        const [stats, reviewStats] = await Promise.all([
+          firstValueFrom(this.api.getProjectStats(projectId)),
+          // Epic 122 S4: 评审运营视图（S3 M2 后端 /api/review-stats）；404/未支持时降级为 null
+          firstValueFrom(this.api.getReviewStats(projectId)).catch(() => null),
+        ]);
         if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
         this.projectStats.set(stats);
+        this.reviewStats.set(reviewStats);
       } else if (tab === 'schedules') {
         const schedules = await firstValueFrom(this.api.listSchedules(projectId));
         if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
@@ -3119,6 +3133,53 @@ export class App implements OnInit, OnDestroy {
     } catch {
       this.projectStats.set(null);
     }
+  }
+
+  /* ---------- Review Stats (Epic 122 S4) ---------- */
+  async loadReviewStats(projectId: number): Promise<void> {
+    this.reviewStatsLoading.set(true);
+    this.reviewStatsError.set('');
+    try {
+      const stats = await firstValueFrom(this.api.getReviewStats(projectId));
+      this.reviewStats.set(stats);
+    } catch (error) {
+      this.reviewStats.set(null);
+      this.reviewStatsError.set(this.message(error));
+    } finally {
+      this.reviewStatsLoading.set(false);
+    }
+  }
+
+  async triggerReassignTimeout(): Promise<void> {
+    if (this.reviewReassignBusy()) return;
+    const projectId = this.project()?.id;
+    if (projectId == null) return;
+    this.reviewReassignBusy.set(true);
+    this.reviewReassignResult.set(null);
+    try {
+      const result = await firstValueFrom(this.api.reassignReviewTimeout(projectId, { timeout_minutes: 30, max_per_run: 20 }));
+      this.reviewReassignResult.set(result);
+      const re = result.stories_reassigned ?? 0;
+      const te = result.tasks_reassigned ?? 0;
+      const b = result.blocked ?? 0;
+      this.notify(`超时重派完成：Story ${re} 个 / Task ${te} 个 / 置 blocked ${b} 个`);
+      // 重派后刷新统计
+      await this.loadReviewStats(projectId);
+    } catch (error) {
+      this.notify(`超时重派失败：${this.message(error)}`, 'error');
+    } finally {
+      this.reviewReassignBusy.set(false);
+    }
+  }
+
+  /** 评审人工作量条形图最大值（S4 运营视图） */
+  maxReviewerReviewed(rs: ReviewStats): number {
+    return rs.by_reviewer.reduce((m, r) => Math.max(m, r.story_reviewed + r.task_reviewed), 0);
+  }
+
+  /** 评审人评审总数（Story + Task，S4 运营视图） */
+  reviewerReviewed(r: { story_reviewed: number; task_reviewed: number }): number {
+    return r.story_reviewed + r.task_reviewed;
   }
 
   /* ---------- Attachment ---------- */

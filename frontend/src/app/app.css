@@ -228,6 +228,127 @@ router-outlet {
   color: var(--text);
 }
 
+/* ---------- Epic 122 S4: 评审运营视图 ---------- */
+.review-ops-panel {
+  margin-top: 8px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+.review-ops-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.review-ops-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.review-ops-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.review-ops-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.review-ops-hint strong {
+  color: var(--danger, #dc2626);
+}
+
+.review-reassign-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: var(--bg-hover, rgba(127, 127, 127, 0.06));
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.review-ops-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.stat-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.review-by-reviewer {
+  margin-bottom: 12px;
+}
+
+.review-by-reviewer h4 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text);
+}
+
+.review-reviewer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.review-reviewer-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.review-reviewer-name {
+  min-width: 120px;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-reviewer-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-hover, rgba(127, 127, 127, 0.12));
+  border-radius: 4px;
+  overflow: hidden;
+  min-width: 60px;
+}
+
+.review-reviewer-bar .fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1, #a855f7);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.review-reviewer-counts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 200px;
+  justify-content: flex-end;
+}
+
 .chart-bars {
   display: flex;
   align-items: flex-end;

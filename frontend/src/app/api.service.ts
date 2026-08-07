@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable, of, throwError, timer, Subject } from 'rxjs';
 import { catchError, tap, map, switchMap, mergeMap, debounceTime, takeUntil } from 'rxjs/operators';
 
-import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, OverviewStats, PagedResult, Project, ProjectMember, ProjectStats, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus } from './models';
+import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, OverviewStats, PagedResult, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus } from './models';
 
 export const AUTH_EXPIRED_EVENT = 'agentboard:auth-expired';
 
@@ -666,6 +666,16 @@ export class ApiService {
     return this.request<ProjectStats>('GET', cacheKey).pipe(
       tap(data => apiCache.set(cacheKey, data))
     );
+  }
+
+  /* ---------- Review Stats (Epic 122 S3/S4) ---------- */
+  // 项目级评审统计运营视图 + 超时重派（S3 M2 后端已交付，S4 前端接入）
+  getReviewStats(projectId: number, days = 7) {
+    return this.request<ReviewStats>('GET', '/api/review-stats', undefined, { project_id: projectId, days });
+  }
+
+  reassignReviewTimeout(projectId: number | undefined, body: { timeout_minutes?: number; max_per_run?: number }) {
+    return this.request<ReviewTimeoutResult>('POST', '/api/review-stats/reassign-timeout', body, projectId ? { project_id: projectId } : undefined);
   }
 
   /* ---------- Dashboard Overview (Epic 117 / Task 995) ---------- */

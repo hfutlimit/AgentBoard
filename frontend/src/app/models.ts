@@ -175,6 +175,48 @@ export interface ProjectStats {
   completion_rate: number;
 }
 
+// Epic 122 S3 M2 / S4: 项目级评审统计运营视图
+export interface ReviewBucketStats {
+  total: number;
+  approved: number;
+  rejected: number;
+  pending: number;
+  blocked: number;
+}
+
+export interface ReviewReviewerAgg {
+  user_id: number;
+  name: string | null;
+  story_reviewed: number;
+  task_reviewed: number;
+  story_approved: number;
+  story_rejected: number;
+  task_approved: number;
+  task_rejected: number;
+}
+
+export interface ReviewStats {
+  project_id: number;
+  days: number;
+  stories: ReviewBucketStats;
+  tasks: ReviewBucketStats;
+  rounds: { avg_story_round: number; avg_task_round: number };
+  reject_rate: number;
+  timeout_pending: number;
+  by_reviewer: ReviewReviewerAgg[];
+  generated_at: string;
+}
+
+// POST /api/review-stats/reassign-timeout 结果（scan_review_timeouts 返回）
+export interface ReviewTimeoutResult {
+  stories_reassigned?: number;
+  tasks_reassigned?: number;
+  blocked?: number;
+  no_candidate?: number;
+  stories_settled?: number;
+  tasks_settled?: number;
+}
+
 // Epic 117 (Task 995): 首页 Dashboard 单请求聚合统计（跨项目）
 export interface OverviewStats {
   counts: {
