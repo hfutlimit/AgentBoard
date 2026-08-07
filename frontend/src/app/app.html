@@ -785,6 +785,13 @@
                     <div class="section-header review-ops-header">
                       <h3>评审运营</h3>
                       <div class="review-ops-actions">
+                        <span class="review-mode-badge" [class.majority]="reviewStats()?.review_mode === 'majority'"
+                              [title]="reviewStats()?.review_mode === 'majority' ? ('多数决评审：达 ' + (reviewStats()?.review_quorum ?? 3) + ' 票按多数结算') : '单人评审：1 名 reviewer 通过即完成'">
+                          {{ reviewModeLabel(reviewStats()?.review_mode) }}
+                          @if (reviewStats()?.review_mode === 'majority') {
+                            · 法定 {{ reviewStats()?.review_quorum ?? 3 }} 票
+                          }
+                        </span>
                         <span class="review-ops-hint" title="扫描超时（30 分钟无活动）的待评审 Story/Task，自动解绑并重新指派 reviewer；超过轮次上限则置 blocked">
                           超时未决：<strong>{{ reviewStats()?.timeout_pending ?? '–' }}</strong>
                         </span>
@@ -847,6 +854,33 @@
                             <div class="stat-label">驳回率</div>
                           </div>
                         </div>
+                        @if ((rs.review_mode === 'majority') && rs.votes?.length) {
+                          <div class="review-votes" id="review-votes-block">
+                            <h4>多数决投票进度 <span class="review-votes-hint">达法定票数即自动结算</span></h4>
+                            <div class="review-vote-list">
+                              @for (v of rs.votes; track v.kind + ':' + v.id) {
+                                <div class="review-vote-row" [class.reached]="reviewVoteReached(v)">
+                                  <div class="review-vote-head">
+                                    <span class="badge" [class.type--story]="v.kind === 'story'">Story</span>
+                                    <span class="badge" [class.type--task]="v.kind === 'task'">Task</span>
+                                    <span class="review-vote-title" [title]="v.title">{{ v.title }}</span>
+                                    <span class="review-vote-counts">
+                                      <span class="badge success" [title]="'通过票数'">✓ {{ v.approve }}</span>
+                                      <span class="badge danger" [title]="'驳回票数'">✗ {{ v.reject }}</span>
+                                      <span class="review-vote-total" [class.reached]="reviewVoteReached(v)">
+                                        {{ v.cast }}/{{ v.quorum }} 票
+                                        @if (reviewVoteReached(v)) { <span class="review-vote-done">已足额</span> }
+                                      </span>
+                                    </span>
+                                  </div>
+                                  <div class="review-vote-bar" [title]="'已投 ' + v.cast + '/' + v.quorum + ' 票'">
+                                    <span class="fill" [style.width.%]="reviewVotePct(v)"></span>
+                                  </div>
+                                </div>
+                              }
+                            </div>
+                          </div>
+                        }
                         @if (rs.by_reviewer.length) {
                           <div class="review-by-reviewer">
                             <h4>评审人工作量</h4>

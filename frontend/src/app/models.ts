@@ -195,6 +195,18 @@ export interface ReviewReviewerAgg {
   task_rejected: number;
 }
 
+// 多数决评审投票进度（S4 M2，majority 模式下填充；single 模式 votes 为空数组）
+export interface ReviewVoteRow {
+  kind: 'story' | 'task';
+  id: number;
+  title: string;
+  status: string;
+  approve: number;
+  reject: number;
+  cast: number;
+  quorum: number;
+}
+
 export interface ReviewStats {
   project_id: number;
   days: number;
@@ -204,6 +216,9 @@ export interface ReviewStats {
   reject_rate: number;
   timeout_pending: number;
   by_reviewer: ReviewReviewerAgg[];
+  review_mode?: 'single' | 'majority';
+  review_quorum?: number;
+  votes?: ReviewVoteRow[];
   generated_at: string;
 }
 

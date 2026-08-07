@@ -1418,6 +1418,44 @@ def get_review_stats(s: Session, *, project_id: int, days: int = 7,
         by_reviewer.append(row)
     by_reviewer.sort(key=lambda r: -(r["story_reviewed"] + r["task_reviewed"]))
 
+    # S4 M2：多数决评审投票进度（review_mode/quorum/votes）
+    # - review_mode：single|majority（env 驱动）；review_quorum：法定票数；
+    # - majority 模式下 votes 列出全部 pending 实体（pending_review Story /
+    #   in_review Task）的已投票数（approve/reject/cast）与 quorum；
+    # - single 模式 votes 恒为空数组（零行为变化）。
+    review_mode = get_review_mode()
+    review_quorum = get_review_quorum()
+    vote_rows: list[dict] = []
+    if review_mode == REVIEW_MODE_MAJORITY:
+        for st in stories:
+            if st.status != "pending_review":
+                continue
+            approve_n, reject_n = _review_vote_counts(s, "story", st.id)
+            vote_rows.append({
+                "kind": "story",
+                "id": st.id,
+                "title": st.title,
+                "status": st.status,
+                "approve": approve_n,
+                "reject": reject_n,
+                "cast": approve_n + reject_n,
+                "quorum": review_quorum,
+            })
+        for t in tasks:
+            if t.status != Status.IN_REVIEW:
+                continue
+            approve_n, reject_n = _review_vote_counts(s, "task", t.id)
+            vote_rows.append({
+                "kind": "task",
+                "id": t.id,
+                "title": t.title,
+                "status": t.status,
+                "approve": approve_n,
+                "reject": reject_n,
+                "cast": approve_n + reject_n,
+                "quorum": review_quorum,
+            })
+
     total_done = sb["approved"] + sb["rejected"] + tb["approved"] + tb["rejected"]
     total_rejected = sb["rejected"] + tb["rejected"]
     return {
@@ -1429,6 +1467,9 @@ def get_review_stats(s: Session, *, project_id: int, days: int = 7,
         "reject_rate": round(total_rejected / total_done, 4) if total_done else 0.0,
         "timeout_pending": timeout_pending,
         "by_reviewer": by_reviewer,
+        "review_mode": review_mode,
+        "review_quorum": review_quorum,
+        "votes": vote_rows,
         "generated_at": utc_now().isoformat(),
     }
 

@@ -3182,6 +3182,28 @@ export class App implements OnInit, OnDestroy {
     return r.story_reviewed + r.task_reviewed;
   }
 
+  /* ---------- 多数决投票进度（Epic 122 S4 M2） ---------- */
+
+  /** 评审模式可读标签（single=单人评审 / majority=多数决评审） */
+  reviewModeLabel(mode?: string): string {
+    return mode === 'majority' ? '多数决评审' : '单人评审';
+  }
+
+  /** 投票进度条百分比（0..100，quorum 恒 >0 由后端保证） */
+  reviewVotePct(row: { cast: number; quorum: number }): number {
+    const cast = Number(row?.cast ?? 0);
+    const quorum = Number(row?.quorum ?? 0);
+    if (!(quorum > 0)) return 0;
+    return Math.min(100, Math.round((cast / quorum) * 100));
+  }
+
+  /** 投票是否已达法定票数（可结算） */
+  reviewVoteReached(row: { cast: number; quorum: number }): boolean {
+    const cast = Number(row?.cast ?? 0);
+    const quorum = Number(row?.quorum ?? 0);
+    return quorum > 0 && cast >= quorum;
+  }
+
   /* ---------- Attachment ---------- */
   async loadAttachments(taskId: number): Promise<void> {
     try {
