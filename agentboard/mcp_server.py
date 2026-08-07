@@ -1678,9 +1678,46 @@ def claim_development_task(task_id: int) -> dict:
 def submit_task_for_review(task_id: int) -> dict:
     """开发完成提交评审（assignee 或 admin）→ 任务置 in_review 并广播 task.ready_for_review。
 
-    提交后等待 Task reviewer 拉取任务 + 评论评审（切片 2 M2：review_task approve/reject）。
+    提交后等待 Task reviewer 拉取任务 + 评论评审（review_task approve/reject）。
     """
     return _http("POST", f"/api/tasks/{task_id}/submit-review")
+
+
+# ---------- Epic 122 切片 2 M2: Task 评审闭环 ----------
+@mcp.tool()
+def assign_task_reviewer(task_id: int) -> dict:
+    """随机指派 Task 评审人（幂等，CAS 并发安全，切片 2 M2）。
+
+    - 仅 in_review 任务可指派；候选 = 在线 reviewer ∩ 项目成员 ∩ ≠ assignee；
+    - 已指派（reviewer_id 非空）直接返回现态，不换人；
+    - 无在线 reviewer → 422，由开发者轮询 list_task_review_tasks 兜底。
+    """
+    return _http("POST", f"/api/tasks/{task_id}/assign-reviewer")
+
+
+@mcp.tool()
+def review_task(task_id: int, verdict: str, comment: str) -> dict:
+    """Task 评审投票（approve/reject + 评论，CAS）：仅被指派 reviewer 可操作。
+
+    - verdict: approve（通过，Task → done）| reject（打回，退回 in_progress，
+      开发者修复后重新 submit-review，评审人保留）
+    - comment: 评审意见（必填，作为 Task 评论落库，是评审意见唯一载体）
+    - reject 连续 5 轮未收敛 → Task 置 blocked 护栏（待人工仲裁）
+    """
+    return _http("POST", f"/api/tasks/{task_id}/review",
+                 json={"verdict": verdict, "comment": comment})
+
+
+@mcp.tool()
+def list_task_review_tasks(status: str | None = None) -> list | dict:
+    """拉取指派给当前 Agent 的 Task 评审任务。
+
+    - status 可选：in_review / done / blocked（省略返回全部指派给我的）
+    """
+    params: dict = {"reviewer_id": "me"}
+    if status:
+        params["status"] = status
+    return _http("GET", "/api/tasks", params=params)
 
 
 if __name__ == "__main__":

@@ -793,6 +793,118 @@ def submit_task_for_review(s: Session, task_id: int, *, user_id: int,
     return set_status(s, task_id, Status.IN_REVIEW)
 
 
+# ---------- Task 评审闭环（Epic 122 切片 2 M2） ----------
+def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None,
+                         is_admin: bool = False) -> Task:
+    """随机指派 Task 评审人（幂等；CAS 并发安全）。
+
+    与 Story 版 assign_reviewer 同构：
+    - 候选 = 在线 ∩ 角色含 reviewer ∩ 绑定用户属项目成员，且 **≠ assignee**
+      （评审人与作者隔离，文档 #51 要求）；
+    - CAS 条件 UPDATE ``status=in_review AND reviewer_id IS NULL`` →
+      ``reviewer_id=候选``，rowcount=1 才成功；并发下另一个写者获胜时回查返回其指派结果；
+    - 幂等：已指派（reviewer_id 非空）直接返回现态，不换人。
+    """
+    t = s.get(Task, task_id)
+    if not t:
+        raise NotFound(f"task {task_id} not found")
+    if t.reviewer_id is not None:
+        return t  # 幂等：已指派（含 reject 退回后复用同一 reviewer）
+    if t.status != Status.IN_REVIEW:
+        raise InvalidValue(
+            f"task {task_id} is not in_review (current status: {t.status})")
+    candidates = _online_reviewer_candidates(s, t.project_id)
+    candidates = [a for a in candidates if a.user_id != t.assignee_id]
+    if not candidates:
+        raise InvalidValue(
+            "no online reviewer available (register an online reviewer agent first)")
+    reviewer = random.choice(candidates)
+    r = s.execute(
+        update(Task).where(
+            Task.id == task_id,
+            Task.reviewer_id.is_(None),
+            Task.status == Status.IN_REVIEW,
+        ).values(reviewer_id=reviewer.user_id)
+    )
+    if r.rowcount != 1:
+        # 并发写者已抢先指派：回查返回现态
+        s.rollback()
+        return s.get(Task, task_id)
+    _commit(s)
+    s.refresh(t)
+    return t
+
+
+def review_task(s: Session, *, task_id: int, reviewer_user_id: int,
+                verdict: str, comment: str) -> Task:
+    """Task 评审投票（CAS）：仅被指派 reviewer 可操作 in_review 任务。
+
+    - approve：in_review → done（评审通过，任务完成）；
+    - reject ：review_round + 1，任务退回 in_progress（开发者修复后重新
+      submit-review，reviewer_id 保留 → 同一 reviewer 继续评审）；评论记录意见；
+    - 护栏：review_round 达 MAX_REVIEW_ROUNDS → blocked（待人工仲裁）。
+
+    评论是评审意见唯一载体（approve/reject 必须伴随 comment），形成审计轨迹。
+    """
+    t = s.get(Task, task_id)
+    if not t:
+        raise NotFound(f"task {task_id} not found")
+    if verdict not in ("approve", "reject"):
+        raise InvalidValue(f"invalid verdict '{verdict}' (expected approve|reject)")
+    comment = (comment or "").strip()
+    if not comment:
+        raise InvalidValue("review comment is required (approve/reject must carry a comment)")
+    if t.reviewer_id != reviewer_user_id:
+        raise InvalidValue("only the assigned reviewer can review this task")
+    if t.status != Status.IN_REVIEW:
+        raise InvalidValue(f"task is not in_review (current status: {t.status})")
+    reviewer = s.get(User, reviewer_user_id)
+    reviewer_name = reviewer.display_name or reviewer.username if reviewer else f"user#{reviewer_user_id}"
+
+    if verdict == "approve":
+        r = s.execute(
+            update(Task).where(
+                Task.id == task_id,
+                Task.reviewer_id == reviewer_user_id,
+                Task.status == Status.IN_REVIEW,
+            ).values(status=Status.DONE)
+        )
+        if r.rowcount != 1:
+            s.rollback()
+            raise InvalidValue("review conflict: task state changed concurrently")
+        _commit(s)
+    else:  # reject
+        new_round = (t.review_round or 0) + 1
+        target = Status.BLOCKED if new_round >= MAX_REVIEW_ROUNDS else Status.IN_PROGRESS
+        r = s.execute(
+            update(Task).where(
+                Task.id == task_id,
+                Task.reviewer_id == reviewer_user_id,
+                Task.status == Status.IN_REVIEW,
+            ).values(review_round=new_round, status=target)
+        )
+        if r.rowcount != 1:
+            s.rollback()
+            raise InvalidValue("review conflict: task state changed concurrently")
+        _commit(s)
+    # 评审意见落评论（唯一载体）
+    create_comment(s, author=reviewer_name, content=comment, task_id=task_id)
+    _invalidate_project_stats_cache(t.project_id)
+    s.refresh(t)
+    return t
+
+
+def list_task_review_tasks(s: Session, user_id: int, *, status: str | None = None):
+    """拉取指派给当前用户的 Task 评审任务（按 in_review 优先排序）。"""
+    q = s.query(Task).filter(Task.reviewer_id == user_id)
+    if status:
+        if status not in ALL_STATUSES:
+            raise InvalidValue(f"invalid status '{status}'")
+        q = q.filter(Task.status == status)
+    q = q.order_by(Task.status.desc(), Task.id.desc())
+    return q.all()
+
+
 def _invalidate_project_stats_cache(project_id: int) -> None:
     """清除项目统计缓存（Epic 23 Story 23.1）"""
     try:
@@ -848,6 +960,7 @@ def generate_tasks_from_spec(s: Session, task_id: int) -> list:
 # ---------- Search ----------
 def search_tasks(s: Session, *, project_id=None, epic_id=None, story_id=None,
                  sprint_id=None, type=None, status=None, priority=None, q=None,
+                 reviewer_id: int | None = None,
                  limit: int | None = None, offset: int = 0):
     qry = s.query(Task)
     if project_id is not None:
@@ -865,6 +978,8 @@ def search_tasks(s: Session, *, project_id=None, epic_id=None, story_id=None,
     if priority is not None:
         _check_priority(priority)
         qry = qry.filter(Task.priority == priority)
+    if reviewer_id is not None:
+        qry = qry.filter(Task.reviewer_id == reviewer_id)
     if epic_id is not None:
         qry = qry.join(Story, Task.story_id == Story.id).filter(Story.epic_id == epic_id)
     if q:

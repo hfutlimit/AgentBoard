@@ -146,6 +146,15 @@ def test_run_poll_once_skips_already_assigned():
     unassigned = {"id": 2, "reviewer_id": None, "status": "backlog"}
     client = _FakeClient()
     client.response = _FakeResponse(200, {"items": [assigned, unassigned]})
+    # 切片 2 M2：轮询还会扫描 in_review Task（此用例无 → 空列表，不额外计数）
+    orig_get = client.get
+
+    def _get(path, **kw):
+        if path == "/api/tasks":
+            return _FakeResponse(200, [])
+        return orig_get(path, **kw)
+
+    client.get = _get
     w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
     n = w.run_poll_once()
     assert n == 1

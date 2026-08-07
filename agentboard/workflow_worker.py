@@ -6,7 +6,8 @@
   随机选择 + CAS 幂等，指派的最终裁决在服务端）；
 - ``story.ready``（广播）→ 回查 Story 下 backlog/todo 任务 → 逐个广播 ``task.available``
   （切片 2：在线 developer 竞争认领，CAS 恰一赢家）；
-- ``task.ready_for_review``（广播）→ 日志（切片 2 M2 指派 Task reviewer 预留）；
+- ``task.ready_for_review``（广播）→ 自动指派 Task reviewer（``POST /api/tasks/{tid}/assign-reviewer``，
+  随机选择 + CAS 幂等 + 排除 assignee；切片 2 M2 评审闭环入口）；
 - ``review.rejected`` / ``comment.replied`` → 日志记录（评审往返收敛主要由
   Reviewer/作者 Agent 各自订阅**定向队列**感知，本 Worker 不介入业务决策）。
 
@@ -146,6 +147,30 @@ class WorkflowConsumer:
                     story_id, r.status_code, r.text[:200])
         return True
 
+    def _assign_task_reviewer(self, task_id: int) -> bool:
+        """Task ready_for_review → 自动指派 Task reviewer（幂等，切片 2 M2）。
+
+        成功/已指派 → True；无在线 reviewer → warn + True（开发完成后开发者
+        轮询 list_tasks?reviewer_id=me 兜底）；网络异常 → False（重投语义）。
+        """
+        try:
+            r = self._request("POST", f"/api/tasks/{task_id}/assign-reviewer")
+        except Exception as e:
+            log.warning("task %s 指派评审请求失败（网络异常）：%s", task_id, e)
+            return False
+        if r.status_code in (200, 201):
+            t = r.json()
+            log.info("task %s 已指派 reviewer=%s（status=%s）",
+                     task_id, t.get("reviewer_id"), t.get("status"))
+            return True
+        if r.status_code == 404:
+            log.info("task %s 不存在（可能已删除），忽略", task_id)
+            return True
+        # 422（无在线 reviewer / 非 in_review）—— 暂时性条件，轮询兜底
+        log.warning("task %s 指派评审未成功（HTTP %s）：%s",
+                    task_id, r.status_code, r.text[:200])
+        return True
+
     def _broadcast_available_tasks(self, story_id: int) -> bool:
         """Story ready → 回查 Story 下 backlog/todo 任务 → 逐个广播 ``task.available``。
 
@@ -186,11 +211,13 @@ class WorkflowConsumer:
             log.info("事件 %s（story=%s）：评审往返收敛，由 Agent 定向订阅处理", event, msg.entity_id)
             return True
         if event == EVENT_TASK_READY_FOR_REVIEW:
-            log.info("事件 %s（task=%s assignee=%s）：待指派 Task reviewer（切片 2 M2 预留）",
+            # Task 提交评审 → 自动指派 Task reviewer（切片 2 M2 闭环）
+            log.info("事件 %s（task=%s assignee=%s）：自动指派 Task reviewer",
                      event, msg.entity_id, msg.ref_id)
-            return True
+            return self._assign_task_reviewer(msg.entity_id)
         if event in (EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED):
-            log.info("事件 %s（task=%s）：任务评审链路预留（切片 2 M2）", event, msg.entity_id)
+            log.info("事件 %s（task=%s）：Task 评审完成，assignee/reviewer 经定向队列感知",
+                     event, msg.entity_id)
             return True
         log.warning("收到未识别事件 %s（entity=%s#%s），直接 ack 忽略",
                     event, msg.entity_type, msg.entity_id)
@@ -199,7 +226,7 @@ class WorkflowConsumer:
     # ---------- 轮询模式（无 MQ 兜底） ----------
 
     def run_poll_once(self) -> int:
-        """扫描一轮 backlog 未指派 Story 并触发分配。返回处理条数。"""
+        """扫描一轮 backlog 未指派 Story + in_review 未指派 Task 并触发分配。返回处理条数。"""
         assigned = 0
         try:
             r = self.client.get("/api/stories", params={
@@ -209,14 +236,29 @@ class WorkflowConsumer:
             items = (r.json() or {}).get("items", []) or []
         except Exception as e:
             log.warning("轮询拉取 backlog Story 失败：%s", e)
-            return 0
+            items = []
         for st in items:
             if st.get("reviewer_id") is not None:
                 continue  # 已指派（幂等跳过）
             if self._assign_reviewer(st["id"]):
                 assigned += 1
+        # 切片 2 M2 兜底：扫描 in_review 未指派 reviewer 的 Task → 自动指派
+        try:
+            r = self.client.get("/api/tasks", params={
+                "status": "in_review", "limit": max(1, self.config.batch_size),
+            })
+            r.raise_for_status()
+            data = r.json()
+            task_items = data.get("items", []) if isinstance(data, dict) else (data or [])
+            for t in task_items:
+                if t.get("reviewer_id") is not None:
+                    continue  # 已指派（幂等跳过）
+                if self._assign_task_reviewer(t["id"]):
+                    assigned += 1
+        except Exception as e:
+            log.warning("轮询拉取 in_review Task 失败：%s", e)
         if assigned:
-            log.info("轮询本轮指派 %s 个 Story", assigned)
+            log.info("轮询本轮指派 %s 个评审任务", assigned)
         return assigned
 
     def run_forever(self, stop: threading.Event | None = None,

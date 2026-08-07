@@ -326,14 +326,15 @@ def test_story_ready_http_error_returns_false(seeded):
                         entity_id=7, ref_id=3)) is False
 
 
-def test_task_ready_for_review_acks_without_http(seeded):
-    """task.ready_for_review → ack（M2 指派预留），不触发 HTTP。"""
-    client = _FakeClient(_FakeResponse(200))
+def test_task_ready_for_review_triggers_assign(seeded):
+    """task.ready_for_review → 自动指派 Task reviewer（切片 2 M2 闭环入口）。"""
+    client = _FakeClient(_FakeResponse(
+        200, {"id": 21, "reviewer_id": 9, "status": "in_review"}))
     w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
     assert w.handle_message(
         WorkflowMessage(event=EVENT_TASK_READY_FOR_REVIEW, entity_type="task",
                         entity_id=21, ref_id=4)) is True
-    assert client.calls == []
+    assert ("POST", "/api/tasks/21/assign-reviewer") in client.calls
 
 
 # ---------- 5. MCP 工具 AST 注册 ----------

@@ -21,10 +21,11 @@ from . import service, auth, mq
 from .mq import (
     EVENT_STORY_CREATED, EVENT_REVIEW_REQUESTED, EVENT_REVIEW_REJECTED,
     EVENT_STORY_READY, EVENT_COMMENT_REPLIED, EVENT_TASK_READY_FOR_REVIEW,
+    EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED,
     publish_workflow_event,
 )
 from .cos_client import client as _cos_client, CosError
-from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES
+from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES, Status
 from .cache import get_cache, API_CACHE_TTL
 
 
@@ -1178,6 +1179,68 @@ def submit_task_review(tid: int, authorization: str | None = Header(None),
     return service._ser(t)
 
 
+@app.post("/api/tasks/{tid}/assign-reviewer")
+def assign_task_reviewer(tid: int, authorization: str | None = Header(None),
+                         s: Session = Depends(get_session)):
+    """随机指派 Task 评审人（幂等，CAS 并发安全，Epic 122 切片 2 M2）。
+
+    - 候选 = 在线 reviewer ∩ 项目成员 ∩ ≠ assignee；无候选 → 422；
+    - 成功 → 定向投递 review.requested（entity_type=task）给 reviewer 绑定的
+      Agent 队列（无 Agent 绑定退化为广播，开发者轮询 list_review_tasks 兜底）。
+    项目写权限由 project_access_middleware 自动覆盖。
+    """
+    uid, _is_admin = _caller_uid_admin(authorization)
+    if _auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    try:
+        t = service.assign_task_reviewer(s, tid, user_id=uid)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    _invalidate_stats_cache(t.project_id)
+    # 事件源：指派成功 → review.requested（定向 reviewer agent；无绑定退广播）
+    reviewer_agent_id = None
+    if t.reviewer_id is not None:
+        agent = s.query(service.Agent).filter(service.Agent.user_id == t.reviewer_id).first()
+        if agent is not None:
+            reviewer_agent_id = agent.agent_id
+    publish_workflow_event(EVENT_REVIEW_REQUESTED, "task", t.id,
+                           ref_id=t.reviewer_id, agent_id=reviewer_agent_id)
+    return service._ser(t)
+
+
+@app.post("/api/tasks/{tid}/review")
+def review_task(tid: int, body: AgentReviewIn, authorization: str | None = Header(None),
+                s: Session = Depends(get_session)):
+    """Task 评审投票（approve/reject + 评论，CAS）：仅被指派 reviewer 可操作。
+
+    - approve → in_review→done，广播 ``task.reviewed``；
+    - reject → review_round+1，退回 in_progress（开发者修复后重新 submit-review），
+      达 5 轮上限 → blocked 护栏；广播 ``task.rejected``（ref_id=轮次）。
+    项目写权限由 project_access_middleware 自动覆盖。
+    """
+    uid, _is_admin = _caller_uid_admin(authorization)
+    if _auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if uid is None:
+        raise HTTPException(status_code=422, detail="review requires login")
+    try:
+        t = service.review_task(s, task_id=tid, reviewer_user_id=uid,
+                                verdict=body.verdict, comment=body.comment)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    _invalidate_stats_cache(t.project_id)
+    # 事件源：approve → task.reviewed 广播；reject → task.rejected 广播（ref_id=轮次）
+    if t.status == Status.DONE:
+        publish_workflow_event(EVENT_TASK_REVIEWED, "task", t.id, ref_id=uid)
+    else:
+        publish_workflow_event(EVENT_TASK_REJECTED, "task", t.id, ref_id=t.review_round)
+    return service._ser(t)
+
+
 @app.delete("/api/tasks/{tid}")
 def delete_task(tid: int, s: Session = Depends(get_session)):
     task = service.get_task(s, tid)
@@ -1373,13 +1436,28 @@ def search_tasks(project_id: int | None = None, epic_id: int | None = None,
                  story_id: int | None = None, sprint_id: int | None = None,
                  type: str | None = None, status: str | None = None,
                  priority: str | None = None, q: str | None = Query(None),
+                 reviewer_id: str | None = Query(None),
                  limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
-                 s: Session = Depends(get_session)):
+                 s: Session = Depends(get_session),
+                 authorization: str | None = Header(None)):
+    rid: int | None = None
+    if reviewer_id:
+        if reviewer_id == "me":
+            uid, _ = _caller_uid_admin(authorization)
+            if uid is None:
+                raise HTTPException(status_code=422, detail="reviewer_id=me requires login")
+            rid = uid
+        else:
+            try:
+                rid = int(reviewer_id)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=422, detail="invalid reviewer_id")
     try:
         rows = service.search_tasks(s, project_id=project_id, epic_id=epic_id,
                                     story_id=story_id, sprint_id=sprint_id,
                                     type=type, status=status,
-                                    priority=priority, q=q, limit=limit, offset=offset)
+                                    priority=priority, q=q, reviewer_id=rid,
+                                    limit=limit, offset=offset)
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     return [service._ser(t) for t in rows]

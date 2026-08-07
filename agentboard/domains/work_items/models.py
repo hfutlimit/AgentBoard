@@ -31,6 +31,11 @@ class Task(Base):
     labels: Mapped[str] = mapped_column(Text, default="[]")  # JSON array string
     # Epic 32 Story 49.3: 看板卡片显示预估时间（工时，单位小时）
     estimate: Mapped[float | None] = mapped_column(nullable=True)
+    # Epic 122 S2 M2: Task 评审闭环（reviewer 指派 + 评审轮次护栏）
+    reviewer_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    review_round: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 
