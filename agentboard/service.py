@@ -1,6 +1,8 @@
 import json
+import logging
 import random
 import re
+import traceback
 from datetime import date, timedelta
 from sqlalchemy import or_, and_, func, update
 from sqlalchemy.exc import IntegrityError
@@ -27,6 +29,8 @@ from .domains.common.models import utc_now
 
 DEFAULT_PAGE_SIZE = 100
 MAX_PAGE_SIZE = 200
+
+log = logging.getLogger(__name__)
 
 
 def _parse_due_date(value):
@@ -2529,6 +2533,55 @@ def fire_webhook(webhook: WebhookConfig, event: str, payload: dict) -> bool:
         return 200 <= resp.status_code < 300
     except Exception:
         return False
+
+
+def fire_webhooks_for_event(s: Session, *, project_id: int, event: str,
+                            payload: dict | None = None) -> dict:
+    """按事件向项目下的 Webhook 配置派发（Epic 122 切片 3 M1）。
+
+    过滤语义：
+    - 仅派发 ``enabled=True`` 的 WebhookConfig；
+    - ``events`` 配置（JSON 数组）为空列表 → 订阅全部事件；非空 → 精确包含
+      ``event`` 才派发（与 RabbitMQ workflow 事件名同构，见 mq.EVENT_*）；
+    - 单 Webhook 失败（网络异常 / 非 2xx）隔离，不影响其它 Webhook 派发。
+
+    Webhook 事件只携带定位信息（实体 id / status / ref），状态一律以 DB 为准，
+    与 workflow 事件总线铁律一致。本函数不抛异常（best-effort），返回统计：:
+
+        {"matched": 命中并尝试派发的 webhook 数, "succeeded": 2xx 成功的 webhook 数}
+
+    注意：HTTP 派发是同步的（单发超时 10s）。调用方若在请求路径上，应评估
+    Webhook 数量与耗时；MVP 量级（项目级 webhook 通常个位数）可接受。
+    """
+    import json
+    if payload is None:
+        payload = {}
+    matched = succeeded = 0
+    try:
+        rows = s.query(WebhookConfig).filter(
+            or_(WebhookConfig.project_id == project_id,
+                WebhookConfig.project_id.is_(None)),  # 项目级 + 全局（project_id=NULL）
+            WebhookConfig.enabled.is_(True),
+        ).all()
+    except Exception:
+        # DB 异常不阻断主业务（best-effort）
+        return {"matched": 0, "succeeded": 0}
+    for wh in rows:
+        try:
+            subscribed = json.loads(wh.events or "[]")
+        except (TypeError, ValueError):
+            subscribed = []
+        if subscribed and event not in subscribed:
+            continue  # 空列表 = 订阅全部；非空需精确匹配
+        matched += 1
+        try:
+            if fire_webhook(wh, event, payload):
+                succeeded += 1
+        except Exception:
+            # 单 webhook 异常隔离：不影响其它 webhook 派发
+            log.warning("webhook %s（%s）派发 %s 失败：%s",
+                        wh.id, wh.name, event, traceback.format_exc(limit=2))
+    return {"matched": matched, "succeeded": succeeded}
 
 
 # ---------- Epic 22 Story 22.3: 数据导入 ----------

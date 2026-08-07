@@ -47,6 +47,22 @@ def _invalidate_stats_cache(project_id: int) -> None:
     except Exception:
         pass  # Non-critical, don't fail the request
 
+
+# ---------- Webhook 派发 Helper（Epic 122 切片 3 M1） ----------
+def _notify_webhooks(s: Session, project_id: int, event: str, payload: dict) -> dict:
+    """按事件向项目 Webhook 派发（best-effort，任何异常不阻断主业务）。
+
+    与 ``publish_workflow_event``（RabbitMQ 通道）平行：MQ 是 Agent 间的
+    事件总线，Webhook 是面向外部系统/常驻 Runner 的 HTTP 通道。事件名
+    复用 mq.EVENT_* 常量（语义同构）；payload 只带定位信息（实体 id/status/ref）。
+    """
+    try:
+        return service.fire_webhooks_for_event(
+            s, project_id=project_id, event=event, payload=payload)
+    except Exception:
+        # webhook 派发失败绝不影响主业务成功返回
+        return {"matched": 0, "succeeded": 0}
+
 # 前后端分离：允许 Web 前端跨域调用
 _cors_origins = [
     x.strip() for x in os.getenv("AGENTBOARD_CORS_ORIGINS", "*").split(",") if x.strip()
@@ -850,10 +866,13 @@ def list_stories(eid: int, s: Session = Depends(get_session), limit: int = Query
 
 @app.post("/api/epics/{eid}/stories", status_code=201)
 def create_story(eid: int, body: StoryIn, s: Session = Depends(get_session)):
-    _need(service.get_epic(s, eid), "epic")
+    epic = _need(service.get_epic(s, eid), "epic")
     st = service.create_story(s, epic_id=eid, title=body.title, description=body.description)
     # 事件源：Story 创建广播（分配器 worker 消费后自动指派 reviewer）
     publish_workflow_event(EVENT_STORY_CREATED, "story", st.id, ref_id=eid)
+    # Webhook 通道（Epic 122 切片 3）：面向外部系统/常驻 Runner
+    _notify_webhooks(s, epic.project_id, EVENT_STORY_CREATED,
+                     {"id": st.id, "epic_id": eid, "title": st.title, "status": st.status})
     return service._ser(st)
 
 
@@ -932,6 +951,10 @@ def assign_story_reviewer(sid: int, authorization: str | None = Header(None),
             reviewer_agent_id = agent.agent_id
     publish_workflow_event(EVENT_REVIEW_REQUESTED, "story", st.id,
                            ref_id=st.reviewer_id, agent_id=reviewer_agent_id)
+    _epic = s.get(service.Epic, st.epic_id)
+    if _epic is not None:
+        _notify_webhooks(s, _epic.project_id, EVENT_REVIEW_REQUESTED,
+                         {"id": st.id, "reviewer_id": st.reviewer_id, "status": st.status})
     return service._ser(st)
 
 
@@ -952,6 +975,13 @@ def review_story(sid: int, body: AgentReviewIn, authorization: str | None = Head
         publish_workflow_event(EVENT_STORY_READY, "story", st.id, ref_id=st.reviewer_id)
     else:
         publish_workflow_event(EVENT_REVIEW_REJECTED, "story", st.id, ref_id=st.review_round)
+    # Webhook 通道（Epic 122 切片 3）
+    _epic = s.get(service.Epic, st.epic_id)
+    if _epic is not None:
+        _notify_webhooks(s, _epic.project_id,
+                         EVENT_STORY_READY if st.status == "ready" else EVENT_REVIEW_REJECTED,
+                         {"id": st.id, "status": st.status, "reviewer_id": st.reviewer_id,
+                          "review_round": st.review_round})
     return service._ser(st)
 
 
@@ -1176,6 +1206,8 @@ def submit_task_review(tid: int, authorization: str | None = Header(None),
     # 事件源：任务进入评审态 → 广播（消息只带定位信息，状态回查 DB）
     publish_workflow_event(EVENT_TASK_READY_FOR_REVIEW, "task", t.id,
                            ref_id=t.assignee_id)
+    _notify_webhooks(s, t.project_id, EVENT_TASK_READY_FOR_REVIEW,
+                     {"id": t.id, "assignee_id": t.assignee_id, "status": t.status})
     return service._ser(t)
 
 
@@ -1207,6 +1239,8 @@ def assign_task_reviewer(tid: int, authorization: str | None = Header(None),
             reviewer_agent_id = agent.agent_id
     publish_workflow_event(EVENT_REVIEW_REQUESTED, "task", t.id,
                            ref_id=t.reviewer_id, agent_id=reviewer_agent_id)
+    _notify_webhooks(s, t.project_id, EVENT_REVIEW_REQUESTED,
+                     {"id": t.id, "reviewer_id": t.reviewer_id, "status": t.status})
     return service._ser(t)
 
 
@@ -1238,6 +1272,11 @@ def review_task(tid: int, body: AgentReviewIn, authorization: str | None = Heade
         publish_workflow_event(EVENT_TASK_REVIEWED, "task", t.id, ref_id=uid)
     else:
         publish_workflow_event(EVENT_TASK_REJECTED, "task", t.id, ref_id=t.review_round)
+    # Webhook 通道（Epic 122 切片 3）
+    _notify_webhooks(s, t.project_id,
+                     EVENT_TASK_REVIEWED if t.status == Status.DONE else EVENT_TASK_REJECTED,
+                     {"id": t.id, "status": t.status, "reviewer_id": t.reviewer_id,
+                      "review_round": t.review_round})
     return service._ser(t)
 
 
@@ -1384,6 +1423,12 @@ def create_story_comment(
             reviewer_agent_id = agent.agent_id if agent is not None else None
         publish_workflow_event(EVENT_COMMENT_REPLIED, "story", sid,
                                ref_id=comment.id, agent_id=reviewer_agent_id)
+        # Webhook 通道（Epic 122 切片 3）
+        if st is not None:
+            _epic = s.get(service.Epic, st.epic_id)
+            if _epic is not None:
+                _notify_webhooks(s, _epic.project_id, EVENT_COMMENT_REPLIED,
+                                 {"id": sid, "comment_id": comment.id, "by": body.author})
         return service._ser(comment)
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))

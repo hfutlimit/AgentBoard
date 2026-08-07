@@ -333,11 +333,13 @@ def test_api_assign_and_review_full_flow(seeded):
         s.commit()
         # 固定 reviewer 为 rev1（避免随机）
         service.assign_task_reviewer(s, tid)
+        t2 = service.get_task(s, tid)
+        t2.reviewer_id = rev1  # 覆盖随机指派（seed 有两个在线 reviewer）
         s.commit()
     dev_h = {"Authorization": f"Bearer {auth.make_token(dev)}"}
     rev_h = {"Authorization": f"Bearer {auth.make_token(rev1)}"}
     c = _client()
-    with mock.patch("agentboard.api.publish_workflow_event") as pub:
+    with mock.patch.object(api, "publish_workflow_event") as pub:
         # assign-reviewer（幂等，再指派仍 200）
         r = c.post(f"/api/tasks/{tid}/assign-reviewer", headers=dev_h)
         assert r.status_code == 200, r.text
@@ -366,7 +368,7 @@ def test_api_review_reject_broadcasts_task_rejected(seeded):
         tid = t.id
         s.commit()
     c = _client()
-    with mock.patch("agentboard.api.publish_workflow_event") as pub:
+    with mock.patch.object(api, "publish_workflow_event") as pub:
         r = c.post(f"/api/tasks/{tid}/review",
                    headers={"Authorization": f"Bearer {auth.make_token(rev1)}"},
                    json={"verdict": "reject", "comment": "退回"})

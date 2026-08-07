@@ -206,7 +206,7 @@ def test_api_claim_and_submit_review_full_flow(seeded):
         s.commit()
     headers = {"Authorization": f"Bearer {auth.make_token(dev)}"}
     c = _client()
-    with mock.patch("agentboard.api.publish_workflow_event") as pub:
+    with mock.patch.object(api, "publish_workflow_event") as pub:
         # claim
         r = c.post(f"/api/tasks/{tid}/claim", headers=headers)
         assert r.status_code == 200, r.text
@@ -295,7 +295,7 @@ def test_story_ready_broadcasts_available_tasks(seeded):
         {"id": 14, "status": "done"},
     ]}))
     w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
-    with mock.patch("agentboard.mq.publish_workflow_event") as pub:
+    with mock.patch.object(mq, "publish_workflow_event") as pub:
         assert w.handle_message(
             WorkflowMessage(event=EVENT_STORY_READY, entity_type="story",
                             entity_id=5, ref_id=3)) is True
@@ -311,7 +311,7 @@ def test_story_ready_no_claimable_tasks_no_broadcast(seeded):
         {"id": 13, "status": "in_progress"},
     ]}))
     w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
-    with mock.patch("agentboard.mq.publish_workflow_event") as pub:
+    with mock.patch.object(mq, "publish_workflow_event") as pub:
         assert w.handle_message(
             WorkflowMessage(event=EVENT_STORY_READY, entity_type="story",
                             entity_id=6, ref_id=3)) is True
