@@ -220,6 +220,7 @@ def test_api_review_stats_includes_votes_fields(seeded, monkeypatch):
 
     port = _free_port()
     env = dict(os.environ)
+    env["AGENTBOARD_DB_URL"] = f"sqlite:///{_DB}"  # 显式固定，防批量时其它文件覆盖
     env["AGENTBOARD_REVIEW_MODE"] = "majority"
     env["AGENTBOARD_REVIEW_QUORUM"] = "3"
     proc = subprocess.Popen(
@@ -265,6 +266,7 @@ def test_api_review_stats_majority_pending_votes(seeded, monkeypatch):
 
     port = _free_port()
     env = dict(os.environ)
+    env["AGENTBOARD_DB_URL"] = f"sqlite:///{_DB}"  # 显式固定，防批量时其它文件覆盖
     env["AGENTBOARD_REVIEW_MODE"] = "majority"
     env["AGENTBOARD_REVIEW_QUORUM"] = "3"
     proc = subprocess.Popen(

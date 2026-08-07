@@ -455,7 +455,10 @@ def _call_api_review_story(sid, reviewer, verdict, comment, token):
 
 
 def test_api_vote_cast_then_ready_event(seeded, monkeypatch):
-    """API 事件判定：前 2 票 → vote_cast；第 3 票结算 → story.ready。"""
+    """API 事件判定：前 2 票 → vote_cast；第 3 票结算 → story.ready。
+
+    MQ + Webhook 双通道断言：vote_cast 与 story.ready 均须派发（CI 护栏）。
+    """
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "3")
     pid, dev, r1, r2, r3, epic_id = seeded
@@ -465,24 +468,30 @@ def test_api_vote_cast_then_ready_event(seeded, monkeypatch):
         st = _pending_story(s, epic_id, reviewer_id=r1)
         st_id = st.id
         s.commit()
-    events = []
-    with mock.patch("agentboard.api.publish_workflow_event",
-                    side_effect=lambda *a, **k: events.append((a, k))):
+    mq_events, wh_events = [], []
+    with mock.patch.object(api, "publish_workflow_event",
+                           side_effect=lambda *a, **k: mq_events.append((a, k))), \
+         mock.patch.object(api, "_notify_webhooks",
+                           side_effect=lambda *a, **k: wh_events.append((a, k))):
         _call_api_review_story(st_id, r1, "approve", "ok1", tokens[r1])
         _call_api_review_story(st_id, r2, "approve", "ok2", tokens[r2])
         _call_api_review_story(st_id, r3, "approve", "ok3", tokens[r3])
-    names = [e[0][0] for e in events]
+    names = [e[0][0] for e in mq_events]
     assert names == [mq.EVENT_REVIEW_VOTE_CAST, mq.EVENT_REVIEW_VOTE_CAST,
                      mq.EVENT_STORY_READY]
     # vote_cast 的 ref_id（kwargs）是投票人；story.ready 的 ref_id 是 reviewer_id
-    assert events[0][1]["ref_id"] == r1
-    assert events[1][1]["ref_id"] == r2
+    assert mq_events[0][1]["ref_id"] == r1
+    assert mq_events[1][1]["ref_id"] == r2
+    # Webhook 通道与 MQ 事件同构（_notify_webhooks(s, project_id, event, payload)）
+    wh_names = [e[0][2] for e in wh_events]
+    assert wh_names == [mq.EVENT_REVIEW_VOTE_CAST, mq.EVENT_REVIEW_VOTE_CAST,
+                        mq.EVENT_STORY_READY]
     with SessionLocal() as s:
         assert s.get(service.Story, st_id).status == "ready"
 
 
 def test_api_task_rejected_event(seeded, monkeypatch):
-    """Task 结算 reject → task.rejected。"""
+    """Task 结算 reject → task.rejected（MQ + Webhook 双通道断言）。"""
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "3")
     pid, dev, r1, r2, r3, epic_id = seeded
@@ -492,9 +501,11 @@ def test_api_task_rejected_event(seeded, monkeypatch):
         t = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
         t_id = t.id
         s.commit()
-    events = []
-    with mock.patch("agentboard.api.publish_workflow_event",
-                    side_effect=lambda *a, **k: events.append((a, k))):
+    mq_events, wh_events = [], []
+    with mock.patch.object(api, "publish_workflow_event",
+                           side_effect=lambda *a, **k: mq_events.append((a, k))), \
+         mock.patch.object(api, "_notify_webhooks",
+                           side_effect=lambda *a, **k: wh_events.append((a, k))):
         from fastapi.testclient import TestClient
         with TestClient(api.app) as c:
             c.post(f"/api/tasks/{t_id}/review",
@@ -506,9 +517,12 @@ def test_api_task_rejected_event(seeded, monkeypatch):
             c.post(f"/api/tasks/{t_id}/review",
                    json={"verdict": "reject", "comment": "bug2"},
                    headers={"Authorization": f"Bearer {tokens[r3]}"})
-    names = [e[0][0] for e in events]
+    names = [e[0][0] for e in mq_events]
     assert names == [mq.EVENT_REVIEW_VOTE_CAST, mq.EVENT_REVIEW_VOTE_CAST,
                      mq.EVENT_TASK_REJECTED]
+    wh_names = [e[0][2] for e in wh_events]
+    assert wh_names == [mq.EVENT_REVIEW_VOTE_CAST, mq.EVENT_REVIEW_VOTE_CAST,
+                        mq.EVENT_TASK_REJECTED]
 
 
 # ---------- 10. Epic 97 AST 护栏：mcp_server.py 零 _api( 残留 ----------
