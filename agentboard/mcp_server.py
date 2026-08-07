@@ -1720,6 +1720,45 @@ def list_task_review_tasks(status: str | None = None) -> list | dict:
     return _http("GET", "/api/tasks", params=params)
 
 
+@mcp.tool()
+def get_review_stats(project_id: int, days: int = 7, user_id: int | None = None) -> dict:
+    """项目级评审统计运营视图（多 Agent 协作闭环 S3 M2）。
+
+    - project_id: 必填，目标项目
+    - days: 统计窗口天数（默认 7，0 = 全部历史）
+    - user_id: 可选，只统计该评审人参与的条目
+
+    返回：Story/Task 评审汇总（total/approved/rejected/pending/blocked）、
+    平均轮次、驳回率、当前超时未决数、按 reviewer 聚合工作量。
+    """
+    params: dict = {"project_id": project_id, "days": days}
+    if user_id is not None:
+        params["user_id"] = user_id
+    return _http("GET", "/api/review-stats", params=params)
+
+
+@mcp.tool()
+def scan_review_timeouts(project_id: int | None = None,
+                         timeout_minutes: int = 30,
+                         max_per_run: int = 20) -> dict:
+    """评审超时自愈扫描（多 Agent 协作闭环 S3 M2 护栏）。
+
+    - project_id: 可选（省略 = 全局扫描，Worker 场景）
+    - timeout_minutes: 超时阈值（默认 30 分钟）
+    - max_per_run: 单轮最多处理数（默认 20，防独占）
+
+    处理：pending_review Story / in_review Task 且 reviewer 已指派且最后活动超时 →
+    轮次已达 5 轮上限置 blocked（护栏终态）；否则解绑旧 reviewer 并重新随机指派
+    （排除旧 reviewer；Task 额外排除 assignee）。返回重派/阻塞/无候选统计。
+    """
+    params: dict = {}
+    if project_id is not None:
+        params["project_id"] = project_id
+    body: dict = {"timeout_minutes": timeout_minutes, "max_per_run": max_per_run}
+    return _http("POST", "/api/review-stats/reassign-timeout",
+                 params=params or None, json=body)
+
+
 if __name__ == "__main__":
     transport = os.getenv("AGENTBOARD_MCP_TRANSPORT", "stdio").lower()
     if transport in {"http", "streamable-http"}:

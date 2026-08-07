@@ -257,6 +257,17 @@ class WorkflowConsumer:
                     assigned += 1
         except Exception as e:
             log.warning("轮询拉取 in_review Task 失败：%s", e)
+        # 切片 3 M2：超时重派扫描（best-effort；幂等，服务端 CAS 仲裁）
+        try:
+            r = self._request("POST", "/api/review-stats/reassign-timeout",
+                              json={"timeout_minutes": 30, "max_per_run": 20})
+            if r.status_code in (200, 201):
+                log.info("超时重派扫描：%s", r.json())
+            else:
+                log.warning("超时重派扫描未成功（HTTP %s）：%s",
+                            r.status_code, r.text[:200])
+        except Exception as e:
+            log.warning("超时重派扫描请求失败（网络异常，下轮重试）：%s", e)
         if assigned:
             log.info("轮询本轮指派 %s 个评审任务", assigned)
         return assigned

@@ -3,7 +3,7 @@ import logging
 import random
 import re
 import traceback
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from sqlalchemy import or_, and_, func, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -907,6 +907,313 @@ def list_task_review_tasks(s: Session, user_id: int, *, status: str | None = Non
         q = q.filter(Task.status == status)
     q = q.order_by(Task.status.desc(), Task.id.desc())
     return q.all()
+
+
+# ---------- 评审统计与超时护栏（Epic 122 S3 M2） ----------
+DEFAULT_REVIEW_TIMEOUT_MINUTES = 30
+DEFAULT_TIMEOUT_SCAN_BATCH = 20
+
+
+def _story_last_activity(s: Session, story: Story) -> datetime:
+    """Story 最后活动 = max(created_at, 最新评论时间)；无评论回退 created_at。
+
+    评审意见唯一载体是评论（评论往返即活动），Story 无 updated_at 列，
+    用评论时间作为「卡住多久」的代理指标（零迁移方案）。
+    """
+    last_comment = s.query(func.max(Comment.created_at)).filter(
+        Comment.story_id == story.id
+    ).scalar()
+    if last_comment is not None and last_comment > story.created_at:
+        return last_comment
+    return story.created_at
+
+
+def _reassign_story_reviewer(s: Session, story: Story,
+                             exclude_user_id: int | None = None) -> int | None:
+    """Story 超时重派：候选排除旧 reviewer，CAS（pending_review AND reviewer_id IS NULL）。
+
+    调用前 reviewer 必须已解绑（CAS 由调用方仲裁）；候选为空 → None（保持解绑，
+    由下轮轮询补派，评审流不因重派失败而卡死）。成功返回新 reviewer 的 user_id。
+    """
+    epic = s.get(Epic, story.epic_id)
+    if epic is None:
+        return None
+    candidates = _online_reviewer_candidates(s, epic.project_id)
+    candidates = [a for a in candidates if a.user_id != exclude_user_id]
+    if not candidates:
+        return None
+    reviewer = random.choice(candidates)
+    r = s.execute(
+        update(Story).where(
+            Story.id == story.id,
+            Story.reviewer_id.is_(None),
+            Story.status == "pending_review",
+        ).values(reviewer_id=reviewer.user_id)
+    )
+    if r.rowcount != 1:
+        s.rollback()
+        return None
+    _commit(s)
+    return reviewer.user_id
+
+
+def _reassign_task_reviewer(s: Session, task: Task,
+                            exclude_user_id: int | None = None) -> int | None:
+    """Task 超时重派：候选排除旧 reviewer 与 assignee（评审人/作者隔离），CAS。
+
+    成功返回新 reviewer 的 user_id；候选为空 / CAS 失败 → None。
+    """
+    candidates = _online_reviewer_candidates(s, task.project_id)
+    candidates = [a for a in candidates
+                  if a.user_id not in (exclude_user_id, task.assignee_id)]
+    if not candidates:
+        return None
+    reviewer = random.choice(candidates)
+    r = s.execute(
+        update(Task).where(
+            Task.id == task.id,
+            Task.reviewer_id.is_(None),
+            Task.status == Status.IN_REVIEW,
+        ).values(reviewer_id=reviewer.user_id)
+    )
+    if r.rowcount != 1:
+        s.rollback()
+        return None
+    _commit(s)
+    return reviewer.user_id
+
+
+def scan_review_timeouts(s: Session, *, project_id: int | None = None,
+                         timeout_minutes: int = DEFAULT_REVIEW_TIMEOUT_MINUTES,
+                         max_per_run: int = DEFAULT_TIMEOUT_SCAN_BATCH,
+                         now: datetime | None = None) -> dict:
+    """评审超时自愈扫描（S3 M2 护栏）。
+
+    超时定义：pending_review Story / in_review Task 且 reviewer 已指派且「最后活动」
+    超时 —— Story 最后活动 = max(created_at, 最新评论时间)；Task 用 updated_at。
+    处理：轮次达 MAX_REVIEW_ROUNDS → blocked（护栏终态）；否则 CAS 解绑旧 reviewer →
+    重新随机指派（排除旧 reviewer，Task 版额外排除 assignee）；无候选 → 保持解绑
+    由下轮轮询补派。解绑 CAS 带旧 reviewer_id 仲裁，多 worker 并发恰一赢家。
+    """
+    now = now or utc_now()
+    timeout = timedelta(minutes=max(1, timeout_minutes))
+    result = {"stories_reassigned": 0, "tasks_reassigned": 0,
+              "blocked": 0, "no_candidate": 0,
+              # 内部重派详情（(entity_id, new_reviewer_id)），供 API 层发布事件，响应中剔除
+              "_stories_reassigned": [], "_tasks_reassigned": []}
+
+    st_q = s.query(Story).filter(
+        Story.status == "pending_review",
+        Story.reviewer_id.isnot(None),
+    )
+    if project_id is not None:
+        st_q = st_q.join(Epic, Story.epic_id == Epic.id).filter(
+            Epic.project_id == project_id)
+    overdue_stories = [
+        st for st in st_q.order_by(Story.id.asc()).limit(max_per_run).all()
+        if now - _story_last_activity(s, st) > timeout
+    ]
+    for st in overdue_stories:
+        if (st.review_round or 0) >= MAX_REVIEW_ROUNDS:
+            r = s.execute(update(Story).where(
+                Story.id == st.id,
+                Story.status == "pending_review",
+            ).values(status="blocked"))
+            if r.rowcount == 1:
+                _commit(s)
+                result["blocked"] += 1
+            else:
+                s.rollback()
+            continue
+        old = st.reviewer_id
+        r = s.execute(update(Story).where(
+            Story.id == st.id,
+            Story.reviewer_id == old,
+        ).values(reviewer_id=None))
+        if r.rowcount != 1:
+            s.rollback()
+            continue  # 并发写者已抢先处理
+        _commit(s)
+        fresh = s.get(Story, st.id)
+        if fresh is None:
+            continue
+        new_rev = _reassign_story_reviewer(s, fresh, exclude_user_id=old)
+        if new_rev is not None:
+            result["stories_reassigned"] += 1
+            result["_stories_reassigned"].append((fresh.id, new_rev))
+        else:
+            result["no_candidate"] += 1
+
+    t_q = s.query(Task).filter(
+        Task.status == Status.IN_REVIEW,
+        Task.reviewer_id.isnot(None),
+    )
+    if project_id is not None:
+        t_q = t_q.filter(Task.project_id == project_id)
+    overdue_tasks = [
+        t for t in t_q.order_by(Task.id.asc()).limit(max_per_run).all()
+        if now - t.updated_at > timeout
+    ]
+    for t in overdue_tasks:
+        if (t.review_round or 0) >= MAX_REVIEW_ROUNDS:
+            r = s.execute(update(Task).where(
+                Task.id == t.id,
+                Task.status == Status.IN_REVIEW,
+            ).values(status=Status.BLOCKED))
+            if r.rowcount == 1:
+                _commit(s)
+                result["blocked"] += 1
+            else:
+                s.rollback()
+            continue
+        old = t.reviewer_id
+        r = s.execute(update(Task).where(
+            Task.id == t.id,
+            Task.reviewer_id == old,
+        ).values(reviewer_id=None))
+        if r.rowcount != 1:
+            s.rollback()
+            continue
+        _commit(s)
+        fresh = s.get(Task, t.id)
+        if fresh is None:
+            continue
+        new_rev = _reassign_task_reviewer(s, fresh, exclude_user_id=old)
+        if new_rev is not None:
+            result["tasks_reassigned"] += 1
+            result["_tasks_reassigned"].append((fresh.id, new_rev))
+        else:
+            result["no_candidate"] += 1
+    return result
+
+
+def get_review_stats(s: Session, *, project_id: int, days: int = 7,
+                     user_id: int | None = None) -> dict:
+    """项目级评审统计运营视图（S3 M2）。
+
+    口径（见 design.md §4）：
+    - story approved = status=ready 且 reviewer 已指派；rejected = review_round>0；
+      pending = pending_review；blocked = blocked；
+    - task approved = done 且 reviewer 已指派；rejected = review_round>0；
+      pending = in_review；blocked = blocked；
+    - reject_rate = rejected / (approved + rejected)，分母 0 → 0.0；
+    - by_reviewer：按 reviewer_id 聚合评审工作量（approve/reject 分布）；
+    - days 过滤 created_at ≥ now-days；user_id 过滤仅统计该评审人条目。
+    """
+    project = s.get(Project, project_id)
+    if not project:
+        raise NotFound(f"project {project_id} not found")
+    days = max(0, int(days)) if days is not None else 7
+    since = utc_now() - timedelta(days=days) if days > 0 else None
+
+    st_q = s.query(Story).join(Epic, Story.epic_id == Epic.id).filter(
+        Epic.project_id == project_id)
+    t_q = s.query(Task).filter(Task.project_id == project_id)
+    if since is not None:
+        st_q = st_q.filter(Story.created_at >= since)
+        t_q = t_q.filter(Task.created_at >= since)
+    if user_id is not None:
+        st_q = st_q.filter(Story.reviewer_id == user_id)
+        t_q = t_q.filter(Task.reviewer_id == user_id)
+    stories = st_q.all()
+    tasks = t_q.all()
+
+    def _buckets(items, *, is_story):
+        approved = rejected = pending = blocked = 0
+        rounds, round_n = 0, 0
+        for it in items:
+            status = it.status
+            reviewed = it.reviewer_id is not None or (it.review_round or 0) > 0
+            if is_story:
+                if status == "ready" and it.reviewer_id is not None:
+                    approved += 1
+                if status == "pending_review":
+                    pending += 1
+            else:
+                if status == Status.DONE and it.reviewer_id is not None:
+                    approved += 1
+                if status == Status.IN_REVIEW:
+                    pending += 1
+            if status == Status.BLOCKED or status == "blocked":
+                blocked += 1
+            if (it.review_round or 0) > 0:
+                rejected += 1
+            if reviewed:
+                rounds += it.review_round or 0
+                round_n += 1
+        return {
+            "total": len(items),
+            "approved": approved,
+            "rejected": rejected,
+            "pending": pending,
+            "blocked": blocked,
+            "_rounds": rounds,
+            "_round_n": round_n,
+        }
+
+    sb = _buckets(stories, is_story=True)
+    tb = _buckets(tasks, is_story=False)
+
+    def _avg(b):
+        return round(b["_rounds"] / b["_round_n"], 2) if b["_round_n"] else 0.0
+
+    # timeout_pending：当前超时未决数（默认 30min 口径）
+    timeout = timedelta(minutes=DEFAULT_REVIEW_TIMEOUT_MINUTES)
+    now = utc_now()
+    timeout_pending = 0
+    for st in stories:
+        if st.status == "pending_review" and st.reviewer_id is not None \
+                and now - _story_last_activity(s, st) > timeout:
+            timeout_pending += 1
+    for t in tasks:
+        if t.status == Status.IN_REVIEW and t.reviewer_id is not None \
+                and now - t.updated_at > timeout:
+            timeout_pending += 1
+
+    # by_reviewer 聚合
+    agg: dict[int, dict] = {}
+    for it in list(stories) + list(tasks):
+        rid = it.reviewer_id
+        if rid is None:
+            continue
+        row = agg.setdefault(rid, {
+            "user_id": rid, "name": None,
+            "story_reviewed": 0, "task_reviewed": 0,
+            "story_approved": 0, "story_rejected": 0,
+            "task_approved": 0, "task_rejected": 0,
+        })
+        if it.__class__ is Story:
+            row["story_reviewed"] += 1
+            if it.status == "ready":
+                row["story_approved"] += 1
+            if (it.review_round or 0) > 0:
+                row["story_rejected"] += 1
+        else:
+            row["task_reviewed"] += 1
+            if it.status == Status.DONE:
+                row["task_approved"] += 1
+            if (it.review_round or 0) > 0:
+                row["task_rejected"] += 1
+    by_reviewer = []
+    for rid, row in agg.items():
+        u = s.get(User, rid)
+        row["name"] = u.display_name or u.username if u else f"user#{rid}"
+        by_reviewer.append(row)
+    by_reviewer.sort(key=lambda r: -(r["story_reviewed"] + r["task_reviewed"]))
+
+    total_done = sb["approved"] + sb["rejected"] + tb["approved"] + tb["rejected"]
+    total_rejected = sb["rejected"] + tb["rejected"]
+    return {
+        "project_id": project_id,
+        "days": days,
+        "stories": {k: sb[k] for k in ("total", "approved", "rejected", "pending", "blocked")},
+        "tasks": {k: tb[k] for k in ("total", "approved", "rejected", "pending", "blocked")},
+        "rounds": {"avg_story_round": _avg(sb), "avg_task_round": _avg(tb)},
+        "reject_rate": round(total_rejected / total_done, 4) if total_done else 0.0,
+        "timeout_pending": timeout_pending,
+        "by_reviewer": by_reviewer,
+        "generated_at": utc_now().isoformat(),
+    }
 
 
 def _invalidate_project_stats_cache(project_id: int) -> None:

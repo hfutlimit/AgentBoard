@@ -161,6 +161,12 @@ class AgentReviewIn(BaseModel):
     comment: str = Field(min_length=1, max_length=2000)
 
 
+# Epic 122 S3 M2：评审统计与超时护栏
+class ReassignTimeoutIn(BaseModel):
+    timeout_minutes: int = Field(default=service.DEFAULT_REVIEW_TIMEOUT_MINUTES, ge=1, le=1440)
+    max_per_run: int = Field(default=service.DEFAULT_TIMEOUT_SCAN_BATCH, ge=1, le=200)
+
+
 class TaskIn(BaseModel):
     project_id: int = Field(gt=0)
     title: str = Field(min_length=1, max_length=300)
@@ -1289,6 +1295,68 @@ def delete_task(tid: int, s: Session = Depends(get_session)):
     if pid:
         _invalidate_stats_cache(pid)
     return {"ok": True}
+
+
+# ---------- 评审统计与超时护栏（Epic 122 S3 M2） ----------
+@app.get("/api/review-stats")
+def review_stats(project_id: int, days: int = 7, user_id: int | None = None,
+                 authorization: str | None = Header(None),
+                 s: Session = Depends(get_session)):
+    """项目级评审统计运营视图（S3 M2）。
+
+    权限：project_access_middleware 经 ?project_id= 解析项目 → 项目成员可读
+    （公开项目读开放 / admin 全局绕过）。
+    """
+    uid, _is_admin = _caller_uid_admin(authorization)
+    if _auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    try:
+        return service.get_review_stats(s, project_id=project_id, days=days,
+                                        user_id=user_id)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/api/review-stats/reassign-timeout")
+def reassign_timeout(project_id: int | None = None,
+                     body: ReassignTimeoutIn | None = None,
+                     authorization: str | None = Header(None),
+                     s: Session = Depends(get_session)):
+    """评审超时自愈扫描（S3 M2 护栏）：超时 pending_review Story / in_review Task →
+    轮次上限 blocked，否则 CAS 解绑重派。
+
+    权限：带 ?project_id= 时由 project_access_middleware 解析 → 项目成员写；
+    不带时（Worker 全局自愈扫描）放行 —— 幂等 + 有界 + 不读敏感数据，仅做评审指派
+    自愈，任意已认证用户可触发（Worker 以服务账号调用）。
+    重派成功的实体发布 review.requested（定向新 reviewer agent 队列退广播）+
+    Webhook 通道，与既有 assign-reviewer 端点事件语义一致。
+    """
+    if body is None:
+        body = ReassignTimeoutIn()
+    uid, _is_admin = _caller_uid_admin(authorization)
+    if _auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    result = service.scan_review_timeouts(
+        s, project_id=project_id,
+        timeout_minutes=body.timeout_minutes,
+        max_per_run=body.max_per_run)
+    # 事件源：重派成功的 Story/Task 逐个发布 review.requested（定向退广播）+ Webhook
+    for entity_type, rows in (("story", result.get("_stories_reassigned") or []),
+                              ("task", result.get("_tasks_reassigned") or [])):
+        for eid, new_reviewer_id in rows:
+            reviewer_agent_id = None
+            if new_reviewer_id is not None:
+                agent = s.query(service.Agent).filter(
+                    service.Agent.user_id == new_reviewer_id).first()
+                if agent is not None:
+                    reviewer_agent_id = agent.agent_id
+            publish_workflow_event(EVENT_REVIEW_REQUESTED, entity_type, eid,
+                                   ref_id=new_reviewer_id, agent_id=reviewer_agent_id)
+            if project_id is not None:
+                _notify_webhooks(s, project_id, EVENT_REVIEW_REQUESTED,
+                                 {"id": eid, "reviewer_id": new_reviewer_id,
+                                  "status": "pending_review" if entity_type == "story" else "in_review"})
+    return {k: v for k, v in result.items() if not k.startswith("_")}
 
 
 # ---------- Bulk Task Operations ----------
