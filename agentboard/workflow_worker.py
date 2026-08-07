@@ -38,6 +38,7 @@ from . import mq
 from .mq import (
     EVENT_COMMENT_REPLIED,
     EVENT_REVIEW_REJECTED,
+    EVENT_REVIEW_VOTE_CAST,
     EVENT_STORY_CREATED,
     EVENT_STORY_READY,
     EVENT_TASK_AVAILABLE,
@@ -218,6 +219,11 @@ class WorkflowConsumer:
         if event in (EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED):
             log.info("事件 %s（task=%s）：Task 评审完成，assignee/reviewer 经定向队列感知",
                      event, msg.entity_id)
+            return True
+        if event == EVENT_REVIEW_VOTE_CAST:
+            # 切片 3 M3：多数决投票已记录（未达法定票数），等待更多评审人投票/超时兜底
+            log.info("事件 %s（%s=%s 投票人=%s）：多数决进行中，达法定票数自动结算",
+                     event, msg.entity_type, msg.entity_id, msg.ref_id)
             return True
         log.warning("收到未识别事件 %s（entity=%s#%s），直接 ack 忽略",
                     event, msg.entity_type, msg.entity_id)

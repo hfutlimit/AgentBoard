@@ -1,6 +1,9 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean, CheckConstraint, DateTime, ForeignKey, Integer, String, Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..common.enums import SprintStatus, Status
@@ -51,6 +54,36 @@ class Story(Base):
     )
     review_round: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class ReviewVote(Base):
+    """评审投票（Epic 122 S3 M3 多数决）：一实体（Story/Task）多评审人各一票。
+
+    - 一人一票：UNIQUE(entity_type, entity_id, reviewer_user_id)，改票走 upsert；
+    - verdict：approve | reject；评论是评审意见载体（comment_id 关联评论）；
+    - round：所属评审轮次（驳回结算后历史票清空，开新一轮）。
+    """
+
+    __tablename__ = "review_votes"
+    __table_args__ = (
+        UniqueConstraint(
+            "entity_type", "entity_id", "reviewer_user_id",
+            name="uq_review_votes_entity_reviewer",
+        ),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entity_type: Mapped[str] = mapped_column(String(10), nullable=False)  # story | task
+    entity_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    reviewer_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False
+    )
+    verdict: Mapped[str] = mapped_column(String(10), nullable=False)  # approve | reject
+    comment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("comments.id"), nullable=True
+    )
+    round: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 
 
 class Agent(Base):

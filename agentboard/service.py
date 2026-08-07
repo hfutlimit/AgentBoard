@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import random
 import re
 import traceback
@@ -13,7 +14,7 @@ from .models import (
     ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES,
     Agent, Project, Epic, Story, Task, Comment, Sprint, Attachment, AgentSchedule, AgentRun,
     ProjectMember, Notification, User, ApiKey, AuditLog, TaskDependency, WebhookConfig,
-    Document, DocumentComment, DocumentFolder,
+    Document, DocumentComment, DocumentFolder, ReviewVote,
     Proposal, ProposalRound, ProposalQuestion,
 )
 from .domains.projects.models import STORY_REVIEW_STATUSES
@@ -445,6 +446,177 @@ def list_agents(s: Session, *, online: bool | None = None, role: str | None = No
 # ---------- Story 评审闭环（Epic 122 S1） ----------
 MAX_REVIEW_ROUNDS = 5  # 与 Proposal max_rounds 对齐；超限置 blocked 护栏
 
+# ---------- 多数决评审（Epic 122 S3 M3） ----------
+REVIEW_MODE_SINGLE = "single"      # 1 名 reviewer，approve 即通过（默认，兼容 S1/S2）
+REVIEW_MODE_MAJORITY = "majority"  # N 人投票，达法定票数按多数决结算（文档 #50 §7 决策 #7）
+DEFAULT_REVIEW_QUORUM = 3          # 法定票数（env AGENTBOARD_REVIEW_QUORUM 覆盖，2..9）
+
+
+def get_review_mode() -> str:
+    """评审模式：环境变量 AGENTBOARD_REVIEW_MODE（single|majority），非法回退 single。"""
+    mode = os.environ.get("AGENTBOARD_REVIEW_MODE", "").strip().lower()
+    return mode if mode in (REVIEW_MODE_SINGLE, REVIEW_MODE_MAJORITY) else REVIEW_MODE_SINGLE
+
+
+def get_review_quorum() -> int:
+    """法定票数：AGENTBOARD_REVIEW_QUORUM（2..9），非法/缺省回退 3。"""
+    raw = os.environ.get("AGENTBOARD_REVIEW_QUORUM", "").strip()
+    try:
+        q = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_REVIEW_QUORUM
+    return q if 2 <= q <= 9 else DEFAULT_REVIEW_QUORUM
+
+
+def _is_reviewer_candidate(s: Session, project_id: int, user_id: int,
+                           exclude_user_id: int | None = None) -> bool:
+    """投票人校验（majority 模式）：在线 ∩ reviewer 角色 ∩ 项目成员 ∩ ≠exclude。
+
+    与分配器候选集同源（_online_reviewer_candidates），保证只有能被指派为
+    reviewer 的 Agent 才能参与多数决投票（评审强度升级，但参与者资格不变）。
+    """
+    if exclude_user_id is not None and user_id == exclude_user_id:
+        return False
+    for a in _online_reviewer_candidates(s, project_id):
+        if a.user_id == user_id:
+            return True
+    return False
+
+
+def _upsert_review_vote(s: Session, *, entity_type: str, entity_id: int,
+                        reviewer_user_id: int, verdict: str,
+                        comment_id: int | None, round: int) -> None:
+    """一人一票 upsert：存在则更新 verdict/comment（改票），否则插入。
+
+    双后端兼容：先查后写（量级小，避免方言差异的 ON CONFLICT 语法）。
+    """
+    existing = s.query(ReviewVote).filter(
+        ReviewVote.entity_type == entity_type,
+        ReviewVote.entity_id == entity_id,
+        ReviewVote.reviewer_user_id == reviewer_user_id,
+    ).first()
+    if existing is not None:
+        existing.verdict = verdict
+        existing.comment_id = comment_id
+        existing.round = round
+        _commit(s)
+        return
+    s.add(ReviewVote(entity_type=entity_type, entity_id=entity_id,
+                     reviewer_user_id=reviewer_user_id, verdict=verdict,
+                     comment_id=comment_id, round=round))
+    _commit(s)
+
+
+def _review_vote_counts(s: Session, entity_type: str, entity_id: int) -> tuple[int, int]:
+    """返回 (approve, reject) 票数。"""
+    rows = s.query(ReviewVote.verdict, func.count(ReviewVote.id)).filter(
+        ReviewVote.entity_type == entity_type,
+        ReviewVote.entity_id == entity_id,
+    ).group_by(ReviewVote.verdict).all()
+    counts = dict(rows)
+    return int(counts.get("approve", 0)), int(counts.get("reject", 0))
+
+
+def _clear_review_votes(s: Session, entity_type: str, entity_id: int) -> None:
+    """结算后清票（终态 / 驳回后开新一轮，MVP 简化：历史票不跨轮保留）。"""
+    s.query(ReviewVote).filter(
+        ReviewVote.entity_type == entity_type,
+        ReviewVote.entity_id == entity_id,
+    ).delete(synchronize_session=False)
+    _commit(s)
+
+
+def _settle_majority_approved(s: Session, entity, entity_type: str):
+    """多数通过（CAS）：Story pending_review→ready / Task in_review→done，结算后清票。"""
+    if entity_type == "story":
+        r = s.execute(update(Story).where(
+            Story.id == entity.id,
+            Story.status == "pending_review",
+        ).values(status="ready"))
+    else:
+        r = s.execute(update(Task).where(
+            Task.id == entity.id,
+            Task.status == Status.IN_REVIEW,
+        ).values(status=Status.DONE))
+    if r.rowcount != 1:
+        s.rollback()
+        raise InvalidValue("review conflict: entity state changed concurrently")
+    _commit(s)
+    _clear_review_votes(s, entity_type, entity.id)
+    return s.get(type(entity), entity.id)
+
+
+def _settle_majority_rejected(s: Session, entity, entity_type: str):
+    """多数驳回：review_round+1，Story 回 pending_review / Task 回 in_progress；
+    达 MAX_REVIEW_ROUNDS → blocked 护栏；结算后清票（下一轮重新投票）。
+    """
+    new_round = (entity.review_round or 0) + 1
+    if entity_type == "story":
+        target = "blocked" if new_round >= MAX_REVIEW_ROUNDS else "pending_review"
+        r = s.execute(update(Story).where(
+            Story.id == entity.id,
+            Story.status == "pending_review",
+        ).values(review_round=new_round, status=target))
+    else:
+        target = Status.BLOCKED if new_round >= MAX_REVIEW_ROUNDS else Status.IN_PROGRESS
+        r = s.execute(update(Task).where(
+            Task.id == entity.id,
+            Task.status == Status.IN_REVIEW,
+        ).values(review_round=new_round, status=target))
+    if r.rowcount != 1:
+        s.rollback()
+        raise InvalidValue("review conflict: entity state changed concurrently")
+    _commit(s)
+    _clear_review_votes(s, entity_type, entity.id)
+    return s.get(type(entity), entity.id)
+
+
+def _vote_majority(s: Session, entity, *, entity_type: str, reviewer_user_id: int,
+                   verdict: str, comment: str):
+    """多数决投票（S3 M3）：写票（一人一票 upsert）→ 达法定票数结算。
+
+    - 权限：投票人须是该项目在线 reviewer 候选（与分配器同源）；
+      Task 版额外排除 assignee（评审人与作者隔离）；
+    - 未达 quorum：状态保持（pending_review / in_review），评论照记，
+      返回 (entity, settled=False)；
+    - 达 quorum：approve > reject → 通过；reject >= approve（含平局保守驳回）
+      → 驳回（round+1，回原评审流/开发流）；返回 (entity, settled=True)。
+    """
+    if entity_type == "story":
+        epic = s.get(Epic, entity.epic_id)
+        if epic is None:
+            raise NotFound(f"epic {entity.epic_id} not found")
+        project_id = epic.project_id
+        expected_status = "pending_review"
+        exclude = None
+    else:
+        project_id = entity.project_id
+        expected_status = Status.IN_REVIEW
+        exclude = entity.assignee_id
+    if not _is_reviewer_candidate(s, project_id, reviewer_user_id,
+                                  exclude_user_id=exclude):
+        raise InvalidValue(
+            "only an online reviewer agent of this project can vote (majority mode)")
+    if entity.status != expected_status:
+        raise InvalidValue(
+            f"entity is not {expected_status} (current status: {entity.status})")
+    reviewer = s.get(User, reviewer_user_id)
+    reviewer_name = reviewer.display_name or reviewer.username if reviewer else f"user#{reviewer_user_id}"
+    # 评审意见落评论（唯一载体，与 single 模式一致）
+    comment_obj = create_comment(
+        s, author=reviewer_name, content=comment,
+        **({f"{entity_type}_id": entity.id}))
+    _upsert_review_vote(s, entity_type=entity_type, entity_id=entity.id,
+                        reviewer_user_id=reviewer_user_id, verdict=verdict,
+                        comment_id=comment_obj.id, round=entity.review_round or 0)
+    approve_n, reject_n = _review_vote_counts(s, entity_type, entity.id)
+    if approve_n + reject_n < get_review_quorum():
+        s.refresh(entity)
+        return entity, False
+    if approve_n > reject_n:
+        return _settle_majority_approved(s, entity, entity_type), True
+    return _settle_majority_rejected(s, entity, entity_type), True
+
 
 def _online_reviewer_candidates(s: Session, project_id: int) -> list[Agent]:
     """在线 ∩ 角色含 reviewer ∩ 绑定 user 属项目成员 的 Agent 候选集。"""
@@ -507,6 +679,8 @@ def review_story(s: Session, *, story_id: int, reviewer_user_id: int,
     - approve：状态 → ready（评论记录评审意见，发故事就绪语义）；
     - reject ：review_round + 1，仍停留 pending_review（评论往返收敛）；
     - 护栏：review_round 达 MAX_REVIEW_ROUNDS → blocked（待人工仲裁）。
+    - S3 M3：review_mode=majority 时改为多数决投票（_vote_majority），
+      投票人资格放宽为项目在线 reviewer 候选，达法定票数按多数结算。
 
     评论是评审意见唯一载体（approve/reject 必须伴随 comment），形成审计轨迹。
     """
@@ -518,6 +692,12 @@ def review_story(s: Session, *, story_id: int, reviewer_user_id: int,
     comment = (comment or "").strip()
     if not comment:
         raise InvalidValue("review comment is required (approve/reject must carry a comment)")
+    # S3 M3：多数决模式走投票分支（未达法定票数不结算，状态保持）
+    if get_review_mode() == REVIEW_MODE_MAJORITY:
+        st, _settled = _vote_majority(
+            s, st, entity_type="story", reviewer_user_id=reviewer_user_id,
+            verdict=verdict, comment=comment)
+        return st
     if st.reviewer_id != reviewer_user_id:
         raise InvalidValue("only the assigned reviewer can review this story")
     if st.status != "pending_review":
@@ -847,6 +1027,8 @@ def review_task(s: Session, *, task_id: int, reviewer_user_id: int,
     - reject ：review_round + 1，任务退回 in_progress（开发者修复后重新
       submit-review，reviewer_id 保留 → 同一 reviewer 继续评审）；评论记录意见；
     - 护栏：review_round 达 MAX_REVIEW_ROUNDS → blocked（待人工仲裁）。
+    - S3 M3：review_mode=majority 时改为多数决投票（_vote_majority），
+      投票人资格放宽为项目在线 reviewer 候选（≠assignee），达法定票数按多数结算。
 
     评论是评审意见唯一载体（approve/reject 必须伴随 comment），形成审计轨迹。
     """
@@ -858,6 +1040,12 @@ def review_task(s: Session, *, task_id: int, reviewer_user_id: int,
     comment = (comment or "").strip()
     if not comment:
         raise InvalidValue("review comment is required (approve/reject must carry a comment)")
+    # S3 M3：多数决模式走投票分支（未达法定票数不结算，状态保持）
+    if get_review_mode() == REVIEW_MODE_MAJORITY:
+        t, _settled = _vote_majority(
+            s, t, entity_type="task", reviewer_user_id=reviewer_user_id,
+            verdict=verdict, comment=comment)
+        return t
     if t.reviewer_id != reviewer_user_id:
         raise InvalidValue("only the assigned reviewer can review this task")
     if t.status != Status.IN_REVIEW:
@@ -999,6 +1187,8 @@ def scan_review_timeouts(s: Session, *, project_id: int | None = None,
     timeout = timedelta(minutes=max(1, timeout_minutes))
     result = {"stories_reassigned": 0, "tasks_reassigned": 0,
               "blocked": 0, "no_candidate": 0,
+              # S3 M3：majority 模式超时按现有票兜底结算计数（防死锁）
+              "stories_settled": 0, "tasks_settled": 0,
               # 内部重派详情（(entity_id, new_reviewer_id)），供 API 层发布事件，响应中剔除
               "_stories_reassigned": [], "_tasks_reassigned": []}
 
@@ -1014,6 +1204,20 @@ def scan_review_timeouts(s: Session, *, project_id: int | None = None,
         if now - _story_last_activity(s, st) > timeout
     ]
     for st in overdue_stories:
+        # S3 M3：majority 模式超时按现有票兜底结算（approve>reject → 通过；
+        # reject>=approve → 驳回；平局保守驳回防死锁）。零票走既有重派逻辑。
+        if get_review_mode() == REVIEW_MODE_MAJORITY:
+            approve_n, reject_n = _review_vote_counts(s, "story", st.id)
+            if approve_n + reject_n > 0:
+                if approve_n > reject_n:
+                    _settle_majority_approved(s, st, "story")
+                    result["stories_settled"] += 1
+                else:
+                    settled = _settle_majority_rejected(s, st, "story")
+                    result["stories_settled"] += 1
+                    if settled.status == "blocked":
+                        result["blocked"] += 1
+                continue
         if (st.review_round or 0) >= MAX_REVIEW_ROUNDS:
             r = s.execute(update(Story).where(
                 Story.id == st.id,
@@ -1055,6 +1259,19 @@ def scan_review_timeouts(s: Session, *, project_id: int | None = None,
         if now - t.updated_at > timeout
     ]
     for t in overdue_tasks:
+        # S3 M3：majority 模式超时按现有票兜底结算（语义同 Story 分支）
+        if get_review_mode() == REVIEW_MODE_MAJORITY:
+            approve_n, reject_n = _review_vote_counts(s, "task", t.id)
+            if approve_n + reject_n > 0:
+                if approve_n > reject_n:
+                    _settle_majority_approved(s, t, "task")
+                    result["tasks_settled"] += 1
+                else:
+                    settled = _settle_majority_rejected(s, t, "task")
+                    result["tasks_settled"] += 1
+                    if settled.status == Status.BLOCKED:
+                        result["blocked"] += 1
+                continue
         if (t.review_round or 0) >= MAX_REVIEW_ROUNDS:
             r = s.execute(update(Task).where(
                 Task.id == t.id,

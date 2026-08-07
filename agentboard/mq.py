@@ -661,6 +661,8 @@ ROUTING_WORKFLOW_AGENT = "workflow.agent"
 EVENT_STORY_CREATED = "story.created"
 EVENT_REVIEW_REQUESTED = "review.requested"
 EVENT_REVIEW_REJECTED = "review.rejected"
+# 切片 3 M3：多数决投票已记录（未达法定票数，等待更多票）
+EVENT_REVIEW_VOTE_CAST = "review.vote_cast"
 EVENT_COMMENT_REPLIED = "comment.replied"
 EVENT_STORY_READY = "story.ready"
 # 切片 2 预留（消费侧未实现，先占事件名保证白名单稳定）
@@ -673,6 +675,7 @@ WORKFLOW_EVENTS: frozenset[str] = frozenset({
     EVENT_STORY_CREATED,
     EVENT_REVIEW_REQUESTED,
     EVENT_REVIEW_REJECTED,
+    EVENT_REVIEW_VOTE_CAST,
     EVENT_COMMENT_REPLIED,
     EVENT_STORY_READY,
     EVENT_TASK_AVAILABLE,

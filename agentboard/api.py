@@ -20,8 +20,8 @@ from .database import get_session, init_db, SessionLocal
 from . import service, auth, mq
 from .mq import (
     EVENT_STORY_CREATED, EVENT_REVIEW_REQUESTED, EVENT_REVIEW_REJECTED,
-    EVENT_STORY_READY, EVENT_COMMENT_REPLIED, EVENT_TASK_READY_FOR_REVIEW,
-    EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED,
+    EVENT_REVIEW_VOTE_CAST, EVENT_STORY_READY, EVENT_COMMENT_REPLIED,
+    EVENT_TASK_READY_FOR_REVIEW, EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED,
     publish_workflow_event,
 )
 from .cos_client import client as _cos_client, CosError
@@ -973,19 +973,32 @@ def review_story(sid: int, body: AgentReviewIn, authorization: str | None = Head
         raise HTTPException(status_code=401, detail="unauthorized")
     if uid is None:
         raise HTTPException(status_code=422, detail="review requires login")
+    before = s.get(service.Story, sid)
+    before_round = (before.review_round or 0) if before is not None else 0
     st = service.review_story(s, story_id=sid, reviewer_user_id=uid,
                               verdict=body.verdict, comment=body.comment)
-    # 事件源：approve → story.ready 广播（开发任务分配入口，切片 2 消费）；
-    # reject → review.rejected 广播（ref_id=评审轮次，作者侧感知后回复收敛）
+    # 事件源：结算判定 ——
+    # ready → story.ready（评审通过，开发分配入口）；
+    # blocked / round 增加 → review.rejected（护栏终态 / single reject /
+    #   majority 多数驳回待收敛）；
+    # 其余（majority 投票未达法定票数，状态与轮次均未变）→ review.vote_cast。
     if st.status == "ready":
-        publish_workflow_event(EVENT_STORY_READY, "story", st.id, ref_id=st.reviewer_id)
+        event = EVENT_STORY_READY
+    elif st.status == "blocked" or (st.review_round or 0) > before_round:
+        event = EVENT_REVIEW_REJECTED
     else:
-        publish_workflow_event(EVENT_REVIEW_REJECTED, "story", st.id, ref_id=st.review_round)
+        event = EVENT_REVIEW_VOTE_CAST
+    if event == EVENT_STORY_READY:
+        ref_id = st.reviewer_id
+    elif event == EVENT_REVIEW_VOTE_CAST:
+        ref_id = uid
+    else:
+        ref_id = st.review_round
+    publish_workflow_event(event, "story", st.id, ref_id=ref_id)
     # Webhook 通道（Epic 122 切片 3）
     _epic = s.get(service.Epic, st.epic_id)
     if _epic is not None:
-        _notify_webhooks(s, _epic.project_id,
-                         EVENT_STORY_READY if st.status == "ready" else EVENT_REVIEW_REJECTED,
+        _notify_webhooks(s, _epic.project_id, event,
                          {"id": st.id, "status": st.status, "reviewer_id": st.reviewer_id,
                           "review_round": st.review_round})
     return service._ser(st)
@@ -1266,6 +1279,8 @@ def review_task(tid: int, body: AgentReviewIn, authorization: str | None = Heade
     if uid is None:
         raise HTTPException(status_code=422, detail="review requires login")
     try:
+        before = s.get(service.Task, tid)
+        before_round = (before.review_round or 0) if before is not None else 0
         t = service.review_task(s, task_id=tid, reviewer_user_id=uid,
                                 verdict=body.verdict, comment=body.comment)
     except service.NotFound as e:
@@ -1273,14 +1288,24 @@ def review_task(tid: int, body: AgentReviewIn, authorization: str | None = Heade
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     _invalidate_stats_cache(t.project_id)
-    # 事件源：approve → task.reviewed 广播；reject → task.rejected 广播（ref_id=轮次）
+    # 事件源：结算判定（语义同 Story 版）——
+    # done → task.reviewed；blocked / round 增加 → task.rejected；
+    # 其余（majority 投票未达法定票数）→ review.vote_cast。
     if t.status == Status.DONE:
-        publish_workflow_event(EVENT_TASK_REVIEWED, "task", t.id, ref_id=uid)
+        event = EVENT_TASK_REVIEWED
+    elif t.status == Status.BLOCKED or (t.review_round or 0) > before_round:
+        event = EVENT_TASK_REJECTED
     else:
-        publish_workflow_event(EVENT_TASK_REJECTED, "task", t.id, ref_id=t.review_round)
+        event = EVENT_REVIEW_VOTE_CAST
+    # ref_id 语义：task.reviewed / vote_cast → 投票人 uid（既有契约）；
+    # task.rejected → 评审轮次
+    if event in (EVENT_TASK_REVIEWED, EVENT_REVIEW_VOTE_CAST):
+        ref_id = uid
+    else:
+        ref_id = t.review_round
+    publish_workflow_event(event, "task", t.id, ref_id=ref_id)
     # Webhook 通道（Epic 122 切片 3）
-    _notify_webhooks(s, t.project_id,
-                     EVENT_TASK_REVIEWED if t.status == Status.DONE else EVENT_TASK_REJECTED,
+    _notify_webhooks(s, t.project_id, event,
                      {"id": t.id, "status": t.status, "reviewer_id": t.reviewer_id,
                       "review_round": t.review_round})
     return service._ser(t)
