@@ -2432,6 +2432,8 @@ class DocumentPatch(BaseModel):
     type: str | None = None
     status: str | None = None
     folder_id: int | None = None  # null = 移出文件夹到根目录
+    epic_id: int | None = None   # null = 清空 epic 关联（须属于文档项目）
+    story_id: int | None = None  # null = 清空 story 关联（须属于文档项目/所属 epic）
 
 
 class DocumentFolderIn(BaseModel):
@@ -2581,6 +2583,11 @@ def update_document(did: int, body: DocumentPatch, s: Session = Depends(get_sess
         fields = body.model_dump(exclude_none=True)
         if "folder_id" in body.model_fields_set:
             fields["folder_id"] = body.folder_id
+        # epic_id/story_id 显式 null = 清空关联（exclude_none 会吞 null，需按 fields_set 还原）
+        if "epic_id" in body.model_fields_set:
+            fields["epic_id"] = body.epic_id
+        if "story_id" in body.model_fields_set:
+            fields["story_id"] = body.story_id
         r = service.update_document(s, did, **fields)
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))

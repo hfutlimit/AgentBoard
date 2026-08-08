@@ -3303,6 +3303,31 @@ def _check_document_folder(s: Session, folder_id: int, project_id: int) -> Docum
     return f
 
 
+def _check_document_links(s: Session, *, project_id: int, epic_id: int | None,
+                          story_id: int | None) -> None:
+    """校验文档关联的 epic/story 存在且属于同一项目（目录结构一致性）。
+
+    - epic_id：必须存在且 ``epic.project_id == project_id``；
+    - story_id：必须存在且其所属 epic 属于该项目；若同时指定 epic_id，
+      story 必须属于该 epic（防止文档的 story/epic 关联错位导致目录结构混乱）。
+    """
+    if epic_id is not None:
+        e = s.get(Epic, epic_id)
+        if not e:
+            raise InvalidValue(f"epic {epic_id} not found")
+        if e.project_id != project_id:
+            raise InvalidValue(f"epic {epic_id} 不属于项目 {project_id}")
+    if story_id is not None:
+        st = s.get(Story, story_id)
+        if not st:
+            raise InvalidValue(f"story {story_id} not found")
+        st_epic = s.get(Epic, st.epic_id)
+        if not st_epic or st_epic.project_id != project_id:
+            raise InvalidValue(f"story {story_id} 不属于项目 {project_id}")
+        if epic_id is not None and st.epic_id != epic_id:
+            raise InvalidValue(f"story {story_id} 不属于 epic {epic_id}")
+
+
 def _folder_is_descendant(s: Session, folder_id: int, ancestor_id: int) -> bool:
     """ancestor_id 是否为 folder_id 的祖先（含自身）？用于移动文件夹时防环。"""
     cur: int | None = ancestor_id
@@ -3406,10 +3431,7 @@ def create_document(
 ) -> Document:
     if not s.get(Project, project_id):
         raise NotFound(f"project {project_id} not found")
-    if epic_id is not None and not s.get(Epic, epic_id):
-        raise NotFound(f"epic {epic_id} not found")
-    if story_id is not None and not s.get(Story, story_id):
-        raise NotFound(f"story {story_id} not found")
+    _check_document_links(s, project_id=project_id, epic_id=epic_id, story_id=story_id)
     if folder_id is not None:
         _check_document_folder(s, folder_id, project_id)
     _check_document_type(type)
@@ -3467,10 +3489,15 @@ def update_document(s: Session, id: int, **fields) -> Document | None:
     d = s.get(Document, id)
     if not d:
         return None
-    allowed = {"title", "content", "type", "status", "folder_id"}
+    allowed = {"title", "content", "type", "status", "folder_id", "epic_id", "story_id"}
+    # 关联字段暂存新值：统一校验通过后再落对象，异常时不污染对象状态
+    new_epic = fields.get("epic_id", d.epic_id)
+    new_story = fields.get("story_id", d.story_id)
     for k, v in fields.items():
         if k not in allowed:
             continue
+        if k in ("epic_id", "story_id"):
+            continue  # 循环后统一校验并赋值
         if k == "folder_id":
             # 显式 null = 移出文件夹到根目录（合法值，不可跳过）
             if v is not None:
@@ -3493,6 +3520,11 @@ def update_document(s: Session, id: int, **fields) -> Document | None:
             status_changed = True
             continue
         setattr(d, k, v)
+    # 关联一致性校验：仅本次修改了 epic/story 关联时执行（历史脏数据不阻塞普通更新）
+    if "epic_id" in fields or "story_id" in fields:
+        _check_document_links(s, project_id=d.project_id, epic_id=new_epic, story_id=new_story)
+        d.epic_id = new_epic
+        d.story_id = new_story
     _commit(s); s.refresh(d); return d
 
 
