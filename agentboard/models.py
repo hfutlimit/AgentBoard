@@ -24,7 +24,7 @@ from .domains.projects.models import (
     Agent, Epic, Project, ProjectMember, ReviewVote, Sprint, Story,
 )
 from .domains.scheduling.models import AgentRun, AgentSchedule
-from .domains.work_items.models import Attachment, AuditLog, Comment, Task, TaskDependency, WebhookConfig
+from .domains.work_items.models import Attachment, AuditLog, Comment, Task, TaskDependency, TaskStatusHistory, WebhookConfig
 from .domains.documents.models import Document, DocumentComment, DocumentFolder
 from .domains.proposals.models import (
     ALL_PROPOSAL_STATUSES,
@@ -45,5 +45,5 @@ __all__ = [
     "Proposal", "ProposalQuestion", "ProposalRound", "ProposalStatus", "ReviewVote",
     "RunStatus",
     "ScheduleType", "Sprint", "SprintStatus", "Status", "Story", "Task",
-    "TaskDependency", "User", "WebhookConfig",
+    "TaskDependency", "TaskStatusHistory", "User", "WebhookConfig",
 ]

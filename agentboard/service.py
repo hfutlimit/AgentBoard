@@ -14,7 +14,7 @@ from .models import (
     ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES,
     Agent, Project, Epic, Story, Task, Comment, Sprint, Attachment, AgentSchedule, AgentRun,
     ProjectMember, Notification, User, ApiKey, AuditLog, TaskDependency, WebhookConfig,
-    Document, DocumentComment, DocumentFolder, ReviewVote,
+    Document, DocumentComment, DocumentFolder, ReviewVote, TaskStatusHistory,
     Proposal, ProposalRound, ProposalQuestion,
 )
 from .domains.projects.models import STORY_REVIEW_STATUSES
@@ -46,15 +46,43 @@ def _parse_due_date(value):
 # 合法状态迁移
 # 注：允许从 TODO / IN_PROGRESS 直接标记完成(DONE)，以及 DONE 直接重新打开(TODO)，
 # 以支持任务列表/看板的「快速完成」勾选（A-22）。未改变 API 契约，仅放宽迁移规则。
+# Epic 123 扩展：
+# - in_review → final_review（最终评审，后段共用）；
+# - done → blocked（blocked 全向可达，由 set_status 统一特判）；
+# - 解除 blocked 恢复到 previous_status 由 set_status 动态处理（不在此表）。
 TRANSITIONS = {
     Status.BACKLOG: {Status.TODO, Status.BLOCKED},
     Status.TODO: {Status.IN_PROGRESS, Status.BACKLOG, Status.DONE, Status.BLOCKED},
     Status.IN_PROGRESS: {Status.IN_REVIEW, Status.VERIFYING, Status.TODO, Status.DONE, Status.BLOCKED},
-    Status.IN_REVIEW: {Status.DONE, Status.IN_PROGRESS, Status.BLOCKED},
+    Status.IN_REVIEW: {Status.DONE, Status.IN_PROGRESS, Status.BLOCKED, Status.FINAL_REVIEW},
+    Status.FINAL_REVIEW: {Status.DONE, Status.IN_REVIEW, Status.BLOCKED},
     Status.VERIFYING: {Status.DONE, Status.IN_PROGRESS, Status.BLOCKED},
-    Status.DONE: {Status.IN_PROGRESS, Status.TODO},
+    Status.DONE: {Status.IN_PROGRESS, Status.TODO, Status.BLOCKED},
     Status.BLOCKED: {Status.TODO, Status.IN_PROGRESS},
 }
+
+# 设计评审段（仅 needs_design=true 注入）：todo 必须先进 in_design（不能直跳 in_progress）
+_DESIGN_SEGMENT = {
+    Status.IN_DESIGN: {Status.DESIGN_PENDING_REVIEW, Status.TODO, Status.BLOCKED},
+    Status.DESIGN_PENDING_REVIEW: {Status.DESIGN_REVIEW_APPROVED, Status.IN_DESIGN, Status.BLOCKED},
+    Status.DESIGN_REVIEW_APPROVED: {Status.IN_PROGRESS, Status.IN_DESIGN, Status.BLOCKED},
+}
+
+
+def transitions_for(needs_design: bool) -> dict:
+    """按 Story.needs_design 返回任务适用的迁移表（Epic 123）。
+
+    - needs_design=true：TODO 出边改为 {IN_DESIGN, BACKLOG, DONE, BLOCKED}（必须先进设计评审段）；
+    - needs_design=false：快速流（TODO → IN_PROGRESS）；
+    - blocked 全向可达与解除恢复 previous_status 由 set_status 动态处理，不在此表特判。
+    """
+    if not needs_design:
+        return TRANSITIONS
+    merged = {k: set(v) for k, v in TRANSITIONS.items()}
+    merged[Status.TODO] = {Status.IN_DESIGN, Status.BACKLOG, Status.DONE, Status.BLOCKED}
+    for src, targets in _DESIGN_SEGMENT.items():
+        merged.setdefault(src, set()).update(targets)
+    return merged
 
 EDITABLE = {
     "name", "key", "description", "is_private",   # project
@@ -274,10 +302,12 @@ def delete_epic(s: Session, id: int) -> bool:
 
 
 # ---------- Story ----------
-def create_story(s: Session, *, epic_id: int, title: str, description: str = "") -> Story:
+def create_story(s: Session, *, epic_id: int, title: str, description: str = "",
+                 needs_design: bool = True) -> Story:
     if not s.get(Epic, epic_id):
         raise NotFound(f"epic {epic_id} not found")
-    st = Story(epic_id=epic_id, title=_required(title, "title", 300), description=description or "")
+    st = Story(epic_id=epic_id, title=_required(title, "title", 300),
+               description=description or "", needs_design=needs_design)
     s.add(st); _commit(s); s.refresh(st); return st
 
 
@@ -319,7 +349,7 @@ def update_story(s: Session, id: int, **fields) -> Story | None:
     if not st:
         return None
     for k, v in fields.items():
-        if k in ("title", "description", "status") and v is not None:
+        if k in ("title", "description", "status", "needs_design") and v is not None:
             if k == "title":
                 v = _required(v, "title", 300)
             elif k == "status":
@@ -541,6 +571,9 @@ def _settle_majority_approved(s: Session, entity, entity_type: str):
     if r.rowcount != 1:
         s.rollback()
         raise InvalidValue("review conflict: entity state changed concurrently")
+    if entity_type == "task":
+        _record_status_history(s, entity.id, str(Status.IN_REVIEW), str(Status.DONE),
+                               reason="majority approve")
     _commit(s)
     _clear_review_votes(s, entity_type, entity.id)
     return s.get(type(entity), entity.id)
@@ -566,6 +599,9 @@ def _settle_majority_rejected(s: Session, entity, entity_type: str):
     if r.rowcount != 1:
         s.rollback()
         raise InvalidValue("review conflict: entity state changed concurrently")
+    if entity_type == "task":
+        _record_status_history(s, entity.id, str(Status.IN_REVIEW), str(target),
+                               reason=f"majority reject round={new_round}")
     _commit(s)
     _clear_review_votes(s, entity_type, entity.id)
     return s.get(type(entity), entity.id)
@@ -905,20 +941,62 @@ def append_task_spec(s: Session, id: int, text: str) -> Task | None:
     _commit(s); s.refresh(t); return t
 
 
-def set_status(s: Session, id: int, new_status: str) -> Task | None:
+def _task_needs_design(s: Session, t: Task) -> bool:
+    """Task 所属 Story 是否需要设计评审段（Epic 123）；无 Story 视为快速流（false）。"""
+    if t.story_id is None:
+        return False
+    story = s.get(Story, t.story_id)
+    return bool(story and story.needs_design)
+
+
+def _record_status_history(s: Session, task_id: int, from_status: str, to_status: str,
+                           *, changed_by: int | None = None, reason: str = "") -> None:
+    """任务状态变更历史（task_status_history）：全部状态变更路径统一调用。"""
+    s.add(TaskStatusHistory(
+        task_id=task_id, from_status=from_status, to_status=to_status,
+        changed_by=changed_by, reason=reason or "",
+    ))
+
+
+def list_task_status_history(s: Session, task_id: int, limit: int = 100):
+    """任务状态变更历史（Epic 123），按时间倒序返回。"""
+    return (s.query(TaskStatusHistory)
+            .filter(TaskStatusHistory.task_id == task_id)
+            .order_by(TaskStatusHistory.id.desc())
+            .limit(limit).all())
+
+
+def set_status(s: Session, id: int, new_status: str, *,
+               changed_by: int | None = None, reason: str = "") -> Task | None:
     t = s.get(Task, id)
     if not t:
         raise NotFound(f"task {id} not found")
     _check_status(new_status)
     new = Status(new_status)
     current = Status(t.status)
-    if current != new and new not in TRANSITIONS.get(current, set()):
-        raise IllegalTransition(f"{t.status} -> {new} 不合法")
+    if current != new:
+        if new == Status.BLOCKED:
+            pass  # blocked 全向可达：任意状态 → blocked（Epic 123）
+        elif current == Status.BLOCKED:
+            # 解除阻塞：优先恢复到进入阻塞前的 previous_status
+            prev = t.previous_status
+            if prev and Status(prev) == new:
+                pass
+            elif new not in transitions_for(_task_needs_design(s, t)).get(Status.BLOCKED, set()):
+                raise IllegalTransition(f"{t.status} -> {new} 不合法")
+        elif new not in transitions_for(_task_needs_design(s, t)).get(current, set()):
+            raise IllegalTransition(f"{t.status} -> {new} 不合法")
     old_status = t.status
-    t.status = new
-    _commit(s); s.refresh(t)
-    # 状态变更时清除项目统计缓存
     if old_status != new:
+        t.status = new
+        if new == Status.BLOCKED:
+            t.previous_status = old_status
+        elif old_status == Status.BLOCKED:
+            t.previous_status = None
+        _record_status_history(s, t.id, old_status, str(new), changed_by=changed_by, reason=reason)
+        _commit(s)
+        s.refresh(t)
+        # 状态变更时清除项目统计缓存
         _invalidate_project_stats_cache(t.project_id)
     return t
 
@@ -938,6 +1016,7 @@ def claim_development_task(s: Session, task_id: int, *, user_id: int) -> Task:
     if t.status not in (Status.BACKLOG, Status.TODO):
         raise InvalidValue(
             f"task {task_id} already claimed or not claimable (status={t.status})")
+    old_status = t.status
     r = s.execute(
         update(Task).where(
             Task.id == task_id,
@@ -950,6 +1029,8 @@ def claim_development_task(s: Session, task_id: int, *, user_id: int) -> Task:
         raise InvalidValue(
             f"task {task_id} claim conflict: already claimed "
             f"(status={cur.status if cur else 'deleted'})")
+    _record_status_history(s, task_id, str(old_status), str(Status.IN_PROGRESS),
+                           changed_by=user_id, reason="claim")
     _commit(s)
     s.refresh(t)
     _invalidate_project_stats_cache(t.project_id)
@@ -1064,6 +1145,8 @@ def review_task(s: Session, *, task_id: int, reviewer_user_id: int,
         if r.rowcount != 1:
             s.rollback()
             raise InvalidValue("review conflict: task state changed concurrently")
+        _record_status_history(s, task_id, str(Status.IN_REVIEW), str(Status.DONE),
+                               changed_by=reviewer_user_id, reason="review approve")
         _commit(s)
     else:  # reject
         new_round = (t.review_round or 0) + 1
@@ -1078,6 +1161,9 @@ def review_task(s: Session, *, task_id: int, reviewer_user_id: int,
         if r.rowcount != 1:
             s.rollback()
             raise InvalidValue("review conflict: task state changed concurrently")
+        _record_status_history(s, task_id, str(Status.IN_REVIEW), str(target),
+                               changed_by=reviewer_user_id,
+                               reason=f"review reject round={new_round}")
         _commit(s)
     # 评审意见落评论（唯一载体）
     create_comment(s, author=reviewer_name, content=comment, task_id=task_id)
@@ -1278,6 +1364,8 @@ def scan_review_timeouts(s: Session, *, project_id: int | None = None,
                 Task.status == Status.IN_REVIEW,
             ).values(status=Status.BLOCKED))
             if r.rowcount == 1:
+                _record_status_history(s, t.id, str(Status.IN_REVIEW), str(Status.BLOCKED),
+                                       reason="timeout max review rounds")
                 _commit(s)
                 result["blocked"] += 1
             else:
@@ -2759,7 +2847,8 @@ def get_overview(s: Session, user_id: int | None) -> dict:
 
 
 # ---------- Epic 20: 批量操作 ----------
-def batch_update_task_status(s: Session, task_ids: list[int], new_status: str) -> dict:
+def batch_update_task_status(s: Session, task_ids: list[int], new_status: str,
+                             *, changed_by: int | None = None) -> dict:
     """批量更新任务状态，返回成功和失败的任务ID列表。"""
     _check_status(new_status)
     new = Status(new_status)
@@ -2771,10 +2860,27 @@ def batch_update_task_status(s: Session, task_ids: list[int], new_status: str) -
             errors.append({"id": tid, "error": f"task {tid} not found"})
             continue
         current = Status(t.status)
-        if current != new and new not in TRANSITIONS.get(current, set()):
-            errors.append({"id": tid, "error": f"illegal transition {t.status} -> {new}"})
-            continue
-        t.status = new
+        if current != new:
+            if new == Status.BLOCKED:
+                ok = True  # blocked 全向可达
+            elif current == Status.BLOCKED:
+                prev = t.previous_status
+                ok = (prev and Status(prev) == new) or new in transitions_for(
+                    _task_needs_design(s, t)).get(Status.BLOCKED, set())
+            else:
+                ok = new in transitions_for(_task_needs_design(s, t)).get(current, set())
+            if not ok:
+                errors.append({"id": tid, "error": f"illegal transition {t.status} -> {new}"})
+                continue
+        old_status = t.status
+        if old_status != str(new):
+            t.status = new
+            if new == Status.BLOCKED:
+                t.previous_status = old_status
+            elif old_status == Status.BLOCKED:
+                t.previous_status = None
+            _record_status_history(s, tid, old_status, str(new), changed_by=changed_by,
+                                   reason="batch")
         updated.append(tid)
     _commit(s)
     return {"updated": updated, "errors": errors}

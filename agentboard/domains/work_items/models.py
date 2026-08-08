@@ -11,7 +11,7 @@ class Task(Base):
     __tablename__ = "tasks"
     __table_args__ = (
         CheckConstraint("type IN ('task','bug','test_execution')", name="ck_tasks_type"),
-        CheckConstraint("status IN ('backlog','todo','in_progress','in_review','verifying','done','blocked')", name="ck_tasks_status"),
+        CheckConstraint("status IN ('backlog','todo','in_progress','in_review','verifying','done','blocked','in_design','design_pending_review','design_review_approved','final_review')", name="ck_tasks_status"),
         CheckConstraint("priority IN ('highest','high','medium','low','lowest')", name="ck_tasks_priority"),
     )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -20,7 +20,7 @@ class Task(Base):
     sprint_id: Mapped[int | None] = mapped_column(ForeignKey("sprints.id"), nullable=True, index=True)
     type: Mapped[str] = mapped_column(String(10), default=ItemType.TASK)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
-    status: Mapped[str] = mapped_column(String(20), default=Status.BACKLOG)
+    status: Mapped[str] = mapped_column(String(40), default=Status.BACKLOG)
     priority: Mapped[str] = mapped_column(String(10), default=Priority.MEDIUM)
     description: Mapped[str] = mapped_column(Text, default="")
     spec: Mapped[str] = mapped_column(Text, default="")
@@ -36,8 +36,31 @@ class Task(Base):
         ForeignKey("users.id"), nullable=True, index=True
     )
     review_round: Mapped[int] = mapped_column(Integer, default=0)
+    # 状态扩展（Epic 123）：进入 blocked 时记录上一个状态，解除时恢复
+    previous_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
+
+
+class TaskStatusHistory(Base):
+    """任务状态变更历史（Epic 123）：每次状态变更追加一条，可追溯/审计。
+
+    - 覆盖 set_status、claim、submit-review、review 等全部状态变更路径；
+    - changed_by 为操作人 user_id（系统操作可空）；reason 记录变更原因/备注。
+    """
+
+    __tablename__ = "task_status_history"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    from_status: Mapped[str] = mapped_column(String(40), nullable=False)
+    to_status: Mapped[str] = mapped_column(String(40), nullable=False)
+    changed_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    reason: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
 class Comment(Base):

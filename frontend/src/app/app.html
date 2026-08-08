@@ -1376,6 +1376,10 @@
                         <h3>编辑 Story 描述</h3>
                         <div class="edit-story__body">
                           <textarea class="edit-story-textarea" [value]="editStoryDesc()" (input)="editStoryDesc.set($any($event.target).value)" rows="4"></textarea>
+                          <label class="inline-check edit-story-needs-design"
+                            ><input type="checkbox" [checked]="editNeedsDesign()" (change)="editNeedsDesign.set($any($event.target).checked)" />
+                            需要设计评审（todo → in_design → 设计评审 → 开发）</label
+                          >
                           <div class="edit-story__actions">
                             <button class="btn btn--primary" (click)="saveEditStory(current)" [disabled]="savingStory()">{{ savingStory() ? '保存中…' : '更新' }}</button>
                             <button class="btn" (click)="cancelEditStory()" type="button">取消</button>
@@ -3198,6 +3202,14 @@
             <label>描述</label
             ><textarea id="create-description" name="description" rows="5"></textarea>
           </div>
+          @if (currentModal.kind === 'story') {
+            <div class="form-field">
+              <label class="inline-check"
+                ><input id="create-needs-design" name="needs_design" type="checkbox" checked />
+                需要设计评审（todo → in_design → 设计评审 → 开发）</label
+              >
+            </div>
+          }
           @if (currentModal.kind === 'task') {
             <div class="form-grid">
               <div class="form-field">

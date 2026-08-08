@@ -101,8 +101,10 @@ def _epic_list(project_id, limit=None, offset=0):
 def _epic_create(project_id, title, description):
     return _http("POST", f"/api/projects/{project_id}/epics", json={"title": title, "description": description})
 
-def _story_create(epic_id, title, description):
-    return _http("POST", f"/api/epics/{epic_id}/stories", json={"title": title, "description": description})
+def _story_create(epic_id, title, description, needs_design=True):
+    return _http("POST", f"/api/epics/{epic_id}/stories",
+                 json={"title": title, "description": description,
+                       "needs_design": needs_design})
 
 def _story_list(epic_id, limit=None, offset=0):
     params = {"offset": offset}
@@ -334,9 +336,13 @@ def create_epic(project_id: int, title: str, description: str = "") -> dict:
 
 
 @mcp.tool()
-def create_story(epic_id: int, title: str, description: str = "") -> dict:
-    """在指定 Epic 下创建 Story。"""
-    return _story_create(epic_id, title, description)
+def create_story(epic_id: int, title: str, description: str = "",
+                 needs_design: bool = True) -> dict:
+    """在指定 Epic 下创建 Story。
+    - needs_design: 是否需要设计评审段（true=走 in_design→design_pending_review→design_review_approved；
+      false=todo 直接进 in_progress 快速流），默认 true。
+    """
+    return _story_create(epic_id, title, description, needs_design)
 
 
 @mcp.tool()
@@ -373,9 +379,10 @@ def get_story(story_id: int) -> dict:
 
 @mcp.tool()
 def update_story(story_id: int, title: str | None = None, description: str | None = None,
-                status: str | None = None) -> dict:
-    """更新 Story 标题/描述/状态。"""
-    fields = {k: v for k, v in dict(title=title, description=description, status=status).items() if v is not None}
+                status: str | None = None, needs_design: bool | None = None) -> dict:
+    """更新 Story 标题/描述/状态/needs_design。"""
+    fields = {k: v for k, v in dict(title=title, description=description, status=status,
+                                    needs_design=needs_design).items() if v is not None}
     return _story_update(story_id, fields)
 
 

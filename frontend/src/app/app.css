@@ -5419,3 +5419,17 @@ select:focus {
   .project-grid { grid-template-columns: 1fr; }
   .proposal-convert { grid-template-columns: 1fr; }
 }
+
+/* Epic 123: Story 创建/编辑 needs_design 开关（行内 checkbox） */
+.inline-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  margin: 8px 0 4px;
+}
+.edit-story-needs-design {
+  margin-top: 10px;
+}

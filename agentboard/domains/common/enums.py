@@ -15,6 +15,11 @@ class Status(StrEnum):
     VERIFYING = "verifying"
     DONE = "done"
     BLOCKED = "blocked"
+    # 设计评审流（Epic 123）：needs_design=true 的 Story 下 Task 走设计段 + 最终评审
+    IN_DESIGN = "in_design"
+    DESIGN_PENDING_REVIEW = "design_pending_review"
+    DESIGN_REVIEW_APPROVED = "design_review_approved"
+    FINAL_REVIEW = "final_review"
 
 
 class Priority(StrEnum):

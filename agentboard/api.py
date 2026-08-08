@@ -138,12 +138,15 @@ class EpicPatch(BaseModel):
 class StoryIn(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     description: str = ""
+    # Epic 123：是否需要设计评审段（默认 true 走设计评审流）
+    needs_design: bool = True
 
 
 class StoryPatch(BaseModel):
     title: str | None = Field(None, min_length=1, max_length=300)
     description: str | None = None
     status: str | None = None
+    needs_design: bool | None = None
 
 
 # Epic 122 S1：Agent 注册表 + Story 评审闭环
@@ -205,6 +208,8 @@ class CommentIn(BaseModel):
 
 class StatusIn(BaseModel):
     status: str
+    # Epic 123：状态变更原因/备注（写入 task_status_history.reason）
+    reason: str = ""
 
 
 class SpecAppendIn(BaseModel):
@@ -873,7 +878,8 @@ def list_stories(eid: int, s: Session = Depends(get_session), limit: int = Query
 @app.post("/api/epics/{eid}/stories", status_code=201)
 def create_story(eid: int, body: StoryIn, s: Session = Depends(get_session)):
     epic = _need(service.get_epic(s, eid), "epic")
-    st = service.create_story(s, epic_id=eid, title=body.title, description=body.description)
+    st = service.create_story(s, epic_id=eid, title=body.title,
+                              description=body.description, needs_design=body.needs_design)
     # 事件源：Story 创建广播（分配器 worker 消费后自动指派 reviewer）
     publish_workflow_event(EVENT_STORY_CREATED, "story", st.id, ref_id=eid)
     # Webhook 通道（Epic 122 切片 3）：面向外部系统/常驻 Runner
@@ -1161,8 +1167,9 @@ def set_status(
     task = service.get_task(s, tid)
     pid = task.project_id if task else None
     old_status = task.status if task else None
+    uid, _is_admin = _caller_uid_admin(authorization)
     try:
-        result = service.set_status(s, tid, body.status)
+        result = service.set_status(s, tid, body.status, changed_by=uid, reason=body.reason)
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
     except service.IllegalTransition as e:
@@ -1176,6 +1183,14 @@ def set_status(
             link=f"/task/{result.id}",
         )
     return service._ser(result)
+
+
+@app.get("/api/tasks/{tid}/status-history")
+def get_task_status_history(tid: int, authorization: str | None = Header(None),
+                            s: Session = Depends(get_session)):
+    """任务状态变更历史（Epic 123）：from_status → to_status、操作人、原因、时间，倒序。"""
+    _need(service.get_task(s, tid), "task")
+    return [service._ser(h) for h in service.list_task_status_history(s, tid)]
 
 
 @app.post("/api/tasks/{tid}/claim")
@@ -1386,11 +1401,13 @@ def reassign_timeout(project_id: int | None = None,
 
 # ---------- Bulk Task Operations ----------
 @app.post("/api/tasks/bulk-update")
-def bulk_update_tasks(body: BulkTaskUpdate, s: Session = Depends(get_session)):
+def bulk_update_tasks(body: BulkTaskUpdate, authorization: str | None = Header(None),
+                      s: Session = Depends(get_session)):
     """批量更新任务：支持 status / priority / sprint_id / assignee_id / due_date"""
     results = []
     errors = []
     affected_pids = set()
+    uid, _is_admin = _caller_uid_admin(authorization)
     for tid in body.task_ids:
         task = service.get_task(s, tid)
         if not task:
@@ -1399,7 +1416,7 @@ def bulk_update_tasks(body: BulkTaskUpdate, s: Session = Depends(get_session)):
         try:
             updates = {}
             if body.status is not None:
-                service.set_status(s, tid, body.status)
+                service.set_status(s, tid, body.status, changed_by=uid, reason="bulk")
             if body.priority is not None:
                 updates["priority"] = body.priority
             if body.sprint_id is not None:

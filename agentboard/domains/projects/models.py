@@ -36,7 +36,7 @@ class Epic(Base):
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
-    status: Mapped[str] = mapped_column(String(20), default=Status.BACKLOG)
+    status: Mapped[str] = mapped_column(String(40), default=Status.BACKLOG)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
@@ -47,7 +47,10 @@ class Story(Base):
     epic_id: Mapped[int] = mapped_column(ForeignKey("epics.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
-    status: Mapped[str] = mapped_column(String(20), default=Status.BACKLOG)
+    status: Mapped[str] = mapped_column(String(40), default=Status.BACKLOG)
+    # Epic 123：是否需要设计评审段（true=走 in_design→design_pending_review→design_review_approved；
+    # false=todo 直接进 in_progress 快速流）。默认 true。
+    needs_design: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # Epic 122 S1：评审闭环
     reviewer_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True

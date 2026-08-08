@@ -444,7 +444,7 @@ export class ApiService {
   getStory(id: number) {
     return this.request<Story>('GET', `/api/stories/${id}`);
   }
-  createStory(epicId: number, body: { title: string; description?: string }) {
+  createStory(epicId: number, body: { title: string; description?: string; needs_design?: boolean }) {
     return this.request<Story>('POST', `/api/epics/${epicId}/stories`, body).pipe(
       tap(() => apiCache.invalidatePrefix('/api/epics'))
     );
