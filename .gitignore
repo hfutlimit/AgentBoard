@@ -34,3 +34,27 @@ tests/screenshots/
 tests/screenshots/**
 # scripts/ 下散落的 *.png 是各 verify_* 调试脚本的副产物
 scripts/*.png
+
+# ===== 测试与构建运行期产物（勿提交） =====
+# pytest 缓存
+.pytest_cache/
+**/.pytest_cache/
+# 覆盖率报告
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+coverage/
+# Playwright E2E 产物
+playwright-report/
+test-results/
+.playwright/
+# 静态分析 /  lint 缓存
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+# 自动化并发锁（90min 过期，运行时生成，勿提交）
+.workbuddy/autodev.lock
+# 前端构建误拷入的重复子目录（static 根已含产物，browser/ 为 cp 残留）
+agentboard/web/static/browser/
