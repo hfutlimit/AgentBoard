@@ -1213,7 +1213,7 @@ def admin_delete_project(project_id: int) -> dict:
 
 # ---------- Documents MCP 工具（Epic 15：项目文档维护）----------
 def _doc_create(project_id, title, content="", type="plan", status="draft",
-                epic_id=None, story_id=None, author_id=None):
+                epic_id=None, story_id=None, author_id=None, folder_id=None):
     body = {"project_id": project_id, "title": title, "content": content,
             "type": type, "status": status}
     if epic_id is not None:
@@ -1222,6 +1222,8 @@ def _doc_create(project_id, title, content="", type="plan", status="draft",
         body["story_id"] = story_id
     if author_id is not None:
         body["author_id"] = author_id
+    if folder_id is not None:
+        body["folder_id"] = folder_id
     return _http("POST", "/api/documents", json=body)
 
 
@@ -1280,10 +1282,11 @@ def _doc_comment_delete(comment_id):
 def create_document(project_id: int, title: str, content: str = "",
                    type: str = "plan", status: str = "draft",
                    epic_id: int | None = None, story_id: int | None = None,
-                   author_id: int | None = None) -> dict:
-    """新建文档。type: memory/plan/knowledge/design；status 默认 draft。"""
+                   author_id: int | None = None, folder_id: int | None = None) -> dict:
+    """新建文档。type: memory/plan/knowledge/design；status 默认 draft；folder_id 指定所属文件夹。"""
     return _doc_create(project_id, title, content=content, type=type, status=status,
-                       epic_id=epic_id, story_id=story_id, author_id=author_id)
+                       epic_id=epic_id, story_id=story_id, author_id=author_id,
+                       folder_id=folder_id)
 
 
 @mcp.tool()
@@ -1302,9 +1305,17 @@ def list_documents(project_id: int | None = None, type: str | None = None,
 
 @mcp.tool()
 def update_document(document_id: int, title: str | None = None,
-                   content: str | None = None, type: str | None = None) -> dict:
-    """编辑文档标题 / 正文 / 类型。仅传入需要修改的字段。"""
+                   content: str | None = None, type: str | None = None,
+                   folder_id: int | None = None,
+                   remove_from_folder: bool = False) -> dict:
+    """编辑文档标题 / 正文 / 类型 / 所属文件夹。仅传入需要修改的字段；
+    folder_id 移动到指定文件夹；remove_from_folder=true 表示移出到根目录
+    （与 folder_id 同时传入时 remove_from_folder 优先）。"""
     fields = {k: v for k, v in dict(title=title, content=content, type=type).items() if v is not None}
+    if remove_from_folder:
+        fields["folder_id"] = None
+    elif folder_id is not None:
+        fields["folder_id"] = folder_id
     return _doc_update(document_id, fields)
 
 
@@ -1312,6 +1323,64 @@ def update_document(document_id: int, title: str | None = None,
 def delete_document(document_id: int) -> dict:
     """删除文档（级联删除其评论）。"""
     return _doc_delete(document_id)
+
+
+# ---------- 文档文件夹 MCP 工具（Epic 15 增强：文件夹/子文件夹）----------
+def _folder_list(project_id=None):
+    params = {}
+    if project_id is not None:
+        params["project_id"] = project_id
+    return _http("GET", "/api/document-folders", params=params)
+
+
+def _folder_create(project_id, name, parent_id=None):
+    body = {"project_id": project_id, "name": name}
+    if parent_id is not None:
+        body["parent_id"] = parent_id
+    return _http("POST", "/api/document-folders", json=body)
+
+
+def _folder_update(folder_id, fields):
+    return _http("PATCH", f"/api/document-folders/{folder_id}", json=fields)
+
+
+def _folder_delete(folder_id):
+    return _http("DELETE", f"/api/document-folders/{folder_id}")
+
+
+@mcp.tool()
+def create_document_folder(project_id: int, name: str,
+                           parent_id: int | None = None) -> dict:
+    """创建文档文件夹（支持 parent_id 建子文件夹；不传则建在根目录）。"""
+    return _folder_create(project_id, name, parent_id=parent_id)
+
+
+@mcp.tool()
+def list_document_folders(project_id: int | None = None) -> list:
+    """列出文档文件夹树（可按 project_id 过滤）。"""
+    return _folder_list(project_id=project_id)
+
+
+@mcp.tool()
+def update_document_folder(folder_id: int, name: str | None = None,
+                           parent_id: int | None = None,
+                           move_to_root: bool = False) -> dict:
+    """重命名 / 移动文件夹。parent_id 移到指定父级；move_to_root=true 表示
+    移到根目录（与 parent_id 同时传入时 move_to_root 优先）。"""
+    fields = {}
+    if name is not None:
+        fields["name"] = name
+    if move_to_root:
+        fields["parent_id"] = None
+    elif parent_id is not None:
+        fields["parent_id"] = parent_id
+    return _folder_update(folder_id, fields)
+
+
+@mcp.tool()
+def delete_document_folder(folder_id: int) -> dict:
+    """删除文件夹（其下文档上提父级，不删除文档本身）。"""
+    return _folder_delete(folder_id)
 
 
 @mcp.tool()
