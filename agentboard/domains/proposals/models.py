@@ -26,20 +26,25 @@ from ..common.models import Base, utc_now
 
 
 class ProposalStatus(StrEnum):
-    DRAFT = "draft"                # 用户编辑中，尚未派发
+    DRAFT = "draft"                # 用户编辑中，尚未派发（历史态，兼容存量数据）
+    PENDING = "pending"            # 待开始：创建/编辑后停留，点击「开始 grill」才入队发消息
     QUEUED = "queued"              # 已入队，等待 Worker 认领
     ANALYZING = "analyzing"        # Agent 正在分析并生成问题
     AWAITING = "awaiting"          # 已产出问题，等待用户作答
     ANSWERED = "answered"          # 用户已作答，等待下一轮分析或收敛
-    CONVERGED = "converged"        # 澄清收敛，等待人工终审
-    STORY_CREATED = "story_created"  # 已转化为 Story（终态）
+    CONVERGED = "converged"        # 需求已明确（澄清收敛），等待生成 ticket
+    STORY_CREATED = "story_created"  # 已转化为 Story（历史终态，兼容存量数据）
+    TICKET_PREPARING = "ticket_preparing"  # 工单生成中（异步创建 ticket 的中间态）
+    TICKET_CREATED = "ticket_created"      # 已生成工单（终态，泛化 story_created）
     FAILED = "failed"              # 分析失败 / 超时（可回退重投）
 
 
 ALL_PROPOSAL_STATUSES = [
-    ProposalStatus.DRAFT, ProposalStatus.QUEUED, ProposalStatus.ANALYZING,
-    ProposalStatus.AWAITING, ProposalStatus.ANSWERED, ProposalStatus.CONVERGED,
-    ProposalStatus.STORY_CREATED, ProposalStatus.FAILED,
+    ProposalStatus.DRAFT, ProposalStatus.PENDING, ProposalStatus.QUEUED,
+    ProposalStatus.ANALYZING, ProposalStatus.AWAITING, ProposalStatus.ANSWERED,
+    ProposalStatus.CONVERGED, ProposalStatus.STORY_CREATED,
+    ProposalStatus.TICKET_PREPARING, ProposalStatus.TICKET_CREATED,
+    ProposalStatus.FAILED,
 ]
 
 # SQL CHECK 约束用的字面量（与上表保持一致，供 models / migration 共用）
@@ -48,32 +53,47 @@ _STATUS_SQL_LIST = "'" + "','".join(s.value for s in ALL_PROPOSAL_STATUSES) + "'
 
 # Proposal 澄清状态机（service.py 集中引用，参照 Task TRANSITIONS / DOCUMENT_TRANSITIONS 模式）
 #
-# 正常闭环：draft → queued → analyzing → awaiting → answered → analyzing(下一轮) → converged → story_created
+# 正常闭环：pending → queued → analyzing → awaiting → answered → analyzing(下一轮)
+#           → converged → ticket_preparing → ticket_created
 # 异常回路：analyzing/awaiting/answered → failed → queued（重投）
+# 编辑回退：非终态用户编辑正文 → 回 pending（已答历史保留，全量重放）
 PROPOSAL_TRANSITIONS: dict[ProposalStatus, set[ProposalStatus]] = {
     ProposalStatus.DRAFT: {ProposalStatus.QUEUED},
+    ProposalStatus.PENDING: {ProposalStatus.QUEUED},  # 点击「开始 grill」→ 入队
     ProposalStatus.QUEUED: {
         ProposalStatus.ANALYZING, ProposalStatus.DRAFT, ProposalStatus.FAILED,
+        ProposalStatus.PENDING,  # 用户编辑 → 回待开始
     },
     ProposalStatus.ANALYZING: {
         ProposalStatus.AWAITING, ProposalStatus.CONVERGED,
         ProposalStatus.QUEUED,   # 超时回退，复用 DaemonScheduler
         ProposalStatus.FAILED,
+        ProposalStatus.PENDING,  # 用户编辑 → 回待开始
     },
     ProposalStatus.AWAITING: {
         ProposalStatus.ANSWERED, ProposalStatus.CONVERGED, ProposalStatus.FAILED,
+        ProposalStatus.PENDING,
     },
     ProposalStatus.ANSWERED: {
         ProposalStatus.ANALYZING,  # 进入下一轮澄清
         ProposalStatus.CONVERGED,  # 用户主动跳过继续澄清
         ProposalStatus.FAILED,
+        ProposalStatus.PENDING,
     },
     ProposalStatus.CONVERGED: {
-        ProposalStatus.STORY_CREATED,
-        ProposalStatus.ANALYZING,  # 人工终审驳回，继续澄清
+        ProposalStatus.STORY_CREATED,       # 历史路径（P3 同步直建）
+        ProposalStatus.TICKET_PREPARING,    # 新路径：点击「生成 ticket」→ 异步生成中
+        ProposalStatus.ANALYZING,           # 人工终审驳回，继续澄清
+        ProposalStatus.PENDING,             # 用户编辑 → 回待开始
     },
     ProposalStatus.STORY_CREATED: set(),  # 终态
-    ProposalStatus.FAILED: {ProposalStatus.QUEUED, ProposalStatus.DRAFT},
+    ProposalStatus.TICKET_PREPARING: {
+        ProposalStatus.TICKET_CREATED,  # agent 经 MCP 创建成功
+        ProposalStatus.CONVERGED,       # 失败回退：可重新生成
+    },
+    ProposalStatus.TICKET_CREATED: set(),  # 终态
+    ProposalStatus.FAILED: {ProposalStatus.QUEUED, ProposalStatus.DRAFT,
+                            ProposalStatus.PENDING},
 }
 
 # 允许 Agent 在其中提问的状态（提问即产出一轮问题）
@@ -83,6 +103,24 @@ ASKABLE_STATUSES = {ProposalStatus.ANALYZING}
 # queued = 首轮待分析；answered = 用户已作答，需进入下一轮澄清。
 # 服务端 CAS 认领端点与 Worker 侧发现逻辑共用该集合，避免两处定义漂移。
 CLAIMABLE_STATUSES = {ProposalStatus.QUEUED, ProposalStatus.ANSWERED}
+
+
+# ---- Proposal → Ticket 异步转化（2026-08-08 确认，文档 #59）----
+# 可生成的工单类型（task/bug 复用 tasks 表，type 字段区分）
+TICKET_TYPES: frozenset[str] = frozenset({"epic", "story", "task", "bug"})
+
+# 转换请求状态机：pending（等待 worker）→ processing（worker 认领执行中）
+# → done（已生成，回填 ticket_id）/ failed（失败，proposal 回退 converged）
+TICKET_REQUEST_PENDING = "pending"
+TICKET_REQUEST_PROCESSING = "processing"
+TICKET_REQUEST_DONE = "done"
+TICKET_REQUEST_FAILED = "failed"
+TICKET_REQUEST_STATUSES: frozenset[str] = frozenset({
+    TICKET_REQUEST_PENDING, TICKET_REQUEST_PROCESSING,
+    TICKET_REQUEST_DONE, TICKET_REQUEST_FAILED,
+})
+_TICKET_REQ_STATUS_SQL_LIST = "'" + "','".join(sorted(TICKET_REQUEST_STATUSES)) + "'"
+_TICKET_TYPE_SQL_LIST = "'" + "','".join(sorted(TICKET_TYPES)) + "'"
 
 
 class Proposal(Base):
@@ -104,10 +142,14 @@ class Proposal(Base):
     current_round: Mapped[int] = mapped_column(Integer, default=0)
     # 澄清收敛后的最终需求规格（供 P3 生成 Story/Task）
     converged_spec: Mapped[str] = mapped_column(Text, default="")
-    # 转化产出的 Story（P3 回填）
+    # 转化产出的 Story（P3 回填；ticket_type=story 时的快捷字段，兼容旧查询）
     story_id: Mapped[int | None] = mapped_column(
         ForeignKey("stories.id", ondelete="SET NULL"), nullable=True, index=True,
     )
+    # 通用工单回填（2026-08-08 文档 #59）：四类 ticket（epic/story/task/bug）
+    # 统一记类型 + 实体 id。story 类 ticket 同时回填 story_id 以兼容既有查询。
+    ticket_type: Mapped[str] = mapped_column(String(20), default="")
+    ticket_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     # 提出人；Worker 通过 proposal_id 反查项目与提出人以确定身份归属
     author_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True,
@@ -167,5 +209,52 @@ class ProposalQuestion(Base):
     answered_by: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True,
     )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
+
+
+class ProposalTicketRequest(Base):
+    """Proposal → Ticket 转换请求（2026-08-08 文档 #59，异步生成链路）。
+
+    ``(proposal_id, type)`` 唯一：同一提案同一类型至多一个请求，重复提交幂等复用
+    （消息 at-least-once / 前端重复点击都不产生重复 ticket）。
+
+    status 流转：pending（等待 worker）→ processing（worker 认领执行中）
+    → done（agent 经 MCP 创建成功，回填 ticket_id）/ failed（失败，proposal
+    回退 converged 可重试）。
+    """
+
+    __tablename__ = "proposal_ticket_requests"
+    __table_args__ = (
+        UniqueConstraint("proposal_id", "type", name="uq_ticket_req_proposal_type"),
+        CheckConstraint(
+            f"type IN ({_TICKET_TYPE_SQL_LIST})", name="ck_ticket_req_type",
+        ),
+        CheckConstraint(
+            f"status IN ({_TICKET_REQ_STATUS_SQL_LIST})", name="ck_ticket_req_status",
+        ),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    proposal_id: Mapped[int] = mapped_column(
+        ForeignKey("proposals.id", ondelete="CASCADE"), nullable=False, index=True,
+    )
+    # 工单类型：epic / story / task / bug（task/bug 复用 tasks 表，type 字段区分）
+    type: Mapped[str] = mapped_column(String(20), nullable=False)
+    # 层级父级：epic 无父；story 必挂 epic；task/bug 必挂 epic + story
+    parent_epic_id: Mapped[int | None] = mapped_column(
+        ForeignKey("epics.id", ondelete="SET NULL"), nullable=True,
+    )
+    parent_story_id: Mapped[int | None] = mapped_column(
+        ForeignKey("stories.id", ondelete="SET NULL"), nullable=True,
+    )
+    # 标题覆盖（省略用提案标题）
+    title: Mapped[str] = mapped_column(String(300), default="")
+    status: Mapped[str] = mapped_column(
+        String(20), default=TICKET_REQUEST_PENDING, index=True,
+    )
+    # 创建成功的实体 id（epic/story/task 各自表），幂等回填
+    ticket_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 失败原因（status=failed 时填充）
+    error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)

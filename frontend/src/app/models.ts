@@ -335,13 +335,17 @@ export interface DocumentCommentItem {
 }
 
 /* ---------- Epic 96 P0: Proposal 澄清回路（人机协同需求分析） ---------- */
+// 2026-08-08 文档 #59：新增 pending（待开始）/ ticket_preparing（工单生成中）/
+// ticket_created（已生成工单，泛化 story_created）
 export type ProposalStatus =
-  | 'draft' | 'queued' | 'analyzing' | 'awaiting'
-  | 'answered' | 'converged' | 'story_created' | 'failed';
+  | 'draft' | 'pending' | 'queued' | 'analyzing' | 'awaiting'
+  | 'answered' | 'converged' | 'story_created'
+  | 'ticket_preparing' | 'ticket_created' | 'failed';
 
 export const PROPOSAL_STATUSES: ProposalStatus[] = [
-  'draft', 'queued', 'analyzing', 'awaiting',
-  'answered', 'converged', 'story_created', 'failed',
+  'draft', 'pending', 'queued', 'analyzing', 'awaiting',
+  'answered', 'converged', 'story_created',
+  'ticket_preparing', 'ticket_created', 'failed',
 ];
 
 export interface ProposalItem {
@@ -353,7 +357,27 @@ export interface ProposalItem {
   current_round: number;
   converged_spec: string;
   story_id: number | null;
+  ticket_type: string;
+  ticket_id: number | null;
   author_id: number | null;
+  error: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/* ---- Proposal → Ticket 异步转化（文档 #59）---- */
+export type TicketType = 'epic' | 'story' | 'task' | 'bug';
+export type TicketRequestStatus = 'pending' | 'processing' | 'done' | 'failed';
+
+export interface TicketRequestItem {
+  id: number;
+  proposal_id: number;
+  type: string;
+  parent_epic_id: number | null;
+  parent_story_id: number | null;
+  title: string;
+  status: TicketRequestStatus;
+  ticket_id: number | null;
   error: string;
   created_at: string;
   updated_at: string;

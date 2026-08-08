@@ -2623,8 +2623,8 @@
                 <span class="badge pstatus pstatus--{{ p.status }}" id="proposal-status">{{ proposalStatusLabel(p.status) }}</span>
               </div>
               <div class="page-actions">
-                @if (p.status === 'draft') {
-                  <button id="proposal-queue-btn" class="btn-primary-sm" (click)="advanceProposalStatus('queued')">派发给 Agent</button>
+                @if (p.status === 'draft' || p.status === 'pending') {
+                  <button id="proposal-queue-btn" class="btn-primary-sm" (click)="advanceProposalStatus('queued')">{{ p.status === 'pending' ? '开始 grill' : '派发给 Agent' }}</button>
                 }
                 @if (p.status === 'failed') {
                   <button id="proposal-requeue-btn" class="btn-primary-sm" (click)="advanceProposalStatus('queued')">重新派发</button>
@@ -2634,6 +2634,78 @@
 
             @if (p.error) {
               <div class="proposal-error" id="proposal-error">分析失败：{{ p.error }}</div>
+            }
+
+            <!-- 文档 #59：生成工单（converged → ticket_preparing → ticket_created） -->
+            @if (p.status === 'converged' || p.status === 'ticket_preparing' || p.status === 'ticket_created' || p.status === 'story_created') {
+              <div class="card proposal-ticket-box" id="proposal-ticket-box">
+                <div class="proposal-ticket-head">
+                  <h3 class="proposal-pane-title">生成工单（Ticket）</h3>
+                  @if (p.status === 'ticket_preparing') {
+                    <span class="badge pstatus pstatus--ticket_preparing">工单生成中…</span>
+                  }
+                </div>
+
+                @if (p.status === 'converged') {
+                  <div class="proposal-ticket-form">
+                    <div class="ticket-type-row">
+                      @for (t of ['epic', 'story', 'task', 'bug']; track t) {
+                        <label class="ticket-type-radio">
+                          <input type="radio" name="ticket-type" [value]="t"
+                            [checked]="ticketType() === t" (change)="onTicketTypeChange(t)" />
+                          <span>{{ ticketTypeLabel(t) }}</span>
+                        </label>
+                      }
+                    </div>
+                    @if (ticketType() !== 'epic') {
+                      <label class="ticket-select">
+                        <span>Epic</span>
+                        <select id="ticket-epic-select" [value]="ticketEpicId() ?? ''"
+                          (change)="onTicketEpicChange($event)">
+                          <option [value]="">选择 Epic…</option>
+                          @for (e of ticketEpics(); track e.id) {
+                            <option [value]="e.id">{{ e.title }}</option>
+                          }
+                        </select>
+                      </label>
+                    }
+                    @if (ticketType() === 'task' || ticketType() === 'bug') {
+                      <label class="ticket-select">
+                        <span>Story</span>
+                        <select id="ticket-story-select" [value]="ticketStoryId() ?? ''"
+                          (change)="onTicketStoryChange($event)">
+                          <option [value]="">选择 Story…</option>
+                          @for (st of ticketStories(); track st.id) {
+                            <option [value]="st.id">{{ st.title }}</option>
+                          }
+                        </select>
+                      </label>
+                    }
+                    <button id="proposal-generate-ticket" class="btn-primary-sm"
+                      [disabled]="ticketGenerating() || !ticketFormValid()"
+                      (click)="startTicketGeneration(p)">
+                      {{ ticketGenerating() ? '提交中…' : '生成 ' + ticketTypeLabel(ticketType()) }}
+                    </button>
+                  </div>
+                } @else if (p.status === 'ticket_preparing') {
+                  <p class="muted">工单正在异步生成（worker → CLI agent → MCP）。请稍候…</p>
+                } @else if (p.ticket_type && p.ticket_id) {
+                  <p class="muted">已生成 {{ ticketTypeLabel(p.ticket_type) }}（id={{ p.ticket_id }}）。</p>
+                }
+
+                @if (proposalTicketRequests().length > 0) {
+                  <ul class="proposal-ticket-requests">
+                    @for (r of proposalTicketRequests(); track r.id) {
+                      <li>
+                        <span class="badge">{{ ticketTypeLabel(r.type) }}</span>
+                        <span class="badge trstatus trstatus--{{ r.status }}">{{ ticketRequestStatusLabel(r.status) }}</span>
+                        @if (r.status === 'done' && r.ticket_id) { <span class="muted">→ #{{ r.ticket_id }}</span> }
+                        @if (r.status === 'failed' && r.error) { <span class="muted" title="{{ r.error }}">{{ r.error }}</span> }
+                      </li>
+                    }
+                  </ul>
+                }
+              </div>
             }
 
             <div class="proposal-workbench">
@@ -2678,8 +2750,8 @@
 
                 @if (proposalRounds().length === 0) {
                   <div class="empty-state" id="proposal-no-rounds">
-                    @if (p.status === 'draft') {
-                      提案尚未派发。点击右上角「派发给 Agent」，Agent 将开始分析并提出澄清问题。
+                    @if (p.status === 'draft' || p.status === 'pending') {
+                      提案尚未开始。点击右上角「开始 grill」，Agent 将开始分析并提出澄清问题。
                     } @else if (p.status === 'queued' || p.status === 'analyzing') {
                       Agent 正在分析需求，稍后将在此列出澄清问题。
                     } @else {

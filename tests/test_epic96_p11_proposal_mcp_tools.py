@@ -344,18 +344,18 @@ def test_ask_same_round_is_idempotent(stack):
 
 
 def test_claim_rejects_non_queued_proposal(stack):
-    """draft 状态（尚未派发）不可被 Worker 认领。"""
+    """pending 状态（尚未开始 grill）不可被 Worker 认领（2026-08-08：draft → pending）。"""
     c = stack["c"]
     r = c.post("/api/proposals", json={
-        "project_id": stack["project_id"], "title": "草稿态不可认领", "content": "x",
+        "project_id": stack["project_id"], "title": "待开始不可认领", "content": "x",
     })
     pid = r.json()["id"]
-    assert r.json()["status"] == "draft"
+    assert r.json()["status"] == "pending"
 
     res = mcp_server.proposal_claim(pid, agent="worker-1")
-    assert _is_err(res), f"draft 提案不应可认领：{res!r}"
-    assert "draft" in str(res["error"])
-    assert c.get(f"/api/proposals/{pid}").json()["status"] == "draft", "状态不应被改动"
+    assert _is_err(res), f"pending 提案不应可认领：{res!r}"
+    assert "pending" in str(res["error"])
+    assert c.get(f"/api/proposals/{pid}").json()["status"] == "pending", "状态不应被改动"
 
 
 def test_finalize_rejects_empty_spec(stack):

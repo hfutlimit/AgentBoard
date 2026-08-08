@@ -561,10 +561,10 @@ def test_claim_endpoint_404_for_unknown_proposal(stack):
 
 def test_claim_endpoint_409_for_unclaimable_status(stack):
     """仅 queued/answered 可认领；draft 等其它状态必须 409（与非法迁移 400 区分）。"""
-    pid = _new_draft(stack, "P2-0 draft 不可认领")
+    pid = _new_draft(stack, "P2-0 未开始(pending)不可认领")
     r = stack["c"].post(f"/api/proposals/{pid}/claim", json={"agent": "x"})
     assert r.status_code == 409, r.text
-    assert "draft" in r.json()["detail"]
+    assert "pending" in r.json()["detail"]
 
 
 def test_claim_endpoint_answered_to_analyzing(stack):
@@ -628,8 +628,9 @@ def test_claimed_at_not_refreshed_by_unrelated_patch(stack):
     t0_updated = claimed["updated_at"]
     assert t0_claimed and t0_updated
 
-    # 模拟无关写入：用户在工作台编辑正文（刷新 updated_at，但与持有者无关）
-    r = c.patch(f"/api/proposals/{pid}", json={"content": "被旁人编辑过的内容"})
+    # 模拟无关写入：worker 写入 converged_spec（刷新 updated_at，但与持有者无关；
+    # 用户编辑 content 会回退 pending 清租约，属 2026-08-08 有意行为，不作租约对照组）
+    r = c.patch(f"/api/proposals/{pid}", json={"converged_spec": "# 规格"})
     assert r.status_code == 200, r.text
 
     after = c.get(f"/api/proposals/{pid}").json()
@@ -653,7 +654,7 @@ def test_reclaim_stale_uses_claimed_at_not_updated_at(stack):
     assert claimed["status"] == "analyzing"
 
     time.sleep(1.1)  # 让 claimed_at 明显早于「现在」
-    r = c.patch(f"/api/proposals/{pid}", json={"content": "续期陷阱：旁人编辑"})
+    r = c.patch(f"/api/proposals/{pid}", json={"converged_spec": "# 续期陷阱"})
     assert r.status_code == 200
 
     # lease_seconds=1：cutoff = now - 1s。

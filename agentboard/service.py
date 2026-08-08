@@ -15,7 +15,7 @@ from .models import (
     Agent, Project, Epic, Story, Task, Comment, Sprint, Attachment, AgentSchedule, AgentRun,
     ProjectMember, Notification, User, ApiKey, AuditLog, TaskDependency, WebhookConfig,
     Document, DocumentComment, DocumentFolder, ReviewVote, TaskStatusHistory,
-    Proposal, ProposalRound, ProposalQuestion,
+    Proposal, ProposalRound, ProposalQuestion, ProposalTicketRequest,
 )
 from .domains.projects.models import STORY_REVIEW_STATUSES
 from .domains.documents.models import (
@@ -24,7 +24,9 @@ from .domains.documents.models import (
 )
 from .domains.proposals.models import (
     ProposalStatus, ALL_PROPOSAL_STATUSES, PROPOSAL_TRANSITIONS, ASKABLE_STATUSES,
-    CLAIMABLE_STATUSES,
+    CLAIMABLE_STATUSES, TICKET_TYPES, TICKET_REQUEST_STATUSES,
+    TICKET_REQUEST_PENDING, TICKET_REQUEST_PROCESSING,
+    TICKET_REQUEST_DONE, TICKET_REQUEST_FAILED,
 )
 from .domains.common.models import utc_now
 
@@ -3632,7 +3634,7 @@ def create_proposal(
     s: Session, *, project_id: int, title: str, content: str = "",
     author_id: int | None = None,
 ) -> Proposal:
-    """新建需求提案，初始状态 draft、current_round=0。"""
+    """新建需求提案，初始状态 pending（待开始，点击「开始 grill」才入队）。"""
     if not s.get(Project, project_id):
         raise NotFound(f"project {project_id} not found")
     if author_id is not None and not s.get(User, author_id):
@@ -3641,7 +3643,7 @@ def create_proposal(
         project_id=project_id,
         title=_required(title, "title", 300),
         content=content or "",
-        status=ProposalStatus.DRAFT.value,
+        status=ProposalStatus.PENDING.value,
         current_round=0,
         author_id=author_id,
     )
@@ -3685,11 +3687,18 @@ def list_proposals(
 
 
 def update_proposal(s: Session, id: int, **fields) -> Proposal | None:
-    """编辑提案正文（状态流转请用 set_proposal_status）。"""
+    """编辑提案正文（状态流转请用 set_proposal_status）。
+
+    用户编辑 title/content 时，若提案处于澄清流（queued/analyzing/awaiting/
+    answered/converged），**回退 pending**（待开始）——编辑后需重新点击
+    「开始 grill」才重新入队；已答历史保留（全量重放不丢上下文）。
+    worker 写入 converged_spec / 回填 story_id 等**非用户编辑**字段不回退。
+    """
     p = s.get(Proposal, id)
     if not p:
         return None
     allowed = {"title", "content", "converged_spec", "story_id"}
+    edited_user_fields = False
     for k, v in fields.items():
         if k not in allowed or v is None:
             continue
@@ -3697,7 +3706,18 @@ def update_proposal(s: Session, id: int, **fields) -> Proposal | None:
             v = _required(v, "title", 300)
         elif k == "story_id" and not s.get(Story, v):
             raise NotFound(f"story {v} not found")
+        if k in ("title", "content"):
+            edited_user_fields = True
         setattr(p, k, v)
+    # 编辑回退：澄清流状态 → pending（清租约，等「开始 grill」重新入队）
+    if edited_user_fields and p.status in (
+        ProposalStatus.QUEUED.value, ProposalStatus.ANALYZING.value,
+        ProposalStatus.AWAITING.value, ProposalStatus.ANSWERED.value,
+        ProposalStatus.CONVERGED.value,
+    ):
+        p.status = ProposalStatus.PENDING.value
+        p.claimed_by = ""
+        p.claimed_at = None
     _commit(s); s.refresh(p); return p
 
 
@@ -4083,4 +4103,362 @@ def convert_proposal_to_story(
     for t in created:
         s.refresh(t)
     return story, created, p
+
+
+# ============ Proposal → Ticket 异步转化（2026-08-08 文档 #59）============
+# 转换请求状态机：pending → processing → done / failed（failed 可重置 pending 重试）。
+# proposal 联动：converged → ticket_preparing → ticket_created（失败回退 converged）。
+
+
+def _check_ticket_type(value: str) -> None:
+    if value not in TICKET_TYPES:
+        raise InvalidValue(
+            f"invalid ticket type '{value}'，仅允许 {sorted(TICKET_TYPES)}",
+        )
+
+
+def _check_ticket_request_status(value: str) -> None:
+    if value not in TICKET_REQUEST_STATUSES:
+        raise InvalidValue(
+            f"invalid ticket request status '{value}'，"
+            f"仅允许 {sorted(TICKET_REQUEST_STATUSES)}",
+        )
+
+
+def _ticket_request_or_404(s: Session, request_id: int) -> ProposalTicketRequest:
+    r = s.get(ProposalTicketRequest, request_id)
+    if not r:
+        raise NotFound(f"ticket request {request_id} not found")
+    return r
+
+
+def _validate_ticket_parents(
+    s: Session, proposal: Proposal, *, type: str, epic_id: int | None,
+    story_id: int | None,
+) -> None:
+    """层级校验：epic∈项目；story∈epic（且∈项目）；task/bug 必挂 story。"""
+    if type == "epic":
+        return  # epic 独立，无父级
+    if not epic_id:
+        raise InvalidValue(f"ticket type '{type}' 需要 epic_id")
+    epic = s.get(Epic, epic_id)
+    if epic is None:
+        raise NotFound(f"epic {epic_id} not found")
+    if epic.project_id != proposal.project_id:
+        raise InvalidValue(
+            f"epic {epic_id} 不属于提案所在项目 {proposal.project_id}",
+        )
+    if type == "story":
+        return
+    # task / bug：必挂 story，且 story 属于指定 epic
+    if not story_id:
+        raise InvalidValue(f"ticket type '{type}' 需要 story_id")
+    story = s.get(Story, story_id)
+    if story is None:
+        raise NotFound(f"story {story_id} not found")
+    if story.epic_id != epic_id:
+        raise InvalidValue(
+            f"story {story_id} 不属于 epic {epic_id}",
+        )
+
+
+def create_ticket_request(
+    s: Session, proposal_id: int, *, type: str,
+    epic_id: int | None = None, story_id: int | None = None,
+    title: str | None = None,
+) -> ProposalTicketRequest:
+    """创建转换请求（幂等复用）并推进 proposal → ticket_preparing。
+
+    - 校验：提案存在且状态 converged（若已是 ticket_preparing 且同类型请求存在
+      则幂等复用，不重复置状态）；层级合法；
+    - 幂等：(proposal_id, type) 唯一 —— done/pending/processing 复用既有请求；
+      failed 请求重置为 pending（重新排队）；
+    - 请求落库后 proposal 状态 converged → ticket_preparing（异步生成中）。
+    """
+    _check_ticket_type(type)
+    p = _proposal_or_404(s, proposal_id)
+    _validate_ticket_parents(s, p, type=type, epic_id=epic_id, story_id=story_id)
+
+    existing = (
+        s.query(ProposalTicketRequest)
+        .filter(ProposalTicketRequest.proposal_id == proposal_id,
+                ProposalTicketRequest.type == type)
+        .first()
+    )
+    if existing is not None:
+        if existing.status == TICKET_REQUEST_FAILED:
+            # 失败重试：重置为 pending 重新排队，proposal 回 ticket_preparing
+            existing.status = TICKET_REQUEST_PENDING
+            existing.error = ""
+            existing.updated_at = utc_now()
+            if ProposalStatus(p.status) is ProposalStatus.CONVERGED:
+                p.status = ProposalStatus.TICKET_PREPARING.value
+            _commit(s); s.refresh(existing)
+            return existing
+        if existing.status == TICKET_REQUEST_DONE:
+            return existing  # 已完成，幂等复用（不重复创建）
+        # pending / processing：已在生成中，复用
+        if ProposalStatus(p.status) is ProposalStatus.CONVERGED:
+            p.status = ProposalStatus.TICKET_PREPARING.value
+            _commit(s)
+        return existing
+
+    if ProposalStatus(p.status) is not ProposalStatus.CONVERGED:
+        raise InvalidValue(
+            f"proposal {proposal_id} 当前状态为 {p.status}，"
+            f"仅 converged 可生成 ticket",
+        )
+    if not (p.converged_spec or "").strip():
+        raise InvalidValue(
+            f"proposal {proposal_id} 的 converged_spec 为空，无法生成 ticket",
+        )
+    req = ProposalTicketRequest(
+        proposal_id=proposal_id, type=type,
+        parent_epic_id=epic_id if type != "epic" else None,
+        parent_story_id=story_id if type in ("task", "bug") else None,
+        title=(title or "").strip()[:300],
+        status=TICKET_REQUEST_PENDING,
+    )
+    s.add(req)
+    p.status = ProposalStatus.TICKET_PREPARING.value
+    p.error = ""
+    _commit(s); s.refresh(req)
+    return req
+
+
+def _ticket_request_by_type(
+    s: Session, proposal_id: int, type: str,
+) -> ProposalTicketRequest | None:
+    return (
+        s.query(ProposalTicketRequest)
+        .filter(ProposalTicketRequest.proposal_id == proposal_id,
+                ProposalTicketRequest.type == type)
+        .first()
+    )
+
+
+def claim_ticket_request(
+    s: Session, request_id: int, *, agent: str = "",
+) -> ProposalTicketRequest | None:
+    """**原子**认领转换请求：pending → processing（worker 竞争消费）。
+
+    条件 UPDATE 由数据库仲裁，恰一个赢家；返回 None 表示竞争失败（已被他人
+    认领 / 已完成 / 不存在），调用方据此跳过或 409。
+    """
+    now = utc_now()
+    res = s.execute(
+        update(ProposalTicketRequest)
+        .where(
+            ProposalTicketRequest.id == request_id,
+            ProposalTicketRequest.status == TICKET_REQUEST_PENDING,
+        )
+        .values(
+            status=TICKET_REQUEST_PROCESSING,
+            updated_at=now,
+        )
+        .execution_options(synchronize_session=False),
+    )
+    if res.rowcount == 1:
+        _commit(s)
+        req = s.get(ProposalTicketRequest, request_id)
+        s.refresh(req)
+        return req
+    s.rollback()
+    return None
+
+
+def execute_ticket_request(
+    s: Session, proposal_id: int, *, type: str,
+    epic_id: int | None = None, story_id: int | None = None,
+    title: str | None = None, request_id: int | None = None,
+) -> dict:
+    """agent 经 MCP 创建 ticket 的服务端事务（文档 #59 步骤 [10]）。
+
+    - 定位请求：显式 request_id 或按 (proposal_id, type)；不存在则先创建
+      （create_ticket_request，converged 校验内聚其中）；
+    - CAS 认领 pending → processing，抢到执行权才创建实体；
+    - 按类型创建：epic（独立）/ story（挂 epic，回填 story_id）/
+      task·bug（挂 story，复用 tasks 表 type 区分）；
+    - 回填 request.ticket_id + done，proposal ticket_type/ticket_id +
+      ticket_preparing → ticket_created；
+    - 幂等：done 复用既有结果；processing 抛 409 由调用方轮询。
+
+    返回 ``{"ticket": {...}, "request": {...}}``。
+    """
+    _check_ticket_type(type)
+    p = _proposal_or_404(s, proposal_id)
+
+    req = (
+        _ticket_request_or_404(s, request_id)
+        if request_id is not None
+        else _ticket_request_by_type(s, proposal_id, type)
+    )
+    if req is None:
+        req = create_ticket_request(
+            s, proposal_id, type=type, epic_id=epic_id,
+            story_id=story_id, title=title,
+        )
+    if req.status == TICKET_REQUEST_DONE:
+        # 幂等：已生成，直接返回既有结果
+        return _ticket_execute_result(s, req, proposal_id)
+
+    claimed = claim_ticket_request(s, req.id)
+    if claimed is None or claimed.status != TICKET_REQUEST_PROCESSING:
+        if req.status == TICKET_REQUEST_PROCESSING:
+            raise InvalidValue(
+                f"ticket request {req.id} 正在生成中（processing），请稍后查询",
+            )
+        raise InvalidValue(
+            f"ticket request {req.id} 当前状态 {req.status}，无法执行",
+        )
+    req = claimed
+
+    if ProposalStatus(p.status) is not ProposalStatus.TICKET_PREPARING:
+        # 兜底：若 proposal 未在 ticket_preparing（例如创建请求时已置位），
+        # 此处校验状态机合法迁移，避免竞态下跳过中间态。
+        raise InvalidValue(
+            f"proposal {proposal_id} 当前状态 {p.status}，"
+            f"仅 ticket_preparing 可执行转换",
+        )
+
+    # ---- 创建实体（本事务内完成，杜绝部分成功）----
+    spec = p.converged_spec or p.content or ""
+    ticket_type = type
+    ticket_id: int | None = None
+    if type == "epic":
+        epic = create_epic(
+            s, project_id=p.project_id,
+            title=_required(title or p.title, "title", 300),
+            description=spec,
+        )
+        ticket_id = epic.id
+    elif type == "story":
+        if not req.parent_epic_id:
+            raise InvalidValue("story 类型 ticket 需要 epic_id")
+        story = create_story(
+            s, epic_id=req.parent_epic_id,
+            title=_required(title or p.title, "title", 300),
+            description=spec,
+        )
+        ticket_id = story.id
+        p.story_id = story.id  # 兼容既有查询（type=story 快捷字段）
+    else:  # task / bug
+        if not req.parent_story_id:
+            raise InvalidValue(f"{type} 类型 ticket 需要 story_id")
+        task = create_task(
+            s, project_id=p.project_id, story_id=req.parent_story_id,
+            title=_required(title or p.title, "title", 300),
+            type=type, description=spec,
+        )
+        ticket_id = task.id
+
+    req.ticket_id = ticket_id
+    req.status = TICKET_REQUEST_DONE
+    req.error = ""
+    req.updated_at = utc_now()
+    p.ticket_type = ticket_type
+    p.ticket_id = ticket_id
+    p.status = ProposalStatus.TICKET_CREATED.value
+    p.error = ""
+    _commit(s)
+    s.refresh(req)
+    s.refresh(p)
+    return _ticket_execute_result(s, req, proposal_id)
+
+
+def _ticket_execute_result(
+    s: Session, req: ProposalTicketRequest, proposal_id: int,
+) -> dict:
+    """组装 execute 返回（ticket 实体序列化 + 请求）。"""
+    ticket: dict | None = None
+    if req.ticket_id is not None:
+        if req.type == "epic":
+            ticket = _ser(s.get(Epic, req.ticket_id)) if s.get(Epic, req.ticket_id) else None
+        elif req.type == "story":
+            ticket = _ser(s.get(Story, req.ticket_id)) if s.get(Story, req.ticket_id) else None
+        else:
+            ticket = _ser(s.get(Task, req.ticket_id)) if s.get(Task, req.ticket_id) else None
+    return {
+        "proposal": _ser(s.get(Proposal, proposal_id)),
+        "request": _ser(req),
+        "ticket": ticket,
+    }
+
+
+def fail_ticket_request(
+    s: Session, request_id: int, *, error: str,
+) -> ProposalTicketRequest | None:
+    """标记转换请求失败：status → failed，proposal ticket_preparing → converged
+    （回退，可重新点击生成）。"""
+    req = _ticket_request_or_404(s, request_id)
+    if req.status == TICKET_REQUEST_DONE:
+        return req  # 已完成不允许改判失败
+    req.status = TICKET_REQUEST_FAILED
+    req.error = (error or "unspecified failure")[:2000]
+    req.updated_at = utc_now()
+    p = s.get(Proposal, req.proposal_id)
+    if p and ProposalStatus(p.status) is ProposalStatus.TICKET_PREPARING:
+        p.status = ProposalStatus.CONVERGED.value
+        p.error = ""
+        _commit(s)
+    else:
+        _commit(s)
+    s.refresh(req)
+    return req
+
+
+def reclaim_stale_ticket_requests(
+    s: Session, *, lease_seconds: int = DEFAULT_CLAIM_LEASE_SECONDS,
+) -> list[int]:
+    """回收处理中超时的转换请求（processing 停滞 → failed），proposal 回退 converged。
+
+    返回被回收的 request id 列表（无租约字段，用 updated_at 判定——processing
+    只在认领/完成/失败时刷新，worker 崩溃后不再变化，可安全作超时依据）。
+    """
+    if lease_seconds < 0:
+        raise InvalidValue("lease_seconds must be >= 0")
+    now = utc_now()
+    cutoff = now - timedelta(seconds=lease_seconds)
+    stale_ids = [
+        row[0]
+        for row in s.query(ProposalTicketRequest.id)
+        .filter(ProposalTicketRequest.status == TICKET_REQUEST_PROCESSING,
+                ProposalTicketRequest.updated_at < cutoff)
+        .all()
+    ]
+    for rid in stale_ids:
+        fail_ticket_request(s, rid, error=f"处理超时（>{lease_seconds}s），自动回退")
+    return stale_ids
+
+
+def list_ticket_requests(s: Session, proposal_id: int) -> list[ProposalTicketRequest]:
+    """列出提案的全部转换请求（前端轮询生成状态）。"""
+    _proposal_or_404(s, proposal_id)
+    return (
+        s.query(ProposalTicketRequest)
+        .filter(ProposalTicketRequest.proposal_id == proposal_id)
+        .order_by(ProposalTicketRequest.id.asc())
+        .all()
+    )
+
+
+def list_pending_ticket_requests(s: Session, limit: int = 20):
+    """Worker 拉取待认领转换请求（status=pending）。"""
+    limit = max(1, min(int(limit or 20), 200))
+    return (
+        s.query(ProposalTicketRequest)
+        .filter(ProposalTicketRequest.status == TICKET_REQUEST_PENDING)
+        .order_by(ProposalTicketRequest.id.asc())
+        .limit(limit)
+        .all()
+    )
+
+
+def get_ticket_request_project_id(s: Session, request_id: int) -> int | None:
+    """按请求反查项目（供项目访问中间件用）。"""
+    req = s.get(ProposalTicketRequest, request_id)
+    if not req:
+        return None
+    p = s.get(Proposal, req.proposal_id)
+    return p.project_id if p else None
 

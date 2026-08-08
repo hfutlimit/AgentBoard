@@ -9,7 +9,7 @@ import { filter } from 'rxjs/operators';
 
 import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric, resolveApiBase } from './api.service';
 import { LoginComponent } from './login/login';
-import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, OverviewStats, Priority, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES } from './models';
+import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, OverviewStats, Priority, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES, TicketRequestItem, TicketType } from './models';
 import { PaginationComponent } from './pagination/pagination';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'notifications' | 'admin' | 'settings' | 'not-found';
@@ -214,6 +214,15 @@ export class App implements OnInit, OnDestroy {
   readonly proposalNewContent = signal('');
   readonly proposalNewProjectId = signal<number | null>(null);
   readonly proposalStatuses = PROPOSAL_STATUSES;
+  // Proposal → Ticket 异步转化（文档 #59，2026-08-08）
+  readonly proposalTicketRequests = signal<TicketRequestItem[]>([]);
+  readonly ticketType = signal<TicketType>('story');
+  readonly ticketEpicId = signal<number | null>(null);
+  readonly ticketStoryId = signal<number | null>(null);
+  readonly ticketEpics = signal<Epic[]>([]);
+  readonly ticketStories = signal<Story[]>([]);
+  readonly ticketGenerating = signal(false);
+  private _ticketPollTimer: any = null;
 
   // 计划（Sprint）创建弹窗
   readonly sprintModalOpen = signal<number | null>(null);
@@ -5250,14 +5259,128 @@ export class App implements OnInit, OnDestroy {
   proposalStatusLabel(s: ProposalStatus): string {
     return ({
       draft: '草稿',
+      pending: '待开始',
       queued: '已入队',
       analyzing: '分析中',
       awaiting: '待作答',
       answered: '已作答',
-      converged: '已收敛',
+      converged: '需求已明确',
       story_created: '已转 Story',
+      ticket_preparing: '工单生成中',
+      ticket_created: '已生成工单',
       failed: '失败',
     } as Record<string, string>)[s] || s;
+  }
+
+  /** 转换请求状态文案（文档 #59 异步生成） */
+  ticketRequestStatusLabel(s: string): string {
+    return ({
+      pending: '排队中',
+      processing: '生成中',
+      done: '已生成',
+      failed: '失败',
+    } as Record<string, string>)[s] || s;
+  }
+
+  /** 生成 ticket 需要的父级是否齐备（前端即时校验，后端仍兜底） */
+  ticketFormValid(): boolean {
+    const type = this.ticketType();
+    if (type === 'epic') return true;
+    if (!this.ticketEpicId()) return false;
+    if (type === 'story') return true;
+    return !!this.ticketStoryId();
+  }
+
+  ticketTypeLabel(t: string): string {
+    return ({ epic: 'Epic', story: 'Story', task: 'Task', bug: 'Bug' } as Record<string, string>)[t] || t;
+  }
+
+  async loadProposalTicketRequests(id: number): Promise<void> {
+    try {
+      const rows = await firstValueFrom(this.api.listTicketRequests(id));
+      this.proposalTicketRequests.set(Array.isArray(rows) ? rows : []);
+    } catch {
+      this.proposalTicketRequests.set([]);
+    }
+  }
+
+  /** 打开详情时加载父级候选（项目 epics；选中 epic 后加载其 stories） */
+  async loadTicketParents(projectId: number): Promise<void> {
+    try {
+      const epics = await firstValueFrom(this.api.listEpics(projectId));
+      this.ticketEpics.set(Array.isArray(epics) ? epics : []);
+      const eid = this.ticketEpicId();
+      if (eid) {
+        const stories = await firstValueFrom(this.api.listStories(eid));
+        this.ticketStories.set(Array.isArray(stories) ? stories : []);
+      }
+    } catch {
+      this.ticketEpics.set([]);
+    }
+  }
+
+  onTicketTypeChange(type: string): void {
+    this.ticketType.set(type as TicketType);
+  }
+
+  onTicketEpicChange(event: Event): void {
+    const v = Number((event.target as HTMLSelectElement).value) || null;
+    this.ticketEpicId.set(v);
+    this.ticketStoryId.set(null);
+    this.ticketStories.set([]);
+    const eid = v;
+    if (eid) {
+      void firstValueFrom(this.api.listStories(eid))
+        .then((rows) => this.ticketStories.set(Array.isArray(rows) ? rows : []))
+        .catch(() => this.ticketStories.set([]));
+    }
+  }
+
+  onTicketStoryChange(event: Event): void {
+    const v = Number((event.target as HTMLSelectElement).value) || null;
+    this.ticketStoryId.set(v);
+  }
+
+  /** 点击「生成 ticket」：创建转换请求 → 异步轮询状态（文档 #59） */
+  async startTicketGeneration(p: ProposalItem): Promise<void> {
+    const type = this.ticketType();
+    if (!this.ticketFormValid()) {
+      this.notify('请先选择父级（Story 需 Epic；Task/Bug 需 Epic + Story）', 'error');
+      return;
+    }
+    const body: { type: TicketType; epic_id?: number; story_id?: number } = { type };
+    if (type !== 'epic') body.epic_id = this.ticketEpicId() ?? undefined;
+    if (type === 'task' || type === 'bug') body.story_id = this.ticketStoryId() ?? undefined;
+    this.ticketGenerating.set(true);
+    try {
+      await firstValueFrom(this.api.createTicketRequest(p.id, body));
+      await this.loadProposalDetail(p.id);
+      await this.loadProposalTicketRequests(p.id);
+      this.startTicketPolling(p.id);
+      this.notify(`已提交「${this.ticketTypeLabel(type)}」生成请求，正在异步生成…`, 'success');
+    } catch (e) {
+      this.notify(`生成请求失败：${this.message(e)}`, 'error');
+    } finally {
+      this.ticketGenerating.set(false);
+    }
+  }
+
+  /** ticket_preparing 期间每 3s 轮询，直到离开该状态 */
+  startTicketPolling(proposalId: number): void {
+    this.stopTicketPolling();
+    this._ticketPollTimer = setInterval(() => {
+      void this.loadProposalDetail(proposalId);
+      void this.loadProposalTicketRequests(proposalId);
+      const p = this.proposalItem();
+      if (!p || (p.status !== 'ticket_preparing')) this.stopTicketPolling();
+    }, 3000);
+  }
+
+  stopTicketPolling(): void {
+    if (this._ticketPollTimer) {
+      clearInterval(this._ticketPollTimer);
+      this._ticketPollTimer = null;
+    }
   }
 
   /** 列表视图：客户端二次过滤（状态由服务端过滤，关键词在本地做即时反馈） */
@@ -5299,6 +5422,10 @@ export class App implements OnInit, OnDestroy {
     this.proposalItem.set(item);
     this.proposalRounds.set(Array.isArray(rounds) ? rounds : []);
     this.syncProposalDrafts();
+    // 文档 #59：加载转换请求 + 父级候选；生成中则自动轮询
+    void this.loadProposalTicketRequests(id);
+    if (item?.project_id) void this.loadTicketParents(item.project_id);
+    if (item?.status === 'ticket_preparing') this.startTicketPolling(id);
   }
 
   private syncProposalDrafts(): void {

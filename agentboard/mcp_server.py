@@ -6,6 +6,7 @@
 运行：python -m agentboard.mcp_server   （stdio 传输）
 """
 import os
+from typing import Any
 from fastmcp import FastMCP
 from fastmcp.server.auth import AccessToken
 from fastmcp.server.auth.auth import TokenVerifier
@@ -1661,6 +1662,35 @@ def proposal_convert(proposal_id: int, epic_id: int, title: str | None = None) -
     if title:
         body["title"] = title
     return _http("POST", f"/api/proposals/{proposal_id}/convert", json=body)
+
+
+@mcp.tool()
+def proposal_create_ticket(proposal_id: int, type: str,
+                           epic_id: int | None = None,
+                           story_id: int | None = None,
+                           title: str | None = None) -> dict:
+    """把已收敛（converged）提案异步生成为工单（2026-08-08 文档 #59）。
+
+    type 四选一：epic / story / task / bug —— 层级约束：
+    - epic 独立，无需父级；
+    - story 必填 epic_id；
+    - task / bug 必填 epic_id + story_id（复用 tasks 表，type 区分 bug）。
+
+    服务端事务内完成：层级校验 + 创建实体 + 回填 proposal.ticket_type/ticket_id
+    + 状态推进 converged → ticket_preparing → ticket_created；幂等：重复调用
+    返回既有结果（不重复创建）。调用方通常是 worker CLI 拉起的 agent。
+    """
+    body: dict[str, Any] = {"type": type}
+    if epic_id is not None:
+        body["epic_id"] = epic_id
+    if story_id is not None:
+        body["story_id"] = story_id
+    if title:
+        body["title"] = title
+    return _http(
+        "POST", f"/api/proposals/{proposal_id}/ticket-requests/execute-by-type",
+        json=body,
+    )
 
 
 # ---------- Epic 122 S1 M3: Agent 注册 / 评审闭环 MCP 工具 ----------

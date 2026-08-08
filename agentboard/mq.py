@@ -670,6 +670,11 @@ EVENT_TASK_AVAILABLE = "task.available"
 EVENT_TASK_READY_FOR_REVIEW = "task.ready_for_review"
 EVENT_TASK_REVIEWED = "task.reviewed"
 EVENT_TASK_REJECTED = "task.rejected"
+# Proposal → Ticket 异步转化（2026-08-08 文档 #59）：
+# ticket_requested —— 转换请求已创建（worker 消费，拉起 agent 生成 ticket）；
+# ticket_created   —— ticket 生成成功（通知接力，供 workflow_worker / 定向队列感知）
+EVENT_TICKET_REQUESTED = "proposal.ticket_requested"
+EVENT_TICKET_CREATED = "proposal.ticket_created"
 
 WORKFLOW_EVENTS: frozenset[str] = frozenset({
     EVENT_STORY_CREATED,
@@ -682,9 +687,11 @@ WORKFLOW_EVENTS: frozenset[str] = frozenset({
     EVENT_TASK_READY_FOR_REVIEW,
     EVENT_TASK_REVIEWED,
     EVENT_TASK_REJECTED,
+    EVENT_TICKET_REQUESTED,
+    EVENT_TICKET_CREATED,
 })
 
-WORKFLOW_ENTITY_TYPES: frozenset[str] = frozenset({"story", "task"})
+WORKFLOW_ENTITY_TYPES: frozenset[str] = frozenset({"story", "task", "proposal"})
 
 
 class WorkflowTopology:

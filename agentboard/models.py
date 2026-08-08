@@ -34,6 +34,7 @@ from .domains.proposals.models import (
     ProposalQuestion,
     ProposalRound,
     ProposalStatus,
+    ProposalTicketRequest,
 )
 
 __all__ = [
@@ -42,7 +43,8 @@ __all__ = [
     "AgentSchedule", "ApiKey", "Attachment", "AuditLog", "Base", "CLAIMABLE_STATUSES",
     "Comment", "Document", "DocumentComment", "Epic", "ItemType",
     "Notification", "PROPOSAL_TRANSITIONS", "Priority", "Project", "ProjectMember",
-    "Proposal", "ProposalQuestion", "ProposalRound", "ProposalStatus", "ReviewVote",
+    "Proposal", "ProposalQuestion", "ProposalRound", "ProposalStatus",
+    "ProposalTicketRequest", "ReviewVote",
     "RunStatus",
     "ScheduleType", "Sprint", "SprintStatus", "Status", "Story", "Task",
     "TaskDependency", "TaskStatusHistory", "User", "WebhookConfig",

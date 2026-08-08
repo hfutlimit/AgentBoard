@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable, of, throwError, timer, Subject } from 'rxjs';
 import { catchError, tap, map, switchMap, mergeMap, debounceTime, takeUntil } from 'rxjs/operators';
 
-import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, OverviewStats, PagedResult, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus } from './models';
+import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, OverviewStats, PagedResult, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, TicketRequestItem, TicketType } from './models';
 
 export const AUTH_EXPIRED_EVENT = 'agentboard:auth-expired';
 
@@ -965,6 +965,21 @@ export class ApiService {
   answerProposalQuestion(qid: number, body: { answer?: string; unsure?: boolean }) {
     return this.request<ProposalQuestionItem>('PUT', `/api/proposal-questions/${qid}/answer`, body).pipe(
       tap(() => apiCache.invalidatePrefix('/api/proposals'))
+    );
+  }
+
+  /* ---------- Proposal → Ticket 异步转化（2026-08-08 文档 #59）---------- */
+  listTicketRequests(proposalId: number) {
+    return this.request<TicketRequestItem[]>(
+      'GET', `/api/proposals/${proposalId}/ticket-requests`,
+    );
+  }
+  createTicketRequest(proposalId: number, body: { type: TicketType; epic_id?: number; story_id?: number; title?: string }) {
+    return this.request<TicketRequestItem>(
+      'POST', `/api/proposals/${proposalId}/ticket-requests`, body,
+    ).pipe(
+      tap(() => apiCache.invalidatePrefix(`/api/proposals/${proposalId}`)),
+      tap(() => apiCache.invalidatePrefix('/api/proposals')),
     );
   }
 }

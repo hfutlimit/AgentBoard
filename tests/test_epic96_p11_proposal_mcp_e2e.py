@@ -262,7 +262,7 @@ def test_mcp_worker_loop_visible_in_web_workbench(page, servers):
 
         page.reload(wait_until="networkidle")
         page.wait_for_function(
-            "() => document.querySelector('#proposal-status')?.textContent.trim() === '已收敛'",
+            "() => document.querySelector('#proposal-status')?.textContent.trim() === '需求已明确'",
             timeout=15000,
         )
         page.screenshot(path=os.path.join(shot_dir, "epic96_p11_mcp_converged.png"))
@@ -275,7 +275,7 @@ def test_mcp_worker_loop_visible_in_web_workbench(page, servers):
         # ---- 7) 列表页状态徽标同步 ----
         page.click("#nav-proposals")
         page.wait_for_selector(".proposal-row", state="visible", timeout=10000)
-        assert "已收敛" in page.inner_text(".proposal-row"), "列表应显示已收敛徽标"
+        assert "需求已明确" in page.inner_text(".proposal-row"), "列表应显示需求已明确徽标"
 
         # ---- 8) 前端零报错 ----
         real = _real_errors(page)

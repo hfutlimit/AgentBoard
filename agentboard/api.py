@@ -2711,6 +2711,38 @@ class ProposalConvertIn(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=300)
 
 
+class ProposalTicketIn(BaseModel):
+    """创建 Proposal → Ticket 转换请求（2026-08-08 文档 #59）。
+
+    type: epic / story / task / bug；
+    - epic 独立，无需父级；
+    - story 必填 epic_id；
+    - task / bug 必填 epic_id + story_id。
+    """
+
+    type: str
+    epic_id: int | None = None
+    story_id: int | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+
+
+class TicketRequestExecuteIn(BaseModel):
+    """agent 经 MCP 执行转换（execute-by-type 用）。与 ProposalTicketIn 同构。"""
+
+    type: str
+    epic_id: int | None = None
+    story_id: int | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+
+
+class TicketFailIn(BaseModel):
+    error: str = ""
+
+
+class TicketReclaimIn(BaseModel):
+    lease_seconds: int | None = None
+
+
 def _dispatch_proposal(proposal_id: int, round_no: int = 0, reason: str = "") -> None:
     """把提案投递到澄清工作队列（Epic 96 P2-1）。
 
@@ -2897,6 +2929,155 @@ def delete_proposal(pid: int, s: Session = Depends(get_session)):
     if not service.delete_proposal(s, pid):
         raise HTTPException(status_code=404, detail="proposal not found")
     return {"ok": True}
+
+
+# ---------- Proposal → Ticket 异步转化（2026-08-08 文档 #59）----------
+
+@app.get("/api/ticket-requests/pending")
+def list_pending_ticket_requests(
+    limit: int = Query(20, ge=1, le=200),
+    s: Session = Depends(get_session),
+):
+    """Worker 拉取待认领转换请求（status=pending），不绑项目。"""
+    return [service._ser(r) for r in service.list_pending_ticket_requests(s, limit=limit)]
+
+
+# 全局回收端点须声明在 /api/proposals/{pid} 动态路由之外的前缀之下，避免被 pid 捕获。
+@app.post("/api/ticket-requests/reclaim-stale")
+def reclaim_stale_ticket_requests(
+    body: TicketReclaimIn | None = None, s: Session = Depends(get_session),
+):
+    """回收处理中超时的转换请求（processing 停滞 → failed），proposal 回退 converged。"""
+    lease = (body.lease_seconds if body and body.lease_seconds is not None
+             else service.DEFAULT_CLAIM_LEASE_SECONDS)
+    try:
+        ids = service.reclaim_stale_ticket_requests(s, lease_seconds=lease)
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"reclaimed": ids, "count": len(ids), "lease_seconds": lease}
+
+
+@app.post("/api/proposals/{pid}/ticket-requests", status_code=201)
+def create_ticket_request(pid: int, body: ProposalTicketIn,
+                          s: Session = Depends(get_session),
+                          authorization: str | None = Header(None)):
+    """用户点击「生成 ticket」：创建转换请求（幂等），proposal → ticket_preparing，
+    发 MQ proposal.ticket_requested（worker 消费后拉起 agent 生成）。返回 201 请求。
+    """
+    uid, is_admin = _caller_uid_admin(authorization)
+    p = service.get_proposal(s, pid)
+    if not p:
+        raise HTTPException(status_code=404, detail=f"proposal {pid} not found")
+    if not is_admin and not service.user_is_project_member(s, p.project_id, uid):
+        raise HTTPException(status_code=403, detail="project membership required")
+    try:
+        req = service.create_ticket_request(
+            s, pid, type=body.type, epic_id=body.epic_id,
+            story_id=body.story_id, title=body.title,
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    mq.publish_workflow_event(mq.EVENT_TICKET_REQUESTED, "proposal", pid,
+                              ref_id=req.id)
+    return service._ser(req)
+
+
+@app.get("/api/proposals/{pid}/ticket-requests")
+def list_ticket_requests(pid: int, s: Session = Depends(get_session)):
+    """列出提案的转换请求（前端轮询生成状态：pending/processing/done/failed）。"""
+    try:
+        return [service._ser(r) for r in service.list_ticket_requests(s, pid)]
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/api/proposals/{pid}/ticket-requests/execute-by-type")
+def execute_ticket_request_by_type(pid: int, body: TicketRequestExecuteIn,
+                                   s: Session = Depends(get_session),
+                                   authorization: str | None = Header(None)):
+    """agent 经 MCP 调用（proposal_create_ticket）：按 (proposal, type) 定位/创建
+    请求并执行转换，事务内创建实体 + 回填 + ticket_created。
+
+    - 200：生成成功，返回 {proposal, request, ticket}
+    - 409：请求正在生成中（processing），调用方轮询
+    - 422：层级不合法 / 状态不符
+    """
+    uid, is_admin = _caller_uid_admin(authorization)
+    p = service.get_proposal(s, pid)
+    if not p:
+        raise HTTPException(status_code=404, detail=f"proposal {pid} not found")
+    if not is_admin and not service.user_is_project_member(s, p.project_id, uid):
+        raise HTTPException(status_code=403, detail="project membership required")
+    try:
+        result = service.execute_ticket_request(
+            s, pid, type=body.type, epic_id=body.epic_id,
+            story_id=body.story_id, title=body.title,
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=409 if "正在生成中" in str(e) else 422,
+                            detail=str(e))
+    mq.publish_workflow_event(mq.EVENT_TICKET_CREATED, "proposal", pid,
+                              ref_id=result["request"]["id"])
+    return result
+
+
+@app.post("/api/proposals/{pid}/ticket-requests/{rid}/execute")
+def execute_ticket_request_by_id(pid: int, rid: int,
+                                 s: Session = Depends(get_session),
+                                 authorization: str | None = Header(None)):
+    """按显式 request id 执行转换（供测试/前端精确控制）。语义同 execute-by-type。"""
+    uid, is_admin = _caller_uid_admin(authorization)
+    p = service.get_proposal(s, pid)
+    if not p:
+        raise HTTPException(status_code=404, detail=f"proposal {pid} not found")
+    if not is_admin and not service.user_is_project_member(s, p.project_id, uid):
+        raise HTTPException(status_code=403, detail="project membership required")
+    try:
+        result = service.execute_ticket_request(
+            s, pid, type="", request_id=rid,
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=409 if "正在生成中" in str(e) else 422,
+                            detail=str(e))
+    mq.publish_workflow_event(mq.EVENT_TICKET_CREATED, "proposal", pid,
+                              ref_id=result["request"]["id"])
+    return result
+
+
+@app.post("/api/proposals/{pid}/ticket-requests/{rid}/fail")
+def fail_ticket_request(pid: int, rid: int, body: TicketFailIn | None = None,
+                        s: Session = Depends(get_session)):
+    """worker 标记转换失败：request → failed，proposal ticket_preparing → converged。"""
+    try:
+        req = service.fail_ticket_request(s, rid, error=(body.error if body else ""))
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return service._ser(req)
+
+
+@app.post("/api/proposals/{pid}/ticket-requests/{rid}/claim")
+def claim_ticket_request(pid: int, rid: int, s: Session = Depends(get_session)):
+    """**原子**认领转换请求：pending → processing（worker 竞争消费）。
+
+    条件 UPDATE 由数据库仲裁，恰一个赢家；已被认领/已完成返回 409。
+    """
+    try:
+        req = service.claim_ticket_request(s, rid)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    if req is None or req.status != "processing":
+        raise HTTPException(
+            status_code=409,
+            detail=f"ticket request {rid} 无法认领：当前状态 "
+                   f"{req.status if req else 'unknown'}，仅 pending 可认领",
+        )
+    return service._ser(req)
 
 
 @app.post("/api/proposals/{pid}/questions", status_code=201)

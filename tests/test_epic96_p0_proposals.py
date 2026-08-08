@@ -150,7 +150,7 @@ def test_state_machine_table_is_closed():
     assert PROPOSAL_TRANSITIONS[ProposalStatus.STORY_CREATED] == set()
     # 每个非终态都可达 failed 或 story_created，避免出现悬空状态
     assert PROPOSAL_TRANSITIONS[ProposalStatus.FAILED] == {
-        ProposalStatus.QUEUED, ProposalStatus.DRAFT,
+        ProposalStatus.QUEUED, ProposalStatus.DRAFT, ProposalStatus.PENDING,
     }
 
 
@@ -158,7 +158,7 @@ def test_state_machine_table_is_closed():
 
 def test_create_and_get_proposal(ctx):
     p = _new_proposal(ctx)
-    assert p["status"] == "draft"
+    assert p["status"] == "pending"  # 2026-08-08：初始态 draft → pending
     assert p["current_round"] == 0
     assert p["project_id"] == ctx["project_id"]
 
@@ -174,9 +174,9 @@ def test_list_and_filter_proposals(ctx):
     assert len(r.json()) >= 2
 
     r = ctx["c"].get("/api/proposals",
-                     params={"project_id": ctx["project_id"], "status": "draft"})
+                     params={"project_id": ctx["project_id"], "status": "pending"})
     assert r.status_code == 200
-    assert all(x["status"] == "draft" for x in r.json())
+    assert all(x["status"] == "pending" for x in r.json())
 
     r = ctx["c"].get("/api/proposals", params={"status": "nope"})
     assert r.status_code == 422
@@ -207,7 +207,7 @@ def test_happy_path_full_state_machine(ctx):
 
 def test_illegal_transition_rejected(ctx):
     pid = _new_proposal(ctx, title="非法迁移")["id"]
-    r = _set_status(ctx, pid, "awaiting")  # draft 不能直跳 awaiting
+    r = _set_status(ctx, pid, "awaiting")  # pending 不能直跳 awaiting
     assert r.status_code == 400, r.text
     assert "不合法" in r.json()["detail"]
     assert _set_status(ctx, pid, "not_a_status").status_code == 422

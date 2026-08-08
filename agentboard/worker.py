@@ -64,6 +64,7 @@ import shlex
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Iterable, Protocol
@@ -74,11 +75,14 @@ from . import mq
 
 log = logging.getLogger("agentboard.worker")
 
-# Agent 可以给出的三种决策
+# Agent 可以给出的决策
 ACTION_ASK = "ask"
 ACTION_FINALIZE = "finalize"
 ACTION_FAIL = "fail"
-VALID_ACTIONS = {ACTION_ASK, ACTION_FINALIZE, ACTION_FAIL}
+# Proposal → Ticket 转化（文档 #59）：agent 已通过 AgentBoard MCP 的
+# proposal_create_ticket 工具完成创建，worker 回查请求状态确认。
+ACTION_TICKET_CREATED = "ticket_created"
+VALID_ACTIONS = {ACTION_ASK, ACTION_FINALIZE, ACTION_FAIL, ACTION_TICKET_CREATED}
 
 # Worker 会主动认领的状态：queued=首轮，answered=用户答完进入下一轮
 CLAIMABLE_STATUSES = ("queued", "answered")
@@ -289,7 +293,13 @@ def build_prompt(context: dict) -> str:
 
     协议刻意做成「一次调用、一次决策、纯 JSON 收口」：Agent 无需记忆，
     每轮都拿到完整历史，输出严格 JSON，Worker 只负责落库。
+
+    ``context.get("action") == "create_ticket"`` 时渲染**转化模式**提示词：
+    需求已收敛，指示 agent 通过 AgentBoard MCP 的 ``proposal_create_ticket``
+    工具创建指定类型的 ticket（文档 #59），然后打印确认 JSON。
     """
+    if str(context.get("action") or "") == "create_ticket":
+        return _build_ticket_prompt(context)
     lines = [
         "你是需求澄清分析师。请阅读下面的需求提案与全部历史问答，判断需求是否已足够清晰。",
         "",
@@ -316,6 +326,46 @@ def build_prompt(context: dict) -> str:
             lines.append(f"  A: {ans}{mark}")
     else:
         lines += ["", "## 历史问答", "(暂无，这是第一轮澄清)"]
+    return "\n".join(lines)
+
+
+def _build_ticket_prompt(context: dict) -> str:
+    """转化模式提示词：指示 agent 用 AgentBoard MCP 生成 ticket（文档 #59）。"""
+    ttype = str(context.get("ticket_type") or "")
+    parent_epic = context.get("parent_epic_id")
+    parent_story = context.get("parent_story_id")
+    lines = [
+        "你是需求落单助手。下面的提案已通过多轮澄清收敛（converged_spec 即最终需求规格）。",
+        "",
+        f"## 任务：把提案 #{context.get('proposal_id')} 生成为「{ttype}」类型工单",
+        "",
+        "请调用 **AgentBoard MCP 工具 `proposal_create_ticket`** 完成创建，参数：",
+        f"- proposal_id: {context.get('proposal_id')}",
+        f"- type: {ttype}",
+    ]
+    if parent_epic is not None:
+        lines.append(f"- epic_id: {parent_epic}")
+    if parent_story is not None:
+        lines.append(f"- story_id: {parent_story}")
+    if context.get("ticket_title"):
+        lines.append(f"- title: {context.get('ticket_title')}")
+    lines += [
+        "",
+        "## 决策协议（必须严格遵守）",
+        "调用成功后，在输出的最后打印 JSON：",
+        '{"action":"ticket_created"}',
+        "若调用失败（工具报错），打印：",
+        '{"action":"fail","error":"原因"}',
+        "不要省略参数、不要修改 type。若你所在环境没有 AgentBoard MCP 连接，",
+        "直接打印 {\"action\":\"fail\",\"error\":\"缺少 AgentBoard MCP 连接\"}。",
+        "",
+        f"## 提案 #{context.get('proposal_id')}：{context.get('title')}",
+        "",
+        str(context.get("content") or "(无正文)"),
+    ]
+    spec = str(context.get("converged_spec") or "").strip()
+    if spec:
+        lines += ["", "## 最终需求规格（converged_spec，工单 description 的权威来源）", spec]
     return "\n".join(lines)
 
 
@@ -646,10 +696,151 @@ class ProposalWorker:
             log.exception("提案 #%s 落库抛出未预期异常", pid)
             return self.mark_failed(pid, f"决策落库异常：{e}")
 
+    # ---------- Proposal → Ticket 转化（文档 #59，2026-08-08）----------
+
+    def fetch_ticket_requests(self) -> list[dict]:
+        """拉取待认领转换请求（status=pending）。"""
+        try:
+            return (
+                self._get_json(
+                    "/api/ticket-requests/pending",
+                    params={"limit": self.config.batch_size},
+                ) or []
+            )
+        except Exception as e:
+            log.warning("拉取 pending ticket 请求失败：%s", e)
+            return []
+
+    def claim_ticket_request(self, request: dict) -> bool:
+        """pending → processing（CAS）。竞争失败静默跳过。"""
+        rid = request.get("id")
+        pid = request.get("proposal_id")
+        r = self._request(
+            "POST", f"/api/proposals/{pid}/ticket-requests/{rid}/claim", json={},
+        )
+        if r.status_code == 200:
+            return True
+        if r.status_code == 409:
+            log.info("ticket 请求 #%s 认领竞争失败（已被其它 Worker 处理）", rid)
+            return False
+        log.warning("ticket 请求 #%s 认领异常：%s %s", rid, r.status_code, r.text[:200])
+        return False
+
+    def build_ticket_context(self, request: dict) -> dict:
+        """提案全量重放 + 工单指令（语义与 MCP proposal_get 一致，多出 ticket 字段）。"""
+        pid = request.get("proposal_id")
+        proposal = self._get_json(f"/api/proposals/{pid}")
+        rounds = self._get_json(f"/api/proposals/{pid}/rounds")
+        history: list[dict] = []
+        for r in rounds or []:
+            for q in r.get("questions", []) or []:
+                history.append({
+                    "round": r.get("round_no"),
+                    "question_id": q.get("id"),
+                    "question": q.get("question"),
+                    "answer": q.get("answer") or "",
+                    "unsure": bool(q.get("unsure")),
+                    "answered": bool(q.get("answered_at")),
+                })
+        return {
+            "action": "create_ticket",
+            "proposal_id": proposal.get("id"),
+            "project_id": proposal.get("project_id"),
+            "title": proposal.get("title"),
+            "content": proposal.get("content") or "",
+            "status": proposal.get("status"),
+            "converged_spec": proposal.get("converged_spec") or "",
+            "history": history,
+            "ticket_request_id": request.get("id"),
+            "ticket_type": request.get("type"),
+            "parent_epic_id": request.get("parent_epic_id"),
+            "parent_story_id": request.get("parent_story_id"),
+            "ticket_title": request.get("title") or "",
+        }
+
+    def _fail_ticket_request(self, request: dict, error: str) -> str:
+        rid = request.get("id")
+        pid = request.get("proposal_id")
+        r = self._request(
+            "POST", f"/api/proposals/{pid}/ticket-requests/{rid}/fail",
+            json={"error": error[:2000]},
+        )
+        if r.status_code != 200:
+            log.error("ticket 请求 #%s 标记 failed 失败：%s %s",
+                      rid, r.status_code, r.text[:200])
+        return "failed"
+
+    def _confirm_ticket(self, request: dict) -> str:
+        """agent 声称已创建后，轮询回查请求状态确认（防 agent 谎报）。
+
+        状态语义：done → 成功；failed → 已被判失败；pending/processing →
+        agent 的 MCP 调用可能仍在进行，继续等待；超时（6×5s）仍非 done → 判失败。
+        """
+        rid = request.get("id")
+        pid = request.get("proposal_id")
+        for _ in range(6):
+            try:
+                reqs = self._get_json(f"/api/proposals/{pid}/ticket-requests")
+                cur = next((r for r in reqs or [] if r.get("id") == rid), None)
+                if cur:
+                    st = cur.get("status")
+                    if st == "done":
+                        log.info("ticket 请求 #%s 已生成（ticket_id=%s）",
+                                 rid, cur.get("ticket_id"))
+                        return "created"
+                    if st == "failed":
+                        log.warning("ticket 请求 #%s 已被标记失败：%s",
+                                    rid, cur.get("error") or "")
+                        return "failed"
+            except Exception as e:
+                log.warning("ticket 请求 #%s 回查异常：%s", rid, e)
+            time.sleep(5)
+        return self._fail_ticket_request(request, "agent 执行超时，ticket 未生成")
+
+    def handle_ticket_request(self, request: dict) -> str:
+        """处理一个转换请求：拉起 agent（指示经 MCP 生成）→ 回查确认。
+
+        不做预认领：``execute-by-type`` 端点内部 CAS（pending → processing → done）
+        已保证并发下恰一个 agent 创建成功；竞争失败方回查后静默跳过，绝不让
+        「他人正在成功执行」的请求被判失败。
+
+        返回结果码：skipped / created / failed。
+        """
+        rid = request.get("id")
+        pid = request.get("proposal_id")
+        try:
+            context = self.build_ticket_context(request)
+        except Exception as e:
+            log.exception("ticket 请求 #%s 构建上下文失败", rid)
+            return self._fail_ticket_request(request, f"构建上下文失败：{e}")
+        try:
+            decision = self.invoker.invoke(context)
+        except (AgentInvocationError, AgentOutputError) as e:
+            log.warning("ticket 请求 #%s Agent 调用失败：%s", rid, e)
+            return self._fail_ticket_request(request, str(e))
+        except Exception as e:
+            log.exception("ticket 请求 #%s Agent 调用抛出未预期异常", rid)
+            return self._fail_ticket_request(request, f"Agent 调用异常：{e}")
+        if decision.action == ACTION_TICKET_CREATED:
+            return self._confirm_ticket(request)
+        # agent 主动放弃（含 execute 409 竞争失败）：回查现状，不盲目判失败
+        # —— 若他人已完成则视为成功；否则跳过，由 reclaim-stale 超时兜底 + 用户重试。
+        log.warning("ticket 请求 #%s agent 未创建：%s", rid, decision.error or "无原因")
+        try:
+            reqs = self._get_json(f"/api/proposals/{pid}/ticket-requests")
+            cur = next((r for r in reqs or [] if r.get("id") == rid), None)
+            if cur and cur.get("status") == "done":
+                return "created"
+            if cur and cur.get("status") == "failed":
+                return "failed"
+        except Exception:
+            pass
+        return "skipped"
+
     # ---------- 轮询 ----------
 
     def poll_once(self) -> dict:
-        """执行一轮：先做崩溃恢复，再消费一批工作项。"""
+        """执行一轮：先做崩溃恢复，再消费一批澄清提案与转换请求。"""
         reclaimed = self.reclaim_stale()
         results: dict[str, int] = {}
         handled: list[dict] = []
@@ -657,7 +848,18 @@ class ProposalWorker:
             outcome = self.handle(proposal)
             results[outcome] = results.get(outcome, 0) + 1
             handled.append({"proposal_id": proposal.get("id"), "outcome": outcome})
-        return {"reclaimed": reclaimed, "handled": handled, "counts": results}
+        # Proposal → Ticket 转化（文档 #59）：转换请求与澄清提案同轮消费
+        ticket_results: dict[str, int] = {}
+        for req in self.fetch_ticket_requests():
+            outcome = self.handle_ticket_request(req)
+            ticket_results[outcome] = ticket_results.get(outcome, 0) + 1
+            handled.append({"ticket_request_id": req.get("id"), "outcome": outcome})
+        return {
+            "reclaimed": reclaimed,
+            "handled": handled,
+            "counts": results,
+            "ticket_counts": ticket_results,
+        }
 
     def run_forever(self, stop: threading.Event | None = None,
                     max_cycles: int | None = None) -> int:

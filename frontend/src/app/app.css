@@ -4566,22 +4566,60 @@ router-outlet {
   border: 1px solid transparent;
 }
 .badge.pstatus--draft { background: #eef0f4; color: #4b5563; border-color: #dfe3ea; }
+.badge.pstatus--pending { background: #f3e8ff; color: #6b21a8; border-color: #e9d5ff; }
 .badge.pstatus--queued { background: #e0e7ff; color: #3730a3; border-color: #c7d2fe; }
 .badge.pstatus--analyzing { background: #dbeafe; color: #1d4ed8; border-color: #bfdbfe; }
 .badge.pstatus--awaiting { background: #fef3c7; color: #92400e; border-color: #fde68a; }
 .badge.pstatus--answered { background: #d1fae5; color: #065f46; border-color: #a7f3d0; }
 .badge.pstatus--converged { background: #ccfbf1; color: #115e59; border-color: #99f6e4; }
 .badge.pstatus--story_created { background: #dcfce7; color: #14532d; border-color: #bbf7d0; }
+.badge.pstatus--ticket_preparing { background: #fef9c3; color: #854d0e; border-color: #fef08a; }
+.badge.pstatus--ticket_created { background: #dcfce7; color: #14532d; border-color: #bbf7d0; }
 .badge.pstatus--failed { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
 
 .dark .badge.pstatus--draft { background: rgba(148, 163, 184, 0.16); color: #cbd5e1; border-color: rgba(148, 163, 184, 0.3); }
+.dark .badge.pstatus--pending { background: rgba(168, 85, 247, 0.18); color: #e9d5ff; border-color: rgba(168, 85, 247, 0.35); }
 .dark .badge.pstatus--queued { background: rgba(99, 102, 241, 0.18); color: #c7d2fe; border-color: rgba(99, 102, 241, 0.35); }
 .dark .badge.pstatus--analyzing { background: rgba(59, 130, 246, 0.18); color: #bfdbfe; border-color: rgba(59, 130, 246, 0.35); }
 .dark .badge.pstatus--awaiting { background: rgba(245, 158, 11, 0.18); color: #fde68a; border-color: rgba(245, 158, 11, 0.35); }
 .dark .badge.pstatus--answered { background: rgba(16, 185, 129, 0.18); color: #a7f3d0; border-color: rgba(16, 185, 129, 0.35); }
 .dark .badge.pstatus--converged { background: rgba(20, 184, 166, 0.18); color: #99f6e4; border-color: rgba(20, 184, 166, 0.35); }
 .dark .badge.pstatus--story_created { background: rgba(34, 197, 94, 0.18); color: #bbf7d0; border-color: rgba(34, 197, 94, 0.35); }
+.dark .badge.pstatus--ticket_preparing { background: rgba(250, 204, 21, 0.16); color: #fef08a; border-color: rgba(250, 204, 21, 0.35); }
+.dark .badge.pstatus--ticket_created { background: rgba(34, 197, 94, 0.18); color: #bbf7d0; border-color: rgba(34, 197, 94, 0.35); }
 .dark .badge.pstatus--failed { background: rgba(239, 68, 68, 0.18); color: #fecaca; border-color: rgba(239, 68, 68, 0.35); }
+
+/* ---- 文档 #59：转换请求状态 + 生成表单 ---- */
+.badge.trstatus--pending { background: #eef0f4; color: #4b5563; border-color: #dfe3ea; }
+.badge.trstatus--processing { background: #dbeafe; color: #1d4ed8; border-color: #bfdbfe; }
+.badge.trstatus--done { background: #dcfce7; color: #14532d; border-color: #bbf7d0; }
+.badge.trstatus--failed { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+.dark .badge.trstatus--pending { background: rgba(148, 163, 184, 0.16); color: #cbd5e1; border-color: rgba(148, 163, 184, 0.3); }
+.dark .badge.trstatus--processing { background: rgba(59, 130, 246, 0.18); color: #bfdbfe; border-color: rgba(59, 130, 246, 0.35); }
+.dark .badge.trstatus--done { background: rgba(34, 197, 94, 0.18); color: #bbf7d0; border-color: rgba(34, 197, 94, 0.35); }
+.dark .badge.trstatus--failed { background: rgba(239, 68, 68, 0.18); color: #fecaca; border-color: rgba(239, 68, 68, 0.35); }
+
+.proposal-ticket-box { margin-bottom: 16px; padding: 14px 16px; }
+.proposal-ticket-head {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+}
+.proposal-ticket-head h3 { margin: 0; }
+.proposal-ticket-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.ticket-type-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.ticket-type-radio {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border: 1px solid var(--color-border-secondary, #dfe3ea);
+  border-radius: 999px; cursor: pointer; font-size: 13px;
+}
+.ticket-select { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+.ticket-select select {
+  padding: 5px 8px; border-radius: 8px; border: 1px solid var(--color-border-secondary, #dfe3ea);
+  background: var(--color-background-secondary, #fff); color: var(--color-text-primary, #1f2937);
+  max-width: 260px;
+}
+.proposal-ticket-requests { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.proposal-ticket-requests li { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.proposal-ticket-requests li .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
 
 /* ---- 双栏工作台 ---- */
 .proposal-workbench {
