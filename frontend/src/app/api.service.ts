@@ -15,18 +15,20 @@ declare global {
 }
 
 // Task 261: resolve the API base URL for both production and local dev.
-// Production: web_app.py injects the real URL into window.AGENTBOARD_API
-// (replacing the "__API_URL__" placeholder in index.html). In local dev
-// (ng serve) that placeholder is left as-is, so we treat it as unset and use a
-// relative base URL — letting proxy.conf.json forward /api to the local
-// backend. When served from a non-localhost origin without an injected URL we
-// fall back to the historical default.
+// Production: web_app.py / scripts/deploy/configure-api-url.ps1 inject the real
+// URL into window.AGENTBOARD_API (replacing the "__API_URL__" placeholder in
+// index.html). In local dev (ng serve) that placeholder is left as-is, so we
+// treat it as unset and use a relative base URL — letting proxy.conf.json
+// forward /api to the local backend.
+// Non-localhost without an injected URL: fall back to the same-origin relative
+// path (''), which works with the IIS/ARR reverse-proxy topology (/api/* is
+// proxied to the local WebAPI). The historical hardcoded 'http://127.0.0.1:8000'
+// pointed at the *browser's own machine* and broke every API call whenever the
+// injected value was empty or missing (2026-08-09 prod outage).
 export function resolveApiBase(): string {
   const injected = (window as any).AGENTBOARD_API as string | undefined;
   if (injected && injected !== '__API_URL__') return injected;
-  const h = location.hostname;
-  if (h === 'localhost' || h === '127.0.0.1' || h === '[::1]') return '';
-  return 'http://127.0.0.1:8000';
+  return '';
 }
 
 // ========== Debounce Helper for Task 705 ==========
