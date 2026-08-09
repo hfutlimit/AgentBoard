@@ -260,7 +260,11 @@ def create_epic(s: Session, *, project_id: int, title: str, description: str = "
     if not s.get(Project, project_id):
         raise NotFound(f"project {project_id} not found")
     ep = Epic(project_id=project_id, title=_required(title, "title", 300), description=description or "")
-    s.add(ep); _commit(s); s.refresh(ep); return ep
+    s.add(ep); _commit(s); s.refresh(ep)
+    # 2026-08-09：创建 Epic 默认自动创建 1 个默认 Story（标题/描述继承 Epic），
+    # Story 创建会自动带 design + 开发 Task，即「创建 Epic 默认创建 Story/Task」。
+    create_story(s, epic_id=ep.id, title=ep.title, description=ep.description)
+    return ep
 
 
 def get_epic(s: Session, id: int) -> Epic | None:
@@ -306,11 +310,30 @@ def delete_epic(s: Session, id: int) -> bool:
 # ---------- Story ----------
 def create_story(s: Session, *, epic_id: int, title: str, description: str = "",
                  needs_design: bool = True) -> Story:
-    if not s.get(Epic, epic_id):
+    """创建 Story，并自动创建 2 个默认 Task（2026-08-09 文档 #60）：
+
+    - design task（type=design）「设计：<标题>」：每个 Story 必需的设计任务，
+      承载设计评审（in_design → design_pending_review → design_review_approved 流）；
+    - 开发 task（type=task）「实现：<标题>」。
+
+    Story 与默认 Task 同一事务提交；标题截断 300 字符。
+    """
+    epic = s.get(Epic, epic_id)
+    if not epic:
         raise NotFound(f"epic {epic_id} not found")
     st = Story(epic_id=epic_id, title=_required(title, "title", 300),
                description=description or "", needs_design=needs_design)
-    s.add(st); _commit(s); s.refresh(st); return st
+    s.add(st)
+    s.flush()  # 取 st.id 供默认 Task 关联
+    base = st.title.strip()
+    s.add_all([
+        Task(project_id=epic.project_id, story_id=st.id, type=ItemType.DESIGN,
+             title=f"设计：{base}"[:300]),
+        Task(project_id=epic.project_id, story_id=st.id, type=ItemType.TASK,
+             title=f"实现：{base}"[:300]),
+    ])
+    _invalidate_project_stats_cache(epic.project_id)
+    _commit(s); s.refresh(st); return st
 
 
 def get_story(s: Session, id: int) -> Story | None:
@@ -3750,6 +3773,9 @@ def set_proposal_status(
         p.error = error or p.error or "unspecified failure"
     elif error is None and new is not ProposalStatus.FAILED:
         p.error = ""
+    # 成功终态（收敛/生成工单）清零自动重投计数：agent 已恢复或人工接管
+    if new in _SUCCESS_TERMINALS and (p.auto_retry_count or 0) > 0:
+        p.auto_retry_count = 0
     # 租约随状态同步维护，避免脏租约：
     # - 进入 analyzing（含旧版 PUT /status 认领路径）：盖上租约时间戳，
     #   否则这类行的 claimed_at 恒为 NULL，崩溃后永远不会被回收。
@@ -3859,6 +3885,67 @@ def reclaim_stale_proposals(
     _commit(s)
     s.expire_all()
     return ids
+
+
+# Agent 不可用类错误关键词：worker 拉起 CLI agent 失败（命令无法启动/找不到/
+# 调用异常等）。这类失败**不应要求前端手动重试**——由后端 job（recover_failed）
+# 自动回退 queued 重投，直至 agent 恢复或达到次数上限转人工。
+AGENT_ERROR_KEYWORDS = (
+    "Agent 命令无法启动", "Agent 调用失败", "Agent 调用异常",
+    "无法启动", "Invocation", "找不到",
+)
+
+# 进入这些状态视为提案成功（或人工接管），清零自动重投计数
+_SUCCESS_TERMINALS = {
+    ProposalStatus.CONVERGED, ProposalStatus.STORY_CREATED,
+    ProposalStatus.TICKET_CREATED,
+}
+
+
+def recover_failed_proposals(
+    s: Session, *, window_seconds: int = 120, max_retries: int = 5,
+) -> list[int]:
+    """把「Agent 不可用」导致的 failed 提案自动回退 queued 重投（后端 job）。
+
+    与 ``reclaim_stale_proposals``（analyzing 租约超时）互补：
+    - reclaim：worker 崩溃后卡在 analyzing → 回退 queued；
+    - recover：agent CLI 不可用导致的 failed → 自动重试，前端不做手动 retry。
+
+    规则：
+    - 仅处理 error 匹配 AGENT_ERROR_KEYWORDS 的 failed 提案（人工判定失败如
+      轮次上限超限 / 用户中止**不**自动重投）；
+    - 重投计数用 ``auto_retry_count`` 字段（worker 每次失败会覆盖 error 文本，
+      不能编码进 error）；达到 max_retries 停投转人工，避免 agent 永久不可用时
+      无限循环；
+    - 距上次失败（updated_at）不足 window_seconds 跳过，控制重投频率。
+    """
+    if window_seconds < 0:
+        raise InvalidValue("window_seconds must be >= 0")
+    now = utc_now()
+    cutoff = now - timedelta(seconds=window_seconds)
+    failed_rows = (
+        s.query(Proposal)
+        .filter(Proposal.status == ProposalStatus.FAILED.value)
+        .all()
+    )
+    recovered: list[int] = []
+    for p in failed_rows:
+        err = p.error or ""
+        if not any(k in err for k in AGENT_ERROR_KEYWORDS):
+            continue
+        if (p.auto_retry_count or 0) >= max_retries:
+            continue
+        if p.updated_at is not None and p.updated_at > cutoff:
+            continue
+        p.status = ProposalStatus.QUEUED.value
+        p.claimed_by = ""
+        p.claimed_at = None
+        p.auto_retry_count = (p.auto_retry_count or 0) + 1
+        p.updated_at = now
+        recovered.append(p.id)
+    if recovered:
+        _commit(s)
+    return recovered
 
 
 def create_proposal_round(

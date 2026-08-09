@@ -214,6 +214,9 @@ export class App implements OnInit, OnDestroy {
   readonly proposalNewContent = signal('');
   readonly proposalNewProjectId = signal<number | null>(null);
   readonly proposalStatuses = PROPOSAL_STATUSES;
+  // 详情页 Tab 切换 + 轮次详情弹窗（2026-08-09 布局重构）
+  readonly proposalTab = signal<'info' | 'qa'>('info');
+  readonly proposalRoundDetail = signal<ProposalRoundItem | null>(null);
   // Proposal → Ticket 异步转化（文档 #59，2026-08-08）
   readonly proposalTicketRequests = signal<TicketRequestItem[]>([]);
   readonly ticketType = signal<TicketType>('story');
@@ -428,7 +431,7 @@ export class App implements OnInit, OnDestroy {
   ];
   readonly priorities: Priority[] = ['highest', 'high', 'medium', 'low', 'lowest'];
   // v5.5: 批量修改任务类型 —— 任务类型枚举（与分组/类型筛选一致）
-  readonly taskTypes: string[] = ['task', 'bug', 'test_execution'];
+  readonly taskTypes: string[] = ['task', 'bug', 'test_execution', 'design'];
 
   readonly visibleProjects = computed(() =>
     this.match(this.projects(), (p) => `${p.name} ${p.key || ''} ${p.description}`),
@@ -824,10 +827,11 @@ export class App implements OnInit, OnDestroy {
     return this.getAssigneeName(Number(key)) || '未指派';
   }
 
-  // 任务类型中文标签（含新增的 Test Execution）
+  // 任务类型中文标签（含新增的 Test Execution / Design）
   typeLabel(type: string): string {
     if (type === 'bug') return 'Bug';
     if (type === 'test_execution') return 'Test Execution';
+    if (type === 'design') return 'Design';
     return 'Task';
   }
 
@@ -835,6 +839,7 @@ export class App implements OnInit, OnDestroy {
   typeGlyph(type: string): string {
     if (type === 'bug') return 'B';
     if (type === 'test_execution') return 'TE';
+    if (type === 'design') return 'D';
     return 'T';
   }
   readonly groupedTasks = computed(() => {
@@ -860,7 +865,7 @@ export class App implements OnInit, OnDestroy {
     }
     let keys: string[];
     if (g === 'status') keys = this.statuses.filter((s) => buckets[s]);
-    else if (g === 'type') keys = ['task', 'bug', 'test_execution'].filter((k) => buckets[k]);
+    else if (g === 'type') keys = this.taskTypes.filter((k) => buckets[k]);
     else if (g === 'priority') keys = this.priorities.filter((p) => buckets[p]);
     else if (g === 'due') keys = this.dueBucketOrder.filter((b) => buckets[b]);
     else keys = Object.keys(buckets).sort((a, b) =>
@@ -3543,7 +3548,7 @@ export class App implements OnInit, OnDestroy {
       (buckets[k] ||= []).push(t);
     }
     let keys: string[];
-    if (g === 'type') keys = ['task', 'bug', 'test_execution'].filter((k) => buckets[k]);
+    if (g === 'type') keys = this.taskTypes.filter((k) => buckets[k]);
     else if (g === 'priority') keys = this.priorities.filter((p) => buckets[p]);
     else if (g === 'due') keys = this.dueBucketOrder.filter((b) => buckets[b]);
     else keys = Object.keys(buckets).sort((a, b) =>
@@ -4195,6 +4200,7 @@ export class App implements OnInit, OnDestroy {
   taskTypeIcon(type: string): string {
     if (type === 'bug') return '🐛';
     if (type === 'test_execution') return '🧪';
+    if (type === 'design') return '🎨';
     return '📋';
   }
 
@@ -5282,6 +5288,71 @@ export class App implements OnInit, OnDestroy {
     } as Record<string, string>)[s] || s;
   }
 
+  /** 提案失败是否属于「Agent 不可用」类——由后端 job 自动重试，前端不提供手动 retry */
+  isAgentFailure(p: ProposalItem): boolean {
+    const err = p.error || '';
+    return ['Agent 命令无法启动', 'Agent 调用失败', 'Agent 调用异常',
+            '无法启动', 'Invocation', '找不到'].some((k) => err.includes(k));
+  }
+
+  /** Tab 切换 */
+  switchProposalTab(tab: 'info' | 'qa'): void {
+    this.proposalTab.set(tab);
+  }
+
+  /** 打开轮次详情弹窗（点击 QA 列表项） */
+  openRoundDetail(r: ProposalRoundItem): void {
+    this.proposalRoundDetail.set(r);
+  }
+
+  closeRoundDetail(): void {
+    this.proposalRoundDetail.set(null);
+  }
+
+  /** 单轮回答统计：X 个问题 · 已答 Y */
+  roundAnsweredCount(r: ProposalRoundItem): number {
+    return r.questions.filter((q) => !!q.answered_at).length;
+  }
+
+  /** 轮次整体状态：等待中 / 已完成 / 已作答 */
+  roundStatusLabel(r: ProposalRoundItem): string {
+    const total = r.questions.length;
+    if (total === 0) return '无问题';
+    const answered = this.roundAnsweredCount(r);
+    if (answered === 0) return '等待中';
+    if (answered < total) return `等待中 ${answered}/${total}`;
+    return '已作答';
+  }
+
+  /** 当前轮次（current_round）中未答的问题——Tab 1「当前正问」展示 */
+  currentOpenQuestions(): ProposalQuestionItem[] {
+    const rounds = this.proposalRounds();
+    const p = this.proposalItem();
+    if (!p) return [];
+    const r = rounds.find((x) => x.round_no === p.current_round);
+    if (!r) return [];
+    return r.questions.filter((q) => !q.answered_at);
+  }
+
+  /** 轮次卡片摘要（取首问题前 60 字，或 summary） */
+  roundSummary(r: ProposalRoundItem): string {
+    if (r.summary) return r.summary;
+    if (r.questions.length) return r.questions[0].question;
+    return '（无内容）';
+  }
+
+  /** 全部轮次的总问题数 */
+  totalQuestionCount(): number {
+    return this.proposalRounds().reduce((s, r) => s + r.questions.length, 0);
+  }
+
+  /** 全部轮次中已答问题数 */
+  totalAnsweredCount(_p: ProposalItem): number {
+    return this.proposalRounds().reduce(
+      (s, r) => s + this.roundAnsweredCount(r), 0,
+    );
+  }
+
   /** 生成 ticket 需要的父级是否齐备（前端即时校验，后端仍兜底） */
   ticketFormValid(): boolean {
     const type = this.ticketType();
@@ -5426,6 +5497,12 @@ export class App implements OnInit, OnDestroy {
     void this.loadProposalTicketRequests(id);
     if (item?.project_id) void this.loadTicketParents(item.project_id);
     if (item?.status === 'ticket_preparing') this.startTicketPolling(id);
+    // 同步 Round 详情弹窗：避免保存后弹窗仍显示旧轮次快照（看不到「已作答」）
+    const detail = this.proposalRoundDetail();
+    if (detail) {
+      const fresh = this.proposalRounds().find((r) => r.id === detail.id);
+      if (fresh) this.proposalRoundDetail.set(fresh);
+    }
   }
 
   private syncProposalDrafts(): void {

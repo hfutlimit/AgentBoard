@@ -550,6 +550,30 @@ class ProposalWorker:
                         pid, self.config.lease_seconds)
         return list(ids)
 
+    def recover_failed(self) -> list[int]:
+        """把「Agent 不可用」导致的 failed 提案自动回退 queued 重投。
+
+        设计原则（2026-08-09）：agent 拉起失败（命令无法启动/找不到/调用异常）
+        **不应要求前端手动重试**——由本维护 job 周期自动重投，直至 agent 恢复
+        或服务端达到 max_retries 上限转人工。与 reclaim_stale（analyzing 租约
+        超时）互补，共同构成自动闭环的自愈回路。
+        """
+        r = self._request(
+            "POST", "/api/proposals/recover-failed",
+            json={"window_seconds": 120, "max_retries": 5},
+        )
+        if r.status_code != 200:
+            log.warning("回收 agent 失败提案异常：%s %s", r.status_code, r.text[:200])
+            return []
+        try:
+            ids = (r.json() or {}).get("recovered") or []
+        except Exception as e:
+            log.warning("回收响应解析失败：%s", e)
+            return []
+        for pid in ids:
+            log.info("提案 #%s agent 不可用导致 failed，已自动回退 queued 重投", pid)
+        return list(ids)
+
     # ---------- 认领 ----------
 
     def claim(self, proposal: dict) -> bool:
@@ -840,8 +864,9 @@ class ProposalWorker:
     # ---------- 轮询 ----------
 
     def poll_once(self) -> dict:
-        """执行一轮：先做崩溃恢复，再消费一批澄清提案与转换请求。"""
+        """执行一轮：先做崩溃恢复 + agent 失败自动重投，再消费工作项。"""
         reclaimed = self.reclaim_stale()
+        recovered = self.recover_failed()
         results: dict[str, int] = {}
         handled: list[dict] = []
         for proposal in self.fetch_work():
@@ -856,6 +881,7 @@ class ProposalWorker:
             handled.append({"ticket_request_id": req.get("id"), "outcome": outcome})
         return {
             "reclaimed": reclaimed,
+            "recovered": recovered,
             "handled": handled,
             "counts": results,
             "ticket_counts": ticket_results,

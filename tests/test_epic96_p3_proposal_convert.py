@@ -192,10 +192,10 @@ def test_convert_converged_proposal_to_story_and_tasks(ctx):
     assert prop["story_id"] == story["id"]
     assert prop["status"] == "story_created"
 
-    # 服务端实查：Story 下确实只有这 4 个任务
+    # 服务端实查：Story 下 4 个 spec 任务 + 2 个自动默认任务（design/实现，2026-08-09）
     r = ctx["c"].get(f"/api/stories/{story['id']}/tasks")
     assert r.status_code == 200, r.text
-    assert r.json()["total"] == 4
+    assert r.json()["total"] == 6
 
 
 def test_convert_with_explicit_title(ctx):
@@ -217,12 +217,13 @@ def test_convert_idempotent_replay(ctx):
     assert r2.status_code == 200, r2.text
 
     assert r2.json()["story"]["id"] == r1.json()["story"]["id"]
-    assert len(r2.json()["tasks"]) == len(r1.json()["tasks"])
+    # 首次返回 4 个 spec 任务；幂等分支返回 Story 下全部任务（含 2 个自动默认任务，
+    # 2026-08-09 口径变化）——幂等契约由「任务总数不翻倍」保证
     assert r2.json()["proposal"]["story_id"] == r1.json()["story"]["id"]
 
-    # 服务端实查：Story 仍只有 4 个任务（没有因重放翻倍）
+    # 服务端实查：Story 仍只有 6 个任务（4 spec + 2 自动默认，没有因重放翻倍）
     r = ctx["c"].get(f"/api/stories/{r1.json()['story']['id']}/tasks")
-    assert r.json()["total"] == 4
+    assert r.json()["total"] == 6
 
 
 # ---------------- 3. 拒绝路径 ----------------

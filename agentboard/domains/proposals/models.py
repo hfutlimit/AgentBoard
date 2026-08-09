@@ -156,6 +156,10 @@ class Proposal(Base):
     )
     # 失败原因（status=failed 时填充）
     error: Mapped[str] = mapped_column(Text, default="")
+    # 「Agent 不可用」自动重投计数（2026-08-09）：后端 job 每自动重投一次 +1，
+    # 达到上限（默认 5）停投转人工。提案进入成功终态时清零。独立字段而非编码进
+    # error 文本——worker 每次失败都会用新错误覆盖 error，文本计数会丢失。
+    auto_retry_count: Mapped[int] = mapped_column(Integer, default=0)
     # --- 认领租约（P2-0）---
     # 当前持有 analyzing 租约的 Worker 服务账号名，空串表示无人持有。
     claimed_by: Mapped[str] = mapped_column(String(100), default="")

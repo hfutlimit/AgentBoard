@@ -66,7 +66,7 @@ def test_service_layer():
     with SessionLocal() as s:
         p = service.create_project(s, name="Demo", key="DEMO", description="# Demo")
         ep = service.create_epic(s, project_id=p.id, title="E1")
-        st = service.create_story(s, epic_id=ep.id, title="S1")
+        st = service.create_story(s, epic_id=ep.id, title="S1", needs_design=False)  # 快速流：不验证设计评审段
         t = service.create_task(s, project_id=p.id, story_id=st.id, type=ItemType.TASK,
                                 title="T1", priority=Priority.HIGH)
         assert t.priority == Priority.HIGH
@@ -95,7 +95,7 @@ def test_rest_api():
     from fastapi.testclient import TestClient
     from agentboard.api import app
     with TestClient(app) as c:
-        assert c.get("/api/meta").json()["types"] == ["task", "bug", "test_execution"]
+        assert c.get("/api/meta").json()["types"] == ["task", "bug", "test_execution", "design"]
         # 分页：列表 API 返回 {items, total}
         page = c.get("/api/projects", params={"limit": 1}).json()
         assert len(page["items"]) <= 1 and "total" in page

@@ -10,7 +10,7 @@ from ..common.models import Base, utc_now
 class Task(Base):
     __tablename__ = "tasks"
     __table_args__ = (
-        CheckConstraint("type IN ('task','bug','test_execution')", name="ck_tasks_type"),
+        CheckConstraint("type IN ('task','bug','test_execution','design')", name="ck_tasks_type"),
         CheckConstraint("status IN ('backlog','todo','in_progress','in_review','verifying','done','blocked','in_design','design_pending_review','design_review_approved','final_review')", name="ck_tasks_status"),
         CheckConstraint("priority IN ('highest','high','medium','low','lowest')", name="ck_tasks_priority"),
     )

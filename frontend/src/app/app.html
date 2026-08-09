@@ -2626,14 +2626,20 @@
                 @if (p.status === 'draft' || p.status === 'pending') {
                   <button id="proposal-queue-btn" class="btn-primary-sm" (click)="advanceProposalStatus('queued')">{{ p.status === 'pending' ? '开始 grill' : '派发给 Agent' }}</button>
                 }
-                @if (p.status === 'failed') {
+                @if (p.status === 'failed' && !isAgentFailure(p)) {
                   <button id="proposal-requeue-btn" class="btn-primary-sm" (click)="advanceProposalStatus('queued')">重新派发</button>
                 }
               </div>
             </div>
 
             @if (p.error) {
-              <div class="proposal-error" id="proposal-error">分析失败：{{ p.error }}</div>
+              <div class="proposal-error" id="proposal-error">
+                @if (isAgentFailure(p)) {
+                  分析失败（Agent 暂不可用）——系统将自动重试，无需手动操作。{{ p.error }}
+                } @else {
+                  分析失败：{{ p.error }}
+                }
+              </div>
             }
 
             <!-- 文档 #59：生成工单（converged → ticket_preparing → ticket_created） -->
@@ -2708,37 +2714,100 @@
               </div>
             }
 
-            <div class="proposal-workbench">
-              <!-- 左栏：需求正文 + 状态时间线 -->
-              <section class="proposal-pane proposal-pane--left">
-                <h3 class="proposal-pane-title">需求正文</h3>
-                <div class="proposal-content" id="proposal-content">{{ p.content || '（提案正文为空）' }}</div>
+            <!-- 详情 Tab 导航（2026-08-09 布局重构） -->
+            <nav class="proposal-tabs" role="tablist">
+              <button class="proposal-tab" [class.active]="proposalTab() === 'info'"
+                (click)="switchProposalTab('info')" id="proposal-tab-info">
+                <span class="proposal-tab-label">基本信息</span>
+              </button>
+              <button class="proposal-tab" [class.active]="proposalTab() === 'qa'"
+                (click)="switchProposalTab('qa')" id="proposal-tab-qa">
+                <span class="proposal-tab-label">问答列表</span>
+                <span class="proposal-tab-badge">{{ proposalRounds().length }}</span>
+              </button>
+            </nav>
 
-                <h3 class="proposal-pane-title">澄清进度</h3>
-                <ol class="proposal-timeline">
-                  @for (r of proposalRounds(); track r.id) {
-                    <li [class.current]="r.round_no === p.current_round">
-                      <span class="proposal-timeline-round">第 {{ r.round_no }} 轮</span>
-                      <span class="proposal-timeline-meta">
-                        {{ r.questions.length }} 个问题{{ r.agent ? ' · ' + r.agent : '' }}
-                      </span>
-                      @if (r.summary) { <div class="proposal-timeline-summary">{{ r.summary }}</div> }
-                    </li>
-                  } @empty {
-                    <li class="muted">尚未产生澄清轮次。</li>
-                  }
-                </ol>
+            @if (proposalTab() === 'info') {
+              <!-- Tab 1：基本信息 -->
+              <section class="proposal-tab-content" id="proposal-tab-content-info">
+                <div class="card proposal-info-card">
+                  <div class="proposal-info-grid">
+                    <div class="info-item">
+                      <span class="info-label">状态</span>
+                      <span class="badge pstatus pstatus--{{ p.status }}">{{ proposalStatusLabel(p.status) }}</span>
+                    </div>
+                    <div class="info-item">
+                      <span class="info-label">创建时间</span>
+                      <span class="info-value">{{ p.created_at | date: 'yyyy-MM-dd HH:mm' }}</span>
+                    </div>
+                    <div class="info-item">
+                      <span class="info-label">最后更新</span>
+                      <span class="info-value">{{ p.updated_at | date: 'yyyy-MM-dd HH:mm' }}</span>
+                    </div>
+                    <div class="info-item">
+                      <span class="info-label">当前轮次</span>
+                      <span class="info-value">第 {{ p.current_round }} 轮</span>
+                    </div>
+                    <div class="info-item">
+                      <span class="info-label">已答 / 总问题</span>
+                      <span class="info-value">{{ totalAnsweredCount(p) }} / {{ totalQuestionCount() }}</span>
+                    </div>
+                  </div>
+                </div>
+
+                @if (currentOpenQuestions().length > 0) {
+                  <div class="card proposal-current-qa" id="proposal-current-qa">
+                    <h3 class="proposal-pane-title">当前正问（待回答）</h3>
+                    <ul class="proposal-current-qa-list">
+                      @for (q of currentOpenQuestions(); track q.id) {
+                        <li>
+                          <span class="proposal-question-seq">Q{{ q.seq + 1 }}</span>
+                          <span class="proposal-question-text">{{ q.question }}</span>
+                        </li>
+                      }
+                    </ul>
+                    <p class="muted" style="margin-top: 10px;">请到「问答列表」Tab 逐条作答或一键提交。</p>
+                  </div>
+                } @else if (p.status === 'awaiting') {
+                  <div class="card proposal-current-qa">
+                    <p class="muted">本轮问题已全部处理，等待 Agent 进入下一轮或收敛。</p>
+                  </div>
+                }
+
+                <div class="card proposal-content-card">
+                  <h3 class="proposal-pane-title">需求正文</h3>
+                  <div class="proposal-content" id="proposal-content">{{ p.content || '（提案正文为空）' }}</div>
+                </div>
 
                 @if (p.converged_spec) {
-                  <h3 class="proposal-pane-title">收敛规格</h3>
-                  <div class="proposal-content">{{ p.converged_spec }}</div>
+                  <div class="card proposal-content-card">
+                    <h3 class="proposal-pane-title">收敛规格</h3>
+                    <div class="proposal-content">{{ p.converged_spec }}</div>
+                  </div>
                 }
-              </section>
 
-              <!-- 右栏：按轮次分组的问题卡片 -->
-              <section class="proposal-pane proposal-pane--right">
-                <div class="proposal-pane-header">
-                  <h3 class="proposal-pane-title">澄清问答</h3>
+                <div class="card proposal-content-card">
+                  <h3 class="proposal-pane-title">澄清进度</h3>
+                  <ol class="proposal-timeline">
+                    @for (r of proposalRounds(); track r.id) {
+                      <li [class.current]="r.round_no === p.current_round">
+                        <span class="proposal-timeline-round">第 {{ r.round_no }} 轮</span>
+                        <span class="proposal-timeline-meta">
+                          {{ r.questions.length }} 个问题 · {{ roundAnsweredCount(r) }} 已答{{ r.agent ? ' · ' + r.agent : '' }}
+                        </span>
+                        @if (r.summary) { <div class="proposal-timeline-summary">{{ r.summary }}</div> }
+                      </li>
+                    } @empty {
+                      <li class="muted">尚未产生澄清轮次。</li>
+                    }
+                  </ol>
+                </div>
+              </section>
+            } @else {
+              <!-- Tab 2：问答列表（每轮一个卡片，点击查看详情） -->
+              <section class="proposal-tab-content" id="proposal-tab-content-qa">
+                <div class="qa-list-header">
+                  <h3 class="proposal-pane-title">全部问答（{{ proposalRounds().length }} 轮）</h3>
                   @if (proposalPendingCount() > 0) {
                     <button id="proposal-submit-round" class="btn-primary-sm"
                       [disabled]="proposalSubmitting() || !proposalHasDraftToSubmit()"
@@ -2749,68 +2818,31 @@
                 </div>
 
                 @if (proposalRounds().length === 0) {
-                  <div class="empty-state" id="proposal-no-rounds">
-                    @if (p.status === 'draft' || p.status === 'pending') {
-                      提案尚未开始。点击右上角「开始 grill」，Agent 将开始分析并提出澄清问题。
-                    } @else if (p.status === 'queued' || p.status === 'analyzing') {
-                      Agent 正在分析需求，稍后将在此列出澄清问题。
-                    } @else {
-                      暂无澄清问题。
-                    }
+                  <div class="empty-state" id="qa-empty">
+                    尚未产生澄清轮次。点击右上角「开始 grill」让 Agent 开始分析。
                   </div>
                 } @else {
-                  @for (r of proposalRounds(); track r.id) {
-                    <div class="proposal-round" [attr.data-round]="r.round_no">
-                      <div class="proposal-round-head">
-                        <span class="proposal-round-badge">第 {{ r.round_no }} 轮</span>
-                        @if (r.summary) { <span class="muted">{{ r.summary }}</span> }
-                      </div>
-                      @for (q of r.questions; track q.id) {
-                        <div class="proposal-question" [class.answered]="isProposalQuestionAnswered(q)"
-                          [attr.data-qid]="q.id">
-                          <div class="proposal-question-head">
-                            <span class="proposal-question-seq">Q{{ q.seq + 1 }}</span>
-                            <span class="proposal-question-text">{{ q.question }}</span>
-                            @if (isProposalQuestionAnswered(q)) {
-                              <span class="badge answered-badge">{{ q.unsure ? '已标记不确定' : '已作答' }}</span>
-                            }
-                          </div>
-                          @if (isProposalQuestionAnswered(q)) {
-                            <div class="proposal-answer-readonly">{{ q.answer || '（用户标记为暂不确定，交由 Agent 自行假设）' }}</div>
-                          } @else {
-                            <textarea class="proposal-answer-input" rows="2"
-                              [attr.data-answer-for]="q.id"
-                              placeholder="输入你的答案…"
-                              [value]="proposalDraftOf(q.id)"
-                              [disabled]="proposalUnsureOf(q.id)"
-                              (input)="setProposalDraft(q.id, $any($event.target).value)"></textarea>
-                            <div class="proposal-question-actions">
-                              <label class="proposal-unsure">
-                                <input type="checkbox" [attr.data-unsure-for]="q.id"
-                                  [checked]="proposalUnsureOf(q.id)"
-                                  (change)="toggleProposalUnsure(q.id)" />
-                                <span>暂不确定</span>
-                              </label>
-                              <button class="btn-sm" [attr.data-save-for]="q.id"
-                                [disabled]="isProposalQuestionSaving(q.id)"
-                                (click)="saveProposalAnswer(q)">
-                                {{ isProposalQuestionSaving(q.id) ? '保存中…' : '保存' }}
-                              </button>
-                            </div>
-                          }
+                  <ul class="qa-round-list">
+                    @for (r of proposalRounds(); track r.id) {
+                      <li class="qa-round-item" (click)="openRoundDetail(r)" tabindex="0"
+                          (keydown.enter)="openRoundDetail(r)">
+                        <div class="qa-round-head">
+                          <span class="qa-round-no">第 {{ r.round_no }} 轮</span>
+                          <span class="badge qa-round-status" [class.is-answered]="roundAnsweredCount(r) === r.questions.length && r.questions.length > 0">
+                            {{ roundStatusLabel(r) }}
+                          </span>
                         </div>
-                      }
-                    </div>
-                  }
-
-                  @if (proposalPendingCount() === 0) {
-                    <div class="proposal-all-done" id="proposal-all-done">
-                      本轮问题已全部处理，等待 Agent 进入下一轮澄清或收敛。
-                    </div>
-                  }
+                        <div class="qa-round-summary">{{ roundSummary(r) }}</div>
+                        <div class="qa-round-meta muted">
+                          {{ r.questions.length }} 个问题 · 已答 {{ roundAnsweredCount(r) }} / {{ r.questions.length }}
+                          @if (r.agent) { <span> · {{ r.agent }}</span> }
+                        </div>
+                      </li>
+                    }
+                  </ul>
                 }
               </section>
-            </div>
+            }
           }
         }
 
@@ -3274,7 +3306,15 @@
             <label>描述</label
             ><textarea id="create-description" name="description" rows="5"></textarea>
           </div>
+          @if (currentModal.kind === 'epic') {
+            <p class="muted form-auto-hint" id="create-epic-hint">
+              创建后将自动生成 1 个默认 Story（标题同 Epic）及 Design + 开发任务。
+            </p>
+          }
           @if (currentModal.kind === 'story') {
+            <p class="muted form-auto-hint" id="create-story-hint">
+              创建后将自动生成 Design + 开发两个默认任务。
+            </p>
             <div class="form-field">
               <label class="inline-check"
                 ><input id="create-needs-design" name="needs_design" type="checkbox" checked />
@@ -3290,6 +3330,7 @@
                   <option value="task">Task</option>
                   <option value="bug">Bug</option>
                   <option value="test_execution">Test Execution</option>
+                  <option value="design">Design</option>
                 </select>
               </div>
               <div class="form-field">
@@ -3340,6 +3381,80 @@
   </div>
 }
 
+@if (proposalRoundDetail(); as rd) {
+  <div class="modal-overlay" (click)="closeRoundDetail()">
+    <section class="modal rd-modal" role="dialog" aria-modal="true"
+      aria-labelledby="rd-modal-title" (click)="$event.stopPropagation()">
+      <header class="modal-header">
+        <div>
+          <span class="modal-eyebrow">ROUND DETAIL</span>
+          <h3 id="rd-modal-title">第 {{ rd.round_no }} 轮 · 问答详情</h3>
+        </div>
+        <button type="button" class="modal-close" aria-label="关闭" (click)="closeRoundDetail()">×</button>
+      </header>
+      <div class="modal-body">
+        @if (rd.summary) {
+          <div class="rd-summary">
+            <span class="info-label">本轮总体</span>
+            <p>{{ rd.summary }}</p>
+          </div>
+        }
+        <div class="rd-questions">
+          @for (q of rd.questions; track q.id) {
+            <article class="rd-question" [class.answered]="isProposalQuestionAnswered(q)">
+              <header class="rd-question-head">
+                <span class="proposal-question-seq">Q{{ q.seq + 1 }}</span>
+                <span class="rd-question-text">{{ q.question }}</span>
+                @if (isProposalQuestionAnswered(q)) {
+                  <span class="badge answered-badge">{{ q.unsure ? '已标记不确定' : '已作答' }}</span>
+                }
+              </header>
+              @if (isProposalQuestionAnswered(q)) {
+                <div class="rd-answer">
+                  <span class="info-label">回答</span>
+                  <p>{{ q.answer || '（用户标记为暂不确定，交由 Agent 自行假设）' }}</p>
+                </div>
+              } @else {
+                <div class="rd-answer-input">
+                  <textarea class="proposal-answer-input" rows="2"
+                    [attr.data-answer-for]="q.id"
+                    placeholder="输入你的答案…"
+                    [value]="proposalDraftOf(q.id)"
+                    [disabled]="proposalUnsureOf(q.id)"
+                    (input)="setProposalDraft(q.id, $any($event.target).value)"></textarea>
+                  <div class="proposal-question-actions">
+                    <label class="proposal-unsure">
+                      <input type="checkbox" [attr.data-unsure-for]="q.id"
+                        [checked]="proposalUnsureOf(q.id)"
+                        (change)="toggleProposalUnsure(q.id)" />
+                      <span>暂不确定</span>
+                    </label>
+                    <button class="ghost-sm" [attr.data-save-for]="q.id"
+                      [disabled]="isProposalQuestionSaving(q.id)"
+                      (click)="saveProposalAnswer(q)">
+                      {{ isProposalQuestionSaving(q.id) ? '保存中…' : '保存' }}
+                    </button>
+                  </div>
+                </div>
+              }
+            </article>
+          }
+        </div>
+      </div>
+      <footer class="modal-footer">
+        <button type="button" class="ghost-sm" id="rd-close-btn" (click)="closeRoundDetail()">关闭</button>
+        @if (proposalPendingCount() > 0) {
+          <button id="proposal-submit-round" class="btn-primary-sm"
+            [disabled]="proposalSubmitting() || !proposalHasDraftToSubmit()"
+            (click)="submitProposalRound()">
+            {{ proposalSubmitting() ? '提交中…' : '一键提交本轮（' + proposalPendingCount() + '）' }}
+          </button>
+        }
+      </footer>
+    </section>
+  </div>
+}
+
 @if (proposalModalOpen()) {
   <div class="modal-overlay" (click)="closeProposalModal()">
     <section id="proposal-create-dialog" class="modal proposal-create-modal" role="dialog" aria-modal="true"
@@ -3373,7 +3488,7 @@
           </div>
         </div>
         <footer class="modal-footer">
-          <button type="button" class="btn-sm" (click)="closeProposalModal()">取消</button>
+          <button type="button" id="proposal-cancel-btn" class="ghost-sm" (click)="closeProposalModal()">取消</button>
           <button type="submit" id="proposal-create-submit" class="btn-primary-sm">创建提案</button>
         </footer>
       </form>

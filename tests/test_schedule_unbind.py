@@ -73,12 +73,23 @@ def test_db(tmp_path, monkeypatch):
 def _mk_project_and_tasks(s, *, with_epic=False):
     """建项目 + epic + story，返回 (project, epic, story_id)。"""
     from agentboard import service
+    from sqlalchemy import or_
 
     p = service.create_project(s, name="Unbind Proj")
     s.commit()
     epic = service.create_epic(s, project_id=p.id, title="Epic A")
     s.commit()
     story = service.create_story(s, epic_id=epic.id, title="Story A")
+    s.commit()
+    # 2026-08-09：Epic/Story 自动带「设计：/实现：」模板 task（backlog）——
+    # 调度选择前全部置 done，保持「只挑手动任务」的既有测试语义
+    from agentboard.models import Task
+    from agentboard.domains.common.enums import Status as _St
+    for t in s.query(Task).filter(
+        Task.project_id == p.id,
+        or_(Task.title.like("设计：%"), Task.title.like("实现：%")),
+    ).all():
+        t.status = _St.DONE
     s.commit()
     return p, epic, story.id
 

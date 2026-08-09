@@ -158,7 +158,7 @@ def test_web_ticket_crud_and_lists(servers):
         p = c.post("/api/projects", json={"name": "Web 项目", "key": "WEB"}).json()
         assert p["id"] > 0 and p["key"] == "WEB"
         e = c.post(f"/api/projects/{p['id']}/epics", json={"title": "E1"}).json()
-        st = c.post(f"/api/epics/{e['id']}/stories", json={"title": "S1"}).json()
+        st = c.post(f"/api/epics/{e['id']}/stories", json={"title": "S1", "needs_design": False}).json()  # 快速流
         t = c.post(f"/api/stories/{st['id']}/tasks",
                    json={"project_id": p["id"], "title": "T1", "type": "task"}).json()
         b = c.post(f"/api/stories/{st['id']}/tasks",

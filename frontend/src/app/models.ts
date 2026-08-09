@@ -1,4 +1,4 @@
-export type ItemType = 'task' | 'bug' | 'test_execution';
+export type ItemType = 'task' | 'bug' | 'test_execution' | 'design';
 export type Status = 'backlog' | 'todo' | 'in_design' | 'design_pending_review' | 'design_review_approved' | 'in_progress' | 'in_review' | 'final_review' | 'verifying' | 'done' | 'blocked';
 export type Priority = 'highest' | 'high' | 'medium' | 'low' | 'lowest';
 

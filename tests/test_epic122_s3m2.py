@@ -108,8 +108,8 @@ def test_stats_empty_project(seeded):
     pid, *_ = seeded
     with SessionLocal() as s:
         stats = service.get_review_stats(s, project_id=pid)
-        assert stats["stories"]["total"] == 0
-        assert stats["tasks"]["total"] == 0
+        assert stats["stories"]["total"] == 1  # 2026-08-09：create_epic 自动带 1 个默认 Story
+        assert stats["tasks"]["total"] == 2  # 默认 Story 自动带 design + 开发 task
         assert stats["reject_rate"] == 0.0
         assert stats["rounds"]["avg_story_round"] == 0.0
         assert stats["timeout_pending"] == 0
@@ -134,9 +134,9 @@ def test_stats_counts_and_reject_rate(seeded):
     with SessionLocal() as s:
         stats = service.get_review_stats(s, project_id=pid)
         st, tk = stats["stories"], stats["tasks"]
-        assert st["total"] == 4 and st["approved"] == 2 and st["rejected"] == 3
+        assert st["total"] == 5 and st["approved"] == 2 and st["rejected"] == 3  # +1 自动默认 Story
         assert st["pending"] == 1 and st["blocked"] == 1
-        assert tk["total"] == 3 and tk["approved"] == 1 and tk["rejected"] == 1
+        assert tk["total"] == 5 and tk["approved"] == 1 and tk["rejected"] == 1  # +2 自动默认 task
         assert tk["pending"] == 1 and tk["blocked"] == 0
         # rejected = 3 + 1 = 4；approved = 2 + 1 = 3 → rate = 4/7
         assert stats["reject_rate"] == round(4 / 7, 4)
@@ -158,9 +158,9 @@ def test_stats_days_filter(seeded):
         s.commit()
     with SessionLocal() as s:
         stats = service.get_review_stats(s, project_id=pid, days=7)
-        assert stats["stories"]["total"] == 1  # 30 天前的不计入
+        assert stats["stories"]["total"] == 2  # 30 天前的不计入（+1 自动默认 Story）
         stats_all = service.get_review_stats(s, project_id=pid, days=0)
-        assert stats_all["stories"]["total"] == 2
+        assert stats_all["stories"]["total"] == 3
 
 
 def test_stats_user_filter(seeded):

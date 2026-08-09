@@ -164,7 +164,8 @@ def test_estimate_in_task_list(api_url):
 
         r = c.get(f"/api/stories/{story_id}/tasks")
         assert r.status_code == 200, r.text
-        tasks = r.json()
+        body = r.json()
+        tasks = body if isinstance(body, list) else body.get("items", [])
         assert len(tasks) >= 2
 
         task_a = next(t for t in tasks if t["title"] == "Task A with estimate")

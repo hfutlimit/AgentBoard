@@ -168,7 +168,7 @@ def test_full_crud_flow(api_url):
         assert e["id"] > 0
 
         # story
-        st = c.post(f"/api/epics/{e['id']}/stories", json={"title": "Story 1"}).json()
+        st = c.post(f"/api/epics/{e['id']}/stories", json={"title": "Story 1", "needs_design": False}).json()  # 快速流
         assert st["id"] > 0
 
         sprint = c.post(
@@ -195,7 +195,7 @@ def test_full_crud_flow(api_url):
 
         # 列表同时含 task 与 bug
         rows = c.get(f"/api/stories/{st['id']}/tasks").json()
-        assert len(rows["items"]) == 2 and rows["total"] == 2
+        assert len(rows["items"]) == 4 and rows["total"] == 4  # 自动 design/实现 2 个 + 手动 2 个
 
         # 状态流转：task 合法迁移
         assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "todo"}).status_code == 200
@@ -223,7 +223,7 @@ def test_full_crud_flow(api_url):
         # 删除 task 不影响 bug
         assert c.delete(f"/api/tasks/{t['id']}").status_code == 200
         remain = c.get(f"/api/stories/{st['id']}/tasks").json()
-        assert remain["total"] == 1 and remain["items"][0]["id"] == b["id"]
+        assert remain["total"] == 3 and remain["items"][0]["id"] == b["id"]  # 自动 2 + bug 1
 
         # 级联删除 project（epic/story/bug 一并删除）
         assert c.delete(f"/api/projects/{p['id']}").status_code == 200

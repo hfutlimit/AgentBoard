@@ -5,6 +5,8 @@ class ItemType(StrEnum):
     TASK = "task"
     BUG = "bug"
     TEST_EXECUTION = "test_execution"
+    # 2026-08-09：设计任务（每个 Story 创建时自动带一个，走 in_design 评审流）
+    DESIGN = "design"
 
 
 class Status(StrEnum):
@@ -49,7 +51,7 @@ class RunStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
-ALL_TYPES = [ItemType.TASK, ItemType.BUG, ItemType.TEST_EXECUTION]
+ALL_TYPES = [ItemType.TASK, ItemType.BUG, ItemType.TEST_EXECUTION, ItemType.DESIGN]
 ALL_STATUSES = list(Status)
 ALL_PRIORITIES = list(Priority)
 ALL_SPRINT_STATUSES = list(SprintStatus)

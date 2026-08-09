@@ -719,6 +719,7 @@ main {
 .type-icon.task { background: var(--info-soft); color: var(--info); }
 .type-icon.bug { background: var(--danger-soft); color: var(--danger); }
 .type-icon.test_execution { background: #ccfbf1; color: #0d9488; }
+.type-icon.design { background: #ede9fe; color: #7c3aed; }
 
 /* ========== Entity List ========== */
 .entity-list { display: flex; flex-direction: column; gap: 8px; }

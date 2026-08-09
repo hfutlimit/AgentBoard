@@ -72,29 +72,29 @@ def test_overview_structure_and_counts(seeded):
     # 结构契约
     assert set(ov.keys()) == {"counts", "projects", "status_distribution", "activity_7d"}
     assert set(ov["counts"].keys()) == {"projects", "epics", "stories", "tasks", "done_tasks"}
-    # admin 全量：2 项目 / 2 epic / 2 story / 6 任务 / 3 done
+    # admin 全量：2 项目 / 2 epic / 4 story（每 epic 自动 1 默认）/ 14 任务（自动模板 8 + 手动 6）/ 3 done
     assert ov["counts"]["projects"] == 2
     assert ov["counts"]["epics"] == 2
-    assert ov["counts"]["stories"] == 2
-    assert ov["counts"]["tasks"] == 6
+    assert ov["counts"]["stories"] == 4
+    assert ov["counts"]["tasks"] == 14
     assert ov["counts"]["done_tasks"] == 3
     # projects 列表：2 条，按 total 降序
     assert len(ov["projects"]) == 2
     assert ov["projects"][0]["total"] >= ov["projects"][1]["total"]
     by_id = {row["id"]: row for row in ov["projects"]}
-    assert by_id[p1_id]["total"] == 5
+    assert by_id[p1_id]["total"] == 9
     assert by_id[p1_id]["done"] == 2
-    assert by_id[p1_id]["percent"] == 40
-    assert by_id[p2_id]["total"] == 1
+    assert by_id[p1_id]["percent"] == round(2 / 9 * 100)
+    assert by_id[p2_id]["total"] == 5
     assert by_id[p2_id]["done"] == 1
-    assert by_id[p2_id]["percent"] == 100
+    assert by_id[p2_id]["percent"] == 20
     # 状态分布：全部状态键，计数正确
     dist = {row["status"]: row["count"] for row in ov["status_distribution"]}
     assert set(dist.keys()) == set(service.ALL_STATUSES)
     assert dist["done"] == 3
     assert dist["in_progress"] == 1
     assert dist["todo"] == 1
-    assert dist["backlog"] == 1
+    assert dist["backlog"] == 9  # 自动模板 task 8 个 backlog + 手动 1 个
     # activity_7d：恰好 7 天，按日升序
     assert len(ov["activity_7d"]) == 7
     days = [row["day"] for row in ov["activity_7d"]]
@@ -109,7 +109,7 @@ def test_overview_visibility_member_and_anon(seeded):
         ov_anon = service.get_overview(s, None)
     # 普通用户仅见成员项目 P1
     assert ov_member["counts"]["projects"] == 1
-    assert ov_member["counts"]["tasks"] == 5
+    assert ov_member["counts"]["tasks"] == 9  # 自动模板 4 + 手动 5
     assert [row["id"] for row in ov_member["projects"]] == [p1_id]
     # 未登录：空
     assert ov_anon["counts"]["projects"] == 0

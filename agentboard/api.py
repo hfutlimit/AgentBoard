@@ -2686,6 +2686,13 @@ class ProposalReclaimIn(BaseModel):
     lease_seconds: int | None = Field(default=None, ge=0)
 
 
+class RecoverFailedIn(BaseModel):
+    """Agent 不可用导致的 failed 提案自动重投参数（后端 job）。"""
+
+    window_seconds: int | None = Field(default=None, ge=0)
+    max_retries: int | None = Field(default=None, ge=1)
+
+
 class ProposalAskIn(BaseModel):
     """Agent 回写一轮 open questions。round 省略时自动取下一轮。"""
 
@@ -2826,6 +2833,32 @@ def reclaim_stale_proposals(
     for pid in ids:
         _dispatch_proposal(pid, 0, mq.REASON_RECLAIMED)
     return {"reclaimed": ids, "count": len(ids), "lease_seconds": lease}
+
+
+# 必须声明在 /api/proposals/{pid} 之前，避免 "recover-failed" 被当作 pid 捕获。
+@app.post("/api/proposals/recover-failed")
+def recover_failed_proposals(
+    body: RecoverFailedIn | None = None, s: Session = Depends(get_session),
+):
+    """后端 job：把「Agent 不可用」导致的 failed 提案自动回退 queued 重投。
+
+    前端不做手动 retry —— agent 恢复后由本端点自动重试（受 window_seconds
+    频率控制与 max_retries 上限约束，超限转人工）。与 reclaim-stale
+    （analyzing 租约超时）互补，共同构成自动闭环的自愈回路。
+    """
+    window = (body.window_seconds if body and body.window_seconds is not None
+              else 120)
+    max_r = (body.max_retries if body and body.max_retries is not None else 5)
+    try:
+        ids = service.recover_failed_proposals(
+            s, window_seconds=window, max_retries=max_r,
+        )
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    for pid in ids:
+        _dispatch_proposal(pid, 0, mq.REASON_QUEUED)
+    return {"recovered": ids, "count": len(ids),
+            "window_seconds": window, "max_retries": max_r}
 
 
 @app.get("/api/proposals/{pid}")
