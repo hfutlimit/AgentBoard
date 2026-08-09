@@ -72,30 +72,33 @@ MiniMax-M2 等有效名**）、`MINIMAX_DIRECTORY`、`MINIMAX_TIMEOUT`（默认 
 
 1. **国内平台必须 -m 显式模型**：CLI 内置模型列表（minimax-01/minimax-pro...）是
    海外/旧 API 名，国内 api.minimaxi.com 全 400；正确名 MiniMax-M2 / M2.5 / M2.7。
-2. **402 insufficient balance ≠ Key 无效**：鉴权已过（否则 401），是账户按量余额
-   不足——去 platform.minimaxi.com 充值，或改用 Token Plan Key。
-3. **Git Bash 下 minimax mcp 报 MODULE_NOT_FOUND**（`e:\c\Users\...` 路径错乱）：
+2. **Token Plan Key（sk-cp 开头）才带配额**：普通 API Key 鉴权通过但报
+   402 insufficient balance；换 `sk-cp-` 开头 Token Plan Key 即正常。
+3. **`-p` 只取 prompt 第一行（v1.0.1 实测限制）**：多行 prompt 被截断，适配器
+   把换行转义为字面 `\n` 单行化后模型可完整理解。
+4. **CLI 输出 JSONL 流**：每行一个 `{"role":...}` 对象，决策 JSON 嵌套在
+   assistant content 字符串内（顶层无 action 键）→ worker 的括号配对扫描
+   提取不到，适配器需解析 JSONL 重组 assistant 纯文本输出（`_assistant_text`）。
+5. **MiniMax 会自主调工具**（view_file 等探索工作目录）：-p 无头模式也会；
+   prompt 需明确"直接输出决策"，完整协议送达后模型通常遵守。
+6. **Git Bash 下 minimax mcp 报 MODULE_NOT_FOUND**（`e:\c\Users\...` 路径错乱）：
    MSYS 路径转换坑，用 cmd/PowerShell 执行即正常。
-4. **MCP HTTP 传输 v1.0.1 有缺陷**：`--transport http` 连 AgentBoard 报 404、
+7. **MCP HTTP 传输 v1.0.1 有缺陷**：`--transport http` 连 AgentBoard 报 404、
    `streamable_http` 报 "SSE endpoints are not compatible"——待 CLI 升级；期间
    Story/Ticket 执行轮走 codebuddy 通道。
-5. **`-p` 是参数不是 stdin**：Worker 协议是 stdin 喂 prompt，必须经
+8. **`-p` 是参数不是 stdin**：Worker 协议是 stdin 喂 prompt，必须经
    `scripts/minimax_adapter.py` 桥接。
-6. **超长 prompt 拒绝**：适配器对 >20K 的 prompt 直接 fail（Windows 32K 上限）。
-7. **AGPL-3.0 许可**：商业分发需注意合规（个人/内部使用无碍）。
+9. **超长 prompt 拒绝**：适配器对 >20K 的 prompt 直接 fail（Windows 32K 上限）。
+10. **AGPL-3.0 许可**：minimax-cli 为 AGPL-3.0，商业分发需注意合规（个人/内部使用无碍）。
 
-## 6. 验证方法
+## 6. 验证记录（2026-08-09，真实 Token Plan Key 端到端）
 
-```bash
-# 1. 适配器冒烟（协议层，无需真实模型）
-echo '{"action":"ask"}' | python scripts/minimax_adapter.py
-
-# 2. 真实无头（需账户有余额）
-"C:/Users/<u>/.workbuddy/binaries/node/versions/22.22.2/minimax.cmd" -m MiniMax-M2 -p "用一句话回答：1+1=?"
-
-# 3. 端到端（余额解决后）：起 API 18099 + worker --loop，确认 Story 后
-#    观察 worker 拉起适配器 → minimax-cli 输出含决策 JSON → worker 落库
-```
+- **环境**：minimax-cli v1.0.1（managed node 全局）、`sk-cp-` Token Plan Key、
+  `api.minimaxi.com/v1` + `MiniMax-M2`、本地 API 18099 + worker --once；
+- **澄清轮**：提案 queued → worker 拉起适配器 → MiniMax-M2 输出决策 JSON
+  `{"action":"ask","questions":[...],"summary":...}` → 落库，提案 → **awaiting**（第 1 轮，
+  7 个具体问题：泳道配置/字段/拖拽规则/编辑交互/持久化/技术栈）；
+- 全程无需 MCP（澄清轮纯文本决策），Story/Ticket 执行轮仍走 codebuddy（CLI MCP 缺陷未解）。
 
 ## 7. 后续演进（可选）
 

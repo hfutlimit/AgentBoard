@@ -71,6 +71,40 @@ def json_fail(msg: str) -> str:
     return json.dumps({"action": "fail", "error": msg})
 
 
+def _assistant_text(stdout: str) -> str:
+    """minimax-cli 输出 JSONL（每行一个 role 对象），决策 JSON 嵌套在 assistant
+    content 字符串内（顶层无 action 键，worker 的括号配对扫描提取不到）。
+
+    这里把 assistant 消息 content 重组为纯文本输出：worker 的
+    extract_decision_json 即可扫描到顶层决策 JSON；工具结果行忽略。
+    """
+    lines: list[str] = []
+    for line in (stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            lines.append(line)  # 非 JSONL 行原样保留（兼容其它输出）
+            continue
+        if not isinstance(obj, dict):
+            continue
+        role = obj.get("role")
+        if role == "assistant":
+            content = obj.get("content")
+            if isinstance(content, str):
+                lines.append(content)
+            elif isinstance(content, list):  # OpenAI 风格 content 数组
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        lines.append(str(part.get("text", "")))
+        elif role == "tool":
+            continue  # 工具结果忽略
+        # user/system 行忽略（决策只来自 assistant）
+    return "\n".join(lines)
+
+
 def main() -> int:
     prompt = sys.stdin.read()
     if not prompt.strip():
@@ -81,6 +115,9 @@ def main() -> int:
             f"prompt 过长（{len(prompt)} > {MAX_ARG_LEN}），minimax 通道不适用，"
             "请使用 codebuddy 通道"))
         return 0
+    # minimax-cli v1.0.1 的 -p 只取 prompt 第一行（多行被截断，实测限制）：
+    # 把真实换行转义为字面 \n，保证完整协议/提案内容一次性送达模型。
+    prompt = prompt.replace("\n", "\\n")
     cmd = _cmd(_build_cmd(prompt))
     directory = os.environ.get("MINIMAX_DIRECTORY") or None
     timeout = float(os.environ.get("MINIMAX_TIMEOUT", "600"))
@@ -98,7 +135,7 @@ def main() -> int:
             "Windows 下若报 WinError 193，请用 node 显式执行入口 js）"))
         return 0
     if proc.stdout:
-        sys.stdout.write(proc.stdout)   # 透传：worker 从中提取决策 JSON
+        sys.stdout.write(_assistant_text(proc.stdout))  # JSONL → assistant 纯文本
     if proc.returncode != 0 and not proc.stdout:
         sys.stdout.write(json_fail(f"minimax-cli 退出码 {proc.returncode}：{(proc.stderr or '')[:300]}"))
     return 0
