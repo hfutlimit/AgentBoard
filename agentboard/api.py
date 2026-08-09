@@ -21,8 +21,9 @@ from . import service, auth, mq
 from .mq import (
     EVENT_STORY_CREATED, EVENT_STORY_CONFIRMED, EVENT_REVIEW_REQUESTED,
     EVENT_REVIEW_REJECTED, EVENT_REVIEW_VOTE_CAST, EVENT_STORY_READY,
-    EVENT_COMMENT_REPLIED, EVENT_TASK_READY_FOR_REVIEW, EVENT_TASK_REVIEWED,
-    EVENT_TASK_REJECTED, publish_workflow_event,
+    EVENT_COMMENT_REPLIED, EVENT_TASK_AVAILABLE, EVENT_TASK_ASSIGNED,
+    EVENT_TASK_READY_FOR_REVIEW, EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED,
+    publish_workflow_event,
 )
 from .cos_client import client as _cos_client, CosError
 from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES, Status
@@ -910,6 +911,16 @@ def confirm_story(sid: int, authorization: str | None = Header(None),
     uid, _is_admin = _caller_uid_admin(authorization)
     st = service.confirm_story(s, sid, changed_by=uid)
     publish_workflow_event(EVENT_STORY_CONFIRMED, "story", st.id, ref_id=st.epic_id)
+    # Agent MQ 编排（2026-08-09）：广播其下 backlog/todo 任务 → 各 agent worker
+    # 竞争认领（task.available + 服务端 claim CAS）。MQ 未配置时 no-op，
+    # 由 worker 的 story 扫描轮询兜底（handle_story 竞争认领）。
+    try:
+        for t in service.list_tasks(s, story_id=sid, limit=200):
+            if t.status in ("backlog", "todo"):
+                publish_workflow_event(EVENT_TASK_AVAILABLE, "task", t.id,
+                                       ref_id=sid)
+    except Exception:
+        log.exception("confirm 广播 task.available 失败（不影响主流程）")
     _epic = s.get(service.Epic, st.epic_id)
     if _epic is not None:
         _notify_webhooks(s, _epic.project_id, EVENT_STORY_CONFIRMED,
@@ -1225,6 +1236,14 @@ def update_task(
             title=f"任务 #{updated.id} 已分配给你", content=updated.title,
             link=f"/task/{updated.id}",
         )
+        # Agent MQ 定向投递（2026-08-09）：任务显式指派给某 agent 用户 →
+        # 发到该 agent 的 direct queue（task.assigned），对应 worker 独享消费。
+        _agent = s.query(service.Agent).filter(
+            service.Agent.user_id == updated.assignee_id).first()
+        if _agent is not None and _agent.agent_id:
+            publish_workflow_event(EVENT_TASK_ASSIGNED, "task", updated.id,
+                                   ref_id=updated.story_id,
+                                   agent_id=_agent.agent_id)
     if updated.assignee_id is not None and updated.status != old_status:
         service.create_notification(
             s, user_id=updated.assignee_id, notif_type="status_changed",

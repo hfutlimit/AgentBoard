@@ -129,10 +129,16 @@ def test_assign_reviewer_deprecated_and_confirm_publishes(bus, seeded):
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "confirmed"
     q = mq.WorkflowTopology(_NS).broadcast_queue
-    assert _wait_depth(broker, q, 1) >= 1
-    msg = _last_msg(broker, q)
-    assert msg is not None and msg.event == mq.EVENT_STORY_CONFIRMED
-    assert msg.entity_id == st["id"]
+    # confirm 后广播：1 × story.confirmed + N × task.available（可认领任务）
+    assert _wait_depth(broker, q, 2) >= 2
+    raw = broker._queues.get(q) or []
+    msgs = [mq.WorkflowMessage.from_bytes(b) for b in raw]
+    events = [m.event for m in msgs]
+    assert mq.EVENT_STORY_CONFIRMED in events
+    assert mq.EVENT_TASK_AVAILABLE in events
+    assert events[0] == mq.EVENT_STORY_CONFIRMED  # 先发确认事件，再广播任务
+    confirmed = next(m for m in msgs if m.event == mq.EVENT_STORY_CONFIRMED)
+    assert confirmed.entity_id == st["id"]
 
 
 # ---------- 3. review approve/reject 已下线 → 422 ----------

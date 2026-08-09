@@ -127,6 +127,9 @@ class WorkerConfig:
     # 服务账号 abk_ key（或登录 token）；身份归属由 proposal_id 反查项目与提出人
     token: str | None = None
     agent: str = "worker"
+    # Agent MQ 消费身份（2026-08-09）：设置后本 Worker 以该 agent 身份消费
+    # 自己的 direct queue（agent_queue）接收指定任务；留空则仅澄清/轮询。
+    agent_id: str = ""
     # 轮询间隔（秒）
     poll_interval: float = 10.0
     # 单轮最多处理多少个提案，避免一个 Worker 长时间独占
@@ -163,6 +166,7 @@ class WorkerConfig:
             token=os.getenv("AGENTBOARD_WORKER_TOKEN")
             or os.getenv("AGENTBOARD_MCP_TOKEN"),
             agent=os.getenv("AGENTBOARD_WORKER_AGENT", cls.agent),
+            agent_id=os.getenv("AGENTBOARD_WORKER_AGENT_ID", ""),
             poll_interval=float(_env_int("AGENTBOARD_WORKER_INTERVAL", 10)),
             batch_size=_env_int("AGENTBOARD_WORKER_BATCH", 5),
             lease_seconds=_env_int("AGENTBOARD_WORKER_LEASE", 1800),
@@ -313,11 +317,16 @@ def build_prompt(context: dict) -> str:
     ``context.get("action") == "process_story"`` 时渲染**Story 执行模式**提示词
     （Ticket 全流程，2026-08-09）：Story 已被用户确认，指示 agent 经 AgentBoard
     MCP 逐步推进其下 task（先 design 后实现，含评审与测试）。
+
+    ``context.get("action") == "process_task"`` 时渲染**单 Task 执行模式**提示词
+    （MQ 竞争/定向编排）：agent 竞争认领或收到指定任务后，推进该 task 到完成。
     """
     if str(context.get("action") or "") == "create_ticket":
         return _build_ticket_prompt(context)
     if str(context.get("action") or "") == "process_story":
         return _build_story_prompt(context)
+    if str(context.get("action") or "") == "process_task":
+        return _build_task_prompt(context)
     lines = [
         "你是需求澄清分析师。请阅读下面的需求提案与全部历史问答，判断需求是否已足够清晰。",
         "",
@@ -432,6 +441,47 @@ def _build_story_prompt(context: dict) -> str:
             f"- [{t.get('type')}] #{t.get('id')} {t.get('title')} status={t.get('status')}"
             f"{' reviewer=' + str(t.get('reviewer_id')) if t.get('reviewer_id') else ''}"
         )
+    return "\n".join(lines)
+
+
+def _build_task_prompt(context: dict) -> str:
+    """单 Task 执行模式提示词（MQ 竞争/定向编排，2026-08-09）。
+
+    agent 竞争认领（task.available）或收到指定任务（task.assigned）后，
+    经 AgentBoard MCP 把该 task 推进到完成：
+    - design task（type=design / story.needs_design=true）：走 in_design 评审流
+      （in_design → design_pending_review → design_review_approved）；
+    - 实现 task：in_progress（已认领）→ 开发 → in_review（submit_task_for_review
+      提交评审）→ 评审通过 → done → verifying（测试）；
+    - 完成后打印 story_handled；失败打印 fail。
+    """
+    task = context.get("task") or {}
+    lines = [
+        "你是软件开发执行 Agent。下面这个任务已分配给你（竞争认领成功或指定指派），"
+        "请经 AgentBoard MCP 把它推进到完成。",
+        "",
+        "## 执行要点（必须严格遵守）",
+        "1. 任务状态已由 Worker 置 in_progress（开发中）；",
+        "2. design 类任务（needs_design=true 的 Story 下 type=design）：推进 "
+        "in_design → design_pending_review → design_review_approved（评审流）；",
+        "3. 实现任务：开发完成后用 MCP `submit_task_for_review` 提交评审（in_review），"
+        "评审通过 → done，必要时 verifying（测试）；",
+        "4. 若任务已 done 或被他人处理，直接报告完成即可，不要重复操作。",
+        "",
+        "## 决策协议（必须严格遵守）",
+        "处理完成（或确认无需处理）后，在输出最后打印 JSON：",
+        '{"action":"story_handled","summary":"本轮完成的工作"}',
+        "若无法继续（缺 MCP 连接 / 依赖缺失 / 需求不清晰等），打印：",
+        '{"action":"fail","error":"原因"}',
+        "",
+        f"## Task #{task.get('id')}：{task.get('title')}",
+        "",
+        f"- type: {task.get('type')} | 当前状态: {task.get('status')}",
+        f"- 所属 Story: #{context.get('story_id')}（needs_design={context.get('needs_design')}）",
+        f"- assignee: {context.get('assignee_id')}",
+        "",
+        str(task.get("description") or task.get("spec") or "(无描述)"),
+    ]
     return "\n".join(lines)
 
 
@@ -1437,6 +1487,219 @@ class ProposalWorker:
         log.info("Worker MQ 模式退出：%s", stats)
         return stats
 
+    # ---------- Agent MQ 消费（2026-08-09）：广播竞争 + 定向 direct ----------
+
+    def build_task_context(self, task: dict) -> dict:
+        """单 Task 上下文：task + 所属 Story 摘要（needs_design 决定走哪条执行流）。"""
+        story_id = task.get("story_id")
+        needs_design = True
+        if story_id:
+            try:
+                story = self._get_json(f"/api/stories/{story_id}")
+                needs_design = bool(story.get("needs_design", True))
+            except Exception:
+                pass
+        return {
+            "action": "process_task",
+            "task": task,
+            "story_id": story_id,
+            "needs_design": needs_design,
+        }
+
+    def _task_comment(self, task_id: int, content: str) -> None:
+        try:
+            self._request("POST", f"/api/tasks/{task_id}/comments",
+                          json={"author": self.config.agent, "content": content[:2000]})
+        except Exception as e:
+            log.warning("task#%s 评论失败：%s", task_id, e)
+
+    def _process_task(self, task_id: int, task: dict) -> bool:
+        """拉起 agent 推进单个 task（认领/定向后）：构建上下文 → invoke → 落评论。"""
+        try:
+            context = self.build_task_context(task)
+        except Exception as e:
+            log.exception("task#%s 构建上下文失败", task_id)
+            return False
+        try:
+            decision = self.invoker.invoke(context)
+        except (AgentInvocationError, AgentOutputError) as e:
+            log.warning("task#%s Agent 调用失败：%s", task_id, e)
+            self._task_comment(task_id, f"Agent 自动处理失败：{e}")
+            return True  # ack：失败留评论，task 停留当前态（人工/轮询兜底）
+        except Exception:
+            log.exception("task#%s Agent 调用抛出未预期异常", task_id)
+            return True
+        if decision.action == ACTION_STORY_HANDLED:
+            log.info("task#%s 本轮处理完成", task_id)
+            return True
+        self._task_comment(task_id, decision.error or "Agent 未报告完成原因")
+        return True
+
+    def handle_task_available(self, msg: "mq.WorkflowMessage") -> bool:
+        """广播 task.available 竞争处理：回查 → CAS 认领（claim）→ 拉起 agent。
+
+        claim 服务端 CAS（backlog/todo → in_progress + assignee）恰一赢家；
+        409 = 他人已认领 → 正常丢弃（不转死信）。
+        """
+        tid = msg.entity_id
+        try:
+            task = self._get_json(f"/api/tasks/{tid}")
+        except Exception as e:
+            log.warning("task.available 回查 task#%s 失败：%s", tid, e)
+            return False  # 转死信（轮询兜底会再捞）
+        if task.get("status") not in ("backlog", "todo"):
+            return True  # 已被处理/认领
+        try:
+            r = self._request("POST", f"/api/tasks/{tid}/claim")
+        except Exception as e:
+            log.warning("task#%s 认领异常：%s", tid, e)
+            return False
+        if r.status_code == 409:
+            return True  # 竞争失败：他人已认领
+        if r.status_code not in (200, 201):
+            log.warning("task#%s 认领失败：%s %s", tid, r.status_code, r.text[:120])
+            return True
+        log.info("task#%s 竞争认领成功（广播轮）", tid)
+        return self._process_task(tid, r.json())
+
+    def handle_direct_task(self, msg: "mq.WorkflowMessage") -> bool:
+        """定向任务（task.assigned 投递到本 agent 的 direct queue）：回查后处理。"""
+        tid = msg.entity_id
+        try:
+            task = self._get_json(f"/api/tasks/{tid}")
+        except Exception as e:
+            log.warning("定向 task#%s 回查失败：%s", tid, e)
+            return False
+        if task.get("status") not in ("backlog", "todo", "in_progress"):
+            return True  # 已结束/不可处理
+        log.info("task#%s 定向任务（direct queue）处理", tid)
+        return self._process_task(tid, task)
+
+    def handle_workflow_message(self, msg: "mq.WorkflowMessage") -> bool:
+        """Workflow 事件分发（Agent MQ 消费）：广播竞争 + 定向任务。"""
+        if msg.event == mq.EVENT_TASK_AVAILABLE:
+            return self.handle_task_available(msg)
+        if msg.event == mq.EVENT_TASK_ASSIGNED:
+            return self.handle_direct_task(msg)
+        log.info("Agent 忽略非任务事件 %s（entity=%s#%s）",
+                 msg.event, msg.entity_type, msg.entity_id)
+        return True
+
+    def _wf_broadcast_loop(self, broker: Any, stop: threading.Event) -> None:
+        """竞争消费广播队列（task.available）：多 Worker 实例共享同一队列，
+        认领经服务端 CAS 仲裁，恰一赢家。MQ 消费为主，轮询兜底为辅。"""
+        queue = mq.WorkflowTopology().broadcast_queue
+        log.info("Agent 广播竞争线程启动：%s", queue)
+        try:
+            broker.consume(queue, self.handle_workflow_message, stop=stop)
+        except Exception:
+            log.exception("广播竞争消费异常退出")
+        finally:
+            try:
+                broker.close()
+            except Exception:
+                pass
+
+    def _agent_direct_loop(self, broker: Any, agent_id: str, stop: threading.Event) -> None:
+        """消费本 agent 的定向队列（direct queue）：接收指定给本 agent 的任务。"""
+        queue = mq.WorkflowTopology().agent_queue(agent_id)
+        log.info("Agent 定向消费线程启动：%s", queue)
+        try:
+            broker.consume(queue, self.handle_workflow_message, stop=stop)
+        except Exception:
+            log.exception("定向队列消费异常退出")
+        finally:
+            try:
+                broker.close()
+            except Exception:
+                pass
+
+    def run_agent_mq_forever(self, agent_id: str,
+                              stop: threading.Event | None = None,
+                              max_messages: int | None = None,
+                              idle_timeout: float | None = None,
+                              broker: Any | None = None,
+                              wf_broker: Any | None = None,
+                              direct_broker: Any | None = None,
+                              publisher: "mq.ProposalPublisher | None" = None) -> dict:
+        """Agent MQ 消费模式（2026-08-09）：澄清竞争 + 任务广播竞争 + 定向 direct。
+
+        两个 agent（如 codebuddy / minimax）各跑一个本 Worker 实例
+        （``AGENTBOARD_WORKER_AGENT_ID`` 区分身份），共用同一 RabbitMQ：
+        - proposal 队列：澄清轮竞争（服务端 CAS 仲裁）；
+        - workflow 广播队列：task.available 竞争认领开发任务；
+        - 本 agent 的 direct queue（agent_queue(agent_id)）：接收 task.assigned
+          指定任务（不经竞争，独享）。
+        未配置 MQ 回退 P1 轮询（含 story/ticket 兜底）。
+        """
+        if broker is None:
+            broker = mq.build_broker(self.config.mq)
+        if broker is None:
+            log.warning("未配置 AGENTBOARD_MQ_URL，回退 P1 轮询模式")
+            return {"mode": "poll", "cycles": self.run_forever(stop=stop)}
+        stop = stop or threading.Event()
+        publisher = publisher or mq.ProposalPublisher(self.config.mq)
+        broker.declare_topology()
+        # workflow 总线（广播 + 定向）——每消费线程独立 broker 实例（pika 非线程安全）
+        wf_topology = mq.WorkflowTopology()
+        broadcast_broker = wf_broker
+        if broadcast_broker is None:
+            broadcast_broker = mq.PikaWorkflowBroker(self.config.mq)
+        broadcast_broker.declare_topology()
+        direct_b = direct_broker
+        if direct_b is None:
+            direct_b = mq.PikaWorkflowBroker(self.config.mq)
+        direct_b.declare_topology()
+        direct_b.declare_agent_queue(agent_id)
+        log.info("Agent Worker(%s) MQ 模式启动：澄清竞争 + 广播竞争 + direct=%s",
+                 agent_id, wf_topology.agent_queue(agent_id))
+        # 澄清主循环 + 维护/兜底线程（复用 run_mq_forever 骨架）
+        try:
+            self.reclaim_stale()
+        except Exception:
+            log.exception("启动期回收超租约提案失败，继续消费")
+        keeper = threading.Thread(
+            target=self._maintenance_loop, args=(publisher, stop),
+            name="proposal-worker-maintenance", daemon=True,
+        )
+        keeper.start()
+        ticket_keeper = threading.Thread(
+            target=self._ticket_scan_loop, args=(stop,),
+            name="proposal-worker-ticket-scan", daemon=True,
+        )
+        ticket_keeper.start()
+        story_keeper = threading.Thread(
+            target=self._story_scan_loop, args=(stop,),
+            name="proposal-worker-story-scan", daemon=True,
+        )
+        story_keeper.start()
+        heartbeat_keeper = threading.Thread(
+            target=self._agent_heartbeat_loop, args=(stop,),
+            name="proposal-worker-agent-heartbeat", daemon=True,
+        )
+        heartbeat_keeper.start()
+        # 任务广播竞争线程 + 定向 direct 线程
+        wf_threads = [
+            threading.Thread(target=self._wf_broadcast_loop,
+                             args=(broadcast_broker, stop), daemon=True),
+            threading.Thread(target=self._agent_direct_loop,
+                             args=(direct_b, agent_id, stop), daemon=True),
+        ]
+        for t in wf_threads:
+            t.start()
+        try:
+            stats = broker.consume(
+                self.handle_message, max_messages=max_messages,
+                idle_timeout=idle_timeout, stop=stop,
+            )
+        finally:
+            stop.set()
+            for t in ([keeper, ticket_keeper, story_keeper, heartbeat_keeper] + wf_threads):
+                t.join(timeout=2)
+        stats["mode"] = "agent-mq"
+        log.info("Agent Worker(%s) MQ 模式退出：%s", agent_id, stats)
+        return stats
+
 
 # ===================== CLI =====================
 
@@ -1450,6 +1713,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     group.add_argument("--loop", action="store_true", help="常驻轮询（默认）")
     group.add_argument("--mq", action="store_true",
                        help="MQ 竞争消费模式（未配置 AGENTBOARD_MQ_URL 时自动回退轮询）")
+    parser.add_argument("--agent-id", default=None,
+                       help="Agent 身份（MQ 模式）：消费本 agent 定向 direct queue 接收指定任务；"
+                            "同时竞争 task.available 广播任务")
     parser.add_argument("--mq-url", default=None, help="覆盖 AGENTBOARD_MQ_URL")
     parser.add_argument("--api-url", default=None, help="覆盖 AGENTBOARD_API_URL")
     parser.add_argument("--agent-cmd", default=None, help="覆盖无头 Agent 命令模板")
@@ -1467,6 +1733,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         cfg.api_url = args.api_url.rstrip("/")
     if args.agent_cmd:
         cfg.agent_cmd = args.agent_cmd
+    if args.agent_id:
+        cfg.agent_id = args.agent_id
     if args.interval is not None:
         cfg.poll_interval = args.interval
     if args.max_rounds is not None:
@@ -1488,7 +1756,10 @@ def main(argv: Iterable[str] | None = None) -> int:
         stop = threading.Event()
         try:
             if args.mq:
-                worker.run_mq_forever(stop)
+                if cfg.agent_id:
+                    worker.run_agent_mq_forever(cfg.agent_id, stop)
+                else:
+                    worker.run_mq_forever(stop)
             else:
                 worker.run_forever(stop)
         except KeyboardInterrupt:

@@ -677,6 +677,9 @@ EVENT_TICKET_REQUESTED = "proposal.ticket_requested"
 EVENT_TICKET_CREATED = "proposal.ticket_created"
 # Ticket 全流程（2026-08-09）：用户确认 Story 开始（人工闸门）→ 触发 agent 自动处理
 EVENT_STORY_CONFIRMED = "story.confirmed"
+# Agent MQ 消费（2026-08-09）：task.assigned —— 定向投递到指定 Agent 的 direct queue
+# （任务被显式指派给某 agent，如 assignee 绑定；广播 task.available 仍是竞争入口）
+EVENT_TASK_ASSIGNED = "task.assigned"
 
 WORKFLOW_EVENTS: frozenset[str] = frozenset({
     EVENT_STORY_CREATED,
@@ -687,6 +690,7 @@ WORKFLOW_EVENTS: frozenset[str] = frozenset({
     EVENT_COMMENT_REPLIED,
     EVENT_STORY_READY,
     EVENT_TASK_AVAILABLE,
+    EVENT_TASK_ASSIGNED,
     EVENT_TASK_READY_FOR_REVIEW,
     EVENT_TASK_REVIEWED,
     EVENT_TASK_REJECTED,
