@@ -58,3 +58,21 @@ test-results/
 .workbuddy/autodev.lock
 # 前端构建误拷入的重复子目录（static 根已含产物，browser/ 为 cp 残留）
 agentboard/web/static/browser/
+
+# ===== 2026-08-09 清理：历史误跟踪的本地产物（移除跟踪，本地保留） =====
+# 构建打包产物（dist zip/源码快照可再生成，不入源码库）
+dist/
+# 本地工作区数据（记忆/自动化状态/锁，勿入库）
+.workbuddy/
+# 本地数据库与附件（sqlite + 上传文件）
+data/
+# 临时审计工具（含 node_modules）
+agentboard-audit/
+# 根目录调试截图（仅根层级；deliverables/、docs/design-prototypes/ 下正式原型图保留）
+/*.png
+# 测试运行期截图副产物（tests/ 根下，scripts/ 下已覆盖）
+tests/*.png
+# 历史验收笔记草稿（根目录 overview-*.md）
+/overview-*.md
+# 临时调试脚本（连本地 58125）
+scripts/ab_track_v52.py
