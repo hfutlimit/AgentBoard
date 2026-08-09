@@ -2970,8 +2970,16 @@ def delete_proposal(pid: int, s: Session = Depends(get_session)):
 def list_pending_ticket_requests(
     limit: int = Query(20, ge=1, le=200),
     s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
 ):
-    """Worker 拉取待认领转换请求（status=pending），不绑项目。"""
+    """Worker 拉取待认领转换请求（status=pending），跨项目全局池。
+
+    权限（2026-08-09 review 修复）：REQUIRE_AUTH=1 下仅 admin 可访问
+    （worker 服务账号须为 admin；避免任意登录用户枚举全部项目请求）。
+    """
+    uid, is_admin = _caller_uid_admin(authorization)
+    if _auth_is_required() and not is_admin:
+        raise HTTPException(status_code=403, detail="admin required")
     return [service._ser(r) for r in service.list_pending_ticket_requests(s, limit=limit)]
 
 
@@ -2979,8 +2987,16 @@ def list_pending_ticket_requests(
 @app.post("/api/ticket-requests/reclaim-stale")
 def reclaim_stale_ticket_requests(
     body: TicketReclaimIn | None = None, s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
 ):
-    """回收处理中超时的转换请求（processing 停滞 → failed），proposal 回退 converged。"""
+    """回收处理中超时的转换请求（processing 停滞 → failed），proposal 回退 converged。
+
+    权限（2026-08-09 review 修复）：REQUIRE_AUTH=1 下仅 admin 可访问
+    （worker 维护周期调用）。
+    """
+    uid, is_admin = _caller_uid_admin(authorization)
+    if _auth_is_required() and not is_admin:
+        raise HTTPException(status_code=403, detail="admin required")
     lease = (body.lease_seconds if body and body.lease_seconds is not None
              else service.DEFAULT_CLAIM_LEASE_SECONDS)
     try:
@@ -3071,7 +3087,7 @@ def execute_ticket_request_by_id(pid: int, rid: int,
         raise HTTPException(status_code=403, detail="project membership required")
     try:
         result = service.execute_ticket_request(
-            s, pid, type="", request_id=rid,
+            s, pid, request_id=rid,
         )
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -3086,7 +3102,17 @@ def execute_ticket_request_by_id(pid: int, rid: int,
 @app.post("/api/proposals/{pid}/ticket-requests/{rid}/fail")
 def fail_ticket_request(pid: int, rid: int, body: TicketFailIn | None = None,
                         s: Session = Depends(get_session)):
-    """worker 标记转换失败：request → failed，proposal ticket_preparing → converged。"""
+    """worker 标记转换失败：request → failed，proposal ticket_preparing → converged。
+
+    归属校验（2026-08-09 review 修复）：rid 必须属于 URL 的 proposal，
+    防止跨 Proposal 误回退。
+    """
+    req = service.get_ticket_request(s, rid)
+    if not req or req.proposal_id != pid:
+        raise HTTPException(
+            status_code=404,
+            detail=f"ticket request {rid} 不属于 proposal {pid}",
+        )
     try:
         req = service.fail_ticket_request(s, rid, error=(body.error if body else ""))
     except service.NotFound as e:
@@ -3099,7 +3125,14 @@ def claim_ticket_request(pid: int, rid: int, s: Session = Depends(get_session)):
     """**原子**认领转换请求：pending → processing（worker 竞争消费）。
 
     条件 UPDATE 由数据库仲裁，恰一个赢家；已被认领/已完成返回 409。
+    归属校验（2026-08-09 review 修复）：rid 必须属于 URL 的 proposal。
     """
+    req0 = service.get_ticket_request(s, rid)
+    if not req0 or req0.proposal_id != pid:
+        raise HTTPException(
+            status_code=404,
+            detail=f"ticket request {rid} 不属于 proposal {pid}",
+        )
     try:
         req = service.claim_ticket_request(s, rid)
     except service.NotFound as e:

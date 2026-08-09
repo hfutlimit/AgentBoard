@@ -45,6 +45,8 @@ from .mq import (
     EVENT_TASK_READY_FOR_REVIEW,
     EVENT_TASK_REVIEWED,
     EVENT_TASK_REJECTED,
+    EVENT_TICKET_CREATED,
+    EVENT_TICKET_REQUESTED,
     WORKFLOW_DEFAULT_NAMESPACE,
     WorkflowMessage,
     WorkflowTopology,
@@ -224,6 +226,13 @@ class WorkflowConsumer:
             # 切片 3 M3：多数决投票已记录（未达法定票数），等待更多评审人投票/超时兜底
             log.info("事件 %s（%s=%s 投票人=%s）：多数决进行中，达法定票数自动结算",
                      event, msg.entity_type, msg.entity_id, msg.ref_id)
+            return True
+        if event in (EVENT_TICKET_REQUESTED, EVENT_TICKET_CREATED):
+            # Proposal → Ticket 转化事件：由 Proposal Worker 轮询兜底消费
+            # （fetch_ticket_requests + handle_ticket_request），本 Worker 仅确认
+            # ack 避免死信；事件留作审计/通知总线（2026-08-09 review 备注）。
+            log.info("事件 %s（proposal=%s req=%s）：Proposal Worker 轮询兜底处理",
+                     event, msg.entity_id, msg.ref_id)
             return True
         log.warning("收到未识别事件 %s（entity=%s#%s），直接 ack 忽略",
                     event, msg.entity_type, msg.entity_id)

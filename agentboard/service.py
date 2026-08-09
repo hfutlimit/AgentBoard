@@ -3733,12 +3733,20 @@ def update_proposal(s: Session, id: int, **fields) -> Proposal | None:
             edited_user_fields = True
         setattr(p, k, v)
     # 编辑回退：澄清流状态 → pending（清租约，等「开始 grill」重新入队）
+    # 2026-08-09 review 修复：ticket_preparing（生成中）编辑同样回退，
+    # 并把该提案未完成的转换请求置 failed——防止 agent 用并发修改后的
+    # 内容生成 ticket。
     if edited_user_fields and p.status in (
         ProposalStatus.QUEUED.value, ProposalStatus.ANALYZING.value,
         ProposalStatus.AWAITING.value, ProposalStatus.ANSWERED.value,
-        ProposalStatus.CONVERGED.value,
+        ProposalStatus.CONVERGED.value, ProposalStatus.TICKET_PREPARING.value,
     ):
+        was_ticket_preparing = p.status == ProposalStatus.TICKET_PREPARING.value
         p.status = ProposalStatus.PENDING.value
+        if was_ticket_preparing:
+            _cancel_open_ticket_requests(s, id, reason="提案被编辑，生成已取消")
+        p.claimed_by = ""
+        p.claimed_at = None
         p.claimed_by = ""
         p.claimed_at = None
     _commit(s); s.refresh(p); return p
@@ -4219,6 +4227,28 @@ def _ticket_request_or_404(s: Session, request_id: int) -> ProposalTicketRequest
     return r
 
 
+def _cancel_open_ticket_requests(
+    s: Session, proposal_id: int, *, reason: str,
+) -> None:
+    """提案被编辑回退时，取消其未完成的转换请求（pending/processing → failed）。
+
+    2026-08-09 review 修复（中）：防止 agent 用并发修改后的内容生成 ticket。
+    """
+    for req in (
+        s.query(ProposalTicketRequest)
+        .filter(
+            ProposalTicketRequest.proposal_id == proposal_id,
+            ProposalTicketRequest.status.in_(
+                (TICKET_REQUEST_PENDING, TICKET_REQUEST_PROCESSING),
+            ),
+        )
+        .all()
+    ):
+        req.status = TICKET_REQUEST_FAILED
+        req.error = (reason or "cancelled")[:2000]
+        req.updated_at = utc_now()
+
+
 def _validate_ticket_parents(
     s: Session, proposal: Proposal, *, type: str, epic_id: int | None,
     story_id: int | None,
@@ -4355,7 +4385,7 @@ def claim_ticket_request(
 
 
 def execute_ticket_request(
-    s: Session, proposal_id: int, *, type: str,
+    s: Session, proposal_id: int, *, type: str = "",
     epic_id: int | None = None, story_id: int | None = None,
     title: str | None = None, request_id: int | None = None,
 ) -> dict:
@@ -4363,6 +4393,9 @@ def execute_ticket_request(
 
     - 定位请求：显式 request_id 或按 (proposal_id, type)；不存在则先创建
       （create_ticket_request，converged 校验内聚其中）；
+    - **归属校验**：request_id 必须属于 URL 中的 proposal（跨 Proposal 拒绝，
+      2026-08-09 review 修复）；request_id 路径下类型取 req.type，
+      type 参数忽略（无需调用方重复传）；
     - CAS 认领 pending → processing，抢到执行权才创建实体；
     - 按类型创建：epic（独立）/ story（挂 epic，回填 story_id）/
       task·bug（挂 story，复用 tasks 表 type 区分）；
@@ -4372,19 +4405,23 @@ def execute_ticket_request(
 
     返回 ``{"ticket": {...}, "request": {...}}``。
     """
-    _check_ticket_type(type)
     p = _proposal_or_404(s, proposal_id)
 
-    req = (
-        _ticket_request_or_404(s, request_id)
-        if request_id is not None
-        else _ticket_request_by_type(s, proposal_id, type)
-    )
-    if req is None:
-        req = create_ticket_request(
-            s, proposal_id, type=type, epic_id=epic_id,
-            story_id=story_id, title=title,
-        )
+    if request_id is not None:
+        req = _ticket_request_or_404(s, request_id)
+        if req.proposal_id != proposal_id:
+            raise NotFound(
+                f"ticket request {request_id} 不属于 proposal {proposal_id}",
+            )
+        type = req.type
+    else:
+        _check_ticket_type(type)
+        req = _ticket_request_by_type(s, proposal_id, type)
+        if req is None:
+            req = create_ticket_request(
+                s, proposal_id, type=type, epic_id=epic_id,
+                story_id=story_id, title=title,
+            )
     if req.status == TICKET_REQUEST_DONE:
         # 幂等：已生成，直接返回既有结果
         return _ticket_execute_result(s, req, proposal_id)
@@ -4539,6 +4576,11 @@ def list_pending_ticket_requests(s: Session, limit: int = 20):
         .limit(limit)
         .all()
     )
+
+
+def get_ticket_request(s: Session, request_id: int) -> ProposalTicketRequest | None:
+    """按 id 取转换请求（供端点做归属校验）。"""
+    return s.get(ProposalTicketRequest, request_id)
 
 
 def get_ticket_request_project_id(s: Session, request_id: int) -> int | None:
