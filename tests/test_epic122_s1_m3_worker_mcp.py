@@ -36,8 +36,8 @@ for _m in list(sys.modules):
 
 from agentboard import mq, workflow_worker  # noqa: E402
 from agentboard.mq import (  # noqa: E402
-    EVENT_REVIEW_REJECTED, EVENT_STORY_CREATED, EVENT_STORY_READY,
-    WorkflowMessage, WorkflowTopology,
+    EVENT_REVIEW_REJECTED, EVENT_STORY_CONFIRMED, EVENT_STORY_CREATED,
+    EVENT_STORY_READY, WorkflowMessage, WorkflowTopology,
 )
 
 _MCP_SOURCE = Path(_ROOT) / "agentboard" / "mcp_server.py"
@@ -100,37 +100,38 @@ def _cfg() -> workflow_worker.WorkflowConsumerConfig:
         api_url="http://test", token="t", mq=mq.MQConfig())
 
 
-def test_handle_story_created_calls_assign_reviewer():
-    client = _FakeClient(_FakeResponse(200, {"id": 7, "status": "pending_review",
-                                             "reviewer_id": 3}))
+def test_handle_story_created_acks_without_assign():
+    """2026-08-09：Story 级评审已下线，story.created 仅 ack，不再指派 reviewer。"""
+    client = _FakeClient(_FakeResponse(200, {"id": 7, "status": "backlog"}))
     w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
     assert w.handle_message(_msg(EVENT_STORY_CREATED, 7)) is True
-    assert ("POST", "/api/stories/7/assign-reviewer") in client.calls
+    assert not any("assign-reviewer" in p for m, p in client.calls)
 
 
-def test_handle_story_created_network_error_returns_false():
+def test_handle_story_confirmed_acks():
+    """story.confirmed 由 Proposal Worker 轮询兜底执行，本 Worker 仅 ack。"""
+    client = _FakeClient(_FakeResponse(200, {}))
+    w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
+    assert w.handle_message(_msg(EVENT_STORY_CONFIRMED, 7)) is True
+    assert not client.calls
+
+
+def test_handle_story_created_network_error_still_acks():
+    """story.created 不再触发 HTTP，网络异常不再产生重投语义（恒 ack）。"""
     class _ErrClient:
         def request(self, method, path, **kw):
             raise ConnectionError("boom")
 
     w = workflow_worker.WorkflowConsumer(_cfg(), client=_ErrClient())
-    assert w.handle_message(_msg(EVENT_STORY_CREATED, 9)) is False
+    assert w.handle_message(_msg(EVENT_STORY_CREATED, 9)) is True
 
 
-def test_handle_story_created_no_online_reviewer_acks():
-    # 422 = 无在线 reviewer：ack（True），由轮询兜底重试，不污染死信
-    client = _FakeClient(_FakeResponse(422, text="no online reviewer available"))
-    w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
-    assert w.handle_message(_msg(EVENT_STORY_CREATED, 10)) is True
-
-
-def test_handle_story_ready_broadcasts_tasks_rejected_no_http():
-    """S2 M1 起 story.ready 会回查 Story 任务广播 task.available（切片 2）；
-    review.rejected / 无任务 story 不触发额外 HTTP 副作用。"""
-    client = _FakeClient(_FakeResponse(200, {"items": []}))  # 无可认领任务
+def test_handle_story_ready_unknown_event_acks():
+    """story.ready 已随 Story 评审下线，作为未识别事件直接 ack（不触发 HTTP）。"""
+    client = _FakeClient(_FakeResponse(200, {"items": []}))
     w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
     assert w.handle_message(_msg(EVENT_STORY_READY, 1)) is True
-    assert ("GET", "/api/stories/1/tasks") in client.calls
+    assert not client.calls
     before = len(client.calls)
     assert w.handle_message(_msg(EVENT_REVIEW_REJECTED, 2, ref_id=1)) is True
     assert len(client.calls) == before  # review.rejected 不触发 HTTP
@@ -141,26 +142,31 @@ def test_handle_unknown_event_acks():
     assert w.handle_message(_msg("bogus.event", 1)) is True
 
 
-def test_run_poll_once_skips_already_assigned():
-    assigned = {"id": 1, "reviewer_id": 5, "status": "pending_review"}
-    unassigned = {"id": 2, "reviewer_id": None, "status": "backlog"}
+def test_run_poll_once_assigns_in_review_tasks():
+    """2026-08-09：轮询不再扫描 backlog Story（Story 评审下线），只处理 in_review Task。"""
     client = _FakeClient()
-    client.response = _FakeResponse(200, {"items": [assigned, unassigned]})
-    # 切片 2 M2：轮询还会扫描 in_review Task（此用例无 → 空列表，不额外计数）
     orig_get = client.get
 
     def _get(path, **kw):
         if path == "/api/tasks":
-            return _FakeResponse(200, [])
+            return _FakeResponse(200, {"items": [
+                {"id": 2, "reviewer_id": None, "status": "in_review"},
+                {"id": 3, "reviewer_id": 5, "status": "in_review"},
+            ]})
+        if path == "/api/stories":
+            return _FakeResponse(200, {"items": []})
         return orig_get(path, **kw)
 
     client.get = _get
     w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
     n = w.run_poll_once()
     assert n == 1
-    assert ("POST", "/api/stories/2/assign-reviewer") in client.calls
-    # 已指派的不触发
-    assert not any(c[1] == "/api/stories/1/assign-reviewer" for c in client.calls)
+    assert ("POST", "/api/tasks/2/assign-reviewer") in client.calls
+    # 已指派的 Task 不触发
+    assert not any(c[1] == "/api/tasks/3/assign-reviewer" for c in client.calls)
+    # Story 不再触发指派
+    assert not any("assign-reviewer" in p and "/api/stories" in p
+                   for m, p in client.calls)
 
 
 def test_run_mq_forever_falls_back_to_poll_when_mq_disabled():
@@ -317,28 +323,26 @@ def test_mcp_review_chain_end_to_end(stack):
     assert isinstance(r, list), f"list_agents 应返回 list：{r!r}"
     assert "wb-m3-mcp" in {a["agent_id"] for a in r}
 
-    # 4. 指派评审（REST 直调，MCP 无 assign 工具，分配器/REST 负责）
+    # 4. Story 级评审已下线（2026-08-09）：assign-reviewer / review 返回 422；
+    #    新人工闸门为 confirm（触发 agent 自动处理）
     c = stack["c"]
     sid = stack["story_id"]
     r = c.post(f"/api/stories/{sid}/assign-reviewer")
+    assert r.status_code == 422, r.text
+    assert "评审已下线" in r.json().get("detail", "")
+    r = c.post(f"/api/stories/{sid}/confirm")
     assert r.status_code == 200, r.text
-    assert r.json()["status"] == "pending_review"
-    my_uid = c.get("/api/auth/me").json()["id"]
+    assert r.json()["status"] == "confirmed"
 
-    # 5. 我的评审任务（reviewer_id=me）
+    # 5. list_review_tasks 不再包含 Story 评审任务（无 pending_review Story）
     r = mcp_server.list_review_tasks()
     assert isinstance(r, dict) and "items" in r, f"list_review_tasks 返回异常：{r!r}"
-    items = r.get("items", [])
-    assert any(it["id"] == sid for it in items), f"应包含 story {sid}：{items!r}"
-    assert any(it["reviewer_id"] == my_uid for it in items), "指派对象应为我"
+    assert not any(it.get("status") == "pending_review" for it in r.get("items", []))
 
-    # 6. 评审通过 → ready
-    r = mcp_server.review_story(sid, "approve", "LGTM，合入开发队列")
-    assert isinstance(r, dict) and "error" not in r, f"评审失败：{r!r}"
-    assert r["status"] == "ready"
-    # 评论落库（评审意见载体）
-    comments = c.get(f"/api/stories/{sid}/comments").json()
-    assert any("LGTM" in cm.get("content", "") for cm in comments)
+    # 6. MCP review_story 返回「评审已下线」错误（契约保留，不崩）
+    r = mcp_server.review_story(sid, "approve", "LGTM")
+    assert isinstance(r, dict) and "error" in r, f"应返回错误：{r!r}"
+    assert "评审已下线" in str(r.get("error", ""))
 
     # 7. 注销下线
     r = mcp_server.agent_deregister("wb-m3-mcp")

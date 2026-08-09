@@ -78,31 +78,22 @@ def seeded():
     return _seed()
 
 
-def _pending_story(s, epic_id, *, reviewer_id, round_=0, created=None):
-    """直建 pending_review Story（绕开 assign_reviewer 的随机性）。"""
-    from agentboard.models import Story
-    st = Story(epic_id=epic_id, title="S3M2 st", status="pending_review",
-               reviewer_id=reviewer_id, review_round=round_)
-    if created is not None:
-        st.created_at = created
-    s.add(st)
-    s.flush()
-    return st
-
-
-def _inreview_task(s, project_id, *, reviewer_id, assignee_id=None, round_=0, updated=None):
+def _inreview_task(s, project_id, *, reviewer_id, assignee_id=None, round_=0,
+                   updated=None, created=None):
     from agentboard.models import Task
     t = Task(project_id=project_id, title="S3M2 task", type="task",
              status="in_review", reviewer_id=reviewer_id,
              assignee_id=assignee_id, review_round=round_)
     if updated is not None:
         t.updated_at = updated
+    if created is not None:
+        t.created_at = created
     s.add(t)
     s.flush()
     return t
 
 
-# ---------- 1. get_review_stats 统计口径 ----------
+# ---------- 1. get_review_stats 统计口径（2026-08-09：Story 评审下线 → Task 侧） ----------
 
 def test_stats_empty_project(seeded):
     pid, *_ = seeded
@@ -119,32 +110,28 @@ def test_stats_empty_project(seeded):
 def test_stats_counts_and_reject_rate(seeded):
     pid, dev, r1, r2, epic_id = seeded
     with SessionLocal() as s:
-        # story1: approve（ready）；story2: 驳回过 2 次后 ready（rejected+approved）；
-        # story3: pending；story4: blocked（轮次超限）
-        _pending_story(s, epic_id, reviewer_id=r1, round_=0, created=utc_now()).status = "ready"
-        _pending_story(s, epic_id, reviewer_id=r2, round_=2, created=utc_now()).status = "ready"
-        _pending_story(s, epic_id, reviewer_id=r1, round_=1, created=utc_now())
-        _pending_story(s, epic_id, reviewer_id=r2, round_=5, created=utc_now()).status = "blocked"
-        # task1: approve；task2: reject 退回 in_progress（round=1）；task3: pending
+        # Task 侧：task1 approve（done）；task2 驳回过 2 次后 in_progress（rejected）；
+        # task3 pending（in_review）；task4 blocked（轮次超限）
         t1 = _inreview_task(s, pid, reviewer_id=r1, updated=utc_now())
         t1.status = "done"
-        _inreview_task(s, pid, reviewer_id=r2, round_=1, updated=utc_now()).status = "in_progress"
+        _inreview_task(s, pid, reviewer_id=r2, round_=2, updated=utc_now()).status = "in_progress"
         _inreview_task(s, pid, reviewer_id=r1, updated=utc_now())
+        _inreview_task(s, pid, reviewer_id=r2, round_=5, updated=utc_now()).status = "blocked"
         s.commit()
     with SessionLocal() as s:
         stats = service.get_review_stats(s, project_id=pid)
         st, tk = stats["stories"], stats["tasks"]
-        assert st["total"] == 5 and st["approved"] == 2 and st["rejected"] == 3  # +1 自动默认 Story
-        assert st["pending"] == 1 and st["blocked"] == 1
-        assert tk["total"] == 5 and tk["approved"] == 1 and tk["rejected"] == 1  # +2 自动默认 task
-        assert tk["pending"] == 1 and tk["blocked"] == 0
-        # rejected = 3 + 1 = 4；approved = 2 + 1 = 3 → rate = 4/7
-        assert stats["reject_rate"] == round(4 / 7, 4)
-        # 平均轮次：story 有评审记录 4 个（rounds 0+2+1+5=8）→ 2.0
-        assert stats["rounds"]["avg_story_round"] == 2.0
-        # by_reviewer：r1 评审 story2 个（story1 approve + story3 pending）+ task2 个
+        # Story 评审已下线：approved/pending 恒 0；rejected/blocked 仍按字段统计
+        assert st["total"] == 1 and st["approved"] == 0 and st["pending"] == 0
+        assert st["rejected"] == 0 and st["blocked"] == 0
+        assert tk["total"] == 6 and tk["approved"] == 1 and tk["rejected"] == 2  # +2 自动默认 task
+        assert tk["pending"] == 1 and tk["blocked"] == 1
+        # rejected = 2（task）；approved = 1（task）→ rate = 2/3
+        assert stats["reject_rate"] == round(2 / 3, 4)
+        # 平均轮次：4 个已评审 task（rounds 0+2+0+5=7）→ 1.75
+        assert stats["rounds"]["avg_task_round"] == 1.75
+        # by_reviewer：r1 task 2 个（task1 approve + task3 pending）
         rows = {r["user_id"]: r for r in stats["by_reviewer"]}
-        assert rows[r1]["story_reviewed"] == 2
         assert rows[r1]["task_reviewed"] == 2
         assert rows[r1]["task_approved"] == 1
 
@@ -153,25 +140,25 @@ def test_stats_days_filter(seeded):
     pid, dev, r1, r2, epic_id = seeded
     old = utc_now() - timedelta(days=30)
     with SessionLocal() as s:
-        _pending_story(s, epic_id, reviewer_id=r1, round_=0, created=old).status = "ready"
-        _pending_story(s, epic_id, reviewer_id=r1, round_=0, created=utc_now()).status = "ready"
+        _inreview_task(s, pid, reviewer_id=r1, updated=old, created=old).status = "done"
+        _inreview_task(s, pid, reviewer_id=r1, updated=utc_now()).status = "done"
         s.commit()
     with SessionLocal() as s:
         stats = service.get_review_stats(s, project_id=pid, days=7)
-        assert stats["stories"]["total"] == 2  # 30 天前的不计入（+1 自动默认 Story）
+        assert stats["tasks"]["total"] == 3  # 30 天前的不计入（+2 自动默认 task）
         stats_all = service.get_review_stats(s, project_id=pid, days=0)
-        assert stats_all["stories"]["total"] == 3
+        assert stats_all["tasks"]["total"] == 4
 
 
 def test_stats_user_filter(seeded):
     pid, dev, r1, r2, epic_id = seeded
     with SessionLocal() as s:
-        _pending_story(s, epic_id, reviewer_id=r1, round_=0, created=utc_now()).status = "ready"
-        _pending_story(s, epic_id, reviewer_id=r2, round_=0, created=utc_now()).status = "ready"
+        _inreview_task(s, pid, reviewer_id=r1, updated=utc_now()).status = "done"
+        _inreview_task(s, pid, reviewer_id=r2, updated=utc_now()).status = "done"
         s.commit()
     with SessionLocal() as s:
         stats = service.get_review_stats(s, project_id=pid, user_id=r1)
-        assert stats["stories"]["total"] == 1
+        assert stats["tasks"]["total"] == 1
         assert len(stats["by_reviewer"]) == 1
         assert stats["by_reviewer"][0]["user_id"] == r1
 
@@ -180,58 +167,58 @@ def test_stats_timeout_pending(seeded):
     pid, dev, r1, r2, epic_id = seeded
     old = utc_now() - timedelta(minutes=60)
     with SessionLocal() as s:
-        _pending_story(s, epic_id, reviewer_id=r1, round_=0, created=old)
+        _inreview_task(s, pid, reviewer_id=r1, updated=old)
         _inreview_task(s, pid, reviewer_id=r2, updated=utc_now())
         s.commit()
     with SessionLocal() as s:
         stats = service.get_review_stats(s, project_id=pid)
-        assert stats["timeout_pending"] == 1  # 只有超时的 story 计入
+        assert stats["timeout_pending"] == 1  # 只有超时的 in_review Task 计入
 
 
-# ---------- 2. scan_review_timeouts 超时重派 ----------
+# ---------- 2. scan_review_timeouts 超时重派（2026-08-09：Task 侧） ----------
 
-def test_timeout_story_reassigned(seeded):
+def test_timeout_task_reassigned(seeded):
     pid, dev, r1, r2, epic_id = seeded
     old = utc_now() - timedelta(minutes=60)
     with SessionLocal() as s:
-        st = _pending_story(s, epic_id, reviewer_id=r1, round_=0, created=old)
-        sid = st.id
-        s.commit()
-    with SessionLocal() as s:
-        result = service.scan_review_timeouts(s, project_id=pid, timeout_minutes=30)
-        assert result["stories_reassigned"] == 1
-        assert result["tasks_reassigned"] == 0
-        assert result["blocked"] == 0
-        fresh = s.get(service.Story, sid)
-        assert fresh.reviewer_id is not None and fresh.reviewer_id != r1
-        assert fresh.status == "pending_review" and fresh.review_round == 0
-
-
-def test_timeout_story_blocked_at_max_rounds(seeded):
-    pid, dev, r1, r2, epic_id = seeded
-    old = utc_now() - timedelta(minutes=60)
-    with SessionLocal() as s:
-        st = _pending_story(s, epic_id, reviewer_id=r1, round_=service.MAX_REVIEW_ROUNDS,
-                            created=old)
-        sid = st.id
+        t = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev, updated=old)
+        tid = t.id
         s.commit()
     with SessionLocal() as s:
         result = service.scan_review_timeouts(s, project_id=pid, timeout_minutes=30)
         assert result["stories_reassigned"] == 0
+        assert result["tasks_reassigned"] == 1
+        assert result["blocked"] == 0
+        fresh = s.get(service.Task, tid)
+        assert fresh.reviewer_id is not None and fresh.reviewer_id != r1
+        assert fresh.status == "in_review" and fresh.review_round == 0
+
+
+def test_timeout_task_blocked_at_max_rounds(seeded):
+    pid, dev, r1, r2, epic_id = seeded
+    old = utc_now() - timedelta(minutes=60)
+    with SessionLocal() as s:
+        t = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev,
+                           round_=service.MAX_REVIEW_ROUNDS, updated=old)
+        tid = t.id
+        s.commit()
+    with SessionLocal() as s:
+        result = service.scan_review_timeouts(s, project_id=pid, timeout_minutes=30)
+        assert result["tasks_reassigned"] == 0
         assert result["blocked"] == 1
-        assert s.get(service.Story, sid).status == "blocked"
+        assert s.get(service.Task, tid).status == "blocked"
 
 
 def test_timeout_recent_not_processed(seeded):
     pid, dev, r1, r2, epic_id = seeded
     with SessionLocal() as s:
-        st = _pending_story(s, epic_id, reviewer_id=r1, round_=0, created=utc_now())
-        sid = st.id
+        t = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev, updated=utc_now())
+        tid = t.id
         s.commit()
     with SessionLocal() as s:
         result = service.scan_review_timeouts(s, project_id=pid, timeout_minutes=30)
-        assert result["stories_reassigned"] == 0
-        fresh = s.get(service.Story, sid)
+        assert result["tasks_reassigned"] == 0
+        fresh = s.get(service.Task, tid)
         assert fresh.reviewer_id == r1  # 未超时不换人
 
 
@@ -242,14 +229,14 @@ def test_timeout_no_candidate_unbind(seeded):
         # 下线全部 reviewer Agent → 无候选
         for ag in s.query(service.Agent).all():
             ag.online = False
-        st = _pending_story(s, epic_id, reviewer_id=r1, round_=0, created=old)
-        sid = st.id
+        t = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev, updated=old)
+        tid = t.id
         s.commit()
     with SessionLocal() as s:
         result = service.scan_review_timeouts(s, project_id=pid, timeout_minutes=30)
-        assert result["stories_reassigned"] == 0
+        assert result["tasks_reassigned"] == 0
         assert result["no_candidate"] == 1
-        fresh = s.get(service.Story, sid)
+        fresh = s.get(service.Task, tid)
         assert fresh.reviewer_id is None  # 解绑等待下轮补派
 
 
@@ -287,35 +274,35 @@ def test_timeout_max_per_run_bounded(seeded):
     old = utc_now() - timedelta(minutes=60)
     with SessionLocal() as s:
         for i in range(5):
-            _pending_story(s, epic_id, reviewer_id=r1, round_=0, created=old)
+            _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev, updated=old)
         s.commit()
     with SessionLocal() as s:
         result = service.scan_review_timeouts(s, project_id=pid, timeout_minutes=30, max_per_run=2)
-        assert result["stories_reassigned"] == 2
+        assert result["tasks_reassigned"] == 2
 
 
 def test_timeout_project_filter(seeded):
     pid, dev, r1, r2, epic_id = seeded
     old = utc_now() - timedelta(minutes=60)
     with SessionLocal() as s:
-        st = _pending_story(s, epic_id, reviewer_id=r1, round_=0, created=old)
-        sid = st.id
+        t = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev, updated=old)
+        tid = t.id
         other = service.create_project(s, name=f"S3M2 Other{next(_SEQ)}")
         service.add_project_member(s, project_id=other.id, user_id=r2, role="member")
         service.register_agent(s, agent_id=f"s3m2-c-{next(_SEQ)}", name="C",
                                roles='["reviewer"]', user_id=r2)
         service.agent_heartbeat(s, f"s3m2-c-{next(_SEQ)}", user_id=r2)
         other_epic = service.create_epic(s, project_id=other.id, title="other epic")
-        st2 = _pending_story(s, other_epic.id, reviewer_id=r2, round_=0, created=old)
-        st2_id = st2.id
+        t2 = _inreview_task(s, other.id, reviewer_id=r2, assignee_id=dev, updated=old)
+        t2_id = t2.id
         s.commit()
         other_pid = other.id
     with SessionLocal() as s:
         result = service.scan_review_timeouts(s, project_id=pid, timeout_minutes=30)
-        assert result["stories_reassigned"] == 1  # 只处理 pid 项目
-        fresh = s.get(service.Story, sid)
+        assert result["tasks_reassigned"] == 1  # 只处理 pid 项目
+        fresh = s.get(service.Task, tid)
         assert fresh.reviewer_id is not None
-        fresh2 = s.get(service.Story, st2_id)
+        fresh2 = s.get(service.Task, t2_id)
         assert fresh2.reviewer_id == r2  # 其它项目未动
 
 
@@ -349,8 +336,8 @@ def test_api_reassign_timeout_publishes_event(seeded):
     pid, dev, r1, r2, epic_id = seeded
     old = utc_now() - timedelta(minutes=60)
     with SessionLocal() as s:
-        st = _pending_story(s, epic_id, reviewer_id=r1, round_=0, created=old)
-        sid = st.id
+        t = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev, updated=old)
+        tid = t.id
         s.commit()
     with SessionLocal() as s:
         u = s.get(service.User, dev)
@@ -365,13 +352,13 @@ def test_api_reassign_timeout_publishes_event(seeded):
                    headers=_client_auth(tok))
         assert r.status_code == 200
         data = r.json()
-        assert data["stories_reassigned"] == 1
-        assert "_stories_reassigned" not in data  # 内部键已剔除
-        # 事件发布：review.requested（story，新 reviewer 定向）
+        assert data["tasks_reassigned"] == 1
+        assert "_tasks_reassigned" not in data  # 内部键已剔除
+        # 事件发布：review.requested（task，新 reviewer 定向）
         assert pub.call_count == 1
         ev = pub.call_args
         assert ev.args[0] == EVENT_REVIEW_REQUESTED
-        assert ev.args[1] == "story" and ev.args[2] == sid
+        assert ev.args[1] == "task" and ev.args[2] == tid
         assert nw.call_count == 1
 
 
@@ -379,7 +366,7 @@ def test_api_reassign_timeout_global_no_project(seeded):
     pid, dev, r1, r2, epic_id = seeded
     old = utc_now() - timedelta(minutes=60)
     with SessionLocal() as s:
-        _pending_story(s, epic_id, reviewer_id=r1, round_=0, created=old)
+        _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev, updated=old)
         u = s.get(service.User, dev)
         tok = auth.make_token(u.id)
     from fastapi.testclient import TestClient
@@ -390,7 +377,7 @@ def test_api_reassign_timeout_global_no_project(seeded):
                    json={"timeout_minutes": 30},
                    headers=_client_auth(tok))
         assert r.status_code == 200
-        assert r.json()["stories_reassigned"] >= 1  # 全局扫描：历史残留 + 本次数据
+        assert r.json()["tasks_reassigned"] >= 1  # 全局扫描：历史残留 + 本次数据
 
 
 # ---------- 4. MCP 工具：AST 注册 + 真实栈直调 ----------
@@ -439,7 +426,7 @@ def test_mcp_tools_self_contained_direct():
     with SessionLocal() as s:
         pid, dev, r1, r2, epic_id = _seed()
         old = utc_now() - timedelta(minutes=60)
-        _pending_story(s, epic_id, reviewer_id=r1, round_=0, created=old)
+        _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev, updated=old)
         u = s.get(service.User, dev)
         token = auth.make_token(u.id)
         s.commit()
@@ -472,13 +459,13 @@ def test_mcp_tools_self_contained_direct():
     os.environ["AGENTBOARD_API_URL"] = f"http://{host}:{port}"
     try:
         importlib.reload(ms)
-        # scan_review_timeouts：project 过滤扫描
+        # scan_review_timeouts：project 过滤扫描（Task 侧）
         r = ms.scan_review_timeouts(project_id=pid, timeout_minutes=30)
-        assert r["stories_reassigned"] == 1
+        assert r["tasks_reassigned"] == 1
         # get_review_stats：统计可见
         stats = ms.get_review_stats(project_id=pid, days=7)
         assert stats["project_id"] == pid
-        assert stats["stories"]["total"] >= 1
+        assert stats["tasks"]["total"] >= 1
     finally:
         server.should_exit = True
         t.join(timeout=5)

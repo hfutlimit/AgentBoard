@@ -37,7 +37,8 @@ for _m in list(sys.modules):
 from agentboard import api, auth, mq, service, workflow_worker  # noqa: E402
 from agentboard.database import SessionLocal, init_db  # noqa: E402
 from agentboard.models import Task  # noqa: E402
-from agentboard.mq import (  # noqa: E402
+from agentboard.mq import (
+    EVENT_STORY_CONFIRMED,
     EVENT_TASK_AVAILABLE, EVENT_TASK_READY_FOR_REVIEW, EVENT_STORY_READY,
     WorkflowMessage,
 )
@@ -287,7 +288,8 @@ def _cfg():
 
 
 def test_story_ready_broadcasts_available_tasks(seeded):
-    """story.ready → 拉取 Story 任务 → 每个 backlog/todo 任务广播一次 task.available。"""
+    """_broadcast_available_tasks（2026-08-09 起由 confirmed 编排辅助调用）：
+    拉取 Story 任务 → 每个 backlog/todo 任务广播一次 task.available。"""
     client = _FakeClient(_FakeResponse(200, {"items": [
         {"id": 11, "status": "backlog"},
         {"id": 12, "status": "todo"},
@@ -296,9 +298,7 @@ def test_story_ready_broadcasts_available_tasks(seeded):
     ]}))
     w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
     with mock.patch.object(mq, "publish_workflow_event") as pub:
-        assert w.handle_message(
-            WorkflowMessage(event=EVENT_STORY_READY, entity_type="story",
-                            entity_id=5, ref_id=3)) is True
+        assert w._broadcast_available_tasks(5) is True
     assert ("GET", "/api/stories/5/tasks") in client.calls
     # 仅 backlog/todo 被广播，且 ref_id=story_id
     assert pub.call_count == 2
@@ -312,18 +312,19 @@ def test_story_ready_no_claimable_tasks_no_broadcast(seeded):
     ]}))
     w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
     with mock.patch.object(mq, "publish_workflow_event") as pub:
-        assert w.handle_message(
-            WorkflowMessage(event=EVENT_STORY_READY, entity_type="story",
-                            entity_id=6, ref_id=3)) is True
+        assert w._broadcast_available_tasks(6) is True
     pub.assert_not_called()
 
 
-def test_story_ready_http_error_returns_false(seeded):
+def test_story_confirmed_acks_and_http_error_tolerated(seeded):
+    """story.confirmed 由 Proposal Worker 轮询兜底执行：本 Worker 恒 ack；
+    网络异常也 ack（不触发 HTTP，无重投语义）。"""
     client = _FakeClient(_FakeResponse(500, text="boom"))
     w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
     assert w.handle_message(
-        WorkflowMessage(event=EVENT_STORY_READY, entity_type="story",
-                        entity_id=7, ref_id=3)) is False
+        WorkflowMessage(event=EVENT_STORY_CONFIRMED, entity_type="story",
+                        entity_id=7, ref_id=3)) is True
+    assert not client.calls
 
 
 def test_task_ready_for_review_triggers_assign(seeded):

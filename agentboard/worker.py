@@ -82,7 +82,11 @@ ACTION_FAIL = "fail"
 # Proposal → Ticket 转化（文档 #59）：agent 已通过 AgentBoard MCP 的
 # proposal_create_ticket 工具完成创建，worker 回查请求状态确认。
 ACTION_TICKET_CREATED = "ticket_created"
-VALID_ACTIONS = {ACTION_ASK, ACTION_FINALIZE, ACTION_FAIL, ACTION_TICKET_CREATED}
+# Ticket 全流程（2026-08-09）：agent 处理 Story 编排后确认（story_handled）。
+# agent 经 MCP 逐步推进 Story 下 task（design→实现→评审→测试），完成后打印该 action。
+ACTION_STORY_HANDLED = "story_handled"
+VALID_ACTIONS = {ACTION_ASK, ACTION_FINALIZE, ACTION_FAIL,
+                 ACTION_TICKET_CREATED, ACTION_STORY_HANDLED}
 
 # Worker 会主动认领的状态：queued=首轮，answered=用户答完进入下一轮
 CLAIMABLE_STATUSES = ("queued", "answered")
@@ -140,6 +144,10 @@ class WorkerConfig:
     mq: "mq.MQConfig" = field(default_factory=lambda: mq.MQConfig())
     # MQ 模式下的维护周期（秒）：回收超租约 + 自愈重投遗留工作项
     maintenance_interval: float = 60.0
+    # Agent 心跳探测周期（秒，Ticket 全流程 2026-08-09）：worker 主动经 CLI 判活
+    heartbeat_interval: float = 60.0
+    # 单次 CLI 探测超时（秒）
+    heartbeat_timeout: float = 8.0
 
     @classmethod
     def from_env(cls) -> "WorkerConfig":
@@ -147,6 +155,10 @@ class WorkerConfig:
             mq=mq.MQConfig.from_env(),
             maintenance_interval=float(
                 _env_int("AGENTBOARD_WORKER_MAINTENANCE_INTERVAL", 60)),
+            heartbeat_interval=float(
+                _env_int("AGENTBOARD_WORKER_HEARTBEAT_INTERVAL", 60)),
+            heartbeat_timeout=float(
+                _env_int("AGENTBOARD_WORKER_HEARTBEAT_TIMEOUT", 8)),
             api_url=os.getenv("AGENTBOARD_API_URL", cls.api_url).rstrip("/"),
             token=os.getenv("AGENTBOARD_WORKER_TOKEN")
             or os.getenv("AGENTBOARD_MCP_TOKEN"),
@@ -297,9 +309,15 @@ def build_prompt(context: dict) -> str:
     ``context.get("action") == "create_ticket"`` 时渲染**转化模式**提示词：
     需求已收敛，指示 agent 通过 AgentBoard MCP 的 ``proposal_create_ticket``
     工具创建指定类型的 ticket（文档 #59），然后打印确认 JSON。
+
+    ``context.get("action") == "process_story"`` 时渲染**Story 执行模式**提示词
+    （Ticket 全流程，2026-08-09）：Story 已被用户确认，指示 agent 经 AgentBoard
+    MCP 逐步推进其下 task（先 design 后实现，含评审与测试）。
     """
     if str(context.get("action") or "") == "create_ticket":
         return _build_ticket_prompt(context)
+    if str(context.get("action") or "") == "process_story":
+        return _build_story_prompt(context)
     lines = [
         "你是需求澄清分析师。请阅读下面的需求提案与全部历史问答，判断需求是否已足够清晰。",
         "",
@@ -366,6 +384,54 @@ def _build_ticket_prompt(context: dict) -> str:
     spec = str(context.get("converged_spec") or "").strip()
     if spec:
         lines += ["", "## 最终需求规格（converged_spec，工单 description 的权威来源）", spec]
+    return "\n".join(lines)
+
+
+def _build_story_prompt(context: dict) -> str:
+    """Story 执行模式提示词（Ticket 全流程，2026-08-09）。
+
+    指示 agent 经 AgentBoard MCP 推进 Story 下 task 的下一步：
+    - 铁律一：needs_design=true 时，**design task 必须先完成评审**
+      （in_design → design_pending_review → design_review_approved），之后才能推进实现 task；
+    - 铁律二：实现 task 须走 in_progress → in_review（提交评审）→ 评审通过 → done；
+    - 每完成一个里程碑，同步用 MCP 的 update_story 推进 Story 状态
+      （设计完成 → todo；开发中 → in_progress；评审 → in_review；全 done → done）；
+    - 一次调用尽量推进所有当前可推进的步骤；全部完成后打印 story_handled。
+    """
+    story_id = context.get("story_id")
+    tasks = context.get("tasks") or []
+    lines = [
+        "你是软件开发执行 Agent。下面的 Story 已被用户确认，请经 AgentBoard MCP 自动推进其下任务。",
+        "",
+        "## 执行铁律（必须严格遵守）",
+        "1. **顺序约定**：needs_design=true 时，必须先完成「设计」任务（type=design，走 "
+        "in_design → design_pending_review → design_review_approved 评审流），"
+        "评审通过后才能推进「实现」任务（服务端已强制，违反会收到 400）；",
+        "2. 实现任务流程：in_progress（开发）→ in_review（用 submit_task_for_review 提交评审）"
+        "→ 评审通过 → done → 必要时 verifying（测试）；",
+        "3. 每个里程碑完成后，用 MCP `update_story` 同步推进 Story 状态"
+        "（设计完成→todo，开发中→in_progress，评审中→in_review，全部完成→done）；",
+        "4. 一次调用内尽量推进所有当前可推进的步骤；无需等待外部人工输入。",
+        "",
+        "## 决策协议（必须严格遵守）",
+        "全部可推进步骤完成后，在输出最后打印 JSON：",
+        '{"action":"story_handled","summary":"本轮完成的工作"}',
+        "若无法继续（缺 MCP 连接 / 依赖缺失 / 需求不清晰等），打印：",
+        '{"action":"fail","error":"原因"}',
+        "",
+        f"## Story #{story_id}：{context.get('title')}",
+        "",
+        str(context.get("description") or "(无描述)"),
+        "",
+        f"## needs_design: {context.get('needs_design')}",
+        "",
+        "## 当前任务列表（经 MCP list_tasks 也可获取最新状态）",
+    ]
+    for t in tasks:
+        lines.append(
+            f"- [{t.get('type')}] #{t.get('id')} {t.get('title')} status={t.get('status')}"
+            f"{' reviewer=' + str(t.get('reviewer_id')) if t.get('reviewer_id') else ''}"
+        )
     return "\n".join(lines)
 
 
@@ -457,6 +523,11 @@ class ProposalWorker:
             base_url=config.api_url, timeout=config.http_timeout,
             headers=({"Authorization": f"Bearer {config.token}"} if config.token else {}),
         )
+        # Ticket 全流程（2026-08-09）：Story 编排节流与失败计数（进程内，重启重置可接受）
+        self._story_attempts: dict[int, float] = {}      # story_id → 上次拉起时间戳
+        self._story_fail_counts: dict[int, int] = {}     # story_id → 连续失败次数
+        self._story_min_interval: float = 30.0           # 同一 Story 最小拉起间隔（秒）
+        self._last_heartbeat_ts: float = 0.0             # 轮询模式下心跳节流时间戳
 
     @staticmethod
     def _default_invoker(config: WorkerConfig) -> AgentInvoker:
@@ -888,10 +959,222 @@ class ProposalWorker:
             pass
         return "skipped"
 
+    # ---------- Ticket 全流程：Story 执行编排（2026-08-09） ----------
+
+    def fetch_confirmed_stories(self) -> list[dict]:
+        """拉取待处理的 Story（status=confirmed，用户已确认的人工闸门）。
+
+        confirmed 语义 = 用户确认 + agent 流水线处理中（worker 周期拉起推进；
+        节流防高频拉起）。全部 task done 后 worker 将 Story 置 done 结束。
+        """
+        try:
+            data = self._get_json("/api/stories", params={
+                "status": "confirmed", "limit": max(1, self.config.batch_size),
+            })
+            return (data or {}).get("items", []) or []
+        except Exception as e:
+            log.warning("拉取 confirmed Story 失败：%s", e)
+            return []
+
+    def build_story_context(self, story: dict) -> dict:
+        """Story 全量重放 + 其下任务列表（供执行模式提示词）。"""
+        sid = story.get("id")
+        tasks = self._get_json(f"/api/stories/{sid}/tasks", params={"limit": 200})
+        return {
+            "action": "process_story",
+            "story_id": sid,
+            "project_id": story.get("epic_id"),
+            "title": story.get("title"),
+            "description": story.get("description") or "",
+            "needs_design": bool(story.get("needs_design", True)),
+            "status": story.get("status"),
+            "tasks": (tasks or {}).get("items", []) if isinstance(tasks, dict) else (tasks or []),
+        }
+
+    def _story_comment(self, story_id: int, content: str) -> None:
+        """在 Story 上落一条执行记录评论（失败原因/进展，审计载体）。"""
+        try:
+            self._request("POST", f"/api/stories/{story_id}/comments",
+                          json={"author": self.config.agent, "content": content[:2000]})
+        except Exception as e:
+            log.warning("Story #%s 评论失败：%s", story_id, e)
+
+    def _set_story_status(self, story_id: int, status: str) -> bool:
+        try:
+            r = self._request("PATCH", f"/api/stories/{story_id}",
+                              json={"status": status})
+            return r.status_code in (200, 201)
+        except Exception as e:
+            log.warning("Story #%s 置 %s 失败：%s", story_id, status, e)
+            return False
+
+    def _complete_story(self, story_id: int) -> bool:
+        """Story 自动收尾：POST /api/stories/{sid}/complete（任意非 done/blocked → done）。"""
+        try:
+            r = self._request("POST", f"/api/stories/{story_id}/complete")
+            return r.status_code in (200, 201)
+        except Exception as e:
+            log.warning("Story #%s 自动收尾失败：%s", story_id, e)
+            return False
+
+    def _story_all_tasks_done(self, story: dict) -> bool:
+        """Story 下 design 与实现 task 是否全部 done（结束判据）。"""
+        sid = story.get("id")
+        try:
+            data = self._get_json(f"/api/stories/{sid}/tasks", params={"limit": 200})
+            tasks = (data or {}).get("items", []) if isinstance(data, dict) else (data or [])
+        except Exception as e:
+            log.warning("Story #%s 回查任务失败：%s", sid, e)
+            return False
+        pending = [t for t in tasks if t.get("status") != "done"]
+        return not pending
+
+    def handle_story(self, story: dict) -> str:
+        """处理一个 confirmed Story：拉起 agent 推进其下任务（设计→实现→评审→测试）。
+
+        - 节流：同一 Story 最小拉起间隔 30s（防失败风暴空转）；
+        - agent 返回 story_handled → 回查任务：全部 done → Story 置 done 收尾；
+          否则保持 confirmed（下轮继续推进）；
+        - agent 失败/异常 → 评论记录 + 失败计数，连续 3 次 → Story 置 blocked 转人工。
+
+        返回结果码：skipped（节流/已删除）/ handled / blocked / failed。
+        """
+        sid = story.get("id")
+        if sid is None:
+            return "skipped"
+        now = time.time()
+        last = self._story_attempts.get(sid, 0.0)
+        if now - last < self._story_min_interval:
+            return "skipped"
+        self._story_attempts[sid] = now
+        try:
+            context = self.build_story_context(story)
+        except Exception as e:
+            log.exception("Story #%s 构建上下文失败", sid)
+            self._story_comment(sid, f"Worker 构建上下文失败：{e}")
+            return "failed"
+        try:
+            decision = self.invoker.invoke(context)
+        except (AgentInvocationError, AgentOutputError) as e:
+            log.warning("Story #%s Agent 调用失败：%s", sid, e)
+            return self._story_fail(sid, str(e))
+        except Exception as e:
+            log.exception("Story #%s Agent 调用抛出未预期异常", sid)
+            return self._story_fail(sid, f"Agent 调用异常：{e}")
+        if decision.action == ACTION_STORY_HANDLED:
+            # 本轮执行成功：节流清零，继续扫描（若任务未全完成则下轮再拉起）
+            self._story_fail_counts.pop(sid, None)
+            if self._story_all_tasks_done(story):
+                ok = self._complete_story(sid)
+                log.info("Story #%s 全部任务完成，自动收尾 done=%s", sid, ok)
+                return "handled" if ok else "failed"
+            log.info("Story #%s 本轮推进完成（任务未全部完成，下轮继续）", sid)
+            return "handled"
+        # agent 主动放弃
+        return self._story_fail(sid, decision.error or "Agent 未报告完成原因")
+
+    def _story_fail(self, sid: int, error: str) -> str:
+        """Story 处理失败：评论记录 + 计数；连续 3 次 → blocked 转人工。"""
+        self._story_comment(sid, f"Agent 自动处理失败：{error}")
+        count = self._story_fail_counts.get(sid, 0) + 1
+        self._story_fail_counts[sid] = count
+        if count >= 3:
+            self._story_fail_counts.pop(sid, None)
+            ok = self._set_story_status(sid, "blocked")
+            log.warning("Story #%s 连续 %s 次失败，置 blocked 转人工（%s）", sid, count, ok)
+            return "blocked"
+        return "failed"
+
+    def _story_scan_loop(self, stop: threading.Event) -> None:
+        """Story 编排扫描兜底（MQ 模式下 workflow 总线事件由 Workflow Worker ack，
+        本线程按 poll_interval 周期扫描 confirmed Story，与轮询模式 poll_once 对齐）。"""
+        while not stop.wait(self.config.poll_interval):
+            try:
+                for story in self.fetch_confirmed_stories():
+                    try:
+                        self.handle_story(story)
+                    except Exception:
+                        log.exception("Story #%s 处理异常", story.get("id"))
+            except Exception:
+                log.exception("Story 编排扫描周期异常，将在下个周期重试")
+
+    # ---------- Ticket 全流程：Agent 心跳探测（2026-08-09） ----------
+
+    def _probe_cli(self, cmd: str) -> bool:
+        """CLI 可用性探测：``<cmd> --version``（8s 超时），成功即可用。
+
+        用 shlex.split 解析（兼容 Windows 路径，split_command 已处理双坑）；
+        探测命令本身失败（找不到/超时/退出码非 0）视为不可用。
+        """
+        if not str(cmd).strip():
+            return False
+        try:
+            argv = split_command(cmd) + ["--version"]
+            proc = subprocess.run(
+                argv, capture_output=True, text=True, timeout=self.config.heartbeat_timeout,
+                encoding="utf-8", errors="replace",
+            )
+            return proc.returncode == 0
+        except (subprocess.TimeoutExpired, OSError, FileNotFoundError, ValueError) as e:
+            log.debug("Agent CLI 探测失败 %r：%s", cmd, e)
+            return False
+
+    def agent_heartbeat_once(self) -> dict:
+        """执行一轮 Agent 心跳探测：遍历 agents 表，逐 agent 跑 cli_command 判活。
+
+        - 成功 → POST /api/agents/{id}/heartbeat（置 online + 刷新 last_heartbeat）；
+        - 失败 → POST /api/agents/{id}/deregister（置 offline，保留注册记录）；
+        - 无 cli_command 的 agent 跳过（依赖 agent 自报心跳 MCP 路径）。
+        单 agent 异常不抛出（try/except 包裹），不影响其它 agent 与主循环。
+        """
+        try:
+            agents = self._get_json("/api/agents") or []
+        except Exception as e:
+            log.warning("拉取 Agent 列表失败（心跳探测跳过本轮）：%s", e)
+            return {"checked": 0, "online": 0, "offline": 0, "skipped": 0}
+        stats = {"checked": 0, "online": 0, "offline": 0, "skipped": 0}
+        for a in agents or []:
+            aid = a.get("agent_id")
+            cmd = a.get("cli_command") or ""
+            if not aid or not cmd:
+                stats["skipped"] += 1
+                continue
+            stats["checked"] += 1
+            try:
+                if self._probe_cli(cmd):
+                    r = self._request("POST", f"/api/agents/{aid}/heartbeat")
+                    ok = r.status_code in (200, 201)
+                    stats["online"] += 1 if ok else 0
+                else:
+                    r = self._request("POST", f"/api/agents/{aid}/deregister")
+                    ok = r.status_code in (200, 201)
+                    stats["offline"] += 1 if ok else 0
+            except Exception as e:
+                log.warning("Agent %s 心跳上报异常：%s", aid, e)
+        if stats["checked"]:
+            log.info("Agent 心跳探测：%s", stats)
+        return stats
+
+    def _agent_heartbeat_loop(self, stop: threading.Event) -> None:
+        """后台心跳探测线程（周期 heartbeat_interval，默认 60s）。"""
+        while not stop.wait(self.config.heartbeat_interval):
+            try:
+                self.agent_heartbeat_once()
+            except Exception:
+                log.exception("Agent 心跳探测周期异常，将在下个周期重试")
+
     # ---------- 轮询 ----------
 
     def poll_once(self) -> dict:
         """执行一轮：先做崩溃恢复 + agent 失败自动重投，再消费工作项。"""
+        # Ticket 全流程：轮询模式下按 heartbeat_interval 节流跑 Agent 心跳探测
+        now_ts = time.time()
+        if now_ts - self._last_heartbeat_ts >= self.config.heartbeat_interval:
+            self._last_heartbeat_ts = now_ts
+            try:
+                self.agent_heartbeat_once()
+            except Exception:
+                log.exception("Agent 心跳探测异常（不阻断本轮）")
         reclaimed = self.reclaim_stale()
         # 2026-08-09 review：转换请求租约同样需要自动回收（CLI 崩溃后
         # processing 停滞无人工则永久卡死）。
@@ -909,6 +1192,12 @@ class ProposalWorker:
             outcome = self.handle_ticket_request(req)
             ticket_results[outcome] = ticket_results.get(outcome, 0) + 1
             handled.append({"ticket_request_id": req.get("id"), "outcome": outcome})
+        # Ticket 全流程（2026-08-09）：confirmed Story 编排（agent 自动处理）
+        story_results: dict[str, int] = {}
+        for story in self.fetch_confirmed_stories():
+            outcome = self.handle_story(story)
+            story_results[outcome] = story_results.get(outcome, 0) + 1
+            handled.append({"story_id": story.get("id"), "outcome": outcome})
         return {
             "reclaimed": reclaimed,
             "ticket_reclaimed": ticket_reclaimed,
@@ -916,6 +1205,7 @@ class ProposalWorker:
             "handled": handled,
             "counts": results,
             "ticket_counts": ticket_results,
+            "story_counts": story_results,
         }
 
     def run_forever(self, stop: threading.Event | None = None,
@@ -1072,6 +1362,20 @@ class ProposalWorker:
             name="proposal-worker-ticket-scan", daemon=True,
         )
         ticket_keeper.start()
+        # Ticket 全流程（2026-08-09）：confirmed Story 编排扫描线程（MQ 模式下
+        # workflow 总线的 story.confirmed 事件由 Workflow Worker ack，本 Worker
+        # 周期轮询 confirmed Story 拉起 agent 推进，与轮询模式 poll_once 对齐）。
+        story_keeper = threading.Thread(
+            target=self._story_scan_loop, args=(stop,),
+            name="proposal-worker-story-scan", daemon=True,
+        )
+        story_keeper.start()
+        # Ticket 全流程（2026-08-09）：Agent 心跳探测线程（CLI 判活，置 online/offline）
+        heartbeat_keeper = threading.Thread(
+            target=self._agent_heartbeat_loop, args=(stop,),
+            name="proposal-worker-agent-heartbeat", daemon=True,
+        )
+        heartbeat_keeper.start()
         try:
             stats = broker.consume(
                 self.handle_message, max_messages=max_messages,
@@ -1081,6 +1385,8 @@ class ProposalWorker:
             stop.set()
             keeper.join(timeout=2)
             ticket_keeper.join(timeout=2)
+            story_keeper.join(timeout=2)
+            heartbeat_keeper.join(timeout=2)
         stats["mode"] = "mq"
         log.info("Worker MQ 模式退出：%s", stats)
         return stats

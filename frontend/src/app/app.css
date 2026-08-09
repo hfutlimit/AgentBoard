@@ -5047,6 +5047,18 @@ h3 { font-size: 16px; line-height: 1.4; font-weight: 650; }
   border: 1px solid rgba(96, 165, 250, .26);
   box-shadow: inset 3px 0 0 #60a5fa;
 }
+.sidebar-nav-badge {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .12);
+  color: #aebdd0;
+  font-size: 11px;
+}
+.sidebar-nav-badge.online {
+  background: rgba(22, 163, 74, .28);
+  color: #4ade80;
+}
 .sidebar-nav-icon {
   width: 19px;
   height: 19px;
@@ -5650,4 +5662,92 @@ select:focus {
 .dark .form-auto-hint {
   background: rgba(167, 139, 250, .1);
   border-color: rgba(167, 139, 250, .3);
+}
+
+/* ===== Ticket 全流程（2026-08-09）：Agent 池视图 ===== */
+.agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.agent-card {
+  background: var(--color-background-secondary, #fff);
+  border: 1px solid var(--color-border-tertiary, rgba(0, 0, 0, .12));
+  border-radius: 12px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.agent-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.agent-name {
+  font-weight: 500;
+  font-size: 14px;
+}
+.agent-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.agent-meta code {
+  font-size: 12px;
+  background: rgba(0, 0, 0, .05);
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+.agent-sub {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.agent-caps {
+  font-size: 12px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ===== Ticket 全流程：Story 确认按钮 + 状态历史 ===== */
+.story-confirm-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 12px;
+  flex-wrap: wrap;
+}
+.story-history-toggle {
+  margin: 10px 0 2px;
+}
+.story-status-history {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 10px;
+  padding: 10px 12px;
+  background: var(--color-background-tertiary, rgba(0, 0, 0, .03));
+  border-radius: 10px;
+}
+.status-history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.history-arrow {
+  color: var(--color-text-tertiary, #94a3b8);
+}
+.history-reason {
+  flex-basis: 100%;
+  padding-left: 4px;
+}
+.dark .agent-meta code {
+  background: rgba(255, 255, 255, .08);
 }

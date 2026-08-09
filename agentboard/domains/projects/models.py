@@ -9,11 +9,15 @@ from sqlalchemy.orm import Mapped, mapped_column
 from ..common.enums import SprintStatus, Status
 from ..common.models import Base, utc_now
 
-# Story 评审闭环新增状态（Epic 122 S1）：不并入共用 Status 枚举，避免污染 Task 状态机。
-# 仅 Story 使用；pending_review=待评审，ready=评审通过可进入开发。
-STORY_REVIEW_STATUSES = {"pending_review", "ready"}
+# Story 状态集合（Ticket 全流程，2026-08-09）：不并入共用 Status 枚举，避免污染 Task 状态机。
+# 8 值：backlog=创建默认；confirmed=用户确认要做（人工闸门，触发 agent 自动处理）；
+# todo/in_progress/in_review/verifying/done=常规执行流；blocked=异常态（无 previous_status 恢复）。
+# 评审职责已整体下沉 Task 层（design task 的 in_design 评审流 + 实现 task 的 in_review 评审）。
+STORY_STATUSES = {"backlog", "confirmed", "todo", "in_progress", "in_review",
+                  "verifying", "done", "blocked"}
+STORY_REVIEW_STATUSES = set()  # 历史兼容占位：Story 级评审态已下线（恒空）
 
-STORY_STATUS_SQL = "status IN ('backlog','todo','in_progress','in_review','verifying','done','pending_review','ready','blocked')"
+STORY_STATUS_SQL = "status IN ('backlog','confirmed','todo','in_progress','in_review','verifying','done','blocked')"
 
 
 class Project(Base):
@@ -56,6 +60,27 @@ class Story(Base):
         ForeignKey("users.id"), nullable=True, index=True
     )
     review_round: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class StoryStatusHistory(Base):
+    """Story 状态变更历史（Ticket 全流程，2026-08-09）。
+
+    与 task_status_history 同构：每次状态变更追加一条，可追溯/审计。
+    changed_by 为操作人 user_id（系统操作可空）；reason 记录变更原因/备注。
+    """
+
+    __tablename__ = "story_status_history"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    story_id: Mapped[int] = mapped_column(
+        ForeignKey("stories.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    from_status: Mapped[str] = mapped_column(String(40), nullable=False)
+    to_status: Mapped[str] = mapped_column(String(40), nullable=False)
+    changed_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    reason: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 

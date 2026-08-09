@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable, of, throwError, timer, Subject } from 'rxjs';
 import { catchError, tap, map, switchMap, mergeMap, debounceTime, takeUntil } from 'rxjs/operators';
 
-import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, OverviewStats, PagedResult, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, TicketRequestItem, TicketType } from './models';
+import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, OverviewStats, PagedResult, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, TicketRequestItem, TicketType, AgentRow, StoryStatusHistoryRow } from './models';
 
 export const AUTH_EXPIRED_EVENT = 'agentboard:auth-expired';
 
@@ -453,6 +453,20 @@ export class ApiService {
   }
   updateStory(id: number, body: Partial<Story>) {
     return this.request<Story>('PATCH', `/api/stories/${id}`, body);
+  }
+  // Ticket 全流程（2026-08-09）：用户确认 Story 开始（人工闸门）+ 自动收尾 + 状态历史
+  confirmStory(id: number) {
+    return this.request<Story>('POST', `/api/stories/${id}/confirm`);
+  }
+  completeStory(id: number) {
+    return this.request<Story>('POST', `/api/stories/${id}/complete`);
+  }
+  storyStatusHistory(id: number) {
+    return this.request<{ items: StoryStatusHistoryRow[]; total: number }>(
+      'GET', `/api/stories/${id}/status-history`);
+  }
+  listAgents() {
+    return this.request<AgentRow[]>('GET', '/api/agents');
   }
   deleteStory(id: number) {
     return this.request<{ ok: boolean }>('DELETE', `/api/stories/${id}`).pipe(

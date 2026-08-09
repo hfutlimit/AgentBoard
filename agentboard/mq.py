@@ -675,9 +675,12 @@ EVENT_TASK_REJECTED = "task.rejected"
 # ticket_created   —— ticket 生成成功（通知接力，供 workflow_worker / 定向队列感知）
 EVENT_TICKET_REQUESTED = "proposal.ticket_requested"
 EVENT_TICKET_CREATED = "proposal.ticket_created"
+# Ticket 全流程（2026-08-09）：用户确认 Story 开始（人工闸门）→ 触发 agent 自动处理
+EVENT_STORY_CONFIRMED = "story.confirmed"
 
 WORKFLOW_EVENTS: frozenset[str] = frozenset({
     EVENT_STORY_CREATED,
+    EVENT_STORY_CONFIRMED,
     EVENT_REVIEW_REQUESTED,
     EVENT_REVIEW_REJECTED,
     EVENT_REVIEW_VOTE_CAST,

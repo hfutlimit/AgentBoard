@@ -1,5 +1,6 @@
 export type ItemType = 'task' | 'bug' | 'test_execution' | 'design';
-export type Status = 'backlog' | 'todo' | 'in_design' | 'design_pending_review' | 'design_review_approved' | 'in_progress' | 'in_review' | 'final_review' | 'verifying' | 'done' | 'blocked';
+// 2026-08-09 Ticket 全流程：Story 新增 confirmed（用户确认闸门），Task 用不到但同属 Status 联合
+export type Status = 'backlog' | 'confirmed' | 'todo' | 'in_design' | 'design_pending_review' | 'design_review_approved' | 'in_progress' | 'in_review' | 'final_review' | 'verifying' | 'done' | 'blocked';
 export type Priority = 'highest' | 'high' | 'medium' | 'low' | 'lowest';
 
 export interface Project {
@@ -111,6 +112,33 @@ export interface ProjectMember {
   role: 'owner' | 'member';
   joined_at: string;
   username: string | null;
+}
+
+// Ticket 全流程（2026-08-09）：Agent 注册表（前端 Agent 池视图）
+export interface AgentRow {
+  id: number;
+  agent_id: string;
+  name: string;
+  roles: string;          // JSON array string
+  capabilities: string;   // JSON array string
+  cli_command: string;
+  auth_key: string;
+  user_id: number | null;
+  online: boolean;
+  last_heartbeat: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Story 状态变更历史（Ticket 全流程）
+export interface StoryStatusHistoryRow {
+  id: number;
+  story_id: number;
+  from_status: string;
+  to_status: string;
+  changed_by: number | null;
+  reason: string;
+  created_at: string;
 }
 
 export interface Notification {

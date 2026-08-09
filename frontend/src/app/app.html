@@ -127,6 +127,13 @@
           <span class="sidebar-nav-icon">📊</span>
           <span class="sidebar-nav-label">仪表盘</span>
         </a>
+        <a (click)="goAgents()" [class.active]="view() === 'agents'" class="sidebar-nav-item" style="cursor:pointer">
+          <span class="sidebar-nav-icon">🤖</span>
+          <span class="sidebar-nav-label">Agents</span>
+          @if (agents().length > 0) {
+            <span class="sidebar-nav-badge" [class.online]="agents().filter(a => a.online).length > 0">{{ agents().filter(a => a.online).length }}/{{ agents().length }}</span>
+          }
+        </a>
         <div class="sidebar-nav-group">
           <a routerLink="/projects" [class.active]="view() === 'projects'" class="sidebar-nav-item">
             <span class="sidebar-nav-icon">📁</span>
@@ -1364,12 +1371,42 @@
                   <div class="detail-meta">
                     <span class="detail-meta__item">🗓 创建于 {{ formatDateTime(current.created_at) }}</span>
                   </div>
+                  @if (current.status === 'backlog') {
+                    <div class="story-confirm-row">
+                      <button id="confirm-story-btn" class="btn-primary-sm" (click)="confirmStory()" [disabled]="confirmingStory()">
+                        {{ confirmingStory() ? '确认中…' : '✅ 确认开始（触发 Agent 自动处理）' }}
+                      </button>
+                      <span class="muted">确认后 Story 进入自动流转：设计 → 开发 → 评审 → 测试</span>
+                    </div>
+                  }
                   @if (current.description) {
                     <div class="card md story-description task-md" [innerHTML]="renderMarkdown(current.description)"></div>
                   } @else {
                     <div class="card md story-description task-md-empty">（空）</div>
                   }
                   <button class="btn-edit-detail" (click)="toggleEditStory(current)">✏ 编辑 Story</button>
+                  <div class="story-history-toggle">
+                    <button class="ghost-sm" (click)="toggleStoryStatusHistory()">
+                      {{ showStoryStatusHistory() ? '▾ 收起状态历史' : '▸ 状态历史' }}
+                      @if (storyStatusHistory().length > 0) { <span class="count">{{ storyStatusHistory().length }}</span> }
+                    </button>
+                  </div>
+                  @if (showStoryStatusHistory()) {
+                    <div class="story-status-history" id="story-status-history">
+                      @if (storyStatusHistory().length === 0) {
+                        <div class="empty-inline">暂无状态变更记录。</div>
+                      }
+                      @for (h of storyStatusHistory(); track h.id) {
+                        <div class="status-history-item">
+                          <span class="badge status status--{{ h.from_status }}">{{ statusLabel(h.from_status) }}</span>
+                          <span class="history-arrow">→</span>
+                          <span class="badge status status--{{ h.to_status }}">{{ statusLabel(h.to_status) }}</span>
+                          <span class="muted">{{ timeAgo(h.created_at) }}</span>
+                          @if (h.reason) { <span class="muted history-reason">{{ h.reason }}</span> }
+                        </div>
+                      }
+                    </div>
+                  }
                   @if (editStoryOpen()) {
                     <div class="edit-popup-overlay">
                       <div class="edit-popup">
@@ -2562,6 +2599,56 @@
             }
           }
         }
+        @case ('agents') {
+          <div class="crumb-bar"><span>Agent 池</span></div>
+          <div class="page-header">
+            <div class="page-title-row">
+              <h2>Agent 池</h2>
+              <span class="badge count-badge">{{ agents().length }}</span>
+            </div>
+            <div class="page-actions">
+              <button class="btn-primary-sm" (click)="loadAgents()">刷新</button>
+            </div>
+          </div>
+          <p class="muted">已注册的协作 Agent。Worker 定时经 CLI 探测心跳（在线 Agent 才会被分配评审 / 自动处理任务）。</p>
+          @if (agentLoading()) {
+            <div class="empty-state">加载中…</div>
+          } @else if (agents().length === 0) {
+            <div class="empty-state" id="agents-empty">
+              还没有注册 Agent。Agent 可通过 AgentBoard MCP 的 <code>agent_register</code> 工具注册身份（含 CLI 命令后由 Worker 自动判活）。
+            </div>
+          } @else {
+            <div class="stats-grid" id="agents-stats">
+              <div class="stat-card"><div class="stat-value">{{ agents().length }}</div><div class="stat-label">总数</div></div>
+              <div class="stat-card"><div class="stat-value">{{ agents().filter(a => a.online).length }}</div><div class="stat-label">在线</div></div>
+              <div class="stat-card"><div class="stat-value">{{ agents().filter(a => !a.online).length }}</div><div class="stat-label">离线</div></div>
+            </div>
+            <div class="agent-list" id="agents-list">
+              @for (a of agents(); track a.id) {
+                <div class="agent-card">
+                  <div class="agent-card-head">
+                    <span class="agent-name">{{ a.name }}</span>
+                    <span class="badge" [class]="a.online ? 'badge-success' : 'badge-danger'">{{ a.online ? '在线' : '离线' }}</span>
+                  </div>
+                  <div class="agent-meta">
+                    <code>{{ a.agent_id }}</code>
+                    @for (r of agentRoles(a); track r) { <span class="chip">{{ r }}</span> }
+                  </div>
+                  <div class="agent-sub">
+                    @if (a.cli_command) { <span class="muted">CLI：<code>{{ a.cli_command }}</code></span> }
+                    <span class="muted">心跳：{{ a.last_heartbeat ? timeAgo(a.last_heartbeat) : '从未' }}</span>
+                  </div>
+                  @if (agentCapabilities(a).length > 0) {
+                    <div class="agent-caps">
+                      @for (c of agentCapabilities(a); track c) { <span class="muted">· {{ c }}</span> }
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+          }
+        }
+
         @case ('proposals') {
           <div class="crumb-bar"><span>需求提案</span></div>
           <div class="page-header">

@@ -9,10 +9,10 @@ import { filter } from 'rxjs/operators';
 
 import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric, resolveApiBase } from './api.service';
 import { LoginComponent } from './login/login';
-import { AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, OverviewStats, Priority, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, SprintStatus, Status, Story, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES, TicketRequestItem, TicketType } from './models';
+import { AgentRow, AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, OverviewStats, Priority, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, SprintStatus, Status, Story, StoryStatusHistoryRow, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES, TicketRequestItem, TicketType } from './models';
 import { PaginationComponent } from './pagination/pagination';
 
-type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'notifications' | 'admin' | 'settings' | 'not-found';
+type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
 type ProjectTabKind = 'epics' | 'sprints' | 'backlog' | 'proposals' | 'settings' | 'members' | 'stats' | 'schedules' | 'documents';
 type ProjectListKind = 'epics' | 'sprints' | 'backlog' | 'members' | 'schedules';
@@ -93,6 +93,12 @@ export class App implements OnInit, OnDestroy {
   readonly epic = signal<Epic | null>(null);
   readonly story = signal<Story | null>(null);
   readonly task = signal<Task | null>(null);
+  // Ticket 全流程（2026-08-09）：Agent 池视图 + Story 确认/状态历史
+  readonly agents = signal<AgentRow[]>([]);
+  readonly agentLoading = signal(false);
+  readonly storyStatusHistory = signal<StoryStatusHistoryRow[]>([]);
+  readonly showStoryStatusHistory = signal(false);
+  readonly confirmingStory = signal(false);
   readonly view = signal<ViewKind>('home');
   readonly loading = signal(true);
   /** Epic 78 (v6.6): 手动刷新进行中标记，用于刷新按钮的加载态与防重复点击 */
@@ -2271,6 +2277,81 @@ export class App implements OnInit, OnDestroy {
     );
   }
 
+  // ---------- Ticket 全流程（2026-08-09）：Story 确认 / 状态历史 / Agent 池 ----------
+
+  /** 用户确认 Story 开始（人工闸门）：backlog → confirmed，触发 agent 自动处理。 */
+  async confirmStory(): Promise<void> {
+    const story = this.story();
+    if (!story || this.confirmingStory()) return;
+    this.confirmingStory.set(true);
+    try {
+      const updated = await firstValueFrom(this.api.confirmStory(story.id));
+      this.story.update((s) => (s ? { ...s, status: updated.status } : s));
+      this.notify('已确认，Agent 自动处理已启动', 'success');
+      await this.loadStoryTasks(updated.id, this.storyTaskPage());
+      this.loadStoryStatusHistory();
+    } catch (e: any) {
+      this.notify(`确认失败：${e?.error?.detail || e?.message || '未知错误'}`, 'error');
+    } finally {
+      this.confirmingStory.set(false);
+    }
+  }
+
+  async loadStoryStatusHistory(): Promise<void> {
+    const story = this.story();
+    if (!story) return;
+    try {
+      const rows = await firstValueFrom(this.api.storyStatusHistory(story.id));
+      this.storyStatusHistory.set(Array.isArray(rows) ? rows : rows?.items || []);
+    } catch {
+      this.storyStatusHistory.set([]);
+    }
+  }
+
+  toggleStoryStatusHistory(): void {
+    this.showStoryStatusHistory.update((v) => !v);
+    if (this.showStoryStatusHistory() && !this.storyStatusHistory().length) {
+      this.loadStoryStatusHistory();
+    }
+  }
+
+  /** 进入 Agent 池视图并加载列表（用户可见自己的 agent 数量与在线状态）。 */
+  async goAgents(): Promise<void> {
+    this.view.set('agents');
+    await this.loadAgents();
+  }
+
+  async loadAgents(): Promise<void> {
+    this.agentLoading.set(true);
+    try {
+      const rows = await firstValueFrom(this.api.listAgents());
+      this.agents.set(Array.isArray(rows) ? rows : []);
+    } catch (e: any) {
+      this.notify(`Agent 列表加载失败：${e?.error?.detail || e?.message || ''}`, 'error');
+      this.agents.set([]);
+    } finally {
+      this.agentLoading.set(false);
+    }
+  }
+
+  agentRoles(a: AgentRow): string[] {
+    try {
+      const arr = JSON.parse(a.roles || '[]');
+      return Array.isArray(arr) ? arr.map(String) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  agentCapabilities(a: AgentRow): string[] {
+    try {
+      const arr = JSON.parse(a.capabilities || '[]');
+      return Array.isArray(arr) ? arr.map(String) : [];
+    } catch {
+      return [];
+    }
+  }
+
   async saveTask(
     title: string,
     description: string,
@@ -3803,6 +3884,7 @@ export class App implements OnInit, OnDestroy {
       (
         {
           backlog: '待规划',
+          confirmed: '已确认',
           todo: '待办',
           in_design: '设计中',
           design_pending_review: '设计待评审',
@@ -3813,8 +3895,6 @@ export class App implements OnInit, OnDestroy {
           verifying: '验证中',
           done: '完成',
           blocked: '已阻塞',
-          pending_review: '待评审',
-          ready: '已就绪',
         } as Record<string, string>
       )[status] || status
     );
@@ -3833,14 +3913,14 @@ export class App implements OnInit, OnDestroy {
   // Epic 37 (v2.5): 状态色点（复用既有 statusLabel 做文案）
   statusColor(status: string): string {
     return (
-      { backlog: '#F59E0B', todo: '#0EA5E9', in_design: '#8B5CF6', design_pending_review: '#A78BFA', design_review_approved: '#6366F1', in_progress: '#5B5BD6', in_review: '#7C3AED', final_review: '#EC4899', verifying: '#0EA5E9', done: '#16A34A', blocked: '#DC2626', pending_review: '#F59E0B', ready: '#10B981' } as Record<string, string>
+      { backlog: '#F59E0B', confirmed: '#F59E0B', todo: '#0EA5E9', in_design: '#8B5CF6', design_pending_review: '#A78BFA', design_review_approved: '#6366F1', in_progress: '#5B5BD6', in_review: '#7C3AED', final_review: '#EC4899', verifying: '#0EA5E9', done: '#16A34A', blocked: '#DC2626' } as Record<string, string>
     )[status] || '#94a3b8';
   }
 
   // Story 199: 状态语义色类（warning/info/primary/violet/sky/success/danger）
   statusSemanticClass(status: string): string {
     return (
-      { backlog: 'warning', todo: 'info', in_design: 'violet', design_pending_review: 'violet', design_review_approved: 'violet', in_progress: 'primary', in_review: 'violet', final_review: 'info', verifying: 'sky', done: 'success', blocked: 'danger', pending_review: 'warning', ready: 'success' } as Record<string, string>
+      { backlog: 'warning', confirmed: 'warning', todo: 'info', in_design: 'violet', design_pending_review: 'violet', design_review_approved: 'violet', in_progress: 'primary', in_review: 'violet', final_review: 'info', verifying: 'sky', done: 'success', blocked: 'danger' } as Record<string, string>
     )[status] || 'info';
   }
 

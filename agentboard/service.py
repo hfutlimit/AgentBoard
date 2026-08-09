@@ -16,8 +16,9 @@ from .models import (
     ProjectMember, Notification, User, ApiKey, AuditLog, TaskDependency, WebhookConfig,
     Document, DocumentComment, DocumentFolder, ReviewVote, TaskStatusHistory,
     Proposal, ProposalRound, ProposalQuestion, ProposalTicketRequest,
+    StoryStatusHistory,
 )
-from .domains.projects.models import STORY_REVIEW_STATUSES
+from .domains.projects.models import STORY_REVIEW_STATUSES, STORY_STATUSES
 from .domains.documents.models import (
     DocumentStatus, DocumentType,
     ALL_DOCUMENT_TYPES, ALL_DOCUMENT_STATUSES, DOCUMENT_TRANSITIONS,
@@ -85,6 +86,21 @@ def transitions_for(needs_design: bool) -> dict:
     for src, targets in _DESIGN_SEGMENT.items():
         merged.setdefault(src, set()).update(targets)
     return merged
+
+
+# Story 强制迁移（Ticket 全流程，2026-08-09）：单步查表 + blocked 全向特判（set_story_status）。
+# 与 Task 的 TRANSITIONS 同模式；Story 无 previous_status（blocked 解除仅限 → todo/in_progress）。
+# confirmed 是「用户确认要做」的人工闸门态，由 confirm_story 专用入口触发（PATCH 亦可）。
+STORY_TRANSITIONS: dict[str, set[str]] = {
+    "backlog":     {"confirmed", "blocked"},
+    "confirmed":   {"todo", "blocked"},
+    "todo":        {"in_progress", "backlog", "blocked"},
+    "in_progress": {"in_review", "todo", "blocked"},
+    "in_review":   {"verifying", "done", "in_progress", "blocked"},
+    "verifying":   {"done", "in_progress", "blocked"},
+    "done":        {"in_progress", "todo", "blocked"},
+    "blocked":     {"todo", "in_progress"},
+}
 
 EDITABLE = {
     "name", "key", "description", "is_private",   # project
@@ -378,11 +394,125 @@ def update_story(s: Session, id: int, **fields) -> Story | None:
             if k == "title":
                 v = _required(v, "title", 300)
             elif k == "status":
-                # Story 额外允许评审态（pending_review/ready），Task/Epic 不受影响
-                if v not in ALL_STATUSES and v not in STORY_REVIEW_STATUSES:
+                # Story 强制迁移（Ticket 全流程）：单步查表 + blocked 全向特判；
+                # 校验失败抛 IllegalTransition（HTTP 400）。
+                if v not in STORY_STATUSES:
                     raise InvalidValue(f"invalid status '{v}'")
+                new = str(v)
+                old = st.status
+                if old != new and new != "blocked" and new not in STORY_TRANSITIONS.get(old, set()):
+                    raise IllegalTransition(f"{old} -> {new} 不合法")
             setattr(st, k, v)
-    _commit(s); s.refresh(st); return st
+    _commit(s); s.refresh(st)
+    return st
+
+
+def _record_story_status_history(s: Session, story_id: int, from_status: str, to_status: str,
+                                 *, changed_by: int | None = None, reason: str = "") -> None:
+    """Story 状态变更历史（story_status_history）：全部状态变更路径统一调用。"""
+    s.add(StoryStatusHistory(
+        story_id=story_id, from_status=from_status, to_status=to_status,
+        changed_by=changed_by, reason=reason or "",
+    ))
+
+
+def list_story_status_history(s: Session, story_id: int, limit: int = 100):
+    """Story 状态变更历史（Ticket 全流程），按时间倒序返回。"""
+    return (s.query(StoryStatusHistory)
+            .filter(StoryStatusHistory.story_id == story_id)
+            .order_by(StoryStatusHistory.id.desc())
+            .limit(limit).all())
+
+
+def set_story_status(s: Session, id: int, new_status: str, *,
+                     changed_by: int | None = None, reason: str = "") -> Story:
+    """Story 强制迁移（Ticket 全流程）：单步查表 + blocked 全向可达。
+
+    - 无 previous_status 恢复：Story 解除 blocked 仅允许 → todo / in_progress；
+    - 变更即写 story_status_history；不变则 no-op。
+    """
+    st = s.get(Story, id)
+    if not st:
+        raise NotFound(f"story {id} not found")
+    if new_status not in STORY_STATUSES:
+        raise InvalidValue(f"invalid status '{new_status}'")
+    old = st.status
+    if old == new_status:
+        s.refresh(st); return st
+    if new_status != "blocked" and new_status not in STORY_TRANSITIONS.get(old, set()):
+        raise IllegalTransition(f"{old} -> {new_status} 不合法")
+    st.status = new_status
+    _record_story_status_history(s, id, old, new_status, changed_by=changed_by, reason=reason)
+    _commit(s)
+    s.refresh(st)
+    epic = s.get(Epic, st.epic_id)
+    if epic is not None:
+        _invalidate_project_stats_cache(epic.project_id)
+    return st
+
+
+def confirm_story(s: Session, id: int, *, changed_by: int | None = None) -> Story:
+    """用户确认 Story 开始（Ticket 全流程人工闸门）：CAS backlog → confirmed。
+
+    - 条件 UPDATE ``status=backlog`` → ``confirmed``，rowcount=1 才成功；
+    - 幂等：已是 confirmed 直接返回（并发重放安全）；其它状态抛 IllegalTransition；
+    - 确认后由 api 层发 MQ ``story.confirmed`` 触发 agent 自动处理编排。
+    """
+    st = s.get(Story, id)
+    if not st:
+        raise NotFound(f"story {id} not found")
+    if st.status == "confirmed":
+        s.refresh(st); return st
+    if st.status != "backlog":
+        raise IllegalTransition(f"story {id} 当前状态 {st.status}，仅 backlog 可确认开始")
+    r = s.execute(
+        update(Story).where(Story.id == id, Story.status == "backlog")
+        .values(status="confirmed")
+    )
+    if r.rowcount != 1:
+        s.rollback()
+        raise IllegalTransition("confirm 冲突：Story 状态已被并发修改")
+    _record_story_status_history(s, id, "backlog", "confirmed", changed_by=changed_by,
+                                 reason="用户确认开始")
+    _commit(s)
+    s.refresh(st)
+    epic = s.get(Epic, st.epic_id)
+    if epic is not None:
+        _invalidate_project_stats_cache(epic.project_id)
+    return st
+
+
+def complete_story(s: Session, id: int, *, changed_by: int | None = None,
+                   reason: str = "") -> Story:
+    """Story 自动收尾（Ticket 全流程）：任意非 done/blocked 状态 → done（CAS）。
+
+    Worker 在 Story 下全部 task done 后调用本入口收尾，绕开常规迁移表
+    （agent 推进中间态后可能停在 confirmed/todo/in_progress，直接置 done
+    不在 TRANSITIONS 出边内）。blocked 不自动收尾（人工仲裁态）。
+    """
+    st = s.get(Story, id)
+    if not st:
+        raise NotFound(f"story {id} not found")
+    if st.status == "done":
+        s.refresh(st); return st
+    if st.status == "blocked":
+        raise IllegalTransition(f"story {id} 处于 blocked，禁止自动收尾（需人工仲裁）")
+    old = st.status
+    r = s.execute(
+        update(Story).where(Story.id == id, Story.status == old)
+        .values(status="done")
+    )
+    if r.rowcount != 1:
+        s.rollback()
+        raise IllegalTransition("complete 冲突：Story 状态已被并发修改")
+    _record_story_status_history(s, id, old, "done", changed_by=changed_by,
+                                 reason=reason or "全部任务完成，自动收尾")
+    _commit(s)
+    s.refresh(st)
+    epic = s.get(Epic, st.epic_id)
+    if epic is not None:
+        _invalidate_project_stats_cache(epic.project_id)
+    return st
 
 
 def delete_story(s: Session, id: int) -> bool:
@@ -698,104 +828,23 @@ def _online_reviewer_candidates(s: Session, project_id: int) -> list[Agent]:
 
 def assign_reviewer(s: Session, story_id: int, *, user_id: int | None = None,
                     is_admin: bool = False) -> Story:
-    """随机指派评审人（显式触发；幂等：已指派则复用）。
+    """Story 级评审已下线（Ticket 全流程，2026-08-09）。
 
-    CAS：条件 UPDATE ``status=backlog AND reviewer_id IS NULL`` → ``pending_review + reviewer_id``，
-    rowcount=1 才成功；并发下另一个写者获胜时回查返回其指派结果。
-    Story 创建默认 backlog，评审流由本函数显式开启（兼容 Epic 96 转化链路）。
+    评审职责整体下沉 Task 层（design task 的 in_design 评审流 / 实现 task 的
+    in_review 评审）。调用方应改用 Task 的 ``assign_task_reviewer``。
     """
-    st = s.get(Story, story_id)
-    if not st:
-        raise NotFound(f"story {story_id} not found")
-    if st.reviewer_id is not None:
-        return st  # 幂等：已指派
-    epic = s.get(Epic, st.epic_id)
-    project_id = epic.project_id if epic else None
-    if project_id is None:
-        raise NotFound(f"epic {st.epic_id} not found")
-    candidates = _online_reviewer_candidates(s, project_id)
-    if not candidates:
-        raise InvalidValue("no online reviewer available (register an online reviewer agent first)")
-    reviewer = random.choice(candidates)
-    r = s.execute(
-        update(Story).where(
-            Story.id == story_id,
-            Story.reviewer_id.is_(None),
-            Story.status == Status.BACKLOG,
-        ).values(reviewer_id=reviewer.user_id, status="pending_review")
-    )
-    if r.rowcount != 1:
-        # 并发写者已抢先指派：回查返回现态
-        s.rollback()
-        return s.get(Story, story_id)
-    _commit(s)
-    s.refresh(st)
-    return st
+    raise InvalidValue("Story 评审已下线：评审在 Task 层进行（design 评审 / 实现评审）")
 
 
 def review_story(s: Session, *, story_id: int, reviewer_user_id: int,
                  verdict: str, comment: str) -> Story:
-    """评审投票（CAS）：仅被指派 reviewer 可操作 pending_review 状态的 Story。
+    """Story 级评审已下线（Ticket 全流程，2026-08-09）。
 
-    - approve：状态 → ready（评论记录评审意见，发故事就绪语义）；
-    - reject ：review_round + 1，仍停留 pending_review（评论往返收敛）；
-    - 护栏：review_round 达 MAX_REVIEW_ROUNDS → blocked（待人工仲裁）。
-    - S3 M3：review_mode=majority 时改为多数决投票（_vote_majority），
-      投票人资格放宽为项目在线 reviewer 候选，达法定票数按多数结算。
-
-    评论是评审意见唯一载体（approve/reject 必须伴随 comment），形成审计轨迹。
+    评审职责整体下沉 Task 层：design task（in_design→design_pending_review→
+    design_review_approved）与实现 task（in_progress→in_review→done）均由
+    ``review_task`` / ``assign_task_reviewer`` 承担。
     """
-    st = s.get(Story, story_id)
-    if not st:
-        raise NotFound(f"story {story_id} not found")
-    if verdict not in ("approve", "reject"):
-        raise InvalidValue(f"invalid verdict '{verdict}' (expected approve|reject)")
-    comment = (comment or "").strip()
-    if not comment:
-        raise InvalidValue("review comment is required (approve/reject must carry a comment)")
-    # S3 M3：多数决模式走投票分支（未达法定票数不结算，状态保持）
-    if get_review_mode() == REVIEW_MODE_MAJORITY:
-        st, _settled = _vote_majority(
-            s, st, entity_type="story", reviewer_user_id=reviewer_user_id,
-            verdict=verdict, comment=comment)
-        return st
-    if st.reviewer_id != reviewer_user_id:
-        raise InvalidValue("only the assigned reviewer can review this story")
-    if st.status != "pending_review":
-        raise InvalidValue(f"story is not pending_review (current status: {st.status})")
-    reviewer = s.get(User, reviewer_user_id)
-    author_name = reviewer.display_name or reviewer.username if reviewer else f"user#{reviewer_user_id}"
-
-    if verdict == "approve":
-        r = s.execute(
-            update(Story).where(
-                Story.id == story_id,
-                Story.reviewer_id == reviewer_user_id,
-                Story.status == "pending_review",
-            ).values(status="ready")
-        )
-        if r.rowcount != 1:
-            s.rollback()
-            raise InvalidValue("review conflict: story state changed concurrently")
-        _commit(s)
-    else:  # reject
-        new_round = (st.review_round or 0) + 1
-        target = "blocked" if new_round >= MAX_REVIEW_ROUNDS else "pending_review"
-        r = s.execute(
-            update(Story).where(
-                Story.id == story_id,
-                Story.reviewer_id == reviewer_user_id,
-                Story.status == "pending_review",
-            ).values(review_round=new_round, status=target)
-        )
-        if r.rowcount != 1:
-            s.rollback()
-            raise InvalidValue("review conflict: story state changed concurrently")
-        _commit(s)
-    # 评审意见落评论（唯一载体）
-    create_comment(s, author=author_name, content=comment, story_id=story_id)
-    s.refresh(st)
-    return st
+    raise InvalidValue("Story 评审已下线：评审在 Task 层进行（design 评审 / 实现评审）")
 
 
 def list_review_tasks(s: Session, user_id: int, *, status: str | None = None):

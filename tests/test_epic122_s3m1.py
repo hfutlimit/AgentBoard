@@ -250,43 +250,24 @@ def test_api_create_story_notifies(seeded):
         assert args[3]["status"] == "backlog"
 
 
-def test_api_review_story_ready_notifies(seeded):
-    """approve → story.ready webhook（事件名与 MQ 同构）。"""
+def test_api_review_story_deprecated_422(seeded):
+    """Story 评审已下线（2026-08-09）：approve/reject 端点均返回 422 且不通知 webhook。"""
     pid, dev, rev, _, sid = seeded
-    with SessionLocal() as s:
-        service.assign_reviewer(s, sid)  # backlog → pending_review + reviewer
-        s.commit()
     c = _client()
     with mock.patch.object(api, "_notify_webhooks") as nw:
         r = c.post(f"/api/stories/{sid}/review",
                    headers={"Authorization": f"Bearer {auth.make_token(rev)}"},
                    json={"verdict": "approve", "comment": "S3M1 ok"})
-        assert r.status_code == 200, r.text
-        assert r.json()["status"] == "ready"
-        nw.assert_called_once()
-        args = nw.call_args.args
-        assert args[1] == pid
-        assert args[2] == EVENT_STORY_READY
-        assert args[3]["status"] == "ready"
-
-
-def test_api_review_story_reject_notifies(seeded):
-    pid, _, rev, _, sid = seeded
-    with SessionLocal() as s:
-        service.assign_reviewer(s, sid)
-        s.commit()
-    c = _client()
+        assert r.status_code == 422, r.text
+        assert "评审已下线" in r.json().get("detail", "")
+        nw.assert_not_called()
     with mock.patch.object(api, "_notify_webhooks") as nw:
         r = c.post(f"/api/stories/{sid}/review",
                    headers={"Authorization": f"Bearer {auth.make_token(rev)}"},
                    json={"verdict": "reject", "comment": "需补充"})
-        assert r.status_code == 200, r.text
-        assert r.json()["status"] == "pending_review"
-        nw.assert_called_once()
-        args = nw.call_args.args
-        assert args[1] == pid
-        assert args[2] == EVENT_REVIEW_REJECTED
-        assert args[3]["review_round"] == 1
+        assert r.status_code == 422, r.text
+        assert "评审已下线" in r.json().get("detail", "")
+        nw.assert_not_called()
 
 
 def test_api_submit_review_notifies(seeded):

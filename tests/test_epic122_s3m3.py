@@ -80,13 +80,7 @@ def seeded():
     return _seed()
 
 
-def _pending_story(s, epic_id, *, reviewer_id, round_=0):
-    from agentboard.models import Story
-    st = Story(epic_id=epic_id, title="S3M3 st", status="pending_review",
-               reviewer_id=reviewer_id, review_round=round_)
-    s.add(st)
-    s.flush()
-    return st
+
 
 
 def _inreview_task(s, project_id, *, reviewer_id, assignee_id, round_=0):
@@ -138,26 +132,26 @@ def test_story_majority_approved(seeded, monkeypatch):
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "3")
     pid, dev, r1, r2, r3, epic_id = seeded
     with SessionLocal() as s:
-        st = _pending_story(s, epic_id, reviewer_id=r1)
-        st_id = st.id
+        st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
+        t_id = st.id
         s.commit()
 
         # 前 2 票未达 quorum：状态保持 pending_review，round 不变
-        s1 = service.review_story(s, story_id=st_id, reviewer_user_id=r1,
+        s1 = service.review_task(s, task_id=t_id, reviewer_user_id=r1,
                                   verdict="approve", comment="LGTM 1")
-        assert s1.status == "pending_review" and s1.review_round == 0
-        s2 = service.review_story(s, story_id=st_id, reviewer_user_id=r2,
+        assert s1.status == "in_review" and s1.review_round == 0
+        s2 = service.review_task(s, task_id=t_id, reviewer_user_id=r2,
                                   verdict="approve", comment="LGTM 2")
-        assert s2.status == "pending_review" and s2.review_round == 0
-        assert _votes(s, "story", st_id) == (2, 0, 2)
+        assert s2.status == "in_review" and s2.review_round == 0
+        assert _votes(s, "task", t_id) == (2, 0, 2)
 
         # 第 3 票达 quorum（2 approve > 0 reject）→ ready，票清空
-        s3 = service.review_story(s, story_id=st_id, reviewer_user_id=r3,
+        s3 = service.review_task(s, task_id=t_id, reviewer_user_id=r3,
                                   verdict="approve", comment="LGTM 3")
-        assert s3.status == "ready"
-        assert _votes(s, "story", st_id) == (0, 0, 0)
+        assert s3.status == "done"
+        assert _votes(s, "task", t_id) == (0, 0, 0)
         # 评论 3 条（评审意见唯一载体）
-        assert len(service.list_comments(s, story_id=st_id)) == 3
+        assert len(service.list_comments(s, task_id=t_id)) == 3
 
 
 def test_story_majority_rejected(seeded, monkeypatch):
@@ -166,19 +160,19 @@ def test_story_majority_rejected(seeded, monkeypatch):
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "3")
     pid, dev, r1, r2, r3, epic_id = seeded
     with SessionLocal() as s:
-        st = _pending_story(s, epic_id, reviewer_id=r1)
-        st_id = st.id
+        st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
+        t_id = st.id
         s.commit()
 
-        service.review_story(s, story_id=st_id, reviewer_user_id=r1,
+        service.review_task(s, task_id=t_id, reviewer_user_id=r1,
                              verdict="approve", comment="ok")
-        service.review_story(s, story_id=st_id, reviewer_user_id=r2,
+        service.review_task(s, task_id=t_id, reviewer_user_id=r2,
                              verdict="reject", comment="需求不明确 1")
-        st3 = service.review_story(s, story_id=st_id, reviewer_user_id=r3,
+        st3 = service.review_task(s, task_id=t_id, reviewer_user_id=r3,
                                    verdict="reject", comment="需求不明确 2")
-        assert st3.status == "pending_review"
+        assert st3.status == "in_progress"
         assert st3.review_round == 1  # 驳回轮次 +1
-        assert _votes(s, "story", st_id) == (0, 0, 0)  # 结算后清票
+        assert _votes(s, "task", t_id) == (0, 0, 0)  # 结算后清票
 
 
 def test_story_majority_blocked_at_round_limit(seeded, monkeypatch):
@@ -187,15 +181,15 @@ def test_story_majority_blocked_at_round_limit(seeded, monkeypatch):
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "3")
     pid, dev, r1, r2, r3, epic_id = seeded
     with SessionLocal() as s:
-        st = _pending_story(s, epic_id, reviewer_id=r1,
-                            round_=service.MAX_REVIEW_ROUNDS - 1)
-        st_id = st.id
+        t = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev,
+                           round_=service.MAX_REVIEW_ROUNDS - 1)
+        t_id = t.id
         s.commit()
-        service.review_story(s, story_id=st_id, reviewer_user_id=r1,
+        service.review_task(s, task_id=t_id, reviewer_user_id=r1,
                              verdict="reject", comment="r1 no")
-        service.review_story(s, story_id=st_id, reviewer_user_id=r2,
+        service.review_task(s, task_id=t_id, reviewer_user_id=r2,
                              verdict="reject", comment="r2 no")
-        st3 = service.review_story(s, story_id=st_id, reviewer_user_id=r3,
+        st3 = service.review_task(s, task_id=t_id, reviewer_user_id=r3,
                                    verdict="reject", comment="r3 no")
         assert st3.status == "blocked"
         assert st3.review_round == service.MAX_REVIEW_ROUNDS
@@ -252,21 +246,21 @@ def test_upsert_change_vote(seeded, monkeypatch):
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "3")
     pid, dev, r1, r2, r3, epic_id = seeded
     with SessionLocal() as s:
-        st = _pending_story(s, epic_id, reviewer_id=r1)
-        st_id = st.id
+        st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
+        t_id = st.id
         s.commit()
-        service.review_story(s, story_id=st_id, reviewer_user_id=r1,
+        service.review_task(s, task_id=t_id, reviewer_user_id=r1,
                              verdict="approve", comment="v1 approve")
-        assert _votes(s, "story", st_id) == (1, 0, 1)
+        assert _votes(s, "task", t_id) == (1, 0, 1)
         # r1 改票 reject → 票数仍 1（覆盖），verdict 变化
-        service.review_story(s, story_id=st_id, reviewer_user_id=r1,
+        service.review_task(s, task_id=t_id, reviewer_user_id=r1,
                              verdict="reject", comment="v1 changed")
-        assert _votes(s, "story", st_id) == (0, 1, 1)
+        assert _votes(s, "task", t_id) == (0, 1, 1)
         # r2 也 reject → 2 reject 仍 < quorum 3，状态保持
-        service.review_story(s, story_id=st_id, reviewer_user_id=r2,
+        service.review_task(s, task_id=t_id, reviewer_user_id=r2,
                              verdict="reject", comment="r2")
-        st_now = s.get(service.Story, st_id)
-        assert st_now.status == "pending_review"
+        st_now = s.get(service.Task, t_id)
+        assert st_now.status == "in_review"
 
 
 # ---------- 5. 平局（quorum=2，1:1）→ 保守驳回 ----------
@@ -276,17 +270,17 @@ def test_tie_vote_conservative_reject(seeded, monkeypatch):
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "2")
     pid, dev, r1, r2, r3, epic_id = seeded
     with SessionLocal() as s:
-        st = _pending_story(s, epic_id, reviewer_id=r1)
-        st_id = st.id
+        st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
+        t_id = st.id
         s.commit()
-        service.review_story(s, story_id=st_id, reviewer_user_id=r1,
+        service.review_task(s, task_id=t_id, reviewer_user_id=r1,
                              verdict="approve", comment="ok")
-        st2 = service.review_story(s, story_id=st_id, reviewer_user_id=r2,
+        st2 = service.review_task(s, task_id=t_id, reviewer_user_id=r2,
                                    verdict="reject", comment="no")
-        # 平局保守驳回：round+1，回 pending_review（评审未达成一致）
-        assert st2.status == "pending_review"
+        # 平局保守驳回：round+1，回 in_progress（评审未达成一致）
+        assert st2.status == "in_progress"
         assert st2.review_round == 1
-        assert _votes(s, "story", st_id) == (0, 0, 0)
+        assert _votes(s, "task", t_id) == (0, 0, 0)
 
 
 # ---------- 6. 超时兜底结算 ----------
@@ -298,25 +292,23 @@ def test_timeout_settle_approved(seeded, monkeypatch):
     pid, dev, r1, r2, r3, epic_id = seeded
     now = service.utc_now()
     with SessionLocal() as s:
-        st = _pending_story(s, epic_id, reviewer_id=r1)
+        st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
         st.created_at = now - timedelta(hours=2)
-        st_id = st.id
+        t_id = st.id
         s.commit()
-        service.review_story(s, story_id=st_id, reviewer_user_id=r1,
+        service.review_task(s, task_id=t_id, reviewer_user_id=r1,
                              verdict="approve", comment="ok")
-        service.review_story(s, story_id=st_id, reviewer_user_id=r2,
+        service.review_task(s, task_id=t_id, reviewer_user_id=r2,
                              verdict="approve", comment="ok2")
-        assert _votes(s, "story", st_id) == (2, 0, 2)
-        # 投票会写评论 → 最后活动被刷新；把评论与 Story 时间一起改老，模拟超时
-        s.query(service.Comment).filter(
-            service.Comment.story_id == st_id).update(
-            {"created_at": now - timedelta(hours=2)})
+        assert _votes(s, "task", t_id) == (2, 0, 2)
+        # 投票会写评论 → 把 Task 的 updated_at 改老，模拟超时
+        s.get(service.Task, t_id).updated_at = now - timedelta(hours=2)
         s.commit()
-        # 超时扫描：票数 > 0 且 approve 多数 → 兜底结算 ready
+        # 超时扫描：票数 > 0 且 approve 多数 → 兜底结算 done
         res = service.scan_review_timeouts(s, project_id=pid,
                                            timeout_minutes=30, now=now)
-        assert res["stories_settled"] == 1
-        assert s.get(service.Story, st_id).status == "ready"
+        assert res["tasks_settled"] == 1
+        assert s.get(service.Task, t_id).status == "done"
 
 
 def test_timeout_settle_tie_reject(seeded, monkeypatch):
@@ -326,23 +318,21 @@ def test_timeout_settle_tie_reject(seeded, monkeypatch):
     pid, dev, r1, r2, r3, epic_id = seeded
     now = service.utc_now()
     with SessionLocal() as s:
-        st = _pending_story(s, epic_id, reviewer_id=r1)
+        st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
         st.created_at = now - timedelta(hours=2)
-        st_id = st.id
+        t_id = st.id
         s.commit()
-        service.review_story(s, story_id=st_id, reviewer_user_id=r1,
+        service.review_task(s, task_id=t_id, reviewer_user_id=r1,
                              verdict="approve", comment="ok")
-        service.review_story(s, story_id=st_id, reviewer_user_id=r2,
+        service.review_task(s, task_id=t_id, reviewer_user_id=r2,
                              verdict="reject", comment="no")
-        s.query(service.Comment).filter(
-            service.Comment.story_id == st_id).update(
-            {"created_at": now - timedelta(hours=2)})
+        s.get(service.Task, t_id).updated_at = now - timedelta(hours=2)
         s.commit()
         res = service.scan_review_timeouts(s, project_id=pid,
                                            timeout_minutes=30, now=now)
-        assert res["stories_settled"] == 1
-        st_now = s.get(service.Story, st_id)
-        assert st_now.status == "pending_review"
+        assert res["tasks_settled"] == 1
+        st_now = s.get(service.Task, t_id)
+        assert st_now.status == "in_progress"
         assert st_now.review_round == 1
 
 
@@ -352,15 +342,15 @@ def test_timeout_zero_votes_goes_reassign(seeded, monkeypatch):
     pid, dev, r1, r2, r3, epic_id = seeded
     now = service.utc_now()
     with SessionLocal() as s:
-        st = _pending_story(s, epic_id, reviewer_id=r1)
-        st.created_at = now - timedelta(hours=2)
-        st_id = st.id
+        st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
+        st.updated_at = now - timedelta(hours=2)
+        t_id = st.id
         s.commit()
         res = service.scan_review_timeouts(s, project_id=pid,
                                            timeout_minutes=30, now=now)
-        assert res["stories_settled"] == 0
-        assert res["stories_reassigned"] == 1  # 重派（r2/r3 在线）
-        fresh = s.get(service.Story, st_id)
+        assert res["tasks_settled"] == 0
+        assert res["tasks_reassigned"] == 1  # 重派（r2/r3 在线）
+        fresh = s.get(service.Task, t_id)
         assert fresh.reviewer_id != r1 and fresh.reviewer_id in (r2, r3)
 
 
@@ -370,17 +360,17 @@ def test_single_mode_still_enforces_reviewer(seeded):
     """默认 single：非指派 reviewer 投票被拒（既有 S1/S2 契约）。"""
     pid, dev, r1, r2, r3, epic_id = seeded
     with SessionLocal() as s:
-        st = _pending_story(s, epic_id, reviewer_id=r1)
-        st_id = st.id
+        st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
+        t_id = st.id
         s.commit()
         with pytest.raises(service.InvalidValue):
-            service.review_story(s, story_id=st_id, reviewer_user_id=r2,
+            service.review_task(s, task_id=t_id, reviewer_user_id=r2,
                                  verdict="approve", comment="hijack")
         # 指派 reviewer approve → ready（single 直判）
-        st2 = service.review_story(s, story_id=st_id, reviewer_user_id=r1,
+        st2 = service.review_task(s, task_id=t_id, reviewer_user_id=r1,
                                    verdict="approve", comment="ok")
-        assert st2.status == "ready"
-        assert _votes(s, "story", st_id) == (0, 0, 0)  # 无投票表写入
+        assert st2.status == "done"
+        assert _votes(s, "task", t_id) == (0, 0, 0)  # 无投票表写入
 
 
 def test_single_mode_task_reject_round(seeded):
@@ -403,12 +393,12 @@ def test_majority_rejects_non_candidate(seeded, monkeypatch):
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
     pid, dev, r1, r2, r3, epic_id = seeded
     with SessionLocal() as s:
-        st = _pending_story(s, epic_id, reviewer_id=r1)
-        st_id = st.id
+        st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
+        t_id = st.id
         s.commit()
         # dev 是项目成员但非 reviewer 角色 Agent → 拒绝
         with pytest.raises(service.InvalidValue):
-            service.review_story(s, story_id=st_id, reviewer_user_id=dev,
+            service.review_task(s, task_id=t_id, reviewer_user_id=dev,
                                  verdict="approve", comment="hijack")
 
 
@@ -435,20 +425,20 @@ def test_majority_rejects_offline_agent(seeded, monkeypatch):
         s.query(service.Agent).filter(service.Agent.user_id == r3).update(
             {"online": False})
         s.commit()
-        st = _pending_story(s, epic_id, reviewer_id=r1)
-        st_id = st.id
+        st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
+        t_id = st.id
         s.commit()
         with pytest.raises(service.InvalidValue):
-            service.review_story(s, story_id=st_id, reviewer_user_id=r3,
+            service.review_task(s, task_id=t_id, reviewer_user_id=r3,
                                  verdict="approve", comment="offline vote")
 
 
 # ---------- 9. API 事件：vote_cast / 结算事件 ----------
 
-def _call_api_review_story(sid, reviewer, verdict, comment, token):
+def _call_api_review_task(tid, reviewer, verdict, comment, token):
     from fastapi.testclient import TestClient
     with TestClient(api.app) as c:
-        r = c.post(f"/api/stories/{sid}/review",
+        r = c.post(f"/api/tasks/{tid}/review",
                    json={"verdict": verdict, "comment": comment},
                    headers={"Authorization": f"Bearer {token}"})
         return r
@@ -465,29 +455,29 @@ def test_api_vote_cast_then_ready_event(seeded, monkeypatch):
     from agentboard import auth as _auth
     tokens = {u: _auth.make_token(u, ttl_seconds=3600) for u in (r1, r2, r3)}
     with SessionLocal() as s:
-        st = _pending_story(s, epic_id, reviewer_id=r1)
-        st_id = st.id
+        st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
+        t_id = st.id
         s.commit()
     mq_events, wh_events = [], []
     with mock.patch.object(api, "publish_workflow_event",
                            side_effect=lambda *a, **k: mq_events.append((a, k))), \
          mock.patch.object(api, "_notify_webhooks",
                            side_effect=lambda *a, **k: wh_events.append((a, k))):
-        _call_api_review_story(st_id, r1, "approve", "ok1", tokens[r1])
-        _call_api_review_story(st_id, r2, "approve", "ok2", tokens[r2])
-        _call_api_review_story(st_id, r3, "approve", "ok3", tokens[r3])
+        _call_api_review_task(t_id, r1, "approve", "ok1", tokens[r1])
+        _call_api_review_task(t_id, r2, "approve", "ok2", tokens[r2])
+        _call_api_review_task(t_id, r3, "approve", "ok3", tokens[r3])
     names = [e[0][0] for e in mq_events]
     assert names == [mq.EVENT_REVIEW_VOTE_CAST, mq.EVENT_REVIEW_VOTE_CAST,
-                     mq.EVENT_STORY_READY]
-    # vote_cast 的 ref_id（kwargs）是投票人；story.ready 的 ref_id 是 reviewer_id
+                     mq.EVENT_TASK_REVIEWED]
+    # vote_cast / task.reviewed 的 ref_id（kwargs）都是投票人
     assert mq_events[0][1]["ref_id"] == r1
     assert mq_events[1][1]["ref_id"] == r2
     # Webhook 通道与 MQ 事件同构（_notify_webhooks(s, project_id, event, payload)）
     wh_names = [e[0][2] for e in wh_events]
     assert wh_names == [mq.EVENT_REVIEW_VOTE_CAST, mq.EVENT_REVIEW_VOTE_CAST,
-                        mq.EVENT_STORY_READY]
+                        mq.EVENT_TASK_REVIEWED]
     with SessionLocal() as s:
-        assert s.get(service.Story, st_id).status == "ready"
+        assert s.get(service.Task, t_id).status == "done"
 
 
 def test_api_task_rejected_event(seeded, monkeypatch):

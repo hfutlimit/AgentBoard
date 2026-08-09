@@ -69,14 +69,7 @@ def seeded():
     return _seed()
 
 
-def _pending_story(s, epic_id, *, reviewer_id, round_=0):
-    """直建 pending_review Story（绕开 assign_reviewer 的随机性）。"""
-    from agentboard.models import Story
-    st = Story(epic_id=epic_id, title="S4M2 pending story", status="pending_review",
-               reviewer_id=reviewer_id, review_round=round_)
-    s.add(st)
-    s.flush()
-    return st
+
 
 
 def _inreview_task(s, project_id, *, reviewer_id, assignee_id=None, round_=0):
@@ -89,14 +82,7 @@ def _inreview_task(s, project_id, *, reviewer_id, assignee_id=None, round_=0):
     return t
 
 
-def _ready_story(s, epic_id, *, reviewer_id):
-    """非 pending（ready）Story —— 不应出现在 votes 中。"""
-    from agentboard.models import Story
-    st = Story(epic_id=epic_id, title="S4M2 done story", status="ready",
-               reviewer_id=reviewer_id, review_round=0)
-    s.add(st)
-    s.flush()
-    return st
+
 
 
 # ---------- 1. review_mode / review_quorum ----------
@@ -131,8 +117,8 @@ def test_stats_majority_votes_structure(seeded, monkeypatch):
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "3")
     with SessionLocal() as s:
-        _pending_story(s, epic_id, reviewer_id=r1)                 # pending story
-        _ready_story(s, epic_id, reviewer_id=r2)                   # 非 pending 不应出现
+        _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)                 # pending story
+        _inreview_task(s, pid, reviewer_id=r2, assignee_id=dev)                   # 非 pending 不应出现
         _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)  # in_review task
         s.commit()
     with SessionLocal() as s:
@@ -140,19 +126,14 @@ def test_stats_majority_votes_structure(seeded, monkeypatch):
         assert stats["review_mode"] == "majority"
         assert stats["review_quorum"] == 3
         votes = stats["votes"]
-        assert len(votes) == 2
-        by_kind = {v["kind"]: v for v in votes}
-        assert set(by_kind) == {"story", "task"}
-        st_v = by_kind["story"]
-        assert st_v["status"] == "pending_review"
+        assert len(votes) == 3
+        assert all(v["kind"] == "task" for v in votes)
+        st_v, tk_v = votes[0], votes[1]
+        assert st_v["status"] == "in_review"
         assert st_v["approve"] == 0 and st_v["reject"] == 0 and st_v["cast"] == 0
         assert st_v["quorum"] == 3
-        assert st_v["title"] == "S4M2 pending story"
-        tk_v = by_kind["task"]
         assert tk_v["status"] == "in_review"
         assert tk_v["quorum"] == 3
-        # ready story 未出现在 votes
-        assert all(v["status"] != "ready" for v in votes)
 
 
 def test_stats_majority_votes_counts(seeded, monkeypatch):
@@ -161,27 +142,26 @@ def test_stats_majority_votes_counts(seeded, monkeypatch):
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "3")
     with SessionLocal() as s:
-        st = _pending_story(s, epic_id, reviewer_id=r1)
-        t = _inreview_task(s, pid, reviewer_id=r2, assignee_id=dev)
+        t1 = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
+        t2 = _inreview_task(s, pid, reviewer_id=r2, assignee_id=dev)
         s.commit()
-        st_id, t_id = st.id, t.id
-    # r1 对 story 投 approve；r2 对 story 投 approve；r3 对 story 投 approve
-    # （达 quorum → 结算 ready → 从 pending 消失）；改为只投 2 票保持 pending
+        t1_id, t2_id = t1.id, t2.id
+    # t1：2 票 approve（未达 quorum 3 保持 in_review）；t2：1 approve 1 reject
     with SessionLocal() as s:
-        _vote(s, "story", st_id, r1, "approve")
-        _vote(s, "story", st_id, r2, "approve")
+        _vote(s, "task", t1_id, r1, "approve")
+        _vote(s, "task", t1_id, r2, "approve")
     with SessionLocal() as s:
-        _vote(s, "task", t_id, r1, "approve")
-        _vote(s, "task", t_id, r2, "reject")
+        _vote(s, "task", t2_id, r1, "approve")
+        _vote(s, "task", t2_id, r2, "reject")
     with SessionLocal() as s:
         stats = service.get_review_stats(s, project_id=pid)
-        votes = {v["kind"]: v for v in stats["votes"]}
-        assert votes["story"]["approve"] == 2
-        assert votes["story"]["reject"] == 0
-        assert votes["story"]["cast"] == 2
-        assert votes["task"]["approve"] == 1
-        assert votes["task"]["reject"] == 1
-        assert votes["task"]["cast"] == 2
+        by_id = {v["id"]: v for v in stats["votes"]}
+        t1v = by_id[t1_id]
+        assert t1v["approve"] == 2
+        assert t1v["reject"] == 0
+        assert t1v["cast"] == 2
+        assert t1v["quorum"] == 3
+        assert len(by_id) == 2
 
 
 def _vote(s, entity_type, entity_id, reviewer_user_id, verdict):
@@ -198,7 +178,7 @@ def test_stats_single_mode_votes_empty(seeded):
     pid, dev, r1, r2, r3, epic_id = seeded
     # 默认 single（模块级已清 env）
     with SessionLocal() as s:
-        _pending_story(s, epic_id, reviewer_id=r1)
+        _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
         _inreview_task(s, pid, reviewer_id=r2, assignee_id=dev)
         s.commit()
     with SessionLocal() as s:
@@ -257,12 +237,12 @@ def test_api_review_stats_majority_pending_votes(seeded, monkeypatch):
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "3")
     with SessionLocal() as s:
-        st = _pending_story(s, epic_id, reviewer_id=r1)
+        t = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
         s.commit()
-        st_id = st.id
+        t_id = t.id
     with SessionLocal() as s:
-        _vote(s, "story", st_id, r1, "approve")
-        _vote(s, "story", st_id, r2, "approve")
+        _vote(s, "task", t_id, r1, "approve")
+        _vote(s, "task", t_id, r2, "approve")
 
     port = _free_port()
     env = dict(os.environ)
@@ -286,7 +266,7 @@ def test_api_review_stats_majority_pending_votes(seeded, monkeypatch):
             votes = data["votes"]
             assert len(votes) == 1
             v = votes[0]
-            assert v["kind"] == "story"
+            assert v["kind"] == "task"
             assert v["approve"] == 2 and v["reject"] == 0 and v["cast"] == 2
             assert v["quorum"] == 3
     finally:

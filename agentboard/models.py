@@ -22,6 +22,7 @@ from .domains.common.models import Base, utc_now as _now
 from .domains.identity.models import ApiKey, Notification, User
 from .domains.projects.models import (
     Agent, Epic, Project, ProjectMember, ReviewVote, Sprint, Story,
+    StoryStatusHistory,
 )
 from .domains.scheduling.models import AgentRun, AgentSchedule
 from .domains.work_items.models import Attachment, AuditLog, Comment, Task, TaskDependency, TaskStatusHistory, WebhookConfig
@@ -46,6 +47,6 @@ __all__ = [
     "Proposal", "ProposalQuestion", "ProposalRound", "ProposalStatus",
     "ProposalTicketRequest", "ReviewVote",
     "RunStatus",
-    "ScheduleType", "Sprint", "SprintStatus", "Status", "Story", "Task",
-    "TaskDependency", "TaskStatusHistory", "User", "WebhookConfig",
+    "ScheduleType", "Sprint", "SprintStatus", "Status", "Story", "StoryStatusHistory",
+    "Task", "TaskDependency", "TaskStatusHistory", "User", "WebhookConfig",
 ]

@@ -19,10 +19,10 @@ from sqlalchemy.orm import Session
 from .database import get_session, init_db, SessionLocal
 from . import service, auth, mq
 from .mq import (
-    EVENT_STORY_CREATED, EVENT_REVIEW_REQUESTED, EVENT_REVIEW_REJECTED,
-    EVENT_REVIEW_VOTE_CAST, EVENT_STORY_READY, EVENT_COMMENT_REPLIED,
-    EVENT_TASK_READY_FOR_REVIEW, EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED,
-    publish_workflow_event,
+    EVENT_STORY_CREATED, EVENT_STORY_CONFIRMED, EVENT_REVIEW_REQUESTED,
+    EVENT_REVIEW_REJECTED, EVENT_REVIEW_VOTE_CAST, EVENT_STORY_READY,
+    EVENT_COMMENT_REPLIED, EVENT_TASK_READY_FOR_REVIEW, EVENT_TASK_REVIEWED,
+    EVENT_TASK_REJECTED, publish_workflow_event,
 )
 from .cos_client import client as _cos_client, CosError
 from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES, Status
@@ -897,6 +897,50 @@ def get_story(sid: int, s: Session = Depends(get_session)):
 def update_story(sid: int, body: StoryPatch, s: Session = Depends(get_session)):
     r = service.update_story(s, sid, **body.model_dump(exclude_none=True))
     return service._ser(_need(r, "story"))
+
+
+@app.post("/api/stories/{sid}/confirm")
+def confirm_story(sid: int, authorization: str | None = Header(None),
+                  s: Session = Depends(get_session)):
+    """用户确认 Story 开始（Ticket 全流程人工闸门）：backlog → confirmed。
+
+    确认后发 MQ ``story.confirmed`` 触发 agent 自动处理编排（切片 2 由
+    Proposal Worker 轮询拉起 agent）。CAS 幂等：已 confirmed 直接返回。
+    """
+    uid, _is_admin = _caller_uid_admin(authorization)
+    st = service.confirm_story(s, sid, changed_by=uid)
+    publish_workflow_event(EVENT_STORY_CONFIRMED, "story", st.id, ref_id=st.epic_id)
+    _epic = s.get(service.Epic, st.epic_id)
+    if _epic is not None:
+        _notify_webhooks(s, _epic.project_id, EVENT_STORY_CONFIRMED,
+                         {"id": st.id, "epic_id": st.epic_id, "status": st.status})
+    return service._ser(st)
+
+
+@app.get("/api/stories/{sid}/status-history")
+def story_status_history(sid: int, limit: int = Query(100, ge=1, le=500),
+                         s: Session = Depends(get_session)):
+    """Story 状态变更历史（Ticket 全流程），按时间倒序。"""
+    _need(service.get_story(s, sid), "story")
+    rows = service.list_story_status_history(s, sid, limit=limit)
+    return {"items": [service._ser(x) for x in rows], "total": len(rows)}
+
+
+@app.post("/api/stories/{sid}/complete")
+def complete_story(sid: int, authorization: str | None = Header(None),
+                   s: Session = Depends(get_session)):
+    """Story 自动收尾（Ticket 全流程）：任意非 done/blocked → done。
+
+    Worker 在 Story 下全部 task 完成后调用（agent 自动处理收尾）；blocked
+    拒绝（人工仲裁态）。幂等：已 done 直接返回。
+    """
+    uid, _is_admin = _caller_uid_admin(authorization)
+    st = service.complete_story(s, sid, changed_by=uid, reason="worker 自动收尾")
+    _epic = s.get(service.Epic, st.epic_id)
+    if _epic is not None:
+        _notify_webhooks(s, _epic.project_id, "story.completed",
+                         {"id": st.id, "status": st.status})
+    return service._ser(st)
 
 
 @app.delete("/api/stories/{sid}")

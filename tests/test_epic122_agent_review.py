@@ -118,90 +118,67 @@ def test_agent_heartbeat_and_deregister(seeded):
         s.commit()
 
 
-# ---------- 2. Story 评审闭环 ----------
+# ---------- 2. Story 评审闭环（2026-08-09 已下线，评审下沉 Task 层） ----------
 def test_assign_reviewer_no_candidate_rejected(seeded):
     with SessionLocal() as s:
         epic = service.create_epic(s, project_id=seeded[0], title="Epic NoCand")
         st = service.create_story(s, epic_id=epic.id, title="Story NoCand")
-        service.agent_deregister(s, "wb-reviewer-1", is_admin=True)
-        with pytest.raises(service.InvalidValue):
+        # Story 级评审已下线：无论是否有候选都拒绝（评审在 Task 层进行）
+        with pytest.raises(service.InvalidValue, match="评审已下线"):
             service.assign_reviewer(s, st.id)
-        # 恢复在线
-        service.agent_heartbeat(s, "wb-reviewer-1")  # user_id=None 保留归属
         s.commit()
 
 
 def test_assign_reviewer_assigns_and_idempotent(seeded):
+    """Story 级评审已下线（2026-08-09）：assign_reviewer 一律拒绝。"""
     with SessionLocal() as s:
         epic = service.create_epic(s, project_id=seeded[0], title="Epic Assign")
         st = service.create_story(s, epic_id=epic.id, title="Story Assign")
-        st2 = service.assign_reviewer(s, st.id)
-        assert st2.reviewer_id == seeded[2]  # 唯一在线 reviewer
-        assert st2.status == "pending_review"
-        # 幂等：再次调用不换人
-        st3 = service.assign_reviewer(s, st.id)
-        assert st3.reviewer_id == seeded[2]
-        assert st3.status == "pending_review"
+        with pytest.raises(service.InvalidValue, match="评审已下线"):
+            service.assign_reviewer(s, st.id)
 
 
 def test_review_story_approve(seeded):
+    """Story 级评审已下线（2026-08-09）：review_story 一律拒绝。"""
     with SessionLocal() as s:
         epic = service.create_epic(s, project_id=seeded[0], title="Epic Approve")
         st = service.create_story(s, epic_id=epic.id, title="Story Approve")
-        service.assign_reviewer(s, st.id)
-        # 非 reviewer 拒绝
-        with pytest.raises(service.InvalidValue):
-            service.review_story(s, story_id=st.id, reviewer_user_id=seeded[1],
-                                 verdict="approve", comment="nope")
-        # 缺评论拒绝
-        with pytest.raises(service.InvalidValue):
+        with pytest.raises(service.InvalidValue, match="评审已下线"):
             service.review_story(s, story_id=st.id, reviewer_user_id=seeded[2],
-                                 verdict="approve", comment="  ")
-        # reviewer approve
-        st2 = service.review_story(s, story_id=st.id, reviewer_user_id=seeded[2],
-                                   verdict="approve", comment="LGTM，需求明确")
-        assert st2.status == "ready"
-        # 评论落库（评审意见唯一载体）
-        comments = service.list_comments(s, story_id=st.id)
-        assert len(comments) == 1
-        assert comments[0].content == "LGTM，需求明确"
+                                 verdict="approve", comment="LGTM")
 
 
 def test_review_story_reject_round_guard(seeded):
+    """Story 级评审已下线（2026-08-09）：review_story 一律拒绝。"""
     with SessionLocal() as s:
         epic = service.create_epic(s, project_id=seeded[0], title="Epic Reject")
         st = service.create_story(s, epic_id=epic.id, title="Story Reject")
-        service.assign_reviewer(s, st.id)
-        for i in range(4):
-            st2 = service.review_story(s, story_id=st.id, reviewer_user_id=seeded[2],
-                                       verdict="reject", comment=f"round {i+1}")
-            assert st2.status == "pending_review"
-            assert st2.review_round == i + 1
-        # 第 5 轮 reject → blocked（护栏）
-        st3 = service.review_story(s, story_id=st.id, reviewer_user_id=seeded[2],
-                                   verdict="reject", comment="round 5 final")
-        assert st3.status == "blocked"
-        assert st3.review_round == 5
+        with pytest.raises(service.InvalidValue, match="评审已下线"):
+            service.review_story(s, story_id=st.id, reviewer_user_id=seeded[2],
+                                 verdict="reject", comment="round 1")
 
 
 def test_review_story_wrong_state_rejected(seeded):
+    """Story 级评审已下线（2026-08-09）：review_story 一律拒绝。"""
     with SessionLocal() as s:
         epic = service.create_epic(s, project_id=seeded[0], title="Epic WrongState")
         st = service.create_story(s, epic_id=epic.id, title="Story WrongState")
-        # 未 assign（backlog）直接 review 被拒
-        with pytest.raises(service.InvalidValue):
+        with pytest.raises(service.InvalidValue, match="评审已下线"):
             service.review_story(s, story_id=st.id, reviewer_user_id=seeded[2],
                                  verdict="approve", comment="early")
 
 
-def test_update_story_accepts_review_statuses_only(seeded):
+def test_update_story_accepts_confirmed_status_only(seeded):
+    """Story 状态机：confirmed 合法，pending_review/ready 已下线拒绝。"""
     with SessionLocal() as s:
         epic = service.create_epic(s, project_id=seeded[0], title="Epic Update")
         st = service.create_story(s, epic_id=epic.id, title="Story Update")
-        service.update_story(s, st.id, status="pending_review")
-        assert s.get(service.Story, st.id).status == "pending_review"
-        service.update_story(s, st.id, status="ready")
-        assert s.get(service.Story, st.id).status == "ready"
+        service.update_story(s, st.id, status="confirmed")
+        assert s.get(service.Story, st.id).status == "confirmed"
+        with pytest.raises(service.InvalidValue):
+            service.update_story(s, st.id, status="pending_review")
+        with pytest.raises(service.InvalidValue):
+            service.update_story(s, st.id, status="ready")
         with pytest.raises(service.InvalidValue):
             service.update_story(s, st.id, status="not-a-status")
 
@@ -254,6 +231,7 @@ def test_api_agent_register_list_heartbeat_deregister(seeded):
 
 
 def test_api_assign_reviewer_and_review_flow(seeded):
+    """Story 级评审已下线（2026-08-09）：assign-reviewer / review 端点返回 422。"""
     client = _client()
     auth_hdr = _token(seeded[1])
     reviewer_hdr = _token(seeded[2])
@@ -265,30 +243,19 @@ def test_api_assign_reviewer_and_review_flow(seeded):
         "title": "Story ApiFlow", "description": "",
     }, headers=auth_hdr)
     sid = r.json()["id"]
-    # 确保 reviewer agent 在线
-    client.post("/api/agents/wb-reviewer-1/heartbeat", headers=reviewer_hdr)
-    # assign-reviewer
+    # assign-reviewer → 422（评审已下线）
     r = client.post(f"/api/stories/{sid}/assign-reviewer", headers=auth_hdr)
-    assert r.status_code == 200
-    st = r.json()
-    assert st["status"] == "pending_review" and st["reviewer_id"] == seeded[2]
-    # 非 reviewer 评审被拒（422 InvalidValue）
-    r = client.post(f"/api/stories/{sid}/review", json={
-        "verdict": "approve", "comment": "hijack attempt",
-    }, headers=auth_hdr)
     assert r.status_code == 422
-    # reviewer approve
+    assert "评审已下线" in r.json().get("detail", "")
+    # review → 422（评审已下线）
     r = client.post(f"/api/stories/{sid}/review", json={
-        "verdict": "approve", "comment": "API flow approved",
+        "verdict": "approve", "comment": "flow",
     }, headers=reviewer_hdr)
+    assert r.status_code == 422
+    # confirm 端点正常（新闸门）
+    r = client.post(f"/api/stories/{sid}/confirm", headers=auth_hdr)
     assert r.status_code == 200
-    assert r.json()["status"] == "ready"
-    # 全局列表过滤 reviewer_id=me
-    r = client.get("/api/stories", params={"reviewer_id": "me", "status": "ready"}, headers=reviewer_hdr)
-    assert r.status_code == 200
-    data = r.json()
-    assert data["total"] >= 1
-    assert all(x["reviewer_id"] == seeded[2] for x in data["items"])
+    assert r.json()["status"] == "confirmed"
 
 
 def test_api_list_stories_global_bad_status(seeded):

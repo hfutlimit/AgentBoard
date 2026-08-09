@@ -381,10 +381,27 @@ def get_story(story_id: int) -> dict:
 @mcp.tool()
 def update_story(story_id: int, title: str | None = None, description: str | None = None,
                 status: str | None = None, needs_design: bool | None = None) -> dict:
-    """更新 Story 标题/描述/状态/needs_design。"""
+    """更新 Story 标题/描述/状态/needs_design（状态走强制迁移，非法会收到 400）。"""
     fields = {k: v for k, v in dict(title=title, description=description, status=status,
                                     needs_design=needs_design).items() if v is not None}
     return _story_update(story_id, fields)
+
+
+@mcp.tool()
+def confirm_story(story_id: int) -> dict:
+    """用户确认 Story 开始（Ticket 全流程人工闸门）：backlog → confirmed。
+
+    确认后触发 Agent 自动处理编排（design → 开发 → 评审 → 测试），
+    由 Worker 周期拉起 agent 推进其下任务。
+    """
+    return _http("POST", f"/api/stories/{story_id}/confirm")
+
+
+@mcp.tool()
+def story_status_history(story_id: int, limit: int = 100) -> dict:
+    """Story 状态变更历史（Ticket 全流程），按时间倒序。"""
+    return _http("GET", f"/api/stories/{story_id}/status-history",
+                 params={"limit": limit})
 
 
 @mcp.tool()

@@ -108,8 +108,9 @@ def test_create_story_publishes_story_created_broadcast(bus, seeded):
     assert msg.ref_id == eid
 
 
-# ---------- 2. assign-reviewer → 定向 review.requested ----------
-def test_assign_reviewer_publishes_directed_review_requested(bus, seeded):
+# ---------- 2. Story 确认（2026-08-09 起取代 assign-reviewer 闸门） ----------
+def test_assign_reviewer_deprecated_and_confirm_publishes(bus, seeded):
+    """Story 评审已下线：assign-reviewer 返回 422；confirm 发 story.confirmed 广播。"""
     broker = bus
     broker.purge()
     client = TestClient(api.app)
@@ -118,23 +119,24 @@ def test_assign_reviewer_publishes_directed_review_requested(bus, seeded):
     st = client.post(f"/api/epics/{epic['id']}/stories",
                      json={"title": "M3 Story B"}, headers=_hdr(seeded["author_id"])).json()
     broker.purge()  # 清掉 create_story 的广播，专注本次断言
-    broker.declare_agent_queue("wb-m3-reviewer")
     r = client.post(f"/api/stories/{st['id']}/assign-reviewer",
                     headers=_hdr(seeded["author_id"]))
+    assert r.status_code == 422, r.text
+    assert "评审已下线" in r.json().get("detail", "")
+    # 新人工闸门：confirm → story.confirmed（广播）
+    r = client.post(f"/api/stories/{st['id']}/confirm",
+                    headers=_hdr(seeded["author_id"]))
     assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["status"] == "pending_review"
-    assert body["reviewer_id"] == seeded["reviewer_id"]
-    q = mq.WorkflowTopology(_NS).agent_queue("wb-m3-reviewer")
+    assert r.json()["status"] == "confirmed"
+    q = mq.WorkflowTopology(_NS).broadcast_queue
     assert _wait_depth(broker, q, 1) >= 1
     msg = _last_msg(broker, q)
-    assert msg is not None and msg.event == mq.EVENT_REVIEW_REQUESTED
+    assert msg is not None and msg.event == mq.EVENT_STORY_CONFIRMED
     assert msg.entity_id == st["id"]
-    assert msg.ref_id == seeded["reviewer_id"]
 
 
-# ---------- 3. review approve/reject → story.ready / review.rejected ----------
-def test_review_approve_publishes_story_ready(bus, seeded):
+# ---------- 3. review approve/reject 已下线 → 422 ----------
+def test_review_approve_deprecated_returns_422(bus, seeded):
     broker = bus
     broker.purge()
     client = TestClient(api.app)
@@ -142,22 +144,14 @@ def test_review_approve_publishes_story_ready(bus, seeded):
                        json={"title": "M3 Epic C"}, headers=_hdr(seeded["author_id"])).json()
     st = client.post(f"/api/epics/{epic['id']}/stories",
                      json={"title": "M3 Story C"}, headers=_hdr(seeded["author_id"])).json()
-    client.post(f"/api/stories/{st['id']}/assign-reviewer",
-                headers=_hdr(seeded["author_id"]))
-    broker.purge()
     r = client.post(f"/api/stories/{st['id']}/review",
                     json={"verdict": "approve", "comment": "LGTM"},
                     headers=_hdr(seeded["reviewer_id"]))
-    assert r.status_code == 200, r.text
-    assert r.json()["status"] == "ready"
-    q = mq.WorkflowTopology(_NS).broadcast_queue
-    assert _wait_depth(broker, q, 1) >= 1
-    msg = _last_msg(broker, q)
-    assert msg is not None and msg.event == mq.EVENT_STORY_READY
-    assert msg.entity_id == st["id"]
+    assert r.status_code == 422, r.text
+    assert "评审已下线" in r.json().get("detail", "")
 
 
-def test_review_reject_publishes_review_rejected_with_round(bus, seeded):
+def test_review_reject_deprecated_returns_422(bus, seeded):
     broker = bus
     broker.purge()
     client = TestClient(api.app)
@@ -165,24 +159,16 @@ def test_review_reject_publishes_review_rejected_with_round(bus, seeded):
                        json={"title": "M3 Epic D"}, headers=_hdr(seeded["author_id"])).json()
     st = client.post(f"/api/epics/{epic['id']}/stories",
                      json={"title": "M3 Story D"}, headers=_hdr(seeded["author_id"])).json()
-    client.post(f"/api/stories/{st['id']}/assign-reviewer",
-                headers=_hdr(seeded["author_id"]))
-    broker.purge()
     r = client.post(f"/api/stories/{st['id']}/review",
                     json={"verdict": "reject", "comment": "补个验收标准"},
                     headers=_hdr(seeded["reviewer_id"]))
-    assert r.status_code == 200, r.text
-    assert r.json()["status"] == "pending_review"
-    assert r.json()["review_round"] == 1
-    q = mq.WorkflowTopology(_NS).broadcast_queue
-    assert _wait_depth(broker, q, 1) >= 1
-    msg = _last_msg(broker, q)
-    assert msg is not None and msg.event == mq.EVENT_REVIEW_REJECTED
-    assert msg.ref_id == 1  # 轮次
+    assert r.status_code == 422, r.text
+    assert "评审已下线" in r.json().get("detail", "")
 
 
-# ---------- 4. story 评论 → 定向 comment.replied ----------
-def test_story_comment_publishes_directed_comment_replied(bus, seeded):
+# ---------- 4. story 评论 → comment.replied 广播（无 reviewer 定向） ----------
+def test_story_comment_publishes_broadcast_comment_replied(bus, seeded):
+    """Story 评审下线后无 reviewer 定向：评论事件退化为广播（agent_id=None）。"""
     broker = bus
     broker.purge()
     client = TestClient(api.app)
@@ -190,15 +176,12 @@ def test_story_comment_publishes_directed_comment_replied(bus, seeded):
                        json={"title": "M3 Epic E"}, headers=_hdr(seeded["author_id"])).json()
     st = client.post(f"/api/epics/{epic['id']}/stories",
                      json={"title": "M3 Story E"}, headers=_hdr(seeded["author_id"])).json()
-    client.post(f"/api/stories/{st['id']}/assign-reviewer",
-                headers=_hdr(seeded["author_id"]))
     broker.purge()
-    broker.declare_agent_queue("wb-m3-reviewer")
     r = client.post(f"/api/stories/{st['id']}/comments",
                     json={"author": "m3-author", "content": "已补验收标准，请再看"},
                     headers=_hdr(seeded["author_id"]))
     assert r.status_code == 201, r.text
-    q = mq.WorkflowTopology(_NS).agent_queue("wb-m3-reviewer")
+    q = mq.WorkflowTopology(_NS).broadcast_queue
     assert _wait_depth(broker, q, 1) >= 1
     msg = _last_msg(broker, q)
     assert msg is not None and msg.event == mq.EVENT_COMMENT_REPLIED

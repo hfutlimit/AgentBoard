@@ -2,21 +2,20 @@
 
 消费 M2 泛化的 Workflow 事件总线（``agentboard.workflow`` 命名空间）：
 
-- ``story.created``（广播）→ 自动指派在线 reviewer（``POST /api/stories/{sid}/assign-reviewer``，
-  随机选择 + CAS 幂等，指派的最终裁决在服务端）；
-- ``story.ready``（广播）→ 回查 Story 下 backlog/todo 任务 → 逐个广播 ``task.available``
-  （切片 2：在线 developer 竞争认领，CAS 恰一赢家）；
+- ``story.confirmed``（广播）→ 仅确认 ack：Story 确认后的 agent 自动处理编排
+  由 Proposal Worker（``agentboard.worker``）轮询兜底执行（Ticket 全流程，
+  2026-08-09，Story 级评审已下线）；
 - ``task.ready_for_review``（广播）→ 自动指派 Task reviewer（``POST /api/tasks/{tid}/assign-reviewer``，
   随机选择 + CAS 幂等 + 排除 assignee；切片 2 M2 评审闭环入口）；
 - ``review.rejected`` / ``comment.replied`` → 日志记录（评审往返收敛主要由
   Reviewer/作者 Agent 各自订阅**定向队列**感知，本 Worker 不介入业务决策）。
 
 设计原则（与 Proposal Worker 一致）：**消息只做通知、状态一律回查数据库。**
-本 Worker 收到 ``story.created`` 后不携带任何状态，而是回查 REST 再触发分配，
+本 Worker 收到事件后不携带任何状态，而是回查 REST 再触发分配，
 因此消息重投 / 丢失都不会产生重复轮次或漏单。
 
 MQ 未配置（``AGENTBOARD_MQ_URL`` 为空）时回退 **DB 轮询**：定期扫描
-``status=backlog`` 且未指派 reviewer 的 Story 触发分配，正确性不变。
+``in_review`` 未指派 reviewer 的 Task 触发指派，正确性不变。
 
 运行：
     python -m agentboard.workflow_worker --mq     # MQ 消费模式（未配置自动回退轮询）
@@ -39,8 +38,8 @@ from .mq import (
     EVENT_COMMENT_REPLIED,
     EVENT_REVIEW_REJECTED,
     EVENT_REVIEW_VOTE_CAST,
+    EVENT_STORY_CONFIRMED,
     EVENT_STORY_CREATED,
-    EVENT_STORY_READY,
     EVENT_TASK_AVAILABLE,
     EVENT_TASK_READY_FOR_REVIEW,
     EVENT_TASK_REVIEWED,
@@ -101,7 +100,7 @@ class WorkflowConsumer:
 
     #: 本 Worker 关心的广播事件 → 处理函数（未列出的事件直接 ack 忽略）
     _HANDLERS = {
-        EVENT_STORY_CREATED: "story.created",
+        EVENT_STORY_CONFIRMED: "story.confirmed",
     }
 
     def __init__(self, config: WorkflowConsumerConfig,
@@ -130,26 +129,6 @@ class WorkflowConsumer:
 
     # ---------- 分配动作 ----------
 
-    def _assign_reviewer(self, story_id: int) -> bool:
-        """触发随机指派（幂等）：成功/已指派 → True；无在线 reviewer → warn + True（轮询兜底）。"""
-        try:
-            r = self._request("POST", f"/api/stories/{story_id}/assign-reviewer")
-        except Exception as e:
-            log.warning("story %s 指派评审请求失败（网络异常）：%s", story_id, e)
-            return False
-        if r.status_code in (200, 201):
-            st = r.json()
-            log.info("story %s 已指派 reviewer=%s（status=%s）",
-                     story_id, st.get("reviewer_id"), st.get("status"))
-            return True
-        if r.status_code == 404:
-            log.info("story %s 不存在（可能已删除），忽略", story_id)
-            return True
-        # 422（无在线 reviewer）/ 其它 —— 暂时性条件，ack 后由轮询兜底重试
-        log.warning("story %s 指派评审未成功（HTTP %s）：%s",
-                    story_id, r.status_code, r.text[:200])
-        return True
-
     def _assign_task_reviewer(self, task_id: int) -> bool:
         """Task ready_for_review → 自动指派 Task reviewer（幂等，切片 2 M2）。
 
@@ -175,11 +154,14 @@ class WorkflowConsumer:
         return True
 
     def _broadcast_available_tasks(self, story_id: int) -> bool:
-        """Story ready → 回查 Story 下 backlog/todo 任务 → 逐个广播 ``task.available``。
+        """Story confirmed → 回查 Story 下 backlog/todo 任务 → 逐个广播 ``task.available``。
 
         消息只带定位信息（task_id + story_id），开发者收到后经 ``claim_development_task``
         竞争认领（CAS，恰一赢家）。MQ 未配置时 ``publish_workflow_event`` 为 no-op，
         开发者靠轮询（list_tasks?status=backlog）兜底，正确性不变。
+
+        注意（2026-08-09）：Story confirmed 的 agent 自动编排由 Proposal Worker
+        轮询执行，本方法仅作通知辅助，Worker 主流程不再依赖它。
         """
         try:
             r = self._request("GET", f"/api/stories/{story_id}/tasks",
@@ -195,18 +177,25 @@ class WorkflowConsumer:
                 mq.publish_workflow_event(EVENT_TASK_AVAILABLE, "task", t["id"],
                                           ref_id=story_id)
                 claimed += 1
-        log.info("story %s 评审通过（ready），广播 %s 个可认领任务",
+        log.info("story %s 已确认（confirmed），广播 %s 个可认领任务",
                  story_id, claimed)
         return True
 
     def handle_message(self, msg: WorkflowMessage) -> bool:
         """处理一条 Workflow 消息。返回 False → broker 转死信（重投语义留给轮询兜底）。"""
         event = msg.event
+        if event == EVENT_STORY_CONFIRMED:
+            # Ticket 全流程：用户已确认 Story（backlog→confirmed），agent 自动处理
+            # 编排由 Proposal Worker（agentboard.worker）轮询兜底执行（fetch confirmed
+            # stories → 拉起 agent），本 Worker 仅确认 ack 避免死信（2026-08-09）。
+            log.info("事件 story.confirmed（story=%s epic=%s）：Agent 自动处理由 Proposal Worker 轮询兜底",
+                     msg.entity_id, msg.ref_id)
+            return True
         if event == EVENT_STORY_CREATED:
-            return self._assign_reviewer(msg.entity_id)
-        if event == EVENT_STORY_READY:
-            # Story 评审通过 → 广播其下可认领任务（切片 2：developer 竞争认领）
-            return self._broadcast_available_tasks(msg.entity_id)
+            # Story 创建不再自动指派 reviewer（Story 级评审已下线，2026-08-09）：
+            # 设计评审由 design task 的 in_design 流承担，实现评审由 Task in_review 承担。
+            log.info("事件 story.created（story=%s）：Story 级评审已下线，跳过指派", msg.entity_id)
+            return True
         if event == EVENT_TASK_AVAILABLE:
             log.info("事件 task.available（task=%s story=%s）：由在线 developer 竞争认领", event, msg.entity_id)
             return True
@@ -241,22 +230,11 @@ class WorkflowConsumer:
     # ---------- 轮询模式（无 MQ 兜底） ----------
 
     def run_poll_once(self) -> int:
-        """扫描一轮 backlog 未指派 Story + in_review 未指派 Task 并触发分配。返回处理条数。"""
+        """扫描一轮并触发分配：in_review 未指派 Task 指派 + 评审超时重派。返回处理条数。
+
+        Story 级评审已下线（2026-08-09）：不再扫描 backlog Story 指派 reviewer。
+        """
         assigned = 0
-        try:
-            r = self.client.get("/api/stories", params={
-                "status": "backlog", "limit": max(1, self.config.batch_size),
-            })
-            r.raise_for_status()
-            items = (r.json() or {}).get("items", []) or []
-        except Exception as e:
-            log.warning("轮询拉取 backlog Story 失败：%s", e)
-            items = []
-        for st in items:
-            if st.get("reviewer_id") is not None:
-                continue  # 已指派（幂等跳过）
-            if self._assign_reviewer(st["id"]):
-                assigned += 1
         # 切片 2 M2 兜底：扫描 in_review 未指派 reviewer 的 Task → 自动指派
         try:
             r = self.client.get("/api/tasks", params={
