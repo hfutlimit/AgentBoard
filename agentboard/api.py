@@ -943,6 +943,37 @@ def complete_story(sid: int, authorization: str | None = Header(None),
     return service._ser(st)
 
 
+@app.post("/api/stories/{sid}/claim")
+def claim_story(sid: int, authorization: str | None = Header(None),
+                s: Session = Depends(get_session)):
+    """Worker 竞争认领 Story（Ticket 全流程多实例编排）：CAS confirmed → todo。
+
+    多 Worker 实例（不同 agent CLI）竞争同一 confirmed Story 时恰一赢家；
+    竞争失败返回 409（已被其它实例认领 / 状态不可认领）。
+    """
+    uid, _is_admin = _caller_uid_admin(authorization)
+    try:
+        st = service.claim_story(s, sid, changed_by=uid)
+    except service.IllegalTransition as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return service._ser(st)
+
+
+@app.post("/api/stories/{sid}/unclaim")
+def unclaim_story(sid: int, authorization: str | None = Header(None),
+                  s: Session = Depends(get_session)):
+    """Worker 认领交接/失败回退（Ticket 全流程）：CAS todo → confirmed。
+
+    agent 本轮未完成全部任务或失败时回退 confirmed 重新入池；blocked 拒绝。
+    """
+    uid, _is_admin = _caller_uid_admin(authorization)
+    try:
+        st = service.unclaim_story(s, sid, changed_by=uid, reason="worker 交接/失败回退")
+    except service.IllegalTransition as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return service._ser(st)
+
+
 @app.delete("/api/stories/{sid}")
 def delete_story(sid: int, s: Session = Depends(get_session)):
     if not service.delete_story(s, sid):

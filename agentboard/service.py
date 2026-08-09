@@ -521,6 +521,72 @@ def complete_story(s: Session, id: int, *, changed_by: int | None = None,
     return st
 
 
+def claim_story(s: Session, id: int, *, changed_by: int | None = None) -> Story:
+    """Worker 竞争认领 Story（Ticket 全流程多实例编排）：CAS confirmed → todo。
+
+    多个 Worker 实例（不同 agent CLI）同时扫描同一 confirmed Story 时，
+    条件 UPDATE ``status=confirmed`` → ``todo``，rowcount=1 恰一赢家；
+    竞争失败抛 IllegalTransition（api 层转 409）。todo 语义 = 已被某 worker
+    认领处理中（其它实例扫描 confirmed 不再看到），失败/交接由
+    ``unclaim_story`` 回退 confirmed 重新入池。
+    """
+    st = s.get(Story, id)
+    if not st:
+        raise NotFound(f"story {id} not found")
+    r = s.execute(
+        update(Story).where(Story.id == id, Story.status == "confirmed")
+        .values(status="todo")
+    )
+    if r.rowcount != 1:
+        s.rollback()
+        cur = s.get(Story, id)
+        if cur is not None and cur.status == "todo":
+            raise IllegalTransition(f"story {id} 已被其它 Worker 认领（todo）")
+        raise IllegalTransition(f"story {id} 当前状态 {cur.status if cur else '?'}，不可认领")
+    _record_story_status_history(s, id, "confirmed", "todo", changed_by=changed_by,
+                                 reason="Worker 竞争认领")
+    _commit(s)
+    s.refresh(st)
+    epic = s.get(Epic, st.epic_id)
+    if epic is not None:
+        _invalidate_project_stats_cache(epic.project_id)
+    return st
+
+
+def unclaim_story(s: Session, id: int, *, changed_by: int | None = None,
+                  reason: str = "") -> Story:
+    """Worker 认领交接/失败回退（Ticket 全流程）：CAS todo → confirmed。
+
+    - agent 本轮未完成全部 task（部分推进）→ 回退 confirmed，下轮/其它实例再领；
+    - agent 失败重试 → 回退 confirmed 重新入池（连续失败达上限转 blocked 不回退）。
+    todo → confirmed 不在常规迁移表（todo 出边仅 in_progress/backlog/blocked），
+    本入口为编排专用 CAS（同 complete_story 模式），blocked 不操作。
+    """
+    st = s.get(Story, id)
+    if not st:
+        raise NotFound(f"story {id} not found")
+    if st.status == "blocked":
+        raise IllegalTransition(f"story {id} 处于 blocked，禁止回退（需人工仲裁）")
+    r = s.execute(
+        update(Story).where(Story.id == id, Story.status == "todo")
+        .values(status="confirmed")
+    )
+    if r.rowcount != 1:
+        s.rollback()
+        cur = s.get(Story, id)
+        if cur is not None and cur.status == "confirmed":
+            raise IllegalTransition(f"story {id} 已是 confirmed")
+        raise IllegalTransition(f"story {id} 当前状态 {cur.status if cur else '?'}，不可回退")
+    _record_story_status_history(s, id, "todo", "confirmed", changed_by=changed_by,
+                                 reason=reason or "Worker 交接/失败回退")
+    _commit(s)
+    s.refresh(st)
+    epic = s.get(Epic, st.epic_id)
+    if epic is not None:
+        _invalidate_project_stats_cache(epic.project_id)
+    return st
+
+
 def delete_story(s: Session, id: int) -> bool:
     st = s.get(Story, id)
     if not st:

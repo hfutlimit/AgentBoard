@@ -53,15 +53,20 @@ class _FakeClient:
     """记录请求，可编程返回。"""
 
     def __init__(self, get_responses: dict | None = None,
-                 request_status: int = 200):
+                 request_status: int = 200,
+                 request_status_map: dict[str, int] | None = None):
         self.calls: list[tuple[str, str]] = []
         self.get_responses = get_responses or {}
         self.request_status = request_status
+        self.request_status_map = request_status_map or {}  # path 子串 → status
 
     def request(self, method: str, path: str, **kw):
         self.calls.append((method, path))
         if method == "GET" and path in self.get_responses:
             return _FakeResponse(200, self.get_responses[path])
+        for frag, status in self.request_status_map.items():
+            if frag in path:
+                return _FakeResponse(status, {}, text="st")
         return _FakeResponse(self.request_status, {}, text="ok")
 
     def get(self, path: str, **kw):
@@ -195,6 +200,45 @@ def test_handle_story_invoker_exception_comments():
     w._story_min_interval = 0.0
     assert w.handle_story(_story()) == "failed"
     assert any("/comments" in p for m, p in client.calls)
+
+
+# ---------- 多实例竞争认领（2026-08-09） ----------
+
+def test_handle_story_claim_conflict_skips():
+    """claim 409（已被其它 Worker 认领）→ skipped，不拉起 agent。"""
+    client = _FakeClient(get_responses={"/api/stories/1/tasks": _tasks_response()},
+                         request_status_map={"/claim": 409})
+    invoker = _StubInvoker()
+    w = _worker(client=client, invoker=invoker)
+    w._story_min_interval = 0.0
+    assert w.handle_story(_story()) == "skipped"
+    assert invoker.calls == 0
+
+
+def test_handle_story_partial_unclaims_to_pool():
+    """部分推进（任务未全完成）→ unclaim 回退 confirmed 交接。"""
+    client = _FakeClient(get_responses={"/api/stories/1/tasks": _tasks_response()})
+    w = _worker(client=client)
+    w._story_min_interval = 0.0
+    out = w.handle_story(_story())
+    assert out == "handled"
+    assert ("POST", "/api/stories/1/claim") in client.calls
+    assert ("POST", "/api/stories/1/unclaim") in client.calls
+    assert not any("complete" in p for m, p in client.calls)
+
+
+def test_handle_story_fail_unclaims_then_blocks():
+    """失败 → unclaim 回退；连续 3 次 → blocked（第 3 次不 unclaim）。"""
+    client = _FakeClient(get_responses={"/api/stories/1/tasks": _tasks_response()})
+    w = _worker(client=client, invoker=_StubInvoker(
+        decision=AgentDecision(action="fail", error="no mcp")))
+    w._story_min_interval = 0.0
+    assert w.handle_story(_story()) == "failed"      # 第 1 次：unclaim
+    assert w.handle_story(_story()) == "failed"      # 第 2 次：unclaim
+    assert w.handle_story(_story()) == "blocked"     # 第 3 次：blocked 不 unclaim
+    unclaims = [c for c in client.calls if "unclaim" in c[1]]
+    assert len(unclaims) == 2
+    assert ("PATCH", "/api/stories/1") in client.calls  # 置 blocked
 
 
 # ===================== Agent 心跳探测 =====================

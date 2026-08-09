@@ -171,3 +171,44 @@ def test_review_story_deprecated():
         with pytest.raises(InvalidValue, match="评审已下线"):
             service.review_story(s, story_id=sid, reviewer_user_id=1,
                                  verdict="approve", comment="x")
+
+
+# ---------- Worker 竞争认领（多实例编排，2026-08-09） ----------
+
+def test_claim_story_cas_single_winner():
+    """CAS confirmed→todo：并发认领恰一赢家；todo 不可重复认领。"""
+    _, _, sid = _seed()
+    with SessionLocal() as s:
+        service.confirm_story(s, sid)  # backlog→confirmed
+        st = service.claim_story(s, sid)
+        assert st.status == "todo"
+        # 已认领（todo）→ 竞争失败
+        with pytest.raises(IllegalTransition):
+            service.claim_story(s, sid)
+        # 历史：backlog→confirmed→todo（含认领）
+        hist = service.list_story_status_history(s, sid)
+        assert hist[0].from_status == "confirmed" and hist[0].to_status == "todo"
+        assert "认领" in hist[0].reason
+
+
+def test_claim_story_rejects_non_confirmed():
+    _, _, sid = _seed()
+    with SessionLocal() as s:
+        with pytest.raises(IllegalTransition):
+            service.claim_story(s, sid)  # backlog 不可认领
+
+
+def test_unclaim_story_returns_to_pool():
+    """CAS todo→confirmed：失败/交接回退重新入池；非 todo 拒绝。"""
+    _, _, sid = _seed()
+    with SessionLocal() as s:
+        service.confirm_story(s, sid)
+        service.claim_story(s, sid)
+        st = service.unclaim_story(s, sid, reason="测试回退")
+        assert st.status == "confirmed"
+        # 再次回退（已是 confirmed）→ 拒绝
+        with pytest.raises(IllegalTransition):
+            service.unclaim_story(s, sid)
+        # 回退后可重新认领（模拟其它实例接手）
+        service.claim_story(s, sid)
+        assert s.get(service.Story, sid).status == "todo"

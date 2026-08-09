@@ -1017,6 +1017,27 @@ class ProposalWorker:
             log.warning("Story #%s 自动收尾失败：%s", story_id, e)
             return False
 
+    def _claim_story(self, story_id: int) -> bool:
+        """竞争认领：POST /api/stories/{sid}/claim（CAS confirmed→todo）。
+
+        409 = 已被其它 Worker 实例认领/状态不可认领 → 返回 False（本轮跳过）。
+        """
+        try:
+            r = self._request("POST", f"/api/stories/{story_id}/claim")
+            return r.status_code in (200, 201)
+        except Exception as e:
+            log.warning("Story #%s 认领异常：%s", story_id, e)
+            return False
+
+    def _unclaim_story(self, story_id: int) -> bool:
+        """认领交接/失败回退：POST /api/stories/{sid}/unclaim（CAS todo→confirmed）。"""
+        try:
+            r = self._request("POST", f"/api/stories/{story_id}/unclaim")
+            return r.status_code in (200, 201)
+        except Exception as e:
+            log.warning("Story #%s 回退异常：%s", story_id, e)
+            return False
+
     def _story_all_tasks_done(self, story: dict) -> bool:
         """Story 下任务是否全部完成（收尾判据）。
 
@@ -1041,14 +1062,19 @@ class ProposalWorker:
         return not pending
 
     def handle_story(self, story: dict) -> str:
-        """处理一个 confirmed Story：拉起 agent 推进其下任务（设计→实现→评审→测试）。
+        """处理一个 confirmed Story：**竞争认领** → 拉起 agent 推进其下任务。
 
-        - 节流：同一 Story 最小拉起间隔 30s（防失败风暴空转）；
-        - agent 返回 story_handled → 回查任务：全部 done → Story 置 done 收尾；
-          否则保持 confirmed（下轮继续推进）；
-        - agent 失败/异常 → 评论记录 + 失败计数，连续 3 次 → Story 置 blocked 转人工。
+        多 Worker 实例（不同 agent CLI）编排的竞争模型：
+        - **认领**：POST claim（服务端 CAS confirmed→todo）恰一赢家，409 → skipped；
+          todo = 已被某实例认领处理中（其它实例扫描 confirmed 不再看到）；
+        - agent 返回 story_handled + 全部 task done → complete（done 收尾）；
+        - story_handled 但任务未全完成（部分推进）→ **unclaim 回退 confirmed**
+          交接，下轮/其它实例继续；
+        - agent 失败/异常 → 评论 + 失败计数 + **unclaim 回退 confirmed** 重试；
+          连续 3 次 → Story 置 blocked 转人工（不回退）；
+        - 节流：同一 Story 最小拉起间隔 30s（防失败风暴空转）。
 
-        返回结果码：skipped（节流/已删除）/ handled / blocked / failed。
+        返回结果码：skipped（节流/认领失败/已删除）/ handled / blocked / failed。
         """
         sid = story.get("id")
         if sid is None:
@@ -1058,12 +1084,16 @@ class ProposalWorker:
         if now - last < self._story_min_interval:
             return "skipped"
         self._story_attempts[sid] = now
+        # 竞争认领（CAS）：恰一赢家；409（他人已领/状态不可认领）→ 本轮跳过
+        if not self._claim_story(sid):
+            log.info("Story #%s 认领失败（其它 Worker 已处理或状态不可认领），跳过", sid)
+            return "skipped"
         try:
             context = self.build_story_context(story)
         except Exception as e:
             log.exception("Story #%s 构建上下文失败", sid)
             self._story_comment(sid, f"Worker 构建上下文失败：{e}")
-            return "failed"
+            return self._story_fail(sid, f"构建上下文失败：{e}")
         try:
             decision = self.invoker.invoke(context)
         except (AgentInvocationError, AgentOutputError) as e:
@@ -1073,19 +1103,21 @@ class ProposalWorker:
             log.exception("Story #%s Agent 调用抛出未预期异常", sid)
             return self._story_fail(sid, f"Agent 调用异常：{e}")
         if decision.action == ACTION_STORY_HANDLED:
-            # 本轮执行成功：节流清零，继续扫描（若任务未全完成则下轮再拉起）
+            # 本轮执行成功：节流清零，继续扫描（若任务未全完成则交接下轮继续）
             self._story_fail_counts.pop(sid, None)
             if self._story_all_tasks_done(story):
                 ok = self._complete_story(sid)
                 log.info("Story #%s 全部任务完成，自动收尾 done=%s", sid, ok)
                 return "handled" if ok else "failed"
-            log.info("Story #%s 本轮推进完成（任务未全部完成，下轮继续）", sid)
+            # 部分推进：unclaim 回退 confirmed，交接给下轮/其它实例
+            ok = self._unclaim_story(sid)
+            log.info("Story #%s 本轮推进完成（任务未全部完成），回退 confirmed=%s", sid, ok)
             return "handled"
         # agent 主动放弃
         return self._story_fail(sid, decision.error or "Agent 未报告完成原因")
 
     def _story_fail(self, sid: int, error: str) -> str:
-        """Story 处理失败：评论记录 + 计数；连续 3 次 → blocked 转人工。"""
+        """Story 处理失败：评论 + 计数 + 回退 confirmed 重试；连续 3 次 → blocked。"""
         self._story_comment(sid, f"Agent 自动处理失败：{error}")
         count = self._story_fail_counts.get(sid, 0) + 1
         self._story_fail_counts[sid] = count
@@ -1094,6 +1126,9 @@ class ProposalWorker:
             ok = self._set_story_status(sid, "blocked")
             log.warning("Story #%s 连续 %s 次失败，置 blocked 转人工（%s）", sid, count, ok)
             return "blocked"
+        # 未达上限：unclaim 回退 confirmed，重新入池待重试
+        ok = self._unclaim_story(sid)
+        log.info("Story #%s 失败（第 %s 次），回退 confirmed 待重试（%s）", sid, count, ok)
         return "failed"
 
     def _story_scan_loop(self, stop: threading.Event) -> None:
