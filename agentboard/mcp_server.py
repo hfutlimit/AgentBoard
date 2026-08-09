@@ -1714,21 +1714,22 @@ def proposal_create_ticket(proposal_id: int, type: str,
 @mcp.tool()
 def agent_register(agent_id: str, name: str, roles: str = "[]",
                    capabilities: str = "[]", cli_command: str = "",
-                   auth_key: str = "") -> dict:
+                   model: str = "", auth_key: str = "") -> dict:
     """注册/更新 Agent 身份（幂等）。
 
     - agent_id: 外部 Agent 自报唯一标识（幂等键）
     - name: 显示名
     - roles: JSON 数组串，如 ``["reviewer","developer"]``（评审分配按 role 过滤）
     - capabilities: JSON 数组串能力标签
-    - cli_command: CLI 拉起命令模板（执行器用）
+    - cli_command: CLI 拉起命令模板（支持 ``{model}`` 占位，worker probe 会注入模型）
+    - model: 模型名（如 hy3 / deepseek-v4-flash / MiniMax-M2；同 CLI 多 agent 各配模型）
     - auth_key: 绑定 abk_ key 指纹（可选）
     注册即绑定当前 MCP 身份对应的服务账号（AgentBoard 用户）。
     """
     return _http("POST", "/api/agents/register", json={
         "agent_id": agent_id, "name": name, "roles": roles,
         "capabilities": capabilities, "cli_command": cli_command,
-        "auth_key": auth_key,
+        "model": model, "auth_key": auth_key,
     })
 
 

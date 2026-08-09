@@ -128,12 +128,19 @@ class Agent(Base):
     roles: Mapped[str] = mapped_column(String(200), nullable=False, default="[]")
     capabilities: Mapped[str] = mapped_column(String(500), nullable=False, default="[]")
     cli_command: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    # 2026-08-09（Agent 配置中心化）：cli_command 支持 {model} 占位符，
+    # 同一 CLI 多 agent 各自注入模型（如 codebuddy 建 hy3 / deepseek-v4-flash 两个 agent）
+    model: Mapped[str] = mapped_column(String(100), nullable=False, default="")
     auth_key: Mapped[str] = mapped_column(String(100), nullable=False, default="")
     user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True
     )
     online: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_heartbeat: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Worker probe 结果（前端实时展示）：probe_message 如 "OK v1.2.3" / "超时 8s" / "命令不存在"
+    probe_message: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    last_probe_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 

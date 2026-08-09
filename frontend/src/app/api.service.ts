@@ -468,6 +468,18 @@ export class ApiService {
   listAgents() {
     return this.request<AgentRow[]>('GET', '/api/agents');
   }
+  registerAgent(body: Partial<AgentRow>) {
+    return this.request<AgentRow>('POST', '/api/agents/register', body);
+  }
+  updateAgent(agentId: string, body: Partial<AgentRow>) {
+    return this.request<AgentRow>('PUT', `/api/agents/${agentId}`, body);
+  }
+  deleteAgent(agentId: string) {
+    return this.request<{ ok: boolean }>('DELETE', `/api/agents/${agentId}`);
+  }
+  probeAgent(agentId: string) {
+    return this.request<AgentRow>('POST', `/api/agents/${agentId}/probe`, {});
+  }
   deleteStory(id: number) {
     return this.request<{ ok: boolean }>('DELETE', `/api/stories/${id}`).pipe(
       tap(() => apiCache.invalidatePrefix('/api/epics'))

@@ -2607,36 +2607,49 @@
               <span class="badge count-badge">{{ agents().length }}</span>
             </div>
             <div class="page-actions">
-              <button class="btn-primary-sm" (click)="loadAgents()">刷新</button>
+              <button class="btn-primary-sm" (click)="openAgentForm()">＋ 新建 Agent</button>
+              <button class="ghost-sm" (click)="loadAgents()">刷新</button>
             </div>
           </div>
-          <p class="muted">已注册的协作 Agent。Worker 定时经 CLI 探测心跳（在线 Agent 才会被分配评审 / 自动处理任务）。</p>
+          <p class="muted">在此创建/编辑 Agent 配置：同一 CLI（如 codebuddy）可建多个 Agent，各自注入不同模型（<code>cli_command</code> 中用 <code>{{ '{model}' }}</code> 占位，如 <code>hy3</code> / <code>deepseek-v4-flash</code>）。Worker 定期 probe 判活，状态经 WebSocket 实时推送。</p>
           @if (agentLoading()) {
             <div class="empty-state">加载中…</div>
           } @else if (agents().length === 0) {
             <div class="empty-state" id="agents-empty">
-              还没有注册 Agent。Agent 可通过 AgentBoard MCP 的 <code>agent_register</code> 工具注册身份（含 CLI 命令后由 Worker 自动判活）。
+              还没有 Agent。点击「＋ 新建 Agent」配置 CLI 与模型；Agent 也可经 AgentBoard MCP 的 <code>agent_register</code> 自报身份（配置 CLI 后由 Worker 自动判活）。
             </div>
           } @else {
             <div class="stats-grid" id="agents-stats">
               <div class="stat-card"><div class="stat-value">{{ agents().length }}</div><div class="stat-label">总数</div></div>
               <div class="stat-card"><div class="stat-value">{{ agents().filter(a => a.online).length }}</div><div class="stat-label">在线</div></div>
-              <div class="stat-card"><div class="stat-value">{{ agents().filter(a => !a.online).length }}</div><div class="stat-label">离线</div></div>
+              <div class="stat-card"><div class="stat-value">{{ agents().filter(a => !a.enabled).length }}</div><div class="stat-label">停用</div></div>
             </div>
             <div class="agent-list" id="agents-list">
               @for (a of agents(); track a.id) {
                 <div class="agent-card">
                   <div class="agent-card-head">
                     <span class="agent-name">{{ a.name }}</span>
-                    <span class="badge" [class]="a.online ? 'badge-success' : 'badge-danger'">{{ a.online ? '在线' : '离线' }}</span>
+                    <span class="agent-actions">
+                      <button class="ghost-xs" (click)="probeAgentNow(a)">⚡ 探测</button>
+                      <button class="ghost-xs" (click)="openAgentForm(a)">✏ 编辑</button>
+                      <button class="ghost-xs danger" (click)="deleteAgentRow(a)">🗑 删除</button>
+                    </span>
                   </div>
                   <div class="agent-meta">
                     <code>{{ a.agent_id }}</code>
                     @for (r of agentRoles(a); track r) { <span class="chip">{{ r }}</span> }
+                    @if (a.model) { <span class="chip chip-model">{{ a.model }}</span> }
+                    <span class="badge" [class]="a.online ? 'badge-success' : 'badge-danger'">{{ a.online ? '在线' : '离线' }}</span>
+                    @if (!a.enabled) { <span class="badge badge-warn">停用</span> }
                   </div>
-                  <div class="agent-sub">
-                    @if (a.cli_command) { <span class="muted">CLI：<code>{{ a.cli_command }}</code></span> }
-                    <span class="muted">心跳：{{ a.last_heartbeat ? timeAgo(a.last_heartbeat) : '从未' }}</span>
+                  @if (a.cli_command) {
+                    <div class="agent-sub"><span class="muted">CLI：<code>{{ a.cli_command }}</code></span></div>
+                  }
+                  <div class="agent-probe">
+                    <span class="muted">🛰 probe：</span>
+                    <span [class]="a.online ? 'probe-ok' : 'probe-bad'">{{ a.probe_message || (a.online ? '在线' : '离线') }}</span>
+                    @if (a.last_probe_at) { <span class="muted">（{{ timeAgo(a.last_probe_at) }}）</span> }
+                    <span class="muted">· 心跳：{{ a.last_heartbeat ? timeAgo(a.last_heartbeat) : '从未' }}</span>
                   </div>
                   @if (agentCapabilities(a).length > 0) {
                     <div class="agent-caps">
@@ -2645,6 +2658,47 @@
                   }
                 </div>
               }
+            </div>
+          }
+
+          @if (agentFormVisible()) {
+            <div class="modal-overlay" (click)="closeAgentForm()">
+              <section class="modal settings-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+                <h3>{{ agentFormIsEdit() ? '编辑 Agent' : '新建 Agent' }}</h3>
+                <form (submit)="saveAgentForm(); $event.preventDefault()">
+                  <label>agent_id<code class="form-hint">（唯一标识，创建后不可改）</code>
+                    <input [disabled]="agentFormIsEdit()" required [value]="agentForm().agent_id"
+                           (input)="setAgentFormField('agent_id', $any($event.target).value)"
+                           placeholder="如 codebuddy-hy3" />
+                  </label>
+                  <label>名称<input required [value]="agentForm().name"
+                                   (input)="setAgentFormField('name', $any($event.target).value)"
+                                   placeholder="如 CodeBuddy (hy3)" /></label>
+                  <label>CLI 命令（支持 <code>{{ '{model}' }}</code> 占位）
+                    <textarea rows="3" [value]="agentForm().cli_command"
+                              (input)="setAgentFormField('cli_command', $any($event.target).value)"
+                              placeholder='如 "C:/.../codebuddy.exe" -p -y --model {model} --mcp-config C:/.../mcp.json'></textarea>
+                  </label>
+                  <label>模型
+                    <input [value]="agentForm().model"
+                           (input)="setAgentFormField('model', $any($event.target).value)"
+                           placeholder="如 hy3 / deepseek-v4-flash / MiniMax-M2" />
+                  </label>
+                  <label>角色（JSON 数组）
+                    <input [value]="agentForm().roles"
+                           (input)="setAgentFormField('roles', $any($event.target).value)"
+                           placeholder='["developer"]' />
+                  </label>
+                  <label class="inline-label">
+                    <input type="checkbox" [checked]="agentForm().enabled"
+                           (change)="setAgentFormField('enabled', $any($event.target).checked)" />
+                    启用（Worker probe 与任务分配）</label>
+                  <div class="row modal-actions">
+                    <button type="button" class="ghost-sm" (click)="closeAgentForm()">取消</button>
+                    <button type="submit" class="btn-primary-sm" [disabled]="agentFormBusy()">{{ agentFormBusy() ? '保存中…' : '保存' }}</button>
+                  </div>
+                </form>
+              </section>
             </div>
           }
         }

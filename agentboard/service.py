@@ -616,10 +616,11 @@ def _parse_json_list(raw: str | None, field: str) -> list:
 
 def register_agent(s: Session, *, agent_id: str, name: str, roles: str = "[]",
                    capabilities: str = "[]", cli_command: str = "",
-                   auth_key: str = "", user_id: int | None = None) -> Agent:
+                   model: str = "", auth_key: str = "", user_id: int | None = None) -> Agent:
     """注册/更新 Agent（幂等：agent_id 已存在则更新字段）。
 
     agent_id 为外部 Agent 自报唯一标识；roles/capabilities 为 JSON 数组串。
+    cli_command 支持 ``{model}`` 占位符（同一 CLI 多 agent 各自注入模型）。
     user_id 绑定服务账号用户（经 ProjectMember 授权参与项目协作）。
     """
     agent_id = _required(agent_id, "agent_id", 64)
@@ -634,6 +635,7 @@ def register_agent(s: Session, *, agent_id: str, name: str, roles: str = "[]",
         existing.roles = json.dumps(roles_list, ensure_ascii=False)
         existing.capabilities = json.dumps(caps_list, ensure_ascii=False)
         existing.cli_command = (cli_command or "")[:500]
+        existing.model = (model or "")[:100]
         existing.auth_key = (auth_key or "")[:100]
         if user_id is not None:
             existing.user_id = user_id
@@ -644,6 +646,7 @@ def register_agent(s: Session, *, agent_id: str, name: str, roles: str = "[]",
         roles=json.dumps(roles_list, ensure_ascii=False),
         capabilities=json.dumps(caps_list, ensure_ascii=False),
         cli_command=(cli_command or "")[:500],
+        model=(model or "")[:100],
         auth_key=(auth_key or "")[:100],
         user_id=user_id,
         online=False,
@@ -664,29 +667,81 @@ def get_agent_by_agent_id(s: Session, agent_id: str) -> Agent | None:
     return s.query(Agent).filter(Agent.agent_id == agent_id).first()
 
 
-def agent_heartbeat(s: Session, agent_id: str, *, user_id: int | None = None) -> Agent | None:
-    """心跳保活：置 online=True 并刷新 last_heartbeat。"""
+def update_agent(s: Session, agent_id: str, **fields) -> Agent | None:
+    """前端配置中心更新 Agent（PUT /api/agents/{agent_id}）。
+
+    可更新：name/roles/capabilities/cli_command/model/enabled/user_id。
+    """
+    agent = s.query(Agent).filter(Agent.agent_id == agent_id).first()
+    if not agent:
+        return None
+    if "name" in fields and fields["name"] is not None:
+        agent.name = _required(fields["name"], "name", 100)
+    if "roles" in fields and fields["roles"] is not None:
+        agent.roles = json.dumps(_parse_json_list(fields["roles"], "roles"),
+                                 ensure_ascii=False)
+    if "capabilities" in fields and fields["capabilities"] is not None:
+        agent.capabilities = json.dumps(
+            _parse_json_list(fields["capabilities"], "capabilities"), ensure_ascii=False)
+    if "cli_command" in fields and fields["cli_command"] is not None:
+        agent.cli_command = str(fields["cli_command"] or "")[:500]
+    if "model" in fields and fields["model"] is not None:
+        agent.model = str(fields["model"] or "")[:100]
+    if "enabled" in fields and fields["enabled"] is not None:
+        agent.enabled = bool(fields["enabled"])
+    if "user_id" in fields:
+        uid = fields["user_id"]
+        if uid is not None and not s.get(User, uid):
+            raise NotFound(f"user {uid} not found")
+        agent.user_id = uid
+    _commit(s); s.refresh(agent); return agent
+
+
+def delete_agent(s: Session, agent_id: str) -> Agent | None:
+    """删除 Agent 注册记录（前端配置中心）。"""
+    agent = s.query(Agent).filter(Agent.agent_id == agent_id).first()
+    if not agent:
+        return None
+    s.delete(agent)
+    _commit(s)
+    return agent
+
+
+def agent_heartbeat(s: Session, agent_id: str, *, user_id: int | None = None,
+                    probe_ok: bool | None = None,
+                    probe_message: str = "") -> Agent | None:
+    """心跳保活：置 online（probe_ok=None 时默认 True）并刷新 last_heartbeat。
+
+    Worker probe 路径传 probe_ok/probe_message 落 probe 详情（前端展示）；
+    Agent 自报心跳路径（MCP）不带，仅刷新 last_heartbeat。
+    """
     agent = s.query(Agent).filter(Agent.agent_id == agent_id).first()
     if not agent:
         return None
     if user_id is not None and agent.user_id not in (None, user_id):
         raise InvalidValue("heartbeat rejected: agent belongs to another user")
-    agent.online = True
+    agent.online = True if probe_ok is None else probe_ok
     agent.last_heartbeat = utc_now()
+    if probe_message:
+        agent.probe_message = str(probe_message)[:300]
+        agent.last_probe_at = utc_now()
     if user_id is not None and agent.user_id is None:
         agent.user_id = user_id
     _commit(s); s.refresh(agent); return agent
 
 
 def agent_deregister(s: Session, agent_id: str, *, user_id: int | None = None,
-                     is_admin: bool = False) -> Agent | None:
-    """注销下线：置 online=False（保留注册记录）。"""
+                     is_admin: bool = False, probe_message: str = "") -> Agent | None:
+    """注销下线：置 online=False（保留注册记录）。Worker probe 失败时带原因。"""
     agent = s.query(Agent).filter(Agent.agent_id == agent_id).first()
     if not agent:
         return None
     if not is_admin and user_id is not None and agent.user_id not in (None, user_id):
         raise InvalidValue("deregister rejected: agent belongs to another user")
     agent.online = False
+    if probe_message:
+        agent.probe_message = str(probe_message)[:300]
+        agent.last_probe_at = utc_now()
     _commit(s); s.refresh(agent); return agent
 
 

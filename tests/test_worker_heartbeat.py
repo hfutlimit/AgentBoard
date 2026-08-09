@@ -243,10 +243,11 @@ def test_handle_story_fail_unclaims_then_blocks():
 
 # ===================== Agent 心跳探测 =====================
 
-def _agent(agent_id: str, cli: str = "") -> dict:
+def _agent(agent_id: str, cli: str = "", model: str = "", enabled: bool = True) -> dict:
     return {"id": 1, "agent_id": agent_id, "name": "A", "roles": "[]",
-            "capabilities": "[]", "cli_command": cli, "user_id": None,
-            "online": False, "last_heartbeat": None}
+            "capabilities": "[]", "cli_command": cli, "model": model,
+            "enabled": enabled, "user_id": None,
+            "online": False, "last_heartbeat": None, "probe_message": ""}
 
 
 def test_heartbeat_skips_no_cli_and_deregisters_bad():
@@ -267,6 +268,29 @@ def test_heartbeat_marks_good_cli_online():
     stats = w.agent_heartbeat_once()
     assert stats["online"] == 1
     assert ("POST", "/api/agents/a3/heartbeat") in client.calls
+
+
+def test_heartbeat_disabled_agent_skipped():
+    client = _FakeClient(get_responses={
+        "/api/agents": [_agent("a9", sys.executable, enabled=False)]})
+    w = _worker(client=client)
+    stats = w.agent_heartbeat_once()
+    assert stats["skipped"] == 1
+    assert stats["checked"] == 0
+    assert not any("a9" in p for m, p in client.calls)
+
+
+def test_heartbeat_model_placeholder_injected():
+    """cli_command 含 {model}：probe 命令注入模型（argv 含模型名）→ 判活 online。"""
+    # python -c 'sys.exit(0 if "hy3" in sys.argv else 1)' hy3 --version
+    probe_script = "import sys; sys.exit(0 if 'hy3' in sys.argv else 1)"
+    cli = f'{sys.executable} -c "{probe_script}" {{model}}'
+    client = _FakeClient(get_responses={
+        "/api/agents": [_agent("a5", cli, model="hy3")]})
+    w = _worker(client=client)
+    stats = w.agent_heartbeat_once()
+    assert stats["online"] == 1, f"stats={stats}"
+    assert ("POST", "/api/agents/a5/heartbeat") in client.calls
 
 
 def test_heartbeat_loop_stops_on_event():

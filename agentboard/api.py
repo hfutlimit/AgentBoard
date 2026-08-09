@@ -5,12 +5,17 @@
 """
 import os
 import re
+import json
+import queue as _queue
+import shlex
+import subprocess
 import asyncio
+import threading
 import uuid
 from datetime import datetime
 from contextlib import asynccontextmanager
 from sqlalchemy import text
-from fastapi import FastAPI, Depends, HTTPException, Query, Header, Request, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, Query, Header, Request, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field, field_validator
@@ -157,7 +162,30 @@ class AgentRegisterIn(BaseModel):
     roles: str = "[]"
     capabilities: str = "[]"
     cli_command: str = ""
+    model: str = ""
     auth_key: str = ""
+
+
+class AgentUpdateIn(BaseModel):
+    """前端 Agent 配置中心（PUT /api/agents/{agent_id}，全字段可选）。"""
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    roles: str | None = None
+    capabilities: str | None = None
+    cli_command: str | None = None
+    model: str | None = Field(default=None, max_length=100)
+    enabled: bool | None = None
+    user_id: int | None = None
+
+
+class AgentHeartbeatIn(BaseModel):
+    """Worker probe 上报（可选 body）：probe_ok=False 表示探测失败（置 offline）。"""
+    probe_ok: bool | None = None
+    probe_message: str = ""
+
+
+class AgentProbeIn(BaseModel):
+    """手动 probe 覆盖（POST /api/agents/{agent_id}/probe，可选）。"""
+    timeout: int = Field(default=8, ge=1, le=30)
 
 
 class AgentReviewIn(BaseModel):
@@ -477,6 +505,55 @@ def _optional_user_id(authorization: str | None, s: Session) -> int | None:
 
 def _auth_is_required() -> bool:
     return os.getenv("AGENTBOARD_REQUIRE_AUTH", "0").lower() in {"1", "true", "yes"}
+
+
+# ---------- Agent 状态 WebSocket 广播（2026-08-09） ----------
+class AgentStateHub:
+    """Agent 状态变更广播中心（订阅者队列模式）。
+
+    - ``subscribe()`` 返回 asyncio.Queue（WS 端点持有，循环读取推送）；
+    - ``broadcast()`` 线程安全（同步 REST 端点 / worker probe 上报可随时调用，
+      put_nowait 不依赖事件循环，规避跨线程 send 的限制）；
+    - 连接数 O(1)：广播复制 payload 投递到各订阅队列。
+    """
+
+    def __init__(self) -> None:
+        self._subs: set[asyncio.Queue] = set()
+        self._lock = threading.Lock()
+
+    def subscribe(self) -> asyncio.Queue:
+        q: asyncio.Queue = asyncio.Queue()
+        with self._lock:
+            self._subs.add(q)
+        return q
+
+    def unsubscribe(self, q: asyncio.Queue) -> None:
+        with self._lock:
+            self._subs.discard(q)
+
+    @property
+    def subscriber_count(self) -> int:
+        with self._lock:
+            return len(self._subs)
+
+    def broadcast(self, payload: dict) -> None:
+        data = json.dumps(payload, ensure_ascii=False)
+        with self._lock:
+            subs = list(self._subs)
+        for q in subs:
+            try:
+                q.put_nowait(data)
+            except Exception:
+                pass
+
+    def broadcast_agent(self, agent: dict) -> None:
+        self.broadcast({"type": "agent_state", "agent": agent})
+
+    def broadcast_deleted(self, agent_id: str) -> None:
+        self.broadcast({"type": "agent_deleted", "agent_id": agent_id})
+
+
+agent_state_hub = AgentStateHub()
 
 
 def _require_project_owner(
@@ -1096,44 +1173,111 @@ def review_story(sid: int, body: AgentReviewIn, authorization: str | None = Head
     return service._ser(st)
 
 
-# ---------- Agents（Epic 122 S1） ----------
+# ---------- Agents（Epic 122 S1 + 2026-08-09 配置中心化） ----------
 @app.post("/api/agents/register", status_code=201)
 def register_agent(body: AgentRegisterIn, authorization: str | None = Header(None),
                    s: Session = Depends(get_session)):
-    """注册/更新 Agent 身份（幂等）。绑定当前认证用户。"""
+    """注册/更新 Agent 身份（幂等，MCP/agent 自报入口）。绑定当前认证用户。"""
     uid, _is_admin = _caller_uid_admin(authorization)
     if _auth_is_required() and uid is None:
         raise HTTPException(status_code=401, detail="unauthorized")
     agent = service.register_agent(s, agent_id=body.agent_id, name=body.name,
                                    roles=body.roles, capabilities=body.capabilities,
-                                   cli_command=body.cli_command, auth_key=body.auth_key,
-                                   user_id=uid)
+                                   cli_command=body.cli_command, model=body.model,
+                                   auth_key=body.auth_key, user_id=uid)
+    agent_state_hub.broadcast_agent(service._ser(agent))
     return service._ser(agent)
 
 
+@app.put("/api/agents/{agent_id}")
+def update_agent(agent_id: str, body: AgentUpdateIn,
+                 authorization: str | None = Header(None),
+                 s: Session = Depends(get_session)):
+    """前端 Agent 配置中心：更新名称/角色/CLI 模板/模型/启用状态（全字段可选）。"""
+    uid, is_admin = _caller_uid_admin(authorization)
+    if _auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    agent = service.get_agent_by_agent_id(s, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent not found")
+    if not is_admin and agent.user_id not in (None, uid):
+        raise HTTPException(status_code=403, detail="agent belongs to another user")
+    agent = service.update_agent(s, agent_id, **body.model_dump(exclude_none=True))
+    agent_state_hub.broadcast_agent(service._ser(agent))
+    return service._ser(agent)
+
+
+@app.delete("/api/agents/{agent_id}")
+def delete_agent(agent_id: str, authorization: str | None = Header(None),
+                 s: Session = Depends(get_session)):
+    """删除 Agent 注册记录（前端配置中心）。"""
+    uid, is_admin = _caller_uid_admin(authorization)
+    if _auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    agent = service.get_agent_by_agent_id(s, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent not found")
+    if not is_admin and agent.user_id not in (None, uid):
+        raise HTTPException(status_code=403, detail="agent belongs to another user")
+    service.delete_agent(s, agent_id)
+    agent_state_hub.broadcast_deleted(agent_id)
+    return {"ok": True}
+
+
 @app.post("/api/agents/{agent_id}/heartbeat")
-def agent_heartbeat(agent_id: str, authorization: str | None = Header(None),
+def agent_heartbeat(agent_id: str, body: AgentHeartbeatIn | None = None,
+                    authorization: str | None = Header(None),
                     s: Session = Depends(get_session)):
-    """Agent 心跳保活（置在线）。"""
+    """Agent 心跳保活（置在线）。Worker probe 带 probe_ok/probe_message 上报详情。"""
     uid, _is_admin = _caller_uid_admin(authorization)
     if _auth_is_required() and uid is None:
         raise HTTPException(status_code=401, detail="unauthorized")
-    agent = service.agent_heartbeat(s, agent_id, user_id=uid)
+    probe_ok = body.probe_ok if body else None
+    probe_message = body.probe_message if body else ""
+    agent = service.agent_heartbeat(s, agent_id, user_id=uid,
+                                    probe_ok=probe_ok, probe_message=probe_message)
     if not agent:
         raise HTTPException(status_code=404, detail="agent not found")
+    agent_state_hub.broadcast_agent(service._ser(agent))
     return service._ser(agent)
 
 
 @app.post("/api/agents/{agent_id}/deregister")
-def agent_deregister(agent_id: str, authorization: str | None = Header(None),
+def agent_deregister(agent_id: str, body: AgentHeartbeatIn | None = None,
+                     authorization: str | None = Header(None),
                      s: Session = Depends(get_session)):
-    """Agent 注销下线（自身或 admin）。"""
+    """Agent 注销下线（自身或 admin）。Worker probe 失败带 probe_message 原因。"""
     uid, is_admin = _caller_uid_admin(authorization)
     if _auth_is_required() and uid is None:
         raise HTTPException(status_code=401, detail="unauthorized")
-    agent = service.agent_deregister(s, agent_id, user_id=uid, is_admin=is_admin)
+    probe_message = body.probe_message if body else ""
+    agent = service.agent_deregister(s, agent_id, user_id=uid, is_admin=is_admin,
+                                     probe_message=probe_message)
     if not agent:
         raise HTTPException(status_code=404, detail="agent not found")
+    agent_state_hub.broadcast_agent(service._ser(agent))
+    return service._ser(agent)
+
+
+@app.post("/api/agents/{agent_id}/probe")
+def probe_agent(agent_id: str, body: AgentProbeIn | None = None,
+                authorization: str | None = Header(None),
+                s: Session = Depends(get_session)):
+    """手动探测 Agent CLI（前端「立即探测」）：同步跑 ``<cmd> --version`` 判活。
+
+    与 Worker 定期 probe 语义一致（{model} 占位符替换 + 结果落 probe_message）。
+    """
+    uid, _is_admin = _caller_uid_admin(authorization)
+    if _auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    agent = service.get_agent_by_agent_id(s, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="agent not found")
+    timeout = body.timeout if body else 8
+    ok, msg = _probe_cli_sync(agent.cli_command, model=agent.model, timeout=timeout)
+    agent = service.agent_heartbeat(s, agent_id, user_id=uid,
+                                    probe_ok=ok, probe_message=msg)
+    agent_state_hub.broadcast_agent(service._ser(agent))
     return service._ser(agent)
 
 
@@ -1142,6 +1286,73 @@ def list_agents(online: bool | None = Query(None), role: str | None = Query(None
                 s: Session = Depends(get_session)):
     """列出已注册 Agent（?online=true&role=reviewer 过滤）。"""
     return [service._ser(x) for x in service.list_agents(s, online=online, role=role)]
+
+
+def _probe_cli_sync(cmd: str, *, model: str = "", timeout: int = 8) -> tuple[bool, str]:
+    """同步 CLI 探测（手动 probe / API 侧）：``<cmd> --version`` 判活。
+
+    与 worker._probe_cli 同语义：{model} 占位符替换（空则移除）；Windows .cmd
+    包装 OSError 时退化 ``cmd /c`` 执行（WinError 193 同款坑）。
+    """
+    from .worker import split_command
+    full = (cmd or "").strip().replace("{model}", (model or "").strip())
+    if not full.strip():
+        return False, "未配置 cli_command"
+    if "{model}" in full:
+        full = full.replace("{model}", "").strip()
+    try:
+        argv = split_command(full) + ["--version"]
+    except ValueError as e:
+        return False, f"命令解析失败：{e}"
+    for use_cmd in (False, True):
+        run_argv = (["cmd", "/c"] + argv) if use_cmd else argv
+        try:
+            proc = subprocess.run(run_argv, capture_output=True, text=True,
+                                  timeout=timeout, encoding="utf-8", errors="replace")
+        except subprocess.TimeoutExpired:
+            return False, f"探测超时 {timeout}s"
+        except (OSError, ValueError) as e:
+            if use_cmd:
+                return False, f"无法启动 CLI：{e}"
+            continue  # 退化 cmd /c 再试一次
+        ok = proc.returncode == 0
+        detail = ""
+        if (proc.stdout or "").strip():
+            detail = proc.stdout.strip().splitlines()[0][:80]
+        elif (proc.stderr or "").strip():
+            detail = proc.stderr.strip().splitlines()[-1][:80]
+        msg = (f"OK {detail}" if ok else f"exit={proc.returncode} {detail}").strip()
+        return ok, msg or ("OK" if ok else f"exit={proc.returncode}")
+    return False, "无法启动 CLI"
+
+
+# ---------- Agent 状态 WebSocket（2026-08-09） ----------
+@app.websocket("/ws/agents")
+async def ws_agents(websocket: WebSocket, token: str | None = Query(None)):
+    """Agent 状态实时推送：连上先发全量快照，之后接收 agent_state / agent_deleted。"""
+    if _auth_is_required():
+        uid = auth.parse_token(token or "")
+        if not uid:
+            await websocket.close(code=4401)
+            return
+    await websocket.accept()
+    q = agent_state_hub.subscribe()
+    try:
+        with SessionLocal() as s:
+            snapshot = [service._ser(x) for x in service.list_agents(s)]
+        await websocket.send_text(json.dumps(
+            {"type": "snapshot", "agents": snapshot}, ensure_ascii=False))
+        while True:
+            try:
+                data = await asyncio.wait_for(q.get(), timeout=30)
+                await websocket.send_text(data)
+            except asyncio.TimeoutError:
+                # 保活 ping（默认 30s 空转，nginx/IIS 代理需心跳防断连）
+                await websocket.send_text(json.dumps({"type": "ping"}))
+    except WebSocketDisconnect:
+        pass
+    finally:
+        agent_state_hub.unsubscribe(q)
 
 
 # ---------- Tasks ----------

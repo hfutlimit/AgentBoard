@@ -1196,31 +1196,47 @@ class ProposalWorker:
 
     # ---------- Ticket 全流程：Agent 心跳探测（2026-08-09） ----------
 
-    def _probe_cli(self, cmd: str) -> bool:
-        """CLI 可用性探测：``<cmd> --version``（8s 超时），成功即可用。
+    def _probe_cli(self, cmd: str, model: str = "") -> tuple[bool, str]:
+        """CLI 可用性探测：``<cmd> --version``（8s 超时）。
 
-        用 shlex.split 解析（兼容 Windows 路径，split_command 已处理双坑）；
-        探测命令本身失败（找不到/超时/退出码非 0）视为不可用。
+        - ``{model}`` 占位符替换（同 CLI 多 agent 各注入模型；空 model 移除占位符）；
+        - 返回 ``(ok, message)``：message 为探测详情（版本号 / 超时 / 退出码），
+          随 heartbeat/deregister 上报落 probe_message（前端实时展示）。
         """
-        if not str(cmd).strip():
-            return False
+        full = str(cmd or "").strip().replace("{model}", (model or "").strip())
+        if not full.strip():
+            return False, "未配置 cli_command"
+        if "{model}" in full:
+            full = full.replace("{model}", "").strip()
         try:
-            argv = split_command(cmd) + ["--version"]
+            argv = split_command(full) + ["--version"]
+        except ValueError as e:
+            return False, f"命令解析失败：{e}"
+        try:
             proc = subprocess.run(
                 argv, capture_output=True, text=True, timeout=self.config.heartbeat_timeout,
                 encoding="utf-8", errors="replace",
             )
-            return proc.returncode == 0
-        except (subprocess.TimeoutExpired, OSError, FileNotFoundError, ValueError) as e:
+        except subprocess.TimeoutExpired:
+            return False, f"探测超时 {self.config.heartbeat_timeout}s"
+        except (OSError, FileNotFoundError, ValueError) as e:
             log.debug("Agent CLI 探测失败 %r：%s", cmd, e)
-            return False
+            return False, f"无法启动 CLI：{e}"
+        ok = proc.returncode == 0
+        detail = ""
+        if (proc.stdout or "").strip():
+            detail = proc.stdout.strip().splitlines()[0][:80]
+        elif (proc.stderr or "").strip():
+            detail = proc.stderr.strip().splitlines()[-1][:80]
+        msg = (f"OK {detail}" if ok else f"exit={proc.returncode} {detail}").strip()
+        return ok, msg or ("OK" if ok else f"exit={proc.returncode}")
 
     def agent_heartbeat_once(self) -> dict:
         """执行一轮 Agent 心跳探测：遍历 agents 表，逐 agent 跑 cli_command 判活。
 
-        - 成功 → POST /api/agents/{id}/heartbeat（置 online + 刷新 last_heartbeat）；
-        - 失败 → POST /api/agents/{id}/deregister（置 offline，保留注册记录）；
-        - 无 cli_command 的 agent 跳过（依赖 agent 自报心跳 MCP 路径）。
+        - 成功 → POST /api/agents/{id}/heartbeat（probe_ok=true + 版本详情）；
+        - 失败 → POST /api/agents/{id}/deregister（probe_message 带原因）；
+        - 无 cli_command / enabled=false 的 agent 跳过（依赖 agent 自报心跳 MCP 路径）。
         单 agent 异常不抛出（try/except 包裹），不影响其它 agent 与主循环。
         """
         try:
@@ -1235,16 +1251,24 @@ class ProposalWorker:
             if not aid or not cmd:
                 stats["skipped"] += 1
                 continue
+            if not a.get("enabled", True):
+                stats["skipped"] += 1
+                continue
             stats["checked"] += 1
             try:
-                if self._probe_cli(cmd):
-                    r = self._request("POST", f"/api/agents/{aid}/heartbeat")
-                    ok = r.status_code in (200, 201)
-                    stats["online"] += 1 if ok else 0
+                ok, msg = self._probe_cli(cmd, model=a.get("model") or "")
+                if ok:
+                    r = self._request("POST", f"/api/agents/{aid}/heartbeat",
+                                      json={"probe_ok": True, "probe_message": msg})
+                    ok_r = r.status_code in (200, 201)
+                    stats["online"] += 1 if ok_r else 0
                 else:
-                    r = self._request("POST", f"/api/agents/{aid}/deregister")
-                    ok = r.status_code in (200, 201)
-                    stats["offline"] += 1 if ok else 0
+                    r = self._request("POST", f"/api/agents/{aid}/deregister",
+                                      json={"probe_message": msg})
+                    ok_r = r.status_code in (200, 201)
+                    stats["offline"] += 1 if ok_r else 0
+                if not ok_r:
+                    log.warning("Agent %s probe 结果上报失败（HTTP %s）", aid, r.status_code)
             except Exception as e:
                 log.warning("Agent %s 心跳上报异常：%s", aid, e)
         if stats["checked"]:

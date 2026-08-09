@@ -114,18 +114,22 @@ export interface ProjectMember {
   username: string | null;
 }
 
-// Ticket 全流程（2026-08-09）：Agent 注册表（前端 Agent 池视图）
+// Ticket 全流程（2026-08-09）：Agent 注册表（前端 Agent 池视图 + 配置中心）
 export interface AgentRow {
   id: number;
   agent_id: string;
   name: string;
   roles: string;          // JSON array string
   capabilities: string;   // JSON array string
-  cli_command: string;
+  cli_command: string;    // 支持 {model} 占位符（同 CLI 多 agent 各注入模型）
+  model: string;
   auth_key: string;
   user_id: number | null;
   online: boolean;
+  enabled: boolean;
   last_heartbeat: string | null;
+  probe_message: string;  // Worker 定期 probe 结果详情
+  last_probe_at: string | null;
   created_at: string;
   updated_at: string;
 }

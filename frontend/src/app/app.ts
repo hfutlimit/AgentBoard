@@ -2318,6 +2318,7 @@ export class App implements OnInit, OnDestroy {
   /** 进入 Agent 池视图并加载列表（用户可见自己的 agent 数量与在线状态）。 */
   async goAgents(): Promise<void> {
     this.view.set('agents');
+    this.connectAgentWs();
     await this.loadAgents();
   }
 
@@ -2350,6 +2351,161 @@ export class App implements OnInit, OnDestroy {
     } catch {
       return [];
     }
+  }
+
+  // ---------- Agent 配置中心（2026-08-09：前端创建/编辑/删除 + 模型选择） ----------
+  readonly agentFormVisible = signal(false);
+  readonly agentFormBusy = signal(false);
+  readonly agentFormIsEdit = signal(false);
+  readonly agentForm = signal({
+    agent_id: '',
+    name: '',
+    cli_command: '',
+    model: '',
+    roles: '["developer"]',
+    enabled: true,
+  });
+
+  openAgentForm(a?: AgentRow): void {
+    this.agentForm.set({
+      agent_id: a?.agent_id || '',
+      name: a?.name || '',
+      cli_command: a?.cli_command || '',
+      model: a?.model || '',
+      roles: a?.roles || '["developer"]',
+      enabled: a?.enabled ?? true,
+    });
+    this.agentFormIsEdit.set(!!a);
+    this.agentFormVisible.set(true);
+  }
+
+  closeAgentForm(): void {
+    this.agentFormVisible.set(false);
+  }
+
+  setAgentFormField(field: string, value: string | boolean): void {
+    this.agentForm.update((f) => ({ ...f, [field]: value }));
+  }
+
+  async saveAgentForm(): Promise<void> {
+    const f = this.agentForm();
+    if (!f.agent_id.trim() || !f.name.trim()) {
+      this.notify('agent_id 与名称必填', 'error');
+      return;
+    }
+    this.agentFormBusy.set(true);
+    try {
+      if (this.agentFormIsEdit()) {
+        await firstValueFrom(this.api.updateAgent(f.agent_id, {
+          name: f.name, cli_command: f.cli_command, model: f.model,
+          roles: f.roles, enabled: f.enabled,
+        }));
+        this.notify('Agent 配置已更新');
+      } else {
+        await firstValueFrom(this.api.registerAgent({
+          agent_id: f.agent_id, name: f.name, cli_command: f.cli_command,
+          model: f.model, roles: f.roles, capabilities: '[]', enabled: f.enabled,
+        }));
+        this.notify('Agent 已创建');
+      }
+      this.agentFormVisible.set(false);
+      await this.loadAgents();
+    } catch (e: any) {
+      this.notify(`保存失败：${e?.error?.detail || e?.message || ''}`, 'error');
+    } finally {
+      this.agentFormBusy.set(false);
+    }
+  }
+
+  async deleteAgentRow(a: AgentRow): Promise<void> {
+    if (!confirm(`删除 Agent「${a.name}」（${a.agent_id}）？`)) return;
+    try {
+      await firstValueFrom(this.api.deleteAgent(a.agent_id));
+      this.notify('Agent 已删除');
+      this.removeAgentLocal(a.agent_id);
+    } catch (e: any) {
+      this.notify(`删除失败：${e?.error?.detail || e?.message || ''}`, 'error');
+    }
+  }
+
+  async probeAgentNow(a: AgentRow): Promise<void> {
+    try {
+      const updated = await firstValueFrom(this.api.probeAgent(a.agent_id));
+      this.upsertAgent(updated);
+      this.notify(`探测完成：${updated.online ? '在线' : '离线'} — ${updated.probe_message || ''}`);
+    } catch (e: any) {
+      this.notify(`探测失败：${e?.error?.detail || e?.message || ''}`, 'error');
+    }
+  }
+
+  /** WS 收到的 agent 状态 upsert 到本地列表（无则追加，有则合并）。 */
+  upsertAgent(updated: AgentRow): void {
+    this.agents.update((list) => {
+      const idx = list.findIndex((x) => x.agent_id === updated.agent_id);
+      if (idx >= 0) {
+        const copy = [...list];
+        copy[idx] = { ...copy[idx], ...updated };
+        return copy;
+      }
+      return [updated, ...list];
+    });
+  }
+
+  removeAgentLocal(agentId: string): void {
+    this.agents.update((list) => list.filter((x) => x.agent_id !== agentId));
+  }
+
+  // ---------- Agent WebSocket 实时状态（2026-08-09） ----------
+  private agentWs: WebSocket | null = null;
+  private agentWsRetry = 0;
+
+  connectAgentWs(): void {
+    try {
+      this.agentWs?.close();
+    } catch {
+      /* ignore */
+    }
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const token = encodeURIComponent(localStorage.getItem('agentboard_token') || '');
+    let url = `${proto}://${window.location.host}/ws/agents`;
+    if (token) url += `?token=${token}`;
+    try {
+      const ws = new WebSocket(url);
+      this.agentWs = ws;
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data);
+          if (msg.type === 'snapshot' && Array.isArray(msg.agents)) {
+            this.agents.set(msg.agents);
+          } else if (msg.type === 'agent_state' && msg.agent) {
+            this.upsertAgent(msg.agent);
+          } else if (msg.type === 'agent_deleted' && msg.agent_id) {
+            this.removeAgentLocal(msg.agent_id);
+          }
+        } catch {
+          /* ignore malformed */
+        }
+      };
+      ws.onclose = () => {
+        if (this.view() !== 'agents') return;
+        this.agentWsRetry = Math.min(this.agentWsRetry + 1, 6);
+        setTimeout(() => this.connectAgentWs(), 1000 * Math.pow(2, this.agentWsRetry - 1));
+      };
+      ws.onopen = () => {
+        this.agentWsRetry = 0;
+      };
+    } catch {
+      /* WS 不可用时静默降级（列表仍由 loadAgents 轮询） */
+    }
+  }
+
+  disconnectAgentWs(): void {
+    try {
+      this.agentWs?.close();
+    } catch {
+      /* ignore */
+    }
+    this.agentWs = null;
   }
 
   async saveTask(
