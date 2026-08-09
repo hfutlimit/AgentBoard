@@ -550,6 +550,33 @@ class ProposalWorker:
                         pid, self.config.lease_seconds)
         return list(ids)
 
+    def reclaim_stale_ticket_requests(self) -> list[int]:
+        """回收处理中超时的转换请求（processing 停滞 → failed，proposal 回退
+        converged）。
+
+        与提案租约回收（``reclaim_stale``）互补：CLI/进程在 request 已进入
+        processing 后崩溃时，没有本回收就没有自动兜底——request 会永久停在
+        processing，除非人工调 API（2026-08-09 review 补全）。判定与回退整体
+        下沉到服务端 ``POST /api/ticket-requests/reclaim-stale``（admin-only，
+        worker 须用 admin 服务账号 token）。
+        """
+        r = self._request(
+            "POST", "/api/ticket-requests/reclaim-stale",
+            json={"lease_seconds": self.config.lease_seconds},
+        )
+        if r.status_code != 200:
+            log.warning("回收超时转换请求失败：%s %s", r.status_code, r.text[:200])
+            return []
+        try:
+            ids = (r.json() or {}).get("reclaimed") or []
+        except Exception as e:
+            log.warning("回收响应解析失败：%s", e)
+            return []
+        for rid in ids:
+            log.warning("ticket 请求 #%s 处理超时（processing 停滞 >%ss），"
+                        "已回退 proposal → converged", rid, self.config.lease_seconds)
+        return list(ids)
+
     def recover_failed(self) -> list[int]:
         """把「Agent 不可用」导致的 failed 提案自动回退 queued 重投。
 
@@ -866,6 +893,9 @@ class ProposalWorker:
     def poll_once(self) -> dict:
         """执行一轮：先做崩溃恢复 + agent 失败自动重投，再消费工作项。"""
         reclaimed = self.reclaim_stale()
+        # 2026-08-09 review：转换请求租约同样需要自动回收（CLI 崩溃后
+        # processing 停滞无人工则永久卡死）。
+        ticket_reclaimed = self.reclaim_stale_ticket_requests()
         recovered = self.recover_failed()
         results: dict[str, int] = {}
         handled: list[dict] = []
@@ -881,6 +911,7 @@ class ProposalWorker:
             handled.append({"ticket_request_id": req.get("id"), "outcome": outcome})
         return {
             "reclaimed": reclaimed,
+            "ticket_reclaimed": ticket_reclaimed,
             "recovered": recovered,
             "handled": handled,
             "counts": results,
@@ -971,10 +1002,11 @@ class ProposalWorker:
 
     def _maintenance_loop(self, publisher: "mq.ProposalPublisher",
                           stop: threading.Event) -> None:
-        """后台维护：回收超租约 + 自愈重投。与消费主循环解耦，互不阻塞。"""
+        """后台维护：回收超租约（提案 + 转换请求）+ 自愈重投。与消费主循环解耦。"""
         while not stop.wait(self.config.maintenance_interval):
             try:
                 self.reclaim_stale()
+                self.reclaim_stale_ticket_requests()
                 self.sweep(publisher)
             except Exception:
                 log.exception("维护周期异常，将在下个周期重试")

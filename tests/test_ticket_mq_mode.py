@@ -113,7 +113,7 @@ def test_mq_mode_processes_ticket_requests():
         lambda ctx: AgentDecision(action="ticket_created"),
     )
     cfg = WorkerConfig(api_url="http://mq-test", token="t", agent="mq-worker",
-                       poll_interval=0.2, maintenance_interval=100)
+                       poll_interval=0.2, maintenance_interval=0.5)
     w = ProposalWorker(cfg, invoker=invoker, client=client)
     broker = mq.InMemoryBroker()
 
@@ -143,6 +143,10 @@ def test_mq_mode_processes_ticket_requests():
         p == f"/api/proposals/{request['proposal_id']}/ticket-requests"
         for p in paths
     ), "未回查请求状态确认生成结果"
+    # 2026-08-09 review：MQ maintenance 周期自动回收超时转换请求（processing 停滞）
+    assert any(p == "/api/ticket-requests/reclaim-stale" for p in paths), (
+        "MQ maintenance 未自动回收超时转换请求"
+    )
     # 流水线完整走通：处理一次返回 created
     client2 = _FakeClient(proposal, request)
     w2 = ProposalWorker(
@@ -152,3 +156,22 @@ def test_mq_mode_processes_ticket_requests():
     )
     reqs = w2.fetch_ticket_requests()
     assert w2.handle_ticket_request(reqs[0]) == "created", "ticket 处理未收敛为 created"
+
+
+def test_poll_once_reclaims_stale_ticket_requests():
+    """轮询模式 poll_once 同样自动回收超时转换请求（2026-08-09 review）。"""
+    sessions, proposal, request = _env()
+    client = _FakeClient(proposal, request)
+    w = ProposalWorker(
+        WorkerConfig(api_url="http://mq-test", token="t", agent="poll-worker",
+                     poll_interval=0.2, maintenance_interval=100),
+        invoker=CallableAgentInvoker(
+            lambda ctx: AgentDecision(action="ticket_created"),
+        ), client=client,
+    )
+    summary = w.poll_once()
+    assert summary["ticket_reclaimed"] == []  # 无超时请求，正常空回收
+    paths = [p for _, p in client.calls]
+    assert "/api/ticket-requests/reclaim-stale" in paths, (
+        "poll_once 未自动回收超时转换请求"
+    )
