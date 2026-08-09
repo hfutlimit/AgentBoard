@@ -979,6 +979,24 @@ class ProposalWorker:
             except Exception:
                 log.exception("维护周期异常，将在下个周期重试")
 
+    def _ticket_scan_loop(self, stop: threading.Event) -> None:
+        """MQ 模式兜底（2026-08-09 review）：Proposal Worker 的 MQ 消费的是
+        澄清消息队列，``proposal.ticket_requested`` 事件在 workflow 总线
+        （由 Workflow Worker 确认 ack），本 Worker 收不到——转换请求由本线程
+        按 poll_interval 周期扫描兜底，与轮询模式 ``poll_once`` 的
+        ``fetch_ticket_requests`` 分支对齐，避免 MQ 模式下 Proposal 永久卡在
+        ticket_preparing。
+        """
+        while not stop.wait(self.config.poll_interval):
+            try:
+                for req in self.fetch_ticket_requests():
+                    try:
+                        self.handle_ticket_request(req)
+                    except Exception:
+                        log.exception("ticket 请求 #%s 处理异常", req.get("id"))
+            except Exception:
+                log.exception("ticket 扫描周期异常，将在下个周期重试")
+
     def run_mq_forever(self, stop: threading.Event | None = None,
                        max_messages: int | None = None,
                        idle_timeout: float | None = None,
@@ -1015,6 +1033,13 @@ class ProposalWorker:
             name="proposal-worker-maintenance", daemon=True,
         )
         keeper.start()
+        # 2026-08-09 review：ticket 请求扫描兜底线程（MQ 模式下主循环收不到
+        # workflow 总线上的 ticket_requested 事件，须周期轮询拉取 pending）。
+        ticket_keeper = threading.Thread(
+            target=self._ticket_scan_loop, args=(stop,),
+            name="proposal-worker-ticket-scan", daemon=True,
+        )
+        ticket_keeper.start()
         try:
             stats = broker.consume(
                 self.handle_message, max_messages=max_messages,
@@ -1023,6 +1048,7 @@ class ProposalWorker:
         finally:
             stop.set()
             keeper.join(timeout=2)
+            ticket_keeper.join(timeout=2)
         stats["mode"] = "mq"
         log.info("Worker MQ 模式退出：%s", stats)
         return stats
