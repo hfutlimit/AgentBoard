@@ -1018,7 +1018,12 @@ class ProposalWorker:
             return False
 
     def _story_all_tasks_done(self, story: dict) -> bool:
-        """Story 下 design 与实现 task 是否全部 done（结束判据）。"""
+        """Story 下任务是否全部完成（收尾判据）。
+
+        - 实现 task（type=task）：done 即完成；
+        - design task（type=design）：终态是 design_review_approved（设计评审通过
+          即交付完成，不再流转到 done），故 approved 亦视为完成。
+        """
         sid = story.get("id")
         try:
             data = self._get_json(f"/api/stories/{sid}/tasks", params={"limit": 200})
@@ -1026,7 +1031,13 @@ class ProposalWorker:
         except Exception as e:
             log.warning("Story #%s 回查任务失败：%s", sid, e)
             return False
-        pending = [t for t in tasks if t.get("status") != "done"]
+
+        def finished(t: dict) -> bool:
+            if t.get("status") == "done":
+                return True
+            return t.get("type") == "design" and t.get("status") == "design_review_approved"
+
+        pending = [t for t in tasks if not finished(t)]
         return not pending
 
     def handle_story(self, story: dict) -> str:

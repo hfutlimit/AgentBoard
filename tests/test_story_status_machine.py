@@ -76,6 +76,19 @@ def test_update_story_rejects_invalid_value():
             service.update_story(s, sid, status="pending_review")  # 已下线状态
 
 
+def test_update_story_status_records_history():
+    """PATCH status（update_story）亦记状态历史（所有写路径统一）。"""
+    _, _, sid = _seed()
+    with SessionLocal() as s:
+        service.update_story(s, sid, status="confirmed")
+        service.update_story(s, sid, status="todo")
+        hist = service.list_story_status_history(s, sid)
+        assert [(h.from_status, h.to_status) for h in hist] == [
+            ("confirmed", "todo"),
+            ("backlog", "confirmed"),
+        ]
+
+
 def test_confirm_story_cas_and_idempotent():
     _, _, sid = _seed()
     with SessionLocal() as s:

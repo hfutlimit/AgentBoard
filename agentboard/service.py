@@ -389,6 +389,7 @@ def update_story(s: Session, id: int, **fields) -> Story | None:
     st = s.get(Story, id)
     if not st:
         return None
+    status_changed: str | None = None
     for k, v in fields.items():
         if k in ("title", "description", "status", "needs_design") and v is not None:
             if k == "title":
@@ -402,7 +403,12 @@ def update_story(s: Session, id: int, **fields) -> Story | None:
                 old = st.status
                 if old != new and new != "blocked" and new not in STORY_TRANSITIONS.get(old, set()):
                     raise IllegalTransition(f"{old} -> {new} 不合法")
+                if old != new:
+                    status_changed = old
             setattr(st, k, v)
+    if status_changed is not None:
+        # 所有状态写路径统一记历史（Ticket 全流程）：PATCH status 亦记录
+        _record_story_status_history(s, id, status_changed, st.status, reason="更新")
     _commit(s); s.refresh(st)
     return st
 

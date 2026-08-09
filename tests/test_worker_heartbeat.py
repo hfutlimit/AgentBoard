@@ -150,6 +150,21 @@ def test_handle_story_all_done_calls_complete():
     assert ("POST", "/api/stories/1/complete") in client.calls
 
 
+def test_handle_story_all_done_design_approved_counts_finished():
+    """design task 终态 design_review_approved 亦视为完成（收尾判据）。"""
+    done_tasks = {"items": [
+        {"id": 11, "type": "design", "title": "设计：S",
+         "status": "design_review_approved"},
+        {"id": 12, "type": "task", "title": "实现：S", "status": "done"},
+    ]}
+    client = _FakeClient(get_responses={"/api/stories/1/tasks": done_tasks})
+    w = _worker(client=client)
+    assert w._story_all_tasks_done(_story()) is True
+    out = w.handle_story(_story())
+    assert out == "handled"
+    assert ("POST", "/api/stories/1/complete") in client.calls
+
+
 def test_handle_story_throttle():
     client = _FakeClient(get_responses={"/api/stories/1/tasks": _tasks_response()})
     w = _worker(client=client)

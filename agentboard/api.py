@@ -966,7 +966,7 @@ def list_stories_global(status: str | None = Query(None), reviewer_id: str | Non
     uid, _is_admin = _caller_uid_admin(authorization)
     q = s.query(service.Story)
     if status:
-        if status not in service.ALL_STATUSES and status not in service.STORY_REVIEW_STATUSES:
+        if status not in service.STORY_STATUSES:
             raise HTTPException(status_code=422, detail=f"invalid status '{status}'")
         q = q.filter(service.Story.status == status)
     if reviewer_id:
