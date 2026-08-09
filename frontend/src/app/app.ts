@@ -2465,9 +2465,23 @@ export class App implements OnInit, OnDestroy {
     } catch {
       /* ignore */
     }
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    // WS 直连 API 地址（与 REST 同源）：
+    // - 注入 AGENTBOARD_API（绝对地址）→ 用其 host（生产 docker 直连 API 端口）
+    // - 未注入（同源反代 IIS/nginx）→ 用页面 host（反代需 WS upgrade 头）
+    let host = window.location.host;
+    let secure = window.location.protocol === 'https:';
+    if (this.api.baseUrl) {
+      try {
+        const u = new URL(this.api.baseUrl);
+        host = u.host;
+        secure = u.protocol === 'https:';
+      } catch {
+        /* fallback to page host */
+      }
+    }
+    const proto = secure ? 'wss' : 'ws';
     const token = encodeURIComponent(localStorage.getItem('agentboard_token') || '');
-    let url = `${proto}://${window.location.host}/ws/agents`;
+    let url = `${proto}://${host}/ws/agents`;
     if (token) url += `?token=${token}`;
     try {
       const ws = new WebSocket(url);
