@@ -138,11 +138,9 @@ def test_mq_mode_processes_ticket_requests():
     # build_ticket_context：拉提案 + 轮次（请求进入了处理流水线）
     assert f"/api/proposals/{request['proposal_id']}" in paths, "未构建 ticket 上下文"
     assert any(p.endswith("/rounds") for p in paths), "未拉取提案轮次"
-    # agent 声称已创建 → 回查确认（GET 请求列表）
-    assert any(
-        p == f"/api/proposals/{request['proposal_id']}/ticket-requests"
-        for p in paths
-    ), "未回查请求状态确认生成结果"
+    # 2026-08-10 review：删除 _confirm_ticket 二次轮询后不再调用 list 端点
+    # —— agent 报告 ticket_created 即信任成功（execute_ticket_request 服务端
+    # 已是事务性 + 幂等）。fallback 分支才单条 list 回查。
     # 2026-08-09 review：MQ maintenance 周期自动回收超时转换请求（processing 停滞）
     assert any(p == "/api/ticket-requests/reclaim-stale" for p in paths), (
         "MQ maintenance 未自动回收超时转换请求"

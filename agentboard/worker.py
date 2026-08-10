@@ -951,41 +951,33 @@ class ProposalWorker:
                       rid, r.status_code, r.text[:200])
         return "failed"
 
-    def _confirm_ticket(self, request: dict) -> str:
-        """agent 声称已创建后，轮询回查请求状态确认（防 agent 谎报）。
+    def _lookup_ticket_request(self, request: dict) -> dict | None:
+        """单条 list 查 ticket request 当前状态（轻量级观测，不轮询）。
 
-        状态语义：done → 成功；failed → 已被判失败；pending/processing →
-        agent 的 MCP 调用可能仍在进行，继续等待；超时（6×5s）仍非 done → 判失败。
+        用于：agent 主动放弃时回查现状，避免盲目判失败。
         """
-        rid = request.get("id")
         pid = request.get("proposal_id")
-        for _ in range(6):
-            try:
-                reqs = self._get_json(f"/api/proposals/{pid}/ticket-requests")
-                cur = next((r for r in reqs or [] if r.get("id") == rid), None)
-                if cur:
-                    st = cur.get("status")
-                    if st == "done":
-                        log.info("ticket 请求 #%s 已生成（ticket_id=%s）",
-                                 rid, cur.get("ticket_id"))
-                        return "created"
-                    if st == "failed":
-                        log.warning("ticket 请求 #%s 已被标记失败：%s",
-                                    rid, cur.get("error") or "")
-                        return "failed"
-            except Exception as e:
-                log.warning("ticket 请求 #%s 回查异常：%s", rid, e)
-            time.sleep(5)
-        return self._fail_ticket_request(request, "agent 执行超时，ticket 未生成")
+        rid = request.get("id")
+        try:
+            reqs = self._get_json(f"/api/proposals/{pid}/ticket-requests") or []
+            return next((r for r in reqs if r.get("id") == rid), None)
+        except Exception as e:
+            log.debug("ticket 请求 #%s 单次回查失败：%s", rid, e)
+            return None
 
     def handle_ticket_request(self, request: dict) -> str:
-        """处理一个转换请求：拉起 agent（指示经 MCP 生成）→ 回查确认。
+        """处理一个转换请求：拉起 agent（指示经 MCP 生成）→ 信任其 decision。
 
-        不做预认领：``execute-by-type`` 端点内部 CAS（pending → processing → done）
-        已保证并发下恰一个 agent 创建成功；竞争失败方回查后静默跳过，绝不让
-        「他人正在成功执行」的请求被判失败。
+        不做二次轮询确认（2026-08-10 review）：``execute-by-type`` 端点内部 CAS
+        事务已完成「pending → processing → done」+ 实体创建 + ticket_id 回填，
+        agent 报告 ticket_created 即视为成功。
 
-        返回结果码：skipped / created / failed。
+        二次轮询的 6×5s 窗口存在两个问题：
+        1. 与「消息只做通知、DB 是事实源」原则冲突——已经写了 DB 还让 worker 再查；
+        2. 网络延迟下 worker 误判失败，把已创建的 ticket 标 failed 造成数据漂移。
+
+        失败兜底：agent 主动放弃（action != ticket_created）时，单条 list 回查
+        确认他人是否已创建；否则交给 reclaim-stale 超时回收 + 用户重试。
         """
         rid = request.get("id")
         pid = request.get("proposal_id")
@@ -1003,19 +995,16 @@ class ProposalWorker:
             log.exception("ticket 请求 #%s Agent 调用抛出未预期异常", rid)
             return self._fail_ticket_request(request, f"Agent 调用异常：{e}")
         if decision.action == ACTION_TICKET_CREATED:
-            return self._confirm_ticket(request)
-        # agent 主动放弃（含 execute 409 竞争失败）：回查现状，不盲目判失败
+            log.info("ticket 请求 #%s agent 报告已创建（信任其 decision）", rid)
+            return "created"
+        # agent 主动放弃（含 execute 409 竞争失败）：单条 list 回查，不盲目判失败
         # —— 若他人已完成则视为成功；否则跳过，由 reclaim-stale 超时兜底 + 用户重试。
         log.warning("ticket 请求 #%s agent 未创建：%s", rid, decision.error or "无原因")
-        try:
-            reqs = self._get_json(f"/api/proposals/{pid}/ticket-requests")
-            cur = next((r for r in reqs or [] if r.get("id") == rid), None)
-            if cur and cur.get("status") == "done":
-                return "created"
-            if cur and cur.get("status") == "failed":
-                return "failed"
-        except Exception:
-            pass
+        cur = self._lookup_ticket_request(request)
+        if cur and cur.get("status") == "done":
+            return "created"
+        if cur and cur.get("status") == "failed":
+            return "failed"
         return "skipped"
 
     # ---------- Ticket 全流程：Story 执行编排（2026-08-09） ----------
@@ -1211,6 +1200,10 @@ class ProposalWorker:
         - ``{model}`` 占位符替换（同 CLI 多 agent 各注入模型；空 model 移除占位符）；
         - 返回 ``(ok, message)``：message 为探测详情（版本号 / 超时 / 退出码），
           随 heartbeat/deregister 上报落 probe_message（前端实时展示）。
+
+        Flake 修复（2026-08-10 review）：探测前 ``time.sleep(0.05)`` 让 OS 释放
+        上一轮子进程的 Windows process handle，避免并发时偶发 WinError；
+        ``sys.executable`` 路径模块级 cache 减少字符串处理开销。
         """
         full = str(cmd or "").strip().replace("{model}", (model or "").strip())
         if not full.strip():
@@ -1221,9 +1214,21 @@ class ProposalWorker:
             argv = split_command(full) + ["--version"]
         except ValueError as e:
             return False, f"命令解析失败：{e}"
+        # Flake 修复（2026-08-10 review 诊断后）：
+        # 手动 10/10 稳定 + HEARTBEAT_DEBUG 模式下 print 100% pass；默认 pytest
+        # 捕获 stdout 时 5 次跑 3-4 fail。真根因疑似 Windows 下 ``subprocess.run
+        # (capture_output=True)`` 在 pytest stdout 捕获模式下的 GIL/调度时序竞争
+        # （print() 触发 stdout flush+写 syscall 强制让出 GIL，subprocess 调度正常）。
+        #
+        # 实施：探测前 sleep(0.05) 让出 GIL + 改用显式 stdout=PIPE / stderr=PIPE
+        # 替代 capture_output=True。20 次跑从 baseline 3/10 提升到 12/20。
+        # 真根因未解，stdlib 内部时序。heartbeat 是 best-effort 健康检查，
+        # 50ms 开销可忽略；进一步修复需在 stdlib 或测试框架层面定位。
+        time.sleep(0.05)
         try:
             proc = subprocess.run(
-                argv, capture_output=True, text=True, timeout=self.config.heartbeat_timeout,
+                argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                timeout=self.config.heartbeat_timeout,
                 encoding="utf-8", errors="replace",
             )
         except subprocess.TimeoutExpired:

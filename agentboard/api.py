@@ -3023,13 +3023,16 @@ class ProposalConvertIn(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=300)
 
 
-class ProposalTicketIn(BaseModel):
-    """创建 Proposal → Ticket 转换请求（2026-08-08 文档 #59）。
+class TicketRequestSpec(BaseModel):
+    """创建/执行 Proposal → Ticket 转换请求的统一定义（2026-08-10 review）。
 
     type: epic / story / task / bug；
     - epic 独立，无需父级；
     - story 必填 epic_id；
     - task / bug 必填 epic_id + story_id。
+
+    合并自旧 ProposalTicketIn（创建）+ TicketRequestExecuteIn（execute-by-type），
+    两份字段完全同构。旧名保留为 alias，1 release 后下架。
     """
 
     type: str
@@ -3038,13 +3041,10 @@ class ProposalTicketIn(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=300)
 
 
-class TicketRequestExecuteIn(BaseModel):
-    """agent 经 MCP 执行转换（execute-by-type 用）。与 ProposalTicketIn 同构。"""
-
-    type: str
-    epic_id: int | None = None
-    story_id: int | None = None
-    title: str | None = Field(default=None, min_length=1, max_length=300)
+# 兼容旧 import（pre-existing 客户端/MCP 工具可能仍引用）
+# 1 release 后下架——届时新代码全部用 TicketRequestSpec。
+ProposalTicketIn = TicketRequestSpec
+TicketRequestExecuteIn = TicketRequestSpec
 
 
 class TicketFailIn(BaseModel):
