@@ -85,7 +85,7 @@ class _FakeClient:
 
     def request(self, method: str, path: str, **kw) -> httpx.Response:
         self.calls.append((method, path))
-        if path.endswith("/api/ticket-requests/pending"):
+        if path.endswith("/api/admin/ticket-requests/pending"):
             return self._resp(200, [] if self._done else [self.req])
         if path.endswith("/claim"):
             self._done = True
@@ -104,7 +104,6 @@ class _FakeClient:
         if "/proposals/pending" in path:
             return self._resp(200, [])
         return self._resp(200, {})
-
 
 def test_mq_mode_processes_ticket_requests():
     sessions, proposal, request = _env()
@@ -131,8 +130,8 @@ def test_mq_mode_processes_ticket_requests():
     assert not thread.is_alive(), "run_mq_forever 未在超时内退出"
 
     paths = [p for _, p in client.calls]
-    # 关键断言：MQ 模式下 ticket 请求被扫描（fetch pending）
-    assert any(p.endswith("/api/ticket-requests/pending") for p in paths), (
+    # 关键断言：MQ 模式下 ticket 请求被扫描（fetch pending，2026-08-10 切 admin 命名空间）
+    assert any(p.endswith("/api/admin/ticket-requests/pending") for p in paths), (
         "MQ 模式未扫描 pending ticket 请求"
     )
     # build_ticket_context：拉提案 + 轮次（请求进入了处理流水线）
@@ -142,7 +141,7 @@ def test_mq_mode_processes_ticket_requests():
     # —— agent 报告 ticket_created 即信任成功（execute_ticket_request 服务端
     # 已是事务性 + 幂等）。fallback 分支才单条 list 回查。
     # 2026-08-09 review：MQ maintenance 周期自动回收超时转换请求（processing 停滞）
-    assert any(p == "/api/ticket-requests/reclaim-stale" for p in paths), (
+    assert any(p == "/api/admin/ticket-requests/reclaim-stale" for p in paths), (
         "MQ maintenance 未自动回收超时转换请求"
     )
     # 流水线完整走通：处理一次返回 created
@@ -170,6 +169,6 @@ def test_poll_once_reclaims_stale_ticket_requests():
     summary = w.poll_once()
     assert summary["ticket_reclaimed"] == []  # 无超时请求，正常空回收
     paths = [p for _, p in client.calls]
-    assert "/api/ticket-requests/reclaim-stale" in paths, (
+    assert "/api/admin/ticket-requests/reclaim-stale" in paths, (
         "poll_once 未自动回收超时转换请求"
     )

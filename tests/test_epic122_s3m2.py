@@ -43,7 +43,7 @@ for _m in list(sys.modules):
 
 from agentboard import api, auth, mq, service  # noqa: E402
 from agentboard.database import SessionLocal, init_db  # noqa: E402
-from agentboard.mq import EVENT_REVIEW_REQUESTED  # noqa: E402
+from agentboard.mq import EVENT_TASK_REVIEW_REQUESTED  # noqa: E402
 from agentboard.domains.common.models import utc_now  # noqa: E402
 
 init_db()
@@ -357,7 +357,7 @@ def test_api_reassign_timeout_publishes_event(seeded):
         # 事件发布：review.requested（task，新 reviewer 定向）
         assert pub.call_count == 1
         ev = pub.call_args
-        assert ev.args[0] == EVENT_REVIEW_REQUESTED
+        assert ev.args[0] == EVENT_TASK_REVIEW_REQUESTED
         assert ev.args[1] == "task" and ev.args[2] == tid
         assert nw.call_count == 1
 

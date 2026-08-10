@@ -41,7 +41,7 @@ from agentboard.database import SessionLocal, init_db  # noqa: E402
 from agentboard.models import Task  # noqa: E402
 from agentboard.mq import (  # noqa: E402
     EVENT_TASK_READY_FOR_REVIEW, EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED,
-    EVENT_REVIEW_REQUESTED, WorkflowMessage,
+    EVENT_TASK_REVIEW_REQUESTED, WorkflowMessage,
 )
 
 init_db()
@@ -347,7 +347,7 @@ def test_api_assign_and_review_full_flow(seeded):
         assert body["reviewer_id"] is not None
         pub.assert_called()
         event, etype, eid = pub.call_args.args[:3]
-        assert event == EVENT_REVIEW_REQUESTED and etype == "task" and eid == tid
+        assert event == EVENT_TASK_REVIEW_REQUESTED and etype == "task" and eid == tid
         # review approve → done + task.reviewed 广播
         pub.reset_mock()
         r2 = c.post(f"/api/tasks/{tid}/review", headers=rev_h,

@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 from sqlalchemy import text
 from fastapi import FastAPI, Depends, HTTPException, Query, Header, Request, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
@@ -1581,7 +1581,7 @@ def assign_task_reviewer(tid: int, authorization: str | None = Header(None),
             reviewer_agent_id = agent.agent_id
     publish_workflow_event(EVENT_TASK_REVIEW_REQUESTED, "task", t.id,
                            ref_id=t.reviewer_id, agent_id=reviewer_agent_id)
-    _notify_webhooks(s, t.project_id, EVENT_REVIEW_REQUESTED,
+    _notify_webhooks(s, t.project_id, EVENT_TASK_REVIEW_REQUESTED,
                      {"id": t.id, "reviewer_id": t.reviewer_id, "status": t.status})
     return service._ser(t)
 
@@ -3055,6 +3055,20 @@ ProposalTicketIn = TicketRequestSpec
 TicketRequestExecuteIn = TicketRequestSpec
 
 
+class TicketRequestExecuteSpec(BaseModel):
+    """``POST /api/ticket-requests:execute`` 的 body（2026-08-10 URL 命名统一）。
+
+    RPC 命名空间端点不再把 proposal 塞进 URL，改为 body 携带
+    ``proposal_id`` + 层级字段（语义同旧 ``execute-by-type``）。
+    """
+
+    proposal_id: int
+    type: str
+    epic_id: int | None = None
+    story_id: int | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=300)
+
+
 class TicketFailIn(BaseModel):
     error: str = ""
 
@@ -3278,17 +3292,21 @@ def delete_proposal(pid: int, s: Session = Depends(get_session)):
 
 
 # ---------- Proposal → Ticket 异步转化（2026-08-08 文档 #59）----------
+# URL 命名空间统一（2026-08-10 Epic 123 Step 1）：
+#   - 全局管理端点迁移到 /api/admin/ticket-requests/*（admin-only）；
+#   - RPC 动作收敛到 /api/ticket-requests:execute 与 /api/ticket-requests/{rid}/{action}；
+#   - 旧 URL 全部保留（301/307 或内部转发），1 release 后下架。
 
-@app.get("/api/ticket-requests/pending")
-def list_pending_ticket_requests(
+@app.get("/api/admin/ticket-requests/pending")
+def admin_list_pending_ticket_requests(
     limit: int = Query(20, ge=1, le=200),
     s: Session = Depends(get_session),
     authorization: str | None = Header(None),
 ):
-    """Worker 拉取待认领转换请求（status=pending），跨项目全局池。
+    """[admin] Worker 拉取待认领转换请求（status=pending），跨项目全局池。
 
-    权限（2026-08-09 review 修复）：REQUIRE_AUTH=1 下仅 admin 可访问
-    （worker 服务账号须为 admin；避免任意登录用户枚举全部项目请求）。
+    权限（2026-08-09 review 修复 + 2026-08-10 命名统一）：REQUIRE_AUTH=1 下仅
+    admin 可访问（worker 服务账号须为 admin；避免任意登录用户枚举全部项目请求）。
     """
     uid, is_admin = _caller_uid_admin(authorization)
     if _auth_is_required() and not is_admin:
@@ -3296,17 +3314,158 @@ def list_pending_ticket_requests(
     return [service._ser(r) for r in service.list_pending_ticket_requests(s, limit=limit)]
 
 
-# 全局回收端点须声明在 /api/proposals/{pid} 动态路由之外的前缀之下，避免被 pid 捕获。
-@app.post("/api/ticket-requests/reclaim-stale")
-def reclaim_stale_ticket_requests(
+@app.post("/api/admin/ticket-requests/reclaim-stale")
+def admin_reclaim_stale_ticket_requests(
     body: TicketReclaimIn | None = None, s: Session = Depends(get_session),
     authorization: str | None = Header(None),
 ):
-    """回收处理中超时的转换请求（processing 停滞 → failed），proposal 回退 converged。
+    """[admin] 回收处理中超时的转换请求（processing 停滞 → failed），proposal 回退 converged。
 
-    权限（2026-08-09 review 修复）：REQUIRE_AUTH=1 下仅 admin 可访问
-    （worker 维护周期调用）。
+    权限（2026-08-09 review 修复 + 2026-08-10 命名统一）：REQUIRE_AUTH=1 下仅
+    admin 可访问（worker 维护周期调用）。
     """
+    uid, is_admin = _caller_uid_admin(authorization)
+    if _auth_is_required() and not is_admin:
+        raise HTTPException(status_code=403, detail="admin required")
+    lease = (body.lease_seconds if body and body.lease_seconds is not None
+             else service.DEFAULT_CLAIM_LEASE_SECONDS)
+    try:
+        ids = service.reclaim_stale_ticket_requests(s, lease_seconds=lease)
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"reclaimed": ids, "count": len(ids), "lease_seconds": lease}
+
+
+@app.post("/api/ticket-requests:execute")
+def execute_ticket_request_rpc(body: TicketRequestExecuteSpec,
+                               s: Session = Depends(get_session),
+                               authorization: str | None = Header(None)):
+    """[RPC] agent 经 MCP 调用（proposal_create_ticket）：按 (proposal, type) 定位/
+    创建请求并执行转换，事务内创建实体 + 回填 + ticket_created。
+
+    URL 命名统一（2026-08-10）：proposal 从 body 取，不再嵌入 URL 路径。
+    - 200：生成成功，返回 {proposal, request, ticket}
+    - 409：请求正在生成中（processing），调用方轮询
+    - 422：层级不合法 / 状态不符
+    """
+    pid = body.proposal_id
+    uid, is_admin = _caller_uid_admin(authorization)
+    p = service.get_proposal(s, pid)
+    if not p:
+        raise HTTPException(status_code=404, detail=f"proposal {pid} not found")
+    if not is_admin and not service.user_is_project_member(s, p.project_id, uid):
+        raise HTTPException(status_code=403, detail="project membership required")
+    try:
+        result = service.execute_ticket_request(
+            s, pid, type=body.type, epic_id=body.epic_id,
+            story_id=body.story_id, title=body.title,
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=409 if "正在生成中" in str(e) else 422,
+                            detail=str(e))
+    mq.publish_workflow_event(mq.EVENT_TICKET_CREATED, "proposal", pid,
+                              ref_id=result["request"]["id"])
+    return result
+
+
+@app.post("/api/ticket-requests/{rid}/{action}")
+def ticket_request_action(rid: int, action: str,
+                          body: dict | None = None,
+                          s: Session = Depends(get_session),
+                          authorization: str | None = Header(None)):
+    """[RPC] 统一动作端点：execute / fail / claim（2026-08-10 命名统一）。
+
+    替代旧 ``/api/proposals/{pid}/ticket-requests/{rid}/{action}``——rid 全局
+    唯一，无需再在 URL 里携带 proposal。
+    """
+    req = service.get_ticket_request(s, rid)
+    if not req:
+        raise HTTPException(status_code=404, detail=f"ticket request {rid} not found")
+    if action == "execute":
+        return execute_ticket_request_by_id_inner(rid, s, authorization)
+    if action == "fail":
+        return fail_ticket_request_inner(rid, (body or {}).get("error", ""), s)
+    if action == "claim":
+        return claim_ticket_request_inner(rid, s)
+    raise HTTPException(status_code=404, detail=f"unknown action '{action}'")
+
+
+def execute_ticket_request_by_id_inner(rid: int, s: Session,
+                                       authorization: str | None) -> dict:
+    """按显式 request id 执行转换（供测试/前端精确控制）。语义同 execute RPC。"""
+    req = service.get_ticket_request(s, rid)
+    if not req:
+        raise HTTPException(status_code=404, detail=f"ticket request {rid} not found")
+    pid = req.proposal_id
+    uid, is_admin = _caller_uid_admin(authorization)
+    p = service.get_proposal(s, pid)
+    if not p:
+        raise HTTPException(status_code=404, detail=f"proposal {pid} not found")
+    if not is_admin and not service.user_is_project_member(s, p.project_id, uid):
+        raise HTTPException(status_code=403, detail="project membership required")
+    try:
+        result = service.execute_ticket_request(s, pid, request_id=rid)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=409 if "正在生成中" in str(e) else 422,
+                            detail=str(e))
+    mq.publish_workflow_event(mq.EVENT_TICKET_CREATED, "proposal", pid,
+                              ref_id=result["request"]["id"])
+    return result
+
+
+def fail_ticket_request_inner(rid: int, error: str, s: Session) -> dict:
+    """worker 标记转换失败：request → failed，proposal ticket_preparing → converged。"""
+    try:
+        req = service.fail_ticket_request(s, rid, error=error)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return service._ser(req)
+
+
+def claim_ticket_request_inner(rid: int, s: Session) -> dict:
+    """**原子**认领转换请求：pending → processing（worker 竞争消费）。"""
+    try:
+        req = service.claim_ticket_request(s, rid)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    if req is None or req.status != "processing":
+        raise HTTPException(
+            status_code=409,
+            detail=f"ticket request {rid} 无法认领：当前状态 "
+                   f"{req.status if req else 'unknown'}，仅 pending 可认领",
+        )
+    return service._ser(req)
+
+
+# ---------- 兼容层（deprecated，1 release 后下架）----------
+
+@app.get("/api/ticket-requests/pending")
+def list_pending_ticket_requests_deprecated(
+    limit: int = Query(20, ge=1, le=200),
+    s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
+):
+    """[deprecated] 旧全局 pending 端点 → 301 到 /api/admin/ticket-requests/pending。
+
+    权限语义与旧版一致：REQUIRE_AUTH=1 下非 admin 仍 403（重定向不泄露数据）。
+    """
+    uid, is_admin = _caller_uid_admin(authorization)
+    if _auth_is_required() and not is_admin:
+        raise HTTPException(status_code=403, detail="admin required")
+    return RedirectResponse(url="/api/admin/ticket-requests/pending"
+                                  f"?limit={limit}", status_code=301)
+
+
+@app.post("/api/ticket-requests/reclaim-stale")
+def reclaim_stale_ticket_requests_deprecated(
+    body: TicketReclaimIn | None = None, s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
+):
+    """[deprecated] 旧全局 reclaim-stale → 内部转发 admin 端点（POST 无法 301 保方法）。"""
     uid, is_admin = _caller_uid_admin(authorization)
     if _auth_is_required() and not is_admin:
         raise HTTPException(status_code=403, detail="admin required")
@@ -3356,107 +3515,61 @@ def list_ticket_requests(pid: int, s: Session = Depends(get_session)):
 
 
 @app.post("/api/proposals/{pid}/ticket-requests/execute-by-type")
-def execute_ticket_request_by_type(pid: int, body: TicketRequestExecuteIn,
-                                   s: Session = Depends(get_session),
-                                   authorization: str | None = Header(None)):
-    """agent 经 MCP 调用（proposal_create_ticket）：按 (proposal, type) 定位/创建
-    请求并执行转换，事务内创建实体 + 回填 + ticket_created。
+def execute_ticket_request_by_type_deprecated(pid: int, body: TicketRequestExecuteIn,
+                                              s: Session = Depends(get_session),
+                                              authorization: str | None = Header(None)):
+    """[deprecated] 旧 execute-by-type → 内部转发 RPC 端点（2026-08-10 命名统一）。
 
-    - 200：生成成功，返回 {proposal, request, ticket}
-    - 409：请求正在生成中（processing），调用方轮询
-    - 422：层级不合法 / 状态不符
+    旧 URL 保留 + 标 deprecated，1 release 后下架；语义与
+    ``POST /api/ticket-requests:execute`` 完全一致。
     """
-    uid, is_admin = _caller_uid_admin(authorization)
-    p = service.get_proposal(s, pid)
-    if not p:
-        raise HTTPException(status_code=404, detail=f"proposal {pid} not found")
-    if not is_admin and not service.user_is_project_member(s, p.project_id, uid):
-        raise HTTPException(status_code=403, detail="project membership required")
-    try:
-        result = service.execute_ticket_request(
-            s, pid, type=body.type, epic_id=body.epic_id,
+    return execute_ticket_request_rpc(
+        TicketRequestExecuteSpec(
+            proposal_id=pid, type=body.type, epic_id=body.epic_id,
             story_id=body.story_id, title=body.title,
-        )
-    except service.NotFound as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except service.InvalidValue as e:
-        raise HTTPException(status_code=409 if "正在生成中" in str(e) else 422,
-                            detail=str(e))
-    mq.publish_workflow_event(mq.EVENT_TICKET_CREATED, "proposal", pid,
-                              ref_id=result["request"]["id"])
-    return result
+        ),
+        s=s, authorization=authorization,
+    )
 
 
 @app.post("/api/proposals/{pid}/ticket-requests/{rid}/execute")
-def execute_ticket_request_by_id(pid: int, rid: int,
-                                 s: Session = Depends(get_session),
-                                 authorization: str | None = Header(None)):
-    """按显式 request id 执行转换（供测试/前端精确控制）。语义同 execute-by-type。"""
-    uid, is_admin = _caller_uid_admin(authorization)
-    p = service.get_proposal(s, pid)
-    if not p:
-        raise HTTPException(status_code=404, detail=f"proposal {pid} not found")
-    if not is_admin and not service.user_is_project_member(s, p.project_id, uid):
-        raise HTTPException(status_code=403, detail="project membership required")
-    try:
-        result = service.execute_ticket_request(
-            s, pid, request_id=rid,
-        )
-    except service.NotFound as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except service.InvalidValue as e:
-        raise HTTPException(status_code=409 if "正在生成中" in str(e) else 422,
-                            detail=str(e))
-    mq.publish_workflow_event(mq.EVENT_TICKET_CREATED, "proposal", pid,
-                              ref_id=result["request"]["id"])
-    return result
-
-
-@app.post("/api/proposals/{pid}/ticket-requests/{rid}/fail")
-def fail_ticket_request(pid: int, rid: int, body: TicketFailIn | None = None,
-                        s: Session = Depends(get_session)):
-    """worker 标记转换失败：request → failed，proposal ticket_preparing → converged。
-
-    归属校验（2026-08-09 review 修复）：rid 必须属于 URL 的 proposal，
-    防止跨 Proposal 误回退。
-    """
+def execute_ticket_request_by_id_deprecated(pid: int, rid: int,
+                                            s: Session = Depends(get_session),
+                                            authorization: str | None = Header(None)):
+    """[deprecated] 旧 execute-by-id → 内部转发统一动作端点。"""
     req = service.get_ticket_request(s, rid)
     if not req or req.proposal_id != pid:
         raise HTTPException(
             status_code=404,
             detail=f"ticket request {rid} 不属于 proposal {pid}",
         )
-    try:
-        req = service.fail_ticket_request(s, rid, error=(body.error if body else ""))
-    except service.NotFound as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    return service._ser(req)
+    return execute_ticket_request_by_id_inner(rid, s, authorization)
+
+
+@app.post("/api/proposals/{pid}/ticket-requests/{rid}/fail")
+def fail_ticket_request_deprecated(pid: int, rid: int, body: TicketFailIn | None = None,
+                                   s: Session = Depends(get_session)):
+    """[deprecated] 旧 fail → 内部转发统一动作端点。"""
+    req = service.get_ticket_request(s, rid)
+    if not req or req.proposal_id != pid:
+        raise HTTPException(
+            status_code=404,
+            detail=f"ticket request {rid} 不属于 proposal {pid}",
+        )
+    return fail_ticket_request_inner(rid, (body.error if body else ""), s)
 
 
 @app.post("/api/proposals/{pid}/ticket-requests/{rid}/claim")
-def claim_ticket_request(pid: int, rid: int, s: Session = Depends(get_session)):
-    """**原子**认领转换请求：pending → processing（worker 竞争消费）。
-
-    条件 UPDATE 由数据库仲裁，恰一个赢家；已被认领/已完成返回 409。
-    归属校验（2026-08-09 review 修复）：rid 必须属于 URL 的 proposal。
-    """
+def claim_ticket_request_deprecated(pid: int, rid: int,
+                                    s: Session = Depends(get_session)):
+    """[deprecated] 旧 claim → 内部转发统一动作端点。"""
     req0 = service.get_ticket_request(s, rid)
     if not req0 or req0.proposal_id != pid:
         raise HTTPException(
             status_code=404,
             detail=f"ticket request {rid} 不属于 proposal {pid}",
         )
-    try:
-        req = service.claim_ticket_request(s, rid)
-    except service.NotFound as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    if req is None or req.status != "processing":
-        raise HTTPException(
-            status_code=409,
-            detail=f"ticket request {rid} 无法认领：当前状态 "
-                   f"{req.status if req else 'unknown'}，仅 pending 可认领",
-        )
-    return service._ser(req)
+    return claim_ticket_request_inner(rid, s)
 
 
 @app.post("/api/proposals/{pid}/questions", status_code=201)

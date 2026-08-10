@@ -687,11 +687,11 @@ class ProposalWorker:
         与提案租约回收（``reclaim_stale``）互补：CLI/进程在 request 已进入
         processing 后崩溃时，没有本回收就没有自动兜底——request 会永久停在
         processing，除非人工调 API（2026-08-09 review 补全）。判定与回退整体
-        下沉到服务端 ``POST /api/ticket-requests/reclaim-stale``（admin-only，
+        下沉到服务端 ``POST /api/admin/ticket-requests/reclaim-stale``（admin-only，
         worker 须用 admin 服务账号 token）。
         """
         r = self._request(
-            "POST", "/api/ticket-requests/reclaim-stale",
+            "POST", "/api/admin/ticket-requests/reclaim-stale",
             json={"lease_seconds": self.config.lease_seconds},
         )
         if r.status_code != 200:
@@ -884,7 +884,7 @@ class ProposalWorker:
         try:
             return (
                 self._get_json(
-                    "/api/ticket-requests/pending",
+                    "/api/admin/ticket-requests/pending",
                     params={"limit": self.config.batch_size},
                 ) or []
             )
@@ -895,9 +895,8 @@ class ProposalWorker:
     def claim_ticket_request(self, request: dict) -> bool:
         """pending → processing（CAS）。竞争失败静默跳过。"""
         rid = request.get("id")
-        pid = request.get("proposal_id")
         r = self._request(
-            "POST", f"/api/proposals/{pid}/ticket-requests/{rid}/claim", json={},
+            "POST", f"/api/ticket-requests/{rid}/claim", json={},
         )
         if r.status_code == 200:
             return True
@@ -941,9 +940,8 @@ class ProposalWorker:
 
     def _fail_ticket_request(self, request: dict, error: str) -> str:
         rid = request.get("id")
-        pid = request.get("proposal_id")
         r = self._request(
-            "POST", f"/api/proposals/{pid}/ticket-requests/{rid}/fail",
+            "POST", f"/api/ticket-requests/{rid}/fail",
             json={"error": error[:2000]},
         )
         if r.status_code != 200:

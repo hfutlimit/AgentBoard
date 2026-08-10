@@ -140,7 +140,7 @@ def test_claim_by_id_cross_proposal_404():
         assert service.get_ticket_request(s, rid).status == "pending"
 
 
-# ---------- 中1：全局端点 admin-only（REQUIRE_AUTH=1） ----------
+# ---------- 中1：全局端点 admin-only（REQUIRE_AUTH=1）+ URL 命名统一（2026-08-10） ----------
 
 def _login(username, password):
     r = client.post("/api/auth/login",
@@ -161,12 +161,24 @@ def test_pending_and_reclaim_require_admin(monkeypatch):
     h_user = {"Authorization": f"Bearer {user_tok}"}
     h_admin = {"Authorization": f"Bearer {admin_tok}"}
 
-    # 非 admin → 403
+    # 新命名空间（admin-only）：非 admin → 403，admin → 200
+    assert client.get("/api/admin/ticket-requests/pending",
+                      headers=h_user).status_code == 403
+    assert client.post("/api/admin/ticket-requests/reclaim-stale", json={},
+                       headers=h_user).status_code == 403
+    assert client.get("/api/admin/ticket-requests/pending",
+                      headers=h_admin).status_code == 200
+    assert client.post("/api/admin/ticket-requests/reclaim-stale", json={},
+                       headers=h_admin).status_code == 200
+
+    # 兼容层（deprecated）：非 admin → 403；admin → pending 301 到新 URL
     assert client.get("/api/ticket-requests/pending", headers=h_user).status_code == 403
     assert client.post("/api/ticket-requests/reclaim-stale", json={},
                        headers=h_user).status_code == 403
-    # admin → 200
-    assert client.get("/api/ticket-requests/pending", headers=h_admin).status_code == 200
+    r301 = client.get("/api/ticket-requests/pending", headers=h_admin,
+                      follow_redirects=False)
+    assert r301.status_code == 301, r301.text
+    assert "/api/admin/ticket-requests/pending" in r301.headers.get("location", "")
     assert client.post("/api/ticket-requests/reclaim-stale", json={},
                        headers=h_admin).status_code == 200
 

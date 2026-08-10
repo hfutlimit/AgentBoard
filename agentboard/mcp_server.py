@@ -1697,7 +1697,7 @@ def proposal_create_ticket(proposal_id: int, type: str,
     + 状态推进 converged → ticket_preparing → ticket_created；幂等：重复调用
     返回既有结果（不重复创建）。调用方通常是 worker CLI 拉起的 agent。
     """
-    body: dict[str, Any] = {"type": type}
+    body: dict[str, Any] = {"proposal_id": proposal_id, "type": type}
     if epic_id is not None:
         body["epic_id"] = epic_id
     if story_id is not None:
@@ -1705,7 +1705,7 @@ def proposal_create_ticket(proposal_id: int, type: str,
     if title:
         body["title"] = title
     return _http(
-        "POST", f"/api/proposals/{proposal_id}/ticket-requests/execute-by-type",
+        "POST", "/api/ticket-requests:execute",
         json=body,
     )
 
