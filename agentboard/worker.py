@@ -518,7 +518,16 @@ class SubprocessAgentInvoker:
         self.argv = split_command(self.cmd)
         self.timeout = timeout
         self.cwd = cwd
-        self.env = env
+        # Windows 编码修复（2026-08-10 review）：子进程 print() 默认走
+        # locale.getpreferredencoding()，在 zh-CN 系统上是 cp936/GBK；父进程
+        # encoding="utf-8" 读会得到一堆 replacement char（U+FFFD），导致
+        # extract_decision_json 找不到合法 JSON、决策 action 永远停在 ask。
+        # 解法：注入 PYTHONIOENCODING=utf-8 + PYTHONUTF8=1 到子进程环境，
+        # 强制 Python 子进程按 UTF-8 编码 stdout/stderr。
+        base = dict(env) if env is not None else dict(os.environ)
+        base["PYTHONIOENCODING"] = "utf-8"
+        base["PYTHONUTF8"] = "1"
+        self.env = base
 
     def invoke(self, context: dict) -> AgentDecision:
         prompt = build_prompt(context)
