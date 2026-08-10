@@ -40,6 +40,11 @@ from .mq import (
     EVENT_REVIEW_VOTE_CAST,
     EVENT_STORY_CONFIRMED,
     EVENT_STORY_CREATED,
+    # Step 4 P1-1（2026-08-10 review）：按 entity 分流的 review/comment 事件
+    EVENT_STORY_REVIEW_REQUESTED, EVENT_STORY_REVIEW_REJECTED,
+    EVENT_STORY_REVIEW_VOTE_CAST, EVENT_STORY_COMMENT_REPLIED,
+    EVENT_TASK_REVIEW_REQUESTED, EVENT_TASK_REVIEW_REJECTED,
+    EVENT_TASK_REVIEW_VOTE_CAST, EVENT_TASK_COMMENT_REPLIED,
     EVENT_TASK_AVAILABLE,
     EVENT_TASK_READY_FOR_REVIEW,
     EVENT_TASK_REVIEWED,
@@ -199,8 +204,14 @@ class WorkflowConsumer:
         if event == EVENT_TASK_AVAILABLE:
             log.info("事件 task.available（task=%s story=%s）：由在线 developer 竞争认领", event, msg.entity_id)
             return True
-        if event in (EVENT_REVIEW_REJECTED, EVENT_COMMENT_REPLIED):
-            log.info("事件 %s（story=%s）：评审往返收敛，由 Agent 定向订阅处理", event, msg.entity_id)
+        if event in (EVENT_REVIEW_REJECTED, EVENT_COMMENT_REPLIED,
+                     EVENT_STORY_REVIEW_REJECTED, EVENT_STORY_COMMENT_REPLIED,
+                     EVENT_TASK_REVIEW_REJECTED, EVENT_TASK_COMMENT_REPLIED):
+            # Step 4 P1-1：旧 review.* 仍兼容（log 走"story"默认标注），
+            # 新 story/task.* 分别标注 entity，让运维能从日志一眼区分。
+            entity = "task" if event.startswith("task.") else "story"
+            log.info("事件 %s（%s=%s）：评审往返收敛，由 Agent 定向订阅处理",
+                     event, entity, msg.entity_id)
             return True
         if event == EVENT_TASK_READY_FOR_REVIEW:
             # Task 提交评审 → 自动指派 Task reviewer（切片 2 M2 闭环）
@@ -211,10 +222,12 @@ class WorkflowConsumer:
             log.info("事件 %s（task=%s）：Task 评审完成，assignee/reviewer 经定向队列感知",
                      event, msg.entity_id)
             return True
-        if event == EVENT_REVIEW_VOTE_CAST:
+        if event in (EVENT_REVIEW_VOTE_CAST, EVENT_STORY_REVIEW_VOTE_CAST,
+                     EVENT_TASK_REVIEW_VOTE_CAST):
             # 切片 3 M3：多数决投票已记录（未达法定票数），等待更多评审人投票/超时兜底
+            entity = "task" if event.startswith("task.") else "story"
             log.info("事件 %s（%s=%s 投票人=%s）：多数决进行中，达法定票数自动结算",
-                     event, msg.entity_type, msg.entity_id, msg.ref_id)
+                     event, entity, msg.entity_id, msg.ref_id)
             return True
         if event in (EVENT_TICKET_REQUESTED, EVENT_TICKET_CREATED):
             # Proposal → Ticket 转化事件：由 Proposal Worker 轮询兜底消费

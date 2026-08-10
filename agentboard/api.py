@@ -24,10 +24,13 @@ from sqlalchemy.orm import Session
 from .database import get_session, init_db, SessionLocal
 from . import service, auth, mq
 from .mq import (
-    EVENT_STORY_CREATED, EVENT_STORY_CONFIRMED, EVENT_REVIEW_REQUESTED,
-    EVENT_REVIEW_REJECTED, EVENT_REVIEW_VOTE_CAST, EVENT_STORY_READY,
-    EVENT_COMMENT_REPLIED, EVENT_TASK_AVAILABLE, EVENT_TASK_ASSIGNED,
+    EVENT_STORY_CREATED, EVENT_STORY_CONFIRMED, EVENT_STORY_READY,
+    # Step 4 P1-1（2026-08-10 review）：event 命名空间统一为 entity.action
+    EVENT_STORY_REVIEW_REQUESTED, EVENT_STORY_REVIEW_REJECTED,
+    EVENT_STORY_REVIEW_VOTE_CAST, EVENT_STORY_COMMENT_REPLIED,
+    EVENT_TASK_AVAILABLE, EVENT_TASK_ASSIGNED,
     EVENT_TASK_READY_FOR_REVIEW, EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED,
+    EVENT_TASK_REVIEW_REQUESTED, EVENT_TASK_REVIEW_VOTE_CAST,
     publish_workflow_event,
 )
 from .cos_client import client as _cos_client, CosError
@@ -1124,11 +1127,11 @@ def assign_story_reviewer(sid: int, authorization: str | None = Header(None),
         agent = s.query(service.Agent).filter(service.Agent.user_id == st.reviewer_id).first()
         if agent is not None:
             reviewer_agent_id = agent.agent_id
-    publish_workflow_event(EVENT_REVIEW_REQUESTED, "story", st.id,
+    publish_workflow_event(EVENT_STORY_REVIEW_REQUESTED, "story", st.id,
                            ref_id=st.reviewer_id, agent_id=reviewer_agent_id)
     _epic = s.get(service.Epic, st.epic_id)
     if _epic is not None:
-        _notify_webhooks(s, _epic.project_id, EVENT_REVIEW_REQUESTED,
+        _notify_webhooks(s, _epic.project_id, EVENT_STORY_REVIEW_REQUESTED,
                          {"id": st.id, "reviewer_id": st.reviewer_id, "status": st.status})
     return service._ser(st)
 
@@ -1154,12 +1157,12 @@ def review_story(sid: int, body: AgentReviewIn, authorization: str | None = Head
     if st.status == "ready":
         event = EVENT_STORY_READY
     elif st.status == "blocked" or (st.review_round or 0) > before_round:
-        event = EVENT_REVIEW_REJECTED
+        event = EVENT_STORY_REVIEW_REJECTED
     else:
-        event = EVENT_REVIEW_VOTE_CAST
+        event = EVENT_STORY_REVIEW_VOTE_CAST
     if event == EVENT_STORY_READY:
         ref_id = st.reviewer_id
-    elif event == EVENT_REVIEW_VOTE_CAST:
+    elif event == EVENT_STORY_REVIEW_VOTE_CAST:
         ref_id = uid
     else:
         ref_id = st.review_round
@@ -1576,7 +1579,7 @@ def assign_task_reviewer(tid: int, authorization: str | None = Header(None),
         agent = s.query(service.Agent).filter(service.Agent.user_id == t.reviewer_id).first()
         if agent is not None:
             reviewer_agent_id = agent.agent_id
-    publish_workflow_event(EVENT_REVIEW_REQUESTED, "task", t.id,
+    publish_workflow_event(EVENT_TASK_REVIEW_REQUESTED, "task", t.id,
                            ref_id=t.reviewer_id, agent_id=reviewer_agent_id)
     _notify_webhooks(s, t.project_id, EVENT_REVIEW_REQUESTED,
                      {"id": t.id, "reviewer_id": t.reviewer_id, "status": t.status})
@@ -1616,10 +1619,10 @@ def review_task(tid: int, body: AgentReviewIn, authorization: str | None = Heade
     elif t.status == Status.BLOCKED or (t.review_round or 0) > before_round:
         event = EVENT_TASK_REJECTED
     else:
-        event = EVENT_REVIEW_VOTE_CAST
-    # ref_id 语义：task.reviewed / vote_cast → 投票人 uid（既有契约）；
+        event = EVENT_TASK_REVIEW_VOTE_CAST
+    # ref_id 语义：task.reviewed / task.review_vote_cast → 投票人 uid；
     # task.rejected → 评审轮次
-    if event in (EVENT_TASK_REVIEWED, EVENT_REVIEW_VOTE_CAST):
+    if event in (EVENT_TASK_REVIEWED, EVENT_TASK_REVIEW_VOTE_CAST):
         ref_id = uid
     else:
         ref_id = t.review_round
@@ -1685,9 +1688,14 @@ def reassign_timeout(project_id: int | None = None,
         s, project_id=project_id,
         timeout_minutes=body.timeout_minutes,
         max_per_run=body.max_per_run)
-    # 事件源：重派成功的 Story/Task 逐个发布 review.requested（定向退广播）+ Webhook
+    # 事件源：重派成功的 Story/Task 逐个发布 entity.review_requested（定向退广播）+ Webhook
+    _STORY_REVIEW_EVENTS = {
+        "story": EVENT_STORY_REVIEW_REQUESTED,
+        "task": EVENT_TASK_REVIEW_REQUESTED,
+    }
     for entity_type, rows in (("story", result.get("_stories_reassigned") or []),
                               ("task", result.get("_tasks_reassigned") or [])):
+        review_event = _STORY_REVIEW_EVENTS[entity_type]
         for eid, new_reviewer_id in rows:
             reviewer_agent_id = None
             if new_reviewer_id is not None:
@@ -1695,10 +1703,10 @@ def reassign_timeout(project_id: int | None = None,
                     service.Agent.user_id == new_reviewer_id).first()
                 if agent is not None:
                     reviewer_agent_id = agent.agent_id
-            publish_workflow_event(EVENT_REVIEW_REQUESTED, entity_type, eid,
+            publish_workflow_event(review_event, entity_type, eid,
                                    ref_id=new_reviewer_id, agent_id=reviewer_agent_id)
             if project_id is not None:
-                _notify_webhooks(s, project_id, EVENT_REVIEW_REQUESTED,
+                _notify_webhooks(s, project_id, review_event,
                                  {"id": eid, "reviewer_id": new_reviewer_id,
                                   "status": "pending_review" if entity_type == "story" else "in_review"})
     return {k: v for k, v in result.items() if not k.startswith("_")}
@@ -1836,13 +1844,13 @@ def create_story_comment(
         if st is not None and st.reviewer_id is not None:
             agent = s.query(service.Agent).filter(service.Agent.user_id == st.reviewer_id).first()
             reviewer_agent_id = agent.agent_id if agent is not None else None
-        publish_workflow_event(EVENT_COMMENT_REPLIED, "story", sid,
+        publish_workflow_event(EVENT_STORY_COMMENT_REPLIED, "story", sid,
                                ref_id=comment.id, agent_id=reviewer_agent_id)
         # Webhook 通道（Epic 122 切片 3）
         if st is not None:
             _epic = s.get(service.Epic, st.epic_id)
             if _epic is not None:
-                _notify_webhooks(s, _epic.project_id, EVENT_COMMENT_REPLIED,
+                _notify_webhooks(s, _epic.project_id, EVENT_STORY_COMMENT_REPLIED,
                                  {"id": sid, "comment_id": comment.id, "by": body.author})
         return service._ser(comment)
     except service.NotFound as e:

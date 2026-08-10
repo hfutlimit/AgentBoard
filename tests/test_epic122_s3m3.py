@@ -467,14 +467,15 @@ def test_api_vote_cast_then_ready_event(seeded, monkeypatch):
         _call_api_review_task(t_id, r2, "approve", "ok2", tokens[r2])
         _call_api_review_task(t_id, r3, "approve", "ok3", tokens[r3])
     names = [e[0][0] for e in mq_events]
-    assert names == [mq.EVENT_REVIEW_VOTE_CAST, mq.EVENT_REVIEW_VOTE_CAST,
+    # Step 4 P1-1（2026-08-10 review）：task 评审用 entity.action 形式
+    assert names == [mq.EVENT_TASK_REVIEW_VOTE_CAST, mq.EVENT_TASK_REVIEW_VOTE_CAST,
                      mq.EVENT_TASK_REVIEWED]
     # vote_cast / task.reviewed 的 ref_id（kwargs）都是投票人
     assert mq_events[0][1]["ref_id"] == r1
     assert mq_events[1][1]["ref_id"] == r2
     # Webhook 通道与 MQ 事件同构（_notify_webhooks(s, project_id, event, payload)）
     wh_names = [e[0][2] for e in wh_events]
-    assert wh_names == [mq.EVENT_REVIEW_VOTE_CAST, mq.EVENT_REVIEW_VOTE_CAST,
+    assert wh_names == [mq.EVENT_TASK_REVIEW_VOTE_CAST, mq.EVENT_TASK_REVIEW_VOTE_CAST,
                         mq.EVENT_TASK_REVIEWED]
     with SessionLocal() as s:
         assert s.get(service.Task, t_id).status == "done"
@@ -508,10 +509,11 @@ def test_api_task_rejected_event(seeded, monkeypatch):
                    json={"verdict": "reject", "comment": "bug2"},
                    headers={"Authorization": f"Bearer {tokens[r3]}"})
     names = [e[0][0] for e in mq_events]
-    assert names == [mq.EVENT_REVIEW_VOTE_CAST, mq.EVENT_REVIEW_VOTE_CAST,
+    # Step 4 P1-1（2026-08-10 review）：task 评审用 entity.action 形式
+    assert names == [mq.EVENT_TASK_REVIEW_VOTE_CAST, mq.EVENT_TASK_REVIEW_VOTE_CAST,
                      mq.EVENT_TASK_REJECTED]
     wh_names = [e[0][2] for e in wh_events]
-    assert wh_names == [mq.EVENT_REVIEW_VOTE_CAST, mq.EVENT_REVIEW_VOTE_CAST,
+    assert wh_names == [mq.EVENT_TASK_REVIEW_VOTE_CAST, mq.EVENT_TASK_REVIEW_VOTE_CAST,
                         mq.EVENT_TASK_REJECTED]
 
 

@@ -681,10 +681,40 @@ EVENT_STORY_CONFIRMED = "story.confirmed"
 # （任务被显式指派给某 agent，如 assignee 绑定；广播 task.available 仍是竞争入口）
 EVENT_TASK_ASSIGNED = "task.assigned"
 
+# ---- 事件常量命名空间统一（Step 4 P1-1，2026-08-10 review）----
+# 旧 review.* / comment.* 跨 story+task 模糊（同一字符串既用于 story 评审
+# 也用于 task 评审），消费端无法区分。统一为 entity.action 严格两段式：
+# - story.review_requested / story.review_rejected / story.review_vote_cast
+# - story.comment_replied
+# - task.review_requested  / task.review_rejected  / task.review_vote_cast
+# - task.comment_replied
+#
+# 旧名 EVENT_REVIEW_REQUESTED 等保留为 alias（指向 story.* 默认），1 release
+# 后下架——届时新代码全部用 entity.action 形式。
+EVENT_STORY_REVIEW_REQUESTED = "story.review_requested"
+EVENT_STORY_REVIEW_REJECTED = "story.review_rejected"
+EVENT_STORY_REVIEW_VOTE_CAST = "story.review_vote_cast"
+EVENT_STORY_COMMENT_REPLIED = "story.comment_replied"
+EVENT_TASK_REVIEW_REQUESTED = "task.review_requested"
+EVENT_TASK_REVIEW_REJECTED = "task.review_rejected"
+EVENT_TASK_REVIEW_VOTE_CAST = "task.review_vote_cast"
+EVENT_TASK_COMMENT_REPLIED = "task.comment_replied"
+
+# 兼容旧 import（pre-existing 客户端可能仍引用 review.* 模糊名）
+# 1 release 后下架——届时新代码全部用 entity.action 形式。
+EVENT_REVIEW_REQUESTED = EVENT_STORY_REVIEW_REQUESTED  # DEPRECATED
+EVENT_REVIEW_REJECTED = EVENT_STORY_REVIEW_REJECTED  # DEPRECATED
+EVENT_REVIEW_VOTE_CAST = EVENT_STORY_REVIEW_VOTE_CAST  # DEPRECATED
+EVENT_COMMENT_REPLIED = EVENT_STORY_COMMENT_REPLIED  # DEPRECATED
+
 WORKFLOW_EVENTS: frozenset[str] = frozenset({
     EVENT_STORY_CREATED,
     EVENT_STORY_CONFIRMED,
-    EVENT_REVIEW_REQUESTED,
+    EVENT_STORY_REVIEW_REQUESTED,
+    EVENT_STORY_REVIEW_REJECTED,
+    EVENT_STORY_REVIEW_VOTE_CAST,
+    EVENT_STORY_COMMENT_REPLIED,
+    EVENT_REVIEW_REQUESTED,           # 旧 alias 仍在白名单，向后兼容
     EVENT_REVIEW_REJECTED,
     EVENT_REVIEW_VOTE_CAST,
     EVENT_COMMENT_REPLIED,
@@ -694,6 +724,10 @@ WORKFLOW_EVENTS: frozenset[str] = frozenset({
     EVENT_TASK_READY_FOR_REVIEW,
     EVENT_TASK_REVIEWED,
     EVENT_TASK_REJECTED,
+    EVENT_TASK_REVIEW_REQUESTED,
+    EVENT_TASK_REVIEW_REJECTED,
+    EVENT_TASK_REVIEW_VOTE_CAST,
+    EVENT_TASK_COMMENT_REPLIED,
     EVENT_TICKET_REQUESTED,
     EVENT_TICKET_CREATED,
 })
