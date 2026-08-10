@@ -234,9 +234,22 @@ def test_old_cross_proposal_404_kept(ctx):
 
 # ---------- 5. 调用点静态断言（worker / mcp_server 已切新 URL） ----------
 
-def test_worker_call_sites_use_new_urls():
+def _worker_package_src() -> str:
+    """拼接 worker 包全部 .py 源码（Step 2 拆包后 URL 调用点分散在多个文件）。"""
+    import os
     import agentboard.worker as w
-    src = open(w.__file__, encoding="utf-8").read()
+    pkg_dir = os.path.dirname(w.__file__)
+    parts: list[str] = []
+    for root, _dirs, files in os.walk(pkg_dir):
+        for fn in sorted(files):
+            if fn.endswith(".py"):
+                with open(os.path.join(root, fn), encoding="utf-8") as f:
+                    parts.append(f.read())
+    return "\n".join(parts)
+
+
+def test_worker_call_sites_use_new_urls():
+    src = _worker_package_src()
     assert "/api/admin/ticket-requests/pending" in src
     assert "/api/admin/ticket-requests/reclaim-stale" in src
     assert 'f"/api/ticket-requests/{rid}/claim"' in src
