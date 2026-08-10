@@ -29,6 +29,12 @@ from .domains.proposals.models import (
     TICKET_REQUEST_PENDING, TICKET_REQUEST_PROCESSING,
     TICKET_REQUEST_DONE, TICKET_REQUEST_FAILED,
 )
+from .domains.proposals.state_machine import (
+    IllegalTransitionError as _SM_IllegalTransitionError,
+    ProposalStateMachine,
+    TransitionSpec,
+    bind_side_effects,
+)
 from .domains.common.models import utc_now
 
 DEFAULT_PAGE_SIZE = 100
@@ -3945,31 +3951,77 @@ def delete_proposal(s: Session, id: int) -> bool:
 def set_proposal_status(
     s: Session, id: int, new_status: str, *, error: str | None = None,
 ) -> Proposal:
-    """澄清状态机流转，非法迁移抛 IllegalTransition。"""
+    """澄清状态机流转，非法迁移抛 IllegalTransition。
+
+    Step 3（Story 239）：校验与副作用统一委托 ``ProposalStateMachine``
+    （定义在 state_machine.py，副作用在下方 bind_side_effects 注册），
+    加新状态只需扩展 transitions 字典 + 注册副作用，不改本函数。
+    """
     p = _proposal_or_404(s, id)
     _check_proposal_status(new_status)
     new = ProposalStatus(new_status)
-    current = ProposalStatus(p.status)
-    if current != new and new not in PROPOSAL_TRANSITIONS.get(current, set()):
-        raise IllegalTransition(f"{p.status} -> {new.value} 不合法")
-    p.status = new.value
-    if new is ProposalStatus.FAILED:
-        p.error = error or p.error or "unspecified failure"
-    elif error is None and new is not ProposalStatus.FAILED:
-        p.error = ""
-    # 成功终态（收敛/生成工单）清零自动重投计数：agent 已恢复或人工接管
-    if new in _SUCCESS_TERMINALS and (p.auto_retry_count or 0) > 0:
-        p.auto_retry_count = 0
-    # 租约随状态同步维护，避免脏租约：
-    # - 进入 analyzing（含旧版 PUT /status 认领路径）：盖上租约时间戳，
-    #   否则这类行的 claimed_at 恒为 NULL，崩溃后永远不会被回收。
-    # - 离开 analyzing：清空租约，防止已收敛/失败的提案仍挂着持有者。
-    if new is ProposalStatus.ANALYZING:
-        p.claimed_at = utc_now()
-    else:
-        p.claimed_by = ""
-        p.claimed_at = None
+    try:
+        _PROPOSAL_SM.execute(
+            s, p, new,
+            side_effect_ctx={"error": error},
+        )
+    except _SM_IllegalTransitionError as e:
+        raise IllegalTransition(str(e)) from None
     _commit(s); s.refresh(p); return p
+
+
+# ---- Step 3：状态迁移副作用注册（委托 StateMachine 前的业务行为） ----
+
+def _sm_failed_effect(s: Session, p: Proposal, ctx: dict) -> None:
+    """FAILED：写 error（保留原语义：error 参数优先，其次既有值，兜底固定文案）。"""
+    error = ctx.get("error")
+    p.error = error or p.error or "unspecified failure"
+
+
+def _sm_clear_error_effect(s: Session, p: Proposal, ctx: dict) -> None:
+    """非 FAILED 且未显式传 error：清空历史错误。"""
+    if ctx.get("error") is None:
+        p.error = ""
+
+
+def _sm_success_clear_retry(s: Session, p: Proposal, ctx: dict) -> None:
+    """成功终态（收敛/生成工单）清零自动重投计数：agent 已恢复或人工接管。"""
+    p.auto_retry_count = 0
+
+
+def _sm_claim_lease_effect(s: Session, p: Proposal, ctx: dict) -> None:
+    """进入 analyzing：盖上租约时间戳（含旧版 PUT /status 认领路径）。"""
+    p.claimed_at = utc_now()
+
+
+def _sm_clear_lease_effect(s: Session, p: Proposal, ctx: dict) -> None:
+    """离开 analyzing：清空租约，防止已收敛/失败的提案仍挂着持有者。"""
+    p.claimed_by = ""
+    p.claimed_at = None
+
+
+def _sm_apply_side_effects(s: Session, p: Proposal, ctx: dict) -> None:
+    """统一副作用分派：按目标状态执行对应注册副作用。"""
+    new = ProposalStatus(p.status)  # StateMachine.execute 已推进 status
+    if new is ProposalStatus.FAILED:
+        _sm_failed_effect(s, p, ctx)
+    elif ctx.get("error") is None:
+        _sm_clear_error_effect(s, p, ctx)
+    if new in _SUCCESS_TERMINALS and (p.auto_retry_count or 0) > 0:
+        _sm_success_clear_retry(s, p, ctx)
+    if new is ProposalStatus.ANALYZING:
+        _sm_claim_lease_effect(s, p, ctx)
+    else:
+        _sm_clear_lease_effect(s, p, ctx)
+
+
+# 注册到 StateMachine（所有迁移共享统一副作用，按目标状态分派）
+bind_side_effects({
+    st: TransitionSpec(side_effects=(_sm_apply_side_effects,))
+    for st in ALL_PROPOSAL_STATUSES
+})
+
+_PROPOSAL_SM = ProposalStateMachine()
 
 
 # Worker 认领租约默认时长（秒）；与 worker.py AGENTBOARD_WORKER_LEASE 默认值一致。
@@ -4621,42 +4673,24 @@ def execute_ticket_request(
             f"仅 ticket_preparing 可执行转换",
         )
 
-    # ---- 创建实体（本事务内完成，杜绝部分成功）----
-    spec = p.converged_spec or p.content or ""
-    ticket_type = type
-    ticket_id: int | None = None
-    if type == "epic":
-        epic = create_epic(
-            s, project_id=p.project_id,
-            title=_required(title or p.title, "title", 300),
-            description=spec,
+    # ---- 创建实体（本事务内完成，杜绝部分成功；Step 3 委托 TicketRef）----
+    from .domains.proposals.ticket_ref import TicketRef
+    try:
+        ref = TicketRef.create(
+            s, p, type=type,
+            parent_epic_id=req.parent_epic_id,
+            parent_story_id=req.parent_story_id,
+            title=title,
         )
-        ticket_id = epic.id
-    elif type == "story":
-        if not req.parent_epic_id:
-            raise InvalidValue("story 类型 ticket 需要 epic_id")
-        story = create_story(
-            s, epic_id=req.parent_epic_id,
-            title=_required(title or p.title, "title", 300),
-            description=spec,
-        )
-        ticket_id = story.id
-        p.story_id = story.id  # 兼容既有查询（type=story 快捷字段）
-    else:  # task / bug
-        if not req.parent_story_id:
-            raise InvalidValue(f"{type} 类型 ticket 需要 story_id")
-        task = create_task(
-            s, project_id=p.project_id, story_id=req.parent_story_id,
-            title=_required(title or p.title, "title", 300),
-            type=type, description=spec,
-        )
-        ticket_id = task.id
+    except ValueError as e:
+        raise InvalidValue(str(e)) from None
+    ticket_id = ref.id
 
     req.ticket_id = ticket_id
     req.status = TICKET_REQUEST_DONE
     req.error = ""
     req.updated_at = utc_now()
-    p.ticket_type = ticket_type
+    p.ticket_type = ref.type
     p.ticket_id = ticket_id
     p.status = ProposalStatus.TICKET_CREATED.value
     p.error = ""
