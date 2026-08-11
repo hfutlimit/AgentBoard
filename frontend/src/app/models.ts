@@ -404,6 +404,7 @@ export type TicketRequestStatus = 'pending' | 'processing' | 'done' | 'failed';
 export interface TicketRequestItem {
   id: number;
   proposal_id: number;
+  project_id?: number;  // v6.18 搜索端点附加（经提案反查，命令面板显示项目名）
   type: string;
   parent_epic_id: number | null;
   parent_story_id: number | null;

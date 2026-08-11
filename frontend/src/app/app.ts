@@ -59,7 +59,7 @@ interface PaletteCommand {
   title: string;
   hint?: string;
   keywords?: string;
-  category?: 'command' | 'task' | 'project' | 'story' | 'document' | 'epic' | 'sprint' | 'notification' | 'agent' | 'proposal';
+  category?: 'command' | 'task' | 'project' | 'story' | 'document' | 'epic' | 'sprint' | 'notification' | 'agent' | 'proposal' | 'ticket';
   run: () => void;
 }
 
@@ -367,6 +367,7 @@ export class App implements OnInit, OnDestroy {
   readonly paletteNotificationResults = signal<PaletteCommand[]>([]);
   readonly paletteAgentResults = signal<PaletteCommand[]>([]);
   readonly paletteProposalResults = signal<PaletteCommand[]>([]);
+  readonly paletteTicketResults = signal<PaletteCommand[]>([]);
   private paletteDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   readonly createdKeyPlaintext = signal('');
   // Epic 22: 任务依赖
@@ -1629,6 +1630,9 @@ export class App implements OnInit, OnDestroy {
   private async loadRoute(skeleton: boolean = true): Promise<void> {
     // 未登录时不加载任何业务数据，由独立登录页接管
     if (this.authVisible()) return;
+    // 文档 #59：导航离开后停止 ticket 生成轮询，避免轮询回调用旧 proposalId
+    // 覆盖 proposalItem，导致打开其他 Proposal 时被「正在生成 ticket」的提案抢回
+    this.stopTicketPolling();
     const generation = ++this.routeLoadGeneration;
     // Epic 78 (v6.6): 手动刷新时 skeleton=false，保留当前内容，仅由刷新按钮显示加载态
     if (skeleton) this.loading.set(true);
@@ -4852,6 +4856,7 @@ export class App implements OnInit, OnDestroy {
     this.paletteNotificationResults.set([]);
     this.paletteAgentResults.set([]);
     this.paletteProposalResults.set([]);
+    this.paletteTicketResults.set([]);
     this.paletteSearching.set(false);
     this.paletteOpen.set(true);
     setTimeout(() => {
@@ -4881,6 +4886,7 @@ export class App implements OnInit, OnDestroy {
     this.paletteNotificationResults.set([]);
     this.paletteAgentResults.set([]);
     this.paletteProposalResults.set([]);
+    this.paletteTicketResults.set([]);
     this.paletteSearching.set(false);
   }
 
@@ -4909,6 +4915,7 @@ export class App implements OnInit, OnDestroy {
       this.paletteNotificationResults.set([]);
       this.paletteAgentResults.set([]);
       this.paletteProposalResults.set([]);
+      this.paletteTicketResults.set([]);
       this.paletteSearching.set(false);
       return;
     }
@@ -5059,6 +5066,22 @@ export class App implements OnInit, OnDestroy {
       .catch(() => {
         this.paletteProposalResults.set([]);
       });
+    // Ticket（Epic 133 v6.18）：后端 /api/search/tickets 搜索工单（按提案可见项目收敛）
+    firstValueFrom(this.api.searchTicketRequests({ q: query, limit: 10 }))
+      .then((tks) => {
+        const cmds: PaletteCommand[] = (tks || []).map((t) => ({
+          id: `ticket-${t.id}`,
+          title: `Ticket #${t.id}：${((t.title || '').slice(0, 60) || `Proposal #${t.proposal_id}`)}`,
+          hint: `${this.projectName(t.project_id ?? 0)} · ${this.ticketTypeLabel(t.type)} · ${this.ticketRequestStatusLabel(t.status)}`,
+          category: 'ticket',
+          keywords: `ticket gongdan 工单 ${t.id} ${t.title || ''} ${t.type} ${t.status}`,
+          run: () => { void this.router.navigateByUrl(`/proposals/${t.proposal_id}`); },
+        }));
+        this.paletteTicketResults.set(cmds);
+      })
+      .catch(() => {
+        this.paletteTicketResults.set([]);
+      });
   }
 
   /** 构建命令列表（含基于 recentProjects 的动态命令）。在 computed 内访问以跟踪信号变化。 */
@@ -5143,6 +5166,7 @@ export class App implements OnInit, OnDestroy {
       ...this.paletteNotificationResults(),
       ...this.paletteAgentResults(),
       ...this.paletteProposalResults(),
+      ...this.paletteTicketResults(),
     ];
     const staticMatches = all.filter((c) => `${c.title} ${c.keywords || ''} ${c.hint || ''}`.toLowerCase().includes(q));
     // 命中命令时命令优先（保持 Enter 执行命令的既有行为），后端实体结果作为补充列于其后；
@@ -5728,10 +5752,16 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  /** ticket_preparing 期间每 3s 轮询，直到离开该状态 */
+  /** ticket_preparing 期间每 3s 轮询，直到离开该状态；若用户已导航到其他视图则立即停止 */
   startTicketPolling(proposalId: number): void {
     this.stopTicketPolling();
     this._ticketPollTimer = setInterval(() => {
+      // 路由守卫：当前 URL 已不在该 Proposal 详情页时停止轮询，
+      // 防止用旧 proposalId 覆盖全局 proposalItem（用户打开其他提案被抢回）
+      if (this.router.url.split('?')[0] !== `/proposals/${proposalId}`) {
+        this.stopTicketPolling();
+        return;
+      }
       void this.loadProposalDetail(proposalId);
       void this.loadProposalTicketRequests(proposalId);
       const p = this.proposalItem();

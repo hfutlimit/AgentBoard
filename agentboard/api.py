@@ -2005,6 +2005,20 @@ def search_proposals_api(
     return [service._ser(x) for x in rows]
 
 
+# 全局 Ticket 关键词搜索（命令面板等场景，Epic 133 v6.18）；路径用 /api/search/tickets
+# 避免与提案下工单端点混淆；带鉴权 + 可见性收敛（镜像 search_proposals：按提案所属项目收敛）
+@app.get("/api/search/tickets")
+def search_tickets_api(
+    q: str = Query(..., min_length=1, description="关键词"),
+    limit: int = Query(20, ge=1, le=50),
+    s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
+):
+    uid = _current_user(authorization, s, required_permission="api:read").id
+    rows = service.search_ticket_requests(s, q=q, limit=limit, user_id=uid)
+    return rows  # 已含 _ser 全列 + 附加 project_id
+
+
 # ---------- Sprint ----------
 @app.get("/api/projects/{pid}/sprints")
 def list_sprints(pid: int, s: Session = Depends(get_session),

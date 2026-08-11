@@ -860,6 +860,68 @@ describe('App', () => {
     });
   });
 
+  describe('Epic 133 v6.18 命令面板 Ticket 搜索', () => {
+    it('paletteItems 合并 Ticket 搜索结果（category=ticket）且短查询清空', () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteQuery.set('工单');
+      app.paletteTicketResults.set([
+        {
+          id: 'ticket-1',
+          title: 'Ticket #1：Zebra 批处理工单',
+          hint: 'AgentBoard · task · done',
+          category: 'ticket',
+          keywords: 'ticket 1 Zebra 批处理工单',
+          run: () => {},
+        },
+      ]);
+      const items = app.paletteItems();
+      const tk = items.find((i) => i.id === 'ticket-1');
+      expect(tk).toBeTruthy();
+      expect(tk?.category).toBe('ticket');
+      // 短查询清空分支：<2 字符 → Ticket 结果清空
+      app.paletteRunSearch('x');
+      expect(app.paletteTicketResults()).toEqual([]);
+    });
+
+    it('渲染 Ticket 分类标签（.cat-ticket → "Ticket"）', async () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteOpen.set(true);
+      app.paletteQuery.set('工单');
+      app.paletteTicketResults.set([
+        {
+          id: 'ticket-1',
+          title: 'Ticket #1：Zebra 批处理工单',
+          hint: 'AgentBoard · task · done',
+          category: 'ticket',
+          keywords: 'ticket 1 Zebra 批处理工单',
+          run: () => {},
+        },
+      ]);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+      const cat = el.querySelector('.palette-item-cat.cat-ticket');
+      expect(cat).toBeTruthy();
+      expect(cat?.textContent?.trim()).toBe('Ticket');
+      expect(el.textContent).toContain('Ticket #1：Zebra 批处理工单');
+      app.paletteOpen.set(false);
+    });
+
+    it('openPalette / closePalette 清空 Ticket 结果', () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteTicketResults.set([{ id: 't1', title: 't', category: 'ticket', run: () => {} }]);
+      app.openPalette();
+      expect(app.paletteTicketResults()).toEqual([]);
+      app.paletteTicketResults.set([{ id: 't1', title: 't', category: 'ticket', run: () => {} }]);
+      app.closePalette();
+      expect(app.paletteTicketResults()).toEqual([]);
+    });
+  });
+
   describe('多数决评审投票进度（Epic 122 S4 M2 / Task 1017）', () => {
     it('reviewModeLabel 映射 single / majority / 缺省', () => {
       const fixture = TestBed.createComponent(App);

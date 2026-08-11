@@ -551,6 +551,10 @@ export class ApiService {
   searchProposals(params: { q: string; limit?: number }) {
     return this.request<ProposalItem[]>('GET', '/api/search/proposals', undefined, params);
   }
+  /** Epic 133 v6.18: 全局 Ticket 关键词搜索（命令面板补齐第 10 类实体；后端按提案可见项目收敛） */
+  searchTicketRequests(params: { q: string; limit?: number }) {
+    return this.request<TicketRequestItem[]>('GET', '/api/search/tickets', undefined, params);
+  }
   getTask(id: number) {
     return this.request<Task>('GET', `/api/tasks/${id}`);
   }

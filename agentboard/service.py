@@ -435,6 +435,53 @@ def search_proposals(s: Session, q: str, limit: int = 20, user_id: int | None = 
     return qry.limit(limit).all()
 
 
+def search_ticket_requests(s: Session, q: str, limit: int = 20, user_id: int | None = None):
+    """全局 Ticket（Proposal→Ticket 转换请求）关键词搜索，供命令面板等场景使用（Epic 133 v6.18）。
+
+    匹配字段：工单标题（title）/ 工单类型（type）/ 关联提案标题（Proposal.title，
+    工单标题常为空默认用提案标题，join 已存在零额外成本）。
+
+    可见性收敛镜像 search_proposals：user_id 给定时，非 admin 仅搜索自己
+    ProjectMember 项目下提案关联的工单；admin 或 None 全量。
+
+    返回 ``list[dict]``：``_ser(ProposalTicketRequest)`` 全列 + 附加 ``project_id``
+    （工单表无该列，经提案反查，供前端显示项目名）。
+    """
+    like = f"%{q}%"
+    qry = (
+        s.query(ProposalTicketRequest, Proposal.project_id)
+        .join(Proposal, Proposal.id == ProposalTicketRequest.proposal_id)
+    )
+    if user_id is not None:
+        user = s.get(User, user_id)
+        if user and not user.is_admin:
+            member_pids = [
+                r[0]
+                for r in s.query(ProjectMember.project_id)
+                .filter(ProjectMember.user_id == user_id)
+                .all()
+            ]
+            if member_pids:
+                qry = qry.filter(Proposal.project_id.in_(member_pids))
+            else:
+                qry = qry.filter(False)
+    qry = qry.filter(or_(
+        ProposalTicketRequest.title.ilike(like),
+        ProposalTicketRequest.type.ilike(like),
+        Proposal.title.ilike(like),
+    ))
+    qry = qry.order_by(
+        ProposalTicketRequest.updated_at.desc(),
+        ProposalTicketRequest.id.desc(),
+    )
+    out: list[dict] = []
+    for req, project_id in qry.limit(limit).all():
+        d = _ser(req)
+        d["project_id"] = project_id
+        out.append(d)
+    return out
+
+
 def update_story(s: Session, id: int, **fields) -> Story | None:
     st = s.get(Story, id)
     if not st:
