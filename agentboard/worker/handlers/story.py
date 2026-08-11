@@ -160,10 +160,21 @@ class StoryHandler:
         """Story 全量重放 + 其下任务列表（供执行模式提示词）。"""
         sid = work_item.get("id")
         tasks = self._get_json(f"/api/stories/{sid}/tasks", params={"limit": 200})
+        # Story 243：project_id 经 epic 反查（Story 对象只有 epic_id，epic 才挂项目）
+        project_id = None
+        epic_id = work_item.get("epic_id")
+        if epic_id:
+            try:
+                epic = self._get_json(f"/api/epics/{epic_id}")
+                project_id = (epic or {}).get("project_id") or epic_id
+            except Exception as e:
+                log.warning("Story #%s 反查 epic #%s 失败（回退 epic_id）：%s", sid, epic_id, e)
+                project_id = epic_id
         return {
             "action": "process_story",
             "story_id": sid,
-            "project_id": work_item.get("epic_id"),
+            "project_id": project_id,
+            "epic_id": epic_id,
             "title": work_item.get("title"),
             "description": work_item.get("description") or "",
             "needs_design": bool(work_item.get("needs_design", True)),

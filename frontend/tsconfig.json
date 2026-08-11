@@ -31,6 +31,9 @@
     },
     {
       "path": "./projects/admin-portal/tsconfig.app.json"
+    },
+    {
+      "path": "./projects/worker-portal/tsconfig.app.json"
     }
   ]
 }

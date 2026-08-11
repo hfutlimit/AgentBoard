@@ -3,6 +3,10 @@
 - ``CallableAgentInvoker``：测试与内嵌策略用（任意可调用 → 决策）；
 - ``SubprocessAgentInvoker``：真实 CLI（WorkBuddy / Claude Code / Codex）子进程；
 - ``extract_decision_json`` / ``split_command``：子进程输出解析与命令行拆分。
+
+Story 243（Epic 122 S5）：``SubprocessAgentInvoker`` 支持按 ``project_id``
+解析本机工作目录（``AGENTBOARD_LOCAL_MAPPINGS`` JSON，由本机配置台
+``worker_portal.py`` 写入）——任务属于哪个项目，Agent 就在映射的本地目录里跑。
 """
 from __future__ import annotations
 
@@ -10,6 +14,7 @@ import json
 import os
 import shlex
 import subprocess
+from pathlib import Path
 from typing import Any, Callable
 
 from .config import (
@@ -139,6 +144,33 @@ def split_command(cmd: str) -> list[str]:
     return out
 
 
+def _resolve_project_cwd(context: dict, fallback: str | None) -> str | None:
+    """按 ``context["project_id"]`` 查本机项目映射，返回本地工作目录。
+
+    Story 243（Epic 122 S5）：映射由本机配置台（``worker_portal.py``
+    ``AGENTBOARD_LOCAL_MAPPINGS``）写入；无映射/未配置时返回 fallback。
+    """
+    pid = (context or {}).get("project_id")
+    if not pid:
+        return fallback
+    raw = os.getenv("AGENTBOARD_LOCAL_MAPPINGS")
+    if not raw:
+        # 默认取 AgentBoard 仓库 tmp/project-mappings.json
+        raw = str(Path(__file__).resolve().parent.parent / "tmp" / "project-mappings.json")
+    p = Path(raw)
+    if not p.exists():
+        return fallback
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return fallback
+    proj = (data.get("projects") or {}).get(str(pid))
+    if not proj:
+        return fallback
+    local_dir = str(proj.get("local_dir") or "").strip()
+    return local_dir or fallback
+
+
 class SubprocessAgentInvoker:
     """无头拉起本机 Agent CLI（WorkBuddy / Claude Code / Codex 等）。
 
@@ -167,10 +199,12 @@ class SubprocessAgentInvoker:
 
     def invoke(self, context: dict) -> AgentDecision:
         prompt = build_prompt(context)
+        # Story 243：按 project_id 解析本机工作目录（无映射回退构造时 cwd）
+        cwd = _resolve_project_cwd(context, self.cwd)
         try:
             proc = subprocess.run(
                 self.argv, input=prompt, capture_output=True, text=True,
-                timeout=self.timeout, cwd=self.cwd, env=self.env,
+                timeout=self.timeout, cwd=cwd, env=self.env,
                 encoding="utf-8", errors="replace",
             )
         except subprocess.TimeoutExpired:
