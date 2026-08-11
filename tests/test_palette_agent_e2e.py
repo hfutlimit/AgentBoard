@@ -17,8 +17,8 @@ import urllib.error
 
 from playwright.sync_api import sync_playwright
 
-WEB = "http://127.0.0.1:28080"
-API = "http://127.0.0.1:18000"
+WEB = "http://localhost:28080"
+API = "http://localhost:18000"
 ADMIN_USER = "admin"
 ADMIN_PASS = "admin123"
 SEED = "__E2E_V616_" + str(random.randint(100000, 999999))
