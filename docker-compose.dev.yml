@@ -27,6 +27,9 @@ services:
     # 开发模式挂载静态文件目录，更新旧版 Web 静态资源后无需重建容器
     volumes:
       - ./agentboard/web/static:/app/agentboard/web/static:ro
+    environment:
+      # 强制使用挂载的 static（镜像内 dist 快照会优先于挂载目录，导致更新不生效）
+      AGENTBOARD_WEB_STATIC_DIR: "/app/agentboard/web/static"
 
   mcp:
     # MCP 服务暂不支持热重载（需要重启）
