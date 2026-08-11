@@ -2019,6 +2019,20 @@ def search_tickets_api(
     return rows  # 已含 _ser 全列 + 附加 project_id
 
 
+# 全局定时计划关键词搜索（命令面板等场景，Epic 134 v6.19）；路径用 /api/search/schedules
+# 避免与项目内 /api/projects/{pid}/schedules 混淆；带鉴权 + 可见性收敛（镜像 search_proposals）
+@app.get("/api/search/schedules")
+def search_schedules_api(
+    q: str = Query(..., min_length=1, description="关键词"),
+    limit: int = Query(20, ge=1, le=50),
+    s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
+):
+    uid = _current_user(authorization, s, required_permission="api:read").id
+    rows = service.search_schedules(s, q=q, limit=limit, user_id=uid)
+    return [service._ser(x) for x in rows]
+
+
 # ---------- Sprint ----------
 @app.get("/api/projects/{pid}/sprints")
 def list_sprints(pid: int, s: Session = Depends(get_session),

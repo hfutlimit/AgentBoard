@@ -482,6 +482,40 @@ def search_ticket_requests(s: Session, q: str, limit: int = 20, user_id: int | N
     return out
 
 
+def search_schedules(s: Session, q: str, limit: int = 20, user_id: int | None = None):
+    """全局定时计划（AgentSchedule）关键词搜索，供命令面板等场景使用（Epic 134 v6.19）。
+
+    匹配字段：计划标题（title）/ 绑定 Agent（agent）/ 计划类型（schedule_type）。
+
+    可见性收敛镜像 search_proposals：user_id 给定时，非 admin 仅搜索自己
+    ProjectMember 项目下的定时计划；admin 或 None 全量。
+
+    返回 ``list[AgentSchedule]``：AgentSchedule 自带 project_id 列，_ser 全列直接可用。
+    """
+    like = f"%{q}%"
+    qry = s.query(AgentSchedule)
+    if user_id is not None:
+        user = s.get(User, user_id)
+        if user and not user.is_admin:
+            member_pids = [
+                r[0]
+                for r in s.query(ProjectMember.project_id)
+                .filter(ProjectMember.user_id == user_id)
+                .all()
+            ]
+            if member_pids:
+                qry = qry.filter(AgentSchedule.project_id.in_(member_pids))
+            else:
+                qry = qry.filter(False)
+    qry = qry.filter(or_(
+        AgentSchedule.title.ilike(like),
+        AgentSchedule.agent.ilike(like),
+        AgentSchedule.schedule_type.ilike(like),
+    ))
+    qry = qry.order_by(AgentSchedule.updated_at.desc(), AgentSchedule.id.desc())
+    return qry.limit(limit).all()
+
+
 def update_story(s: Session, id: int, **fields) -> Story | None:
     st = s.get(Story, id)
     if not st:
