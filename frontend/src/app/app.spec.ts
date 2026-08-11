@@ -922,6 +922,68 @@ describe('App', () => {
     });
   });
 
+  describe('Epic 134 v6.19 命令面板 Schedule 搜索', () => {
+    it('paletteItems 合并 Schedule 搜索结果（category=schedule）且短查询清空', () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteQuery.set('夜间');
+      app.paletteScheduleResults.set([
+        {
+          id: 'schedule-1',
+          title: '计划 #1：夜间构建计划',
+          hint: 'AgentBoard · 0 2 * * * · codex',
+          category: 'schedule',
+          keywords: 'schedule 1 夜间构建计划 codex cron',
+          run: () => {},
+        },
+      ]);
+      const items = app.paletteItems();
+      const sch = items.find((i) => i.id === 'schedule-1');
+      expect(sch).toBeTruthy();
+      expect(sch?.category).toBe('schedule');
+      // 短查询清空分支：<2 字符 → Schedule 结果清空
+      app.paletteRunSearch('x');
+      expect(app.paletteScheduleResults()).toEqual([]);
+    });
+
+    it('渲染 Schedule 分类标签（.cat-schedule → "计划"）', async () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteOpen.set(true);
+      app.paletteQuery.set('夜间');
+      app.paletteScheduleResults.set([
+        {
+          id: 'schedule-1',
+          title: '计划 #1：夜间构建计划',
+          hint: 'AgentBoard · 0 2 * * * · codex',
+          category: 'schedule',
+          keywords: 'schedule 1 夜间构建计划',
+          run: () => {},
+        },
+      ]);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+      const cat = el.querySelector('.palette-item-cat.cat-schedule');
+      expect(cat).toBeTruthy();
+      expect(cat?.textContent?.trim()).toBe('计划');
+      expect(el.textContent).toContain('计划 #1：夜间构建计划');
+      app.paletteOpen.set(false);
+    });
+
+    it('openPalette / closePalette 清空 Schedule 结果', () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteScheduleResults.set([{ id: 's1', title: 't', category: 'schedule', run: () => {} }]);
+      app.openPalette();
+      expect(app.paletteScheduleResults()).toEqual([]);
+      app.paletteScheduleResults.set([{ id: 's1', title: 't', category: 'schedule', run: () => {} }]);
+      app.closePalette();
+      expect(app.paletteScheduleResults()).toEqual([]);
+    });
+  });
+
   describe('多数决评审投票进度（Epic 122 S4 M2 / Task 1017）', () => {
     it('reviewModeLabel 映射 single / majority / 缺省', () => {
       const fixture = TestBed.createComponent(App);

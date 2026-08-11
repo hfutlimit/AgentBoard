@@ -59,7 +59,7 @@ interface PaletteCommand {
   title: string;
   hint?: string;
   keywords?: string;
-  category?: 'command' | 'task' | 'project' | 'story' | 'document' | 'epic' | 'sprint' | 'notification' | 'agent' | 'proposal' | 'ticket';
+  category?: 'command' | 'task' | 'project' | 'story' | 'document' | 'epic' | 'sprint' | 'notification' | 'agent' | 'proposal' | 'ticket' | 'schedule';
   run: () => void;
 }
 
@@ -368,6 +368,7 @@ export class App implements OnInit, OnDestroy {
   readonly paletteAgentResults = signal<PaletteCommand[]>([]);
   readonly paletteProposalResults = signal<PaletteCommand[]>([]);
   readonly paletteTicketResults = signal<PaletteCommand[]>([]);
+  readonly paletteScheduleResults = signal<PaletteCommand[]>([]);
   private paletteDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   readonly createdKeyPlaintext = signal('');
   // Epic 22: 任务依赖
@@ -1662,7 +1663,9 @@ export class App implements OnInit, OnDestroy {
           ? 'proposals'
           : section === 'documents'
             ? 'documents'
-            : 'epics';
+            : section === 'schedules'
+              ? 'schedules'
+              : 'epics';
         this.activeTab.set(projectTab);
         this.resetProjectListPages();
         this.resetProjectTabs();
@@ -4857,6 +4860,7 @@ export class App implements OnInit, OnDestroy {
     this.paletteAgentResults.set([]);
     this.paletteProposalResults.set([]);
     this.paletteTicketResults.set([]);
+    this.paletteScheduleResults.set([]);
     this.paletteSearching.set(false);
     this.paletteOpen.set(true);
     setTimeout(() => {
@@ -4887,6 +4891,7 @@ export class App implements OnInit, OnDestroy {
     this.paletteAgentResults.set([]);
     this.paletteProposalResults.set([]);
     this.paletteTicketResults.set([]);
+    this.paletteScheduleResults.set([]);
     this.paletteSearching.set(false);
   }
 
@@ -4916,6 +4921,7 @@ export class App implements OnInit, OnDestroy {
       this.paletteAgentResults.set([]);
       this.paletteProposalResults.set([]);
       this.paletteTicketResults.set([]);
+      this.paletteScheduleResults.set([]);
       this.paletteSearching.set(false);
       return;
     }
@@ -5082,6 +5088,22 @@ export class App implements OnInit, OnDestroy {
       .catch(() => {
         this.paletteTicketResults.set([]);
       });
+    // Schedule（Epic 134 v6.19）：后端 /api/search/schedules 搜索定时计划（按成员项目收敛）
+    firstValueFrom(this.api.searchSchedules({ q: query, limit: 10 }))
+      .then((schs) => {
+        const cmds: PaletteCommand[] = (schs || []).map((sch) => ({
+          id: `schedule-${sch.id}`,
+          title: `计划 #${sch.id}：${(sch.title || '').slice(0, 60)}`,
+          hint: `${this.projectName(sch.project_id)} · ${sch.schedule_type === 'cron' ? (sch.cron_expr || 'cron') : 'once'}${sch.agent ? ` · ${sch.agent}` : ''}`,
+          category: 'schedule',
+          keywords: `schedule jihua 定时 计划 调度 ${sch.id} ${sch.title || ''} ${sch.agent || ''} ${sch.schedule_type}`,
+          run: () => { void this.router.navigateByUrl(`/project/${sch.project_id}/schedules`); },
+        }));
+        this.paletteScheduleResults.set(cmds);
+      })
+      .catch(() => {
+        this.paletteScheduleResults.set([]);
+      });
   }
 
   /** 构建命令列表（含基于 recentProjects 的动态命令）。在 computed 内访问以跟踪信号变化。 */
@@ -5167,6 +5189,7 @@ export class App implements OnInit, OnDestroy {
       ...this.paletteAgentResults(),
       ...this.paletteProposalResults(),
       ...this.paletteTicketResults(),
+      ...this.paletteScheduleResults(),
     ];
     const staticMatches = all.filter((c) => `${c.title} ${c.keywords || ''} ${c.hint || ''}`.toLowerCase().includes(q));
     // 命中命令时命令优先（保持 Enter 执行命令的既有行为），后端实体结果作为补充列于其后；

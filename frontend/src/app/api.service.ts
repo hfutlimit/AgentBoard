@@ -555,6 +555,10 @@ export class ApiService {
   searchTicketRequests(params: { q: string; limit?: number }) {
     return this.request<TicketRequestItem[]>('GET', '/api/search/tickets', undefined, params);
   }
+  /** Epic 134 v6.19: 全局定时计划关键词搜索（命令面板补齐第 11 类实体；后端按成员项目收敛） */
+  searchSchedules(params: { q: string; limit?: number }) {
+    return this.request<AgentSchedule[]>('GET', '/api/search/schedules', undefined, params);
+  }
   getTask(id: number) {
     return this.request<Task>('GET', `/api/tasks/${id}`);
   }
