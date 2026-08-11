@@ -547,6 +547,10 @@ export class ApiService {
   searchAgents(params: { q: string; limit?: number }) {
     return this.request<AgentRow[]>('GET', '/api/search/agents', undefined, params);
   }
+  /** Epic 132 v6.17: 全局 Proposal 关键词搜索（命令面板补齐第 9 类实体；后端按可见项目收敛） */
+  searchProposals(params: { q: string; limit?: number }) {
+    return this.request<ProposalItem[]>('GET', '/api/search/proposals', undefined, params);
+  }
   getTask(id: number) {
     return this.request<Task>('GET', `/api/tasks/${id}`);
   }

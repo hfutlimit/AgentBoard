@@ -1991,6 +1991,20 @@ def search_agents_api(
     return [service._ser(x) for x in rows]
 
 
+# 全局 Proposal 关键词搜索（命令面板等场景，Epic 132 v6.17）；路径用 /api/search/proposals
+# 避免与 /api/proposals/{pid} 冲突；带鉴权 + 可见性收敛（镜像 search_notifications + list_proposals）
+@app.get("/api/search/proposals")
+def search_proposals_api(
+    q: str = Query(..., min_length=1, description="关键词"),
+    limit: int = Query(20, ge=1, le=50),
+    s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
+):
+    uid = _current_user(authorization, s, required_permission="api:read").id
+    rows = service.search_proposals(s, q=q, limit=limit, user_id=uid)
+    return [service._ser(x) for x in rows]
+
+
 # ---------- Sprint ----------
 @app.get("/api/projects/{pid}/sprints")
 def list_sprints(pid: int, s: Session = Depends(get_session),

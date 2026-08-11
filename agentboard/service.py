@@ -409,6 +409,32 @@ def search_agents(s: Session, q: str, limit: int = 20):
     return qry.limit(limit).all()
 
 
+def search_proposals(s: Session, q: str, limit: int = 20, user_id: int | None = None):
+    """全局 Proposal 关键词搜索（title/content），供命令面板等场景使用（Epic 132 v6.17）。
+
+    可见性收敛镜像 list_proposals：user_id 给定时，非 admin 仅搜索自己
+    ProjectMember 项目下的提案；admin 或 None 全量。
+    """
+    like = f"%{q}%"
+    qry = s.query(Proposal)
+    if user_id is not None:
+        user = s.get(User, user_id)
+        if user and not user.is_admin:
+            member_pids = [
+                r[0]
+                for r in s.query(ProjectMember.project_id)
+                .filter(ProjectMember.user_id == user_id)
+                .all()
+            ]
+            if member_pids:
+                qry = qry.filter(Proposal.project_id.in_(member_pids))
+            else:
+                qry = qry.filter(False)
+    qry = qry.filter(or_(Proposal.title.ilike(like), Proposal.content.ilike(like)))
+    qry = qry.order_by(Proposal.updated_at.desc(), Proposal.id.desc())
+    return qry.limit(limit).all()
+
+
 def update_story(s: Session, id: int, **fields) -> Story | None:
     st = s.get(Story, id)
     if not st:

@@ -798,6 +798,68 @@ describe('App', () => {
     });
   });
 
+  describe('Epic 132 v6.17 命令面板 Proposal 搜索', () => {
+    it('paletteItems 合并 Proposal 搜索结果（category=proposal）且短查询清空', () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteQuery.set('Zebra');
+      app.paletteProposalResults.set([
+        {
+          id: 'proposal-1',
+          title: 'Proposal #1：Zebra 导入工具',
+          hint: 'AgentBoard · 待开始',
+          category: 'proposal',
+          keywords: 'proposal 1 Zebra 导入工具',
+          run: () => {},
+        },
+      ]);
+      const items = app.paletteItems();
+      const pp = items.find((i) => i.id === 'proposal-1');
+      expect(pp).toBeTruthy();
+      expect(pp?.category).toBe('proposal');
+      // 短查询清空分支：<2 字符 → Proposal 结果清空
+      app.paletteRunSearch('x');
+      expect(app.paletteProposalResults()).toEqual([]);
+    });
+
+    it('渲染 Proposal 分类标签（.cat-proposal → "Proposal"）', async () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteOpen.set(true);
+      app.paletteQuery.set('Zebra');
+      app.paletteProposalResults.set([
+        {
+          id: 'proposal-1',
+          title: 'Proposal #1：Zebra 导入工具',
+          hint: 'AgentBoard · 待开始',
+          category: 'proposal',
+          keywords: 'proposal 1 Zebra 导入工具',
+          run: () => {},
+        },
+      ]);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+      const cat = el.querySelector('.palette-item-cat.cat-proposal');
+      expect(cat).toBeTruthy();
+      expect(cat?.textContent?.trim()).toBe('Proposal');
+      expect(el.textContent).toContain('Proposal #1：Zebra 导入工具');
+      app.paletteOpen.set(false);
+    });
+
+    it('openPalette / closePalette 清空 Proposal 结果', () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteProposalResults.set([{ id: 'p1', title: 't', category: 'proposal', run: () => {} }]);
+      app.openPalette();
+      expect(app.paletteProposalResults()).toEqual([]);
+      app.paletteProposalResults.set([{ id: 'p1', title: 't', category: 'proposal', run: () => {} }]);
+      app.closePalette();
+      expect(app.paletteProposalResults()).toEqual([]);
+    });
+  });
+
   describe('多数决评审投票进度（Epic 122 S4 M2 / Task 1017）', () => {
     it('reviewModeLabel 映射 single / majority / 缺省', () => {
       const fixture = TestBed.createComponent(App);
