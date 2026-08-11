@@ -314,6 +314,8 @@ describe('App', () => {
       current_round: 0,
       converged_spec: '',
       story_id: null,
+      ticket_type: '',
+      ticket_id: null,
       author_id: 1,
       error: '',
       created_at: '2026-08-01T00:00:00',
@@ -469,8 +471,8 @@ describe('App', () => {
   describe('loadDashboardFullTree 请求风暴治理（Epic 117 S2 / Task 996）', () => {
     const ep1: Epic = { id: 11, project_id: 7, title: 'Epic A', description: '', status: 'in_progress', created_at: '2026-08-01T00:00:00' };
     const ep2: Epic = { id: 12, project_id: 7, title: 'Epic B', description: '', status: 'backlog', created_at: '2026-08-01T00:00:00' };
-    const st1: Story = { id: 21, epic_id: 11, title: 'Story A1', description: '', status: 'todo', created_at: '2026-08-01T00:00:00' };
-    const st2: Story = { id: 22, epic_id: 12, title: 'Story B1', description: '', status: 'in_review', created_at: '2026-08-01T00:00:00' };
+    const st1: Story = { id: 21, epic_id: 11, title: 'Story A1', description: '', status: 'todo', needs_design: false, created_at: '2026-08-01T00:00:00' };
+    const st2: Story = { id: 22, epic_id: 12, title: 'Story B1', description: '', status: 'in_review', needs_design: false, created_at: '2026-08-01T00:00:00' };
     const overview: OverviewStats = {
       counts: { projects: 1, epics: 2, stories: 2, tasks: 3, done_tasks: 1 },
       projects: [{ id: 7, name: 'Analytics Project', total: 3, done: 1, percent: 33.3 }],
@@ -554,8 +556,8 @@ describe('App', () => {
   describe('loadEpicProgressData 并发分片治理（Epic 117 S3 / Task 997）', () => {
     const ep1: Epic = { id: 31, project_id: 7, title: 'Epic X', description: '', status: 'in_progress', created_at: '2026-08-01T00:00:00' };
     const ep2: Epic = { id: 32, project_id: 7, title: 'Epic Y', description: '', status: 'backlog', created_at: '2026-08-01T00:00:00' };
-    const st1: Story = { id: 41, epic_id: 31, title: 'Story X1', description: '', status: 'todo', created_at: '2026-08-01T00:00:00' };
-    const st2: Story = { id: 42, epic_id: 32, title: 'Story Y1', description: '', status: 'in_review', created_at: '2026-08-01T00:00:00' };
+    const st1: Story = { id: 41, epic_id: 31, title: 'Story X1', description: '', status: 'todo', needs_design: false, created_at: '2026-08-01T00:00:00' };
+    const st2: Story = { id: 42, epic_id: 32, title: 'Story Y1', description: '', status: 'in_review', needs_design: false, created_at: '2026-08-01T00:00:00' };
     const t1: Task = { id: 51, project_id: 7, story_id: 41, sprint_id: null, type: 'task', title: 'Task X1-1', status: 'done', priority: 'medium', description: '', spec: '', source_spec_id: null, due_date: null, assignee_id: null, labels: '[]', estimate: null, created_at: '2026-08-01T00:00:00', updated_at: '2026-08-01T00:00:00' };
 
     function createProjectApp(overrides: Record<string, unknown>): { app: any; listStories: ReturnType<typeof vi.fn>; listTasks: ReturnType<typeof vi.fn> } {
@@ -731,6 +733,68 @@ describe('App', () => {
       app.paletteNotificationResults.set([{ id: 'n1', title: 't', category: 'notification', run: () => {} }]);
       app.closePalette();
       expect(app.paletteNotificationResults()).toEqual([]);
+    });
+  });
+
+  describe('Epic 131 v6.16 命令面板 Agent 搜索', () => {
+    it('paletteItems 合并 Agent 搜索结果（category=agent）且短查询清空', () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteQuery.set('wb-dev');
+      app.paletteAgentResults.set([
+        {
+          id: 'agent-1',
+          title: 'Agent wb-dev-1：Dev Worker One',
+          hint: '在线 · OK v1.2.3',
+          category: 'agent',
+          keywords: 'agent wb-dev-1 Dev Worker One',
+          run: () => {},
+        },
+      ]);
+      const items = app.paletteItems();
+      const ag = items.find((i) => i.id === 'agent-1');
+      expect(ag).toBeTruthy();
+      expect(ag?.category).toBe('agent');
+      // 短查询清空分支：<2 字符 → Agent 结果清空
+      app.paletteRunSearch('x');
+      expect(app.paletteAgentResults()).toEqual([]);
+    });
+
+    it('渲染 Agent 分类标签（.cat-agent → "Agent"）', async () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteOpen.set(true);
+      app.paletteQuery.set('wb-dev');
+      app.paletteAgentResults.set([
+        {
+          id: 'agent-1',
+          title: 'Agent wb-dev-1：Dev Worker One',
+          hint: '在线 · OK v1.2.3',
+          category: 'agent',
+          keywords: 'agent wb-dev-1 Dev Worker One',
+          run: () => {},
+        },
+      ]);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+      const cat = el.querySelector('.palette-item-cat.cat-agent');
+      expect(cat).toBeTruthy();
+      expect(cat?.textContent?.trim()).toBe('Agent');
+      expect(el.textContent).toContain('Agent wb-dev-1：Dev Worker One');
+      app.paletteOpen.set(false);
+    });
+
+    it('openPalette / closePalette 清空 Agent 结果', () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteAgentResults.set([{ id: 'a1', title: 't', category: 'agent', run: () => {} }]);
+      app.openPalette();
+      expect(app.paletteAgentResults()).toEqual([]);
+      app.paletteAgentResults.set([{ id: 'a1', title: 't', category: 'agent', run: () => {} }]);
+      app.closePalette();
+      expect(app.paletteAgentResults()).toEqual([]);
     });
   });
 

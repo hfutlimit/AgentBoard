@@ -543,6 +543,10 @@ export class ApiService {
   searchNotifications(params: { q: string; limit?: number }) {
     return this.request<Notification[]>('GET', '/api/search/notifications', undefined, params);
   }
+  /** Epic 131 v6.16: 全局 Agent 关键词搜索（命令面板补齐第 8 类实体；后端仅返回 enabled） */
+  searchAgents(params: { q: string; limit?: number }) {
+    return this.request<AgentRow[]>('GET', '/api/search/agents', undefined, params);
+  }
   getTask(id: number) {
     return this.request<Task>('GET', `/api/tasks/${id}`);
   }

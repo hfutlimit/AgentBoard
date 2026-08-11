@@ -1977,6 +1977,20 @@ def search_notifications_api(
     return [service._ser(n) for n in rows]
 
 
+# 全局 Agent 关键词搜索（命令面板等场景，Epic 131 v6.16）；路径用 /api/search/agents
+# 避免与 /api/agents/{agent_id} 冲突；带鉴权（镜像 search_notifications）
+@app.get("/api/search/agents")
+def search_agents_api(
+    q: str = Query(..., min_length=1, description="关键词"),
+    limit: int = Query(20, ge=1, le=50),
+    s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
+):
+    _current_user(authorization, s, required_permission="api:read")
+    rows = service.search_agents(s, q=q, limit=limit)
+    return [service._ser(x) for x in rows]
+
+
 # ---------- Sprint ----------
 @app.get("/api/projects/{pid}/sprints")
 def list_sprints(pid: int, s: Session = Depends(get_session),

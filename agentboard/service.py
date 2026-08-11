@@ -391,6 +391,24 @@ def search_sprints(s: Session, q: str, limit: int = 20):
     return qry.limit(limit).all()
 
 
+def search_agents(s: Session, q: str, limit: int = 20):
+    """全局 Agent 关键词搜索（agent_id/name/roles），供命令面板等场景使用（Epic 131 v6.16）。
+
+    仅返回 enabled 的 Agent（已禁用/删除的不参与命令面板搜索）。
+    """
+    like = f"%{q}%"
+    qry = s.query(Agent).filter(
+        Agent.enabled.is_(True),
+        or_(
+            Agent.agent_id.ilike(like),
+            Agent.name.ilike(like),
+            Agent.roles.ilike(like),
+        ),
+    )
+    qry = qry.order_by(Agent.id.desc())
+    return qry.limit(limit).all()
+
+
 def update_story(s: Session, id: int, **fields) -> Story | None:
     st = s.get(Story, id)
     if not st:
