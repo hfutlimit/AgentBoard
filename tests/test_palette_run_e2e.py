@@ -28,7 +28,11 @@ PROJ_NAME = "E2E Run Search " + str(random.randint(100000, 999999))
 
 
 def api(method, path, token=None, body=None):
-    req = urllib.request.Request(API + path, data=json.dumps(body).encode() if body else None, method=method)
+    req = urllib.request.Request(
+        API + path,
+        data=json.dumps(body).encode() if body is not None else None,
+        method=method,
+    )
     req.add_header("Content-Type", "application/json")
     if token:
         req.add_header("Authorization", "Bearer " + token)

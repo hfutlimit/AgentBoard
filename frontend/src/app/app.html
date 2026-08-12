@@ -2471,11 +2471,11 @@
           </nav>
 
           <div class="row doc-toolbar">
-            <select [value]="docFilterType()" (change)="docFilterType.set($any($event.target).value); onDocFilterChange()">
+            <select class="doc-filter-select" [value]="docFilterType()" (change)="docFilterType.set($any($event.target).value); onDocFilterChange()">
               <option [value]="''">全部类型</option>
               @for (t of docTypes; track t) { <option [value]="t">{{ docTypeLabel(t) }}</option> }
             </select>
-            <select [value]="docFilterStatus()" (change)="docFilterStatus.set($any($event.target).value); onDocFilterChange()">
+            <select class="doc-filter-select" [value]="docFilterStatus()" (change)="docFilterStatus.set($any($event.target).value); onDocFilterChange()">
               <option [value]="''">全部状态</option>
               @for (s of docStatuses; track s) { <option [value]="s">{{ docStatusLabel(s) }}</option> }
             </select>
