@@ -3651,7 +3651,7 @@ router-outlet {
 
 .doc-list.folder-view {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 14px;
   padding: 4px;
   margin-bottom: 18px;
@@ -3660,7 +3660,7 @@ router-outlet {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   border: 1px solid var(--border, #e2e8f0);
   border-radius: 12px;
   background: #fafbff;
@@ -3693,13 +3693,15 @@ router-outlet {
   text-align: left;
   cursor: pointer;
 }
-.doc-folder-icon { font-size: 18px; flex: 0 0 auto; }
+.doc-folder-icon { font-size: 16px; flex: 0 0 auto; }
 .doc-folder-name {
   font-weight: 600;
   font-size: 14px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 .doc-folder-project {
   font-size: 11px;
@@ -3724,9 +3726,11 @@ router-outlet {
   display: flex;
   gap: 2px;
   flex: 0 0 auto;
-  opacity: 0;
+  opacity: 0.55;
   transition: opacity 0.12s;
 }
+.doc-folder-tile:hover .doc-folder-actions,
+.doc-folder-tile:focus-within .doc-folder-actions { opacity: 1; }
 .doc-folder-tile:hover .doc-folder-actions,
 .doc-folder-tile:focus-within .doc-folder-actions {
   opacity: 1;
