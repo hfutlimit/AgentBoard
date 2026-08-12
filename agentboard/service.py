@@ -516,6 +516,48 @@ def search_schedules(s: Session, q: str, limit: int = 20, user_id: int | None = 
     return qry.limit(limit).all()
 
 
+def search_runs(s: Session, q: str, limit: int = 20, user_id: int | None = None):
+    """全局执行记录（AgentRun）关键词搜索，供命令面板等场景使用（Epic 135 v6.20）。
+
+    匹配字段：运行状态（status）/ 执行摘要（summary）/ 错误信息（error_message）。
+    AgentRun 无 project_id 列，通过 join AgentSchedule 取得归属项目做可见性收敛：
+    可见性语义镜像 search_schedules —— user_id 给定时，非 admin 仅搜索自己
+    ProjectMember 项目下的执行记录；admin 或 None 全量。
+
+    返回 ``list[dict]``：_ser(run) 全列 + 附加 project_id（join 取得，供前端跳转）。
+    """
+    like = f"%{q}%"
+    qry = (
+        s.query(AgentRun, AgentSchedule.project_id)
+        .join(AgentSchedule, AgentRun.schedule_id == AgentSchedule.id)
+    )
+    if user_id is not None:
+        user = s.get(User, user_id)
+        if user and not user.is_admin:
+            member_pids = [
+                r[0]
+                for r in s.query(ProjectMember.project_id)
+                .filter(ProjectMember.user_id == user_id)
+                .all()
+            ]
+            if member_pids:
+                qry = qry.filter(AgentSchedule.project_id.in_(member_pids))
+            else:
+                qry = qry.filter(False)
+    qry = qry.filter(or_(
+        AgentRun.status.ilike(like),
+        AgentRun.summary.ilike(like),
+        AgentRun.error_message.ilike(like),
+    ))
+    qry = qry.order_by(AgentRun.id.desc())
+    out: list[dict] = []
+    for run, project_id in qry.limit(limit).all():
+        d = _ser(run)
+        d["project_id"] = project_id
+        out.append(d)
+    return out
+
+
 def update_story(s: Session, id: int, **fields) -> Story | None:
     st = s.get(Story, id)
     if not st:

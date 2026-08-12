@@ -2033,6 +2033,19 @@ def search_schedules_api(
     return [service._ser(x) for x in rows]
 
 
+# 全局执行记录关键词搜索（命令面板等场景，Epic 135 v6.20）；路径用 /api/search/runs
+# 避免与 /api/schedules/{sid}/runs、/api/runs/{rid} 混淆；带鉴权 + 可见性收敛（镜像 search_schedules）
+@app.get("/api/search/runs")
+def search_runs_api(
+    q: str = Query(..., min_length=1, description="关键词"),
+    limit: int = Query(20, ge=1, le=50),
+    s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
+):
+    uid = _current_user(authorization, s, required_permission="api:read").id
+    return service.search_runs(s, q=q, limit=limit, user_id=uid)
+
+
 # ---------- Sprint ----------
 @app.get("/api/projects/{pid}/sprints")
 def list_sprints(pid: int, s: Session = Depends(get_session),
