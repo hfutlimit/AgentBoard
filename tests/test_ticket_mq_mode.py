@@ -172,3 +172,93 @@ def test_poll_once_reclaims_stale_ticket_requests():
     assert "/api/admin/ticket-requests/reclaim-stale" in paths, (
         "poll_once 未自动回收超时转换请求"
     )
+
+
+class _NoClaimClient:
+    """模拟 execute 端点语义（2026-08-12 double-claim 修复）：
+
+    - pending 列表始终返回 [req]（除非 done/failed）；
+    - **不再有 /claim 分支**——worker 不得再预认领；
+    - 回查列表按状态机返回：agent 报告 ticket_created 后视为 done，
+      否则保持 pending（供 fail 路径验证）。
+    """
+
+    def __init__(self, proposal: dict, request: dict):
+        self.proposal = proposal
+        self.req = dict(request)
+        self.calls: list[tuple[str, str]] = []
+        self.done = False
+
+    def _resp(self, code: int, data) -> httpx.Response:
+        return httpx.Response(
+            code, json=data,
+            request=httpx.Request("GET", "http://mq-test"),
+        )
+
+    def request(self, method: str, path: str, **kw) -> httpx.Response:
+        self.calls.append((method, path))
+        if path.endswith("/api/admin/ticket-requests/pending"):
+            return self._resp(200, [] if self.done else [self.req])
+        if path == f"/api/proposals/{self.proposal['id']}":
+            return self._resp(200, self.proposal)
+        if path.endswith("/rounds"):
+            return self._resp(200, [])
+        if path.endswith("/ticket-requests") and method == "GET":
+            # 回查：done 后返回 done；否则 pending（execute 未认领）
+            st = "done" if self.done else "pending"
+            return self._resp(200, [dict(self.req, status=st)])
+        if path.endswith("/fail"):
+            self.req["status"] = "failed"
+            self.done = True
+            return self._resp(200, dict(self.req, status="failed"))
+        if "/reclaim-stale" in path or "/recover-failed" in path:
+            return self._resp(200, {"reclaimed": [], "recovered": [], "ids": []})
+        if "/proposals/pending" in path:
+            return self._resp(200, [])
+        return self._resp(200, {})
+
+
+def test_handle_does_not_preclaim_ticket_request():
+    """double-claim 修复：worker handle 不再调用 /claim 预认领。
+
+    认领+创建收敛到 execute 端点内部 CAS；worker 只负责发现 + 拉起 agent。
+    回归：若再次引入预 claim，ticket 请求会被 execute 判「正在生成中」永远失败。
+    """
+    sessions, proposal, request = _env()
+    client = _NoClaimClient(proposal, request)
+    w = ProposalWorker(
+        WorkerConfig(api_url="http://mq-test", token="t", agent="poll-worker"),
+        invoker=CallableAgentInvoker(
+            lambda ctx: AgentDecision(action="ticket_created"),
+        ), client=client,
+    )
+    reqs = w.fetch_ticket_requests()
+    assert len(reqs) == 1
+    result = w.handle_ticket_request(reqs[0])
+    assert result == "created"
+    paths = [p for _, p in client.calls]
+    assert not any(p.endswith("/claim") for p in paths), (
+        "worker 不应预认领 ticket 请求（execute 内部 CAS 才是唯一认领点）"
+    )
+
+
+def test_handle_fail_with_pending_marks_failed():
+    """agent 失败且请求仍 pending → 标记 failed（前端可重试）。
+
+    修复前：回查 pending → skipped，请求永远 pending，worker 无限拉起 agent。
+    """
+    sessions, proposal, request = _env()
+    client = _NoClaimClient(proposal, request)
+    w = ProposalWorker(
+        WorkerConfig(api_url="http://mq-test", token="t", agent="poll-worker"),
+        invoker=CallableAgentInvoker(
+            lambda ctx: AgentDecision(action="fail", error="MCP 超时"),
+        ), client=client,
+    )
+    reqs = w.fetch_ticket_requests()
+    result = w.handle_ticket_request(reqs[0])
+    assert result == "failed"
+    paths = [p for _, p in client.calls]
+    assert any(p.endswith("/fail") for p in paths), (
+        "agent 失败且请求仍 pending 时应标记 failed"
+    )

@@ -153,13 +153,18 @@ class TicketHandler:
             log.info("ticket 请求 #%s agent 报告已创建（信任其 decision）", rid)
             return "created"
         # agent 主动放弃（含 execute 409 竞争失败）：单条 list 回查，不盲目判失败
-        # —— 若他人已完成则视为成功；否则跳过，由 reclaim-stale 超时兜底 + 用户重试。
+        # —— 若他人已完成则视为成功；仍 pending 说明 execute 未被认领（例如
+        # 服务端 502 / MCP 超时），标记 failed 让前端可重试，避免无限循环拉起 agent。
         log.warning("ticket 请求 #%s agent 未创建：%s", rid, decision.error or "无原因")
         cur = self._lookup_ticket_request(work_item)
         if cur and cur.get("status") == "done":
             return "created"
         if cur and cur.get("status") == "failed":
             return "failed"
+        if cur and cur.get("status") == "pending":
+            return self._fail_ticket_request(
+                work_item, decision.error or "agent 未创建（请求仍 pending）",
+            )
         return "skipped"
 
     def _fail_ticket_request(self, work_item: dict, error: str) -> str:
@@ -187,10 +192,18 @@ class TicketHandler:
     # ---------- 便捷：单请求完整处理 ----------
 
     def handle(self, request: dict, invoker) -> str:
-        """处理一个转换请求：认领 → 拉起 agent → 信任其 decision。"""
+        """处理一个转换请求：拉起 agent 生成 ticket → 校验结果。
+
+        2026-08-12 修复（double-claim）：不再调用 ``self.claim()`` 预认领。
+        原实现 worker 先 claim（pending→processing），再让 agent 经 MCP 调
+        ``proposal_create_ticket`` → ``POST /api/ticket-requests:execute``，
+        而 execute 端点内部 ``claim_ticket_request`` 要求请求仍为 pending——
+        此时已是 processing → 抛「正在生成中」，agent 必然 fail，ticket 永远
+        创建不了（生产 08:33 实测卡死，09:04 由 maintenance 超时回退）。
+        现在认领+创建全部收敛到 execute 端点内部 CAS（pending→processing→done），
+        worker 只负责「发现 pending 请求 → 拉起 agent → 校验结果」。
+        """
         rid = request.get("id")
-        if not self.claim(request):
-            return "skipped"
         try:
             context = self.load_context(request)
         except Exception as e:
