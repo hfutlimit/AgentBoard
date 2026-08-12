@@ -3770,6 +3770,74 @@ router-outlet {
   line-height: 1.7;
   overflow-x: auto;
 }
+/* Epic 129: 文档详情三视图 —— 分屏编辑/只读 */
+.doc-preview-pane { padding: 0.25rem 0; }
+.doc-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin: 12px 0;
+  min-height: 420px;
+}
+.doc-split-pane {
+  height: 480px;
+  overflow-y: auto;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+}
+.doc-split-editor textarea {
+  width: 100%;
+  height: 100%;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  color: inherit;
+  background: transparent;
+  box-sizing: border-box;
+}
+.doc-split-editor textarea:focus { box-shadow: inset 0 0 0 2px #6366f1; border-radius: 10px; }
+.doc-split-readonly pre {
+  margin: 0;
+  padding: 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: inherit;
+}
+.doc-split-preview { padding: 14px; }
+.doc-split-preview .md { line-height: 1.7; }
+.doc-split-preview .md h1, .doc-split-preview .md h2,
+.doc-split-preview .md h3, .doc-split-preview .md h4 { margin: 1.1em 0 0.5em; line-height: 1.3; }
+.doc-split-preview .md h1 { font-size: 1.7em; }
+.doc-split-preview .md h2 { font-size: 1.4em; }
+.doc-split-preview .md h3 { font-size: 1.2em; }
+.doc-split-preview .md p { margin: 0.6em 0; }
+.doc-split-preview .md ul, .doc-split-preview .md ol { margin: 0.6em 0; padding-left: 1.5em; }
+.doc-split-preview .md li { margin: 0.25em 0; }
+.doc-split-preview .md code { background: var(--surface-2, #f1f5f9); padding: 0.15em 0.4em; border-radius: 5px; font-size: 0.9em; }
+.doc-split-preview .md pre { background: var(--surface-2, #f1f5f9); padding: 12px; border-radius: 8px; overflow-x: auto; }
+.doc-split-preview .md pre code { background: transparent; padding: 0; }
+.doc-split-preview .md blockquote { margin: 0.6em 0; padding-left: 1em; border-left: 3px solid var(--border, #e2e8f0); color: var(--text-2, #64748b); }
+.doc-split-preview .md img { max-width: 100%; border-radius: 8px; }
+.doc-split-preview .md table { border-collapse: collapse; margin: 0.8em 0; }
+.doc-split-preview .md th, .doc-split-preview .md td { border: 1px solid var(--border, #e2e8f0); padding: 6px 10px; }
+.doc-split-preview .md hr { border: none; border-top: 1px solid var(--border, #e2e8f0); margin: 1.2em 0; }
+.doc-confirm-modal { max-width: 380px; }
+.doc-confirm-modal h3 { margin: 0 0 8px; }
+.doc-confirm-modal p { margin: 0 0 16px; color: var(--text-2, #64748b); line-height: 1.6; }
+.doc-confirm-modal .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.doc-detail-inline .crumb-bar .ghost-sm[disabled] { opacity: 0.45; cursor: not-allowed; }
+@media (max-width: 720px) {
+  .doc-split { grid-template-columns: 1fr; }
+  .doc-split-pane { height: 340px; }
+}
 .doc-linked-card { margin-top: 1rem; }
 .doc-linked-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.4rem; }
 .link-chip {
@@ -5819,3 +5887,26 @@ select:focus {
   margin-top: 8px;
   font-size: 13px;
 }
+
+/* Epic 130: 项目看板 */
+.project-kanban { display: flex; gap: 14px; overflow-x: auto; padding-bottom: 12px; min-height: 320px; }
+.project-kanban .kanban-col { min-width: 260px; max-width: 300px; flex: 1 1 260px; background: var(--surface-2, #f1f5f9); border-radius: 12px; border: 1px solid var(--border, #e2e8f0); }
+.project-kanban .kanban-col-header { display: flex; align-items: center; gap: 8px; padding: 10px 12px; cursor: default; }
+.project-kanban .kanban-col-body { display: flex; flex-direction: column; gap: 10px; padding: 4px 10px 12px; }
+.project-kanban-card { cursor: pointer; transition: box-shadow .15s ease, transform .15s ease; }
+.project-kanban-card:hover { box-shadow: 0 4px 14px rgba(99,102,241,.18); transform: translateY(-1px); }
+.project-kanban-card .kanban-card-title { font-weight: 600; font-size: 13px; line-height: 1.45; margin-bottom: 8px; word-break: break-word; }
+.project-kanban-card .kanban-card-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.project-kanban-card .kb-in { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
+.project-kanban-card .kb-out { background: #f1f5f9; color: #64748b; border: 1px solid #e2e8f0; }
+.project-kanban-card .kb-design { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+.kanban-card-tasks { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.kb-task { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 999px; font-size: 10px; line-height: 1.4; }
+.kb-task i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.kb-task em { font-style: normal; opacity: .75; }
+.kb-t-design { background: #fef3c7; color: #92400e; }
+.kb-t-dev { background: #dbeafe; color: #1d4ed8; }
+.kb-t-qa { background: #ede9fe; color: #6d28d9; }
+.kb-t-bug { background: #fee2e2; color: #b91c1c; }
+.project-kanban-card .kanban-card-actions { display: flex; justify-content: flex-end; }
+@media (max-width: 860px) { .project-kanban { flex-wrap: wrap; } .project-kanban .kanban-col { min-width: 240px; max-width: none; } }

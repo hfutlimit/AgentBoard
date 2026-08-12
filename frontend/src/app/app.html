@@ -472,6 +472,11 @@
               <button class="tab-btn" [class.active]="activeTab() === 'documents'" (click)="selectProjectTab('documents')">
                 文档
               </button>
+              <button class="tab-btn" [class.active]="activeTab() === 'kanban'" (click)="selectProjectTab('kanban')">
+                看板
+                @if (isProjectTabLoaded('kanban')) { <span class="tab-count">{{ kanbanCount() }}</span> }
+                @else if (isProjectTabLoading('kanban')) { <span class="tab-loading-dot" title="加载中"></span> }
+              </button>
             </div>
 
             <!-- Tab: Epics -->
@@ -1188,10 +1193,57 @@
                   <div class="card doc-detail-inline">
                     <div class="crumb-bar">
                       <a (click)="docItem.set(null)">← 返回列表</a>
-                      <button class="ghost-sm" (click)="openDocModal('edit')">✎ 编辑</button>
+                      <!-- Epic 129: 三视图顶部按钮，按模式启用/禁用 -->
+                      @switch (docViewMode()) {
+                        @case ('preview') {
+                          <button class="ghost-sm" (click)="openDocModal('edit')">📋 编辑文档</button>
+                          <button class="ghost-sm" (click)="enterDocSplitEdit()">✏ 编辑内容</button>
+                          <button class="ghost-sm" (click)="toggleTheme()" [title]="getThemeLabel()">🌓</button>
+                        }
+                        @case ('split-edit') {
+                          <button class="ghost-sm btn-primary-sm" (click)="saveDocSplitContent()">💾 保存</button>
+                          <button class="ghost-sm" (click)="cancelDocSplitEdit()">✖ 取消</button>
+                          <button class="ghost-sm" (click)="exitDocSplit()">⏏ 退出</button>
+                          <button class="ghost-sm" (click)="toggleTheme()" [title]="getThemeLabel()">🌓</button>
+                        }
+                        @case ('split-read') {
+                          <button class="ghost-sm" (click)="enterDocSplitEditFromReadonly()">✏ 编辑</button>
+                          <button class="ghost-sm" disabled title="只读模式下无改动可取消">✖ 取消</button>
+                          <button class="ghost-sm" disabled title="只读模式下无改动可保存">💾 保存</button>
+                          <button class="ghost-sm" (click)="exitDocSplit()">⏏ 退出</button>
+                          <button class="ghost-sm" (click)="toggleTheme()" [title]="getThemeLabel()">🌓</button>
+                        }
+                      }
                     </div>
                     @if (docItem(); as d) {
-                      <div class="doc-content" [innerHTML]="renderMarkdown(d.content)"></div>
+                      @switch (docViewMode()) {
+                        @case ('preview') {
+                          <!-- 完全预览模式：仅渲染内容，无分屏 -->
+                          <article class="doc-content doc-preview-pane" [innerHTML]="renderMarkdown(d.content)"></article>
+                        }
+                        @case ('split-edit') {
+                          <!-- 分屏编辑模式：左编辑右预览，同步滚动 -->
+                          <div class="doc-split">
+                            <div class="doc-split-pane doc-split-editor" id="docSplitEditor" (scroll)="syncDocSplitScroll($event, 'docSplitPreview')">
+                              <textarea [value]="docSplitContent()" (input)="onDocSplitInput($any($event.target).value)" spellcheck="false" placeholder="Markdown 正文…"></textarea>
+                            </div>
+                            <div class="doc-split-pane doc-split-preview" id="docSplitPreview" (scroll)="syncDocSplitScroll($event, 'docSplitEditor')">
+                              <div class="md" [innerHTML]="renderMarkdown(docSplitContent() || '（空）')"></div>
+                            </div>
+                          </div>
+                        }
+                        @case ('split-read') {
+                          <!-- 分屏只读模式：左原文（只读）右预览，同步滚动 -->
+                          <div class="doc-split">
+                            <div class="doc-split-pane doc-split-editor doc-split-readonly" id="docSplitReadSource" (scroll)="syncDocSplitScroll($event, 'docSplitReadPreview')">
+                              <pre>{{ docSplitContent() || d.content }}</pre>
+                            </div>
+                            <div class="doc-split-pane doc-split-preview" id="docSplitReadPreview" (scroll)="syncDocSplitScroll($event, 'docSplitReadSource')">
+                              <div class="md" [innerHTML]="renderMarkdown((docSplitContent() || d.content))"></div>
+                            </div>
+                          </div>
+                        }
+                      }
                       <div class="doc-comments-section">
                         <h4>评论（{{ documentComments().length }}）</h4>
                         @for (c of documentComments(); track c.id) {
@@ -1214,6 +1266,91 @@
                           <button type="submit" class="btn-primary-sm">发送</button>
                         </form>
                       </div>
+                    }
+                  </div>
+                  <!-- Epic 129: 自定义确认弹窗（丢弃未保存改动，禁用原生 confirm） -->
+                  @if (docConfirmOpen()) {
+                    <div class="modal-overlay" (click)="cancelDiscardDocChanges()">
+                      <div class="modal doc-confirm-modal" role="dialog" aria-modal="true" aria-label="确认操作" (click)="$event.stopPropagation()">
+                        <h3>丢弃未保存的改动？</h3>
+                        <p>当前编辑内容尚未保存，离开后将丢失这些改动。确定要继续吗？</p>
+                        <div class="modal-actions">
+                          <button class="ghost-sm" (click)="cancelDiscardDocChanges()">取消</button>
+                          <button class="btn-primary-sm danger" (click)="confirmDiscardDocChanges()">确认丢弃</button>
+                        </div>
+                      </div>
+                    </div>
+                  }
+                }
+              </div>
+            }
+            @if (activeTab() === 'kanban') {
+              <div class="tab-content">
+                <div class="section-header">
+                  <h3>项目看板
+                    <span class="badge count-badge">{{ kanbanCount() }}</span>
+                    @if (!kanbanIncludeAll()) { <span class="badge docstatus docstatus--draft">仅看板标记</span> }
+                  </h3>
+                  <div class="row">
+                    <button class="ghost-sm" (click)="toggleKanbanIncludeAll()" [title]="kanbanIncludeAll() ? '只看标记进入看板的 Story' : '显示全部 Story（含未标记）'">
+                      {{ kanbanIncludeAll() ? '只看看板标记' : '显示全部' }}
+                    </button>
+                  </div>
+                </div>
+                @if (isProjectTabLoading('kanban')) {
+                  <div class="tab-list-skeleton" role="status" aria-label="正在加载看板">
+                    <div class="tab-loading-caption"><span class="spinner"></span>正在加载看板…</div>
+                    @for (row of tabSkeletonRows; track row) {
+                      <div class="tab-skeleton-row"><span class="tab-skeleton-icon"></span><span class="tab-skeleton-line"></span><span class="tab-skeleton-badge"></span></div>
+                    }
+                  </div>
+                } @else if (projectTabError('kanban')) {
+                  <div class="tab-load-error" role="alert">
+                    <span>看板加载失败：{{ projectTabError('kanban') }}</span>
+                    <button class="ghost-sm" (click)="retryProjectTab('kanban')">重试</button>
+                  </div>
+                } @else if (kanbanColumns().length === 0) {
+                  <div class="empty-state">
+                    看板暂无内容。将 Story 标记「进入看板」（在 Epic / Story 视图中操作）后，Agent 会自动开始认领 → 设计 → 开发 → 评审 → 测试 → 完成的全流程。
+                  </div>
+                } @else {
+                  <div class="kanban project-kanban" tabindex="0">
+                    @for (col of kanbanColumns(); track col.status) {
+                      <section class="kanban-col status--{{ col.status }}">
+                        <header class="kanban-col-header" [title]="col.stories.length + ' 个 Story'">
+                          <span class="kanban-col-dot" [style.background]="statusColor(col.status)"></span>
+                          <span class="kanban-col-title">{{ statusLabel(col.status) }}</span>
+                          <span class="kanban-col-count">{{ col.stories.length }}</span>
+                        </header>
+                        <div class="kanban-col-body">
+                          @for (story of col.stories; track story.id) {
+                            <div class="kanban-card project-kanban-card" (click)="openKanbanStory(story)" [title]="story.title">
+                              <div class="kanban-card-title">{{ story.title }}</div>
+                              <div class="kanban-card-badges">
+                                <span class="badge" [class.kb-in]="story.in_kanban" [class.kb-out]="!story.in_kanban">
+                                  {{ story.in_kanban ? '看板' : '未标记' }}
+                                </span>
+                                @if (story.needs_design) { <span class="badge kb-design">含设计</span> }
+                              </div>
+                              @if (story.tasks.length > 0) {
+                                <div class="kanban-card-tasks">
+                                  @for (t of story.tasks; track t.id) {
+                                    <span class="kb-task {{ kanbanTaskClass(t.type) }}" [title]="t.title + ' · ' + statusLabel(t.status)">
+                                      <i></i>{{ kanbanTaskTypeLabel(t.type) }}<em>{{ statusLabel(t.status) }}</em>
+                                    </span>
+                                  }
+                                </div>
+                              }
+                              <div class="kanban-card-actions">
+                                <button type="button" class="ghost-xs" (click)="$event.stopPropagation(); toggleKanbanStory(story)"
+                                  [title]="story.in_kanban ? '移出看板（不中断处理）' : '标记进入看板，Agent 开始自动化'">
+                                  {{ story.in_kanban ? '⏏ 移出' : '▶ 进入看板' }}
+                                </button>
+                              </div>
+                            </div>
+                          }
+                        </div>
+                      </section>
                     }
                   </div>
                 }

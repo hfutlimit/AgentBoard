@@ -156,6 +156,8 @@ class StoryPatch(BaseModel):
     description: str | None = None
     status: str | None = None
     needs_design: bool | None = None
+    # Epic 130: 是否进入项目看板（ticket「进入 kanban」标记）
+    in_kanban: bool | None = None
 
 
 # Epic 122 S1：Agent 注册表 + Story 评审闭环
@@ -925,6 +927,14 @@ def list_epics(pid: int, s: Session = Depends(get_session), limit: int = Query(1
     return [service._ser(e) for e in service.list_epics(s, pid, limit=limit, offset=offset)]
 
 
+@app.get("/api/projects/{pid}/kanban")
+def list_project_kanban(pid: int, include_all: bool = Query(False),
+                        s: Session = Depends(get_session)):
+    """项目看板（Epic 130）：默认只看 in_kanban 标记的 Story，含其下 task 状态。"""
+    _need(service.get_project(s, pid), "project")
+    return service.list_project_kanban(s, pid, include_all=include_all)
+
+
 @app.post("/api/projects/{pid}/epics", status_code=201)
 def create_epic(pid: int, body: EpicIn, s: Session = Depends(get_session)):
     _need(service.get_project(s, pid), "project")
@@ -976,8 +986,25 @@ def get_story(sid: int, s: Session = Depends(get_session)):
 
 @app.patch("/api/stories/{sid}")
 def update_story(sid: int, body: StoryPatch, s: Session = Depends(get_session)):
-    r = service.update_story(s, sid, **body.model_dump(exclude_none=True))
-    return service._ser(_need(r, "story"))
+    """更新 Story；in_kanban 置 True 时联动确认（backlog→confirmed）+ 广播任务。"""
+    payload = body.model_dump(exclude_none=True)
+    r = service.update_story(s, sid, **payload)
+    st = _need(r, "story")
+    # Epic 130: ticket 标记「进入 kanban」→ 自动触发 Agent 编排
+    if payload.get("in_kanban") is True and st.status in ("backlog", "confirmed"):
+        try:
+            if st.status == "backlog":
+                service.confirm_story(s, st.id)
+                st = service.get_story(s, st.id) or st
+                publish_workflow_event(EVENT_STORY_CONFIRMED, "story", st.id,
+                                       ref_id=st.epic_id)
+            for t in service.list_tasks(s, story_id=sid, limit=200):
+                if t.status in ("backlog", "todo"):
+                    publish_workflow_event(EVENT_TASK_AVAILABLE, "task", t.id,
+                                           ref_id=sid)
+        except Exception:
+            log.exception("看板标记后广播任务失败（不影响标记本身）")
+    return service._ser(st)
 
 
 @app.post("/api/stories/{sid}/confirm")

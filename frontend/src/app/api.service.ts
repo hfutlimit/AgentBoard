@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable, of, throwError, timer, Subject } from 'rxjs';
 import { catchError, tap, map, switchMap, mergeMap, debounceTime, takeUntil } from 'rxjs/operators';
 
-import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, Notification, OverviewStats, PagedResult, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, TicketRequestItem, TicketType, AgentRow, StoryStatusHistoryRow } from './models';
+import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, KanbanBoard, Notification, OverviewStats, PagedResult, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, TicketRequestItem, TicketType, AgentRow, StoryStatusHistoryRow } from './models';
 
 export const AUTH_EXPIRED_EVENT = 'agentboard:auth-expired';
 
@@ -920,6 +920,12 @@ export class ApiService {
 
   listDocuments(params?: { project_id?: number; epic_id?: number; story_id?: number; type?: DocumentType; status?: DocumentStatus; q?: string }) {
     return this.request<DocumentItem[]>('GET', '/api/documents', undefined, params as Record<string, string | number | undefined> | undefined);
+  }
+
+  /* ---------- Kanban (Epic 130: 项目看板) ---------- */
+  getProjectKanban(projectId: number, includeAll = false) {
+    return this.request<KanbanBoard>('GET', `/api/projects/${projectId}/kanban`, undefined,
+      includeAll ? { include_all: 'true' } : undefined);
   }
 
   /* ---------- Document folders (Epic 15 增强：文件夹 / 子文件夹) ---------- */

@@ -298,6 +298,53 @@ def list_epics(s: Session, project_id: int, limit: int | None = None, offset: in
     return _paginate(q, limit, offset).all()
 
 
+def list_project_kanban(s: Session, project_id: int,
+                        include_all: bool = False) -> dict:
+    """项目看板（Epic 130）：一个项目一个看板。
+
+    - 默认只看 ``in_kanban=True`` 的 Story（ticket 标记进入看板）；
+    - 每个 Story 附带其下 design/dev/qa task 的 status，供卡片展示三态；
+    - 返回按 Story 状态分桶 + 全量列表（前端按状态渲染列）。
+    """
+    q = (s.query(Story)
+         .join(Epic, Epic.id == Story.epic_id)
+         .filter(Epic.project_id == project_id))
+    if not include_all:
+        q = q.filter(Story.in_kanban.is_(True))
+    stories = q.order_by(Story.id.desc()).all()
+    story_ids = [st.id for st in stories]
+    tasks: list[Task] = []
+    if story_ids:
+        tasks = (s.query(Task)
+                 .filter(Task.story_id.in_(story_ids))
+                 .order_by(Task.id.asc())
+                 .all())
+    by_story: dict[int, list[dict]] = {}
+    for t in tasks:
+        by_story.setdefault(t.story_id, []).append({
+            "id": t.id, "type": t.type, "title": t.title,
+            "status": t.status, "priority": t.priority,
+            "assignee_id": t.assignee_id, "estimate": t.estimate,
+        })
+    columns: dict[str, list[dict]] = {}
+    for st in stories:
+        col = columns.setdefault(st.status, [])
+        col.append({
+            "id": st.id, "epic_id": st.epic_id, "title": st.title,
+            "description": st.description, "status": st.status,
+            "needs_design": st.needs_design, "in_kanban": st.in_kanban,
+            "tasks": by_story.get(st.id, []),
+            "created_at": st.created_at,
+        })
+    return {"columns": columns, "items": [
+        {"id": st.id, "epic_id": st.epic_id, "title": st.title,
+         "status": st.status, "needs_design": st.needs_design,
+         "in_kanban": st.in_kanban,
+         "tasks": by_story.get(st.id, []),
+         "created_at": st.created_at} for st in stories
+    ]}
+
+
 def update_epic(s: Session, id: int, **fields) -> Epic | None:
     ep = s.get(Epic, id)
     if not ep:
@@ -564,7 +611,7 @@ def update_story(s: Session, id: int, **fields) -> Story | None:
         return None
     status_changed: str | None = None
     for k, v in fields.items():
-        if k in ("title", "description", "status", "needs_design") and v is not None:
+        if k in ("title", "description", "status", "needs_design", "in_kanban") and v is not None:
             if k == "title":
                 v = _required(v, "title", 300)
             elif k == "status":

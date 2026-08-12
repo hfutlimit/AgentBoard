@@ -60,6 +60,8 @@ class Story(Base):
         ForeignKey("users.id"), nullable=True, index=True
     )
     review_round: Mapped[int] = mapped_column(Integer, default=0)
+    # Epic 130：是否进入项目看板（ticket「进入 kanban」标记，标记后 worker 自动化处理）
+    in_kanban: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 

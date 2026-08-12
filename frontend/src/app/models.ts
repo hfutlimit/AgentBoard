@@ -50,7 +50,34 @@ export interface Story {
   description: string;
   status: Status;
   needs_design: boolean;
+  in_kanban?: boolean;
   created_at: string;
+}
+
+/* ---------- Kanban (Epic 130: 项目看板) ---------- */
+export interface KanbanTaskMini {
+  id: number;
+  type: string;
+  title: string;
+  status: string;
+  priority: string;
+  assignee_id: number | null;
+  estimate?: number | null;
+}
+export interface KanbanStory {
+  id: number;
+  epic_id: number;
+  title: string;
+  description: string;
+  status: string;
+  needs_design: boolean;
+  in_kanban: boolean;
+  tasks: KanbanTaskMini[];
+  created_at: string;
+}
+export interface KanbanBoard {
+  columns: Record<string, KanbanStory[]>;
+  items: KanbanStory[];
 }
 
 export interface Task {

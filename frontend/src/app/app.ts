@@ -9,12 +9,12 @@ import { filter } from 'rxjs/operators';
 
 import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric, resolveApiBase } from './api.service';
 import { LoginComponent } from './login/login';
-import { AgentRow, AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, Notification, OverviewStats, Priority, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, SprintStatus, Status, Story, StoryStatusHistoryRow, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES, TicketRequestItem, TicketType } from './models';
+import { AgentRow, AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, KanbanBoard, KanbanStory, Notification, OverviewStats, Priority, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, SprintStatus, Status, Story, StoryStatusHistoryRow, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES, TicketRequestItem, TicketType } from './models';
 import { PaginationComponent } from './pagination/pagination';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
-type ProjectTabKind = 'epics' | 'sprints' | 'backlog' | 'proposals' | 'settings' | 'members' | 'stats' | 'schedules' | 'documents';
+type ProjectTabKind = 'epics' | 'sprints' | 'backlog' | 'proposals' | 'settings' | 'members' | 'stats' | 'schedules' | 'documents' | 'kanban';
 type ProjectListKind = 'epics' | 'sprints' | 'backlog' | 'members' | 'schedules';
 
 interface CreateModal {
@@ -136,6 +136,10 @@ export class App implements OnInit, OnDestroy {
   readonly confirmation = signal<ConfirmationDialog | null>(null);
   readonly confirmationBusy = signal(false);
   readonly activeTab = signal<ProjectTabKind>('epics');
+  // Epic 130: 项目看板（一个项目一个看板，卡片=Story 含 design/dev/qa task 状态）
+  readonly kanban = signal<KanbanBoard | null>(null);
+  readonly kanbanIncludeAll = signal(false);
+  readonly kanbanFilterStatus = signal('');
   // Tab state for epic / story detail+list views
   readonly epicTab = signal<'detail' | 'list'>('detail');
   readonly storyTab = signal<'detail' | 'list'>('detail');
@@ -160,6 +164,13 @@ export class App implements OnInit, OnDestroy {
   readonly docFilterStatus = signal<DocumentStatus | ''>('');
   readonly docSearchQuery = signal('');
   readonly docEditing = signal(false);
+  // Epic 129: 文档详情三视图模式（preview=完全预览 / split-edit=分屏编辑 / split-read=分屏只读）
+  readonly docViewMode = signal<'preview' | 'split-edit' | 'split-read'>('preview');
+  readonly docSplitContent = signal('');
+  readonly docSplitDirty = signal(false);
+  // Epic 129: 自定义确认弹窗（丢弃未保存改动），禁用原生 confirm()
+  readonly docConfirmOpen = signal(false);
+  readonly docConfirmAction = signal<'exit' | 'cancel' | null>(null);
   readonly docEditTitle = signal('');
   readonly docEditContent = signal('');
   readonly docEditType = signal<DocumentType>('plan');
@@ -266,6 +277,7 @@ export class App implements OnInit, OnDestroy {
     stats: false,
     schedules: false,
     documents: false,
+    kanban: false,
     proposals: false,
   });
   readonly projectTabLoaded = signal<Record<ProjectTabKind, boolean>>({
@@ -277,6 +289,7 @@ export class App implements OnInit, OnDestroy {
     stats: false,
     schedules: false,
     documents: false,
+    kanban: false,
     proposals: false,
   });
   readonly projectTabErrors = signal<Record<ProjectTabKind, string>>({
@@ -288,6 +301,7 @@ export class App implements OnInit, OnDestroy {
     stats: '',
     schedules: '',
     documents: '',
+    kanban: '',
     proposals: '',
   });
   private projectTabGeneration = 0;
@@ -1470,6 +1484,7 @@ export class App implements OnInit, OnDestroy {
     this.documents.set([]);
     this.docItem.set(null);
     this.documentComments.set([]);
+    this.kanban.set(null);
     this.proposals.set([]);
     this.isOwner.set(false);
     this.projectTabLoading.set({
@@ -1481,6 +1496,7 @@ export class App implements OnInit, OnDestroy {
       stats: false,
       schedules: false,
       documents: false,
+      kanban: false,
       proposals: false,
     });
     this.projectTabLoaded.set({
@@ -1492,6 +1508,7 @@ export class App implements OnInit, OnDestroy {
       stats: false,
       schedules: false,
       documents: false,
+      kanban: false,
       proposals: false,
     });
     this.projectTabErrors.set({
@@ -1503,6 +1520,7 @@ export class App implements OnInit, OnDestroy {
       stats: '',
       schedules: '',
       documents: '',
+      kanban: '',
       proposals: '',
     });
   }
@@ -1563,6 +1581,10 @@ export class App implements OnInit, OnDestroy {
         this.documents.set(docs || []);
         this.docFolders.set(folders || []);
         this.docFolderId.set(null);
+      } else if (tab === 'kanban') {
+        const board = await firstValueFrom(this.api.getProjectKanban(projectId, this.kanbanIncludeAll()));
+        if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
+        this.kanban.set(board);
       } else if (tab === 'proposals') {
         const proposals = await firstValueFrom(this.api.listProposals({ project_id: projectId, limit: 200 }));
         if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
@@ -6313,6 +6335,64 @@ export class App implements OnInit, OnDestroy {
     return this.docDropId() === target && !!this.docDrag();
   }
 
+  // ---------- Epic 130: 项目看板 ----------
+
+  /** 看板 Story 列表（按状态列分桶 + 过滤）。 */
+  kanbanColumns(): Array<{ status: string; stories: KanbanStory[] }> {
+    const board = this.kanban();
+    if (!board) return [];
+    const order = ['backlog', 'confirmed', 'todo', 'in_progress', 'in_review', 'verifying', 'done', 'blocked'];
+    const filter = this.kanbanFilterStatus();
+    return order
+      .filter((s) => !filter || s === filter)
+      .map((status) => ({ status, stories: board.columns[status] || [] }))
+      .filter((col) => col.stories.length > 0);
+  }
+  kanbanCount(): number {
+    return this.kanban()?.items?.length ?? 0;
+  }
+  kanbanTaskTypeLabel(type: string): string {
+    return type === 'design' ? '设计' : type === 'bug' ? 'Bug' : type === 'test_execution' ? 'QA' : '开发';
+  }
+  kanbanTaskClass(type: string): string {
+    return type === 'design' ? 'kb-t-design' : type === 'bug' ? 'kb-t-bug' : type === 'test_execution' ? 'kb-t-qa' : 'kb-t-dev';
+  }
+  /** 切换 Story 是否进入看板（ticket「进入 kanban」标记）。 */
+  async toggleKanbanStory(story: KanbanStory): Promise<void> {
+    const projectId = this.project()?.id;
+    if (!projectId) return;
+    try {
+      const next = !story.in_kanban;
+      const updated = await firstValueFrom(this.api.updateStory(story.id, { in_kanban: next }));
+      this.notify(next ? `「${story.title}」已进入看板，Agent 开始自动化处理` : `「${story.title}」已移出看板（处理不中断）`);
+      // 更新本地看板数据
+      const board = this.kanban();
+      if (board) {
+        board.items = board.items.map((it) => it.id === story.id ? { ...it, in_kanban: next } : it);
+        for (const k of Object.keys(board.columns)) {
+          board.columns[k] = (board.columns[k] || []).map((it) => it.id === story.id ? { ...it, in_kanban: next } : it);
+        }
+        this.kanban.set({ ...board });
+      }
+      // 同步 Story 列表里的标记（如 Epic 视图已加载）
+      if (this.stories().length) {
+        this.stories.set(this.stories().map((st) => st.id === story.id ? { ...st, in_kanban: next } : st));
+      }
+    } catch (error) {
+      this.notify(`操作失败：${this.message(error)}`, 'error');
+    }
+  }
+  /** 看板 tab：切换是否显示全部 Story（默认只看标记进入看板的）。 */
+  toggleKanbanIncludeAll(): void {
+    this.kanbanIncludeAll.set(!this.kanbanIncludeAll());
+    const projectId = this.project()?.id;
+    if (projectId) void this.loadProjectTab('kanban', projectId, true);
+  }
+  /** 打开看板卡片对应 Story。 */
+  openKanbanStory(story: KanbanStory): void {
+    void this.router.navigateByUrl(`/story/${story.id}`);
+  }
+
   async loadDocuments(): Promise<void> {
     const params: Record<string, any> = {};
     if (this.docFilterType()) params['type'] = this.docFilterType();
@@ -6457,6 +6537,9 @@ export class App implements OnInit, OnDestroy {
   /** 在项目 Tab 内打开文档详情：写入当前文档并加载其评论（不走路由）。 */
   async openDocTab(d: DocumentItem): Promise<void> {
     this.docItem.set(d);
+    this.docViewMode.set('preview');
+    this.docSplitDirty.set(false);
+    this.docConfirmOpen.set(false);
     this.docEditTitle.set(d.title);
     this.docEditContent.set(d.content);
     this.docEditType.set(d.type);
@@ -6503,6 +6586,93 @@ export class App implements OnInit, OnDestroy {
     } catch (error) {
       this.notify(`保存失败：${this.message(error)}`, 'error');
     }
+  }
+
+  // ---------- Epic 129: 文档详情三视图模式 ----------
+
+  /** 完全预览 → 分屏编辑（左编辑右预览）。 */
+  enterDocSplitEdit(): void {
+    const d = this.docItem();
+    if (!d) return;
+    this.docSplitContent.set(this.docItem()?.content ?? d.content);
+    this.docSplitDirty.set(false);
+    this.docViewMode.set('split-edit');
+  }
+  /** 分屏只读 → 分屏编辑。 */
+  enterDocSplitEditFromReadonly(): void {
+    this.docSplitDirty.set(false);
+    this.docViewMode.set('split-edit');
+  }
+  /** 保存分屏编辑内容 → 分屏只读。 */
+  async saveDocSplitContent(): Promise<void> {
+    const d = this.docItem();
+    if (!d) return;
+    const content = this.docSplitContent();
+    try {
+      const updated = await firstValueFrom(this.api.updateDocument(d.id, {
+        title: d.title,
+        content,
+        type: d.type,
+        status: d.status,
+        epic_id: d.epic_id,
+        story_id: d.story_id,
+      }));
+      this.docItem.set(updated);
+      this.documents.set(this.documents().map((x) => (x.id === updated.id ? updated : x)));
+      this.docSplitDirty.set(false);
+      this.docViewMode.set('split-read');
+      this.notify('文档内容已保存');
+      setTimeout(() => this.enhanceMermaid(), 80);
+    } catch (error) {
+      this.notify(`保存失败：${this.message(error)}`, 'error');
+    }
+  }
+  /** 分屏编辑 → 分屏只读（有未保存改动先弹确认）。 */
+  cancelDocSplitEdit(): void {
+    if (this.docSplitDirty()) {
+      this.docConfirmAction.set('cancel');
+      this.docConfirmOpen.set(true);
+      return;
+    }
+    this.docViewMode.set('split-read');
+  }
+  /** 分屏 → 完全预览（有未保存改动先弹确认）。 */
+  exitDocSplit(): void {
+    if (this.docSplitDirty()) {
+      this.docConfirmAction.set('exit');
+      this.docConfirmOpen.set(true);
+      return;
+    }
+    this.docViewMode.set('preview');
+  }
+  /** 自定义确认弹窗：确认丢弃改动。 */
+  confirmDiscardDocChanges(): void {
+    const action = this.docConfirmAction();
+    this.docConfirmOpen.set(false);
+    this.docConfirmAction.set(null);
+    if (action === 'exit') {
+      this.docViewMode.set('preview');
+    } else if (action === 'cancel') {
+      this.docViewMode.set('split-read');
+    }
+    this.docSplitDirty.set(false);
+  }
+  cancelDiscardDocChanges(): void {
+    this.docConfirmOpen.set(false);
+    this.docConfirmAction.set(null);
+  }
+  /** 分屏输入变更：同步正文 + 脏标记。 */
+  onDocSplitInput(value: string): void {
+    this.docSplitContent.set(value);
+    this.docSplitDirty.set(value !== this.docItem()?.content);
+  }
+  /** 分屏两侧同步滚动（滚动源 → 目标按比例）。 */
+  syncDocSplitScroll(src: Event, targetId: string): void {
+    const el = src.target as HTMLElement;
+    const target = this.document.getElementById(targetId);
+    if (!target || !el) return;
+    const ratio = el.scrollTop / (el.scrollHeight - el.clientHeight || 1);
+    target.scrollTop = ratio * (target.scrollHeight - target.clientHeight);
   }
   async setDocStatus(status: DocumentStatus): Promise<void> {
     const d = this.docItem();
