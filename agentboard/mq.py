@@ -349,6 +349,7 @@ class PikaBroker:
             params = pika.URLParameters(self.config.url)
             params.socket_timeout = self.config.connect_timeout
             params.blocked_connection_timeout = self.config.connect_timeout
+            params.heartbeat = 30  # 显式设置心跳，防NAT/防火墙静默切断长连接
             self._conn = pika.BlockingConnection(params)
             self._channel = self._conn.channel()
             # 发布确认：basic_publish 在 broker 未确认时直接抛错，避免静默丢消息
@@ -1070,6 +1071,7 @@ class PikaWorkflowBroker:
             params = pika.URLParameters(self.config.url)
             params.socket_timeout = self.config.connect_timeout
             params.blocked_connection_timeout = self.config.connect_timeout
+            params.heartbeat = 30  # 显式设置心跳，防NAT/防火墙静默切断长连接
             self._conn = pika.BlockingConnection(params)
             self._channel = self._conn.channel()
             self._channel.confirm_delivery()
