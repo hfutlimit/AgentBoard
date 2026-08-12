@@ -59,7 +59,7 @@ interface PaletteCommand {
   title: string;
   hint?: string;
   keywords?: string;
-  category?: 'command' | 'task' | 'project' | 'story' | 'document' | 'epic' | 'sprint' | 'notification' | 'agent' | 'proposal' | 'ticket' | 'schedule';
+  category?: 'command' | 'task' | 'project' | 'story' | 'document' | 'epic' | 'sprint' | 'notification' | 'agent' | 'proposal' | 'ticket' | 'schedule' | 'run';
   run: () => void;
 }
 
@@ -369,6 +369,7 @@ export class App implements OnInit, OnDestroy {
   readonly paletteProposalResults = signal<PaletteCommand[]>([]);
   readonly paletteTicketResults = signal<PaletteCommand[]>([]);
   readonly paletteScheduleResults = signal<PaletteCommand[]>([]);
+  readonly paletteRunResults = signal<PaletteCommand[]>([]);
   private paletteDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   readonly createdKeyPlaintext = signal('');
   // Epic 22: 任务依赖
@@ -4861,6 +4862,7 @@ export class App implements OnInit, OnDestroy {
     this.paletteProposalResults.set([]);
     this.paletteTicketResults.set([]);
     this.paletteScheduleResults.set([]);
+    this.paletteRunResults.set([]);
     this.paletteSearching.set(false);
     this.paletteOpen.set(true);
     setTimeout(() => {
@@ -4892,6 +4894,7 @@ export class App implements OnInit, OnDestroy {
     this.paletteProposalResults.set([]);
     this.paletteTicketResults.set([]);
     this.paletteScheduleResults.set([]);
+    this.paletteRunResults.set([]);
     this.paletteSearching.set(false);
   }
 
@@ -4922,6 +4925,7 @@ export class App implements OnInit, OnDestroy {
       this.paletteProposalResults.set([]);
       this.paletteTicketResults.set([]);
       this.paletteScheduleResults.set([]);
+      this.paletteRunResults.set([]);
       this.paletteSearching.set(false);
       return;
     }
@@ -5104,6 +5108,30 @@ export class App implements OnInit, OnDestroy {
       .catch(() => {
         this.paletteScheduleResults.set([]);
       });
+    // AgentRun（Epic 135 v6.20）：后端 /api/search/runs 搜索执行记录（按成员项目收敛）
+    firstValueFrom(this.api.searchRuns({ q: query, limit: 10 }))
+      .then((runs) => {
+        const cmds: PaletteCommand[] = (runs || []).map((run) => ({
+          id: `run-${run.id}`,
+          title: `运行 #${run.id}：${(run.summary || run.error_message || run.status).slice(0, 60)}`,
+          hint: `${this.projectName(run.project_id ?? 0)} · ${this.runStatusLabel(run.status)}`,
+          category: 'run',
+          keywords: `run yunxing 运行 执行 记录 agentrun ${run.id} ${run.status} ${run.summary || ''} ${run.error_message || ''}`,
+          run: () => { void this.router.navigateByUrl(`/project/${run.project_id ?? 0}/schedules`); },
+        }));
+        this.paletteRunResults.set(cmds);
+      })
+      .catch(() => {
+        this.paletteRunResults.set([]);
+      });
+  }
+
+  /** AgentRun 状态展示标签（palette run 分类 hint 用；与定时计划 Tab 运行历史 badge 语义一致） */
+  private runStatusLabel(status: string): string {
+    const m: Record<string, string> = {
+      pending: '等待中', running: '运行中', success: '成功', failed: '失败', cancelled: '已取消',
+    };
+    return m[status] ?? status;
   }
 
   /** 构建命令列表（含基于 recentProjects 的动态命令）。在 computed 内访问以跟踪信号变化。 */
@@ -5190,6 +5218,7 @@ export class App implements OnInit, OnDestroy {
       ...this.paletteProposalResults(),
       ...this.paletteTicketResults(),
       ...this.paletteScheduleResults(),
+      ...this.paletteRunResults(),
     ];
     const staticMatches = all.filter((c) => `${c.title} ${c.keywords || ''} ${c.hint || ''}`.toLowerCase().includes(q));
     // 命中命令时命令优先（保持 Enter 执行命令的既有行为），后端实体结果作为补充列于其后；

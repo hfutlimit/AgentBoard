@@ -984,6 +984,78 @@ describe('App', () => {
     });
   });
 
+  describe('Epic 135 v6.20 命令面板 AgentRun 搜索', () => {
+    it('paletteItems 合并 Run 搜索结果（category=run）且短查询清空', () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteQuery.set('超时');
+      app.paletteRunResults.set([
+        {
+          id: 'run-1',
+          title: '运行 #1：构建超时（120s 上限）',
+          hint: 'AgentBoard · 失败',
+          category: 'run',
+          keywords: 'run 1 failed 构建超时',
+          run: () => {},
+        },
+      ]);
+      const items = app.paletteItems();
+      const run = items.find((i) => i.id === 'run-1');
+      expect(run).toBeTruthy();
+      expect(run?.category).toBe('run');
+      // 短查询清空分支：<2 字符 → Run 结果清空
+      app.paletteRunSearch('x');
+      expect(app.paletteRunResults()).toEqual([]);
+    });
+
+    it('渲染 Run 分类标签（.cat-run → "运行"）', async () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteOpen.set(true);
+      app.paletteQuery.set('超时');
+      app.paletteRunResults.set([
+        {
+          id: 'run-1',
+          title: '运行 #1：构建超时（120s 上限）',
+          hint: 'AgentBoard · 失败',
+          category: 'run',
+          keywords: 'run 1 failed 构建超时',
+          run: () => {},
+        },
+      ]);
+      fixture.detectChanges();
+      await fixture.whenStable();
+      fixture.detectChanges();
+      const el = fixture.nativeElement as HTMLElement;
+      const cat = el.querySelector('.palette-item-cat.cat-run');
+      expect(cat).toBeTruthy();
+      expect(cat?.textContent?.trim()).toBe('运行');
+      expect(el.textContent).toContain('运行 #1：构建超时（120s 上限）');
+      app.paletteOpen.set(false);
+    });
+
+    it('runStatusLabel 映射各状态中文标签', () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      expect((app as unknown as { runStatusLabel(s: string): string }).runStatusLabel('pending')).toBe('等待中');
+      expect((app as unknown as { runStatusLabel(s: string): string }).runStatusLabel('running')).toBe('运行中');
+      expect((app as unknown as { runStatusLabel(s: string): string }).runStatusLabel('success')).toBe('成功');
+      expect((app as unknown as { runStatusLabel(s: string): string }).runStatusLabel('failed')).toBe('失败');
+      expect((app as unknown as { runStatusLabel(s: string): string }).runStatusLabel('unknown')).toBe('unknown');
+    });
+
+    it('openPalette / closePalette 清空 Run 结果', () => {
+      const fixture = TestBed.createComponent(App);
+      const app = fixture.componentInstance;
+      app.paletteRunResults.set([{ id: 'r1', title: 't', category: 'run', run: () => {} }]);
+      app.openPalette();
+      expect(app.paletteRunResults()).toEqual([]);
+      app.paletteRunResults.set([{ id: 'r1', title: 't', category: 'run', run: () => {} }]);
+      app.closePalette();
+      expect(app.paletteRunResults()).toEqual([]);
+    });
+  });
+
   describe('多数决评审投票进度（Epic 122 S4 M2 / Task 1017）', () => {
     it('reviewModeLabel 映射 single / majority / 缺省', () => {
       const fixture = TestBed.createComponent(App);

@@ -559,6 +559,10 @@ export class ApiService {
   searchSchedules(params: { q: string; limit?: number }) {
     return this.request<AgentSchedule[]>('GET', '/api/search/schedules', undefined, params);
   }
+  /** Epic 135 v6.20: 全局执行记录关键词搜索（命令面板补齐第 12 类实体；后端按成员项目收敛） */
+  searchRuns(params: { q: string; limit?: number }) {
+    return this.request<AgentRun[]>('GET', '/api/search/runs', undefined, params);
+  }
   getTask(id: number) {
     return this.request<Task>('GET', `/api/tasks/${id}`);
   }

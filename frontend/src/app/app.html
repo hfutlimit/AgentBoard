@@ -1053,9 +1053,10 @@
                   <button id="new-project-proposal-btn" class="btn-primary-sm" (click)="openProposalModal()">＋ 新建提案</button>
                 </div>
                 <div class="row doc-toolbar">
-                  <select id="project-proposal-status-filter" [value]="proposalFilterStatus()"
+                  <select id="project-proposal-status-filter" class="doc-filter-select"
+                    [value]="proposalFilterStatus()"
                     (change)="proposalFilterStatus.set($any($event.target).value)">
-                    <option [value]="''">全部状态</option>
+                    <option value="">全部状态</option>
                     @for (s of proposalStatuses; track s) { <option [value]="s">{{ proposalStatusLabel(s) }}</option> }
                   </select>
                   <input type="search" id="project-proposal-search" class="doc-search-input"
@@ -2719,9 +2720,10 @@
           </p>
 
           <div class="row doc-toolbar">
-            <select id="proposal-status-filter" [value]="proposalFilterStatus()"
+            <select id="proposal-status-filter" class="doc-filter-select"
+              [value]="proposalFilterStatus()"
               (change)="proposalFilterStatus.set($any($event.target).value); onProposalFilterChange()">
-              <option [value]="''">全部状态</option>
+              <option value="">全部状态</option>
               @for (s of proposalStatuses; track s) { <option [value]="s">{{ proposalStatusLabel(s) }}</option> }
             </select>
             <input type="search" id="proposal-search" class="doc-search-input" placeholder="搜索标题 / 正文…"
@@ -4051,7 +4053,7 @@
             (click)="paletteRun(cmd)"
           >
             @if (cmd.category) {
-              <span class="palette-item-cat cat-{{ cmd.category }}">{{ cmd.category === 'task' ? '任务' : cmd.category === 'project' ? '项目' : cmd.category === 'story' ? 'Story' : cmd.category === 'document' ? '文档' : cmd.category === 'epic' ? 'Epic' : cmd.category === 'sprint' ? 'Sprint' : cmd.category === 'notification' ? '通知' : cmd.category === 'agent' ? 'Agent' : cmd.category === 'proposal' ? 'Proposal' : cmd.category === 'ticket' ? 'Ticket' : cmd.category === 'schedule' ? '计划' : '命令' }}</span>
+              <span class="palette-item-cat cat-{{ cmd.category }}">{{ cmd.category === 'task' ? '任务' : cmd.category === 'project' ? '项目' : cmd.category === 'story' ? 'Story' : cmd.category === 'document' ? '文档' : cmd.category === 'epic' ? 'Epic' : cmd.category === 'sprint' ? 'Sprint' : cmd.category === 'notification' ? '通知' : cmd.category === 'agent' ? 'Agent' : cmd.category === 'proposal' ? 'Proposal' : cmd.category === 'ticket' ? 'Ticket' : cmd.category === 'schedule' ? '计划' : cmd.category === 'run' ? '运行' : '命令' }}</span>
             }
             <span class="palette-item-title">{{ cmd.title }}</span>
             @if (cmd.hint) {

@@ -195,7 +195,10 @@ export interface AgentRun {
   finished_at: string | null;
   output: string | null;
   error_message: string | null;
+  summary: string | null;
   created_at: string;
+  // Epic 135 v6.20: 全局搜索（/api/search/runs）附加归属项目 id（join AgentSchedule 取得）
+  project_id?: number;
 }
 
 export interface ProjectStats {

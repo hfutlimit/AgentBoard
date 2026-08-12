@@ -1299,6 +1299,7 @@ kbd.shortcut-key {
 .palette-item-cat.cat-proposal { color: #0d9488; background: rgba(13,148,136,.1); border-color: rgba(13,148,136,.18); }
 .palette-item-cat.cat-ticket { color: #ef4444; background: rgba(239,68,68,.1); border-color: rgba(239,68,68,.18); }
 .palette-item-cat.cat-schedule { color: #0284c7; background: rgba(2,132,199,.1); border-color: rgba(2,132,199,.18); }
+.palette-item-cat.cat-run { color: #ea580c; background: rgba(234,88,12,.1); border-color: rgba(234,88,12,.18); }
 .palette-item.active .palette-item-cat { color: #fff; background: rgba(255,255,255,.22); border-color: rgba(255,255,255,.3); }
 .command-palette-spinner {
   width: 14px; height: 14px;
