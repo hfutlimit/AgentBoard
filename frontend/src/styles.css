@@ -798,6 +798,8 @@ main {
   border-bottom: 1px solid var(--border-2);
 }
 .section-header h2, .section-header h3 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+/* 设置页分区：card 内嵌 section-header 时去除顶部大间距 */
+.card > .section-header { margin-top: 0; }
 .count {
   font-weight: 400;
   color: var(--text-2);

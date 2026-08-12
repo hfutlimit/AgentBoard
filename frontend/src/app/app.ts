@@ -1530,7 +1530,7 @@ export class App implements OnInit, OnDestroy {
 
     const generation = this.projectTabGeneration;
     if (tab === 'settings') {
-      await this.loadProjectAccess(projectId, generation);
+      await this.loadProjectSettings(projectId, generation);
       return;
     }
     this.setProjectTabLoading(tab, true);
@@ -1600,18 +1600,29 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  private async loadProjectAccess(projectId: number, generation: number): Promise<void> {
+  /** 设置页聚合加载：权限（me + members）+ 定时计划一次就绪
+   *  （设置页已并入「项目成员」「定时计划」分区，原独立 Tab 移除） */
+  private async loadProjectSettings(projectId: number, generation: number): Promise<void> {
     if (this.isProjectTabLoaded('settings') || this.isProjectTabLoading('settings')) return;
     this.setProjectTabLoading('settings', true);
     this.projectTabErrors.update((state) => ({ ...state, settings: '' }));
     try {
-      const [me, members] = await Promise.all([
+      const [me, members, schedules] = await Promise.all([
         firstValueFrom(this.api.me()),
         firstValueFrom(this.api.listMembers(projectId)),
+        firstValueFrom(this.api.listSchedules(projectId)),
       ]);
       if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
       this.applyProjectAccess(me, members.items);
-      this.projectTabLoaded.update((state) => ({ ...state, settings: true }));
+      this.members.set(members.items);
+      this.schedules.set(schedules);
+      // 成员/定时计划数据随设置页一并就绪，统一标记避免独立 loading 残留
+      this.projectTabLoaded.update((state) => ({
+        ...state,
+        settings: true,
+        members: true,
+        schedules: true,
+      }));
     } catch (error) {
       if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
       this.projectTabErrors.update((state) => ({ ...state, settings: this.message(error) }));
@@ -1687,7 +1698,7 @@ export class App implements OnInit, OnDestroy {
           : section === 'documents'
             ? 'documents'
             : section === 'schedules'
-              ? 'schedules'
+              ? 'settings' // 定时计划已并入设置页
               : 'epics';
         this.activeTab.set(projectTab);
         this.resetProjectListPages();
