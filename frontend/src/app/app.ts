@@ -253,7 +253,7 @@ export class App implements OnInit, OnDestroy {
   // Task 编辑弹窗（替代详情页内联表单）
   readonly taskEditModal = signal<Task | null>(null);
   readonly taskEditTitle = signal('');
-  readonly taskEditType = signal<ItemType>('task');
+  readonly taskEditType = signal<ItemType>('dev');
   readonly taskEditPriority = signal<Priority>('medium');
   readonly taskEditDueDate = signal<string | null>(null);
   readonly taskEditLabels = signal('');
@@ -848,18 +848,18 @@ export class App implements OnInit, OnDestroy {
     return this.getAssigneeName(Number(key)) || '未指派';
   }
 
-  // 任务类型中文标签（含新增的 Test Execution / Design）
+  // 任务类型中文标签（Story 265：type 收敛为 dev/bug/qa/design）
   typeLabel(type: string): string {
     if (type === 'bug') return 'Bug';
-    if (type === 'test_execution') return 'Test Execution';
+    if (type === 'qa') return 'QA';
     if (type === 'design') return 'Design';
-    return 'Task';
+    return 'Dev';
   }
 
   // 任务类型短代号（用于小图标圆圈）
   typeGlyph(type: string): string {
     if (type === 'bug') return 'B';
-    if (type === 'test_execution') return 'TE';
+    if (type === 'qa') return 'Q';
     if (type === 'design') return 'D';
     return 'T';
   }
@@ -2235,7 +2235,7 @@ export class App implements OnInit, OnDestroy {
     const title = String(data.get('title') || '');
     const key = String(data.get('key') || '');
     const description = String(data.get('description') || '');
-    const type = String(data.get('type') || 'task') as ItemType;
+    const type = String(data.get('type') || 'dev') as ItemType;
     const priority = String(data.get('priority') || 'medium') as Priority;
     const dueDate = String(data.get('due_date') || '') || null;
     const labelsStr = String(data.get('labels') || '').trim();
@@ -2648,6 +2648,11 @@ export class App implements OnInit, OnDestroy {
   async changeTaskStatus(status: Status): Promise<void> {
     const task = this.task();
     if (!task || task.status === status) return;
+    // Story 265：done/blocked 必填 status_reason；其他状态走快速通道
+    if (status === 'done' || status === 'blocked') {
+      this.openStatusReasonPicker(task.id, status, () => this.changeTaskStatus(status));
+      return;
+    }
     await this.run('状态已更新', () => firstValueFrom(this.api.setTaskStatus(task.id, status)));
   }
 
@@ -3939,6 +3944,11 @@ export class App implements OnInit, OnDestroy {
     if (!taskId) return;
     const task = this.tasks().find(t => t.id === taskId);
     if (!task || task.status === status) return;
+    // Story 265：done/blocked 拖入必填 status_reason
+    if (status === 'done' || status === 'blocked') {
+      this.openStatusReasonPicker(taskId, status, () => this.onKanbanDrop(event, status));
+      return;
+    }
     try {
       await firstValueFrom(this.api.setTaskStatus(taskId, status));
       this.tasks.update(list => list.map(t => t.id === taskId ? { ...t, status } : t));
@@ -4137,6 +4147,23 @@ export class App implements OnInit, OnDestroy {
   };
   readonly statusMenuTaskId = signal<number | null>(null);
   readonly statusMenuPos = signal<{ x: number; y: number } | null>(null);
+  // Story 265：done/blocked 状态原因 picker
+  readonly statusReasonPickerOpen = signal(false);
+  readonly statusReasonPickerTarget = signal<Status | null>(null);
+  readonly statusReasonPickerTaskId = signal<number | null>(null);
+  readonly statusReasonPickerOnConfirm = signal<(() => void) | null>(null);
+  readonly statusReasonOptions: Record<string, { value: string; label: string }[]> = {
+    done: [
+      { value: 'completed', label: 'Completed（已完成）' },
+      { value: 'withdrawn', label: 'Withdrawn（已撤回）' },
+    ],
+    blocked: [
+      { value: 'blocked_by_other_ticket', label: 'Blocked by other ticket（被其它工单阻塞）' },
+      { value: 'pending_requirement_change', label: 'Pending requirement change（需求待变更）' },
+      { value: 'out_of_scope', label: 'Out of scope（超出范围）' },
+      { value: 'duplicate', label: 'Duplicate（重复）' },
+    ],
+  };
   validNextStatuses(task: Task): string[] {
     return this.statusTransitions[task.status] || [];
   }
@@ -4177,12 +4204,44 @@ export class App implements OnInit, OnDestroy {
   async quickSetStatus(task: Task, target: string): Promise<void> {
     this.closeStatusMenu();
     if (task.status === target) return;
+    // Story 265：done/blocked 必填 status_reason，弹 picker
+    if (target === 'done' || target === 'blocked') {
+      this.openStatusReasonPicker(task.id, target, () => this.quickSetStatus(task, target));
+      return;
+    }
     try {
       await firstValueFrom(this.api.setTaskStatus(task.id, target));
       this.tasks.update((list) => list.map((t) => (t.id === task.id ? { ...t, status: target as Status } : t)));
       this.notify(`已将「${task.title}」状态更新为「${this.statusLabel(target)}」`);
     } catch {
       this.notify('状态切换失败：该流转不被允许', 'error');
+    }
+  }
+
+  // Story 265：打开状态原因 picker（done/blocked 必填）
+  openStatusReasonPicker(taskId: number, target: Status, onConfirm: () => void): void {
+    this.statusReasonPickerTaskId.set(taskId);
+    this.statusReasonPickerTarget.set(target);
+    this.statusReasonPickerOnConfirm.set(onConfirm);
+    this.statusReasonPickerOpen.set(true);
+  }
+  closeStatusReasonPicker(): void {
+    this.statusReasonPickerOpen.set(false);
+    this.statusReasonPickerTaskId.set(null);
+    this.statusReasonPickerTarget.set(null);
+    this.statusReasonPickerOnConfirm.set(null);
+  }
+  async confirmStatusReason(reason: string): Promise<void> {
+    const taskId = this.statusReasonPickerTaskId();
+    const target = this.statusReasonPickerTarget();
+    if (taskId == null || !target) return;
+    this.closeStatusReasonPicker();
+    try {
+      await firstValueFrom(this.api.setTaskStatus(taskId, target, reason));
+      this.tasks.update((list) => list.map((t) => (t.id === taskId ? { ...t, status: target } : t)));
+      this.notify(`已将状态更新为「${this.statusLabel(target)}」（${reason}）`);
+    } catch (e: any) {
+      this.notify(`状态更新失败：${e?.error?.detail || e?.message || e}`, 'error');
     }
   }
 
@@ -4471,10 +4530,10 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  // Task 821: 任务类型图标
+  // Task 821: 任务类型图标（Story 265：test_execution → qa）
   taskTypeIcon(type: string): string {
     if (type === 'bug') return '🐛';
-    if (type === 'test_execution') return '🧪';
+    if (type === 'qa') return '🧪';
     if (type === 'design') return '🎨';
     return '📋';
   }
@@ -5499,6 +5558,7 @@ export class App implements OnInit, OnDestroy {
   }
   // A-22: 任务列表/看板「快速完成」勾选（toggle done / 重新打开）
   // 从组件权威状态 this.tasks() 读取最新状态，避免模板 item 闭包在 refresh() 重渲染后过期
+  // Story 265：勾选完成默认 status_reason='completed'（勾选语义已明确）；re-open 自动清空
   async toggleTaskComplete(id: number): Promise<void> {
     const task = this.tasks().find((t) => t.id === id);
     if (!task) return;
@@ -5506,7 +5566,10 @@ export class App implements OnInit, OnDestroy {
     if (task.status === target) return;
     await this.run(
       target === 'done' ? '已标记为完成' : '已重新打开',
-      () => firstValueFrom(this.api.setTaskStatus(id, target)),
+      () => firstValueFrom(this.api.setTaskStatus(
+        id, target,
+        target === 'done' ? 'completed' : undefined,
+      )),
     );
   }
   // Epic 33.2: Task 快速复制
@@ -6343,10 +6406,12 @@ export class App implements OnInit, OnDestroy {
     return this.kanban()?.items?.length ?? 0;
   }
   kanbanTaskTypeLabel(type: string): string {
-    return type === 'design' ? '设计' : type === 'bug' ? 'Bug' : type === 'test_execution' ? 'QA' : '开发';
+    // Story 265：test_execution → qa
+    return type === 'design' ? '设计' : type === 'bug' ? 'Bug' : type === 'qa' ? 'QA' : '开发';
   }
   kanbanTaskClass(type: string): string {
-    return type === 'design' ? 'kb-t-design' : type === 'bug' ? 'kb-t-bug' : type === 'test_execution' ? 'kb-t-qa' : 'kb-t-dev';
+    // Story 265：test_execution → qa
+    return type === 'design' ? 'kb-t-design' : type === 'bug' ? 'kb-t-bug' : type === 'qa' ? 'kb-t-qa' : 'kb-t-dev';
   }
   /** 切换 Story 是否进入看板（ticket「进入 kanban」标记）。 */
   async toggleKanbanStory(story: KanbanStory): Promise<void> {

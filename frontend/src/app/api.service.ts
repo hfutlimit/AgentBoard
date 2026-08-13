@@ -574,8 +574,11 @@ export class ApiService {
   updateTask(id: number, body: Partial<Task>) {
     return this.request<Task>('PATCH', `/api/tasks/${id}`, body);
   }
-  setTaskStatus(id: number, status: string) {
-    return this.request<Task>('PUT', `/api/tasks/${id}/status`, { status }).pipe(
+  setTaskStatus(id: number, status: string, statusReason?: string) {
+    // Story 265：done/blocked 必填 status_reason；其他状态忽略
+    const body: { status: string; status_reason?: string } = { status };
+    if (statusReason) body.status_reason = statusReason;
+    return this.request<Task>('PUT', `/api/tasks/${id}/status`, body).pipe(
       // A-22: 状态变更后使任务列表缓存失效，否则列表/看板仍显示旧状态（快速完成二次点击失效的根因）
       tap(() => apiCache.invalidatePrefix('/api/stories')),
     );

@@ -43,12 +43,13 @@ def test_item_type_has_exactly_4_values():
         assert old not in {str(t) for t in ALL_TYPES}
 
 
-def test_status_reason_enum_has_6_values():
-    """StatusReason 枚举 6 值。"""
+def test_status_reason_enum_has_7_values():
+    """StatusReason 枚举 7 值（5 个用户可选项 + completed + withdrawn + legacy 迁移专用）。"""
     assert set(ALL_STATUS_REASONS) == {
         StatusReason.COMPLETED, StatusReason.WITHDRAWN,
         StatusReason.BLOCKED_BY_OTHER_TICKET, StatusReason.PENDING_REQUIREMENT_CHANGE,
         StatusReason.OUT_OF_SCOPE, StatusReason.DUPLICATE,
+        StatusReason.LEGACY,  # 迁移专用：历史 blocked 数据无明确原因
     }
 
 
@@ -57,9 +58,11 @@ def test_status_reasons_by_status_mapping():
     assert STATUS_REASONS_BY_STATUS[str(Status.DONE)] == {
         StatusReason.COMPLETED, StatusReason.WITHDRAWN,
     }
+    # blocked 含 4 个用户选项 + 1 个迁移遗留 legacy（UI 可筛选让用户重选）
     assert STATUS_REASONS_BY_STATUS[str(Status.BLOCKED)] == {
         StatusReason.BLOCKED_BY_OTHER_TICKET, StatusReason.PENDING_REQUIREMENT_CHANGE,
         StatusReason.OUT_OF_SCOPE, StatusReason.DUPLICATE,
+        StatusReason.LEGACY,
     }
 
 
@@ -272,3 +275,34 @@ def test_batch_update_task_status_validates_status_reason(session):
     s2 = session.get(Task, t2.id)
     assert s1.status_reason == StatusReason.COMPLETED
     assert s2.status_reason == StatusReason.COMPLETED
+
+
+def test_complete_sprint_clears_blocked_residue(session):
+    """complete_sprint 直接 SQL UPDATE 必须清 status_reason/previous_status，
+    否则 blocked 任务退回后会残留「status=todo + status_reason=blocked_reason」
+    的不一致状态，违反「非 done/blocked 必清 reason」业务规则。
+    """
+    u, p, st = _make_user_and_project(session)
+    # 建一个 sprint + 一个 blocked task
+    sprint = service.create_sprint(session, project_id=p.id, title="S1")
+    t = service.create_task(session, project_id=p.id, story_id=st.id, title="T-blocked",
+                            sprint_id=sprint.id)
+    service.set_status(session, t.id, Status.IN_PROGRESS, changed_by=u.id)
+    service.set_status(session, t.id, Status.BLOCKED, changed_by=u.id,
+                       status_reason=StatusReason.BLOCKED_BY_OTHER_TICKET)
+    # 验证 set_status 写入 previous_status
+    t_before = session.get(Task, t.id)
+    assert t_before.status == Status.BLOCKED
+    assert t_before.previous_status == Status.IN_PROGRESS
+    assert t_before.status_reason == StatusReason.BLOCKED_BY_OTHER_TICKET
+    # 完成 sprint
+    service.complete_sprint(session, sprint.id)
+    # 验证 task 退回 todo 时 status_reason / previous_status 都被清空
+    t_after = session.get(Task, t.id)
+    assert t_after.status == Status.TODO
+    assert t_after.status_reason is None, (
+        f"complete_sprint should clear status_reason; got {t_after.status_reason}"
+    )
+    assert t_after.previous_status is None, (
+        f"complete_sprint should clear previous_status; got {t_after.previous_status}"
+    )

@@ -85,7 +85,7 @@ describe('App', () => {
       project_id: 7,
       story_id: 1,
       sprint_id: null,
-      type: 'task',
+      type: 'dev',
       title: 'Dashboard task',
       status: 'done',
       priority: 'medium',
@@ -557,7 +557,7 @@ describe('App', () => {
     const ep2: Epic = { id: 32, project_id: 7, title: 'Epic Y', description: '', status: 'backlog', created_at: '2026-08-01T00:00:00' };
     const st1: Story = { id: 41, epic_id: 31, title: 'Story X1', description: '', status: 'todo', needs_design: false, created_at: '2026-08-01T00:00:00' };
     const st2: Story = { id: 42, epic_id: 32, title: 'Story Y1', description: '', status: 'in_review', needs_design: false, created_at: '2026-08-01T00:00:00' };
-    const t1: Task = { id: 51, project_id: 7, story_id: 41, sprint_id: null, type: 'task', title: 'Task X1-1', status: 'done', priority: 'medium', description: '', spec: '', source_spec_id: null, due_date: null, assignee_id: null, labels: '[]', estimate: null, created_at: '2026-08-01T00:00:00', updated_at: '2026-08-01T00:00:00' };
+    const t1: Task = { id: 51, project_id: 7, story_id: 41, sprint_id: null, type: 'dev', title: 'Task X1-1', status: 'done', priority: 'medium', description: '', spec: '', source_spec_id: null, due_date: null, assignee_id: null, labels: '[]', estimate: null, created_at: '2026-08-01T00:00:00', updated_at: '2026-08-01T00:00:00' };
 
     function createProjectApp(overrides: Record<string, unknown>): { app: any; listStories: ReturnType<typeof vi.fn>; listTasks: ReturnType<typeof vi.fn> } {
       const listStories = vi.fn((eid: number) => of(eid === 31 ? [st1] : eid === 32 ? [st2] : []));

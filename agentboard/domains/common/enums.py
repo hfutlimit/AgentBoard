@@ -32,7 +32,7 @@ class StatusReason(StrEnum):
 
     - done 状态必填：`completed` / `withdrawn`
     - blocked 状态必填：`blocked_by_other_ticket` / `pending_requirement_change` /
-      `out_of_scope` / `duplicate`
+      `out_of_scope` / `duplicate` / `legacy`（仅迁移历史数据使用）
     - 其他状态可选（通常为空）。
     """
     # done
@@ -43,6 +43,8 @@ class StatusReason(StrEnum):
     PENDING_REQUIREMENT_CHANGE = "pending_requirement_change"
     OUT_OF_SCOPE = "out_of_scope"
     DUPLICATE = "duplicate"
+    # 迁移专用：历史 blocked 数据无明确原因，标记为遗留（Story 265 migration backfill）
+    LEGACY = "legacy"
 
 
 # 各状态允许的 status_reason 取值（Story 265）
@@ -53,6 +55,7 @@ STATUS_REASONS_BY_STATUS: dict[str, set[str]] = {
         StatusReason.PENDING_REQUIREMENT_CHANGE,
         StatusReason.OUT_OF_SCOPE,
         StatusReason.DUPLICATE,
+        StatusReason.LEGACY,  # 迁移遗留数据专用
     },
 }
 

@@ -2645,6 +2645,61 @@ router-outlet {
   background: rgba(99, 102, 241, 0.28);
 }
 
+/* Story 265: status_reason picker（done/blocked 必填） */
+.status-reason-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1000;
+  min-width: 360px;
+  max-width: 480px;
+  background: var(--surface, #ffffff);
+  color: var(--text, #1f2937);
+  border: 1px solid var(--border, #e5e7eb);
+  border-radius: 12px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.18);
+  padding: 16px 18px;
+  font-size: 13px;
+}
+.status-reason-modal-head {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 10px;
+  color: var(--text, #1f2937);
+}
+.status-reason-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.status-reason-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--text, #1f2937);
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.status-reason-option:hover {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.3);
+}
+.status-reason-modal-foot {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+[data-theme="dark"] .status-reason-modal {
+  background: #1f2937;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
 /* v4.1: 行内快速修改优先级浮层 —— 当前优先级高亮 */
 .priority-menu-item.active {
   background: rgba(99, 102, 241, 0.16);

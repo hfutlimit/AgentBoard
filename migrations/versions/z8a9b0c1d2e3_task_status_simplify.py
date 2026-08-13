@@ -24,7 +24,9 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "z8a9b0c1d2e3"
-down_revision = "y7z8a9b0c1d2"
+# Story 265：down_revision 改为 z0a1b2c3d4e5（story kanban marker 迁移），
+# 因为远端 main 有 z0a1b2c3d4e5 从 y7z8a9b0c1d2 分叉出去，避免 dual head。
+down_revision = "z0a1b2c3d4e5"
 
 
 # 状态迁移表（status）
@@ -48,10 +50,12 @@ _TYPE_MAP = {
 def upgrade() -> None:
     bind = op.get_bind()
 
-    # 1) 先放宽 CheckConstraint（旧 status/type 列上的硬约束），否则 UPDATE 会被自身拦下
+    # 1) 先放宽 CheckConstraint + 加 status_reason 列（顺序：放宽 → 加列 → 数据迁移 → 收紧）
     with op.batch_alter_table("tasks") as batch:
         batch.drop_constraint("ck_tasks_type", type_="check")
         batch.drop_constraint("ck_tasks_status", type_="check")
+        # 提前加 status_reason 列（nullable），便于后续 backfill
+        batch.add_column(sa.Column("status_reason", sa.String(40), nullable=True))
 
     # 2) 数据迁移：status / type 映射
     for old_status, new_status in _STATUS_MAP.items():
@@ -68,7 +72,20 @@ def upgrade() -> None:
     # 3) 清空 task_status_history（设计评审段消失，状态机变化导致历史不可读）
     bind.execute(sa.text("DELETE FROM task_status_history"))
 
-    # 4) 加新 CheckConstraint + 新列
+    # 3.5) backfill status_reason：保证迁移后没有 status='done'/'blocked' 但 reason IS NULL
+    #      的脏数据，避免「DB 物理层允许 NULL、业务层宣称必填」的两套语义。
+    #      - done: 默认 completed（向前兼容：新数据主流选择）
+    #      - blocked: legacy（迁移专用 reason，UI 可后续让用户重选真实原因）
+    bind.execute(
+        sa.text("UPDATE tasks SET status_reason = 'completed' "
+                "WHERE status = 'done' AND status_reason IS NULL")
+    )
+    bind.execute(
+        sa.text("UPDATE tasks SET status_reason = 'legacy' "
+                "WHERE status = 'blocked' AND status_reason IS NULL")
+    )
+
+    # 4) 收紧 CheckConstraint
     with op.batch_alter_table("tasks") as batch:
         batch.create_check_constraint(
             "ck_tasks_type", "type IN ('dev','bug','qa','design')",
@@ -77,7 +94,6 @@ def upgrade() -> None:
             "ck_tasks_status",
             "status IN ('todo','in_progress','in_review','done','blocked')",
         )
-        batch.add_column(sa.Column("status_reason", sa.String(40), nullable=True))
 
     # 5) 迁移一致性校验：旧状态/类型应全为 0
     for old_status in _STATUS_MAP:
@@ -97,6 +113,17 @@ def upgrade() -> None:
         if count:
             raise RuntimeError(
                 f"data migration incomplete: {count} tasks still have type='{old_type}'"
+            )
+    # Story 265 增补：done/blocked 数据必须有 status_reason（业务层不变量）
+    for st in ("done", "blocked"):
+        null_count = bind.execute(
+            sa.text("SELECT COUNT(*) FROM tasks WHERE status = :s AND status_reason IS NULL"),
+            {"s": st},
+        ).scalar()
+        if null_count:
+            raise RuntimeError(
+                f"data migration incomplete: {null_count} tasks have status='{st}' "
+                f"but status_reason IS NULL (backfill failed)"
             )
 
 

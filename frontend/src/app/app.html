@@ -2086,6 +2086,25 @@
                     }
                   </div>
                 }
+                <!-- Story 265: status_reason picker (done/blocked 必填) -->
+                @if (statusReasonPickerOpen() && statusReasonPickerTarget()) {
+                  <div class="status-menu-backdrop" (click)="closeStatusReasonPicker(); $event.preventDefault()"></div>
+                  <div class="status-reason-modal" (click)="$event.stopPropagation()">
+                    <div class="status-reason-modal-head">
+                      选择「{{ statusLabel(statusReasonPickerTarget()!) }}」的状态原因
+                    </div>
+                    <div class="status-reason-modal-body">
+                      @for (opt of statusReasonOptions[statusReasonPickerTarget()!]; track opt.value) {
+                        <button type="button" class="status-reason-option" (click)="confirmStatusReason(opt.value); $event.stopPropagation()">
+                          {{ opt.label }}
+                        </button>
+                      }
+                    </div>
+                    <div class="status-reason-modal-foot">
+                      <button type="button" class="ghost-sm" (click)="closeStatusReasonPicker()">取消</button>
+                    </div>
+                  </div>
+                }
                 <!-- Inline assign menu -->
                 @if (assignMenuTaskId() !== null && assignMenuTask()) {
                   <div class="status-menu-backdrop" (click)="closeAssignMenu(); $event.preventDefault()"></div>
@@ -3574,9 +3593,9 @@
               <div class="form-field">
                 <label>类型</label
                 >                <select id="create-type" name="type">
-                  <option value="task">Task</option>
+                  <option value="dev">Dev</option>
                   <option value="bug">Bug</option>
-                  <option value="test_execution">Test Execution</option>
+                  <option value="qa">QA</option>
                   <option value="design">Design</option>
                 </select>
               </div>
@@ -3948,9 +3967,10 @@
             <div class="form-field">
               <label>类型</label>
               <select [value]="taskEditType()" (change)="taskEditType.set($any($event.target).value)">
-                <option value="task">Task</option>
+                <option value="dev">Dev</option>
                 <option value="bug">Bug</option>
-                <option value="test_execution">Test Execution</option>
+                <option value="qa">QA</option>
+                <option value="design">Design</option>
               </select>
             </div>
             <div class="form-field">

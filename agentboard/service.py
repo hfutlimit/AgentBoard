@@ -2249,18 +2249,28 @@ def activate_sprint(s: Session, id: int) -> Sprint:
 
 
 def complete_sprint(s: Session, id: int) -> Sprint:
-    """完成 Sprint：将其状态改为 completed，未完成任务退回 backlog。"""
+    """完成 Sprint：将其状态改为 completed，未完成任务退回 todo。
+
+    Story 265 修复：直接 SQL UPDATE 必须同时清 status_reason / previous_status，
+    否则 blocked 任务退回后会残留「status=todo + status_reason=blocked_reason」
+    的不一致状态，违反「非 done/blocked 必清 reason」业务规则。
+    """
     sp = s.get(Sprint, id)
     if not sp:
         raise NotFound(f"sprint {id} not found")
     if sp.status == SprintStatus.COMPLETED:
         raise InvalidValue("sprint is already completed")
     sp.status = SprintStatus.COMPLETED
-    # Story 265：未完成任务退回 todo（backlog 已下线）
+    # 未完成任务退回 todo（backlog 已下线），并清掉残留的 reason / previous_status
     s.query(Task).filter(
         Task.sprint_id == sp.id,
         Task.status.notin_([Status.DONE])
-    ).update({"sprint_id": None, "status": Status.TODO})
+    ).update({
+        "sprint_id": None,
+        "status": Status.TODO,
+        "status_reason": None,
+        "previous_status": None,
+    })
     _commit(s); s.refresh(sp); return sp
 
 
