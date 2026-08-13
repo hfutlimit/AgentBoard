@@ -76,3 +76,16 @@ tests/*.png
 /overview-*.md
 # 临时调试脚本（连本地 58125）
 scripts/ab_track_v52.py
+
+# ===== 2026-08-14 清理：临时脚本/工具（已搬至 temp/，源头忽略防再生成） =====
+# 临时目录（连同其下所有内容，含 tools/asar_v2 及其 node_modules）
+temp/
+temp/**
+# 原始位置兜底（即使有人把它们再放到原位也不入库）
+docs/dispatch-sequence.html
+scripts/deploy/_install_all.ps1
+scripts/deploy/_start_all.ps1
+scripts/deploy/run-web.ps1
+# 注意: scripts/minimax_invoker.py 不在此处忽略 - 它是 Worker → MiniMax API 的正式桥接脚本(2026-08-13 集成提交),需入库
+tools/
+tools/**
