@@ -590,6 +590,102 @@ def search_runs(s: Session, q: str, limit: int = 20, user_id: int | None = None)
     return out
 
 
+def list_run_records(
+    s: Session,
+    *,
+    agent: str | None = None,
+    status: str | None = None,
+    q: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    user_id: int | None = None,
+) -> dict:
+    """Return enriched AgentRun rows for the Worker operations portal.
+
+    AgentRun keeps the execution result while AgentSchedule, Task, Project and
+    Agent provide the useful execution context.  The list intentionally emits
+    only an output preview; callers can use ``GET /api/runs/{id}`` for the full
+    output when an operator opens a row.
+    """
+    if status and status not in ALL_RUN_STATUSES:
+        raise InvalidValue(f"invalid run status '{status}'")
+
+    qry = (
+        s.query(AgentRun, AgentSchedule, Task, Project, Agent)
+        .join(AgentSchedule, AgentRun.schedule_id == AgentSchedule.id)
+        .join(Project, AgentSchedule.project_id == Project.id)
+        .outerjoin(Task, AgentRun.task_id == Task.id)
+        .outerjoin(Agent, Agent.agent_id == func.coalesce(AgentRun.agent, AgentSchedule.agent))
+    )
+
+    if user_id is not None:
+        user = s.get(User, user_id)
+        if user and not user.is_admin:
+            member_pids = [
+                row[0]
+                for row in s.query(ProjectMember.project_id)
+                .filter(ProjectMember.user_id == user_id)
+                .all()
+            ]
+            qry = (
+                qry.filter(AgentSchedule.project_id.in_(member_pids))
+                if member_pids else qry.filter(False)
+            )
+
+    if agent:
+        qry = qry.filter(func.coalesce(AgentRun.agent, AgentSchedule.agent) == agent)
+    if status:
+        qry = qry.filter(AgentRun.status == status)
+    if q and q.strip():
+        like = f"%{q.strip()}%"
+        qry = qry.filter(or_(
+            Task.title.ilike(like),
+            Task.description.ilike(like),
+            Task.spec.ilike(like),
+            AgentSchedule.title.ilike(like),
+            AgentRun.summary.ilike(like),
+            AgentRun.output.ilike(like),
+            AgentRun.error_message.ilike(like),
+        ))
+
+    total = qry.count()
+    rows = (
+        qry.order_by(AgentRun.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    items: list[dict] = []
+    default_agent = os.environ.get("AGENTBOARD_DEFAULT_AGENT", "codex")
+    for run, schedule, task, project, agent_row in rows:
+        item = _ser(run)
+        output = item.pop("output", None) or ""
+        description = ""
+        if task is not None:
+            description = (task.description or "").strip() or (task.spec or "").strip()
+        started = run.started_at or run.created_at
+        finished = run.finished_at
+        duration_seconds = None
+        if started and finished:
+            duration_seconds = max(0, int((finished - started).total_seconds()))
+        item.update({
+            "project_id": project.id,
+            "project_name": project.name,
+            "project_key": project.key,
+            "schedule_title": schedule.title,
+            "agent": run.agent or schedule.agent or default_agent,
+            "agent_name": agent_row.name if agent_row else None,
+            "model": run.model or (agent_row.model if agent_row else ""),
+            "task_title": task.title if task else schedule.title,
+            "task_description": description,
+            "output_preview": output[:1000],
+            "has_output": bool(output),
+            "duration_seconds": duration_seconds,
+        })
+        items.append(item)
+    return {"items": items, "total": total}
+
+
 def update_story(s: Session, id: int, **fields) -> Story | None:
     st = s.get(Story, id)
     if not st:
@@ -2546,14 +2642,20 @@ def delete_schedule(s: Session, id: int) -> bool:
 
 def create_run(s: Session, *, schedule_id: int, task_id: int | None = None,
                idempotency_key: str | None = None) -> AgentRun:
-    if not s.get(AgentSchedule, schedule_id):
+    schedule = s.get(AgentSchedule, schedule_id)
+    if not schedule:
         raise NotFound(f"schedule {schedule_id} not found")
     if idempotency_key:
         existing = s.query(AgentRun).filter(AgentRun.idempotency_key == idempotency_key).first()
         if existing:
             raise Duplicate(f"run with idempotency_key '{idempotency_key}' already exists")
-    run = AgentRun(schedule_id=schedule_id, task_id=task_id,
-                   idempotency_key=idempotency_key)
+    agent_id = schedule.agent or os.environ.get("AGENTBOARD_DEFAULT_AGENT", "codex")
+    agent_config = get_agent_by_agent_id(s, agent_id)
+    run = AgentRun(
+        schedule_id=schedule_id, task_id=task_id,
+        agent=agent_id, model=agent_config.model if agent_config else None,
+        idempotency_key=idempotency_key,
+    )
     s.add(run); _commit(s); s.refresh(run); return run
 
 

@@ -35,6 +35,33 @@ interface RecordRow {
   level: string;
   message: string;
 }
+interface ExecutionRow {
+  id: number;
+  schedule_id: number;
+  task_id: number | null;
+  project_id: number;
+  project_name: string;
+  project_key?: string | null;
+  schedule_title: string;
+  agent: string;
+  agent_name?: string | null;
+  model: string;
+  status: 'pending' | 'running' | 'success' | 'failed' | 'cancelled';
+  task_title: string;
+  task_description: string;
+  summary?: string | null;
+  error_message?: string | null;
+  output_preview: string;
+  has_output: boolean;
+  duration_seconds: number | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at: string;
+}
+interface ExecutionDetail extends ExecutionRow {
+  output?: string | null;
+  log_ref?: string | null;
+}
 
 @Component({
   selector: 'app-root',
@@ -43,7 +70,7 @@ interface RecordRow {
   styleUrl: './app.css',
 })
 export class App {
-  protected readonly tab = signal<'agents' | 'mappings' | 'records'>('agents');
+  protected readonly tab = signal<'agents' | 'mappings' | 'executions' | 'records'>('agents');
 
   // ---- Agent 配置 ----
   protected readonly agents = signal<AgentRow[]>([]);
@@ -63,7 +90,17 @@ export class App {
   protected readonly mapLocalDir = signal('');
   protected readonly mapMsg = signal('');
 
-  // ---- 处理记录 ----
+  // ---- 任务执行 ----
+  protected readonly executions = signal<ExecutionRow[]>([]);
+  protected readonly executionTotal = signal(0);
+  protected readonly executionAgent = signal('');
+  protected readonly executionStatus = signal('');
+  protected readonly executionQuery = signal('');
+  protected readonly executionLoading = signal(false);
+  protected readonly executionMsg = signal('');
+  protected readonly selectedExecution = signal<ExecutionDetail | null>(null);
+
+  // ---- 原始日志 ----
   protected readonly records = signal<RecordRow[]>([]);
   protected readonly recordsMsg = signal('');
 
@@ -88,6 +125,12 @@ export class App {
       throw new Error(`${r.status}: ${body.slice(0, 200)}`);
     }
     return r.json() as Promise<T>;
+  }
+
+  selectTab(next: 'agents' | 'mappings' | 'executions' | 'records') {
+    this.tab.set(next);
+    if (next === 'executions' && this.executions().length === 0) this.refreshExecutions();
+    if (next === 'records' && this.records().length === 0) this.refreshRecords();
   }
 
   // ---------- Agent ----------
@@ -204,7 +247,53 @@ export class App {
     }
   }
 
-  // ---------- 处理记录 ----------
+  // ---------- 任务执行 ----------
+  async refreshExecutions() {
+    this.executionLoading.set(true);
+    this.executionMsg.set('');
+    const params = new URLSearchParams({ limit: '100' });
+    if (this.executionAgent()) params.set('agent', this.executionAgent());
+    if (this.executionStatus()) params.set('status', this.executionStatus());
+    if (this.executionQuery().trim()) params.set('q', this.executionQuery().trim());
+    try {
+      const data = await this.api<{ items: ExecutionRow[]; total: number }>(
+        `/api/executions?${params.toString()}`,
+      );
+      this.executions.set(data.items ?? []);
+      this.executionTotal.set(data.total ?? 0);
+      const selected = this.selectedExecution();
+      if (selected && !data.items.some((item) => item.id === selected.id)) {
+        this.selectedExecution.set(null);
+      }
+    } catch (e) {
+      this.executionMsg.set(`拉取任务执行记录失败：${e}`);
+    } finally {
+      this.executionLoading.set(false);
+    }
+  }
+
+  async toggleExecution(row: ExecutionRow) {
+    if (this.selectedExecution()?.id === row.id) {
+      this.selectedExecution.set(null);
+      return;
+    }
+    this.executionMsg.set('');
+    try {
+      const detail = await this.api<Partial<ExecutionDetail>>(`/api/executions/${row.id}`);
+      this.selectedExecution.set({ ...row, ...detail });
+    } catch (e) {
+      this.executionMsg.set(`拉取执行详情失败：${e}`);
+    }
+  }
+
+  clearExecutionFilters() {
+    this.executionAgent.set('');
+    this.executionStatus.set('');
+    this.executionQuery.set('');
+    this.refreshExecutions();
+  }
+
+  // ---------- 原始日志 ----------
   async refreshRecords() {
     this.recordsMsg.set('');
     try {
@@ -219,6 +308,12 @@ export class App {
     Object.values(this.mappings()).sort((a, b) => a.project_id - b.project_id),
   );
 
+  protected readonly executionAgents = computed(() => {
+    const ids = new Set(this.agents().map((agent) => agent.agent_id));
+    for (const execution of this.executions()) ids.add(execution.agent);
+    return [...ids].filter(Boolean).sort();
+  });
+
   onCliChange() {
     const models = this.modelsFor();
     if (models.length) this.model.set(models[0]);
@@ -228,5 +323,23 @@ export class App {
     if (lv === 'ERROR' || lv === 'CRITICAL') return 'rec-error';
     if (lv === 'WARNING') return 'rec-warn';
     return 'rec-info';
+  };
+
+  protected readonly runStatusLabel = (status: string) => ({
+    pending: '等待中', running: '执行中', success: '成功', failed: '失败', cancelled: '已取消',
+  }[status] ?? status);
+
+  protected readonly formatTime = (value?: string | null) => {
+    if (!value) return '—';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false });
+  };
+
+  protected readonly formatDuration = (seconds: number | null) => {
+    if (seconds === null) return '—';
+    if (seconds < 60) return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const remain = seconds % 60;
+    return remain ? `${minutes}m ${remain}s` : `${minutes}m`;
   };
 }

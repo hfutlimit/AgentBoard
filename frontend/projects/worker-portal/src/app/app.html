@@ -2,9 +2,10 @@
   <header class="topbar">
     <div class="brand">AgentBoard · Worker 本机配置台</div>
     <div class="tabs">
-      <button [class.active]="tab() === 'agents'" (click)="tab.set('agents')">🤖 Agent 配置</button>
-      <button [class.active]="tab() === 'mappings'" (click)="tab.set('mappings')">📁 项目映射</button>
-      <button [class.active]="tab() === 'records'" (click)="tab.set('records')">📋 处理记录</button>
+      <button [class.active]="tab() === 'agents'" (click)="selectTab('agents')">🤖 Agent 配置</button>
+      <button [class.active]="tab() === 'mappings'" (click)="selectTab('mappings')">📁 项目映射</button>
+      <button [class.active]="tab() === 'executions'" (click)="selectTab('executions')">📋 任务执行</button>
+      <button [class.active]="tab() === 'records'" (click)="selectTab('records')">🧾 运行日志</button>
     </div>
   </header>
 
@@ -122,11 +123,120 @@
     </section>
   }
 
-  <!-- ==================== 处理记录 ==================== -->
+  <!-- ==================== 任务执行 ==================== -->
+  @if (tab() === 'executions') {
+    <section class="panel">
+      <div class="card execution-card">
+        <div class="section-head">
+          <div>
+            <h2>任务执行记录 <span class="count">{{ executionTotal() }}</span></h2>
+            <p class="hint">查看 Agent 实际执行过的任务、模型、结果和完整输出。</p>
+          </div>
+          <button class="primary" (click)="refreshExecutions()" [disabled]="executionLoading()">
+            {{ executionLoading() ? '加载中…' : '刷新' }}
+          </button>
+        </div>
+
+        <div class="execution-filters">
+          <label>Agent
+            <select [(ngModel)]="executionAgent" (change)="refreshExecutions()">
+              <option value="">全部 Agent</option>
+              @for (agent of executionAgents(); track agent) {
+                <option [value]="agent">{{ agent }}</option>
+              }
+            </select>
+          </label>
+          <label>状态
+            <select [(ngModel)]="executionStatus" (change)="refreshExecutions()">
+              <option value="">全部状态</option>
+              <option value="pending">等待中</option>
+              <option value="running">执行中</option>
+              <option value="success">成功</option>
+              <option value="failed">失败</option>
+              <option value="cancelled">已取消</option>
+            </select>
+          </label>
+          <label class="execution-search">关键词
+            <input [(ngModel)]="executionQuery" (keydown.enter)="refreshExecutions()"
+                   placeholder="任务、描述、摘要或 output" />
+          </label>
+          <div class="filter-actions">
+            <button (click)="refreshExecutions()">查询</button>
+            <button (click)="clearExecutionFilters()">清空</button>
+          </div>
+        </div>
+        <p class="msg">{{ executionMsg() }}</p>
+
+        <div class="table-scroll">
+          <table class="execution-table">
+            <thead>
+              <tr>
+                <th>开始时间</th><th>Agent / 模型</th><th>任务</th><th>状态 / 耗时</th><th>结果</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (run of executions(); track run.id) {
+                <tr [class.selected]="selectedExecution()?.id === run.id">
+                  <td class="time">{{ formatTime(run.started_at || run.created_at) }}</td>
+                  <td>
+                    <strong>{{ run.agent_name || run.agent }}</strong>
+                    <span class="subline">{{ run.agent }} · {{ run.model || '模型未记录' }}</span>
+                  </td>
+                  <td class="task-cell">
+                    <strong>#{{ run.task_id || '—' }} {{ run.task_title }}</strong>
+                    <span class="subline">{{ run.project_key || run.project_name }} · {{ run.task_description || '无任务描述' }}</span>
+                  </td>
+                  <td>
+                    <span [class]="'run-status run-' + run.status">{{ runStatusLabel(run.status) }}</span>
+                    <span class="subline">{{ formatDuration(run.duration_seconds) }}</span>
+                  </td>
+                  <td class="result-cell">
+                    @if (run.error_message) {
+                      <span class="result-error">{{ run.error_message }}</span>
+                    } @else {
+                      <span>{{ run.summary || run.output_preview || '暂无输出' }}</span>
+                    }
+                  </td>
+                  <td><button class="small" (click)="toggleExecution(run)">{{ selectedExecution()?.id === run.id ? '收起' : '详情' }}</button></td>
+                </tr>
+              } @empty {
+                <tr><td colspan="6" class="empty">{{ executionLoading() ? '正在加载…' : '暂无符合条件的任务执行记录' }}</td></tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      @if (selectedExecution(); as detail) {
+        <div class="card execution-detail">
+          <div class="section-head">
+            <div>
+              <h2>执行 #{{ detail.id }} · {{ detail.task_title }}</h2>
+              <p class="hint">{{ detail.agent }} / {{ detail.model || '模型未记录' }} · {{ runStatusLabel(detail.status) }}</p>
+            </div>
+            <button (click)="selectedExecution.set(null)">关闭</button>
+          </div>
+          <div class="detail-grid">
+            <div><span>任务描述</span><p>{{ detail.task_description || '无任务描述' }}</p></div>
+            <div><span>执行摘要</span><p>{{ detail.summary || '无摘要' }}</p></div>
+            @if (detail.error_message) {
+              <div class="detail-wide"><span>错误</span><p class="result-error">{{ detail.error_message }}</p></div>
+            }
+          </div>
+          <h3>Output</h3>
+          <pre class="execution-output">{{ detail.output || detail.output_preview || '暂无 output' }}</pre>
+          @if (detail.log_ref) { <p class="log-ref">日志引用：{{ detail.log_ref }}</p> }
+        </div>
+      }
+    </section>
+  }
+
+  <!-- ==================== 原始运行日志 ==================== -->
   @if (tab() === 'records') {
     <section class="panel">
       <div class="card">
-        <h2>Worker 处理记录</h2>
+        <h2>Worker 原始运行日志</h2>
+        <p class="hint">用于排查 Worker 进程和 MQ；任务级结果请在“任务执行”中查看。</p>
         <div class="actions">
           <button class="primary" (click)="refreshRecords()">刷新</button>
         </div>

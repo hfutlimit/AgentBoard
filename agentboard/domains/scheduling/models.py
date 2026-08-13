@@ -38,6 +38,10 @@ class AgentRun(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     schedule_id: Mapped[int] = mapped_column(ForeignKey("agent_schedules.id", ondelete="CASCADE"), nullable=False, index=True)
     task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id"), nullable=True, index=True)
+    # Execution-time snapshot: schedule/Agent configuration may change later,
+    # but historical records must keep the agent and model actually selected.
+    agent: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default=RunStatus.PENDING)
     idempotency_key: Mapped[str | None] = mapped_column(String(128), unique=True, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

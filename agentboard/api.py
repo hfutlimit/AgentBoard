@@ -2083,6 +2083,27 @@ def search_runs_api(
     return service.search_runs(s, q=q, limit=limit, user_id=uid)
 
 
+@app.get("/api/runs")
+def list_run_records_api(
+    agent: str | None = Query(None, max_length=64),
+    status: str | None = Query(None, max_length=20),
+    q: str | None = Query(None, max_length=200),
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
+):
+    """Worker operations view: enriched, filterable AgentRun records."""
+    uid = _current_user(authorization, s, required_permission="api:read").id
+    try:
+        return service.list_run_records(
+            s, agent=agent, status=status, q=q, limit=limit, offset=offset,
+            user_id=uid,
+        )
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
 # ---------- Sprint ----------
 @app.get("/api/projects/{pid}/sprints")
 def list_sprints(pid: int, s: Session = Depends(get_session),

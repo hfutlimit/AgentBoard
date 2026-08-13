@@ -8,7 +8,8 @@
 - ``GET  /api/cli-presets``      CLI 预设模板 + 模型下拉数据源；
 - ``GET  /api/projects``         服务器项目列表（供项目映射选择）；
 - ``GET/PUT /api/mappings``      本机「服务器项目 → 本地目录」映射（JSON 文件）；
-- ``GET  /api/records``          本机 Worker 处理记录（worker-mq.log 摘要）。
+- ``GET  /api/executions``       服务器任务执行记录（支持按 Agent 过滤）；
+- ``GET  /api/records``          本机 Worker 原始运行日志（worker-mq.log 摘要）。
 
 设计要点
 --------
@@ -317,7 +318,28 @@ def create_app(api_url: str | None = None, token: str | None = None) -> FastAPI:
         _save_mappings(data)
         return data
 
-    # ---- 处理记录（worker-mq.log 摘要） ----
+    # ---- 任务执行记录（服务器 AgentRun） ----
+    @app.get("/api/executions")
+    def executions(
+        agent: str | None = Query(None, max_length=64),
+        status: str | None = Query(None, max_length=20),
+        q: str | None = Query(None, max_length=200),
+        limit: int = Query(100, ge=1, le=200),
+        offset: int = Query(0, ge=0),
+    ) -> Any:
+        params = {
+            key: value for key, value in {
+                "agent": agent, "status": status, "q": q,
+                "limit": limit, "offset": offset,
+            }.items() if value not in (None, "")
+        }
+        return proxy.get("/api/runs", params=params)
+
+    @app.get("/api/executions/{run_id}")
+    def execution_detail(run_id: int) -> Any:
+        return proxy.get(f"/api/runs/{run_id}")
+
+    # ---- 原始运行日志（worker-mq.log 摘要） ----
     @app.get("/api/records")
     def records(limit: int = Query(50, ge=1, le=500)) -> dict[str, Any]:
         log_path = _env("AGENTBOARD_WORKER_LOG", str(_repo_root() / "tmp" / "worker-mq.log"))
