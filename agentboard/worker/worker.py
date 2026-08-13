@@ -151,9 +151,6 @@ class ProposalWorker:
     def fetch_ticket_requests(self) -> list[dict]:
         return self._handlers["ticket"].fetch()
 
-    def claim_ticket_request(self, request: dict) -> bool:
-        return self._handlers["ticket"].claim(request)
-
     def build_ticket_context(self, request: dict) -> dict:
         return self._handlers["ticket"].load_context(request)
 

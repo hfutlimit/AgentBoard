@@ -1,10 +1,13 @@
 """TicketHandler：Proposal → Ticket 转化域（Epic 123 Step 2）。
 
-职责：pending 转换请求的发现 → CAS 认领 → 上下文（提案重放 + 工单指令）→
+职责：pending 转换请求的发现 → 上下文（提案重放 + 工单指令）→
 agent 决策（ticket_created / fail）落库。对应原 ``worker.py`` 中
-``fetch_ticket_requests`` / ``claim_ticket_request`` /
-``build_ticket_context`` / ``_fail_ticket_request`` / ``_lookup_ticket_request`` /
+``fetch_ticket_requests`` / ``build_ticket_context`` /
+``_fail_ticket_request`` / ``_lookup_ticket_request`` /
 ``handle_ticket_request``。
+
+注意（2026-08-12 double-claim 修复）：认领已收敛到 ``service.execute_ticket_request``
+内部 CAS（pending→processing→done），Handler **不再** 预认领。
 """
 from __future__ import annotations
 
@@ -96,18 +99,6 @@ class TicketHandler:
         except Exception as e:
             log.warning("拉取 pending ticket 请求失败：%s", e)
             return []
-
-    def claim(self, work_item: dict) -> bool:
-        """pending → processing（CAS）。竞争失败静默跳过。"""
-        rid = work_item.get("id")
-        r = self._request("POST", f"/api/ticket-requests/{rid}/claim", json={})
-        if r.status_code == 200:
-            return True
-        if r.status_code == 409:
-            log.info("ticket 请求 #%s 认领竞争失败（已被其它 Worker 处理）", rid)
-            return False
-        log.warning("ticket 请求 #%s 认领异常：%s %s", rid, r.status_code, r.text[:200])
-        return False
 
     def load_context(self, work_item: dict) -> dict:
         """提案全量重放 + 工单指令（语义与 MCP proposal_get 一致，多出 ticket 字段）。"""
