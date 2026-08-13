@@ -8,6 +8,9 @@
 1. 断线后自动重连并继续消费（consumed/acked 跨连接累计）；
 2. 断线重试期间 stop 置位可立即退出（不无限重连）；
 3. 消息语义不变：ack / nack(死信) / max_messages / idle_timeout。
+
+2026-08-13：抽出 fake channel 到 ``tests/mq_fakes.py`` 复用，本文件
+只剩 4 个断言用例。
 """
 import os
 import sys
@@ -19,102 +22,9 @@ import pytest
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _ROOT)
 
-import pika.exceptions as pika_exc  # noqa: E402
+from agentboard.mq import MQConfig  # noqa: E402
 
-from agentboard import mq  # noqa: E402
-from agentboard.mq import MQConfig, PikaBroker, ProposalMessage  # noqa: E402
-
-
-class _Method:
-    def __init__(self, tag):
-        self.delivery_tag = tag
-
-
-class _FlakyChannel:
-    """可编程 fake channel：
-
-    - ``consume`` 返回迭代器，先产出 ``yield_items`` 条消息，然后
-      抛 ``StreamLostError``（模拟断线）；若 ``revive_after`` 指定了第几次
-      连接后恢复，则后续连接返回空迭代器（配合 idle_timeout 退出）。
-    - ``close()`` 置 ``is_closed``，供 broker 判定通道失效。
-    """
-
-    def __init__(self, name: str, yield_items: int = 0, drop: bool = True,
-                 revive: bool = False):
-        self.name = name
-        self.yield_items = yield_items
-        self.drop = drop          # 消费中是否模拟断线
-        self.revive = revive      # 本通道是否「恢复」（空迭代 + idle 退出）
-        self.is_closed = False
-        self.acked: list[int] = []
-        self.nacked: list[int] = []
-        self.qos = 0
-        self.cancelled = False
-
-    # ---- pika Channel 接口 ----
-    def basic_qos(self, prefetch_count: int) -> None:
-        self.qos = prefetch_count
-
-    def basic_ack(self, delivery_tag) -> None:
-        self.acked.append(delivery_tag)
-
-    def basic_nack(self, delivery_tag, requeue: bool = False) -> None:
-        self.nacked.append((delivery_tag, requeue))
-
-    def cancel(self) -> None:
-        self.cancelled = True
-
-    def close(self) -> None:
-        self.is_closed = True
-
-    # ---- 拓扑声明（declare_topology 调用，no-op） ----
-    def exchange_declare(self, *a, **kw):
-        return None
-
-    def queue_declare(self, *a, **kw):
-        return None
-
-    def queue_bind(self, *a, **kw):
-        return None
-
-    def consume(self, queue: str, inactivity_timeout: float | None = None):
-        def _iter():
-            for i in range(self.yield_items):
-                body = ProposalMessage(proposal_id=100 + i, round=1).to_bytes()
-                yield (_Method(1000 + i), None, body)
-            if self.drop:
-                raise pika_exc.StreamLostError(
-                    "Stream connection lost: ConnectionResetError(10054, '测试断线')"
-                )
-            # 恢复通道：空迭代（pika 空闲心跳 yield (None, None, None)），
-            # 由上层 idle_timeout / stop 退出
-            while True:
-                yield (None, None, None)
-        return _iter()
-
-    # ---- broker 判定用 ----
-    @property
-    def _is_closed(self) -> bool:
-        return self.is_closed
-
-
-class _FlakyBroker(PikaBroker):
-    """注入 fake channel 序列的 PikaBroker。
-
-    每次 ``_connect`` 按顺序弹出一个 channel：首个断线、后续恢复。
-    """
-
-    def __init__(self, channels: list[_FlakyChannel]):
-        super().__init__(MQConfig(url="amqp://x@localhost/%2F", namespace="t"))
-        self._channels = list(channels)
-        self._connect_calls = 0
-
-    def _connect(self):
-        ch = self._channels[self._connect_calls % len(self._channels)]
-        self._connect_calls += 1
-        self._channel = ch
-        self._conn = object()  # 非 None，供 close() 判空
-        return ch
+from tests.mq_fakes import FlakyPikaBroker, _FlakyChannel  # noqa: E402
 
 
 def _ok_handler(_msg) -> bool:
@@ -129,7 +39,10 @@ def test_consume_reconnects_after_stream_lost():
     """断线 → 自动重连 → 继续消费，统计跨连接累计。"""
     ch1 = _FlakyChannel("ch1", yield_items=2, drop=True)   # 消费 2 条后断线
     ch2 = _FlakyChannel("ch2", yield_items=1, drop=False, revive=True)  # 恢复
-    broker = _FlakyBroker([ch1, ch2])
+    broker = FlakyPikaBroker(
+        [ch1, ch2],
+        config=MQConfig(url="amqp://x@localhost/%2F", namespace="t"),
+    )
 
     stats = broker.consume(_ok_handler, max_messages=3, idle_timeout=0.2)
 
@@ -144,7 +57,10 @@ def test_consume_nack_goes_dead_across_reconnect():
     """死信语义跨连接保持：nack 计数累计。"""
     ch1 = _FlakyChannel("ch1", yield_items=2, drop=True)
     ch2 = _FlakyChannel("ch2", yield_items=1, drop=False, revive=True)
-    broker = _FlakyBroker([ch1, ch2])
+    broker = FlakyPikaBroker(
+        [ch1, ch2],
+        config=MQConfig(url="amqp://x@localhost/%2F", namespace="t"),
+    )
 
     stats = broker.consume(_nack_handler, max_messages=3, idle_timeout=0.2)
 
@@ -156,7 +72,10 @@ def test_consume_nack_goes_dead_across_reconnect():
 def test_consume_stop_exits_during_retry_backoff():
     """断线重连退避期间 stop 置位 → 立即退出，不无限重连。"""
     ch1 = _FlakyChannel("ch1", yield_items=1, drop=True)
-    broker = _FlakyBroker([ch1])
+    broker = FlakyPikaBroker(
+        [ch1],
+        config=MQConfig(url="amqp://x@localhost/%2F", namespace="t"),
+    )
     stop = threading.Event()
 
     def _stopper():
@@ -179,7 +98,10 @@ def test_consume_idle_timeout_still_works():
     """恢复连接后 idle_timeout 仍正常触发退出。"""
     ch1 = _FlakyChannel("ch1", yield_items=0, drop=True)
     ch2 = _FlakyChannel("ch2", yield_items=0, drop=False, revive=True)
-    broker = _FlakyBroker([ch1, ch2])
+    broker = FlakyPikaBroker(
+        [ch1, ch2],
+        config=MQConfig(url="amqp://x@localhost/%2F", namespace="t"),
+    )
 
     start = time.monotonic()
     stats = broker.consume(_ok_handler, idle_timeout=0.15)

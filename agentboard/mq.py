@@ -1196,43 +1196,86 @@ class PikaWorkflowBroker:
 
         ``prefetch=1`` 让 broker 按「谁空闲谁拿」分发；handler 返回 False 或抛异常
         即 nack(requeue=False) 落入死信队列。
+
+        断线自愈（2026-08-13，配套 PikaBroker.consume 修复 #546ca77）：与 PikaBroker
+        对称——broker 重启 / 网络抖动时 pika ``consume`` 迭代器抛
+        ``AMQPConnectionError``（含 ``StreamLostError``），未捕获会冒泡导致 worker
+        进程崩溃。现在按 1s→30s 指数退避重建连接继续消费；``stop`` 置位时立即退出，
+        ``max_messages`` / ``idle_timeout`` 语义保持不变。注意 ``PikaWorkflowBroker``
+        实际承载 worker 的两个后台消费线程（``_wf_broadcast_loop`` / ``_agent_direct_loop``），
+        一旦崩溃会同时拉死 worker 进程，所以同样要覆盖。
         """
-        self.declare_topology()
-        ch = self.channel
-        ch.basic_qos(prefetch_count=max(1, self.config.prefetch))
+        pika = self._pika()
         stats = {"consumed": 0, "acked": 0, "dead": 0}
         tick = 0.5 if idle_timeout is None else min(0.5, max(0.05, idle_timeout))
+        retry_delay = 1.0  # 首次重连等待（秒），此后指数退避，封顶 30s
+        max_retry_delay = 30.0
         idle_started = time.monotonic()
-        try:
-            for method, _props, body in ch.consume(
-                queue_name, inactivity_timeout=tick,
-            ):
-                if method is None:  # 空闲心跳
-                    if stop is not None and stop.is_set():
-                        break
-                    if (idle_timeout is not None
-                            and time.monotonic() - idle_started >= idle_timeout):
-                        break
-                    continue
-                idle_started = time.monotonic()
-                stats["consumed"] += 1
-                ok = self._dispatch(handler, body)
-                if ok:
-                    ch.basic_ack(method.delivery_tag)
-                    stats["acked"] += 1
-                else:
-                    ch.basic_nack(method.delivery_tag, requeue=False)
-                    stats["dead"] += 1
-                if stop is not None and stop.is_set():
-                    break
-                if max_messages is not None and stats["consumed"] >= max_messages:
-                    break
-        finally:
+        _ch = None  # 当前迭代通道，返回前优雅取消消费
+
+        def _should_stop() -> bool:
+            return stop is not None and stop.is_set()
+
+        def _cancel_and_return() -> dict:
+            if _ch is not None:
+                try:
+                    _ch.cancel()
+                except Exception:  # pragma: no cover - 连接已断时 cancel 失败无害
+                    log.debug("取消 Workflow 消费者失败", exc_info=True)
+            return stats
+
+        while True:
+            if _should_stop():
+                break
             try:
-                ch.cancel()
-            except Exception:  # pragma: no cover
-                log.debug("取消 Workflow 消费者失败", exc_info=True)
-        return stats
+                self.declare_topology()
+                ch = self.channel
+                _ch = ch
+                ch.basic_qos(prefetch_count=max(1, self.config.prefetch))
+                for method, _props, body in ch.consume(
+                    queue_name, inactivity_timeout=tick,
+                ):
+                    if method is None:  # 空闲心跳
+                        if _should_stop():
+                            return _cancel_and_return()
+                        if (idle_timeout is not None
+                                and time.monotonic() - idle_started >= idle_timeout):
+                            return _cancel_and_return()
+                        continue
+                    idle_started = time.monotonic()
+                    stats["consumed"] += 1
+                    ok = self._dispatch(handler, body)
+                    if ok:
+                        ch.basic_ack(method.delivery_tag)
+                        stats["acked"] += 1
+                    else:
+                        ch.basic_nack(method.delivery_tag, requeue=False)
+                        stats["dead"] += 1
+                    if _should_stop():
+                        return _cancel_and_return()
+                    if (max_messages is not None
+                            and stats["consumed"] >= max_messages):
+                        return _cancel_and_return()
+                # 迭代器正常结束（broker 主动关闭消费）→ 视同断线，重连继续
+                raise pika.exceptions.AMQPConnectionError(
+                    "consume 迭代器提前结束（broker 关闭消费）",
+                )
+            except pika.exceptions.AMQPConnectionError as e:
+                if _should_stop():
+                    break
+                log.warning("Workflow 消费连接中断（%s），%.1fs 后重连…", e, retry_delay)
+                self.close()
+                time.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, max_retry_delay)
+            except pika.exceptions.AMQPChannelError as e:
+                # 通道级错误（队列被删等）重建连接通常无法解决，但重连一次更稳妥
+                if _should_stop():
+                    break
+                log.warning("Workflow 消费通道异常（%s），%.1fs 后重连…", e, retry_delay)
+                self.close()
+                time.sleep(retry_delay)
+                retry_delay = min(retry_delay * 2, max_retry_delay)
+        return _cancel_and_return()
 
     def _dispatch(self, handler: WorkflowMessageHandler, body: bytes) -> bool:
         try:
