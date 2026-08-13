@@ -1356,6 +1356,54 @@ def count_document_comments(document_id: int) -> dict:
     return _http("GET", f"/api/documents/{document_id}/comments/count")
 
 
+# ---------- 文档 Revision MCP 工具（Epic 139：不可变快照 + 乐观锁）----------
+
+@mcp.tool()
+def list_document_revisions(document_id: int, limit: int = 50, offset: int = 0) -> list:
+    """按 revision_number 倒序列出文档的历史快照。"""
+    return _http("GET", f"/api/documents/{document_id}/revisions",
+                 params={"limit": limit, "offset": offset})
+
+
+@mcp.tool()
+def get_document_revision(document_id: int, revision_number: int) -> dict:
+    """取指定 revision 的完整内容（用于 diff / 恢复）。"""
+    return _http("GET", f"/api/documents/{document_id}/revisions/{revision_number}")
+
+
+@mcp.tool()
+def save_document_with_revision(
+    document_id: int, expected_revision_number: int,
+    title: str | None = None, content: str | None = None,
+    change_note: str = "", author: str | None = None,
+) -> dict:
+    """乐观锁保存：带 expected_revision_number，并发冲突 → 409。
+
+    - title / content 至少传一项；change_note 必填（≤500 字）。
+    - 返回更新后的 Document（含 current_revision_id / current_revision_number）。
+    - Agent 写入前应先 get_document 拿 current_revision_number，提交时回填。
+    """
+    body = {
+        "expected_revision_number": expected_revision_number,
+        "change_note": change_note,
+    }
+    if title is not None: body["title"] = title
+    if content is not None: body["content"] = content
+    if author is not None: body["author"] = author
+    return _http("POST", f"/api/documents/{document_id}/revisions", json=body)
+
+
+@mcp.tool()
+def restore_document_revision(
+    document_id: int, revision_number: int, change_note: str,
+    author: str | None = None,
+) -> dict:
+    """把旧版 content 复制为新 revision（不修改历史）。change_note 必填。"""
+    body = {"revision_number": revision_number, "change_note": change_note}
+    if author is not None: body["author"] = author
+    return _http("POST", f"/api/documents/{document_id}/revisions/restore", json=body)
+
+
 @mcp.tool()
 def update_document(document_id: int, title: str | None = None,
                    content: str | None = None, type: str | None = None,

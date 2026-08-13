@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable, of, throwError, timer, Subject } from 'rxjs';
 import { catchError, tap, map, switchMap, mergeMap, debounceTime, takeUntil } from 'rxjs/operators';
 
-import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, KanbanBoard, Notification, OverviewStats, PagedResult, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, TicketRequestItem, TicketType, AgentRow, StoryStatusHistoryRow } from './models';
+import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, KanbanBoard, Notification, OverviewStats, PagedResult, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentRevisionItem, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, TicketRequestItem, TicketType, AgentRow, StoryStatusHistoryRow } from './models';
 
 export const AUTH_EXPIRED_EVENT = 'agentboard:auth-expired';
 
@@ -938,6 +938,51 @@ export class ApiService {
   /** 文档评论总数。供列表视图按需并发拉取。 */
   countDocumentComments(documentId: number) {
     return this.request<{ count: number }>('GET', `/api/documents/${documentId}/comments/count`);
+  }
+
+  /* ---------- Epic 139: DocumentRevision (不可变快照 + 乐观锁) ---------- */
+
+  listDocumentRevisions(documentId: number, params?: { limit?: number; offset?: number }) {
+    return this.request<DocumentRevisionItem[]>(
+      'GET', `/api/documents/${documentId}/revisions`, undefined,
+      params as Record<string, string | number | undefined> | undefined,
+    );
+  }
+
+  getDocumentRevision(documentId: number, revisionNumber: number) {
+    return this.request<DocumentRevisionItem>(
+      'GET', `/api/documents/${documentId}/revisions/${revisionNumber}`,
+    );
+  }
+
+  /** 乐观锁保存：expected_revision_number 不匹配 → 409。 */
+  saveDocumentRevision(
+    documentId: number, payload: {
+      expected_revision_number: number;
+      title?: string;
+      content?: string;
+      change_note: string;
+      author?: string;
+      author_id?: number;
+    },
+  ) {
+    return this.request<DocumentItem>(
+      'POST', `/api/documents/${documentId}/revisions`, payload,
+    );
+  }
+
+  /** 把旧版 content 复制为新 revision（不修改历史）。change_note 必填。 */
+  restoreDocumentRevision(
+    documentId: number, payload: {
+      revision_number: number;
+      change_note: string;
+      author?: string;
+      author_id?: number;
+    },
+  ) {
+    return this.request<DocumentItem>(
+      'POST', `/api/documents/${documentId}/revisions/restore`, payload,
+    );
   }
 
   /* ---------- Kanban (Epic 130: 项目看板) ---------- */

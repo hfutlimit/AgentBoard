@@ -2680,13 +2680,91 @@
                 <h2>{{ d.title }}</h2>
                 <span class="badge doctype doctype--{{ d.type }}">{{ docTypeLabel(d.type) }}</span>
                 <span class="badge docstatus docstatus--{{ d.status }}">{{ docStatusLabel(d.status) }}</span>
+                @if (d.current_revision_number != null) {
+                  <span class="badge doc-rev" title="当前 revision">r{{ d.current_revision_number }}</span>
+                }
               </div>
               <div class="page-actions">
+                <button class="ghost-sm" (click)="setDocDetailTab('content')" [class.active]="docDetailTab() === 'content'">📄 内容</button>
+                <button class="ghost-sm" (click)="setDocDetailTab('history')" [class.active]="docDetailTab() === 'history'">🕘 历史</button>
+                <button class="ghost-sm" (click)="openDocFullscreen()" title="全屏阅读（Esc 退出）">⛶ 全屏</button>
                 <button class="ghost-sm" (click)="openDocModal('edit')">✎ 编辑</button>
               </div>
             </div>
 
-            <article class="card md doc-content" [innerHTML]="renderMarkdown(d.content)"></article>
+            @if (docDetailTab() === 'content') {
+              <article class="card md doc-content" [innerHTML]="renderMarkdown(d.content)"></article>
+            } @else {
+              <!-- Epic 139: history tab -->
+              <div class="card doc-revisions">
+                <div class="section-header">
+                  <h3>历史版本 <span class="count">{{ docRevisions().length }}</span></h3>
+                  <div class="doc-rev-actions">
+                    <button class="ghost-sm" (click)="loadDocRevisions()" [disabled]="docRevisionsLoading()">↻ 刷新</button>
+                  </div>
+                </div>
+                @if (docRevisionsLoading()) {
+                  <div class="empty-inline">加载中…</div>
+                } @else if (docRevisions().length === 0) {
+                  <div class="empty-inline">还没有历史快照。先点「编辑」保存一次即生成 r2。</div>
+                } @else {
+                  <div class="doc-rev-list">
+                    @for (rev of docRevisions(); track rev.id) {
+                      <div class="doc-rev-row" [class.current]="rev.revision_number === d.current_revision_number">
+                        <div class="doc-rev-meta">
+                          <span class="doc-rev-num">r{{ rev.revision_number }}</span>
+                          @if (rev.is_restore) {
+                            <span class="doc-rev-tag doc-rev-tag--restore" [title]="'回滚自 r' + rev.restored_from_revision">↩ 回滚</span>
+                          } @else if (rev.revision_number === d.current_revision_number) {
+                            <span class="doc-rev-tag doc-rev-tag--current">当前</span>
+                          }
+                          <span class="doc-rev-note" [title]="rev.change_note">{{ rev.change_note || '（无说明）' }}</span>
+                        </div>
+                        <div class="doc-rev-sub">
+                          <span>{{ rev.author || '匿名' }}</span>
+                          <span>·</span>
+                          <time [title]="rev.created_at">{{ timeAgo(rev.created_at) }}</time>
+                        </div>
+                        <div class="doc-rev-actions-row">
+                          <label class="doc-rev-radio">
+                            <input type="radio" name="diff-left" [checked]="docDiffLeft() === rev.revision_number"
+                              (change)="setDocDiffSide('left', rev.revision_number)" /> 左
+                          </label>
+                          <label class="doc-rev-radio">
+                            <input type="radio" name="diff-right" [checked]="docDiffRight() === rev.revision_number"
+                              (change)="setDocDiffSide('right', rev.revision_number)" /> 右
+                          </label>
+                          <button type="button" class="ghost-xs" (click)="setDocDiffSide('left', rev.revision_number)">作为左</button>
+                          <button type="button" class="ghost-xs" (click)="setDocDiffSide('right', rev.revision_number)">作为右</button>
+                          @if (rev.revision_number !== d.current_revision_number) {
+                            <button type="button" class="ghost-xs" (click)="restoreRevision(rev)" title="把此版本内容复制为新 revision（不修改历史）">↩ 回滚到此</button>
+                          }
+                        </div>
+                      </div>
+                    }
+                  </div>
+                  <div class="doc-rev-diff-bar">
+                    @if (docDiffLeft() != null && docDiffRight() != null) {
+                      <button type="button" class="btn-primary-sm" (click)="openRevisionDiff(docDiffLeft()!, docDiffRight()!)">🔍 对比 r{{ docDiffLeft() }} ↔ r{{ docDiffRight() }}</button>
+                    } @else {
+                      <span class="empty-inline">选两份 revision 做对比（左旧 / 右新）。</span>
+                    }
+                  </div>
+                }
+              </div>
+            }
+
+            <!-- Epic 139: 409 冲突提示 -->
+            @if (docRevisionConflict(); as c) {
+              <div class="card doc-rev-conflict">
+                <strong>⚠️ 版本冲突</strong>
+                <p>您基于 r{{ c.expected }} 编辑，但服务端已到 r{{ c.current }}。请选其一处理：</p>
+                <div class="doc-rev-conflict-actions">
+                  <button class="btn-primary-sm" (click)="acceptCurrentAndReload()">加载最新并重做</button>
+                  <button class="ghost-sm" (click)="docRevisionConflict.set(null)">忽略</button>
+                </div>
+              </div>
+            }
 
             <div class="card comments-card">
               <div class="section-header">
@@ -3970,12 +4048,98 @@
                       (input)="dm.mode === 'create' ? docCreateContent.set($any($event.target).value) : docEditContent.set($any($event.target).value)"
                       placeholder="# 标题&#10;正文…"></textarea>
           </div>
+          @if (dm.mode === 'edit') {
+            <div class="form-field">
+              <label>本次修改说明 <span class="required">*</span> <small class="muted">（仅内容/标题变更时必填；写入历史 revision）</small></label>
+              <input [value]="docChangeNote()" (input)="docChangeNote.set($any($event.target).value)"
+                     maxlength="500" placeholder="例如：补充验收标准；修复第 3 段示例…" />
+            </div>
+          }
         </div>
         <footer class="modal-footer">
           <button type="button" class="ghost" (click)="closeDocModal()">取消</button>
           <button type="submit" class="btn-primary">{{ dm.mode === 'create' ? '创建文档' : '保存' }}</button>
         </footer>
       </form>
+    </section>
+  </div>
+}
+
+<!-- Epic 139: Fullscreen Document Workspace (Phase B) -->
+@if (docFullscreenOpen() && docItem(); as d) {
+  <div class="doc-fullscreen" [class.dark]="docFullscreenTheme() === 'dark'" (keyup.escape)="closeDocFullscreen()" tabindex="0">
+    <header class="doc-fullscreen__head">
+      <div class="doc-fullscreen__title">
+        <h1>{{ d.title }}</h1>
+        <span class="badge doctype doctype--{{ d.type }}">{{ docTypeLabel(d.type) }}</span>
+        <span class="badge docstatus docstatus--{{ d.status }}">{{ docStatusLabel(d.status) }}</span>
+        @if (d.current_revision_number != null) {
+          <span class="badge doc-rev">r{{ d.current_revision_number }}</span>
+        }
+      </div>
+      <div class="doc-fullscreen__actions">
+        <button type="button" class="ghost-sm" (click)="toggleDocFullscreenTheme()" [title]="docFullscreenTheme() === 'dark' ? '切到亮色' : '切到暗色'">
+          {{ docFullscreenTheme() === 'dark' ? '☀' : '🌙' }}
+        </button>
+        <button type="button" class="ghost-sm" (click)="closeDocFullscreen()" title="退出全屏（Esc）">⨯ 退出</button>
+      </div>
+    </header>
+    <main class="doc-fullscreen__body">
+      <article class="card md doc-content" [innerHTML]="renderMarkdown(d.content)"></article>
+    </main>
+    <footer class="doc-fullscreen__foot">
+      <span>最后更新 {{ timeAgo(d.updated_at) }}</span>
+      <span>·</span>
+      <span>按 Esc 退出全屏</span>
+    </footer>
+  </div>
+}
+
+<!-- Epic 139: Revision Diff Dialog -->
+@if (docDiffLeft() != null && docDiffRight() != null && docItem()) {
+  <div class="modal-overlay" (click)="setDocDiffSide('left', null); setDocDiffSide('right', null)">
+    <section class="modal doc-diff-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+      <header class="modal-header">
+        <div>
+          <span class="modal-eyebrow">REVISION DIFF</span>
+          <h3>r{{ docDiffLeft() }} ↔ r{{ docDiffRight() }}</h3>
+        </div>
+        <button type="button" class="modal-close" (click)="setDocDiffSide('left', null); setDocDiffSide('right', null)">×</button>
+      </header>
+      <div class="modal-body">
+        @if (docDiffData(); as dd) {
+          <div class="doc-diff-summary">
+            <span class="doc-diff-stat doc-diff-stat--add">+{{ dd.added }}</span>
+            <span class="doc-diff-stat doc-diff-stat--del">-{{ dd.removed }}</span>
+            <span class="doc-diff-stat">{{ dd.unchanged }} 不变</span>
+          </div>
+          <div class="doc-diff-table" role="table">
+            <div class="doc-diff-row doc-diff-row--head" role="row">
+              <span>r{{ docDiffLeft() }}</span><span>r{{ docDiffRight() }}</span>
+            </div>
+            @for (block of dd.blocks; track $index) {
+              @if (block.kind === 'collapsed') {
+                <div class="doc-diff-collapsed">⋯ 折叠 {{ block.hiddenCount }} 行未变化 ⋯</div>
+              } @else {
+                @for (row of block.rows; track $index) {
+                  <div class="doc-diff-row" [class.added]="row.kind === 'added'" [class.removed]="row.kind === 'removed'" [class.changed]="row.kind === 'changed'" role="row">
+                    <pre class="doc-diff-old"><span class="doc-diff-lineno">{{ row.oldLineNumber ?? '' }}</span><span class="doc-diff-content">
+                      @for (f of row.oldFragments; track $index) {
+                        <span [class.frag-removed]="f.kind === 'removed'">{{ f.text }}</span>
+                      }</span></pre>
+                    <pre class="doc-diff-new"><span class="doc-diff-lineno">{{ row.newLineNumber ?? '' }}</span><span class="doc-diff-content">
+                      @for (f of row.newFragments; track $index) {
+                        <span [class.frag-added]="f.kind === 'added'">{{ f.text }}</span>
+                      }</span></pre>
+                  </div>
+                }
+              }
+            }
+          </div>
+        } @else {
+          <div class="empty-inline">加载对比中…</div>
+        }
+      </div>
     </section>
   </div>
 }

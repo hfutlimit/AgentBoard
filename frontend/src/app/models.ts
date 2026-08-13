@@ -376,6 +376,9 @@ export interface DocumentItem {
   author: string | null;
   created_at: string;
   updated_at: string;
+  // Epic 139：当前 revision 头指针（无 revision 历史时为 null）
+  current_revision_id: number | null;
+  current_revision_number: number | null;
 }
 
 /** 文档文件夹（Epic 15 增强）：parent_id 自引用形成任意层级子文件夹，null = 顶层。 */
@@ -386,6 +389,21 @@ export interface DocumentFolder {
   name: string;
   created_at: string;
   updated_at: string;
+}
+
+/** Epic 139：不可变 revision 快照。 */
+export interface DocumentRevisionItem {
+  id: number;
+  document_id: number;
+  revision_number: number;
+  title: string;
+  content: string;
+  author_id: number | null;
+  author: string | null;
+  change_note: string;
+  is_restore: boolean;
+  restored_from_revision: number | null;
+  created_at: string;
 }
 
 export interface DocumentCommentItem {

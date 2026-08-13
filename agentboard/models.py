@@ -29,7 +29,7 @@ from .domains.projects.models import (
 )
 from .domains.scheduling.models import AgentRun, AgentSchedule
 from .domains.work_items.models import Attachment, AuditLog, Comment, Task, TaskDependency, TaskStatusHistory, WebhookConfig
-from .domains.documents.models import Document, DocumentComment, DocumentFolder
+from .domains.documents.models import Document, DocumentComment, DocumentFolder, DocumentRevision
 from .domains.proposals.models import (
     ALL_PROPOSAL_STATUSES,
     CLAIMABLE_STATUSES,
@@ -45,7 +45,7 @@ __all__ = [
     "ALL_PRIORITIES", "ALL_PROPOSAL_STATUSES", "ALL_RUN_STATUSES", "ALL_SCHEDULE_TYPES",
     "ALL_SPRINT_STATUSES", "ALL_STATUSES", "ALL_STATUS_REASONS", "ALL_TYPES",     "Agent", "AgentRun",
     "AgentSchedule", "ApiKey", "Attachment", "AuditLog", "Base", "CLAIMABLE_STATUSES",
-    "Comment", "Document", "DocumentComment", "Epic", "ItemType",
+    "Comment", "Document", "DocumentComment", "DocumentFolder", "DocumentRevision", "Epic", "ItemType",
     "Notification", "PROPOSAL_TRANSITIONS", "Priority", "Project", "ProjectMember",
     "Proposal", "ProposalQuestion", "ProposalRound", "ProposalStatus",
     "ProposalTicketRequest", "ReviewVote",

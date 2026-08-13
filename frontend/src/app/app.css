@@ -3831,6 +3831,207 @@ router-outlet {
 .doc-crumb-icon { font-size: 13px; }
 .doc-crumb-sep { color: var(--text-muted, #94a3b8); font-size: 13px; }
 
+/* ================= Epic 139: Revision / Diff / Fullscreen ================= */
+.badge.doc-rev {
+  background: #eef2ff;
+  color: #3730a3;
+  border: 1px solid #c7d2fe;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.page-actions .ghost-sm.active {
+  background: #6366f1;
+  color: #fff;
+}
+
+.doc-revisions { padding: 18px 20px; }
+.doc-revisions .section-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 12px;
+}
+.doc-revisions h3 { margin: 0; font-size: 16px; }
+.doc-revisions h3 .count {
+  margin-left: 6px;
+  background: #eef2ff; color: #4338ca; border-radius: 10px;
+  padding: 2px 8px; font-size: 12px; font-weight: 600;
+}
+.doc-rev-list { display: flex; flex-direction: column; gap: 6px; }
+.doc-rev-row {
+  display: grid;
+  grid-template-columns: 1fr 220px;
+  gap: 6px 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+}
+.doc-rev-row.current {
+  border-color: #6366f1;
+  background: #eef2ff;
+}
+.doc-rev-meta {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-rev-num {
+  font-weight: 700;
+  color: #4338ca;
+  font-variant-numeric: tabular-nums;
+}
+.doc-rev-tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+.doc-rev-tag--current { background: #6366f1; color: #fff; }
+.doc-rev-tag--restore { background: #fef3c7; color: #92400e; }
+.doc-rev-note { color: var(--text, #14171e); }
+.doc-rev-sub {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-muted, #64748b);
+}
+.doc-rev-actions-row {
+  grid-column: 2; grid-row: 1 / span 2;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  justify-content: flex-end;
+}
+.doc-rev-radio {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 12px; color: var(--text-muted, #64748b);
+}
+.doc-rev-diff-bar {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border, #e2e8f0);
+  display: flex; align-items: center; gap: 10px;
+}
+
+.doc-rev-conflict {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  padding: 14px 16px;
+  margin-top: 12px;
+}
+.doc-rev-conflict strong { color: #b91c1c; }
+.doc-rev-conflict p { margin: 6px 0 10px; font-size: 13px; color: #7f1d1d; }
+.doc-rev-conflict-actions { display: flex; gap: 8px; }
+
+/* ----- Diff Dialog ----- */
+.doc-diff-modal { max-width: 1100px; }
+.doc-diff-summary {
+  display: flex; gap: 12px; padding: 10px 0 14px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  font-size: 13px; font-weight: 600;
+}
+.doc-diff-stat--add { color: #047857; }
+.doc-diff-stat--del { color: #b91c1c; }
+.doc-diff-table {
+  font-family: 'JetBrains Mono', Consolas, Menlo, monospace;
+  font-size: 12.5px;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-top: 12px;
+}
+.doc-diff-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+.doc-diff-row:last-child { border-bottom: 0; }
+.doc-diff-row--head {
+  background: #f8fafc;
+  font-weight: 600;
+  color: var(--text-muted, #64748b);
+}
+.doc-diff-row--head > span {
+  padding: 8px 12px;
+  text-align: center;
+  border-right: 1px solid var(--border, #e2e8f0);
+}
+.doc-diff-row--head > span:last-child { border-right: 0; }
+.doc-diff-row.added .doc-diff-new { background: #d1fae5; }
+.doc-diff-row.removed .doc-diff-old { background: #fee2e2; }
+.doc-diff-row.changed .doc-diff-old { background: #fef3c7; }
+.doc-diff-row.changed .doc-diff-new { background: #d1fae5; }
+.doc-diff-old, .doc-diff-new {
+  display: flex; gap: 8px; align-items: flex-start;
+  padding: 4px 10px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-right: 1px solid var(--border, #e2e8f0);
+  min-height: 22px;
+}
+.doc-diff-new { border-right: 0; }
+.doc-diff-lineno {
+  flex: 0 0 36px;
+  text-align: right;
+  color: var(--text-muted, #94a3b8);
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+.doc-diff-content { flex: 1; }
+.frag-added { background: #34d399; padding: 0 1px; }
+.frag-removed { background: #f87171; color: #fff; padding: 0 1px; text-decoration: line-through; }
+.doc-diff-collapsed {
+  text-align: center;
+  padding: 6px;
+  background: #f1f5f9;
+  color: var(--text-muted, #64748b);
+  font-size: 12px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+}
+
+/* ----- Fullscreen Workspace ----- */
+.doc-fullscreen {
+  position: fixed; inset: 0;
+  background: #fafbfc;
+  display: flex; flex-direction: column;
+  z-index: 1000;
+  outline: none;
+}
+.doc-fullscreen.dark {
+  background: #0f172a;
+  color: #e2e8f0;
+}
+.doc-fullscreen__head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--border, #e2e8f0);
+  background: inherit;
+}
+.doc-fullscreen.dark .doc-fullscreen__head { border-bottom-color: #1e293b; }
+.doc-fullscreen__title { display: flex; align-items: center; gap: 12px; }
+.doc-fullscreen__title h1 { margin: 0; font-size: 22px; }
+.doc-fullscreen__actions { display: flex; gap: 8px; }
+.doc-fullscreen__body {
+  flex: 1;
+  overflow: auto;
+  padding: 32px 64px;
+  max-width: 960px;
+  margin: 0 auto;
+  width: 100%;
+}
+.doc-fullscreen__body .doc-content { font-size: 16px; line-height: 1.7; }
+.doc-fullscreen__foot {
+  padding: 10px 24px;
+  border-top: 1px solid var(--border, #e2e8f0);
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  display: flex; gap: 6px;
+}
+.doc-fullscreen.dark .doc-fullscreen__foot { border-top-color: #1e293b; }
+.doc-fullscreen.dark .doc-content h1,
+.doc-fullscreen.dark .doc-content h2,
+.doc-fullscreen.dark .doc-content h3 { color: #f1f5f9; }
+.doc-fullscreen.dark .doc-content code { background: #1e293b; }
+.doc-fullscreen.dark .doc-content blockquote { border-left-color: #475569; color: #cbd5e1; }
+
 .doc-list.folder-view {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

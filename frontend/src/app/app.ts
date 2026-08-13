@@ -1,15 +1,17 @@
 import { CommonModule } from '@angular/common';
-import { Component, OnDestroy, OnInit, ViewEncapsulation, computed, signal } from '@angular/core';
+import { Component, HostListener, OnDestroy, OnInit, ViewEncapsulation, computed, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
 import { firstValueFrom, Subscription } from 'rxjs';
+
+import { buildRevisionDiff, RevisionDiffBlock } from './shared/utils/revision-diff';
 import { DOCUMENT } from '@angular/common';
 import { Inject } from '@angular/core';
 import { filter } from 'rxjs/operators';
 
 import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric, resolveApiBase } from './api.service';
 import { LoginComponent } from './login/login';
-import { AgentRow, AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, KanbanBoard, KanbanStory, Notification, OverviewStats, Priority, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, SprintStatus, Status, Story, StoryStatusHistoryRow, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES, TicketRequestItem, TicketType } from './models';
+import { AgentRow, AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, KanbanBoard, KanbanStory, Notification, OverviewStats, Priority, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, SprintStatus, Status, Story, StoryStatusHistoryRow, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentRevisionItem, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES, TicketRequestItem, TicketType } from './models';
 import { PaginationComponent } from './pagination/pagination';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'not-found';
@@ -194,6 +196,26 @@ export class App implements OnInit, OnDestroy {
   readonly docMermaidReady = signal(false);
   readonly docDetailEpics = signal<Epic[]>([]);
   readonly docDetailStories = signal<Story[]>([]);
+  // Epic 139：revision / diff / fullscreen 状态
+  readonly docRevisions = signal<DocumentRevisionItem[]>([]);
+  readonly docRevisionsLoading = signal(false);
+  readonly docDetailTab = signal<'content' | 'history'>('content');
+  readonly docChangeNote = signal('');
+  readonly docRevisionConflict = signal<{ expected: number; current: number } | null>(null);
+  // Diff 选择：左（旧）/ 右（新） revision_number
+  readonly docDiffLeft = signal<number | null>(null);
+  readonly docDiffRight = signal<number | null>(null);
+  readonly docFullscreenOpen = signal(false);
+  readonly docFullscreenTheme = signal<'light' | 'dark'>('light');
+  // diff 数据：左右两份 revision 的内容 + 计算出的行级 diff 块 + 统计
+  readonly docDiffData = signal<{
+    left: DocumentRevisionItem;
+    right: DocumentRevisionItem;
+    blocks: RevisionDiffBlock[];
+    added: number;
+    removed: number;
+    unchanged: number;
+  } | null>(null);
   // 从文档（仅关联 Epic）新增任务时，供弹窗选择 Story 的选项
   readonly createStoryOptions = signal<Story[]>([]);
   private _docMermaidLoading = false;
@@ -6548,6 +6570,176 @@ export class App implements OnInit, OnDestroy {
   docCommentCount(docId: number): number {
     return this.docCommentCounts().get(docId) ?? 0;
   }
+
+  /* ================= Epic 139: Revision / Diff / Fullscreen ================= */
+
+  /** 切换详情 tab：content / history */
+  setDocDetailTab(tab: 'content' | 'history'): void {
+    this.docDetailTab.set(tab);
+    if (tab === 'history') void this.loadDocRevisions();
+  }
+
+  /** 加载文档的 revision 列表（按 revision_number 倒序）。 */
+  async loadDocRevisions(): Promise<void> {
+    const d = this.docItem();
+    if (!d) return;
+    this.docRevisionsLoading.set(true);
+    try {
+      const list = await firstValueFrom(this.api.listDocumentRevisions(d.id, { limit: 100 }));
+      this.docRevisions.set(Array.isArray(list) ? list : []);
+    } catch (e) {
+      this.docRevisions.set([]);
+      this.notify(`加载历史失败：${this.message(e)}`, 'error');
+    } finally {
+      this.docRevisionsLoading.set(false);
+    }
+  }
+
+  /** 用乐观锁保存新 revision（带 expected_revision_number）。 */
+  async saveDocContentWithRevision(payload: {
+    title?: string;
+    content?: string;
+    change_note: string;
+  }): Promise<boolean> {
+    const d = this.docItem();
+    if (!d) return false;
+    const current = d.current_revision_number ?? 0;
+    if (!payload.change_note.trim()) {
+      this.notify('请填写修改说明（change_note）', 'error');
+      return false;
+    }
+    try {
+      const authorName = this.currentUser() || this.commentAuthor() || undefined;
+      const updated = await firstValueFrom(
+        this.api.saveDocumentRevision(d.id, {
+          expected_revision_number: current,
+          title: payload.title,
+          content: payload.content,
+          change_note: payload.change_note.trim(),
+          author: authorName,
+        }),
+      );
+      this.docItem.set(updated);
+      this.docChangeNote.set('');
+      this.docRevisionConflict.set(null);
+      this.notify(`已保存为 r${updated.current_revision_number}`, 'success');
+      // 同步刷新 documents 列表 + history tab
+      void this.loadDocuments();
+      if (this.docDetailTab() === 'history') void this.loadDocRevisions();
+      return true;
+    } catch (e: any) {
+      // 409 revision_conflict
+      const status = e?.status;
+      const body = e?.error || e?.body;
+      if (status === 409 && body?.code === 'revision_conflict') {
+        this.docRevisionConflict.set({ expected: body.expected, current: body.current });
+        this.notify(`版本冲突：当前 r${body.current}（您基于 r${body.expected} 编辑）`, 'error');
+        return false;
+      }
+      this.notify(`保存失败：${this.message(e)}`, 'error');
+      return false;
+    }
+  }
+
+  /** 跳转到最新 revision 并继续编辑。 */
+  async acceptCurrentAndReload(): Promise<void> {
+    const conflict = this.docRevisionConflict();
+    if (!conflict) return;
+    const d = this.docItem();
+    if (!d) return;
+    try {
+      // 拉取最新 revision 覆盖 docItem，再让用户基于最新重新保存
+      const latest = await firstValueFrom(this.api.getDocument(d.id));
+      this.docItem.set(latest);
+      this.docRevisionConflict.set(null);
+      this.docChangeNote.set('');
+      this.notify(`已切到 r${latest.current_revision_number}，请基于最新内容重新保存`, 'success');
+    } catch (e) {
+      this.notify(`刷新失败：${this.message(e)}`, 'error');
+    }
+  }
+
+  /** 把指定 revision 标记为对比左/右。 */
+  setDocDiffSide(side: 'left' | 'right', revisionNumber: number | null): void {
+    if (side === 'left') this.docDiffLeft.set(revisionNumber);
+    else this.docDiffRight.set(revisionNumber);
+    if (revisionNumber === null) this.docDiffData.set(null);
+  }
+
+  /** Esc 键退出 fullscreen（window 级，避免焦点在 input 时失效）。 */
+  @HostListener('window:keydown.escape')
+  onEscapeKey(): void {
+    if (this.docFullscreenOpen()) this.closeDocFullscreen();
+  }
+
+  /** 恢复指定 revision（创建新 revision 保留历史）。 */
+  async restoreRevision(rev: DocumentRevisionItem): Promise<void> {
+    const d = this.docItem();
+    if (!d) return;
+    const note = window.prompt(`回滚到 r${rev.revision_number}（${rev.change_note || '无说明'}）的说明：`, '');
+    if (note == null) return;
+    if (!note.trim()) {
+      this.notify('请填写回滚说明', 'error');
+      return;
+    }
+    try {
+      const authorName = this.currentUser() || this.commentAuthor() || undefined;
+      const updated = await firstValueFrom(
+        this.api.restoreDocumentRevision(d.id, {
+          revision_number: rev.revision_number,
+          change_note: note.trim(),
+          author: authorName,
+        }),
+      );
+      this.docItem.set(updated);
+      this.notify(`已回滚到 r${rev.revision_number}，新版本 r${updated.current_revision_number}`, 'success');
+      void this.loadDocuments();
+      void this.loadDocRevisions();
+    } catch (e) {
+      this.notify(`回滚失败：${this.message(e)}`, 'error');
+    }
+  }
+
+  /** 加载两份 revision 内容做 diff（仅在用户点击"对比"时调用）。 */
+  async openRevisionDiff(left: number, right: number): Promise<void> {
+    const d = this.docItem();
+    if (!d) return;
+    this.docDiffData.set(null);
+    try {
+      const [l, r] = await Promise.all([
+        firstValueFrom(this.api.getDocumentRevision(d.id, left)),
+        firstValueFrom(this.api.getDocumentRevision(d.id, right)),
+      ]);
+      this.docDiffLeft.set(left);
+      this.docDiffRight.set(right);
+      // 计算行级 + 词级 diff
+      const blocks = buildRevisionDiff(l.content || '', r.content || '');
+      let added = 0, removed = 0, unchanged = 0;
+      for (const b of blocks) {
+        if (b.kind !== 'rows') continue;
+        for (const row of b.rows) {
+          if (row.kind === 'added') added += 1;
+          else if (row.kind === 'removed') removed += 1;
+          else unchanged += 1;
+        }
+      }
+      this.docDiffData.set({ left: l, right: r, blocks, added, removed, unchanged });
+    } catch (e) {
+      this.notify(`加载对比失败：${this.message(e)}`, 'error');
+    }
+  }
+
+  /** Fullscreen workspace 入口：进入 / 退出。 */
+  openDocFullscreen(): void {
+    this.docFullscreenTheme.set(this.isDarkTheme() ? 'dark' : 'light');
+    this.docFullscreenOpen.set(true);
+  }
+  closeDocFullscreen(): void {
+    this.docFullscreenOpen.set(false);
+  }
+  toggleDocFullscreenTheme(): void {
+    this.docFullscreenTheme.set(this.docFullscreenTheme() === 'dark' ? 'light' : 'dark');
+  }
   /** 文档首段非空内容做 summary（≤80 字）。 */
   docSummary(d: DocumentItem): string {
     const text = (d.content || '').replace(/```[\s\S]*?```/g, ' ').trim();
@@ -6648,6 +6840,7 @@ export class App implements OnInit, OnDestroy {
   }
   closeDocModal(): void {
     this.docModal.set(null);
+    this.docChangeNote.set('');
   }
   async onDocCreateProjectChange(pid: number): Promise<void> {
     this.docCreateProjectId.set(pid);
@@ -6702,22 +6895,59 @@ export class App implements OnInit, OnDestroy {
       if (!d) return;
       const title = this.docEditTitle().trim();
       if (!title) { this.notify('标题不能为空', 'error'); return; }
-      try {
-        const updated = await firstValueFrom(this.api.updateDocument(d.id, {
-          title,
-          content: this.docEditContent(),
-          type: this.docEditType(),
-          status: this.docEditStatus(),
-          epic_id: this.docEditEpicId(),
-          story_id: this.docEditStoryId(),
-        }));
-        this.docItem.set(updated);
-        this.documents.set(this.documents().map((x) => (x.id === updated.id ? updated : x)));
-        this.docModal.set(null);
-        this.notify('文档已保存');
-        setTimeout(() => this.enhanceMermaid(), 80);
-      } catch (error) {
-        this.notify(`保存失败：${this.message(error)}`, 'error');
+      const content = this.docEditContent();
+      // 内容/标题是否真改了？决定走「revision 路径」还是「纯头元数据路径」
+      const contentChanged = (title !== d.title) || (content !== d.content);
+      const metaOnly = !contentChanged;
+      if (contentChanged) {
+        // Epic 139：内容/标题变更走乐观锁 revision 路径（必填 change_note）
+        const note = this.docChangeNote().trim();
+        if (!note) {
+          this.notify('请填写本次修改的说明（change_note）', 'error');
+          return;
+        }
+        const authorName = this.currentUser() || this.commentAuthor() || undefined;
+        try {
+          const updated = await firstValueFrom(
+            this.api.saveDocumentRevision(d.id, {
+              expected_revision_number: d.current_revision_number ?? 0,
+              title, content,
+              change_note: note,
+              author: authorName,
+            }),
+          );
+          this.docItem.set(updated);
+          this.documents.set(this.documents().map((x) => (x.id === updated.id ? updated : x)));
+          this.docChangeNote.set('');
+          this.docModal.set(null);
+          this.notify(`已保存为 r${updated.current_revision_number}`);
+          setTimeout(() => this.enhanceMermaid(), 80);
+        } catch (e: any) {
+          if (e?.status === 409) {
+            const body = e?.error || e?.body;
+            this.docRevisionConflict.set({
+              expected: body?.expected, current: body?.current,
+            });
+            this.notify(`版本冲突：当前 r${body?.current}（您基于 r${body?.expected} 编辑）`, 'error');
+            return;
+          }
+          this.notify(`保存失败：${this.message(e)}`, 'error');
+        }
+      } else {
+        // 元数据（type/status/epic/story）变更：原 update_document 路径
+        try {
+          const updated = await firstValueFrom(this.api.updateDocument(d.id, {
+            title, type: this.docEditType(), status: this.docEditStatus(),
+            epic_id: this.docEditEpicId(), story_id: this.docEditStoryId(),
+          }));
+          this.docItem.set(updated);
+          this.documents.set(this.documents().map((x) => (x.id === updated.id ? updated : x)));
+          this.docModal.set(null);
+          this.notify(metaOnly ? '元数据已更新' : '文档已保存');
+          setTimeout(() => this.enhanceMermaid(), 80);
+        } catch (error) {
+          this.notify(`保存失败：${this.message(error)}`, 'error');
+        }
       }
     }
   }

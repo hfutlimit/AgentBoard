@@ -15,7 +15,7 @@ from .models import (
     ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES,
     Agent, Project, Epic, Story, Task, Comment, Sprint, Attachment, AgentSchedule, AgentRun,
     ProjectMember, Notification, User, ApiKey, AuditLog, TaskDependency, WebhookConfig,
-    Document, DocumentComment, DocumentFolder, ReviewVote, TaskStatusHistory,
+    Document, DocumentComment, DocumentFolder, DocumentRevision, ReviewVote, TaskStatusHistory,
     Proposal, ProposalRound, ProposalQuestion, ProposalTicketRequest,
     StoryStatusHistory,
 )
@@ -3893,12 +3893,22 @@ def create_document(
     _check_document_status(status)
     if author_id is not None and not s.get(User, author_id):
         raise InvalidValue(f"author {author_id} not found")
+    title = _required(title, "title", 300)
     doc = Document(
         project_id=project_id, epic_id=epic_id, story_id=story_id,
-        title=_required(title, "title", 300), content=content or "",
+        title=title, content=content or "",
         type=type, status=status, folder_id=folder_id, author_id=author_id,
     )
-    s.add(doc); _commit(s); s.refresh(doc); return doc
+    s.add(doc); s.flush()
+    # Epic 139：创建文档时同步生成 revision 1；旧文档无 revision 也能正常工作（current_revision_id 留 NULL）。
+    rev = DocumentRevision(
+        document_id=doc.id, revision_number=1, title=title, content=content or "",
+        author_id=author_id, change_note="初始版本",
+    )
+    s.add(rev); s.flush()
+    doc.current_revision_id = rev.id
+    doc.current_revision_number = rev.revision_number
+    _commit(s); s.refresh(doc); return doc
 
 
 def get_document(s: Session, id: int) -> Document | None:
@@ -3976,6 +3986,172 @@ def count_document_comments(s: Session, document_id: int) -> int:
         .scalar()
         or 0
     )
+
+
+# ---------------------------------------------------------------------------
+# Epic 139：DocumentRevision（不可变快照）+ 乐观锁
+# ---------------------------------------------------------------------------
+
+class RevisionConflict(Exception):
+    """乐观锁冲突：客户端提交的 expected_revision_number 与服务端当前指针不一致。"""
+
+    def __init__(self, expected: int, current: int):
+        self.expected = expected
+        self.current = current
+        super().__init__(
+            f"revision conflict: expected={expected} current={current}"
+        )
+
+
+def _next_revision_number(s: Session, document_id: int) -> int:
+    """取当前最大 revision_number + 1；空表时返回 1。"""
+    last = (
+        s.query(func.max(DocumentRevision.revision_number))
+        .filter(DocumentRevision.document_id == document_id)
+        .scalar()
+    )
+    return (last or 0) + 1
+
+
+def create_revision(
+    s: Session, *, document_id: int, title: str, content: str,
+    change_note: str, author_id: int | None = None, author: str | None = None,
+    is_restore: bool = False, restored_from_revision: int | None = None,
+) -> DocumentRevision:
+    """在事务中追加一条不可变 revision；调用方负责 _commit。文档不存在抛 NotFound。
+
+    不会触碰 Document 头；如需同步 current_revision_id / current_revision_number，
+    请走 save_document_with_revision()。
+    """
+    if not s.get(Document, document_id):
+        raise NotFound(f"document {document_id} not found")
+    change_note = (change_note or "").strip()[:500]
+    rev = DocumentRevision(
+        document_id=document_id,
+        revision_number=_next_revision_number(s, document_id),
+        title=_required(title, "title", 300),
+        content=content or "",
+        author_id=author_id, author=author,
+        change_note=change_note,
+        is_restore=is_restore, restored_from_revision=restored_from_revision,
+    )
+    s.add(rev); _commit(s); s.refresh(rev); return rev
+
+
+def list_revisions(
+    s: Session, document_id: int, *, limit: int | None = None, offset: int = 0,
+):
+    """按 revision_number 倒序列出；含 current_revision_number 头指针信息。"""
+    if not s.get(Document, document_id):
+        raise NotFound(f"document {document_id} not found")
+    qry = (
+        s.query(DocumentRevision)
+        .filter(DocumentRevision.document_id == document_id)
+        .order_by(DocumentRevision.revision_number.desc())
+    )
+    return _paginate(qry, limit, offset).all()
+
+
+def get_revision(s: Session, document_id: int, revision_number: int) -> DocumentRevision:
+    """取指定 revision；不存在抛 NotFound。"""
+    if not s.get(Document, document_id):
+        raise NotFound(f"document {document_id} not found")
+    rev = (
+        s.query(DocumentRevision)
+        .filter(
+            DocumentRevision.document_id == document_id,
+            DocumentRevision.revision_number == revision_number,
+        )
+        .first()
+    )
+    if not rev:
+        raise NotFound(f"document {document_id} revision {revision_number} not found")
+    return rev
+
+
+def save_document_with_revision(
+    s: Session, *, id: int, expected_revision_number: int,
+    title: str | None = None, content: str | None = None,
+    change_note: str, author_id: int | None = None, author: str | None = None,
+    # 头部元数据透传（type / status / folder / epic / story 不算"内容变更"，
+    # 不产生 revision；与 KV 决策一致；如需触发 revision，请走纯内容路径）
+) -> Document:
+    """乐观锁保存：在事务内校验 expected_revision_number、插入新 revision、更新头指针。
+
+    - 标题 / 内容变更才形成新 revision；其他字段单独走 update_document()；
+    - current_revision_number 不匹配 → 抛 RevisionConflict；
+    - 返回更新后的 Document（含 current_revision_id / current_revision_number）。
+    """
+    d = s.get(Document, id)
+    if not d:
+        raise NotFound(f"document {id} not found")
+    current_rev = d.current_revision_number or 0
+    if expected_revision_number != current_rev:
+        raise RevisionConflict(expected=expected_revision_number, current=current_rev)
+    new_title = title if title is not None else d.title
+    new_content = content if content is not None else d.content
+    # 若标题/内容未变化，直接返回当前 Document（不浪费 revision_number）
+    if new_title == d.title and new_content == d.content:
+        return d
+    # 1) 追加 revision
+    rev = DocumentRevision(
+        document_id=id,
+        revision_number=_next_revision_number(s, id),
+        title=_required(new_title, "title", 300),
+        content=new_content or "",
+        author_id=author_id, author=author,
+        change_note=(change_note or "").strip()[:500],
+        is_restore=False, restored_from_revision=None,
+    )
+    s.add(rev); s.flush()
+    # 2) 更新头指针 + 冗余字段
+    d.title = rev.title
+    d.content = rev.content
+    d.current_revision_id = rev.id
+    d.current_revision_number = rev.revision_number
+    _commit(s); s.refresh(d); s.refresh(rev)
+    return d
+
+
+def restore_revision(
+    s: Session, *, id: int, revision_number: int,
+    change_note: str, author_id: int | None = None, author: str | None = None,
+) -> Document:
+    """把旧版 content 复制为新 revision（不修改历史）。返回更新后的 Document。
+
+    - 新 revision_number = max + 1；change_note 必填并自动加前缀「回滚自 r{N}」；
+    - current_revision_id / current_revision_number 指向新 revision；
+    - 旧 revision 保持不变。
+    """
+    d = s.get(Document, id)
+    if not d:
+        raise NotFound(f"document {id} not found")
+    src = get_revision(s, id, revision_number)
+    note = (change_note or "").strip()[:500]
+    if not note:
+        raise InvalidValue("change_note is required for restore")
+    new_rev = DocumentRevision(
+        document_id=id,
+        revision_number=_next_revision_number(s, id),
+        title=src.title,
+        content=src.content,
+        author_id=author_id, author=author,
+        change_note=f"回滚自 r{revision_number}：{note}",
+        is_restore=True, restored_from_revision=revision_number,
+    )
+    s.add(new_rev); s.flush()
+    d.title = src.title
+    d.content = src.content
+    d.current_revision_id = new_rev.id
+    d.current_revision_number = new_rev.revision_number
+    _commit(s); s.refresh(d); s.refresh(new_rev)
+    return d
+
+
+# 旧 update_document 兼容：头部元数据（type/status/folder/epic/story）仍走原路径；
+# 标题/正文变更请改走 save_document_with_revision（带 expected_revision_number）。
+# 为避免破坏既有调用，update_document 继续接受 title/content 字段（无乐观锁），
+# 兼容路径不再创建 revision，仅更新 Document 头。Epic 139 后续会引导 UI 切到新接口。
 
 
 def update_document(s: Session, id: int, **fields) -> Document | None:

@@ -3072,6 +3072,93 @@ def count_document_comments(did: int, s: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+# ---------------------------------------------------------------------------
+# Epic 139：DocumentRevision（不可变快照 + 乐观锁）
+# ---------------------------------------------------------------------------
+
+@app.get("/api/documents/{did}/revisions")
+def list_document_revisions(
+    did: int, limit: int = Query(50, ge=1, le=200), offset: int = Query(0, ge=0),
+    s: Session = Depends(get_session),
+):
+    """按 revision_number 倒序列出历史快照。"""
+    try:
+        return [service._ser(r) for r in service.list_revisions(s, did, limit=limit, offset=offset)]
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/api/documents/{did}/revisions/{revision_number}")
+def get_document_revision(did: int, revision_number: int, s: Session = Depends(get_session)):
+    """取指定 revision（用于 diff / 恢复）。"""
+    try:
+        return service._ser(service.get_revision(s, did, revision_number))
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+class DocumentRevisionSaveIn(BaseModel):
+    expected_revision_number: int
+    title: str | None = None
+    content: str | None = None
+    change_note: str = ""
+    author: str | None = None
+    author_id: int | None = None
+
+
+@app.post("/api/documents/{did}/revisions", status_code=201)
+def save_document_revision(did: int, body: DocumentRevisionSaveIn, s: Session = Depends(get_session)):
+    """乐观锁保存（带 expected_revision_number）；并发冲突 → 409。
+
+    Body 必须含 title 或 content 至少一项；change_note 必填（≤500 字）。
+    """
+    if body.title is None and body.content is None:
+        raise HTTPException(status_code=422, detail="title or content is required")
+    if not (body.change_note or "").strip():
+        raise HTTPException(status_code=422, detail="change_note is required")
+    try:
+        doc = service.save_document_with_revision(
+            s, id=did, expected_revision_number=body.expected_revision_number,
+            title=body.title, content=body.content, change_note=body.change_note,
+            author_id=body.author_id, author=body.author,
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.RevisionConflict as e:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "revision_conflict",
+                "message": str(e),
+                "expected": e.expected,
+                "current": e.current,
+            },
+        )
+    return service._ser(doc)
+
+
+class DocumentRevisionRestoreIn(BaseModel):
+    revision_number: int
+    change_note: str
+    author: str | None = None
+    author_id: int | None = None
+
+
+@app.post("/api/documents/{did}/revisions/restore", status_code=200)
+def restore_document_revision(did: int, body: DocumentRevisionRestoreIn, s: Session = Depends(get_session)):
+    """把旧版内容复制为新 revision（不修改历史）。"""
+    try:
+        doc = service.restore_revision(
+            s, id=did, revision_number=body.revision_number,
+            change_note=body.change_note, author_id=body.author_id, author=body.author,
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return service._ser(doc)
+
+
 @app.patch("/api/document-comments/{cid}")
 def update_document_comment(cid: int, body: DocumentCommentPatch, s: Session = Depends(get_session)):
     """编辑文档评论：仅作者（成员或 Agent 账号）可编辑自己的评论。"""
