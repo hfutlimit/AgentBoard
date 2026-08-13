@@ -921,8 +921,23 @@ export class ApiService {
     });
   }
 
-  listDocuments(params?: { project_id?: number; epic_id?: number; story_id?: number; type?: DocumentType; status?: DocumentStatus; q?: string }) {
+  listDocuments(params?: {
+    project_id?: number;
+    epic_id?: number;
+    story_id?: number;
+    folder_id?: number;
+    author_id?: number;
+    type?: DocumentType;
+    status?: DocumentStatus;
+    q?: string;
+    sort?: 'updated' | 'created' | 'title';
+  }) {
     return this.request<DocumentItem[]>('GET', '/api/documents', undefined, params as Record<string, string | number | undefined> | undefined);
+  }
+
+  /** 文档评论总数。供列表视图按需并发拉取。 */
+  countDocumentComments(documentId: number) {
+    return this.request<{ count: number }>('GET', `/api/documents/${documentId}/comments/count`);
   }
 
   /* ---------- Kanban (Epic 130: 项目看板) ---------- */

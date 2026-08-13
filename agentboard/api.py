@@ -2966,11 +2966,17 @@ def list_documents(
     type: str | None = Query(None),
     status: str | None = Query(None),
     q: str | None = Query(None),
+    folder_id: int | None = Query(None),
+    author_id: int | None = Query(None),
+    epic_id: int | None = Query(None),
+    story_id: int | None = Query(None),
+    sort: str | None = Query(None),
     limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
     s: Session = Depends(get_session),
     authorization: str | None = Header(None),
 ):
-    """列出文档，支持按 project_id / type / status 过滤与关键词搜索。默认按 updated_at 倒序。
+    """列出文档，支持按 project_id / folder_id / author_id / epic_id / story_id / type / status 过滤
+    与关键词搜索；sort ∈ {updated, created, title}（默认 updated 倒序）。
 
     权限控制（2026-07-21）：
     - 指定 project_id 时：通过中间件校验项目成员身份
@@ -2980,7 +2986,8 @@ def list_documents(
     try:
         rows = service.list_documents(
             s, project_id=project_id, type=type, status=status, q=q,
-            limit=limit, offset=offset, user_id=uid,
+            folder_id=folder_id, author_id=author_id, epic_id=epic_id, story_id=story_id,
+            sort=sort, limit=limit, offset=offset, user_id=uid,
         )
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -3052,6 +3059,15 @@ def list_document_comments(did: int, s: Session = Depends(get_session)):
     """列出文档评论，按 created_at 正序。"""
     try:
         return [service._ser(x) for x in service.list_document_comments(s, did)]
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.get("/api/documents/{did}/comments/count")
+def count_document_comments(did: int, s: Session = Depends(get_session)):
+    """返回文档评论总数。供列表视图按需并发取数（Epic 138 文档列表 + 过滤增强）。"""
+    try:
+        return {"count": service.count_document_comments(s, did)}
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
 

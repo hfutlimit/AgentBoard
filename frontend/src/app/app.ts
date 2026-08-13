@@ -163,6 +163,18 @@ export class App implements OnInit, OnDestroy {
   readonly docFilterType = signal<DocumentType | ''>('');
   readonly docFilterStatus = signal<DocumentStatus | ''>('');
   readonly docSearchQuery = signal('');
+  // Epic 138: 文档列表视图增强
+  // 列表 / Tile 视图切换，持久化到 localStorage
+  readonly docListViewMode = signal<'tile' | 'list'>(
+    (localStorage.getItem('agentboard_doc_view') as 'tile' | 'list') || 'tile',
+  );
+  // 过滤增强：作者 / Epic / 文件夹 / 排序 / 跨项目视图的项目选择
+  readonly docFilterAuthor = signal<number | ''>('');
+  readonly docFilterEpic = signal<number | ''>('');
+  readonly docSortBy = signal<'updated' | 'created' | 'title'>('updated');
+  readonly docFilterProject = signal<number | ''>('');
+  // 文档评论数缓存（Map<docId, count>），并发拉取后填充
+  readonly docCommentCounts = signal<Map<number, number>>(new Map());
   readonly docEditing = signal(false);
   // Epic 129: 文档详情三视图模式（preview=完全预览 / split-edit=分屏编辑 / split-read=分屏只读）
   readonly docViewMode = signal<'preview' | 'split-edit' | 'split-read'>('preview');
@@ -1573,6 +1585,10 @@ export class App implements OnInit, OnDestroy {
         this.documents.set(docs || []);
         this.docFolders.set(folders || []);
         this.docFolderId.set(null);
+        // Epic 138: 项目 Tab 若当前在列表视图，触发评论数拉取
+        if (this.docListViewMode() === 'list' && docs && docs.length) {
+          void this.loadDocCommentCounts(docs);
+        }
       } else if (tab === 'kanban') {
         const board = await firstValueFrom(this.api.getProjectKanban(projectId, this.kanbanIncludeAll()));
         if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
@@ -6151,6 +6167,18 @@ export class App implements OnInit, OnDestroy {
   }
   docVisible(): DocumentItem[] {
     let list = this.documents();
+    // 跨项目视图：按 docFilterProject 再次过滤（API 已按权限隔离，这里只是 UI 收敛）
+    if (!this.project()?.id && this.docFilterProject() !== '') {
+      list = list.filter((d) => d.project_id === this.docFilterProject());
+    }
+    const type = this.docFilterType();
+    if (type) list = list.filter((d) => d.type === type);
+    const status = this.docFilterStatus();
+    if (status) list = list.filter((d) => d.status === status);
+    const author = this.docFilterAuthor();
+    if (author !== '') list = list.filter((d) => d.author_id === author);
+    const epic = this.docFilterEpic();
+    if (epic !== '') list = list.filter((d) => d.epic_id === epic);
     const q = this.docSearchQuery().trim().toLowerCase();
     if (q) return list.filter((d) => d.title.toLowerCase().includes(q) || (d.content || '').toLowerCase().includes(q));
     // 搜索词为空时按当前文件夹浏览
@@ -6167,11 +6195,27 @@ export class App implements OnInit, OnDestroy {
     if (type) list = list.filter((d) => d.type === type);
     const status = this.docFilterStatus();
     if (status) list = list.filter((d) => d.status === status);
+    const author = this.docFilterAuthor();
+    if (author !== '') list = list.filter((d) => d.author_id === author);
+    const epic = this.docFilterEpic();
+    if (epic !== '') list = list.filter((d) => d.epic_id === epic);
     const q = this.docSearchQuery().trim().toLowerCase();
     if (q) return list.filter((d) => d.title.toLowerCase().includes(q) || (d.content || '').toLowerCase().includes(q));
     // 搜索词为空时按当前文件夹浏览
     const fid = this.docFolderId();
     return list.filter((d) => d.folder_id === fid);
+  }
+  /** 应用客户端排序（默认 updated 倒序由 SQL 完成；这里只覆盖其他两种）。 */
+  applyDocSort<T extends DocumentItem>(list: T[]): T[] {
+    const sort = this.docSortBy();
+    if (sort === 'updated') return list; // 服务端默认
+    const copy = list.slice();
+    if (sort === 'created') {
+      copy.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    } else if (sort === 'title') {
+      copy.sort((a, b) => (a.title || '').localeCompare(b.title || '', 'zh-Hans-CN'));
+    }
+    return copy;
   }
 
   /* ---------- 文档文件夹：层级 / 面包屑 / 拖拽（Epic 15 增强） ---------- */
@@ -6453,8 +6497,22 @@ export class App implements OnInit, OnDestroy {
     const params: Record<string, any> = {};
     if (this.docFilterType()) params['type'] = this.docFilterType();
     if (this.docFilterStatus()) params['status'] = this.docFilterStatus();
+    if (this.docFilterAuthor() !== '') params['author_id'] = this.docFilterAuthor();
+    if (this.docFilterEpic() !== '') params['epic_id'] = this.docFilterEpic();
+    if (this.docSortBy() !== 'updated') params['sort'] = this.docSortBy();
+    // 跨项目视图（无 project() 时）：允许选择项目；项目内时强制走 project_id
+    const pid = this.project()?.id;
+    if (pid) {
+      params['project_id'] = pid;
+    } else if (this.docFilterProject() !== '') {
+      params['project_id'] = this.docFilterProject();
+    }
     const list = await firstValueFrom(this.api.listDocuments(params));
     this.documents.set(list || []);
+    // 列表视图需要评论数：并发拉取（上限 6，单项失败跳过）
+    if (this.docListViewMode() === 'list' && list && list.length) {
+      void this.loadDocCommentCounts(list);
+    }
   }
   onDocFilterChange(): void {
     void this.loadDocuments();
@@ -6463,8 +6521,91 @@ export class App implements OnInit, OnDestroy {
     this.docSearchQuery.set(value);
     void this.loadDocuments();
   }
+  /** 切换列表/Tile 视图（持久化）。 */
+  setDocListViewMode(mode: 'tile' | 'list'): void {
+    if (this.docListViewMode() === mode) return;
+    this.docListViewMode.set(mode);
+    try { localStorage.setItem('agentboard_doc_view', mode); } catch { /* ignore */ }
+    // 切到 list 时按需拉评论数；切到 tile 不需要
+    if (mode === 'list') {
+      const docs = this.documents();
+      if (docs.length) void this.loadDocCommentCounts(docs);
+    }
+  }
+  /** 并发拉取文档评论数（limit=6），失败跳过。 */
+  private async loadDocCommentCounts(docs: DocumentItem[]): Promise<void> {
+    const missing = docs.filter((d) => !this.docCommentCounts().has(d.id));
+    if (!missing.length) return;
+    const results = await this.parallelMap(missing, 6, async (d) => {
+      const r = await firstValueFrom(this.api.countDocumentComments(d.id));
+      return { id: d.id, count: (r && typeof (r as any).count === 'number') ? (r as any).count : 0 };
+    });
+    const next = new Map(this.docCommentCounts());
+    for (const r of results) next.set(r.id, r.count);
+    this.docCommentCounts.set(next);
+  }
+  /** 取某文档的评论数（无则返回 0）。 */
+  docCommentCount(docId: number): number {
+    return this.docCommentCounts().get(docId) ?? 0;
+  }
+  /** 文档首段非空内容做 summary（≤80 字）。 */
+  docSummary(d: DocumentItem): string {
+    const text = (d.content || '').replace(/```[\s\S]*?```/g, ' ').trim();
+    const first = text.split(/\r?\n/).find((line) => line.trim().length > 0) || '';
+    const cleaned = first.replace(/^#+\s*/, '').replace(/[*_`>]/g, '').trim();
+    return cleaned.length > 80 ? cleaned.slice(0, 80) + '…' : cleaned;
+  }
+  /** 文档归属路径：项目 / Epic / Story / folder（用 › 分隔）。 */
+  docScopePath(d: DocumentItem): string {
+    const parts: string[] = [];
+    parts.push(this.projectName(d.project_id));
+    if (d.epic_id) parts.push(this.epicTitle(d.epic_id));
+    if (d.story_id) parts.push(this.storyTitle(d.story_id));
+    if (d.folder_id) parts.push(this.docFolderLabel(d.folder_id));
+    return parts.filter(Boolean).join(' › ');
+  }
+  /** 当前文档列表中实际出现过的作者（去重，按作者名排序）。跨项目视图无 members 时使用。 */
+  docAuthorOptions(): { user_id: number; username: string }[] {
+    const seen = new Map<number, string>();
+    for (const d of this.documents()) {
+      if (d.author_id && d.author && !seen.has(d.author_id)) {
+        seen.set(d.author_id, d.author);
+      }
+    }
+    return Array.from(seen.entries())
+      .map(([user_id, username]) => ({ user_id, username }))
+      .sort((a, b) => a.username.localeCompare(b.username, 'zh-Hans-CN'));
+  }
+  /** 排序标签。 */
+  docSortLabel(s: 'updated' | 'created' | 'title'): string {
+    return { updated: '更新时间', created: '创建时间', title: '标题' }[s];
+  }
+  /** 排序下拉变更。 */
+  onDocSortChange(value: string): void {
+    if (value === 'updated' || value === 'created' || value === 'title') {
+      this.docSortBy.set(value);
+      void this.loadDocuments();
+    }
+  }
+  /** 全部项目下出现过文档的 epic（去重），按项目+标题排序。跨项目视图使用。 */
+  allEpicsAcrossProjects(): Epic[] {
+    const ids = new Set<number>();
+    for (const d of this.documents()) if (d.epic_id) ids.add(d.epic_id);
+    if (!ids.size) return [];
+    // 复用 epics() 缓存（按当前项目过滤），跨项目场景下补一个二次回查
+    const known = this.epics();
+    const result: Epic[] = [];
+    const seen = new Set<number>();
+    for (const e of known) {
+      if (ids.has(e.id) && !seen.has(e.id)) { seen.add(e.id); result.push(e); }
+    }
+    return result.sort((a, b) => {
+      const p = this.projectName(a.project_id).localeCompare(this.projectName(b.project_id), 'zh-Hans-CN');
+      return p !== 0 ? p : a.title.localeCompare(b.title, 'zh-Hans-CN');
+    });
+  }
 
-  async openDocModal(mode: 'create' | 'edit'): Promise<void> {
+  async openDocModal(mode: 'create' | 'edit', target?: DocumentItem): Promise<void> {
     if (mode === 'create') {
       const pid = this.project()?.id ?? null;
       if (!pid) {
@@ -6484,8 +6625,12 @@ export class App implements OnInit, OnDestroy {
       }
       this.docModal.set({ mode: 'create' });
     } else {
-      const d = this.docItem();
+      // 列表行点击「编辑」时可能未加载 docItem；优先使用传入的 target
+      const d = target ?? this.docItem();
       if (!d) return;
+      if (!target) {
+        this.docItem.set(d);
+      }
       this.docEditTitle.set(d.title);
       this.docEditContent.set(d.content);
       this.docEditType.set(d.type);

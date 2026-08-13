@@ -3905,11 +3905,18 @@ def get_document(s: Session, id: int) -> Document | None:
     return s.get(Document, id)
 
 
+_DOCUMENT_SORT_WHITELIST = {"updated", "created", "title"}
+
+
 def list_documents(
     s: Session, *, project_id: int | None = None, type: str | None = None,
     status: str | None = None, q: str | None = None,
+    folder_id: int | None = None, author_id: int | None = None,
+    epic_id: int | None = None, story_id: int | None = None,
+    sort: str | None = None,
     limit: int | None = None, offset: int = 0, user_id: int | None = None,
 ):
+    """列出文档，支持丰富的过滤与稳定的排序（向后兼容）。"""
     qry = s.query(Document)
     if project_id is not None:
         qry = qry.filter(Document.project_id == project_id)
@@ -3933,11 +3940,42 @@ def list_documents(
     if status is not None:
         _check_document_status(status)
         qry = qry.filter(Document.status == status)
+    if folder_id is not None:
+        qry = qry.filter(Document.folder_id == folder_id)
+    if author_id is not None:
+        qry = qry.filter(Document.author_id == author_id)
+    if epic_id is not None:
+        qry = qry.filter(Document.epic_id == epic_id)
+    if story_id is not None:
+        qry = qry.filter(Document.story_id == story_id)
     if q:
         like = f"%{q}%"
         qry = qry.filter(or_(Document.title.ilike(like), Document.content.ilike(like)))
-    qry = qry.order_by(Document.updated_at.desc(), Document.id.desc())
+    # 排序：白名单控制，缺省 updated 倒序（与历史行为一致）
+    sort_key = (sort or "updated").lower()
+    if sort_key not in _DOCUMENT_SORT_WHITELIST:
+        raise InvalidValue(
+            f"invalid sort '{sort}' (allowed: {sorted(_DOCUMENT_SORT_WHITELIST)})"
+        )
+    if sort_key == "updated":
+        qry = qry.order_by(Document.updated_at.desc(), Document.id.desc())
+    elif sort_key == "created":
+        qry = qry.order_by(Document.created_at.desc(), Document.id.desc())
+    else:  # title
+        qry = qry.order_by(Document.title.asc(), Document.id.desc())
     return _paginate(qry, limit, offset).all()
+
+
+def count_document_comments(s: Session, document_id: int) -> int:
+    """返回指定文档的评论总数。文档不存在抛 NotFound。"""
+    if not s.get(Document, document_id):
+        raise NotFound(f"document {document_id} not found")
+    return (
+        s.query(func.count(DocumentComment.id))
+        .filter(DocumentComment.document_id == document_id)
+        .scalar()
+        or 0
+    )
 
 
 def update_document(s: Session, id: int, **fields) -> Document | None:

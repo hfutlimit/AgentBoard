@@ -1262,7 +1262,8 @@ def _doc_get(document_id):
     return _http("GET", f"/api/documents/{document_id}")
 
 
-def _doc_list(project_id=None, type=None, status=None, q=None, limit=None, offset=0):
+def _doc_list(project_id=None, type=None, status=None, q=None, limit=None, offset=0,
+              folder_id=None, author_id=None, epic_id=None, story_id=None, sort=None):
     params = {"offset": offset}
     if project_id is not None:
         params["project_id"] = project_id
@@ -1272,6 +1273,16 @@ def _doc_list(project_id=None, type=None, status=None, q=None, limit=None, offse
         params["status"] = status
     if q is not None:
         params["q"] = q
+    if folder_id is not None:
+        params["folder_id"] = folder_id
+    if author_id is not None:
+        params["author_id"] = author_id
+    if epic_id is not None:
+        params["epic_id"] = epic_id
+    if story_id is not None:
+        params["story_id"] = story_id
+    if sort is not None:
+        params["sort"] = sort
     if limit is not None:
         params["limit"] = limit
     return _http("GET", "/api/documents", params=params)
@@ -1328,10 +1339,21 @@ def get_document(document_id: int) -> dict:
 
 @mcp.tool()
 def list_documents(project_id: int | None = None, type: str | None = None,
-                  status: str | None = None, limit: int = 100, offset: int = 0) -> list:
-    """按 project_id / type / status 过滤列出文档。返回文档列表。"""
-    return _doc_list(project_id=project_id, type=type, status=status,
-                     limit=limit, offset=offset)
+                  status: str | None = None, q: str | None = None,
+                  folder_id: int | None = None, author_id: int | None = None,
+                  epic_id: int | None = None, story_id: int | None = None,
+                  sort: str | None = None,
+                  limit: int = 100, offset: int = 0) -> list:
+    """按丰富条件过滤列出文档。sort ∈ {updated, created, title}（默认 updated 倒序）。返回文档列表。"""
+    return _doc_list(project_id=project_id, type=type, status=status, q=q,
+                     folder_id=folder_id, author_id=author_id, epic_id=epic_id,
+                     story_id=story_id, sort=sort, limit=limit, offset=offset)
+
+
+@mcp.tool()
+def count_document_comments(document_id: int) -> dict:
+    """返回指定文档的评论总数。供列表视图按需并发取数。文档不存在返回错误。"""
+    return _http("GET", f"/api/documents/{document_id}/comments/count")
 
 
 @mcp.tool()
