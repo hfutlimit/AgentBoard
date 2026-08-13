@@ -120,6 +120,9 @@ export class App implements OnInit, OnDestroy {
   readonly error = signal('');
   readonly search = signal('');
   readonly sidebarOpen = signal(window.innerWidth > 800);
+  readonly sidebarCollapsed = signal(
+    localStorage.getItem('agentboard_sidebar_collapsed') === 'true'
+  );
   readonly boardMode = signal(localStorage.getItem('agentboard_story_view') === 'board');
   // Task 831: 列表密度切换（舒适 / 紧凑），偏好持久化
   readonly listDensity = signal<'comfortable' | 'compact'>(
@@ -1147,6 +1150,23 @@ export class App implements OnInit, OnDestroy {
     private readonly router: Router,
     @Inject(DOCUMENT) private readonly document: Document,
   ) {}
+
+  toggleSidebar(): void {
+    if (window.innerWidth <= 800) {
+      this.sidebarOpen.set(!this.sidebarOpen());
+      return;
+    }
+
+    this.sidebarOpen.set(true);
+    const collapsed = !this.sidebarCollapsed();
+    this.sidebarCollapsed.set(collapsed);
+    localStorage.setItem('agentboard_sidebar_collapsed', String(collapsed));
+  }
+
+  sidebarToggleLabel(): string {
+    if (window.innerWidth <= 800) return this.sidebarOpen() ? '关闭侧栏' : '打开侧栏';
+    return this.sidebarCollapsed() ? '展开侧栏' : '折叠侧栏';
+  }
 
   ngOnInit(): void {
     // Task 708: 准确的页面加载时间（Navigation Timing API；loadEventEnd 为完整加载耗时）

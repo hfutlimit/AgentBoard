@@ -7,7 +7,7 @@ import { vi } from 'vitest';
 import { ApiService } from './api.service';
 import { App } from './app';
 import { routes } from './app.routes';
-import { DocumentItem, Epic, OverviewStats, ProposalItem, Sprint, Story, Task } from './models';
+import { DocumentItem, Epic, OverviewStats, Project, ProposalItem, Sprint, Story, Task } from './models';
 
 describe('App', () => {
   beforeEach(async () => {
@@ -36,6 +36,58 @@ describe('App', () => {
     fixture.detectChanges();
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('.logo-text')?.textContent).toContain('AgentBoard');
+  });
+
+  it('should collapse the desktop sidebar into a persistent icon rail', async () => {
+    localStorage.removeItem('agentboard_sidebar_collapsed');
+    const width = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280);
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    app.authVisible.set(false);
+    app.loading.set(false);
+    fixture.detectChanges();
+
+    app.toggleSidebar();
+    fixture.detectChanges();
+
+    expect(app.sidebarOpen()).toBe(true);
+    expect(app.sidebarCollapsed()).toBe(true);
+    expect(localStorage.getItem('agentboard_sidebar_collapsed')).toBe('true');
+    expect((fixture.nativeElement as HTMLElement).querySelector('#sidebar')?.classList.contains('sidebar--collapsed')).toBe(true);
+    expect((fixture.nativeElement as HTMLElement).querySelector('#sidebar-toggle')?.getAttribute('aria-label')).toBe('展开侧栏');
+
+    width.mockRestore();
+    localStorage.removeItem('agentboard_sidebar_collapsed');
+  });
+
+  it('should render the simplified story task controls without duplicate status UI', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    const now = '2026-08-13T00:00:00';
+    fixture.detectChanges();
+    await fixture.whenStable();
+    app.authVisible.set(false);
+    app.loading.set(false);
+    app.view.set('story');
+    app.storyTab.set('list');
+    app.project.set({ id: 1, name: 'AgentBoard', key: 'AB', description: '', is_private: false, created_at: now } satisfies Project);
+    app.epic.set({ id: 2, project_id: 1, title: 'UX cleanup', description: '', status: 'in_progress', created_at: now } satisfies Epic);
+    app.story.set({ id: 3, epic_id: 2, title: 'Simplify task page', description: '', status: 'in_progress', created_at: now } satisfies Story);
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('.taskbar')?.textContent).toContain('新建任务');
+    expect(element.querySelector('.export-menu')).not.toBeNull();
+    expect(element.querySelector('.legend')).toBeNull();
+    expect(element.querySelectorAll('.filterbar .toggle')).toHaveLength(1);
+    expect(element.querySelector('#densityToggle')).not.toBeNull();
+
+    app.boardMode.set(true);
+    fixture.detectChanges();
+    expect(element.querySelector('#densityToggle')).toBeNull();
+    expect(element.querySelector('#boardToggle')?.classList).toContain('is-active');
   });
 
   it('should hide technical health controls and render the enterprise user menu', async () => {

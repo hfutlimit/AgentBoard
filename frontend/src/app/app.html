@@ -33,8 +33,10 @@
       <button
         id="sidebar-toggle"
         class="icon-btn"
-        title="切换侧栏"
-        (click)="sidebarOpen.set(!sidebarOpen())"
+        [title]="sidebarToggleLabel()"
+        [attr.aria-label]="sidebarToggleLabel()"
+        [attr.aria-expanded]="sidebarOpen() && !sidebarCollapsed()"
+        (click)="toggleSidebar()"
       >
         ☰
       </button>
@@ -114,7 +116,7 @@
 
 <div class="layout">
   @if (sidebarOpen()) {
-    <aside id="sidebar" class="sidebar">
+    <aside id="sidebar" class="sidebar" [class.sidebar--collapsed]="sidebarCollapsed()">
       <div class="sidebar-workspace">
         <span class="sidebar-workspace-kicker">WORKSPACE</span>
         <strong>项目协作中心</strong>
@@ -123,7 +125,7 @@
       <!-- 一级导航 -->
       <nav class="sidebar-nav">
         <div class="sidebar-nav-caption">核心工作台</div>
-        <a routerLink="/" [class.active]="view() === 'home'" class="sidebar-nav-item">
+        <a routerLink="/" [class.active]="view() === 'home'" class="sidebar-nav-item" title="仪表盘">
           <span class="sidebar-nav-icon">📊</span>
           <span class="sidebar-nav-label">仪表盘</span>
         </a>
@@ -135,7 +137,7 @@
           }
         </a>
         <div class="sidebar-nav-group">
-          <a routerLink="/projects" [class.active]="view() === 'projects'" class="sidebar-nav-item">
+          <a routerLink="/projects" [class.active]="view() === 'projects'" class="sidebar-nav-item" title="项目">
             <span class="sidebar-nav-icon">📁</span>
             <span class="sidebar-nav-label">项目</span>
           </a>
@@ -1644,30 +1646,29 @@
 
               <!-- Task toolbar -->
               <div class="taskbar">
-                <div class="taskbar__title">
-                  Tasks / Bugs
-                  <span class="count-badge">{{ storyTaskTotal() }}</span>
+                <div>
+                  <div class="taskbar__title">
+                    任务
+                    <span class="count-badge">{{ storyTaskTotal() }}</span>
+                  </div>
+                  <p class="taskbar__hint">搜索、筛选并推进当前 Story 的任务</p>
                 </div>
-                <div class="btn-group" role="group" aria-label="视图切换">
-                  <button class="btn is-active" aria-pressed="true">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-                    列表
+                <div class="taskbar__actions">
+                  <details class="export-menu">
+                    <summary class="btn" title="导出任务">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                      导出
+                    </summary>
+                    <div class="export-menu__panel" role="menu">
+                      <button type="button" (click)="exportToCSV()">导出 CSV</button>
+                      <button type="button" (click)="exportToJSON()">导出 JSON</button>
+                    </div>
+                  </details>
+                  <button class="btn btn--primary" (click)="openCreate('task', current.id, project()?.id)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    新建任务
                   </button>
                 </div>
-                <div class="btn-group" role="group" aria-label="导出">
-                  <button class="btn" (click)="exportToCSV()" title="导出为 CSV">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    CSV
-                  </button>
-                  <button class="btn" (click)="exportToJSON()" title="导出为 JSON">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    JSON
-                  </button>
-                </div>
-                <button class="btn btn--primary" (click)="openCreate('task', current.id, project()?.id)">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                  新建
-                </button>
               </div>
 
               <!-- Filter toolbar -->
@@ -1737,18 +1738,14 @@
                     </button>
                   </div>
 
-                  <label class="toggle" title="折叠/展开全部分组">
-                    <input type="checkbox" [checked]="allGroupsCollapsed()" (change)="allGroupsCollapsed() ? expandAllGroups() : collapseAllGroups()" />
-                    <span class="toggle__track" aria-hidden="true"></span>
-                    折叠
-                  </label>
+                  @if (!boardMode()) {
+                    <button id="densityToggle" class="btn density-toggle" type="button" (click)="toggleListDensity()" [title]="listDensity() === 'compact' ? '切换为舒适模式' : '切换为紧凑模式'" [attr.aria-pressed]="listDensity() === 'compact'">
+                      <span class="density-glyph">{{ listDensity() === 'compact' ? '▤' : '▦' }}</span>
+                      <span class="density-label">{{ listDensity() === 'compact' ? '紧凑' : '舒适' }}</span>
+                    </button>
+                  }
 
-                  <button id="densityToggle" class="btn density-toggle" type="button" (click)="toggleListDensity()" [title]="listDensity() === 'compact' ? '切换为舒适模式' : '切换为紧凑模式'" [attr.aria-pressed]="listDensity() === 'compact'">
-                    <span class="density-glyph">{{ listDensity() === 'compact' ? '▤' : '▦' }}</span>
-                    <span class="density-label">{{ listDensity() === 'compact' ? '紧凑' : '舒适' }}</span>
-                  </button>
-
-                  <button id="boardToggle" class="btn view-toggle" type="button" (click)="setBoardMode(!boardMode())" [title]="boardMode() ? '切换为列表视图' : '切换为看板视图'" [attr.aria-pressed]="boardMode()">
+                  <button id="boardToggle" class="btn view-toggle" [class.is-active]="boardMode()" type="button" (click)="setBoardMode(!boardMode())" [title]="boardMode() ? '切换为列表视图' : '切换为看板视图'" [attr.aria-pressed]="boardMode()">
                     <span class="view-glyph">{{ boardMode() ? '▤' : '▦' }}</span>
                     <span class="view-label">{{ boardMode() ? '列表' : '看板' }}</span>
                   </button>
@@ -1853,14 +1850,6 @@
                     </button>
                   }
                 </div>
-              </div>
-
-              <!-- Status legend -->
-              <div class="legend" aria-label="状态色例">
-                <span class="legend__label">状态色例</span>
-                @for (s of statuses; track s) {
-                  <span class="tag tag--{{ statusSemanticClass(s) }}">{{ statusLabel(s) }}</span>
-                }
               </div>
 
               <!-- Epic 76 (v6.3): 激活筛选条件可视化 chips 条（列表与看板视图共用） -->

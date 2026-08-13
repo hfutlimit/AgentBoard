@@ -4410,13 +4410,32 @@ router-outlet {
 .taskbar {
   display: flex; align-items: center; justify-content: space-between;
   gap: var(--space-3, 12px);
-  margin-bottom: var(--space-4, 16px);
+  margin-bottom: var(--space-3, 12px);
   flex-wrap: wrap;
 }
 .taskbar__title {
   display: flex; align-items: center; gap: var(--space-2, 8px);
-  font-size: 16px; font-weight: 600; color: var(--color-text-primary, #1A1A2E);
+  font-size: 18px; font-weight: 700; color: var(--color-text-primary, #1A1A2E);
 }
+.taskbar__hint { margin-top: 2px; color: var(--color-text-tertiary, #9A9AB0); font-size: 12px; }
+.taskbar__actions { display: flex; align-items: center; gap: var(--space-2, 8px); }
+
+.export-menu { position: relative; }
+.export-menu summary { list-style: none; }
+.export-menu summary::-webkit-details-marker { display: none; }
+.export-menu[open] summary { background: var(--color-surface-3, #F0F0F4); border-color: var(--color-border-strong, #D4D4DC); }
+.export-menu__panel {
+  position: absolute; z-index: 40; top: calc(100% + 6px); right: 0;
+  width: 148px; padding: 6px;
+  background: var(--color-surface, #fff); border: 1px solid var(--color-border, #E6E6EC);
+  border-radius: var(--radius-md, 8px); box-shadow: 0 12px 28px rgba(15, 23, 42, .14);
+}
+.export-menu__panel button {
+  width: 100%; padding: 8px 10px; text-align: left;
+  color: var(--color-text-secondary, #6B6B80); background: transparent;
+  border: 0; border-radius: 6px; font: inherit; font-size: 13px; cursor: pointer;
+}
+.export-menu__panel button:hover { color: var(--color-text-primary, #1A1A2E); background: var(--color-surface-3, #F0F0F4); }
 
 /* Button group */
 .btn-group { display: flex; align-items: center; gap: var(--space-1, 4px); }
@@ -4454,15 +4473,21 @@ router-outlet {
 
 /* Filter toolbar */
 .filterbar {
-  display: flex; align-items: center; gap: var(--space-3, 12px);
+  display: grid; gap: var(--space-3, 12px);
   min-height: 44px;
-  padding: var(--space-2, 8px) 0;
+  padding: var(--space-4, 16px);
+  background: color-mix(in srgb, var(--color-surface, #fff) 84%, transparent);
+  border: 1px solid var(--color-border, #E6E6EC);
+  border-radius: var(--radius-lg, 12px);
   border-bottom: 1px solid var(--color-border, #E6E6EC);
-  flex-wrap: wrap;
   margin-bottom: var(--space-4, 16px);
 }
-.filterbar__left { display: flex; align-items: center; gap: var(--space-3, 12px); flex: 1 1 auto; min-width: 0; flex-wrap: wrap; }
-.filterbar__right { display: flex; align-items: center; gap: var(--space-2, 8px); flex-wrap: wrap; }
+.filterbar__left { display: grid; grid-template-columns: minmax(220px, 300px) minmax(0, 1fr); align-items: center; gap: var(--space-3, 12px); min-width: 0; }
+.filterbar__right {
+  display: flex; align-items: center; gap: var(--space-2, 8px); flex-wrap: wrap;
+  padding-top: var(--space-3, 12px); border-top: 1px solid var(--color-border, #E6E6EC);
+}
+.filterbar__right .preset-wrap { margin-left: auto; }
 
 /* Search */
 .search {
@@ -4473,7 +4498,7 @@ router-outlet {
   color: var(--color-text-tertiary, #9A9AB0); pointer-events: none;
 }
 .search input {
-  height: 32px; width: 240px; max-width: 100%;
+  height: 36px; width: 100%; max-width: 100%;
   padding: 0 12px 0 32px;
   border: 1px solid var(--color-border, #E6E6EC);
   border-radius: var(--radius-md, 8px);
@@ -4639,7 +4664,8 @@ router-outlet {
 @media (max-width: 1024px) {
   .layout > .sidebar { width: 200px; min-width: 200px; }
   main { padding: 20px 16px; }
-  .filterbar__left, .filterbar__right { flex-wrap: wrap; }
+  .filterbar__left { grid-template-columns: 1fr; }
+  .filterbar__right { flex-wrap: wrap; }
 }
 @media (max-width: 640px) {
   .layout { flex-direction: column; }
@@ -4652,6 +4678,10 @@ router-outlet {
   .layout > .sidebar .sidebar-section-header,
   .layout > .sidebar .sidebar-section-item { display: none; }
   main { padding: 16px 12px; }
+  .filterbar { padding: 12px; }
+  .filterbar__left { grid-template-columns: 1fr; }
+  .filterbar__right .preset-wrap { margin-left: 0; }
+  .taskbar__hint { display: none; }
   .story-title-left h2 { font-size: 1.125rem; }
   .qf-chip { padding: 4px 10px; font-size: 11px; }
   .task-search-input { width: 100%; min-width: 0; }
@@ -5448,6 +5478,28 @@ h3 { font-size: 16px; line-height: 1.4; font-weight: 650; }
   color: #dbe6f4;
   scrollbar-color: rgba(255, 255, 255, .18) transparent;
 }
+.sidebar.sidebar--collapsed {
+  width: 68px;
+  min-width: 68px;
+  padding: 18px 9px 20px;
+  overflow-x: hidden;
+}
+.sidebar--collapsed .sidebar-workspace,
+.sidebar--collapsed .sidebar-nav-caption,
+.sidebar--collapsed .sidebar-nav-label,
+.sidebar--collapsed .sidebar-sub,
+.sidebar--collapsed .sidebar-favorites,
+.sidebar--collapsed .sidebar-recent { display: none; }
+.sidebar--collapsed .sidebar-nav { padding-top: 0; border-bottom: 0; }
+.sidebar--collapsed .sidebar-nav-item {
+  justify-content: center;
+  width: 48px;
+  min-height: 46px;
+  padding: 10px;
+  gap: 0;
+}
+.sidebar--collapsed .sidebar-nav-item.active { box-shadow: inset 0 0 0 1px rgba(96, 165, 250, .26); }
+.sidebar--collapsed .sidebar-nav-icon { width: 20px; }
 
 .sidebar-workspace {
   display: grid;
@@ -5567,12 +5619,14 @@ h3 { font-size: 16px; line-height: 1.4; font-weight: 650; }
 .sidebar-section-item.active { background: rgba(255,255,255,.07); color: #fff; }
 
 main#app {
+  max-width: none;
   min-width: 0;
   padding: 30px 36px 64px;
   background: transparent;
   animation: enterpriseFade .18s ease-out;
 }
 main#app > * { max-width: 1480px; margin-left: auto; margin-right: auto; }
+main#app > .story-view { max-width: 1680px; }
 @keyframes enterpriseFade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 
 /* Page hierarchy */
@@ -5907,6 +5961,19 @@ select:focus {
     min-width: min(84vw, 292px);
     box-shadow: 16px 0 32px rgba(8,20,39,.22);
   }
+  .sidebar.sidebar--collapsed {
+    width: min(84vw, 292px);
+    min-width: min(84vw, 292px);
+    padding: 18px 14px 20px;
+  }
+  .sidebar--collapsed .sidebar-workspace { display: grid; }
+  .sidebar--collapsed .sidebar-nav-caption,
+  .sidebar--collapsed .sidebar-nav-label,
+  .sidebar--collapsed .sidebar-sub,
+  .sidebar--collapsed .sidebar-favorites,
+  .sidebar--collapsed .sidebar-recent { display: initial; }
+  .sidebar--collapsed .sidebar-nav { padding: 0 0 14px; border-bottom: 1px solid rgba(255, 255, 255, .09); }
+  .sidebar--collapsed .sidebar-nav-item { justify-content: flex-start; width: auto; min-height: 42px; padding: 9px 11px; gap: 11px; }
   main#app { padding: 20px 14px 48px; }
   .hero { min-height: 180px; padding: 24px; }
   .hero-right { align-items: flex-start; }
