@@ -82,10 +82,9 @@ scripts/ab_track_v52.py
 temp/
 temp/**
 # 原始位置兜底（即使有人把它们再放到原位也不入库）
-docs/dispatch-sequence.html
-scripts/deploy/_install_all.ps1
-scripts/deploy/_start_all.ps1
-scripts/deploy/run-web.ps1
-# 注意: scripts/minimax_invoker.py 不在此处忽略 - 它是 Worker → MiniMax API 的正式桥接脚本(2026-08-13 集成提交),需入库
+# - scripts/deploy/_install_all.ps1 / _start_all.ps1  留本地(本机路径/便利脚本,功能已被 install-service.ps1 覆盖)
+# - scripts/minimax_invoker.py / scripts/deploy/run-web.ps1 / docs/design-prototypes/dispatch-sequence.html
+#   已入仓,不在此处忽略
+# 注: docs/dispatch-sequence.html 已迁移到 docs/design-prototypes/dispatch-sequence.html(同款 HTML 集中处)
 tools/
 tools/**

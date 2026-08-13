@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="zh-Hans">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AgentBoard 自动派单时序图 · Dispatch Sequence</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #f7f5f0;
+    --surface: #ffffff;
+    --ink: #14171e;
+    --ink-soft: #3a4256;
+    --muted: #7c7a72;
+    --line: #e9e3d6;
+    --line-soft: #f0ebde;
+    --primary: #2f6f5e;
+    --primary-soft: rgba(47, 111, 94, 0.08);
+    --accent: #c97b3f;
+    --warn: #b06367;
+    --code-bg: #1a1f2e;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 14.5px;
+    line-height: 1.6;
+    font-feature-settings: 'kern' 1, 'liga' 1;
+  }
+  body::before {
+    content: "";
+    position: fixed;
+    top: -200px; right: -200px;
+    width: 500px; height: 500px;
+    background: radial-gradient(circle, rgba(47, 111, 94, 0.06) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  body::after {
+    content: "";
+    position: fixed;
+    bottom: -200px; left: -200px;
+    width: 500px; height: 500px;
+    background: radial-gradient(circle, rgba(201, 123, 63, 0.04) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .container {
+    position: relative;
+    z-index: 1;
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 56px 32px 96px;
+  }
+  /* ---------- HERO ---------- */
+  .hero {
+    margin-bottom: 56px;
+  }
+  .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    color: var(--primary);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+  h1 {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-weight: 400;
+    font-size: 36px;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    margin: 0 0 16px;
+  }
+  .lede {
+    font-size: 16px;
+    color: var(--ink-soft);
+    max-width: 720px;
+    margin: 0 0 32px;
+  }
+  .lede code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    background: var(--primary-soft);
+    color: var(--primary);
+    padding: 1px 6px;
+    border-radius: 3px;
+  }
+  .meta {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    padding: 20px 0;
+    margin-top: 32px;
+  }
+  .meta-item .k {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  .meta-item .v {
+    font-size: 14px;
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .meta-item .v code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    background: var(--line-soft);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--ink-soft);
+  }
+  /* ---------- SECTIONS ---------- */
+  section {
+    margin-bottom: 64px;
+  }
+  h2 {
+    font-family: 'DM Serif Display', serif;
+    font-weight: 400;
+    font-size: 26px;
+    letter-spacing: -0.005em;
+    color: var(--ink);
+    margin: 0 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  h2 svg {
+    flex-shrink: 0;
+    color: var(--primary);
+  }
+  .section-sub {
+    color: var(--muted);
+    font-size: 14px;
+    margin: 0 0 24px;
+    max-width: 720px;
+  }
+  h3 {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 15.5px;
+    color: var(--ink);
+    margin: 24px 0 10px;
+    letter-spacing: -0.005em;
+  }
+  p { margin: 0 0 12px; color: var(--ink-soft); }
+  p code, li code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    background: var(--line-soft);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--ink);
+  }
+  /* ---------- DIAGRAM CARD ---------- */
+  .diagram {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 28px 20px 24px;
+    overflow-x: auto;
+    box-shadow: 0 2px 12px rgba(20, 23, 30, 0.03);
+  }
+  .diagram .mermaid {
+    min-width: 100%;
+    font-family: 'Outfit', sans-serif !important;
+  }
+  /* ---------- LAYER CARDS ---------- */
+  .layers {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-top: 8px;
+  }
+  .layer {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px;
+    position: relative;
+  }
+  .layer-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--primary);
+    margin-bottom: 8px;
+  }
+  .layer h4 {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 600;
+    font-size: 16px;
+    margin: 0 0 8px;
+    color: var(--ink);
+  }
+  .layer p {
+    font-size: 13px;
+    color: var(--ink-soft);
+    margin: 0 0 12px;
+  }
+  .layer .layer-meta {
+    border-top: 1px dashed var(--line);
+    padding-top: 10px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .layer .layer-meta strong {
+    color: var(--ink-soft);
+    font-weight: 500;
+  }
+  /* ---------- TRUTH PANEL ---------- */
+  .truth {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--primary);
+    border-radius: 8px;
+    padding: 20px 24px;
+    margin: 24px 0 0;
+  }
+  .truth-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--primary);
+    margin-bottom: 6px;
+  }
+  .truth-body {
+    font-size: 14px;
+    color: var(--ink-soft);
+    margin: 0;
+  }
+  .truth-body code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    background: var(--primary-soft);
+    color: var(--primary);
+    padding: 1px 6px;
+    border-radius: 3px;
+  }
+  /* ---------- GUARD RAILS ---------- */
+  .guards {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin-top: 8px;
+  }
+  .guard {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 14px 16px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .guard-icon {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    background: var(--primary-soft);
+    color: var(--primary);
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .guard-body { flex: 1; min-width: 0; }
+  .guard-body .gt {
+    font-weight: 600;
+    font-size: 13.5px;
+    color: var(--ink);
+    margin-bottom: 2px;
+  }
+  .guard-body .gd {
+    font-size: 12.5px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .guard-body code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    background: var(--line-soft);
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
+  /* ---------- FOOTER ---------- */
+  footer {
+    margin-top: 72px;
+    padding-top: 20px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  footer code {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--ink-soft);
+  }
+  /* ---------- RESPONSIVE ---------- */
+  @media (max-width: 768px) {
+    .container { padding: 36px 18px 64px; }
+    h1 { font-size: 28px; }
+    h2 { font-size: 22px; }
+    .meta { grid-template-columns: 1fr; gap: 12px; }
+    .layers { grid-template-columns: 1fr; }
+    .guards { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- HERO -->
+  <header class="hero">
+    <div class="eyebrow">Architecture · Epic 122 / 123 / 96</div>
+    <h1>AgentBoard 自动派单时序图</h1>
+    <p class="lede">
+      从 <code>Story.confirm</code> 用户闸门到 <code>Task.done</code> 评审回流的完整链路。
+      三层派单（DB 轮询 / MQ 广播竞争 / MQ 定向）+ CAS 兜底，MQ 消息只做提示，DB 才是事实源。
+    </p>
+    <div class="meta">
+      <div class="meta-item">
+        <div class="k">架构范式</div>
+        <div class="v">事件驱动 + 状态机 <code>CAS claim</code></div>
+      </div>
+      <div class="meta-item">
+        <div class="k">消息中间件</div>
+        <div class="v">RabbitMQ · <code>broadcast / direct queue</code></div>
+      </div>
+      <div class="meta-item">
+        <div class="k">回退路径</div>
+        <div class="v">MQ 不可用 → 自动降级 DB 轮询（P1）</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- 主时序图 -->
+  <section>
+    <h2>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h6l3-9 4 18 3-9h4"/></svg>
+      端到端派单时序
+    </h2>
+    <p class="section-sub">
+      串联六个阶段：用户确认 → 任务广播 → 开发者竞争认领 → Agent 推进 → 评审定向 → Story 收尾。
+    </p>
+
+    <div class="diagram">
+<pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor User as 用户
+    participant API as AgentBoard API
+    participant DB as SQLite
+    participant MQ as RabbitMQ
+    participant WFW as WorkflowWorker
+    participant DW as DevWorker (1..N 实例)
+    participant DA as Dev Agent (codebuddy)
+    participant RW as ReviewerWorker
+    participant RA as Reviewer Agent
+
+    rect rgba(47,111,94,0.06)
+    Note over User,DB: 阶段 1 · Story 确认（用户闸门）
+    User->>API: POST /api/stories/{sid}/confirm
+    API->>DB: UPDATE status=confirmed<br/>(CAS: backlog→confirmed, 一次性)
+    API->>MQ: publish story.confirmed (广播)
+    API-->>User: 200 OK
+    end
+
+    rect rgba(47,111,94,0.06)
+    Note over WFW,MQ: 阶段 2 · 任务发现 → 广播
+    MQ->>WFW: 投递 story.confirmed
+    WFW->>API: GET /api/stories/{sid}/tasks?status=backlog,todo
+    API-->>WFW: tasks[]
+    loop 每个 backlog/todo task
+        WFW->>MQ: publish task.available<br/>(广播到 broadcast queue)
+    end
+    Note right of WFW: MQ 未配置 → publish 为 no-op,<br/>开发者靠轮询 list_tasks 兜底
+    end
+
+    rect rgba(47,111,94,0.06)
+    Note over DW,MQ: 阶段 3 · 开发竞争认领（CAS 1 赢 N-1）
+    MQ->>DW: task.available (N 个 Worker 抢一条)
+    DW->>API: GET /api/tasks/{tid} (回查真实状态)
+    DW->>API: POST /api/tasks/{tid}/claim
+    alt 竞争成功 (rowcount=1)
+        API-->>DW: 200 task (status=in_progress)
+        DW->>DA: invoke(context)<br/>(SubprocessAgentInvoker)
+        DA->>API: 推进 task (MCP: update_task/comment)
+        DA->>API: POST /api/tasks/{tid}/submit-review
+        API->>DB: UPDATE status=in_review (CAS)
+        API->>MQ: publish task.ready_for_review
+    else 409 (已被人认领)
+        API-->>DW: 409 Conflict
+        DW-->>MQ: ack 丢弃 (正确性由 DB 保证)
+    end
+    end
+
+    rect rgba(201,123,63,0.06)
+    Note over WFW,MQ: 阶段 4 · 评审分配（direct queue）
+    MQ->>WFW: 投递 task.ready_for_review
+    WFW->>API: POST /api/tasks/{tid}/assign-reviewer
+    API->>DB: 选 reviewer 候选<br/>(在线 reviewer ∩ 成员 ∩ ≠ assignee, CAS)
+    alt 指派成功
+        API->>MQ: publish task.review.requested<br/>(DIRECT → reviewer agent queue)
+    else 无候选
+        API-->>WFW: 422
+        Note right of API: 退广播，由开发者轮询<br/>list_review_tasks 兜底
+    end
+    end
+
+    rect rgba(47,111,94,0.06)
+    Note over RW,MQ: 阶段 5 · 评审消费
+    MQ->>RW: task.review.requested (定向)
+    RW->>API: GET /api/tasks/{tid} (回查)
+    RW->>RA: invoke(context)
+    RA->>API: POST /api/tasks/{tid}/review {verdict, comment}
+    alt approve
+        API->>DB: UPDATE status=done
+    else reject
+        API->>DB: UPDATE status=in_progress<br/>(回退给 assignee)
+        Note right of API: 连续 5 轮驳回 → blocked 护栏
+    end
+    end
+
+    rect rgba(47,111,94,0.06)
+    Note over API,DB: 阶段 6 · Story 自动收尾
+    API->>API: 监听 task 终态变化
+    alt 所有 task done
+        API->>DB: UPDATE story.status=done
+        Note right of API: Worker 也可调<br/>POST /stories/{sid}/complete
+    else 有 task 仍 pending
+        Note right of API: Story 保持 todo/in_progress,<br/>等下轮 task.available
+    end
+    end
+</pre>
+    </div>
+
+    <div class="truth">
+      <div class="truth-title">设计铁律 · Truth Source</div>
+      <p class="truth-body">
+        MQ 消息 <strong>只带定位信息</strong>（<code>entity_type</code> + <code>entity_id</code>），
+        消费者一律先 <code>GET /api/.../{id}</code> 回查真实状态再决策。
+        MQ 丢失/重复/状态过期都不会导致错误执行 —— <code>DB 才是事实源</code>。
+        MQ 不可用时 <code>run_mq_forever</code> 自动回退 P1 轮询，正确性不变。
+      </p>
+    </div>
+  </section>
+
+  <!-- 三层派单机制 -->
+  <section>
+    <h2>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+      三层派单机制
+    </h2>
+    <p class="section-sub">
+      不是单一机制，而是 <strong>DB 轮询 + MQ 广播 + MQ 定向</strong> 三层并存，按业务域选用。
+    </p>
+
+    <div class="layers">
+      <div class="layer">
+        <div class="layer-tag">P1 · 默认</div>
+        <h4>DB 轮询</h4>
+        <p>
+          <code>poll_once()</code> 周期扫三类工作项：proposal / ticket_request / confirmed story。
+          任何 Worker 实例启动时默认走这条。
+        </p>
+        <div class="layer-meta">
+          <strong>触发</strong>：定时器<br/>
+          <strong>并发</strong>：CAS claim rowcount=1<br/>
+          <strong>兜底</strong>：MQ 不可用时降级
+        </div>
+      </div>
+
+      <div class="layer">
+        <div class="layer-tag">P2 · 广播</div>
+        <h4>MQ 竞争消费</h4>
+        <p>
+          <code>task.available</code> 发到 broadcast queue，N 个 Worker 抢一条。
+          抢到后还要走 DB CAS claim 才算赢，消息只是 hint。
+        </p>
+        <div class="layer-meta">
+          <strong>触发</strong>：story.confirmed 事件<br/>
+          <strong>并发</strong>：RabbitMQ 抢 + DB 二次校验<br/>
+          <strong>冲突</strong>：409 → ack 丢弃
+        </div>
+      </div>
+
+      <div class="layer">
+        <div class="layer-tag">P2 · 定向</div>
+        <h4>MQ 定向投递</h4>
+        <p>
+          <code>task.assigned</code> / <code>review.requested</code> 走 direct exchange，
+          只投到指定 agent 的专属队列，其它 Worker 收不到。
+        </p>
+        <div class="layer-meta">
+          <strong>触发</strong>：assign-reviewer 指派<br/>
+          <strong>并发</strong>：单 consumer 独占<br/>
+          <strong>兜底</strong>：无 agent 绑定退广播
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 护栏与失败兜底 -->
+  <section>
+    <h2>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      护栏与失败兜底
+    </h2>
+    <p class="section-sub">
+      每层都有可观察的失败信号，不会"卡死等天亮"。三连失败 / 五轮驳回 / 超时未决都转人工。
+    </p>
+
+    <div class="guards">
+      <div class="guard">
+        <div class="guard-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <div class="guard-body">
+          <div class="gt">Story 连续 3 次失败 → <code>blocked</code></div>
+          <div class="gd">每次失败 unclaim 回退 confirmed 重入池；累计 3 次置 blocked 转人工（<code>_story_fail</code>）</div>
+        </div>
+      </div>
+
+      <div class="guard">
+        <div class="guard-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <div class="guard-body">
+          <div class="gt">Task 连续 5 轮驳回 → <code>blocked</code></div>
+          <div class="gd">评审 reject 后回退 in_progress；累计 5 轮仍未收敛置 blocked（<code>review_task</code>）</div>
+        </div>
+      </div>
+
+      <div class="guard">
+        <div class="guard-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <div class="guard-body">
+          <div class="gt">评审 30 分钟超时 → 重派 reviewer</div>
+          <div class="gd"><code>scan_review_timeouts</code> 周期扫，未达 5 轮上限则解绑旧 reviewer 重派（<code>assign_task_reviewer</code>）</div>
+        </div>
+      </div>
+
+      <div class="guard">
+        <div class="guard-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        </div>
+        <div class="guard-body">
+          <div class="gt">超租约 processing 停滞 → 自动回收</div>
+          <div class="gd"><code>reclaim_stale</code> / <code>reclaim_stale_ticket_requests</code> 兜底崩溃进程，重置回 queued（<code>maintenance_loop</code>）</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>AgentBoard Dispatch Architecture · Epic 122 / 123 / 96</span>
+    <span>关键文件 <code>agentboard/worker/worker.py</code> · <code>handlers/story.py</code> · <code>workflow_worker.py</code> · <code>api.py</code></span>
+  </footer>
+
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      background: '#ffffff',
+      primaryColor: '#ffffff',
+      primaryTextColor: '#14171e',
+      primaryBorderColor: '#2f6f5e',
+      lineColor: '#2f6f5e',
+      secondaryColor: 'rgba(47,111,94,0.04)',
+      tertiaryColor: 'rgba(201,123,63,0.06)',
+      actorBkg: '#ffffff',
+      actorBorder: '#2f6f5e',
+      actorTextColor: '#14171e',
+      actorLineColor: '#7c7a72',
+      signalColor: '#3a4256',
+      signalTextColor: '#14171e',
+      noteBkgColor: 'rgba(47,111,94,0.06)',
+      noteTextColor: '#14171e',
+      noteBorderColor: '#2f6f5e',
+      activationBorderColor: '#2f6f5e',
+      activationBkgColor: 'rgba(47,111,94,0.12)',
+      sequenceNumberColor: '#ffffff',
+      labelBoxBkgColor: '#2f6f5e',
+      labelBoxBorderColor: '#2f6f5e',
+      labelTextColor: '#ffffff',
+      loopTextColor: '#3a4256',
+      fontFamily: "'Outfit', sans-serif",
+      fontSize: '13px',
+    },
+    sequence: {
+      diagramMarginX: 24,
+      diagramMarginY: 16,
+      actorMargin: 70,
+      width: 160,
+      height: 50,
+      boxMargin: 8,
+      boxTextMargin: 4,
+      noteMargin: 10,
+      messageMargin: 38,
+      mirrorActors: true,
+      bottomMarginAdj: 4,
+      useMaxWidth: true,
+      rightAngles: false,
+      showSequenceNumbers: true,
+      wrap: true,
+      wrapPadding: 8,
+    },
+  });
+</script>
+</body>
+</html>
