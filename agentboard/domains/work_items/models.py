@@ -10,18 +10,22 @@ from ..common.models import Base, utc_now
 class Task(Base):
     __tablename__ = "tasks"
     __table_args__ = (
-        CheckConstraint("type IN ('task','bug','test_execution','design')", name="ck_tasks_type"),
-        CheckConstraint("status IN ('backlog','todo','in_progress','in_review','verifying','done','blocked','in_design','design_pending_review','design_review_approved','final_review')", name="ck_tasks_status"),
+        # Story 265：type 收敛为 4 值（dev/bug/qa/design），原 task/test_execution 已迁移
+        CheckConstraint("type IN ('dev','bug','qa','design')", name="ck_tasks_type"),
+        # Story 265：status 收敛为 5 值（todo/in_progress/in_review/done/blocked）
+        CheckConstraint("status IN ('todo','in_progress','in_review','done','blocked')", name="ck_tasks_status"),
         CheckConstraint("priority IN ('highest','high','medium','low','lowest')", name="ck_tasks_priority"),
     )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
     story_id: Mapped[int | None] = mapped_column(ForeignKey("stories.id"), nullable=True, index=True)
     sprint_id: Mapped[int | None] = mapped_column(ForeignKey("sprints.id"), nullable=True, index=True)
-    type: Mapped[str] = mapped_column(String(10), default=ItemType.TASK)
+    type: Mapped[str] = mapped_column(String(10), default=ItemType.DEV)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
-    status: Mapped[str] = mapped_column(String(40), default=Status.BACKLOG)
+    status: Mapped[str] = mapped_column(String(40), default=Status.TODO)
     priority: Mapped[str] = mapped_column(String(10), default=Priority.MEDIUM)
+    # Story 265：状态原因枚举（done 必填 completed/withdrawn；blocked 必填 4 选 1）
+    status_reason: Mapped[str | None] = mapped_column(String(40), nullable=True)
     description: Mapped[str] = mapped_column(Text, default="")
     spec: Mapped[str] = mapped_column(Text, default="")
     source_spec_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True)

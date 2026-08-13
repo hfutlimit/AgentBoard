@@ -27,12 +27,15 @@ log = logging.getLogger("agentboard.worker.story")
 
 
 def build_story_prompt(context: dict) -> str:
-    """Story 执行模式提示词（Ticket 全流程，2026-08-09）。
+    """Story 执行模式提示词（Story 265 收敛后，5 状态流）。
 
     指示 agent 经 AgentBoard MCP 推进 Story 下 task 的下一步：
-    - 铁律一：needs_design=true 时，**design task 必须先完成评审**
-      （in_design → design_pending_review → design_review_approved），之后才能推进实现 task；
+    - 铁律一：所有 task 走通用 5 状态流 todo→in_progress→in_review→done；
+      design 任务不再有独立评审段（评审段已并入通用流）；
     - 铁律二：实现 task 须走 in_progress → in_review（提交评审）→ 评审通过 → done；
+    - 铁律三：set_status 到 done/blocked 必须传 status_reason（done: completed/withdrawn；
+      blocked: blocked_by_other_ticket/pending_requirement_change/out_of_scope/duplicate）；
+    - 铁律四：re-open done → in_progress 时 status_reason 自动清空；
     - 每完成一个里程碑，同步用 MCP 的 update_story 推进 Story 状态
       （设计完成 → todo；开发中 → in_progress；评审 → in_review；全 done → done）；
     - 一次调用尽量推进所有当前可推进的步骤；全部完成后打印 story_handled。
@@ -43,14 +46,18 @@ def build_story_prompt(context: dict) -> str:
         "你是软件开发执行 Agent。下面的 Story 已被用户确认，请经 AgentBoard MCP 自动推进其下任务。",
         "",
         "## 执行铁律（必须严格遵守）",
-        "1. **顺序约定**：needs_design=true 时，必须先完成「设计」任务（type=design，走 "
-        "in_design → design_pending_review → design_review_approved 评审流），"
-        "评审通过后才能推进「实现」任务（服务端已强制，违反会收到 400）；",
-        "2. 实现任务流程：in_progress（开发）→ in_review（用 submit_task_for_review 提交评审）"
-        "→ 评审通过 → done → 必要时 verifying（测试）；",
-        "3. 每个里程碑完成后，用 MCP `update_story` 同步推进 Story 状态"
-        "（设计完成→todo，开发中→in_progress，评审中→in_review，全部完成→done）；",
-        "4. 一次调用内尽量推进所有当前可推进的步骤；无需等待外部人工输入。",
+        "1. **状态流（Story 265 收敛）**：所有 task 走通用 5 状态流 "
+        "todo → in_progress → in_review → done；设计评审段已下线，"
+        "design 任务与 dev/qa/bug 走完全相同的流；",
+        "2. **实现任务流程**：in_progress（开发）→ in_review（用 submit_task_for_review "
+        "提交评审）→ 评审通过 → done；",
+        "3. **status_reason 强制**：set_status 到 done 必须传 completed/withdrawn；"
+        "到 blocked 必须传 4 选 1（blocked_by_other_ticket / pending_requirement_change / "
+        "out_of_scope / duplicate）；其他状态忽略；",
+        "4. **re-open done**：done → in_progress 时 status_reason 自动清空（无需手动传）；",
+        "5. 每个里程碑完成后，用 MCP `update_story` 同步推进 Story 状态"
+        "（开发中→in_progress，评审中→in_review，全部完成→done）；",
+        "6. 一次调用内尽量推进所有当前可推进的步骤；无需等待外部人工输入。",
         "",
         "## 决策协议（必须严格遵守）",
         "全部可推进步骤完成后，在输出最后打印 JSON：",
@@ -273,11 +280,10 @@ class StoryHandler:
             return False
 
     def _story_all_tasks_done(self, story: dict) -> bool:
-        """Story 下任务是否全部完成（收尾判据）。
+        """Story 下任务是否全部完成（收尾判据，Story 265 收敛后）。
 
-        - 实现 task（type=task）：done 即完成；
-        - design task（type=design）：终态是 design_review_approved（设计评审通过
-          即交付完成，不再流转到 done），故 approved 亦视为完成。
+        - 所有 task（含 design/dev/qa/bug）：终态统一为 done；
+        - 设计评审段已下线，design 任务走通用 todo→in_progress→in_review→done 流。
         """
         sid = story.get("id")
         try:
@@ -288,9 +294,7 @@ class StoryHandler:
             return False
 
         def finished(t: dict) -> bool:
-            if t.get("status") == "done":
-                return True
-            return t.get("type") == "design" and t.get("status") == "design_review_approved"
+            return t.get("status") == "done"
 
         pending = [t for t in tasks if not finished(t)]
         return not pending

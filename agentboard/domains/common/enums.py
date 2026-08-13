@@ -2,26 +2,59 @@ from enum import StrEnum
 
 
 class ItemType(StrEnum):
-    TASK = "task"
+    """任务类型（4 值，Story 265 收敛）。"""
+    # 开发任务（替换旧 'task'）
+    DEV = "dev"
     BUG = "bug"
-    TEST_EXECUTION = "test_execution"
-    # 2026-08-09：设计任务（每个 Story 创建时自动带一个，走 in_design 评审流）
+    # 测试执行（替换旧 'test_execution'）
+    QA = "qa"
+    # 设计任务
     DESIGN = "design"
 
 
 class Status(StrEnum):
-    BACKLOG = "backlog"
+    """任务状态（5 值，Story 265 收敛）。
+
+    设计评审专用段（in_design / design_pending_review / design_review_approved）
+    与最终评审（final_review）已下线，统一归并到通用 5 状态流：
+      todo → in_progress → in_review → done
+    verifying / final_review 等历史阶段视作 in_progress 的子状态，全部回填。
+    """
     TODO = "todo"
     IN_PROGRESS = "in_progress"
     IN_REVIEW = "in_review"
-    VERIFYING = "verifying"
     DONE = "done"
     BLOCKED = "blocked"
-    # 设计评审流（Epic 123）：needs_design=true 的 Story 下 Task 走设计段 + 最终评审
-    IN_DESIGN = "in_design"
-    DESIGN_PENDING_REVIEW = "design_pending_review"
-    DESIGN_REVIEW_APPROVED = "design_review_approved"
-    FINAL_REVIEW = "final_review"
+
+
+class StatusReason(StrEnum):
+    """状态原因枚举（Story 265 新增）。
+
+    - done 状态必填：`completed` / `withdrawn`
+    - blocked 状态必填：`blocked_by_other_ticket` / `pending_requirement_change` /
+      `out_of_scope` / `duplicate`
+    - 其他状态可选（通常为空）。
+    """
+    # done
+    COMPLETED = "completed"
+    WITHDRAWN = "withdrawn"
+    # blocked
+    BLOCKED_BY_OTHER_TICKET = "blocked_by_other_ticket"
+    PENDING_REQUIREMENT_CHANGE = "pending_requirement_change"
+    OUT_OF_SCOPE = "out_of_scope"
+    DUPLICATE = "duplicate"
+
+
+# 各状态允许的 status_reason 取值（Story 265）
+STATUS_REASONS_BY_STATUS: dict[str, set[str]] = {
+    Status.DONE: {StatusReason.COMPLETED, StatusReason.WITHDRAWN},
+    Status.BLOCKED: {
+        StatusReason.BLOCKED_BY_OTHER_TICKET,
+        StatusReason.PENDING_REQUIREMENT_CHANGE,
+        StatusReason.OUT_OF_SCOPE,
+        StatusReason.DUPLICATE,
+    },
+}
 
 
 class Priority(StrEnum):
@@ -51,8 +84,9 @@ class RunStatus(StrEnum):
     CANCELLED = "cancelled"
 
 
-ALL_TYPES = [ItemType.TASK, ItemType.BUG, ItemType.TEST_EXECUTION, ItemType.DESIGN]
+ALL_TYPES = [ItemType.DEV, ItemType.BUG, ItemType.QA, ItemType.DESIGN]
 ALL_STATUSES = list(Status)
+ALL_STATUS_REASONS = list(StatusReason)
 ALL_PRIORITIES = list(Priority)
 ALL_SPRINT_STATUSES = list(SprintStatus)
 ALL_SCHEDULE_TYPES = list(ScheduleType)

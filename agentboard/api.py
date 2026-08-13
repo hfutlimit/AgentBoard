@@ -207,7 +207,8 @@ class ReassignTimeoutIn(BaseModel):
 class TaskIn(BaseModel):
     project_id: int = Field(gt=0)
     title: str = Field(min_length=1, max_length=300)
-    type: str = "task"
+    # Story 265：type 默认值由 task → dev（4 值枚举）
+    type: str = "dev"
     description: str = ""
     spec: str = ""
     priority: str = "medium"
@@ -244,6 +245,8 @@ class StatusIn(BaseModel):
     status: str
     # Epic 123：状态变更原因/备注（写入 task_status_history.reason）
     reason: str = ""
+    # Story 265：状态原因枚举（done/blocked 必填，其他状态忽略）
+    status_reason: str | None = None
 
 
 class SpecAppendIn(BaseModel):
@@ -431,6 +434,8 @@ class ApiKeyPatch(BaseModel):
 class BulkTaskUpdate(BaseModel):
     task_ids: list[int] = Field(..., min_length=1, max_length=100)
     status: str | None = None
+    # Story 265：批量改 status 时可传 status_reason（done/blocked 必填）
+    status_reason: str | None = None
     priority: str | None = None
     sprint_id: int | None = None
     # v3.0 批量指派：新增 assignee_id / clear_assignee（增量字段，向后兼容）
@@ -1504,10 +1509,14 @@ def set_status(
     old_status = task.status if task else None
     uid, _is_admin = _caller_uid_admin(authorization)
     try:
-        result = service.set_status(s, tid, body.status, changed_by=uid, reason=body.reason)
+        result = service.set_status(s, tid, body.status, changed_by=uid,
+                                    reason=body.reason, status_reason=body.status_reason)
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
     except service.IllegalTransition as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except service.InvalidValue as e:
+        # Story 265：status_reason 校验失败 → 400
         raise HTTPException(status_code=400, detail=str(e))
     if pid:
         _invalidate_stats_cache(pid)
@@ -1756,7 +1765,8 @@ def bulk_update_tasks(body: BulkTaskUpdate, authorization: str | None = Header(N
         try:
             updates = {}
             if body.status is not None:
-                service.set_status(s, tid, body.status, changed_by=uid, reason="bulk")
+                service.set_status(s, tid, body.status, changed_by=uid, reason="bulk",
+                                   status_reason=body.status_reason)
             if body.priority is not None:
                 updates["priority"] = body.priority
             if body.sprint_id is not None:

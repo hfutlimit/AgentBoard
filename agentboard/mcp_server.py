@@ -138,8 +138,11 @@ def _task_append_spec(task_id, text):
 def _task_delete(task_id):
     return _http("DELETE", f"/api/tasks/{task_id}")
 
-def _task_status(task_id, status):
-    return _http("PUT", f"/api/tasks/{task_id}/status", json={"status": status})
+def _task_status(task_id, status, status_reason=None):
+    body = {"status": status}
+    if status_reason is not None:
+        body["status_reason"] = status_reason
+    return _http("PUT", f"/api/tasks/{task_id}/status", json=body)
 
 def _task_search(params):
     clean = {k: v for k, v in params.items() if v is not None}
@@ -468,9 +471,14 @@ def append_task_spec(task_id: int, text: str) -> dict:
 
 
 @mcp.tool()
-def set_status(task_id: int, status: str) -> dict:
-    """变更任务状态（校验合法迁移，见文档 FR-5）。"""
-    return _task_status(task_id, status)
+def set_status(task_id: int, status: str, status_reason: str | None = None) -> dict:
+    """变更任务状态（校验合法迁移，见文档 FR-5；Story 265 后 done/blocked 必填 status_reason）。
+
+    status_reason 可选值：
+    - done: completed / withdrawn
+    - blocked: blocked_by_other_ticket / pending_requirement_change / out_of_scope / duplicate
+    """
+    return _task_status(task_id, status, status_reason=status_reason)
 
 
 @mcp.tool()
@@ -858,11 +866,12 @@ def complete_run(run_id: int, output: str, status: str = "success",
 
 
 @mcp.tool()
-def sync_status(task_id: int, status: str, comment: str | None = None) -> dict:
+def sync_status(task_id: int, status: str, comment: str | None = None,
+                status_reason: str | None = None) -> dict:
     """同步任务状态，可选追加评论。
-    status 必须符合状态机合法迁移规则。
+    status 必须符合状态机合法迁移规则（Story 265 后 done/blocked 必填 status_reason）。
     """
-    result = _task_status(task_id, status)
+    result = _task_status(task_id, status, status_reason=status_reason)
     if "error" in result:
         return result
     if comment:
@@ -875,12 +884,16 @@ def sync_status(task_id: int, status: str, comment: str | None = None) -> dict:
 
 # ---------- Epic 20: Batch Operations ----------
 @mcp.tool()
-def batch_update_task_status(task_ids: list[int], new_status: str) -> dict:
-    """批量更新任务状态。
+def batch_update_task_status(task_ids: list[int], new_status: str,
+                              status_reason: str | None = None) -> dict:
+    """批量更新任务状态（Story 265 后状态收敛为 5 值）。
     - task_ids: 任务 ID 列表（最多 100 个）
-    - new_status: 新状态（backlog/todo/in_progress/in_review/verifying/done）
+    - new_status: 新状态（todo/in_progress/in_review/done/blocked）
+    - status_reason: 状态原因（done/blocked 必填，其他可选）
     """
-    payload = {"task_ids": task_ids, "status": new_status}
+    payload: dict = {"task_ids": task_ids, "status": new_status}
+    if status_reason is not None:
+        payload["status_reason"] = status_reason
     return _http("POST", "/api/tasks/bulk-update", json=payload)
 
 

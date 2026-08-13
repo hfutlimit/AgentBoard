@@ -40,7 +40,7 @@ def _patch_http(seq):
 def test_claim_free_task_creates_run():
     """空闲任务（backlog）→ 创建 Run + 推进 in_progress，不复用。"""
     calls = [
-        _task("backlog"),                    # GET task
+        _task("todo"),                    # GET task
         [],                                  # GET runs → 无 active run
         _run(1, "pending", 42),              # POST create run → 返回 run
         {"ok": True},                        # PUT status in_progress
@@ -88,7 +88,7 @@ def test_claim_done_task_rejected():
 def test_claim_reuses_active_run():
     """已有 active Run（running）→ 幂等复用（reused=True），不新建。"""
     calls = [
-        _task("backlog"),        # GET task
+        _task("todo"),        # GET task
         [_run(9, "running", 42)],  # GET list runs → 命中 active run
         {"ok": True},            # PUT status in_progress
         _task("in_progress"),    # GET task 刷新
@@ -106,7 +106,7 @@ def test_claim_reuses_active_run():
 def test_claim_no_reuse_when_run_terminal():
     """已有 Run 但为终态（success/failed）→ 不复用，新建 Run。"""
     calls = [
-        _task("backlog"),                       # GET task
+        _task("todo"),                       # GET task
         [_run(9, "success", 42)],               # GET list runs → 仅终态 run
         _run(10, "pending", 42),                # POST create run → 新 run
         {"ok": True},                           # PUT status
@@ -131,7 +131,7 @@ def test_claim_task_get_error_passthrough():
 def test_claim_create_run_error():
     """创建 Run 失败（如 409/404）→ 返回 error，不推进状态。"""
     calls = [
-        _task("backlog"),
+        _task("todo"),
         [],
         {"error": "run with idempotency_key already exists"},
     ]

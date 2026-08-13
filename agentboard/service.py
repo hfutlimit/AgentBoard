@@ -10,7 +10,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from . import models, auth
 from .models import (
-    ItemType, Status, Priority, SprintStatus, ALL_TYPES, ALL_STATUSES,
+    ItemType, Status, Priority, SprintStatus, ALL_TYPES, ALL_STATUSES, ALL_STATUS_REASONS,
+    STATUS_REASONS_BY_STATUS, StatusReason,
     ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES,
     Agent, Project, Epic, Story, Task, Comment, Sprint, Attachment, AgentSchedule, AgentRun,
     ProjectMember, Notification, User, ApiKey, AuditLog, TaskDependency, WebhookConfig,
@@ -52,46 +53,30 @@ def _parse_due_date(value):
     except (ValueError, TypeError):
         raise InvalidValue(f"invalid due_date format: {value!r}, expected YYYY-MM-DD")
 
-# 合法状态迁移
-# 注：允许从 TODO / IN_PROGRESS 直接标记完成(DONE)，以及 DONE 直接重新打开(TODO)，
-# 以支持任务列表/看板的「快速完成」勾选（A-22）。未改变 API 契约，仅放宽迁移规则。
-# Epic 123 扩展：
-# - in_review → final_review（最终评审，后段共用）；
-# - done → blocked（blocked 全向可达，由 set_status 统一特判）；
-# - 解除 blocked 恢复到 previous_status 由 set_status 动态处理（不在此表）。
+# 合法状态迁移（Story 265 收敛后）
+# 5 状态机：todo / in_progress / in_review / done / blocked
+# 设计评审段与最终评审已下线，design 任务走通用 todo→in_progress→in_review→done 流。
+#
+# 关键规则：
+# - 任意非终态 → blocked 全向可达（set_status 统一特判）；
+# - 解除 blocked 恢复到 previous_status（set_status 动态处理，不在此表特判）；
+# - re-open：done → in_progress（status_reason 自动清空）。
 TRANSITIONS = {
-    Status.BACKLOG: {Status.TODO, Status.BLOCKED},
-    Status.TODO: {Status.IN_PROGRESS, Status.BACKLOG, Status.DONE, Status.BLOCKED},
-    Status.IN_PROGRESS: {Status.IN_REVIEW, Status.VERIFYING, Status.TODO, Status.DONE, Status.BLOCKED},
-    Status.IN_REVIEW: {Status.DONE, Status.IN_PROGRESS, Status.BLOCKED, Status.FINAL_REVIEW},
-    Status.FINAL_REVIEW: {Status.DONE, Status.IN_REVIEW, Status.BLOCKED},
-    Status.VERIFYING: {Status.DONE, Status.IN_PROGRESS, Status.BLOCKED},
-    Status.DONE: {Status.IN_PROGRESS, Status.TODO, Status.BLOCKED},
-    Status.BLOCKED: {Status.TODO, Status.IN_PROGRESS},
-}
-
-# 设计评审段（仅 needs_design=true 注入）：todo 必须先进 in_design（不能直跳 in_progress）
-_DESIGN_SEGMENT = {
-    Status.IN_DESIGN: {Status.DESIGN_PENDING_REVIEW, Status.TODO, Status.BLOCKED},
-    Status.DESIGN_PENDING_REVIEW: {Status.DESIGN_REVIEW_APPROVED, Status.IN_DESIGN, Status.BLOCKED},
-    Status.DESIGN_REVIEW_APPROVED: {Status.IN_PROGRESS, Status.IN_DESIGN, Status.BLOCKED},
+    Status.TODO: {Status.IN_PROGRESS, Status.DONE, Status.BLOCKED},
+    Status.IN_PROGRESS: {Status.IN_REVIEW, Status.TODO, Status.DONE, Status.BLOCKED},
+    Status.IN_REVIEW: {Status.DONE, Status.IN_PROGRESS, Status.BLOCKED},
+    Status.DONE: {Status.IN_PROGRESS, Status.BLOCKED},
+    Status.BLOCKED: {Status.TODO, Status.IN_PROGRESS, Status.IN_REVIEW},
 }
 
 
 def transitions_for(needs_design: bool) -> dict:
-    """按 Story.needs_design 返回任务适用的迁移表（Epic 123）。
+    """返回任务适用的迁移表（Story 265 后所有 Story 走同一张 5 状态表）。
 
-    - needs_design=true：TODO 出边改为 {IN_DESIGN, BACKLOG, DONE, BLOCKED}（必须先进设计评审段）；
-    - needs_design=false：快速流（TODO → IN_PROGRESS）；
-    - blocked 全向可达与解除恢复 previous_status 由 set_status 动态处理，不在此表特判。
+    needs_design 形参保留以兼容旧调用方（现在不影响表内容）；
+    blocked 全向可达与解除恢复 previous_status 由 set_status 动态处理，不在此表特判。
     """
-    if not needs_design:
-        return TRANSITIONS
-    merged = {k: set(v) for k, v in TRANSITIONS.items()}
-    merged[Status.TODO] = {Status.IN_DESIGN, Status.BACKLOG, Status.DONE, Status.BLOCKED}
-    for src, targets in _DESIGN_SEGMENT.items():
-        merged.setdefault(src, set()).update(targets)
-    return merged
+    return TRANSITIONS
 
 
 # Story 强制迁移（Ticket 全流程，2026-08-09）：单步查表 + blocked 全向特判（set_story_status）。
@@ -398,7 +383,7 @@ def create_story(s: Session, *, epic_id: int, title: str, description: str = "",
     s.add_all([
         Task(project_id=epic.project_id, story_id=st.id, type=ItemType.DESIGN,
              title=f"设计：{base}"[:300]),
-        Task(project_id=epic.project_id, story_id=st.id, type=ItemType.TASK,
+        Task(project_id=epic.project_id, story_id=st.id, type=ItemType.DEV,
              title=f"实现：{base}"[:300]),
     ])
     _invalidate_project_stats_cache(epic.project_id)
@@ -1207,7 +1192,7 @@ def list_review_tasks(s: Session, user_id: int, *, status: str | None = None):
 
 # ---------- Task ----------
 def create_task(s: Session, *, project_id: int, story_id: int | None, title: str,
-                type: str = ItemType.TASK, description: str = "", spec: str = "",
+                type: str = ItemType.DEV, description: str = "", spec: str = "",
                 priority: str = Priority.MEDIUM, sprint_id: int | None = None,
                 assignee_id: int | None = None, due_date=None, labels: str = "[]",
                 estimate: float | None = None) -> Task:
@@ -1388,7 +1373,15 @@ def list_task_status_history(s: Session, task_id: int, limit: int = 100):
 
 
 def set_status(s: Session, id: int, new_status: str, *,
-               changed_by: int | None = None, reason: str = "") -> Task | None:
+               changed_by: int | None = None, reason: str = "",
+               status_reason: str | None = None) -> Task | None:
+    """任务状态变更（Story 265 收敛后）。
+
+    校验：
+    - 状态迁移合法性（TRANSITIONS 5 状态表 + blocked 全向可达特判）；
+    - status_reason 枚举：done/blocked 必填且必须合法，其他状态自动清空；
+    - 解除 blocked / re-open done 时自动清空 status_reason。
+    """
     t = s.get(Task, id)
     if not t:
         raise NotFound(f"task {id} not found")
@@ -1397,7 +1390,7 @@ def set_status(s: Session, id: int, new_status: str, *,
     current = Status(t.status)
     if current != new:
         if new == Status.BLOCKED:
-            pass  # blocked 全向可达：任意状态 → blocked（Epic 123）
+            pass  # blocked 全向可达：任意状态 → blocked
         elif current == Status.BLOCKED:
             # 解除阻塞：优先恢复到进入阻塞前的 previous_status
             prev = t.previous_status
@@ -1407,9 +1400,12 @@ def set_status(s: Session, id: int, new_status: str, *,
                 raise IllegalTransition(f"{t.status} -> {new} 不合法")
         elif new not in transitions_for(_task_needs_design(s, t)).get(current, set()):
             raise IllegalTransition(f"{t.status} -> {new} 不合法")
+    # status_reason 校验（Story 265）
+    new_reason = _validate_status_reason(new, status_reason)
     old_status = t.status
     if old_status != new:
         t.status = new
+        t.status_reason = new_reason
         if new == Status.BLOCKED:
             t.previous_status = old_status
         elif old_status == Status.BLOCKED:
@@ -1422,26 +1418,51 @@ def set_status(s: Session, id: int, new_status: str, *,
     return t
 
 
-def claim_development_task(s: Session, task_id: int, *, user_id: int) -> Task:
-    """开发任务竞争认领（Epic 122 切片 2 M1，CAS 并发安全）。
+def _validate_status_reason(new_status: Status, status_reason: str | None) -> str | None:
+    """校验并规范化 status_reason（Story 265）。
 
-    - 条件 UPDATE ``status IN (backlog, todo)`` → ``in_progress + assignee_id=user_id``，
+    - new=done: 必填，必须是 completed/withdrawn 之一；
+    - new=blocked: 必填，必须是 4 个 blocked reason 之一；
+    - 其他状态：清空（不持久化）。
+    """
+    allowed = STATUS_REASONS_BY_STATUS.get(str(new_status))
+    if allowed is None:
+        # 非 done/blocked：清空 reason
+        return None
+    if not status_reason:
+        raise InvalidValue(
+            f"status_reason is required for status={new_status}; "
+            f"allowed: {sorted(allowed)}"
+        )
+    if status_reason not in allowed:
+        raise InvalidValue(
+            f"invalid status_reason '{status_reason}' for status={new_status}; "
+            f"allowed: {sorted(allowed)}"
+        )
+    return status_reason
+
+
+def claim_development_task(s: Session, task_id: int, *, user_id: int) -> Task:
+    """开发任务竞争认领（Epic 122 切片 2 M1，CAS 并发安全；Story 265 后仅认领 todo）。
+
+    - 条件 UPDATE ``status = todo`` → ``in_progress + assignee_id=user_id``，
       rowcount=1 才成功；并发下另一个写者获胜 → 明确错误（含现状）；
     - 复用 Epic 118 护栏语义：已认领（in_progress/in_review 等）或已结束（done/blocked）
       的任务拒绝重复认领，不创建 Run、不改状态；
-    - 认领是「系统操作」，绕开 TRANSITIONS 常规校验（backlog → in_progress 不在常规表内）。
+    - 认领是「系统操作」，绕开 TRANSITIONS 常规校验；
+    - Story 265 收敛：仅 todo 可认领（backlog 已下线，旧 backlog 数据由迁移脚本归并到 todo）。
     """
     t = s.get(Task, task_id)
     if not t:
         raise NotFound(f"task {task_id} not found")
-    if t.status not in (Status.BACKLOG, Status.TODO):
+    if t.status != Status.TODO:
         raise InvalidValue(
             f"task {task_id} already claimed or not claimable (status={t.status})")
     old_status = t.status
     r = s.execute(
         update(Task).where(
             Task.id == task_id,
-            Task.status.in_([Status.BACKLOG, Status.TODO]),
+            Task.status == Status.TODO,
         ).values(status=Status.IN_PROGRESS, assignee_id=user_id)
     )
     if r.rowcount != 1:
@@ -2018,7 +2039,7 @@ def generate_tasks_from_spec(s: Session, task_id: int) -> list:
         if title in existing_titles:
             continue
         t = Task(project_id=src.project_id, story_id=src.story_id,
-                 type=ItemType.TASK, title=title[:300], description=title,
+                 type=ItemType.DEV, title=title[:300], description=title,
                  source_spec_id=task_id)
         s.add(t)
         created.append(t)
@@ -2235,11 +2256,11 @@ def complete_sprint(s: Session, id: int) -> Sprint:
     if sp.status == SprintStatus.COMPLETED:
         raise InvalidValue("sprint is already completed")
     sp.status = SprintStatus.COMPLETED
-    # 未完成任务退回 backlog
+    # Story 265：未完成任务退回 todo（backlog 已下线）
     s.query(Task).filter(
         Task.sprint_id == sp.id,
         Task.status.notin_([Status.DONE])
-    ).update({"sprint_id": None, "status": Status.BACKLOG})
+    ).update({"sprint_id": None, "status": Status.TODO})
     _commit(s); s.refresh(sp); return sp
 
 
@@ -2364,8 +2385,8 @@ PRIORITY_RANK = {
     Priority.LOW: 2, Priority.LOWEST: 1,
 }
 
-#: 执行器可自动领取的任务状态（未开始、可执行的活）
-ELIGIBLE_TASK_STATUSES = (Status.BACKLOG, Status.TODO)
+#: 执行器可自动领取的任务状态（未开始、可执行的活；Story 265 后仅 todo）
+ELIGIBLE_TASK_STATUSES = (Status.TODO,)
 
 
 def _validate_schedule_filters(*, agent, task_priority, task_type, epic_id) -> None:
@@ -3269,10 +3290,12 @@ def get_overview(s: Session, user_id: int | None) -> dict:
 
 # ---------- Epic 20: 批量操作 ----------
 def batch_update_task_status(s: Session, task_ids: list[int], new_status: str,
-                             *, changed_by: int | None = None) -> dict:
-    """批量更新任务状态，返回成功和失败的任务ID列表。"""
+                             *, changed_by: int | None = None,
+                             status_reason: str | None = None) -> dict:
+    """批量更新任务状态，返回成功和失败的任务ID列表（Story 265 后校验 status_reason）。"""
     _check_status(new_status)
     new = Status(new_status)
+    new_reason = _validate_status_reason(new, status_reason)
     updated = []
     errors = []
     for tid in task_ids:
@@ -3296,6 +3319,7 @@ def batch_update_task_status(s: Session, task_ids: list[int], new_status: str,
         old_status = t.status
         if old_status != str(new):
             t.status = new
+            t.status_reason = new_reason
             if new == Status.BLOCKED:
                 t.previous_status = old_status
             elif old_status == Status.BLOCKED:

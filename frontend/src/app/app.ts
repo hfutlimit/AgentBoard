@@ -441,22 +441,17 @@ export class App implements OnInit, OnDestroy {
     }
     return result;
   });
+  // Story 265：状态收敛为 5 值（todo/in_progress/in_review/done/blocked）
   readonly statuses: Status[] = [
-    'backlog',
     'todo',
-    'in_design',
-    'design_pending_review',
-    'design_review_approved',
     'in_progress',
     'in_review',
-    'final_review',
-    'verifying',
     'done',
     'blocked',
   ];
   readonly priorities: Priority[] = ['highest', 'high', 'medium', 'low', 'lowest'];
-  // v5.5: 批量修改任务类型 —— 任务类型枚举（与分组/类型筛选一致）
-  readonly taskTypes: string[] = ['task', 'bug', 'test_execution', 'design'];
+  // Story 265：任务类型收敛为 4 值（dev/bug/qa/design）
+  readonly taskTypes: string[] = ['dev', 'bug', 'qa', 'design'];
 
   readonly visibleProjects = computed(() =>
     this.match(this.projects(), (p) => `${p.name} ${p.key || ''} ${p.description}`),
@@ -612,8 +607,9 @@ export class App implements OnInit, OnDestroy {
     return counts;
   });
   // Epic 37 (v2.5): 状态快速筛选 chips —— 各状态任务计数（基于当前 story 全量任务，不受筛选影响）
+  // Story 265：状态收敛为 5 值
   readonly statusCounts = computed<Record<string, number>>(() => {
-    const counts: Record<string, number> = { backlog: 0, todo: 0, in_design: 0, design_pending_review: 0, design_review_approved: 0, in_progress: 0, in_review: 0, final_review: 0, verifying: 0, done: 0, blocked: 0 };
+    const counts: Record<string, number> = { todo: 0, in_progress: 0, in_review: 0, done: 0, blocked: 0 };
     for (const t of this.tasks()) {
       if (t.status in counts) counts[t.status]++;
     }
@@ -931,16 +927,11 @@ export class App implements OnInit, OnDestroy {
   readonly statStories = computed(() => this.overviewStats()?.counts.stories ?? this.stories().length);
   readonly statTasks = computed(() => this.overviewStats()?.counts.tasks ?? this.tasks().length);
   readonly dashboardStatusChart = computed(() => {
+    // Story 265：状态收敛为 5 值
     const definitions = [
-      { status: 'backlog', label: '待规划', color: '#94a3b8' },
       { status: 'todo', label: '待办', color: '#3b82f6' },
-      { status: 'in_design', label: '设计中', color: '#8b5cf6' },
-      { status: 'design_pending_review', label: '设计待评审', color: '#a78bfa' },
-      { status: 'design_review_approved', label: '设计已评审', color: '#6366f1' },
       { status: 'in_progress', label: '进行中', color: '#06b6d4' },
       { status: 'in_review', label: '评审中', color: '#8b5cf6' },
-      { status: 'final_review', label: '最终评审', color: '#ec4899' },
-      { status: 'verifying', label: '验证中', color: '#f59e0b' },
       { status: 'blocked', label: '已阻塞', color: '#ef4444' },
       { status: 'done', label: '已完成', color: '#10b981' },
     ];
@@ -1035,7 +1026,8 @@ export class App implements OnInit, OnDestroy {
     const list = this.tasks();
     const total = list.length;
     const done = list.filter((t) => t.status === 'done').length;
-    const inProgress = list.filter((t) => ['in_design', 'design_pending_review', 'design_review_approved', 'in_progress', 'in_review', 'final_review', 'verifying'].includes(t.status)).length;
+    // Story 265：状态收敛为 5 值（in_progress/in_review 都算进行中）
+    const inProgress = list.filter((t) => ['in_progress', 'in_review'].includes(t.status)).length;
     const rate = total === 0 ? 0 : Math.round((done / total) * 100);
     const segments = this.statuses
       .map((st) => ({ status: st, count: list.filter((t) => t.status === st).length }))
@@ -4096,16 +4088,10 @@ export class App implements OnInit, OnDestroy {
     return (
       (
         {
-          backlog: '待规划',
-          confirmed: '已确认',
+          // Story 265：状态收敛为 5 值
           todo: '待办',
-          in_design: '设计中',
-          design_pending_review: '设计待评审',
-          design_review_approved: '设计已评审',
           in_progress: '进行中',
           in_review: '评审中',
-          final_review: '最终评审',
-          verifying: '验证中',
           done: '完成',
           blocked: '已阻塞',
         } as Record<string, string>
@@ -4125,33 +4111,29 @@ export class App implements OnInit, OnDestroy {
   }
   // Epic 37 (v2.5): 状态色点（复用既有 statusLabel 做文案）
   statusColor(status: string): string {
+    // Story 265：状态收敛为 5 值
     return (
-      { backlog: '#F59E0B', confirmed: '#F59E0B', todo: '#0EA5E9', in_design: '#8B5CF6', design_pending_review: '#A78BFA', design_review_approved: '#6366F1', in_progress: '#5B5BD6', in_review: '#7C3AED', final_review: '#EC4899', verifying: '#0EA5E9', done: '#16A34A', blocked: '#DC2626' } as Record<string, string>
+      { todo: '#0EA5E9', in_progress: '#5B5BD6', in_review: '#7C3AED', done: '#16A34A', blocked: '#DC2626' } as Record<string, string>
     )[status] || '#94a3b8';
   }
 
   // Story 199: 状态语义色类（warning/info/primary/violet/sky/success/danger）
   statusSemanticClass(status: string): string {
+    // Story 265：状态收敛为 5 值
     return (
-      { backlog: 'warning', confirmed: 'warning', todo: 'info', in_design: 'violet', design_pending_review: 'violet', design_review_approved: 'violet', in_progress: 'primary', in_review: 'violet', final_review: 'info', verifying: 'sky', done: 'success', blocked: 'danger' } as Record<string, string>
+      { todo: 'info', in_progress: 'primary', in_review: 'violet', done: 'success', blocked: 'danger' } as Record<string, string>
     )[status] || 'info';
   }
 
   // Epic 47 (v3.4): 任务列表行内快速状态切换 —— 前端镜像后端 TRANSITIONS 状态机，
   // 仅展示合法的目标状态，调用既有 setTaskStatus 端点，零后端契约变更。
-  // Epic 123: 扩展设计评审段与最终评审；needs_design 分支由后端校验兜底。
+  // Story 265：5 状态机（设计评审段已下线）
   readonly statusTransitions: Record<string, string[]> = {
-    backlog: ['todo', 'blocked'],
-    todo: ['in_design', 'in_progress', 'backlog', 'done', 'blocked'],
-    in_design: ['design_pending_review', 'todo', 'blocked'],
-    design_pending_review: ['design_review_approved', 'in_design', 'blocked'],
-    design_review_approved: ['in_progress', 'in_design', 'blocked'],
-    in_progress: ['in_review', 'verifying', 'todo', 'done', 'blocked'],
-    in_review: ['done', 'in_progress', 'blocked', 'final_review'],
-    final_review: ['done', 'in_review', 'blocked'],
-    verifying: ['done', 'in_progress', 'blocked'],
-    done: ['in_progress', 'todo', 'blocked'],
-    blocked: ['todo', 'in_progress'],
+    todo: ['in_progress', 'done', 'blocked'],
+    in_progress: ['in_review', 'todo', 'done', 'blocked'],
+    in_review: ['done', 'in_progress', 'blocked'],
+    done: ['in_progress', 'blocked'],
+    blocked: ['todo', 'in_progress', 'in_review'],
   };
   readonly statusMenuTaskId = signal<number | null>(null);
   readonly statusMenuPos = signal<{ x: number; y: number } | null>(null);
@@ -5341,12 +5323,10 @@ export class App implements OnInit, OnDestroy {
     return `kanban-card--pri-${priority}`;
   }
 
-  // Task 601: 看板卡片完成进度
+  // Task 601: 看板卡片完成进度（Story 265：5 状态集）
   taskProgressPct(status: Status): number {
     const map: Record<string, number> = {
-      backlog: 0, todo: 15, in_design: 30, design_pending_review: 40,
-      design_review_approved: 50, in_progress: 55, in_review: 75,
-      final_review: 90, verifying: 92, done: 100, blocked: 15,
+      todo: 15, in_progress: 55, in_review: 80, done: 100, blocked: 15,
     };
     return map[status] ?? 0;
   }
@@ -5509,7 +5489,7 @@ export class App implements OnInit, OnDestroy {
   quickAdvanceStatus(): void {
     const task = this.task();
     if (!task) return;
-    const order: Status[] = ['backlog', 'todo', 'in_design', 'design_pending_review', 'design_review_approved', 'in_progress', 'in_review', 'final_review', 'verifying', 'done'];
+    const order: Status[] = ['todo', 'in_progress', 'in_review', 'done'];
     const idx = order.indexOf(task.status);
     if (idx < 0 || idx >= order.length - 1) return;
     void this.changeTaskStatus(order[idx + 1]);

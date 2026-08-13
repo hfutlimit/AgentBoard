@@ -6,7 +6,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from ..common.enums import SprintStatus, Status
+from ..common.enums import SprintStatus
 from ..common.models import Base, utc_now
 
 # Story 状态集合（Ticket 全流程，2026-08-09）：不并入共用 Status 枚举，避免污染 Task 状态机。
@@ -40,7 +40,8 @@ class Epic(Base):
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
-    status: Mapped[str] = mapped_column(String(40), default=Status.BACKLOG)
+    # Story 265：Epic 自身状态机保留 backlog（独立于 Task 5 状态集）
+    status: Mapped[str] = mapped_column(String(40), default="backlog")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
@@ -51,7 +52,8 @@ class Story(Base):
     epic_id: Mapped[int] = mapped_column(ForeignKey("epics.id"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
-    status: Mapped[str] = mapped_column(String(40), default=Status.BACKLOG)
+    # Story 265：Story 自身状态机保留 backlog/confirmed 等（独立于 Task 5 状态集）
+    status: Mapped[str] = mapped_column(String(40), default="backlog")
     # Epic 123：是否需要设计评审段（true=走 in_design→design_pending_review→design_review_approved；
     # false=todo 直接进 in_progress 快速流）。默认 true。
     needs_design: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

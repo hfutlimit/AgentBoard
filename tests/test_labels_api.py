@@ -85,7 +85,7 @@ def test_create_task_with_labels():
         json={
             "project_id": project_id,
             "title": "Task with labels",
-            "type": "task",
+            "type": "dev",  # Story 265：task→dev
             "priority": "high",
             "labels": json.dumps(labels),
         },

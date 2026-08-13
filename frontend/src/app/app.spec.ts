@@ -128,11 +128,10 @@ describe('App', () => {
         { id: 8, name: 'Empty Project', total: 1, done: 0, percent: 0 },
       ],
       status_distribution: [
-        { status: 'backlog', count: 0 },
+        // Story 265：状态收敛为 5 值
         { status: 'todo', count: 0 },
         { status: 'in_progress', count: 0 },
         { status: 'in_review', count: 0 },
-        { status: 'verifying', count: 0 },
         { status: 'blocked', count: 0 },
         { status: 'done', count: 3 },
       ],

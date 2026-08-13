@@ -73,7 +73,7 @@ def seeded():
     return _seed()
 
 
-def _make_task(s, story_id, project_id, title="T", status="backlog", assignee_id=None):
+def _make_task(s, story_id, project_id, title="T", status="todo", assignee_id=None):
     # 直接构造 Task 对象以覆盖任意初始状态（create_task 不暴露 status）
     t = Task(project_id=project_id, story_id=story_id, title=title,
              status=status, assignee_id=assignee_id)
@@ -104,7 +104,8 @@ def test_claim_todo_task(seeded):
         s.rollback()
 
 
-@pytest.mark.parametrize("status", ["in_progress", "in_review", "done", "blocked", "verifying"])
+# Story 265：5 状态集（verifying 已下线，归并到 in_progress；这里只测不可认领的 4 个非 todo 状态）
+@pytest.mark.parametrize("status", ["in_progress", "in_review", "done", "blocked"])
 def test_claim_not_claimable_rejected(seeded, status):
     _, dev, _, _, sid = seeded
     with SessionLocal() as s:
@@ -184,7 +185,7 @@ def test_submit_review_admin_bypass(seeded):
 def test_submit_review_wrong_state_rejected(seeded):
     _, dev, _, _, sid = seeded
     with SessionLocal() as s:
-        t = _make_task(s, sid, seeded[0], title="T-submit-backlog", status="backlog")
+        t = _make_task(s, sid, seeded[0], title="T-submit-backlog", status="todo")
         with pytest.raises(service.InvalidValue) as ei:
             service.submit_task_for_review(s, t.id, user_id=dev)
         assert "not in_progress" in str(ei.value)
@@ -291,7 +292,7 @@ def test_story_ready_broadcasts_available_tasks(seeded):
     """_broadcast_available_tasks（2026-08-09 起由 confirmed 编排辅助调用）：
     拉取 Story 任务 → 每个 backlog/todo 任务广播一次 task.available。"""
     client = _FakeClient(_FakeResponse(200, {"items": [
-        {"id": 11, "status": "backlog"},
+        {"id": 11, "status": "todo"},
         {"id": 12, "status": "todo"},
         {"id": 13, "status": "in_progress"},
         {"id": 14, "status": "done"},

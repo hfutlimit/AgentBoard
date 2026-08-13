@@ -1,6 +1,7 @@
-export type ItemType = 'task' | 'bug' | 'test_execution' | 'design';
-// 2026-08-09 Ticket 全流程：Story 新增 confirmed（用户确认闸门），Task 用不到但同属 Status 联合
-export type Status = 'backlog' | 'confirmed' | 'todo' | 'in_design' | 'design_pending_review' | 'design_review_approved' | 'in_progress' | 'in_review' | 'final_review' | 'verifying' | 'done' | 'blocked';
+// Story 265：状态收敛为 5 值（todo/in_progress/in_review/done/blocked）
+export type ItemType = 'dev' | 'bug' | 'qa' | 'design';
+// Story 自身保留 confirmed（用户确认闸门）但 Task 不再使用 confirmed/backlog
+export type Status = 'todo' | 'in_progress' | 'in_review' | 'done' | 'blocked';
 export type Priority = 'highest' | 'high' | 'medium' | 'low' | 'lowest';
 
 export interface Project {

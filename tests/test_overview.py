@@ -45,8 +45,9 @@ def _seed():
         p2 = service.create_project(s, name="Overview P2")
         service.add_project_member(s, project_id=p1.id, user_id=member.id, role="member")
 
+        # Story 265：状态收敛为 5 值（backlog 已下线 → todo）
         for pid, title, statuses in (
-            (p1.id, "Epic A", ["done", "in_progress", "todo", "backlog", "done"]),
+            (p1.id, "Epic A", ["done", "in_progress", "todo", "todo", "done"]),
             (p2.id, "Epic B", ["done"]),
         ):
             epic = service.create_epic(s, project_id=pid, title=title)
@@ -93,8 +94,8 @@ def test_overview_structure_and_counts(seeded):
     assert set(dist.keys()) == set(service.ALL_STATUSES)
     assert dist["done"] == 3
     assert dist["in_progress"] == 1
-    assert dist["todo"] == 1
-    assert dist["backlog"] == 9  # 自动模板 task 8 个 backlog + 手动 1 个
+    # Story 265：原 backlog 9 个 + 手动 1 个 → todo 共 10 个
+    assert dist["todo"] == 10
     # activity_7d：恰好 7 天，按日升序
     assert len(ov["activity_7d"]) == 7
     days = [row["day"] for row in ov["activity_7d"]]
