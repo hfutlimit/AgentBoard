@@ -146,8 +146,11 @@ def transitions_for(needs_design: bool) -> dict:
     return TRANSITIONS
 
 # Story 强制迁移（Ticket 全流程，2026-08-09）：单步查表 + blocked 全向特判（set_story_status）。
-# 与 Task 的 TRANSITIONS 同模式；Story 无 previous_status（blocked 解除仅限 → todo/in_progress）。
-# confirmed 是「用户确认要做」的人工闸门态，由 confirm_story 专用入口触发（PATCH 亦可）。
+# 与 Task 的 TRANSITIONS 同模式；Story 无 previous_status 字段,
+# 解除 blocked 默认建议回 todo/in_progress,但用户可按实际原因选任何目标态
+# (如 in_review 阶段被外部 reviewer 不可用 block,解除时直接进 verifying 重新指派)。
+# confirmed/backlog 是闸门态,通常不会从 blocked 转入(走 confirm_story 专用入口),
+# 但代码层保留全 8 态可达以避免用户被强约束卡住。
 STORY_TRANSITIONS: dict[str, set[str]] = {
     "backlog":     {"confirmed", "blocked"},
     "confirmed":   {"todo", "blocked"},
@@ -156,7 +159,8 @@ STORY_TRANSITIONS: dict[str, set[str]] = {
     "in_review":   {"verifying", "done", "in_progress", "blocked"},
     "verifying":   {"done", "in_progress", "blocked"},
     "done":        {"in_progress", "todo", "blocked"},
-    "blocked":     {"todo", "in_progress"},
+    "blocked":     {"backlog", "confirmed", "todo", "in_progress",
+                    "in_review", "verifying", "done"},
 }
 
 EDITABLE = {
@@ -560,7 +564,9 @@ def set_story_status(s: Session, id: int, new_status: str, *,
                      changed_by: int | None = None, reason: str = "") -> Story:
     """Story 强制迁移（Ticket 全流程）：单步查表 + blocked 全向可达。
 
-    - 无 previous_status 恢复：Story 解除 blocked 仅允许 → todo / in_progress；
+    - blocked 解除默认建议回 todo / in_progress,但 STORY_TRANSITIONS["blocked"]
+      已放宽到 8 态全可达,用户可按实际原因选任何目标态(如 in_review 阶段
+      reviewer 不可用导致 block,解除时直接进 verifying 重新指派);
     - 变更即写 story_status_history；不变则 no-op。
     """
     st = s.get(Story, id)

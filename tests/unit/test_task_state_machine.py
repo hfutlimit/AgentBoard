@@ -51,6 +51,14 @@ def task(session):
     return t
 
 
+@pytest.fixture(autouse=True)
+def _isolate_task_sm_db(monkeypatch):
+    """重写 AGENTBOARD_DB_URL,防止其他 test 文件 module-load 时
+    覆盖 (test_story_status_machine.py 设了 tempfile,mock 顺序敏感)。
+    """
+    monkeypatch.setenv("AGENTBOARD_DB_URL", "sqlite:///./_test_task_sm_tmp.db")
+
+
 def test_todo_to_in_progress(session, task):
     execute_transition(session, task, Status.IN_PROGRESS.value)
     session.commit()
@@ -114,6 +122,102 @@ def test_unblock_restores_previous_status(session, task):
     session.refresh(task)
     assert task.status == Status.IN_PROGRESS.value
     assert task.previous_status is None  # 解除时清空
+
+
+# ---- unblock 4 目标覆盖(2026-08-14 修复放宽) ------------------------------
+# blocked → 任意 {todo, in_progress, in_review, done} 都允许,
+# 不强制回到 previous_status。previous_status 字段仅作 UI 推荐默认值。
+
+@pytest.mark.parametrize("target", [
+    Status.TODO, Status.IN_PROGRESS, Status.IN_REVIEW, Status.DONE,
+])
+def test_unblock_allows_any_of_4_targets(session, task, target):
+    """in_progress → blocked → unblock to {todo, in_progress, in_review, done}
+    全部允许(都不需要与 previous_status 匹配)。
+    """
+    # 进 in_progress
+    task.status_reason = StatusReason.LEGACY.value
+    session.commit()
+    execute_transition(session, task, Status.IN_PROGRESS.value)
+    session.commit()
+    # 进 blocked
+    task.status_reason = StatusReason.LEGACY.value
+    session.commit()
+    execute_transition(session, task, Status.BLOCKED.value)
+    session.commit()
+    session.refresh(task)
+    assert task.previous_status == Status.IN_PROGRESS.value
+    # unblock 到 target(可能与 previous_status 不同)
+    if target == Status.DONE:
+        task.status_reason = StatusReason.COMPLETED.value
+        session.commit()
+    execute_transition(session, task, target.value)
+    session.commit()
+    session.refresh(task)
+    assert task.status == target.value
+    # 出 blocked 后 previous_status 清空
+    assert task.previous_status is None
+
+
+def test_unblock_error_message_lists_allowed_targets(session, task):
+    """超出 4 目标的 unblock 应抛 IllegalTransition,错误信息列出允许的目标,
+    而不是说 'only previous_status targets are allowed'(误导)。
+
+    用手动 try/except 而非 pytest.raises:在多文件 pytest run 下,
+    pytest.raises context manager 在 IllegalTransition 跨模块抛出时
+    偶发不能 catch(IllegalTransition 来自 state_machine.py 的局部
+    from import,与本测试文件顶层 import 的同名类在 pytest collection
+    期间被重绑过),手动 try/except 不受影响。
+    """
+    from sqlalchemy import text as sql_text
+    # 强制置 blocked(绕过 SM 准备)
+    session.execute(sql_text("UPDATE tasks SET status='blocked' WHERE id=:id"),
+                    {"id": task.id})
+    session.commit()
+    session.refresh(task)
+    # 试图 unblock 到不在 4 目标里的状态(未知状态)
+    raised = None
+    try:
+        execute_transition(session, task, "totally_made_up_status")
+    except IllegalTransition as e:
+        raised = e
+    assert raised is not None, "expected IllegalTransition to be raised"
+    msg = str(raised)
+    # 不应再说"only previous_status targets are allowed"
+    assert "only previous_status targets are allowed" not in msg, (
+        f"误导信息应已删除,实际: {msg!r}"
+    )
+    # 错误信息应该列出允许的目标
+    for t in ("todo", "in_progress", "in_review", "done"):
+        assert t in msg, f"expected {t!r} in error message: {msg!r}"
+
+
+def test_unblock_to_non_previous_status_writes_history(session, task):
+    """in_progress → blocked → unblock to TODO(非 previous_status):
+    history 应正确记录 in_progress→blocked→todo 三段变迁。"""
+    from agentboard.features.work_items.models import TaskStatusHistory
+    # 进 in_progress
+    task.status_reason = StatusReason.LEGACY.value
+    session.commit()
+    execute_transition(session, task, Status.IN_PROGRESS.value)
+    session.commit()
+    # 进 blocked
+    task.status_reason = StatusReason.LEGACY.value
+    session.commit()
+    execute_transition(session, task, Status.BLOCKED.value)
+    session.commit()
+    # unblock to TODO(非 previous_status)
+    execute_transition(session, task, Status.TODO.value)
+    session.commit()
+    # 验证 history 链
+    hist = (session.query(TaskStatusHistory)
+            .filter(TaskStatusHistory.task_id == task.id)
+            .order_by(TaskStatusHistory.id.asc()).all())
+    transitions = [(h.from_status, h.to_status) for h in hist]
+    # 应有 todo→in_progress, in_progress→blocked, blocked→todo
+    assert (Status.TODO.value, Status.IN_PROGRESS.value) in transitions
+    assert (Status.IN_PROGRESS.value, Status.BLOCKED.value) in transitions
+    assert (Status.BLOCKED.value, Status.TODO.value) in transitions
 
 
 def test_done_can_reopen_to_in_progress(session, task):

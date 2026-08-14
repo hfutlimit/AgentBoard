@@ -130,7 +130,10 @@ class TaskStateMachine(StateMachine["Task"]):
         in_progress → in_review, todo, done, blocked
         in_review → done, in_progress, blocked
         done → in_progress, blocked
-        blocked 全向可达;解除优先恢复 previous_status
+        blocked 全向可达(任意非终态 → blocked);
+        解除 blocked 可达 {todo, in_progress, in_review, done} 全 4 态,
+        推荐默认回 previous_status(写入 task.previous_status 字段供 UI 显示),
+        但不强制约束 — 用户按实际原因选目标态。
 
     每次迁移自动:
         1. 校验 status_reason(done/blocked 必填)
@@ -226,6 +229,10 @@ def execute_transition(
 
     校验失败抛 ``IllegalTransition`` / ``InvalidValue``(core.exceptions)。
     业务副作用(历史/缓存/previous_status)由 TransitionSpec 自动跑。
+
+    blocked 解除:代码层 4 目标都允许(todo/in_progress/in_review/done),
+    UI 层可推荐回 previous_status(task.previous_status 字段已写入),
+    但 state machine 不强制约束。
     """
     from ...core.exceptions import IllegalTransition as _IT  # 延迟
     # blocked 全向可达:动态加 spec
@@ -235,9 +242,10 @@ def execute_transition(
         if spec_key not in _task_sm._transitions:
             raise _IT(
                 f"Task cannot transition from {task.status} to {to} "
-                f"(only previous_status targets are allowed)",
+                f"(allowed unblock targets: todo, in_progress, in_review, done)",
                 details={"from": task.status, "to": to,
-                         "previous_status": task.previous_status},
+                         "previous_status": task.previous_status,
+                         "allowed": ["todo", "in_progress", "in_review", "done"]},
             )
     return _task_sm.execute(
         s, task, to,

@@ -54,7 +54,12 @@ def test_story_status_definition():
     assert "pending_review" not in STORY_STATUSES and "ready" not in STORY_STATUSES
     assert STORY_TRANSITIONS["backlog"] == {"confirmed", "blocked"}
     assert STORY_TRANSITIONS["confirmed"] == {"todo", "blocked"}
-    assert STORY_TRANSITIONS["blocked"] == {"todo", "in_progress"}
+    # 2026-08-14 修复:Story 解除 blocked 不再硬约束为 todo/in_progress,
+    # 全 8 态可达(previous_status 字段作 UI 推荐,不在状态机层强制)。
+    assert STORY_TRANSITIONS["blocked"] == {
+        "backlog", "confirmed", "todo", "in_progress",
+        "in_review", "verifying", "done",
+    }
 
 
 def test_update_story_rejects_illegal_transition():
@@ -151,11 +156,73 @@ def test_set_story_status_blocked_all_directions():
         # 任意状态 → blocked 全向可达（backlog→blocked 亦合法）
         st = service.set_story_status(s, sid, "blocked", reason="突发阻塞")
         assert st.status == "blocked"
-        # 解除 blocked 仅限 todo/in_progress
-        with pytest.raises(IllegalTransition):
-            service.set_story_status(s, sid, "done")
-        st = service.set_story_status(s, sid, "todo")
-        assert st.status == "todo"
+        # 2026-08-14 修复:Story 解除 blocked 全 8 态可达,
+        # 不再硬约束仅 todo/in_progress(previous_status 仅作 UI 推荐)。
+        # done 之前是拒绝的,现在也是允许的。
+        st2 = service.set_story_status(s, sid, "done")
+        assert st2.status == "done"
+        # 再次 block,测试回 todo
+        service.set_story_status(s, sid, "blocked", reason="再次阻塞")
+        st3 = service.set_story_status(s, sid, "todo")
+        assert st3.status == "todo"
+
+
+# ---- 2026-08-14 修复:Story unblock 8 态全部允许 ----------------------------
+# blocked → {backlog, confirmed, todo, in_progress, in_review, verifying, done}
+# 全部通过,不再硬约束回 previous_status(虽然 Story 没有 previous_status 字段)。
+# 典型场景:in_review 阶段被外部 reviewer 不可用 block,解除时直接进 verifying
+# 重新指派比退回 todo 更合理。
+@pytest.mark.parametrize("target", [
+    "backlog", "confirmed", "todo", "in_progress",
+    "in_review", "verifying", "done",
+])
+def test_story_unblock_allows_any_of_8_targets(target):
+    """每个 target 独立跑一个 story:backlog → blocked → unblock to target,全 PASS。"""
+    _, _, sid = _seed()
+    with SessionLocal() as s:
+        # backlog → blocked(全向可达)
+        st = service.set_story_status(s, sid, "blocked", reason="阻塞")
+        assert st.status == "blocked"
+        # 解除到 target(可能与默认的 todo/in_progress 完全不同)
+        st2 = service.set_story_status(s, sid, target, reason=f"解除到 {target}")
+        assert st2.status == target, (
+            f"blocked → {target} 应被允许,实际: status={st2.status}"
+        )
+        # history 应记录 blocked→target 这一段
+        hist = service.list_story_status_history(s, sid)
+        last = hist[0]  # 最新的在 0
+        assert (last.from_status, last.to_status) == ("blocked", target)
+
+
+def test_story_unblock_to_in_progress_typical():
+    """典型解除路径:backlog→blocked→in_progress(默认建议,仍可用)。"""
+    _, _, sid = _seed()
+    with SessionLocal() as s:
+        service.set_story_status(s, sid, "blocked", reason="外部依赖延期")
+        st = service.set_story_status(s, sid, "in_progress", reason="恢复")
+        assert st.status == "in_progress"
+
+
+def test_story_unblock_to_done_skip_intermediate():
+    """特殊场景:Story 在 in_review 阶段被 block(reviewer 不可用),
+    解除时直接进 done(已完成大部分工作)而非强制回退到 in_progress。"""
+    _, _, sid = _seed()
+    with SessionLocal() as s:
+        # 走完到 in_review
+        service.set_story_status(s, sid, "confirmed")
+        service.set_story_status(s, sid, "todo")
+        service.set_story_status(s, sid, "in_progress")
+        service.set_story_status(s, sid, "in_review")
+        # reviewer 不可用 → block
+        service.set_story_status(s, sid, "blocked", reason="reviewer 不可用")
+        # 解除时直接 done
+        st = service.set_story_status(s, sid, "done", reason="管理员强制完成")
+        assert st.status == "done"
+        # 完整变迁链
+        hist = service.list_story_status_history(s, sid)
+        chain = [(h.from_status, h.to_status) for h in reversed(hist)]
+        assert ("in_review", "blocked") in chain
+        assert ("blocked", "done") in chain
 
 
 def test_assign_reviewer_deprecated():
