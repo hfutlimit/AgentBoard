@@ -20,7 +20,7 @@ from typing import Any
 
 import httpx
 
-from ... import mq
+from agentboard import mq
 from ..config import ACTION_STORY_HANDLED, AgentDecision
 
 log = logging.getLogger("agentboard.worker.story")

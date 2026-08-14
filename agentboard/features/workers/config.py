@@ -10,7 +10,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from .. import mq
+from agentboard import mq
 
 log = logging.getLogger("agentboard.worker")
 

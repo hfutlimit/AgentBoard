@@ -20,7 +20,7 @@ from typing import Any, Callable
 
 import httpx
 
-from .. import mq
+from agentboard import mq
 from . import heartbeat, maintenance
 from .config import AgentDecision, WorkerConfig, WorkerError
 from .handlers import build_handlers
