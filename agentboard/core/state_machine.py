@@ -17,7 +17,7 @@ from typing import Any, Callable, Generic, TypeVar
 
 from sqlalchemy.orm import Session
 
-from .exceptions import IllegalTransition
+from .exceptions import DomainError, IllegalTransition
 
 log = logging.getLogger("agentboard.state_machine")
 
@@ -140,9 +140,15 @@ class StateMachine(Generic[E]):
             )
 
         # 1) validators
-        err = spec.can_execute(s, entity)
-        if err:
-            raise IllegalTransition(err, details={"transition": spec.name, "from": from_state, "to": to})
+        # 校验器可以返回错误字符串(包装为 IllegalTransition)或直接抛领域异常
+        # (如 InvalidValue)。后者保留原始 exception type,便于上层精确捕获。
+        for validator in spec.validators:
+            try:
+                err = validator(s, entity, to)
+            except DomainError:
+                raise  # 让领域异常原样传播
+            if err:
+                raise IllegalTransition(err, details={"transition": spec.name, "from": from_state, "to": to})
 
         # 2) side effects(状态变更前)
         for fx in spec.side_effects:

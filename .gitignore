@@ -30,6 +30,10 @@ tmp/**
 # 测试运行期自动生成的截图（脚本本身写出的副产物，不入库）
 screenshots/
 screenshots/**
+
+# 单测临时 sqlite 文件（tests/unit/test_task_state_machine.py 等）
+_test_*.db
+_test_*.db-journal
 tests/screenshots/
 tests/screenshots/**
 # scripts/ 下散落的 *.png 是各 verify_* 调试脚本的副产物
