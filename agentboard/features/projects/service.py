@@ -18,7 +18,7 @@ from ...core.exceptions import (
     Conflict, InvalidValue, NotFound,
 )
 from ...core.service_helpers import (
-    _commit, _invalidate_project_stats_cache, _paginate, _required,
+    _check_status, _commit, _invalidate_project_stats_cache, _paginate, _required,
 )
 from .models import (
     Epic, Project, ProjectMember, ReviewVote, Sprint, Story, StoryStatusHistory,
