@@ -17,6 +17,21 @@ STORY_STATUSES = {"backlog", "confirmed", "todo", "in_progress", "in_review",
                   "verifying", "done", "blocked"}
 STORY_REVIEW_STATUSES = set()  # 历史兼容占位：Story 级评审态已下线（恒空）
 
+# Story 状态迁移表（与 service.py 顶部原 STORY_TRANSITIONS 一致）：
+# 单步查表 + blocked 全向特判（set_story_status）。Story 无 previous_status
+# （blocked 解除仅限 → todo/in_progress）。confirmed 是「用户确认要做」的人工
+# 闸门态，由 confirm_story 专用入口触发（PATCH 亦可）。
+STORY_TRANSITIONS: dict[str, set[str]] = {
+    "backlog":     {"confirmed", "blocked"},
+    "confirmed":   {"todo", "blocked"},
+    "todo":        {"in_progress", "backlog", "blocked"},
+    "in_progress": {"in_review", "todo", "blocked"},
+    "in_review":   {"verifying", "done", "in_progress", "blocked"},
+    "verifying":   {"done", "in_progress", "blocked"},
+    "done":        {"in_progress", "todo", "blocked"},
+    "blocked":     {"todo", "in_progress"},
+}
+
 STORY_STATUS_SQL = "status IN ('backlog','confirmed','todo','in_progress','in_review','verifying','done','blocked')"
 
 

@@ -10,17 +10,23 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
 
 from ... import models  # 顶层 facade,保持兼容
+
+log = logging.getLogger("agentboard.features.notifications.service")
+
 from ...core.exceptions import (
     Conflict, InvalidValue, NotFound,
+    InvalidValue,
+    NotFound,
 )
+
 from ...core.service_helpers import (
     _commit, _invalidate_project_stats_cache, _paginate, _required,
 )
 
-log = logging.getLogger("agentboard.features.notifications.service")
 
 from ..identity.models import Notification, User
 
@@ -51,7 +57,6 @@ def create_notification(
     s.add(n); _commit(s); s.refresh(n); return n
 
 
-
 def search_notifications(s: Session, user_id: int, q: str, limit: int = 20):
     """当前用户通知关键词搜索（title/content），供命令面板等场景使用（v6.15）。
 
@@ -67,13 +72,11 @@ def search_notifications(s: Session, user_id: int, q: str, limit: int = 20):
     return qry.limit(limit).all()
 
 
-
 def mark_notification_read(s: Session, notif_id: int, user_id: int) -> Notification | None:
     n = s.get(Notification, notif_id)
     if not n or n.user_id != user_id:
         return None
     n.is_read = True; _commit(s); s.refresh(n); return n
-
 
 
 def list_notifications(
@@ -85,7 +88,6 @@ def list_notifications(
         q = q.filter(Notification.is_read == False)
     total = q.count()
     return _paginate(q.order_by(Notification.created_at.desc()), limit, offset).all(), total
-
 
 
 def mark_all_notifications_read(s: Session, user_id: int) -> int:

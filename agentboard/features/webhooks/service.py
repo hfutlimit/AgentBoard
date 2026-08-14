@@ -10,17 +10,23 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
 
 from ... import models  # 顶层 facade,保持兼容
+
+log = logging.getLogger("agentboard.features.webhooks.service")
+
 from ...core.exceptions import (
     Conflict, InvalidValue, NotFound,
+    InvalidValue,
+    NotFound,
 )
+
 from ...core.service_helpers import (
     _commit, _invalidate_project_stats_cache, _paginate, _required,
 )
 
-log = logging.getLogger("agentboard.features.webhooks.service")
 
 from ..work_items.models import WebhookConfig
 from ..projects.models import Project
@@ -31,7 +37,6 @@ def list_webhooks(s: Session, *, project_id: int | None = None) -> list[WebhookC
     if project_id is not None:
         qry = qry.filter(WebhookConfig.project_id == project_id)
     return qry.order_by(WebhookConfig.created_at.desc()).all()
-
 
 
 def fire_webhook(webhook: WebhookConfig, event: str, payload: dict) -> bool:
@@ -56,7 +61,6 @@ def fire_webhook(webhook: WebhookConfig, event: str, payload: dict) -> bool:
         return 200 <= resp.status_code < 300
     except Exception:
         return False
-
 
 
 def get_webhook_project_id(s: Session, webhook_id: int) -> int | None:
@@ -138,7 +142,6 @@ def create_webhook(
     return wh
 
 
-
 def toggle_webhook(s: Session, webhook_id: int, enabled: bool) -> WebhookConfig:
     """启用/停用 Webhook。"""
     wh = s.get(WebhookConfig, webhook_id)
@@ -147,7 +150,6 @@ def toggle_webhook(s: Session, webhook_id: int, enabled: bool) -> WebhookConfig:
     wh.enabled = enabled
     _commit(s)
     return wh
-
 
 
 def delete_webhook(s: Session, webhook_id: int) -> None:

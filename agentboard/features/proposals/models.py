@@ -262,3 +262,7 @@ class ProposalTicketRequest(Base):
     error: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
+
+
+# Proposal 状态机的 claim 租约过期秒数(用于 reclaim_stale_proposals 等)
+DEFAULT_CLAIM_LEASE_SECONDS = 1800

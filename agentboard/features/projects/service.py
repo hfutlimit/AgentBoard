@@ -14,19 +14,57 @@ from sqlalchemy.orm import Session
 
 from ... import models  # 顶层 facade,保持兼容
 from ...core.common.enums import ItemType, SprintStatus, Status
-from ...core.exceptions import (
-    Conflict, InvalidValue, NotFound,
-)
-from ...core.service_helpers import (
-    _check_status, _commit, _invalidate_project_stats_cache, _paginate, _required,
-)
-from .models import (
-    Epic, Project, ProjectMember, ReviewVote, Sprint, Story, StoryStatusHistory,
-)
 from ..identity.models import User
 from ..work_items.models import Task
 
 log = logging.getLogger("agentboard.features.projects.service")
+
+from ...core.exceptions import (
+    Conflict, InvalidValue, NotFound,
+    Duplicate,
+    IllegalTransition,
+    InvalidValue,
+    NotFound,
+)
+
+from ...core.service_helpers import (
+    _check_status, _commit, _invalidate_project_stats_cache, _paginate, _required,
+)
+
+from .models import (
+    Epic, Project, ProjectMember, ReviewVote, Sprint, Story, StoryStatusHistory,
+    Epic,
+    Project,
+    ProjectMember,
+    STORY_STATUSES,
+    STORY_TRANSITIONS,
+    Sprint,
+    Story,
+)
+
+from ..documents.models import (
+    Document,
+    DocumentComment,
+)
+
+from ..proposals.models import (
+    Proposal,
+    ProposalQuestion,
+    ProposalRound,
+)
+
+from ..scheduling.models import (
+    AgentRun,
+    AgentSchedule,
+)
+
+from ..work_items.models import (
+    Attachment,
+    Comment,
+    TaskDependency,
+    WebhookConfig,
+)
+
 
 def get_story_project_id(s: Session, story_id: int) -> int | None:
     st = s.get(Story, story_id)
@@ -36,11 +74,9 @@ def get_story_project_id(s: Session, story_id: int) -> int | None:
     return e.project_id if e else None
 
 
-
 def list_sprints(s: Session, project_id: int, limit: int | None = None, offset: int = 0):
     q = s.query(Sprint).filter(Sprint.project_id == project_id)
     return _paginate(q, limit, offset).all()
-
 
 
 def create_epic(s: Session, *, project_id: int, title: str, description: str = "") -> Epic:
@@ -52,7 +88,6 @@ def create_epic(s: Session, *, project_id: int, title: str, description: str = "
     # Story 创建会自动带 design + 开发 Task，即「创建 Epic 默认创建 Story/Task」。
     create_story(s, epic_id=ep.id, title=ep.title, description=ep.description)
     return ep
-
 
 
 def update_sprint(s: Session, id: int, **fields) -> Sprint | None:
@@ -69,7 +104,6 @@ def update_sprint(s: Session, id: int, **fields) -> Sprint | None:
         elif k == "end_date" and v is not None:
             sp.end_date = v
     _commit(s); s.refresh(sp); return sp
-
 
 
 def get_project_stats(s: Session, project_id: int) -> dict:
@@ -168,7 +202,6 @@ def complete_sprint(s: Session, id: int) -> Sprint:
     _commit(s); s.refresh(sp); return sp
 
 
-
 def remove_project_member(s: Session, project_id: int, user_id: int) -> bool:
     pm = (
         s.query(ProjectMember)
@@ -189,11 +222,9 @@ def remove_project_member(s: Session, project_id: int, user_id: int) -> bool:
     s.delete(pm); _commit(s); return True
 
 
-
 def list_projects(s: Session, limit: int | None = None, offset: int = 0):
     q = s.query(Project).order_by(Project.id.desc())
     return _paginate(q, limit, offset).all()
-
 
 
 def get_sprint_burndown(s: Session, sprint_id: int) -> dict:
@@ -255,10 +286,8 @@ def get_sprint_burndown(s: Session, sprint_id: int) -> dict:
     }
 
 
-
 def get_epic(s: Session, id: int) -> Epic | None:
     return s.get(Epic, id)
-
 
 
 def delete_sprint(s: Session, id: int) -> bool:
@@ -272,12 +301,10 @@ def delete_sprint(s: Session, id: int) -> bool:
     s.delete(sp); _commit(s); return True
 
 
-
 def list_project_members(s: Session, project_id: int, limit: int | None = None, offset: int = 0) -> tuple[list, int]:
     q = s.query(ProjectMember).filter(ProjectMember.project_id == project_id)
     total = q.count()
     return _paginate(q.order_by(ProjectMember.joined_at.desc()), limit, offset).all(), total
-
 
 
 def update_epic(s: Session, id: int, **fields) -> Epic | None:
@@ -294,11 +321,9 @@ def update_epic(s: Session, id: int, **fields) -> Epic | None:
     _commit(s); s.refresh(ep); return ep
 
 
-
 def get_sprint_project_id(s: Session, sprint_id: int) -> int | None:
     sp = s.get(Sprint, sprint_id)
     return sp.project_id if sp else None
-
 
 
 def delete_project(s: Session, id: int) -> bool:
@@ -374,10 +399,17 @@ def list_epics(s: Session, project_id: int, limit: int | None = None, offset: in
     return _paginate(q, limit, offset).all()
 
 
-
 def get_project(s: Session, id: int) -> Project | None:
     return s.get(Project, id)
 
+
+def _record_story_status_history(s: Session, story_id: int, from_status: str, to_status: str,
+                                 *, changed_by: int | None = None, reason: str = "") -> None:
+    """Story 状态变更历史（story_status_history）：全部状态变更路径统一调用。"""
+    s.add(StoryStatusHistory(
+        story_id=story_id, from_status=from_status, to_status=to_status,
+        changed_by=changed_by, reason=reason or "",
+    ))
 
 
 def update_story(s: Session, id: int, **fields) -> Story | None:
@@ -408,7 +440,6 @@ def update_story(s: Session, id: int, **fields) -> Story | None:
     return st
 
 
-
 def create_story(s: Session, *, epic_id: int, title: str, description: str = "",
                  needs_design: bool = True) -> Story:
     """创建 Story，并自动创建 2 个默认 Task（2026-08-09 文档 #60）：
@@ -437,7 +468,6 @@ def create_story(s: Session, *, epic_id: int, title: str, description: str = "",
     _commit(s); s.refresh(st); return st
 
 
-
 def create_sprint(s: Session, *, project_id: int, title: str,
                   goal: str = "", start_date=None, end_date=None) -> Sprint:
     if not s.get(Project, project_id):
@@ -447,7 +477,6 @@ def create_sprint(s: Session, *, project_id: int, title: str,
                 goal=goal or "",
                 start_date=start_date, end_date=end_date)
     s.add(sp); _commit(s); s.refresh(sp); return sp
-
 
 
 def update_project_member_role(s: Session, project_id: int, user_id: int, role: str) -> ProjectMember | None:
@@ -461,7 +490,6 @@ def update_project_member_role(s: Session, project_id: int, user_id: int, role: 
     if role not in ("owner", "member"):
         raise InvalidValue("role must be 'owner' or 'member'")
     pm.role = role; _commit(s); s.refresh(pm); return pm
-
 
 
 def delete_epic(s: Session, id: int) -> bool:
@@ -510,10 +538,8 @@ def activate_sprint(s: Session, id: int) -> Sprint:
     _commit(s); s.refresh(sp); return sp
 
 
-
 def get_story(s: Session, id: int) -> Story | None:
     return s.get(Story, id)
-
 
 
 def add_project_member(
@@ -537,7 +563,6 @@ def add_project_member(
     s.add(pm); _commit(s); s.refresh(pm); return pm
 
 
-
 def update_project(s: Session, id: int, **fields) -> Project | None:
     p = s.get(Project, id)
     if not p:
@@ -558,10 +583,8 @@ def update_project(s: Session, id: int, **fields) -> Project | None:
     return p
 
 
-
 def get_sprint(s: Session, id: int) -> Sprint | None:
     return s.get(Sprint, id)
-
 
 
 def create_project(s: Session, *, name: str, key=None, description: str = "", is_private: bool | None = None) -> Project:
@@ -576,7 +599,6 @@ def create_project(s: Session, *, name: str, key=None, description: str = "", is
     _commit(s, duplicate=f"project key '{key}' already exists" if key else None)
     s.refresh(p)
     return p
-
 
 
 def delete_story(s: Session, id: int) -> bool:
@@ -598,9 +620,756 @@ def get_epic_project_id(s: Session, epic_id: int) -> int | None:
     return e.project_id if e else None
 
 
-
 def list_stories(s: Session, epic_id: int, limit: int | None = None, offset: int = 0):
     q = s.query(Story).filter(Story.epic_id == epic_id)
     return _paginate(q, limit, offset).all()
 
 
+
+
+# ---- 同步自 service.py ----
+def user_is_project_member(s: Session, project_id: int, user_id: int | None) -> bool:
+    if user_id is None:
+        return False
+    return (
+        s.query(ProjectMember)
+        .filter(ProjectMember.project_id == project_id, ProjectMember.user_id == user_id)
+        .first()
+        is not None
+    )
+
+# ---- 同步自 service.py ----
+def user_is_project_owner(s: Session, project_id: int, user_id: int | None) -> bool:
+    if user_id is None:
+        return False
+    return (
+        s.query(ProjectMember)
+        .filter(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == user_id,
+            ProjectMember.role == "owner",
+        )
+        .first()
+        is not None
+    )
+
+# ---- 同步自 service.py ----
+def get_task_project_id(s: Session, task_id: int) -> int | None:
+    t = s.get(Task, task_id)
+    if not t:
+        return None
+    return get_story_project_id(s, t.story_id)
+
+# ---- 同步自 service.py ----
+def get_schedule_project_id(s: Session, schedule_id: int) -> int | None:
+    sch = s.get(AgentSchedule, schedule_id)
+    return sch.project_id if sch else None
+
+# ---- 同步自 service.py ----
+def get_comment_project_id(s: Session, comment_id: int) -> int | None:
+    c = s.get(Comment, comment_id)
+    if not c:
+        return None
+    if c.task_id is not None:
+        return get_task_project_id(s, c.task_id)
+    if c.story_id is not None:
+        return get_story_project_id(s, c.story_id)
+    if c.epic_id is not None:
+        return get_epic_project_id(s, c.epic_id)
+    return None
+
+# ---- 同步自 service.py ----
+def get_dependency_project_id(s: Session, dependency_id: int) -> int | None:
+    d = s.get(TaskDependency, dependency_id)
+    if not d:
+        return None
+    return get_task_project_id(s, d.task_id)
+
+# ---- 同步自 service.py ----
+def get_webhook_project_id(s: Session, webhook_id: int) -> int | None:
+    wh = s.get(WebhookConfig, webhook_id)
+    return wh.project_id if wh else None
+
+# ---- 同步自 service.py ----
+def get_attachment_project_id(s: Session, attachment_id: int) -> int | None:
+    a = s.get(Attachment, attachment_id)
+    if not a:
+        return None
+    return get_task_project_id(s, a.task_id)
+
+# ---- 同步自 service.py ----
+def list_accessible_projects(
+    s: Session, user_id: int | None, limit: int | None = None, offset: int = 0,
+) -> tuple[list, int]:
+    """返回用户可见的项目列表。
+
+    访问规则（2026-07-21 邀请制）：
+    - 管理员：可见全部项目（``user.is_admin=True``）。
+    - 普通用户：仅可见自己是成员的项目（邀请制）。
+    - 未登录：空列表。
+
+    ``abk_`` API Key 经 ``_current_user()`` 解析为关联用户的完整身份
+    （含 ``is_admin``），因此权限与用户一致 —— 管理员 key 可见全部，
+    普通用户 key 仅见成员项目。
+    """
+    if user_id is None:
+        q = s.query(Project).filter(False)  # 未登录 → 空
+        total = 0
+        return _paginate(q.order_by(Project.id.desc()), limit, offset).all(), total
+
+    user = s.get(User, user_id)
+    if user and user.is_admin:
+        # 管理员：全量
+        q = s.query(Project)
+    else:
+        # 普通用户：仅成员项目
+        member_project_ids = [
+            r[0]
+            for r in s.query(ProjectMember.project_id)
+            .filter(ProjectMember.user_id == user_id)
+            .all()
+        ]
+        if member_project_ids:
+            q = s.query(Project).filter(Project.id.in_(member_project_ids))
+        else:
+            q = s.query(Project).filter(False)  # 无成员项目 → 空
+    total = q.count()
+    return _paginate(q.order_by(Project.id.desc()), limit, offset).all(), total
+
+# ---- 同步自 service.py ----
+def list_user_projects(
+    s: Session, user_id: int, *, role: str | None = None,
+    limit: int | None = None, offset: int = 0,
+) -> tuple[list[tuple[Project, str]], int]:
+    q = (
+        s.query(Project, ProjectMember.role)
+        .join(ProjectMember, ProjectMember.project_id == Project.id)
+        .filter(ProjectMember.user_id == user_id)
+    )
+    if role is not None:
+        if role not in {"owner", "member"}:
+            raise InvalidValue("role must be 'owner' or 'member'")
+        q = q.filter(ProjectMember.role == role)
+    total = q.count()
+    return _paginate(q.order_by(Project.id.desc()), limit, offset).all(), total
+
+# ---- 同步自 service.py ----
+def get_overview(s: Session, user_id: int | None) -> dict:
+    """跨项目聚合统计：首页 Dashboard 单请求数据源。
+
+    可见性规则与 ``list_accessible_projects`` 一致：
+    - 管理员：全部项目；
+    - 普通用户：仅成员项目；
+    - 未登录（user_id=None）：空。
+
+    返回结构：
+    {
+      "counts": {"projects": N, "epics": N, "stories": N, "tasks": N, "done_tasks": N},
+      "projects": [{"id", "name", "total", "done", "percent"}],   # 按 total 降序
+      "status_distribution": [{"status", "count"}],                # 仅 count>0，按 ALL_STATUSES 顺序
+      "activity_7d": [{"day", "count"}],                           # 近 7 天（含 0），按日升序
+    }
+    """
+    from datetime import timedelta, datetime as dt
+    from sqlalchemy import case
+
+    projects, _ = list_accessible_projects(s, user_id)
+    project_ids = [p.id for p in projects]
+    if not project_ids:
+        return {
+            "counts": {"projects": 0, "epics": 0, "stories": 0, "tasks": 0, "done_tasks": 0},
+            "projects": [],
+            "status_distribution": [],
+            "activity_7d": [],
+        }
+
+    epic_count = (
+        s.query(func.count(Epic.id)).filter(Epic.project_id.in_(project_ids)).scalar() or 0
+    )
+    story_count = (
+        s.query(func.count(Story.id))
+        .join(Epic, Story.epic_id == Epic.id)
+        .filter(Epic.project_id.in_(project_ids))
+        .scalar() or 0
+    )
+    task_count = (
+        s.query(func.count(Task.id)).filter(Task.project_id.in_(project_ids)).scalar() or 0
+    )
+    done_tasks = (
+        s.query(func.count(Task.id))
+        .filter(Task.project_id.in_(project_ids), Task.status == Status.DONE)
+        .scalar() or 0
+    )
+
+    # 各项目任务进度（含 0 任务项目，按 total 降序）
+    per_project = dict(
+        s.query(Task.project_id, func.count(Task.id))
+        .filter(Task.project_id.in_(project_ids))
+        .group_by(Task.project_id)
+        .all()
+    )
+    per_project_done = dict(
+        s.query(Task.project_id, func.count(Task.id))
+        .filter(Task.project_id.in_(project_ids), Task.status == Status.DONE)
+        .group_by(Task.project_id)
+        .all()
+    )
+    projects_out = []
+    for p in projects:
+        total = per_project.get(p.id, 0)
+        done = per_project_done.get(p.id, 0)
+        projects_out.append({
+            "id": p.id,
+            "name": p.name,
+            "total": total,
+            "done": done,
+            "percent": round(done / total * 100) if total else 0,
+        })
+    projects_out.sort(key=lambda row: (-row["total"], row["id"]))
+
+    # 状态分布（按 ALL_STATUSES 顺序，含 0）
+    status_counts = dict(
+        s.query(Task.status, func.count(Task.id))
+        .filter(Task.project_id.in_(project_ids))
+        .group_by(Task.status)
+        .all()
+    )
+    status_distribution = [
+        {"status": st, "count": status_counts.get(st, 0)} for st in ALL_STATUSES
+    ]
+
+    # 近 7 日活动（按 updated_at 日计数，含 0）
+    now = dt.now()
+    seven_days_ago = now - timedelta(days=6)
+    day_counts = {
+        str(day): count
+        for day, count in (
+            s.query(func.date(Task.updated_at).label("day"), func.count(Task.id))
+            .filter(
+                Task.project_id.in_(project_ids),
+                Task.updated_at >= seven_days_ago,
+            )
+            .group_by(func.date(Task.updated_at))
+            .all()
+        )
+    }
+    activity_7d = [
+        {"day": (seven_days_ago + timedelta(days=i)).date().isoformat(),
+         "count": day_counts.get((seven_days_ago + timedelta(days=i)).date().isoformat(), 0)}
+        for i in range(7)
+    ]
+
+    return {
+        "counts": {
+            "projects": len(project_ids),
+            "epics": epic_count,
+            "stories": story_count,
+            "tasks": task_count,
+            "done_tasks": done_tasks,
+        },
+        "projects": projects_out,
+        "status_distribution": status_distribution,
+        "activity_7d": activity_7d,
+    }
+
+# ---- 同步自 service.py ----
+def set_story_status(s: Session, id: int, new_status: str, *,
+                     changed_by: int | None = None, reason: str = "") -> Story:
+    """Story 强制迁移（Ticket 全流程）：单步查表 + blocked 全向可达。
+
+    - 无 previous_status 恢复：Story 解除 blocked 仅允许 → todo / in_progress；
+    - 变更即写 story_status_history；不变则 no-op。
+    """
+    st = s.get(Story, id)
+    if not st:
+        raise NotFound(f"story {id} not found")
+    if new_status not in STORY_STATUSES:
+        raise InvalidValue(f"invalid status '{new_status}'")
+    old = st.status
+    if old == new_status:
+        s.refresh(st); return st
+    if new_status != "blocked" and new_status not in STORY_TRANSITIONS.get(old, set()):
+        raise IllegalTransition(f"{old} -> {new_status} 不合法")
+    st.status = new_status
+    _record_story_status_history(s, id, old, new_status, changed_by=changed_by, reason=reason)
+    _commit(s)
+    s.refresh(st)
+    epic = s.get(Epic, st.epic_id)
+    if epic is not None:
+        _invalidate_project_stats_cache(epic.project_id)
+    return st
+
+# ---- 同步自 service.py ----
+def confirm_story(s: Session, id: int, *, changed_by: int | None = None) -> Story:
+    """用户确认 Story 开始（Ticket 全流程人工闸门）：CAS backlog → confirmed。
+
+    - 条件 UPDATE ``status=backlog`` → ``confirmed``，rowcount=1 才成功；
+    - 幂等：已是 confirmed 直接返回（并发重放安全）；其它状态抛 IllegalTransition；
+    - 确认后由 api 层发 MQ ``story.confirmed`` 触发 agent 自动处理编排。
+    """
+    st = s.get(Story, id)
+    if not st:
+        raise NotFound(f"story {id} not found")
+    if st.status == "confirmed":
+        s.refresh(st); return st
+    if st.status != "backlog":
+        raise IllegalTransition(f"story {id} 当前状态 {st.status}，仅 backlog 可确认开始")
+    r = s.execute(
+        update(Story).where(Story.id == id, Story.status == "backlog")
+        .values(status="confirmed")
+    )
+    if r.rowcount != 1:
+        s.rollback()
+        raise IllegalTransition("confirm 冲突：Story 状态已被并发修改")
+    _record_story_status_history(s, id, "backlog", "confirmed", changed_by=changed_by,
+                                 reason="用户确认开始")
+    _commit(s)
+    s.refresh(st)
+    epic = s.get(Epic, st.epic_id)
+    if epic is not None:
+        _invalidate_project_stats_cache(epic.project_id)
+    return st
+
+# ---- 同步自 service.py ----
+def complete_story(s: Session, id: int, *, changed_by: int | None = None,
+                   reason: str = "") -> Story:
+    """Story 自动收尾（Ticket 全流程）：任意非 done/blocked 状态 → done（CAS）。
+
+    Worker 在 Story 下全部 task done 后调用本入口收尾，绕开常规迁移表
+    （agent 推进中间态后可能停在 confirmed/todo/in_progress，直接置 done
+    不在 TRANSITIONS 出边内）。blocked 不自动收尾（人工仲裁态）。
+    """
+    st = s.get(Story, id)
+    if not st:
+        raise NotFound(f"story {id} not found")
+    if st.status == "done":
+        s.refresh(st); return st
+    if st.status == "blocked":
+        raise IllegalTransition(f"story {id} 处于 blocked，禁止自动收尾（需人工仲裁）")
+    old = st.status
+    r = s.execute(
+        update(Story).where(Story.id == id, Story.status == old)
+        .values(status="done")
+    )
+    if r.rowcount != 1:
+        s.rollback()
+        raise IllegalTransition("complete 冲突：Story 状态已被并发修改")
+    _record_story_status_history(s, id, old, "done", changed_by=changed_by,
+                                 reason=reason or "全部任务完成，自动收尾")
+    _commit(s)
+    s.refresh(st)
+    epic = s.get(Epic, st.epic_id)
+    if epic is not None:
+        _invalidate_project_stats_cache(epic.project_id)
+    return st
+
+# ---- 同步自 service.py ----
+def claim_story(s: Session, id: int, *, changed_by: int | None = None) -> Story:
+    """Worker 竞争认领 Story（Ticket 全流程多实例编排）：CAS confirmed → todo。
+
+    多个 Worker 实例（不同 agent CLI）同时扫描同一 confirmed Story 时，
+    条件 UPDATE ``status=confirmed`` → ``todo``，rowcount=1 恰一赢家；
+    竞争失败抛 IllegalTransition（api 层转 409）。todo 语义 = 已被某 worker
+    认领处理中（其它实例扫描 confirmed 不再看到），失败/交接由
+    ``unclaim_story`` 回退 confirmed 重新入池。
+    """
+    st = s.get(Story, id)
+    if not st:
+        raise NotFound(f"story {id} not found")
+    r = s.execute(
+        update(Story).where(Story.id == id, Story.status == "confirmed")
+        .values(status="todo")
+    )
+    if r.rowcount != 1:
+        s.rollback()
+        cur = s.get(Story, id)
+        if cur is not None and cur.status == "todo":
+            raise IllegalTransition(f"story {id} 已被其它 Worker 认领（todo）")
+        raise IllegalTransition(f"story {id} 当前状态 {cur.status if cur else '?'}，不可认领")
+    _record_story_status_history(s, id, "confirmed", "todo", changed_by=changed_by,
+                                 reason="Worker 竞争认领")
+    _commit(s)
+    s.refresh(st)
+    epic = s.get(Epic, st.epic_id)
+    if epic is not None:
+        _invalidate_project_stats_cache(epic.project_id)
+    return st
+
+# ---- 同步自 service.py ----
+def unclaim_story(s: Session, id: int, *, changed_by: int | None = None,
+                  reason: str = "") -> Story:
+    """Worker 认领交接/失败回退（Ticket 全流程）：CAS todo → confirmed。
+
+    - agent 本轮未完成全部 task（部分推进）→ 回退 confirmed，下轮/其它实例再领；
+    - agent 失败重试 → 回退 confirmed 重新入池（连续失败达上限转 blocked 不回退）。
+    todo → confirmed 不在常规迁移表（todo 出边仅 in_progress/backlog/blocked），
+    本入口为编排专用 CAS（同 complete_story 模式），blocked 不操作。
+    """
+    st = s.get(Story, id)
+    if not st:
+        raise NotFound(f"story {id} not found")
+    if st.status == "blocked":
+        raise IllegalTransition(f"story {id} 处于 blocked，禁止回退（需人工仲裁）")
+    r = s.execute(
+        update(Story).where(Story.id == id, Story.status == "todo")
+        .values(status="confirmed")
+    )
+    if r.rowcount != 1:
+        s.rollback()
+        cur = s.get(Story, id)
+        if cur is not None and cur.status == "confirmed":
+            raise IllegalTransition(f"story {id} 已是 confirmed")
+        raise IllegalTransition(f"story {id} 当前状态 {cur.status if cur else '?'}，不可回退")
+    _record_story_status_history(s, id, "todo", "confirmed", changed_by=changed_by,
+                                 reason=reason or "Worker 交接/失败回退")
+    _commit(s)
+    s.refresh(st)
+    epic = s.get(Epic, st.epic_id)
+    if epic is not None:
+        _invalidate_project_stats_cache(epic.project_id)
+    return st
+
+# ---- 同步自 service.py ----
+def list_story_status_history(s: Session, story_id: int, limit: int = 100):
+    """Story 状态变更历史（Ticket 全流程），按时间倒序返回。"""
+    return (s.query(StoryStatusHistory)
+            .filter(StoryStatusHistory.story_id == story_id)
+            .order_by(StoryStatusHistory.id.desc())
+            .limit(limit).all())
+
+# ---- 同步自 service.py ----
+def search_stories(s: Session, q: str, limit: int = 20):
+    """全局 Story 关键词搜索（标题/描述），供命令面板等场景使用。"""
+    like = f"%{q}%"
+    qry = s.query(Story).filter(or_(Story.title.ilike(like), Story.description.ilike(like)))
+    qry = qry.order_by(Story.id.desc())
+    return qry.limit(limit).all()
+
+# ---- 同步自 service.py ----
+def search_epics(s: Session, q: str, limit: int = 20):
+    """全局 Epic 关键词搜索（标题/描述），供命令面板等场景使用（Epic v6.13）。"""
+    like = f"%{q}%"
+    qry = s.query(Epic).filter(or_(Epic.title.ilike(like), Epic.description.ilike(like)))
+    qry = qry.order_by(Epic.id.desc())
+    return qry.limit(limit).all()
+
+# ---- 同步自 service.py ----
+def search_sprints(s: Session, q: str, limit: int = 20):
+    """全局 Sprint 关键词搜索（title/goal），供命令面板等场景使用（v6.14）。"""
+    like = f"%{q}%"
+    qry = s.query(Sprint).filter(or_(Sprint.title.ilike(like), Sprint.goal.ilike(like)))
+    qry = qry.order_by(Sprint.id.desc())
+    return qry.limit(limit).all()
+
+# ---- 同步自 service.py ----
+def search_agents(s: Session, q: str, limit: int = 20):
+    """全局 Agent 关键词搜索（agent_id/name/roles），供命令面板等场景使用（Epic 131 v6.16）。
+
+    仅返回 enabled 的 Agent（已禁用/删除的不参与命令面板搜索）。
+    """
+    like = f"%{q}%"
+    qry = s.query(Agent).filter(
+        Agent.enabled.is_(True),
+        or_(
+            Agent.agent_id.ilike(like),
+            Agent.name.ilike(like),
+            Agent.roles.ilike(like),
+        ),
+    )
+    qry = qry.order_by(Agent.id.desc())
+    return qry.limit(limit).all()
+
+# ---- 同步自 service.py ----
+def search_proposals(s: Session, q: str, limit: int = 20, user_id: int | None = None):
+    """全局 Proposal 关键词搜索（title/content），供命令面板等场景使用（Epic 132 v6.17）。
+
+    可见性收敛镜像 list_proposals：user_id 给定时，非 admin 仅搜索自己
+    ProjectMember 项目下的提案；admin 或 None 全量。
+    """
+    like = f"%{q}%"
+    qry = s.query(Proposal)
+    if user_id is not None:
+        user = s.get(User, user_id)
+        if user and not user.is_admin:
+            member_pids = [
+                r[0]
+                for r in s.query(ProjectMember.project_id)
+                .filter(ProjectMember.user_id == user_id)
+                .all()
+            ]
+            if member_pids:
+                qry = qry.filter(Proposal.project_id.in_(member_pids))
+            else:
+                qry = qry.filter(False)
+    qry = qry.filter(or_(Proposal.title.ilike(like), Proposal.content.ilike(like)))
+    qry = qry.order_by(Proposal.updated_at.desc(), Proposal.id.desc())
+    return qry.limit(limit).all()
+
+# ---- 同步自 service.py ----
+def search_ticket_requests(s: Session, q: str, limit: int = 20, user_id: int | None = None):
+    """全局 Ticket（Proposal→Ticket 转换请求）关键词搜索，供命令面板等场景使用（Epic 133 v6.18）。
+
+    匹配字段：工单标题（title）/ 工单类型（type）/ 关联提案标题（Proposal.title，
+    工单标题常为空默认用提案标题，join 已存在零额外成本）。
+
+    可见性收敛镜像 search_proposals：user_id 给定时，非 admin 仅搜索自己
+    ProjectMember 项目下提案关联的工单；admin 或 None 全量。
+
+    返回 ``list[dict]``：``_ser(ProposalTicketRequest)`` 全列 + 附加 ``project_id``
+    （工单表无该列，经提案反查，供前端显示项目名）。
+    """
+    like = f"%{q}%"
+    qry = (
+        s.query(ProposalTicketRequest, Proposal.project_id)
+        .join(Proposal, Proposal.id == ProposalTicketRequest.proposal_id)
+    )
+    if user_id is not None:
+        user = s.get(User, user_id)
+        if user and not user.is_admin:
+            member_pids = [
+                r[0]
+                for r in s.query(ProjectMember.project_id)
+                .filter(ProjectMember.user_id == user_id)
+                .all()
+            ]
+            if member_pids:
+                qry = qry.filter(Proposal.project_id.in_(member_pids))
+            else:
+                qry = qry.filter(False)
+    qry = qry.filter(or_(
+        ProposalTicketRequest.title.ilike(like),
+        ProposalTicketRequest.type.ilike(like),
+        Proposal.title.ilike(like),
+    ))
+    qry = qry.order_by(
+        ProposalTicketRequest.updated_at.desc(),
+        ProposalTicketRequest.id.desc(),
+    )
+    out: list[dict] = []
+    for req, project_id in qry.limit(limit).all():
+        d = _ser(req)
+        d["project_id"] = project_id
+        out.append(d)
+    return out
+
+# ---- 同步自 service.py ----
+def search_schedules(s: Session, q: str, limit: int = 20, user_id: int | None = None):
+    """全局定时计划（AgentSchedule）关键词搜索，供命令面板等场景使用（Epic 134 v6.19）。
+
+    匹配字段：计划标题（title）/ 绑定 Agent（agent）/ 计划类型（schedule_type）。
+
+    可见性收敛镜像 search_proposals：user_id 给定时，非 admin 仅搜索自己
+    ProjectMember 项目下的定时计划；admin 或 None 全量。
+
+    返回 ``list[AgentSchedule]``：AgentSchedule 自带 project_id 列，_ser 全列直接可用。
+    """
+    like = f"%{q}%"
+    qry = s.query(AgentSchedule)
+    if user_id is not None:
+        user = s.get(User, user_id)
+        if user and not user.is_admin:
+            member_pids = [
+                r[0]
+                for r in s.query(ProjectMember.project_id)
+                .filter(ProjectMember.user_id == user_id)
+                .all()
+            ]
+            if member_pids:
+                qry = qry.filter(AgentSchedule.project_id.in_(member_pids))
+            else:
+                qry = qry.filter(False)
+    qry = qry.filter(or_(
+        AgentSchedule.title.ilike(like),
+        AgentSchedule.agent.ilike(like),
+        AgentSchedule.schedule_type.ilike(like),
+    ))
+    qry = qry.order_by(AgentSchedule.updated_at.desc(), AgentSchedule.id.desc())
+    return qry.limit(limit).all()
+
+# ---- 同步自 service.py ----
+def search_runs(s: Session, q: str, limit: int = 20, user_id: int | None = None):
+    """全局执行记录（AgentRun）关键词搜索，供命令面板等场景使用（Epic 135 v6.20）。
+
+    匹配字段：运行状态（status）/ 执行摘要（summary）/ 错误信息（error_message）。
+    AgentRun 无 project_id 列，通过 join AgentSchedule 取得归属项目做可见性收敛：
+    可见性语义镜像 search_schedules —— user_id 给定时，非 admin 仅搜索自己
+    ProjectMember 项目下的执行记录；admin 或 None 全量。
+
+    返回 ``list[dict]``：_ser(run) 全列 + 附加 project_id（join 取得，供前端跳转）。
+    """
+    like = f"%{q}%"
+    qry = (
+        s.query(AgentRun, AgentSchedule.project_id)
+        .join(AgentSchedule, AgentRun.schedule_id == AgentSchedule.id)
+    )
+    if user_id is not None:
+        user = s.get(User, user_id)
+        if user and not user.is_admin:
+            member_pids = [
+                r[0]
+                for r in s.query(ProjectMember.project_id)
+                .filter(ProjectMember.user_id == user_id)
+                .all()
+            ]
+            if member_pids:
+                qry = qry.filter(AgentSchedule.project_id.in_(member_pids))
+            else:
+                qry = qry.filter(False)
+    qry = qry.filter(or_(
+        AgentRun.status.ilike(like),
+        AgentRun.summary.ilike(like),
+        AgentRun.error_message.ilike(like),
+    ))
+    qry = qry.order_by(AgentRun.id.desc())
+    out: list[dict] = []
+    for run, project_id in qry.limit(limit).all():
+        d = _ser(run)
+        d["project_id"] = project_id
+        out.append(d)
+    return out
+
+# ---- 同步自 service.py ----
+def list_run_records(
+    s: Session,
+    *,
+    agent: str | None = None,
+    status: str | None = None,
+    q: str | None = None,
+    limit: int = 100,
+    offset: int = 0,
+    user_id: int | None = None,
+) -> dict:
+    """Return enriched AgentRun rows for the Worker operations portal.
+
+    AgentRun keeps the execution result while AgentSchedule, Task, Project and
+    Agent provide the useful execution context.  The list intentionally emits
+    only an output preview; callers can use ``GET /api/runs/{id}`` for the full
+    output when an operator opens a row.
+    """
+    if status and status not in ALL_RUN_STATUSES:
+        raise InvalidValue(f"invalid run status '{status}'")
+
+    qry = (
+        s.query(AgentRun, AgentSchedule, Task, Project, Agent)
+        .join(AgentSchedule, AgentRun.schedule_id == AgentSchedule.id)
+        .join(Project, AgentSchedule.project_id == Project.id)
+        .outerjoin(Task, AgentRun.task_id == Task.id)
+        .outerjoin(Agent, Agent.agent_id == func.coalesce(AgentRun.agent, AgentSchedule.agent))
+    )
+
+    if user_id is not None:
+        user = s.get(User, user_id)
+        if user and not user.is_admin:
+            member_pids = [
+                row[0]
+                for row in s.query(ProjectMember.project_id)
+                .filter(ProjectMember.user_id == user_id)
+                .all()
+            ]
+            qry = (
+                qry.filter(AgentSchedule.project_id.in_(member_pids))
+                if member_pids else qry.filter(False)
+            )
+
+    if agent:
+        qry = qry.filter(func.coalesce(AgentRun.agent, AgentSchedule.agent) == agent)
+    if status:
+        qry = qry.filter(AgentRun.status == status)
+    if q and q.strip():
+        like = f"%{q.strip()}%"
+        qry = qry.filter(or_(
+            Task.title.ilike(like),
+            Task.description.ilike(like),
+            Task.spec.ilike(like),
+            AgentSchedule.title.ilike(like),
+            AgentRun.summary.ilike(like),
+            AgentRun.output.ilike(like),
+            AgentRun.error_message.ilike(like),
+        ))
+
+    total = qry.count()
+    rows = (
+        qry.order_by(AgentRun.id.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    items: list[dict] = []
+    default_agent = os.environ.get("AGENTBOARD_DEFAULT_AGENT", "codex")
+    for run, schedule, task, project, agent_row in rows:
+        item = _ser(run)
+        output = item.pop("output", None) or ""
+        description = ""
+        if task is not None:
+            description = (task.description or "").strip() or (task.spec or "").strip()
+        started = run.started_at or run.created_at
+        finished = run.finished_at
+        duration_seconds = None
+        if started and finished:
+            duration_seconds = max(0, int((finished - started).total_seconds()))
+        item.update({
+            "project_id": project.id,
+            "project_name": project.name,
+            "project_key": project.key,
+            "schedule_title": schedule.title,
+            "agent": run.agent or schedule.agent or default_agent,
+            "agent_name": agent_row.name if agent_row else None,
+            "model": run.model or (agent_row.model if agent_row else ""),
+            "task_title": task.title if task else schedule.title,
+            "task_description": description,
+            "output_preview": output[:1000],
+            "has_output": bool(output),
+            "duration_seconds": duration_seconds,
+        })
+        items.append(item)
+    return {"items": items, "total": total}
+
+# ---- 同步自 service.py ----
+def list_project_kanban(s: Session, project_id: int,
+                        include_all: bool = False) -> dict:
+    """项目看板（Epic 130）：一个项目一个看板。
+
+    - 默认只看 ``in_kanban=True`` 的 Story（ticket 标记进入看板）；
+    - 每个 Story 附带其下 design/dev/qa task 的 status，供卡片展示三态；
+    - 返回按 Story 状态分桶 + 全量列表（前端按状态渲染列）。
+    """
+    q = (s.query(Story)
+         .join(Epic, Epic.id == Story.epic_id)
+         .filter(Epic.project_id == project_id))
+    if not include_all:
+        q = q.filter(Story.in_kanban.is_(True))
+    stories = q.order_by(Story.id.desc()).all()
+    story_ids = [st.id for st in stories]
+    tasks: list[Task] = []
+    if story_ids:
+        tasks = (s.query(Task)
+                 .filter(Task.story_id.in_(story_ids))
+                 .order_by(Task.id.asc())
+                 .all())
+    by_story: dict[int, list[dict]] = {}
+    for t in tasks:
+        by_story.setdefault(t.story_id, []).append({
+            "id": t.id, "type": t.type, "title": t.title,
+            "status": t.status, "priority": t.priority,
+            "assignee_id": t.assignee_id, "estimate": t.estimate,
+        })
+    columns: dict[str, list[dict]] = {}
+    for st in stories:
+        col = columns.setdefault(st.status, [])
+        col.append({
+            "id": st.id, "epic_id": st.epic_id, "title": st.title,
+            "description": st.description, "status": st.status,
+            "needs_design": st.needs_design, "in_kanban": st.in_kanban,
+            "tasks": by_story.get(st.id, []),
+            "created_at": st.created_at,
+        })
+    return {"columns": columns, "items": [
+        {"id": st.id, "epic_id": st.epic_id, "title": st.title,
+         "status": st.status, "needs_design": st.needs_design,
+         "in_kanban": st.in_kanban,
+         "tasks": by_story.get(st.id, []),
+         "created_at": st.created_at} for st in stories
+    ]}
+
+def get_agent_by_agent_id(s: Session, agent_id: str) -> Agent | None:
+    return s.query(Agent).filter(Agent.agent_id == agent_id).first()

@@ -51,3 +51,20 @@ class AgentRun(Base):
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     log_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+# Review 流程常量（从原 service.py 715-720 行搬迁）
+REVIEW_MODE_SINGLE = "single"      # 1 名 reviewer，approve 即通过（默认）
+REVIEW_MODE_MAJORITY = "majority"  # N 人投票，达法定票数按多数决
+DEFAULT_REVIEW_QUORUM = 3          # 法定票数
+MAX_REVIEW_ROUNDS = 5              # 与 Proposal max_rounds 对齐
+DEFAULT_REVIEW_TIMEOUT_MINUTES = 30  # 评审超时（30 分钟）
+DEFAULT_TIMEOUT_SCAN_BATCH = 20    # 每次扫描批大小
+
+# Run 状态迁移（与 RunStatus 枚举对齐）
+RUN_TRANSITIONS: dict[str, set[str]] = {
+    "pending":    {"running", "failed"},   # 启动或启动失败
+    "running":    {"succeeded", "failed"}, # 正常完成或失败
+    "succeeded":  set(),                    # 终态
+    "failed":     {"pending"},              # 可重试
+}

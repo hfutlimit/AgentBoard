@@ -10,30 +10,74 @@ from __future__ import annotations
 
 import logging
 
+from sqlalchemy import or_, and_, func
 from sqlalchemy.orm import Session
 
 from ... import models  # 顶层 facade,保持兼容
+
+log = logging.getLogger("agentboard.features.documents.service")
+
 from ...core.exceptions import (
     Conflict, InvalidValue, NotFound,
+    IllegalTransition,
+    InvalidValue,
+    NotFound,
 )
+
 from ...core.service_helpers import (
     _commit, _invalidate_project_stats_cache, _paginate, _required,
 )
 
-log = logging.getLogger("agentboard.features.documents.service")
-
 from .models import (
-    Document, DocumentComment, DocumentFolder, DocumentRevision,
+    ALL_DOCUMENT_STATUSES,
+    ALL_DOCUMENT_TYPES,
+    DOCUMENT_TRANSITIONS,
+    Document,
+    DocumentComment,
+    DocumentFolder,
+    DocumentRevision,
+    DocumentStatus,
 )
-from ..projects.models import Project
+
+from ..projects.models import (
+    Epic,
+    Project,
+    ProjectMember,
+    Story,
+)
+
+from ..work_items.models import (
+    ATTACHMENT_ALLOWED_TYPES,
+    ATTACHMENT_DIR,
+    ATTACHMENT_MAX_SIZE,
+    Attachment,
+    Task,
+)
+
+
 from ..identity.models import User
-from ..work_items.models import Task
+
+
+class RevisionConflict(Exception):
+    """文档版本冲突（由 save_document_with_revision / restore_revision 抛）。"""
+    def __init__(self, message: str = "", **kwargs):
+        super().__init__(message)
+
+
+def _next_revision_number(s: Session, document_id: int) -> int:
+    """取当前最大 revision_number + 1；空表时返回 1。"""
+    last = (
+        s.query(func.max(DocumentRevision.revision_number))
+        .filter(DocumentRevision.document_id == document_id)
+        .scalar()
+    )
+    return (last or 0) + 1
+
 
 def list_attachments(s: Session, task_id: int) -> list:
     if not s.get(Task, task_id):
         raise NotFound(f"task {task_id} not found")
     return s.query(Attachment).filter(Attachment.task_id == task_id).order_by(Attachment.id).all()
-
 
 
 def delete_document(s: Session, id: int) -> bool:
@@ -45,11 +89,9 @@ def delete_document(s: Session, id: int) -> bool:
     s.delete(d); _commit(s); return True
 
 
-
 def get_document_project_id(s: Session, document_id: int) -> int | None:
     d = s.get(Document, document_id)
     return d.project_id if d else None
-
 
 
 def update_document_comment(
@@ -68,7 +110,6 @@ def update_document_comment(
     _commit(s); s.refresh(c); return c
 
 
-
 def create_attachment(s: Session, *, task_id: int, content: bytes, original_name: str, mime_type: str) -> Attachment:
     if not s.get(Task, task_id):
         raise NotFound(f"task {task_id} not found")
@@ -85,13 +126,11 @@ def create_attachment(s: Session, *, task_id: int, content: bytes, original_name
     s.add(att); _commit(s); s.refresh(att); return att
 
 
-
 def delete_document_comment(s: Session, id: int) -> bool:
     c = s.get(DocumentComment, id)
     if not c:
         return False
     s.delete(c); _commit(s); return True
-
 
 
 def create_document_comment(
@@ -110,7 +149,6 @@ def create_document_comment(
         document_id=document_id, author=author[:100], content=content, author_id=author_id,
     )
     s.add(c); _commit(s); s.refresh(c); return c
-
 
 
 def get_document_comment_project_id(s: Session, comment_id: int) -> int | None:
@@ -151,7 +189,6 @@ def list_document_comments(s: Session, document_id: int):
     )
 
 
-
 def create_document_folder(
     s: Session, *, project_id: int, name: str, parent_id: int | None = None,
 ) -> DocumentFolder:
@@ -162,7 +199,6 @@ def create_document_folder(
         _check_document_folder(s, parent_id, project_id)
     f = DocumentFolder(project_id=project_id, parent_id=parent_id, name=name)
     s.add(f); _commit(s); s.refresh(f); return f
-
 
 
 def list_documents(
@@ -223,7 +259,6 @@ def list_documents(
     return _paginate(qry, limit, offset).all()
 
 
-
 def delete_attachment(s: Session, id: int) -> bool:
     att = s.get(Attachment, id)
     if not att:
@@ -247,16 +282,13 @@ _CRON_PATTERN = _re.compile(
 )
 
 
-
 def _check_document_type(value: str) -> None:
     if value not in ALL_DOCUMENT_TYPES:
         raise InvalidValue(f"invalid document type '{value}'")
 
 
-
 def get_attachment_path(att: Attachment) -> str:
     return _os.path.join(ATTACHMENT_DIR, att.filename)
-
 
 
 def delete_document_folder(s: Session, id: int) -> bool:
@@ -277,11 +309,9 @@ def delete_document_folder(s: Session, id: int) -> bool:
     s.delete(f); _commit(s); return True
 
 
-
 def _check_document_status(value: str) -> None:
     if value not in ALL_DOCUMENT_STATUSES:
         raise InvalidValue(f"invalid document status '{value}'")
-
 
 
 def save_document_with_revision(
@@ -328,11 +358,9 @@ def save_document_with_revision(
     return d
 
 
-
 def get_document_folder_project_id(s: Session, folder_id: int) -> int | None:
     f = s.get(DocumentFolder, folder_id)
     return f.project_id if f else None
-
 
 
 def get_document(s: Session, id: int) -> Document | None:
@@ -340,7 +368,6 @@ def get_document(s: Session, id: int) -> Document | None:
 
 
 _DOCUMENT_SORT_WHITELIST = {"updated", "created", "title"}
-
 
 
 def set_document_status(s: Session, id: int, new_status: str) -> Document | None:
@@ -356,10 +383,8 @@ def set_document_status(s: Session, id: int, new_status: str) -> Document | None
     _commit(s); s.refresh(d); return d
 
 
-
 def get_attachment(s: Session, id: int) -> Attachment | None:
     return s.get(Attachment, id)
-
 
 
 def _check_document_links(s: Session, *, project_id: int, epic_id: int | None,
@@ -385,7 +410,6 @@ def _check_document_links(s: Session, *, project_id: int, epic_id: int | None,
             raise InvalidValue(f"story {story_id} 不属于项目 {project_id}")
         if epic_id is not None and st.epic_id != epic_id:
             raise InvalidValue(f"story {story_id} 不属于 epic {epic_id}")
-
 
 
 def update_document(s: Session, id: int, **fields) -> Document | None:
@@ -431,7 +455,6 @@ def update_document(s: Session, id: int, **fields) -> Document | None:
     _commit(s); s.refresh(d); return d
 
 
-
 def update_document_folder(
     s: Session, id: int, **fields,
 ) -> DocumentFolder | None:
@@ -450,7 +473,6 @@ def update_document_folder(
     _commit(s); s.refresh(f); return f
 
 
-
 def _check_document_folder(s: Session, folder_id: int, project_id: int) -> DocumentFolder:
     """校验文件夹存在且属于指定项目；通过则返回该文件夹，否则抛 InvalidValue。"""
     f = s.get(DocumentFolder, folder_id)
@@ -461,13 +483,11 @@ def _check_document_folder(s: Session, folder_id: int, project_id: int) -> Docum
     return f
 
 
-
 def get_attachment_project_id(s: Session, attachment_id: int) -> int | None:
     a = s.get(Attachment, attachment_id)
     if not a:
         return None
     return get_task_project_id(s, a.task_id)
-
 
 
 def list_document_folders(
@@ -497,11 +517,9 @@ def list_document_folders(
     return qry.order_by(DocumentFolder.name, DocumentFolder.id).all()
 
 
-
 def _attachment_dir() -> str:
     _os.makedirs(ATTACHMENT_DIR, exist_ok=True)
     return ATTACHMENT_DIR
-
 
 
 def create_document(
@@ -537,3 +555,110 @@ def create_document(
     _commit(s); s.refresh(doc); return doc
 
 
+
+
+# ---- 同步自 service.py ----
+def _folder_is_descendant(s: Session, folder_id: int, ancestor_id: int) -> bool:
+    """ancestor_id 是否为 folder_id 的祖先（含自身）？用于移动文件夹时防环。"""
+    cur: int | None = ancestor_id
+    seen: set[int] = set()
+    while cur is not None:
+        if cur == folder_id:
+            return True
+        if cur in seen:
+            return False
+        seen.add(cur)
+        f = s.get(DocumentFolder, cur)
+        cur = f.parent_id if f else None
+    return False
+
+# ---- 同步自 service.py ----
+def create_revision(
+    s: Session, *, document_id: int, title: str, content: str,
+    change_note: str, author_id: int | None = None, author: str | None = None,
+    is_restore: bool = False, restored_from_revision: int | None = None,
+) -> DocumentRevision:
+    """在事务中追加一条不可变 revision；调用方负责 _commit。文档不存在抛 NotFound。
+
+    不会触碰 Document 头；如需同步 current_revision_id / current_revision_number，
+    请走 save_document_with_revision()。
+    """
+    if not s.get(Document, document_id):
+        raise NotFound(f"document {document_id} not found")
+    change_note = (change_note or "").strip()[:500]
+    rev = DocumentRevision(
+        document_id=document_id,
+        revision_number=_next_revision_number(s, document_id),
+        title=_required(title, "title", 300),
+        content=content or "",
+        author_id=author_id, author=author,
+        change_note=change_note,
+        is_restore=is_restore, restored_from_revision=restored_from_revision,
+    )
+    s.add(rev); _commit(s); s.refresh(rev); return rev
+
+# ---- 同步自 service.py ----
+def list_revisions(
+    s: Session, document_id: int, *, limit: int | None = None, offset: int = 0,
+):
+    """按 revision_number 倒序列出；含 current_revision_number 头指针信息。"""
+    if not s.get(Document, document_id):
+        raise NotFound(f"document {document_id} not found")
+    qry = (
+        s.query(DocumentRevision)
+        .filter(DocumentRevision.document_id == document_id)
+        .order_by(DocumentRevision.revision_number.desc())
+    )
+    return _paginate(qry, limit, offset).all()
+
+# ---- 同步自 service.py ----
+def get_revision(s: Session, document_id: int, revision_number: int) -> DocumentRevision:
+    """取指定 revision；不存在抛 NotFound。"""
+    if not s.get(Document, document_id):
+        raise NotFound(f"document {document_id} not found")
+    rev = (
+        s.query(DocumentRevision)
+        .filter(
+            DocumentRevision.document_id == document_id,
+            DocumentRevision.revision_number == revision_number,
+        )
+        .first()
+    )
+    if not rev:
+        raise NotFound(f"document {document_id} revision {revision_number} not found")
+    return rev
+
+# ---- 同步自 service.py ----
+def restore_revision(
+    s: Session, *, id: int, revision_number: int,
+    change_note: str, author_id: int | None = None, author: str | None = None,
+) -> Document:
+    """把旧版 content 复制为新 revision（不修改历史）。返回更新后的 Document。
+
+    - 新 revision_number = max + 1；change_note 必填并自动加前缀「回滚自 r{N}」；
+    - current_revision_id / current_revision_number 指向新 revision；
+    - 旧 revision 保持不变。
+    """
+    d = s.get(Document, id)
+    if not d:
+        raise NotFound(f"document {id} not found")
+    src = get_revision(s, id, revision_number)
+    note = (change_note or "").strip()[:500]
+    if not note:
+        raise InvalidValue("change_note is required for restore")
+    new_rev = DocumentRevision(
+        document_id=id,
+        revision_number=_next_revision_number(s, id),
+        title=src.title,
+        content=src.content,
+        author_id=author_id, author=author,
+        change_note=f"回滚自 r{revision_number}：{note}",
+        is_restore=True, restored_from_revision=revision_number,
+    )
+    s.add(new_rev); s.flush()
+    d.title = src.title
+    d.content = src.content
+    d.current_revision_id = new_rev.id
+    d.current_revision_number = new_rev.revision_number
+    _commit(s); s.refresh(d); s.refresh(new_rev)
+    return d

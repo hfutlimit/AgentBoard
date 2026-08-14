@@ -25,6 +25,11 @@ from .models import ApiKey, User
 
 log = logging.getLogger("agentboard.features.identity.service")
 
+from ...core.exceptions import (
+    Duplicate,
+)
+
+
 # 旧 service.Duplicate 的别名,新代码用 Conflict(Duplicate 是 Conflict 的 alias)
 Duplicate = Conflict
 
@@ -187,3 +192,37 @@ def _count_query(s: Session, model) -> int:
 
 # 替换 list_users 里用的 func_count 别名(已废弃,内联)
 _ = "deprecated"
+
+
+# ---- 同步自 service.py ----
+def update_api_key(
+    s: Session, item: ApiKey, *, name: str | None = None,
+    enabled: bool | None = None, permissions: list[str] | None = None,
+) -> ApiKey:
+    if name is not None:
+        item.name = name.strip()
+    if enabled is not None:
+        item.enabled = enabled
+    if permissions is not None:
+        item.permissions = auth.encode_permissions(permissions)
+    item.updated_at = models._now()
+    _commit(s)
+    s.refresh(item)
+    return item
+
+# ---- 同步自 service.py ----
+def get_api_key(s: Session, *, user_id: int, api_key_id: int) -> ApiKey | None:
+    return s.query(ApiKey).filter(ApiKey.id == api_key_id, ApiKey.user_id == user_id).first()
+
+# ---- 同步自 service.py ----
+def lookup_api_key_by_hash(s: Session, key_hash: str) -> ApiKey | None:
+    return s.query(ApiKey).filter(ApiKey.key_hash == key_hash).first()
+
+# ---- 同步自 service.py ----
+def touch_api_key(s: Session, item: ApiKey) -> None:
+    item.last_used_at = models._now()
+    _commit(s)
+
+# ---- 同步自 service.py ----
+def paginated_result(items: list, total: int) -> dict:
+    return {"items": items, "total": total}

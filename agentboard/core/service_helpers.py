@@ -112,3 +112,11 @@ __all__ = [
     "_invalidate_project_stats_cache",
     "_parse_due_date",
 ]
+
+def _ser(obj) -> dict:
+    """ORM 对象转可 JSON 序列化的 dict."""
+    if obj is None:
+        return None
+    if hasattr(obj, '__dict__'):
+        return {k: v for k, v in vars(obj).items() if not k.startswith('_')}
+    return dict(obj)
