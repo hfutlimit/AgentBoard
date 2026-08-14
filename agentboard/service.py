@@ -5403,3 +5403,14 @@ from .features.projects.service import (  # noqa: F401,F403  (末尾重绑)
     get_epic_project_id, get_story_project_id, get_sprint_project_id,
     get_project_stats,
 )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 第四段:proposals service 重绑(Proposal / Round / Question / TicketRequest)
+# ---------------------------------------------------------------------------
+from .features.proposals.service import (  # noqa: F401,F403  (末尾重绑)
+    create_proposal, get_proposal, list_proposals, set_proposal_status,
+    claim_proposal, create_proposal_round, add_proposal_questions,
+    get_proposal_project_id,
+    create_ticket_request, execute_ticket_request, reclaim_stale_ticket_requests,
+)
