@@ -5377,3 +5377,13 @@ from .features.identity.service import (  # noqa: F401,F403  (末尾重绑)
     create_api_key, list_api_keys, revoke_api_key, toggle_api_key,
     list_users, set_user_admin, get_user_by_id, has_users,
 )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 第二段:work_items service 重绑(set_status 用上 TaskStateMachine)
+# ---------------------------------------------------------------------------
+from .features.work_items.service import (  # noqa: F401,F403  (末尾重绑)
+    create_task, get_task, list_tasks, query_task_count,
+    list_task_status_history, set_status,
+    claim_development_task, submit_task_for_review,
+)
