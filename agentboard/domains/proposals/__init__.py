@@ -1,6 +1,10 @@
-"""Proposals domain — Proposal 澄清回路（Epic 96：人机协同需求分析）。
-
-Epic 123 Step 3（Story 239）新增模块：
-- ``state_machine``：Proposal 状态机一等公民（迁移定义 + 副作用绑定）
-- ``ticket_ref``：TicketRef 值对象（4 类型工单创建与回填）
-"""
+"""[FACADE] agentboard.domains.proposals → agentboard.features.proposals"""
+from ...features.proposals import (  # noqa: F401
+    display, models, state_machine, ticket_ref,
+)
+from ...features.proposals.models import (  # noqa: F401
+    Proposal, ProposalRound, ProposalQuestion, ProposalTicketRequest, ProposalStatus,
+    ALL_PROPOSAL_STATUSES, PROPOSAL_TRANSITIONS, ASKABLE_STATUSES, CLAIMABLE_STATUSES,
+    TICKET_TYPES, TICKET_REQUEST_STATUSES, TICKET_REQUEST_PENDING, TICKET_REQUEST_PROCESSING,
+    TICKET_REQUEST_DONE, TICKET_REQUEST_FAILED,
+)

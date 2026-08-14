@@ -50,7 +50,7 @@ def init_db() -> None:
 def _run_alembic() -> None:
     from alembic import command
     from alembic.config import Config
-    here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    here = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     cfg = Config(os.path.join(here, "alembic.ini"))
     cfg.set_main_option("script_location", os.path.join(here, "migrations"))
     # 显式传入本模块的连接,避免测试/多实例场景下 Alembic 重新导入到另一套 engine。

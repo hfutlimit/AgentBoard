@@ -1,3 +1,6 @@
-from .models import Agent, Epic, Project, ProjectMember, Sprint, Story
-
-__all__ = ["Agent", "Epic", "Project", "ProjectMember", "Sprint", "Story"]
+"""[FACADE] agentboard.domains.projects → agentboard.features.projects"""
+from ...features.projects import models  # noqa: F401
+from ...features.projects.models import (  # noqa: F401
+    Project, ProjectMember, Agent, Epic, Story, Sprint, ReviewVote, StoryStatusHistory,
+    STORY_REVIEW_STATUSES, STORY_STATUSES,
+)

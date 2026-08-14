@@ -16,7 +16,11 @@ import time
 
 from sqlalchemy.orm import Session
 
-from ... import models  # 旧 facade,保持兼容
+# ``models`` 只在函数体里用(get_user_by_id 拿 User 类),避免顶部 import 触发循环。
+# 类型 hint 用 TYPE_CHECKING 守门。
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from ... import models  # noqa: F401  (仅供类型检查)
 
 _SECRET = os.getenv("AGENTBOARD_SECRET", "dev-insecure-secret-change-me").encode()
 _LEGACY_PBKDF2_ROUNDS = 100_000
@@ -107,7 +111,8 @@ def parse_token(token: str | None) -> int | None:
     return details[0] if details else None
 
 
-def get_user_by_id(s: Session, user_id: int) -> models.User | None:
+def get_user_by_id(s: Session, user_id: int) -> "models.User | None":
+    from ... import models  # 延迟 import,避免循环
     return s.get(models.User, user_id)
 
 
