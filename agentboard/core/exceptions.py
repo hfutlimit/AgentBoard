@@ -45,6 +45,10 @@ class Conflict(DomainError):
     http_status = 409
 
 
+# 旧 service.Duplicate 的别名(老代码大量使用,保持兼容)
+Duplicate = Conflict
+
+
 class Forbidden(DomainError):
     """权限不足。"""
     code = "forbidden"

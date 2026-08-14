@@ -5365,3 +5365,15 @@ def get_ticket_request_project_id(s: Session, request_id: int) -> int | None:
     p = s.get(Proposal, req.proposal_id)
     return p.project_id if p else None
 
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 拆分:identity/auth 函数重绑到 features.identity.service(新实现)
+# 老 import 路径 `from . import service; service.register_user(...)` 走新模块。
+# ---------------------------------------------------------------------------
+from .features.identity.service import (  # noqa: F401,F403  (末尾重绑)
+    register_user, authenticate_user, get_user, get_user_by_username,
+    update_user_profile, change_user_password,
+    create_api_key, list_api_keys, revoke_api_key, toggle_api_key,
+    list_users, set_user_admin, get_user_by_id, has_users,
+)
