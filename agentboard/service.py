@@ -5414,3 +5414,36 @@ from .features.proposals.service import (  # noqa: F401,F403  (末尾重绑)
     get_proposal_project_id,
     create_ticket_request, execute_ticket_request, reclaim_stale_ticket_requests,
 )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 第五段:documents + notifications + webhooks + scheduling service 重绑
+# ---------------------------------------------------------------------------
+from .features.documents.service import (  # noqa: F401,F403  (末尾重绑)
+    _check_document_type, _check_document_status, _check_document_folder,
+    _check_document_links, _attachment_dir,
+    create_document_folder, list_document_folders, update_document_folder,
+    delete_document_folder, get_document_folder_project_id,
+    create_document, get_document, list_documents, count_document_comments,
+    save_document_with_revision, update_document, delete_document, set_document_status,
+    create_document_comment, list_document_comments, update_document_comment,
+    delete_document_comment, get_document_project_id, get_document_comment_project_id,
+    create_attachment, get_attachment, get_attachment_path, list_attachments,
+    delete_attachment, get_attachment_project_id,
+)
+from .features.notifications.service import (  # noqa: F401,F403
+    create_notification, list_notifications, search_notifications,
+    mark_notification_read, mark_all_notifications_read, delete_notification,
+)
+from .features.webhooks.service import (  # noqa: F401,F403
+    create_webhook, list_webhooks, delete_webhook, toggle_webhook,
+    get_webhook_project_id, fire_webhook, fire_webhooks_for_event,
+)
+from .features.scheduling.service import (  # noqa: F401,F403
+    create_schedule, list_schedules, get_schedule, update_schedule, delete_schedule,
+    create_run, list_runs, get_run, update_run, report_run_result,
+    register_agent, agent_heartbeat, agent_deregister, list_agents,
+    claim_story, submit_task_for_review,
+    assign_task_reviewer, review_story, review_task,
+    scan_review_timeouts, complete_story, complete_sprint,
+)
