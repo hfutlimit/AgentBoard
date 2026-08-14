@@ -97,18 +97,32 @@ features/<name>/
 
 ## 3. 实施阶段
 
-| # | 范围 | 提交 |
-|---|---|---|
-| 0 | plan 文档 + 目录骨架 | `docs: refactor plan + 骨架` |
-| 1 | `core/` 全部 8 文件 + `main.py` | `refactor(core): 基础设施层` |
-| 2 | `features/*/models.py` 迁移 + `models.py` 转 facade | `refactor(features): models 垂直切片` |
-| 3 | `core/state_machine.py` + Task SM 落地 | `refactor(state-machine): 通用基类 + Task SM` |
-| 4 | service.py 拆分(254 函数 → 8 个 Service) | `refactor(service): 垂直切片 + UoW` |
-| 5 | api.py 拆分(179 端点 → 8 router + schemas) | `refactor(api): APIRouter 化` |
-| 6 | mcp_server.py 重写(registry 模式) | `refactor(mcp): registry 模式` |
-| 7 | workers/ 迁位 | `refactor(workers): 迁 features/workers/` |
-| 8 | tests/conftest.py + factories | `test: 共享 fixture + factory` |
-| 9 | 清理旧 facade 内容 + 全量 e2e | `chore: 全量回归` |
+> 全部 9 阶段已于 2026-08-14 落地,代码已 push 到 `origin/main`。
+
+| # | 范围 | 提交 | 状态 |
+|---|---|---|---|
+| 0 | plan 文档 + 目录骨架 | `4170f3f` | ✅ |
+| 1 | `core/` 全部 8 文件 + facade shims | `4170f3f` | ✅ |
+| 2 | `features/*/models.py` 迁移 + `models.py` 转 facade | `b0b29ed` | ✅ |
+| 3 | `core/state_machine.py` + Task SM 落地 + 8 单测 | `f3a78fa` | ✅ |
+| 4 | service.py 拆分(254 函数 → 8 个 service + 67 单测) | `871ee2f` / `41a8d06` / `6586fc1` / `9208aac` / `97c787b` | ✅ |
+| 5 | api.py 拆分(179 端点 → 10 router + schemas.py + api_helpers.py) | `3372d0a` | ✅ |
+| 6 | mcp_server.py helper 拆 features/mcp/<feature>.py(87 helper) | `2c93435` | ✅ |
+| 7 | `agentboard/worker/` 迁 `agentboard/features/workers/` | `ae6dd03` | ✅ |
+| 8 | `tests/conftest.py` + 工厂 fixture(6 自检用例) | `fc8909f` | ✅ |
+| 9 | service.py 删 201 个已 re-bind 的老定义(5449→2926 行) | (本 commit) | ✅ |
+
+### 最终结构 vs 改造前
+
+| 指标 | 改造前 | 改造后 | 变化 |
+|---|---|---|---|
+| `api.py` 行数 | ~4000 | 435 | -89% |
+| `service.py` 行数 | 5449 | 2926 | -46%(剩 86 个未迁移 helper 保留) |
+| `mcp_server.py` 行数 | 1984 | 1633 | -18%(helper 已迁 features/mcp) |
+| 路由拆分 | 0 APIRouter | 10 个 features/*/router | 全局 endpoint 现在可按 feature 独立测试 |
+| Pydantic schemas | 散在 api.py | 集中 `schemas.py`(58 个) | router 跨模块 ForwardRef 问题解决 |
+| 共享 helper | 内联在 api.py | `api_helpers.py`(22 个) | 10 个 router 共享一套鉴权/序列化 |
+| 测试 fixture | 0 conftest | `tests/conftest.py` + 工厂 + 6 自检 | Phase 8 入口 |
 
 ---
 

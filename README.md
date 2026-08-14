@@ -25,19 +25,63 @@
 
 ## 目录结构
 
+> 2026-08 垂直切片重构后（`docs/refactor-plan.md` 9 阶段落地）：所有业务逻辑按
+> feature 模块拆分,顶层文件保持薄 facade 兼容老 import。
+
 ```
 agentboard/
-  models.py       # SQLAlchemy 模型（Project/Epic/Story/Task）
-  database.py     # 引擎工厂（SQLite/MariaDB 切换）+ session
-  service.py      # 业务服务层（CRUD / spec / 搜索 / 状态机）
-  api.py          # REST API（纯 JSON，前后端分离的后端）
-  web_app.py      # Web 前端托管（独立服务）
-  web/static/     # Angular 复用的全局设计系统 style.css
-  mcp_server.py   # 基于 REST API 的 FastMCP 工具集
-frontend/         # Angular 21 源码、路由、类型化 API 服务
-tests/test_smoke.py
-docs/requirements.md   # 需求分析
-docs/tasks.md          # 任务列表（Epic/Story/Task）
+  api.py                # 薄 facade: lifespan + middleware + app.include_router(...)
+  api_helpers.py        # 共享 helper: _current_user / _auth_is_required / _ser / ...
+  schemas.py            # 58 个 Pydantic BaseModel 集中地(router 与 api.py 共享)
+  service.py            # 业务 facade(末尾 re-bind features/*/service 的公共 API)
+  models.py             # SQLAlchemy 模型(facade,实际定义见 domains/* + features/*)
+  database.py           # 引擎工厂 + session(facade,见 core/infrastructure/database)
+  auth.py / cache.py / cos_client.py  # 同样为 facade,实现见 core/infrastructure
+  mq.py                 # RabbitMQ 事件总线(Event/Consumer/Producer)
+  executor.py / scheduler.py / workflow_worker.py  # 异步执行链路
+  mcp_server.py         # MCP 入口,工具函数分发到 features/mcp/<feature>.py
+  web_app.py            # Web 前端托管
+  web/static/           # Angular 复用的全局设计系统 style.css
+  core/                 # 跨 feature 共享底座
+    config.py           # 配置(settings / 路径 / 常量)
+    exceptions.py       # DomainError / NotFound / Duplicate / InvalidValue / IllegalTransition
+    state_machine.py    # 通用状态机基类(StateMachine[T])
+    service_helpers.py  # _commit / _paginate / _required / _check_* / ...
+    observability/      # logging / metrics / tracing
+    infrastructure/     # database / auth / cache / cos_client(实际实现位置)
+    api/                # app / deps / middleware / errors
+  domains/              # 跨 feature 共享的领域原语
+    common/enums.py     # ItemType / Status / Priority / ...
+    identity/models.py  # User / ApiKey
+    projects/models.py  # Project / Epic / Story / Sprint / ProjectMember / ...
+    work_items/models.py    # Task / Comment / Attachment / TaskDependency / WebhookConfig
+    documents/models.py # Document / DocumentFolder / DocumentComment / DocumentRevision
+    proposals/models.py # Proposal / ProposalRound / ProposalQuestion / ProposalTicketRequest
+    scheduling/models.py    # Agent / AgentSchedule / AgentRun
+  features/             # 业务领域,按 feature 垂直切片
+    identity/           # 用户/密码/API Key/Auth service
+    projects/           # Project/Epic/Story/Sprint/Member service + router
+    work_items/         # Task/Comment/Attachment/状态机 + router
+    proposals/          # 需求澄清提案流 + 状态机 + ticket 转换 + router
+    documents/          # 文档/版本/评论/文件夹 + router
+    scheduling/         # Agent/Schedule/Run + Review 流程 + router
+    notifications/      # 站内通知 + router
+    webhooks/           # 事件 webhook 派发 + router
+    admin/              # meta/health/audit/admin 端点 + router
+    search/             # 全文搜索端点 + router
+    auth/               # 登录/注册/me/api-keys router(走 identity service)
+    mcp/                # MCP 工具的 HTTP 客户端 helper(按 feature 拆分)
+    workers/            # ProposalWorker 异步执行器(Phase 7 从 agentboard/worker 搬过来)
+frontend/              # Angular 21 源码、路由、类型化 API 服务
+tests/
+  conftest.py           # 共享 pytest 工厂 fixture(uname/make_user/auth_headers/...)
+  test_domain_boundaries.py  # Phase 2 架构边界护栏
+  test_smoke.py / test_api_keys.py / test_admin_api_key_scope.py / ...
+  unit/                 # 各 service 的单元测试
+docs/
+  refactor-plan.md      # 9 阶段垂直切片重构计划
+  requirements.md       # 需求分析
+  tasks.md              # 任务列表(Epic/Story/Task)
 ```
 
 ## 运行
