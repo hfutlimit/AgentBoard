@@ -5387,3 +5387,19 @@ from .features.work_items.service import (  # noqa: F401,F403  (末尾重绑)
     list_task_status_history, set_status,
     claim_development_task, submit_task_for_review,
 )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 第三段:projects service 重绑(Project / Epic / Story / Sprint / Member / Stats)
+# ---------------------------------------------------------------------------
+from .features.projects.service import (  # noqa: F401,F403  (末尾重绑)
+    create_project, get_project, list_projects, update_project, delete_project,
+    create_epic, get_epic, list_epics, update_epic, delete_epic,
+    create_story, get_story, list_stories, update_story, delete_story,
+    create_sprint, get_sprint, list_sprints, update_sprint, delete_sprint,
+    activate_sprint, complete_sprint, get_sprint_burndown,
+    add_project_member, list_project_members, remove_project_member,
+    update_project_member_role, get_project_member,
+    get_epic_project_id, get_story_project_id, get_sprint_project_id,
+    get_project_stats,
+)
