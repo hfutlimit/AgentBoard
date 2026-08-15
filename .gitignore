@@ -92,3 +92,16 @@ temp/**
 # 注: docs/dispatch-sequence.html 已迁移到 docs/design-prototypes/dispatch-sequence.html(同款 HTML 集中处)
 tools/
 tools/**
+
+# ===== 2026-08-15 清理：MiniMax Code agent 运行期产物（勿提交） =====
+# mavis agent 写出的 chat / 调用 / cmd 日志；统一挪进 tmp/ 下,避免污染工作区根。
+# 兜底规则:即便 agent 又把目录写到工作区根(原 .agent_history / .minimax)也忽略。
+.agent_history/
+.agent_history/**
+.minimax/
+.minimax/**
+# 已挪到 tmp/ 下,被上面的 tmp/** 规则覆盖;此处再次显式声明方便扫读
+tmp/agent_history/
+tmp/agent_history/**
+tmp/minimax/
+tmp/minimax/**
