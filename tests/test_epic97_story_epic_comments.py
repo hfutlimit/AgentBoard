@@ -100,7 +100,7 @@ def stack():
                          json={"title": "可评论的 Story"}).json()["id"]
         tid = owner.post(f"/api/stories/{sid}/tasks",
                          json={"project_id": pid, "title": "可评论的 Task",
-                               "type": "task"}).json()["id"]
+                               "type": "dev"}).json()["id"]
 
         # MCP 工具指向同一真实栈
         mcp_server.API_URL = base
@@ -224,7 +224,7 @@ def test_cascade_delete_removes_comments(stack):
                      json={"title": "待删 Story"}).json()["id"]
     tid = owner.post(f"/api/stories/{sid}/tasks",
                      json={"project_id": pid, "title": "待删 Task",
-                           "type": "task"}).json()["id"]
+                           "type": "dev"}).json()["id"]
 
     c1 = _add_comment(owner, f"/api/stories/{sid}/comments", "甲", "story 评论")
     c2 = _add_comment(owner, f"/api/epics/{eid}/comments", "乙", "epic 评论")

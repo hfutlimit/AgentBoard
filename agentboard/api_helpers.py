@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import re
 import json
+import subprocess
 import time
 import uuid
 from datetime import datetime
@@ -22,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from . import service, auth, mq, cache
 from .cache import get_cache, API_CACHE_TTL
+from .features.projects.models import Sprint  # noqa: E402 — sprint_id 归属解析
 from .database import get_session, SessionLocal
 
 def _invalidate_stats_cache(project_id: int) -> None:

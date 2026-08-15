@@ -22,6 +22,7 @@ sys.path.insert(0, _ROOT)
 os.environ.setdefault("AGENTBOARD_MCP_TOKEN", "test-token")
 
 import agentboard.mcp_server as ms  # noqa: E402
+from agentboard.features.mcp import scheduling as mcp_scheduling  # noqa: E402  Phase 6 拆分后 _agent_claim_task 迁至此处
 
 
 def _task(status: str, tid: int = 42) -> dict:
@@ -33,8 +34,8 @@ def _run(rid: int, status: str, task_id: int) -> dict:
 
 
 def _patch_http(seq):
-    """用预置应答序列 mock ms._http（按调用顺序消费）。"""
-    return mock.patch.object(ms, "_http", side_effect=seq)
+    """用预置应答序列 mock scheduling._http（按调用顺序消费）。"""
+    return mock.patch.object(mcp_scheduling, "_http", side_effect=seq)
 
 
 def test_claim_free_task_creates_run():
@@ -143,7 +144,8 @@ def test_claim_create_run_error():
 
 def test_ast_no_dead_code_if_false():
     """AST 静态护栏：`_agent_claim_task` 内无 `if False`/`if 0` 死代码残留。"""
-    src = open(os.path.join(_ROOT, "agentboard", "mcp_server.py"), encoding="utf-8").read()
+    src = open(os.path.join(_ROOT, "agentboard", "features", "mcp", "scheduling.py"),
+               encoding="utf-8").read()
     tree = ast.parse(src)
     fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
               and n.name == "_agent_claim_task")

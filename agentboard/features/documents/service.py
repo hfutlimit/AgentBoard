@@ -9,6 +9,8 @@ import,行为完全一致。
 from __future__ import annotations
 
 import logging
+import os as _os
+import uuid as _uuid
 
 from sqlalchemy import or_, and_, func
 from sqlalchemy.orm import Session
@@ -20,8 +22,6 @@ log = logging.getLogger("agentboard.features.documents.service")
 from ...core.exceptions import (
     Conflict, InvalidValue, NotFound,
     IllegalTransition,
-    InvalidValue,
-    NotFound,
 )
 
 from ...core.service_helpers import (
@@ -59,9 +59,18 @@ from ..identity.models import User
 
 
 class RevisionConflict(Exception):
-    """文档版本冲突（由 save_document_with_revision / restore_revision 抛）。"""
-    def __init__(self, message: str = "", **kwargs):
+    """文档版本冲突（由 save_document_with_revision / restore_revision 抛）。
+
+    Attributes:
+        expected: 客户端期望的 revision_number
+        current: 服务端实际的当前 revision_number（乐观锁失败时）
+    """
+    def __init__(self, message: str = "", *, expected: int | None = None,
+                 current: int | None = None, payload: dict | None = None, **kwargs):
         super().__init__(message)
+        self.expected = expected
+        self.current = current
+        self.payload = payload or {}
 
 
 def _next_revision_number(s: Session, document_id: int) -> int:
@@ -487,6 +496,8 @@ def get_attachment_project_id(s: Session, attachment_id: int) -> int | None:
     a = s.get(Attachment, attachment_id)
     if not a:
         return None
+    # get_task_project_id 定义于 projects service（附件挂 task 取项目归属）
+    from ..projects.service import get_task_project_id
     return get_task_project_id(s, a.task_id)
 
 

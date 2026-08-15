@@ -96,6 +96,23 @@ def _parse_due_date(value: Any) -> date | None:
         raise InvalidValue(f"invalid due_date format: {value!r}, expected YYYY-MM-DD")
 
 
+# ---- JSON 数组串解析 ------------------------------------------------------
+
+def _parse_json_list(raw: str | None, field: str) -> list:
+    """解析 roles/capabilities 等 JSON 数组字符串；非法输入抛 InvalidValue。"""
+    import json
+    raw = (raw or "[]").strip()
+    if not raw:
+        return []
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, ValueError):
+        raise InvalidValue(f"{field} must be a JSON array string")
+    if not isinstance(parsed, list):
+        raise InvalidValue(f"{field} must be a JSON array string")
+    return [str(x) for x in parsed]
+
+
 # ---- 反向兼容别名(老 service.py 用的下划线名字) ------------------------
 
 # 老的 service.py 函数式 import 形式是 ``from . import service; service._commit(s)``。
@@ -111,6 +128,7 @@ __all__ = [
     "_commit",
     "_invalidate_project_stats_cache",
     "_parse_due_date",
+    "_parse_json_list",
 ]
 
 def _ser(obj) -> dict:

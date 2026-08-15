@@ -13,15 +13,17 @@ import re
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import func, update
+from sqlalchemy import and_, func, or_, update
 from sqlalchemy.orm import Session
 
 from ... import models  # 顶层 facade
 from ...core.common.models import utc_now  # noqa: F401  (跨域常量)
+from ...core.common.enums import Priority
 from ...core.exceptions import Conflict, InvalidValue, NotFound
 from ...core.service_helpers import _commit, _invalidate_project_stats_cache, _paginate, _required, _ser
 from ..projects.models import Epic, Project, Story
 from ..identity.models import User
+from ..work_items.models import Task
 from .state_machine import (
     IllegalTransitionError as _SM_IllegalTransitionError,
     ProposalStateMachine,
@@ -112,11 +114,34 @@ def _validate_ticket_parents(
     s: Session, proposal: Proposal, *, type: str, epic_id: int | None,
     story_id: int | None,
 ) -> None:
-    """层级校验：epic∈项目；story∈epic（且∈项目）；task/bug 必挂 story。"""
+    """层级校验：epic∈项目；story∈epic（且∈项目）；task/bug 必挂 story。
+
+    Phase 9 拆分时本函数被截断（只留 epic_id 必填），story 归属与跨项目
+    校验丢失 → 2026-08-15 回归修复补全（与顶层 service.py 旧实现一致）。
+    """
     if type == "epic":
         return  # epic 独立，无父级
     if not epic_id:
         raise InvalidValue(f"ticket type '{type}' 需要 epic_id")
+    epic = s.get(Epic, epic_id)
+    if epic is None:
+        raise NotFound(f"epic {epic_id} not found")
+    if epic.project_id != proposal.project_id:
+        raise InvalidValue(
+            f"epic {epic_id} 不属于提案所在项目 {proposal.project_id}",
+        )
+    if type == "story":
+        return
+    # task / bug：必挂 story，且 story 属于指定 epic
+    if not story_id:
+        raise InvalidValue(f"ticket type '{type}' 需要 story_id")
+    story = s.get(Story, story_id)
+    if story is None:
+        raise NotFound(f"story {story_id} not found")
+    if story.epic_id != epic_id:
+        raise InvalidValue(
+            f"story {story_id} 不属于 epic {epic_id}",
+        )
 
 
 def _ticket_request_by_type(
@@ -677,6 +702,8 @@ def _sm_clear_lease_effect(s: Session, p: Proposal, ctx: dict) -> None:
 # ---- 同步自 service.py ----
 def _sm_apply_side_effects(s: Session, p: Proposal, ctx: dict) -> None:
     """统一副作用分派：按目标状态执行对应注册副作用。"""
+    # _SUCCESS_TERMINALS 定义于顶层 service.py（Phase 9 未迁移），延迟导入避免循环
+    from ...service import _SUCCESS_TERMINALS
     new = ProposalStatus(p.status)  # StateMachine.execute 已推进 status
     if new is ProposalStatus.FAILED:
         _sm_failed_effect(s, p, ctx)
@@ -753,6 +780,8 @@ def recover_failed_proposals(
       无限循环；
     - 距上次失败（updated_at）不足 window_seconds 跳过，控制重投频率。
     """
+    # AGENT_ERROR_KEYWORDS 定义于顶层 service.py（Phase 9 未迁移），延迟导入避免循环
+    from ...service import AGENT_ERROR_KEYWORDS
     if window_seconds < 0:
         raise InvalidValue("window_seconds must be >= 0")
     now = utc_now()
@@ -867,6 +896,9 @@ def convert_proposal_to_story(
 
     返回 ``(story, tasks, proposal)``。
     """
+    # 跨域调用延迟导入，避免 projects.service ↔ proposals 顶层循环（Phase 9）
+    from ..projects.service import create_story
+    from ..work_items.service import create_task
     p = _proposal_or_404(s, proposal_id)
 
     # 幂等：已转化过且 Story 还在 → 直接复用，避免重放产生重复 Story。

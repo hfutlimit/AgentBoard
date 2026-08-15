@@ -274,7 +274,7 @@ def test_api_submit_review_notifies(seeded):
     """submit-review → task.ready_for_review webhook。"""
     pid, dev, _, _, sid = seeded
     with SessionLocal() as s:
-        t = Task(project_id=pid, story_id=sid, title="T-submit", status="backlog")
+        t = Task(project_id=pid, story_id=sid, title="T-submit", status="todo")
         s.add(t)
         s.flush()
         service.claim_development_task(s, t.id, user_id=dev)
@@ -297,7 +297,7 @@ def test_api_review_task_approve_notifies(seeded):
     """review approve → task.reviewed webhook。"""
     pid, dev, rev, _, sid = seeded
     with SessionLocal() as s:
-        t = Task(project_id=pid, story_id=sid, title="T-approve", status="backlog")
+        t = Task(project_id=pid, story_id=sid, title="T-approve", status="todo")
         s.add(t)
         s.flush()
         service.claim_development_task(s, t.id, user_id=dev)
@@ -324,7 +324,7 @@ def test_api_review_task_approve_notifies(seeded):
 def test_api_review_task_reject_notifies(seeded):
     pid, dev, rev, _, sid = seeded
     with SessionLocal() as s:
-        t = Task(project_id=pid, story_id=sid, title="T-reject", status="backlog")
+        t = Task(project_id=pid, story_id=sid, title="T-reject", status="todo")
         s.add(t)
         s.flush()
         service.claim_development_task(s, t.id, user_id=dev)

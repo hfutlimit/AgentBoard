@@ -14,12 +14,13 @@ from sqlalchemy.pool import StaticPool
 from agentboard import service
 from agentboard.models import Base
 from agentboard.domains.proposals.models import ProposalStatus
-from agentboard.domains.proposals.state_machine import (
-    IllegalTransitionError,
-    ProposalStateMachine,
-    TransitionSpec,
-    bind_side_effects,
-)
+# 注意:state_machine 模块的 import 必须在每个 test 函数内部做,而不是模块级
+# 别名。test_story_status_machine / test_ticket_search 会在自己的顶部
+# ``del sys.modules['agentboard.*']`` 后重新 import agentboard,导致
+# state_machine 里 ``_models`` 的引用指向「旧」models 模块;
+# 而本 test 的模块级 import 已经把 ProposalStateMachine 缓存为旧类。
+# 函数级 import 每次取最新,避免这种顺序污染。
+_ProposalStateMachine = None  # 延迟到 test 函数里取
 
 
 def _env():
@@ -52,7 +53,13 @@ def test_add_new_status_only_needs_transitions_entry():
     service.py 任何函数的 if 分支。新状态需同时加入枚举（定义层），
     但迁移逻辑零改动——这正是 P0-1「状态机定义层和执行层分家」的验收。
     """
-    from agentboard.domains.proposals import models as pm
+    # Phase 拆分后实际实现与 TRANSITIONS 字典在 features/proposals/models；
+    # domains/ 是 re-export shim，重绑定其模块属性不会传播到 state_machine 读取处。
+    from agentboard.features.proposals import models as pm
+    from agentboard.features.proposals import state_machine as sm_mod
+    print(f"DEBUG pm is sm_mod._models? {pm is sm_mod._models}", flush=True)
+    print(f"DEBUG pm.PROPOSAL_TRANSITIONS id={id(pm.PROPOSAL_TRANSITIONS)}", flush=True)
+    print(f"DEBUG sm_mod._models.PROPOSAL_TRANSITIONS id={id(sm_mod._models.PROPOSAL_TRANSITIONS)}", flush=True)
 
     orig = pm.PROPOSAL_TRANSITIONS
     fake = {k: set(v) for k, v in orig.items()}
@@ -61,7 +68,13 @@ def test_add_new_status_only_needs_transitions_entry():
 
     pm.PROPOSAL_TRANSITIONS = fake
     try:
-        sm = ProposalStateMachine()
+        # 函数级 import:取最新的 state_machine 类(避免被前序 test
+        # ``del sys.modules`` 后 reload 出来的旧 _models 引用污染)。
+        from agentboard.features.proposals.state_machine import (
+            IllegalTransitionError as _ITE,
+            ProposalStateMachine as _PSM,
+        )
+        sm = _PSM()
         # 迁移定义层：can_transition 直接反映字典改动
         assert sm.can_transition(ProposalStatus.CONVERGED, "pending_review")
         assert sm.can_transition("pending_review", ProposalStatus.TICKET_PREPARING)
@@ -76,7 +89,7 @@ def test_add_new_status_only_needs_transitions_entry():
             try:
                 sm.execute(s, p, ProposalStatus.TICKET_CREATED)
                 raised = False
-            except IllegalTransitionError:
+            except _ITE:
                 raised = True
             assert raised
             # 合法迁移（pending_review → ticket_preparing 已定义）通过

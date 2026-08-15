@@ -9,6 +9,7 @@ Phase 5:从 api.py 拆出的 FastAPI 路由。179 个端点按 2nd path segment 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request, UploadFile, File, WebSocket, WebSocketDisconnect
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from ...core.infrastructure.database import get_session
@@ -286,6 +287,11 @@ def ticket_request_action(rid: int, action: str,
     req = service.get_ticket_request(s, rid)
     if not req:
         raise HTTPException(status_code=404, detail=f"ticket request {rid} not found")
+    # inner 实现留在 api.py 顶层（Phase 5 拆分前定义），函数内延迟导入避免循环
+    from ...api import (  # noqa: E402
+        claim_ticket_request_inner, execute_ticket_request_by_id_inner,
+        fail_ticket_request_inner,
+    )
     if action == "execute":
         return execute_ticket_request_by_id_inner(rid, s, authorization)
     if action == "fail":
@@ -395,6 +401,7 @@ def execute_ticket_request_by_id_deprecated(pid: int, rid: int,
                                             s: Session = Depends(get_session),
                                             authorization: str | None = Header(None)):
     """[deprecated] 旧 execute-by-id → 内部转发统一动作端点。"""
+    from ...api import execute_ticket_request_by_id_inner  # noqa: E402 延迟导入防循环
     req = service.get_ticket_request(s, rid)
     if not req or req.proposal_id != pid:
         raise HTTPException(
@@ -409,6 +416,7 @@ def execute_ticket_request_by_id_deprecated(pid: int, rid: int,
 def fail_ticket_request_deprecated(pid: int, rid: int, body: TicketFailIn | None = None,
                                    s: Session = Depends(get_session)):
     """[deprecated] 旧 fail → 内部转发统一动作端点。"""
+    from ...api import fail_ticket_request_inner  # noqa: E402 延迟导入防循环
     req = service.get_ticket_request(s, rid)
     if not req or req.proposal_id != pid:
         raise HTTPException(
@@ -423,6 +431,7 @@ def fail_ticket_request_deprecated(pid: int, rid: int, body: TicketFailIn | None
 def claim_ticket_request_deprecated(pid: int, rid: int,
                                     s: Session = Depends(get_session)):
     """[deprecated] 旧 claim → 内部转发统一动作端点。"""
+    from ...api import claim_ticket_request_inner  # noqa: E402 延迟导入防循环
     req0 = service.get_ticket_request(s, rid)
     if not req0 or req0.proposal_id != pid:
         raise HTTPException(
@@ -484,6 +493,16 @@ def answer_proposal_question(qid: int, body: ProposalAnswerIn,
         api_helpers._dispatch_proposal(p.id, getattr(p, "current_round", 0) or 0,
                            mq.REASON_ANSWERED)
     return service._ser(q)
+
+
+# Phase 5 拆分时曾把旧路径 /api/proposal-questions/{qid}/answer 误改为
+# /api/proposals/{qid}/answer，但前端（api.service.ts answerProposalQuestion）
+# 与 worker/测试仍用旧路径 → 2026-08-15 回归修复：加回旧路径兼容转发（零契约破坏）。
+@router.put("/api/proposal-questions/{qid}/answer")
+def answer_proposal_question_deprecated(qid: int, body: ProposalAnswerIn,
+                                        s: Session = Depends(get_session),
+                                        authorization: str | None = Header(None)):
+    return answer_proposal_question(qid, body, s, authorization)
 
 
 # ---------- Epic 22 Story 22.1: 审计日志中间件 ----------

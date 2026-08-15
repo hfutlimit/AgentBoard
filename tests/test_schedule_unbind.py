@@ -42,16 +42,15 @@ def test_db(tmp_path, monkeypatch):
         c = dbapi.cursor(); c.execute("PRAGMA foreign_keys=ON"); c.close()
 
     import agentboard.database as db_mod
-    monkeypatch.setattr(db_mod, "engine", new_engine)
-    monkeypatch.setattr(db_mod, "SessionLocal",
-                       sessionmaker(bind=new_engine, autoflush=False, autocommit=False, future=True))
-
-    from agentboard import scheduler as sched_mod
-    monkeypatch.setattr(sched_mod._db, "engine", new_engine)
-    monkeypatch.setattr(sched_mod._db, "SessionLocal",
-                       sessionmaker(bind=new_engine, autoflush=False, autocommit=False, future=True))
-
-    db_mod.init_db()
+    # Phase 拆分后 agentboard.database 是 facade；真 engine/SessionLocal/init_db
+    # 在 core.infrastructure.database。两个模块都必须 patch，否则 init_db 建表
+    # 走 core 真 engine，而 scoped session 走 new_engine → "no such table"。
+    from agentboard.core.infrastructure import database as core_db_mod
+    for _m in (db_mod, core_db_mod):
+        monkeypatch.setattr(_m, "engine", new_engine)
+        monkeypatch.setattr(_m, "SessionLocal",
+                           sessionmaker(bind=new_engine, autoflush=False, autocommit=False, future=True))
+    db_mod.init_db()  # 内部用 core_db_mod.engine（已 patch）
 
     @contextmanager
     def scoped():
@@ -94,8 +93,8 @@ def _mk_project_and_tasks(s, *, with_epic=False):
     return p, epic, story.id
 
 
-def _mk_task(s, *, project_id, story_id=None, title="T", status="backlog",
-             priority="medium", type="task"):
+def _mk_task(s, *, project_id, story_id=None, title="T", status="todo",
+             priority="medium", type="dev"):
     from agentboard import service
 
     t = service.create_task(
@@ -283,10 +282,10 @@ def test_pick_eligible_task_type_filter(test_db):
     with test_db() as s:
         p, _, story_id = _mk_project_and_tasks(s)
         _mk_task(s, project_id=p.id, story_id=story_id, title="Bug", type="bug")
-        task = _mk_task(s, project_id=p.id, story_id=story_id, title="Task", type="task")
+        task = _mk_task(s, project_id=p.id, story_id=story_id, title="Task", type="dev")
         sch = service.create_schedule(
             s, project_id=p.id, title="S", schedule_type="cron",
-            cron_expr="*/5 * * * *", task_type="task",
+            cron_expr="*/5 * * * *", task_type="dev",
         )
         s.commit()
         picked = service.pick_eligible_task(s, sch)

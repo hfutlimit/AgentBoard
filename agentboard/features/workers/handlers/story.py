@@ -90,10 +90,10 @@ def build_task_prompt(context: dict) -> str:
         "",
         "## 执行要点（必须严格遵守）",
         "1. 任务状态已由 Worker 置 in_progress（开发中）；",
-        "2. design 类任务（needs_design=true 的 Story 下 type=design）：推进 "
-        "in_design → design_pending_review → design_review_approved（评审流）；",
+        "2. 所有任务（含 design）走通用 5 状态流 todo → in_progress → in_review → done，"
+        "设计评审段已下线（Story 265 收敛）；",
         "3. 实现任务：开发完成后用 MCP `submit_task_for_review` 提交评审（in_review），"
-        "评审通过 → done，必要时 verifying（测试）；",
+        "评审通过 → done；",
         "4. 若任务已 done 或被他人处理，直接报告完成即可，不要重复操作。",
         "",
         "## 决策协议（必须严格遵守）",

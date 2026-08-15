@@ -181,9 +181,9 @@ def test_full_crud_flow(api_url):
 
         # task（type=task）
         t = c.post(f"/api/stories/{st['id']}/tasks",
-                   json={"project_id": p["id"], "title": "实现登录", "type": "task",
+                   json={"project_id": p["id"], "title": "实现登录", "type": "dev",
                          "priority": "high"}).json()
-        assert t["type"] == ItemType.TASK and t["priority"] == "high"
+        assert t["type"] == ItemType.DEV and t["priority"] == "high"
         run = c.post(
             f"/api/schedules/{schedule['id']}/runs", json={"task_id": t["id"]},
         ).json()
@@ -197,16 +197,15 @@ def test_full_crud_flow(api_url):
         rows = c.get(f"/api/stories/{st['id']}/tasks").json()
         assert len(rows["items"]) == 4 and rows["total"] == 4  # 自动 design/实现 2 个 + 手动 2 个
 
-        # 状态流转：task 合法迁移
-        assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "todo"}).status_code == 200
+        # 状态流转：task 合法迁移（Story 265 精简后 5 态：todo→in_progress→in_review→done）
         assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "in_progress"}).status_code == 200
-        # 非法迁移（in_progress -> backlog）-> 400
-        assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "backlog"}).status_code == 400
+        assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "in_review"}).status_code == 200
+        # 非法迁移（in_review -> todo）-> 400
+        assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "todo"}).status_code == 400
 
-        # bug 额外状态 verifying 可用（需遵循状态机：backlog->todo->in_progress->verifying）
-        assert c.put(f"/api/tasks/{b['id']}/status", json={"status": "todo"}).status_code == 200
+        # bug 同样走精简 5 态机
         assert c.put(f"/api/tasks/{b['id']}/status", json={"status": "in_progress"}).status_code == 200
-        assert c.put(f"/api/tasks/{b['id']}/status", json={"status": "verifying"}).status_code == 200
+        assert c.put(f"/api/tasks/{b['id']}/status", json={"status": "in_review"}).status_code == 200
 
         # 搜索按 type 过滤
         bugs = c.get("/api/tasks", params={"project_id": p["id"], "type": "bug"}).json()

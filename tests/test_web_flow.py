@@ -160,20 +160,19 @@ def test_web_ticket_crud_and_lists(servers):
         e = c.post(f"/api/projects/{p['id']}/epics", json={"title": "E1"}).json()
         st = c.post(f"/api/epics/{e['id']}/stories", json={"title": "S1", "needs_design": False}).json()  # 快速流
         t = c.post(f"/api/stories/{st['id']}/tasks",
-                   json={"project_id": p["id"], "title": "T1", "type": "task"}).json()
+                   json={"project_id": p["id"], "title": "T1", "type": "dev"}).json()
         b = c.post(f"/api/stories/{st['id']}/tasks",
                    json={"project_id": p["id"], "title": "B1", "type": "bug"}).json()
-        assert t["type"] == ItemType.TASK and b["type"] == ItemType.BUG
+        assert t["type"] == ItemType.DEV and b["type"] == ItemType.BUG
 
         # 修改（各类 ticket 的 PATCH）
         assert c.patch(f"/api/projects/{p['id']}", json={"description": "d2"}).json()["description"] == "d2"
         assert c.patch(f"/api/epics/{e['id']}", json={"status": "todo"}).json()["status"] == "todo"
         assert c.patch(f"/api/stories/{st['id']}", json={"title": "S1-x"}).json()["title"] == "S1-x"
         assert c.patch(f"/api/tasks/{t['id']}", json={"spec": "# spec", "title": "T1-x"}).json()["spec"] == "# spec"
-        # 状态流转（合法）
-        assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "todo"}).status_code == 200
+        # 状态流转（合法，Story 265 后 task 默认 todo）
         assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "in_progress"}).status_code == 200
-        # 状态流转（非法：in_progress -> backlog）
+        # 状态流转（非法：in_progress -> backlog 已下线）
         assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "backlog"}).status_code == 400
 
         # 读取列表（Web 渲染时拉取的列表接口）

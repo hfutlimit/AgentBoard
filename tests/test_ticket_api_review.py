@@ -96,7 +96,7 @@ def test_execute_by_id_uses_request_type():
                     headers=_h())
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["ticket"]["type"] == "task"
+    assert body["ticket"]["type"] == "dev"  # Story 265 后任务类型 task→dev（ticket 记录 type 仍为 task）
     assert body["proposal"]["status"] == "ticket_created"
     assert body["request"]["status"] == "done"
     # 幂等重放（已 done）

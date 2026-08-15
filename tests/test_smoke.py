@@ -67,16 +67,18 @@ def test_service_layer():
         p = service.create_project(s, name="Demo", key="DEMO", description="# Demo")
         ep = service.create_epic(s, project_id=p.id, title="E1")
         st = service.create_story(s, epic_id=ep.id, title="S1", needs_design=False)  # 快速流：不验证设计评审段
-        t = service.create_task(s, project_id=p.id, story_id=st.id, type=ItemType.TASK,
+        t = service.create_task(s, project_id=p.id, story_id=st.id, type=ItemType.DEV,
                                 title="T1", priority=Priority.HIGH)
         assert t.priority == Priority.HIGH
         service.set_task_spec(s, t.id, "## Spec\n做这件事")
         assert service.get_task(s, t.id).spec.startswith("## Spec")
 
-        service.set_status(s, t.id, Status.TODO)
+        # 创建后默认 status=TODO,直接推进
         service.set_status(s, t.id, Status.IN_PROGRESS)
+        service.set_status(s, t.id, Status.IN_REVIEW)
         try:
-            service.set_status(s, t.id, Status.BACKLOG)
+            # in_review → todo 不在 5 状态迁移表里,应抛 IllegalTransition
+            service.set_status(s, t.id, Status.TODO)
             assert False, "illegal transition 未拦截"
         except service.IllegalTransition:
             pass
@@ -95,7 +97,7 @@ def test_rest_api():
     from fastapi.testclient import TestClient
     from agentboard.api import app
     with TestClient(app) as c:
-        assert c.get("/api/meta").json()["types"] == ["task", "bug", "test_execution", "design"]
+        assert c.get("/api/meta").json()["types"] == ["dev", "bug", "qa", "design"]
         # 分页：列表 API 返回 {items, total}
         page = c.get("/api/projects", params={"limit": 1}).json()
         assert len(page["items"]) <= 1 and "total" in page
@@ -125,9 +127,11 @@ def test_rest_api():
         assert len(comments) == 1 and comments[0]["author"] == "workbuddy"
         assert c.delete(f"/api/comments/{comments[0]['id']}").status_code == 200
 
-        # 状态流转（合法/非法）
-        assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "todo"}).status_code == 200
-        assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "done"}).status_code == 200
+        # 状态流转（合法/非法）— 5 状态集: todo/in_progress/in_review/done/blocked
+        # done 状态必填 status_reason(Story 265 收敛)
+        assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "in_progress"}).status_code == 200
+        assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "done", "status_reason": "completed"}).status_code == 200
+        # 未知 status 返回 400(5 状态机校验失败)
         assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "backlog"}).status_code == 400
 
         # 搜索
@@ -204,7 +208,8 @@ def test_mcp_extra_and_pagination():
     proj = m._proj_create("MCP-X", None, "")
     epic = m._epic_create(proj["id"], "E", "")
     story = m._story_create(epic["id"], "S", "")
-    task = m._task_create(proj["id"], story["id"], "Agent task", "task", "", "", "high")
+    # 4 类型 task (Story 265 收敛): dev / bug / qa / design
+    task = m._task_create(proj["id"], story["id"], "Agent task", "dev", "", "", "high")
     assert task["priority"] == "high"
     comment = m._comment_create(task["id"], "qoder", "处理中")
     assert comment["author"] == "qoder"

@@ -9,6 +9,7 @@ import,行为完全一致。
 from __future__ import annotations
 
 import logging
+import traceback
 
 from sqlalchemy import or_, and_
 from sqlalchemy.orm import Session
@@ -19,8 +20,6 @@ log = logging.getLogger("agentboard.features.webhooks.service")
 
 from ...core.exceptions import (
     Conflict, InvalidValue, NotFound,
-    InvalidValue,
-    NotFound,
 )
 
 from ...core.service_helpers import (

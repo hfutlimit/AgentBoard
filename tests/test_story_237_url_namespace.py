@@ -235,9 +235,9 @@ def test_old_cross_proposal_404_kept(ctx):
 # ---------- 5. 调用点静态断言（worker / mcp_server 已切新 URL） ----------
 
 def _worker_package_src() -> str:
-    """拼接 worker 包全部 .py 源码（Step 2 拆包后 URL 调用点分散在多个文件）。"""
+    """拼接 worker 包全部 .py 源码（Phase 7 后实现在 features/workers/，顶层 worker/ 是 facade shim）。"""
     import os
-    import agentboard.worker as w
+    from agentboard.features import workers as w
     pkg_dir = os.path.dirname(w.__file__)
     parts: list[str] = []
     for root, _dirs, files in os.walk(pkg_dir):
@@ -252,7 +252,8 @@ def test_worker_call_sites_use_new_urls():
     src = _worker_package_src()
     assert "/api/admin/ticket-requests/pending" in src
     assert "/api/admin/ticket-requests/reclaim-stale" in src
-    assert 'f"/api/ticket-requests/{rid}/claim"' in src
+    # 2026-08-12 double-claim 修复后认领收敛进 execute 端点内部（worker 不再单独 /claim）；
+    # fail 走统一动作 URL（rid 全局唯一，无 pid 前缀）
     assert 'f"/api/ticket-requests/{rid}/fail"' in src
     # 旧 URL 不应再出现在 worker 调用点
     assert "/api/proposals/{pid}/ticket-requests/{rid}/claim" not in src

@@ -81,7 +81,7 @@ def seeded():
 def _inreview_task(s, project_id, *, reviewer_id, assignee_id=None, round_=0,
                    updated=None, created=None):
     from agentboard.models import Task
-    t = Task(project_id=project_id, title="S3M2 task", type="task",
+    t = Task(project_id=project_id, title="S3M2 task", type="dev",
              status="in_review", reviewer_id=reviewer_id,
              assignee_id=assignee_id, review_round=round_)
     if updated is not None:

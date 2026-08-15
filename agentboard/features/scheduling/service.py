@@ -8,9 +8,14 @@ import,行为完全一致。
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
+import random
+import re as _re
+from datetime import datetime, timedelta
 
-from sqlalchemy import or_, and_, update
+from sqlalchemy import or_, and_, func, update
 from sqlalchemy.orm import Session
 
 from ... import models  # 顶层 facade,保持兼容
@@ -27,11 +32,16 @@ from ...core.exceptions import (
 
 from ...core.service_helpers import (
     _commit, _invalidate_project_stats_cache, _paginate, _required,
+    _parse_json_list,
 )
 
 from ...core.common.enums import (
+    ALL_PRIORITIES,
     ALL_RUN_STATUSES,
     ALL_SCHEDULE_TYPES,
+    ALL_STATUSES,
+    ALL_TYPES,
+    Priority,
     SprintStatus,
     Status,
 )
@@ -44,11 +54,20 @@ from ..identity.models import (
 from ..projects.models import (
     Agent,
     Epic,
+    ProjectMember,
+    ReviewVote,
     Sprint,
     Story,
 )
 from ..projects.service import _record_story_status_history  # noqa: F401  (跨域 helper)
 from ..projects.service import get_agent_by_agent_id  # noqa: F401  (跨域 helper)
+from ..work_items.service import (  # noqa: E402 — 跨域调用（评审/评论/状态历史走任务域）
+    _record_status_history,
+    create_comment,
+    set_status,
+)
+from ..work_items.models import Comment  # noqa: E402 — 评审意见评论实体
+from ..projects.models import STORY_REVIEW_STATUSES  # noqa: E402 — Story 级评审态（恒空占位）
 
 from .models import (
     DEFAULT_REVIEW_QUORUM,
@@ -71,7 +90,33 @@ DEFAULT_REVIEW_QUORUM = 3
 # Agent 在 projects.models
 from ..projects.models import Project
 from ..work_items.models import Task
+from ..work_items.service import set_status  # noqa: E402 — 跨域调用（提交评审走任务状态机）
 from .models import AgentRun, AgentSchedule
+
+
+# ---- 调度相关常量（从顶层 service.py 迁移，Phase 9 收口） ----
+
+_CRON_PATTERN = _re.compile(
+    # 支持 */n 步长语法（如 */1 每分钟，*/5 每5分钟）
+    r"^(\*(?:/\d+)?|[0-5]?\d(?:-[0-5]?\d(?:/\d+)?)?(?:,[0-5]?\d(?:-[0-5]?\d(?:/\d+)?)?)*)\s+"
+    r"(\*(?:/\d+)?|1?\d|2[0-3])(?:-[1-2]?\d(?:/\d+)?)?(?:,(?:1?\d|#[0-3]))*\s+"
+    r"(\*(?:/\d+)?|[1-2]?\d|3[01])(?:-[1-3]?\d(?:/\d+)?)?(?:,\d+(?:-\d+(?:/\d+)?)?)*\s+"
+    r"(\*(?:/\d+)?|1?\d|1[0-2])(?:-1[0-2](?:/\d+)?)?(?:,\d+(?:-\d+(?:/\d+)?)?)*\s+"
+    r"(\*(?:/\d+)?|[0-7])(?:-[0-7](?:/\d+)?)?(?:,[0-7](?:-[0-7](?:/\d+)?)?)*$"
+)
+
+#: 可绑定到 AgentSchedule.agent 的合法 Agent 名（与 executor.KNOWN_AGENTS 对应）
+SCHEDULE_AGENTS = ("codex", "claude", "workbuddy", "qoder")
+
+#: 任务优先级权重（值越大优先级越高；用于 pick_eligible_task 排序与门槛）
+PRIORITY_RANK = {
+    Priority.HIGHEST: 5, Priority.HIGH: 4, Priority.MEDIUM: 3,
+    Priority.LOW: 2, Priority.LOWEST: 1,
+}
+
+#: 执行器可自动领取的任务状态（Story 265 后仅 todo）
+ELIGIBLE_TASK_STATUSES = (Status.TODO,)
+
 
 def create_run(s: Session, *, schedule_id: int, task_id: int | None = None,
                idempotency_key: str | None = None) -> AgentRun:

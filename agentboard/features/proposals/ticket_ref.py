@@ -62,9 +62,11 @@ class TicketRef:
         else:  # task / bug
             if not parent_story_id:
                 raise ValueError(f"{type} 类型 ticket 需要 story_id")
+            # Story 265 后 ItemType 下线 "task"（→ dev）；ticket 类型保持 "task" 兼容
+            task_type = "dev" if type == "task" else type
             task = create_task(
                 s, project_id=proposal.project_id, story_id=parent_story_id,
-                title=resolved_title, type=type, description=spec,
+                title=resolved_title, type=task_type, description=spec,
             )
             ticket_id = task.id
         return cls(type=type, id=ticket_id,

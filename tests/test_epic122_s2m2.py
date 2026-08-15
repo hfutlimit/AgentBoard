@@ -89,7 +89,7 @@ def seeded():
     return _seed()
 
 
-def _make_task(s, story_id, project_id, title="T", status="backlog",
+def _make_task(s, story_id, project_id, title="T", status="todo",
                assignee_id=None, reviewer_id=None, review_round=0):
     t = Task(project_id=project_id, story_id=story_id, title=title,
              status=status, assignee_id=assignee_id,
@@ -135,7 +135,7 @@ def test_assign_reviewer_idempotent(seeded):
 def test_assign_reviewer_not_in_review_rejected(seeded):
     pid, dev, _, _, _, sid = seeded
     with SessionLocal() as s:
-        t = _make_task(s, sid, pid, title="T-notreview", status="backlog")
+        t = _make_task(s, sid, pid, title="T-notreview", status="todo")
         with pytest.raises(service.InvalidValue) as ei:
             service.assign_task_reviewer(s, t.id)
         assert "not in_review" in str(ei.value)

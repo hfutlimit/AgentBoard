@@ -15,6 +15,7 @@ from ...core.infrastructure.database import get_session
 from ... import service
 from agentboard.schemas import *  # Phase 5: forward-ref-safe
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
+from ...api import agent_state_hub  # noqa: E402 — Agent 状态 WebSocket 广播 hub（定义于 api.py 顶层）
 
 router = APIRouter(tags=["scheduling"])
 

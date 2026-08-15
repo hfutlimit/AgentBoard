@@ -182,8 +182,8 @@ def test_convert_converged_proposal_to_story_and_tasks(ctx):
     for t in tasks:
         assert t["project_id"] == ctx["project_id"]
         assert t["story_id"] == story["id"]
-        assert t["type"] == "task"
-        assert t["status"] == "backlog"
+        assert t["type"] == "dev"  # Story 265 后任务类型 task→dev
+        assert t["status"] == "todo"  # Story 265 后默认 todo（backlog 下线）
         assert t["description"] == t["title"]
 
     # 提案：story_id 回填 + 终态

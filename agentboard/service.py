@@ -106,6 +106,10 @@ from .domains.proposals.state_machine import (
     bind_side_effects,
 )
 from .domains.common.models import utc_now
+from .core.exceptions import (  # noqa: E402 — facade 兼容层：异常类统一指向 core.exceptions
+    DomainError, NotFound, IllegalTransition, Duplicate, InvalidValue,
+)
+from .core.service_helpers import _parse_json_list  # noqa: E402,F401 — 迁移后统一入口
 
 DEFAULT_PAGE_SIZE = 100
 MAX_PAGE_SIZE = 200
@@ -652,18 +656,8 @@ def unclaim_story(s: Session, id: int, *, changed_by: int | None = None,
     return st
 
 # ---------- Agent 注册表（Epic 122 S1） ----------
-def _parse_json_list(raw: str | None, field: str) -> list:
-    """解析 roles/capabilities JSON 数组字符串；非法输入抛 InvalidValue。"""
-    raw = (raw or "[]").strip()
-    if not raw:
-        return []
-    try:
-        parsed = json.loads(raw)
-    except (TypeError, ValueError):
-        raise InvalidValue(f"{field} must be a JSON array string")
-    if not isinstance(parsed, list):
-        raise InvalidValue(f"{field} must be a JSON array string")
-    return [str(x) for x in parsed]
+# _parse_json_list 已迁移至 core.service_helpers（Phase 9），此处保留旧引用：
+# 由下方 helper import 统一提供，避免本地重复定义分叉。
 
 def get_agent_by_agent_id(s: Session, agent_id: str) -> Agent | None:
     return s.query(Agent).filter(Agent.agent_id == agent_id).first()
@@ -1546,23 +1540,6 @@ def delete_run(s: Session, id: int) -> bool:
         return False
     s.delete(run); _commit(s); return True
 
-class DomainError(Exception):
-    pass
-
-class NotFound(DomainError):
-    pass
-
-class IllegalTransition(DomainError):
-    pass
-
-class Duplicate(DomainError):
-    pass
-
-class InvalidValue(DomainError):
-    pass
-
-# ---------- Auth ----------
-
 def get_api_key(s: Session, *, user_id: int, api_key_id: int) -> ApiKey | None:
     return s.query(ApiKey).filter(ApiKey.id == api_key_id, ApiKey.user_id == user_id).first()
 
@@ -2139,15 +2116,17 @@ def import_tasks_from_json(s: Session, project_id: int, data: dict) -> dict:
             task = Task(
                 project_id=project_id,
                 title=title,
-                type=item.get("type", "task"),
+                type=item.get("type", "dev"),
                 description=item.get("description", ""),
                 priority=item.get("priority", "medium"),
-                status=item.get("status", "backlog"),
+                status=item.get("status", "todo"),
             )
             s.add(task)
             s.flush()
             imported.append({"id": task.id, "title": task.title})
         except Exception as e:
+            # flush 失败会使 session 进入 pending rollback，必须先 rollback 才能继续下一条
+            s.rollback()
             errors.append({"title": item.get("title", "?"), "error": str(e)})
     _commit(s)
     return {"imported": imported, "errors": errors}
@@ -2213,16 +2192,6 @@ _DOCUMENT_SORT_WHITELIST = {"updated", "created", "title"}
 # ---------------------------------------------------------------------------
 # Epic 139：DocumentRevision（不可变快照）+ 乐观锁
 # ---------------------------------------------------------------------------
-
-class RevisionConflict(Exception):
-    """乐观锁冲突：客户端提交的 expected_revision_number 与服务端当前指针不一致。"""
-
-    def __init__(self, expected: int, current: int):
-        self.expected = expected
-        self.current = current
-        super().__init__(
-            f"revision conflict: expected={expected} current={current}"
-        )
 
 def _next_revision_number(s: Session, document_id: int) -> int:
     """取当前最大 revision_number + 1；空表时返回 1。"""
@@ -2953,3 +2922,13 @@ from .features.scheduling.service import (  # noqa: F401,F403
     assign_task_reviewer, review_story, review_task,
     scan_review_timeouts, complete_story, complete_sprint,
 )
+
+# ----------------------------------------------------------------------
+# 末尾 re-bind:RevisionConflict 统一指向 features.documents.service.RevisionConflict。
+# 上面 line 2199 那段早期 stub 已经在拆分前删掉;这里强制覆盖,
+# 让外部 `except service.RevisionConflict` 能抓到新版异常(否则会抓到旧 class
+# 对象,导致 30+ test/api 路由 except 子句不匹配)。
+# ----------------------------------------------------------------------
+from .features.documents.service import RevisionConflict as _FeaturesRevisionConflict  # noqa: E402
+RevisionConflict = _FeaturesRevisionConflict  # type: ignore[misc,assignment]
+del _FeaturesRevisionConflict

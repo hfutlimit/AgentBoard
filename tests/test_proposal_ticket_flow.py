@@ -227,7 +227,7 @@ def test_execute_task_and_bug_tickets():
             s, pr_task, type="task", epic_id=e1, story_id=st1, title="Task-1",
         )
         ticket = result["ticket"]
-        assert ticket["type"] == "task"
+        assert ticket["type"] == "dev"  # Story 265 后任务类型 task→dev
         assert ticket["story_id"] == st1
         # bug（独立提案，复用 task 表 type=bug）
         pr_bug = _converged_proposal(s, p1, "B")

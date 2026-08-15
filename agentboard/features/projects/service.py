@@ -7,13 +7,16 @@ Phase 4 第三段:从 service.py 拆出。复杂逻辑(状态机/多步骤)留 s
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
-from sqlalchemy import func
+from sqlalchemy import func, or_, update
 from sqlalchemy.orm import Session
 
 from ... import models  # 顶层 facade,保持兼容
-from ...core.common.enums import ItemType, SprintStatus, Status
+from ...core.common.enums import (
+    ALL_RUN_STATUSES, ALL_STATUSES, ItemType, SprintStatus, Status,
+)
 from ..identity.models import User
 from ..work_items.models import Task
 
@@ -23,23 +26,18 @@ from ...core.exceptions import (
     Conflict, InvalidValue, NotFound,
     Duplicate,
     IllegalTransition,
-    InvalidValue,
-    NotFound,
 )
 
 from ...core.service_helpers import (
     _check_status, _commit, _invalidate_project_stats_cache, _paginate, _required,
+    _ser,
 )
 
 from .models import (
-    Epic, Project, ProjectMember, ReviewVote, Sprint, Story, StoryStatusHistory,
-    Epic,
-    Project,
-    ProjectMember,
+    Agent, Epic, Project, ProjectMember,
+    ReviewVote, Sprint, Story, StoryStatusHistory,
     STORY_STATUSES,
     STORY_TRANSITIONS,
-    Sprint,
-    Story,
 )
 
 from ..documents.models import (
@@ -51,6 +49,7 @@ from ..proposals.models import (
     Proposal,
     ProposalQuestion,
     ProposalRound,
+    ProposalTicketRequest,
 )
 
 from ..scheduling.models import (

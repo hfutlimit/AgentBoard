@@ -10,6 +10,21 @@
 - 类型迁移: task→dev、test_execution→qa；design/bug 保留
 - 迁移: status_reason 列存在；旧值已不存在
 """
+import os
+import sys
+import tempfile
+
+# 必须在导入 agentboard 之前设置独立临时 SQLite，避免落到工作目录脏库
+# （与其他 tests/test_*.py 的统一模式保持一致）。
+_DB = tempfile.mktemp(suffix=".db")
+os.environ["AGENTBOARD_DB_URL"] = f"sqlite:///{_DB}"
+
+# 与其它多文件批量跑时的隔离模式一致：del 已加载的 agentboard 模块，
+# 让本文件 import 时用上面刚设置的 DB URL 重新加载（否则共享上一文件的模块）。
+for _m in list(sys.modules):
+    if _m == "agentboard" or _m.startswith("agentboard."):
+        del sys.modules[_m]
+
 import pytest
 
 from agentboard import database, service

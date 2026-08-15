@@ -65,7 +65,7 @@ def test_kanban_default_only_marked():
         # 携带 task 状态（create_story 自动建 design + task）
         st1 = next(it for it in board["items"] if it["id"] == st1_id)
         types = {t["type"] for t in st1["tasks"]}
-        assert types == {"design", "task"}, f"应含 design+task，实际 {types}"
+        assert types == {"design", "dev"}, f"应含 design+dev（Story 265 后 task→dev），实际 {types}"
 
 
 def test_kanban_include_all():

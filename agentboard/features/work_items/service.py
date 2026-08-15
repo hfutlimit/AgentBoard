@@ -10,24 +10,24 @@ from __future__ import annotations
 
 import json
 import logging
+import os as _os
+import re
+from datetime import datetime, timedelta
 from typing import Iterable
 
-from sqlalchemy import func, update
+from sqlalchemy import func, or_, update
 from sqlalchemy.orm import Session
 
 from ... import models  # 顶层 facade,保持兼容
-from ...core.exceptions import Conflict, InvalidValue, NotFound
-from .models import Comment, Task, TaskStatusHistory
+from ...core.exceptions import Conflict, Duplicate, InvalidValue, NotFound
+from .models import ATTACHMENT_DIR, Comment, Task, TaskDependency, TaskStatusHistory
 from .state_machine import execute_transition
 
 log = logging.getLogger("agentboard.features.work_items.service")
 
 from ...core.common.enums import (
     ItemType, Priority, SprintStatus, Status, StatusReason,
-    ItemType,
-    Priority,
-    SprintStatus,
-    Status,
+    STATUS_REASONS_BY_STATUS,
 )
 from ...core.common.models import utc_now  # noqa: F401
 from ..scheduling.models import (  # noqa: F401  (跨域常量)
@@ -37,7 +37,9 @@ from ..scheduling.models import (  # noqa: F401  (跨域常量)
 from ...core.service_helpers import (
     _check_priority, _check_status, _check_type, _commit,
     _invalidate_project_stats_cache, _paginate, _parse_due_date, _required,
+    _ser,
 )
+from ..projects.models import Epic, Project, Sprint, Story
 
 
 # ---- 内部 helper ---------------------------------------------------------
@@ -237,311 +239,6 @@ def _attachment_dir() -> str:
     return ATTACHMENT_DIR
 
 # ---- 同步自 service.py ----
-def scan_review_timeouts(s: Session, *, project_id: int | None = None,
-                         timeout_minutes: int = DEFAULT_REVIEW_TIMEOUT_MINUTES,
-                         max_per_run: int = DEFAULT_TIMEOUT_SCAN_BATCH,
-                         now: datetime | None = None) -> dict:
-    """评审超时自愈扫描（S3 M2 护栏）。
-
-    超时定义：pending_review Story / in_review Task 且 reviewer 已指派且「最后活动」
-    超时 —— Story 最后活动 = max(created_at, 最新评论时间)；Task 用 updated_at。
-    处理：轮次达 MAX_REVIEW_ROUNDS → blocked（护栏终态）；否则 CAS 解绑旧 reviewer →
-    重新随机指派（排除旧 reviewer，Task 版额外排除 assignee）；无候选 → 保持解绑
-    由下轮轮询补派。解绑 CAS 带旧 reviewer_id 仲裁，多 worker 并发恰一赢家。
-    """
-    now = now or utc_now()
-    timeout = timedelta(minutes=max(1, timeout_minutes))
-    result = {"stories_reassigned": 0, "tasks_reassigned": 0,
-              "blocked": 0, "no_candidate": 0,
-              # S3 M3：majority 模式超时按现有票兜底结算计数（防死锁）
-              "stories_settled": 0, "tasks_settled": 0,
-              # 内部重派详情（(entity_id, new_reviewer_id)），供 API 层发布事件，响应中剔除
-              "_stories_reassigned": [], "_tasks_reassigned": []}
-
-    st_q = s.query(Story).filter(
-        Story.status == "pending_review",
-        Story.reviewer_id.isnot(None),
-    )
-    if project_id is not None:
-        st_q = st_q.join(Epic, Story.epic_id == Epic.id).filter(
-            Epic.project_id == project_id)
-    overdue_stories = [
-        st for st in st_q.order_by(Story.id.asc()).limit(max_per_run).all()
-        if now - _story_last_activity(s, st) > timeout
-    ]
-    for st in overdue_stories:
-        # S3 M3：majority 模式超时按现有票兜底结算（approve>reject → 通过；
-        # reject>=approve → 驳回；平局保守驳回防死锁）。零票走既有重派逻辑。
-        if get_review_mode() == REVIEW_MODE_MAJORITY:
-            approve_n, reject_n = _review_vote_counts(s, "story", st.id)
-            if approve_n + reject_n > 0:
-                if approve_n > reject_n:
-                    _settle_majority_approved(s, st, "story")
-                    result["stories_settled"] += 1
-                else:
-                    settled = _settle_majority_rejected(s, st, "story")
-                    result["stories_settled"] += 1
-                    if settled.status == "blocked":
-                        result["blocked"] += 1
-                continue
-        if (st.review_round or 0) >= MAX_REVIEW_ROUNDS:
-            r = s.execute(update(Story).where(
-                Story.id == st.id,
-                Story.status == "pending_review",
-            ).values(status="blocked"))
-            if r.rowcount == 1:
-                _commit(s)
-                result["blocked"] += 1
-            else:
-                s.rollback()
-            continue
-        old = st.reviewer_id
-        r = s.execute(update(Story).where(
-            Story.id == st.id,
-            Story.reviewer_id == old,
-        ).values(reviewer_id=None))
-        if r.rowcount != 1:
-            s.rollback()
-            continue  # 并发写者已抢先处理
-        _commit(s)
-        fresh = s.get(Story, st.id)
-        if fresh is None:
-            continue
-        new_rev = _reassign_story_reviewer(s, fresh, exclude_user_id=old)
-        if new_rev is not None:
-            result["stories_reassigned"] += 1
-            result["_stories_reassigned"].append((fresh.id, new_rev))
-        else:
-            result["no_candidate"] += 1
-
-    t_q = s.query(Task).filter(
-        Task.status == Status.IN_REVIEW,
-        Task.reviewer_id.isnot(None),
-    )
-    if project_id is not None:
-        t_q = t_q.filter(Task.project_id == project_id)
-    overdue_tasks = [
-        t for t in t_q.order_by(Task.id.asc()).limit(max_per_run).all()
-        if now - t.updated_at > timeout
-    ]
-    for t in overdue_tasks:
-        # S3 M3：majority 模式超时按现有票兜底结算（语义同 Story 分支）
-        if get_review_mode() == REVIEW_MODE_MAJORITY:
-            approve_n, reject_n = _review_vote_counts(s, "task", t.id)
-            if approve_n + reject_n > 0:
-                if approve_n > reject_n:
-                    _settle_majority_approved(s, t, "task")
-                    result["tasks_settled"] += 1
-                else:
-                    settled = _settle_majority_rejected(s, t, "task")
-                    result["tasks_settled"] += 1
-                    if settled.status == Status.BLOCKED:
-                        result["blocked"] += 1
-                continue
-        if (t.review_round or 0) >= MAX_REVIEW_ROUNDS:
-            r = s.execute(update(Task).where(
-                Task.id == t.id,
-                Task.status == Status.IN_REVIEW,
-            ).values(status=Status.BLOCKED))
-            if r.rowcount == 1:
-                _record_status_history(s, t.id, str(Status.IN_REVIEW), str(Status.BLOCKED),
-                                       reason="timeout max review rounds")
-                _commit(s)
-                result["blocked"] += 1
-            else:
-                s.rollback()
-            continue
-        old = t.reviewer_id
-        r = s.execute(update(Task).where(
-            Task.id == t.id,
-            Task.reviewer_id == old,
-        ).values(reviewer_id=None))
-        if r.rowcount != 1:
-            s.rollback()
-            continue
-        _commit(s)
-        fresh = s.get(Task, t.id)
-        if fresh is None:
-            continue
-        new_rev = _reassign_task_reviewer(s, fresh, exclude_user_id=old)
-        if new_rev is not None:
-            result["tasks_reassigned"] += 1
-            result["_tasks_reassigned"].append((fresh.id, new_rev))
-        else:
-            result["no_candidate"] += 1
-    return result
-
-# ---- 同步自 service.py ----
-def get_review_stats(s: Session, *, project_id: int, days: int = 7,
-                     user_id: int | None = None) -> dict:
-    """项目级评审统计运营视图（S3 M2）。
-
-    口径（见 design.md §4）：
-    - story approved = status=ready 且 reviewer 已指派；rejected = review_round>0；
-      pending = pending_review；blocked = blocked；
-    - task approved = done 且 reviewer 已指派；rejected = review_round>0；
-      pending = in_review；blocked = blocked；
-    - reject_rate = rejected / (approved + rejected)，分母 0 → 0.0；
-    - by_reviewer：按 reviewer_id 聚合评审工作量（approve/reject 分布）；
-    - days 过滤 created_at ≥ now-days；user_id 过滤仅统计该评审人条目。
-    """
-    project = s.get(Project, project_id)
-    if not project:
-        raise NotFound(f"project {project_id} not found")
-    days = max(0, int(days)) if days is not None else 7
-    since = utc_now() - timedelta(days=days) if days > 0 else None
-
-    st_q = s.query(Story).join(Epic, Story.epic_id == Epic.id).filter(
-        Epic.project_id == project_id)
-    t_q = s.query(Task).filter(Task.project_id == project_id)
-    if since is not None:
-        st_q = st_q.filter(Story.created_at >= since)
-        t_q = t_q.filter(Task.created_at >= since)
-    if user_id is not None:
-        st_q = st_q.filter(Story.reviewer_id == user_id)
-        t_q = t_q.filter(Task.reviewer_id == user_id)
-    stories = st_q.all()
-    tasks = t_q.all()
-
-    def _buckets(items, *, is_story):
-        approved = rejected = pending = blocked = 0
-        rounds, round_n = 0, 0
-        for it in items:
-            status = it.status
-            reviewed = it.reviewer_id is not None or (it.review_round or 0) > 0
-            if is_story:
-                if status == "ready" and it.reviewer_id is not None:
-                    approved += 1
-                if status == "pending_review":
-                    pending += 1
-            else:
-                if status == Status.DONE and it.reviewer_id is not None:
-                    approved += 1
-                if status == Status.IN_REVIEW:
-                    pending += 1
-            if status == Status.BLOCKED or status == "blocked":
-                blocked += 1
-            if (it.review_round or 0) > 0:
-                rejected += 1
-            if reviewed:
-                rounds += it.review_round or 0
-                round_n += 1
-        return {
-            "total": len(items),
-            "approved": approved,
-            "rejected": rejected,
-            "pending": pending,
-            "blocked": blocked,
-            "_rounds": rounds,
-            "_round_n": round_n,
-        }
-
-    sb = _buckets(stories, is_story=True)
-    tb = _buckets(tasks, is_story=False)
-
-    def _avg(b):
-        return round(b["_rounds"] / b["_round_n"], 2) if b["_round_n"] else 0.0
-
-    # timeout_pending：当前超时未决数（默认 30min 口径）
-    timeout = timedelta(minutes=DEFAULT_REVIEW_TIMEOUT_MINUTES)
-    now = utc_now()
-    timeout_pending = 0
-    for st in stories:
-        if st.status == "pending_review" and st.reviewer_id is not None \
-                and now - _story_last_activity(s, st) > timeout:
-            timeout_pending += 1
-    for t in tasks:
-        if t.status == Status.IN_REVIEW and t.reviewer_id is not None \
-                and now - t.updated_at > timeout:
-            timeout_pending += 1
-
-    # by_reviewer 聚合
-    agg: dict[int, dict] = {}
-    for it in list(stories) + list(tasks):
-        rid = it.reviewer_id
-        if rid is None:
-            continue
-        row = agg.setdefault(rid, {
-            "user_id": rid, "name": None,
-            "story_reviewed": 0, "task_reviewed": 0,
-            "story_approved": 0, "story_rejected": 0,
-            "task_approved": 0, "task_rejected": 0,
-        })
-        if it.__class__ is Story:
-            row["story_reviewed"] += 1
-            if it.status == "ready":
-                row["story_approved"] += 1
-            if (it.review_round or 0) > 0:
-                row["story_rejected"] += 1
-        else:
-            row["task_reviewed"] += 1
-            if it.status == Status.DONE:
-                row["task_approved"] += 1
-            if (it.review_round or 0) > 0:
-                row["task_rejected"] += 1
-    by_reviewer = []
-    for rid, row in agg.items():
-        u = s.get(User, rid)
-        row["name"] = u.display_name or u.username if u else f"user#{rid}"
-        by_reviewer.append(row)
-    by_reviewer.sort(key=lambda r: -(r["story_reviewed"] + r["task_reviewed"]))
-
-    # S4 M2：多数决评审投票进度（review_mode/quorum/votes）
-    # - review_mode：single|majority（env 驱动）；review_quorum：法定票数；
-    # - majority 模式下 votes 列出全部 pending 实体（pending_review Story /
-    #   in_review Task）的已投票数（approve/reject/cast）与 quorum；
-    # - single 模式 votes 恒为空数组（零行为变化）。
-    review_mode = get_review_mode()
-    review_quorum = get_review_quorum()
-    vote_rows: list[dict] = []
-    if review_mode == REVIEW_MODE_MAJORITY:
-        for st in stories:
-            if st.status != "pending_review":
-                continue
-            approve_n, reject_n = _review_vote_counts(s, "story", st.id)
-            vote_rows.append({
-                "kind": "story",
-                "id": st.id,
-                "title": st.title,
-                "status": st.status,
-                "approve": approve_n,
-                "reject": reject_n,
-                "cast": approve_n + reject_n,
-                "quorum": review_quorum,
-            })
-        for t in tasks:
-            if t.status != Status.IN_REVIEW:
-                continue
-            approve_n, reject_n = _review_vote_counts(s, "task", t.id)
-            vote_rows.append({
-                "kind": "task",
-                "id": t.id,
-                "title": t.title,
-                "status": t.status,
-                "approve": approve_n,
-                "reject": reject_n,
-                "cast": approve_n + reject_n,
-                "quorum": review_quorum,
-            })
-
-    total_done = sb["approved"] + sb["rejected"] + tb["approved"] + tb["rejected"]
-    total_rejected = sb["rejected"] + tb["rejected"]
-    return {
-        "project_id": project_id,
-        "days": days,
-        "stories": {k: sb[k] for k in ("total", "approved", "rejected", "pending", "blocked")},
-        "tasks": {k: tb[k] for k in ("total", "approved", "rejected", "pending", "blocked")},
-        "rounds": {"avg_story_round": _avg(sb), "avg_task_round": _avg(tb)},
-        "reject_rate": round(total_rejected / total_done, 4) if total_done else 0.0,
-        "timeout_pending": timeout_pending,
-        "by_reviewer": by_reviewer,
-        "review_mode": review_mode,
-        "review_quorum": review_quorum,
-        "votes": vote_rows,
-        "generated_at": utc_now().isoformat(),
-    }
-
-# ---- 同步自 service.py ----
 def batch_update_task_status(s: Session, task_ids: list[int], new_status: str,
                              *, changed_by: int | None = None,
                              status_reason: str | None = None) -> dict:
@@ -551,6 +248,8 @@ def batch_update_task_status(s: Session, task_ids: list[int], new_status: str,
     new_reason = _validate_status_reason(new, status_reason)
     updated = []
     errors = []
+    # transitions_for 定义于顶层 service.py（Phase 9 未迁移），函数内延迟导入避免循环
+    from ...service import transitions_for
     for tid in task_ids:
         t = s.get(Task, tid)
         if not t:
@@ -814,6 +513,20 @@ def import_tasks_from_json(s: Session, project_id: int, data: dict) -> dict:
     return {"imported": imported, "errors": errors}
 
 # ---- 同步自 service.py ----
+def _comment_target(
+    s: Session, *, task_id: int | None, story_id: int | None, epic_id: int | None
+) -> dict:
+    """校验评论挂载目标：task/story/epic 三者恰好其一非空，且实体存在。"""
+    candidates = {"task_id": (Task, task_id), "story_id": (Story, story_id), "epic_id": (Epic, epic_id)}
+    present = {k: v for k, v in candidates.items() if v[1] is not None}
+    if len(present) != 1:
+        raise InvalidValue("exactly one of task_id/story_id/epic_id must be set")
+    name, (model, obj_id) = next(iter(present.items()))
+    if not s.get(model, obj_id):
+        raise NotFound(f"{name.removesuffix('_id')} {obj_id} not found")
+    return {name: obj_id}
+
+
 def create_comment(s: Session, *, author: str, content: str,
                    task_id: int | None = None, story_id: int | None = None,
                    epic_id: int | None = None) -> Comment:
@@ -881,119 +594,6 @@ def _validate_status_reason(new_status: Status, status_reason: str | None) -> st
             f"allowed: {sorted(allowed)}"
         )
     return status_reason
-
-# ---- 同步自 service.py ----
-def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None,
-                         is_admin: bool = False) -> Task:
-    """随机指派 Task 评审人（幂等；CAS 并发安全）。
-
-    与 Story 版 assign_reviewer 同构：
-    - 候选 = 在线 ∩ 角色含 reviewer ∩ 绑定用户属项目成员，且 **≠ assignee**
-      （评审人与作者隔离，文档 #51 要求）；
-    - CAS 条件 UPDATE ``status=in_review AND reviewer_id IS NULL`` →
-      ``reviewer_id=候选``，rowcount=1 才成功；并发下另一个写者获胜时回查返回其指派结果；
-    - 幂等：已指派（reviewer_id 非空）直接返回现态，不换人。
-    """
-    t = s.get(Task, task_id)
-    if not t:
-        raise NotFound(f"task {task_id} not found")
-    if t.reviewer_id is not None:
-        return t  # 幂等：已指派（含 reject 退回后复用同一 reviewer）
-    if t.status != Status.IN_REVIEW:
-        raise InvalidValue(
-            f"task {task_id} is not in_review (current status: {t.status})")
-    candidates = _online_reviewer_candidates(s, t.project_id)
-    candidates = [a for a in candidates if a.user_id != t.assignee_id]
-    if not candidates:
-        raise InvalidValue(
-            "no online reviewer available (register an online reviewer agent first)")
-    reviewer = random.choice(candidates)
-    r = s.execute(
-        update(Task).where(
-            Task.id == task_id,
-            Task.reviewer_id.is_(None),
-            Task.status == Status.IN_REVIEW,
-        ).values(reviewer_id=reviewer.user_id)
-    )
-    if r.rowcount != 1:
-        # 并发写者已抢先指派：回查返回现态
-        s.rollback()
-        return s.get(Task, task_id)
-    _commit(s)
-    s.refresh(t)
-    return t
-
-# ---- 同步自 service.py ----
-def review_task(s: Session, *, task_id: int, reviewer_user_id: int,
-                verdict: str, comment: str) -> Task:
-    """Task 评审投票（CAS）：仅被指派 reviewer 可操作 in_review 任务。
-
-    - approve：in_review → done（评审通过，任务完成）；
-    - reject ：review_round + 1，任务退回 in_progress（开发者修复后重新
-      submit-review，reviewer_id 保留 → 同一 reviewer 继续评审）；评论记录意见；
-    - 护栏：review_round 达 MAX_REVIEW_ROUNDS → blocked（待人工仲裁）。
-    - S3 M3：review_mode=majority 时改为多数决投票（_vote_majority），
-      投票人资格放宽为项目在线 reviewer 候选（≠assignee），达法定票数按多数结算。
-
-    评论是评审意见唯一载体（approve/reject 必须伴随 comment），形成审计轨迹。
-    """
-    t = s.get(Task, task_id)
-    if not t:
-        raise NotFound(f"task {task_id} not found")
-    if verdict not in ("approve", "reject"):
-        raise InvalidValue(f"invalid verdict '{verdict}' (expected approve|reject)")
-    comment = (comment or "").strip()
-    if not comment:
-        raise InvalidValue("review comment is required (approve/reject must carry a comment)")
-    # S3 M3：多数决模式走投票分支（未达法定票数不结算，状态保持）
-    if get_review_mode() == REVIEW_MODE_MAJORITY:
-        t, _settled = _vote_majority(
-            s, t, entity_type="task", reviewer_user_id=reviewer_user_id,
-            verdict=verdict, comment=comment)
-        return t
-    if t.reviewer_id != reviewer_user_id:
-        raise InvalidValue("only the assigned reviewer can review this task")
-    if t.status != Status.IN_REVIEW:
-        raise InvalidValue(f"task is not in_review (current status: {t.status})")
-    reviewer = s.get(User, reviewer_user_id)
-    reviewer_name = reviewer.display_name or reviewer.username if reviewer else f"user#{reviewer_user_id}"
-
-    if verdict == "approve":
-        r = s.execute(
-            update(Task).where(
-                Task.id == task_id,
-                Task.reviewer_id == reviewer_user_id,
-                Task.status == Status.IN_REVIEW,
-            ).values(status=Status.DONE)
-        )
-        if r.rowcount != 1:
-            s.rollback()
-            raise InvalidValue("review conflict: task state changed concurrently")
-        _record_status_history(s, task_id, str(Status.IN_REVIEW), str(Status.DONE),
-                               changed_by=reviewer_user_id, reason="review approve")
-        _commit(s)
-    else:  # reject
-        new_round = (t.review_round or 0) + 1
-        target = Status.BLOCKED if new_round >= MAX_REVIEW_ROUNDS else Status.IN_PROGRESS
-        r = s.execute(
-            update(Task).where(
-                Task.id == task_id,
-                Task.reviewer_id == reviewer_user_id,
-                Task.status == Status.IN_REVIEW,
-            ).values(review_round=new_round, status=target)
-        )
-        if r.rowcount != 1:
-            s.rollback()
-            raise InvalidValue("review conflict: task state changed concurrently")
-        _record_status_history(s, task_id, str(Status.IN_REVIEW), str(target),
-                               changed_by=reviewer_user_id,
-                               reason=f"review reject round={new_round}")
-        _commit(s)
-    # 评审意见落评论（唯一载体）
-    create_comment(s, author=reviewer_name, content=comment, task_id=task_id)
-    _invalidate_project_stats_cache(t.project_id)
-    s.refresh(t)
-    return t
 
 # ---- 同步自 service.py ----
 def generate_tasks_from_spec(s: Session, task_id: int) -> list:

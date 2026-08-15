@@ -5,6 +5,7 @@ Phase 5 重构：从 api.py 抽出的所有 BaseModel 集中地,供 routers/api.
 各 router 使用,解决跨模块 ForwardRef 解析问题(Pydantic 找不到类的报错)。
 """
 from __future__ import annotations
+import re
 from pydantic import BaseModel, Field, field_validator
 
 from . import service  # for DEFAULT_REVIEW_TIMEOUT_MINUTES / DEFAULT_TIMEOUT_SCAN_BATCH used by ReassignTimeoutIn

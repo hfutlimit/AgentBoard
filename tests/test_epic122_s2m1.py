@@ -42,6 +42,10 @@ from agentboard.mq import (
     EVENT_TASK_AVAILABLE, EVENT_TASK_READY_FOR_REVIEW, EVENT_STORY_READY,
     WorkflowMessage,
 )
+# Phase 5 后端点路由到 features/work_items/router.py，事件广播在 router 层（从 mq 导入）。
+# 必须在模块顶层（del sys.modules 之后）绑定 router 引用，否则函数内 import 会拿到
+# 其它测试文件重新加载后的新模块实例，与 api.app 绑定的 router 不一致 → mock 失效。
+from agentboard.features.work_items import router as wi_router  # noqa: E402
 
 init_db()
 
@@ -208,7 +212,7 @@ def test_api_claim_and_submit_review_full_flow(seeded):
         s.commit()
     headers = {"Authorization": f"Bearer {auth.make_token(dev)}"}
     c = _client()
-    with mock.patch.object(api, "publish_workflow_event") as pub:
+    with mock.patch.object(wi_router, "publish_workflow_event") as pub:
         # claim
         r = c.post(f"/api/tasks/{tid}/claim", headers=headers)
         assert r.status_code == 200, r.text

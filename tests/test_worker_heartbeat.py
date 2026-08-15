@@ -129,7 +129,8 @@ def test_build_story_prompt_renders_rules():
     w = _worker(client=client)
     prompt = worker._build_story_prompt(w.build_story_context(_story()))
     assert "story_handled" in prompt and '"fail"' in prompt
-    assert "design" in prompt and "in_design" in prompt
+    # Story 265 收敛：5 状态流，design 评审段已下线（prompt 不应再出现 in_design）
+    assert "design" in prompt and "in_design" not in prompt
 
 
 def test_handle_story_partial_keeps_confirmed():
@@ -156,11 +157,11 @@ def test_handle_story_all_done_calls_complete():
 
 
 def test_handle_story_all_done_design_approved_counts_finished():
-    """design task 终态 design_review_approved 亦视为完成（收尾判据）。"""
+    """design task 与普通 task 同为 done 终态即完成（Story 265 后 5 状态流）。"""
     done_tasks = {"items": [
         {"id": 11, "type": "design", "title": "设计：S",
-         "status": "design_review_approved"},
-        {"id": 12, "type": "task", "title": "实现：S", "status": "done"},
+         "status": "done"},
+        {"id": 12, "type": "dev", "title": "实现：S", "status": "done"},
     ]}
     client = _FakeClient(get_responses={"/api/stories/1/tasks": done_tasks})
     w = _worker(client=client)

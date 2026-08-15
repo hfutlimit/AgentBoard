@@ -258,7 +258,7 @@ def stack():
         tids = []
         for i in range(3):
             r = c.post(f"/api/stories/{sid}/tasks",
-                       json={"project_id": pid, "title": f"冒烟任务 {i}", "type": "task"})
+                       json={"project_id": pid, "title": f"冒烟任务 {i}", "type": "dev"})
             assert r.status_code in (200, 201), r.text
             tids.append(r.json()["id"])
 
@@ -294,22 +294,22 @@ def test_all_repaired_tools_work_against_real_stack(stack):
     t1, t2, t3 = stack["task_ids"]
 
     # --- 增强搜索（单值 + 多值 list） ---
-    single = mcp_server.search_tasks_enhanced(project_id=pid, status="backlog")
+    single = mcp_server.search_tasks_enhanced(project_id=pid, status="todo")
     assert isinstance(single, list), f"单值搜索应返回 list，实得 {single!r}"
-    assert len(single) >= 3, f"应搜到 3 个 backlog 任务，实得 {len(single)}"
+    assert len(single) >= 3, f"应搜到 3 个 todo 任务，实得 {len(single)}"
 
     multi = mcp_server.search_tasks_enhanced(
-        project_id=pid, status=["backlog", "todo"], priority=["medium", "high"],
+        project_id=pid, status=["todo", "in_progress"], priority=["medium", "high"],
     )
     assert isinstance(multi, list), f"多值搜索应返回 list，实得 {multi!r}"
-    assert len(multi) >= 3, "多值 OR 过滤应至少覆盖全部 backlog+medium 任务"
+    assert len(multi) >= 3, "多值 OR 过滤应至少覆盖全部 todo+medium 任务"
 
     # --- 批量操作 ---
-    r = mcp_server.batch_update_task_status([t1, t2], "todo")
+    r = mcp_server.batch_update_task_status([t1, t2], "in_progress")
     _assert_no_transport_error("batch_update_task_status", r)
     assert isinstance(r, dict) and "updated" in r, f"批量改状态返回异常：{r!r}"
     assert len(r["updated"]) == 2 and not r["errors"], f"批量改状态未全部成功：{r!r}"
-    assert stack["c"].get(f"/api/tasks/{t1}").json()["status"] == "todo", "状态未真正落库"
+    assert stack["c"].get(f"/api/tasks/{t1}").json()["status"] == "in_progress", "状态未真正落库"
 
     r = mcp_server.batch_assign_sprint([t1], None)
     _assert_no_transport_error("batch_assign_sprint", r)
@@ -344,7 +344,7 @@ def test_all_repaired_tools_work_against_real_stack(stack):
 
     # --- 导入 ---
     r = mcp_server.import_tasks(pid, [
-        {"title": "导入任务 A", "type": "task", "priority": "high"},
+        {"title": "导入任务 A", "type": "dev", "priority": "high"},
         {"title": "导入任务 B", "type": "bug", "priority": "low"},
     ])
     _assert_no_transport_error("import_tasks", r)
@@ -386,13 +386,13 @@ def test_search_multi_value_filter_actually_ors(stack):
     pid = stack["project_id"]
 
     todo = mcp_server.search_tasks_enhanced(project_id=pid, status="todo")
-    backlog = mcp_server.search_tasks_enhanced(project_id=pid, status="backlog")
-    both = mcp_server.search_tasks_enhanced(project_id=pid, status=["todo", "backlog"])
+    in_progress = mcp_server.search_tasks_enhanced(project_id=pid, status="in_progress")
+    both = mcp_server.search_tasks_enhanced(project_id=pid, status=["todo", "in_progress"])
 
     assert isinstance(both, list), f"多值搜索应返回 list，实得 {both!r}"
-    ids_union = {t["id"] for t in todo} | {t["id"] for t in backlog}
+    ids_union = {t["id"] for t in todo} | {t["id"] for t in in_progress}
     ids_both = {t["id"] for t in both}
-    assert ids_union, "前置数据异常：todo/backlog 均为空"
+    assert ids_union, "前置数据异常：todo/in_progress 均为空"
     assert ids_union <= ids_both, (
         f"多值 OR 过滤结果不完整：单值并集 {sorted(ids_union)} "
         f"未被多值结果 {sorted(ids_both)} 覆盖"
