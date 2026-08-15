@@ -915,6 +915,11 @@ def update_task(s: Session, id: int, **fields) -> Task | None:
     allowed = {"title", "description", "spec", "type", "status", "priority", "sprint_id",
                "assignee_id", "due_date", "labels", "estimate"}  # Epic 17 / Epic 32
     nullable_fields = {"due_date", "sprint_id", "assignee_id", "estimate"}  # fields that can be set to None
+    # Story 265：状态变更必须走状态机迁移（PATCH /api/tasks/{tid} 直改 status
+    # 曾绕过 set_status，允许 done→todo 等非法跳转）。此处把 status 单独抽出，
+    # 其余字段按原逻辑应用，最后统一委托 set_status 校验迁移合法性。
+    new_status = fields.pop("status", None)
+    status_reason = fields.pop("status_reason", None)  # Story 265：done/blocked 必填
     for k, v in fields.items():
         if k not in allowed:
             continue
@@ -926,8 +931,6 @@ def update_task(s: Session, id: int, **fields) -> Task | None:
             _check_priority(v)
         elif k == "type":
             _check_type(v)
-        elif k == "status":
-            _check_status(v)
         elif k == "sprint_id":
             if v is not None:
                 sp = s.get(Sprint, v)
@@ -950,8 +953,12 @@ def update_task(s: Session, id: int, **fields) -> Task | None:
                 raise InvalidValue("labels must be a valid JSON array")
         setattr(t, k, v)
     _commit(s); s.refresh(t)
+    # 状态字段：委托 set_status（状态机强制迁移 + 历史/副作用）
+    if new_status is not None and new_status != t.status:
+        t = set_status(s, id, new_status, status_reason=status_reason)
+        s.refresh(t)
     # 关键字段变更时清除项目统计缓存（Epic 23 Story 23.1）
-    if any(k in fields for k in ("status", "sprint_id", "priority")):
+    if any(k in fields for k in ("status", "sprint_id", "priority")) or new_status is not None:
         _invalidate_project_stats_cache(t.project_id)
     return t
 

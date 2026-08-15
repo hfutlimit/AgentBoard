@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from ...core.infrastructure.database import get_session
 from ... import service
 from agentboard.schemas import *  # Phase 5: forward-ref-safe
+from ...features.projects.models import ProjectMember  # bulk-archive 非 admin 分支权限校验
 import os
 import uuid
 from ...cache import get_cache

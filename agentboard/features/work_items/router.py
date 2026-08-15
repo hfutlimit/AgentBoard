@@ -75,6 +75,9 @@ def update_task(
         r = service.update_task(s, tid, **body.model_dump(exclude_unset=True))
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
+    except service.IllegalTransition as e:
+        # Story 265：PATCH 改 status 也走状态机，非法迁移返回 400
+        raise HTTPException(status_code=400, detail=str(e))
     if pid:
         api_helpers._invalidate_stats_cache(pid)
     updated = api_helpers._need(r, "task")

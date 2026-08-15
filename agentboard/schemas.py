@@ -123,6 +123,8 @@ class TaskPatch(BaseModel):
     labels: str | None = None  # JSON array string
     # Epic 32 Story 49.3: 预估工时（小时）
     estimate: float | None = None
+    # Story 265: 状态原因（done/blocked 必填，经状态机校验）
+    status_reason: str | None = None
 
 
 class CommentIn(BaseModel):
