@@ -66,9 +66,17 @@ def _paginate(q: Query, limit: int | None, offset: int) -> Query:
 # ---- 提交 + 缓存失效 ------------------------------------------------------
 
 def _commit(s: Session, *, duplicate: str | None = None) -> None:
-    """统一 commit 入口,处理 IntegrityError → Conflict(Duplicate alias)。"""
+    """统一 commit 入口,处理 IntegrityError → Conflict(Duplicate alias)。
+
+    保持请求级事务边界:先 ``flush()`` 把 pending 改动推到 DB(让后续 SELECT 可见、
+    触发 unique / FK 约束),仅当 ``s.info['auto_commit']`` 为真(老 facade 的同步调用方
+    或非请求 scope 场景)才 ``commit()``。请求 scope 由 ``get_session`` 统一
+    ``commit/rollback``,service 层不应越权。
+    """
     try:
-        s.commit()
+        s.flush()
+        if s.info.get("auto_commit", True):
+            s.commit()
     except IntegrityError as e:
         s.rollback()
         if duplicate:
@@ -132,9 +140,19 @@ __all__ = [
 ]
 
 def _ser(obj) -> dict:
-    """ORM 对象转可 JSON 序列化的 dict."""
+    """ORM 对象转可 JSON 序列化的 dict。
+
+    按 ``obj.__table__.columns`` 遍历(老 facade 同款),保证:
+    - 不会漏 lazy / unloaded 列(走 ORM attribute → 触发 load);
+    - 不会把 relationship / 临时属性带进 API 响应;
+    - date/datetime 走 ``isoformat()`` 序列化。
+    """
     if obj is None:
         return None
-    if hasattr(obj, '__dict__'):
-        return {k: v for k, v in vars(obj).items() if not k.startswith('_')}
-    return dict(obj)
+    out = {}
+    for c in obj.__table__.columns:
+        v = getattr(obj, c.name)
+        if hasattr(v, "isoformat"):
+            v = v.isoformat()
+        out[c.name] = v
+    return out

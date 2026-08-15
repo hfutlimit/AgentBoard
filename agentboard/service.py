@@ -2855,6 +2855,9 @@ from .features.identity.service import (  # noqa: F401,F403  (末尾重绑)
     update_user_profile, change_user_password,
     create_api_key, list_api_keys, revoke_api_key, toggle_api_key,
     list_users, set_user_admin, get_user_by_id, has_users,
+    # 末尾补:update_api_key 之前在 facade 里有重复实现,显式 re-bind 让
+    # 老 `service.update_api_key` 走 features/identity/service 新版。
+    update_api_key,
 )
 
 # ---------------------------------------------------------------------------
@@ -2864,6 +2867,12 @@ from .features.work_items.service import (  # noqa: F401,F403  (末尾重绑)
     create_task, get_task, list_tasks, query_task_count,
     list_task_status_history, set_status,
     claim_development_task, submit_task_for_review,
+    # 末尾补:以下函数原来在 facade 里有重复实现,此处显式 re-bind 让老
+    # `service.batch_update_task_status` / `service.export_project_data` 调
+    # 用方自动走 features/*/service 新版(后者可能带 status_reason 校验、
+    # 状态机收紧、retry 清理等后续增强)。
+    batch_update_task_status,
+    export_project_data,
 )
 
 # ---------------------------------------------------------------------------
@@ -2905,6 +2914,10 @@ from .features.documents.service import (  # noqa: F401,F403  (末尾重绑)
     delete_document_comment, get_document_project_id, get_document_comment_project_id,
     create_attachment, get_attachment, get_attachment_path, list_attachments,
     delete_attachment, get_attachment_project_id,
+    # 末尾补:list_revisions 之前在 facade 里有重复实现,显式 re-bind 让
+    # 老 `service.list_revisions` 走 features/documents/service 新版(后者
+    # 带 current_revision_number 头指针信息)。
+    list_revisions,
 )
 from .features.notifications.service import (  # noqa: F401,F403
     create_notification, list_notifications, search_notifications,
@@ -2921,6 +2934,9 @@ from .features.scheduling.service import (  # noqa: F401,F403
     claim_story, submit_task_for_review,
     assign_task_reviewer, review_story, review_task,
     scan_review_timeouts, complete_story, complete_sprint,
+    # 末尾补:assign_reviewer 之前在 facade 里有重复实现,显式 re-bind 让
+    # 老 `service.assign_reviewer` 走 features/scheduling/service 新版。
+    assign_reviewer,
 )
 
 # ----------------------------------------------------------------------
