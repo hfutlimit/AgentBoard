@@ -87,6 +87,14 @@ export class App implements OnInit, OnDestroy {
   readonly storyComments = signal<Comment[]>([]);
   readonly epicComments = signal<Comment[]>([]);
   readonly sprints = signal<Sprint[]>([]);
+  // ---------- Story 137：项目中心状态 ----------
+  readonly projectsCenter = signal<Project[]>([]);
+  readonly projectsCenterTotal = signal<number>(0);
+  readonly projectsCenterLoading = signal<boolean>(false);
+  readonly projectCenterScope = signal<'active' | 'archived' | 'all' | 'mine' | 'created'>('active');
+  readonly projectCenterSort = signal<'recent' | 'name' | 'created' | 'tasks'>('recent');
+  readonly projectCenterSelected = signal<Set<number>>(new Set<number>());
+  readonly projectCenterBulkBusy = signal<boolean>(false);
   readonly sprint = signal<Sprint | null>(null);
   readonly sprintTasks = signal<Task[]>([]);
   readonly backlogTasks = signal<Task[]>([]);
@@ -493,6 +501,62 @@ export class App implements OnInit, OnDestroy {
   readonly visibleProjects = computed(() =>
     this.match(this.projects(), (p) => `${p.name} ${p.key || ''} ${p.description}`),
   );
+
+  /** Story 137：侧边栏子列表只显示前 N 个 + 查看全部 */
+  readonly sidebarSubLimit = 5;
+  readonly sidebarSubProjects = computed<Project[]>(() => {
+    const recent = this.recentProjects();
+    const favs = this.favoriteProjects();
+    const seen = new Set<number>();
+    const ordered: Project[] = [];
+    // 收藏 + 最近优先（去重保序）
+    for (const p of [...favs, ...recent]) {
+      if (!seen.has(p.id)) {
+        seen.add(p.id);
+        ordered.push(p);
+      }
+    }
+    // 不足 N 个再用 visibleProjects 补
+    if (ordered.length < this.sidebarSubLimit) {
+      for (const p of this.visibleProjects()) {
+        if (ordered.length >= this.sidebarSubLimit) break;
+        if (!seen.has(p.id)) {
+          seen.add(p.id);
+          ordered.push(p);
+        }
+      }
+    }
+    return ordered.slice(0, this.sidebarSubLimit);
+  });
+
+  /** Story 137：首页项目空间 - 收藏/最近项目优先，附 task_count 等统计 */
+  readonly homeProjectLimit = 6;
+  readonly homeProjectList = computed<Project[]>(() => {
+    // 优先用 projectsCenter（有统计），fallback 到 projects
+    const source = this.projectsCenter().length ? this.projectsCenter() : this.visibleProjects();
+    if (!source.length) return [];
+
+    const recent = this.recentProjects();
+    const favs = this.favoriteProjects();
+    const seen = new Set<number>();
+    const ordered: Project[] = [];
+    // 收藏 + 最近优先
+    for (const p of [...favs, ...recent]) {
+      if (!seen.has(p.id) && source.some(x => x.id === p.id)) {
+        seen.add(p.id);
+        ordered.push(p);
+        if (ordered.length >= this.homeProjectLimit) return ordered;
+      }
+    }
+    // 不足再补全（按最近活跃/创建时间）
+    const rest = source.filter(p => !seen.has(p.id));
+    for (const p of rest) {
+      if (ordered.length >= this.homeProjectLimit) break;
+      seen.add(p.id);
+      ordered.push(p);
+    }
+    return ordered;
+  });
   readonly visibleEpics = computed(() =>
     this.match(this.epics(), (e) => `${e.title} ${e.description}`),
   );
@@ -1739,8 +1803,14 @@ export class App implements OnInit, OnDestroy {
       if (!kind) {
         this.view.set('home');
         await this.loadDashboard(generation);
+        // Story 137：首页项目空间需要统计字段
+        if (!this.projectsCenter().length) {
+          void this.loadProjectsCenter();
+        }
       } else if (kind === 'projects') {
         this.view.set('projects');
+        // Story 137：项目中心数据
+        await this.loadProjectsCenter();
       } else if (kind === 'project' && id > 0) {
         this.view.set('project');
         const projectTab: ProjectTabKind = section === 'proposals'
@@ -1903,6 +1973,168 @@ export class App implements OnInit, OnDestroy {
   private async loadProjects(): Promise<void> {
     const result = await firstValueFrom(this.api.listProjects());
     this.projects.set(Array.isArray(result) ? result : (result.items || []));
+  }
+
+  // ---------- Story 137：项目中心 ----------
+  /**
+   * 加载项目中心列表（带筛选/排序/统计）。
+   * 仅拉一次（按当前 scope+sort+limit），search 过滤走前端。
+   */
+  async loadProjectsCenter(): Promise<void> {
+    this.projectsCenterLoading.set(true);
+    try {
+      const result = await firstValueFrom(
+        this.api.listProjectsCenter({
+          scope: this.projectCenterScope(),
+          sort: this.projectCenterSort(),
+          limit: 200,
+        })
+      );
+      const items = Array.isArray(result) ? result : (result.items || []);
+      this.projectsCenter.set(items);
+      this.projectsCenterTotal.set(typeof result === 'object' && 'total' in result ? result.total : items.length);
+      // 选择集与列表脱钩时清空
+      const validIds = new Set(items.map(p => p.id));
+      const cur = this.projectCenterSelected();
+      const filtered = new Set([...cur].filter(id => validIds.has(id)));
+      if (filtered.size !== cur.size) this.projectCenterSelected.set(filtered);
+    } catch (e: any) {
+      this.showFeedback('error', '项目中心加载失败: ' + (e?.message || e));
+    } finally {
+      this.projectsCenterLoading.set(false);
+    }
+  }
+
+  setProjectCenterScope(scope: 'active' | 'archived' | 'all' | 'mine' | 'created'): void {
+    if (this.projectCenterScope() === scope) return;
+    this.projectCenterScope.set(scope);
+    this.projectCenterSelected.set(new Set());
+    void this.loadProjectsCenter();
+  }
+
+  setProjectCenterSort(sort: 'recent' | 'name' | 'created' | 'tasks'): void {
+    if (this.projectCenterSort() === sort) return;
+    this.projectCenterSort.set(sort);
+    void this.loadProjectsCenter();
+  }
+
+  /** 项目中心当前可见的列表（search 信号过滤；空查询时全显） */
+  readonly visibleProjectsCenter = computed<Project[]>(() => {
+    const q = this.search().trim().toLowerCase();
+    const all = this.projectsCenter();
+    if (!q) return all;
+    return all.filter(p =>
+      `${p.name} ${p.key || ''} ${p.description || ''}`.toLowerCase().includes(q)
+    );
+  });
+
+  /** 项目中心当前可见项目的总任务数（用于空状态/统计显示） */
+  readonly projectsCenterTotalTasks = computed<number>(() =>
+    this.visibleProjectsCenter().reduce((s, p) => s + (p.task_count || 0), 0)
+  );
+
+  toggleProjectCenterSelection(id: number): void {
+    const cur = new Set(this.projectCenterSelected());
+    if (cur.has(id)) cur.delete(id);
+    else cur.add(id);
+    this.projectCenterSelected.set(cur);
+  }
+
+  toggleProjectCenterSelectAll(): void {
+    const visible = this.visibleProjectsCenter();
+    const cur = this.projectCenterSelected();
+    const allSelected = visible.length > 0 && visible.every(p => cur.has(p.id));
+    if (allSelected) {
+      this.projectCenterSelected.set(new Set());
+    } else {
+      this.projectCenterSelected.set(new Set(visible.map(p => p.id)));
+    }
+  }
+
+  clearProjectCenterSelection(): void {
+    this.projectCenterSelected.set(new Set());
+  }
+
+  isProjectCenterAllSelected(): boolean {
+    const visible = this.visibleProjectsCenter();
+    const cur = this.projectCenterSelected();
+    return visible.length > 0 && visible.every(p => cur.has(p.id));
+  }
+
+  isProjectCenterIndeterminate(): boolean {
+    const visible = this.visibleProjectsCenter();
+    const cur = this.projectCenterSelected();
+    const n = visible.filter(p => cur.has(p.id)).length;
+    return n > 0 && n < visible.length;
+  }
+
+  async bulkArchiveSelected(): Promise<void> {
+    const ids = [...this.projectCenterSelected()];
+    if (!ids.length) return;
+    if (!confirm(`确定归档 ${ids.length} 个项目？归档后默认从列表隐藏，可在「全部 / 已归档」中查看。`)) return;
+    this.projectCenterBulkBusy.set(true);
+    try {
+      const r = await firstValueFrom(this.api.bulkArchiveProjects(ids));
+      this.showFeedback('success', `已归档 ${r.archived} 个项目`);
+      this.projectCenterSelected.set(new Set());
+      await this.loadProjectsCenter();
+    } catch (e: any) {
+      this.showFeedback('error', '归档失败: ' + (e?.message || e));
+    } finally {
+      this.projectCenterBulkBusy.set(false);
+    }
+  }
+
+  async bulkUnarchiveSelected(): Promise<void> {
+    const ids = [...this.projectCenterSelected()];
+    if (!ids.length) return;
+    if (!confirm(`确定恢复 ${ids.length} 个项目？`)) return;
+    this.projectCenterBulkBusy.set(true);
+    try {
+      const r = await firstValueFrom(this.api.bulkUnarchiveProjects(ids));
+      this.showFeedback('success', `已恢复 ${r.unarchived} 个项目`);
+      this.projectCenterSelected.set(new Set());
+      await this.loadProjectsCenter();
+    } catch (e: any) {
+      this.showFeedback('error', '恢复失败: ' + (e?.message || e));
+    } finally {
+      this.projectCenterBulkBusy.set(false);
+    }
+  }
+
+  /** 收藏筛选：当前可见项目中已收藏的 */
+  readonly visibleFavoriteProjectsCenter = computed<Project[]>(() =>
+    this.visibleProjectsCenter().filter(p => this.isFavorite(p.id))
+  );
+
+  /** 任务完成度百分比：0-100 */
+  projectProgress(p: Project): number {
+    const total = p.task_count || 0;
+    const done = p.task_done || 0;
+    if (total === 0) return 0;
+    return Math.round((done / total) * 100);
+  }
+
+  /** 相对时间显示（last_activity_at 或 created_at） */
+  formatRelativeTime(iso: string | null | undefined): string {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '—';
+    const now = Date.now();
+    const diff = (now - d.getTime()) / 1000; // seconds
+    if (diff < 60) return '刚刚';
+    if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
+    if (diff < 86400 * 30) return `${Math.floor(diff / 86400)} 天前`;
+    if (diff < 86400 * 365) return `${Math.floor(diff / 86400 / 30)} 月前`;
+    return `${Math.floor(diff / 86400 / 365)} 年前`;
+  }
+
+  /** 任务进度 aria label */
+  projectProgressLabel(p: Project): string {
+    const total = p.task_count || 0;
+    const done = p.task_done || 0;
+    return `${done} / ${total} 已完成（${this.projectProgress(p)}%）`;
   }
 
   private loadRecentProjects(): void {

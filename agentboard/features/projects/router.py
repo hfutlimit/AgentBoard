@@ -42,10 +42,103 @@ def list_projects_ext(
     访问权限由 ``list_accessible_projects`` 中 ``user.is_admin`` 控制。
     API Key（``abk_``）的身份解析完全等同于其关联用户 —— 若 key 属于非管理
     员，则仅返回该用户的成员项目；若属于管理员，则可见全部。
+
+    Story 137：默认隐藏已归档项目（``is_archived=True``），传 ``include_archived=true`` 才会包含。
     """
     uid = api_helpers._optional_user_id(authorization, s)
     projects, total = service.list_accessible_projects(s, uid, limit=limit, offset=offset)
     return {"items": [service._ser(p) for p in projects], "total": total}
+
+
+# ---- Story 137：项目中心 ----
+@router.get("/api/projects/center")
+def list_projects_center(
+    s: Session = Depends(get_session),
+    scope: str = Query("active", pattern=r"^(active|archived|all|mine|created)$"),
+    sort: str = Query("recent", pattern=r"^(recent|name|created|tasks)$"),
+    include_archived: bool | None = Query(None, description="scope=all 时是否含已归档；None/true=含"),
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    authorization: str | None = Header(None),
+):
+    """项目中心专用列表：带筛选 / 排序 / 任务/成员/活跃统计字段。
+
+    返回 ``items`` 中每项是 Project 列 + 附加：
+    - task_count / task_done
+    - member_count
+    - last_activity_at（ISO 8601；可能为 null）
+    """
+    uid = api_helpers._optional_user_id(authorization, s)
+    items, total = service.list_accessible_projects_center(
+        s, uid, scope=scope, sort=sort,
+        include_archived=include_archived, limit=limit, offset=offset,
+    )
+    return {"items": items, "total": total}
+
+
+@router.post("/api/projects/bulk-archive")
+def bulk_archive_projects(
+    body: dict,
+    s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
+):
+    """批量归档。body = ``{"ids": [1, 2, 3]}``。需要每个项目 owner 权限。"""
+    uid = api_helpers._optional_user_id(authorization, s)
+    if uid is None:
+        raise HTTPException(status_code=401, detail="authentication required")
+    ids = body.get("ids") or []
+    if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+        raise HTTPException(status_code=422, detail="ids must be a list of integers")
+    # 权限：仅允许归档自己有 owner 权限的项目
+    user = service.get_user(s, uid)
+    if not user:
+        raise HTTPException(status_code=401, detail="user not found")
+    if not user.is_admin:
+        allowed_ids = {
+            r[0] for r in s.query(ProjectMember.project_id)
+            .filter(ProjectMember.user_id == uid, ProjectMember.role == "owner")
+            .all()
+        }
+        denied = [i for i in ids if i not in allowed_ids]
+        if denied:
+            raise HTTPException(
+                status_code=403,
+                detail=f"owner permission required for projects: {denied}",
+            )
+    affected = service.bulk_archive(s, [int(i) for i in ids], user_id=uid)
+    return {"ok": True, "archived": affected}
+
+
+@router.post("/api/projects/bulk-unarchive")
+def bulk_unarchive_projects(
+    body: dict,
+    s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
+):
+    """批量恢复归档。权限同 bulk-archive。"""
+    uid = api_helpers._optional_user_id(authorization, s)
+    if uid is None:
+        raise HTTPException(status_code=401, detail="authentication required")
+    ids = body.get("ids") or []
+    if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+        raise HTTPException(status_code=422, detail="ids must be a list of integers")
+    user = service.get_user(s, uid)
+    if not user:
+        raise HTTPException(status_code=401, detail="user not found")
+    if not user.is_admin:
+        allowed_ids = {
+            r[0] for r in s.query(ProjectMember.project_id)
+            .filter(ProjectMember.user_id == uid, ProjectMember.role == "owner")
+            .all()
+        }
+        denied = [i for i in ids if i not in allowed_ids]
+        if denied:
+            raise HTTPException(
+                status_code=403,
+                detail=f"owner permission required for projects: {denied}",
+            )
+    affected = service.bulk_unarchive(s, [int(i) for i in ids])
+    return {"ok": True, "unarchived": affected}
 
 
 

@@ -6364,3 +6364,444 @@ select:focus {
 .kb-t-bug { background: #fee2e2; color: #b91c1c; }
 .project-kanban-card .kanban-card-actions { display: flex; justify-content: flex-end; }
 @media (max-width: 860px) { .project-kanban { flex-wrap: wrap; } .project-kanban .kanban-col { min-width: 240px; max-width: none; } }
+
+/* =================================================================
+   Story 137：项目中心（/projects）样式
+   ================================================================= */
+
+.project-center-sub {
+  margin: 4px 0 0 0;
+  font-size: 13px;
+}
+
+.project-center-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+  overflow-x: auto;
+}
+
+.pc-tab {
+  background: transparent;
+  border: none;
+  padding: 10px 16px;
+  font-size: 14px;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  white-space: nowrap;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.pc-tab:hover {
+  color: var(--text);
+}
+
+.pc-tab.active {
+  color: var(--accent, #2563eb);
+  border-bottom-color: var(--accent, #2563eb);
+  font-weight: 500;
+}
+
+.project-center-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.pc-search-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 200px;
+  max-width: 480px;
+  display: flex;
+  align-items: center;
+}
+
+.pc-search-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--muted);
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.pc-search-input {
+  width: 100%;
+  padding: 8px 32px 8px 32px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg, #fff);
+  color: var(--text);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.pc-search-input:focus {
+  border-color: var(--accent, #2563eb);
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
+}
+
+.pc-search-clear {
+  position: absolute;
+  right: 6px;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.pc-search-clear:hover {
+  background: var(--hover);
+}
+
+.pc-sort-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.pc-sort-select {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg, #fff);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.pc-stat {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+.pc-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--accent-bg, rgba(37, 99, 235, 0.08));
+  border: 1px solid var(--accent, #2563eb);
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.pc-bulk-count strong {
+  color: var(--accent, #2563eb);
+}
+
+.pc-bulk-btn {
+  background: var(--accent, #2563eb);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 5px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.pc-bulk-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.pc-bulk-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pc-bulk-clear {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.pc-bulk-clear:hover {
+  background: var(--hover);
+}
+
+.pc-table th,
+.pc-table td {
+  vertical-align: middle;
+}
+
+.pc-col-check {
+  width: 32px;
+  text-align: center;
+}
+
+.pc-check {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  margin: 0;
+}
+
+.pc-col-name {
+  min-width: 240px;
+  max-width: 360px;
+}
+
+.pc-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.pc-name-link {
+  font-weight: 500;
+}
+
+.pc-desc {
+  font-size: 12px;
+  margin-top: 2px;
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pc-archived-badge {
+  background: var(--muted-bg, #94a3b8);
+  color: #fff;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 10px;
+}
+
+.pc-col-key {
+  width: 90px;
+}
+
+.pc-key-code {
+  background: var(--hover);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+}
+
+.pc-col-progress {
+  width: 200px;
+}
+
+.pc-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pc-progress-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--hover);
+  border-radius: 3px;
+  overflow: hidden;
+  min-width: 60px;
+}
+
+.pc-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981, #2563eb);
+  transition: width 0.3s;
+}
+
+.pc-progress-text {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pc-col-members {
+  width: 80px;
+}
+
+.pc-member-count {
+  font-size: 13px;
+}
+
+.pc-col-activity {
+  width: 110px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pc-col-action {
+  width: 70px;
+  text-align: right;
+}
+
+.pc-row-selected td {
+  background: var(--accent-bg, rgba(37, 99, 235, 0.05));
+}
+
+.pc-row-archived td {
+  opacity: 0.65;
+}
+
+.pc-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+}
+
+.pc-skeleton-row {
+  height: 44px;
+  background: linear-gradient(90deg, var(--hover) 25%, var(--muted-bg) 50%, var(--hover) 75%);
+  background-size: 200% 100%;
+  border-radius: 4px;
+  animation: pc-shimmer 1.4s infinite;
+}
+
+@keyframes pc-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.pc-empty {
+  padding: 48px 16px;
+  text-align: center;
+}
+
+.section-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* =================================================================
+   Story 137：首页项目空间 - 紧凑列表
+   ================================================================= */
+
+.home-project-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: var(--card, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.home-project-row {
+  display: grid;
+  grid-template-columns: 24px 1fr auto auto auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  text-decoration: none;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  transition: background 0.12s;
+}
+
+.home-project-row:last-child {
+  border-bottom: none;
+}
+
+.home-project-row:hover {
+  background: var(--hover);
+}
+
+.home-project-fav {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 16px;
+  padding: 0;
+  line-height: 1;
+}
+
+.home-project-fav.favorited {
+  color: #eab308;
+}
+
+.home-project-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-project-key {
+  background: var(--hover);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--muted);
+  font-family: ui-monospace, "SF Mono", monospace;
+}
+
+.home-project-meta {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.home-project-time {
+  font-size: 12px;
+  white-space: nowrap;
+  min-width: 80px;
+  text-align: right;
+}
+
+.home-project-go {
+  color: var(--muted);
+  font-size: 16px;
+}
+
+@media (max-width: 720px) {
+  .home-project-row {
+    grid-template-columns: 24px 1fr auto;
+  }
+  .home-project-key,
+  .home-project-meta,
+  .home-project-time {
+    display: none;
+  }
+  .pc-col-progress,
+  .pc-col-members,
+  .pc-col-activity {
+    display: none;
+  }
+}
+
+/* =================================================================
+   Story 137：侧边栏项目子列表（常驻 + 限制前 5 个）
+   ================================================================= */
+
+.sidebar-sub-more {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: none;
+  border-top: 1px dashed var(--border);
+  margin-top: 4px;
+}
+
+.sidebar-sub-more:hover {
+  color: var(--accent, #2563eb);
+  background: var(--hover);
+}
+

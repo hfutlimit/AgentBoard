@@ -382,6 +382,40 @@ export class ApiService {
     );
   }
 
+  /**
+   * Story 137：项目中心专用列表（带筛选 / 排序 / 统计字段）
+   * @param scope active | archived | all | mine | created
+   * @param sort recent | name | created | tasks
+   * @param includeArchived 仅 scope=all 时生效；true=含，false=不含，undefined=含
+   */
+  listProjectsCenter(opts: {
+    scope?: 'active' | 'archived' | 'all' | 'mine' | 'created';
+    sort?: 'recent' | 'name' | 'created' | 'tasks';
+    includeArchived?: boolean;
+    limit?: number;
+    offset?: number;
+  } = {}) {
+    const params: Record<string, string> = {};
+    if (opts.scope) params['scope'] = opts.scope;
+    if (opts.sort) params['sort'] = opts.sort;
+    if (opts.includeArchived !== undefined) params['include_archived'] = String(opts.includeArchived);
+    if (opts.limit !== undefined) params['limit'] = String(opts.limit);
+    if (opts.offset !== undefined) params['offset'] = String(opts.offset);
+    return this.request<PagedResult<Project>>('GET', '/api/projects/center', undefined, params);
+  }
+
+  bulkArchiveProjects(ids: number[]) {
+    return this.request<{ ok: boolean; archived: number }>(
+      'POST', '/api/projects/bulk-archive', { ids }
+    ).pipe(tap(() => this.invalidateProjectCache()));
+  }
+
+  bulkUnarchiveProjects(ids: number[]) {
+    return this.request<{ ok: boolean; unarchived: number }>(
+      'POST', '/api/projects/bulk-unarchive', { ids }
+    ).pipe(tap(() => this.invalidateProjectCache()));
+  }
+
   listMyProjects(role?: 'owner' | 'member') {
     return this.request<PagedResult<Project>>('GET', '/api/users/me/projects', undefined, role ? { role } : undefined);
   }

@@ -224,11 +224,12 @@ class RunReportIn(BaseModel):
 
 
 class ProjectPatchExtended(BaseModel):
-    """Project PATCH 支持 is_private"""
+    """Project PATCH 支持 is_private + is_archived（Story 137 项目中心）"""
     name: str | None = Field(None, min_length=1, max_length=200)
     key: str | None = Field(None, max_length=20)
     description: str | None = None
     is_private: bool | None = None
+    is_archived: bool | None = None
 
 
 class MemberRoleIn(BaseModel):

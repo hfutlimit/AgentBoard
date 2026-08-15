@@ -140,22 +140,31 @@
           <a routerLink="/projects" [class.active]="view() === 'projects'" class="sidebar-nav-item" title="项目">
             <span class="sidebar-nav-icon">📁</span>
             <span class="sidebar-nav-label">项目</span>
+            @if (visibleProjects().length > 0) {
+              <span class="sidebar-nav-badge">{{ visibleProjects().length }}</span>
+            }
           </a>
-          <!-- 二级：项目列表 -->
-          @if (view() === 'projects' || view() === 'project') {
+          <!-- 二级：项目列表（Story 137：常驻 + 限制前 5 个） -->
+          @if (visibleProjects().length > 0) {
             <div class="sidebar-sub">
               <div class="sidebar-sub-header">项目列表</div>
-              @for (item of visibleProjects(); track item.id) {
+              @for (item of sidebarSubProjects(); track item.id) {
                 <a [routerLink]="['/project', item.id]" class="sidebar-sub-item" [class.active]="project()?.id === item.id">
                   <span class="sidebar-icon">◆</span><span class="sidebar-label">{{ item.name }}</span>
                   @if (item.key) {
                     <span class="sidebar-key">{{ item.key }}</span>
                   }
                 </a>
-              } @empty {
-                <div class="sidebar-empty">暂无项目</div>
+              }
+              @if (visibleProjects().length > sidebarSubLimit) {
+                <a routerLink="/projects" class="sidebar-sub-more" title="查看全部项目">
+                  <span class="sidebar-icon">→</span>
+                  <span class="sidebar-label">查看全部 ({{ visibleProjects().length }})</span>
+                </a>
               }
             </div>
+          } @else {
+            <div class="sidebar-empty">暂无项目</div>
           }
         </div>
       </nav>
@@ -344,28 +353,35 @@
             </section>
             <div class="section-header">
               <h2>项目空间 <span class="project-count-badge">{{ projects().length }}</span></h2>
-              <button id="home-new-project" class="btn-primary-sm" (click)="openCreate('project')">
-                ＋ 新建项目
-              </button>
+              <div class="section-header-actions">
+                <a routerLink="/projects" class="link">查看全部 →</a>
+                <button id="home-new-project" class="btn-primary-sm" (click)="openCreate('project')">
+                  ＋ 新建项目
+                </button>
+              </div>
             </div>
-            <div class="project-grid">
-              @for (item of visibleProjects(); track item.id) {
-                <div class="project-card-wrapper">
-                  <a [routerLink]="['/project', item.id]" class="project-card"
-                    ><div class="project-card-header">
-                      <span class="project-card-name">{{ item.name }}</span>
-                      @if (item.key) {
-                        <span class="project-key">{{ item.key }}</span>
-                      }
-                    </div>
-                    <div class="project-card-desc">{{ item.description || '暂无描述' }}</div>
-                    <div class="project-card-stats"><span>打开项目</span><span>→</span></div></a
-                  >
-                  <button class="favorite-toggle" [class.favorited]="isFavorite(item.id)"
-                    (click)="toggleFavorite(item, $event)" title="收藏/取消收藏">
+            <!-- Story 137：紧凑列表优先展示收藏 + 最近项目（最多 6 个） -->
+            <div class="home-project-list">
+              @for (item of homeProjectList(); track item.id) {
+                <a [routerLink]="['/project', item.id]" class="home-project-row">
+                  <button class="favorite-toggle home-project-fav" [class.favorited]="isFavorite(item.id)"
+                    (click)="toggleFavorite(item, $event); $event.preventDefault(); $event.stopPropagation()"
+                    title="收藏/取消收藏" [attr.aria-label]="isFavorite(item.id) ? '取消收藏' : '收藏'">
                     {{ isFavorite(item.id) ? '★' : '☆' }}
                   </button>
-                </div>
+                  <span class="home-project-name">{{ item.name }}</span>
+                  @if (item.key) {
+                    <code class="home-project-key">{{ item.key }}</code>
+                  }
+                  <span class="home-project-meta muted">
+                    {{ item.task_count || 0 }} 任务
+                    @if ((item.task_count || 0) > 0) {
+                      · {{ item.task_done || 0 }} 完成
+                    }
+                  </span>
+                  <span class="home-project-time muted">{{ formatRelativeTime(item.last_activity_at || item.created_at) }}</span>
+                  <span class="home-project-go">→</span>
+                </a>
               } @empty {
                 <div class="empty-state empty-compact">
                   <h3>还没有项目</h3>
@@ -376,42 +392,195 @@
           </div>
         }
         @case ('projects') {
+          <!-- Story 137：项目中心 -->
           <div class="page-header">
             <div>
-              <span class="eyebrow">WORKSPACES</span>
-              <h2>所有项目</h2>
+              <span class="eyebrow">PROJECT CENTER</span>
+              <h2>项目中心 <span class="project-count-badge">{{ projectsCenter().length }}</span></h2>
+              <p class="muted project-center-sub">所有项目一站式管理 · 筛选、排序、批量归档</p>
             </div>
             <button id="proj-new-btn" class="btn-primary" (click)="openCreate('project')">
               ＋ 新建项目
             </button>
           </div>
+
+          <!-- 筛选 Tabs -->
+          <div class="project-center-tabs" role="tablist">
+            <button class="pc-tab" role="tab"
+              [class.active]="projectCenterScope() === 'active'"
+              (click)="setProjectCenterScope('active')">
+              活跃
+            </button>
+            <button class="pc-tab" role="tab"
+              [class.active]="projectCenterScope() === 'archived'"
+              (click)="setProjectCenterScope('archived')">
+              已归档
+            </button>
+            <button class="pc-tab" role="tab"
+              [class.active]="projectCenterScope() === 'mine'"
+              (click)="setProjectCenterScope('mine')">
+              我参与
+            </button>
+            <button class="pc-tab" role="tab"
+              [class.active]="projectCenterScope() === 'created'"
+              (click)="setProjectCenterScope('created')">
+              我创建
+            </button>
+            <button class="pc-tab" role="tab"
+              [class.active]="projectCenterScope() === 'all'"
+              (click)="setProjectCenterScope('all')">
+              全部
+            </button>
+          </div>
+
+          <!-- 工具栏：搜索 + 排序 + 批量 -->
+          <div class="project-center-toolbar">
+            <div class="pc-search-wrap">
+              <span class="pc-search-icon">⌕</span>
+              <input
+                type="search"
+                class="pc-search-input"
+                placeholder="搜索项目名称 / 短码 / 描述…"
+                [value]="search()"
+                (input)="search.set($any($event.target).value)"
+                aria-label="搜索项目"
+              />
+              @if (search()) {
+                <button class="pc-search-clear" (click)="search.set('')" title="清空搜索">✕</button>
+              }
+            </div>
+            <div class="pc-sort-wrap">
+              <label for="pc-sort" class="muted">排序</label>
+              <select id="pc-sort" class="pc-sort-select"
+                [value]="projectCenterSort()"
+                (change)="setProjectCenterSort($any($event.target).value)">
+                <option value="recent">最近活跃</option>
+                <option value="created">创建时间</option>
+                <option value="name">名称</option>
+                <option value="tasks">任务数</option>
+              </select>
+            </div>
+            <div class="pc-stat muted">
+              共 {{ visibleProjectsCenter().length }} / {{ projectsCenterTotal() }} 个
+            </div>
+          </div>
+
+          <!-- 批量操作条 -->
+          @if (projectCenterSelected().size > 0) {
+            <div class="pc-bulk-bar">
+              <span class="pc-bulk-count">已选 <strong>{{ projectCenterSelected().size }}</strong> 个</span>
+              <button class="pc-bulk-btn" [disabled]="projectCenterBulkBusy()"
+                (click)="bulkArchiveSelected()">
+                归档
+              </button>
+              @if (projectCenterScope() === 'archived') {
+                <button class="pc-bulk-btn" [disabled]="projectCenterBulkBusy()"
+                  (click)="bulkUnarchiveSelected()">
+                  恢复
+                </button>
+              }
+              <button class="pc-bulk-clear" (click)="clearProjectCenterSelection()">清空选择</button>
+            </div>
+          }
+
+          <!-- 表格 -->
           <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>项目</th>
-                  <th>短码</th>
-                  <th>描述</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (item of visibleProjects(); track item.id) {
-                  <tr>
-                    <td>
-                      <a [routerLink]="['/project', item.id]" class="link-bold">{{ item.name }}</a>
-                      <button class="favorite-toggle-inline" [class.favorited]="isFavorite(item.id)"
-                        (click)="toggleFavorite(item, $event)" title="收藏/取消收藏">
-                        {{ isFavorite(item.id) ? '★' : '☆' }}
-                      </button>
-                    </td>
-                    <td>{{ item.key || '—' }}</td>
-                    <td class="cell-truncate">{{ item.description || '—' }}</td>
-                    <td><a [routerLink]="['/project', item.id]" class="link">打开</a></td>
-                  </tr>
+            @if (projectsCenterLoading() && !projectsCenter().length) {
+              <div class="pc-skeleton">
+                @for (_ of [0,1,2,3,4]; track $index) {
+                  <div class="pc-skeleton-row"></div>
                 }
-              </tbody>
-            </table>
+              </div>
+            } @else if (visibleProjectsCenter().length === 0) {
+              <div class="empty-state empty-compact pc-empty">
+                @if (search()) {
+                  <h3>没有匹配「{{ search() }}」的项目</h3>
+                  <p class="muted">尝试调整搜索词或切换筛选 tab。</p>
+                } @else if (projectCenterScope() === 'archived') {
+                  <h3>还没有归档项目</h3>
+                  <p class="muted">归档的项目会出现在这里，可随时恢复。</p>
+                } @else {
+                  <h3>还没有项目</h3>
+                  <p class="muted">创建第一个项目，让人类与 Agent 在同一处协作。</p>
+                }
+              </div>
+            } @else {
+              <table class="data-table pc-table">
+                <thead>
+                  <tr>
+                    <th class="pc-col-check">
+                      <input type="checkbox" class="pc-check"
+                        [checked]="isProjectCenterAllSelected()"
+                        [indeterminate]="isProjectCenterIndeterminate()"
+                        (change)="toggleProjectCenterSelectAll()"
+                        aria-label="全选/取消全选" />
+                    </th>
+                    <th class="pc-col-name">项目</th>
+                    <th class="pc-col-key">短码</th>
+                    <th class="pc-col-progress">任务进度</th>
+                    <th class="pc-col-members">成员</th>
+                    <th class="pc-col-activity">最近活跃</th>
+                    <th class="pc-col-action"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (p of visibleProjectsCenter(); track p.id) {
+                    <tr [class.pc-row-selected]="projectCenterSelected().has(p.id)"
+                      [class.pc-row-archived]="p.is_archived">
+                      <td class="pc-col-check">
+                        <input type="checkbox" class="pc-check"
+                          [checked]="projectCenterSelected().has(p.id)"
+                          (change)="toggleProjectCenterSelection(p.id)"
+                          [attr.aria-label]="'选择 ' + p.name" />
+                      </td>
+                      <td class="pc-col-name">
+                        <div class="pc-name-cell">
+                          <a [routerLink]="['/project', p.id]" class="link-bold pc-name-link">{{ p.name }}</a>
+                          <button class="favorite-toggle-inline" [class.favorited]="isFavorite(p.id)"
+                            (click)="toggleFavorite(p, $event)" title="收藏/取消收藏"
+                            [attr.aria-label]="isFavorite(p.id) ? '取消收藏' : '收藏'">
+                            {{ isFavorite(p.id) ? '★' : '☆' }}
+                          </button>
+                          @if (p.is_archived) {
+                            <span class="badge pc-archived-badge" title="已归档">已归档</span>
+                          }
+                          @if (p.is_private) {
+                            <span class="badge" title="邀请制项目">🔒 邀请制</span>
+                          }
+                        </div>
+                        @if (p.description) {
+                          <div class="pc-desc muted">{{ p.description }}</div>
+                        }
+                      </td>
+                      <td class="pc-col-key"><code class="pc-key-code">{{ p.key || '—' }}</code></td>
+                      <td class="pc-col-progress">
+                        @if ((p.task_count || 0) > 0) {
+                          <div class="pc-progress" [attr.aria-label]="projectProgressLabel(p)">
+                            <div class="pc-progress-bar">
+                              <div class="pc-progress-fill" [style.width.%]="projectProgress(p)"></div>
+                            </div>
+                            <span class="pc-progress-text">{{ p.task_done }} / {{ p.task_count }}</span>
+                          </div>
+                        } @else {
+                          <span class="muted">无任务</span>
+                        }
+                      </td>
+                      <td class="pc-col-members">
+                        <span class="pc-member-count" [attr.aria-label]="(p.member_count || 0) + ' 个成员'">
+                          👥 {{ p.member_count || 0 }}
+                        </span>
+                      </td>
+                      <td class="pc-col-activity" [title]="p.last_activity_at || p.created_at">
+                        {{ formatRelativeTime(p.last_activity_at || p.created_at) }}
+                      </td>
+                      <td class="pc-col-action">
+                        <a [routerLink]="['/project', p.id]" class="link">打开</a>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            }
           </div>
         }
         @case ('project') {

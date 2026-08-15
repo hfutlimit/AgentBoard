@@ -12,6 +12,15 @@ export interface Project {
   is_private: boolean;
   created_at: string;
   membership_role?: 'owner' | 'member';
+  // Story 137（项目中心）：归档机制
+  is_archived?: boolean;
+  archived_at?: string | null;
+  archived_by?: number | null;
+  // 项目中心专用统计字段（仅 /api/projects/center 响应包含）
+  task_count?: number;
+  task_done?: number;
+  member_count?: number;
+  last_activity_at?: string | null;
 }
 
 export interface UserProfile {

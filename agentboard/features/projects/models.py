@@ -43,6 +43,12 @@ class Project(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     is_private: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    # Story 137（项目中心）：归档机制。归档项目默认从列表隐藏，但保留数据可恢复。
+    is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    archived_by: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
 
 
 class Epic(Base):

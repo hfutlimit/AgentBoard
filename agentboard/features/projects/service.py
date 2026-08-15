@@ -569,6 +569,15 @@ def update_project(s: Session, id: int, **fields) -> Project | None:
     for k, v in fields.items():
         if k == "is_private" and v is not None:
             p.is_private = bool(v)
+        elif k == "is_archived" and v is not None:
+            # Story 137：归档/取消归档。归档时打时间戳/操作人；取消时清空。
+            p.is_archived = bool(v)
+            if p.is_archived:
+                from datetime import datetime
+                p.archived_at = datetime.utcnow()
+            else:
+                p.archived_at = None
+                p.archived_by = None
         elif k in ("name", "key", "description") and v is not None:
             if k == "name":
                 v = _required(v, "name", 200)
@@ -580,6 +589,204 @@ def update_project(s: Session, id: int, **fields) -> Project | None:
     _commit(s, duplicate=f"project key '{p.key}' already exists" if p.key else None)
     s.refresh(p)
     return p
+
+
+# ---- Story 137：项目归档（与 list 配合） ----
+
+def archive_project(s: Session, project_id: int, *, user_id: int | None = None) -> Project | None:
+    """归档项目。重复归档幂等。"""
+    from datetime import datetime
+    p = s.get(Project, project_id)
+    if not p:
+        return None
+    if not p.is_archived:
+        p.is_archived = True
+        p.archived_at = datetime.utcnow()
+        p.archived_by = user_id
+        _commit(s)
+        s.refresh(p)
+    return p
+
+
+def unarchive_project(s: Session, project_id: int) -> Project | None:
+    """恢复归档项目。"""
+    p = s.get(Project, project_id)
+    if not p:
+        return None
+    if p.is_archived:
+        p.is_archived = False
+        p.archived_at = None
+        p.archived_by = None
+        _commit(s)
+        s.refresh(p)
+    return p
+
+
+def bulk_archive(s: Session, project_ids: list[int], *, user_id: int | None = None) -> int:
+    """批量归档。返回实际变更数量（已归档的会跳过）。"""
+    from datetime import datetime
+    if not project_ids:
+        return 0
+    now = datetime.utcnow()
+    affected = (
+        s.query(Project)
+        .filter(Project.id.in_(project_ids), Project.is_archived.is_(False))
+        .update(
+            {Project.is_archived: True, Project.archived_at: now, Project.archived_by: user_id},
+            synchronize_session=False,
+        )
+    )
+    _commit(s)
+    return int(affected or 0)
+
+
+def bulk_unarchive(s: Session, project_ids: list[int]) -> int:
+    """批量恢复归档。"""
+    if not project_ids:
+        return 0
+    affected = (
+        s.query(Project)
+        .filter(Project.id.in_(project_ids), Project.is_archived.is_(True))
+        .update(
+            {Project.is_archived: False, Project.archived_at: None, Project.archived_by: None},
+            synchronize_session=False,
+        )
+    )
+    _commit(s)
+    return int(affected or 0)
+
+
+# ---- Story 137：项目中心列表（含 task/member 统计 + 最近活跃） ----
+
+def _project_stats_dict(s: Session, project_ids: list[int]) -> dict[int, dict]:
+    """批量计算项目统计：task_count / task_done / member_count / last_activity_at。
+
+    返回 {project_id: {task_count, task_done, member_count, last_activity_at}}。
+    project_ids 为空时返回空 dict。
+    """
+    from sqlalchemy import func as sa_func
+    from datetime import datetime
+
+    if not project_ids:
+        return {}
+
+    # 任务统计（按 status 分组聚合）
+    task_rows = (
+        s.query(Task.project_id, Task.status, sa_func.count(Task.id))
+        .filter(Task.project_id.in_(project_ids))
+        .group_by(Task.project_id, Task.status)
+        .all()
+    )
+    task_total: dict[int, int] = {}
+    task_done: dict[int, int] = {}
+    for pid, status, count in task_rows:
+        task_total[pid] = task_total.get(pid, 0) + count
+        if status == Status.DONE:
+            task_done[pid] = task_done.get(pid, 0) + count
+
+    # 成员数
+    member_rows = (
+        s.query(ProjectMember.project_id, sa_func.count(ProjectMember.id))
+        .filter(ProjectMember.project_id.in_(project_ids))
+        .group_by(ProjectMember.project_id)
+        .all()
+    )
+    member_count = {pid: cnt for pid, cnt in member_rows}
+
+    # 最近活跃时间：取 tasks.updated_at、stories.created_at、epics.created_at 的最大值
+    task_activity = dict(
+        s.query(Task.project_id, sa_func.max(Task.updated_at))
+        .filter(Task.project_id.in_(project_ids))
+        .group_by(Task.project_id)
+        .all()
+    )
+    epic_activity = dict(
+        s.query(Epic.project_id, sa_func.max(Epic.created_at))
+        .filter(Epic.project_id.in_(project_ids))
+        .group_by(Epic.project_id)
+        .all()
+    )
+    # Story 走 epic_id 间接关联
+    story_rows = (
+        s.query(Epic.project_id, sa_func.max(Story.created_at))
+        .join(Story, Story.epic_id == Epic.id)
+        .filter(Epic.project_id.in_(project_ids))
+        .group_by(Epic.project_id)
+        .all()
+    )
+    story_activity = {pid: ts for pid, ts in story_rows}
+
+    out: dict[int, dict] = {}
+    for pid in project_ids:
+        candidates = [
+            task_activity.get(pid),
+            story_activity.get(pid),
+            epic_activity.get(pid),
+        ]
+        last_activity_at = max((c for c in candidates if c is not None), default=None)
+        out[pid] = {
+            "task_count": task_total.get(pid, 0),
+            "task_done": task_done.get(pid, 0),
+            "member_count": member_count.get(pid, 0),
+            "last_activity_at": last_activity_at.isoformat() if isinstance(last_activity_at, datetime) else last_activity_at,
+        }
+    return out
+
+
+def _enrich_projects(s: Session, projects: list) -> list[dict]:
+    """把 Project ORM 列表包装成带统计字段的 dict 列表（项目中心用）。"""
+    pids = [p.id for p in projects]
+    stats = _project_stats_dict(s, pids)
+    out: list[dict] = []
+    for p in projects:
+        d = _ser(p)
+        st = stats.get(p.id, {})
+        d["task_count"] = st.get("task_count", 0)
+        d["task_done"] = st.get("task_done", 0)
+        d["member_count"] = st.get("member_count", 0)
+        d["last_activity_at"] = st.get("last_activity_at")
+        out.append(d)
+    return out
+
+
+# ---- 同步自 service.py ----
+def list_accessible_projects(
+    s: Session, user_id: int | None, limit: int | None = None, offset: int = 0,
+) -> tuple[list, int]:
+    """返回用户可见的项目列表（不含已归档过滤；仅可见性 + 权限过滤）。
+
+    访问规则（2026-07-21 邀请制）：
+    - 管理员：可见全部项目（``user.is_admin=True``）。
+    - 普通用户：仅可见自己是成员的项目（邀请制）。
+    - 未登录：空列表。
+
+    ``abk_`` API Key 经 ``_current_user()`` 解析为关联用户的完整身份
+    （含 ``is_admin``），因此权限与用户一致 —— 管理员 key 可见全部，
+    普通用户 key 仅见成员项目。
+    """
+    if user_id is None:
+        q = s.query(Project).filter(False)  # 未登录 → 空
+        total = 0
+        return _paginate(q.order_by(Project.id.desc()), limit, offset).all(), total
+
+    user = s.get(User, user_id)
+    if user and user.is_admin:
+        # 管理员：全量
+        q = s.query(Project)
+    else:
+        # 普通用户：仅成员项目
+        member_project_ids = [
+            r[0]
+            for r in s.query(ProjectMember.project_id)
+            .filter(ProjectMember.user_id == user_id)
+            .all()
+        ]
+        if member_project_ids:
+            q = s.query(Project).filter(Project.id.in_(member_project_ids))
+        else:
+            q = s.query(Project).filter(False)  # 无成员项目 → 空
+    total = q.count()
+    return _paginate(q.order_by(Project.id.desc()), limit, offset).all(), total
 
 
 def get_sprint(s: Session, id: int) -> Sprint | None:
@@ -696,44 +903,124 @@ def get_attachment_project_id(s: Session, attachment_id: int) -> int | None:
         return None
     return get_task_project_id(s, a.task_id)
 
-# ---- 同步自 service.py ----
-def list_accessible_projects(
-    s: Session, user_id: int | None, limit: int | None = None, offset: int = 0,
-) -> tuple[list, int]:
-    """返回用户可见的项目列表。
 
-    访问规则（2026-07-21 邀请制）：
-    - 管理员：可见全部项目（``user.is_admin=True``）。
-    - 普通用户：仅可见自己是成员的项目（邀请制）。
-    - 未登录：空列表。
+# ---- Story 137：项目中心列表（带筛选 / 排序 / 统计） ----
+# scope 枚举：
+#   "all"      - 默认：可见项目全集（含已归档）
+#   "active"   - 仅未归档
+#   "archived" - 仅已归档
+#   "mine"     - 当前用户作为 owner 或 member 的项目
+#   "created"  - 当前用户作为 owner 创建的项目
+#
+# sort 枚举：
+#   "recent"   - 默认：last_activity_at DESC，无活动则 created_at DESC
+#   "name"     - name ASC
+#   "created"  - created_at DESC
+#   "tasks"    - task_count DESC（按完成度排序）
+#
+# 返回 list[dict]（含统计字段）和 total。
+_SORT_MAP = {
+    "name": lambda c: c.asc(),
+    "created": lambda c: c.desc(),
+    "tasks": None,  # 需要 Python 端后排序
+}
 
-    ``abk_`` API Key 经 ``_current_user()`` 解析为关联用户的完整身份
-    （含 ``is_admin``），因此权限与用户一致 —— 管理员 key 可见全部，
-    普通用户 key 仅见成员项目。
+
+def list_accessible_projects_center(
+    s: Session,
+    user_id: int | None,
+    *,
+    scope: str = "active",
+    sort: str = "recent",
+    include_archived: bool | None = None,
+    limit: int | None = 100,
+    offset: int = 0,
+) -> tuple[list[dict], int]:
+    """项目中心专用列表：带筛选/排序/统计字段的 dict 列表。
+
+    参数：
+    - scope：见顶部枚举
+    - sort：见顶部枚举（recent 默认按 last_activity_at；tasks 走 Python 端）
+    - include_archived：仅当 scope='all' 时生效；True=含归档，False=不含，None=全含
+    - limit/offset：分页
+
+    权限：与管理中心 ``list_accessible_projects`` 一致。
     """
-    if user_id is None:
-        q = s.query(Project).filter(False)  # 未登录 → 空
-        total = 0
-        return _paginate(q.order_by(Project.id.desc()), limit, offset).all(), total
+    from sqlalchemy import or_, func as sa_func
 
+    if user_id is None:
+        return [], 0
+
+    # 1) 基础可见集
     user = s.get(User, user_id)
-    if user and user.is_admin:
-        # 管理员：全量
+    is_admin = bool(user and user.is_admin)
+    if is_admin:
         q = s.query(Project)
     else:
-        # 普通用户：仅成员项目
-        member_project_ids = [
+        member_pids = [
             r[0]
             for r in s.query(ProjectMember.project_id)
             .filter(ProjectMember.user_id == user_id)
             .all()
         ]
-        if member_project_ids:
-            q = s.query(Project).filter(Project.id.in_(member_project_ids))
+        if member_pids:
+            q = s.query(Project).filter(Project.id.in_(member_pids))
         else:
-            q = s.query(Project).filter(False)  # 无成员项目 → 空
+            q = s.query(Project).filter(False)
+
+    # 2) scope 筛选
+    if scope == "active":
+        q = q.filter(Project.is_archived.is_(False))
+    elif scope == "archived":
+        q = q.filter(Project.is_archived.is_(True))
+    elif scope == "all":
+        if include_archived is False:
+            q = q.filter(Project.is_archived.is_(False))
+        # include_archived is None/True → 含归档
+    elif scope in ("mine", "created"):
+        if not is_admin:
+            # 普通用户仅看自己成员项目已由基础集保证
+            if scope == "created":
+                q = q.join(ProjectMember, ProjectMember.project_id == Project.id).filter(
+                    ProjectMember.user_id == user_id,
+                    ProjectMember.role == "owner",
+                )
+        else:
+            # 管理员：按成员关系筛选
+            q = q.join(ProjectMember, ProjectMember.project_id == Project.id).filter(
+                ProjectMember.user_id == user_id
+            )
+            if scope == "created":
+                q = q.filter(ProjectMember.role == "owner")
+    else:
+        raise InvalidValue(f"invalid scope '{scope}'")
+
     total = q.count()
-    return _paginate(q.order_by(Project.id.desc()), limit, offset).all(), total
+    rows = q.all()
+    enriched = _enrich_projects(s, rows)
+
+    # 3) 排序（recent/tasks 需要 Python 端处理）
+    if sort == "recent":
+        def _sort_key(d):
+            la = d.get("last_activity_at")
+            return (la is None, -(0 if la is None else 0), d.get("id", 0))
+        # 用字符串字典序（ISO 8601）即可
+        enriched.sort(key=lambda d: (d.get("last_activity_at") or "", d.get("id", 0)), reverse=False)
+        enriched.reverse()  # 新的在前
+    elif sort == "name":
+        enriched.sort(key=lambda d: (d.get("name") or "").lower())
+    elif sort == "created":
+        enriched.sort(key=lambda d: d.get("created_at") or "", reverse=True)
+    elif sort == "tasks":
+        enriched.sort(key=lambda d: (-(d.get("task_count") or 0), -int(d.get("is_archived", False)), d.get("id", 0)))
+    else:
+        raise InvalidValue(f"invalid sort '{sort}'")
+
+    # 4) 分页
+    if limit is not None:
+        enriched = enriched[offset:offset + limit]
+
+    return enriched, total
 
 # ---- 同步自 service.py ----
 def list_user_projects(

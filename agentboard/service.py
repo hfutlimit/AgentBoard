@@ -2888,6 +2888,9 @@ from .features.projects.service import (  # noqa: F401,F403  (末尾重绑)
     update_project_member_role, get_project_member,
     get_epic_project_id, get_story_project_id, get_sprint_project_id,
     get_project_stats,
+    # Story 137：项目中心
+    archive_project, unarchive_project, bulk_archive, bulk_unarchive,
+    list_accessible_projects_center,
 )
 
 # ---------------------------------------------------------------------------
