@@ -176,10 +176,31 @@ def set_status(
 
 
 def _record_learning_outcome(s: Session, t: Task) -> None:
-    """终态任务落 task_outcome（延迟 import 避开 features 间循环依赖；失败不阻断主流程）。"""
+    """终态任务落 task_outcome（延迟 import 避开 features 间循环依赖；失败不阻断主流程）。
+
+    Epic 140 切片 3 扩展：同步落 episode（向量化快照）+ 追加 project playbook pattern。
+    两者均由 learning 模块内部静默降级，绝不因记忆写入失败回滚状态流转。
+    """
     try:
         from ..learning.service import record_outcome
-        record_outcome(s, t)
+        outcome = record_outcome(s, t)
+        # Epic 140 切片 3：终态任务沉淀 episode + playbook（幂等，失败静默）
+        if outcome is not None:
+            try:
+                from ..learning import memory as learning_memory
+                ep_outcome = "success" if t.status == Status.DONE else "fail"
+                learning_memory.store_episode(
+                    s, t, score=outcome.score, outcome=ep_outcome,
+                )
+                learning_memory.update_playbook(
+                    s,
+                    project_id=t.project_id,
+                    task_type=t.type or "dev",
+                    summary=f"task#{t.id}: {t.title or ''}（{t.status}）",
+                    outcome=ep_outcome,
+                )
+            except Exception:
+                pass  # 记忆是增强数据，失败不影响 outcome/状态
         _commit(s)
     except Exception:
         # outcome 属增强数据，落库失败不应影响任务状态流转本身

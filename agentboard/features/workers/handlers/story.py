@@ -78,6 +78,11 @@ def build_story_prompt(context: dict) -> str:
             f"- [{t.get('type')}] #{t.get('id')} {t.get('title')} status={t.get('status')}"
             f"{' reviewer=' + str(t.get('reviewer_id')) if t.get('reviewer_id') else ''}"
         )
+    # Epic 140 切片 3：注入项目历史经验（recall 失败则空，不影响主提示词）
+    recalled = context.get("recalled") or []
+    if recalled:
+        from ...learning.memory import build_recall_section
+        lines.append(build_recall_section(recalled))
     return "\n".join(lines)
 
 
@@ -110,6 +115,11 @@ def build_task_prompt(context: dict) -> str:
         "",
         str(task.get("description") or task.get("spec") or "(无描述)"),
     ]
+    # Epic 140 切片 3：task prompt 注入项目历史经验（可选增强，recall 失败则空）
+    recalled = context.get("recalled") or []
+    if recalled:
+        from ...learning.memory import build_recall_section
+        lines.append(build_recall_section(recalled))
     return "\n".join(lines)
 
 
@@ -177,7 +187,7 @@ class StoryHandler:
             except Exception as e:
                 log.warning("Story #%s 反查 epic #%s 失败（回退 epic_id）：%s", sid, epic_id, e)
                 project_id = epic_id
-        return {
+        ctx = {
             "action": "process_story",
             "story_id": sid,
             "project_id": project_id,
@@ -188,6 +198,50 @@ class StoryHandler:
             "status": work_item.get("status"),
             "tasks": (tasks or {}).get("items", []) if isinstance(tasks, dict) else (tasks or []),
         }
+        # Epic 140 切片 3：派单前 recall 项目历史经验（失败 fallback 不带记忆，不阻断）
+        ctx["recalled"] = self._recall_episodes(project_id, ctx)
+        return ctx
+
+    # ---------- Epic 140 切片 3：项目记忆 recall ----------
+
+    def _recall_episodes(self, project_id: int | None, ctx: dict) -> list[dict]:
+        """调用 /api/learning/recall 取项目相似 episodes（成功/失败分组）。
+
+        recall 是增强上下文：任何失败返回 []（不带记忆），绝不阻断派单链路。
+        """
+        if not project_id:
+            return []
+        try:
+            query = " ".join([
+                str(ctx.get("title") or ""),
+                str(ctx.get("description") or "")[:800],
+            ]).strip()
+            if not query:
+                return []
+            r = self._request("GET", "/api/learning/recall",
+                              params={"project_id": project_id, "spec": query[:2000], "top_k": 8})
+            if r.status_code != 200:
+                log.warning("recall project#%s 非 200（%s），fallback 不带记忆", project_id, r.status_code)
+                return []
+            return (r.json() or {}).get("hits") or []
+        except Exception as e:
+            log.warning("recall project#%s 失败（fallback 不带记忆）：%s", project_id, e)
+            return []
+
+    def _build_recall_section(self, episodes: list[dict]) -> str:
+        """把 recall hits 格式化为 prompt 注入段（长度预算内）。"""
+        if not episodes:
+            return ""
+        lines = ["", "## 项目历史经验（RAG recall，参考案例）"]
+        for ep in episodes[:8]:
+            marker = "✅ 成功" if ep.get("outcome") == "success" else "❌ 失败"
+            lines.append(
+                f"- [{marker} sim={ep.get('similarity')}] #{ep.get('episode_id')} "
+                f"({ep.get('task_type')}, score={ep.get('score')}) "
+                f"{str(ep.get('summary') or '')[:280]}"
+            )
+        section = "\n".join(lines)
+        return section[:4000]
 
     def build_prompt(self, context: dict) -> str:
         """Story 执行模式提示词（委托模块级 build_story_prompt）。"""
@@ -326,12 +380,15 @@ class StoryHandler:
                 needs_design = bool(story.get("needs_design", True))
             except Exception:
                 pass
-        return {
+        ctx = {
             "action": "process_task",
             "task": task,
             "story_id": story_id,
             "needs_design": needs_design,
         }
+        # Epic 140 切片 3：task 派单前同样 recall 项目经验（失败 fallback 不带记忆）
+        ctx["recalled"] = self._recall_episodes(task.get("project_id"), ctx)
+        return ctx
 
     def build_task_prompt(self, context: dict) -> str:
         """单 Task 执行模式提示词（委托模块级 build_task_prompt）。"""
