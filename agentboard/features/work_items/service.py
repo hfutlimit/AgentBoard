@@ -163,7 +163,20 @@ def set_status(
     execute_transition(s, t, new_status, changed_by=changed_by, reason=reason)
     _commit(s)
     s.refresh(t)
+    # Epic 140 切片 1：终态（done/blocked）自动沉淀能力评分 outcome（幂等）
+    _record_learning_outcome(s, t)
     return t
+
+
+def _record_learning_outcome(s: Session, t: Task) -> None:
+    """终态任务落 task_outcome（延迟 import 避开 features 间循环依赖；失败不阻断主流程）。"""
+    try:
+        from ..learning.service import record_outcome
+        record_outcome(s, t)
+        _commit(s)
+    except Exception:
+        # outcome 属增强数据，落库失败不应影响任务状态流转本身
+        s.rollback()
 
 
 # ---- 认领 / 提交评审 ---------------------------------------------------

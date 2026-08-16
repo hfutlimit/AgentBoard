@@ -422,6 +422,7 @@ from .features.webhooks.router import router as webhooks_router
 from .features.scheduling.router import router as scheduling_router
 from .features.search.router import router as search_router
 from .features.admin.router import router as admin_router
+from .features.learning.router import router as learning_router
 
 app.include_router(auth_router)
 app.include_router(projects_router)
@@ -433,3 +434,4 @@ app.include_router(webhooks_router)
 app.include_router(scheduling_router)
 app.include_router(search_router)
 app.include_router(admin_router)
+app.include_router(learning_router)

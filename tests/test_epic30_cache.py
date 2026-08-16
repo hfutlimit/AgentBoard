@@ -92,25 +92,36 @@ def test_get_or_set_counts_once_per_call():
 
 # ---------------- Task 801: 全局默认 TTL 可配置 ----------------
 
+def _reload_cache_module():
+    """重载底层 cache 模块（env 在模块级读取）。
+
+    其它测试文件会在模块收集后 ``del sys.modules`` 清掉 agentboard.* 注册，
+    导致 ``importlib.reload`` 直接抛 ImportError。先 import_module 重新注册，
+    再 reload，保证跨文件批量跑时也稳定（既有 flaky 模式规避）。
+    """
+    mod = importlib.import_module("agentboard.core.infrastructure.cache")
+    return importlib.reload(mod)
+
+
 def test_global_ttl_reads_env(monkeypatch):
     monkeypatch.setenv("AGENTBOARD_CACHE_TTL", "45")
-    reloaded = importlib.reload(infra_cache_mod)
+    reloaded = _reload_cache_module()
     try:
         assert reloaded.API_CACHE_TTL == 45, reloaded.API_CACHE_TTL
         assert reloaded.get_cache().default_ttl == 45, reloaded.get_cache().default_ttl
     finally:
         # 还原，避免影响后续用例
         monkeypatch.delenv("AGENTBOARD_CACHE_TTL", raising=False)
-        importlib.reload(infra_cache_mod)
+        _reload_cache_module()
 
 
 def test_default_ttl_defaults_to_30_when_unset(monkeypatch):
     monkeypatch.delenv("AGENTBOARD_CACHE_TTL", raising=False)
-    reloaded = importlib.reload(infra_cache_mod)
+    reloaded = _reload_cache_module()
     try:
         assert reloaded.API_CACHE_TTL == 30
     finally:
-        importlib.reload(infra_cache_mod)
+        _reload_cache_module()
 
 
 # ---------------- 集成探针：运行中的本地 API ----------------

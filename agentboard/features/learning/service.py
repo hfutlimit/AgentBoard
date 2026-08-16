@@ -1,0 +1,182 @@
+"""学习域服务（Epic 140 切片 1）：过程指标计算 + outcome 落库 + leaderboard 聚合。
+
+- compute_process_metrics: 从 task_status_history 计算 L1 任务结果 / L2 过程质量。
+- record_outcome: task 到达终态（done/blocked/withdrawn）时幂等落 task_outcome。
+- agent_leaderboard: 按 (agent_id, project_id, task_type) 多维聚合评分矩阵。
+
+L3（LLM-as-judge 产出质量）在切片 2 接入，judge_json 预留字段。
+"""
+from __future__ import annotations
+
+import json
+from datetime import datetime
+
+from sqlalchemy import func, select
+
+from ...core.common.models import utc_now
+from ...core.common.enums import Status
+from ...core.exceptions import InvalidValue
+from .models import TaskOutcome
+
+# 复合评分权重（Story 267 公式，L3 未接入时 judge_quality 取 0.75 中性占位）
+W_PASS_FIRST = 0.4
+W_JUDGE = 0.3
+W_CYCLE = 0.2
+W_REASON = 0.1
+NEUTRAL_JUDGE_QUALITY = 0.75  # 切片 2 LLM-judge 接入前的占位（低置信，UI 标注）
+
+_TERMINAL_STATUSES = {Status.DONE, Status.BLOCKED}
+
+
+def compute_process_metrics(s, task) -> dict:
+    """从 task_status_history 计算 L1 任务结果 + L2 过程质量。
+
+    全部为纯统计（无 LLM），可在事务内安全调用。
+    """
+    from ..work_items.models import TaskStatusHistory
+
+    rows = (
+        s.execute(
+            select(TaskStatusHistory.from_status, TaskStatusHistory.to_status)
+            .where(TaskStatusHistory.task_id == task.id)
+            .order_by(TaskStatusHistory.id)
+        ).all()
+    )
+    transitions = [(r[0], r[1]) for r in rows]
+
+    review_rounds = sum(1 for f, t in transitions if t == Status.IN_REVIEW)
+    rejects = sum(1 for f, t in transitions if f == Status.IN_REVIEW and t == Status.IN_PROGRESS)
+    blocked_count = sum(1 for f, t in transitions if t == Status.BLOCKED)
+    attempts = max(len(transitions), 1)
+    pass_first_try = 1.0 if rejects == 0 else 0.0
+
+    # 时长：created_at → updated_at（未终态时为空）
+    duration_s: int | None = None
+    if task.created_at:
+        end = task.updated_at or utc_now()
+        try:
+            duration_s = max(int((end - task.created_at).total_seconds()), 0)
+        except (TypeError, ValueError):
+            duration_s = None
+
+    withdrawn = bool(task.status_reason == "withdrawn")
+
+    # 循环效率：评审往返越少越高（1 轮往返 = 1.0，每多 1 轮 -0.25，下限 0.2）
+    cycle_efficiency = max(0.2, 1.0 - 0.25 * max(rejects - 1, 0))
+    # 原因质量：终态必填 status_reason 且非占位即合理
+    reason_quality = 1.0 if task.status_reason else 0.0
+
+    score = (
+        W_PASS_FIRST * pass_first_try
+        + W_JUDGE * NEUTRAL_JUDGE_QUALITY
+        + W_CYCLE * cycle_efficiency
+        + W_REASON * reason_quality
+    )
+    score = round(min(max(score, 0.0), 1.0), 4)
+
+    return {
+        "pass_first_try": pass_first_try,
+        "review_rounds": review_rounds,
+        "rejects": rejects,
+        "blocked_count": blocked_count,
+        "attempts": attempts,
+        "duration_s": duration_s,
+        "withdrawn": withdrawn,
+        "cycle_efficiency": round(cycle_efficiency, 4),
+        "reason_quality": reason_quality,
+        "score": score,
+        "judge_pending": True,  # L3 待切片 2 LLM judge 回填
+    }
+
+
+def record_outcome(s, task) -> TaskOutcome | None:
+    """task 到达终态时幂等落 task_outcome（task_id 唯一，重复计算为更新）。"""
+    if task.status not in _TERMINAL_STATUSES:
+        return None
+    metrics = compute_process_metrics(s, task)
+    existing = s.execute(
+        select(TaskOutcome).where(TaskOutcome.task_id == task.id)
+    ).scalar_one_or_none()
+    if existing is None:
+        existing = TaskOutcome(
+            task_id=task.id,
+            project_id=task.project_id,
+            agent_id=task.assignee_id,
+            task_type=task.type or "dev",
+            score=metrics["score"],
+            judge_json=json.dumps(metrics, ensure_ascii=False),
+            duration_s=metrics["duration_s"],
+            attempts=metrics["attempts"],
+        )
+        s.add(existing)
+    else:
+        existing.score = metrics["score"]
+        existing.judge_json = json.dumps(metrics, ensure_ascii=False)
+        existing.duration_s = metrics["duration_s"]
+        existing.attempts = metrics["attempts"]
+        existing.updated_at = utc_now()
+    return existing
+
+
+def agent_leaderboard(
+    s, *, project_id: int | None = None, task_type: str | None = None, limit: int = 50,
+) -> list[dict]:
+    """多维聚合：(agent_id, project_id, task_type) → 样本数 + 平均分。
+
+    agent_id 为空（未指派）归入 None 桶，仍参与聚合（保证终态任务全覆盖）。
+    """
+    if limit < 1 or limit > 200:
+        raise InvalidValue("limit must be between 1 and 200")
+    stmt = (
+        select(
+            TaskOutcome.agent_id,
+            TaskOutcome.project_id,
+            TaskOutcome.task_type,
+            func.count(TaskOutcome.id).label("n"),
+            func.avg(TaskOutcome.score).label("avg_score"),
+        )
+        .group_by(TaskOutcome.agent_id, TaskOutcome.project_id, TaskOutcome.task_type)
+        .order_by(func.avg(TaskOutcome.score).desc(), func.count(TaskOutcome.id).desc())
+        .limit(limit)
+    )
+    if project_id is not None:
+        stmt = stmt.where(TaskOutcome.project_id == project_id)
+    if task_type:
+        stmt = stmt.where(TaskOutcome.task_type == task_type)
+
+    out = []
+    for row in s.execute(stmt).all():
+        out.append({
+            "agent_id": row.agent_id,
+            "project_id": row.project_id,
+            "task_type": row.task_type,
+            "tasks": row.n,
+            "avg_score": round(float(row.avg_score or 0.0), 4),
+        })
+    return out
+
+
+def list_outcomes(
+    s, *, project_id: int | None = None, task_id: int | None = None, limit: int = 50,
+) -> list[dict]:
+    """outcome 明细（dashboard 表格 / 调试用）。"""
+    stmt = select(TaskOutcome).order_by(TaskOutcome.updated_at.desc()).limit(limit)
+    if project_id is not None:
+        stmt = stmt.where(TaskOutcome.project_id == project_id)
+    if task_id is not None:
+        stmt = stmt.where(TaskOutcome.task_id == task_id)
+    out = []
+    for o in s.execute(stmt).scalars().all():
+        out.append({
+            "id": o.id,
+            "task_id": o.task_id,
+            "project_id": o.project_id,
+            "agent_id": o.agent_id,
+            "task_type": o.task_type,
+            "score": o.score,
+            "judge_json": json.loads(o.judge_json or "{}"),
+            "duration_s": o.duration_s,
+            "attempts": o.attempts,
+            "updated_at": o.updated_at.isoformat() if o.updated_at else None,
+        })
+    return out
