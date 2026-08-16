@@ -123,16 +123,20 @@ def test_remote_mcp_auth_and_full_tree():
                 story = _result(await client.call_tool(
                     "create_story", {"epic_id": epic["id"], "title": "Story"}
                 ))
-                assert _result(await client.call_tool(
+                # create_epic 会自动建 1 个默认 Story（08-09 行为）→ 用成员判断而非 [0]
+                story_ids = {x["id"] for x in _result(await client.call_tool(
                     "list_stories", {"epic_id": epic["id"]}
-                ))[0]["id"] == story["id"]
+                ))}
+                assert story["id"] in story_ids
                 task = _result(await client.call_tool("create_task", {
                     "project_id": project["id"], "story_id": story["id"],
                     "title": "Task", "spec": "# Spec",
                 }))
-                assert _result(await client.call_tool(
+                # create_story 会自动带 design+dev 默认 Task → 用成员判断而非 [0]
+                task_ids = {x["id"] for x in _result(await client.call_tool(
                     "list_tasks", {"story_id": story["id"]}
-                ))[0]["id"] == task["id"]
+                ))}
+                assert task["id"] in task_ids
                 task = _result(await client.call_tool(
                     "append_task_spec", {"task_id": task["id"], "text": "## More"}
                 ))

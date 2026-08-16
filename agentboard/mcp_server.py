@@ -273,9 +273,12 @@ def list_tasks(story_id: int, limit: int | None = None, offset: int = 0) -> list
 
 @mcp.tool()
 def create_task(project_id: int, story_id: int, title: str,
-                type: str = "task", description: str = "", spec: str = "",
+                type: str = "dev", description: str = "", spec: str = "",
                 priority: str = "medium") -> dict:
-    """在指定 Story 下创建 Task/Bug，可设置五级 priority。"""
+    """在指定 Story 下创建 Task/Bug，可设置五级 priority。
+
+    Story 265 类型精简后 type 为 4 值枚举（dev/qa/design/bug），默认 dev。
+    """
     return mcp_work_items._task_create(project_id, story_id, title, type, description, spec, priority)
 
 

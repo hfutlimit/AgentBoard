@@ -2,9 +2,11 @@
 
 - compute_process_metrics: 从 task_status_history 计算 L1 任务结果 / L2 过程质量。
 - record_outcome: task 到达终态（done/blocked/withdrawn）时幂等落 task_outcome。
+- apply_judge: L3 judge 结果回填（judge_json + score 重算），切片 2 调用。
 - agent_leaderboard: 按 (agent_id, project_id, task_type) 多维聚合评分矩阵。
 
-L3（LLM-as-judge 产出质量）在切片 2 接入，judge_json 预留字段。
+L3（LLM-as-judge 产出质量）由切片 2 judge.py 计算后经 apply_judge 回填；
+未接入前 judge_quality 取中性占位（低置信，UI 标注）。
 """
 from __future__ import annotations
 
@@ -116,6 +118,38 @@ def record_outcome(s, task) -> TaskOutcome | None:
         existing.attempts = metrics["attempts"]
         existing.updated_at = utc_now()
     return existing
+
+
+def apply_judge(s, outcome: TaskOutcome, metrics: dict, judge_result: dict) -> None:
+    """L3 judge 结果回填（幂等）：合并进 judge_json + 按复合公式重算 score。
+
+    judge_result 结构（judge.py 产出）：
+        provider / spec_coverage / code_quality / test_coverage /
+        spec_drift / reason_quality / judge_quality / rationale
+    """
+    data = dict(metrics)
+    data.update({
+        "judge_pending": False,
+        "judge_provider": judge_result.get("provider", "deterministic"),
+        "judge_quality": judge_result.get("judge_quality", NEUTRAL_JUDGE_QUALITY),
+        "rationale": judge_result.get("rationale", ""),
+    })
+    for k in ("spec_coverage", "code_quality", "test_coverage", "spec_drift", "reason_quality"):
+        if k in judge_result:
+            data[k] = judge_result[k]
+
+    judge_quality = float(data["judge_quality"])
+    score = (
+        W_PASS_FIRST * float(data.get("pass_first_try", 0.0))
+        + W_JUDGE * judge_quality
+        + W_CYCLE * float(data.get("cycle_efficiency", 0.0))
+        + W_REASON * float(data.get("reason_quality", 0.0))
+    )
+    score = round(min(max(score, 0.0), 1.0), 4)
+
+    outcome.judge_json = json.dumps(data, ensure_ascii=False)
+    outcome.score = score
+    outcome.updated_at = utc_now()
 
 
 def agent_leaderboard(

@@ -165,6 +165,13 @@ def set_status(
     s.refresh(t)
     # Epic 140 切片 1：终态（done/blocked）自动沉淀能力评分 outcome（幂等）
     _record_learning_outcome(s, t)
+    # Epic 140 切片 2：终态异步触发 L3 LLM judge（daemon 线程，失败吞异常；可用开关关闭）
+    if _os.environ.get("AGENTBOARD_JUDGE_AUTO", "1") == "1":
+        try:
+            from ..learning.judge import schedule_judge
+            schedule_judge(t.id)
+        except Exception:
+            pass  # judge 属增强数据，调度失败不影响状态流转
     return t
 
 
