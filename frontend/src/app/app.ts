@@ -1827,10 +1827,10 @@ export class App implements OnInit, OnDestroy {
         this.project.set(project);
         this.trackRecentProject(project);
         if (projectTab === 'documents' && childId > 0) {
-          await this.loadProjectTab(projectTab, id);
-          const doc = this.documents().find((item) => item.id === childId);
-          if (doc) await this.openDocTab(doc);
+          // 文档详情：进入纯净独立视图（无列表、无侧栏），而非项目页内嵌
+          await this.loadDocumentDetail(childId);
         } else {
+          if (projectTab === 'documents') this.docItem.set(null);
           void this.loadProjectTab(projectTab, id);
         }
       } else if (kind === 'epic' && id > 0) {
@@ -1926,9 +1926,7 @@ export class App implements OnInit, OnDestroy {
         await this.loadNotifications();
       } else if (kind === 'documents') {
         if (id > 0) {
-          const doc = await firstValueFrom(this.api.getDocument(id));
-          await this.router.navigateByUrl(`/project/${doc.project_id}/documents/${doc.id}`);
-          return;
+          await this.loadDocumentDetail(id);
         } else {
           await this.router.navigateByUrl('/projects');
           return;
@@ -7217,24 +7215,35 @@ export class App implements OnInit, OnDestroy {
   cancelDocEdit(): void {
     this.docEditing.set(false);
   }
-  /** 在项目 Tab 内打开文档详情：写入当前文档并加载其评论（不走路由）。 */
+  /** 打开文档详情：跳转独立纯净视图（无侧栏、无文档列表、无顶栏）。 */
   async openDocTab(d: DocumentItem): Promise<void> {
-    this.docItem.set(d);
+    await this.router.navigateByUrl(`/documents/${d.id}`);
+  }
+  /** 加载独立文档详情视图：视图内仅文档内容 + 操作按钮（顶栏/侧栏在模板中按 view==='document' 隐藏）。 */
+  async loadDocumentDetail(id: number): Promise<void> {
+    this.view.set('document');
+    this.docDetailTab.set('content');
+    const doc = await firstValueFrom(this.api.getDocument(id));
+    this.docItem.set(doc);
     this.docViewMode.set('preview');
     this.docSplitDirty.set(false);
     this.docConfirmOpen.set(false);
-    this.docEditTitle.set(d.title);
-    this.docEditContent.set(d.content);
-    this.docEditType.set(d.type);
-    this.docEditStatus.set(d.status);
-    this.docEditEpicId.set(d.epic_id);
-    this.docEditStoryId.set(d.story_id);
+    this.docEditTitle.set(doc.title);
+    this.docEditContent.set(doc.content);
+    this.docEditType.set(doc.type);
+    this.docEditStatus.set(doc.status);
+    this.docEditEpicId.set(doc.epic_id);
+    this.docEditStoryId.set(doc.story_id);
     this.docEditing.set(false);
     this.docCommentPreview.set(false);
     this.docCommentContent.set('');
+    this.project.set(await firstValueFrom(this.api.getProject(doc.project_id)));
+    if (doc.epic_id) {
+      try { this.docDetailEpics.set(await firstValueFrom(this.api.listEpics(doc.project_id))); } catch { /* 关联选项加载失败不阻断 */ }
+      try { this.docDetailStories.set(await firstValueFrom(this.api.listStories(doc.epic_id))); } catch { /* 同上 */ }
+    }
     try {
-      const comments = await firstValueFrom(this.api.listDocumentComments(d.id));
-      this.documentComments.set(comments);
+      this.documentComments.set(await firstValueFrom(this.api.listDocumentComments(doc.id)));
     } catch (error) {
       this.documentComments.set([]);
     }

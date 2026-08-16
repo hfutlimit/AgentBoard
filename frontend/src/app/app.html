@@ -27,6 +27,7 @@
   </div>
 }
 
+@if (view() !== 'document') {
 <header class="topbar">
   <div class="topbar-inner">
     <div class="topbar-left">
@@ -113,9 +114,10 @@
     </div>
   </div>
 </header>
+}
 
-<div class="layout">
-  @if (sidebarOpen()) {
+<div class="layout" [class.doc-mode]="view() === 'document'">
+  @if (sidebarOpen() && view() !== 'document') {
     <aside id="sidebar" class="sidebar" [class.sidebar--collapsed]="sidebarCollapsed()">
       <div class="sidebar-workspace">
         <span class="sidebar-workspace-kicker">WORKSPACE</span>
@@ -1383,99 +1385,6 @@
                         }
                       </div>
                     }
-                  }
-                }
-                @if (activeTab() === 'documents' && docItem()) {
-                  <div class="card doc-detail-inline">
-                    <div class="crumb-bar">
-                      <a (click)="docItem.set(null)">← 返回列表</a>
-                      <!-- Epic 129: 三视图顶部按钮，按模式启用/禁用 -->
-                      @switch (docViewMode()) {
-                        @case ('preview') {
-                          <button class="ghost-sm" (click)="openDocModal('edit')">📋 编辑文档</button>
-                          <button class="ghost-sm" (click)="enterDocSplitEdit()">✏ 编辑内容</button>
-                          <button class="ghost-sm" (click)="toggleTheme()" [title]="getThemeLabel()">🌓</button>
-                        }
-                        @case ('split-edit') {
-                          <button class="ghost-sm btn-primary-sm" (click)="saveDocSplitContent()">💾 保存</button>
-                          <button class="ghost-sm" (click)="cancelDocSplitEdit()">✖ 取消</button>
-                          <button class="ghost-sm" (click)="exitDocSplit()">⏏ 退出</button>
-                          <button class="ghost-sm" (click)="toggleTheme()" [title]="getThemeLabel()">🌓</button>
-                        }
-                        @case ('split-read') {
-                          <button class="ghost-sm" (click)="enterDocSplitEditFromReadonly()">✏ 编辑</button>
-                          <button class="ghost-sm" disabled title="只读模式下无改动可取消">✖ 取消</button>
-                          <button class="ghost-sm" disabled title="只读模式下无改动可保存">💾 保存</button>
-                          <button class="ghost-sm" (click)="exitDocSplit()">⏏ 退出</button>
-                          <button class="ghost-sm" (click)="toggleTheme()" [title]="getThemeLabel()">🌓</button>
-                        }
-                      }
-                    </div>
-                    @if (docItem(); as d) {
-                      @switch (docViewMode()) {
-                        @case ('preview') {
-                          <!-- 完全预览模式：仅渲染内容，无分屏 -->
-                          <article class="doc-content doc-preview-pane" [innerHTML]="renderMarkdown(d.content)"></article>
-                        }
-                        @case ('split-edit') {
-                          <!-- 分屏编辑模式：左编辑右预览，同步滚动 -->
-                          <div class="doc-split">
-                            <div class="doc-split-pane doc-split-editor" id="docSplitEditor" (scroll)="syncDocSplitScroll($event, 'docSplitPreview')">
-                              <textarea [value]="docSplitContent()" (input)="onDocSplitInput($any($event.target).value)" spellcheck="false" placeholder="Markdown 正文…"></textarea>
-                            </div>
-                            <div class="doc-split-pane doc-split-preview" id="docSplitPreview" (scroll)="syncDocSplitScroll($event, 'docSplitEditor')">
-                              <div class="md" [innerHTML]="renderMarkdown(docSplitContent() || '（空）')"></div>
-                            </div>
-                          </div>
-                        }
-                        @case ('split-read') {
-                          <!-- 分屏只读模式：左原文（只读）右预览，同步滚动 -->
-                          <div class="doc-split">
-                            <div class="doc-split-pane doc-split-editor doc-split-readonly" id="docSplitReadSource" (scroll)="syncDocSplitScroll($event, 'docSplitReadPreview')">
-                              <pre>{{ docSplitContent() || d.content }}</pre>
-                            </div>
-                            <div class="doc-split-pane doc-split-preview" id="docSplitReadPreview" (scroll)="syncDocSplitScroll($event, 'docSplitReadSource')">
-                              <div class="md" [innerHTML]="renderMarkdown((docSplitContent() || d.content))"></div>
-                            </div>
-                          </div>
-                        }
-                      }
-                      <div class="doc-comments-section">
-                        <h4>评论（{{ documentComments().length }}）</h4>
-                        @for (c of documentComments(); track c.id) {
-                          <div class="doc-comment-item">
-                            <strong>{{ c.author }}</strong>
-                            @if (docCommentPreview()) {
-                              <div class="md text-pre" [innerHTML]="renderMarkdown(c.content)"></div>
-                            } @else {
-                              <p>{{ c.content }}</p>
-                            }
-                            <small>{{ c.created_at | date }}</small>
-                            <div class="row">
-                              <button class="ghost-xs" (click)="toggleDocCommentPreview()">预览/原文</button>
-                              <button class="ghost-xs danger" (click)="deleteDocComment(c.id)">删除</button>
-                            </div>
-                          </div>
-                        }
-                        <form class="doc-comment-form" (submit)="addDocComment($event)">
-                          <textarea [value]="docCommentContent()" (input)="docCommentContent.set($any($event.target).value)" rows="3" placeholder="添加评论…"></textarea>
-                          <button type="submit" class="btn-primary-sm">发送</button>
-                        </form>
-                      </div>
-                    }
-                  </div>
-                  <!-- Epic 129: 自定义确认弹窗（丢弃未保存改动，禁用原生 confirm） -->
-                  @if (docConfirmOpen()) {
-                    <div class="modal-overlay" (click)="cancelDiscardDocChanges()">
-                      <div class="modal doc-confirm-modal" role="dialog" aria-modal="true" aria-label="确认操作" (click)="$event.stopPropagation()">
-                        <h3>丢弃未保存的改动？</h3>
-                        <p>当前编辑内容尚未保存，离开后将丢失这些改动。确定要继续吗？</p>
-                        <div class="modal-actions">
-                          <button class="ghost-sm" (click)="cancelDiscardDocChanges()">取消</button>
-                          <button class="btn-primary-sm danger" (click)="confirmDiscardDocChanges()">确认丢弃</button>
-                        </div>
-                      </div>
-                    </div>
                   }
                 }
               </div>
@@ -2843,13 +2752,30 @@
                 }
               </div>
               <div class="page-actions">
-                <button class="ghost-sm" (click)="setDocDetailTab('content')" [class.active]="docDetailTab() === 'content'">📄 内容</button>
-                <button class="ghost-sm" (click)="setDocDetailTab('history')" [class.active]="docDetailTab() === 'history'">🕘 历史</button>
-                <button class="ghost-sm" (click)="openDocFullscreen()" title="全屏阅读（Esc 退出）">⛶ 全屏</button>
-                <button class="ghost-sm" (click)="openDocModal('edit')">✎ 编辑</button>
+                @switch (docViewMode()) {
+                  @case ('preview') {
+                    <button class="ghost-sm" (click)="setDocDetailTab('content')" [class.active]="docDetailTab() === 'content'">📄 内容</button>
+                    <button class="ghost-sm" (click)="setDocDetailTab('history')" [class.active]="docDetailTab() === 'history'">🕘 历史</button>
+                    <button class="ghost-sm" (click)="enterDocSplitEdit()" title="分屏编辑：左编辑右预览">✏ 分屏编辑</button>
+                    <button class="ghost-sm" (click)="openDocFullscreen()" title="全屏阅读（Esc 退出）">⛶ 全屏</button>
+                    <button class="ghost-sm" (click)="openDocModal('edit')">✎ 编辑</button>
+                  }
+                  @case ('split-edit') {
+                    <button class="ghost-sm btn-primary-sm" (click)="saveDocSplitContent()">💾 保存</button>
+                    <button class="ghost-sm" (click)="cancelDocSplitEdit()">✖ 取消</button>
+                    <button class="ghost-sm" (click)="exitDocSplit()">⏏ 退出</button>
+                  }
+                  @case ('split-read') {
+                    <button class="ghost-sm" (click)="enterDocSplitEditFromReadonly()">✏ 编辑</button>
+                    <button class="ghost-sm" disabled title="只读模式下无改动可取消">✖ 取消</button>
+                    <button class="ghost-sm" disabled title="只读模式下无改动可保存">💾 保存</button>
+                    <button class="ghost-sm" (click)="exitDocSplit()">⏏ 退出</button>
+                  }
+                }
               </div>
             </div>
 
+            @if (docViewMode() === 'preview') {
             @if (docDetailTab() === 'content') {
               <article class="card md doc-content" [innerHTML]="renderMarkdown(d.content)"></article>
             } @else {
@@ -2909,6 +2835,27 @@
                     }
                   </div>
                 }
+              </div>
+            }
+            } @else if (docViewMode() === 'split-edit') {
+              <!-- Epic 129: 分屏编辑（左编辑 + 右预览，同步滚动） -->
+              <div class="card doc-split">
+                <div class="doc-split-pane doc-split-editor" id="docSplitEditor" (scroll)="syncDocSplitScroll($event, 'docSplitPreview')">
+                  <textarea [value]="docSplitContent()" (input)="onDocSplitInput($any($event.target).value)" spellcheck="false" placeholder="Markdown 正文…"></textarea>
+                </div>
+                <div class="doc-split-pane doc-split-preview" id="docSplitPreview" (scroll)="syncDocSplitScroll($event, 'docSplitEditor')">
+                  <div class="md" [innerHTML]="renderMarkdown(docSplitContent() || '（空）')"></div>
+                </div>
+              </div>
+            } @else if (docViewMode() === 'split-read') {
+              <!-- Epic 129: 分屏只读（左原文 + 右预览，同步滚动） -->
+              <div class="card doc-split">
+                <div class="doc-split-pane doc-split-editor doc-split-readonly" id="docSplitReadSource" (scroll)="syncDocSplitScroll($event, 'docSplitReadPreview')">
+                  <pre>{{ docSplitContent() || d.content }}</pre>
+                </div>
+                <div class="doc-split-pane doc-split-preview" id="docSplitReadPreview" (scroll)="syncDocSplitScroll($event, 'docSplitReadSource')">
+                  <div class="md" [innerHTML]="renderMarkdown((docSplitContent() || d.content))"></div>
+                </div>
               </div>
             }
 
@@ -2974,6 +2921,20 @@
                 }
               </div>
             </div>
+
+            <!-- Epic 129: 自定义确认弹窗（丢弃未保存改动，禁用原生 confirm） -->
+            @if (docConfirmOpen()) {
+              <div class="modal-overlay" (click)="cancelDiscardDocChanges()">
+                <div class="modal doc-confirm-modal" role="dialog" aria-modal="true" aria-label="确认操作" (click)="$event.stopPropagation()">
+                  <h3>丢弃未保存的改动？</h3>
+                  <p>当前编辑内容尚未保存，离开后将丢失这些改动。确定要继续吗？</p>
+                  <div class="modal-actions">
+                    <button class="ghost-sm" (click)="cancelDiscardDocChanges()">取消</button>
+                    <button class="btn-primary-sm danger" (click)="confirmDiscardDocChanges()">确认丢弃</button>
+                  </div>
+                </div>
+              </div>
+            }
           }
         }
 

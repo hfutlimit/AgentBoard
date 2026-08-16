@@ -4220,7 +4220,6 @@ router-outlet {
 .doc-confirm-modal h3 { margin: 0 0 8px; }
 .doc-confirm-modal p { margin: 0 0 16px; color: var(--text-2, #64748b); line-height: 1.6; }
 .doc-confirm-modal .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.doc-detail-inline .crumb-bar .ghost-sm[disabled] { opacity: 0.45; cursor: not-allowed; }
 @media (max-width: 720px) {
   .doc-split { grid-template-columns: 1fr; }
   .doc-split-pane { height: 340px; }
@@ -5466,6 +5465,13 @@ h3 { font-size: 16px; line-height: 1.4; font-weight: 650; }
 }
 
 .layout { align-items: stretch; }
+
+/* 文档详情纯净视图：无顶栏/侧栏时，内容区占满整屏 */
+.layout.doc-mode { min-height: 100vh; }
+.layout.doc-mode main#app {
+  max-width: 1200px;
+  padding-top: 28px;
+}
 
 .sidebar {
   width: var(--sidebar-width);
