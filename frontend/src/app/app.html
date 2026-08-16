@@ -603,44 +603,229 @@
               <div class="card md text-pre">{{ current.description }}</div>
             }
             <!-- Tab bar -->
-            <div class="tab-bar">
+            <div class="tab-bar tab-bar-card">
+              <button class="tab-btn" [class.active]="activeTab() === 'overview'" (click)="selectProjectTab('overview')">
+                <span class="tab-icon">📘</span>
+                <span class="tab-label">项目介绍</span>
+              </button>
               <button class="tab-btn" [class.active]="activeTab() === 'epics'" (click)="selectProjectTab('epics')">
-                Epics
+                <span class="tab-icon">⚡</span>
+                <span class="tab-label">Epics</span>
                 @if (isProjectTabLoaded('epics')) { <span class="tab-count">{{ epics().length }}</span> }
                 @else if (isProjectTabLoading('epics')) { <span class="tab-loading-dot" title="加载中"></span> }
               </button>
-              <button class="tab-btn" [class.active]="activeTab() === 'sprints'" (click)="selectProjectTab('sprints')">
-                Sprints
-                @if (isProjectTabLoaded('sprints')) { <span class="tab-count">{{ sprints().length }}</span> }
-                @else if (isProjectTabLoading('sprints')) { <span class="tab-loading-dot" title="加载中"></span> }
-              </button>
               <button class="tab-btn" [class.active]="activeTab() === 'backlog'" (click)="selectProjectTab('backlog')">
-                Backlog
+                <span class="tab-icon">📋</span>
+                <span class="tab-label">Backlog</span>
                 @if (isProjectTabLoaded('backlog')) { <span class="tab-count">{{ backlogVisibleTasks().length }}</span> }
                 @else if (isProjectTabLoading('backlog')) { <span class="tab-loading-dot" title="加载中"></span> }
               </button>
               <button class="tab-btn" [class.active]="activeTab() === 'proposals'" (click)="selectProjectTab('proposals')">
-                提案
+                <span class="tab-icon">💬</span>
+                <span class="tab-label">提案</span>
                 @if (isProjectTabLoaded('proposals')) { <span class="tab-count">{{ proposalVisible().length }}</span> }
                 @else if (isProjectTabLoading('proposals')) { <span class="tab-loading-dot" title="加载中"></span> }
               </button>
               <button class="tab-btn" [class.active]="activeTab() === 'stats'" (click)="selectProjectTab('stats')">
-                统计
+                <span class="tab-icon">📊</span>
+                <span class="tab-label">统计</span>
                 @if (isProjectTabLoading('stats')) { <span class="tab-loading-dot" title="加载中"></span> }
               </button>
-              <button class="tab-btn" [class.active]="activeTab() === 'settings'" (click)="selectProjectTab('settings')">
-                设置
-                @if (isProjectTabLoading('settings')) { <span class="tab-loading-dot" title="加载中"></span> }
-              </button>
+              <!-- 设置：dropdown trigger -->
+              <div class="tab-dropdown-wrap">
+                <button class="tab-btn tab-dropdown-trigger"
+                        [class.active]="activeTab() === 'settings' || activeTab() === 'members' || activeTab() === 'schedules'"
+                        (click)="toggleSettingsMenu($event)">
+                  <span class="tab-icon">⚙️</span>
+                  <span class="tab-label">设置</span>
+                  <span class="tab-caret">▾</span>
+                </button>
+                @if (settingsMenuOpen()) {
+                  <div class="tab-dropdown-menu" (click)="$event.stopPropagation()">
+                    <button class="tab-dropdown-item" (click)="selectProjectTab('settings'); closeSettingsMenu()">
+                      <span class="tab-dropdown-icon">📦</span>
+                      <span class="tab-dropdown-text">
+                        <span class="tab-dropdown-title">基本信息</span>
+                        <span class="tab-dropdown-sub">项目名称、描述、归档</span>
+                      </span>
+                    </button>
+                    <button class="tab-dropdown-item" (click)="selectProjectTab('members'); closeSettingsMenu()">
+                      <span class="tab-dropdown-icon">👥</span>
+                      <span class="tab-dropdown-text">
+                        <span class="tab-dropdown-title">成员管理</span>
+                        <span class="tab-dropdown-sub">邀请、移除、角色</span>
+                      </span>
+                      @if (members().length) { <span class="tab-dropdown-count">{{ members().length }}</span> }
+                    </button>
+                    <button class="tab-dropdown-item" (click)="selectProjectTab('schedules'); closeSettingsMenu()">
+                      <span class="tab-dropdown-icon">⏰</span>
+                      <span class="tab-dropdown-text">
+                        <span class="tab-dropdown-title">自动化计划</span>
+                        <span class="tab-dropdown-sub">定时 Agent 运行</span>
+                      </span>
+                    </button>
+                  </div>
+                }
+              </div>
               <button class="tab-btn" [class.active]="activeTab() === 'documents'" (click)="selectProjectTab('documents')">
-                文档
+                <span class="tab-icon">📄</span>
+                <span class="tab-label">文档</span>
               </button>
               <button class="tab-btn" [class.active]="activeTab() === 'kanban'" (click)="selectProjectTab('kanban')">
-                看板
+                <span class="tab-icon">🗂️</span>
+                <span class="tab-label">看板</span>
                 @if (isProjectTabLoaded('kanban')) { <span class="tab-count">{{ kanbanCount() }}</span> }
                 @else if (isProjectTabLoading('kanban')) { <span class="tab-loading-dot" title="加载中"></span> }
               </button>
             </div>
+
+            <!-- Tab: 项目介绍 -->
+            @if (activeTab() === 'overview') {
+              <div class="tab-content overview-content">
+                <div class="overview-hero card md">
+                  <div class="overview-hero-row">
+                    <div class="overview-hero-main">
+                      <div class="overview-hero-title">
+                        @if (current.key) {
+                          <span class="badge lg project-key-badge">{{ current.key }}</span>
+                        }
+                        <h3 class="overview-hero-name">{{ current.name }}</h3>
+                        @if (current.is_private) {
+                          <span class="badge" title="邀请制项目">🔒 邀请制</span>
+                        } @else {
+                          <span class="badge success" title="公开项目">🌐 公开</span>
+                        }
+                      </div>
+                      @if (current.description) {
+                        <p class="overview-hero-desc">{{ current.description }}</p>
+                      } @else {
+                        <p class="overview-hero-desc muted">暂无项目介绍 —— 在「设置 → 基本信息」补充描述帮助协作者快速理解项目目标。</p>
+                      }
+                      <div class="overview-hero-meta">
+                        <span class="overview-meta-item">
+                          <span class="overview-meta-icon">🆔</span>
+                          <span class="overview-meta-text">项目 #{{ current.id }}</span>
+                        </span>
+                        @if (current.created_at) {
+                          <span class="overview-meta-item">
+                            <span class="overview-meta-icon">📅</span>
+                            <span class="overview-meta-text">创建于 {{ formatDate(current.created_at) }}</span>
+                          </span>
+                        }
+                        <span class="overview-meta-item">
+                          <span class="overview-meta-icon">👥</span>
+                          <span class="overview-meta-text">{{ members().length }} 位成员</span>
+                        </span>
+                      </div>
+                    </div>
+                    <div class="overview-hero-actions">
+                      <button class="btn-primary-sm" (click)="selectProjectTab('epics')">浏览 Epics →</button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 关键指标卡片 -->
+                <div class="overview-stats">
+                  <div class="overview-stat-card clickable" (click)="selectProjectTab('epics')">
+                    <span class="overview-stat-icon">⚡</span>
+                    <span class="overview-stat-num">{{ epics().length }}</span>
+                    <span class="overview-stat-label">Epics</span>
+                  </div>
+                  <div class="overview-stat-card clickable" (click)="selectProjectTab('backlog')">
+                    <span class="overview-stat-icon">📋</span>
+                    <span class="overview-stat-num">{{ backlogVisibleTasks().length }}</span>
+                    <span class="overview-stat-label">待办任务</span>
+                  </div>
+                  <div class="overview-stat-card clickable" (click)="selectProjectTab('kanban')">
+                    <span class="overview-stat-icon">🗂️</span>
+                    <span class="overview-stat-num">{{ kanbanCount() }}</span>
+                    <span class="overview-stat-label">看板卡片</span>
+                  </div>
+                  <div class="overview-stat-card clickable" (click)="selectProjectTab('proposals')">
+                    <span class="overview-stat-icon">💬</span>
+                    <span class="overview-stat-num">{{ proposalVisible().length }}</span>
+                    <span class="overview-stat-label">活跃提案</span>
+                  </div>
+                </div>
+
+                <div class="overview-grid">
+                  <!-- 成员卡片 -->
+                  <div class="overview-card">
+                    <div class="overview-card-header">
+                      <h4>团队成员</h4>
+                      <button class="link-btn" (click)="selectProjectTab('members')">管理 →</button>
+                    </div>
+                    @if (members().length === 0) {
+                      <div class="overview-empty">暂无成员数据，加载设置页后可见</div>
+                    } @else {
+                      <div class="overview-member-list">
+                        @for (m of members().slice(0, 8); track m.user_id) {
+                          <div class="overview-member">
+                            <div class="overview-avatar" [class.owner]="m.role === 'owner'">
+                              {{ (m.username || '?').slice(0, 1).toUpperCase() }}
+                            </div>
+                            <div class="overview-member-info">
+                              <span class="overview-member-name">{{ m.username || '用户 #' + m.user_id }}</span>
+                              <span class="overview-member-role">{{ m.role === 'owner' ? '负责人' : '成员' }}</span>
+                            </div>
+                          </div>
+                        }
+                        @if (members().length > 8) {
+                          <div class="overview-member-more">还有 {{ members().length - 8 }} 位 →</div>
+                        }
+                      </div>
+                    }
+                  </div>
+
+                  <!-- 最近 Epic -->
+                  <div class="overview-card">
+                    <div class="overview-card-header">
+                      <h4>最近 Epic</h4>
+                      <button class="link-btn" (click)="selectProjectTab('epics')">查看全部 →</button>
+                    </div>
+                    @if (epics().length === 0) {
+                      <div class="overview-empty">还没有 Epic —— 在「Epics」页 + 新建 Epic 开始迭代</div>
+                    } @else {
+                      <div class="overview-epic-list">
+                        @for (e of epics().slice(0, 5); track e.id) {
+                          <div class="overview-epic clickable" (click)="goEpic(e.id)">
+                            <span class="overview-epic-num">#{{ e.id }}</span>
+                            <span class="overview-epic-title">{{ e.title }}</span>
+                            @if (e.status === 'done') { <span class="overview-epic-tag done">已完成</span> }
+                            @else { <span class="overview-epic-tag active">{{ e.status }}</span> }
+                          </div>
+                        }
+                      </div>
+                    }
+                  </div>
+
+                  <!-- 快捷入口 -->
+                  <div class="overview-card overview-shortcuts">
+                    <div class="overview-card-header">
+                      <h4>快捷入口</h4>
+                    </div>
+                    <div class="overview-shortcut-grid">
+                      <button class="overview-shortcut" (click)="selectProjectTab('documents')">
+                        <span class="overview-shortcut-icon">📄</span>
+                        <span class="overview-shortcut-label">文档</span>
+                      </button>
+                      <button class="overview-shortcut" (click)="selectProjectTab('stats')">
+                        <span class="overview-shortcut-icon">📊</span>
+                        <span class="overview-shortcut-label">统计</span>
+                      </button>
+                      <button class="overview-shortcut" (click)="selectProjectTab('kanban')">
+                        <span class="overview-shortcut-icon">🗂️</span>
+                        <span class="overview-shortcut-label">看板</span>
+                      </button>
+                      <button class="overview-shortcut" (click)="selectProjectTab('proposals')">
+                        <span class="overview-shortcut-icon">💬</span>
+                        <span class="overview-shortcut-label">提案</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            }
 
             <!-- Tab: Epics -->
             @if (activeTab() === 'epics') {
@@ -706,63 +891,6 @@
                     [pageSize]="projectListPageSize"
                     (pageChange)="setProjectListPage('epics', $event)"
                   />
-                }
-              </div>
-            }
-
-            <!-- Tab: Sprints -->
-            @if (activeTab() === 'sprints') {
-              <div class="tab-content">
-                <div class="section-header">
-                  <h3>Sprints</h3>
-                  <details class="card sprint-create-section">
-                    <summary class="btn-primary-sm">＋ 新建 Sprint</summary>
-                    <form (submit)="createSprint($event, spName.value, spGoal.value)">
-                      <label>名称<input #spName required maxlength="200" placeholder="Sprint 1" /></label>
-                      <label>目标<textarea #spGoal rows="2" placeholder="本次 Sprint 的目标…"></textarea></label>
-                      <button class="btn-primary-sm" type="submit">创建 Sprint</button>
-                    </form>
-                  </details>
-                </div>
-                @if (isProjectTabLoading('sprints')) {
-                  <div class="tab-list-skeleton" role="status" aria-label="正在加载 Sprint 列表">
-                    <div class="tab-loading-caption"><span class="spinner"></span>正在加载 Sprint 列表…</div>
-                    @for (row of tabSkeletonRows; track row) {
-                      <div class="tab-skeleton-row"><span class="tab-skeleton-icon"></span><span class="tab-skeleton-line"></span><span class="tab-skeleton-badge"></span></div>
-                    }
-                  </div>
-                } @else if (projectTabError('sprints')) {
-                  <div class="tab-load-error" role="alert">
-                    <span>Sprint 列表加载失败：{{ projectTabError('sprints') }}</span>
-                    <button class="ghost-sm" type="button" (click)="retryProjectTab('sprints')">重试</button>
-                  </div>
-                } @else if (sprints().length) {
-                  <div class="entity-list" id="sprints-list">
-                    @for (item of paginatedItems(sprints(), sprintsPage()); track item.id) {
-                      <div class="entity-item sprint-item">
-                        <a [routerLink]="['/sprint', item.id]" class="entity-item-main">
-                          <span class="type-icon sprint-{{ item.status }}" [title]="sprintStatusLabel(item.status)">S</span>
-                          <span class="entity-item-title">{{ item.title }}</span>
-                          @if (item.goal) { <span class="entity-item-subtitle">{{ item.goal }}</span> }
-                        </a>
-                        <div class="entity-item-badges">
-                          <span class="badge sprint-status sprint-status--{{ item.status }}">{{ sprintStatusLabel(item.status) }}</span>
-                          @if (item.status === 'planning') { <button class="ghost-sm" (click)="activateSprint(item.id)">▶ 启动</button> }
-                          @if (item.status === 'active') { <button class="ghost-sm" (click)="completeSprint(item.id)">✓ 完成</button> }
-                          <button class="ghost-sm danger" (click)="deleteSprint(item.id)">✕</button>
-                        </div>
-                      </div>
-                    }
-                  </div>
-                  <app-pagination
-                    label="Sprint 列表"
-                    [total]="sprints().length"
-                    [page]="sprintsPage()"
-                    [pageSize]="projectListPageSize"
-                    (pageChange)="setProjectListPage('sprints', $event)"
-                  />
-                } @else {
-                  <div class="empty-inline">暂无 Sprint</div>
                 }
               </div>
             }

@@ -16,7 +16,7 @@ import { PaginationComponent } from './pagination/pagination';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
-type ProjectTabKind = 'epics' | 'sprints' | 'backlog' | 'proposals' | 'settings' | 'members' | 'stats' | 'schedules' | 'documents' | 'kanban';
+type ProjectTabKind = 'overview' | 'epics' | 'backlog' | 'proposals' | 'settings' | 'members' | 'stats' | 'schedules' | 'documents' | 'kanban' | 'sprints';
 type ProjectListKind = 'epics' | 'sprints' | 'backlog' | 'members' | 'schedules';
 
 interface CreateModal {
@@ -148,7 +148,7 @@ export class App implements OnInit, OnDestroy {
   readonly submitting = signal(false);
   readonly confirmation = signal<ConfirmationDialog | null>(null);
   readonly confirmationBusy = signal(false);
-  readonly activeTab = signal<ProjectTabKind>('epics');
+  readonly activeTab = signal<ProjectTabKind>('overview');
   // Epic 130: 项目看板（一个项目一个看板，卡片=Story 含 design/dev/qa task 状态）
   readonly kanban = signal<KanbanBoard | null>(null);
   readonly kanbanIncludeAll = signal(false);
@@ -314,6 +314,7 @@ export class App implements OnInit, OnDestroy {
   readonly schedulesPage = signal(1);
   readonly tabSkeletonRows = [0, 1, 2, 3, 4];
   readonly projectTabLoading = signal<Record<ProjectTabKind, boolean>>({
+    overview: false,
     epics: false,
     sprints: false,
     backlog: false,
@@ -326,6 +327,7 @@ export class App implements OnInit, OnDestroy {
     proposals: false,
   });
   readonly projectTabLoaded = signal<Record<ProjectTabKind, boolean>>({
+    overview: false,
     epics: false,
     sprints: false,
     backlog: false,
@@ -338,6 +340,7 @@ export class App implements OnInit, OnDestroy {
     proposals: false,
   });
   readonly projectTabErrors = signal<Record<ProjectTabKind, string>>({
+    overview: '',
     epics: '',
     sprints: '',
     backlog: '',
@@ -1551,8 +1554,48 @@ export class App implements OnInit, OnDestroy {
 
   selectProjectTab(tab: ProjectTabKind): void {
     this.activeTab.set(tab);
+    this.settingsMenuOpen.set(false);
     const projectId = this.project()?.id;
     if (projectId) void this.loadProjectTab(tab, projectId);
+  }
+
+  /** 设置下拉菜单状态（用于「设置」tab 触发器） */
+  readonly settingsMenuOpen = signal<boolean>(false);
+  toggleSettingsMenu(event: MouseEvent): void {
+    event.stopPropagation();
+    this.settingsMenuOpen.update((v) => !v);
+  }
+  closeSettingsMenu(): void {
+    this.settingsMenuOpen.set(false);
+  }
+
+  /** 项目介绍卡片：跳转到 Epic 详情 */
+  goEpic(epicId: number): void {
+    this.settingsMenuOpen.set(false);
+    this.view.set('epic');
+    this.epicTab.set('detail');
+    // 参照路由切换 epic：拉取 epic + stories + comments
+    firstValueFrom(this.api.getEpic(epicId)).then(async (epic) => {
+      const [stories, epicComments] = await Promise.all([
+        firstValueFrom(this.api.listStories(epicId)),
+        firstValueFrom(this.api.listEpicComments(epicId)),
+      ]);
+      this.epic.set(epic);
+      this.stories.set(stories);
+      this.epicComments.set(epicComments);
+      this.project.set(await firstValueFrom(this.api.getProject(epic.project_id)));
+    }).catch(() => { /* 静默：toast 由既有错误处理兜底 */ });
+  }
+
+  /** 简单日期格式化（YYYY-MM-DD） */
+  formatDate(dateStr: string | null | undefined): string {
+    if (!dateStr) return '';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '';
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
   }
 
   isProjectTabLoading(tab: ProjectTabKind): boolean {
@@ -1598,6 +1641,7 @@ export class App implements OnInit, OnDestroy {
     this.proposals.set([]);
     this.isOwner.set(false);
     this.projectTabLoading.set({
+      overview: false,
       epics: false,
       sprints: false,
       backlog: false,
@@ -1610,6 +1654,7 @@ export class App implements OnInit, OnDestroy {
       proposals: false,
     });
     this.projectTabLoaded.set({
+      overview: false,
       epics: false,
       sprints: false,
       backlog: false,
@@ -1622,6 +1667,7 @@ export class App implements OnInit, OnDestroy {
       proposals: false,
     });
     this.projectTabErrors.set({
+      overview: '',
       epics: '',
       sprints: '',
       backlog: '',
@@ -1647,7 +1693,30 @@ export class App implements OnInit, OnDestroy {
     this.projectTabErrors.update((state) => ({ ...state, [tab]: '' }));
 
     try {
-      if (tab === 'epics') {
+      if (tab === 'overview') {
+        // 项目介绍：聚合复用已有信号（epics / proposals / members / projectStats），
+        // 一次拉取关键资源，置 overview loaded 即可（无独立 content signal，纯计算视图）。
+        await Promise.all([
+          Promise.allSettled([
+            firstValueFrom(this.api.listEpics(projectId)),
+            firstValueFrom(this.api.listProposals({ project_id: projectId, limit: 50 })),
+            firstValueFrom(this.api.listMembers(projectId)),
+            firstValueFrom(this.api.getProjectStats(projectId)).catch(() => null),
+          ]).then(([epicsR, proposalsR, membersR, statsR]) => {
+            if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
+            if (epicsR.status === 'fulfilled') this.epics.set(epicsR.value);
+            if (proposalsR.status === 'fulfilled') {
+              const p = proposalsR.value as unknown;
+              const arr: ProposalItem[] = Array.isArray(p)
+                ? (p as ProposalItem[])
+                : ((p as { items?: ProposalItem[] })?.items || []);
+              this.proposals.set(arr);
+            }
+            if (membersR.status === 'fulfilled') this.members.set(membersR.value.items);
+            if (statsR.status === 'fulfilled' && statsR.value) this.projectStats.set(statsR.value);
+          }),
+        ]);
+      } else if (tab === 'epics') {
         const epics = await firstValueFrom(this.api.listEpics(projectId));
         if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
         this.epics.set(epics);
@@ -1813,13 +1882,15 @@ export class App implements OnInit, OnDestroy {
         await this.loadProjectsCenter();
       } else if (kind === 'project' && id > 0) {
         this.view.set('project');
-        const projectTab: ProjectTabKind = section === 'proposals'
-          ? 'proposals'
-          : section === 'documents'
-            ? 'documents'
-            : section === 'schedules'
-              ? 'settings' // 定时计划已并入设置页
-              : 'epics';
+        const projectTab: ProjectTabKind = section === 'overview'
+          ? 'overview'
+          : section === 'proposals'
+            ? 'proposals'
+            : section === 'documents'
+              ? 'documents'
+              : section === 'schedules'
+                ? 'settings' // 定时计划已并入设置页
+                : 'overview'; // 默认进入「项目介绍」tab
         this.activeTab.set(projectTab);
         this.resetProjectListPages();
         this.resetProjectTabs();
@@ -6920,6 +6991,16 @@ export class App implements OnInit, OnDestroy {
   @HostListener('window:keydown.escape')
   onEscapeKey(): void {
     if (this.docFullscreenOpen()) this.closeDocFullscreen();
+    if (this.settingsMenuOpen()) this.closeSettingsMenu();
+  }
+
+  @HostListener('window:click', ['$event'])
+  onWindowClick(event: MouseEvent): void {
+    // 点击 tab 区域外自动关闭设置下拉
+    if (!this.settingsMenuOpen()) return;
+    const target = event.target as HTMLElement | null;
+    if (target && target.closest('.tab-dropdown-wrap')) return;
+    this.closeSettingsMenu();
   }
 
   /** 恢复指定 revision（创建新 revision 保留历史）。 */
