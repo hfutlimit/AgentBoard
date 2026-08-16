@@ -18,6 +18,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from agentboard import cache as cache_mod
 
+# 底层实现已迁至 core.infrastructure.cache；facade 仅 re-export。
+# env 在底层模块模块级读取，测试 reload 须针对底层模块（Phase 1-9 重构后修正）。
+from agentboard.core import infrastructure as infra_root
+from agentboard.core.infrastructure import cache as infra_cache_mod
+
 
 # ---------------- Task 802: SimpleCache 命中率统计（纯单元） ----------------
 
@@ -89,23 +94,23 @@ def test_get_or_set_counts_once_per_call():
 
 def test_global_ttl_reads_env(monkeypatch):
     monkeypatch.setenv("AGENTBOARD_CACHE_TTL", "45")
-    reloaded = importlib.reload(cache_mod)
+    reloaded = importlib.reload(infra_cache_mod)
     try:
         assert reloaded.API_CACHE_TTL == 45, reloaded.API_CACHE_TTL
         assert reloaded.get_cache().default_ttl == 45, reloaded.get_cache().default_ttl
     finally:
         # 还原，避免影响后续用例
         monkeypatch.delenv("AGENTBOARD_CACHE_TTL", raising=False)
-        importlib.reload(cache_mod)
+        importlib.reload(infra_cache_mod)
 
 
 def test_default_ttl_defaults_to_30_when_unset(monkeypatch):
     monkeypatch.delenv("AGENTBOARD_CACHE_TTL", raising=False)
-    reloaded = importlib.reload(cache_mod)
+    reloaded = importlib.reload(infra_cache_mod)
     try:
         assert reloaded.API_CACHE_TTL == 30
     finally:
-        importlib.reload(cache_mod)
+        importlib.reload(infra_cache_mod)
 
 
 # ---------------- 集成探针：运行中的本地 API ----------------
