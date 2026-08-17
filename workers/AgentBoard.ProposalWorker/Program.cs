@@ -1,26 +1,69 @@
 using AgentBoard.ProposalWorker;
+using AgentBoard.ProposalWorker.Agents;
+using AgentBoard.ProposalWorker.Execution;
+using AgentBoard.ProposalWorker.Process;
 using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService(options => options.ServiceName = "AgentBoard Proposal Worker");
 builder.WebHost.UseUrls(builder.Configuration["Portal:Urls"] ?? "http://127.0.0.1:58240");
 
+// ---- Options ---------------------------------------------------------------
 builder.Services.Configure<WorkerOptions>(builder.Configuration.GetSection("Worker"));
 builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection("RabbitMq"));
-builder.Services.Configure<WorkBuddyOptions>(builder.Configuration.GetSection("WorkBuddy"));
+builder.Services.Configure<AgentsOptions>(builder.Configuration.GetSection("Agents"));
 builder.Services.Configure<AgentBoardOptions>(builder.Configuration.GetSection("AgentBoard"));
 builder.Services.Configure<PortalOptions>(builder.Configuration.GetSection("Portal"));
-builder.Services.AddHttpClient();
-builder.Services.AddSingleton<WorkerState>();
+builder.Services.Configure<ProcessExecutorOptions>(builder.Configuration.GetSection("ProcessExecutor"));
+
+// ---- Sprint 5: shared process layer ---------------------------------------
+builder.Services.AddSingleton<IProcessExecutor, ProcessExecutor>();
+
+// ---- Sprint 4: per-agent adapters + registry -------------------------------
+// Each adapter is singleton; missing Command means the agent is not used
+// (we still register so the registry logs the full list, but Get() will
+// throw at runtime if a message arrives for a disabled agent).
+builder.Services.AddSingleton<IAgentAdapter, WorkBuddyAdapter>();
+builder.Services.AddSingleton<IAgentAdapter, MiniMaxAdapter>();
+builder.Services.AddSingleton<IAgentAdapter, CodexAdapter>();
+builder.Services.AddSingleton<IAgentAdapterRegistry, AgentAdapterRegistry>();
+
+// ---- Sprint 1+2: storage + inbox ------------------------------------------
 builder.Services.AddSingleton<ExecutionStore>();
-builder.Services.AddSingleton<WorkBuddyRunner>();
-builder.Services.AddSingleton<ProposalExecutionService>();
+builder.Services.AddSingleton<InboxStore>();
+builder.Services.AddSingleton<ExecutionChannel>();
+
+// ---- Sprint 4: single translation point (RabbitMQ message → request) ------
+builder.Services.AddSingleton<ProposalMessageMapper>();
+builder.Services.AddSingleton<ExecutionCoordinator>();
+
+// ---- Sprint 6: worker state (must be after Process layer for snapshot) ----
+builder.Services.AddSingleton<WorkerState>();
+
+// ---- Hosted services -------------------------------------------------------
+builder.Services.AddHostedService<ExecutionDispatcher>();
 builder.Services.AddHostedService<RabbitMqConsumerService>();
 builder.Services.AddHostedService<WorkerHeartbeatService>();
 builder.Services.AddHostedService<AgentBoardWebSocketService>();
-builder.Services.AddHostedService<PortalRetryService>();
+
+// ---- HTTP ----------------------------------------------------------------
+builder.Services.AddHttpClient();
 
 var app = builder.Build();
+
+// One-time startup: orphan recovery. Must run after ExecutionStore is built.
+using (var scope = app.Services.CreateScope())
+{
+    var store = scope.ServiceProvider.GetRequiredService<ExecutionStore>();
+    var inbox = scope.ServiceProvider.GetRequiredService<InboxStore>();
+    var workerOpts = scope.ServiceProvider.GetRequiredService<IOptions<WorkerOptions>>().Value;
+    var registry = scope.ServiceProvider.GetRequiredService<IAgentAdapterRegistry>();
+    var log = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    await store.MarkOrphansAsync(workerOpts.OrphanThresholdMinutes, CancellationToken.None);
+    await inbox.ResetStuckDispatchingAsync(CancellationToken.None);
+    log.LogInformation("AgentBoard Worker started; registered agents: [{List}]", string.Join(", ", registry.RegisteredAgents));
+}
+
 app.Use(async (context, next) =>
 {
     if (context.Request.Path.StartsWithSegments("/health") || context.Request.Path == "/")
@@ -40,15 +83,19 @@ app.Use(async (context, next) =>
     await next();
 });
 
-app.MapGet("/health", (WorkerState state) => Results.Ok(state.Snapshot()));
+app.MapGet("/health", (WorkerState state, IAgentAdapterRegistry registry, IOptions<WorkerOptions> worker) =>
+    Results.Ok(state.Snapshot(registry.RegisteredAgents, worker.Value.MaxConcurrentExecutions, state.ActiveCount, 0)));
 app.MapGet("/", () => Results.Content(PortalPage.Html, "text/html; charset=utf-8"));
-app.MapGet("/api/worker", (WorkerState state) => Results.Ok(state.Snapshot()));
-app.MapGet("/api/executions", async (ExecutionStore store, int? limit) =>
-    Results.Ok(await store.ListAsync(Math.Clamp(limit ?? 100, 1, 500))));
+app.MapGet("/api/worker", (WorkerState state, IAgentAdapterRegistry registry, IOptions<WorkerOptions> worker) =>
+    Results.Ok(state.Snapshot(registry.RegisteredAgents, worker.Value.MaxConcurrentExecutions, state.ActiveCount, 0)));
+app.MapGet("/api/executions", async (ExecutionStore store, int? limit, string? agent) =>
+    Results.Ok(await store.ListAsync(Math.Clamp(limit ?? 100, 1, 500), agent)));
 app.MapGet("/api/executions/{id:long}", async (ExecutionStore store, long id) =>
     await store.GetAsync(id) is { } item ? Results.Ok(item) : Results.NotFound());
-app.MapPost("/api/control/pause", (WorkerState state) => { state.Paused = true; return Results.Ok(state.Snapshot()); });
-app.MapPost("/api/control/resume", (WorkerState state) => { state.Paused = false; return Results.Ok(state.Snapshot()); });
+app.MapGet("/api/executions/{id:long}/logs", async (ExecutionStore store, long id, int? tailBytes, string? stream) =>
+    Results.Ok(await store.GetLogsAsync(id, Math.Clamp(tailBytes ?? 102400, 0, 10 * 1024 * 1024), stream)));
+app.MapPost("/api/control/pause", (WorkerState state) => { state.Paused = true; return Results.Ok(state.Snapshot(Array.Empty<string>(), 0, 0, 0)); });
+app.MapPost("/api/control/resume", (WorkerState state) => { state.Paused = false; return Results.Ok(state.Snapshot(Array.Empty<string>(), 0, 0, 0)); });
 app.MapPost("/api/executions/{id:long}/retry", async (ExecutionStore store, long id) =>
     await store.QueueRetryAsync(id) ? Results.Accepted() : Results.NotFound());
 

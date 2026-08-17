@@ -1,0 +1,55 @@
+using AgentBoard.ProposalWorker.Process;
+using Microsoft.Extensions.Options;
+
+namespace AgentBoard.ProposalWorker.Agents;
+
+/// <summary>
+/// Sprint 4. MiniMax CLI adapter. Same stdin/stdout-JSON contract as
+/// workbuddy; injects MiniMax_API_KEY from config (NOT parent env) so the
+/// secret boundary is explicit. The MiniMax CLI is expected to live on PATH
+/// or be configured via <c>Agents:MiniMax:Command</c>.
+/// </summary>
+public sealed class MiniMaxAdapter : IAgentAdapter
+{
+    private readonly IProcessExecutor _process;
+    private readonly AgentsOptions _agents;
+
+    public MiniMaxAdapter(IProcessExecutor process, IOptions<AgentsOptions> agents)
+    {
+        _process = process;
+        _agents = agents.Value;
+    }
+
+    public string AgentType => "minimax";
+
+    public Task<AgentExecutionResult> ExecuteAsync(ExecutionContext context, CancellationToken ct)
+    {
+        var opts = _agents.MiniMax;
+        var env = new Dictionary<string, string?>();
+        if (!string.IsNullOrWhiteSpace(opts.ApiKeyEnv))
+        {
+            // Adapter fetches the secret from its own config; ProcessExecutor
+            // does not touch parent env (Sprint 5 isolation).
+            env[opts.ApiKeyEnv] = opts.ApiKeyEnv;
+        }
+        var spec = new ProcessSpec
+        {
+            Executable = opts.Command,
+            WorkingDirectory = opts.WorkingDirectory,
+            StdinPayload = BuildPrompt(context),
+            Timeout = TimeSpan.FromMinutes(Math.Max(1, opts.TimeoutMinutes)),
+            MaxOutputBytes = opts.MaxCapturedOutputChars,
+            Environment = env,
+            AgentType = AgentType,
+        };
+        return SharedAdapterHelpers.RunAndParseAsync(_process, spec, ct);
+    }
+
+    private string BuildPrompt(ExecutionContext context) => $"""
+        You are the AgentBoard worker running on the MiniMax CLI. Use your configured AgentBoard MCP only.
+        Handle proposal {context.WorkloadId} (round {context.Round}) on worker '{context.ExecutionKey}'.
+        Reconstruct the proposal's complete question-answer history through MCP, then decide the next action.
+        If you need clarification, write concrete open questions through MCP. If converged, write the converged proposal. If appropriate, record failure.
+        Unattended mode: do not make destructive local changes unless the proposal explicitly asks and MCP confirms scope.
+        """;
+}

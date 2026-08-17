@@ -1,13 +1,45 @@
+using AgentBoard.ProposalWorker.Agents;
+using AgentBoard.ProposalWorker.Execution;
+using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
-using Microsoft.Extensions.Options;
 
 namespace AgentBoard.ProposalWorker;
 
+/// <summary>
+/// Sprint 3. Lightweight consumer: parse → enqueue to inbox → ACK → return.
+/// No CLI invocation in the consumer thread. Dispatcher does the work.
+///
+/// Sprint 2 invariant: if inbox.TryEnqueueAsync says IsNew=false, this is a
+/// redelivery and we ACK without dispatching.
+/// </summary>
 public sealed class RabbitMqConsumerService : BackgroundService
 {
-    private readonly RabbitMqOptions _mq; private readonly WorkerOptions _worker; private readonly ProposalExecutionService _execution; private readonly WorkerState _state; private readonly ILogger<RabbitMqConsumerService> _log;
-    public RabbitMqConsumerService(IOptions<RabbitMqOptions> mq, IOptions<WorkerOptions> worker, ProposalExecutionService execution, WorkerState state, ILogger<RabbitMqConsumerService> log) => (_mq, _worker, _execution, _state, _log) = (mq.Value, worker.Value, execution, state, log);
+    private readonly RabbitMqOptions _mq;
+    private readonly WorkerOptions _worker;
+    private readonly InboxStore _inbox;
+    private readonly ProposalMessageMapper _mapper;
+    private readonly ExecutionChannel _channel;
+    private readonly WorkerState _state;
+    private readonly ILogger<RabbitMqConsumerService> _log;
+
+    public RabbitMqConsumerService(
+        IOptions<RabbitMqOptions> mq,
+        IOptions<WorkerOptions> worker,
+        InboxStore inbox,
+        ProposalMessageMapper mapper,
+        ExecutionChannel channel,
+        WorkerState state,
+        ILogger<RabbitMqConsumerService> log)
+    {
+        _mq = mq.Value;
+        _worker = worker.Value;
+        _inbox = inbox;
+        _mapper = mapper;
+        _channel = channel;
+        _state = state;
+        _log = log;
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -15,19 +47,35 @@ public sealed class RabbitMqConsumerService : BackgroundService
         while (!stoppingToken.IsCancellationRequested)
         {
             try { await ConsumeUntilDisconnected(stoppingToken); }
-            catch (Exception ex) when (!stoppingToken.IsCancellationRequested) { _state.LastError = ex.Message; _log.LogError(ex, "RabbitMQ disconnected; retrying in 5 seconds"); await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken); }
+            catch (Exception ex) when (!stoppingToken.IsCancellationRequested)
+            {
+                _state.LastError = ex.Message;
+                _log.LogError(ex, "RabbitMQ disconnected; retrying in 5 seconds");
+                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+            }
         }
     }
 
     private async Task ConsumeUntilDisconnected(CancellationToken ct)
     {
-        var factory = new ConnectionFactory { Uri = new Uri(_mq.Uri), DispatchConsumersAsync = true, AutomaticRecoveryEnabled = true, NetworkRecoveryInterval = TimeSpan.FromSeconds(5) };
-        using var connection = factory.CreateConnection(); using var channel = connection.CreateModel();
+        var factory = new ConnectionFactory
+        {
+            Uri = new Uri(_mq.Uri),
+            DispatchConsumersAsync = true,
+            AutomaticRecoveryEnabled = true,
+            NetworkRecoveryInterval = TimeSpan.FromSeconds(5)
+        };
+        using var connection = factory.CreateConnection();
+        using var channel = connection.CreateModel();
         channel.ExchangeDeclare(_mq.Namespace, ExchangeType.Direct, durable: true);
         channel.ExchangeDeclare(_mq.Namespace + ".dlx", ExchangeType.Direct, durable: true);
         channel.QueueDeclare(_mq.Namespace + ".dead", durable: true, exclusive: false, autoDelete: false);
         channel.QueueBind(_mq.Namespace + ".dead", _mq.Namespace + ".dlx", "dead");
-        var dlqArguments = new Dictionary<string, object> { ["x-dead-letter-exchange"] = _mq.Namespace + ".dlx", ["x-dead-letter-routing-key"] = "dead" };
+        var dlqArguments = new Dictionary<string, object>
+        {
+            ["x-dead-letter-exchange"] = _mq.Namespace + ".dlx",
+            ["x-dead-letter-routing-key"] = "dead"
+        };
         channel.QueueDeclare(_mq.PublicQueue, durable: true, exclusive: false, autoDelete: false, arguments: dlqArguments);
         channel.QueueBind(_mq.PublicQueue, _mq.Namespace, _mq.PublicRoutingKey);
         channel.ExchangeDeclare(_mq.DirectExchange, ExchangeType.Direct, durable: true);
@@ -51,14 +99,55 @@ public sealed class RabbitMqConsumerService : BackgroundService
         {
             try
             {
+                if (_state.Paused)
+                {
+                    // Keep the message; requeue so another consumer (or this
+                    // one after resume) can pick it up.
+                    await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+                    channel.BasicNack(eventArgs.DeliveryTag, false, true);
+                    return;
+                }
+
                 var message = ProposalMessage.Parse(eventArgs.Body);
-                if (_state.Paused) { await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken); channel.BasicNack(eventArgs.DeliveryTag, false, true); return; }
-                var succeeded = await _execution.ExecuteAsync(message, source, stoppingToken);
-                if (succeeded) channel.BasicAck(eventArgs.DeliveryTag, false);
-                else channel.BasicNack(eventArgs.DeliveryTag, false, false);
+                ExecutionRequest request;
+                try
+                {
+                    request = _mapper.MapToExecution(message, source);
+                }
+                catch (InvalidAgentException ex)
+                {
+                    // Poison: agent not registered. DLQ instead of looping.
+                    _log.LogError(ex, "Dropping message for unregistered agent {Agent}", ex.AgentType);
+                    channel.BasicNack(eventArgs.DeliveryTag, false, false);
+                    return;
+                }
+
+                var (inboxId, isNew) = await _inbox.TryEnqueueAsync(request, stoppingToken);
+                if (!isNew)
+                {
+                    // Sprint 2: idempotency hit. ACK and drop.
+                    _log.LogDebug("Duplicate {Key}; ACK without dispatch", request.ExecutionKey);
+                    channel.BasicAck(eventArgs.DeliveryTag, false);
+                    return;
+                }
+
+                // Hand off to the in-memory channel; the consumer returns
+                // immediately. The dispatcher drains the channel on a
+                // background task and is responsible for the actual run.
+                await _channel.Writer.WriteAsync(new InFlightExecution(request, inboxId), stoppingToken);
+                channel.BasicAck(eventArgs.DeliveryTag, false);
             }
-            catch (InvalidDataException ex) { _log.LogWarning(ex, "Poison proposal message on {Queue}", queue); channel.BasicNack(eventArgs.DeliveryTag, false, false); }
-            catch (Exception ex) { _state.LastError = ex.Message; _log.LogError(ex, "Unhandled proposal execution failure"); channel.BasicNack(eventArgs.DeliveryTag, false, false); }
+            catch (InvalidDataException ex)
+            {
+                _log.LogWarning(ex, "Poison proposal message on {Queue}", queue);
+                channel.BasicNack(eventArgs.DeliveryTag, false, false);
+            }
+            catch (Exception ex)
+            {
+                _state.LastError = ex.Message;
+                _log.LogError(ex, "Unhandled consumer error on {Queue}", queue);
+                channel.BasicNack(eventArgs.DeliveryTag, false, true);
+            }
         };
         return channel.BasicConsume(queue, autoAck: false, consumer);
     }
