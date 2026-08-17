@@ -10,11 +10,14 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 import secrets
 import time
 
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 # ``models`` 只在函数体里用(get_user_by_id 拿 User 类),避免顶部 import 触发循环。
 # 类型 hint 用 TYPE_CHECKING 守门。
@@ -27,18 +30,68 @@ _LEGACY_PBKDF2_ROUNDS = 100_000
 _PBKDF2_ROUNDS = 600_000
 _TOKEN_TTL_SECONDS = int(os.getenv("AGENTBOARD_TOKEN_TTL_SECONDS", "172800"))
 
+# B-A5 / Story 291 / Epic 145：dev 模式下视为「可接受的不安全默认值」,
+# 仅记录 WARNING 日志提升可见性,不阻断本地开发（向后兼容）。
+# production 模式下这些项必须显式收紧,否则 validate_runtime_security() fail-fast。
+# 字段：(env var, 代码层默认值, 不安全取值集合, 描述)
+# 默认值必须与 api_helpers.py / features/auth/router.py / core/config.py 的 os.getenv 兜底一致。
+_DEV_INSECURE_DEFAULTS = (
+    ("AGENTBOARD_REQUIRE_AUTH", "0", {"0", "no", "false", ""}, "anonymous CRUD (REQUIRE_AUTH=0)"),
+    ("AGENTBOARD_ALLOW_REGISTRATION", "1", {"1", "true", "yes"}, "open registration (ALLOW_REGISTRATION=1)"),
+    ("AGENTBOARD_CORS_ORIGINS", "*", {"*"}, "wildcard CORS (CORS_ORIGINS=*)"),
+)
+
+
+def _has_wildcard_cors() -> bool:
+    origins = os.getenv("AGENTBOARD_CORS_ORIGINS", "*")
+    return "*" in {x.strip() for x in origins.split(",")}
+
 
 def validate_runtime_security() -> None:
-    """生产环境拒绝明显不安全的默认值;本地开发保持零配置可运行。"""
-    if os.getenv("AGENTBOARD_ENV", "development").lower() != "production":
+    """生产环境拒绝明显不安全的默认值;本地开发保持零配置可运行。
+
+    行为分层（B-A5 / Story 291 / Epic 145 强化）::
+
+        development / staging  → 不 raise;若检测到不安全默认值,记录 WARNING 日志
+                                  提升可见性（向后兼容,不阻断本地开发）。
+        production             → fail-fast:弱 SECRET / REQUIRE_AUTH=0 / CORS=* 直接 raise;
+                                  ALLOW_REGISTRATION=1 记录 WARNING（维护窗口非阻塞,
+                                  避免阻断 README 文档化的临时注册流程）。
+    """
+    env = os.getenv("AGENTBOARD_ENV", "development").lower()
+
+    # ---- dev / staging:仅记录 WARNING,不阻断 ----
+    if env != "production":
+        insecure_flags = []
+        if _SECRET == b"dev-insecure-secret-change-me":
+            insecure_flags.append("AGENTBOARD_SECRET is the default dev secret")
+        for var, default_val, bad_values, desc in _DEV_INSECURE_DEFAULTS:
+            actual = os.getenv(var, default_val)
+            if actual.lower() in bad_values:
+                insecure_flags.append(f"{var}={actual} → {desc}")
+        if insecure_flags:
+            logger.warning(
+                "AgentBoard running in %s mode with insecure defaults "
+                "(acceptable for local dev only, DO NOT use in production): %s",
+                env, " | ".join(insecure_flags),
+            )
         return
+
+    # ---- production:fail-fast ----
     if _SECRET == b"dev-insecure-secret-change-me" or len(_SECRET) < 32:
         raise RuntimeError("production requires AGENTBOARD_SECRET with at least 32 bytes")
     if os.getenv("AGENTBOARD_REQUIRE_AUTH", "0").lower() not in {"1", "true", "yes"}:
         raise RuntimeError("production requires AGENTBOARD_REQUIRE_AUTH=1")
-    origins = os.getenv("AGENTBOARD_CORS_ORIGINS", "*")
-    if "*" in {x.strip() for x in origins.split(",")}:
+    if _has_wildcard_cors():
         raise RuntimeError("production requires an explicit AGENTBOARD_CORS_ORIGINS allowlist")
+    # ALLOW_REGISTRATION=1 在 production 不 raise（维护窗口需临时注册新 Agent 账号,
+    # 详见 README「生产环境部署前必读」）；仅记录 WARNING 提醒事后恢复为 0。
+    if os.getenv("AGENTBOARD_ALLOW_REGISTRATION", "1").lower() in {"1", "true", "yes"}:
+        logger.warning(
+            "AGENTBOARD_ALLOW_REGISTRATION=1 in production — this is a temporary "
+            "maintenance window; set it back to 0 immediately after user creation. "
+            "Leaving it open lets anyone register accounts."
+        )
 
 
 def hash_password(password: str) -> str:
