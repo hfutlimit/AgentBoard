@@ -92,7 +92,7 @@ public sealed class ExecutionCoordinator
             }
             else if (result.TimedOut)
             {
-                await _store.MarkTimedOutAsync(executionId, result.OutputJson ?? "", ct);
+                await _store.MarkTimedOutAsync(executionId, result.ErrorMessage ?? "execution timed out", result.OutputJson ?? "", ct);
                 await _inbox.MarkCompletedAsync(inboxId, ct);
             }
             else
@@ -108,7 +108,7 @@ public sealed class ExecutionCoordinator
         }
         catch (TimeoutException ex)
         {
-            await _store.MarkTimedOutAsync(executionId, ex.Message, CancellationToken.None);
+            await _store.MarkTimedOutAsync(executionId, ex.Message, "", CancellationToken.None);
             await _inbox.MarkCompletedAsync(inboxId, CancellationToken.None);
         }
         catch (Exception ex)

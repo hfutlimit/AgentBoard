@@ -133,8 +133,8 @@ public sealed class ExecutionStore
     public Task<bool> MarkFailedAsync(long id, int? exitCode, string output, string error, string? stackTrace, CancellationToken ct) =>
         MarkTerminalAsync(id, ExecutionState.Failed, exitCode, output, error, "exception", stackTrace, ct);
 
-    public Task<bool> MarkTimedOutAsync(long id, string output, CancellationToken ct) =>
-        MarkTerminalAsync(id, ExecutionState.TimedOut, null, output, "execution exceeded timeout", "timeout", null, ct);
+    public Task<bool> MarkTimedOutAsync(long id, string error, string output, CancellationToken ct) =>
+        MarkTerminalAsync(id, ExecutionState.TimedOut, null, output, error, "timeout", null, ct);
 
     public Task<bool> MarkCancelledAsync(long id, string reason, CancellationToken ct) =>
         MarkTerminalAsync(id, ExecutionState.Cancelled, null, "", reason, "cancelled", null, ct);

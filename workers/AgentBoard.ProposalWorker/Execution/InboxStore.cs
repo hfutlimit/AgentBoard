@@ -52,24 +52,27 @@ public sealed class InboxStore
     }
 
     /// <summary>
-    /// Try to enqueue. Returns the row id (existing or new) so the caller can
-    /// decide whether to dispatch or ACK-and-drop. INSERT OR IGNORE is the
-    /// atomic idempotency primitive — duplicate keys get rowid=-1, we then
-    /// SELECT the existing row.
+    /// Try to enqueue. Returns the row id (existing or new) and a flag
+    /// indicating whether the row was newly inserted.
+    ///
+    /// SQLite-specific note: <c>last_insert_rowid()</c> does NOT change when
+    /// <c>INSERT OR IGNORE</c> is ignored due to a UNIQUE constraint on a
+    /// non-rowid column (which is our case: <c>UNIQUE(execution_key)</c>).
+    /// So we MUST distinguish new vs. existing via <c>ExecuteNonQuery</c>'s
+    /// rowcount, then look up the id separately.
     /// </summary>
     public async Task<(long InboxId, bool IsNew)> TryEnqueueAsync(ExecutionRequest request, CancellationToken ct)
     {
         await using var c = new SqliteConnection(_connectionString);
         await c.OpenAsync(ct);
 
-        long insertedId;
+        bool isNew;
         await using (var ins = c.CreateCommand())
         {
             ins.CommandText = """
                 INSERT OR IGNORE INTO worker_execution_inbox
                   (execution_key, workload_type, workload_id, agent_type, round, payload_json, status, received_at)
-                VALUES($key,$wtype,$wid,$agent,$round,$payload,'pending',$at);
-                SELECT last_insert_rowid();
+                VALUES($key,$wtype,$wid,$agent,$round,$payload,'pending',$at)
                 """;
             ins.Parameters.AddWithValue("$key", request.ExecutionKey);
             ins.Parameters.AddWithValue("$wtype", request.WorkloadType);
@@ -78,17 +81,15 @@ public sealed class InboxStore
             ins.Parameters.AddWithValue("$round", request.Round);
             ins.Parameters.AddWithValue("$payload", request.PayloadJson);
             ins.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.ToString("O"));
-            insertedId = (long)(await ins.ExecuteScalarAsync(ct) ?? 0L);
+            var n = await ins.ExecuteNonQueryAsync(ct);
+            isNew = (n == 1);
         }
 
-        if (insertedId > 0) return (insertedId, true);
-
-        // Duplicate: return the existing row id.
         await using var sel = c.CreateCommand();
         sel.CommandText = "SELECT id FROM worker_execution_inbox WHERE execution_key=$key";
         sel.Parameters.AddWithValue("$key", request.ExecutionKey);
-        var existing = (long)(await sel.ExecuteScalarAsync(ct) ?? 0L);
-        return (existing, false);
+        var id = (long)(await sel.ExecuteScalarAsync(ct) ?? 0L);
+        return (id, isNew);
     }
 
     /// <summary>
