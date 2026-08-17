@@ -74,7 +74,7 @@ describe('App', () => {
     app.storyTab.set('list');
     app.project.set({ id: 1, name: 'AgentBoard', key: 'AB', description: '', is_private: false, created_at: now } satisfies Project);
     app.epic.set({ id: 2, project_id: 1, title: 'UX cleanup', description: '', status: 'in_progress', created_at: now } satisfies Epic);
-    app.story.set({ id: 3, epic_id: 2, title: 'Simplify task page', description: '', status: 'in_progress', created_at: now } satisfies Story);
+    app.story.set({ id: 3, epic_id: 2, title: 'Simplify task page', description: '', status: 'in_progress', needs_design: false, created_at: now } satisfies Story);
     fixture.detectChanges();
 
     const element = fixture.nativeElement as HTMLElement;
@@ -516,6 +516,95 @@ describe('App', () => {
     it('空 alt 图片应输出空 alt 属性（S3/S4 边界）', () => {
       const html = render('![](https://cos.example.com/no-alt.png)');
       expect(html).toContain('<img src="https://cos.example.com/no-alt.png" alt=""');
+    });
+  });
+
+  describe('renderMarkdown 链接渲染与 XSS 防护（Epic 145 B-A6）', () => {
+    const render = (src: string): string => {
+      const fixture = TestBed.createComponent(App);
+      return fixture.componentInstance.renderMarkdown(src);
+    };
+
+    it('应该把 https 链接渲染为 <a target=_blank rel=noopener>', () => {
+      const html = render('参见 [文档](https://example.com/doc/intro)');
+      expect(html).toContain('<a href="https://example.com/doc/intro" target="_blank" rel="noopener">文档</a>');
+    });
+
+    it('应该保留 URL 中的 & 为 &amp; 实体（不双转义）', () => {
+      const html = render('搜索 [q](https://example.com/s?a=1&b=2)');
+      expect(html).toContain('<a href="https://example.com/s?a=1&amp;b=2"');
+      expect(html).not.toContain('href="https://example.com/s?a=1&b=2"');
+    });
+
+    it('应该拒绝 javascript: 协议的链接（正则强制 https?://，原文保留）', () => {
+      const html = render('点 [这里](javascript:alert(1))');
+      expect(html).not.toContain('<a ');
+      expect(html).toContain('javascript:alert(1)'); // 原文以纯文本保留
+    });
+
+    it('应该拒绝 URL 中的双引号（属性逃逸注入）并保留原文', () => {
+      const html = render('[x](https://a.com/" onclick="alert(1))');
+      expect(html).not.toContain('<a ');
+      expect(html).not.toMatch(/<[^>]*\bon\w+\s*=/i); // 无任何标签含 on* 事件属性（精确 XSS 断言）
+      expect(html).toContain('[x]('); // 原文以纯文本保留
+    });
+
+    it('应该拒绝标签模板注入攻击向量（无需 ) 的 JS 执行）', () => {
+      // 攻击向量：[x](https://a.com/"onclick="alert`1`) —— `"` 闭合 href，
+      // 浏览器容错解析出 onclick，标签模板 `alert\`1\`` 无需 `)` 即可执行
+      const html = render('[x](https://a.com/"onclick="alert`1`)');
+      expect(html).not.toContain('<a ');
+      expect(html).not.toMatch(/<[^>]*\bon\w+\s*=/i); // 无任何标签含 on* 事件属性（精确 XSS 断言）
+      // 危险 URL 原文以纯文本保留（backtick 可能被行内代码格式消费，但不会成为可执行属性）
+      expect(html).toContain('[x](');
+    });
+
+    it('应该拒绝 URL 中的单引号并保留原文', () => {
+      const html = render("[x](https://a.com/'onclick='alert(1))");
+      expect(html).not.toContain('<a ');
+      expect(html).not.toMatch(/<[^>]*\bon\w+\s*=/i); // 无任何标签含 on* 事件属性（精确 XSS 断言）
+    });
+
+    it('链接文本中的 < > 应被转义（来自 esc 预处理）', () => {
+      const html = render('[<b>bold</b>](https://example.com/x)');
+      expect(html).toContain('&lt;b&gt;');
+      expect(html).not.toContain('<b>bold</b>');
+    });
+
+    it('应该拒绝带空白的 URL（正则已排除 \\s，纵深防御）', () => {
+      const html = render('[x](https://a.com/ onclick=alert(1))');
+      expect(html).not.toMatch(/<[^>]*\bon\w+\s*=/i); // 无任何标签含 on* 事件属性（精确 XSS 断言）
+    });
+
+    it('评论场景：链接 + 图片 + 代码 + 加粗共存且各自安全', () => {
+      const html = render('评审 [链接](https://ok.com/a?x=1&y=2) ![图](https://cos.example.com/r.png) `code` **粗**');
+      expect(html).toContain('<a href="https://ok.com/a?x=1&amp;y=2"');
+      expect(html).toContain('<img src="https://cos.example.com/r.png"');
+      expect(html).toContain('<code>code</code>');
+      expect(html).toContain('<strong>粗</strong>');
+      expect(html).not.toMatch(/<[^>]*\bon\w+\s*=/i); // 无任何标签含 on* 事件属性（精确 XSS 断言）
+    });
+
+    it('描述场景：标题 + 列表 + 安全链接 + 危险链接混合', () => {
+      const html = render('# 标题\n\n- 安全 [ok](https://ok.com)\n- 危险 [bad](https://a.com/"onclick="alert`1`)');
+      expect(html).toContain('<h1>标题</h1>');
+      expect(html).toContain('<a href="https://ok.com"');
+      expect(html).not.toMatch(/<[^>]*\bon\w+\s*=/i); // 无任何标签含 on* 事件属性（精确 XSS 断言）
+      // 危险链接原文保留
+      expect(html).toContain('[bad](');
+    });
+
+    it('代码块内的伪链接不应被渲染为 <a>（先消费围栏）', () => {
+      const html = render('```\n[x](https://a.com/"onclick="alert`1`)\n```');
+      expect(html).toContain('<pre class="code-block">');
+      expect(html).not.toContain('<a ');
+      expect(html).not.toMatch(/<[^>]*\bon\w+\s*=/i); // 无任何标签含 on* 事件属性（精确 XSS 断言）
+    });
+
+    it('行内代码内的伪链接不应被渲染为 <a>', () => {
+      const html = render('代码 `[x](https://a.com/"onclick="alert\`1\`)` 结束');
+      expect(html).not.toContain('<a ');
+      expect(html).not.toMatch(/<[^>]*\bon\w+\s*=/i); // 无任何标签含 on* 事件属性（精确 XSS 断言）
     });
   });
 

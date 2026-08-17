@@ -1,7 +1,8 @@
 // Story 265：状态收敛为 5 值（todo/in_progress/in_review/done/blocked）
 export type ItemType = 'dev' | 'bug' | 'qa' | 'design';
 // Story 自身保留 confirmed（用户确认闸门）但 Task 不再使用 confirmed/backlog
-export type Status = 'todo' | 'in_progress' | 'in_review' | 'done' | 'blocked';
+// 注：Epic/Story 后端支持 backlog，前端类型须对齐（Epic 145 B-A6 验证时发现脱节）
+export type Status = 'todo' | 'in_progress' | 'in_review' | 'done' | 'blocked' | 'backlog';
 export type Priority = 'highest' | 'high' | 'medium' | 'low' | 'lowest';
 
 export interface Project {

@@ -7542,7 +7542,18 @@ export class App implements OnInit, OnDestroy {
       t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
       t = t.replace(/(^|[^*])\*([^*]+)\*/g, '$1<em>$2</em>');
       t = t.replace(/_([^_]+)_/g, '<em>$1</em>');
-      t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      // 链接 [text](url)（Epic 145 B-A6）：协议白名单仅放行 http(s)（正则已强制 https?://），
+      // 拒绝属性逃逸字符（" ' < > 空白），杜绝 href 属性注入导致 XSS。
+      // 攻击向量示例：[x](https://a.com/"onclick="alert`1`) —— `"` 闭合 href 后浏览器
+      // "missing whitespace between attributes" 容错解析出 onclick 事件属性，配合标签模板
+      // `alert\`1\``（无需 `)`）可执行任意 JS → 窃取 localStorage token 完全接管账号。
+      // 与图片分支（7537）规则保持一致：先校验危险字符，再 `"` → `&quot;` 双重防御。
+      t = t.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (m, text, url) => {
+        const href = url.replace(/&amp;/g, '&');
+        if (/["'\s<>]/.test(href)) return m;
+        const safeHref = url.replace(/"/g, '&quot;');
+        return `<a href="${safeHref}" target="_blank" rel="noopener">${text}</a>`;
+      });
       return t;
     };
     while (i < lines.length) {
