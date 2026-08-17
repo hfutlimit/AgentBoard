@@ -150,7 +150,7 @@ def claim_task_for_development(tid: int, authorization: str | None = Header(None
                                s: Session = Depends(get_session)):
     """开发任务竞争认领（Epic 122 切片 2，CAS 并发安全）。
 
-    条件 UPDATE ``status IN (backlog, todo)`` → ``in_progress + assignee_id=当前用户``，
+    条件 UPDATE ``status IN (todo,)``（Story 265 backlog 已下线）→ ``in_progress + assignee_id=当前用户``，
     rowcount=1 才成功；已认领/已结束返回 409 明确错误（复用 Epic 118 护栏语义）。
     项目写权限由 project_access_middleware 自动覆盖。
     """

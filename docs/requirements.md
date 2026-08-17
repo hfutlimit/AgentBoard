@@ -160,7 +160,7 @@ MVP 不做权限区分，所有调用方等价。
 **FR-17 Agent MCP 与定时开发闭环**
 - MCP 提供面向 Codex、WorkBuddy、Qoder 等客户端的稳定工具：查询待办、读取上下文、更新状态/优先级、评论进展、读取 Sprint 与附件。
 - 任务可配置 `AgentSchedule`：`task_id, agent, schedule_type(once|cron), schedule_expr/run_at, enabled, next_run_at, last_run_at`。
-- **绑定松绑（Story 106）**：`AgentSchedule` 支持「项目/Agent 级 + 筛选」——`agent` 指定执行 Agent（codex/claude/workbuddy/qoder，NULL=env 默认）、`task_id` 固定任务（旧单任务语义）、`task_priority`/`task_type`/`epic_id` 可选筛选；触发时若未绑固定任务，调度器自动挑选该项目 `status ∈ (backlog, todo)`、满足筛选、优先级 ≥ `task_priority` 的最高优先级任务写入 `run.task_id`；**无 eligible task 则跳过本次不创建空 run**。
+- **绑定松绑（Story 106）**：`AgentSchedule` 支持「项目/Agent 级 + 筛选」——`agent` 指定执行 Agent（codex/claude/workbuddy/qoder，NULL=env 默认）、`task_id` 固定任务（旧单任务语义）、`task_priority`/`task_type`/`epic_id` 可选筛选；触发时若未绑固定任务，调度器自动挑选该项目 `status ∈ (todo,)`（Story 265 后 backlog 已下线，仅 todo 仍 eligible）、满足筛选、优先级 ≥ `task_priority` 的最高优先级任务写入 `run.task_id`；**无 eligible task 则跳过本次不创建空 run**。
 - 调度器只负责生成可审计的 Agent Run/触发请求，不在 Web 进程中直接执行任意 shell；执行器通过明确的命令模板/适配器运行，并回写 `pending|running|success|failed|cancelled`、摘要与日志引用。
 - 每次运行必须具备幂等键和租约，避免多实例重复执行；默认不自动 push/merge，除非具体任务策略明确授权。
 

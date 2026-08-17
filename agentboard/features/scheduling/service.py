@@ -883,7 +883,8 @@ def pick_eligible_task(s: Session, schedule: AgentSchedule):
 
     规则：
     - 固定 ``task_id`` → 直接返回该 task（存在即返回，兼容旧单任务语义）；
-    - 项目级：``status ∈ (backlog, todo)``，按 ``epic_id`` / ``task_type`` 过滤，
+    - 项目级：``status ∈ (todo,)``（Story 265 backlog 已下线，仅 todo 仍 eligible），
+      按 ``epic_id`` / ``task_type`` 过滤，
       ``task_priority`` 为**最低门槛**（≥ 该优先级才 eligible），
       结果按优先级降序 + id 升序取第一个；
     - 无匹配返回 None（调用方跳过本次触发）。

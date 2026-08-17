@@ -36,6 +36,7 @@ from agentboard.core.common.enums import (
     ALL_PRIORITIES, ALL_STATUSES, ALL_TYPES, ItemType, Priority, Status,
 )
 from agentboard.database import SessionLocal, init_db
+from agentboard.features.work_items.models import Task
 
 
 # ---------- 通用 fixture：每个 test 跑前 wipe 数据 ----------
@@ -161,7 +162,15 @@ def test_import_tasks_from_json_rejects_invalid_priority_early(session):
 def test_import_tasks_from_json_per_item_isolation(session):
     """8/17 review P1 #1：单条非法不应阻塞同批其它合法条目。
 
-    仿照 service.py 现有 except 行为：每条 try/except，失败进 errors 列表。
+    SAVEPOINT 修复（8/17 review P1 #2，本轮新增）：
+    旧实现 ``except → s.rollback()`` 会回滚**整个** outer transaction——
+    同批已经在前一条 ``s.add() + s.flush()`` 但还没 commit 的合法 task
+    会被一起带走，导致 ``imported`` list 与 DB 实际行数不一致（API 说
+    成功导入 2 条，DB 里只有 1 条）。这是数据一致性 P0 bug。
+
+    修后用 ``s.begin_nested()`` 包单条 item：失败只回滚 SAVEPOINT，
+    不影响同批其它已 flush 的合法条目；外层 transaction 在循环结束
+    后由 ``_commit`` 一次性 commit。
     """
     _, p, st = _mk(session)
     session.commit()
@@ -170,19 +179,96 @@ def test_import_tasks_from_json_per_item_isolation(session):
         session, project_id=p.id,
         data={"tasks": [
             {"title": "OK 1"},
-            {"title": "Bad", "type": "task"},      # 非法 type
+            {"title": "Bad", "type": "task"},      # 非法 type → _check_type 早失败
             {"title": "OK 2", "type": "bug"},
-            {"title": "Bad", "status": "backlog"},  # 非法 status
+            {"title": "Bad", "status": "backlog"},  # 非法 status → _check_status 早失败
         ]},
     )
-    # 验证早失败语义：_check_type / _check_status 在 s.add() 之前抛，
-    # 不污染 session 状态；不依赖 flush 才报错。旧实现是把所有 task
-    # 一起 add 然后再 flush，DB 失败会留 4 条孤儿。
-    # 关键断言：errors 至少 2 条，imported 至多 2 条（视实现而定，但合法条目必须能 import 成功）
+
+    # === API 行为断言（保留原 P1 #1 语义）===
     assert len(result["errors"]) == 2
     assert len(result["imported"]) == 2
     imported_titles = {t["title"] for t in result["imported"]}
     assert imported_titles == {"OK 1", "OK 2"}
+
+    # === SAVEPOINT 修复关键断言（P1 #2）：re-query DB 验证 persistence ===
+    # 旧 bug：API 返回 imported=['OK 1', 'OK 2']，但 DB 只剩 'OK 2'
+    # （因为 'OK 1' 被中间那次 'Bad type' 触发的 s.rollback() 一起回滚了）。
+    # 修后：两条合法 task 都真实落库。
+    session.expire_all()  # 清 identity-map 缓存，强制走 DB
+    persisted_titles = {
+        t.title for t in session.query(Task).filter(Task.project_id == p.id).all()
+    }
+    # 只断言本批导入的 2 条都真实落库（其他 fixture / 子任务可能在同一项目下，不在此断言）
+    assert imported_titles.issubset(persisted_titles), (
+        f"SAVEPOINT 修复未生效：API imported={imported_titles} "
+        f"但 DB 实际={persisted_titles}。考虑 #1 之前 fix 已回退，"
+        f"imported 中至少有一条不在 DB（数据不一致）"
+    )
+
+    # 进一步精确断言：result["imported"] 里的每条 id 都能重新查回来
+    for entry in result["imported"]:
+        t = session.get(Task, entry["id"])
+        assert t is not None, f"task id={entry['id']} title={entry['title']!r} 不在 DB"
+        assert t.title == entry["title"]
+
+
+def test_import_tasks_from_json_savepoint_isolates_db_integrity_error(session):
+    """8/17 review P1 #2 修复验收：SAVEPOINT 在 DB 阶段异常（IntegrityError）
+    也能正确隔离同批其它条目。
+
+    之前 _check_* 在 s.add() 之前就抛了，触发不到 flush 阶段。本测试绕过
+    service 层的 _check_*（直接调底层 s.add + s.flush 模拟），验证 SAVEPOINT
+    本身能扛 DB 阶段异常——这对应**未来** ALL_STATUSES 与 model 约束漂移、
+    或并发场景下 session 持有旧值时的真实场景。
+    """
+    from sqlalchemy.exc import IntegrityError
+    _, p, st = _mk(session)
+    session.commit()
+
+    # 直接走 SQLAlchemy：第一个 OK + 第二个 IntegrityError + 第三个 OK。
+    # 用 session.begin_nested() 包单条 item，验证 IntegrityError 只回滚自己。
+    task_ok_1 = Task(project_id=p.id, story_id=st.id, title="OK 1",
+                     type=ItemType.DEV, status=Status.TODO, priority=Priority.MEDIUM)
+    task_bad = Task(project_id=p.id, story_id=st.id, title="Bad",
+                    type=ItemType.DEV, status="garbage_status", priority=Priority.MEDIUM)
+    task_ok_2 = Task(project_id=p.id, story_id=st.id, title="OK 2",
+                     type=ItemType.BUG, status=Status.TODO, priority=Priority.MEDIUM)
+
+    # OK 1
+    with session.begin_nested():
+        session.add(task_ok_1)
+        session.flush()
+
+    # Bad → IntegrityError（CheckConstraint）
+    integrity_failed = False
+    try:
+        with session.begin_nested():
+            session.add(task_bad)
+            session.flush()
+    except IntegrityError:
+        integrity_failed = True
+        # SAVEPOINT 已自动回滚，无需手动 rollback
+    assert integrity_failed, "测试前提：'garbage_status' 应触发 CheckConstraint"
+
+    # OK 2 — 关键：必须能继续 flush 成功（SAVEPOINT 已隔离）
+    with session.begin_nested():
+        session.add(task_ok_2)
+        session.flush()
+
+    session.commit()
+
+    # 验证 DB 实际只有 OK 1 + OK 2（Bad 不在）；用 issubset 因为
+    # _mk fixture 可能在同一项目下创建子任务。
+    session.expire_all()
+    persisted = session.query(Task).filter(Task.project_id == p.id).all()
+    persisted_titles = {t.title for t in persisted}
+    assert {"OK 1", "OK 2"}.issubset(persisted_titles), (
+        f"SAVEPOINT 隔离失败：DB={persisted_titles}，至少应包含 OK 1 + OK 2"
+    )
+    assert "Bad" not in persisted_titles, (
+        f"Bad 任务不应落库（CheckConstraint 已 SAVEPOINT 回滚）：{persisted_titles}"
+    )
 
 
 # =========================================================================

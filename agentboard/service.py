@@ -1591,7 +1591,8 @@ def pick_eligible_task(s: Session, schedule: AgentSchedule):
 
     规则：
     - 固定 ``task_id`` → 直接返回该 task（存在即返回，兼容旧单任务语义）；
-    - 项目级：``status ∈ (backlog, todo)``，按 ``epic_id`` / ``task_type`` 过滤，
+    - 项目级：``status ∈ (todo,)``（Story 265 backlog 已下线，仅 todo 仍 eligible），
+      按 ``epic_id`` / ``task_type`` 过滤，
       ``task_priority`` 为**最低门槛**（≥ 该优先级才 eligible），
       结果按优先级降序 + id 升序取第一个；
     - 无匹配返回 None（调用方跳过本次触发）。
@@ -2212,41 +2213,50 @@ def get_task_dependencies(s: Session, task_id: int) -> dict:
 def import_tasks_from_json(s: Session, project_id: int, data: dict) -> dict:
     """从 JSON 数据导入任务。
 
-    8/17 review P1 修复：默认值与 model CheckConstraint 对齐（type/status
-    必须落在 ALL_TYPES / ALL_STATUSES / ALL_PRIORITIES 内）；调用方传非法
-    值时通过 _check_* 早失败，不再依赖 DB flush 抛 IntegrityError 兜底。
-    旧"task"/"backlog"默认值与 ItemType.DEV / Status.TODO 一一映射，
-    对历史数据透明。
+    8/17 review 修复：
+    - P1 #1（首次）：默认值与 model CheckConstraint 对齐（type/status/priority
+      必须落在 ALL_TYPES / ALL_STATUSES / ALL_PRIORITIES 内）；调用方传非法
+      值时通过 _check_* 早失败，不再依赖 DB flush 抛 IntegrityError 兜底。
+      旧"task"/"backlog"默认值与 ItemType.DEV / Status.TODO 一一映射。
+    - P1 #2（本轮）：每条 item 用 ``s.begin_nested()`` 包成 SAVEPOINT——
+      单条失败（校验失败 / DB IntegrityError）只回滚该 SAVEPOINT，**不影响**
+      同批其它已 flush 成功但未 commit 的合法条目。**外层** transaction
+      在循环结束后由 ``_commit`` 一次性提交。
+      ⚠️ SAVEPOINT 不提供跨 session 并发互斥；它只解决「同 session 内
+      per-item 失败不要牵连同批其它 item」这一类问题。
     """
     imported = []
     errors = []
     tasks_data = data.get("tasks", [])
     for item in tasks_data:
         try:
-            title = _required(item.get("title", "").strip(), "title", 300)
-            # 8/17 review：显式校验 + 用枚举常量当默认值（不再写 "task"/"backlog"
-            # 这类 Story 265 已下线的旧值），与 Task model 的 CheckConstraint 对齐。
-            task_type = item.get("type", ItemType.DEV)
-            _check_type(task_type)
-            task_status = item.get("status", Status.TODO)
-            _check_status(task_status)
-            task_priority = item.get("priority", "medium")
-            _check_priority(task_priority)
-            task = Task(
-                project_id=project_id,
-                title=title,
-                type=task_type,
-                description=item.get("description", ""),
-                priority=task_priority,
-                status=task_status,
-            )
-            s.add(task)
-            s.flush()
+            # SAVEPOINT：单条 item 失败只回滚自身，不影响同批其它条目。
+            with s.begin_nested():
+                title = _required(item.get("title", "").strip(), "title", 300)
+                task_type = item.get("type", ItemType.DEV)
+                _check_type(task_type)
+                task_status = item.get("status", Status.TODO)
+                _check_status(task_status)
+                # 8/17 review：priority 也用枚举常量默认（保持 type/status/priority
+                # 三处一致；Priority 已在文件顶部 import）。
+                task_priority = item.get("priority", Priority.MEDIUM)
+                _check_priority(task_priority)
+                task = Task(
+                    project_id=project_id,
+                    title=title,
+                    type=task_type,
+                    description=item.get("description", ""),
+                    priority=task_priority,
+                    status=task_status,
+                )
+                s.add(task)
+                s.flush()
+            # SAVEPOINT 提交/回滚后再 append——失败时 task 对象可能 detached。
             imported.append({"id": task.id, "title": task.title})
         except Exception as e:
-            # flush 失败会使 session 进入 pending rollback，必须先 rollback 才能继续下一条
-            s.rollback()
+            # SAVEPOINT 已自动回滚，session 状态干净，可继续下一条。
             errors.append({"title": item.get("title", "?"), "error": str(e)})
+    # 外层一次性 commit；任意数量的 SAVEPOINT 全部收口后落地。
     _commit(s)
     return {"imported": imported, "errors": errors}
 
