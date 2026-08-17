@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date
 from typing import Any
 
@@ -49,6 +50,47 @@ def _check_status(value: str) -> None:
 def _check_priority(priority: str) -> None:
     if priority not in ALL_PRIORITIES:
         raise InvalidValue(f"invalid priority '{priority}'")
+
+
+# ---- cli_command 安全校验（B-A2 / Epic 145 / Story 291） -------------------
+# 历史 RCE：``/api/agents/{id}/probe`` 在服务器进程内 ``subprocess.run(cli_command)``
+# 且 dev 默认 ``REQUIRE_AUTH=0`` 匿名可调 → 任意命令执行。此处为 service 层入口
+# 校验，拒绝 shell 启动器与元字符；probe 端点另改 dry-run（api_helpers._probe_cli_sync）。
+
+# shell 启动器（小写子串匹配）：``cmd /c`` / ``powershell -`` / ``bash -c`` 等
+_CLI_FORBIDDEN_TOKENS: tuple[str, ...] = (
+    "cmd /c", "cmd /k", "cmd.exe /c", "cmd.exe /k",
+    "powershell -", "pwsh -", "powershell.exe -",
+    "bash -c", "sh -c", "/bin/sh", "/bin/bash",
+    "wscript", "cscript", "nohup",
+)
+
+# shell 元字符：;  |  &  >  <  `  $(  ${  换行
+_CLI_FORBIDDEN_META_RE = re.compile(r"[;|`<>]|&&|\|\||\$\(|\$\{|\n|\r")
+
+
+def validate_cli_command(cmd: str | None) -> None:
+    """校验 Agent ``cli_command`` 模板不含 shell 注入向量（B-A2 防御）。
+
+    接受形如 ``codebuddy --model {model}`` / ``"minimax" --version`` 的纯 CLI
+    调用；拒绝 ``cmd /c calc.exe`` / ``codebuddy; rm -rf /`` / ``$(whoami)`` 等。
+    ``{model}`` 占位符本身不是危险字符，模板阶段放行；probe 时替换后再校验
+    （防 ``model`` 字段注入）。
+
+    抛 ``InvalidValue`` 供 register_agent / update_agent 入口拦截。
+    """
+    if not cmd:
+        return
+    lowered = cmd.lower()
+    for tok in _CLI_FORBIDDEN_TOKENS:
+        if tok in lowered:
+            raise InvalidValue(
+                f"cli_command 含禁止的 shell 启动器: {tok!r}（B-A2 安全策略）"
+            )
+    if _CLI_FORBIDDEN_META_RE.search(cmd):
+        raise InvalidValue(
+            "cli_command 含禁止的 shell 元字符（; | & > < ` $() 等，B-A2 安全策略）"
+        )
 
 
 # ---- 分页 ----------------------------------------------------------------
@@ -132,6 +174,7 @@ __all__ = [
     "_check_type",
     "_check_status",
     "_check_priority",
+    "validate_cli_command",
     "_paginate",
     "_commit",
     "_invalidate_project_stats_cache",

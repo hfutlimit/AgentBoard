@@ -114,12 +114,17 @@ def agent_deregister(agent_id: str, body: AgentHeartbeatIn | None = None,
 def probe_agent(agent_id: str, body: AgentProbeIn | None = None,
                 authorization: str | None = Header(None),
                 s: Session = Depends(get_session)):
-    """手动探测 Agent CLI（前端「立即探测」）：同步跑 ``<cmd> --version`` 判活。
+    """手动探测 Agent CLI（前端「立即探测」）：dry-run 解析命令（B-A2 整改）。
 
-    与 Worker 定期 probe 语义一致（{model} 占位符替换 + 结果落 probe_message）。
+    历史 RCE：原同步跑 ``<cmd> --version`` 判活，dev 默认 ``REQUIRE_AUTH=0``
+    匿名可调 → 任意命令执行。现改为 dry-run：仅校验 + 返回"将要执行的命令"，
+    实际判活交给 Worker 心跳（``heartbeat.probe_cli``，受信本地进程）。
+
+    **强制鉴权**（B-A2）：dev 模式（``REQUIRE_AUTH=0``）也要求登录，不再
+    匿名放行——与 ``_auth_is_required()`` 软判定解耦。
     """
     uid, _is_admin = api_helpers._caller_uid_admin(authorization)
-    if api_helpers._auth_is_required() and uid is None:
+    if uid is None:  # B-A2: probe 端点永远要求鉴权（不再 _auth_is_required 软判定）
         raise HTTPException(status_code=401, detail="unauthorized")
     agent = service.get_agent_by_agent_id(s, agent_id)
     if not agent:

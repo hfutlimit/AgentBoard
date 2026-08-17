@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 import re
 import json
-import subprocess
 import time
 import uuid
 from datetime import datetime
@@ -248,41 +247,39 @@ def _api_key_response(item) -> dict:
 
 
 def _probe_cli_sync(cmd: str, *, model: str = "", timeout: int = 8) -> tuple[bool, str]:
-    """同步 CLI 探测（手动 probe / API 侧）：``<cmd> --version`` 判活。
+    """CLI 探测（dry-run，B-A2 / Epic 145 / Story 291 整改）。
 
-    与 worker._probe_cli 同语义：{model} 占位符替换（空则移除）；Windows .cmd
-    包装 OSError 时退化 ``cmd /c`` 执行（WinError 193 同款坑）。
+    历史 RCE：原实现 ``subprocess.run(<cmd> --version)`` + ``cmd /c`` 回退，dev
+    默认 ``REQUIRE_AUTH=0`` 匿名可调 → 任意命令执行。现改为 **dry-run**：
+    - 仅做 ``{model}`` 占位符替换 + argv 解析 + 元字符校验，**不执行子进程**；
+    - 实际判活交给 Worker 端本地 ``heartbeat.probe_cli``（受信进程，周期心跳）；
+    - API 侧仅返回"将要执行的命令"供前端展示。
+
+    返回 ``(ok, msg)``：``ok=True`` 表示命令通过校验可被 worker 执行（不代表
+    CLI 真的存在/可用）；``ok=False`` 表示未配置 / 含危险字符 / 解析失败。
+    ``timeout`` 入参保留向后兼容（dry-run 不耗时，忽略）。
     """
     from .worker import split_command
-    full = (cmd or "").strip().replace("{model}", (model or "").strip())
-    if not full.strip():
+    from .core.service_helpers import validate_cli_command
+    full = (cmd or "").strip()
+    if not full:
         return False, "未配置 cli_command"
+    # {model} 占位符替换（与 worker._probe_cli 同语义：空则移除）
+    full = full.replace("{model}", (model or "").strip())
     if "{model}" in full:
         full = full.replace("{model}", "").strip()
+    # B-A2: 元字符 / shell 启动器黑名单（替换后再校验，防 model 字段注入）
+    try:
+        validate_cli_command(full)
+    except Exception as e:
+        return False, f"blocked: {e}"
+    # 解析 argv（不执行子进程）
     try:
         argv = split_command(full) + ["--version"]
     except ValueError as e:
         return False, f"命令解析失败：{e}"
-    for use_cmd in (False, True):
-        run_argv = (["cmd", "/c"] + argv) if use_cmd else argv
-        try:
-            proc = subprocess.run(run_argv, capture_output=True, text=True,
-                                  timeout=timeout, encoding="utf-8", errors="replace")
-        except subprocess.TimeoutExpired:
-            return False, f"探测超时 {timeout}s"
-        except (OSError, ValueError) as e:
-            if use_cmd:
-                return False, f"无法启动 CLI：{e}"
-            continue  # 退化 cmd /c 再试一次
-        ok = proc.returncode == 0
-        detail = ""
-        if (proc.stdout or "").strip():
-            detail = proc.stdout.strip().splitlines()[0][:80]
-        elif (proc.stderr or "").strip():
-            detail = proc.stderr.strip().splitlines()[-1][:80]
-        msg = (f"OK {detail}" if ok else f"exit={proc.returncode} {detail}").strip()
-        return ok, msg or ("OK" if ok else f"exit={proc.returncode}")
-    return False, "无法启动 CLI"
+    preview = " ".join(argv)[:120]
+    return True, f"dry-run: {preview}"
 
 
 def _mention_notify(s: Session, *, author: str, content: str, link: str) -> None:
