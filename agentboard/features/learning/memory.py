@@ -270,35 +270,58 @@ def build_recall_section(episodes: list[dict]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _playbook_entry(task_type: str, summary: str, outcome: str) -> str:
+def _render_entry_md(task_type: str, summary: str, outcome: str) -> str:
+    """把单条 entry 渲染为 markdown 段（get_playbook 实时拼接用）。"""
     marker = "成功 pattern" if outcome == "success" else "踩坑 pattern"
     return f"## {task_type}：{marker}\n{summary or '(无摘要)'}\n"
 
 
+def _normalize_outcome(outcome: str) -> str:
+    """兼容旧拼写：'fail' / 'failed' → 'failure'。
+
+    8/17 review P1 #2 长期方案：outcome 字段的 CheckConstraint 收紧为
+    ('success', 'failure')，与 ALL_PLAYBOOK_OUTCOMES 对齐；旧版
+    _playbook_entry 内部约定是 'fail'，新接口改成 'failure'（更清晰、
+    与 judge / outcome 字段语义一致）。这里做一次兼容转换，避免存量
+    调用方直接报错。
+    """
+    if outcome in ("failure", "success"):
+        return outcome
+    if outcome in ("fail", "failed"):
+        return "failure"
+    raise InvalidValue(
+        f"invalid outcome '{outcome}', must be one of 'success' / 'failure'"
+    )
+
+
 def update_playbook(s, *, project_id: int, task_type: str, summary: str,
                     outcome: str = "success",
-                    episode_id: int | None = None) -> ProjectPlaybook | None:
-    """按 episode outcome 追加 playbook pattern。
+                    episode_id: int | None = None,
+                    weight: float = 1.0) -> ProjectPlaybook | None:
+    """按 episode outcome 追加 playbook pattern（8/17 review P1 #2 长期方案）。
 
-    幂等机制（自 migration e5f6a7b8c9d0 起，**强 → 弱两层**）：
+    数据模型变更：旧版把 pattern 拼到 ``ProjectPlaybook.content_md`` 字符串
+    末尾（read-modify-write，并发必然 lost update）。新版直接 ``INSERT`` 一
+    条 ``ProjectPlaybookEpisode`` entry，content_md **不再**存储，
+    每次 ``get_playbook`` 时由 entries 实时渲染。
 
-    1. **强幂等（DB 唯一约束）**：若传入 ``episode_id``，先 ``INSERT`` 到
-       ``ProjectPlaybookEpisode``（复合主键 = 幂等锚点）。INSERT 成功才追加
-       playbook；唯一冲突 → 该 (project, episode) 已记录，跳过。
+    幂等机制：
 
-       修复 8/15 review P1：旧版只比较 ``last_appended_episode_id``，无法阻止
-       "101 → 102 → 101" 这类非相邻重复，也防不住并发读旧值。
-
-    2. **弱幂等（字符串兜底）**：未传 ``episode_id`` 时（手动整理 / 旧调用方），
-       仍走 ``entry.strip() not in pb.content_md`` 兜底。
+    1. **强幂等（DB 唯一约束）**：（project_id, episode_id）UNIQUE → 同 episode
+       重复 ``update_playbook`` 直接 IntegrityError，跨 session / 跨线程
+       并发 DB 仲裁。
+    2. **弱幂等（entry 字段去重）**：未传 ``episode_id`` 时（手动整理 / 旧
+       调用方），按 (project_id, task_type, outcome, summary) 字段精确匹配
+       已存在 entry 跳过；**不**再用 markdown 字符串包含（race condition
+       太多）。
 
     调用方负责 commit。失败静默降级；DB 约束冲突不算"失败"，按幂等正常返回。
+
+    ⚠️ 不再有任何「读 A → 改 → 写回 content_md」的中间态：
+    entries 表是 append-only INSERT，并发 lost update 风险被消除。
     """
     try:
-        entry = _playbook_entry(task_type, summary, outcome)
-        pb = s.execute(
-            select(ProjectPlaybook).where(ProjectPlaybook.project_id == project_id)
-        ).scalar_one_or_none()
+        outcome = _normalize_outcome(outcome)
 
         # ---- 强幂等：DB 唯一约束 ----
         # 两层防御：
@@ -319,7 +342,6 @@ def update_playbook(s, *, project_id: int, task_type: str, summary: str,
                     "update_playbook project#%s 跳过：episode_id=%s 已记录（预检命中）",
                     project_id, episode_id,
                 )
-                # 重新查最新 pb 状态返回（避免 stale）
                 pb_now = s.execute(
                     select(ProjectPlaybook).where(ProjectPlaybook.project_id == project_id)
                 ).scalar_one_or_none()
@@ -330,8 +352,13 @@ def update_playbook(s, *, project_id: int, task_type: str, summary: str,
                     s.add(ProjectPlaybookEpisode(
                         project_id=project_id,
                         episode_id=episode_id,
+                        task_type=task_type,
+                        outcome=outcome,
+                        summary=summary,
+                        weight=weight,
                     ))
-                # flush 成功 → 全新 episode，按需 append。
+                    s.flush()
+                # flush 成功 → 全新 episode；下面 upsert ProjectPlaybook 元数据。
             except IntegrityError:
                 # 并发兜底：另一 session 在我们 SELECT 之后 INSERT 了同一行。
                 logger.debug(
@@ -342,28 +369,68 @@ def update_playbook(s, *, project_id: int, task_type: str, summary: str,
                     select(ProjectPlaybook).where(ProjectPlaybook.project_id == project_id)
                 ).scalar_one_or_none()
                 return pb_now
-        # 未传 episode_id 或 INSERT 成功 → 落到下面的内容追加逻辑。
-
-        # ---- 弱幂等（兜底）：字符串包含判断 ----
-        # 只在"无 episode_id"或"episode_id 是新的"两条路径上生效。
-        content_changed = True
-        if pb is not None and entry.strip() in pb.content_md:
-            content_changed = False
-
-        if pb is None:
-            pb = ProjectPlaybook(
-                project_id=project_id,
-                content_md=entry,
-                version=1,
-                last_appended_episode_id=episode_id,
-            )
-            s.add(pb)
-        elif content_changed:
-            pb.content_md = (pb.content_md + "\n" + entry).strip() + "\n"
-            pb.version = (pb.version or 1) + 1
-            pb.last_appended_episode_id = episode_id
         else:
-            # 弱幂等命中：内容已存在，仅同步 anchor 字段（迁移期间统一化）
+            # ---- 弱幂等：未传 episode_id 时按 entry 字段去重 ----
+            # 精确匹配 (task_type, outcome, summary)，命中则跳过。
+            existing = s.execute(
+                select(ProjectPlaybookEpisode).where(
+                    ProjectPlaybookEpisode.project_id == project_id,
+                    ProjectPlaybookEpisode.task_type == task_type,
+                    ProjectPlaybookEpisode.outcome == outcome,
+                    ProjectPlaybookEpisode.summary == summary,
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                logger.debug(
+                    "update_playbook project#%s 跳过：同 (task_type, outcome, summary) entry 已存在（弱幂等）",
+                    project_id,
+                )
+                pb_now = s.execute(
+                    select(ProjectPlaybook).where(ProjectPlaybook.project_id == project_id)
+                ).scalar_one_or_none()
+                return pb_now
+
+            # 全新 entry，INSERT
+            s.add(ProjectPlaybookEpisode(
+                project_id=project_id,
+                episode_id=None,  # 弱幂等路径不强绑 episode
+                task_type=task_type,
+                outcome=outcome,
+                summary=summary,
+                weight=weight,
+            ))
+            s.flush()
+
+        # ---- upsert ProjectPlaybook 元数据（仅更新 version + last_appended） ----
+        # content_md 已退化为派生数据，不再写入。
+        #
+        # ⚠️ 8/17 review P1 #2 长期方案发现：``ProjectPlaybook.project_id``
+        # UNIQUE 在并发 upsert 时也会触发 IntegrityError（两个 session 都
+        # SELECT 不到对方 in-flight 的 pb 记录，于是都尝试 INSERT）。
+        # 解决：包 SAVEPOINT 兜底，IntegrityError 后 re-SELECT 拿现态。
+        pb = s.execute(
+            select(ProjectPlaybook).where(ProjectPlaybook.project_id == project_id)
+        ).scalar_one_or_none()
+        if pb is None:
+            try:
+                with s.begin_nested():
+                    pb = ProjectPlaybook(
+                        project_id=project_id,
+                        version=1,
+                        last_appended_episode_id=episode_id,
+                    )
+                    s.add(pb)
+                    s.flush()
+            except IntegrityError:
+                # 并发：另一 session 在我们 SELECT 之后 INSERT 了同一 project 的 pb
+                pb = s.execute(
+                    select(ProjectPlaybook).where(ProjectPlaybook.project_id == project_id)
+                ).scalar_one()
+                pb.version = (pb.version or 0) + 1
+                if episode_id is not None:
+                    pb.last_appended_episode_id = episode_id
+        else:
+            pb.version = (pb.version or 0) + 1
             if episode_id is not None:
                 pb.last_appended_episode_id = episode_id
         return pb
@@ -373,25 +440,50 @@ def update_playbook(s, *, project_id: int, task_type: str, summary: str,
 
 
 def get_playbook(s, *, project_id: int) -> dict:
-    """读取项目 playbook（不存在返回空模板）。"""
+    """读取项目 playbook（8/17 review P1 #2 长期方案：content_md 实时渲染）。
+
+    content_md 字段在响应里**仍然存在**（保留 API 契约），但**不再存
+    数据库**——每次读时从 ``ProjectPlaybookEpisode`` entries 表
+    按 ``id ASC`` 顺序拼出。这样彻底消除旧版 ``content_md`` 字符串
+    read-modify-write 的并发 lost update 风险。
+
+    返回字典字段：
+    - ``project_id``: int
+    - ``content_md``: str（实时渲染自 entries）
+    - ``version``: int（ProjectPlaybook.version；若 ProjectPlaybook 不存在则
+      用 entries 数量填充，保持对外「新增 entry 次数」语义单调）
+    - ``episodes``: int（entries 数量 = playbook 经验数）
+    - ``last_compressed_at``: str | None（ISO 格式；ProjectPlaybook 元数据）
+    """
+    entries = s.execute(
+        select(ProjectPlaybookEpisode)
+        .where(ProjectPlaybookEpisode.project_id == project_id)
+        .order_by(ProjectPlaybookEpisode.id.asc())
+    ).scalars().all()
+
     pb = s.execute(
         select(ProjectPlaybook).where(ProjectPlaybook.project_id == project_id)
     ).scalar_one_or_none()
-    if pb is None:
+
+    if not entries:
+        # 无 entry：返回空模板（保留 API 契约）
         return {
             "project_id": project_id,
             "content_md": "",
-            "version": 0,
+            "version": pb.version if pb is not None else 0,
             "episodes": 0,
-            "last_compressed_at": None,
+            "last_compressed_at": pb.last_compressed_at.isoformat() if pb and pb.last_compressed_at else None,
         }
-    episodes = s.execute(
-        select(EpisodeEmbedding).where(EpisodeEmbedding.project_id == project_id)
-    ).scalars().all()
+
+    # 实时渲染 entries → content_md
+    parts = [_render_entry_md(e.task_type, e.summary, e.outcome) for e in entries]
+    content_md = "\n".join(parts).strip() + "\n"
+
     return {
         "project_id": project_id,
-        "content_md": pb.content_md,
-        "version": pb.version,
-        "episodes": len(episodes),
-        "last_compressed_at": pb.last_compressed_at.isoformat() if pb.last_compressed_at else None,
+        "content_md": content_md,
+        # version 优先取 ProjectPlaybook.version（最权威），缺失时回退 entries 数量
+        "version": pb.version if pb is not None and pb.version is not None else len(entries),
+        "episodes": len(entries),
+        "last_compressed_at": pb.last_compressed_at.isoformat() if pb and pb.last_compressed_at else None,
     }

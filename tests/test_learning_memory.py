@@ -271,23 +271,25 @@ def test_update_playbook_append_and_idempotent(session):
     lm.update_playbook(session, project_id=p.id, task_type="dev",
                        summary="实现 recall 时注意长度预算", outcome="success")
     session.commit()
-    pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
-    assert "成功 pattern" in pb.content_md
-    assert pb.version == 1
-    # 同内容重复追加 → 幂等不重复
+    # 8/17 review P1 #2 长期方案：content_md 不再是 ProjectPlaybook 字段，
+    # 改走 get_playbook() 渲染（实时从 entries 拼）。
+    pb_data = lm.get_playbook(session, project_id=p.id)
+    assert "成功 pattern" in pb_data["content_md"]
+    assert pb_data["version"] == 1
+    # 同内容重复追加 → 弱幂等（entry 字段去重）不重复
     lm.update_playbook(session, project_id=p.id, task_type="dev",
                        summary="实现 recall 时注意长度预算", outcome="success")
     session.commit()
-    pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
-    assert pb.content_md.count("实现 recall 时注意长度预算") == 1
-    assert pb.version == 1
-    # 新增 fail pattern → 追加 + version+1
+    pb_data = lm.get_playbook(session, project_id=p.id)
+    assert pb_data["content_md"].count("实现 recall 时注意长度预算") == 1
+    assert pb_data["version"] == 1
+    # 新增 failure pattern → 追加 + version+1
     lm.update_playbook(session, project_id=p.id, task_type="bug",
-                       summary="别忘验证状态迁移", outcome="fail")
+                       summary="别忘验证状态迁移", outcome="failure")
     session.commit()
-    pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
-    assert "踩坑 pattern" in pb.content_md
-    assert pb.version == 2
+    pb_data = lm.get_playbook(session, project_id=p.id)
+    assert "踩坑 pattern" in pb_data["content_md"]
+    assert pb_data["version"] == 2
 
 
 def test_update_playbook_strong_idempotency_via_episode_id(session):
@@ -304,7 +306,8 @@ def test_update_playbook_strong_idempotency_via_episode_id(session):
     pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
     assert pb.last_appended_episode_id == t.id
     assert pb.version == 1
-    content_len_first = len(pb.content_md)
+    # 8/17 review P1 #2 长期方案：content_md 实时渲染自 entries
+    content_len_first = len(lm.get_playbook(session, project_id=p.id)["content_md"])
 
     # 模拟「同一 task 终态再被触发一次」（例如 re-open → done 重复路径）：
     # 即使 summary 文本不同，强幂等也应当跳过。
@@ -319,7 +322,8 @@ def test_update_playbook_strong_idempotency_via_episode_id(session):
     session.commit()
     pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
     assert pb.version == 1, f"强幂等失败：version 应保持 1，实际 {pb.version}"
-    assert len(pb.content_md) == content_len_first, "强幂等失败：content_md 被追加"
+    pb_data = lm.get_playbook(session, project_id=p.id)
+    assert len(pb_data["content_md"]) == content_len_first, "强幂等失败：content_md 被追加"
     assert pb.last_appended_episode_id == t.id, "anchor 应保持为同一 episode_id"
 
     # 切换到新 episode_id → 应允许追加
@@ -363,7 +367,8 @@ def test_update_playbook_db_level_idempotency_non_adjacent(session):
     assert pb.last_appended_episode_id == tB.id
 
     # 关键场景：再用 A 的 episode_id 触发（retry / replay）—— DB 约束应拒绝
-    content_before = pb.content_md
+    # 8/17 review P1 #2 长期方案：content_md 不再存字段，从 get_playbook 读
+    content_before = lm.get_playbook(session, project_id=p.id)["content_md"]
     lm.update_playbook(
         session,
         project_id=p.id,
@@ -378,12 +383,101 @@ def test_update_playbook_db_level_idempotency_non_adjacent(session):
     assert pb.version == 2, (
         f"非相邻重复应被 DB 约束拦截；version 应保持 2，实际 {pb.version}"
     )
-    assert pb.content_md == content_before, "非相邻重复应被拦截：content_md 不变"
+    content_after = lm.get_playbook(session, project_id=p.id)["content_md"]
+    assert content_after == content_before, "非相邻重复应被拦截：content_md 不变"
     # 关联表也只有 2 条（A + B），没有为 A 重复创建
     rows = session.query(ProjectPlaybookEpisode).filter(
         ProjectPlaybookEpisode.project_id == p.id,
     ).all()
     assert {(r.project_id, r.episode_id) for r in rows} == {(p.id, tA.id), (p.id, tB.id)}
+
+
+def test_update_playbook_different_episodes_no_lost_update(session):
+    """8/17 review P1 #2 长期方案验收：不同 episode 并发追加不再丢 pattern。
+
+    **历史 bug 复现**（旧版 ``content_md`` 字符串 read-modify-write）：
+    两个 session 各自并发追加**不同**的 episode 到同一 project 的 playbook。
+    旧版实现是：
+        content_md = (old + new_entry).strip()
+    多 session 并发时：last writer 赢，**另一条 pattern 静默丢失**。且
+    PPE anchor 表里两条都已存在，retry 时被「anchor 已存在 → skip」再次
+    挡掉，丢失的 pattern 永远补不回来。本地复现：5 次实验里 4 次能稳定
+    复现 B 或 C 丢失。
+
+    **修复**（P1 #2 长期方案）：``content_md`` 不再是 ProjectPlaybook 字段，
+    每次 get_playbook 时从 ``ProjectPlaybookEpisode`` entries 表实时渲染。
+    entries 是 append-only INSERT（每个 episode 独立唯一约束），**没有任何
+    read-modify-write 中间态**——并发追加的每条 pattern 都自然落 entries
+    表，不存在「读 → 改 → 写回」竞争。
+
+    验证方式：两个 worker 并发各自追加不同 episode 的 pattern，断言
+    get_playbook 的 content_md 同时包含两条（不像旧版有概率丢一条）。
+    """
+    import threading
+    from agentboard.features.learning.models import ProjectPlaybookEpisode
+
+    # ⚠️ SL 必须从顶层已 import 的 facade 拿（agentboard.database），
+    # 不能在 worker 内 import agentboard.core.infrastructure.database——
+    # 模块可能在 del sys.modules 后留下 stale SessionLocal，跨文件批量跑
+    # 时会拿到指向其它 test 临时 DB 的 engine，触发 no such table。
+    SL = SessionLocal
+
+    # 每次 trial 用全新 project，避免与文件内其它 test 的 PPE 行交叉
+    # 干扰（baseline 文件 fixture 不 wipe 表，session 间数据残留）。
+    LOST_UPDATES = 0
+    for trial_idx in range(5):
+        u, p, st = _mk(session)
+        t1 = _mk_task(session, u, p, st, title=f"并发 episode 1 trial={trial_idx}")
+        t2 = _mk_task(session, u, p, st, title=f"并发 episode 2 trial={trial_idx}")
+        session.commit()
+
+        proj_id = p.id
+        t1_id, t2_id = t1.id, t2.id
+
+        # seed a starter entry（弱幂等路径，不强绑 episode）
+        lm.update_playbook(session, project_id=proj_id, task_type="dev",
+                           summary="seed pattern", outcome="success", episode_id=None)
+        session.commit()
+
+        barrier = threading.Barrier(2)
+        errors: list = []
+
+        def worker(ep_id: int, summary: str) -> None:
+            s2 = SL()
+            try:
+                barrier.wait(timeout=5)
+                lm.update_playbook(
+                    s2, project_id=proj_id, task_type="dev",
+                    summary=summary, outcome="success", episode_id=ep_id,
+                )
+                s2.commit()
+            except Exception as e:  # noqa: BLE001
+                errors.append(e)
+            finally:
+                s2.close()
+
+        a = threading.Thread(target=worker, args=(t1_id, "appended B"))
+        b = threading.Thread(target=worker, args=(t2_id, "appended C"))
+        a.start(); b.start()
+        a.join(timeout=10); b.join(timeout=10)
+        assert not errors, f"trial={trial_idx} worker 异常: {errors}"
+
+        # 关键断言：用独立 SL 验证 content_md 同时包含 B / C 两条 pattern。
+        # ⚠️ 必须用独立 session：主 session 在多线程 commit 期间可能有
+        # in-flight 事务 / stale view，主 session 调 get_playbook 会看到
+        # 旧 PPE 行。
+        s_check = SL()
+        try:
+            content = lm.get_playbook(s_check, project_id=proj_id)["content_md"]
+        finally:
+            s_check.close()
+        if "appended B" not in content or "appended C" not in content:
+            LOST_UPDATES += 1
+
+    assert LOST_UPDATES == 0, (
+        f"不同 episode 并发追加丢了 {LOST_UPDATES}/5 次——"
+        f"8/17 review P1 #2 长期方案失效，content_md 仍有 lost update 风险"
+    )
 
 
 def test_update_playbook_db_level_idempotency_concurrent(session):
@@ -477,7 +571,8 @@ def test_set_status_done_auto_records_episode_and_playbook(session):
     assert ep.outcome == "success"
     pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one_or_none()
     assert pb is not None
-    assert "自动落 episode 的验收任务" in pb.content_md
+    # 8/17 review P1 #2 长期方案：content_md 实时渲染自 entries
+    assert "自动落 episode 的验收任务" in lm.get_playbook(session, project_id=p.id)["content_md"]
 
 
 def test_blocked_task_records_fail_episode(session):
