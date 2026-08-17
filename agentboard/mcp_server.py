@@ -329,9 +329,9 @@ def append_task_spec(task_id: int, text: str) -> dict:
 def set_status(task_id: int, status: str, status_reason: str | None = None) -> dict:
     """变更任务状态（校验合法迁移，见文档 FR-5；Story 265 后 done/blocked 必填 status_reason）。
 
-    status_reason 可选值：
+    status_reason 可选值（与后端 enums.STATUS_REASONS_BY_STATUS 一致）：
     - done: completed / withdrawn
-    - blocked: blocked_by_other_ticket / pending_requirement_change / out_of_scope / duplicate
+    - blocked: blocked_by_other_ticket / pending_requirement_change / out_of_scope / duplicate / legacy（迁移遗留专用）
     """
     return mcp_work_items._task_status(task_id, status, status_reason=status_reason)
 
@@ -673,6 +673,9 @@ def sync_status(task_id: int, status: str, comment: str | None = None,
                 status_reason: str | None = None) -> dict:
     """同步任务状态，可选追加评论。
     status 必须符合状态机合法迁移规则（Story 265 后 done/blocked 必填 status_reason）。
+    status_reason 可选值（与后端 enums.STATUS_REASONS_BY_STATUS 一致）：
+    - done: completed / withdrawn
+    - blocked: blocked_by_other_ticket / pending_requirement_change / out_of_scope / duplicate / legacy（迁移遗留专用）
     """
     result = mcp_work_items._task_status(task_id, status, status_reason=status_reason)
     if "error" in result:
