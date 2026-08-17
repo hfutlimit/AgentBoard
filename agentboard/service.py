@@ -1392,8 +1392,12 @@ def _invalidate_project_stats_cache(project_id: int) -> None:
 def generate_tasks_from_spec(s: Session, task_id: int) -> list:
     """解析任务 spec 中的清单项（- [ ] 标题），生成同级子任务。
 
-    生成的子任务：同 project / story，type=task，status=backlog，
-    并通过 source_spec_id 反向关联到源任务；同时在源 spec 末尾回写链接。
+    生成的子任务：同 project / story，type=dev（ItemType.DEV），
+    status=todo（Status.TODO，Task model 默认值），priority=medium
+    （Priority.MEDIUM），并通过 source_spec_id 反向关联到源任务；
+    同时在源 spec 末尾回写链接。
+    8/17 review P1：注释里的旧 "type=task / status=backlog" 表述已下线
+    （Story 265 收敛），以实际 model 默认值/代码为准。
     """
     src = s.get(Task, task_id)
     if not src:
@@ -2206,21 +2210,35 @@ def get_task_dependencies(s: Session, task_id: int) -> dict:
 
 # ---------- Epic 22 Story 22.3: 数据导入 ----------
 def import_tasks_from_json(s: Session, project_id: int, data: dict) -> dict:
-    """从 JSON 数据导入任务。"""
-    import json
+    """从 JSON 数据导入任务。
+
+    8/17 review P1 修复：默认值与 model CheckConstraint 对齐（type/status
+    必须落在 ALL_TYPES / ALL_STATUSES / ALL_PRIORITIES 内）；调用方传非法
+    值时通过 _check_* 早失败，不再依赖 DB flush 抛 IntegrityError 兜底。
+    旧"task"/"backlog"默认值与 ItemType.DEV / Status.TODO 一一映射，
+    对历史数据透明。
+    """
     imported = []
     errors = []
     tasks_data = data.get("tasks", [])
     for item in tasks_data:
         try:
             title = _required(item.get("title", "").strip(), "title", 300)
+            # 8/17 review：显式校验 + 用枚举常量当默认值（不再写 "task"/"backlog"
+            # 这类 Story 265 已下线的旧值），与 Task model 的 CheckConstraint 对齐。
+            task_type = item.get("type", ItemType.DEV)
+            _check_type(task_type)
+            task_status = item.get("status", Status.TODO)
+            _check_status(task_status)
+            task_priority = item.get("priority", "medium")
+            _check_priority(task_priority)
             task = Task(
                 project_id=project_id,
                 title=title,
-                type=item.get("type", "dev"),
+                type=task_type,
                 description=item.get("description", ""),
-                priority=item.get("priority", "medium"),
-                status=item.get("status", "todo"),
+                priority=task_priority,
+                status=task_status,
             )
             s.add(task)
             s.flush()
@@ -2693,7 +2711,8 @@ def convert_proposal_to_story(
     - 要求目标 Epic 存在且属于提案所在项目；
     - Story 标题 = 显式 title 或提案标题，description = converged_spec 原文；
     - 解析 converged_spec 中的 ``- [ ]`` 清单项生成子 Task
-      （同 project/story，type=task，status=backlog，priority=medium）；
+      （同 project/story，type=dev / status=todo / priority=medium，
+      取自 Task model 默认值；8/17 review P1 注释清理）；
     - 回填 proposal.story_id 并推进 converged → story_created；
     - **幂等防重放**：story_id 已回填且 Story 仍存在时直接返回既有结果，
       不重复创建（呼应 P1 全量重放 / P2 at-least-once 的既有兜底策略）。

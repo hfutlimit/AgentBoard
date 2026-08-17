@@ -164,9 +164,17 @@ def set_status(
     _commit(s)
     s.refresh(t)
     # Epic 140 切片 1：终态（done/blocked）自动沉淀能力评分 outcome（幂等）
-    _record_learning_outcome(s, t)
-    # Epic 140 切片 2：终态异步触发 L3 LLM judge（daemon 线程，失败吞异常；可用开关关闭）
-    if _os.environ.get("AGENTBOARD_JUDGE_AUTO", "1") == "1":
+    # 8/17 review P1/P2 修复：返回 outcome 用于上游判「是否值得 judge」。
+    # 非终态调用 outcome 为 None → 不会触发 schedule_judge，省掉
+    # 「spawn thread + new session + load task + judge_task() → return None」
+    # 链路的纯开销。
+    outcome = _record_learning_outcome(s, t)
+    # Epic 140 切片 2：仅当 outcome 落库成功（即任务到了终态）才异步触发 L3
+    # LLM judge。daemon 线程，失败吞异常；可用 AGENTBOARD_JUDGE_AUTO=0 关闭。
+    if (
+        outcome is not None
+        and _os.environ.get("AGENTBOARD_JUDGE_AUTO", "1") == "1"
+    ):
         try:
             from ..learning.judge import schedule_judge
             schedule_judge(t.id)
@@ -175,16 +183,21 @@ def set_status(
     return t
 
 
-def _record_learning_outcome(s: Session, t: Task) -> None:
+def _record_learning_outcome(s: Session, t: Task):
     """终态任务落 task_outcome（延迟 import 避开 features 间循环依赖；失败不阻断主流程）。
+
+    返回 ``TaskOutcome | None``：
+    - 非终态 / 落库失败 → 返回 None（调用方据此跳过 judge 调度）
+    - 终态落库成功 → 返回 outcome（调用方据此触发 judge 调度）
 
     Epic 140 切片 3 扩展：同步落 episode（向量化快照）+ 追加 project playbook pattern。
     两者均由 learning 模块内部静默降级，绝不因记忆写入失败回滚状态流转。
+    幂等由 ProjectPlaybookEpisode 复合主键保证（详见 migration e5f6a7b8c9d0）。
     """
     try:
         from ..learning.service import record_outcome
         outcome = record_outcome(s, t)
-        # Epic 140 切片 3：终态任务沉淀 episode + playbook（幂等，失败静默）
+        # Epic 140 切片 3：终态任务沉淀 episode + playbook（DB 级幂等，失败静默）
         if outcome is not None:
             try:
                 from ..learning import memory as learning_memory
@@ -192,8 +205,8 @@ def _record_learning_outcome(s: Session, t: Task) -> None:
                 learning_memory.store_episode(
                     s, t, score=outcome.score, outcome=ep_outcome,
                 )
-                # 传 episode_id=t.id 让 update_playbook 用强幂等锚点
-                # （last_appended_episode_id）跳过重复追加
+                # 传 episode_id=t.id 让 update_playbook 走 ProjectPlaybookEpisode
+                # 复合主键（DB 唯一约束）跳过重复追加，跨并发也安全。
                 learning_memory.update_playbook(
                     s,
                     project_id=t.project_id,
@@ -205,9 +218,11 @@ def _record_learning_outcome(s: Session, t: Task) -> None:
             except Exception:
                 pass  # 记忆是增强数据，失败不影响 outcome/状态
         _commit(s)
+        return outcome
     except Exception:
         # outcome 属增强数据，落库失败不应影响任务状态流转本身
         s.rollback()
+        return None
 
 
 # ---- 认领 / 提交评审 ---------------------------------------------------
@@ -532,26 +547,46 @@ def get_task_dependencies(s: Session, task_id: int) -> dict:
 
 # ---- 同步自 service.py ----
 def import_tasks_from_json(s: Session, project_id: int, data: dict) -> dict:
-    """从 JSON 数据导入任务。"""
-    import json
+    """从 JSON 数据导入任务。
+
+    8/17 review P1 修复：默认值与 model CheckConstraint 对齐（type/status
+    必须落在 ALL_TYPES / ALL_STATUSES / ALL_PRIORITIES 内）；调用方传非法
+    值时通过 _check_* 早失败，不再依赖 DB flush 抛 IntegrityError 兜底。
+    旧"task"/"backlog"默认值与 ItemType.DEV / Status.TODO 一一映射，
+    对历史数据透明。
+
+    注意：此函数当前未在 service.py 末尾 re-bind 列表里，live 调用走
+    service.py:2208。本副本需与 live 保持一致，避免未来 rebind 后回退
+    到旧默认值。
+    """
     imported = []
     errors = []
     tasks_data = data.get("tasks", [])
     for item in tasks_data:
         try:
             title = _required(item.get("title", "").strip(), "title", 300)
+            # 8/17 review：显式校验 + 用枚举常量当默认值（不再写 "task"/"backlog"
+            # 这类 Story 265 已下线的旧值），与 Task model 的 CheckConstraint 对齐。
+            task_type = item.get("type", ItemType.DEV)
+            _check_type(task_type)
+            task_status = item.get("status", Status.TODO)
+            _check_status(task_status)
+            task_priority = item.get("priority", "medium")
+            _check_priority(task_priority)
             task = Task(
                 project_id=project_id,
                 title=title,
-                type=item.get("type", "task"),
+                type=task_type,
                 description=item.get("description", ""),
-                priority=item.get("priority", "medium"),
-                status=item.get("status", "backlog"),
+                priority=task_priority,
+                status=task_status,
             )
             s.add(task)
             s.flush()
             imported.append({"id": task.id, "title": task.title})
         except Exception as e:
+            # flush 失败会使 session 进入 pending rollback，必须先 rollback 才能继续下一条
+            s.rollback()
             errors.append({"title": item.get("title", "?"), "error": str(e)})
     _commit(s)
     return {"imported": imported, "errors": errors}
@@ -643,8 +678,12 @@ def _validate_status_reason(new_status: Status, status_reason: str | None) -> st
 def generate_tasks_from_spec(s: Session, task_id: int) -> list:
     """解析任务 spec 中的清单项（- [ ] 标题），生成同级子任务。
 
-    生成的子任务：同 project / story，type=task，status=backlog，
-    并通过 source_spec_id 反向关联到源任务；同时在源 spec 末尾回写链接。
+    生成的子任务：同 project / story，type=dev（ItemType.DEV），
+    status=todo（Status.TODO，Task model 默认值），priority=medium
+    （Priority.MEDIUM），并通过 source_spec_id 反向关联到源任务；
+    同时在源 spec 末尾回写链接。
+    8/17 review P1：注释里的旧 "type=task / status=backlog" 表述已下线
+    （Story 265 收敛），以实际 model 默认值/代码为准。
     """
     src = s.get(Task, task_id)
     if not src:

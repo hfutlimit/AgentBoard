@@ -116,13 +116,18 @@ def get_project_stats(s: Session, project_id: int) -> dict:
     thirty_days_ago = now - timedelta(days=30)
 
     # 使用条件聚合一次获取所有计数统计
+    # 8/17 review P1：Task.status 已收敛为 5 态（todo/in_progress/in_review/
+    # done/blocked），旧 "backlog" / "verifying" 永远 0 → UI 静默坏。改成
+    # Status.TODO（替代 backlog）和不含 verifying（5 态无 verifying）的 active。
+    # 字段名 backlog_tasks 保留以兼容现有 front-end 契约（app.html 第 974 行
+    # 仍引用），内部计算切换到 todo。
     stats = (
         s.query(
             func.count(Task.id).label("total"),
             func.sum(case((Task.status == Status.DONE, 1), else_=0)).label("done"),
-            func.sum(case((Task.status == "backlog", 1), else_=0)).label("backlog"),
+            func.sum(case((Task.status == Status.TODO, 1), else_=0)).label("backlog"),
             func.sum(case(
-                (Task.status.in_(["in_progress", "in_review", "verifying"]), 1),
+                (Task.status.in_([Status.IN_PROGRESS, Status.IN_REVIEW]), 1),
                 else_=0
             )).label("active"),
         )

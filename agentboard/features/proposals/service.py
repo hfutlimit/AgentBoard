@@ -889,7 +889,8 @@ def convert_proposal_to_story(
     - 要求目标 Epic 存在且属于提案所在项目；
     - Story 标题 = 显式 title 或提案标题，description = converged_spec 原文；
     - 解析 converged_spec 中的 ``- [ ]`` 清单项生成子 Task
-      （同 project/story，type=task，status=backlog，priority=medium）；
+      （同 project/story，type=dev / status=todo / priority=medium，
+      取自 Task model 默认值；8/17 review P1 注释清理）；
     - 回填 proposal.story_id 并推进 converged → story_created；
     - **幂等防重放**：story_id 已回填且 Story 仍存在时直接返回既有结果，
       不重复创建（呼应 P1 全量重放 / P2 at-least-once 的既有兜底策略）。

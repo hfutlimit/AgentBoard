@@ -51,5 +51,32 @@
   `content_md` 不动（保留历史 pattern）。`test_update_task_atomicity` 新增覆盖。
 - 迁移：`migrations/versions/e5f6a7b8c9d0_playbook_episode_unique.py`（down=d7e8f9a0b1c2）
 
+### 7.2 8/17 二次 review fixes（enum migration 残留 + 性能）
+- **P1 #1 import_tasks_from_json 默认值 + 显式校验**：旧实现 `type="task"` / `status="backlog"`
+  默认值已被 Story 265 下线，但代码副本里仍有遗留。修后用 `ItemType.DEV` / `Status.TODO`
+  / `Priority.MEDIUM` 枚举常量当默认 + `_check_type` / `_check_status` / `_check_priority`
+  早失败，不再依赖 DB flush 才抛 IntegrityError。修两份
+  （`agentboard/service.py:2208` live + `agentboard/features/work_items/service.py:534`
+  死副本，避免未来 re-bind 回退）。
+- **P1/P2 #2 set_status 仅 terminal 触发 judge**：`set_status` 改用
+  `_record_learning_outcome` 返回 outcome 作 gate：非终态 outcome=None → 跳过
+  `schedule_judge`，避免「spawn thread + new session + load task + judge_task()
+  → return None」的纯开销；终态仍正常调度。`update_task` 已有等价
+  `t.status in TERMINAL_STATUSES` 检查，保留。
+- **P1 #5 stats 静默 bug**：`get_project_stats` SQL `Task.status=='backlog'`
+  永远 0（旧值已下线），UI 静默坏。改 `Status.TODO` 计数（dict key 仍
+  `backlog_tasks` 兼容 `app.html:974` 旧契约）；`active` 不再含已下线的
+  `verifying`。
+- **清理 4 处误导性注释**：`generate_tasks_from_spec` / `convert_proposal_to_story`
+  文档里旧"type=task / status=backlog"表述改为实际 model 默认值
+  （type=dev / status=todo / priority=medium）。`_record_learning_outcome` 注释里
+  `last_appended_episode_id` 锚点说明改为 `ProjectPlaybookEpisode` DB 唯一约束。
+- **P2 LLM judge daily quota**：维持现状 best-effort（用户认可大致控制即可；
+  真要做严格费用控制需 atomic reservation，单独排期）。
+- 测试：`tests/test_review_20260817_p1_import_and_judge.py` 新增 9 用例
+  （默认值 / 非法 type / 非法 status / 非法 priority / per-item 隔离 /
+  非终态不调 judge / 终态正常调 judge / stats 计数 / subtask 默认值）。
+  回归 153 passed（learning + smoke + state machine + proposal + schedule + 8/17 review）。
+
 ## [ ] 8.（切片 4）前端 agent 评分 dashboard
 ## [ ] 9.（可选）judge 校准脚本：50+ 人工 ground truth 相关性（pearson r ≥ 0.7 门槛）
