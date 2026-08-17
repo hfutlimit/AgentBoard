@@ -23,8 +23,9 @@ import re
 from typing import Protocol
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
-from .models import EpisodeEmbedding, ProjectPlaybook
+from .models import EpisodeEmbedding, ProjectPlaybook, ProjectPlaybookEpisode
 
 logger = logging.getLogger(__name__)
 
@@ -74,25 +75,39 @@ def cosine_similarity(a: list[float], b: list[float]) -> float:
 
 
 class VectorStore(Protocol):
-    """向量存储抽象（预留 pgvector / sqlite-vec 替换）。"""
+    """向量存储抽象（预留 pgvector / sqlite-vec 替换）。
+
+    search 接收 ``project_id`` 用于在查询层做 project 收敛；传入后实现必须
+    把过滤下推到 SQL / 索引层，**不要**先全库 Top-K 再用 Python 过滤，否则
+    跨项目高相似度 episode 会把本项目的结果挤出 top_k 窗口。
+    """
 
     def add(self, episode_id: int, vector: list[float], meta: dict) -> None: ...
-    def search(self, vector: list[float], top_k: int) -> list[dict]: ...
+    def search(
+        self, vector: list[float], top_k: int, *, project_id: int | None = None,
+    ) -> list[dict]: ...
 
 
 class HashVectorStore:
     """纯 Python 全量余弦扫描实现（episode 量级 <10k 时 50ms 内，Story 268 验收）。
 
     数据直接从 DB 读（不复制内存索引），recall 是只读查询，天然支持多进程。
+
+    ``project_id`` 在 SQL ``WHERE`` 中下推，确保 Top-K 候选本身就是项目内的。
     """
 
     def __init__(self, s):
         self._s = s
 
-    def search(self, vector: list[float], top_k: int) -> list[dict]:
-        rows = self._s.execute(
-            select(EpisodeEmbedding).order_by(EpisodeEmbedding.id.desc())
-        ).scalars().all()
+    def search(
+        self, vector: list[float], top_k: int, *, project_id: int | None = None,
+    ) -> list[dict]:
+        stmt = select(EpisodeEmbedding)
+        if project_id is not None:
+            # 关键：先按 project 收敛，再全量余弦扫描，最后才截 top_k。
+            # 修 8/15 review P1：避免跨项目高相似度 episode 抢走本项目结果。
+            stmt = stmt.where(EpisodeEmbedding.project_id == project_id)
+        rows = self._s.execute(stmt).scalars().all()
         scored: list[tuple[float, EpisodeEmbedding]] = []
         for row in rows:
             try:
@@ -215,15 +230,17 @@ def recall_episodes(
     """query 向量与项目内 episodes 余弦 top-k（成功优先，失败补位）。
 
     返回已按相似度降序的 episodes；失败时返回 []（调用方 fallback 不带记忆）。
+
+    注意：``project_id`` 已经下推到 ``VectorStore.search()`` 的 SQL 层，
+    不要再在 Python 侧二次过滤——否则跨项目高相似度 episode 会把本项目
+    的结果挤出 top_k 窗口（见 8/15 review P1）。
     """
     if not task_spec or not str(task_spec).strip():
         return []
     try:
         vector = embed_text(task_spec)
         store = HashVectorStore(s)
-        hits = store.search(vector, top_k=top_k)
-        # 仅保留本项目的 episode（HashVectorStore 全库扫描，这里按 project 收敛）
-        hits = [h for h in hits if h["project_id"] == project_id]
+        hits = store.search(vector, top_k=top_k, project_id=project_id)
         # 排序：success 优先于 fail，再按相似度
         order = {"success": 0, "fail": 1}
         hits.sort(key=lambda h: (order.get(h["outcome"], 2), -h["similarity"]))
@@ -263,14 +280,19 @@ def update_playbook(s, *, project_id: int, task_type: str, summary: str,
                     episode_id: int | None = None) -> ProjectPlaybook | None:
     """按 episode outcome 追加 playbook pattern。
 
-    幂等机制（强 → 弱两层兜底）：
-    1. **强幂等（schema 锚点）**：若传入 ``episode_id``，与 ``last_appended_episode_id``
-       相等时直接跳过；写入后更新锚点。替代旧版字符串包含判断（手动 trim /
-       markdown 折叠后等价内容字符串不同 → 重复追加）。
-    2. **弱幂等（字符串兜底）**：未传 ``episode_id`` 时（手工整理 / 旧调用方），
-       保留 ``entry.strip() not in pb.content_md`` 兜底，避免破坏性升级。
+    幂等机制（自 migration e5f6a7b8c9d0 起，**强 → 弱两层**）：
 
-    调用方负责 commit。失败静默降级。
+    1. **强幂等（DB 唯一约束）**：若传入 ``episode_id``，先 ``INSERT`` 到
+       ``ProjectPlaybookEpisode``（复合主键 = 幂等锚点）。INSERT 成功才追加
+       playbook；唯一冲突 → 该 (project, episode) 已记录，跳过。
+
+       修复 8/15 review P1：旧版只比较 ``last_appended_episode_id``，无法阻止
+       "101 → 102 → 101" 这类非相邻重复，也防不住并发读旧值。
+
+    2. **弱幂等（字符串兜底）**：未传 ``episode_id`` 时（手动整理 / 旧调用方），
+       仍走 ``entry.strip() not in pb.content_md`` 兜底。
+
+    调用方负责 commit。失败静默降级；DB 约束冲突不算"失败"，按幂等正常返回。
     """
     try:
         entry = _playbook_entry(task_type, summary, outcome)
@@ -278,22 +300,52 @@ def update_playbook(s, *, project_id: int, task_type: str, summary: str,
             select(ProjectPlaybook).where(ProjectPlaybook.project_id == project_id)
         ).scalar_one_or_none()
 
-        # ---- 强幂等：episode_id 与最近一次一致 → 跳过 ----
-        # 注意：先查再写，但 unit-of-work 是同一 session（auto_commit=False 时
-        # 与调用方共享事务，auto_commit=True 时由调用方 commit 兜底），不会
-        # 出现"读到旧值 → 重复追加"竞态。
-        if (
-            episode_id is not None
-            and pb is not None
-            and pb.last_appended_episode_id == episode_id
-        ):
-            logger.debug(
-                "update_playbook project#%s 跳过：episode_id=%s 已记录",
-                project_id, episode_id,
-            )
-            return pb
+        # ---- 强幂等：DB 唯一约束 ----
+        # 两层防御：
+        # (a) 显式 SELECT 预检：避免对已存在的 (project, episode) 调用 s.add()
+        #     ——SQLAlchemy 会发 SAWarning（new instance conflicts with persistent），
+        #     同时省掉一次 INSERT 往返。
+        # (b) SAVEPOINT + IntegrityError：真正的 DB 仲裁，并发场景下另一 session
+        #     在我们 SELECT 之后 INSERT 同一行时触发。
+        if episode_id is not None:
+            existing_ppe = s.execute(
+                select(ProjectPlaybookEpisode).where(
+                    ProjectPlaybookEpisode.project_id == project_id,
+                    ProjectPlaybookEpisode.episode_id == episode_id,
+                )
+            ).scalar_one_or_none()
+            if existing_ppe is not None:
+                logger.debug(
+                    "update_playbook project#%s 跳过：episode_id=%s 已记录（预检命中）",
+                    project_id, episode_id,
+                )
+                # 重新查最新 pb 状态返回（避免 stale）
+                pb_now = s.execute(
+                    select(ProjectPlaybook).where(ProjectPlaybook.project_id == project_id)
+                ).scalar_one_or_none()
+                return pb_now
+
+            try:
+                with s.begin_nested():
+                    s.add(ProjectPlaybookEpisode(
+                        project_id=project_id,
+                        episode_id=episode_id,
+                    ))
+                # flush 成功 → 全新 episode，按需 append。
+            except IntegrityError:
+                # 并发兜底：另一 session 在我们 SELECT 之后 INSERT 了同一行。
+                logger.debug(
+                    "update_playbook project#%s 跳过：episode_id=%s 并发冲突（DB 唯一约束命中）",
+                    project_id, episode_id,
+                )
+                pb_now = s.execute(
+                    select(ProjectPlaybook).where(ProjectPlaybook.project_id == project_id)
+                ).scalar_one_or_none()
+                return pb_now
+        # 未传 episode_id 或 INSERT 成功 → 落到下面的内容追加逻辑。
 
         # ---- 弱幂等（兜底）：字符串包含判断 ----
+        # 只在"无 episode_id"或"episode_id 是新的"两条路径上生效。
         content_changed = True
         if pb is not None and entry.strip() in pb.content_md:
             content_changed = False

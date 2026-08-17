@@ -1023,7 +1023,7 @@ def delete_task(s: Session, id: int) -> bool:
 
     清理策略（与既有 model.delete 风格一致）：
     - 1:N / N:M 引用（history / dependency / attachment / comment / outcome /
-      episode）：硬删；
+      episode / project_playbook_episode）：硬删；
     - N:1 反向引用（agent_run.task_id / task.source_spec_id）：置 NULL 保留审计；
     - N:1 反向引用（project_playbook.last_appended_episode_id）：置 NULL，
       旧 playbook 内容仍保留（不去重历史记录，避免误删用户整理的 pattern）。
@@ -1047,7 +1047,7 @@ def delete_task(s: Session, id: int) -> bool:
     # Epic 140 切片 1：终态能力评分（task_id 唯一，硬删）
     try:
         from .features.learning.models import (
-            EpisodeEmbedding, ProjectPlaybook, TaskOutcome,
+            EpisodeEmbedding, ProjectPlaybook, ProjectPlaybookEpisode, TaskOutcome,
         )
         s.query(TaskOutcome).filter(TaskOutcome.task_id == id).delete(
             synchronize_session=False,
@@ -1064,6 +1064,12 @@ def delete_task(s: Session, id: int) -> bool:
             {ProjectPlaybook.last_appended_episode_id: None},
             synchronize_session=False,
         )
+        # project_playbook_episode：playbook 幂等锚点（task 被删则锚点失效，硬删）
+        # 保留 project_playbook.content_md 不动——episode 数据已不存在但历史 pattern
+        # 仍可读，符合「不去重历史」原则。
+        s.query(ProjectPlaybookEpisode).filter(
+            ProjectPlaybookEpisode.episode_id == id,
+        ).delete(synchronize_session=False)
     except Exception:  # noqa: BLE001
         # 防御：万一 learning 表不存在（极老的 DB），不影响主删除流程
         log.warning("delete_task: learning cleanup skipped for task#%s", id, exc_info=True)

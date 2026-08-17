@@ -179,6 +179,75 @@ def test_recall_episodes_other_project_excluded(session):
     assert hits == []
 
 
+def test_recall_project_filter_at_sql_layer(session):
+    """8/15 review P1 修复：project filter 必须在 SQL 层下推，不能用 post-filter。
+
+    场景复现：项目 A 5 个相关 episode + 项目 B 8 个更高相似度 episode，
+    top_k=8。如果"先全库 Top-K 再 Python 过滤"，B 会把 A 全部挤出窗口，
+    项目 A 召回为空。修复后 SQL 层 WHERE project_id=A，Top-K 候选都是 A 的。
+    """
+    u, pA, stA = _mk(session, proj="pA")
+    uB, pB, stB = _mk(session, name="uB", proj="pB")
+
+    # 项目 A：5 个真正相关的 episode（关键词：leaderboard 多维聚合）
+    for i in range(5):
+        t = _mk_task(session, u, pA, stA, title="实现 leaderboard 多维聚合接口")
+        _done(session, t, u)
+        lm.store_episode(session, t, score=0.9, outcome="success")
+        session.commit()
+
+    # 项目 B：8 个更高相似度的"噪声" episode（用 leaderboard 也构造类似词以抬升相似度，
+    # 但项目 ID 不同，召回时应被过滤）
+    for i in range(8):
+        t = _mk_task(session, uB, pB, stB, title="leaderboard 排行榜 多维 聚合 视图")
+        _done(session, t, uB)
+        lm.store_episode(session, t, score=0.9, outcome="success")
+        session.commit()
+
+    # 关键断言：项目 A 仍能召回自己的 5 条 episode（SQL 下推正确）
+    hits_A = lm.recall_episodes(
+        session, project_id=pA.id, task_spec="leaderboard 多维聚合", top_k=8,
+    )
+    assert len(hits_A) == 5, (
+        f"项目 A 应召回 5 条，实际 {len(hits_A)} —— SQL 层 project filter 失效"
+    )
+    assert all(h["project_id"] == pA.id for h in hits_A)
+
+    # 项目 B 召回只应包含 B 的 episode
+    hits_B = lm.recall_episodes(
+        session, project_id=pB.id, task_spec="leaderboard 多维聚合", top_k=8,
+    )
+    assert len(hits_B) == 8
+    assert all(h["project_id"] == pB.id for h in hits_B)
+
+
+def test_vectorstore_search_protocol_accepts_project_id(session):
+    """VectorStore.search 协议必须接收 project_id，并在 HashVectorStore 实现
+    中下推到 SQL 层（直接验证 SQL 层行为，避免靠 recall 间接测）。"""
+    u, p1, st1 = _mk(session, proj="vsA")
+    u2, p2, st2 = _mk(session, name="u2", proj="vsB")
+    # 用 zargonium 这种生僻词作 query，避开前序测试残留的常见关键词
+    t1 = _mk_task(session, u, p1, st1, title="zargonium alpha 模块")
+    t2 = _mk_task(session, u2, p2, st2, title="zargonium alpha 模块")
+    _done(session, t1, u)
+    _done(session, t2, u2)
+    lm.store_episode(session, t1, score=0.8, outcome="success")
+    lm.store_episode(session, t2, score=0.8, outcome="success")
+    session.commit()
+
+    store = lm.HashVectorStore(session)
+    v = lm.embed_text("zargonium alpha 模块")
+    # 不传 project_id → 全库候选里至少有 p1 和 p2（其他测试残留不算 top-k）
+    all_hits = store.search(v, top_k=50)
+    seen_projects = {h["project_id"] for h in all_hits}
+    assert p1.id in seen_projects and p2.id in seen_projects
+    # 传 project_id → 只 p1（核心断言：SQL 层下推）
+    p1_hits = store.search(v, top_k=50, project_id=p1.id)
+    assert {h["project_id"] for h in p1_hits} == {p1.id}
+    p2_hits = store.search(v, top_k=50, project_id=p2.id)
+    assert {h["project_id"] for h in p2_hits} == {p2.id}
+
+
 def test_build_recall_section():
     episodes = [
         {"episode_id": 1, "task_type": "dev", "score": 0.9, "outcome": "success",
@@ -260,6 +329,128 @@ def test_update_playbook_strong_idempotency_via_episode_id(session):
     pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
     assert pb.version == 2
     assert pb.last_appended_episode_id == t2.id
+
+
+def test_update_playbook_db_level_idempotency_non_adjacent(session):
+    """8/15 review P1 修复：DB 唯一约束拦住「非相邻重复」。
+
+    旧版 last_appended_episode_id 只能记住最近一个，序列 101 → 102 → 101
+    走到第三步时 last=102 ≠ 101，旧逻辑会再次追加 101。新版靠
+    ``project_playbook_episode (project_id, episode_id)`` 复合主键判重，
+    第三步应被拒绝。
+    """
+    from agentboard.features.learning.models import ProjectPlaybookEpisode
+
+    u, p, st = _mk(session)
+
+    # episode A 首次 append
+    tA = _mk_task(session, u, p, st, title="episode A")
+    _done(session, tA, u)
+    session.commit()
+    pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
+    assert pb.version == 1
+    rows = session.query(ProjectPlaybookEpisode).filter(
+        ProjectPlaybookEpisode.project_id == p.id,
+    ).all()
+    assert {(r.project_id, r.episode_id) for r in rows} == {(p.id, tA.id)}
+
+    # episode B append（last 字段被覆盖为 B）
+    tB = _mk_task(session, u, p, st, title="episode B")
+    _done(session, tB, u)
+    session.commit()
+    pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
+    assert pb.version == 2
+    assert pb.last_appended_episode_id == tB.id
+
+    # 关键场景：再用 A 的 episode_id 触发（retry / replay）—— DB 约束应拒绝
+    content_before = pb.content_md
+    lm.update_playbook(
+        session,
+        project_id=p.id,
+        task_type="dev",
+        summary="重放 A 的新摘要",
+        outcome="success",
+        episode_id=tA.id,
+    )
+    session.commit()
+
+    pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
+    assert pb.version == 2, (
+        f"非相邻重复应被 DB 约束拦截；version 应保持 2，实际 {pb.version}"
+    )
+    assert pb.content_md == content_before, "非相邻重复应被拦截：content_md 不变"
+    # 关联表也只有 2 条（A + B），没有为 A 重复创建
+    rows = session.query(ProjectPlaybookEpisode).filter(
+        ProjectPlaybookEpisode.project_id == p.id,
+    ).all()
+    assert {(r.project_id, r.episode_id) for r in rows} == {(p.id, tA.id), (p.id, tB.id)}
+
+
+def test_update_playbook_db_level_idempotency_concurrent(session):
+    """并发场景：两个 session 同时 append 同一 (project, episode)，
+    仅一方应成功落 playbook；另一方被 DB 唯一约束拒绝后静默回退。
+
+    用独立 SessionLocal 实例 + 多线程模拟并发（SQLite WAL 模式下支持并发读
+    + 单写串行化，足以验证 DB 仲裁语义）。
+
+    注意：worker 只接收 primitive int 参数，避免与 test session 的
+    identity-map 共享 ORM 对象（跨 session 访问 lazy 属性会爆 ObjectDeletedError）。
+    """
+    import threading
+    from agentboard.core.infrastructure.database import SessionLocal as SL
+    from agentboard.features.learning.models import ProjectPlaybookEpisode
+
+    u, p, st = _mk(session)
+    t = _mk_task(session, u, p, st, title="并发场景的 episode")
+    _done(session, t, u)
+    session.commit()
+    # 拆出 primitive ID，让 worker 不再触碰主 session 的 ORM 对象
+    proj_id, task_id = p.id, t.id
+
+    barrier = threading.Barrier(2)
+    results: list[int] = []
+    errors: list[Exception] = []
+
+    def worker():
+        s2 = SL()
+        try:
+            barrier.wait(timeout=5)
+            pb = lm.update_playbook(
+                s2,
+                project_id=proj_id,
+                task_type="dev",
+                summary=f"并发 worker {threading.get_ident()}",
+                outcome="success",
+                episode_id=task_id,
+            )
+            s2.commit()
+            results.append(pb.version if pb else -1)
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+        finally:
+            s2.close()
+
+    t1 = threading.Thread(target=worker)
+    t2 = threading.Thread(target=worker)
+    t1.start()
+    t2.start()
+    t1.join(timeout=10)
+    t2.join(timeout=10)
+
+    # 两个 worker 都应正常返回（DB 约束失败被静默捕获并返回现有 pb）
+    assert not errors, f"并发 worker 异常: {errors}"
+
+    # 最终：playbook 应当只有一条 entry（不是两条）
+    pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
+    assert pb.version == 1, f"并发重复应被拦截；version 应为 1，实际 {pb.version}"
+    assert pb.last_appended_episode_id == t.id
+
+    # 关联表也只有一条 (project, episode) 记录
+    rows = session.query(ProjectPlaybookEpisode).filter(
+        ProjectPlaybookEpisode.project_id == p.id,
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].episode_id == t.id
 
 
 def test_get_playbook_empty_and_filled(session):

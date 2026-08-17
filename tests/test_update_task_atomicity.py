@@ -168,3 +168,40 @@ def test_blocked_transition_atomic(session):
     session.commit()
     assert t3.status == "in_progress"
     assert t3.previous_status is None  # 出 blocked 清空
+
+
+def test_delete_task_cleans_project_playbook_episode(session):
+    """delete_task 必须清理 project_playbook_episode 锚点，否则 FK 约束会拒删。
+
+    修 8/15 review P1（playbook DB 幂等）时新增 project_playbook_episode
+    关联表（FK episode_id → tasks.id），delete_task 必须跟上清理，否则
+    'task 走到 done → 落 episode/playbook → 用户删 task' 路径会在
+    project_playbook_episode.episode_id 上撞 FK 约束 → HTTP 422。
+    """
+    from agentboard.features.learning.models import ProjectPlaybookEpisode
+
+    u, p, st = _mk_env(session)
+    t = _mk_task(session, p, st, title="待删除的 task")
+    service.update_task(session, t.id, status="in_progress")
+    session.commit()
+    service.update_task(
+        session, t.id, status="done", status_reason=StatusReason.COMPLETED,
+    )
+    session.commit()
+
+    # 终态触发 _record_learning_outcome → store_episode + update_playbook
+    # 关联表应有 (project, episode) 一行
+    rows = session.query(ProjectPlaybookEpisode).filter(
+        ProjectPlaybookEpisode.episode_id == t.id,
+    ).all()
+    assert len(rows) == 1, "终态应自动写入 project_playbook_episode 锚点"
+
+    # 删除 task：delete_task 应一并清理关联表（FK 级联清理）
+    assert service.delete_task(session, t.id) is True
+    session.commit()
+    leftover = session.query(ProjectPlaybookEpisode).filter(
+        ProjectPlaybookEpisode.episode_id == t.id,
+    ).all()
+    assert leftover == [], (
+        "delete_task 应清掉 project_playbook_episode 中的引用，否则后续删除撞 FK"
+    )
