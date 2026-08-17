@@ -2866,42 +2866,12 @@
 
         @case ('document') {
           @if (docItem(); as d) {
+            <!-- Epic 139+: 文档详情页只展示面包屑 + 标题 + 内容，不展示按钮菜单/列表 -->
             <div class="crumb-bar">
               <a [routerLink]="['/project', project()?.id]">{{ project()?.name }}</a
               ><span>›</span>@if (d.epic_id) {<a [routerLink]="['/epic', d.epic_id]">{{ epicTitle(d.epic_id) }}</a><span>›</span>}<span>{{ d.title }}</span>
             </div>
-            <div class="page-header">
-              <div class="page-title-row">
-                <h2>{{ d.title }}</h2>
-                <span class="badge doctype doctype--{{ d.type }}">{{ docTypeLabel(d.type) }}</span>
-                <span class="badge docstatus docstatus--{{ d.status }}">{{ docStatusLabel(d.status) }}</span>
-                @if (d.current_revision_number != null) {
-                  <span class="badge doc-rev" title="当前 revision">r{{ d.current_revision_number }}</span>
-                }
-              </div>
-              <div class="page-actions">
-                @switch (docViewMode()) {
-                  @case ('preview') {
-                    <button class="ghost-sm" (click)="setDocDetailTab('content')" [class.active]="docDetailTab() === 'content'">📄 内容</button>
-                    <button class="ghost-sm" (click)="setDocDetailTab('history')" [class.active]="docDetailTab() === 'history'">🕘 历史</button>
-                    <button class="ghost-sm" (click)="enterDocSplitEdit()" title="分屏编辑：左编辑右预览">✏ 分屏编辑</button>
-                    <button class="ghost-sm" (click)="openDocFullscreen()" title="全屏阅读（Esc 退出）">⛶ 全屏</button>
-                    <button class="ghost-sm" (click)="openDocModal('edit')">✎ 编辑</button>
-                  }
-                  @case ('split-edit') {
-                    <button class="ghost-sm btn-primary-sm" (click)="saveDocSplitContent()">💾 保存</button>
-                    <button class="ghost-sm" (click)="cancelDocSplitEdit()">✖ 取消</button>
-                    <button class="ghost-sm" (click)="exitDocSplit()">⏏ 退出</button>
-                  }
-                  @case ('split-read') {
-                    <button class="ghost-sm" (click)="enterDocSplitEditFromReadonly()">✏ 编辑</button>
-                    <button class="ghost-sm" disabled title="只读模式下无改动可取消">✖ 取消</button>
-                    <button class="ghost-sm" disabled title="只读模式下无改动可保存">💾 保存</button>
-                    <button class="ghost-sm" (click)="exitDocSplit()">⏏ 退出</button>
-                  }
-                }
-              </div>
-            </div>
+            <h1 class="doc-title">{{ d.title }}</h1>
 
             @if (docViewMode() === 'preview') {
             @if (docDetailTab() === 'content') {

@@ -5700,6 +5700,22 @@ h3 { font-size: 16px; line-height: 1.4; font-weight: 650; }
   padding-top: 28px;
 }
 
+/* Epic 139+: 文档详情页只露面包屑 + 标题 + 内容，移除顶部按钮菜单/列表 */
+.layout.doc-mode .doc-content {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 8px 0 24px;
+}
+.layout.doc-mode .doc-title {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0 0 16px;
+  color: var(--text, #0f172a);
+}
+[data-theme="dark"] .layout.doc-mode .doc-title { color: #f1f5f9; }
+
 .sidebar {
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
