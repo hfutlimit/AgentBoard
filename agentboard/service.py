@@ -116,6 +116,11 @@ MAX_PAGE_SIZE = 200
 
 log = logging.getLogger(__name__)
 
+# 任务终态：done / blocked（Epic 140 学习 outcome + 异步 judge 仅在终态触发）。
+# 顶层 facade 与 features.learning.service 共享语义，故在此显式常量导出，
+# 避免跨模块访问下划线私有常量。
+_TERMINAL_STATUSES = {Status.DONE, Status.BLOCKED}
+
 def _parse_due_date(value):
     """Convert ISO date string (YYYY-MM-DD) to date object; pass through None/date."""
     if value is None or isinstance(value, date):
@@ -909,17 +914,26 @@ def list_review_tasks(s: Session, user_id: int, *, status: str | None = None):
 # ---------- Task ----------
 
 def update_task(s: Session, id: int, **fields) -> Task | None:
+    """原子 PATCH：所有字段 + 状态变更在同一事务里 commit，避免 partial commit。
+
+    Story 265 回归：旧实现先 setattr 非状态字段 + ``_commit``，再调 ``set_status``
+    走状态机 —— 一旦状态机抛 ``IllegalTransition``（如 done→todo），非状态字段已
+    commit，形成 partial commit。修复时**整函数 0 次中间 commit**、单次 commit
+    收口，任何字段校验/状态机迁移失败都让外层 session 回滚，**绝不留半成品**。
+    """
     t = s.get(Task, id)
     if not t:
         return None
     allowed = {"title", "description", "spec", "type", "status", "priority", "sprint_id",
                "assignee_id", "due_date", "labels", "estimate"}  # Epic 17 / Epic 32
     nullable_fields = {"due_date", "sprint_id", "assignee_id", "estimate"}  # fields that can be set to None
-    # Story 265：状态变更必须走状态机迁移（PATCH /api/tasks/{tid} 直改 status
-    # 曾绕过 set_status，允许 done→todo 等非法跳转）。此处把 status 单独抽出，
-    # 其余字段按原逻辑应用，最后统一委托 set_status 校验迁移合法性。
+    # 抽出 status/status_reason：状态变更必须走状态机（execute_transition 包装），
+    # 在事务末与其它字段一起 commit。
     new_status = fields.pop("status", None)
-    status_reason = fields.pop("status_reason", None)  # Story 265：done/blocked 必填
+    new_status_reason = fields.pop("status_reason", None)  # Story 265：done/blocked 必填
+    status_changed = new_status is not None and new_status != t.status
+
+    # ---- 阶段 1：校验 + 应用非状态字段（不 commit）----
     for k, v in fields.items():
         if k not in allowed:
             continue
@@ -952,17 +966,68 @@ def update_task(s: Session, id: int, **fields) -> Task | None:
             except json.JSONDecodeError:
                 raise InvalidValue("labels must be a valid JSON array")
         setattr(t, k, v)
-    _commit(s); s.refresh(t)
-    # 状态字段：委托 set_status（状态机强制迁移 + 历史/副作用）
-    if new_status is not None and new_status != t.status:
-        t = set_status(s, id, new_status, status_reason=status_reason)
-        s.refresh(t)
+
+    # ---- 阶段 2：状态迁移前置 dry-run（不 commit）----
+    # 状态机的 ``_validate_status_reason`` 会读 ``t.status_reason``，所以
+    # 先把新 reason 写到 ORM 对象（仍在事务内），让 validator 看到最终值。
+    # 这一步只在内存中改，**不调 execute_transition** —— 真正的迁移在 commit
+    # 前统一做，保证事务原子性。
+    if status_changed:
+        # 先验 status_reason 合法性，raise 会让外层回滚（不会到 commit）
+        t.status_reason = _validate_status_reason(Status(new_status), new_status_reason)
+
+    # ---- 阶段 3：状态机迁移（不 commit）----
+    # execute_transition 写 history + 维护 previous_status + 失效缓存
+    # 全部走 side effects，不涉及 commit。
+    if status_changed:
+        from .features.work_items.state_machine import execute_transition
+        execute_transition(s, t, new_status, reason="patch")
+
+    # ---- 阶段 4：单次 commit（事务原子边界）----
+    # 任何上面 raise 的 InvalidValue/IllegalTransition 都会让外层 session
+    # 回滚（请求级事务由 middleware 处理，测试 fixture 显式 rollback），
+    # 不会出现"title 已改但 status 没动"的 partial commit。
+    _commit(s)
+    s.refresh(t)
+
+    # ---- 阶段 5：post-commit 副作用（仅成功路径跑）----
+    # 学习 outcome 落库 + 异步 judge 调度：终态走；非终态不落 outcome 但不报错。
+    # 与 ``set_status``（features.work_items.service）保持等价行为：
+    # 终态 → outcome 同步落库 + 异步 judge；非终态只走 outcome（不触发 judge）。
+    if status_changed and t.status in _TERMINAL_STATUSES:
+        try:
+            from .features.work_items.service import _record_learning_outcome
+            _record_learning_outcome(s, t)
+        except Exception:
+            log.warning("update_task: learning outcome failed for task#%s", t.id, exc_info=True)
+        # 异步 L3 judge：daemon 线程 + 独立 Session；失败吞异常。
+        if os.environ.get("AGENTBOARD_JUDGE_AUTO", "1") == "1":
+            try:
+                from .features.learning.judge import schedule_judge
+                schedule_judge(t.id)
+            except Exception:
+                log.debug("update_task: schedule_judge enqueue failed for task#%s", t.id)
     # 关键字段变更时清除项目统计缓存（Epic 23 Story 23.1）
-    if any(k in fields for k in ("status", "sprint_id", "priority")) or new_status is not None:
+    if any(k in fields for k in ("status", "sprint_id", "priority")) or status_changed:
         _invalidate_project_stats_cache(t.project_id)
     return t
 
 def delete_task(s: Session, id: int) -> bool:
+    """删除 task + 清理所有指向它的外键引用（FK 防御性级联）。
+
+    **根因说明**：Epic 140 切片 1/3 引入 ``task_outcome`` / ``episode_embedding`` /
+    ``project_playbook`` 三张表（FK → tasks.id，NO ACTION），旧 facade 的
+    ``delete_task`` 没跟进清理这些引用，导致"task 走到 done → 落 outcome + episode
+    → 用户再删 task"路径撞 FK 约束抛 IntegrityError → HTTP 422。这是真实回
+    归路径，~~PRE-EXISTING~~（实为切片 1+3 拆出后未同步），在此一次性补齐。
+
+    清理策略（与既有 model.delete 风格一致）：
+    - 1:N / N:M 引用（history / dependency / attachment / comment / outcome /
+      episode）：硬删；
+    - N:1 反向引用（agent_run.task_id / task.source_spec_id）：置 NULL 保留审计；
+    - N:1 反向引用（project_playbook.last_appended_episode_id）：置 NULL，
+      旧 playbook 内容仍保留（不去重历史记录，避免误删用户整理的 pattern）。
+    """
     t = s.get(Task, id)
     if not t:
         return False
@@ -979,6 +1044,29 @@ def delete_task(s: Session, id: int) -> bool:
     )).delete(synchronize_session=False)
     s.query(Attachment).filter(Attachment.task_id == id).delete(synchronize_session=False)
     s.query(Comment).filter(Comment.task_id == id).delete(synchronize_session=False)
+    # Epic 140 切片 1：终态能力评分（task_id 唯一，硬删）
+    try:
+        from .features.learning.models import (
+            EpisodeEmbedding, ProjectPlaybook, TaskOutcome,
+        )
+        s.query(TaskOutcome).filter(TaskOutcome.task_id == id).delete(
+            synchronize_session=False,
+        )
+        # Epic 140 切片 3：episode 向量化快照（episode_id=task_id 唯一，硬删）
+        s.query(EpisodeEmbedding).filter(EpisodeEmbedding.episode_id == id).delete(
+            synchronize_session=False,
+        )
+        # project_playbook.last_appended_episode_id：置 NULL 保留 playbook 内容
+        # （不去重历史 pattern，避免误删用户整理的经验；旧 entry 仍可读）
+        s.query(ProjectPlaybook).filter(
+            ProjectPlaybook.last_appended_episode_id == id,
+        ).update(
+            {ProjectPlaybook.last_appended_episode_id: None},
+            synchronize_session=False,
+        )
+    except Exception:  # noqa: BLE001
+        # 防御：万一 learning 表不存在（极老的 DB），不影响主删除流程
+        log.warning("delete_task: learning cleanup skipped for task#%s", id, exc_info=True)
     s.delete(t); _commit(s)
     _invalidate_project_stats_cache(pid)
     return True
@@ -2898,6 +2986,11 @@ from .features.projects.service import (  # noqa: F401,F403  (末尾重绑)
     # Story 137：项目中心
     archive_project, unarchive_project, bulk_archive, bulk_unarchive,
     list_accessible_projects_center,
+    # Story 137：默认隐藏已归档（修复 /api/projects 文档与实现分裂）。
+    # 原 facade list_accessible_projects 不带 include_archived 参数，
+    # 此处 re-bind 后 router 调用 ``service.list_accessible_projects(...,
+    # include_archived=...)`` 走 features 版，避免 TypeError。
+    list_accessible_projects,
 )
 
 # ---------------------------------------------------------------------------

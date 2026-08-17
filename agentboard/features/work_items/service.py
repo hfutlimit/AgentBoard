@@ -192,12 +192,15 @@ def _record_learning_outcome(s: Session, t: Task) -> None:
                 learning_memory.store_episode(
                     s, t, score=outcome.score, outcome=ep_outcome,
                 )
+                # 传 episode_id=t.id 让 update_playbook 用强幂等锚点
+                # （last_appended_episode_id）跳过重复追加
                 learning_memory.update_playbook(
                     s,
                     project_id=t.project_id,
                     task_type=t.type or "dev",
                     summary=f"task#{t.id}: {t.title or ''}（{t.status}）",
                     outcome=ep_outcome,
+                    episode_id=t.id,
                 )
             except Exception:
                 pass  # 记忆是增强数据，失败不影响 outcome/状态

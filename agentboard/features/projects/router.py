@@ -35,7 +35,11 @@ router = APIRouter(tags=["projects"])
 @router.get("/api/projects")
 def list_projects_ext(
     s: Session = Depends(get_session),
-    limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    include_archived: bool | None = Query(
+        None, description="是否含已归档项目；None/False=隐藏（Story 137 默认）"
+    ),
     authorization: str | None = Header(None),
 ):
     """列表 API：admin 可见全部项目；普通用户仅见受邀（成员）项目。
@@ -47,7 +51,9 @@ def list_projects_ext(
     Story 137：默认隐藏已归档项目（``is_archived=True``），传 ``include_archived=true`` 才会包含。
     """
     uid = api_helpers._optional_user_id(authorization, s)
-    projects, total = service.list_accessible_projects(s, uid, limit=limit, offset=offset)
+    projects, total = service.list_accessible_projects(
+        s, uid, limit=limit, offset=offset, include_archived=include_archived,
+    )
     return {"items": [service._ser(p) for p in projects], "total": total}
 
 

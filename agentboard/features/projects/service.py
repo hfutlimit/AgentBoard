@@ -752,8 +752,10 @@ def _enrich_projects(s: Session, projects: list) -> list[dict]:
 # ---- 同步自 service.py ----
 def list_accessible_projects(
     s: Session, user_id: int | None, limit: int | None = None, offset: int = 0,
+    *,
+    include_archived: bool | None = None,
 ) -> tuple[list, int]:
-    """返回用户可见的项目列表（不含已归档过滤；仅可见性 + 权限过滤）。
+    """返回用户可见的项目列表（Story 137 起默认隐藏已归档）。
 
     访问规则（2026-07-21 邀请制）：
     - 管理员：可见全部项目（``user.is_admin=True``）。
@@ -763,6 +765,15 @@ def list_accessible_projects(
     ``abk_`` API Key 经 ``_current_user()`` 解析为关联用户的完整身份
     （含 ``is_admin``），因此权限与用户一致 —— 管理员 key 可见全部，
     普通用户 key 仅见成员项目。
+
+    归档过滤（Story 137）：
+    - ``include_archived=None``（默认，路由层不传）：隐藏已归档（``is_archived=True``）；
+    - ``include_archived=False``：显式隐藏；
+    - ``include_archived=True``：含归档。
+
+    根因说明：旧的 ``list_projects`` 内部不带归档过滤，router 文档承诺"默认隐藏
+    归档"是空头支票。修复时把过滤下沉到 service，保证 router / MCP 工具 / 后续
+    调用方都拿到一致行为，避免文档与实现分裂。
     """
     if user_id is None:
         q = s.query(Project).filter(False)  # 未登录 → 空
@@ -785,6 +796,9 @@ def list_accessible_projects(
             q = s.query(Project).filter(Project.id.in_(member_project_ids))
         else:
             q = s.query(Project).filter(False)  # 无成员项目 → 空
+    # Story 137 归档过滤：默认（None/False）隐藏已归档
+    if not include_archived:
+        q = q.filter(Project.is_archived.is_(False))
     total = q.count()
     return _paginate(q.order_by(Project.id.desc()), limit, offset).all(), total
 
@@ -1000,13 +1014,12 @@ def list_accessible_projects_center(
     enriched = _enrich_projects(s, rows)
 
     # 3) 排序（recent/tasks 需要 Python 端处理）
+    # last_activity_at 是 ISO 8601 字符串，字典序 = 时间序；None 排到末尾。
     if sort == "recent":
-        def _sort_key(d):
-            la = d.get("last_activity_at")
-            return (la is None, -(0 if la is None else 0), d.get("id", 0))
-        # 用字符串字典序（ISO 8601）即可
-        enriched.sort(key=lambda d: (d.get("last_activity_at") or "", d.get("id", 0)), reverse=False)
-        enriched.reverse()  # 新的在前
+        enriched.sort(
+            key=lambda d: (d.get("last_activity_at") or "", d.get("id", 0)),
+            reverse=True,
+        )
     elif sort == "name":
         enriched.sort(key=lambda d: (d.get("name") or "").lower())
     elif sort == "created":

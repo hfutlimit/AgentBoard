@@ -292,7 +292,7 @@ def judge_task(s, task_id: int) -> dict | None:
         task = s.get(Task, task_id)
         if task is None:
             return None
-        if task.status not in (learning_service._TERMINAL_STATUSES):
+        if task.status not in learning_service.TERMINAL_STATUSES:
             return None
         outcome = s.execute(
             select(TaskOutcome).where(TaskOutcome.task_id == task.id)
@@ -303,8 +303,22 @@ def judge_task(s, task_id: int) -> dict | None:
         metrics = learning_service.compute_process_metrics(s, task)
         inp = build_judge_input(s, task, metrics)
 
+        # 1) 默认走 deterministic：保证 dashboard 冷启动即有完整 L3 明细
+        # 2) 满足 LLM 启用 + 未超 daily quota 时尝试 LLM，失败/非法 JSON
+        #    一律降级 deterministic，绝不抛到主流程
         if is_judge_llm_enabled() and _llm_daily_used(s) < daily_llm_quota():
-            result = call_llm_judge(inp) or deterministic_judge(inp, metrics)
+            llm_result = call_llm_judge(inp)
+            if llm_result is not None:
+                result = llm_result
+            else:
+                # 可观测性：INFO 而非 WARNING —— LLM 失败是预期降级路径，
+                # WARNING 会被运维当真报警，反而噪声；daily_used/quota 状态
+                # 走 /api/learning/judge/status 端点可监控。
+                logger.info(
+                    "judge task#%s LLM 降级 deterministic（quota_used=%s/%s）",
+                    task_id, _llm_daily_used(s), daily_llm_quota(),
+                )
+                result = deterministic_judge(inp, metrics)
         else:
             result = deterministic_judge(inp, metrics)
 

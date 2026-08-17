@@ -16,7 +16,7 @@ from datetime import datetime
 from sqlalchemy import func, select
 
 from ...core.common.models import utc_now
-from ...core.common.enums import Status
+from ...core.common.enums import Status, StatusReason
 from ...core.exceptions import InvalidValue
 from .models import TaskOutcome
 
@@ -27,7 +27,12 @@ W_CYCLE = 0.2
 W_REASON = 0.1
 NEUTRAL_JUDGE_QUALITY = 0.75  # 切片 2 LLM-judge 接入前的占位（低置信，UI 标注）
 
-_TERMINAL_STATUSES = {Status.DONE, Status.BLOCKED}
+# 任务终态（done / blocked）：学习 outcome 落库 + 异步 judge 调度的触发条件。
+# 公开常量（无下划线）供跨模块引用，避免 judge.py 访问下划线私有约定。
+TERMINAL_STATUSES: frozenset[str] = frozenset({Status.DONE, Status.BLOCKED})
+
+# 内部别名，保留老引用兼容（Phase 4 拆分前 judge.py 等模块已用 _TERMINAL_STATUSES）
+_TERMINAL_STATUSES = TERMINAL_STATUSES
 
 
 def compute_process_metrics(s, task) -> dict:
@@ -61,7 +66,7 @@ def compute_process_metrics(s, task) -> dict:
         except (TypeError, ValueError):
             duration_s = None
 
-    withdrawn = bool(task.status_reason == "withdrawn")
+    withdrawn = bool(task.status == Status.DONE and task.status_reason == StatusReason.WITHDRAWN)
 
     # 循环效率：评审往返越少越高（1 轮往返 = 1.0，每多 1 轮 -0.25，下限 0.2）
     cycle_efficiency = max(0.2, 1.0 - 0.25 * max(rejects - 1, 0))
@@ -93,7 +98,7 @@ def compute_process_metrics(s, task) -> dict:
 
 def record_outcome(s, task) -> TaskOutcome | None:
     """task 到达终态时幂等落 task_outcome（task_id 唯一，重复计算为更新）。"""
-    if task.status not in _TERMINAL_STATUSES:
+    if task.status not in TERMINAL_STATUSES:
         return None
     metrics = compute_process_metrics(s, task)
     existing = s.execute(

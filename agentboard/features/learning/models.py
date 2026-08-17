@@ -64,7 +64,12 @@ class EpisodeEmbedding(Base):
 
 
 class ProjectPlaybook(Base):
-    """项目级 Playbook（Story 268 切片 3）：结构化 markdown，按 project 唯一。"""
+    """项目级 Playbook（Story 268 切片 3）：结构化 markdown，按 project 唯一。
+
+    强幂等锚点：``last_appended_episode_id``（= task_id）记录最近一次成功追加
+    的 episode；同 episode 重复调 ``update_playbook`` 时直接跳过，不再依赖
+    字符串包含去重（手动 trim / markdown 折叠后等价内容字符串不同 → 重复追加）。
+    """
 
     __tablename__ = "project_playbook"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -74,5 +79,10 @@ class ProjectPlaybook(Base):
     content_md: Mapped[str] = mapped_column(Text, default="")
     version: Mapped[int] = mapped_column(Integer, default=1)
     last_compressed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Epic 140 切片 3 强幂等：替代字符串包含去重，详见 migration d7e8f9a0b1c2
+    last_appended_episode_id: Mapped[int | None] = mapped_column(
+        ForeignKey("tasks.id"), nullable=True, index=True,
+        comment="最近一次成功追加的 episode_id（= task_id）",
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)

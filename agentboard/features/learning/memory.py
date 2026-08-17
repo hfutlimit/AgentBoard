@@ -259,8 +259,16 @@ def _playbook_entry(task_type: str, summary: str, outcome: str) -> str:
 
 
 def update_playbook(s, *, project_id: int, task_type: str, summary: str,
-                    outcome: str = "success") -> ProjectPlaybook | None:
-    """按 episode outcome 追加 playbook pattern（幂等：同 task 同 outcome 不重复追加）。
+                    outcome: str = "success",
+                    episode_id: int | None = None) -> ProjectPlaybook | None:
+    """按 episode outcome 追加 playbook pattern。
+
+    幂等机制（强 → 弱两层兜底）：
+    1. **强幂等（schema 锚点）**：若传入 ``episode_id``，与 ``last_appended_episode_id``
+       相等时直接跳过；写入后更新锚点。替代旧版字符串包含判断（手动 trim /
+       markdown 折叠后等价内容字符串不同 → 重复追加）。
+    2. **弱幂等（字符串兜底）**：未传 ``episode_id`` 时（手工整理 / 旧调用方），
+       保留 ``entry.strip() not in pb.content_md`` 兜底，避免破坏性升级。
 
     调用方负责 commit。失败静默降级。
     """
@@ -269,17 +277,43 @@ def update_playbook(s, *, project_id: int, task_type: str, summary: str,
         pb = s.execute(
             select(ProjectPlaybook).where(ProjectPlaybook.project_id == project_id)
         ).scalar_one_or_none()
+
+        # ---- 强幂等：episode_id 与最近一次一致 → 跳过 ----
+        # 注意：先查再写，但 unit-of-work 是同一 session（auto_commit=False 时
+        # 与调用方共享事务，auto_commit=True 时由调用方 commit 兜底），不会
+        # 出现"读到旧值 → 重复追加"竞态。
+        if (
+            episode_id is not None
+            and pb is not None
+            and pb.last_appended_episode_id == episode_id
+        ):
+            logger.debug(
+                "update_playbook project#%s 跳过：episode_id=%s 已记录",
+                project_id, episode_id,
+            )
+            return pb
+
+        # ---- 弱幂等（兜底）：字符串包含判断 ----
+        content_changed = True
+        if pb is not None and entry.strip() in pb.content_md:
+            content_changed = False
+
         if pb is None:
             pb = ProjectPlaybook(
                 project_id=project_id,
                 content_md=entry,
                 version=1,
+                last_appended_episode_id=episode_id,
             )
             s.add(pb)
+        elif content_changed:
+            pb.content_md = (pb.content_md + "\n" + entry).strip() + "\n"
+            pb.version = (pb.version or 1) + 1
+            pb.last_appended_episode_id = episode_id
         else:
-            if entry.strip() not in pb.content_md:
-                pb.content_md = (pb.content_md + "\n" + entry).strip() + "\n"
-                pb.version = (pb.version or 1) + 1
+            # 弱幂等命中：内容已存在，仅同步 anchor 字段（迁移期间统一化）
+            if episode_id is not None:
+                pb.last_appended_episode_id = episode_id
         return pb
     except Exception:  # noqa: BLE001
         logger.warning("update_playbook project#%s failed（静默降级）", project_id, exc_info=True)

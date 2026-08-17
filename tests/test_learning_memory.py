@@ -221,6 +221,47 @@ def test_update_playbook_append_and_idempotent(session):
     assert pb.version == 2
 
 
+def test_update_playbook_strong_idempotency_via_episode_id(session):
+    """强幂等：传 episode_id 后，schema 锚点 last_appended_episode_id 阻挡重复追加。
+
+    覆盖 Story 268 切片 3 强幂等：替代旧版字符串包含判断（手动 trim /
+    markdown 折叠后等价内容字符串不同 → 重复追加）。
+    """
+    u, p, st = _mk(session)
+    # 真实业务路径：经 set_status 落库时，episode_id=t.id
+    t = _mk_task(session, u, p, st, title="终态落 playbook 测试")
+    _done(session, t, u)
+    session.commit()
+    pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
+    assert pb.last_appended_episode_id == t.id
+    assert pb.version == 1
+    content_len_first = len(pb.content_md)
+
+    # 模拟「同一 task 终态再被触发一次」（例如 re-open → done 重复路径）：
+    # 即使 summary 文本不同，强幂等也应当跳过。
+    lm.update_playbook(
+        session,
+        project_id=p.id,
+        task_type="dev",
+        summary="重写后的新摘要文本",
+        outcome="success",
+        episode_id=t.id,
+    )
+    session.commit()
+    pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
+    assert pb.version == 1, f"强幂等失败：version 应保持 1，实际 {pb.version}"
+    assert len(pb.content_md) == content_len_first, "强幂等失败：content_md 被追加"
+    assert pb.last_appended_episode_id == t.id, "anchor 应保持为同一 episode_id"
+
+    # 切换到新 episode_id → 应允许追加
+    t2 = _mk_task(session, u, p, st, title="第二个 task 触发的 playbook")
+    _done(session, t2, u)
+    session.commit()
+    pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
+    assert pb.version == 2
+    assert pb.last_appended_episode_id == t2.id
+
+
 def test_get_playbook_empty_and_filled(session):
     u, p, st = _mk(session)
     empty = lm.get_playbook(session, project_id=p.id)
