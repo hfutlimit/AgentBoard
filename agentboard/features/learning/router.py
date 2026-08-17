@@ -132,7 +132,10 @@ def playbook_append_api(
     if pb is None:
         raise InvalidValue("playbook 更新失败（详见服务端日志）")
     s.commit()
-    return {"project_id": project_id, "version": pb.version}
+    # 8/18 review P2：version 派生自 len(entries)；ProjectPlaybook.version
+    # 列不再被维护，这里直接调 get_playbook 拿权威值（与 GET 端点保持一致）。
+    pb_data = learning_memory.get_playbook(s, project_id=project_id)
+    return {"project_id": project_id, "version": pb_data["version"]}
 
 
 @router.get("/api/learning/recall")

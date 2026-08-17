@@ -77,7 +77,7 @@ class EpisodeEmbedding(Base):
 
 
 class ProjectPlaybook(Base):
-    """项目级 Playbook 元数据（Story 268 切片 3 + 8/17 review P1 #2 长期方案）。
+    """项目级 Playbook 元数据（Story 268 切片 3 + 8/17 review P1 #2 长期方案 + 8/18 review P2）。
 
     **设计变更（8/17 review P1 #2 长期方案）**：
     - 旧版 ``content_md`` 字段被移除。content_md 之前同时承担「展示」
@@ -90,6 +90,15 @@ class ProjectPlaybook(Base):
       新版 version = entries 数量（**单调**与「新增 entry 次数」一一对应，
       DB 真相关于 entries INSERT 次数）。
     - ``last_appended_episode_id`` 保留为展示字段。
+
+    **8/18 review P2 进一步收紧**：
+    - ``ProjectPlaybook.version`` 字段不再在写路径维护（旧实现
+      ``(pb.version or 0) + 1`` 是 read-modify-write，并发不同 episode
+      同时追加会 lost update——version=11 但 entries=12）。
+    - 读路径 ``memory.get_playbook`` 永远返回 ``version = len(entries)``，
+      与「新增 entry 次数」一一对应、单调、无竞争。
+    - ``ProjectPlaybook.version`` 列保留仅作向后兼容（默认 0），后续
+      可通过单独 migration drop 掉。
     """
 
     __tablename__ = "project_playbook"

@@ -212,6 +212,30 @@ def test_import_tasks_from_json_per_item_isolation(session):
         assert t is not None, f"task id={entry['id']} title={entry['title']!r} 不在 DB"
         assert t.title == entry["title"]
 
+    # === 8/18 review P3：直接 by-id 回归断言（防"API 报成功但 DB 丢数据"型 bug）===
+    # 之前 issubset 检查只比对 title，没保证"API 返回的 id 一定能在 DB 查到"——
+    # 极端情况下如果 import 接口用 stale id 字段（如内存对象 id）填充
+    # imported 列表但实际 INSERT 失败，issubset 仍会假阳性通过。新增直接
+    # ``id IN (...)`` 断言：API 报"导入成功 N 条"，就**必须**能查回 N 条。
+    imported_ids = [x["id"] for x in result["imported"]]
+    persisted_by_id = (
+        session.query(Task).filter(Task.id.in_(imported_ids)).all()
+    )
+    assert len(persisted_by_id) == len(imported_ids), (
+        f"by-id 回归断言：API imported {len(imported_ids)} 条，"
+        f"DB 仅查回 {len(persisted_by_id)} 条 "
+        f"(ids={imported_ids}, 查回 ids={[t.id for t in persisted_by_id]})"
+        f"—— 'response 说成功但 DB 实际丢数据' 类 bug 复发？"
+    )
+    # set-equal 精确校验：ids 集合与 titles 集合都一一对应
+    assert {t.id for t in persisted_by_id} == set(imported_ids), (
+        f"id 集合不匹配：API={imported_ids}，DB={[t.id for t in persisted_by_id]}"
+    )
+    assert {t.title for t in persisted_by_id} == {"OK 1", "OK 2"}, (
+        f"title 集合不匹配：DB 应仅含 'OK 1' / 'OK 2'，"
+        f"实际 { {t.title for t in persisted_by_id} }"
+    )
+
 
 def test_import_tasks_from_json_savepoint_isolates_db_integrity_error(session):
     """8/17 review P1 #2 修复验收：SAVEPOINT 在 DB 阶段异常（IntegrityError）

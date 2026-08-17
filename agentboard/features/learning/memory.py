@@ -298,38 +298,41 @@ def update_playbook(s, *, project_id: int, task_type: str, summary: str,
                     outcome: str = "success",
                     episode_id: int | None = None,
                     weight: float = 1.0) -> ProjectPlaybook | None:
-    """按 episode outcome 追加 playbook pattern（8/17 review P1 #2 长期方案）。
+    """按 episode outcome 写入 playbook pattern（8/17 review P1 #2 长期方案 + 8/18 review）。
 
     数据模型变更：旧版把 pattern 拼到 ``ProjectPlaybook.content_md`` 字符串
     末尾（read-modify-write，并发必然 lost update）。新版直接 ``INSERT`` 一
     条 ``ProjectPlaybookEpisode`` entry，content_md **不再**存储，
     每次 ``get_playbook`` 时由 entries 实时渲染。
 
-    幂等机制：
+    幂等 / UPSERT 机制：
 
-    1. **强幂等（DB 唯一约束）**：（project_id, episode_id）UNIQUE → 同 episode
-       重复 ``update_playbook`` 直接 IntegrityError，跨 session / 跨线程
-       并发 DB 仲裁。
-    2. **弱幂等（entry 字段去重）**：未传 ``episode_id`` 时（手动整理 / 旧
-       调用方），按 (project_id, task_type, outcome, summary) 字段精确匹配
-       已存在 entry 跳过；**不**再用 markdown 字符串包含（race condition
-       太多）。
+    1. **传 ``episode_id``**（业务主路径：终态任务经 ``set_status`` 触发）：
+       与 ``EpisodeEmbedding`` 对齐（episode_id=task_id 唯一）—— 同 (project,
+       episode) 重复触发时 **UPSERT**（覆盖 outcome / summary / weight）。
+       这是 8/18 review 修的关键语义：blocked → reopen → done 后，playbook
+       entry 必须从 failure 同步更新为 success，不能永久保留"踩坑 pattern"
+       污染后续 Agent prompt。RAG 与 Playbook 同一 episode 的两条 learning
+       数据，从此保持一致。
+    2. **不传 ``episode_id``**（手动整理 / 旧调用方）：弱幂等，按
+       (project_id, task_type, outcome, summary) 字段精确匹配已存在 entry
+       跳过；**不**再用 markdown 字符串包含（race condition 太多）。
 
     调用方负责 commit。失败静默降级；DB 约束冲突不算"失败"，按幂等正常返回。
 
     ⚠️ 不再有任何「读 A → 改 → 写回 content_md」的中间态：
-    entries 表是 append-only INSERT，并发 lost update 风险被消除。
+    entries 表是 append-only / upsert-by-episode，并发 lost update 风险被消除。
+
+    ⚠️ 8/18 review P2：``ProjectPlaybook.version`` **不再维护**。该字段语义
+    本质是「已追加 entry 数」，与 ``len(entries)`` 1:1 对应；之前用
+    ``pb.version = (pb.version or 0) + 1`` 是 read-modify-write，并发下
+    lost update → version=11 但 entries=12 的可漂移状态。修复：``get_playbook``
+    永远返回 ``version = len(entries)``，写路径不再写 version 字段。
     """
     try:
         outcome = _normalize_outcome(outcome)
 
-        # ---- 强幂等：DB 唯一约束 ----
-        # 两层防御：
-        # (a) 显式 SELECT 预检：避免对已存在的 (project, episode) 调用 s.add()
-        #     ——SQLAlchemy 会发 SAWarning（new instance conflicts with persistent），
-        #     同时省掉一次 INSERT 往返。
-        # (b) SAVEPOINT + IntegrityError：真正的 DB 仲裁，并发场景下另一 session
-        #     在我们 SELECT 之后 INSERT 同一行时触发。
+        # ---- 强路径：传 episode_id，UPSERT 语义 ----
         if episode_id is not None:
             existing_ppe = s.execute(
                 select(ProjectPlaybookEpisode).where(
@@ -338,39 +341,45 @@ def update_playbook(s, *, project_id: int, task_type: str, summary: str,
                 )
             ).scalar_one_or_none()
             if existing_ppe is not None:
-                logger.debug(
-                    "update_playbook project#%s 跳过：episode_id=%s 已记录（预检命中）",
-                    project_id, episode_id,
-                )
-                pb_now = s.execute(
-                    select(ProjectPlaybook).where(ProjectPlaybook.project_id == project_id)
-                ).scalar_one_or_none()
-                return pb_now
-
-            try:
-                with s.begin_nested():
-                    s.add(ProjectPlaybookEpisode(
-                        project_id=project_id,
-                        episode_id=episode_id,
-                        task_type=task_type,
-                        outcome=outcome,
-                        summary=summary,
-                        weight=weight,
-                    ))
-                    s.flush()
-                # flush 成功 → 全新 episode；下面 upsert ProjectPlaybook 元数据。
-            except IntegrityError:
-                # 并发兜底：另一 session 在我们 SELECT 之后 INSERT 了同一行。
-                logger.debug(
-                    "update_playbook project#%s 跳过：episode_id=%s 并发冲突（DB 唯一约束命中）",
-                    project_id, episode_id,
-                )
-                pb_now = s.execute(
-                    select(ProjectPlaybook).where(ProjectPlaybook.project_id == project_id)
-                ).scalar_one_or_none()
-                return pb_now
+                # 8/18 review P1：UPSERT，覆盖 outcome / summary / weight。
+                # 与 EpisodeEmbedding episode_id=task_id 唯一 + 终态覆盖语义对齐。
+                # blocked → reopen → done 后，playbook entry 从 failure 同步
+                # 变成 success（防"两个 learning source 给出相反经验"）。
+                existing_ppe.task_type = task_type
+                existing_ppe.outcome = outcome
+                existing_ppe.summary = summary
+                existing_ppe.weight = weight
+            else:
+                try:
+                    with s.begin_nested():
+                        s.add(ProjectPlaybookEpisode(
+                            project_id=project_id,
+                            episode_id=episode_id,
+                            task_type=task_type,
+                            outcome=outcome,
+                            summary=summary,
+                            weight=weight,
+                        ))
+                        s.flush()
+                except IntegrityError:
+                    # 并发兜底：另一 session 在我们 SELECT 之后 INSERT 了同一行。
+                    # 重新 SELECT 并 UPSERT（与 EpisodeEmbedding 终态覆盖语义一致）。
+                    logger.debug(
+                        "update_playbook project#%s UPSERT 兜底：episode_id=%s 并发冲突后重 SELECT",
+                        project_id, episode_id,
+                    )
+                    existing_ppe = s.execute(
+                        select(ProjectPlaybookEpisode).where(
+                            ProjectPlaybookEpisode.project_id == project_id,
+                            ProjectPlaybookEpisode.episode_id == episode_id,
+                        )
+                    ).scalar_one()
+                    existing_ppe.task_type = task_type
+                    existing_ppe.outcome = outcome
+                    existing_ppe.summary = summary
+                    existing_ppe.weight = weight
         else:
-            # ---- 弱幂等：未传 episode_id 时按 entry 字段去重 ----
+            # ---- 弱路径：未传 episode_id，弱幂等跳过 ----
             # 精确匹配 (task_type, outcome, summary)，命中则跳过。
             existing = s.execute(
                 select(ProjectPlaybookEpisode).where(
@@ -401,8 +410,10 @@ def update_playbook(s, *, project_id: int, task_type: str, summary: str,
             ))
             s.flush()
 
-        # ---- upsert ProjectPlaybook 元数据（仅更新 version + last_appended） ----
-        # content_md 已退化为派生数据，不再写入。
+        # ---- 维护 ProjectPlaybook 元数据（仅 last_appended；version 派生自 entries） ----
+        # 8/18 review P2：version 字段不再 read-modify-write，``get_playbook`` 用
+        # ``len(entries)`` 派生（条目数量就是 source of truth）。这里只更新
+        # ``last_appended_episode_id`` 作为展示字段（最近一次触发的 episode）。
         #
         # ⚠️ 8/17 review P1 #2 长期方案发现：``ProjectPlaybook.project_id``
         # UNIQUE 在并发 upsert 时也会触发 IntegrityError（两个 session 都
@@ -416,7 +427,7 @@ def update_playbook(s, *, project_id: int, task_type: str, summary: str,
                 with s.begin_nested():
                     pb = ProjectPlaybook(
                         project_id=project_id,
-                        version=1,
+                        version=0,  # 派生字段，初始化 0；get_playbook 永远返回 len(entries)
                         last_appended_episode_id=episode_id,
                     )
                     s.add(pb)
@@ -426,11 +437,10 @@ def update_playbook(s, *, project_id: int, task_type: str, summary: str,
                 pb = s.execute(
                     select(ProjectPlaybook).where(ProjectPlaybook.project_id == project_id)
                 ).scalar_one()
-                pb.version = (pb.version or 0) + 1
                 if episode_id is not None:
                     pb.last_appended_episode_id = episode_id
         else:
-            pb.version = (pb.version or 0) + 1
+            # 不再 pb.version += 1；version 在 get_playbook 派生自 len(entries)。
             if episode_id is not None:
                 pb.last_appended_episode_id = episode_id
         return pb
@@ -440,18 +450,25 @@ def update_playbook(s, *, project_id: int, task_type: str, summary: str,
 
 
 def get_playbook(s, *, project_id: int) -> dict:
-    """读取项目 playbook（8/17 review P1 #2 长期方案：content_md 实时渲染）。
+    """读取项目 playbook（8/17 review P1 #2 长期方案 + 8/18 review P2）。
 
     content_md 字段在响应里**仍然存在**（保留 API 契约），但**不再存
     数据库**——每次读时从 ``ProjectPlaybookEpisode`` entries 表
     按 ``id ASC`` 顺序拼出。这样彻底消除旧版 ``content_md`` 字符串
     read-modify-write 的并发 lost update 风险。
 
+    8/18 review P2：``version`` 字段**完全派生自 ``len(entries)``**——
+    旧版 ``ProjectPlaybook.version`` 写路径用 ``(pb.version or 0) + 1``
+    read-modify-write，两个不同 episode 并发追加时会 lost update
+    （version=11 但 entries=12 的可漂移状态）。现在 ``update_playbook``
+    不再写 version 列；本函数直接按 ``len(entries)`` 计算，与「新增
+    entry 次数」一一对应、单调、无竞争。``ProjectPlaybook.version`` 列
+    保留仅作向后兼容（默认 0，不再被读路径使用）。
+
     返回字典字段：
     - ``project_id``: int
     - ``content_md``: str（实时渲染自 entries）
-    - ``version``: int（ProjectPlaybook.version；若 ProjectPlaybook 不存在则
-      用 entries 数量填充，保持对外「新增 entry 次数」语义单调）
+    - ``version``: int（== len(entries)；与「已追加 entry 数」一一对应）
     - ``episodes``: int（entries 数量 = playbook 经验数）
     - ``last_compressed_at``: str | None（ISO 格式；ProjectPlaybook 元数据）
     """
@@ -470,7 +487,7 @@ def get_playbook(s, *, project_id: int) -> dict:
         return {
             "project_id": project_id,
             "content_md": "",
-            "version": pb.version if pb is not None else 0,
+            "version": 0,  # 8/18 P2：派生自 len(entries)，空时为 0
             "episodes": 0,
             "last_compressed_at": pb.last_compressed_at.isoformat() if pb and pb.last_compressed_at else None,
         }
@@ -482,8 +499,9 @@ def get_playbook(s, *, project_id: int) -> dict:
     return {
         "project_id": project_id,
         "content_md": content_md,
-        # version 优先取 ProjectPlaybook.version（最权威），缺失时回退 entries 数量
-        "version": pb.version if pb is not None and pb.version is not None else len(entries),
+        # 8/18 P2：version 完全派生自 len(entries)；不再读 ProjectPlaybook.version
+        # （DB 列保留兼容，但写路径不再维护它）。
+        "version": len(entries),
         "episodes": len(entries),
         "last_compressed_at": pb.last_compressed_at.isoformat() if pb and pb.last_compressed_at else None,
     }

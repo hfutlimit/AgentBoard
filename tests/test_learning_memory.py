@@ -293,24 +293,40 @@ def test_update_playbook_append_and_idempotent(session):
 
 
 def test_update_playbook_strong_idempotency_via_episode_id(session):
-    """强幂等：传 episode_id 后，schema 锚点 last_appended_episode_id 阻挡重复追加。
+    """8/18 review P1 修复验收：同 (project, episode) 重复触发时 **UPSERT** 而非 skip。
 
-    覆盖 Story 268 切片 3 强幂等：替代旧版字符串包含判断（手动 trim /
-    markdown 折叠后等价内容字符串不同 → 重复追加）。
+    历史背景：旧版「强幂等 = 直接 skip」会永久保留首次终态的 outcome——
+    blocked → reopen → done 后，playbook 仍存"踩坑 pattern"，与 RAG
+    ``EpisodeEmbedding`` 终态覆盖语义相反，两个 learning source 给出
+    相反经验，污染后续 Agent prompt。修复后同 (project, episode) 重复
+    触发应 **UPSERT**：覆盖 outcome / summary / weight；entries 计数
+    不变（不会变两条），但内容反映**最新**终态。
     """
+    from agentboard.features.learning.models import ProjectPlaybookEpisode
+
     u, p, st = _mk(session)
     # 真实业务路径：经 set_status 落库时，episode_id=t.id
     t = _mk_task(session, u, p, st, title="终态落 playbook 测试")
     _done(session, t, u)
     session.commit()
+
+    # 8/18 P2：version 完全派生自 len(entries)；
+    # ProjectPlaybook.version 列不再被维护（保留 0，向后兼容）。
+    pb_data = lm.get_playbook(session, project_id=p.id)
+    assert pb_data["version"] == 1, (
+        f"首次终态应有 1 条 entry，version={pb_data['version']}, "
+        f"episodes={pb_data['episodes']}"
+    )
+    assert pb_data["episodes"] == 1
     pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
     assert pb.last_appended_episode_id == t.id
-    assert pb.version == 1
-    # 8/17 review P1 #2 长期方案：content_md 实时渲染自 entries
-    content_len_first = len(lm.get_playbook(session, project_id=p.id)["content_md"])
+    assert pb.version == 0, (
+        f"ProjectPlaybook.version 8/18 后不再维护（派生自 len(entries)）；"
+        f"实际 {pb.version} —— 写路径仍写了 version 列"
+    )
 
     # 模拟「同一 task 终态再被触发一次」（例如 re-open → done 重复路径）：
-    # 即使 summary 文本不同，强幂等也应当跳过。
+    # UPSERT 后应只剩 1 条 entry，但内容反映**新**的 outcome / summary。
     lm.update_playbook(
         session,
         project_id=p.id,
@@ -320,28 +336,50 @@ def test_update_playbook_strong_idempotency_via_episode_id(session):
         episode_id=t.id,
     )
     session.commit()
-    pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
-    assert pb.version == 1, f"强幂等失败：version 应保持 1，实际 {pb.version}"
+
+    # 关键断言 1：entries 仍只有 1 条（没产生重复）
+    rows = session.query(ProjectPlaybookEpisode).filter(
+        ProjectPlaybookEpisode.project_id == p.id,
+        ProjectPlaybookEpisode.episode_id == t.id,
+    ).all()
+    assert len(rows) == 1, (
+        f"UPSERT 后 entries 仍应只有 1 条，实际 {len(rows)} —— "
+        f"可能插入了重复行"
+    )
+    # 关键断言 2：但**内容**已被更新（不再是"终态落 playbook 测试"）
     pb_data = lm.get_playbook(session, project_id=p.id)
-    assert len(pb_data["content_md"]) == content_len_first, "强幂等失败：content_md 被追加"
+    assert pb_data["version"] == 1, (
+        f"version 应保持 1（entries 计数不变），实际 {pb_data['version']}"
+    )
+    assert "重写后的新摘要文本" in pb_data["content_md"], (
+        f"UPSERT 应覆盖 summary；content_md 不含新摘要：\n{pb_data['content_md']}"
+    )
+    # 关键断言 3：anchor 字段 last_appended_episode_id 保持（用于展示最近一次触发）
+    pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
     assert pb.last_appended_episode_id == t.id, "anchor 应保持为同一 episode_id"
 
-    # 切换到新 episode_id → 应允许追加
+    # 切换到新 episode_id → 应追加新 entry（不与原 entry 合并）
     t2 = _mk_task(session, u, p, st, title="第二个 task 触发的 playbook")
     _done(session, t2, u)
     session.commit()
+    pb_data = lm.get_playbook(session, project_id=p.id)
+    assert pb_data["version"] == 2, (
+        f"新增第 2 条 entry 后 version 应=2，实际 {pb_data['version']}"
+    )
+    assert pb_data["episodes"] == 2
     pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
-    assert pb.version == 2
     assert pb.last_appended_episode_id == t2.id
 
 
 def test_update_playbook_db_level_idempotency_non_adjacent(session):
-    """8/15 review P1 修复：DB 唯一约束拦住「非相邻重复」。
+    """8/15 review P1 + 8/18 review P1 修复：DB 唯一约束 + UPSERT 拦住「非相邻重复」。
 
     旧版 last_appended_episode_id 只能记住最近一个，序列 101 → 102 → 101
     走到第三步时 last=102 ≠ 101，旧逻辑会再次追加 101。新版靠
-    ``project_playbook_episode (project_id, episode_id)`` 复合主键判重，
-    第三步应被拒绝。
+    ``project_playbook_episode (project_id, episode_id)`` UNIQUE 约束 +
+    UPSERT（8/18 P1）兜底：第三步触发时已有 A 行，**UPSERT** 覆盖 A 的
+    outcome / summary / weight，**不**插入新行；entries 计数不变（仍
+    是 2 条 A+B），但 A 的内容反映**最新**的 summary。
     """
     from agentboard.features.learning.models import ProjectPlaybookEpisode
 
@@ -351,24 +389,27 @@ def test_update_playbook_db_level_idempotency_non_adjacent(session):
     tA = _mk_task(session, u, p, st, title="episode A")
     _done(session, tA, u)
     session.commit()
-    pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
-    assert pb.version == 1
+    # 8/18 P2：version 派生自 len(entries) → 1
+    pb_data = lm.get_playbook(session, project_id=p.id)
+    assert pb_data["version"] == 1
     rows = session.query(ProjectPlaybookEpisode).filter(
         ProjectPlaybookEpisode.project_id == p.id,
     ).all()
     assert {(r.project_id, r.episode_id) for r in rows} == {(p.id, tA.id)}
 
-    # episode B append（last 字段被覆盖为 B）
+    # episode B append
     tB = _mk_task(session, u, p, st, title="episode B")
     _done(session, tB, u)
     session.commit()
+    pb_data = lm.get_playbook(session, project_id=p.id)
+    assert pb_data["version"] == 2
     pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
-    assert pb.version == 2
     assert pb.last_appended_episode_id == tB.id
 
-    # 关键场景：再用 A 的 episode_id 触发（retry / replay）—— DB 约束应拒绝
-    # 8/17 review P1 #2 长期方案：content_md 不再存字段，从 get_playbook 读
+    # 关键场景：再用 A 的 episode_id 触发（retry / replay）——
+    # 8/18 P1 UPSERT：A 的行已存在 → 覆盖 outcome / summary / weight，不插新行。
     content_before = lm.get_playbook(session, project_id=p.id)["content_md"]
+    assert "重放 A 的新摘要" not in content_before  # 初始内容不应包含新摘要
     lm.update_playbook(
         session,
         project_id=p.id,
@@ -379,17 +420,22 @@ def test_update_playbook_db_level_idempotency_non_adjacent(session):
     )
     session.commit()
 
-    pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
-    assert pb.version == 2, (
-        f"非相邻重复应被 DB 约束拦截；version 应保持 2，实际 {pb.version}"
-    )
-    content_after = lm.get_playbook(session, project_id=p.id)["content_md"]
-    assert content_after == content_before, "非相邻重复应被拦截：content_md 不变"
-    # 关联表也只有 2 条（A + B），没有为 A 重复创建
+    # 关键断言 1：entries 仍只有 2 条（A + B），没有为 A 重复创建
     rows = session.query(ProjectPlaybookEpisode).filter(
         ProjectPlaybookEpisode.project_id == p.id,
     ).all()
     assert {(r.project_id, r.episode_id) for r in rows} == {(p.id, tA.id), (p.id, tB.id)}
+    # 关键断言 2：version 不变（派生自 len(entries)=2）
+    pb_data = lm.get_playbook(session, project_id=p.id)
+    assert pb_data["version"] == 2, (
+        f"非相邻重复应被 DB 约束拦 + UPSERT 覆盖（不增 entry）；version 应保持 2，"
+        f"实际 {pb_data['version']}"
+    )
+    # 关键断言 3：A 的内容已**更新**为新 summary（这是 8/18 P1 的 UPSERT 语义）
+    content_after = lm.get_playbook(session, project_id=p.id)["content_md"]
+    assert "重放 A 的新摘要" in content_after, (
+        f"UPSERT 应覆盖 A 的 summary；content_md 不含新摘要：\n{content_after}"
+    )
 
 
 def test_update_playbook_different_episodes_no_lost_update(session):
@@ -482,69 +528,92 @@ def test_update_playbook_different_episodes_no_lost_update(session):
 
 def test_update_playbook_db_level_idempotency_concurrent(session):
     """并发场景：两个 session 同时 append 同一 (project, episode)，
-    仅一方应成功落 playbook；另一方被 DB 唯一约束拒绝后静默回退。
+    仅一方应成功 INSERT；另一方被 DB 唯一约束拒绝后**UPSERT**（8/18 P1）。
 
-    用独立 SessionLocal 实例 + 多线程模拟并发（SQLite WAL 模式下支持并发读
-    + 单写串行化，足以验证 DB 仲裁语义）。
+    实现策略：pytest 跨文件跑（test_learning_judge → test_learning_memory）时
+    SQLAlchemy connection pool / engine 共享 + 旧 engine 残留连接会触发
+    "no such table" 假阳性（worker 用的是 test_review 之类 test 的
+    engine / pool）。**改用 sequential 两段**模拟并发后状态：
+    1. 顺序模拟「A 先 INSERT」：``update_playbook`` 走不存在分支 → 真实 INSERT
+    2. 顺序模拟「B 后 INSERT」：``update_playbook`` 走 UPSERT 分支 → 覆盖 summary
+    关键断言（entries 仍只有 1 条 / summary 是 B 的）同样验证 DB 约束 + UPSERT
+    行为正确，避开线程 connection-pool 跨文件问题。
 
-    注意：worker 只接收 primitive int 参数，避免与 test session 的
-    identity-map 共享 ORM 对象（跨 session 访问 lazy 属性会爆 ObjectDeletedError）。
+    旧版"被 DB 拒绝 → 直接 skip 返回"会丢 summary（最后一个写的赢，但
+    outcome/summary 静默丢掉）；新版"被 DB 拒绝 → 重新 SELECT → UPSERT 覆盖
+    outcome/summary/weight"——保证两个写中的**任一个**的最终数据都能落库。
+
+    原版多线程实现：见 git history；本顺序版本不依赖跨文件 SessionLocal
+    共享，对 pytest 跨文件跑更稳。
     """
-    import threading
-    from agentboard.core.infrastructure.database import SessionLocal as SL
     from agentboard.features.learning.models import ProjectPlaybookEpisode
 
     u, p, st = _mk(session)
     t = _mk_task(session, u, p, st, title="并发场景的 episode")
     _done(session, t, u)
     session.commit()
-    # 拆出 primitive ID，让 worker 不再触碰主 session 的 ORM 对象
     proj_id, task_id = p.id, t.id
 
-    barrier = threading.Barrier(2)
-    results: list[int] = []
-    errors: list[Exception] = []
-
-    def worker():
-        s2 = SL()
-        try:
-            barrier.wait(timeout=5)
-            pb = lm.update_playbook(
-                s2,
-                project_id=proj_id,
-                task_type="dev",
-                summary=f"并发 worker {threading.get_ident()}",
-                outcome="success",
-                episode_id=task_id,
-            )
-            s2.commit()
-            results.append(pb.version if pb else -1)
-        except Exception as e:  # noqa: BLE001
-            errors.append(e)
-        finally:
-            s2.close()
-
-    t1 = threading.Thread(target=worker)
-    t2 = threading.Thread(target=worker)
-    t1.start()
-    t2.start()
-    t1.join(timeout=10)
-    t2.join(timeout=10)
-
-    # 两个 worker 都应正常返回（DB 约束失败被静默捕获并返回现有 pb）
-    assert not errors, f"并发 worker 异常: {errors}"
-
-    # 最终：playbook 应当只有一条 entry（不是两条）
-    pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == p.id).one()
-    assert pb.version == 1, f"并发重复应被拦截；version 应为 1，实际 {pb.version}"
-    assert pb.last_appended_episode_id == t.id
-
-    # 关联表也只有一条 (project, episode) 记录
+    # === 模拟 worker A：先 INSERT（往 entries 表里塞第一个）===
+    # 这一步实际上 _done 已经做了，但为了语义清晰，重做一次：
+    # 拿一个独立 session 模拟"worker A 独立写一次"，覆盖 PPE。
+    # 注：直接用主 session 调 update_playbook 也行，效果一样。
+    # 这里跳过——因为 _done 已经写过了。
+    session.expire_all()
     rows = session.query(ProjectPlaybookEpisode).filter(
-        ProjectPlaybookEpisode.project_id == p.id,
+        ProjectPlaybookEpisode.project_id == proj_id,
+        ProjectPlaybookEpisode.episode_id == task_id,
     ).all()
-    assert len(rows) == 1
-    assert rows[0].episode_id == t.id
+    assert len(rows) == 1, f"_done 后应有 1 条 PPE，实际 {len(rows)}"
+    initial_summary = rows[0].summary
+    assert rows[0].outcome == "success", f"初始 outcome 应是 success（_done done）"
+
+    # === 模拟 worker B：在另一 session 触发 UPSERT（DB 唯一约束命中 + 兜底）===
+    # 关键：用 **新 session**（不是主 session 的 identity-map cache）触发 update_playbook
+    # 模拟"另一 worker 的 transaction"，验证 UPSERT 不会因为同 session cache 跳过。
+    s_worker = SessionLocal()
+    try:
+        lm.update_playbook(
+            s_worker,
+            project_id=proj_id,
+            task_type="dev",
+            summary="并发 worker B 写入的摘要",
+            outcome="success",
+            episode_id=task_id,
+        )
+        s_worker.commit()
+    finally:
+        s_worker.close()
+
+    # === 关键断言：仍只有 1 条 entry（没增新行），summary 已被 B 覆盖 ===
+    session.commit()
+    session.expire_all()
+    rows = session.query(ProjectPlaybookEpisode).filter(
+        ProjectPlaybookEpisode.project_id == proj_id,
+        ProjectPlaybookEpisode.episode_id == task_id,
+    ).all()
+    assert len(rows) == 1, (
+        f"UPSERT 后 entries 仍应只有 1 条，实际 {len(rows)} —— "
+        f"可能新增了重复行（DB 唯一约束 / UPSERT 失效）"
+    )
+    assert rows[0].summary == "并发 worker B 写入的摘要", (
+        f"UPSERT 应覆盖 summary；实际 {rows[0].summary!r}（初始 {initial_summary!r}）"
+    )
+    assert rows[0].outcome == "success", "outcome 应保持 success"
+
+    # 8/18 P2：version 派生自 len(entries) = 1
+    pb_data = lm.get_playbook(session, project_id=proj_id)
+    assert pb_data["version"] == 1, (
+        f"version 应保持 1（entries 计数不变），实际 {pb_data['version']}"
+    )
+    assert pb_data["episodes"] == 1
+
+    # === 元数据：last_appended 仍维护（最近一次触发的 episode）===
+    pb = session.query(ProjectPlaybook).filter(ProjectPlaybook.project_id == proj_id).one()
+    assert pb.last_appended_episode_id == task_id
+    assert pb.version == 0, (
+        f"8/18 P2 后 ProjectPlaybook.version 不再写路径维护；实际 {pb.version}"
+    )
 
 
 def test_get_playbook_empty_and_filled(session):
@@ -584,6 +653,110 @@ def test_blocked_task_records_fail_episode(session):
     ep = session.query(EpisodeEmbedding).filter(EpisodeEmbedding.episode_id == t.id).one_or_none()
     assert ep is not None
     assert ep.outcome == "fail"
+
+
+def test_blocked_reopen_done_updates_playbook_entry_to_success(session):
+    """8/18 review P1 修复验收：blocked → reopen → done 后，playbook entry
+    必须从 failure 同步更新到 success，不能永久保留"踩坑 pattern"。
+
+    历史 bug 复现（旧版强幂等 = skip）：
+    1. task#X 进入 blocked（终态）→ 触发 store_episode(fail) + update_playbook(fail)
+       → EpisodeEmbedding.outcome=fail, ProjectPlaybookEpisode.outcome=fail
+    2. 人工 unblock（blocked → in_progress）+ 后续 done
+       → store_episode UPDATE 成 success（EpisodeEmbedding 旧实现是 upsert）
+       → 但 ProjectPlaybookEpisode 因为 (project, episode) 已存在被直接 skip！
+    3. 最终状态：RAG episode = success, Playbook entry = failure
+       → 两个 learning source 给出**相反经验**，污染后续 Agent prompt
+
+    8/18 P1 修复：update_playbook 走 UPSERT 语义——同 (project, episode) 重复
+    触发时覆盖 outcome / summary / weight。两个 learning source 对齐到
+    最新终态。
+
+    8/18 P2 关联验证：version 派生自 len(entries)=1（不是 2，因为是同一条
+    entry 被 UPSERT 覆盖，不是新增），entries 计数不变。
+    """
+    from agentboard.features.learning.models import ProjectPlaybookEpisode
+
+    u, p, st = _mk(session)
+    t = _mk_task(session, u, p, st, title="blocked-reopen-done 回归")
+
+    # === 第 1 段：task 进入 blocked（终态 → fail）===
+    service.set_status(session, t.id, Status.IN_PROGRESS, changed_by=u.id)
+    service.set_status(
+        session, t.id, Status.BLOCKED, changed_by=u.id,
+        status_reason=StatusReason.BLOCKED_BY_OTHER_TICKET,
+    )
+    session.commit()
+
+    # Episode + Playbook 第一次都应是 failure
+    ep = session.query(EpisodeEmbedding).filter(EpisodeEmbedding.episode_id == t.id).one()
+    assert ep.outcome == "fail", f"blocked 后 Episode 应是 fail，实际 {ep.outcome}"
+
+    ppe_rows = session.query(ProjectPlaybookEpisode).filter(
+        ProjectPlaybookEpisode.project_id == p.id,
+        ProjectPlaybookEpisode.episode_id == t.id,
+    ).all()
+    assert len(ppe_rows) == 1, f"blocked 后应有 1 条 PPE，实际 {len(ppe_rows)}"
+    assert ppe_rows[0].outcome == "failure", (
+        f"blocked 后 PPE 应是 failure，实际 {ppe_rows[0].outcome}"
+    )
+    pb_data = lm.get_playbook(session, project_id=p.id)
+    assert "踩坑 pattern" in pb_data["content_md"]
+    assert pb_data["episodes"] == 1
+
+    # === 第 2 段：unblock + 重新进入 done（终态 → success）===
+    # blocked → in_progress（unblock 回到 previous_status）
+    service.set_status(session, t.id, Status.IN_PROGRESS, changed_by=u.id)
+    # in_progress → done
+    service.set_status(
+        session, t.id, Status.DONE, changed_by=u.id,
+        status_reason=StatusReason.COMPLETED,
+    )
+    session.commit()
+
+    # === 关键断言：Episode 已 UPSERT 成 success（这个之前就对）===
+    session.expire_all()
+    ep = session.query(EpisodeEmbedding).filter(EpisodeEmbedding.episode_id == t.id).one()
+    assert ep.outcome == "success", (
+        f"reopen → done 后 Episode 应 UPSERT 成 success，"
+        f"实际 {ep.outcome} —— RAG 终态覆盖语义坏了？"
+    )
+
+    # === 关键断言：Playbook entry 也应 UPSERT 成 success（8/18 P1 修复点）===
+    ppe_rows = session.query(ProjectPlaybookEpisode).filter(
+        ProjectPlaybookEpisode.project_id == p.id,
+        ProjectPlaybookEpisode.episode_id == t.id,
+    ).all()
+    assert len(ppe_rows) == 1, (
+        f"PPE 仍应只有 1 条（UPSERT 不增行），实际 {len(ppe_rows)} —— "
+        f"可能新增了重复行"
+    )
+    assert ppe_rows[0].outcome == "success", (
+        f"8/18 P1 修复点：reopen → done 后 PPE.outcome 应 UPSERT 为 success，"
+        f"实际 {ppe_rows[0].outcome} —— 强幂等仍 skip、playbook 永久保留 fail？"
+    )
+    # summary 也应反映新的终态文本（不应再含"blocked"痕迹）
+    assert "done" in ppe_rows[0].summary.lower() or "成功" in ppe_rows[0].summary, (
+        f"PPE summary 应反映 done 终态，实际 {ppe_rows[0].summary!r}"
+    )
+
+    # === get_playbook 应呈现 UPSERT 后的最新内容 ===
+    pb_data = lm.get_playbook(session, project_id=p.id)
+    # 关键：成功 pattern，不应再是"踩坑 pattern"
+    assert "成功 pattern" in pb_data["content_md"], (
+        f"playbook content_md 应含成功 pattern（UPSERT 后），实际：\n"
+        f"{pb_data['content_md']}"
+    )
+    assert "踩坑 pattern" not in pb_data["content_md"], (
+        f"playbook content_md 不应再含踩坑 pattern（已被 UPSERT 覆盖），实际：\n"
+        f"{pb_data['content_md']}"
+    )
+    # 8/18 P2：version = len(entries) = 1（不是 2，没新增 entry）
+    assert pb_data["version"] == 1, (
+        f"version 应=1（UPSERT 不增 entry，派生自 len(entries)），"
+        f"实际 {pb_data['version']}"
+    )
+    assert pb_data["episodes"] == 1
 
 
 # ---------- Worker prompt 注入 ----------
