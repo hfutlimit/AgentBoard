@@ -46,7 +46,22 @@ def run_migrations_online() -> None:
         run(supplied_connection)
     else:
         with engine.connect() as connection:
-            run(connection)
+            # SQLite 下 batch_alter_table 会走 "create_tmp -> copy -> DROP -> rename"，
+            # 但其它表对 projects 的 FK 会让 DROP 阶段被外键约束拒绝。
+            # 迁移期间临时关闭 FK 校验（迁移完事务结束自动恢复），并加 try/rollback 兜底。
+            is_sqlite = URL.startswith("sqlite")
+            if is_sqlite:
+                connection.exec_driver_sql("PRAGMA foreign_keys = OFF")
+                try:
+                    run(connection)
+                    connection.commit()
+                except Exception:
+                    connection.rollback()
+                    raise
+                finally:
+                    connection.exec_driver_sql("PRAGMA foreign_keys = ON")
+            else:
+                run(connection)
 
 
 if context.is_offline_mode():
