@@ -163,6 +163,44 @@ def test_agent_leaderboard_aggregation(session):
     assert row["project_id"] == p.id
 
 
+def test_outcomes_group_sibling_agents_separately(session):
+    u, p, st = _mk(session)
+    first = service.register_agent(
+        session, agent_id=f"learning-a-{p.id}", name="Learning A",
+        roles='["developer"]', user_id=u.id,
+    )
+    second = service.register_agent(
+        session, agent_id=f"learning-b-{p.id}", name="Learning B",
+        roles='["developer"]', user_id=u.id,
+    )
+    for agent in (first, second):
+        task = service.create_task(
+            session, project_id=p.id, story_id=st.id,
+            title=f"Task for {agent.agent_id}",
+        )
+        service.claim_development_task(
+            session,
+            task.id,
+            user_id=u.id,
+            agent_registry_id=agent.id,
+        )
+        service.set_status(
+            session, task.id, Status.DONE, changed_by=u.id,
+            status_reason=StatusReason.COMPLETED,
+        )
+
+    rows = ls.agent_leaderboard(session, project_id=p.id)
+
+    assert {row["agent_ref"] for row in rows} == {
+        first.agent_id, second.agent_id,
+    }
+    outcomes = session.query(TaskOutcome).filter_by(project_id=p.id).all()
+    assert {outcome.agent_registry_id for outcome in outcomes} == {
+        first.id, second.id,
+    }
+    assert all(outcome.assignment_id is not None for outcome in outcomes)
+
+
 def test_leaderboard_filters_by_task_type(session):
     u, p, st = _mk(session)
     t = _mk_task(session, u, p, st)

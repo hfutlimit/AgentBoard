@@ -198,8 +198,8 @@ def _trigger_one(s, schedule: AgentSchedule, now: datetime) -> bool:
             "triggered schedule %d '%s' → run %d (idempotency_key=%s)",
             schedule.id, schedule.title, run.id, idempotency_key,
         )
-    except service.Duplicate:
-        log.info("schedule %d run already created (race), skip", schedule.id)
+    except (service.Duplicate, service.InvalidValue) as exc:
+        log.info("schedule %d run allocation skipped: %s", schedule.id, exc)
         _advance_next_run(s, schedule)
         return False
 

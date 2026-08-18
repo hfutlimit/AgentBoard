@@ -47,9 +47,16 @@ def test_db(tmp_path, monkeypatch):
 
     # patch agentboard.database（service/api/scheduler 等共用）
     import agentboard.database as db_mod
-    monkeypatch.setattr(db_mod, "engine", new_engine)
-    monkeypatch.setattr(db_mod, "SessionLocal",
-                       sessionmaker(bind=new_engine, autoflush=False, autocommit=False, future=True))
+    from agentboard.core.infrastructure import database as core_db_mod
+    for database_module in (db_mod, core_db_mod):
+        monkeypatch.setattr(database_module, "engine", new_engine)
+        monkeypatch.setattr(
+            database_module,
+            "SessionLocal",
+            sessionmaker(
+                bind=new_engine, autoflush=False, autocommit=False, future=True,
+            ),
+        )
 
     # patch scheduler 模块（直接引用 _db）
     from agentboard import scheduler as sched_mod

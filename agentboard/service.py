@@ -1011,6 +1011,8 @@ def update_task(s: Session, id: int, **fields) -> Task | None:
     # 终态 → outcome 同步落库 + 异步 judge；非终态只走 outcome（不触发 judge）。
     if status_changed and t.status in _TERMINAL_STATUSES:
         try:
+            from .features.work_items.service import finalize_task_assignment
+            finalize_task_assignment(s, t)
             from .features.work_items.service import _record_learning_outcome
             _record_learning_outcome(s, t)
         except Exception:
@@ -1578,7 +1580,7 @@ def _validate_cron(expr: str) -> None:
 
 #: 可绑定到 AgentSchedule.agent 的合法 Agent 名（与 executor.KNOWN_AGENTS 对应；
 #: 校验仅防手滑，松绑后实际分发由 executor 注册表决定）
-SCHEDULE_AGENTS = ("codex", "claude", "workbuddy", "qoder")
+SCHEDULE_AGENTS = ("codex", "claude", "workbuddy", "qoder", "minimax")
 
 #: 任务优先级权重（值越大优先级越高；用于 pick_eligible_task 排序与门槛）
 PRIORITY_RANK = {

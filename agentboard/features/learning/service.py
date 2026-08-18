@@ -101,6 +101,16 @@ def record_outcome(s, task) -> TaskOutcome | None:
     if task.status not in TERMINAL_STATUSES:
         return None
     metrics = compute_process_metrics(s, task)
+    from ..projects.models import Agent
+    from ..scheduling.models import TaskAssignment
+
+    assignment = (
+        s.get(TaskAssignment, task.current_assignment_id)
+        if task.current_assignment_id is not None else None
+    )
+    agent_registry_id = assignment.agent_registry_id if assignment else None
+    agent = s.get(Agent, agent_registry_id) if agent_registry_id is not None else None
+    agent_ref = agent.agent_id if agent is not None else None
     existing = s.execute(
         select(TaskOutcome).where(TaskOutcome.task_id == task.id)
     ).scalar_one_or_none()
@@ -109,6 +119,9 @@ def record_outcome(s, task) -> TaskOutcome | None:
             task_id=task.id,
             project_id=task.project_id,
             agent_id=task.assignee_id,
+            agent_registry_id=agent_registry_id,
+            assignment_id=assignment.id if assignment else None,
+            agent_ref=agent_ref,
             task_type=task.type or "dev",
             score=metrics["score"],
             judge_json=json.dumps(metrics, ensure_ascii=False),
@@ -117,6 +130,10 @@ def record_outcome(s, task) -> TaskOutcome | None:
         )
         s.add(existing)
     else:
+        existing.agent_id = task.assignee_id
+        existing.agent_registry_id = agent_registry_id
+        existing.assignment_id = assignment.id if assignment else None
+        existing.agent_ref = agent_ref or existing.agent_ref
         existing.score = metrics["score"]
         existing.judge_json = json.dumps(metrics, ensure_ascii=False)
         existing.duration_s = metrics["duration_s"]
@@ -168,13 +185,21 @@ def agent_leaderboard(
         raise InvalidValue("limit must be between 1 and 200")
     stmt = (
         select(
-            TaskOutcome.agent_id,
+            TaskOutcome.agent_registry_id,
+            TaskOutcome.agent_ref,
+            TaskOutcome.agent_id.label("user_id"),
             TaskOutcome.project_id,
             TaskOutcome.task_type,
             func.count(TaskOutcome.id).label("n"),
             func.avg(TaskOutcome.score).label("avg_score"),
         )
-        .group_by(TaskOutcome.agent_id, TaskOutcome.project_id, TaskOutcome.task_type)
+        .group_by(
+            TaskOutcome.agent_registry_id,
+            TaskOutcome.agent_ref,
+            TaskOutcome.agent_id,
+            TaskOutcome.project_id,
+            TaskOutcome.task_type,
+        )
         .order_by(func.avg(TaskOutcome.score).desc(), func.count(TaskOutcome.id).desc())
         .limit(limit)
     )
@@ -186,7 +211,10 @@ def agent_leaderboard(
     out = []
     for row in s.execute(stmt).all():
         out.append({
-            "agent_id": row.agent_id,
+            "agent_registry_id": row.agent_registry_id,
+            "agent_ref": row.agent_ref,
+            "user_id": row.user_id,
+            "agent_id": row.user_id,
             "project_id": row.project_id,
             "task_type": row.task_type,
             "tasks": row.n,
@@ -211,6 +239,9 @@ def list_outcomes(
             "task_id": o.task_id,
             "project_id": o.project_id,
             "agent_id": o.agent_id,
+            "agent_registry_id": o.agent_registry_id,
+            "agent_ref": o.agent_ref,
+            "assignment_id": o.assignment_id,
             "task_type": o.task_type,
             "score": o.score,
             "judge_json": json.loads(o.judge_json or "{}"),

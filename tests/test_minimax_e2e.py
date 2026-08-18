@@ -76,11 +76,16 @@ def session_factory(tmp_path, monkeypatch):
         c.close()
 
     import agentboard.database as db_mod
-    monkeypatch.setattr(db_mod, "engine", engine)
-    monkeypatch.setattr(
-        db_mod, "SessionLocal",
-        sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True),
-    )
+    from agentboard.core.infrastructure import database as core_db_mod
+    for database_module in (db_mod, core_db_mod):
+        monkeypatch.setattr(database_module, "engine", engine)
+        monkeypatch.setattr(
+            database_module,
+            "SessionLocal",
+            sessionmaker(
+                bind=engine, autoflush=False, autocommit=False, future=True,
+            ),
+        )
     db_mod.init_db()
 
     @contextmanager
@@ -109,7 +114,7 @@ def _seed(session_factory, *, task_spec: str = "## 需求\n做一件事\n## 验�
         proj = service.create_project(s, name="P-minimax", key="PMMX")
         sch = service.create_schedule(
             s, project_id=proj.id, title="minimax e2e once",
-            schedule_type=ScheduleType.ONCE, cron_expr=None,
+            schedule_type=ScheduleType.ONCE, cron_expr=None, agent=agent,
         )
         tk = service.create_task(
             s, project_id=proj.id, story_id=None, title="T-minimax",
@@ -117,10 +122,7 @@ def _seed(session_factory, *, task_spec: str = "## 需求\n做一件事\n## 验�
         )
         run = service.create_run(s, schedule_id=sch.id, task_id=tk.id,
                                  idempotency_key=f"k-minimax-{time.time_ns()}")
-        # 把 schedule.agent 改成 minimax,让 build_run_context 走 MiniMaxLauncher
-        from agentboard.domains.scheduling.models import AgentSchedule
-        sch_row = s.get(AgentSchedule, sch.id)
-        sch_row.agent = agent
+        # create_run snapshots the configured scheduler Agent for attribution.
         s.commit()
         return run.id
 

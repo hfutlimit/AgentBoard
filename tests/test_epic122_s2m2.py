@@ -37,6 +37,7 @@ for _m in list(sys.modules):
         del sys.modules[_m]
 
 from agentboard import api, auth, mq, service, workflow_worker  # noqa: E402
+from agentboard.features.work_items import router as wi_router  # noqa: E402
 from agentboard.database import SessionLocal, init_db  # noqa: E402
 from agentboard.models import Task  # noqa: E402
 from agentboard.mq import (  # noqa: E402
@@ -116,6 +117,22 @@ def test_assign_reviewer_in_review_task(seeded):
         assert t2.reviewer_id in (rev1, rev2)
         assert t2.reviewer_id != dev  # 排除作者
         assert t2.status == "in_review"
+        s.rollback()
+
+
+def test_reviewer_assignment_uses_matching_not_random_choice(seeded):
+    pid, dev, rev1, rev2, _, sid = seeded
+    with SessionLocal() as s:
+        t = _make_task(s, sid, pid, title="T-ranked")
+        _claim_and_submit(s, t, dev)
+        worse = s.query(service.Agent).filter(service.Agent.user_id == rev2).one()
+        with mock.patch(
+            "agentboard.features.scheduling.service.random", create=True,
+        ) as random_module:
+            random_module.choice.return_value = worse
+            assigned = service.assign_task_reviewer(s, t.id)
+            random_module.choice.assert_not_called()
+        assert assigned.reviewer_id == rev1
         s.rollback()
 
 
@@ -339,7 +356,7 @@ def test_api_assign_and_review_full_flow(seeded):
     dev_h = {"Authorization": f"Bearer {auth.make_token(dev)}"}
     rev_h = {"Authorization": f"Bearer {auth.make_token(rev1)}"}
     c = _client()
-    with mock.patch.object(api, "publish_workflow_event") as pub:
+    with mock.patch.object(wi_router, "publish_workflow_event") as pub:
         # assign-reviewer（幂等，再指派仍 200）
         r = c.post(f"/api/tasks/{tid}/assign-reviewer", headers=dev_h)
         assert r.status_code == 200, r.text
@@ -368,7 +385,7 @@ def test_api_review_reject_broadcasts_task_rejected(seeded):
         tid = t.id
         s.commit()
     c = _client()
-    with mock.patch.object(api, "publish_workflow_event") as pub:
+    with mock.patch.object(wi_router, "publish_workflow_event") as pub:
         r = c.post(f"/api/tasks/{tid}/review",
                    headers={"Authorization": f"Bearer {auth.make_token(rev1)}"},
                    json={"verdict": "reject", "comment": "退回"})

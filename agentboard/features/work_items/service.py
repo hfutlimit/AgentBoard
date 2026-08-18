@@ -181,6 +181,8 @@ def set_status(
     execute_transition(s, t, new_status, changed_by=changed_by, reason=reason)
     _commit(s)
     s.refresh(t)
+    if t.status in (Status.DONE, Status.BLOCKED):
+        finalize_task_assignment(s, t)
     # Epic 140 切片 1：终态（done/blocked）自动沉淀能力评分 outcome（幂等）
     # 8/17 review P1/P2 修复：返回 outcome 用于上游判「是否值得 judge」。
     # 非终态调用 outcome 为 None → 不会触发 schedule_judge，省掉

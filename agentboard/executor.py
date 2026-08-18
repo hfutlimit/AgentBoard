@@ -33,7 +33,7 @@ from .domains.common.enums import RunStatus
 log = logging.getLogger("agentboard.executor")
 
 #: 内置预留的 agent 名字（后续 Story 102/103 交付具体实现）
-KNOWN_AGENTS = ("codex", "claude", "workbuddy", "qoder")
+KNOWN_AGENTS = ("codex", "claude", "workbuddy", "qoder", "minimax")
 
 
 def _now_utc() -> datetime:

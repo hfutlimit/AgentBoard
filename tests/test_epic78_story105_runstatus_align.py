@@ -38,6 +38,7 @@ def tmp_db(tmp_path, monkeypatch):
     from sqlalchemy.orm import sessionmaker
 
     import agentboard.database as db_mod
+    from agentboard.core.infrastructure import database as core_db_mod
 
     new_engine = create_engine(db_url, connect_args={"check_same_thread": False}, future=True)
 
@@ -47,10 +48,16 @@ def tmp_db(tmp_path, monkeypatch):
         c.execute("PRAGMA foreign_keys=ON")
         c.close()
 
-    monkeypatch.setattr(db_mod, "engine", new_engine)
-    monkeypatch.setattr(db_mod, "SessionLocal",
-                        sessionmaker(bind=new_engine, autoflush=False, autocommit=False, future=True))
-    monkeypatch.setattr(db_mod, "URL", db_url)
+    for database_module in (db_mod, core_db_mod):
+        monkeypatch.setattr(database_module, "engine", new_engine)
+        monkeypatch.setattr(
+            database_module,
+            "SessionLocal",
+            sessionmaker(
+                bind=new_engine, autoflush=False, autocommit=False, future=True,
+            ),
+        )
+        monkeypatch.setattr(database_module, "URL", db_url)
 
     # 跑迁移链（含本 Story 新迁移 k8l9m0n1o2p3）
     db_mod.init_db()

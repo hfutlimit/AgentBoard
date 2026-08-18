@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import random
 import re as _re
 from datetime import datetime, timedelta
 
@@ -63,8 +62,11 @@ from ..projects.service import _record_story_status_history  # noqa: F401  (跨�
 from ..projects.service import get_agent_by_agent_id  # noqa: F401  (跨域 helper)
 from ..work_items.service import (  # noqa: E402 — 跨域调用（评审/评论/状态历史走任务域）
     _record_status_history,
+    _record_learning_outcome,
     create_comment,
+    finalize_task_assignment,
     set_status,
+    try_assign_task,
 )
 from ..work_items.models import Comment  # noqa: E402 — 评审意见评论实体
 from ..projects.models import STORY_REVIEW_STATUSES  # noqa: E402 — Story 级评审态（恒空占位）
@@ -92,7 +94,7 @@ from ..projects.models import Project
 from ..work_items.models import Task
 from ..work_items.service import set_status  # noqa: E402 — 跨域调用（提交评审走任务状态机）
 from .models import AgentRun, AgentSchedule
-from .matching import normalize_capabilities
+from .matching import normalize_capabilities, rank_agents_for_task
 
 
 # ---- 调度相关常量（从顶层 service.py 迁移，Phase 9 收口） ----
@@ -107,7 +109,7 @@ _CRON_PATTERN = _re.compile(
 )
 
 #: 可绑定到 AgentSchedule.agent 的合法 Agent 名（与 executor.KNOWN_AGENTS 对应）
-SCHEDULE_AGENTS = ("codex", "claude", "workbuddy", "qoder")
+SCHEDULE_AGENTS = ("codex", "claude", "workbuddy", "qoder", "minimax")
 
 #: 任务优先级权重（值越大优先级越高；用于 pick_eligible_task 排序与门槛）
 PRIORITY_RANK = {
@@ -130,12 +132,47 @@ def create_run(s: Session, *, schedule_id: int, task_id: int | None = None,
             raise Duplicate(f"run with idempotency_key '{idempotency_key}' already exists")
     agent_id = schedule.agent or os.environ.get("AGENTBOARD_DEFAULT_AGENT", "codex")
     agent_config = get_agent_by_agent_id(s, agent_id)
+    if agent_config is None:
+        agent_config = Agent(
+            agent_id=agent_id,
+            name=agent_id.replace("-", " ").title(),
+            roles='["developer"]',
+            capabilities="[]",
+            cli_command="",
+            model="",
+            auth_key="",
+            enabled=True,
+            online=False,
+        )
+        s.add(agent_config)
+        s.flush()
+    assignment = None
+    if task_id is not None:
+        _task, assignment = try_assign_task(
+            s,
+            task_id,
+            user_id=agent_config.user_id,
+            agent_registry_id=agent_config.id,
+            source="schedule",
+            commit=False,
+        )
     run = AgentRun(
         schedule_id=schedule_id, task_id=task_id,
+        agent_registry_id=agent_config.id,
+        assignment_id=assignment.id if assignment else None,
         agent=agent_id, model=agent_config.model if agent_config else None,
         idempotency_key=idempotency_key,
     )
-    s.add(run); _commit(s); s.refresh(run); return run
+    s.add(run)
+    _commit(
+        s,
+        duplicate=(
+            f"run with idempotency_key '{idempotency_key}' already exists"
+            if idempotency_key else None
+        ),
+    )
+    s.refresh(run)
+    return run
 
 
 def list_runs(s: Session, schedule_id: int, limit: int | None = None, offset: int = 0):
@@ -494,7 +531,10 @@ def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None
     if not candidates:
         raise InvalidValue(
             "no online reviewer available (register an online reviewer agent first)")
-    reviewer = random.choice(candidates)
+    ranked = rank_agents_for_task(s, t, role="reviewer", agents=candidates)
+    if not ranked:
+        raise InvalidValue("no reviewer satisfies the task capability requirements")
+    reviewer = ranked[0].agent
     r = s.execute(
         update(Task).where(
             Task.id == task_id,
@@ -730,6 +770,9 @@ def review_task(s: Session, *, task_id: int, reviewer_user_id: int,
     create_comment(s, author=reviewer_name, content=comment, task_id=task_id)
     _invalidate_project_stats_cache(t.project_id)
     s.refresh(t)
+    if t.status in (Status.DONE, Status.BLOCKED):
+        finalize_task_assignment(s, t)
+        _record_learning_outcome(s, t)
     return t
 
 
@@ -1051,7 +1094,11 @@ def _settle_majority_approved(s: Session, entity, entity_type: str):
                                reason="majority approve")
     _commit(s)
     _clear_review_votes(s, entity_type, entity.id)
-    return s.get(type(entity), entity.id)
+    settled = s.get(type(entity), entity.id)
+    if entity_type == "task":
+        finalize_task_assignment(s, settled)
+        _record_learning_outcome(s, settled)
+    return settled
 
 # ---- 同步自 service.py ----
 def _settle_majority_rejected(s: Session, entity, entity_type: str):
@@ -1079,7 +1126,11 @@ def _settle_majority_rejected(s: Session, entity, entity_type: str):
                                reason=f"majority reject round={new_round}")
     _commit(s)
     _clear_review_votes(s, entity_type, entity.id)
-    return s.get(type(entity), entity.id)
+    settled = s.get(type(entity), entity.id)
+    if entity_type == "task" and settled.status == Status.BLOCKED:
+        finalize_task_assignment(s, settled)
+        _record_learning_outcome(s, settled)
+    return settled
 
 # ---- 同步自 service.py ----
 def _vote_majority(s: Session, entity, *, entity_type: str, reviewer_user_id: int,
@@ -1192,7 +1243,7 @@ def _reassign_story_reviewer(s: Session, story: Story,
     candidates = [a for a in candidates if a.user_id != exclude_user_id]
     if not candidates:
         return None
-    reviewer = random.choice(candidates)
+    reviewer = sorted(candidates, key=lambda candidate: candidate.id)[0]
     r = s.execute(
         update(Story).where(
             Story.id == story.id,
@@ -1218,7 +1269,10 @@ def _reassign_task_reviewer(s: Session, task: Task,
                   if a.user_id not in (exclude_user_id, task.assignee_id)]
     if not candidates:
         return None
-    reviewer = random.choice(candidates)
+    ranked = rank_agents_for_task(s, task, role="reviewer", agents=candidates)
+    if not ranked:
+        return None
+    reviewer = ranked[0].agent
     r = s.execute(
         update(Task).where(
             Task.id == task.id,

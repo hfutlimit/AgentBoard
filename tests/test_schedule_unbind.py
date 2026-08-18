@@ -377,6 +377,51 @@ def test_trigger_fixed_task_binds_fixed(test_db):
         assert runs[0].task_id == t.id
 
 
+def test_two_schedules_cannot_dispatch_same_todo_task(test_db):
+    """Task reservation, not schedule timing, arbitrates cross-schedule dispatch."""
+    from agentboard import service
+    from agentboard.models import TaskAssignment
+    from agentboard.scheduler import _now, _trigger_one
+
+    with test_db() as s:
+        p, _, story_id = _mk_project_and_tasks(s)
+        task = _mk_task(s, project_id=p.id, story_id=story_id, title="One owner")
+        first = service.create_schedule(
+            s, project_id=p.id, title="First", schedule_type="cron",
+            cron_expr="*/5 * * * *", task_id=task.id, agent="codex",
+        )
+        second = service.create_schedule(
+            s, project_id=p.id, title="Second", schedule_type="cron",
+            cron_expr="*/5 * * * *", task_id=task.id, agent="codex",
+        )
+        _due_schedule(s, first)
+        _due_schedule(s, second)
+
+        assert _trigger_one(s, first, _now()) is True
+        assert _trigger_one(s, second, _now()) is False
+        s.commit()
+
+        runs = s.query(service.AgentRun).filter_by(task_id=task.id).all()
+        assert len(runs) == 1
+        assert runs[0].agent_registry_id is not None
+        assert runs[0].assignment_id == task.current_assignment_id
+        assert s.query(TaskAssignment).filter_by(
+            task_id=task.id, active_slot="active",
+        ).count() == 1
+
+
+def test_minimax_is_a_valid_schedule_agent(test_db):
+    from agentboard import service
+
+    with test_db() as s:
+        project = service.create_project(s, name="MiniMax schedule")
+        schedule = service.create_schedule(
+            s, project_id=project.id, title="MiniMax", schedule_type="cron",
+            cron_expr="*/5 * * * *", agent="minimax",
+        )
+        assert schedule.agent == "minimax"
+
+
 def test_trigger_no_eligible_skips_without_run(test_db):
     """无 eligible task：跳过本次（返回 False，不创建 run），next_run_at 已推进。"""
     from agentboard import service
