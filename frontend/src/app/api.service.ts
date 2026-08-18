@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable, of, throwError, timer, Subject } from 'rxjs';
 import { catchError, tap, map, switchMap, mergeMap, debounceTime, takeUntil } from 'rxjs/operators';
 
-import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, KanbanBoard, Notification, OverviewStats, PagedResult, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentRevisionItem, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, TicketRequestItem, TicketType, AgentRow, StoryStatusHistoryRow } from './models';
+import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, KanbanBoard, Notification, OverviewStats, PagedResult, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentRevisionItem, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, TicketRequestItem, TicketType, TicketItem, AgentRow, StoryStatusHistoryRow } from './models';
 
 export const AUTH_EXPIRED_EVENT = 'agentboard:auth-expired';
 
@@ -429,6 +429,23 @@ export class ApiService {
 
   getProject(id: number) {
     return this.request<Project>('GET', `/api/projects/${id}`);
+  }
+
+  /** 统一工单聚合（Epic/Story/Task），支持完成状态过滤与排序 */
+  getProjectTickets(
+    projectId: number,
+    opts: { status_filter?: 'all' | 'incomplete' | 'complete'; sort?: 'created_at' | 'updated_at'; order?: 'asc' | 'desc' } = {}
+  ) {
+    const params: Record<string, string> = {};
+    if (opts.status_filter) params['status_filter'] = opts.status_filter;
+    if (opts.sort) params['sort'] = opts.sort;
+    if (opts.order) params['order'] = opts.order;
+    const cacheKey = `/api/projects/${projectId}/tickets?sf=${opts.status_filter || 'incomplete'}&s=${opts.sort || 'created_at'}&o=${opts.order || 'desc'}`;
+    const cached = apiCache.get<{ items: TicketItem[]; total: number }>(cacheKey);
+    if (cached) return of(cached);
+    return this.request<{ items: TicketItem[]; total: number }>('GET', `/api/projects/${projectId}/tickets`, undefined, params).pipe(
+      tap(data => apiCache.set(cacheKey, data))
+    );
   }
   createProject(body: { name: string; key?: string; description?: string }) {
     return this.request<Project>('POST', '/api/projects', body).pipe(

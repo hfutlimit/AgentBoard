@@ -465,7 +465,7 @@ export interface TicketRequestItem {
   proposal_id: number;
   project_id?: number;  // v6.18 搜索端点附加（经提案反查，命令面板显示项目名）
   type: string;
-  parent_epic_id: number | null;
+  parent_epic_id:  number | null;
   parent_story_id: number | null;
   title: string;
   status: TicketRequestStatus;
@@ -473,6 +473,21 @@ export interface TicketRequestItem {
   error: string;
   created_at: string;
   updated_at: string;
+}
+
+/** 统一工单（Epic/Story/Task 聚合），用于「工单」视图 */
+export interface TicketItem {
+  type: 'epic' | 'story' | 'task';
+  id: number;
+  title: string;
+  status: string;
+  priority: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  assignee_id: number | null;
+  assignee_name: string | null;
+  epic_id: number | null;
+  story_id: number | null;
 }
 
 export interface ProposalQuestionItem {

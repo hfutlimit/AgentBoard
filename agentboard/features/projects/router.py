@@ -14,7 +14,9 @@ from sqlalchemy.orm import Session
 from ...core.infrastructure.database import get_session
 from ... import service
 from agentboard.schemas import *  # Phase 5: forward-ref-safe
-from ...features.projects.models import ProjectMember  # bulk-archive 非 admin 分支权限校验
+from ...features.projects.models import ProjectMember, Epic, Story  # bulk-archive 非 admin 分支权限校验
+from ...features.work_items.models import Task
+from ...features.identity.models import User
 import os
 import uuid
 from ...cache import get_cache, STATS_CACHE_TTL
@@ -55,6 +57,76 @@ def list_projects_ext(
         s, uid, limit=limit, offset=offset, include_archived=include_archived,
     )
     return {"items": [service._ser(p) for p in projects], "total": total}
+
+
+# ---- 统一工单视图（Epic / Story / Task 聚合）：时间倒序 + 完成状态过滤 ----
+@router.get("/api/projects/{pid}/tickets")
+def list_project_tickets(
+    pid: int,
+    status_filter: str = Query("incomplete", description="'all' | 'incomplete' | 'complete'，默认 incomplete"),
+    sort: str = Query("created_at", description="'created_at' | 'updated_at'，默认 created_at"),
+    order: str = Query("desc", description="'asc' | 'desc'，默认 desc"),
+    limit: int = Query(200, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
+):
+    """统一工单（ticket）聚合：Epic + Story + Task，按创建时间倒序，按完成状态过滤。
+
+    完成判定：status == 'done'；未完成：status != 'done'。
+    默认 status_filter=incomplete、order=desc（最新在前）。
+    """
+    if status_filter not in ("all", "incomplete", "complete"):
+        status_filter = "incomplete"
+    if sort not in ("created_at", "updated_at"):
+        sort = "created_at"
+    if order not in ("asc", "desc"):
+        order = "desc"
+
+    epics = s.query(Epic).filter(Epic.project_id == pid).all()
+    epic_ids = [e.id for e in epics]
+    stories = (
+        s.query(Story).filter(Story.epic_id.in_(epic_ids)).all() if epic_ids
+        else []
+    )
+    tasks = s.query(Task).filter(Task.project_id == pid).all()
+
+    user_ids = [t.assignee_id for t in tasks if t.assignee_id]
+    users = (
+        {u.id: (u.display_name or u.username) for u in s.query(User).filter(User.id.in_(user_ids)).all()}
+        if user_ids else {}
+    )
+
+    def build(type_: str, obj, assignee_name):
+        return {
+            "type": type_,
+            "id": obj.id,
+            "title": obj.title,
+            "status": obj.status,
+            "priority": getattr(obj, "priority", None),
+            "created_at": obj.created_at.isoformat() if obj.created_at else None,
+            "updated_at": (obj.updated_at.isoformat() if getattr(obj, "updated_at", None) else None),
+            "assignee_id": getattr(obj, "assignee_id", None),
+            "assignee_name": assignee_name,
+            "epic_id": getattr(obj, "epic_id", None),
+            "story_id": getattr(obj, "story_id", None),
+        }
+
+    items = [build("epic", e, None) for e in epics]
+    items += [build("story", st, None) for st in stories]
+    items += [build("task", t, users.get(t.assignee_id)) for t in tasks]
+
+    if status_filter == "complete":
+        items = [i for i in items if i["status"] == "done"]
+    elif status_filter == "incomplete":
+        items = [i for i in items if i["status"] != "done"]
+
+    reverse = order == "desc"
+    items.sort(key=lambda x: (x.get(sort) or ""), reverse=reverse)
+
+    total = len(items)
+    page = items[offset: offset + limit]
+    return {"items": page, "total": total}
 
 
 # ---- Story 137：项目中心 ----

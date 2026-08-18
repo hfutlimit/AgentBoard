@@ -11,12 +11,12 @@ import { filter } from 'rxjs/operators';
 
 import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric, resolveApiBase } from './api.service';
 import { LoginComponent } from './login/login';
-import { AgentRow, AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, KanbanBoard, KanbanStory, Notification, OverviewStats, Priority, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, SprintStatus, Status, Story, StoryStatusHistoryRow, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentRevisionItem, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES, TicketRequestItem, TicketType } from './models';
+import { AgentRow, AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, KanbanBoard, KanbanStory, Notification, OverviewStats, Priority, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, SprintStatus, Status, Story, StoryStatusHistoryRow, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentRevisionItem, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES, TicketRequestItem, TicketType, TicketItem } from './models';
 import { PaginationComponent } from './pagination/pagination';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
-type ProjectTabKind = 'overview' | 'epics' | 'backlog' | 'proposals' | 'settings' | 'members' | 'stats' | 'schedules' | 'documents' | 'kanban' | 'sprints';
+type ProjectTabKind = 'overview' | 'epics' | 'backlog' | 'proposals' | 'settings' | 'members' | 'stats' | 'schedules' | 'documents' | 'kanban' | 'sprints' | 'tickets';
 type ProjectListKind = 'epics' | 'sprints' | 'backlog' | 'members' | 'schedules';
 /** 设置页左侧菜单子标签：basic=基本信息，members=成员管理，schedules=自动化计划，export=数据导出 */
 type SettingsSubTabKind = 'basic' | 'members' | 'schedules' | 'export';
@@ -327,6 +327,7 @@ export class App implements OnInit, OnDestroy {
     documents: false,
     kanban: false,
     proposals: false,
+    tickets: false,
   });
   readonly projectTabLoaded = signal<Record<ProjectTabKind, boolean>>({
     overview: false,
@@ -340,6 +341,7 @@ export class App implements OnInit, OnDestroy {
     documents: false,
     kanban: false,
     proposals: false,
+    tickets: false,
   });
   readonly projectTabErrors = signal<Record<ProjectTabKind, string>>({
     overview: '',
@@ -353,8 +355,14 @@ export class App implements OnInit, OnDestroy {
     documents: '',
     kanban: '',
     proposals: '',
+    tickets: '',
   });
   private projectTabGeneration = 0;
+  // 统一工单视图（Epic/Story/Task 聚合）
+  readonly tickets = signal<TicketItem[]>([]);
+  readonly ticketFilter = signal<'all' | 'incomplete' | 'complete'>('incomplete'); // 默认未完成
+  readonly ticketSort = signal<'created_at' | 'updated_at'>('created_at');
+  readonly ticketOrder = signal<'asc' | 'desc'>('desc');
   readonly statsMaxCreated = computed(() => {
     const stats = this.projectStats();
     if (!stats) return 1;
@@ -1659,6 +1667,7 @@ export class App implements OnInit, OnDestroy {
       documents: false,
       kanban: false,
       proposals: false,
+      tickets: false,
     });
     this.projectTabLoaded.set({
       overview: false,
@@ -1672,6 +1681,7 @@ export class App implements OnInit, OnDestroy {
       documents: false,
       kanban: false,
       proposals: false,
+      tickets: false,
     });
     this.projectTabErrors.set({
       overview: '',
@@ -1685,6 +1695,7 @@ export class App implements OnInit, OnDestroy {
       documents: '',
       kanban: '',
       proposals: '',
+      tickets: '',
     });
   }
 
@@ -1779,6 +1790,8 @@ export class App implements OnInit, OnDestroy {
         const proposals = await firstValueFrom(this.api.listProposals({ project_id: projectId, limit: 200 }));
         if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
         this.proposals.set(Array.isArray(proposals) ? proposals : []);
+      } else if (tab === 'tickets') {
+        await this.loadTickets(projectId, generation);
       }
 
       this.projectTabLoaded.update((state) => ({ ...state, [tab]: true }));
@@ -1846,6 +1859,101 @@ export class App implements OnInit, OnDestroy {
     } catch {
       // Epic 列表已经可用；进度数据加载失败不阻塞主列表。
     }
+  }
+
+  /** 统一工单聚合加载（Epic/Story/Task）：默认未完成、创建时间倒序 */
+  private async loadTickets(projectId: number, generation: number): Promise<void> {
+    this.setProjectTabLoading('tickets', true);
+    this.projectTabErrors.update((s) => ({ ...s, tickets: '' }));
+    try {
+      const data = await firstValueFrom(this.api.getProjectTickets(projectId, {
+        status_filter: this.ticketFilter(),
+        sort: this.ticketSort(),
+        order: this.ticketOrder(),
+      }));
+      if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
+      this.tickets.set(data.items);
+      this.projectTabLoaded.update((s) => ({ ...s, tickets: true }));
+    } catch (error: any) {
+      if (!this.isCurrentProjectTabRequest(projectId, generation)) return;
+      this.projectTabErrors.update((s) => ({ ...s, tickets: this.message(error) }));
+    } finally {
+      if (this.isCurrentProjectTabRequest(projectId, generation)) this.setProjectTabLoading('tickets', false);
+    }
+  }
+
+  /** 工单过滤：全部 / 未完成（默认）/ 已完成 */
+  setTicketFilter(f: 'all' | 'incomplete' | 'complete'): void {
+    this.ticketFilter.set(f);
+    const pid = this.project()?.id;
+    if (pid && this.activeTab() === 'tickets') {
+      this.projectTabLoaded.update((s) => ({ ...s, tickets: false }));
+      void this.loadTickets(pid, this.projectTabGeneration);
+    }
+  }
+
+  /** 工单排序字段：创建时间 / 更新时间 */
+  setTicketSort(s: 'created_at' | 'updated_at'): void {
+    this.ticketSort.set(s);
+    const pid = this.project()?.id;
+    if (pid && this.activeTab() === 'tickets') {
+      this.projectTabLoaded.update((s) => ({ ...s, tickets: false }));
+      void this.loadTickets(pid, this.projectTabGeneration);
+    }
+  }
+
+  /** 工单排序方向：asc / desc（默认 desc，最新在前） */
+  setTicketOrder(o: 'asc' | 'desc'): void {
+    this.ticketOrder.set(o);
+    const pid = this.project()?.id;
+    if (pid && this.activeTab() === 'tickets') {
+      this.projectTabLoaded.update((s) => ({ ...s, tickets: false }));
+      void this.loadTickets(pid, this.projectTabGeneration);
+    }
+  }
+
+  /** 工单行点击：跳转到对应实体详情（Epic / Story / Task） */
+  openTicket(t: TicketItem): void {
+    if (!t || !t.id) return;
+    if (t.type === 'epic') { this.goEpic(t.id); return; }
+    if (t.type === 'story') {
+      this.view.set('story');
+      this.storyTab.set('detail');
+      this.storyTaskPage.set(1);
+      this.search.set('');
+      this.clearFilters();
+      firstValueFrom(this.api.getStory(t.id)).then(async (story) => {
+        this.story.set(story);
+        await this.loadStoryTasks(story.id, 1);
+        const [epic, storyComments] = await Promise.all([
+          firstValueFrom(this.api.getEpic(story.epic_id)),
+          firstValueFrom(this.api.listStoryComments(story.id)),
+        ]);
+        this.epic.set(epic);
+        this.storyComments.set(storyComments);
+        this.project.set(await firstValueFrom(this.api.getProject(epic.project_id)));
+        await this.loadMembers(epic.project_id);
+      }).catch(() => {});
+      return;
+    }
+    // task
+    this.view.set('task');
+    firstValueFrom(this.api.getTask(t.id)).then(async (task) => {
+      const [comments] = await Promise.all([firstValueFrom(this.api.listComments(t.id))]);
+      this.task.set(task);
+      this.comments.set(comments);
+      setTimeout(() => this.enhanceMermaid(), 80);
+      await this.loadAttachments(t.id);
+      if (task.story_id) {
+        const story = await firstValueFrom(this.api.getStory(task.story_id));
+        this.story.set(story);
+        const epic = await firstValueFrom(this.api.getEpic(story.epic_id));
+        this.epic.set(epic);
+        const project = await firstValueFrom(this.api.getProject(epic.project_id));
+        this.project.set(project);
+        await this.loadSprints(project.id);
+      }
+    }).catch(() => {});
   }
 
   private isCurrentProjectTabRequest(projectId: number, generation: number): boolean {
