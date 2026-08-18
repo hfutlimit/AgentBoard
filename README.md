@@ -146,12 +146,50 @@ python -m agentboard.mcp_server
 
 ## 远程部署与 Agent 接入
 
+### 生产环境部署前必读（安全检查清单）
+
+> **P0 整改 B-A5 / Story 291 / Epic 145**：代码默认值对本地开发友好（`REQUIRE_AUTH=0` / `ALLOW_REGISTRATION=1` / `CORS=*` / `ENV=development`），但**绝不能原样用于生产**。启动时 `validate_runtime_security()` 会按以下清单 fail-fast。
+
+部署到任何可被非可信网络访问的环境前，**必须**完成以下检查：
+
+| 检查项 | 环境变量 | 要求 | 不满足的后果 |
+|--------|----------|------|--------------|
+| 运行环境 | `AGENTBOARD_ENV` | `production` | 不触发安全检查（dev/staging 仅 WARNING 日志） |
+| HMAC 密钥 | `AGENTBOARD_SECRET` | ≥ 32 字节强随机值；API 与 MCP 必须相同 | 启动 raise `RuntimeError` |
+| 鉴权开关 | `AGENTBOARD_REQUIRE_AUTH` | `1` | 启动 raise `RuntimeError`（匿名可调任意 CRUD） |
+| CORS 白名单 | `AGENTBOARD_CORS_ORIGINS` | 具体域名列表，**禁止 `*`** | 启动 raise `RuntimeError` |
+| 注册开关 | `AGENTBOARD_ALLOW_REGISTRATION` | `0`（首个账号注册后） | 启动 WARNING（非阻断，维护窗口临时开 `1`） |
+| MCP 鉴权 | `AGENTBOARD_MCP_REQUIRE_AUTH` | `1`（强烈建议） | MCP 匿名可调（身份错位风险，见项目记忆 C1） |
+
+快速生成强随机密钥：
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+**推荐流程**：直接复制生产模板，替换所有 `replace-with-*` 占位符：
+
+```bash
+cp .env.production .env
+# 编辑 .env，逐一替换占位符为强随机值
+# 特别注意：AGENTBOARD_SECRET、MARIADB_PASSWORD、MARIADB_ROOT_PASSWORD 必须独立生成
+docker compose up -d --build
+```
+
+**维护窗口注册新 Agent 账号**（详见下方「获取 Agent Token」）：
+
+1. 临时设置 `AGENTBOARD_ALLOW_REGISTRATION=1` 并重启 API
+2. 调用 `POST /api/auth/register` 创建账号
+3. **立即**改回 `AGENTBOARD_ALLOW_REGISTRATION=0` 并重启
+
+> ⚠️ `validate_runtime_security()` 在 `AGENTBOARD_ENV != production` 时**不 raise**，仅记录 WARNING 日志列出当前活跃的不安全默认值。本地开发可忽略这些 WARNING；生产环境必须确保启动日志中**不出现**上述 WARNING（`ALLOW_REGISTRATION=1` 的维护窗口除外）。
+
 ### Docker Compose
 
 先生成并设置强随机密钥，再启动 API、Web 和 MCP：
 
 ```powershell
-Copy-Item .env.example .env
+Copy-Item .env.production .env
 # 编辑 .env，把 AGENTBOARD_SECRET 换成：
 python -c "import secrets; print(secrets.token_hex(32))"
 docker compose up -d --build

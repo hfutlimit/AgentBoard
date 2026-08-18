@@ -14,6 +14,9 @@ STATIC_DIR = Path(os.getenv(
     "AGENTBOARD_WEB_STATIC_DIR",
     str(_angular_dist_dir if _angular_dist_dir.is_dir() else _legacy_static_dir),
 ))
+# B-A4（Epic 145 / Story 291）：STATIC_DIR resolve 一次缓存，避免每次请求重复解析
+# 路径穿越校验依赖该锚点。
+STATIC_DIR_RESOLVED = STATIC_DIR.resolve()
 API_URL = os.getenv("AGENTBOARD_API_URL", "http://127.0.0.1:58124")
 
 app = FastAPI(title="AgentBoard Web (Angular)")
@@ -46,10 +49,22 @@ def root():
 
 @app.get("/{path:path}")
 def angular_asset_or_route(path: str):
-    """提供 Angular 资源文件，并把浏览器深链接回退到 index.html。"""
-    # 先尝试 /static/ 路径
-    static_candidate = STATIC_DIR / path
-    if static_candidate.is_file():
-        return FileResponse(static_candidate)
+    """提供 Angular 资源文件，并把浏览器深链接回退到 index.html。
+
+    安全（B-A4 / Epic 145 / Story 291）：
+        ``{path:path}`` 会原样接收含 ``..`` 段的路径（FastAPI 不剥离）。
+        历史实现对 ``STATIC_DIR / path`` 直接 ``is_file()`` 判断后返回，
+        导致 ``GET /..%2F..%2F.env`` 等可绕过到任意文件（读 .env / 源码）。
+        这里先 ``resolve()`` 再用 ``is_relative_to(STATIC_DIR_RESOLVED)`` 收口，
+        任何逃逸出静态根的路径统一 404，不泄露文件是否存在。
+    """
+    # B-A4：先 resolve 再校验归属，拒绝任何穿越出 STATIC_DIR 的路径。
+    # 即使路径含 ``..``、符号链接、编码变体，resolve() 都会归一为绝对真实路径。
+    resolved = (STATIC_DIR / path).resolve()
+    if not resolved.is_relative_to(STATIC_DIR_RESOLVED):
+        # 统一 404（不区分「不存在」与「越权」）避免信息泄露
+        raise HTTPException(status_code=404)
+    if resolved.is_file():
+        return FileResponse(resolved)
     # 回退到 index.html
     return HTMLResponse(_fixed_index())

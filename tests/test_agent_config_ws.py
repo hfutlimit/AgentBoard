@@ -5,7 +5,8 @@
 2. agent_heartbeat 带 probe_ok/probe_message（probe 结果落库、probe_ok=False → offline）；
 3. AgentStateHub subscribe/broadcast（线程安全、快照、删除通知）；
 4. /ws/agents WebSocket 端点（快照 + 广播接收）；
-5. _probe_cli_sync（{model} 替换、.cmd 退化、超时/失败消息）。
+5. _probe_cli_sync（{model} 替换、dry-run 预览、元字符拦截）— B-A2 整改后
+   不再真执行子进程，实际判活交给 Worker 心跳。
 
 运行：
     PYTHONPATH=. python -m pytest tests/test_agent_config_ws.py -q
@@ -162,22 +163,27 @@ def test_ws_agents_register_broadcasts():
             assert msg["agent"]["agent_id"].startswith("ws-")
 
 
-# ---------- 5. _probe_cli_sync ----------
+# ---------- 5. _probe_cli_sync（B-A2 整改：dry-run，不执行子进程） ----------
 def test_probe_cli_sync_ok():
+    """dry-run：合法命令返回 ok=True + 命令预览（不执行子进程）。"""
     from agentboard.api import _probe_cli_sync
     ok, msg = _probe_cli_sync(f'"{sys.executable}" --version', timeout=8)
     assert ok is True
-    assert msg.startswith("OK ")
+    assert msg.startswith("dry-run: ")
+    assert "--version" in msg  # 自动追加的 --version 在预览里
 
 
 def test_probe_cli_sync_model_placeholder(tmp_path):
+    """{model} 占位符替换后出现在 dry-run 预览里（不执行子进程）。
+
+    用短命令名验证（避免 sys.executable 长路径把预览截断到 120 字符外）。
+    """
     from agentboard.api import _probe_cli_sync
-    # {model} 替换后 argv 应含模型值；probe 自动追加 --version
-    script = tmp_path / "probe_args.py"
-    script.write_text("import sys\nassert 'hy3' in sys.argv\n", encoding="utf-8")
-    ok, msg = _probe_cli_sync(f'"{sys.executable}" "{script}" {{model}}',
-                              model="hy3", timeout=8)
+    ok, msg = _probe_cli_sync("minimax --model {model}", model="hy3", timeout=8)
     assert ok is True, msg
+    assert "hy3" in msg  # model 替换后进入 dry-run 预览
+    assert "{model}" not in msg  # 占位符已替换
+    assert msg.startswith("dry-run: ")
 
 
 def test_probe_cli_sync_missing_cmd():
@@ -187,7 +193,23 @@ def test_probe_cli_sync_missing_cmd():
 
 
 def test_probe_cli_sync_bad_cmd():
+    """dry-run：不存在的命令名也通过校验（ok=True），因为不执行子进程无法判活。
+
+    B-A2 整改后 probe 不再真执行，"命令是否存在"交给 Worker 心跳探测；
+    API 侧仅做元字符/解析校验。任意合法命令名 → dry-run 预览。
+    """
     from agentboard.api import _probe_cli_sync
     ok, msg = _probe_cli_sync("definitely-not-a-real-cmd-xyz-12345", timeout=5)
-    assert ok is False
-    assert msg  # 有失败原因
+    assert ok is True  # dry-run 不执行，无法判定命令存在性
+    assert msg.startswith("dry-run: ")
+    assert "definitely-not-a-real-cmd-xyz-12345" in msg
+
+
+def test_probe_cli_sync_blocks_shell_metacharacters():
+    """B-A2: 含 shell 元字符的命令被拦截（ok=False），不进入 dry-run 预览。"""
+    from agentboard.api import _probe_cli_sync
+    for malicious in ("codebuddy; rm -rf /", "cmd /c calc.exe", "x | whoami",
+                      "$(whoami)", "codebuddy && echo pwned"):
+        ok, msg = _probe_cli_sync(malicious, timeout=5)
+        assert ok is False, f"应拦截恶意命令: {malicious!r}"
+        assert "blocked" in msg, f"拦截消息应含 blocked: {malicious!r} → {msg!r}"

@@ -109,7 +109,7 @@ from .domains.common.models import utc_now
 from .core.exceptions import (  # noqa: E402 — facade 兼容层：异常类统一指向 core.exceptions
     DomainError, NotFound, IllegalTransition, Duplicate, InvalidValue,
 )
-from .core.service_helpers import _parse_json_list  # noqa: E402,F401 — 迁移后统一入口
+from .core.service_helpers import _parse_json_list, validate_cli_command  # noqa: E402,F401 — 迁移后统一入口
 
 DEFAULT_PAGE_SIZE = 100
 MAX_PAGE_SIZE = 200
@@ -684,6 +684,8 @@ def update_agent(s: Session, agent_id: str, **fields) -> Agent | None:
         agent.capabilities = json.dumps(
             _parse_json_list(fields["capabilities"], "capabilities"), ensure_ascii=False)
     if "cli_command" in fields and fields["cli_command"] is not None:
+        # B-A2: cli_command 安全校验（防 shell 注入，与 probe dry-run 配合）
+        validate_cli_command(fields["cli_command"])
         agent.cli_command = str(fields["cli_command"] or "")[:500]
     if "model" in fields and fields["model"] is not None:
         agent.model = str(fields["model"] or "")[:100]

@@ -32,7 +32,7 @@ from ...core.exceptions import (
 
 from ...core.service_helpers import (
     _commit, _invalidate_project_stats_cache, _paginate, _required,
-    _parse_json_list,
+    _parse_json_list, validate_cli_command,
 )
 
 from ...core.common.enums import (
@@ -234,6 +234,8 @@ def register_agent(s: Session, *, agent_id: str, name: str, roles: str = "[]",
     name = _required(name, "name", 100)
     roles_list = _parse_json_list(roles, "roles")
     caps_list = _parse_json_list(capabilities, "capabilities")
+    # B-A2: cli_command 安全校验（防 shell 注入，与 probe dry-run 配合）
+    validate_cli_command(cli_command)
     if user_id is not None and not s.get(User, user_id):
         raise NotFound(f"user {user_id} not found")
     existing = s.query(Agent).filter(Agent.agent_id == agent_id).first()

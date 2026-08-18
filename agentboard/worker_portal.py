@@ -40,9 +40,11 @@ from pydantic import BaseModel, Field
 log = logging.getLogger("agentboard.worker_portal")
 
 # ---------- 环境配置 ----------
-
-DEFAULT_API_URL = "http://124.220.44.12"
-DEFAULT_TOKEN = "abk_Lv493r01Pi4ue5gZo7RAS7vyciEmqzeOVLR7LNPmAHg"
+# B-A1 整改（Epic 145 / Story 291）：禁止源码硬编码生产凭据。
+# 必须由环境变量 AGENTBOARD_API_URL / AGENTBOARD_WORKER_TOKEN 注入；
+# 缺失时 create_app() fail-fast（抛 SystemExit），不再回退到默认值。
+DEFAULT_API_URL = ""
+DEFAULT_TOKEN = ""
 DEFAULT_PORT = 18240
 DEFAULT_MAPPINGS_FILE = "tmp/project-mappings.json"
 
@@ -196,8 +198,22 @@ class MappingsBody(BaseModel):
 # ---------- 应用 ----------
 
 def create_app(api_url: str | None = None, token: str | None = None) -> FastAPI:
-    api = api_url or _env("AGENTBOARD_API_URL", DEFAULT_API_URL)
-    tok = token or _env("AGENTBOARD_WORKER_TOKEN", DEFAULT_TOKEN)
+    # B-A1 整改：凭据必须显式提供（env 或参数），缺一即 fail-fast。
+    # 不再回退到源码硬编码默认值（已移除，防 git 历史泄漏）。
+    api = (api_url or _env("AGENTBOARD_API_URL", DEFAULT_API_URL)).strip()
+    tok = (token or _env("AGENTBOARD_WORKER_TOKEN", DEFAULT_TOKEN)).strip()
+    if not api or not tok:
+        missing = [
+            name for name, val in (
+                ("AGENTBOARD_API_URL", api),
+                ("AGENTBOARD_WORKER_TOKEN", tok),
+            ) if not val
+        ]
+        raise SystemExit(
+            "[worker_portal] 启动失败：缺少必需凭据 "
+            + ", ".join(missing)
+            + "。请通过环境变量或 .env 注入（禁止源码硬编码，B-A1/Epic 145 整改）。"
+        )
     proxy = AgentBoardProxy(api, tok)
 
     app = FastAPI(title="AgentBoard Worker 本机配置台", version="0.1.0")
@@ -388,7 +404,20 @@ def create_app(api_url: str | None = None, token: str | None = None) -> FastAPI:
     return app
 
 
-app = create_app()
+# 模块级 app：仅在环境变量齐全时创建，便于 `uvicorn agentboard.worker_portal:app` 直跑。
+# 缺凭据时 app=None —— 真正的 fail-fast 由 `python -m agentboard.worker_portal` 的 main()
+# 经 create_app() 抛 SystemExit 触发（非零退出码 + 明确错误信息）。
+# 这样可保证 import worker_portal 不会因缺凭据崩溃（测试/工具兼容）。
+_module_api_url = _env("AGENTBOARD_API_URL", "")
+_module_token = _env("AGENTBOARD_WORKER_TOKEN", "")
+if _module_api_url and _module_token:
+    app = create_app(_module_api_url, _module_token)
+else:
+    app = None  # type: ignore[assignment]
+    log.warning(
+        "worker_portal 模块级 app 未创建：缺少 AGENTBOARD_API_URL/AGENTBOARD_WORKER_TOKEN。"
+        "通过 `python -m agentboard.worker_portal` 启动会 fail-fast（B-A1 整改）。"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -405,8 +434,10 @@ def main(argv: list[str] | None = None) -> int:
 
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    # B-A1：create_app() 在缺凭据时抛 SystemExit（fail-fast，非零退出码）
+    application = create_app(args.api_url, args.token)
     print(f"Worker 配置台启动：http://{args.host}:{args.port} （免登录，仅本机）", flush=True)
-    uvicorn.run(create_app(args.api_url, args.token), host=args.host, port=args.port, log_level="info")
+    uvicorn.run(application, host=args.host, port=args.port, log_level="info")
     return 0
 
 

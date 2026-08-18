@@ -23,6 +23,14 @@ openspec/
 # 测试（非运行时必需，按需保留可移除下行）
 tests/
 
+# 机密配置（防止 `COPY . .` 把含密钥的 .env 烤进镜像层，
+# 任何拉镜像者可经 `docker history --no-trunc` 还原层内容）
+# 见 P0 整改 B-A3 / Story 291 / Epic 145。
+# 严格排除所有 .env* 变体（.env / .env.local / .env.production 等），
+# 镜像运行时不需要 .env.example 模板，开发者从 git 获取即可。
+.env
+.env.*
+
 # 编辑器/系统
 .idea/
 .vscode/
