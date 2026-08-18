@@ -5,12 +5,13 @@ Phase 5:从 api.py 拆出。本文件无 prefix,所有路径保留 /api/X 完整
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Header
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ...core.infrastructure.database import get_session
 from ... import service
 from agentboard.schemas import *  # Phase 5: forward-ref-safe
-import datetime
+from datetime import datetime
 from ...models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
 
