@@ -92,6 +92,7 @@ from ..projects.models import Project
 from ..work_items.models import Task
 from ..work_items.service import set_status  # noqa: E402 — 跨域调用（提交评审走任务状态机）
 from .models import AgentRun, AgentSchedule
+from .matching import normalize_capabilities
 
 
 # ---- 调度相关常量（从顶层 service.py 迁移，Phase 9 收口） ----
@@ -222,7 +223,7 @@ def delete_schedule(s: Session, id: int) -> bool:
 
 
 def register_agent(s: Session, *, agent_id: str, name: str, roles: str = "[]",
-                   capabilities: str = "[]", cli_command: str = "",
+                   capabilities="[]", cli_command: str = "",
                    model: str = "", auth_key: str = "", user_id: int | None = None) -> Agent:
     """注册/更新 Agent（幂等：agent_id 已存在则更新字段）。
 
@@ -233,7 +234,7 @@ def register_agent(s: Session, *, agent_id: str, name: str, roles: str = "[]",
     agent_id = _required(agent_id, "agent_id", 64)
     name = _required(name, "name", 100)
     roles_list = _parse_json_list(roles, "roles")
-    caps_list = _parse_json_list(capabilities, "capabilities")
+    caps_list = normalize_capabilities(capabilities)
     # B-A2: cli_command 安全校验（防 shell 注入，与 probe dry-run 配合）
     validate_cli_command(cli_command)
     if user_id is not None and not s.get(User, user_id):
@@ -270,6 +271,38 @@ def register_agent(s: Session, *, agent_id: str, name: str, roles: str = "[]",
         if existing:
             return existing
         raise
+
+
+def update_agent(s: Session, agent_id: str, **fields) -> Agent | None:
+    """Update an Agent configuration while preserving profile normalization."""
+    agent = get_agent_by_agent_id(s, agent_id)
+    if not agent:
+        return None
+    if "name" in fields and fields["name"] is not None:
+        agent.name = _required(fields["name"], "name", 100)
+    if "roles" in fields and fields["roles"] is not None:
+        agent.roles = json.dumps(
+            _parse_json_list(fields["roles"], "roles"), ensure_ascii=False
+        )
+    if "capabilities" in fields and fields["capabilities"] is not None:
+        agent.capabilities = json.dumps(
+            normalize_capabilities(fields["capabilities"]), ensure_ascii=False
+        )
+    if "cli_command" in fields and fields["cli_command"] is not None:
+        validate_cli_command(fields["cli_command"])
+        agent.cli_command = str(fields["cli_command"] or "")[:500]
+    if "model" in fields and fields["model"] is not None:
+        agent.model = str(fields["model"] or "")[:100]
+    if "enabled" in fields and fields["enabled"] is not None:
+        agent.enabled = bool(fields["enabled"])
+    if "user_id" in fields:
+        user_id = fields["user_id"]
+        if user_id is not None and not s.get(User, user_id):
+            raise NotFound(f"user {user_id} not found")
+        agent.user_id = user_id
+    _commit(s)
+    s.refresh(agent)
+    return agent
 
 
 def scan_review_timeouts(s: Session, *, project_id: int | None = None,

@@ -40,6 +40,12 @@ from ...core.service_helpers import (
     _ser,
 )
 from ..projects.models import Epic, Project, Sprint, Story
+from ..scheduling.matching import (
+    normalize_assignment_mode,
+    normalize_complexity,
+    normalize_domain_tags,
+    normalize_required_capabilities,
+)
 
 
 # ---- 内部 helper ---------------------------------------------------------
@@ -62,6 +68,8 @@ def create_task(
     priority: str = Priority.MEDIUM, sprint_id: int | None = None,
     assignee_id: int | None = None, due_date=None, labels: str = "[]",
     estimate: float | None = None,
+    needed_capabilities="[]", complexity: int | None = None,
+    domain_tags="[]", assignment_mode: str = "claim",
 ) -> Task:
     project = s.get(models.Project, project_id)
     if not project:
@@ -96,6 +104,12 @@ def create_task(
         type=type, description=description or "", spec=spec or "", priority=priority,
         assignee_id=assignee_id, due_date=_parse_due_date(due_date),
         labels=labels or "[]", estimate=estimate,
+        needed_capabilities=json.dumps(
+            normalize_required_capabilities(needed_capabilities), ensure_ascii=False
+        ),
+        complexity=normalize_complexity(complexity),
+        domain_tags=json.dumps(normalize_domain_tags(domain_tags), ensure_ascii=False),
+        assignment_mode=normalize_assignment_mode(assignment_mode),
     )
     s.add(t)
     _commit(s)

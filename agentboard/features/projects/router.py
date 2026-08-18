@@ -530,7 +530,11 @@ def create_task(
                                 assignee_id=body.assignee_id,
                                 due_date=body.due_date,
                                 labels=body.labels,
-                                estimate=body.estimate)
+                                estimate=body.estimate,
+                                needed_capabilities=body.needed_capabilities,
+                                complexity=body.complexity,
+                                domain_tags=body.domain_tags,
+                                assignment_mode=body.assignment_mode)
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     api_helpers._invalidate_stats_cache(body.project_id)

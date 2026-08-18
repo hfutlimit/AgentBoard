@@ -927,8 +927,9 @@ def update_task(s: Session, id: int, **fields) -> Task | None:
     if not t:
         return None
     allowed = {"title", "description", "spec", "type", "status", "priority", "sprint_id",
-               "assignee_id", "due_date", "labels", "estimate"}  # Epic 17 / Epic 32
-    nullable_fields = {"due_date", "sprint_id", "assignee_id", "estimate"}  # fields that can be set to None
+               "assignee_id", "due_date", "labels", "estimate", "needed_capabilities",
+               "complexity", "domain_tags", "assignment_mode"}  # Epic 17 / Epic 32
+    nullable_fields = {"due_date", "sprint_id", "assignee_id", "estimate", "complexity"}  # fields that can be set to None
     # 抽出 status/status_reason：状态变更必须走状态机（execute_transition 包装），
     # 在事务末与其它字段一起 commit。
     new_status = fields.pop("status", None)
@@ -967,6 +968,18 @@ def update_task(s: Session, id: int, **fields) -> Task | None:
                 json.loads(v)
             except json.JSONDecodeError:
                 raise InvalidValue("labels must be a valid JSON array")
+        elif k == "needed_capabilities":
+            from .features.scheduling.matching import normalize_required_capabilities
+            v = json.dumps(normalize_required_capabilities(v), ensure_ascii=False)
+        elif k == "complexity":
+            from .features.scheduling.matching import normalize_complexity
+            v = normalize_complexity(v)
+        elif k == "domain_tags":
+            from .features.scheduling.matching import normalize_domain_tags
+            v = json.dumps(normalize_domain_tags(v), ensure_ascii=False)
+        elif k == "assignment_mode":
+            from .features.scheduling.matching import normalize_assignment_mode
+            v = normalize_assignment_mode(v)
         setattr(t, k, v)
 
     # ---- 阶段 2：状态迁移前置 dry-run（不 commit）----
@@ -3070,7 +3083,7 @@ from .features.webhooks.service import (  # noqa: F401,F403
 from .features.scheduling.service import (  # noqa: F401,F403
     create_schedule, list_schedules, get_schedule, update_schedule, delete_schedule,
     create_run, list_runs, get_run, update_run, report_run_result,
-    register_agent, agent_heartbeat, agent_deregister, list_agents,
+    register_agent, update_agent, agent_heartbeat, agent_deregister, list_agents,
     claim_story, submit_task_for_review,
     assign_task_reviewer, review_story, review_task,
     scan_review_timeouts, complete_story, complete_sprint,

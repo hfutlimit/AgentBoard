@@ -55,7 +55,7 @@ class AgentRegisterIn(BaseModel):
     agent_id: str = Field(min_length=1, max_length=64)
     name: str = Field(min_length=1, max_length=100)
     roles: str = "[]"
-    capabilities: str = "[]"
+    capabilities: str | list[str | dict] = "[]"
     cli_command: str = ""
     model: str = ""
     auth_key: str = ""
@@ -65,7 +65,7 @@ class AgentUpdateIn(BaseModel):
     """前端 Agent 配置中心（PUT /api/agents/{agent_id}，全字段可选）。"""
     name: str | None = Field(default=None, min_length=1, max_length=100)
     roles: str | None = None
-    capabilities: str | None = None
+    capabilities: str | list[str | dict] | None = None
     cli_command: str | None = None
     model: str | None = Field(default=None, max_length=100)
     enabled: bool | None = None
@@ -107,6 +107,10 @@ class TaskIn(BaseModel):
     labels: str = "[]"  # JSON array string
     # Epic 32 Story 49.3: 预估工时（小时）
     estimate: float | None = None
+    needed_capabilities: str | list[str | dict] = "[]"
+    complexity: int | None = Field(None, ge=1, le=5)
+    domain_tags: str | list[str] = "[]"
+    assignment_mode: str = Field("claim", pattern=r"^(claim|arbitrated)$")
 
 
 class TaskPatch(BaseModel):
@@ -123,6 +127,10 @@ class TaskPatch(BaseModel):
     labels: str | None = None  # JSON array string
     # Epic 32 Story 49.3: 预估工时（小时）
     estimate: float | None = None
+    needed_capabilities: str | list[str | dict] | None = None
+    complexity: int | None = Field(None, ge=1, le=5)
+    domain_tags: str | list[str] | None = None
+    assignment_mode: str | None = Field(None, pattern=r"^(claim|arbitrated)$")
     # Story 265: 状态原因（done/blocked 必填，经状态机校验）
     status_reason: str | None = None
 
