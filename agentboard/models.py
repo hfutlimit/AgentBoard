@@ -27,7 +27,9 @@ from .domains.projects.models import (
     Agent, Epic, Project, ProjectMember, ReviewVote, Sprint, Story,
     StoryStatusHistory,
 )
-from .domains.scheduling.models import AgentRun, AgentSchedule
+from .domains.scheduling.models import (
+    AgentRun, AgentSchedule, TaskApplication, TaskAssignment,
+)
 from .domains.work_items.models import Attachment, AuditLog, Comment, Task, TaskDependency, TaskStatusHistory, WebhookConfig
 from .domains.documents.models import Document, DocumentComment, DocumentFolder, DocumentRevision
 from .domains.proposals.models import (
@@ -40,6 +42,7 @@ from .domains.proposals.models import (
     ProposalStatus,
     ProposalTicketRequest,
 )
+from .features.learning.models import TaskOutcome
 
 __all__ = [
     "ALL_PRIORITIES", "ALL_PROPOSAL_STATUSES", "ALL_RUN_STATUSES", "ALL_SCHEDULE_TYPES",
@@ -52,5 +55,6 @@ __all__ = [
     "RunStatus",
     "STATUS_REASONS_BY_STATUS",
     "ScheduleType", "Sprint", "SprintStatus", "Status", "StatusReason", "Story", "StoryStatusHistory",
-    "Task", "TaskDependency", "TaskStatusHistory", "User", "WebhookConfig",
+    "Task", "TaskApplication", "TaskAssignment", "TaskDependency", "TaskOutcome",
+    "TaskStatusHistory", "User", "WebhookConfig",
 ]

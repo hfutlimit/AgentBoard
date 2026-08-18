@@ -1,6 +1,9 @@
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...core.common.enums import RunStatus, ScheduleType
@@ -38,6 +41,12 @@ class AgentRun(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     schedule_id: Mapped[int] = mapped_column(ForeignKey("agent_schedules.id", ondelete="CASCADE"), nullable=False, index=True)
     task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id"), nullable=True, index=True)
+    agent_registry_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    assignment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("task_assignments.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     # Execution-time snapshot: schedule/Agent configuration may change later,
     # but historical records must keep the agent and model actually selected.
     agent: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
@@ -51,6 +60,74 @@ class AgentRun(Base):
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     log_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class TaskAssignment(Base):
+    """Immutable task ownership attempt with one cross-database active slot."""
+
+    __tablename__ = "task_assignments"
+    __table_args__ = (
+        UniqueConstraint(
+            "task_id", "active_slot", name="uq_task_assignment_active_slot"
+        ),
+        CheckConstraint(
+            "source IN ('claim','arbitration','schedule','manual','worker')",
+            name="ck_task_assignment_source",
+        ),
+        CheckConstraint(
+            "status IN ('active','completed','released','cancelled')",
+            name="ck_task_assignment_status",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    agent_registry_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    source: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
+    active_slot: Mapped[str | None] = mapped_column(String(10), nullable=True, default="active")
+    match_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    match_reason: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class TaskApplication(Base):
+    """Agent application for an arbitrated task."""
+
+    __tablename__ = "task_applications"
+    __table_args__ = (
+        UniqueConstraint(
+            "task_id", "agent_registry_id", name="uq_task_application_agent"
+        ),
+        CheckConstraint(
+            "status IN ('pending','accepted','rejected','withdrawn')",
+            name="ck_task_application_status",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(
+        ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    agent_registry_id: Mapped[int] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 # Review 流程常量（从原 service.py 715-720 行搬迁）

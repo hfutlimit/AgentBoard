@@ -15,6 +15,14 @@ class Task(Base):
         # Story 265：status 收敛为 5 值（todo/in_progress/in_review/done/blocked）
         CheckConstraint("status IN ('todo','in_progress','in_review','done','blocked')", name="ck_tasks_status"),
         CheckConstraint("priority IN ('highest','high','medium','low','lowest')", name="ck_tasks_priority"),
+        CheckConstraint(
+            "complexity IS NULL OR (complexity >= 1 AND complexity <= 5)",
+            name="ck_tasks_complexity",
+        ),
+        CheckConstraint(
+            "assignment_mode IN ('claim','arbitrated')",
+            name="ck_tasks_assignment_mode",
+        ),
     )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
@@ -35,6 +43,17 @@ class Task(Base):
     labels: Mapped[str] = mapped_column(Text, default="[]")  # JSON array string
     # Epic 32 Story 49.3: 看板卡片显示预估时间（工时，单位小时）
     estimate: Mapped[float | None] = mapped_column(nullable=True)
+    # Capability/matching profile.  JSON values are stored as text for equal
+    # SQLite/MariaDB behavior and normalized at service boundaries.
+    needed_capabilities: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    complexity: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    domain_tags: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    assignment_mode: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="claim"
+    )
+    current_assignment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("task_assignments.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     # Epic 122 S2 M2: Task 评审闭环（reviewer 指派 + 评审轮次护栏）
     reviewer_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True

@@ -151,7 +151,9 @@ class Agent(Base):
     agent_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     roles: Mapped[str] = mapped_column(String(200), nullable=False, default="[]")
-    capabilities: Mapped[str] = mapped_column(String(500), nullable=False, default="[]")
+    # JSON list.  Legacy string tags and structured capability entries are
+    # normalized by the scheduling service before persistence.
+    capabilities: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     cli_command: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     # 2026-08-09（Agent 配置中心化）：cli_command 支持 {model} 占位符，
     # 同一 CLI 多 agent 各自注入模型（如 codebuddy 建 hy3 / deepseek-v4-flash 两个 agent）

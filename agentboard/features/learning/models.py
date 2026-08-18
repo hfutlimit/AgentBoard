@@ -40,6 +40,15 @@ class TaskOutcome(Base):
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), unique=True, index=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
     agent_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    # Agent-level attribution.  ``agent_id`` above remains the deprecated
+    # user/service-account attribution for compatibility.
+    agent_registry_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    assignment_id: Mapped[int | None] = mapped_column(
+        ForeignKey("task_assignments.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    agent_ref: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     task_type: Mapped[str] = mapped_column(String(10), default="dev")
     score: Mapped[float] = mapped_column(Float, default=0.0)
     # 明细 JSON：{"pass_first_try":1.0,"review_rounds":0,"attempts":1,
