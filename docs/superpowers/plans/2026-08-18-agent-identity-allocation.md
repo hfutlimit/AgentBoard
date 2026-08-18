@@ -6,6 +6,8 @@
 
 **Architecture:** Keep User as the authorization principal and Agent as the execution principal. Bind API keys to Agents, reserve tasks through one CAS assignment service, link Run and Outcome to the resulting assignment, and isolate deterministic matching in a pure scheduling module consumed by claim, arbitration, scheduler, and reviewer flows.
 
+**Status:** Implemented and verified on 2026-08-18; all checklist items below are complete except the final commit/push marker, which is completed by the handoff commit.
+
 **Tech Stack:** Python 3.14, FastAPI, SQLAlchemy 2, Alembic, SQLite/MariaDB, FastMCP, pytest.
 
 **Spec:** `docs/superpowers/specs/2026-08-18-agent-identity-allocation-design.md`
@@ -38,7 +40,7 @@
 - Produces: `TaskAssignment`, `TaskApplication`, and additive `agent_registry_id`, `assignment_id`, profile, and API-key binding columns.
 - Produces invariant: `UNIQUE(task_id, active_slot)` permits one active assignment per task.
 
-- [ ] **Step 1: Write model-contract tests**
+- [x] **Step 1: Write model-contract tests**
 
 ```python
 def test_assignment_models_enforce_one_active_slot(session, seeded_task_and_agents):
@@ -56,13 +58,13 @@ def test_profile_and_attribution_columns_exist():
     assert {"agent_registry_id", "assignment_id"} <= set(AgentRun.__table__.columns.keys())
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `.venv/Scripts/python.exe -m pytest -q tests/test_agent_identity_allocation.py -x`
 
 Expected: import/column assertions fail because assignment models and new columns do not exist.
 
-- [ ] **Step 3: Add ORM models and migration**
+- [x] **Step 3: Add ORM models and migration**
 
 Implement these exact persisted concepts:
 
@@ -84,7 +86,7 @@ class TaskApplication(Base):
 
 Migration `g2h3i4j5k6l7` revises `f1g2h3i4j5k6`, creates both tables, adds all nullable attribution FKs and task profile defaults, widens capabilities to text, creates indexes, maps exact `AgentRun.agent` values, and backfills outcome registry IDs only for unique user-to-Agent mappings.
 
-- [ ] **Step 4: Run GREEN and migration graph checks**
+- [x] **Step 4: Run GREEN and migration graph checks**
 
 Run:
 
@@ -95,7 +97,7 @@ Run:
 
 Expected: tests pass and the only head is `g2h3i4j5k6l7`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add agentboard/features migrations/versions/g2h3i4j5k6l7_agent_identity_allocation.py tests/test_agent_identity_allocation.py
@@ -115,7 +117,7 @@ git commit -m "feat(allocation): add agent attribution persistence"
 - Produces: `ActorContext` and `resolve_actor_context(authorization, s, required_permission=None)`.
 - Produces: API key create/patch field `agent_ref: str | None` and response fields `agent_registry_id`/`agent_ref`.
 
-- [ ] **Step 1: Write failing identity tests**
+- [x] **Step 1: Write failing identity tests**
 
 ```python
 def test_agent_bound_api_key_resolves_exact_agent(client, session):
@@ -131,13 +133,13 @@ def test_api_key_cannot_bind_other_users_agent(client):
     assert response.status_code == 422
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `.venv/Scripts/python.exe -m pytest -q tests/test_agent_identity_allocation.py -x`
 
 Expected: `ActorContext`/`agent_ref` is missing.
 
-- [ ] **Step 3: Implement identity resolution**
+- [x] **Step 3: Implement identity resolution**
 
 ```python
 @dataclass(frozen=True)
@@ -155,7 +157,7 @@ def resolve_actor_context(authorization: str | None, s: Session,
 
 Extend API-key create/update service methods to resolve `agent_ref`, require `Agent.user_id == user_id`, and persist the registry FK. Keep `_current_user()` and `_caller_uid_admin()` behavior compatible by delegating to the new resolver where a route session is available.
 
-- [ ] **Step 4: Run GREEN plus auth regressions**
+- [x] **Step 4: Run GREEN plus auth regressions**
 
 Run:
 
@@ -165,7 +167,7 @@ Run:
 
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add agentboard/api_helpers.py agentboard/schemas.py agentboard/features/identity agentboard/features/auth tests/test_agent_identity_allocation.py
@@ -186,7 +188,7 @@ git commit -m "feat(auth): bind API keys to agent identities"
 - Produces: `MatchResult(eligible, score, reason, components)`.
 - Produces: `score_agent_for_task(s, agent, task, role="developer")` and `rank_agents_for_task(...)`.
 
-- [ ] **Step 1: Write failing normalization and ranking tests**
+- [x] **Step 1: Write failing normalization and ranking tests**
 
 ```python
 def test_legacy_capability_normalizes_to_structured_entry():
@@ -205,13 +207,13 @@ def test_missing_required_capability_is_ineligible(session, seeded):
     assert "frontend" in result.reason
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `.venv/Scripts/python.exe -m pytest -q tests/test_task_matching_arbitration.py -x`
 
 Expected: matching module is missing.
 
-- [ ] **Step 3: Implement the pure matching module and profile validation**
+- [x] **Step 3: Implement the pure matching module and profile validation**
 
 Use the documented weights exactly:
 
@@ -223,13 +225,13 @@ score = round(0.35 * coverage + 0.25 * proficiency +
 
 Validate task fields at create/update boundaries: capabilities/domain tags are normalized JSON lists, complexity is null or 1..5, and assignment mode is `claim|arbitrated`. Register/update Agent normalizes legacy or structured capabilities before persistence.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run: `.venv/Scripts/python.exe -m pytest -q tests/test_task_matching_arbitration.py`
 
 Expected: all matcher tests pass deterministically.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add agentboard/features/scheduling/matching.py agentboard/features/scheduling/service.py agentboard/features/work_items/service.py agentboard/schemas.py tests/test_task_matching_arbitration.py
@@ -249,7 +251,7 @@ git commit -m "feat(matching): add structured capability scoring"
 - Extends: `claim_development_task(..., agent_registry_id=None, source="claim")`.
 - Produces: `finalize_task_assignment(s, task, status)`.
 
-- [ ] **Step 1: Write failing CAS and attribution tests**
+- [x] **Step 1: Write failing CAS and attribution tests**
 
 ```python
 def test_two_agents_same_user_are_attributed_separately(session, actors, task):
@@ -265,17 +267,17 @@ def test_assignment_conflict_leaves_one_active_row(session, task, two_agents):
         task_id=task.id, active_slot="active").count() == 1
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `.venv/Scripts/python.exe -m pytest -q tests/test_agent_identity_allocation.py tests/test_epic122_s2m1.py -x`
 
 Expected: claim does not return/create an assignment.
 
-- [ ] **Step 3: Implement one transaction for assignment and Task CAS**
+- [x] **Step 3: Implement one transaction for assignment and Task CAS**
 
 `try_assign_task()` inserts and flushes an active assignment, conditionally updates `Task.status/current_assignment_id/assignee_id`, writes status history, and commits once. On `IntegrityError` or zero updated rows, rollback and raise the existing conflict message. The route obtains `ActorContext` and supplies its registry ID. For `assignment_mode=arbitrated`, direct Agent claim returns a conflict directing the caller to `/apply`; a human/manual claim remains an explicit fallback.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run:
 
@@ -285,7 +287,7 @@ Run:
 
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add agentboard/features/work_items tests/test_agent_identity_allocation.py tests/test_epic122_s2m1.py
@@ -307,7 +309,7 @@ git commit -m "feat(allocation): unify task claim assignments"
 - Produces: `arbitrate_task(s, task_id, changed_by) -> tuple[Task, TaskAssignment]`.
 - Produces REST/MCP tools `apply_for_task` and `arbitrate_task`.
 
-- [ ] **Step 1: Write failing application flow tests**
+- [x] **Step 1: Write failing application flow tests**
 
 ```python
 def test_arbitration_accepts_highest_match_and_rejects_others(client, seeded):
@@ -322,23 +324,23 @@ def test_apply_requires_agent_scoped_key(client, human_token, task):
     assert client.post(f"/api/tasks/{task.id}/apply", headers=human_token).status_code == 422
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run: `.venv/Scripts/python.exe -m pytest -q tests/test_task_matching_arbitration.py tests/test_mcp_api_boundary.py -x`
 
 Expected: endpoints/tools are missing.
 
-- [ ] **Step 3: Implement service, router, and HTTP-only MCP wrappers**
+- [x] **Step 3: Implement service, router, and HTTP-only MCP wrappers**
 
 Application upserts the caller's row with a fresh deterministic score. Arbitration orders pending applications by score descending then Agent ID ascending, calls `try_assign_task(source="arbitration")`, updates application statuses, and publishes `EVENT_TASK_ASSIGNED` to the winning Agent. MCP wrappers only call `_http()`.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run: `.venv/Scripts/python.exe -m pytest -q tests/test_task_matching_arbitration.py tests/test_mcp_api_boundary.py`
 
 Expected: all pass and boundary tests find no DB imports in MCP.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add agentboard/features/work_items agentboard/schemas.py agentboard/mcp_server.py tests/test_task_matching_arbitration.py tests/test_mcp_api_boundary.py
@@ -362,7 +364,7 @@ git commit -m "feat(allocation): add task application arbitration"
 - Outcomes carry final assignment and Agent attribution.
 - Reviewer assignment consumes `rank_agents_for_task(role="reviewer")`.
 
-- [ ] **Step 1: Write failing integration tests**
+- [x] **Step 1: Write failing integration tests**
 
 ```python
 def test_two_schedules_cannot_dispatch_same_todo_task(session, schedules, task):
@@ -379,7 +381,7 @@ def test_reviewer_ranking_replaces_random_choice(session, review_task):
     assert assigned.reviewer_id == best_reviewer.user_id
 ```
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 Run:
 
@@ -389,13 +391,13 @@ Run:
 
 Expected: duplicate dispatch/Agent grouping/deterministic reviewer assertions fail.
 
-- [ ] **Step 3: Integrate assignment and matching**
+- [x] **Step 3: Integrate assignment and matching**
 
 Resolve or create built-in Agent registry rows for supported scheduler adapters; include `minimax` in the allow-list. `create_run()` reserves the task and creates the run atomically, while `_trigger_one()` treats allocation conflicts as a skipped run. Terminal status paths finalize assignments before recording outcomes. `record_outcome()` copies current assignment registry ID/reference. Leaderboard groups by registry Agent while retaining legacy `user_id`. Replace reviewer `random.choice` with the ranked eligible candidate.
 
 Update the two stale review tests to patch `agentboard.features.work_items.router.publish_workflow_event`, the namespace actually called after router extraction.
 
-- [ ] **Step 4: Run GREEN**
+- [x] **Step 4: Run GREEN**
 
 Run:
 
@@ -405,7 +407,7 @@ Run:
 
 Expected: all pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add agentboard/features agentboard/scheduler.py tests
@@ -422,11 +424,11 @@ git commit -m "feat(allocation): connect runs outcomes and reviewers"
 **Interfaces:**
 - Produces a single Alembic head, focused green test evidence, documentation, commits, and pushed upstream branch.
 
-- [ ] **Step 1: Test migration on a copied populated SQLite database**
+- [x] **Step 1: Test migration on a copied populated SQLite database**
 
 Use a disposable copy under ignored `tmp/`, upgrade it to `g2h3i4j5k6l7`, and query column/table/index presence. Never run downgrade or destructive migration checks against `agentboard.db`.
 
-- [ ] **Step 2: Run focused regression suite**
+- [x] **Step 2: Run focused regression suite**
 
 ```powershell
 .venv/Scripts/python.exe -m pytest -q `
@@ -443,7 +445,7 @@ Use a disposable copy under ignored `tmp/`, upgrade it to `g2h3i4j5k6l7`, and qu
 
 Expected: zero failures.
 
-- [ ] **Step 3: Run structural verification**
+- [x] **Step 3: Run structural verification**
 
 ```powershell
 .venv/Scripts/python.exe -m alembic heads
@@ -454,11 +456,11 @@ git status --short
 
 Expected: one migration head, compile success, no whitespace errors, and only intended files changed.
 
-- [ ] **Step 4: Review the complete diff against the spec**
+- [x] **Step 4: Review the complete diff against the spec**
 
 Confirm credential-derived identity, atomic allocation, attribution, profiles, arbitration, scheduler reservation, reviewer ranking, compatibility, and docs each have code plus tests. Remove generated files and unrelated changes.
 
-- [ ] **Step 5: Commit remaining docs/checklist updates and push**
+- [x] **Step 5: Commit remaining docs/checklist updates and push**
 
 ```powershell
 git add docs

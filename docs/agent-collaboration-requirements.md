@@ -1,9 +1,33 @@
 # Agent 间自动协作闭环 —— 需求总结
 
-> 状态：需求梳理稿（尚未进入 OpenSpec Change）
-> 日期：2026-08-06
+> 状态：持续实施；Agent 身份、任务画像、统一分配和能力匹配底座已完成
+> 日期：2026-08-18
 > 目标：让多个 Agent 通过 AgentBoard（MCP + RabbitMQ + CLI）自动完成
 > 「需求澄清 → Story 评审 → 开发认领 → 代码评审」的全流程闭环，人类只在必要时介入。
+
+---
+
+## 0. 2026-08-18 分配底座现状
+
+本轮实现明确区分两种身份：`users.id` 继续承担认证、权限和通知，`agents.id`
+承担执行、能力画像与学习归因。API Key 可绑定一个归属同一用户的 Agent；服务端只从
+已验证凭据解析 Agent 身份，不接受请求体或自定义 Header 覆盖。
+
+任务分配统一写入 `task_assignments`，主动认领、申请仲裁和 Schedule 派发共用同一个
+CAS 入口。`tasks.current_assignment_id` 保留当前或最终分配指针，`agent_runs` 与
+`task_outcome` 同时记录 Agent 和 assignment，从而可以直接统计“哪个 Agent 做了什么、
+结果如何”，不再把同一服务账号下的多个 Agent 混为一体。
+
+任务与 Agent 的匹配数据已结构化：
+
+- Task：`needed_capabilities`、`complexity`、`domain_tags`、`assignment_mode`；
+- Agent capability：`name`、`level`（0..5）、`confidence`（0..1），旧字符串标签会自动归一化；
+- 匹配分：能力覆盖 35% + 熟练度 25% + 置信度 10% + 历史结果 20% + 当前负载 10%；
+- `claim` 模式保留直接认领；`arbitrated` 模式使用 `apply` → owner/admin `arbitrate`；
+- Task reviewer 使用同一确定性匹配层，并继续要求在线、项目成员、reviewer 角色且不是开发者本人。
+
+MCP 仍保持 HTTP-only 边界：`apply_for_task` 和 `arbitrate_task` 只调用 REST API，
+不直接访问数据库或领域 service。
 
 ---
 
@@ -33,14 +57,14 @@ Agent 通过 MCP 主动注册身份，系统维护一张注册表：
 | `agent_id` | 注册时生成或由 Agent 指定，全局唯一 |
 | `name` | 显示名（如 `dev-frontend` / `reviewer-1`） |
 | `role` | `requester`（需求提出）/ `reviewer`（评审）/ `developer`（开发）——可多选 |
-| `capabilities` | 能力标签（前端/后端/测试/文档…），用于开发任务匹配 |
+| `capabilities` | 结构化能力（name/level/confidence）；兼容旧字符串标签 |
 | `cli_command` | 该 Agent 的 CLI 拉起命令模板（复用 Worker 的 `SubprocessAgentInvoker`） |
 | `online` / `last_heartbeat` | 在线状态，由 `heartbeat` 维护 |
-| `auth_key` | 绑定的 `abk_` API Key，所有动作以此身份归属 |
+| API Key 绑定 | `api_keys.agent_registry_id` 可选绑定 Agent，所有动作从凭据派生归属 |
 
 配套能力：
 - **Agent 身份与用户解耦**：现有 `auth_register` 是「人」注册；Agent 注册是独立实体，可挂项目成员权限；
-- **随机/公平分配**：评审人从「在线且非作者本人」的 reviewer 集合中随机选取；开发人从「在线且能力匹配」的 developer 集合中竞争认领；
+- **确定性能力分配**：Task reviewer 按能力、历史结果和负载排序；developer 可直接认领或进入申请仲裁；
 - **心跳与超时剔除**：`heartbeat` 已存在，复用即可，过期 agent 不参与分配。
 
 ---

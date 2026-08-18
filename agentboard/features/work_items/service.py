@@ -247,42 +247,6 @@ def _record_learning_outcome(s: Session, t: Task):
 
 # ---- 认领 / 提交评审 ---------------------------------------------------
 
-def _legacy_claim_development_task(s: Session, task_id: int, *, user_id: int) -> Task:
-    """开发任务竞争认领(Epic 122 切片 2 M1,CAS 并发安全;Story 265 后仅 todo 可认领)。
-
-    条件 UPDATE ``status=todo`` → in_progress + assignee,rowcount=1 才成功;
-    绕开状态机(系统操作),写一条 TaskStatusHistory。
-    """
-    t = s.get(Task, task_id)
-    if not t:
-        raise NotFound(f"task {task_id} not found")
-    if t.status != Status.TODO:
-        raise InvalidValue(
-            f"task {task_id} already claimed or not claimable (status={t.status})"
-        )
-    old_status = t.status
-    r = s.execute(
-        update(Task).where(
-            Task.id == task_id, Task.status == Status.TODO,
-        ).values(status=Status.IN_PROGRESS, assignee_id=user_id)
-    )
-    if r.rowcount != 1:
-        s.rollback()
-        cur = s.get(Task, task_id)
-        raise InvalidValue(
-            f"task {task_id} claim conflict: already claimed "
-            f"(status={cur.status if cur else 'deleted'})"
-        )
-    _record_status_history(
-        s, task_id, str(old_status), str(Status.IN_PROGRESS),
-        changed_by=user_id, reason="claim",
-    )
-    _commit(s)
-    s.refresh(t)
-    _invalidate_project_stats_cache(t.project_id)
-    return t
-
-
 def try_assign_task(
     s: Session,
     task_id: int,
