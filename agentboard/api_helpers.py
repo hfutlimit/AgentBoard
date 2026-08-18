@@ -13,6 +13,7 @@ import re
 import json
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -63,22 +64,70 @@ def _need(obj, what: str):
     return obj
 
 
+@dataclass(frozen=True)
+class ActorContext:
+    """Verified request identity, preserving user and optional Agent scopes."""
+
+    user_id: int
+    is_admin: bool
+    api_key_id: int | None = None
+    agent_registry_id: int | None = None
+    agent_ref: str | None = None
+
+
+def resolve_actor_context(
+    authorization: str | None,
+    s: Session,
+    *,
+    required_permission: str | None = None,
+) -> ActorContext:
+    """Resolve a login/API-key credential without trusting caller identity fields."""
+
+    token = (
+        authorization.split(" ", 1)[1]
+        if authorization and authorization.startswith("Bearer ")
+        else None
+    )
+    if not token:
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+    uid = auth.parse_token(token)
+    api_key = None
+    if not uid and token.startswith(auth.API_KEY_PREFIX):
+        api_key = service.lookup_api_key_by_hash(s, auth.hash_api_key(token))
+        if api_key and api_key.enabled:
+            permissions = auth.decode_permissions(api_key.permissions)
+            if required_permission and not auth.permission_allows(
+                permissions, required_permission
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"API key requires '{required_permission}' permission",
+                )
+            uid = api_key.user_id
+
+    user = service.get_user(s, uid) if uid else None
+    if user is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+    agent_registry_id = api_key.agent_registry_id if api_key else None
+    agent = s.get(service.Agent, agent_registry_id) if agent_registry_id else None
+    return ActorContext(
+        user_id=user.id,
+        is_admin=bool(user.is_admin),
+        api_key_id=api_key.id if api_key else None,
+        agent_registry_id=agent.id if agent else None,
+        agent_ref=agent.agent_id if agent else None,
+    )
+
+
 def _current_user(
     authorization: str | None, s: Session, *, required_permission: str | None = None,
 ):
-    token = authorization.split(" ", 1)[1] if authorization and authorization.startswith("Bearer ") else None
-    uid = auth.parse_token(token)
-    if not uid and token and token.startswith(auth.API_KEY_PREFIX):
-        item = service.lookup_api_key_by_hash(s, auth.hash_api_key(token))
-        if item and item.enabled:
-            permissions = auth.decode_permissions(item.permissions)
-            if required_permission and not auth.permission_allows(permissions, required_permission):
-                raise HTTPException(status_code=403, detail=f"API key requires '{required_permission}' permission")
-            uid = item.user_id
-    u = service.get_user(s, uid) if uid else None
-    if u is None:
-        raise HTTPException(status_code=401, detail="unauthorized")
-    return u
+    actor = resolve_actor_context(
+        authorization, s, required_permission=required_permission,
+    )
+    return service.get_user(s, actor.user_id)
 
 
 def _apply_cors(request: Request, resp: JSONResponse) -> JSONResponse:
@@ -237,10 +286,17 @@ def _user_response(user) -> dict:
     }
 
 
-def _api_key_response(item) -> dict:
+def _api_key_response(item, s: Session | None = None) -> dict:
+    agent = (
+        s.get(service.Agent, item.agent_registry_id)
+        if s is not None and item.agent_registry_id is not None
+        else None
+    )
     return {
         "id": item.id, "name": item.name, "prefix": item.key_prefix,
         "permissions": auth.decode_permissions(item.permissions), "enabled": item.enabled,
+        "agent_registry_id": item.agent_registry_id,
+        "agent_ref": agent.agent_id if agent else None,
         "created_at": item.created_at, "updated_at": item.updated_at,
         "last_used_at": item.last_used_at,
     }

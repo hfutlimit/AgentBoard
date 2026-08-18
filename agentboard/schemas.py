@@ -283,6 +283,7 @@ class PasswordChange(BaseModel):
 class ApiKeyCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     permissions: list[str] = Field(default_factory=lambda: ["api:read"], max_length=100)
+    agent_ref: str | None = Field(None, min_length=1, max_length=64)
 
     @field_validator("name")
     @classmethod
@@ -304,6 +305,7 @@ class ApiKeyPatch(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=100)
     enabled: bool | None = None
     permissions: list[str] | None = Field(None, max_length=100)
+    agent_ref: str | None = Field(None, min_length=1, max_length=64)
 
     @field_validator("name")
     @classmethod

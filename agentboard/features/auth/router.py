@@ -82,22 +82,23 @@ def create_api_key(body: ApiKeyCreate, authorization: str | None = Header(None),
     user = api_helpers._current_user(authorization, s)
     item, plaintext = service.create_api_key(
         s, user_id=user.id, name=body.name, permissions=body.permissions,
+        agent_ref=body.agent_ref,
     )
-    return {**api_helpers._api_key_response(item), "key": plaintext}
+    return {**api_helpers._api_key_response(item, s), "key": plaintext}
 
 
 
 @router.get("/api/api-keys")
 def list_api_keys(authorization: str | None = Header(None), s: Session = Depends(get_session)):
     user = api_helpers._current_user(authorization, s)
-    return {"items": [api_helpers._api_key_response(x) for x in service.list_api_keys(s, user_id=user.id)]}
+    return {"items": [api_helpers._api_key_response(x, s) for x in service.list_api_keys(s, user_id=user.id)]}
 
 
 
 @router.get("/api/api-keys/{api_key_id}")
 def get_api_key(api_key_id: int, authorization: str | None = Header(None), s: Session = Depends(get_session)):
     user = api_helpers._current_user(authorization, s)
-    return api_helpers._api_key_response(api_helpers._need(service.get_api_key(s, user_id=user.id, api_key_id=api_key_id), "api key"))
+    return api_helpers._api_key_response(api_helpers._need(service.get_api_key(s, user_id=user.id, api_key_id=api_key_id), "api key"), s)
 
 
 
@@ -105,10 +106,15 @@ def get_api_key(api_key_id: int, authorization: str | None = Header(None), s: Se
 def update_api_key(body: ApiKeyPatch, api_key_id: int, authorization: str | None = Header(None), s: Session = Depends(get_session)):
     user = api_helpers._current_user(authorization, s)
     item = api_helpers._need(service.get_api_key(s, user_id=user.id, api_key_id=api_key_id), "api key")
-    updated = service.update_api_key(
-        s, item, name=body.name, enabled=body.enabled, permissions=body.permissions,
-    )
-    return api_helpers._api_key_response(updated)
+    updates = {
+        "name": body.name,
+        "enabled": body.enabled,
+        "permissions": body.permissions,
+    }
+    if "agent_ref" in body.model_fields_set:
+        updates["agent_ref"] = body.agent_ref
+    updated = service.update_api_key(s, item, **updates)
+    return api_helpers._api_key_response(updated, s)
 
 
 

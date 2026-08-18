@@ -8,7 +8,9 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from agentboard import models
-from agentboard.features.identity.service import register_user
+from agentboard import api_helpers
+from agentboard.core.exceptions import InvalidValue
+from agentboard.features.identity.service import create_api_key, register_user
 from agentboard.features.projects.service import create_project
 from agentboard.features.scheduling.service import register_agent
 from agentboard.features.work_items.service import create_task
@@ -81,3 +83,49 @@ def test_only_one_active_assignment_slot_per_task(db_session_override):
     ))
     with pytest.raises(IntegrityError):
         session.commit()
+
+
+def test_agent_bound_api_key_resolves_exact_agent(db_session_override):
+    """Collapsing a scoped API key to user-only identity would mix sibling Agents."""
+    session = db_session_override
+    user, _project, _task, _first, second = _seed_task_and_agents(session)
+    _item, plaintext = create_api_key(
+        session,
+        user_id=user.id,
+        name="agent-b-key",
+        permissions=["api:read", "api:write"],
+        agent_ref=second.agent_id,
+    )
+
+    actor = api_helpers.resolve_actor_context(f"Bearer {plaintext}", session)
+
+    assert actor.user_id == user.id
+    assert actor.agent_registry_id == second.id
+    assert actor.agent_ref == second.agent_id
+    assert actor.api_key_id is not None
+
+
+def test_api_key_rejects_agent_owned_by_another_user(db_session_override):
+    """Allowing cross-owner binding would let one credential impersonate another Agent."""
+    session = db_session_override
+    owner, _project, _task, _first, _second = _seed_task_and_agents(session)
+    suffix = uuid.uuid4().hex[:8]
+    other = register_user(
+        session, username=f"other-{suffix}", password="password123",
+    )
+    other_agent = register_agent(
+        session,
+        agent_id=f"other-agent-{suffix}",
+        name="Other Agent",
+        roles='["developer"]',
+        user_id=other.id,
+    )
+
+    with pytest.raises(InvalidValue, match="belongs to another user"):
+        create_api_key(
+            session,
+            user_id=owner.id,
+            name="impersonation",
+            permissions=["api:write"],
+            agent_ref=other_agent.agent_id,
+        )

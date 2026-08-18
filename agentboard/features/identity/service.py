@@ -24,6 +24,7 @@ from ... import models  # 老 facade,仍用
 from .models import ApiKey, User
 
 log = logging.getLogger("agentboard.features.identity.service")
+_UNSET = object()
 
 from ...core.exceptions import (
     Duplicate,
@@ -118,15 +119,18 @@ def change_user_password(
 
 def create_api_key(
     s: Session, *, user_id: int, name: str, permissions: list[str],
+    agent_ref: str | None = None,
 ) -> tuple[ApiKey, str]:
     """创建 API Key,返回 (ApiKey 实例, 明文 key)。
 
     明文只返回一次,后续只能用 prefix + digest 查询。
     """
+    agent_registry_id = _resolve_owned_agent_id(s, user_id, agent_ref)
     plaintext, prefix, digest = auth.generate_api_key()
     item = ApiKey(
         user_id=user_id, name=name.strip(), key_prefix=prefix, key_hash=digest,
         permissions=auth.encode_permissions(permissions), enabled=True,
+        agent_registry_id=agent_registry_id,
     )
     s.add(item)
     _commit(s)
@@ -198,6 +202,7 @@ _ = "deprecated"
 def update_api_key(
     s: Session, item: ApiKey, *, name: str | None = None,
     enabled: bool | None = None, permissions: list[str] | None = None,
+    agent_ref: str | None | object = _UNSET,
 ) -> ApiKey:
     if name is not None:
         item.name = name.strip()
@@ -205,10 +210,30 @@ def update_api_key(
         item.enabled = enabled
     if permissions is not None:
         item.permissions = auth.encode_permissions(permissions)
+    if agent_ref is not _UNSET:
+        item.agent_registry_id = _resolve_owned_agent_id(
+            s, item.user_id, agent_ref if isinstance(agent_ref, str) else None,
+        )
     item.updated_at = models._now()
     _commit(s)
     s.refresh(item)
     return item
+
+
+def _resolve_owned_agent_id(
+    s: Session, user_id: int, agent_ref: str | None,
+) -> int | None:
+    if agent_ref is None:
+        return None
+    normalized = agent_ref.strip()
+    if not normalized:
+        return None
+    agent = s.query(models.Agent).filter(models.Agent.agent_id == normalized).first()
+    if agent is None:
+        raise InvalidValue(f"agent '{normalized}' not found")
+    if agent.user_id != user_id:
+        raise InvalidValue(f"agent '{normalized}' belongs to another user")
+    return agent.id
 
 # ---- 同步自 service.py ----
 def get_api_key(s: Session, *, user_id: int, api_key_id: int) -> ApiKey | None:
