@@ -14,6 +14,7 @@ from agentboard.features.identity.service import create_api_key, register_user
 from agentboard.features.projects.service import create_project
 from agentboard.features.scheduling.service import register_agent
 from agentboard.features.work_items.service import create_task
+from agentboard.features.work_items.service import claim_development_task
 
 
 def _seed_task_and_agents(session):
@@ -129,3 +130,56 @@ def test_api_key_rejects_agent_owned_by_another_user(db_session_override):
             permissions=["api:write"],
             agent_ref=other_agent.agent_id,
         )
+
+
+def test_claim_persists_exact_agent_assignment(db_session_override):
+    """Two Agents sharing one service user must not collapse to user attribution."""
+    session = db_session_override
+    user, _project, task, _first, second = _seed_task_and_agents(session)
+
+    claimed = claim_development_task(
+        session,
+        task.id,
+        user_id=user.id,
+        agent_registry_id=second.id,
+    )
+    assignment = session.get(models.TaskAssignment, claimed.current_assignment_id)
+
+    assert assignment is not None
+    assert assignment.agent_registry_id == second.id
+    assert assignment.user_id == user.id
+    assert assignment.source == "claim"
+    assert assignment.status == "active"
+    assert assignment.active_slot == "active"
+
+
+def test_claim_conflict_leaves_exactly_one_active_assignment(db_session_override):
+    session = db_session_override
+    user, _project, task, first, second = _seed_task_and_agents(session)
+    claim_development_task(
+        session, task.id, user_id=user.id, agent_registry_id=first.id,
+    )
+
+    with pytest.raises(InvalidValue, match="already claimed"):
+        claim_development_task(
+            session, task.id, user_id=user.id, agent_registry_id=second.id,
+        )
+
+    assert session.query(models.TaskAssignment).filter_by(
+        task_id=task.id, active_slot="active",
+    ).count() == 1
+
+
+def test_agent_cannot_directly_claim_arbitrated_task(db_session_override):
+    session = db_session_override
+    user, _project, task, first, _second = _seed_task_and_agents(session)
+    task.assignment_mode = "arbitrated"
+    session.commit()
+
+    with pytest.raises(InvalidValue, match="apply"):
+        claim_development_task(
+            session, task.id, user_id=user.id, agent_registry_id=first.id,
+        )
+
+    assert task.status == "todo"
+    assert session.query(models.TaskAssignment).count() == 0

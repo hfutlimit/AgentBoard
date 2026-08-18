@@ -155,13 +155,20 @@ def claim_task_for_development(tid: int, authorization: str | None = Header(None
     rowcount=1 才成功；已认领/已结束返回 409 明确错误（复用 Epic 118 护栏语义）。
     项目写权限由 project_access_middleware 自动覆盖。
     """
-    uid, _is_admin = api_helpers._caller_uid_admin(authorization)
-    if api_helpers._auth_is_required() and uid is None:
+    if not authorization and api_helpers._auth_is_required():
         raise HTTPException(status_code=401, detail="unauthorized")
-    if uid is None:
+    if not authorization:
         raise HTTPException(status_code=422, detail="claim requires login")
+    actor = api_helpers.resolve_actor_context(
+        authorization, s, required_permission="api:write",
+    )
     try:
-        t = service.claim_development_task(s, tid, user_id=uid)
+        t = service.claim_development_task(
+            s,
+            tid,
+            user_id=actor.user_id,
+            agent_registry_id=actor.agent_registry_id,
+        )
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
     except service.InvalidValue as e:

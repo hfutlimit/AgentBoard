@@ -9,5 +9,6 @@ from .state_machine import (  # noqa: F401
 from .service import (  # noqa: F401
     create_task, get_task, list_tasks, query_task_count,
     list_task_status_history, set_status,
-    claim_development_task, submit_task_for_review,
+    try_assign_task, claim_development_task, finalize_task_assignment,
+    submit_task_for_review,
 )

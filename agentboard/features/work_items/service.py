@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 from typing import Iterable
 
 from sqlalchemy import func, or_, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ... import models  # 顶层 facade,保持兼容
@@ -32,6 +33,7 @@ from ...core.common.enums import (
 from ...core.common.models import utc_now  # noqa: F401
 from ..scheduling.models import (  # noqa: F401  (跨域常量)
     DEFAULT_REVIEW_TIMEOUT_MINUTES, DEFAULT_TIMEOUT_SCAN_BATCH,
+    TaskAssignment,
 )
 
 from ...core.service_helpers import (
@@ -39,7 +41,7 @@ from ...core.service_helpers import (
     _invalidate_project_stats_cache, _paginate, _parse_due_date, _required,
     _ser,
 )
-from ..projects.models import Epic, Project, Sprint, Story
+from ..projects.models import Agent, Epic, Project, Sprint, Story
 from ..scheduling.matching import (
     normalize_assignment_mode,
     normalize_complexity,
@@ -241,7 +243,7 @@ def _record_learning_outcome(s: Session, t: Task):
 
 # ---- 认领 / 提交评审 ---------------------------------------------------
 
-def claim_development_task(s: Session, task_id: int, *, user_id: int) -> Task:
+def _legacy_claim_development_task(s: Session, task_id: int, *, user_id: int) -> Task:
     """开发任务竞争认领(Epic 122 切片 2 M1,CAS 并发安全;Story 265 后仅 todo 可认领)。
 
     条件 UPDATE ``status=todo`` → in_progress + assignee,rowcount=1 才成功;
@@ -275,6 +277,139 @@ def claim_development_task(s: Session, task_id: int, *, user_id: int) -> Task:
     s.refresh(t)
     _invalidate_project_stats_cache(t.project_id)
     return t
+
+
+def try_assign_task(
+    s: Session,
+    task_id: int,
+    *,
+    user_id: int | None,
+    agent_registry_id: int | None = None,
+    source: str,
+    match_score: float | None = None,
+    match_reason: dict | str | None = None,
+    commit: bool = True,
+) -> tuple[Task, TaskAssignment]:
+    """Atomically reserve a todo task and persist its exact execution owner."""
+    task = s.get(Task, task_id)
+    if not task:
+        raise NotFound(f"task {task_id} not found")
+    if task.status != Status.TODO or task.current_assignment_id is not None:
+        raise InvalidValue(
+            f"task {task_id} already claimed or not claimable (status={task.status})"
+        )
+    agent = s.get(Agent, agent_registry_id) if agent_registry_id is not None else None
+    if agent_registry_id is not None and agent is None:
+        raise InvalidValue(f"agent registry id {agent_registry_id} not found")
+    if agent is not None and user_id is not None and agent.user_id != user_id:
+        raise InvalidValue(f"agent '{agent.agent_id}' belongs to another user")
+    if (
+        source == "claim"
+        and agent_registry_id is not None
+        and task.assignment_mode == "arbitrated"
+    ):
+        raise InvalidValue(
+            f"task {task_id} uses arbitrated assignment; apply before claiming"
+        )
+
+    reason_json = (
+        match_reason
+        if isinstance(match_reason, str)
+        else json.dumps(match_reason or {}, ensure_ascii=False, sort_keys=True)
+    )
+    assignment = TaskAssignment(
+        task_id=task_id,
+        agent_registry_id=agent_registry_id,
+        user_id=user_id,
+        source=source,
+        status="active",
+        active_slot="active",
+        match_score=match_score,
+        match_reason=reason_json,
+    )
+    try:
+        s.add(assignment)
+        s.flush()
+        result = s.execute(
+            update(Task)
+            .where(
+                Task.id == task_id,
+                Task.status == Status.TODO,
+                Task.current_assignment_id.is_(None),
+            )
+            .values(
+                status=Status.IN_PROGRESS,
+                assignee_id=user_id,
+                current_assignment_id=assignment.id,
+            )
+        )
+        if result.rowcount != 1:
+            s.rollback()
+            current = s.get(Task, task_id)
+            raise InvalidValue(
+                f"task {task_id} claim conflict: already claimed "
+                f"(status={current.status if current else 'deleted'})"
+            )
+        _record_status_history(
+            s,
+            task_id,
+            str(Status.TODO),
+            str(Status.IN_PROGRESS),
+            changed_by=user_id,
+            reason=source,
+        )
+        if commit:
+            _commit(s)
+        else:
+            s.flush()
+    except IntegrityError as exc:
+        s.rollback()
+        raise InvalidValue(
+            f"task {task_id} claim conflict: already claimed"
+        ) from exc
+
+    s.refresh(task)
+    s.refresh(assignment)
+    _invalidate_project_stats_cache(task.project_id)
+    return task, assignment
+
+
+def claim_development_task(
+    s: Session,
+    task_id: int,
+    *,
+    user_id: int,
+    agent_registry_id: int | None = None,
+    source: str = "claim",
+) -> Task:
+    """Backward-compatible claim wrapper around the unified assignment CAS."""
+    task, _assignment = try_assign_task(
+        s,
+        task_id,
+        user_id=user_id,
+        agent_registry_id=agent_registry_id,
+        source=source,
+    )
+    return task
+
+
+def finalize_task_assignment(
+    s: Session, task: Task, *, commit: bool = True,
+) -> TaskAssignment | None:
+    """Close the active slot while retaining the assignment audit pointer."""
+    if task.current_assignment_id is None:
+        return None
+    assignment = s.get(TaskAssignment, task.current_assignment_id)
+    if assignment is None or assignment.status != "active":
+        return assignment
+    assignment.status = "completed"
+    assignment.active_slot = None
+    assignment.completed_at = utc_now()
+    if commit:
+        _commit(s)
+    else:
+        s.flush()
+    return assignment
 
 
 def submit_task_for_review(
