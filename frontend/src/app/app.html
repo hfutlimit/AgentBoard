@@ -631,42 +631,11 @@
                 <span class="tab-label">统计</span>
                 @if (isProjectTabLoading('stats')) { <span class="tab-loading-dot" title="加载中"></span> }
               </button>
-              <!-- 设置：dropdown trigger -->
-              <div class="tab-dropdown-wrap">
-                <button class="tab-btn tab-dropdown-trigger"
-                        [class.active]="activeTab() === 'settings' || activeTab() === 'members' || activeTab() === 'schedules'"
-                        (click)="toggleSettingsMenu($event)">
-                  <span class="tab-icon">⚙️</span>
-                  <span class="tab-label">设置</span>
-                  <span class="tab-caret">▾</span>
-                </button>
-                @if (settingsMenuOpen()) {
-                  <div class="tab-dropdown-menu" (click)="$event.stopPropagation()">
-                    <button class="tab-dropdown-item" (click)="selectProjectTab('settings'); closeSettingsMenu()">
-                      <span class="tab-dropdown-icon">📦</span>
-                      <span class="tab-dropdown-text">
-                        <span class="tab-dropdown-title">基本信息</span>
-                        <span class="tab-dropdown-sub">项目名称、描述、归档</span>
-                      </span>
-                    </button>
-                    <button class="tab-dropdown-item" (click)="selectProjectTab('members'); closeSettingsMenu()">
-                      <span class="tab-dropdown-icon">👥</span>
-                      <span class="tab-dropdown-text">
-                        <span class="tab-dropdown-title">成员管理</span>
-                        <span class="tab-dropdown-sub">邀请、移除、角色</span>
-                      </span>
-                      @if (members().length) { <span class="tab-dropdown-count">{{ members().length }}</span> }
-                    </button>
-                    <button class="tab-dropdown-item" (click)="selectProjectTab('schedules'); closeSettingsMenu()">
-                      <span class="tab-dropdown-icon">⏰</span>
-                      <span class="tab-dropdown-text">
-                        <span class="tab-dropdown-title">自动化计划</span>
-                        <span class="tab-dropdown-sub">定时 Agent 运行</span>
-                      </span>
-                    </button>
-                  </div>
-                }
-              </div>
+              <!-- 设置：左侧菜单 tab（替代原 dropdown 直接切换） -->
+              <button class="tab-btn" [class.active]="activeTab() === 'settings'" (click)="selectProjectTab('settings')">
+                <span class="tab-icon">⚙️</span>
+                <span class="tab-label">设置</span>
+              </button>
               <button class="tab-btn" [class.active]="activeTab() === 'documents'" (click)="selectProjectTab('documents')">
                 <span class="tab-icon">📄</span>
                 <span class="tab-label">文档</span>
@@ -1138,9 +1107,9 @@
               </div>
             }
 
-            <!-- Tab: Settings（含项目设置 / 项目成员 / 定时计划 分区） -->
+            <!-- Tab: Settings（左侧菜单 + 右侧内容） -->
             @if (activeTab() === 'settings') {
-              <div class="tab-content">
+              <div class="tab-content settings-content">
                 @if (isProjectTabLoading('settings')) {
                   <div class="tab-list-skeleton tab-settings-skeleton" role="status" aria-label="正在加载项目设置">
                     <div class="tab-loading-caption"><span class="spinner"></span>正在加载项目设置…</div>
@@ -1154,164 +1123,226 @@
                     <button class="ghost-sm" type="button" (click)="retryProjectTab('settings')">重试</button>
                   </div>
                 } @else {
-                  <!-- ① 项目设置 -->
-                  @if (isOwner() || isAdmin()) {
-                    <div class="card form-section">
-                      <h4>项目设置</h4>
-                      <form
-                        (submit)="saveProjectSettings(sName.value, sKey.value, sDesc.value); $event.preventDefault()"
-                      >
-                        <label>名称<input #sName [value]="current.name" required maxlength="200" /></label>
-                        <label>短码<input #sKey [value]="current.key || ''" maxlength="20" placeholder="如 AB" /></label>
-                        <label>描述<textarea #sDesc rows="4">{{ current.description }}</textarea></label>
-                        <div class="row">
-                          <button class="btn-primary-sm" type="submit">保存设置</button>
-                        </div>
-                      </form>
-                    </div>
-                    <div class="card danger-zone">
-                      <h4>危险操作</h4>
-                      <button class="danger" (click)="remove('project', current.id)">删除项目（不可恢复）</button>
-                    </div>
-                  } @else {
-                    <div class="info-box">只有项目 Owner 或管理员可以修改项目设置。</div>
-                    <div class="card">
-                      <h4>当前设置</h4>
-                      <dl class="setting-list">
-                        <dt>项目名称</dt><dd>{{ current.name }}</dd>
-                        <dt>短码</dt><dd>{{ current.key || '—' }}</dd>
-                        <dt>创建时间</dt><dd>{{ current.created_at | date }}</dd>
-                      </dl>
-                    </div>
-                  }
+                  <div class="settings-layout">
+                    <!-- 左侧菜单 -->
+                    <aside class="settings-sidebar card">
+                      <h4 class="settings-sidebar-title">项目设置</h4>
+                      <nav class="settings-nav" aria-label="项目设置导航">
+                        <button class="settings-nav-item" type="button"
+                                [class.active]="settingsSubTab() === 'basic'"
+                                (click)="selectSettingsSubTab('basic')">
+                          <span class="settings-nav-icon">📦</span>
+                          <span class="settings-nav-text">
+                            <span class="settings-nav-label">基本信息</span>
+                            <span class="settings-nav-sub">名称、描述、归档</span>
+                          </span>
+                        </button>
+                        <button class="settings-nav-item" type="button"
+                                [class.active]="settingsSubTab() === 'members'"
+                                (click)="selectSettingsSubTab('members')">
+                          <span class="settings-nav-icon">👥</span>
+                          <span class="settings-nav-text">
+                            <span class="settings-nav-label">成员管理</span>
+                            <span class="settings-nav-sub">邀请、移除、角色</span>
+                          </span>
+                          @if (members().length) {
+                            <span class="settings-nav-count">{{ members().length }}</span>
+                          }
+                        </button>
+                        <button class="settings-nav-item" type="button"
+                                [class.active]="settingsSubTab() === 'schedules'"
+                                (click)="selectSettingsSubTab('schedules')">
+                          <span class="settings-nav-icon">⏰</span>
+                          <span class="settings-nav-text">
+                            <span class="settings-nav-label">自动化计划</span>
+                            <span class="settings-nav-sub">定时 Agent 运行</span>
+                          </span>
+                          @if (schedules().length) {
+                            <span class="settings-nav-count">{{ schedules().length }}</span>
+                          }
+                        </button>
+                        <button class="settings-nav-item" type="button"
+                                [class.active]="settingsSubTab() === 'export'"
+                                (click)="selectSettingsSubTab('export')">
+                          <span class="settings-nav-icon">📤</span>
+                          <span class="settings-nav-text">
+                            <span class="settings-nav-label">数据导出</span>
+                            <span class="settings-nav-sub">导出任务数据</span>
+                          </span>
+                        </button>
+                      </nav>
+                    </aside>
 
-                  <!-- ② 项目成员 -->
-                  <div class="card">
-                    <div class="section-header">
-                      <h3>项目成员 <span class="count">{{ members().length }}</span></h3>
-                      @if (isOwner() || isAdmin()) {
-                        <details class="card sprint-create-section">
-                          <summary class="btn-primary-sm">＋ 邀请成员</summary>
-                          <form (submit)="addMember(current.id, mbUsername.value, mbRole.value); $event.preventDefault()">
-                            <label>用户名<input #mbUsername required placeholder="输入用户名" /></label>
-                            <label>角色
-                              <select #mbRole>
-                                <option value="member">Member（成员）</option>
-                                <option value="owner">Owner（所有者）</option>
-                              </select>
-                            </label>
-                            <button class="btn-primary-sm" type="submit">邀请</button>
-                          </form>
-                        </details>
-                      }
-                    </div>
-                    @if (members().length) {
-                      <!-- Task 809: 项目成员头像显示 -->
-                      <div class="members-grid" id="members-list">
-                        @for (m of paginatedItems(members(), membersPage()); track m.id) {
-                          <div class="member-card">
-                            <div class="member-avatar">{{ getMemberAvatar(m) }}</div>
-                            <div class="member-info">
-                              <div class="member-name">{{ m.username || '用户#' + m.user_id }}</div>
-                              <div class="member-role-badge {{ m.role }}">
-                                {{ m.role === 'owner' ? '★ Owner' : '● Member' }}
+                    <!-- 右侧内容：根据 settingsSubTab 切换 -->
+                    <section class="settings-main">
+                      <!-- 子页：基本信息 -->
+                      @if (settingsSubTab() === 'basic') {
+                        @if (isOwner() || isAdmin()) {
+                          <div class="card form-section">
+                            <h4>项目设置</h4>
+                            <form
+                              (submit)="saveProjectSettings(sName.value, sKey.value, sDesc.value); $event.preventDefault()"
+                            >
+                              <label>名称<input #sName [value]="current.name" required maxlength="200" /></label>
+                              <label>短码<input #sKey [value]="current.key || ''" maxlength="20" placeholder="如 AB" /></label>
+                              <label>描述<textarea #sDesc rows="4">{{ current.description }}</textarea></label>
+                              <div class="row">
+                                <button class="btn-primary-sm" type="submit">保存设置</button>
                               </div>
-                            </div>
-                            @if ((isOwner() || isAdmin()) && m.role !== 'owner') {
-                              <button class="ghost-sm danger member-action" (click)="removeMember(current.id, m.user_id)">移除</button>
-                            }
-                            @if ((isOwner() || isAdmin()) && m.role === 'member') {
-                              <button class="ghost-sm member-action" (click)="updateMemberRole(current.id, m.user_id, 'owner')">升为 Owner</button>
-                            }
-                            @if ((isOwner() || isAdmin()) && m.role === 'owner') {
-                              <button class="ghost-sm member-action" (click)="updateMemberRole(current.id, m.user_id, 'member')">降为 Member</button>
-                            }
+                            </form>
+                          </div>
+                          <div class="card danger-zone">
+                            <h4>危险操作</h4>
+                            <button class="danger" (click)="remove('project', current.id)">删除项目（不可恢复）</button>
+                          </div>
+                        } @else {
+                          <div class="info-box">只有项目 Owner 或管理员可以修改项目设置。</div>
+                          <div class="card">
+                            <h4>当前设置</h4>
+                            <dl class="setting-list">
+                              <dt>项目名称</dt><dd>{{ current.name }}</dd>
+                              <dt>短码</dt><dd>{{ current.key || '—' }}</dd>
+                              <dt>创建时间</dt><dd>{{ current.created_at | date }}</dd>
+                            </dl>
                           </div>
                         }
-                      </div>
-                      <app-pagination
-                        label="成员列表"
-                        [total]="members().length"
-                        [page]="membersPage()"
-                        [pageSize]="projectListPageSize"
-                        (pageChange)="setProjectListPage('members', $event)"
-                      />
-                    } @else {
-                      <div class="empty-inline">暂无成员</div>
-                    }
-                    @if (!isOwner() && !isAdmin()) {
-                      <div class="info-box">你是此项目的成员。如需管理成员，请联系项目 Owner。</div>
-                    }
-                  </div>
+                      }
 
-                  <!-- ③ 定时计划 -->
-                  <div class="card">
-                    <div class="section-header">
-                      <h3>定时 Agent 计划</h3>
-                      <button class="btn-primary-sm" (click)="openCreateSchedule(current.id)">＋ 新建计划</button>
-                    </div>
-                    @if (schedules().length) {
-                      <div class="schedule-list" id="schedules-list">
-                        @for (sch of paginatedItems(schedules(), schedulesPage()); track sch.id) {
-                          <div class="schedule-item">
-                            <div class="schedule-info">
-                              <div class="schedule-title">
-                                <strong>{{ sch.title }}</strong>
-                                <span class="badge" [class.schedule-active]="sch.enabled" [class.schedule-paused]="!sch.enabled">
-                                  {{ sch.enabled ? '启用' : '停用' }}
-                                </span>
-                                <span class="badge">{{ sch.schedule_type === 'cron' ? 'Cron' : '一次性' }}</span>
-                                @if (sch.agent) {
-                                  <span class="badge schedule-agent" title="执行 Agent">{{ sch.agent }}</span>
-                                }
-                                @if (sch.task_id) {
-                                  <span class="badge" title="固定任务">#{{ sch.task_id }} 固定任务</span>
-                                }
-                              </div>
-                              @if (sch.cron_expr) {
-                                <div class="schedule-cron muted">{{ sch.cron_expr }}</div>
-                              }
-                              @if (sch.task_priority || sch.task_type || sch.epic_id) {
-                                <div class="schedule-meta muted">
-                                  自动挑活：
-                                  @if (sch.task_priority) { 优先级 ≥ {{ sch.task_priority }} }
-                                  @if (sch.task_type) { · 类型 {{ sch.task_type }} }
-                                  @if (sch.epic_id) { · Epic #{{ sch.epic_id }} }
+                      <!-- 子页：成员管理 -->
+                      @if (settingsSubTab() === 'members') {
+                        <div class="card">
+                          <div class="section-header">
+                            <h3>项目成员 <span class="count">{{ members().length }}</span></h3>
+                            @if (isOwner() || isAdmin()) {
+                              <details class="card sprint-create-section">
+                                <summary class="btn-primary-sm">＋ 邀请成员</summary>
+                                <form (submit)="addMember(current.id, mbUsername.value, mbRole.value); $event.preventDefault()">
+                                  <label>用户名<input #mbUsername required placeholder="输入用户名" /></label>
+                                  <label>角色
+                                    <select #mbRole>
+                                      <option value="member">Member（成员）</option>
+                                      <option value="owner">Owner（所有者）</option>
+                                    </select>
+                                  </label>
+                                  <button class="btn-primary-sm" type="submit">邀请</button>
+                                </form>
+                              </details>
+                            }
+                          </div>
+                          @if (members().length) {
+                            <!-- Task 809: 项目成员头像显示 -->
+                            <div class="members-grid" id="members-list">
+                              @for (m of paginatedItems(members(), membersPage()); track m.id) {
+                                <div class="member-card">
+                                  <div class="member-avatar">{{ getMemberAvatar(m) }}</div>
+                                  <div class="member-info">
+                                    <div class="member-name">{{ m.username || '用户#' + m.user_id }}</div>
+                                    <div class="member-role-badge {{ m.role }}">
+                                      {{ m.role === 'owner' ? '★ Owner' : '● Member' }}
+                                    </div>
+                                  </div>
+                                  @if ((isOwner() || isAdmin()) && m.role !== 'owner') {
+                                    <button class="ghost-sm danger member-action" (click)="removeMember(current.id, m.user_id)">移除</button>
+                                  }
+                                  @if ((isOwner() || isAdmin()) && m.role === 'member') {
+                                    <button class="ghost-sm member-action" (click)="updateMemberRole(current.id, m.user_id, 'owner')">升为 Owner</button>
+                                  }
+                                  @if ((isOwner() || isAdmin()) && m.role === 'owner') {
+                                    <button class="ghost-sm member-action" (click)="updateMemberRole(current.id, m.user_id, 'member')">降为 Member</button>
+                                  }
                                 </div>
                               }
-                              <div class="schedule-meta muted">
-                                下次运行：{{ sch.next_run_at || '—' }} ·
-                                最后运行：{{ sch.last_run_at || '从未' }}
-                              </div>
                             </div>
-                            <div class="schedule-actions">
-                              <button class="btn-ghost-sm" (click)="toggleSchedule(sch.id, !sch.enabled)">
-                                {{ sch.enabled ? '⏸ 停用' : '▶ 启用' }}
-                              </button>
-                              <button class="ghost-sm danger" (click)="deleteSchedule(sch.id)">🗑 删除</button>
-                            </div>
-                          </div>
-                        }
-                      </div>
-                      <app-pagination
-                        label="定时计划列表"
-                        [total]="schedules().length"
-                        [page]="schedulesPage()"
-                        [pageSize]="projectListPageSize"
-                        (pageChange)="setProjectListPage('schedules', $event)"
-                      />
-                    } @else {
-                      <div class="empty-inline">暂无定时计划，配置 Agent 自动运行任务</div>
-                    }
-                  </div>
+                            <app-pagination
+                              label="成员列表"
+                              [total]="members().length"
+                              [page]="membersPage()"
+                              [pageSize]="projectListPageSize"
+                              (pageChange)="setProjectListPage('members', $event)"
+                            />
+                          } @else {
+                            <div class="empty-inline">暂无成员</div>
+                          }
+                          @if (!isOwner() && !isAdmin()) {
+                            <div class="info-box">你是此项目的成员。如需管理成员，请联系项目 Owner。</div>
+                          }
+                        </div>
+                      }
 
-                  <!-- ④ 数据导出 -->
-                  <div class="card">
-                    <h4>数据导出</h4>
-                    <p class="muted" style="margin-bottom:12px">导出项目的所有任务数据</p>
-                    <div class="row">
-                      <button class="ghost-sm" (click)="exportProjectTasks()">📥 导出全部任务</button>
-                    </div>
+                      <!-- 子页：自动化计划 -->
+                      @if (settingsSubTab() === 'schedules') {
+                        <div class="card">
+                          <div class="section-header">
+                            <h3>定时 Agent 计划</h3>
+                            <button class="btn-primary-sm" (click)="openCreateSchedule(current.id)">＋ 新建计划</button>
+                          </div>
+                          @if (schedules().length) {
+                            <div class="schedule-list" id="schedules-list">
+                              @for (sch of paginatedItems(schedules(), schedulesPage()); track sch.id) {
+                                <div class="schedule-item">
+                                  <div class="schedule-info">
+                                    <div class="schedule-title">
+                                      <strong>{{ sch.title }}</strong>
+                                      <span class="badge" [class.schedule-active]="sch.enabled" [class.schedule-paused]="!sch.enabled">
+                                        {{ sch.enabled ? '启用' : '停用' }}
+                                      </span>
+                                      <span class="badge">{{ sch.schedule_type === 'cron' ? 'Cron' : '一次性' }}</span>
+                                      @if (sch.agent) {
+                                        <span class="badge schedule-agent" title="执行 Agent">{{ sch.agent }}</span>
+                                      }
+                                      @if (sch.task_id) {
+                                        <span class="badge" title="固定任务">#{{ sch.task_id }} 固定任务</span>
+                                      }
+                                    </div>
+                                    @if (sch.cron_expr) {
+                                      <div class="schedule-cron muted">{{ sch.cron_expr }}</div>
+                                    }
+                                    @if (sch.task_priority || sch.task_type || sch.epic_id) {
+                                      <div class="schedule-meta muted">
+                                        自动挑活：
+                                        @if (sch.task_priority) { 优先级 ≥ {{ sch.task_priority }} }
+                                        @if (sch.task_type) { · 类型 {{ sch.task_type }} }
+                                        @if (sch.epic_id) { · Epic #{{ sch.epic_id }} }
+                                      </div>
+                                    }
+                                    <div class="schedule-meta muted">
+                                      下次运行：{{ sch.next_run_at || '—' }} ·
+                                      最后运行：{{ sch.last_run_at || '从未' }}
+                                    </div>
+                                  </div>
+                                  <div class="schedule-actions">
+                                    <button class="btn-ghost-sm" (click)="toggleSchedule(sch.id, !sch.enabled)">
+                                      {{ sch.enabled ? '⏸ 停用' : '▶ 启用' }}
+                                    </button>
+                                    <button class="ghost-sm danger" (click)="deleteSchedule(sch.id)">🗑 删除</button>
+                                  </div>
+                                </div>
+                              }
+                            </div>
+                            <app-pagination
+                              label="定时计划列表"
+                              [total]="schedules().length"
+                              [page]="schedulesPage()"
+                              [pageSize]="projectListPageSize"
+                              (pageChange)="setProjectListPage('schedules', $event)"
+                            />
+                          } @else {
+                            <div class="empty-inline">暂无定时计划，配置 Agent 自动运行任务</div>
+                          }
+                        </div>
+                      }
+
+                      <!-- 子页：数据导出 -->
+                      @if (settingsSubTab() === 'export') {
+                        <div class="card">
+                          <h4>数据导出</h4>
+                          <p class="muted" style="margin-bottom:12px">导出项目的所有任务数据</p>
+                          <div class="row">
+                            <button class="ghost-sm" (click)="exportProjectTasks()">📥 导出全部任务</button>
+                          </div>
+                        </div>
+                      }
+                    </section>
                   </div>
                 }
               </div>

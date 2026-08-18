@@ -18,6 +18,8 @@ type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 's
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
 type ProjectTabKind = 'overview' | 'epics' | 'backlog' | 'proposals' | 'settings' | 'members' | 'stats' | 'schedules' | 'documents' | 'kanban' | 'sprints';
 type ProjectListKind = 'epics' | 'sprints' | 'backlog' | 'members' | 'schedules';
+/** 设置页左侧菜单子标签：basic=基本信息，members=成员管理，schedules=自动化计划，export=数据导出 */
+type SettingsSubTabKind = 'basic' | 'members' | 'schedules' | 'export';
 
 interface CreateModal {
   kind: CreateKind;
@@ -1554,24 +1556,29 @@ export class App implements OnInit, OnDestroy {
 
   selectProjectTab(tab: ProjectTabKind): void {
     this.activeTab.set(tab);
-    this.settingsMenuOpen.set(false);
+    // 进入设置页时默认聚焦「基本信息」子标签
+    if (tab === 'settings') this.settingsSubTab.set('basic');
     const projectId = this.project()?.id;
     if (projectId) void this.loadProjectTab(tab, projectId);
   }
 
-  /** 设置下拉菜单状态（用于「设置」tab 触发器） */
-  readonly settingsMenuOpen = signal<boolean>(false);
-  toggleSettingsMenu(event: MouseEvent): void {
-    event.stopPropagation();
-    this.settingsMenuOpen.update((v) => !v);
-  }
-  closeSettingsMenu(): void {
-    this.settingsMenuOpen.set(false);
+  /** 设置页左侧菜单子标签（替代原设置 dropdown） */
+  readonly settingsSubTab = signal<SettingsSubTabKind>('basic');
+  selectSettingsSubTab(sub: SettingsSubTabKind): void {
+    this.settingsSubTab.set(sub);
+    // 切换子标签时同步拉取对应数据（me / members / schedules 已在加载设置时一次性拉好，
+    // 此处主要用于「重试」场景 —— 子标签切换不阻塞渲染，避免重复请求）
+    const projectId = this.project()?.id;
+    if (!projectId) return;
+    if (sub === 'members' && !this.isProjectTabLoaded('members')) {
+      void this.loadProjectTab('settings', projectId, true);
+    } else if (sub === 'schedules' && !this.isProjectTabLoaded('schedules')) {
+      void this.loadProjectTab('settings', projectId, true);
+    }
   }
 
   /** 项目介绍卡片：跳转到 Epic 详情 */
   goEpic(epicId: number): void {
-    this.settingsMenuOpen.set(false);
     this.view.set('epic');
     this.epicTab.set('detail');
     // 参照路由切换 epic：拉取 epic + stories + comments
@@ -6991,16 +6998,6 @@ export class App implements OnInit, OnDestroy {
   @HostListener('window:keydown.escape')
   onEscapeKey(): void {
     if (this.docFullscreenOpen()) this.closeDocFullscreen();
-    if (this.settingsMenuOpen()) this.closeSettingsMenu();
-  }
-
-  @HostListener('window:click', ['$event'])
-  onWindowClick(event: MouseEvent): void {
-    // 点击 tab 区域外自动关闭设置下拉
-    if (!this.settingsMenuOpen()) return;
-    const target = event.target as HTMLElement | null;
-    if (target && target.closest('.tab-dropdown-wrap')) return;
-    this.closeSettingsMenu();
   }
 
   /** 恢复指定 revision（创建新 revision 保留历史）。 */
