@@ -34,6 +34,7 @@ from ...core.common.models import utc_now  # noqa: F401
 from ..scheduling.models import (  # noqa: F401  (跨域常量)
     DEFAULT_REVIEW_TIMEOUT_MINUTES, DEFAULT_TIMEOUT_SCAN_BATCH,
     TaskAssignment,
+    TaskApplication,
 )
 
 from ...core.service_helpers import (
@@ -47,6 +48,7 @@ from ..scheduling.matching import (
     normalize_complexity,
     normalize_domain_tags,
     normalize_required_capabilities,
+    score_agent_for_task,
 )
 
 
@@ -410,6 +412,134 @@ def finalize_task_assignment(
     else:
         s.flush()
     return assignment
+
+
+def apply_for_task(
+    s: Session,
+    task_id: int,
+    *,
+    user_id: int,
+    agent_registry_id: int,
+) -> TaskApplication:
+    """Create or refresh one Agent's application for an arbitrated task."""
+    task = s.get(Task, task_id)
+    if not task:
+        raise NotFound(f"task {task_id} not found")
+    if task.assignment_mode != "arbitrated":
+        raise InvalidValue(f"task {task_id} does not accept applications")
+    if task.status != Status.TODO or task.current_assignment_id is not None:
+        raise InvalidValue(f"task {task_id} is no longer open for applications")
+    agent = s.get(Agent, agent_registry_id)
+    if not agent:
+        raise InvalidValue(f"agent registry id {agent_registry_id} not found")
+    if agent.user_id != user_id:
+        raise InvalidValue(f"agent '{agent.agent_id}' belongs to another user")
+
+    result = score_agent_for_task(s, agent, task, role="developer")
+    if not result.eligible:
+        raise InvalidValue(f"agent '{agent.agent_id}' is not eligible: {result.reason}")
+    application = (
+        s.query(TaskApplication)
+        .filter(
+            TaskApplication.task_id == task_id,
+            TaskApplication.agent_registry_id == agent_registry_id,
+        )
+        .first()
+    )
+    if application is None:
+        application = TaskApplication(
+            task_id=task_id,
+            agent_registry_id=agent_registry_id,
+            user_id=user_id,
+        )
+        s.add(application)
+    application.user_id = user_id
+    application.score = result.score
+    application.reason = result.reason
+    application.status = "pending"
+    application.resolved_at = None
+    try:
+        _commit(s)
+    except IntegrityError:
+        s.rollback()
+        application = (
+            s.query(TaskApplication)
+            .filter(
+                TaskApplication.task_id == task_id,
+                TaskApplication.agent_registry_id == agent_registry_id,
+            )
+            .one()
+        )
+        application.user_id = user_id
+        application.score = result.score
+        application.reason = result.reason
+        application.status = "pending"
+        application.resolved_at = None
+        _commit(s)
+    s.refresh(application)
+    return application
+
+
+def arbitrate_task(
+    s: Session, task_id: int,
+) -> tuple[Task, TaskAssignment, TaskApplication]:
+    """Select the best pending application and assign the task in one transaction."""
+    task = s.get(Task, task_id)
+    if not task:
+        raise NotFound(f"task {task_id} not found")
+    if task.assignment_mode != "arbitrated":
+        raise InvalidValue(f"task {task_id} does not use arbitrated assignment")
+    if task.status != Status.TODO or task.current_assignment_id is not None:
+        raise InvalidValue(f"task {task_id} is no longer open for arbitration")
+
+    pending = (
+        s.query(TaskApplication)
+        .filter(
+            TaskApplication.task_id == task_id,
+            TaskApplication.status == "pending",
+        )
+        .all()
+    )
+    candidates: list[tuple[TaskApplication, Agent]] = []
+    now = utc_now()
+    for application in pending:
+        agent = s.get(Agent, application.agent_registry_id)
+        if agent is None:
+            application.status = "rejected"
+            application.resolved_at = now
+            continue
+        result = score_agent_for_task(s, agent, task, role="developer")
+        application.score = result.score
+        application.reason = result.reason
+        if result.eligible:
+            candidates.append((application, agent))
+        else:
+            application.status = "rejected"
+            application.resolved_at = now
+    if not candidates:
+        _commit(s)
+        raise InvalidValue(f"task {task_id} has no eligible pending applications")
+
+    candidates.sort(key=lambda item: (-item[0].score, item[1].id))
+    winner, agent = candidates[0]
+    assigned_task, assignment = try_assign_task(
+        s,
+        task_id,
+        user_id=winner.user_id,
+        agent_registry_id=agent.id,
+        source="arbitration",
+        match_score=winner.score,
+        match_reason=winner.reason,
+        commit=False,
+    )
+    for application in pending:
+        application.status = "accepted" if application.id == winner.id else "rejected"
+        application.resolved_at = now
+    _commit(s)
+    s.refresh(assigned_task)
+    s.refresh(assignment)
+    s.refresh(winner)
+    return assigned_task, assignment, winner
 
 
 def submit_task_for_review(

@@ -10,6 +10,7 @@ from agentboard import models
 from agentboard.core.exceptions import InvalidValue
 from agentboard.features.identity.service import register_user
 from agentboard.features.projects.service import create_project
+from agentboard.features.projects.service import add_project_member
 from agentboard.features.scheduling.matching import (
     normalize_capabilities,
     rank_agents_for_task,
@@ -17,6 +18,7 @@ from agentboard.features.scheduling.matching import (
 )
 from agentboard.features.scheduling.service import register_agent
 from agentboard.features.work_items.service import create_task
+from agentboard.features.work_items.service import apply_for_task, arbitrate_task
 
 
 def _seed_profiles(session):
@@ -177,3 +179,97 @@ def test_invalid_task_profiles_are_rejected(db_session_override, field, value, m
             session, project_id=project.id, story_id=None, title="Invalid profile",
             **kwargs,
         )
+
+
+def test_arbitration_accepts_highest_match_and_rejects_others(db_session_override):
+    session = db_session_override
+    task, senior, junior, _backend = _seed_profiles(session)
+
+    senior_application = apply_for_task(
+        session,
+        task.id,
+        user_id=senior.user_id,
+        agent_registry_id=senior.id,
+    )
+    junior_application = apply_for_task(
+        session,
+        task.id,
+        user_id=junior.user_id,
+        agent_registry_id=junior.id,
+    )
+    assigned_task, assignment, winner = arbitrate_task(session, task.id)
+
+    assert winner.id == senior_application.id
+    assert assignment.agent_registry_id == senior.id
+    assert assigned_task.current_assignment_id == assignment.id
+    session.refresh(senior_application)
+    session.refresh(junior_application)
+    assert senior_application.status == "accepted"
+    assert junior_application.status == "rejected"
+    assert senior_application.resolved_at is not None
+
+
+def test_application_is_idempotently_rescored(db_session_override):
+    session = db_session_override
+    task, senior, _junior, _backend = _seed_profiles(session)
+
+    first = apply_for_task(
+        session, task.id, user_id=senior.user_id, agent_registry_id=senior.id,
+    )
+    second = apply_for_task(
+        session, task.id, user_id=senior.user_id, agent_registry_id=senior.id,
+    )
+
+    assert second.id == first.id
+    assert session.query(models.TaskApplication).filter_by(
+        task_id=task.id, agent_registry_id=senior.id,
+    ).count() == 1
+
+
+def test_apply_and_arbitrate_rest_flow_uses_credential_agent(
+    db_session_override, monkeypatch,
+):
+    from fastapi.testclient import TestClient
+
+    from agentboard import auth
+    from agentboard.api import app
+    from agentboard.core.infrastructure.database import get_session
+    from agentboard.features.identity.service import create_api_key
+
+    session = db_session_override
+    task, senior, _junior, _backend = _seed_profiles(session)
+    add_project_member(
+        session, project_id=task.project_id, user_id=senior.user_id, role="owner",
+    )
+    _key, plaintext = create_api_key(
+        session,
+        user_id=senior.user_id,
+        name="matching-agent",
+        permissions=["api:write"],
+        agent_ref=senior.agent_id,
+    )
+
+    def override_session():
+        yield session
+
+    app.dependency_overrides[get_session] = override_session
+    monkeypatch.setenv("AGENTBOARD_REQUIRE_AUTH", "0")
+    try:
+        client = TestClient(app)
+        applied = client.post(
+            f"/api/tasks/{task.id}/apply",
+            headers={"Authorization": f"Bearer {plaintext}"},
+        )
+        assert applied.status_code == 200, applied.text
+        assert applied.json()["agent_registry_id"] == senior.id
+
+        arbitrated = client.post(
+            f"/api/tasks/{task.id}/arbitrate",
+            headers={
+                "Authorization": f"Bearer {auth.make_token(senior.user_id)}",
+            },
+        )
+        assert arbitrated.status_code == 200, arbitrated.text
+        assert arbitrated.json()["assignment"]["agent_registry_id"] == senior.id
+    finally:
+        app.dependency_overrides.pop(get_session, None)

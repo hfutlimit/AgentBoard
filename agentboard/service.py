@@ -3012,6 +3012,7 @@ from .features.work_items.service import (  # noqa: F401,F403  (末尾重绑)
     create_task, get_task, list_tasks, query_task_count,
     list_task_status_history, set_status,
     try_assign_task, claim_development_task, finalize_task_assignment,
+    apply_for_task, arbitrate_task,
     submit_task_for_review,
     # 末尾补:以下函数原来在 facade 里有重复实现,此处显式 re-bind 让老
     # `service.batch_update_task_status` / `service.export_project_data` 调

@@ -22,3 +22,12 @@ def test_mcp_server_does_not_import_database_or_service():
     assert not any(name.endswith(("database", "service")) for name in imported_modules)
     assert "SessionLocal" not in source
     assert "AGENTBOARD_MCP_BACKEND" not in source
+
+
+def test_matching_tools_call_rest_endpoints_only():
+    source = Path("agentboard/mcp_server.py").read_text(encoding="utf-8")
+
+    assert "def apply_for_task(task_id: int)" in source
+    assert 'return _http("POST", f"/api/tasks/{task_id}/apply")' in source
+    assert "def arbitrate_task(task_id: int)" in source
+    assert 'return _http("POST", f"/api/tasks/{task_id}/arbitrate")' in source

@@ -177,6 +177,70 @@ def claim_task_for_development(tid: int, authorization: str | None = Header(None
     return service._ser(t)
 
 
+@router.post("/api/tasks/{tid}/apply")
+def apply_for_task(
+    tid: int,
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    """Apply for an arbitrated task using the Agent bound to the credential."""
+    actor = api_helpers.resolve_actor_context(
+        authorization, s, required_permission="api:write",
+    )
+    if actor.agent_registry_id is None:
+        raise HTTPException(
+            status_code=422, detail="application requires an Agent-scoped API key",
+        )
+    try:
+        application = service.apply_for_task(
+            s,
+            tid,
+            user_id=actor.user_id,
+            agent_registry_id=actor.agent_registry_id,
+        )
+    except service.NotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except service.InvalidValue as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return service._ser(application)
+
+
+@router.post("/api/tasks/{tid}/arbitrate")
+def arbitrate_task(
+    tid: int,
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    """Assign an arbitrated task to its highest-ranked pending Agent."""
+    task = service.get_task(s, tid)
+    if task is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    actor = api_helpers.resolve_actor_context(
+        authorization, s, required_permission="api:write",
+    )
+    api_helpers._enforce_owner_or_admin(
+        s, task.project_id, actor.user_id, actor.is_admin,
+    )
+    try:
+        assigned_task, assignment, application = service.arbitrate_task(s, tid)
+    except service.InvalidValue as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    agent = s.get(service.Agent, assignment.agent_registry_id)
+    if agent is not None:
+        publish_workflow_event(
+            EVENT_TASK_ASSIGNED,
+            "task",
+            assigned_task.id,
+            ref_id=assigned_task.story_id,
+            agent_id=agent.agent_id,
+        )
+    return {
+        "task": service._ser(assigned_task),
+        "assignment": service._ser(assignment),
+        "application": service._ser(application),
+    }
+
+
 
 @router.post("/api/tasks/{tid}/submit-review")
 def submit_task_review(tid: int, authorization: str | None = Header(None),

@@ -1537,6 +1537,18 @@ def claim_development_task(task_id: int) -> dict:
 
 
 @mcp.tool()
+def apply_for_task(task_id: int) -> dict:
+    """Apply the credential-bound Agent for an arbitrated todo task."""
+    return _http("POST", f"/api/tasks/{task_id}/apply")
+
+
+@mcp.tool()
+def arbitrate_task(task_id: int) -> dict:
+    """Select and assign the highest-ranked pending application."""
+    return _http("POST", f"/api/tasks/{task_id}/arbitrate")
+
+
+@mcp.tool()
 def submit_task_for_review(task_id: int) -> dict:
     """开发完成提交评审（assignee 或 admin）→ 任务置 in_review 并广播 task.ready_for_review。
 
