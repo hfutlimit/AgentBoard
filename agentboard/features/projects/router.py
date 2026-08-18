@@ -17,7 +17,7 @@ from agentboard.schemas import *  # Phase 5: forward-ref-safe
 from ...features.projects.models import ProjectMember  # bulk-archive 非 admin 分支权限校验
 import os
 import uuid
-from ...cache import get_cache
+from ...cache import get_cache, STATS_CACHE_TTL
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
 from ... import mq  # publish_workflow_event + EVENT_* constants
 from ...mq import (
@@ -821,7 +821,7 @@ def project_stats(pid: int, s: Session = Depends(get_session)):
         return cached
     api_helpers._need(service.get_project(s, pid), "project")
     result = service.get_project_stats(s, pid)
-    cache.set(cache_key, result, _CACHE_TTL_STATS)
+    cache.set(cache_key, result, STATS_CACHE_TTL)
     return result
 
 
