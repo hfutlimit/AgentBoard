@@ -4,7 +4,13 @@
 #   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 # 或：
 #   ./scripts/dev-hot-reload.sh
-
+#
+# Dual-stack BFF development (Stage 0):
+#   - api  uses uvicorn --reload (Python)
+#   - api-dotnet uses the multi-stage Dockerfile; hot-reload isn't wired in
+#     compose yet (run `dotnet watch run --project dotnet/src/AgentBoard.Api`
+#     on the host instead — file changes are picked up in <1s).
+#
 version: "3.8"
 
 services:
@@ -37,6 +43,17 @@ services:
     command: python -m agentboard.mcp_server
     volumes:
       - ./agentboard:/app/agentboard
+
+  api-dotnet:
+    # In dev compose, run the .NET BFF on the host (dotnet watch) and
+    # remove the containerised build to keep the loop fast. To go back
+    # to the containerised build, drop the `profiles` line below.
+    profiles:
+      - dotnet
+    # Override the production entrypoint with a no-op so `docker compose up`
+    # doesn't try to start a second instance. The .NET API runs on the
+    # host via `dotnet watch run --project dotnet/src/AgentBoard.Api`.
+    command: ["sh", "-c", "echo 'api-dotnet container disabled in dev — run dotnet watch run on the host' && sleep infinity"]
 
   db:
     # 开发时可选择不启动 MariaDB（API 使用 SQLite）

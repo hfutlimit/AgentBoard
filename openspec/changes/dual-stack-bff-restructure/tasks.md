@@ -244,7 +244,50 @@
 
 ### 下一步
 
-S0-6: docker-compose api-dotnet 服务接入
+---
+
+## S0-6: docker-compose api-dotnet 服务接入
+
+### 落地清单（2026-08-20）
+
+- [x] `docker-compose.yml` 新增 `api-dotnet` service
+  - 端口 18000 → 容器内 8080
+  - 共享 `AGENTBOARD_SECRET`（与 FastAPI 同一密钥）
+  - 默认 SQLite（Stage 0 不连 MariaDB，Stage 1 Pomelo 10.0 接入后再共享）
+  - Healthcheck: `wget --spider http://localhost:8080/`
+  - 独立 volume `agentboard_dotnet_data`
+- [x] `docker-compose.dev.yml` 把 api-dotnet 放到 `dotnet` profile（host 跑 `dotnet watch`）
+- [x] `.env.example` 加 `AGENTBOARD_DOTNET_PORT=18000`
+- [x] `examples/nginx-agentboard.conf` 加 `upstream api_dotnet { ... }` + grayscale 切流注释
+  - `proxy_next_upstream error timeout http_500/502/503` + `tries 2` 实现 fallback
+  - FastAPI = primary，.NET BFF = backup（Stage 0），Stage 2 调权重
+- [x] `scripts/dev-up.sh` + `dev-up.ps1` — 一键双栈启动
+- [x] `scripts/dev-down.sh` + `dev-down.ps1` — 停止（支持 -WithVolumes 清数据）
+- [x] `README.md` 加 .NET 10 BFF 启动说明（dotnet run / dotnet test / pwsh dev-up）
+
+### 验收
+
+- [x] `dotnet build` 0 errors
+- [x] `dotnet test` 24/24 通过
+- [x] docker-compose.yml YAML 语法校验通过（Docker 未在本机，CI 验证）
+- [x] 6 个服务编排（api / api-dotnet / web / mcp / db + nginx 注释示例）齐整
+
+### 关键设计决策
+
+- **api-dotnet 默认用 SQLite**（不连 MariaDB）—— Stage 0/1 数据写仍由 FastAPI 主导；Stage 2 切流后用 EF Core Pomelo 接 MariaDB
+- **nginx upstream 注释** 写 grayscale 切流方案：FastAPI primary + .NET backup → 后续改权重做 A/B
+- **dev compose 把 api-dotnet 放 profile** —— host 跑 `dotnet watch` 比容器 hot-reload 快
+- **双版本启停脚本**（sh + ps1）—— Windows 用 ps1，Linux/Mac 用 sh
+
+### 踩坑
+
+1. .NET 容器内端口 ASP.NET Core 默认 8080（不是 5000/5001），需要 `ASPNETCORE_URLS` 或 launchSettings 显式
+2. `healthcheck` 的 `wget` 在 aspnet:10 镜像里可用（不需装 curl）
+3. PowerShell 5.1 写文件默认 CRLF，sh 脚本里 `curl -s` 调用没问题但需要保持 sh 语法
+
+### 下一步
+
+S0-7: Serilog + OpenTelemetry 接入
 
 ## 阶段 1：只读业务迁 .NET（2-3 sprints）
 

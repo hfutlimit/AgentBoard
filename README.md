@@ -116,6 +116,40 @@ python -m agentboard.mcp_server
 # MCP endpoint: http://127.0.0.1:8001/mcp
 ```
 
+### .NET 10 BFF（Stage 0+，可选）
+
+> 2026-08 起 AgentBoard 进入"双栈 BFF"过渡期：FastAPI 仍是 AI 子系统的真源，
+> .NET 10 WebAPI 接管对外 HTTP 入口并最终承载 SignalR 与通知/Webhook
+> 派发。详见 `openspec/changes/dual-stack-bff-restructure/`。
+
+```powershell
+# 1) .NET 10 SDK（必须 10.0.100+，global.json 已 pin 到 10.0.301）
+dotnet --version
+
+# 2) 构建 .NET BFF（首次或 csproj 变化时）
+cd dotnet
+dotnet build
+
+# 3) 启动 .NET BFF（端口 18000，host 网络监听）
+$env:AGENTBOARD_DOTNET_PORT = "18000"
+$env:AGENTBOARD_ENV        = "development"
+$env:AGENTBOARD_SECRET     = "replace-with-at-least-32-random-bytes"
+dotnet run --project src/AgentBoard.Api
+# → http://localhost:18000/api/health  (返回 {"status":"ok","database":"ok",...})
+# → http://localhost:18000/api/meta    (返回 6 个 snake_case enum 列表)
+# → http://localhost:18000/openapi/v1.json
+
+# 4) 跑测试
+dotnet test
+# 默认跑 24 个用例（Api 6 + Infrastructure 18）< 2s
+
+# 5) 双栈一键启停（Docker Compose）
+cd ..
+pwsh scripts/dev-up.ps1    # 启 5 个服务：api / api-dotnet / web / mcp / db
+pwsh scripts/dev-down.ps1  # 停 + 保留 volumes
+pwsh scripts/dev-down.ps1 -WithVolumes  # 停 + 删 volumes
+```
+
 配置项（环境变量）：
 - `AGENTBOARD_DB_URL`：数据库地址。默认 `sqlite:///./agentboard.db`；生产 `mysql+pymysql://user:pass@host:3306/agentboard`
 - `AGENTBOARD_API_URL`：Web/MCP 调用的 API 地址，默认 `http://127.0.0.1:8000`

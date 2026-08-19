@@ -13,6 +13,10 @@
 #   将 api.environment 的 AGENTBOARD_DB_URL 改回 sqlite:////app/data/agentboard.db
 #   并恢复 api 的 volumes: - agentboard_data:/app/data（需同时恢复 volumes.agentboard_data）
 #
+# Dual-stack BFF（Stage 0 启用，Stage 1 切流）：
+#   api-dotnet 是 .NET 10 WebAPI，对外端口 18000（容器内 8080）
+#   默认与 api (FastAPI) 并行运行；nginx 切流脚本（Stage 2 启用）将 /api/* 切到 api-dotnet
+#
 
 # 生产域名部署：设置 Web 注入给浏览器的 API 地址
 #   AGENTBOARD_WEB_API_URL=https://api.yourdomain.com docker compose up -d
@@ -44,6 +48,50 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  # .NET 10 WebAPI (BFF). Stage 0: parallels api (FastAPI) on a separate port.
+  # Stage 2 grayscale: nginx cuts /api/* traffic to api-dotnet. Until then both
+  # stacks are reachable and the contract-freeze tests (S0-4/S0-5) validate
+  # the .NET endpoints against the FastAPI /openapi.json.
+  api-dotnet:
+    build:
+      context: .
+      dockerfile: dotnet/Dockerfile.dotnet
+    environment:
+      # Same secret as api — the BFF re-uses the FastAPI HMAC tokens as-is.
+      AGENTBOARD_SECRET: "${AGENTBOARD_SECRET:?Set AGENTBOARD_SECRET to a strong random value}"
+      # .NET BFF uses SQLite by default in compose. Stage 1 will add a Pomelo
+      # MySql provider once the package ships 10.0.0; until then MariaDB is
+      # only consulted by the FastAPI api service.
+      AGENTBOARD_DATABASE__PROVIDER: "sqlite"
+      AGENTBOARD_DATABASE__CONNECTIONSTRING: "Data Source=/app/data/agentboard-dotnet.db"
+      AGENTBOARD_ENV: "${AGENTBOARD_ENV:-production}"
+      AGENTBOARD_REQUIRE_AUTH: "1"
+      AGENTBOARD_CORS_ORIGINS: "${AGENTBOARD_CORS_ORIGINS:-*}"
+      AGENTBOARD_DOTNET_PORT: "8080"
+      ASPNETCORE_URLS: "http://0.0.0.0:8080"
+      # Internal address the .NET BFF uses to call FastAPI for AI orchestration
+      # (Stage 1 wires this through Polly + token passthrough).
+      AGENTBOARD_FASTAPI__INTERNALURL: "http://api:8000"
+      AGENTBOARD_FASTAPI__INTERNALONLY: "0"
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      # Host 18000 → container 8080 (the .NET 10 ASP.NET Core default).
+      - "${AGENTBOARD_DOTNET_PORT:-18000}:8080"
+    volumes:
+      # The .NET BFF keeps its own SQLite file (no shared-schema writes until
+      # Stage 2). In Stage 1 the BFF reads via the MariaDB wire (Pomelo) and
+      # this volume can be removed.
+      - agentboard_dotnet_data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   web:
     build: .
@@ -114,3 +162,4 @@ services:
 
 volumes:
   agentboard_mariadb:
+  agentboard_dotnet_data:
