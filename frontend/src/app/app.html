@@ -776,150 +776,16 @@
 
             <!-- Tab: 项目介绍 -->
             @if (activeTab() === 'overview') {
-              <div class="tab-content overview-content">
-                <div class="overview-hero card md">
-                  <div class="overview-hero-row">
-                    <div class="overview-hero-main">
-                      <div class="overview-hero-title">
-                        @if (current.key) {
-                          <span class="badge lg project-key-badge">{{ current.key }}</span>
-                        }
-                        <h3 class="overview-hero-name">{{ current.name }}</h3>
-                        @if (current.is_private) {
-                          <span class="badge" title="邀请制项目">🔒 邀请制</span>
-                        } @else {
-                          <span class="badge success" title="公开项目">🌐 公开</span>
-                        }
-                      </div>
-                      @if (current.description) {
-                        <p class="overview-hero-desc">{{ current.description }}</p>
-                      } @else {
-                        <p class="overview-hero-desc muted">暂无项目介绍 —— 在「设置 → 基本信息」补充描述帮助协作者快速理解项目目标。</p>
-                      }
-                      <div class="overview-hero-meta">
-                        <span class="overview-meta-item">
-                          <span class="overview-meta-icon">🆔</span>
-                          <span class="overview-meta-text">项目 #{{ current.id }}</span>
-                        </span>
-                        @if (current.created_at) {
-                          <span class="overview-meta-item">
-                            <span class="overview-meta-icon">📅</span>
-                            <span class="overview-meta-text">创建于 {{ formatDate(current.created_at) }}</span>
-                          </span>
-                        }
-                        <span class="overview-meta-item">
-                          <span class="overview-meta-icon">👥</span>
-                          <span class="overview-meta-text">{{ members().length }} 位成员</span>
-                        </span>
-                      </div>
-                    </div>
-                    <div class="overview-hero-actions">
-                      <button class="btn-primary-sm" (click)="selectProjectTab('epics')">浏览 Epics →</button>
-                    </div>
-                  </div>
-                </div>
-
-                <!-- 关键指标卡片 -->
-                <div class="overview-stats">
-                  <div class="overview-stat-card clickable" (click)="selectProjectTab('epics')">
-                    <span class="overview-stat-icon">⚡</span>
-                    <span class="overview-stat-num">{{ epics().length }}</span>
-                    <span class="overview-stat-label">Epics</span>
-                  </div>
-                  <div class="overview-stat-card clickable" (click)="selectProjectTab('backlog')">
-                    <span class="overview-stat-icon">📋</span>
-                    <span class="overview-stat-num">{{ backlogVisibleTasks().length }}</span>
-                    <span class="overview-stat-label">待办任务</span>
-                  </div>
-                  <div class="overview-stat-card clickable" (click)="selectProjectTab('kanban')">
-                    <span class="overview-stat-icon">🗂️</span>
-                    <span class="overview-stat-num">{{ kanbanCount() }}</span>
-                    <span class="overview-stat-label">看板卡片</span>
-                  </div>
-                  <div class="overview-stat-card clickable" (click)="selectProjectTab('proposals')">
-                    <span class="overview-stat-icon">💬</span>
-                    <span class="overview-stat-num">{{ proposalVisible().length }}</span>
-                    <span class="overview-stat-label">活跃提案</span>
-                  </div>
-                </div>
-
-                <div class="overview-grid">
-                  <!-- 成员卡片 -->
-                  <div class="overview-card">
-                    <div class="overview-card-header">
-                      <h4>团队成员</h4>
-                      <button class="link-btn" (click)="selectProjectTab('members')">管理 →</button>
-                    </div>
-                    @if (members().length === 0) {
-                      <div class="overview-empty">暂无成员数据，加载设置页后可见</div>
-                    } @else {
-                      <div class="overview-member-list">
-                        @for (m of members().slice(0, 8); track m.user_id) {
-                          <div class="overview-member">
-                            <div class="overview-avatar" [class.owner]="m.role === 'owner'">
-                              {{ (m.username || '?').slice(0, 1).toUpperCase() }}
-                            </div>
-                            <div class="overview-member-info">
-                              <span class="overview-member-name">{{ m.username || '用户 #' + m.user_id }}</span>
-                              <span class="overview-member-role">{{ m.role === 'owner' ? '负责人' : '成员' }}</span>
-                            </div>
-                          </div>
-                        }
-                        @if (members().length > 8) {
-                          <div class="overview-member-more">还有 {{ members().length - 8 }} 位 →</div>
-                        }
-                      </div>
-                    }
-                  </div>
-
-                  <!-- 最近 Epic -->
-                  <div class="overview-card">
-                    <div class="overview-card-header">
-                      <h4>最近 Epic</h4>
-                      <button class="link-btn" (click)="selectProjectTab('epics')">查看全部 →</button>
-                    </div>
-                    @if (epics().length === 0) {
-                      <div class="overview-empty">还没有 Epic —— 在「Epics」页 + 新建 Epic 开始迭代</div>
-                    } @else {
-                      <div class="overview-epic-list">
-                        @for (e of epics().slice(0, 5); track e.id) {
-                          <div class="overview-epic clickable" (click)="goEpic(e.id)">
-                            <span class="overview-epic-num">#{{ e.id }}</span>
-                            <span class="overview-epic-title">{{ e.title }}</span>
-                            @if (e.status === 'done') { <span class="overview-epic-tag done">已完成</span> }
-                            @else { <span class="overview-epic-tag active">{{ e.status }}</span> }
-                          </div>
-                        }
-                      </div>
-                    }
-                  </div>
-
-                  <!-- 快捷入口 -->
-                  <div class="overview-card overview-shortcuts">
-                    <div class="overview-card-header">
-                      <h4>快捷入口</h4>
-                    </div>
-                    <div class="overview-shortcut-grid">
-                      <button class="overview-shortcut" (click)="selectProjectTab('documents')">
-                        <span class="overview-shortcut-icon">📄</span>
-                        <span class="overview-shortcut-label">文档</span>
-                      </button>
-                      <button class="overview-shortcut" (click)="selectProjectTab('stats')">
-                        <span class="overview-shortcut-icon">📊</span>
-                        <span class="overview-shortcut-label">统计</span>
-                      </button>
-                      <button class="overview-shortcut" (click)="selectProjectTab('kanban')">
-                        <span class="overview-shortcut-icon">🗂️</span>
-                        <span class="overview-shortcut-label">看板</span>
-                      </button>
-                      <button class="overview-shortcut" (click)="selectProjectTab('proposals')">
-                        <span class="overview-shortcut-icon">💬</span>
-                        <span class="overview-shortcut-label">提案</span>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <app-overview-tab
+                [project]="current"
+                [members]="members()"
+                [epics]="epics()"
+                [backlogCount]="backlogVisibleTasks().length"
+                [kanbanCount]="kanbanCount()"
+                [proposalCount]="proposalVisible().length"
+                (navigateTab)="selectProjectTab($event)"
+                (goEpic)="goEpic($event)"
+              />
             }
 
             <!-- Tab: Epics -->

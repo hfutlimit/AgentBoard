@@ -11,12 +11,13 @@ import { filter } from 'rxjs/operators';
 
 import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric, resolveApiBase } from './api.service';
 import { LoginComponent } from './login/login';
-import { AgentRow, AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, KanbanBoard, KanbanStory, Notification, OverviewStats, Priority, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, SprintStatus, Status, Story, StoryStatusHistoryRow, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentRevisionItem, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES, TicketRequestItem, TicketType, TicketItem } from './models';
+import { AgentRow, AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, KanbanBoard, KanbanStory, Notification, OverviewStats, Priority, Project, ProjectTabKind, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, SprintStatus, Status, Story, StoryStatusHistoryRow, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentRevisionItem, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES, TicketRequestItem, TicketType, TicketItem } from './models';
 import { PaginationComponent } from './pagination/pagination';
+import { ManagedListComponent } from './managed-list/managed-list';
+import { OverviewTabComponent } from './overview-tab/overview-tab';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
-type ProjectTabKind = 'overview' | 'epics' | 'backlog' | 'proposals' | 'settings' | 'members' | 'stats' | 'schedules' | 'documents' | 'kanban' | 'sprints' | 'tickets';
 type ProjectListKind = 'epics' | 'sprints' | 'backlog' | 'members' | 'schedules';
 /** 设置页左侧菜单子标签：basic=基本信息，members=成员管理，schedules=自动化计划，export=数据导出 */
 type SettingsSubTabKind = 'basic' | 'members' | 'schedules' | 'export';
@@ -69,7 +70,7 @@ interface PaletteCommand {
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, PaginationComponent],
+  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, PaginationComponent, ManagedListComponent, OverviewTabComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
   encapsulation: ViewEncapsulation.None,

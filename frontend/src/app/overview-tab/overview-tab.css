@@ -1,0 +1,187 @@
+/* ---- OverviewTabComponent（阶段3 / Story 319） ---- */
+/* 视觉来源：原型 v7 metric-card / workspace-card + 既有 overview 样式合并。
+   全局封装（ViewEncapsulation.None），与 App 组件一致；过渡期 app.css 旧规则共存，
+   阶段4 色板收口时统一清理重复。 */
+
+.overview-content { padding: 20px 4px 0; display: flex; flex-direction: column; gap: 18px; }
+.overview-hero {
+  padding: 22px 24px;
+  background: linear-gradient(135deg, var(--surface) 0%, var(--surface-2) 100%);
+  border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .04);
+}
+.overview-hero-row {
+  display: flex; gap: 18px; align-items: flex-start; justify-content: space-between;
+}
+.overview-hero-main { flex: 1 1 auto; min-width: 0; }
+.overview-hero-title {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.overview-hero-name {
+  font-size: 20px; font-weight: 700; margin: 0; color: var(--text);
+  letter-spacing: -.01em;
+}
+.project-key-badge {
+  background: var(--brand-soft); color: var(--brand-600);
+  font-weight: 600; letter-spacing: .04em;
+}
+.overview-hero-desc {
+  margin: 6px 0 12px; color: var(--text-2); font-size: 14px; line-height: 1.55;
+  max-width: 720px;
+}
+.overview-hero-desc.muted { font-style: italic; opacity: .8; }
+.overview-hero-meta {
+  display: flex; gap: 18px; flex-wrap: wrap; color: var(--text-2); font-size: 12.5px;
+}
+.overview-meta-item { display: inline-flex; align-items: center; gap: 6px; }
+.overview-meta-icon { font-size: 13px; opacity: .85; }
+.overview-hero-actions {
+  display: flex; gap: 8px; flex: 0 0 auto; align-items: flex-start;
+}
+
+/* ---- metric-card（原型 v7） ---- */
+.overview-stats.metric-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+}
+.metric-card {
+  min-width: 0;
+  padding: 17px 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  display: flex; flex-direction: column; gap: 4px;
+  cursor: default; transition: all .18s ease;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .03);
+}
+.metric-card.clickable { cursor: pointer; }
+.metric-card.clickable:hover {
+  border-color: var(--brand-500);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(99,102,241,.15);
+}
+.metric-label {
+  display: flex; align-items: center; justify-content: space-between;
+  color: var(--ink-muted, var(--text-2)); font-size: 12px;
+}
+.metric-icon { font-size: 16px; opacity: .85; }
+.metric-value {
+  margin-top: 6px;
+  color: var(--navy, var(--text));
+  font-size: 26px; font-weight: 740; line-height: 1.1;
+  letter-spacing: -.035em;
+}
+.metric-foot {
+  margin-top: 2px; color: var(--ink-muted, var(--text-2)); font-size: 11px;
+}
+
+/* ---- overview-grid / workspace-card ---- */
+.overview-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+.overview-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px 18px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .03);
+  display: flex; flex-direction: column; gap: 12px;
+  min-height: 180px;
+}
+.overview-card-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-bottom: 6px; border-bottom: 1px dashed var(--border);
+}
+.overview-card-header h4 {
+  margin: 0; font-size: 14px; font-weight: 600; color: var(--text);
+  letter-spacing: .02em;
+}
+.link-btn {
+  background: transparent; border: none; cursor: pointer;
+  color: var(--brand-600); font-size: 12px; font-weight: 500;
+  padding: 4px 6px; border-radius: 6px; transition: background .14s;
+}
+.link-btn:hover { background: var(--brand-soft); }
+
+.overview-empty { color: var(--text-2); font-size: 12.5px; font-style: italic; }
+
+.overview-member-list { display: flex; flex-direction: column; gap: 10px; }
+.overview-member {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 4px; border-radius: 8px; transition: background .14s;
+}
+.overview-member:hover { background: var(--surface-2); }
+.overview-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+  color: #fff; font-weight: 600; font-size: 13px;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 auto;
+}
+.overview-avatar.owner {
+  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, .18);
+}
+.overview-member-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.overview-member-name {
+  font-size: 13px; font-weight: 500; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px;
+}
+.overview-member-role { font-size: 11px; color: var(--text-2); }
+.overview-member-more {
+  font-size: 12px; color: var(--brand-600); padding: 4px 6px;
+  cursor: pointer;
+}
+
+.overview-epic-list { display: flex; flex-direction: column; gap: 6px; }
+.overview-epic {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 8px; cursor: pointer;
+  transition: background .14s; border: 1px solid transparent;
+}
+.overview-epic.clickable:hover {
+  background: var(--surface-2); border-color: var(--border);
+}
+.overview-epic-num {
+  font-size: 11px; color: var(--text-2); font-weight: 500;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  background: var(--surface-3); padding: 2px 6px; border-radius: 4px;
+  flex: 0 0 auto;
+}
+.overview-epic-title {
+  font-size: 13px; color: var(--text); flex: 1 1 auto;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.overview-epic-tag {
+  font-size: 10.5px; font-weight: 600; padding: 2px 7px; border-radius: 10px;
+  flex: 0 0 auto; text-transform: uppercase; letter-spacing: .03em;
+}
+.overview-epic-tag.done {
+  background: rgba(16, 185, 129, .12); color: #047857;
+}
+.overview-epic-tag.active {
+  background: var(--brand-soft); color: var(--brand-600);
+}
+
+.overview-shortcut-grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
+}
+.overview-shortcut {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 14px 8px; background: var(--surface-2);
+  border: 1px solid var(--border); border-radius: 10px;
+  cursor: pointer; transition: all .14s;
+}
+.overview-shortcut:hover {
+  background: var(--brand-soft); border-color: var(--brand-500);
+  transform: translateY(-1px);
+}
+.overview-shortcut-icon { font-size: 22px; }
+.overview-shortcut-label {
+  font-size: 12px; font-weight: 500; color: var(--text);
+}
+
+/* ---- 暗色主题适配（原型 v7 是 light-only，navy 令牌补暗色版本） ---- */
+:host-context([data-theme="dark"]) .metric-value,
+[data-theme="dark"] .metric-value {
+  color: #c9d6ea;
+}

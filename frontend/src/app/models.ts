@@ -4,6 +4,8 @@ export type ItemType = 'dev' | 'bug' | 'qa' | 'design';
 // 注：Epic/Story 后端支持 backlog，前端类型须对齐（Epic 145 B-A6 验证时发现脱节）
 export type Status = 'todo' | 'in_progress' | 'in_review' | 'done' | 'blocked' | 'backlog';
 export type Priority = 'highest' | 'high' | 'medium' | 'low' | 'lowest';
+/** 项目工作区内 tab 种类（阶段3 Story 319：提取 OverviewTabComponent 时从 app.ts 提升为共享类型） */
+export type ProjectTabKind = 'overview' | 'epics' | 'backlog' | 'proposals' | 'settings' | 'members' | 'stats' | 'schedules' | 'documents' | 'kanban' | 'sprints' | 'tickets';
 
 export interface Project {
   id: number;

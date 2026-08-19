@@ -1,0 +1,8 @@
+/* ManagedListComponent — 阶段2 统一列表外壳
+ * 仅承载外壳布局，列表主体与工具栏样式沿用全局 styles.css（tab-content / section-header /
+ * tab-list-skeleton / tab-load-error / entity-list / app-pagination 等），不重复定义。
+ * 此处只补一个语义化容器钩子，便于后续阶段做 navy 收口时统一收窄外壳内边距等。
+ */
+.managed-list-v7 {
+  display: block;
+}

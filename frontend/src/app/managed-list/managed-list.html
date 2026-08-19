@@ -1,0 +1,40 @@
+<div class="tab-content managed-list-v7">
+  <!-- 头部：标题 / 计数 / 操作按钮（由各列表投影，保留各自结构差异） -->
+  <ng-content select="[ml-header]"></ng-content>
+
+  <!-- 工具栏：筛选 / 搜索（始终渲染，加载态也保留，与原各列表一致） -->
+  <ng-content select="[ml-toolbar]"></ng-content>
+
+  <!-- 三态：loading > error > 主体 -->
+  @if (loading) {
+    <div class="tab-list-skeleton" role="status" [attr.aria-label]="loadingLabel">
+      <div class="tab-loading-caption"><span class="spinner"></span>{{ loadingLabel }}</div>
+      @for (row of skeletonArray(); track row) {
+        <div class="tab-skeleton-row">
+          <span class="tab-skeleton-icon"></span>
+          <span class="tab-skeleton-line"></span>
+          <span class="tab-skeleton-badge"></span>
+        </div>
+      }
+    </div>
+  } @else if (error) {
+    <div class="tab-load-error" role="alert">
+      <span>{{ errorPrefix }}：{{ error }}</span>
+      <button class="ghost-sm" type="button" (click)="retry.emit()">重试</button>
+    </div>
+  } @else {
+    <!-- 主体：条目渲染 + 自有空状态（由各列表投影） -->
+    <ng-content></ng-content>
+  }
+
+  <!-- 分页：pageSize<=0 或加载/错误态隐藏；空态按 hidePaginationOnEmpty 控制 -->
+  @if (showPagination) {
+    <app-pagination
+      [label]="paginationLabel"
+      [total]="total"
+      [page]="page"
+      [pageSize]="pageSize"
+      (pageChange)="pageChange.emit($event)"
+    />
+  }
+</div>
