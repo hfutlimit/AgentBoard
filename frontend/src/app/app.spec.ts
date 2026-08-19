@@ -1195,33 +1195,4 @@ describe('App', () => {
       expect(app.paletteRunResults()).toEqual([]);
     });
   });
-
-  describe('多数决评审投票进度（Epic 122 S4 M2 / Task 1017）', () => {
-    it('reviewModeLabel 映射 single / majority / 缺省', () => {
-      const fixture = TestBed.createComponent(App);
-      const app = fixture.componentInstance;
-      expect(app.reviewModeLabel('majority')).toBe('多数决评审');
-      expect(app.reviewModeLabel('single')).toBe('单人评审');
-      expect(app.reviewModeLabel(undefined)).toBe('单人评审');
-    });
-
-    it('reviewVotePct 计算进度条百分比（cast/quorum，上限 100）', () => {
-      const fixture = TestBed.createComponent(App);
-      const app = fixture.componentInstance;
-      expect(app.reviewVotePct({ cast: 2, quorum: 3 })).toBe(67);
-      expect(app.reviewVotePct({ cast: 3, quorum: 3 })).toBe(100);
-      expect(app.reviewVotePct({ cast: 0, quorum: 3 })).toBe(0);
-      expect(app.reviewVotePct({ cast: 1, quorum: 0 })).toBe(0);  // quorum 非法兜底
-      expect(app.reviewVotePct({} as never)).toBe(0);
-    });
-
-    it('reviewVoteReached 判定是否达法定票数', () => {
-      const fixture = TestBed.createComponent(App);
-      const app = fixture.componentInstance;
-      expect(app.reviewVoteReached({ cast: 2, quorum: 3 })).toBe(false);
-      expect(app.reviewVoteReached({ cast: 3, quorum: 3 })).toBe(true);
-      expect(app.reviewVoteReached({ cast: 4, quorum: 3 })).toBe(true);
-      expect(app.reviewVoteReached({ cast: 0, quorum: 0 })).toBe(false);
-    });
-  });
 });

@@ -4043,38 +4043,6 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  /** 评审人工作量条形图最大值（S4 运营视图） */
-  maxReviewerReviewed(rs: ReviewStats): number {
-    return rs.by_reviewer.reduce((m, r) => Math.max(m, r.story_reviewed + r.task_reviewed), 0);
-  }
-
-  /** 评审人评审总数（Story + Task，S4 运营视图） */
-  reviewerReviewed(r: { story_reviewed: number; task_reviewed: number }): number {
-    return r.story_reviewed + r.task_reviewed;
-  }
-
-  /* ---------- 多数决投票进度（Epic 122 S4 M2） ---------- */
-
-  /** 评审模式可读标签（single=单人评审 / majority=多数决评审） */
-  reviewModeLabel(mode?: string): string {
-    return mode === 'majority' ? '多数决评审' : '单人评审';
-  }
-
-  /** 投票进度条百分比（0..100，quorum 恒 >0 由后端保证） */
-  reviewVotePct(row: { cast: number; quorum: number }): number {
-    const cast = Number(row?.cast ?? 0);
-    const quorum = Number(row?.quorum ?? 0);
-    if (!(quorum > 0)) return 0;
-    return Math.min(100, Math.round((cast / quorum) * 100));
-  }
-
-  /** 投票是否已达法定票数（可结算） */
-  reviewVoteReached(row: { cast: number; quorum: number }): boolean {
-    const cast = Number(row?.cast ?? 0);
-    const quorum = Number(row?.quorum ?? 0);
-    return quorum > 0 && cast >= quorum;
-  }
-
   /* ---------- Attachment ---------- */
   async loadAttachments(taskId: number): Promise<void> {
     try {
@@ -4543,7 +4511,7 @@ export class App implements OnInit, OnDestroy {
     const icons: Record<string, { emoji: string; color: string }> = {
       project_invite: { emoji: '📬', color: '#7c3aed' },  // violet
       join_request:   { emoji: '📩', color: '#0891b2' },  // info cyan
-      task_assigned:  { emoji: '📋', color: '#4f46e5' },  // brand indigo
+      task_assigned:  { emoji: '📋', color: '#2563eb' },  // brand navy
       status_changed: { emoji: '🔄', color: '#d97706' },  // warning orange
       mentioned:      { emoji: '💬', color: '#dc2626' },  // danger red
       other:          { emoji: '🔔', color: '#64748b' },  // slate

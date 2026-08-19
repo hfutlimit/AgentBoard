@@ -58,7 +58,7 @@
 .metric-card.clickable:hover {
   border-color: var(--brand-500);
   transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(99,102,241,.15);
+  box-shadow: 0 6px 18px rgba(37, 99, 235,.15);
 }
 .metric-label {
   display: flex; align-items: center; justify-content: space-between;
@@ -112,7 +112,7 @@
 .overview-member:hover { background: var(--surface-2); }
 .overview-avatar {
   width: 32px; height: 32px; border-radius: 50%;
-  background: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+  background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
   color: #fff; font-weight: 600; font-size: 13px;
   display: inline-flex; align-items: center; justify-content: center;
   flex: 0 0 auto;

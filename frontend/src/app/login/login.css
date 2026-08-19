@@ -23,7 +23,7 @@
   inset: 0;
   z-index: 0;
   background:
-    radial-gradient(1200px 800px at 78% -12%, rgba(99, 102, 241, 0.22), transparent 60%),
+    radial-gradient(1200px 800px at 78% -12%, rgba(37, 99, 235, 0.22), transparent 60%),
     radial-gradient(1000px 700px at 8% 112%, rgba(34, 211, 238, 0.20), transparent 55%),
     linear-gradient(160deg, #f7f9ff 0%, #eef2ff 45%, #e9f4fc 100%);
 }
@@ -33,8 +33,8 @@
   position: absolute;
   inset: -2px;
   background-image:
-    linear-gradient(rgba(99, 102, 241, 0.10) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(99, 102, 241, 0.10) 1px, transparent 1px);
+    linear-gradient(rgba(37, 99, 235, 0.10) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(37, 99, 235, 0.10) 1px, transparent 1px);
   background-size: 46px 46px;
   -webkit-mask-image: radial-gradient(circle at 50% 45%, #000 0%, rgba(0, 0, 0, 0.5) 55%, transparent 85%);
   mask-image: radial-gradient(circle at 50% 45%, #000 0%, rgba(0, 0, 0, 0.5) 55%, transparent 85%);
@@ -54,7 +54,7 @@
   height: 460px;
   top: -120px;
   right: -80px;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.40), transparent 70%);
+  background: radial-gradient(circle, rgba(37, 99, 235, 0.40), transparent 70%);
 }
 .bg-glow--2 {
   width: 420px;
@@ -92,12 +92,12 @@
   to { transform: translate(-18px, 14px) scale(1.04); }
 }
 .net-lines line {
-  stroke: rgba(99, 102, 241, 0.22);
+  stroke: rgba(37, 99, 235, 0.22);
   stroke-width: 1;
 }
 .net-nodes circle {
-  fill: #6366f1;
-  filter: drop-shadow(0 0 6px rgba(99, 102, 241, 0.55));
+  fill: #3b82f6;
+  filter: drop-shadow(0 0 6px rgba(37, 99, 235, 0.55));
   animation: nodePulse 3.6s ease-in-out infinite;
 }
 .net-nodes circle:nth-child(3n) { animation-delay: -1.2s; }
@@ -167,7 +167,7 @@
 /* 登录/注册切换 */
 .auth-tabs {
   display: flex;
-  background: rgba(99, 102, 241, 0.10);
+  background: rgba(37, 99, 235, 0.10);
   border-radius: 10px;
   padding: 4px;
   margin-bottom: 22px;
@@ -187,7 +187,7 @@
 }
 .auth-tab.active {
   background: #ffffff;
-  color: #4338ca;
+  color: #1d4ed8;
   box-shadow: 0 2px 8px rgba(30, 41, 59, 0.12);
 }
 
@@ -211,7 +211,7 @@
 .field input {
   width: 100%;
   padding: 12px 14px;
-  border: 1px solid rgba(99, 102, 241, 0.25);
+  border: 1px solid rgba(37, 99, 235, 0.25);
   border-radius: 10px;
   font-family: inherit;
   font-size: 0.92rem;
@@ -222,8 +222,8 @@
 .field input::placeholder { color: #94a3b8; }
 .field input:focus {
   outline: none;
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.18);
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
   background: #ffffff;
 }
 
@@ -236,14 +236,14 @@
   font-family: inherit;
   font-weight: 700;
   color: #ffffff;
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
   border: none;
   border-radius: 10px;
   cursor: pointer;
   transition: all 0.15s;
 }
 .login-submit:hover:not(:disabled) {
-  box-shadow: 0 10px 24px -6px rgba(99, 102, 241, 0.5);
+  box-shadow: 0 10px 24px -6px rgba(37, 99, 235, 0.5);
   transform: translateY(-1px);
 }
 .login-submit:disabled {
@@ -265,7 +265,7 @@
   padding: 44px 40px;
   display: flex;
   align-items: center;
-  background: linear-gradient(150deg, rgba(99, 102, 241, 0.95), rgba(139, 92, 246, 0.95));
+  background: linear-gradient(150deg, rgba(37, 99, 235, 0.95), rgba(139, 92, 246, 0.95));
   border-left: 1px solid rgba(255, 255, 255, 0.25);
 }
 .aside-inner { max-width: 360px; }
