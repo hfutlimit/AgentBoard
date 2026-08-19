@@ -1,0 +1,36 @@
+/* backlog-tab.css — 阶段3 v7 增强（仅补充，不重复定义；基础规则在 styles.css/app.css 全局）
+ *
+ * 设计语言对齐原型 v7：
+ * - type-icon navy 圆底（与 epics-tab 一致）
+ * - badge 加 color-mix ring（与其他 tab 一致）
+ * - entity-item hover brand 描边（已有全局规则，此处仅命名空间钩子）
+ *
+ * 命名空间：.backlog-tab-v7 仅作用于本组件 entity-list 容器。
+ */
+
+/* type-icon navy 圆底（替换 styles.css 默认配色） */
+.backlog-tab-v7 .type-icon {
+  background: var(--blue-soft);
+  color: var(--navy);
+  font-weight: 700;
+}
+
+/* badge 加 color-mix ring */
+.backlog-tab-v7 .badge.status::before,
+.backlog-tab-v7 .badge.priority::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 5px;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 15%, transparent);
+  vertical-align: middle;
+}
+
+/* 暗色主题 */
+[data-theme='dark'] .backlog-tab-v7 .type-icon {
+  background: rgba(100, 161, 255, 0.15);
+  color: #c9d6ea;
+}

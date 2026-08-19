@@ -19,6 +19,8 @@ import { KanbanTabComponent } from './kanban-tab/kanban-tab';
 import { EpicsTabComponent } from './epics-tab/epics-tab';
 import { ProposalsTabComponent } from './proposals-tab/proposals-tab';
 import { DocumentsTabComponent } from './documents-tab/documents-tab';
+import { BacklogTabComponent } from './backlog-tab/backlog-tab';
+import { TicketsTabComponent } from './tickets-tab/tickets-tab';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
@@ -74,7 +76,7 @@ interface PaletteCommand {
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, PaginationComponent, ManagedListComponent, OverviewTabComponent, KanbanTabComponent, EpicsTabComponent, ProposalsTabComponent, DocumentsTabComponent],
+  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, PaginationComponent, OverviewTabComponent, KanbanTabComponent, EpicsTabComponent, ProposalsTabComponent, DocumentsTabComponent, BacklogTabComponent, TicketsTabComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
   encapsulation: ViewEncapsulation.None,

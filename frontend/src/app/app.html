@@ -807,46 +807,15 @@
 
             <!-- Tab: Backlog -->
             @if (activeTab() === 'backlog') {
-              <app-managed-list
-                [loading]="isProjectTabLoading('backlog')"
-                [error]="projectTabError('backlog')"
-                errorPrefix="Backlog 加载失败"
-                loadingLabel="正在加载 Backlog 列表…"
-                [skeletonRows]="5"
-                [empty]="!isProjectTabLoading('backlog') && !projectTabError('backlog') && backlogVisibleTasks().length === 0"
-                [hidePaginationOnEmpty]="true"
-                [total]="backlogVisibleTasks().length"
+              <app-backlog-tab
+                [tasks]="backlogVisibleTasks()"
                 [page]="backlogPage()"
                 [pageSize]="projectListPageSize"
-                paginationLabel="Backlog 列表"
+                [loading]="isProjectTabLoading('backlog')"
+                [error]="projectTabError('backlog')"
                 (pageChange)="setProjectListPage('backlog', $event)"
-                (retry)="retryProjectTab('backlog')">
-                <ng-container ml-header>
-                  <div class="section-header">
-                    <h3>Backlog <span class="count">{{ backlogVisibleTasks().length }}</span></h3>
-                  </div>
-                </ng-container>
-                @if (backlogVisibleTasks().length) {
-                  <div class="entity-list" id="backlog-list">
-                    @for (task of paginatedItems(backlogVisibleTasks(), backlogPage()); track task.id) {
-                      <div class="entity-item">
-                        <a [routerLink]="['/task', task.id]" class="entity-item-main">
-                          <span class="type-icon {{ task.type }}">{{ typeGlyph(task.type) }}</span>
-                          <span class="entity-item-title">{{ task.title }}</span>
-                        </a>
-                        <div class="entity-item-badges">
-                          <span class="badge status status--{{ task.status }}">{{ statusLabel(task.status) }}</span>
-                          @if (task.priority !== 'medium') {
-                            <span class="badge priority priority--{{ task.priority }}">{{ priorityLabel(task.priority) }}</span>
-                          }
-                        </div>
-                      </div>
-                    }
-                  </div>
-                } @else {
-                  <div class="empty-inline">Backlog 为空，所有任务已分配 Sprint</div>
-                }
-              </app-managed-list>
+                (retry)="retryProjectTab('backlog')"
+              />
             }
 
             <!-- Tab: Stats -->
@@ -1358,56 +1327,20 @@
             }
 
             @if (activeTab() === 'tickets') {
-              <div class="tab-content">
-                <div class="section-header">
-                  <h3>工单 <span class="badge count-badge">{{ tickets().length }}</span></h3>
-                  <div class="ticket-controls">
-                    <div class="seg" role="tablist" aria-label="完成状态过滤">
-                      <button class="seg-btn" [class.active]="ticketFilter() === 'incomplete'" (click)="setTicketFilter('incomplete')">未完成</button>
-                      <button class="seg-btn" [class.active]="ticketFilter() === 'complete'" (click)="setTicketFilter('complete')">已完成</button>
-                      <button class="seg-btn" [class.active]="ticketFilter() === 'all'" (click)="setTicketFilter('all')">全部</button>
-                    </div>
-                    <label class="ticket-sort">
-                      排序
-                      <select (change)="setTicketSort($any($event.target).value)">
-                        <option value="created_at" [selected]="ticketSort() === 'created_at'">创建时间</option>
-                        <option value="updated_at" [selected]="ticketSort() === 'updated_at'">更新时间</option>
-                      </select>
-                      <button class="ghost-sm" (click)="setTicketOrder(ticketOrder() === 'desc' ? 'asc' : 'desc')" [title]="ticketOrder() === 'desc' ? '最新在前' : '最早在前'">
-                        {{ ticketOrder() === 'desc' ? '↓ 倒序' : '↑ 正序' }}
-                      </button>
-                    </label>
-                  </div>
-                </div>
-                @if (isProjectTabLoading('tickets')) {
-                  <div class="tab-list-skeleton" role="status" aria-label="正在加载工单">
-                    <div class="tab-loading-caption"><span class="spinner"></span>正在加载工单…</div>
-                    @for (row of tabSkeletonRows; track row) {
-                      <div class="tab-skeleton-row"><span class="tab-skeleton-icon"></span><span class="tab-skeleton-line"></span><span class="tab-skeleton-badge"></span></div>
-                    }
-                  </div>
-                } @else if (projectTabError('tickets')) {
-                  <div class="tab-load-error" role="alert">
-                    <span>工单加载失败：{{ projectTabError('tickets') }}</span>
-                    <button class="ghost-sm" (click)="retryProjectTab('tickets')">重试</button>
-                  </div>
-                } @else if (tickets().length === 0) {
-                  <div class="empty-state">暂无符合条件的工单</div>
-                } @else {
-                  <div class="ticket-list">
-                    @for (t of tickets(); track t.type + '-' + t.id) {
-                      <div class="ticket-row type--{{ t.type }}" (click)="openTicket(t)" title="点击查看详情">
-                        <span class="ticket-type-badge type--{{ t.type }}">{{ t.type === 'epic' ? 'Epic' : t.type === 'story' ? 'Story' : 'Task' }}</span>
-                        <span class="ticket-title">{{ t.title }}</span>
-                        @if (t.priority) { <span class="ticket-priority">{{ priorityLabel(t.priority) }}</span> }
-                        <span class="badge status--{{ t.status }}">{{ statusLabel(t.status) }}</span>
-                        @if (t.assignee_name) { <span class="ticket-assignee">👤 {{ t.assignee_name }}</span> }
-                        <span class="ticket-date muted">{{ t.created_at }}</span>
-                      </div>
-                    }
-                  </div>
-                }
-              </div>
+              <app-tickets-tab
+                [tickets]="tickets()"
+                [filter]="ticketFilter()"
+                [sort]="ticketSort()"
+                [order]="ticketOrder()"
+                [loading]="isProjectTabLoading('tickets')"
+                [error]="projectTabError('tickets')"
+                [skeletonRows]="tabSkeletonRows"
+                (filterChange)="setTicketFilter($event)"
+                (sortChange)="setTicketSort($event)"
+                (orderChange)="setTicketOrder($event)"
+                (openTicket)="openTicket($event)"
+                (retry)="retryProjectTab('tickets')"
+              />
             }
           }
         }

@@ -1,0 +1,40 @@
+<app-managed-list
+  [loading]="loading"
+  [error]="error"
+  errorPrefix="Backlog 加载失败"
+  loadingLabel="正在加载 Backlog 列表…"
+  [skeletonRows]="5"
+  [empty]="!loading && !error && tasks.length === 0"
+  [hidePaginationOnEmpty]="true"
+  [total]="tasks.length"
+  [page]="page"
+  [pageSize]="pageSize"
+  paginationLabel="Backlog 列表"
+  (pageChange)="pageChange.emit($event)"
+  (retry)="retry.emit()">
+  <ng-container ml-header>
+    <div class="section-header">
+      <h3>Backlog <span class="count">{{ tasks.length }}</span></h3>
+    </div>
+  </ng-container>
+  @if (tasks.length) {
+    <div class="entity-list backlog-tab-v7" id="backlog-list">
+      @for (task of paginatedItems(tasks, page); track task.id) {
+        <div class="entity-item">
+          <a [routerLink]="['/task', task.id]" class="entity-item-main">
+            <span class="type-icon {{ task.type }}">{{ typeGlyph(task.type) }}</span>
+            <span class="entity-item-title">{{ task.title }}</span>
+          </a>
+          <div class="entity-item-badges">
+            <span class="badge status status--{{ task.status }}">{{ statusLabel(task.status) }}</span>
+            @if (task.priority !== 'medium') {
+              <span class="badge priority priority--{{ task.priority }}">{{ priorityLabel(task.priority) }}</span>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  } @else {
+    <div class="empty-inline">Backlog 为空，所有任务已分配 Sprint</div>
+  }
+</app-managed-list>
