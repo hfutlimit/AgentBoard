@@ -1,0 +1,61 @@
+{
+  "story_id": 317,
+  "story_title": "阶段1 外壳先行：令牌合并 + 两级 Shell 替换 topbar/tab",
+  "epic_id": 149,
+  "project_id": 3,
+  "verified_at": "2026-08-19T16:49:11",
+  "verifier": "AGB-自动化测试 (WebappTestingExpert, hourly)",
+  "raw_verdict": "FAIL",
+  "final_verdict": "PASS",
+  "verdict_reason": "raw FAIL 由初版粗筛 (body.innerText 含 ▦◇⚙▤▪▫) 触发，命中 1 处；pinpoint_chars.py 溯源确认该命中位于 INTERNAL 视图的 tab-btn.tab-icon（workspace 主区项目子导航「设置」项），非 317 改造的 shell 区域（sidebar/topbar 字符图标命中=0）。317 scope 明确「内部视图暂用现有逻辑，仅外壳层换原型结构」，该字符图标归属 Story 319，故 raw FAIL 改判为范围 PASS。",
+  "scope": "317 改造部分（外壳层）",
+  "evidence": {
+    "scripts": [
+      "tests/e2e_epic149/test_story317_e2e.py",
+      "tests/e2e_epic149/pinpoint_chars.py"
+    ],
+    "screenshots": [
+      "tests/e2e_epic149/screenshots/home_shell.png",
+      "tests/e2e_epic149/screenshots/workspace_shell.png",
+      "tests/e2e_epic149/screenshots/nav_0.png",
+      "tests/e2e_epic149/screenshots/nav_1.png",
+      "tests/e2e_epic149/screenshots/pinpoint_workspace.png"
+    ],
+    "report_md": "tests/e2e_epic149/report_story317.md",
+    "ngserve_log": "tests/e2e_epic149/ngserve.log (首次构建 11.8s 通过)",
+    "proxy_conf": "tests/e2e_epic149/proxy.conf.json (本地 ng → 生产 API)"
+  },
+  "shell_checks": {
+    "home_shell_rendered": true,
+    "workspace_shell_rendered": true,
+    "navy_token_applied": true,
+    "navy_rgb_hits": {"home": 1, "workspace": 3},
+    "svg_use_count": {"home": 12, "workspace": 13},
+    "shell_char_icon_hits": 0,
+    "console_errors": 0,
+    "console_warnings": 0,
+    "page_errors": 0,
+    "sidebar_nav_clickable": true,
+    "responsive_breakpoints_1160_840": "未覆盖（本次桌面 1440）"
+  },
+  "out_of_scope_findings": [
+    {
+      "type": "char_icon_residual",
+      "char": "⚙",
+      "location": {"tag": "BUTTON/SPAN", "cls": "tab-btn / tab-icon", "section": "INTERNAL"},
+      "context": "workspace 主区项目子导航横排的「设置」项",
+      "belongs_to": "Story 319 (视图逐个迁移)",
+      "reason": "317 scope 明确「内部视图暂用现有逻辑」"
+    }
+  ],
+  "automated_actions": {
+    "story_317_status": "in_review → done",
+    "dev_task_1282_status": "in_review → done (reason=completed)",
+    "qa_task_1283_status": "todo → in_progress → in_review (移交复核关闭)",
+    "comments_added": [
+      {"target": "story 317", "id": 706},
+      {"target": "dev task 1282", "id": 705},
+      {"target": "qa task 1283", "id": 707}
+    ]
+  }
+}
