@@ -67,8 +67,8 @@
 ## Story 172 任务（评论区 + 端到端验证）
 
 1. `app.ts` 增 `docCommentContent / docCommentPreview` + `addDocComment / saveDocComment / deleteDocComment / toggleDocCommentPreview`。
-2. `test_doc_api.py`：17 断言覆盖 CRUD / 状态机 / 评论（ALL PASS）。
-3. `test_doc_frontend.py`：Playwright 真实浏览器 15/15（列表 / Markdown / Mermaid / 评论 / 新建 / 状态机 / 零错误）。
+2. `scripts/manual/verify_documents_api.py`：17 断言覆盖 CRUD / 状态机 / 评论（ALL PASS）。
+3. `scripts/manual/verify_documents_frontend.py`：Playwright 真实浏览器 15/15（列表 / Markdown / Mermaid / 评论 / 新建 / 状态机 / 零错误）。
 
 ## 依赖关系
 

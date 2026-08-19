@@ -29,7 +29,7 @@ AgentBoard 已通过任务 `spec` 字段承载「如何做」的规范文档（O
 
 - **后端**：新增 `agentboard/domains/documents/`（模型 + 枚举 + 状态机）；`agentboard/models.py` 门面 re-export；Alembic 迁移 `f2a3b4c5d6e7_add_documents.py`；`service.py` / `api.py` 新增文档 CRUD、状态流转、评论端点；`mcp_server.py` 新增 11 个 MCP 工具。
 - **前端**：`models.ts`（类型）、`api.service.ts`（文档 API + `patchJson` fetch 绕过）、`app.routes.ts`（路由）、`app.ts`（signals + `renderMarkdown` + `enhanceMermaid`）、`app.html`（列表 / 详情两个 `@case`）、`app.css`（文档模块样式）；`angular.json` budget 调高以容纳产物。
-- **测试**：`test_doc_api.py`（17 断言）、`test_doc_frontend.py`（Playwright 真实浏览器 15/15）。
+- **测试**：`scripts/manual/verify_documents_api.py`（17 断言）、`scripts/manual/verify_documents_frontend.py`（Playwright 真实浏览器 15/15）。
 - **文档**：`openspec/changes/documents-maintenance/{proposal,design,tasks}.md`、`docs/requirements.md` FR-18、`docs/tasks.md` Epic 35。
 
 ## 影响
@@ -43,6 +43,6 @@ AgentBoard 已通过任务 `spec` 字段承载「如何做」的规范文档（O
 
 1. Docker 生产栈（API 18000）启动后 `documents` 表自动创建，admin 可走通 list/create/get/status 流转/comment 全链路。
 2. Web SPA 「项目文档」模块：列表筛选 / 搜索、详情 Markdown+Mermaid 渲染、状态条、评论增改删、新建 / 内联编辑均可在真实浏览器运行。
-3. `test_doc_api.py` 17 断言 ALL PASS；`test_doc_frontend.py` Playwright 15/15 PASS，零 page / console / 本机 `.js+.css` 错误。
+3. `scripts/manual/verify_documents_api.py` 17 断言 ALL PASS；`scripts/manual/verify_documents_frontend.py` Playwright 15/15 PASS，零 page / console / 本机 `.js+.css` 错误。
 4. 任务 `spec` 契约与既有 API 未变；MCP 任务工具未变。
 5. 相关 Epic / Story / Task 在 AgentBoard MCP（project 3）状态更新为 done（Epic 106 / Story 164–172 / Task 863–871）。

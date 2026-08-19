@@ -45,9 +45,9 @@ AgentBoard
 │   ├── app.ts                         # docItem signal + renderMarkdown + enhanceMermaid + 交互方法
 │   ├── app.html                       # @case('documents') / @case('document')
 │   └── app.css                        # 文档模块样式
-└── tests/
-    ├── test_doc_api.py                # 17 断言
-    └── test_doc_frontend.py           # Playwright 15/15
+└── scripts/manual/
+    ├── verify_documents_api.py        # 17 断言
+    └── verify_documents_frontend.py   # Playwright 15/15
 ```
 
 ## 4. 开发细节（到方法粒度）
@@ -161,8 +161,8 @@ DELETE /api/documents/comments/{cid}
 
 - [x] Docker API 18000 重启后 `documents` 表自动创建（`upgrade e1f2a3b4c5d6 -> f2a3b4c5d6e7`）。
 - [x] admin 登录后 create/get/status 流转（draft→in_review→approved）/comment 全链路 200/201。
-- [x] `test_doc_api.py` 17 断言 ALL PASS。
-- [x] `test_doc_frontend.py` Playwright 15/15 PASS：列表渲染、Markdown h1/粗体、mermaid 块、评论、新建、状态机、零 page/console/本机 `.js+.css` 错误。
+- [x] `scripts/manual/verify_documents_api.py` 17 断言 ALL PASS。
+- [x] `scripts/manual/verify_documents_frontend.py` Playwright 15/15 PASS：列表渲染、Markdown h1/粗体、mermaid 块、评论、新建、状态机、零 page/console/本机 `.js+.css` 错误。
 - [x] 任务 `spec` 契约与既有 API/MCP 任务工具未变。
 - [x] Epic 106 / Story 164–172 / Task 863–871 在 MCP 全部 done。
 

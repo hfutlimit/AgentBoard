@@ -555,7 +555,7 @@
 > 新建表单（标题/类型/内容/Epic/Story 关联）；详情页内联编辑标题/内容/类型，状态变更按钮条。
 
 ### Story 35.9 前端文档评论区 + 端到端验证（Story 172）
-> 评论区增/改/删 + Markdown 预览；`test_doc_api.py`（17 断言 ALL PASS）+ `test_doc_frontend.py`（Playwright 真实浏览器 15/15 PASS：Markdown/Mermaid/评论/状态机/新建/零错误）。
+> 评论区增/改/删 + Markdown 预览；`scripts/manual/verify_documents_api.py`（17 断言 ALL PASS）+ `scripts/manual/verify_documents_frontend.py`（Playwright 真实浏览器 15/15 PASS：Markdown/Mermaid/评论/状态机/新建/零错误）。
 
 ### 完成记录
 | 日期 | 项 | 简述 |

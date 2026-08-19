@@ -17,6 +17,12 @@ venv/
 **/obj/
 nul
 backups/
+db-backups/*.sql
+
+# One-off manual E2E scripts and runtime evidence; maintained tests belong in tests/.
+deliverables/e2e_*.py
+deliverables/e2e_*.png
+deliverables/quick_view_drawer.png
 
 # E2E 测试凭据（含 API Key 明文，勿提交）
 scripts/e2e_setup.json
