@@ -21,19 +21,6 @@
 - [x] `dotnet/tests/AgentBoard.Api.Tests/`（xUnit + SmokeTests 占位）
 - [x] `dotnet/contracts/README.md`（契约冻结机制说明）
 - [x] `dotnet/migrations/README.md`（migration 流程 + 不自动 apply）
-- [x] `dotnet/Dockerfile.dotnet`（3 阶段：restore → build → runtime，non-root 运行）
-- [x] `.dockerignore.dotnet`（根目录，build context 排除项）
-- [x] `dotnet/README.md`（分层规约 + EF Core 性能规则 + 本地 dev + Roadmap）
-
-### 验收
-
-- [x] `dotnet build` 0 errors（4 NU1903 警告由 WarningsNotAsErrors 排除）
-- [x] `dotnet run` 启动 18000 端口成功，`curl /` 返 200 `{"service":"AgentBoard.Api","stage":"S0-1",...}`
-- [x] `curl /openapi/v1.json` 返 200 application/json
-- [x] `curl /api/nonexistent` 返 404
-- [x] `dotnet test` 1/1 通过
-- [ ] `docker build -f dotnet/Dockerfile.dotnet` 成功（需 CI / 部署机验证，本机无 Docker）
-
 ### 后续 Story
 
 - [ ] `dotnet/contracts/openapi-v3.json` 拉取脚本（S0-4）
@@ -44,6 +31,61 @@
 - [ ] Serilog + OpenTelemetry 接入（S0-7）
 - [ ] docker-compose `api-dotnet` 服务（S0-6）
 - [ ] `docs/dual-stack-bff-runbook.md`（S0-8）
+
+---
+
+## S0-2: Repository Pattern 基础架构（EF Core，避免 Include）
+
+### 落地清单（2026-08-19）
+
+- [x] `src/AgentBoard.Domain/` 纯 C# classlib
+  - Common: Entity / IAuditableEntity / ISoftDeletable / IDomainEvent / ValueObject / DomainException + 4 子类
+  - Common/Enums: ItemType / Status / Priority / SprintStatus
+  - Identity: User（含 UserCreatedEvent / UserPasswordChangedEvent）
+- [x] `src/AgentBoard.Application/` classlib（不引 EF Core）
+  - Abstractions: IService / IProvider / IRepository<T> / IDbContext / IUnitOfWork / IClock / ICurrentUser
+  - Common: PagedRequest / PagedResponse / QueryExtensions (WhereIf + ApplyPaging)
+- [x] `src/AgentBoard.Infrastructure/` classlib
+  - Persistence: AppDbContext + AppDbContextDesignTimeFactory
+  - Persistence/Configurations: UserConfiguration（snake_case 列名映射 FastAPI 库）
+  - Persistence/Interceptors: AuditFieldsInterceptor / SoftDeleteInterceptor / DomainEventDispatcherInterceptor
+  - Persistence/Repositories: Repository<T> 通用 + IUserRepository / UserRepository
+  - Time: SystemClock
+  - DependencyInjection: AddInfrastructure(IConfiguration)
+  - Migrations: InitialEmpty
+- [x] `tests/AgentBoard.Infrastructure.Tests/` xUnit
+  - TestDbContextFactory (InMemory + Interceptors)
+  - RepositoryCrudTests (5 用例)
+  - UserRepositoryTests (3 用例)
+  - AuditFieldsInterceptorTests (2 用例)
+  - Performance/RepositoryPerformanceBaselineTests (2 用例)
+  - SmokeTests
+
+### 验收
+
+- [x] `dotnet build` 0 errors
+- [x] `dotnet test` 14/14 通过（Api 1 + Infrastructure 13）
+- [x] `dotnet ef migrations add InitialEmpty` 成功
+- [x] 性能基线：1000 行 InMemory 查询 < 50ms
+- [x] **EF Core 全程无 Include**（用 Select 投影 + 显式 LINQ Join）
+- [x] IDbContext 抽象：Application 层无 EF Core 引用
+
+### 关键设计决策
+
+- Pomelo.EntityFrameworkCore.MySql 10.0.0 尚未发布（最新 9.0.0），阶段 0/1 用 SQLite 替代；MySQL provider 留到 Pomelo 发版
+- IDbContext 抽象不暴露 DbSet<T>（避免泄漏 EF Core 语义）
+- IRepository<T>.AddAsync 返回 Task<T>（便于拿到 EF 跟踪的实体）
+- DomainEventDispatcherInterceptor 不创建 nested scope（直接用传入的 IServiceProvider）
+- DesignTimeFactory 用 SQLite in-memory（不依赖 Program.cs 启动）
+
+### 踩坑（沉淀到项目记忆）
+
+- EF Core 10 interceptor 基类 `SaveChangesInterceptor` 用 `DbContextErrorEventData` 而非 `SaveChangesFailedEventData`
+- AppDbContext 同时实现 IDbContext 和 IUnitOfWork（接口相同 SaveChangesAsync 签名）
+- `Repository<T>.AddAsync` 必须返回 `Task<T>` 才能与 `IRepository<T>` 接口签名匹配
+- 测试项目 namespace 嵌套时，相对引用 `Persistence.Repositories.UserRepository` 解析到错误路径，必须用全限定名
+- `IServiceProvider.GetServices(IEnumerable<T>)` 要求容器注册 `IEnumerable<T>`；EmptyServiceProvider 需要对 IEnumerable<T> 返回空数组
+- `dotnet ef migrations add` 的 startup project 必须引 Microsoft.EntityFrameworkCore.Design + 能构造 DbContext；用 DesignTimeFactory 绕开 Program.cs 启动
 
 ## 阶段 1：只读业务迁 .NET（2-3 sprints）
 
