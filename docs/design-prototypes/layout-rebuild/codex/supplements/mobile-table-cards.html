@@ -1,0 +1,87 @@
+<!--
+  AgentBoard 原型补充元素 · 移动端表格重排
+  作用：原型表格 min-width 820~900px（html:768/781），840px 断点只收 sidebar，真手机 375px 下表格靠横滚。
+        本文件演示「列表/表格 → 卡片堆叠」的响应式降级：375px 下每行列化为独立卡片，
+        复用 .task-card / .badge / .avatar 等组件类风格，无横滚。
+  断点：保留原型 1160/840；新增 600px 以下表格卡片化（原型未覆盖区间）。
+-->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentBoard · 补充 · 移动端表格卡片化重排</title>
+<style>
+  :root {
+    color-scheme: light;
+    --canvas: #f4f6f8; --surface: #fff; --surface-subtle: #f8fafb; --surface-blue: #f4f7ff;
+    --ink: #142033; --ink-soft: #526074; --ink-muted: #7a8798; --line: #dfe5eb; --line-strong: #cfd7e1;
+    --navy: #10243e; --blue: #2864dc; --blue-dark: #174db3; --blue-soft: #eaf1ff;
+    --teal: #087f6a; --teal-soft: #e6f6f2; --amber: #a56507; --amber-soft: #fff4dc; --red: #b54545; --red-soft: #fff0ef;
+    --shadow-sm: 0 1px 2px rgba(16,36,62,.06), 0 4px 12px rgba(16,36,62,.04);
+    --radius: 12px; --radius-sm: 8px; --transition: 180ms cubic-bezier(.2,.7,.2,1);
+  }
+  * { box-sizing: border-box; }
+  svg { display: block; }
+  .icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 14px/1.5 Inter, "PingFang SC", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; padding: 20px; }
+  .phone { max-width: 375px; margin: 0 auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow-sm); }
+  .phone-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .phone-head h3 { margin: 0; font-size: 15px; color: var(--navy); font-weight: 700; }
+  .phone-head .count { font-size: 11px; color: var(--ink-muted); }
+
+  /* 桌面/平板：表格行（复用 simple-row 风格） */
+  .row { display: grid; grid-template-columns: minmax(0,1.6fr) .8fr .7fr 100px; gap: 12px; align-items: center; padding: 12px 4px; border-bottom: 1px solid #edf0f3; }
+  .row:last-child { border-bottom: 0; }
+  .row .title { font-weight: 650; color: var(--ink); }
+  .row .sub { font-size: 11px; color: var(--ink-muted); }
+  .row .cell { color: var(--ink-soft); font-size: 12px; }
+  .badge { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 700; }
+  .badge.green { background: var(--teal-soft); color: var(--teal); }
+  .badge.amber { background: var(--amber-soft); color: var(--amber); }
+  .badge.gray { background: #eef1f4; color: #657183; }
+  .avatar { display: inline-grid; width: 26px; height: 26px; place-items: center; border-radius: 50%; background: #eaf1fc; color: #27466e; font-size: 10px; font-weight: 760; border: 1px solid #cbd8ec; }
+
+  /* 600px 以下：表格 → 卡片堆叠（关键补充） */
+  @media (max-width: 600px) {
+    .row { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 14px; margin-bottom: 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-subtle); }
+    .row .title { grid-column: 1; font-size: 14px; }
+    .row .sub { grid-column: 1; }
+    .row .meta-line { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--line); }
+    .row .cell { display: none; }                 /* 桌面列的裸值隐藏，改由 meta-line 组合呈现 */
+    .row .badge { grid-column: 2; grid-row: 1; align-self: start; }
+  }
+  .hint { max-width: 375px; margin: 14px auto 0; font-size: 11px; color: var(--ink-muted); text-align: center; }
+</style>
+</head>
+<body>
+
+  <div class="phone">
+    <div class="phone-head"><h3>工作项</h3><span class="count">12 项 · Sprint 14</span></div>
+
+    <div class="row">
+      <div><div class="title">API Key 与 Worker 身份绑定 · AB-241</div><div class="sub">Feature · Codex Delivery</div></div>
+      <span class="badge green">进行中</span>
+      <span class="cell">Codex Delivery</span><span class="cell">Feature</span>
+      <div class="meta-line"><span class="avatar">CD</span><span class="cell">负责人 Codex Delivery</span><span class="badge green">进行中</span></div>
+    </div>
+
+    <div class="row">
+      <div><div class="title">项目 Agent 聚合查询 · AB-238</div><div class="sub">Feature · Claude Architecture</div></div>
+      <span class="badge amber">评审</span>
+      <span class="cell">Claude Architecture</span><span class="cell">Feature</span>
+      <div class="meta-line"><span class="avatar">CL</span><span class="cell">负责人 Claude Architecture</span><span class="badge amber">评审</span></div>
+    </div>
+
+    <div class="row">
+      <div><div class="title">竞争领取原子性验收 · AB-233</div><div class="sub">Test · Local QA Runner</div></div>
+      <span class="badge gray">待开始</span>
+      <span class="cell">Local QA Runner</span><span class="cell">Test</span>
+      <div class="meta-line"><span class="avatar">QA</span><span class="cell">负责人 Local QA Runner</span><span class="badge gray">待开始</span></div>
+    </div>
+  </div>
+
+  <p class="hint">375px 竖向预览：表格降级为卡片堆叠，无横向滚动。≥600px 恢复为表格行。</p>
+
+</body>
+</html>

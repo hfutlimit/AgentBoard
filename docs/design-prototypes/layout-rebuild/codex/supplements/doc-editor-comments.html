@@ -1,0 +1,174 @@
+<!--
+  AgentBoard 原型补充元素 · 文档编辑器视图 + 评论线程
+  作用：原型 8 个 Workspace 视图全是"列表/看板/表单"，缺 AgentBoard 核心的「创作型」视图：
+        文档（Markdown Revision/Diff 已在 Epic 139 实现）、评论三实体（task/story/epic_id）。
+        本文件补：① 文档编辑器（编辑+预览分栏，navy 风格）；② 评论线程（克制嵌套）；
+        ③ Revision 切换器（复用 .detail-stats 卡片语言）。
+  图标：原型无 i-edit，按设计系统规范新增 i-edit / i-compare / i-thread（24x24，stroke 1.8）。
+  红线：无渐变、180ms 过渡、两级阴影、navy/blue + 语义色、圆角 12/8。
+-->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentBoard · 补充 · 文档编辑器 + 评论线程</title>
+<style>
+  :root {
+    color-scheme: light;
+    --canvas: #f4f6f8; --surface: #fff; --surface-subtle: #f8fafb; --surface-blue: #f4f7ff;
+    --ink: #142033; --ink-soft: #526074; --ink-muted: #7a8798; --line: #dfe5eb; --line-strong: #cfd7e1;
+    --navy: #10243e; --blue: #2864dc; --blue-dark: #174db3; --blue-soft: #eaf1ff;
+    --teal: #087f6a; --teal-soft: #e6f6f2; --amber: #a56507; --amber-soft: #fff4dc; --red: #b54545; --red-soft: #fff0ef;
+    --shadow-sm: 0 1px 2px rgba(16,36,62,.06), 0 4px 12px rgba(16,36,62,.04);
+    --shadow-lg: 0 22px 60px rgba(16,36,62,.16);
+    --radius: 12px; --radius-sm: 8px; --transition: 180ms cubic-bezier(.2,.7,.2,1);
+  }
+  * { box-sizing: border-box; }
+  svg { display: block; }
+  .icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 14px/1.5 Inter, "PingFang SC", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; padding: 24px; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  .view-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+  .view-head h1 { margin: 0; font-size: 24px; color: var(--navy); font-weight: 730; letter-spacing: -.03em; }
+  .view-head p { margin: 4px 0 0; color: var(--ink-soft); font-size: 13px; }
+  .btn { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: #fff; color: var(--ink); font-weight: 650; cursor: pointer; transition: var(--transition); }
+  .btn:hover { border-color: #aeb9c5; background: #fafbfd; }
+  .btn.primary { border-color: var(--blue); background: var(--blue); color: #fff; }
+  .btn.primary:hover { border-color: var(--blue-dark); background: var(--blue-dark); }
+
+  /* Revision 切换器（复用 .detail-stats 卡片语言） */
+  .revision-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); box-shadow: var(--shadow-sm); }
+  .revision-bar .rl { font-size: 12px; color: var(--ink-muted); font-weight: 650; }
+  .revision-bar select { height: 34px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 7px; background: #fff; color: var(--ink-soft); font-size: 12px; }
+  .revision-bar .badge { margin-left: auto; }
+  .badge { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 700; }
+  .badge.green { background: var(--teal-soft); color: var(--teal); }
+  .badge.gray { background: #eef1f4; color: #657183; }
+
+  /* 编辑 + 预览分栏 */
+  .doc-split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; min-height: 420px; }
+  .doc-pane { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); overflow: hidden; }
+  .doc-pane-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--line); background: var(--surface-subtle); color: var(--ink-soft); font-size: 12px; font-weight: 700; }
+  .doc-pane-head .icon { width: 15px; height: 15px; color: var(--blue); }
+  textarea.doc-input { flex: 1; border: 0; outline: 0; resize: none; padding: 16px; font: 13px/1.7 "SFMono-Regular", Consolas, monospace; color: var(--ink); background: #fff; }
+  .doc-preview { flex: 1; padding: 16px 18px; overflow: auto; }
+  .doc-preview h2 { color: var(--navy); font-size: 18px; margin: 0 0 10px; }
+  .doc-preview h3 { color: var(--navy); font-size: 15px; margin: 16px 0 8px; }
+  .doc-preview p { color: var(--ink-soft); line-height: 1.7; margin: 0 0 10px; }
+  .doc-preview code { background: var(--surface-blue); color: var(--blue-dark); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .doc-preview pre { background: var(--surface-subtle); border: 1px solid var(--line); color: var(--ink); padding: 12px; border-radius: 8px; overflow: auto; font-size: 12px; }
+
+  /* 评论线程（克制嵌套：左侧线 + 缩进，最多两级视觉区分） */
+  .comments { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 18px; }
+  .comments-head { font-size: 13px; font-weight: 700; color: var(--ink-muted); letter-spacing: .04em; text-transform: uppercase; margin-bottom: 14px; }
+  .thread { display: grid; grid-template-columns: 32px 1fr; gap: 12px; margin-bottom: 16px; }
+  .avatar { display: inline-grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: #eaf1fc; color: #27466e; font-size: 11px; font-weight: 760; border: 1px solid #cbd8ec; }
+  .avatar.teal { background: #e7f5f2; color: #0b6e5e; border-color: #b8ddd5; }
+  .avatar.gold { background: #fff4df; color: #94610c; border-color: #ead4aa; }
+  .c-body { min-width: 0; }
+  .c-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .c-author { font-weight: 700; color: var(--ink); font-size: 13px; }
+  .c-time { font-size: 11px; color: var(--ink-muted); }
+  .c-text { color: var(--ink-soft); font-size: 13px; line-height: 1.6; }
+  .c-actions { margin-top: 6px; display: flex; gap: 14px; }
+  .c-actions button { border: 0; background: transparent; color: var(--ink-muted); font-size: 12px; cursor: pointer; padding: 0; }
+  .c-actions button:hover { color: var(--blue); }
+  .replies { margin-top: 12px; padding-left: 14px; border-left: 2px solid var(--line); display: grid; gap: 12px; }
+  .reply { display: grid; grid-template-columns: 28px 1fr; gap: 10px; }
+  .reply .avatar { width: 28px; height: 28px; font-size: 10px; }
+  .c-composer { display: grid; grid-template-columns: 32px 1fr; gap: 12px; margin-top: 8px; }
+  .c-composer textarea { border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 10px 12px; font: 13px/1.5 inherit; color: var(--ink); resize: vertical; min-height: 44px; outline: 0; }
+  .c-composer textarea:focus { border-color: #7ba4e8; box-shadow: 0 0 0 3px rgba(40,100,220,.08); }
+</style>
+</head>
+<body>
+
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <!-- 新增图标（原型无 i-edit，按规范补充，24x24 stroke 1.8） -->
+      <symbol id="i-edit" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></symbol>
+      <symbol id="i-compare" viewBox="0 0 24 24"><path d="M5 3v18M19 3v18M5 8h6M13 8h6M5 16h6M13 16h6"/></symbol>
+      <symbol id="i-thread" viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="wrap">
+    <div class="view-head">
+      <div><h1>Agent 身份与授权模型</h1><p>Architecture / Identity · 由 Rebecca 维护</p></div>
+      <button class="btn primary"><svg class="icon"><use href="#i-edit"/></svg>编辑</button>
+    </div>
+
+    <div class="revision-bar">
+      <span class="rl">版本</span>
+      <select><option>v7 · 2026-08-19 当前</option><option>v6 · 2026-08-14</option><option>v5 · 2026-08-09</option></select>
+      <span class="badge green">已批准</span>
+    </div>
+
+    <div class="doc-split">
+      <div class="doc-pane">
+        <div class="doc-pane-head"><svg class="icon"><use href="#i-edit"/></svg>Markdown</div>
+        <textarea class="doc-input"># Agent 身份与授权模型
+
+## 核心原则
+- 每个 Worker 通过一次性 Enrollment Key 注册
+- API Key 绑定到 Agent 身份，禁止长效 Key 共享
+
+## 授权边界
+```python
+assert key.agent_id == worker.agent_id
+```
+</textarea>
+      </div>
+      <div class="doc-pane">
+        <div class="doc-pane-head"><svg class="icon"><use href="#i-compare"/></svg>预览</div>
+        <div class="doc-preview">
+          <h2>Agent 身份与授权模型</h2>
+          <h3>核心原则</h3>
+          <p>每个 Worker 通过一次性 Enrollment Key 注册；API Key 绑定到 Agent 身份，禁止长效 Key 共享。</p>
+          <h3>授权边界</h3>
+          <pre>assert key.agent_id == worker.agent_id</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- 评论线程（克制嵌套：主评论 + 最多一级 reply，左侧线区分） -->
+    <div class="comments">
+      <div class="comments-head">评论 · 3 条</div>
+
+      <div class="thread">
+        <span class="avatar">JX</span>
+        <div class="c-body">
+          <div class="c-meta"><span class="c-author">Jason</span><span class="c-time">2 小时前</span></div>
+          <div class="c-text">建议把「禁止长效 Key 共享」单独拆成一条可审计的规则，方便在审计视图里直接引用。</div>
+          <div class="c-actions"><button>回复</button><button>引用</button></div>
+          <div class="replies">
+            <div class="reply">
+              <span class="avatar teal">RC</span>
+              <div class="c-body">
+                <div class="c-meta"><span class="c-author">Rebecca</span><span class="c-time">1 小时前</span></div>
+                <div class="c-text">已加到 Audit 章节，编号 R-3，审计事件会带 rule_id。</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="thread">
+        <span class="avatar gold">MS</span>
+        <div class="c-body">
+          <div class="c-meta"><span class="c-author">Michael</span><span class="c-time">昨天</span></div>
+          <div class="c-text">PRP-31 的 Enrollment Key 方案可以接这里，避免重复定义。</div>
+          <div class="c-actions"><button>回复</button><button>引用</button></div>
+        </div>
+      </div>
+
+      <div class="c-composer">
+        <span class="avatar">JX</span>
+        <textarea placeholder="添加评论…（支持 Markdown）"></textarea>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

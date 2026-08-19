@@ -1,0 +1,88 @@
+<!--
+  AgentBoard 原型补充元素 · 全局优先级视觉语言
+  作用：原型仅在 Kanban 卡片用「三根横条」表达优先级（html:730），
+        但 workitems 列表 / Epics 表格 / 概览重点列表完全没表达优先级。
+        本文件定义一套跨视图一致的轻量优先级语言，复用原型 token 与组件类风格。
+  规则：不引入新主色（仅 red/amber/blue/teal 语义色）；不用渐变；180ms 过渡；两级阴影。
+-->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentBoard · 补充 · 全局优先级视觉语言</title>
+<style>
+  :root {
+    color-scheme: light;
+    --canvas: #f4f6f8; --surface: #fff; --surface-subtle: #f8fafb; --surface-blue: #f4f7ff;
+    --ink: #142033; --ink-soft: #526074; --ink-muted: #7a8798; --line: #dfe5eb; --line-strong: #cfd7e1;
+    --navy: #10243e; --blue: #2864dc; --blue-dark: #174db3; --blue-soft: #eaf1ff;
+    --teal: #087f6a; --teal-soft: #e6f6f2; --amber: #a56507; --amber-soft: #fff4dc;
+    --red: #b54545; --red-soft: #fff0ef;
+    --shadow-sm: 0 1px 2px rgba(16,36,62,.06), 0 4px 12px rgba(16,36,62,.04);
+    --radius: 12px; --radius-sm: 8px; --transition: 180ms cubic-bezier(.2,.7,.2,1);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 14px/1.5 Inter, "PingFang SC", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; padding: 28px; }
+  .sec { max-width: 900px; margin: 0 auto 40px; }
+  .sec-head { font-size: 13px; font-weight: 700; color: var(--ink-muted); letter-spacing: .04em; text-transform: uppercase; margin: 0 0 14px; }
+  .note { font-size: 12px; color: var(--ink-muted); margin: 0 0 18px; line-height: 1.6; }
+
+  /* ===== 优先级语义定义（进 design-token，复用红/琥珀/蓝/灰） ===== */
+  /* high=red / medium=amber / low=blue / none=灰（与 Kanban .priority 三根横条同语源） */
+
+  /* 1. 圆点 + 文字（最轻量，用于表格/列表行尾） */
+  .prio-dot { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 650; }
+  .prio-dot::before { content: ""; width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+  .prio-dot.high::before { background: var(--red); }
+  .prio-dot.medium::before { background: var(--amber); }
+  .prio-dot.low::before { background: var(--blue); }
+  .prio-dot.none::before { background: #7f8b9a; }
+  .prio-dot.high { color: var(--red); } .prio-dot.medium { color: var(--amber); } .prio-dot.low { color: var(--blue); } .prio-dot.none { color: var(--ink-muted); }
+
+  /* 2. 左侧竖条（用于 work-row / simple-row 行首，套用 .project-master-row.active::before 同款） */
+  .prio-bar { width: 3px; align-self: stretch; border-radius: 3px; flex: 0 0 auto; }
+  .prio-bar.high { background: var(--red); } .prio-bar.medium { background: var(--amber); } .prio-bar.low { background: var(--blue); } .prio-bar.none { background: #7f8b9a; }
+
+  /* 3. 胶囊标签（用于概览重点列表 / 卡片，克制用色） */
+  .prio-chip { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 20px; font-size: 10px; font-weight: 700; letter-spacing: .02em; }
+  .prio-chip.high { background: var(--red-soft); color: var(--red); }
+  .prio-chip.medium { background: var(--amber-soft); color: var(--amber); }
+  .prio-chip.low { background: var(--blue-soft); color: var(--blue-dark); }
+  .prio-chip.none { background: #eef1f4; color: #657183; }
+
+  /* 4. 保留 Kanban 三根横条（作为统一语言的"强表达"一极，声明复用而非重造） */
+  .priority { width: 13px; height: 3px; border-radius: 2px; background: #7f8b9a; box-shadow: 0 -4px 0 #7f8b9a, 0 4px 0 #7f8b9a; }
+  .priority.high { background: var(--red); box-shadow: 0 -4px 0 var(--red), 0 4px 0 var(--red); }
+
+  /* 演示行（套 simple-row 风格） */
+  .demo-row { display: grid; grid-template-columns: 16px 1fr auto; gap: 12px; align-items: center; padding: 13px 0; border-bottom: 1px solid #edf0f3; }
+  .demo-row:last-child { border-bottom: 0; }
+  .demo-title { font-size: 13px; font-weight: 650; color: var(--ink); }
+  .demo-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px 16px; box-shadow: var(--shadow-sm); }
+</style>
+</head>
+<body>
+
+  <section class="sec">
+    <h2 class="sec-head">优先级视觉语言 · 四级一致表达</h2>
+    <p class="note">原型仅在 Kanban（三根横条）表达优先级。下方定义跨视图统一语言：high=红 / medium=琥珀 / low=蓝 / 无=灰。四种载体（圆点文字 / 左竖条 / 胶囊 / 横条）语义一致，按视图密度选择。</p>
+
+    <div class="demo-card" style="margin-bottom:18px">
+      <div class="demo-row"><span class="prio-bar high"></span><span class="demo-title">API Key 与 Worker 身份绑定 · AB-241</span><span class="prio-dot high">高</span></div>
+      <div class="demo-row"><span class="prio-bar medium"></span><span class="demo-title">Agent 能力标签过滤 · AB-248</span><span class="prio-dot medium">中</span></div>
+      <div class="demo-row"><span class="prio-bar low"></span><span class="demo-title">通知合并策略 · AB-260</span><span class="prio-dot low">低</span></div>
+      <div class="demo-row"><span class="prio-bar none"></span><span class="demo-title">数据备份与恢复 · 文档</span><span class="prio-dot none">无</span></div>
+    </div>
+
+    <div style="display:flex; gap:8px; flex-wrap:wrap">
+      <span class="prio-chip high">高优先级</span>
+      <span class="prio-chip medium">中优先级</span>
+      <span class="prio-chip low">低优先级</span>
+      <span class="prio-chip none">普通</span>
+      <span class="priority high" style="display:inline-block;margin-left:8px"></span><span style="font-size:11px;color:var(--ink-muted)">Kanban 横条（保留复用）</span>
+    </div>
+  </section>
+
+</body>
+</html>

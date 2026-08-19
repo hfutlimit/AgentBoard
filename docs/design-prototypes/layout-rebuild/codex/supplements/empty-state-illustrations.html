@@ -1,0 +1,93 @@
+<!--
+  AgentBoard 原型补充元素 · 空状态 Illustration
+  作用：原型 empty-list-state 仅一个搜索图标+两行字（html:1412），缺冷启动引导。
+        本文件提供 3 个 SVG 线条插画（新建项目 / 空列表 / 空提案），风格克制、几何化，
+        复用原型 navy/blue 描边（无渐变），用于首屏与空列表引导。
+-->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentBoard · 补充 · 空状态 Illustration</title>
+<style>
+  :root {
+    color-scheme: light;
+    --canvas: #f4f6f8; --surface: #fff; --surface-subtle: #f8fafb; --surface-blue: #f4f7ff;
+    --ink: #142033; --ink-soft: #526074; --ink-muted: #7a8798; --line: #dfe5eb; --line-strong: #cfd7e1;
+    --navy: #10243e; --blue: #2864dc; --blue-dark: #174db3; --blue-soft: #eaf1ff;
+    --teal: #087f6a; --teal-soft: #e6f6f2; --amber: #a56507; --amber-soft: #fff4dc; --red: #b54545; --red-soft: #fff0ef;
+    --shadow-sm: 0 1px 2px rgba(16,36,62,.06), 0 4px 12px rgba(16,36,62,.04);
+    --radius: 12px; --radius-sm: 8px; --transition: 180ms cubic-bezier(.2,.7,.2,1);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 14px/1.5 Inter, "PingFang SC", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; padding: 28px; }
+  .grid { max-width: 1000px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 28px 22px; box-shadow: var(--shadow-sm); text-align: center; }
+  .empty-state { display: grid; place-items: center; padding: 12px 0 16px; }
+  .empty-illu { width: 96px; height: 96px; }
+  .empty-illu .stroke { fill: none; stroke: var(--blue); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .empty-illu .stroke-soft { fill: none; stroke: #cfd7e1; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .empty-illu .fill-soft { fill: var(--blue-soft); }
+  .empty-illu .accent { fill: var(--teal); }
+  .empty-title { display: block; margin-top: 6px; color: var(--navy); font-size: 14px; font-weight: 700; }
+  .empty-sub { display: block; margin-top: 4px; color: var(--ink-muted); font-size: 12px; line-height: 1.5; }
+  .btn { display: inline-flex; align-items: center; gap: 7px; margin-top: 14px; min-height: 36px; padding: 0 14px; border: 1px solid var(--blue); border-radius: var(--radius-sm); background: var(--blue); color: #fff; font-weight: 650; font-size: 13px; cursor: pointer; transition: var(--transition); }
+  .btn:hover { border-color: var(--blue-dark); background: var(--blue-dark); }
+  .sec-head { max-width: 1000px; margin: 0 auto 16px; font-size: 13px; font-weight: 700; color: var(--ink-muted); letter-spacing: .04em; text-transform: uppercase; }
+</style>
+</head>
+<body>
+
+  <h2 class="sec-head">空状态 Illustration · 冷启动引导（几何线条风，palette: navy/blue/teal）</h2>
+  <div class="grid">
+
+    <!-- 1. 新建项目（首屏冷启动） -->
+    <div class="card">
+      <div class="empty-state">
+        <svg class="empty-illu" viewBox="0 0 96 96" aria-hidden="true">
+          <rect class="fill-soft" x="22" y="30" width="52" height="40" rx="8"/>
+          <rect class="stroke" x="30" y="22" width="36" height="32" rx="7"/>
+          <path class="stroke" d="M48 30v14M41 37h14"/>
+          <circle class="accent" cx="68" cy="62" r="9"/>
+          <path class="stroke" d="M68 58v8M64 62h8" stroke="#fff"/>
+        </svg>
+      </div>
+      <span class="empty-title">还没有项目</span>
+      <span class="empty-sub">创建一个项目，把 Epic、工作项和 Agent 组织到一起。</span>
+      <button class="btn">+ 新建项目</button>
+    </div>
+
+    <!-- 2. 空列表（通用） -->
+    <div class="card">
+      <div class="empty-state">
+        <svg class="empty-illu" viewBox="0 0 96 96" aria-hidden="true">
+          <rect class="stroke-soft" x="24" y="20" width="48" height="56" rx="8"/>
+          <path class="stroke" d="M34 36h28M34 48h28M34 60h18"/>
+          <path class="stroke" d="M62 54l8-8" />
+          <circle class="accent" cx="70" cy="42" r="6"/>
+        </svg>
+      </div>
+      <span class="empty-title">没有匹配结果</span>
+      <span class="empty-sub">调整搜索词或清除过滤条件后再试。</span>
+    </div>
+
+    <!-- 3. 空提案（引导创建讨论） -->
+    <div class="card">
+      <div class="empty-state">
+        <svg class="empty-illu" viewBox="0 0 96 96" aria-hidden="true">
+          <path class="stroke-soft" d="M20 26h56v34H44l-12 10v-10H20z"/>
+          <path class="stroke" d="M34 38h28M34 48h18"/>
+          <path class="stroke" d="M66 60c2 4 6 6 10 6 2 0 4-1 5-2" />
+          <circle class="accent" cx="30" cy="70" r="5"/>
+        </svg>
+      </div>
+      <span class="empty-title">还没有提案</span>
+      <span class="empty-sub">把需要团队决策的方案写成提案，保留讨论与批准证据。</span>
+      <button class="btn">+ 新建提案</button>
+    </div>
+
+  </div>
+
+</body>
+</html>

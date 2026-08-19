@@ -1,0 +1,137 @@
+<!--
+  AgentBoard 原型补充元素 · Proposal 讨论区视图
+  作用：原型 proposals 仅是 managed-list 一行，缺「讨论/批准/执行证据」闭环（PRP-17/19/22/24… 已实际存在）。
+        本文件补 Proposal 详情：左侧描述 + 中间讨论线程 + 右侧投票/状态/证据侧栏，
+        复用 .workspace-card / .badge / .avatar / 新增 i-thread 图标（已定义在 doc-editor 补充，此处复用同套新增 symbol）。
+  红线：无渐变、180ms、两级阴影、navy/blue + 语义色、圆角 12/8。
+-->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentBoard · 补充 · Proposal 讨论区</title>
+<style>
+  :root {
+    color-scheme: light;
+    --canvas: #f4f6f8; --surface: #fff; --surface-subtle: #f8fafb; --surface-blue: #f4f7ff;
+    --ink: #142033; --ink-soft: #526074; --ink-muted: #7a8798; --line: #dfe5eb; --line-strong: #cfd7e1;
+    --navy: #10243e; --blue: #2864dc; --blue-dark: #174db3; --blue-soft: #eaf1ff;
+    --teal: #087f6a; --teal-soft: #e6f6f2; --amber: #a56507; --amber-soft: #fff4dc; --red: #b54545; --red-soft: #fff0ef;
+    --shadow-sm: 0 1px 2px rgba(16,36,62,.06), 0 4px 12px rgba(16,36,62,.04);
+    --radius: 12px; --radius-sm: 8px; --transition: 180ms cubic-bezier(.2,.7,.2,1);
+  }
+  * { box-sizing: border-box; }
+  svg { display: block; }
+  .icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 14px/1.5 Inter, "PingFang SC", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; padding: 24px; }
+  .wrap { max-width: 1180px; margin: 0 auto; }
+  .view-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+  .view-head h1 { margin: 0; font-size: 24px; color: var(--navy); font-weight: 730; letter-spacing: -.03em; }
+  .view-head p { margin: 4px 0 0; color: var(--ink-soft); font-size: 13px; }
+  .btn { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: #fff; color: var(--ink); font-weight: 650; cursor: pointer; transition: var(--transition); }
+  .btn:hover { border-color: #aeb9c5; background: #fafbfd; }
+  .btn.primary { border-color: var(--blue); background: var(--blue); color: #fff; }
+  .btn.primary:hover { border-color: var(--blue-dark); background: var(--blue-dark); }
+  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 700; }
+  .badge.green { background: var(--teal-soft); color: var(--teal); }
+  .badge.amber { background: var(--amber-soft); color: var(--amber); }
+  .badge.gray { background: #eef1f4; color: #657183; }
+
+  .prp-grid { display: grid; grid-template-columns: minmax(0,1.5fr) 320px; gap: 18px; }
+  .prp-main { min-width: 0; }
+  .prp-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); padding: 22px; }
+  .prp-card h2 { margin: 0 0 12px; color: var(--navy); font-size: 16px; }
+  .prp-card p { color: var(--ink-soft); line-height: 1.7; margin: 0 0 12px; }
+  .prp-card pre { background: var(--surface-subtle); border: 1px solid var(--line); color: var(--ink); padding: 12px; border-radius: 8px; overflow: auto; font-size: 12px; }
+
+  /* 讨论线程（复用 doc-editor 的 .thread 视觉，此处简版） */
+  .discuss { margin-top: 18px; }
+  .discuss-head { font-size: 13px; font-weight: 700; color: var(--ink-muted); letter-spacing: .04em; text-transform: uppercase; margin-bottom: 14px; }
+  .thread { display: grid; grid-template-columns: 32px 1fr; gap: 12px; margin-bottom: 14px; }
+  .avatar { display: inline-grid; width: 32px; height: 32px; place-items: center; border-radius: 50%; background: #eaf1fc; color: #27466e; font-size: 11px; font-weight: 760; border: 1px solid #cbd8ec; }
+  .avatar.gold { background: #fff4df; color: #94610c; border-color: #ead4aa; }
+  .c-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .c-author { font-weight: 700; color: var(--ink); font-size: 13px; }
+  .c-time { font-size: 11px; color: var(--ink-muted); }
+  .c-text { color: var(--ink-soft); font-size: 13px; line-height: 1.6; }
+  .c-actions { margin-top: 6px; display: flex; gap: 14px; }
+  .c-actions button { border: 0; background: transparent; color: var(--ink-muted); font-size: 12px; cursor: pointer; padding: 0; }
+  .c-actions button:hover { color: var(--blue); }
+
+  /* 右侧栏：状态 + 投票 + 执行证据 */
+  .side { display: grid; gap: 16px; align-content: start; }
+  .side-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-sm); padding: 18px; }
+  .side-card h3 { margin: 0 0 12px; color: var(--navy); font-size: 14px; }
+  .vote-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 0; border-bottom: 1px solid #edf0f3; font-size: 13px; }
+  .vote-row:last-child { border-bottom: 0; }
+  .vote-row .who { display: flex; align-items: center; gap: 8px; color: var(--ink-soft); }
+  .vote-row .mini { width: 22px; height: 22px; border-radius: 50%; background: var(--surface-blue); color: var(--blue-dark); display: grid; place-items: center; font-size: 9px; font-weight: 760; }
+  .vote-yes { color: var(--teal); font-weight: 700; } .vote-no { color: var(--ink-muted); }
+  .evi { display: flex; align-items: center; gap: 9px; padding: 8px 0; font-size: 12px; color: var(--ink-soft); }
+  .evi .icon { width: 15px; height: 15px; color: var(--teal); }
+</style>
+</head>
+<body>
+
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-thread" viewBox="0 0 24 24"><path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="wrap">
+    <div class="view-head">
+      <div><h1>PRP-31 · Agent 一次性 Enrollment Key</h1><p>由 Rebecca 发起 · 限制长效 Key 的共享与身份漂移</p></div>
+      <span class="badge amber"><svg class="icon" style="width:13px;height:13px"><use href="#i-thread"/></svg>讨论中</span>
+    </div>
+
+    <div class="prp-grid">
+      <div class="prp-main">
+        <div class="prp-card">
+          <h2>提案描述</h2>
+          <p>当前 API Key 为长效凭证，存在共享与身份漂移风险。本提案建议引入一次性 Enrollment Key：Worker 首次注册时用 Enrollment Key 换取绑定 Agent 身份的短期凭证，长效 Key 不再直接用于身份。</p>
+          <pre># Enrollment 流程
+enroll(enrollment_key) -> (agent_id, short_lived_token)</pre>
+          <p>讨论收敛后由 Owner 批准，进入执行阶段并保留全部讨论证据。</p>
+        </div>
+
+        <div class="discuss">
+          <div class="discuss-head">讨论 · 12 条回复</div>
+          <div class="thread">
+            <span class="avatar">JX</span>
+            <div><div class="c-meta"><span class="c-author">Jason</span><span class="c-time">3 小时前</span></div><div class="c-text">支持。但要明确 Enrollment Key 的失效窗口和撤销路径，否则审计会断。</div><div class="c-actions"><button>回复</button><button>引用</button></div></div>
+          </div>
+          <div class="thread">
+            <span class="avatar gold">RC</span>
+            <div><div class="c-meta"><span class="c-author">Rebecca</span><span class="c-time">2 小时前</span></div><div class="c-text">已补失效窗口 24h + 管理员可撤销。撤销事件会进审计流。</div><div class="c-actions"><button>回复</button><button>引用</button></div></div>
+          </div>
+        </div>
+      </div>
+
+      <aside class="side">
+        <div class="side-card">
+          <h3>状态</h3>
+          <div class="vote-row"><span class="who">当前阶段</span><span class="badge amber">讨论中</span></div>
+          <div class="vote-row"><span class="who">批准门槛</span><span style="color:var(--ink-soft)">Owner + 2 Admin</span></div>
+        </div>
+        <div class="side-card">
+          <h3>投票</h3>
+          <div class="vote-row"><span class="who"><span class="mini">JX</span>Jason</span><span class="vote-yes">赞成</span></div>
+          <div class="vote-row"><span class="who"><span class="mini">RC</span>Rebecca</span><span class="vote-yes">赞成</span></div>
+          <div class="vote-row"><span class="who"><span class="mini">MS</span>Michael</span><span class="vote-no">弃权</span></div>
+          <div class="vote-row"><span class="who"><span class="mini">AL</span>Alice</span><span style="color:var(--ink-muted)">未投票</span></div>
+        </div>
+        <div class="side-card">
+          <h3>执行证据</h3>
+          <div class="evi"><svg class="icon"><use href="#i-check"/></svg>关联 Epic AB-18（身份与接入）</div>
+          <div class="evi"><svg class="icon"><use href="#i-check"/></svg>审计规则 R-3 已落库</div>
+          <div class="evi"><svg class="icon"><use href="#i-check"/></svg>Worker 注册 PR #82</div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+</body>
+</html>

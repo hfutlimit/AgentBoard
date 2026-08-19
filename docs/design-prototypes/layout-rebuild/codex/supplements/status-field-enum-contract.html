@@ -1,0 +1,153 @@
+<!--
+  AgentBoard 原型补充元素 · 状态 / 字段 / 枚举契约
+  问题：原型 badgeTone()（html:1356）用硬编码中文串做键：
+        ['进行中','已通过','已完成','Active'] → green
+        ['评审','讨论中','Invited']            → amber
+        其余                                    → gray
+        缺陷：(1) 中文/英文混用且散落在 JS 里，新增状态要改原型又改 Angular；
+              (2) 与原型其它文案不一致（如 Kanban 用「待开始」，这里却落到 gray 且无 amber）；
+              (3) 真实后端状态机（Epic/Story/Task 多值）并不止这几项。
+  本文件：给出「设计契约」—— 统一的 status→tone 映射、枚举取值、API 字段命名，
+        让原型与 Story 316 的 Angular 落地共用同一张表。不引入新主色，tone 仅 green/amber/gray/red/blue。
+-->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentBoard · 补充 · 状态 / 字段 / 枚举契约</title>
+<style>
+  :root {
+    color-scheme: light;
+    --canvas: #f4f6f8; --surface: #fff; --surface-subtle: #f8fafb; --surface-blue: #f4f7ff;
+    --ink: #142033; --ink-soft: #526074; --ink-muted: #7a8798; --line: #dfe5eb; --line-strong: #cfd7e1;
+    --navy: #10243e; --blue: #2864dc; --blue-dark: #174db3; --blue-soft: #eaf1ff;
+    --teal: #087f6a; --teal-soft: #e6f6f2; --amber: #a56507; --amber-soft: #fff4dc;
+    --red: #b54545; --red-soft: #fff0ef;
+    --shadow-sm: 0 1px 2px rgba(16,36,62,.06), 0 4px 12px rgba(16,36,62,.04);
+    --radius: 12px; --radius-sm: 8px; --transition: 180ms cubic-bezier(.2,.7,.2,1);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 14px/1.5 Inter, "PingFang SC", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; padding: 28px; }
+  .sec { max-width: 980px; margin: 0 auto 40px; }
+  .sec-head { font-size: 13px; font-weight: 700; color: var(--ink-muted); letter-spacing: .04em; text-transform: uppercase; margin: 0 0 10px; }
+  .note { font-size: 12px; color: var(--ink-soft); margin: 0 0 18px; line-height: 1.7; }
+  .note code { background: var(--surface-blue); color: var(--blue-dark); padding: 1px 6px; border-radius: 6px; font-size: 11px; }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; margin-bottom: 22px; }
+  .table { width: 100%; border-collapse: collapse; }
+  .table th { text-align: left; font-size: 11px; font-weight: 700; color: var(--ink-muted); letter-spacing: .03em; text-transform: uppercase; padding: 11px 14px; border-bottom: 1px solid var(--line); background: var(--surface-subtle); }
+  .table td { padding: 11px 14px; border-bottom: 1px solid #edf0f3; font-size: 13px; vertical-align: middle; }
+  .table tr:last-child td { border-bottom: 0; }
+  .table code { background: #eef1f4; color: var(--navy); padding: 1px 6px; border-radius: 6px; font-size: 12px; }
+
+  /* tone 语义色（与原型 .badge 同款） */
+  .tone { display: inline-flex; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 20px; font-size: 11px; font-weight: 700; letter-spacing: .02em; }
+  .tone::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .tone.green { background: var(--teal-soft); color: var(--teal); }
+  .tone.amber { background: var(--amber-soft); color: var(--amber); }
+  .tone.gray  { background: #eef1f4; color: #657183; }
+  .tone.red   { background: var(--red-soft); color: var(--red); }
+  .tone.blue  { background: var(--blue-soft); color: var(--blue-dark); }
+
+  .callout { display: flex; gap: 12px; padding: 14px 16px; border: 1px solid var(--blue-soft); background: var(--surface-blue); border-radius: var(--radius-sm); }
+  .callout .icon { width: 18px; height: 18px; color: var(--blue); margin-top: 1px; flex: 0 0 auto; }
+  .callout p { margin: 0; font-size: 12px; color: var(--ink-soft); line-height: 1.7; }
+  .callout code { background: #fff; border: 1px solid var(--line); color: var(--blue-dark); padding: 1px 6px; border-radius: 6px; font-size: 11px; }
+
+  h3.sub { font-size: 13px; color: var(--navy); margin: 22px 0 10px; font-weight: 700; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:20px; font-size:11px; font-weight:700; background:var(--surface-blue); color:var(--blue-dark); margin-left:6px; }
+</style>
+</head>
+<body>
+
+  <section class="sec">
+    <h2 class="sec-head">契约 1 · 统一 status → tone 映射（单一事实来源）</h2>
+    <p class="note">原型 <code>badgeTone()</code> 把「进行中/已通过/已完成/Active」全塞进 green，且中文英文混用。下方用<b>语义 tone</b>（非颜色名）作为稳定键，原型展示层与 Angular 落地层共用同一张表。tone 取值限定 5 个：<span class="tone green">green</span><span class="tone amber">amber</span><span class="tone gray">gray</span><span class="tone red">red</span><span class="tone blue">blue</span>，与优先级语言（priority-language.html）共用同一套语义色，避免新增主色。</p>
+
+    <div class="card">
+      <table class="table">
+        <thead><tr><th style="width:34%">状态文案（展示）</th><th style="width:18%">语义 tone</th><th>适用实体</th></tr></thead>
+        <tbody>
+          <tr><td><code>进行中</code> / <code>In Progress</code></td><td><span class="tone green">green</span></td><td>Task / Bug / Story / Epic</td></tr>
+          <tr><td><code>已完成</code> / <code>Done</code></td><td><span class="tone green">green</span></td><td>Task / Bug / Story / Epic</td></tr>
+          <tr><td><code>已通过</code> / <code>Approved</code></td><td><span class="tone green">green</span></td><td>Proposal</td></tr>
+          <tr><td><code>Active</code></td><td><span class="tone green">green</span></td><td>Member</td></tr>
+          <tr><td><code>评审</code> / <code>In Review</code></td><td><span class="tone amber">amber</span></td><td>Task / Bug / Story</td></tr>
+          <tr><td><code>讨论中</code> / <code>Discussing</code></td><td><span class="tone amber">amber</span></td><td>Proposal</td></tr>
+          <tr><td><code>Invited</code></td><td><span class="tone amber">amber</span></td><td>Member</td></tr>
+          <tr><td><code>已计划</code> / <code>Planned</code></td><td><span class="tone gray">gray</span></td><td>Epic / Story</td></tr>
+          <tr><td><code>待开始</code> / <code>Backlog</code></td><td><span class="tone gray">gray</span></td><td>Task / Bug / Story</td></tr>
+          <tr><td><code>草稿</code> / <code>Draft</code></td><td><span class="tone gray">gray</span></td><td>Proposal / Document</td></tr>
+          <tr><td><code>阻塞</code> / <code>Blocked</code></td><td><span class="tone red">red</span></td><td>Task / Bug / Story / Epic</td></tr>
+          <tr><td><code>已排期</code> / <code>Scheduled</code> <span class="pill">新增</span></td><td><span class="tone blue">blue</span></td><td>Story / Sprint</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="callout">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      <p><b>修复点：</b>原型原 <code>badgeTone</code> 把「已计划 / 待开始 / 草稿」统一落 gray，但 Kanban 卡片用三根横条（<code>.priority</code>）区分优先级而非状态；两处语义不冲突，只是 tone 键需收敛为上面 5 个。Story 316 落地时用 <code>STATUS_TONE[status]</code> 查表，<b>不再散落 if 分支</b>；新增状态只需改这一张表。</p>
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2 class="sec-head">契约 2 · 枚举取值（与后端状态机对齐）</h2>
+    <p class="note">原型演示数据用了「进行中 / 评审 / 已计划 / 待开始 / 已完成」等中文串。真实后端（见 MEMORY 状态机）Epic/Story/Task 各有独立取值集。落地时<b>以英文枚举为 wire 值，中文为 i18n 展示</b>，避免原型/后端双重中文硬编码。</p>
+
+    <div class="card">
+      <table class="table">
+        <thead><tr><th>实体</th><th style="width:42%">wire 枚举（API）</th><th>展示中文</th></tr></thead>
+        <tbody>
+          <tr><td>Task / Bug</td><td><code>backlog</code> · <code>todo</code> · <code>in_progress</code> · <code>in_review</code> · <code>done</code> · <code>blocked</code></td><td>待开始 · 待办 · 进行中 · 评审 · 已完成 · 阻塞</td></tr>
+          <tr><td>Story</td><td><code>backlog</code> · <code>confirmed</code> · <code>todo</code> · <code>in_progress</code> · <code>in_review</code> · <code>done</code> · <code>blocked</code></td><td>待开始 · 已确认 · 待办 · 进行中 · 评审 · 已完成 · 阻塞</td></tr>
+          <tr><td>Epic</td><td><code>backlog</code> · <code>in_design</code> · <code>design_pending_review</code> · <code>design_review_approved</code> · <code>todo</code> · <code>in_progress</code> · <code>in_review</code> · <code>done</code> · <code>blocked</code></td><td>待开始 · 设计中 · 设计待审 · 设计已批 · 待办 · 进行中 · 评审 · 已完成 · 阻塞</td></tr>
+          <tr><td>Proposal</td><td><code>draft</code> · <code>discussing</code> · <code>in_review</code> · <code>approved</code> · <code>rejected</code></td><td>草稿 · 讨论中 · 评审 · 已通过 · 已驳回</td></tr>
+          <tr><td>Member.status</td><td><code>active</code> · <code>invited</code> · <code>disabled</code></td><td>Active · Invited · 已停用</td></tr>
+          <tr><td>WorkItem.type</td><td><code>feature</code> · <code>bug</code> · <code>design</code> · <code>test</code></td><td>Feature · Bug · Design · Test</td></tr>
+          <tr><td>priority <span class="pill">跨实体</span></td><td><code>high</code> · <code>medium</code> · <code>low</code> · <code>none</code></td><td>高 · 中 · 低 · 无（见 priority-language.html）</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2 class="sec-head">契约 3 · API 字段命名规范</h2>
+    <p class="note">原型 <code>listConfigs</code> 字段名（<code>title/sub/owner/status/progress</code>）与后端 schema 存在不一致风险。约定如下，Story 316 的 Angular 服务层据此映射，原型演示对象可 1:1 对齐。</p>
+
+    <div class="card">
+      <table class="table">
+        <thead><tr><th>概念</th><th>API 字段（snake_case）</th><th>原型现有字段</th><th>说明</th></tr></thead>
+        <tbody>
+          <tr><td>编号</td><td><code>key</code> / <code>code</code></td><td><code>title</code> 内含「AB-241」</td><td>编号从 title 拆出，落地用独立字段</td></tr>
+          <tr><td>标题</td><td><code>title</code></td><td><code>title</code></td><td>仅标题，不含编号</td></tr>
+          <tr><td>副信息</td><td><code>summary</code></td><td><code>sub</code></td><td><code>sub</code> 改为 <code>summary</code></td></tr>
+          <tr><td>状态</td><td><code>status</code>（枚举）</td><td><code>status</code></td><td>取值见契约 2</td></tr>
+          <tr><td>负责人</td><td><code>owner_id</code> + <code>owner_name</code></td><td><code>owner</code></td><td>拆分 id / 展示名</td></tr>
+          <tr><td>进度</td><td><code>progress</code>（0–100）</td><td><code>progress</code></td><td>仅 Epic 有</td></tr>
+          <tr><td>优先级</td><td><code>priority</code>（枚举）</td><td>仅 Kanban 三根横条</td><td>列表/概览需补（见 priority-language.html）</td></tr>
+          <tr><td>类型</td><td><code>type</code>（枚举）</td><td><code>type</code></td><td>WorkItem / Document</td></tr>
+          <tr><td>时间戳</td><td><code>updated_at</code>（ISO8601）</td><td><code>updated</code>（中文相对串）</td><td>前端格式化，不存展示串</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2 class="sec-head">落位说明 · 改写原型 badgeTone 的参考实现</h2>
+    <p class="note">下为 Story 316 落地时替换 <code>badgeTone()</code>（html:1356）的参考片段——用一个只读映射表取代分支判断，原型与 Angular 共享同一 JSON：</p>
+    <div class="card">
+      <table class="table">
+        <tbody>
+          <tr><td style="background:var(--surface-subtle); font-weight:700; color:var(--ink-muted)">参考</td><td><code>STATUS_TONE = { in_progress:'green', done:'green', approved:'green', active:'green', in_review:'amber', discussing:'amber', invited:'amber', planned:'gray', backlog:'gray', draft:'gray', blocked:'red', scheduled:'blue' };</code><br><code>const badgeTone = status =&gt; STATUS_TONE[status] || 'gray';</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout">
+      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12 4 4L19 6"/></svg>
+      <p><b>约定：</b>tone 与 priority 共用 5 个语义色（green/amber/gray/red/blue），<b>不</b>为状态新增第六种色。优先级用 red/amber/blue/gray（priority-language.html），状态用 green/amber/gray/red/blue（本表），二者色域重合但语义正交，规范上可接受。</p>
+    </div>
+  </section>
+
+</body>
+</html>

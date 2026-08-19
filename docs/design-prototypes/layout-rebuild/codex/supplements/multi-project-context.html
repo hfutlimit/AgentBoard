@@ -1,0 +1,203 @@
+<!--
+  AgentBoard 原型补充元素 · 多项目并行上下文
+  问题：原型用 homeShell.hidden / projectWorkspace 两个互斥壳层切换（html:1542/1552），
+        进入某项目工作台后若要横向对比另一个项目，必须先「返回全部项目」再重进，
+        丢失当前工作台路由与滚动位置（对应工作项 AB-239 项目切换状态保持）。
+        此外缺少「钉住多个项目」与「并排对比」两类高频多项目动作。
+  本文件：在保持原型 navy/blue token 与组件类前提下，补充
+        (a) 钉住项目标签条  (b) 并排对比面板  (c) 标签级状态保持说明
+  规则：复用 .topbar/.project-monogram/.badge/.icon/.button；不用渐变；两级阴影；180ms 过渡。
+-->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AgentBoard · 补充 · 多项目并行上下文</title>
+<style>
+  :root {
+    color-scheme: light;
+    --canvas: #f4f6f8; --surface: #fff; --surface-subtle: #f8fafb; --surface-blue: #f4f7ff;
+    --ink: #142033; --ink-soft: #526074; --ink-muted: #7a8798; --line: #dfe5eb; --line-strong: #cfd7e1;
+    --navy: #10243e; --blue: #2864dc; --blue-dark: #174db3; --blue-soft: #eaf1ff;
+    --teal: #087f6a; --teal-soft: #e6f6f2; --amber: #a56507; --amber-soft: #fff4dc;
+    --red: #b54545; --red-soft: #fff0ef;
+    --shadow-sm: 0 1px 2px rgba(16,36,62,.06), 0 4px 12px rgba(16,36,62,.04);
+    --radius: 12px; --radius-sm: 8px; --transition: 180ms cubic-bezier(.2,.7,.2,1);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--canvas); color: var(--ink); font: 14px/1.5 Inter, "PingFang SC", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; padding: 0; }
+  .icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 1.8; flex: 0 0 auto; }
+  .sec { max-width: 1080px; margin: 0 auto 44px; padding: 0 28px; }
+  .sec-head { font-size: 13px; font-weight: 700; color: var(--ink-muted); letter-spacing: .04em; text-transform: uppercase; margin: 0 0 10px; }
+  .note { font-size: 12px; color: var(--ink-soft); margin: 0 0 18px; line-height: 1.7; }
+  .note code { background: var(--surface-blue); color: var(--blue-dark); padding: 1px 6px; border-radius: 6px; font-size: 11px; }
+
+  /* ===== 复用的基础组件 ===== */
+  .topbar { position: relative; z-index: 20; display: flex; align-items: center; height: 64px; padding: 0 20px; gap: 10px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.96); backdrop-filter: blur(14px); }
+  .topbar-spacer { flex: 1; }
+  .back-button { display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: #fff; color: var(--ink-soft); font-weight: 650; cursor: pointer; }
+  .back-button .icon { width: 17px; height: 17px; }
+  .back-button:hover { border-color: var(--line-strong); color: var(--navy); }
+  .project-monogram { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 10px; background: var(--navy); color: #fff; font-size: 12px; font-weight: 760; letter-spacing: -.02em; flex: 0 0 auto; }
+  .project-monogram.green { background: #087765; }
+  .project-monogram.blue { background: #315eaa; }
+  .project-monogram.steel { background: #56667b; }
+  .badge { display: inline-flex; min-height: 22px; align-items: center; gap: 6px; padding: 2px 9px; border-radius: 20px; background: var(--surface-blue); color: #31599e; font-size: 11px; font-weight: 700; letter-spacing: .02em; }
+  .badge.green { background: var(--teal-soft); color: var(--teal); }
+  .badge.amber { background: var(--amber-soft); color: var(--amber); }
+  .badge.gray { background: #eef1f4; color: #657183; }
+  .button { display: inline-flex; min-height: 36px; align-items: center; justify-content: center; gap: 8px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: #fff; color: var(--ink); font-weight: 650; cursor: pointer; box-shadow: 0 1px 1px rgba(16,36,62,.03); transition: border-color var(--transition), background var(--transition), color var(--transition); }
+  .button.primary { border-color: var(--blue); background: var(--blue); color: #fff; }
+  .button.primary:hover { border-color: var(--blue-dark); background: var(--blue-dark); }
+  .button.ghost { border-color: transparent; background: transparent; box-shadow: none; color: var(--ink-soft); }
+  .icon-button { position: relative; display: inline-grid; width: 36px; height: 36px; place-items: center; border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--ink-soft); cursor: pointer; }
+  .icon-button:hover { border-color: var(--line); background: var(--surface-subtle); color: var(--navy); }
+
+  /* ===== 补充 1：钉住项目标签条 ===== */
+  .tab-strip { display: flex; align-items: stretch; gap: 4px; padding: 0 16px; height: 46px; border-bottom: 1px solid var(--line); background: var(--surface); overflow-x: auto; }
+  .tab-strip-label { display: inline-flex; align-items: center; font-size: 11px; font-weight: 700; color: var(--ink-muted); letter-spacing: .04em; text-transform: uppercase; padding-right: 10px; margin-right: 4px; border-right: 1px solid var(--line); }
+  .project-tab { position: relative; display: inline-flex; align-items: center; gap: 8px; padding: 0 10px 0 8px; border: 0; border-radius: var(--radius-sm) var(--radius-sm) 0 0; background: transparent; color: var(--ink-soft); font-weight: 650; cursor: pointer; white-space: nowrap; transition: background var(--transition), color var(--transition); }
+  .project-tab .project-monogram { width: 26px; height: 26px; border-radius: 7px; font-size: 9px; }
+  .project-tab:hover { background: var(--surface-subtle); color: var(--navy); }
+  .project-tab.active { color: var(--blue-dark); background: var(--surface-blue); }
+  .project-tab.active::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; border-radius: 2px 2px 0 0; background: var(--blue); }
+  .project-tab .tab-close { display: inline-grid; width: 18px; height: 18px; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--ink-muted); cursor: pointer; }
+  .project-tab .tab-close:hover { background: #edf0f3; color: var(--navy); }
+  .project-tab .tab-close .icon { width: 12px; height: 12px; }
+  .tab-add { display: inline-grid; width: 30px; place-items: center; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink-muted); cursor: pointer; }
+  .tab-add:hover { background: var(--surface-subtle); color: var(--blue); }
+
+  /* ===== 补充 2：并排对比面板 ===== */
+  .compare-bar { display: flex; align-items: center; gap: 10px; padding: 14px 28px 0; }
+  .compare-bar .sep { flex: 1; }
+  .project-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; padding: 16px 28px 28px; }
+  .compare-pane { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; }
+  .compare-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .compare-head .project-monogram { width: 34px; height: 34px; border-radius: 10px; }
+  .compare-head .ch-name { font-weight: 700; color: var(--navy); }
+  .compare-head .ch-meta { font-size: 11px; color: var(--ink-muted); }
+  .compare-body { padding: 6px 16px 16px; }
+  .mini-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 11px 0; border-bottom: 1px solid #edf0f3; }
+  .mini-row:last-child { border-bottom: 0; }
+  .mini-title { font-size: 13px; font-weight: 650; color: var(--ink); }
+  .mini-sub { font-size: 11px; color: var(--ink-muted); margin-top: 2px; }
+  .mini-card { background: var(--surface-subtle); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; box-shadow: var(--shadow-sm); }
+  .stat-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-top: 6px; }
+  .stat-3 .s { text-align: center; }
+  .stat-3 .s b { display: block; font-size: 18px; color: var(--navy); }
+  .stat-3 .s span { font-size: 11px; color: var(--ink-muted); }
+
+  /* ===== 补充 3：状态保持说明 ===== */
+  .state-note { display: flex; gap: 12px; padding: 14px 16px; border: 1px solid var(--blue-soft); background: var(--surface-blue); border-radius: var(--radius-sm); margin-top: 4px; }
+  .state-note .icon { width: 18px; height: 18px; color: var(--blue); margin-top: 1px; }
+  .state-note p { margin: 0; font-size: 12px; color: var(--ink-soft); line-height: 1.7; }
+  .state-note code { background: #fff; border: 1px solid var(--line); color: var(--blue-dark); padding: 1px 6px; border-radius: 6px; font-size: 11px; }
+
+  .demo-shell { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; margin-bottom: 22px; }
+</style>
+</head>
+<body>
+
+  <!-- ============ 演示：钉住项目标签条 + 工作台顶栏 ============ -->
+  <section class="sec" style="padding-top:28px">
+    <h2 class="sec-head">补充 1 · 钉住项目标签条（替代「返回首页→重进」）</h2>
+    <p class="note">原型在 <code>enterWorkspaceButton</code> 点击后把 <code>homeShell.hidden=true</code>、<code>projectWorkspace</code> 显示（html:1540-1546）。工作台内仅有单项目切换弹层（<code>projectSwitcher</code>），无「保留多个已开项目」的常驻入口，跨项目对比必须先回首页。<br>下方用常驻标签条承载「最近/钉住的项目」，点击即切换且<b>保留各自路由与滚动</b>（解决 AB-239），不必回到 Home Shell。</p>
+
+    <div class="demo-shell">
+      <header class="topbar">
+        <button class="back-button"><svg class="icon"><use href="#i-home"/></svg>全部项目</button>
+        <span style="width:1px;height:24px;background:var(--line)"></span>
+        <span class="project-monogram">AB</span>
+        <strong style="color:var(--navy)">AgentBoard 平台</strong>
+        <span class="topbar-spacer"></span>
+        <button class="icon-button" aria-label="通知"><svg class="icon"><use href="#i-bell"/></svg></button>
+        <button class="button primary"><svg class="icon"><use href="#i-plus"/></svg>新建工作项</button>
+      </header>
+
+      <div class="tab-strip">
+        <span class="tab-strip-label">已开项目</span>
+        <button class="project-tab active"><span class="project-monogram">AB</span>AgentBoard 平台<button class="tab-close" aria-label="取消钉住"><svg class="icon"><use href="#i-close"/></svg></button></button>
+        <button class="project-tab"><span class="project-monogram green">WT</span>WeTax 智慧税务<button class="tab-close" aria-label="取消钉住"><svg class="icon"><use href="#i-close"/></svg></button></button>
+        <button class="project-tab"><span class="project-monogram blue">SB</span>SmartBid 平台<button class="tab-close" aria-label="取消钉住"><svg class="icon"><use href="#i-close"/></svg></button></button>
+        <button class="project-tab"><span class="project-monogram steel">CH</span>象棋 AI 训练<button class="tab-close" aria-label="取消钉住"><svg class="icon"><use href="#i-close"/></svg></button></button>
+        <button class="tab-add" aria-label="打开其他项目"><svg class="icon"><use href="#i-plus"/></svg></button>
+      </div>
+
+      <div style="padding:16px 28px 24px">
+        <div class="state-note">
+          <svg class="icon"><use href="#i-chevron"/></svg>
+          <p><b>标签级状态保持：</b>每个 <code>.project-tab</code> 关联一份 <code>{route, scrollTop}</code> 快照。切换时仅重渲染 <code>.workspace-view</code> 内容并恢复滚动，<b>不</b>销毁 Home Shell。这样从「AB 看板」跳到「WeTax 文档」再跳回，AB 仍停在原来的列与滚动位置。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 演示：并排对比面板 ============ -->
+  <section class="sec">
+    <h2 class="sec-head">补充 2 · 并排对比面板（同屏看两个项目）</h2>
+    <p class="note">高频场景：负责人同时跟进 2–3 个项目，需要把交付节奏、当前重点并排比较。原型无此视图。下方以 <code>.project-compare</code> 双栏承载，复用 <code>.badge</code> / <code>.project-monogram</code>，由顶栏「对比」按钮开启（对比态下标签条收起为双项目头）。</p>
+
+    <div class="compare-bar">
+      <button class="button"><svg class="icon"><use href="#i-board"/></svg>退出对比</button>
+      <span class="sep"></span>
+      <span class="badge gray">并排对比 · 2 个项目</span>
+    </div>
+
+    <div class="project-compare">
+      <div class="compare-pane">
+        <div class="compare-head"><span class="project-monogram">AB</span><div><div class="ch-name">AgentBoard 平台</div><div class="ch-meta">Product Engineering · Sprint 14</div></div></div>
+        <div class="compare-body">
+          <div class="mini-card" style="margin-bottom:12px">
+            <div class="stat-3">
+              <div class="s"><b>72%</b><span>完成率</span></div>
+              <div class="s"><b>38</b><span>工作项</span></div>
+              <div class="s"><b>8</b><span>Agents</span></div>
+            </div>
+          </div>
+          <div class="mini-row"><div><div class="mini-title">API Key 与 Worker 身份绑定</div><div class="mini-sub">AB-241 · 正在开发</div></div><span class="badge green">进行中</span></div>
+          <div class="mini-row"><div><div class="mini-title">项目 Agent 权限聚合视图</div><div class="mini-sub">AB-238 · 等待评审</div></div><span class="badge amber">评审</span></div>
+          <div class="mini-row"><div><div class="mini-title">竞争领取原子性压力测试</div><div class="mini-sub">AB-226 · 已排期</div></div><span class="badge gray">待开始</span></div>
+        </div>
+      </div>
+
+      <div class="compare-pane">
+        <div class="compare-head"><span class="project-monogram green">WT</span><div><div class="ch-name">WeTax 智慧税务</div><div class="ch-meta">TaxTech · Sprint 9</div></div></div>
+        <div class="compare-body">
+          <div class="mini-card" style="margin-bottom:12px">
+            <div class="stat-3">
+              <div class="s"><b>64%</b><span>完成率</span></div>
+              <div class="s"><b>21</b><span>工作项</span></div>
+              <div class="s"><b>3</b><span>Agents</span></div>
+            </div>
+          </div>
+          <div class="mini-row"><div><div class="mini-title">省级页面采集优化</div><div class="mini-sub">WT-118 · 正在开发</div></div><span class="badge green">进行中</span></div>
+          <div class="mini-row"><div><div class="mini-title">政策结构化抽取</div><div class="mini-sub">WT-122 · 等待评审</div></div><span class="badge amber">评审</span></div>
+          <div class="mini-row"><div><div class="mini-title">爬虫限流策略</div><div class="mini-sub">WT-130 · 已排期</div></div><span class="badge gray">待开始</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 说明：落位到原型的改动点 ============ -->
+  <section class="sec">
+    <h2 class="sec-head">落位说明 · 对原型的最小侵入</h2>
+    <p class="note">
+      ① 标签条插入在 <code>.workspace-topbar</code> 与 <code>.workspace-body</code> 之间，复用现有 Home 的 <code>.project-master-row</code> 数据源（<code>projects</code> 对象），不新增数据模型。<br>
+      ② 切换逻辑复用 <code>setWorkspaceProject(projectId)</code>（html:1510），仅额外恢复 <code>lastRoute/scrollTop</code>；对比面板复用 <code>showWorkspaceView</code> 的渲染函数（html:1527）。<br>
+      ③ 视觉全部沿用原型 token：navy/blue 主色、<code>--radius-sm</code> 圆角、180ms 过渡、两级阴影；标签激活态与 Home 导航下划线同源（<code>--blue</code> 2px 下划线）。
+    </p>
+  </section>
+
+  <!-- 复用的 SVG 符号（与原型 defs 同形，stroke-width 1.8） -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 11 9-8 9 8v9a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 10 3 3 3-3"/></symbol>
+    <symbol id="i-board" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/></symbol>
+  </svg>
+
+</body>
+</html>
