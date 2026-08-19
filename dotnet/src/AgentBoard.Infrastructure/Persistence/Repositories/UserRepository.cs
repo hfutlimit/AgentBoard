@@ -1,18 +1,13 @@
 // SPDX-License-Identifier: MIT
+using AgentBoard.Application.Abstractions;
 using AgentBoard.Domain.Identity;
 using Microsoft.EntityFrameworkCore;
 
 namespace AgentBoard.Infrastructure.Persistence.Repositories;
 
-/// <summary>User-specific repository. Exists primarily as a seam for future
-/// custom queries; the basic CRUD surface is inherited from
-/// <see cref="Repository{T}"/>.</summary>
-public interface IUserRepository : AgentBoard.Application.Abstractions.IRepository<User>
-{
-    Task<User?> GetByUsernameAsync(string username, CancellationToken ct = default);
-    Task<bool> ExistsByUsernameAsync(string username, CancellationToken ct = default);
-}
-
+/// <summary>EF Core implementation of <see cref="IUserRepository"/>. The
+/// interface lives in the Application layer (Clean Architecture); this
+/// file is the only place that knows about <c>AppDbContext</c>.</summary>
 public sealed class UserRepository : Repository<User>, IUserRepository
 {
     public UserRepository(AppDbContext db) : base(db) { }

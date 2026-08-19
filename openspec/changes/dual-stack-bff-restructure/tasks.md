@@ -87,6 +87,72 @@
 - `IServiceProvider.GetServices(IEnumerable<T>)` 要求容器注册 `IEnumerable<T>`；EmptyServiceProvider 需要对 IEnumerable<T> 返回空数组
 - `dotnet ef migrations add` 的 startup project 必须引 Microsoft.EntityFrameworkCore.Design + 能构造 DbContext；用 DesignTimeFactory 绕开 Program.cs 启动
 
+---
+
+## S0-3: 分层骨架（BaseController / Auth 示例 / NetArchTest）
+
+### 落地清单（2026-08-19）
+
+- [x] **Application 层补完**
+  - `Identity/IUserService.cs` + `UserService.cs`（User CRUD + 密码验证 stub）
+  - `Identity/IAuthProvider.cs` + `AuthProvider.cs`（Login / GetCurrent / ChangePassword）
+  - `Identity/Dtos/UserDto.cs` + `CreateUserRequest.cs` + `AuthSessionDto.cs` + `LoginRequest.cs`
+  - `Abstractions/IUserRepository.cs`（**从 Infrastructure 搬到 Application**，符合 Clean Architecture）
+  - `DependencyInjection.cs`（`AddApplication()` 注册 Services + Providers）
+- [x] **Api 层基础**
+  - `Api/Common/ApiError.cs`（`{"detail": "..."}` 统一错误包装，1:1 兼容 FastAPI）
+  - `Api/Common/DomainExceptionFilter.cs`（`IExceptionFilter`：DomainException → HTTP 状态码）
+  - `Api/Base/BaseController.cs`（基类 + `BaseController<TProvider>` 泛型版）
+  - `Api/Conventions/ApiRouteConvention.cs`（去掉 controller 名的 "Api" 前缀）
+  - `Auth/CurrentUserService.cs`（从 Infrastructure/Auth 移到 Api/Auth，ICurrentUser 的 HTTP 实现）
+  - `AssemblyMarker.cs`（NetArchTest 引用用）
+- [x] **Auth 示例 feature**（端到端跑通）
+  - `Features/Auth/AuthController.cs` → `IAuthProvider` → `IUserService` → `IUserRepository`
+  - 端点：POST /api/auth/login + GET /api/auth/me + POST /api/auth/change-password
+  - 全部走 BaseController<TProvider> 注入 Provider，**不直接调 Service**
+- [x] **Program.cs 改造**
+  - `AddHttpContextAccessor()` + `AddApplication()` + `AddInfrastructure(config)` + ICurrentUser 注册
+  - DomainExceptionFilter 全局注册
+  - ApiRouteConvention 路由约定
+  - Dev 环境 `EnsureCreated()` 自动建 SQLite 表
+
+### 验收
+
+- [x] `dotnet build` 0 errors 0 warnings
+- [x] `dotnet test` 19/19 通过（Api 1 + Infrastructure 18）
+- [x] **NetArchTest 5 条架构规则全绿**：
+  - Controllers 不依赖 IRepository / IDbContext / IUnitOfWork / EF Core
+  - Controllers 不直接依赖 Service（必须经 Provider）
+  - Application 层不依赖 Infrastructure / Api / EF Core
+  - Domain 层不依赖任何其他层
+  - IRepository 实现只在 Infrastructure
+- [x] **端到端 5 场景全绿**（真实 HTTP 调 dotnet run）：
+  - POST /api/auth/login 正确密码 → 200 + token
+  - POST /api/auth/login 错密码 → 422 "invalid credentials"
+  - GET /api/auth/me 无 header → 401 "authentication required"
+  - GET /api/auth/me 带 X-User-Id=1 → 200 完整 UserDto
+  - GET /api/auth/me 带 X-User-Id=999 → 404 "User with key '999' was not found."
+
+### 关键设计决策
+
+- **Repository 接口搬到 Application**（Clean Architecture 修正）：`IUserRepository` 从 `Infrastructure.Persistence.Repositories` 搬到 `Application.Abstractions`，实现仍留 Infrastructure
+- **CurrentUserService 移到 Api**（依赖方向修正）：`IHttpContextAccessor` 是 ASP.NET Core 抽象，Infrastructure 不应该引
+- **Dev 自动建表**：`db.Database.EnsureCreated()` 仅 Development 环境调，生产仍由 Python Alembic 运维
+- **BaseController 泛型版**：`Controller → BaseController<TProvider>` 强类型访问 Provider
+- **DomainExceptionFilter 全局拦截**：替代 Controller try-catch 模板
+
+### 踩坑（沉淀到项目记忆）
+
+1. `Infrastructure` 不应该依赖 ASP.NET Core（`IHttpContextAccessor`）→ `CurrentUserService` 移到 `Api/Auth`
+2. Repository 接口按 Clean Architecture 应该在 `Application` 层，实现在 `Infrastructure`（一开始放错位置了）
+3. `VerifyPasswordAsync` stub 设计用 `password` 直接当 hash 存（无前缀），不要双重加 `plain:` 前缀
+4. SQLite dev 库不会自动建表，要在 Program.cs 显式 `db.Database.EnsureCreated()`（dev only）
+5. NetArchTest `HaveDependencyOn` 用类型 FullName 精确匹配（如 `IRepository\`1`），避免同 namespace 误伤
+
+### 下一步
+
+S0-4: OpenAPI 契约冻结（sync-openapi.ps1 + schema-drift-check + NSwag 生成 client）
+
 ## 阶段 1：只读业务迁 .NET（2-3 sprints）
 
 ### 1.1 EF Core 模型与迁移

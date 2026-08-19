@@ -2,15 +2,21 @@
 //
 // AgentBoard.Api — Dual-stack BFF entry point.
 //
-// Stage 0 deliverable: minimal Program.cs that starts the host on
-// the configured port and exposes the OpenAPI document. No business
-// endpoints are wired up yet; /api/health and /api/meta land in S0-5.
-//
-// Wiring principles established here (extended in later stories):
-//   1. Composition root only — no business logic, no DI factories.
-//   2. Configuration bound via the AgentBoard:* section.
-//   3. OpenAPI document always served (NSwag is added in S0-4).
-//   4. Kestrel binds to 0.0.0.0 so docker-compose port mapping works.
+// Stage 0 + Stage 3 deliverable: composition root that wires up the
+// 5-layer stack (Controller → BaseController → Provider → Service →
+// Repository) plus the global DomainExceptionFilter and the API route
+// convention that strips the "Api" prefix from controller names.
+
+using AgentBoard.Api.Api.Common;
+using AgentBoard.Api.Api.Conventions;
+using AgentBoard.Api.Auth;
+using AgentBoard.Application;
+using AgentBoard.Application.Abstractions;
+using AgentBoard.Infrastructure;
+using AgentBoard.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ApplicationModels;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -24,8 +30,27 @@ if (!string.IsNullOrWhiteSpace(dotnetPort) && int.TryParse(dotnetPort, out var p
 
 // --- Services ---------------------------------------------------------
 
-builder.Services.AddControllers();
+builder.Services.AddHttpContextAccessor();
+
+builder.Services.AddControllers(options =>
+{
+    options.Conventions.Add(new ApiRouteConvention());
+    options.Filters.Add<DomainExceptionFilter>();
+});
 builder.Services.AddOpenApi();
+
+// Application layer (Services + Provider interfaces) — registrations
+// live in AgentBoard.Application/DependencyInjection.cs.
+builder.Services.AddApplication();
+
+// Infrastructure layer (EF Core, interceptors, repositories, auth) —
+// the AddInfrastructure extension chooses the right DbContext provider
+// (memory / sqlite / mysql) based on configuration.
+builder.Services.AddInfrastructure(builder.Configuration);
+
+// HTTP-scoped CurrentUser — resolves the caller from X-User-* headers
+// populated by the auth middleware (added in S0-7).
+builder.Services.AddScoped<ICurrentUser, CurrentUserService>();
 
 var app = builder.Build();
 
@@ -38,14 +63,25 @@ if (app.Environment.IsDevelopment())
 
 app.MapControllers();
 
+// Dev-only: ensure the SQLite / InMemory schema exists so smoke
+// tests can hit the API without running `dotnet ef database update`.
+// Production uses the shared MariaDB applied by the Python Alembic
+// operator — never call EnsureCreated there.
+if (app.Environment.IsDevelopment())
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.EnsureCreated();
+}
+
 // Temporary root endpoint so curl smoke tests succeed before S0-5
 // lands the real /api/health controller. Returns 200 OK to confirm
 // the host is up and bound to the expected port.
 app.MapGet("/", () => Results.Ok(new
 {
     service = "AgentBoard.Api",
-    version = "0.1.0",
-    stage = "S0-1",
+    version = "0.3.0",
+    stage = "S0-3",
     env = app.Environment.EnvironmentName,
     utcNow = DateTime.UtcNow,
 }));
