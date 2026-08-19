@@ -18,6 +18,7 @@ import { OverviewTabComponent } from './overview-tab/overview-tab';
 import { KanbanTabComponent } from './kanban-tab/kanban-tab';
 import { EpicsTabComponent } from './epics-tab/epics-tab';
 import { ProposalsTabComponent } from './proposals-tab/proposals-tab';
+import { DocumentsTabComponent } from './documents-tab/documents-tab';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
@@ -73,7 +74,7 @@ interface PaletteCommand {
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, PaginationComponent, ManagedListComponent, OverviewTabComponent, KanbanTabComponent, EpicsTabComponent, ProposalsTabComponent],
+  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, PaginationComponent, ManagedListComponent, OverviewTabComponent, KanbanTabComponent, EpicsTabComponent, ProposalsTabComponent, DocumentsTabComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
   encapsulation: ViewEncapsulation.None,
@@ -6689,10 +6690,12 @@ export class App implements OnInit, OnDestroy {
   }
   readonly docTypes = DOCUMENT_TYPES;
   readonly docStatuses = DOCUMENT_STATUSES;
-  epicTitle(eid: number | null): string {
+  // readonly 箭头属性：保证 this 绑定，可安全作为 @Input 函数引用传给 DocumentsTabComponent。
+  // 全局 @case 视图中的 ctx.epicTitle() 调用不受影响（属性访问，箭头词法 this）。
+  readonly epicTitle = (eid: number | null): string => {
     if (!eid) return '';
     return this.docDetailEpics().find((e) => e.id === eid)?.title || this.epics().find((e) => e.id === eid)?.title || `Epic #${eid}`;
-  }
+  };
   storyTitle(sid: number | null): string {
     if (!sid) return '';
     return this.docDetailStories().find((s) => s.id === sid)?.title || this.stories().find((s) => s.id === sid)?.title || `Story #${sid}`;
@@ -6786,12 +6789,13 @@ export class App implements OnInit, OnDestroy {
     return this.docScopeFolders().find((f) => f.id === fid)?.name || `文件夹 #${fid}`;
   }
   /** 文件夹内直接文档数（含项目上下文过滤）。 */
-  docFolderCount(fid: number): number {
+  // readonly 箭头属性：保证 this 绑定，可安全作为 @Input 函数引用传给 DocumentsTabComponent。
+  readonly docFolderCount = (fid: number): number => {
     const pid = this.project()?.id;
     return this.documents().filter(
       (d) => d.folder_id === fid && (!pid || d.project_id === pid),
     ).length;
-  }
+  };
   /** 文件夹层级深度（顶层 = 0），用于下拉选项缩进。 */
   docFolderDepth(fid: number): number {
     const byId = new Map(this.docScopeFolders().map((f) => [f.id, f]));
@@ -7080,9 +7084,10 @@ export class App implements OnInit, OnDestroy {
     this.docCommentCounts.set(next);
   }
   /** 取某文档的评论数（无则返回 0）。 */
-  docCommentCount(docId: number): number {
+  // readonly 箭头属性：保证 this 绑定，可安全作为 @Input 函数引用传给 DocumentsTabComponent。
+  readonly docCommentCount = (docId: number): number => {
     return this.docCommentCounts().get(docId) ?? 0;
-  }
+  };
 
   /* ================= Epic 139: Revision / Diff / Fullscreen ================= */
 
@@ -7264,15 +7269,15 @@ export class App implements OnInit, OnDestroy {
     const cleaned = first.replace(/^#+\s*/, '').replace(/[*_`>]/g, '').trim();
     return cleaned.length > 80 ? cleaned.slice(0, 80) + '…' : cleaned;
   }
-  /** 文档归属路径：项目 / Epic / Story / folder（用 › 分隔）。 */
-  docScopePath(d: DocumentItem): string {
+  // readonly 箭头属性：保证 this 绑定，可安全作为 @Input 函数引用传给 DocumentsTabComponent。
+  readonly docScopePath = (d: DocumentItem): string => {
     const parts: string[] = [];
     parts.push(this.projectName(d.project_id));
     if (d.epic_id) parts.push(this.epicTitle(d.epic_id));
     if (d.story_id) parts.push(this.storyTitle(d.story_id));
     if (d.folder_id) parts.push(this.docFolderLabel(d.folder_id));
     return parts.filter(Boolean).join(' › ');
-  }
+  };
   /** 当前文档列表中实际出现过的作者（去重，按作者名排序）。跨项目视图无 members 时使用。 */
   docAuthorOptions(): { user_id: number; username: string }[] {
     const seen = new Map<number, string>();

@@ -1299,155 +1299,48 @@
               />
             }
             @if (activeTab() === 'documents') {
-              <app-managed-list
+              <app-documents-tab
+                [docs]="applyDocSort(projectDocVisible())"
+                [childFolders]="docChildFolders()"
+                [breadcrumb]="docBreadcrumb()"
+                [authorOptions]="docAuthorOptions()"
+                [epics]="epics()"
+                [filterType]="docFilterType()"
+                [filterStatus]="docFilterStatus()"
+                [searchQuery]="docSearchQuery()"
+                [filterAuthor]="docFilterAuthor()"
+                [filterEpic]="docFilterEpic()"
+                [sortBy]="docSortBy()"
+                [listViewMode]="docListViewMode()"
+                [docTypes]="docTypes"
+                [docStatuses]="docStatuses"
                 [loading]="isProjectTabLoading('documents')"
                 [error]="projectTabError('documents')"
-                errorPrefix="文档加载失败"
-                loadingLabel="正在加载文档列表…"
-                [skeletonRows]="4"
-                [empty]="!isProjectTabLoading('documents') && !projectTabError('documents') && applyDocSort(projectDocVisible()).length === 0 && docChildFolders().length === 0"
-                [pageSize]="0"
-                (retry)="retryProjectTab('documents')">
-                <ng-container ml-header>
-                  <div class="section-header">
-                    <h3>项目文档</h3>
-                    <div class="row">
-                      <button class="btn-primary-sm" (click)="openDocModal('create')">＋ 新建文档</button>
-                      <button class="ghost-sm" (click)="openDocFolderModal('create')">＋ 新建文件夹</button>
-                    </div>
-                  </div>
-                </ng-container>
-                <nav class="doc-breadcrumb" aria-label="文档目录"
-                  (dragover)="onDocDropOver($event, 'root')" (dragleave)="onDocDropLeave()" (drop)="onDocDrop($event, 'root')"
-                  [class.doc-drop-target]="docDropActive('root')">
-                  @for (crumb of docBreadcrumb(); track $index) {
-                    <button type="button" class="doc-crumb" (click)="enterDocFolder(crumb.id)"
-                      [class.doc-drop-target]="docDropActive(crumb.id === null ? 'root' : crumb.id)"
-                      (dragover)="onDocDropOver($event, crumb.id === null ? 'root' : crumb.id)"
-                      (dragleave)="onDocDropLeave()"
-                      (drop)="onDocDrop($event, crumb.id === null ? 'root' : crumb.id)">
-                      @if (crumb.id === null) { <span class="doc-crumb-icon">🗂</span> {{ crumb.name }} }
-                      @else { <span class="doc-crumb-icon">📁</span> {{ crumb.name }} }
-                    </button>
-                    @if (!$last) { <span class="doc-crumb-sep">›</span> }
-                  }
-                </nav>
-                <div class="doc-toolbar" ml-toolbar>
-                  <select class="doc-filter-select" [value]="docFilterType()" (change)="docFilterType.set($any($event.target).value)">
-                    <option value="">全部类型</option>
-                    @for (t of docTypes; track t) { <option [value]="t">{{ docTypeLabel(t) }}</option> }
-                  </select>
-                  <select class="doc-filter-select" [value]="docFilterStatus()" (change)="docFilterStatus.set($any($event.target).value)">
-                    <option value="">全部状态</option>
-                    @for (s of docStatuses; track s) { <option [value]="s">{{ docStatusLabel(s) }}</option> }
-                  </select>
-                  <input class="doc-search-input" [value]="docSearchQuery()" (input)="docSearchQuery.set($any($event.target).value)" placeholder="搜索文档…" />
-                </div>
-                <!-- Epic 138: 文档列表 + 过滤增强：项目内视图（项目已由 route 锁定，仅显示作者/Epic/排序/视图切换） -->
-                <div class="row doc-toolbar doc-toolbar--extended" ml-toolbar>
-                  <select class="doc-filter-select" [value]="docFilterAuthor() === '' ? '' : docFilterAuthor()" (change)="docFilterAuthor.set($any($event.target).value === '' ? '' : +$any($event.target).value)" title="按作者过滤">
-                    <option value="">全部作者</option>
-                    @for (u of docAuthorOptions(); track u.user_id) { <option [value]="u.user_id">{{ u.username }}</option> }
-                  </select>
-                  <select class="doc-filter-select" [value]="docFilterEpic() === '' ? '' : docFilterEpic()" (change)="docFilterEpic.set($any($event.target).value === '' ? '' : +$any($event.target).value)" title="按 Epic 过滤">
-                    <option value="">全部 Epic</option>
-                    @for (e of epics(); track e.id) { <option [value]="e.id">{{ e.title }}</option> }
-                  </select>
-                  <select class="doc-filter-select" [value]="docSortBy()" (change)="onDocSortChange($any($event.target).value)" title="排序">
-                    <option value="updated">按更新时间</option>
-                    <option value="created">按创建时间</option>
-                    <option value="title">按标题</option>
-                  </select>
-                  <div class="doc-view-switch" role="group" aria-label="文档视图切换">
-                    <button type="button" class="ghost-sm" [class.active]="docListViewMode() === 'tile'"
-                      (click)="setDocListViewMode('tile')" title="Tile 视图" aria-label="Tile 视图">⊞</button>
-                    <button type="button" class="ghost-sm" [class.active]="docListViewMode() === 'list'"
-                      (click)="setDocListViewMode('list')" title="列表视图" aria-label="列表视图">☰</button>
-                  </div>
-                </div>
-                @if (docChildFolders().length > 0) {
-                  <div class="doc-list folder-view">
-                    @for (f of docChildFolders(); track f.id) {
-                      <div class="doc-folder-tile"
-                        [class.doc-dragging]="docDrag()?.kind === 'folder' && docDrag()?.id === f.id"
-                        [class.doc-drop-target]="docDropActive(f.id)"
-                        draggable="true"
-                        (dragstart)="onDocDragStart($event, { kind: 'folder', id: f.id })" (dragend)="onDocDragEnd()"
-                        (dragover)="onDocDropOver($event, f.id)" (dragleave)="onDocDropLeave()" (drop)="onDocDrop($event, f.id)">
-                        <button type="button" class="doc-folder-main" (click)="enterDocFolder(f.id)">
-                          <span class="doc-folder-icon">📁</span>
-                          <span class="doc-folder-name" [title]="f.name">{{ f.name }}</span>
-                        </button>
-                        <span class="doc-folder-count" [title]="'含 ' + docFolderCount(f.id) + ' 篇文档'">{{ docFolderCount(f.id) }}</span>
-                        <div class="doc-folder-actions">
-                          <button type="button" class="ghost-xs" (click)="openDocFolderModal('rename', f)" title="重命名文件夹">✎</button>
-                          <button type="button" class="ghost-xs danger" (click)="deleteDocFolder(f)" title="删除文件夹">🗑</button>
-                        </div>
-                      </div>
-                    }
-                  </div>
-                }
-                @if (applyDocSort(projectDocVisible()).length === 0 && docChildFolders().length === 0) {
-                  <div class="empty-state">当前目录还没有内容。可点击上方「＋ 新建文档 / 新建文件夹」，或将其他文档拖拽到此处归档。</div>
-                } @else if (applyDocSort(projectDocVisible()).length > 0) {
-                  @if (docListViewMode() === 'list') {
-                    <div class="doc-list list-view" role="table" aria-label="项目文档列表">
-                      <div class="doc-list-head" role="row">
-                        <span role="columnheader">标题</span>
-                        <span role="columnheader">类型</span>
-                        <span role="columnheader">状态</span>
-                        <span role="columnheader">归属</span>
-                        <span role="columnheader">作者</span>
-                        <span role="columnheader" title="评论数">💬</span>
-                        <span role="columnheader">更新</span>
-                        <span role="columnheader">操作</span>
-                      </div>
-                      @for (d of applyDocSort(projectDocVisible()); track d.id) {
-                        <div class="doc-list-row" role="row"
-                          [class.doc-dragging]="docDrag()?.kind === 'document' && docDrag()?.id === d.id"
-                          draggable="true"
-                          (click)="openDocTab(d)"
-                          (dragstart)="onDocDragStart($event, { kind: 'document', id: d.id })" (dragend)="onDocDragEnd()">
-                          <a class="doc-list-title" role="cell" [attr.href]="'/documents/' + d.id" target="_blank" rel="noopener noreferrer" (click)="$event.stopPropagation()" [title]="d.title">
-                            <span class="doc-list-title-main">{{ d.title }}</span>
-                            @if (docSummary(d)) { <small class="doc-list-summary">{{ docSummary(d) }}</small> }
-                          </a>
-                          <span class="badge doctype doctype--{{ d.type }}" role="cell">{{ docTypeLabel(d.type) }}</span>
-                          <span class="badge docstatus docstatus--{{ d.status }}" role="cell">{{ docStatusLabel(d.status) }}</span>
-                          <span class="doc-list-scope" role="cell" [title]="docScopePath(d)">{{ docScopePath(d) }}</span>
-                          <span class="doc-list-author" role="cell" [title]="d.author || ''">{{ d.author || '—' }}</span>
-                          <span class="doc-list-comments" role="cell" [title]="docCommentCount(d.id) + ' 条评论'">{{ docCommentCount(d.id) }}</span>
-                          <time class="doc-list-updated" role="cell" [title]="d.updated_at">{{ timeAgo(d.updated_at) }}</time>
-                          <span class="doc-list-actions" role="cell">
-                            <button type="button" class="ghost-xs" (click)="$event.stopPropagation(); openDocTab(d)" title="查看">👁</button>
-                          </span>
-                        </div>
-                      }
-                    </div>
-                  } @else {
-                    <div class="doc-list tile-view">
-                      @for (d of applyDocSort(projectDocVisible()); track d.id) {
-                        <button type="button" class="doc-row doc-tile"
-                          [class.doc-dragging]="docDrag()?.kind === 'document' && docDrag()?.id === d.id"
-                          draggable="true"
-                          (click)="openDocTab(d)"
-                          (dragstart)="onDocDragStart($event, { kind: 'document', id: d.id })" (dragend)="onDocDragEnd()">
-                          <div class="doc-tile-icon">📄</div>
-                          <div class="doc-tile-title" [title]="d.title">{{ d.title }}</div>
-                          <div class="doc-tile-badges">
-                            <span class="badge doctype doctype--{{ d.type }}">{{ docTypeLabel(d.type) }}</span>
-                            <span class="badge docstatus docstatus--{{ d.status }}">{{ docStatusLabel(d.status) }}</span>
-                          </div>
-                          <div class="doc-tile-meta">
-                            @if (d.epic_id) { <span>Epic {{ epicTitle(d.epic_id) }}</span> }
-                            <span>{{ d.updated_at | date }}</span>
-                          </div>
-                        </button>
-                      }
-                    </div>
-                  }
-                }
-              </app-managed-list>
+                [dragItem]="docDrag()"
+                [dropTargetId]="docDropId()"
+                [epicTitleFor]="epicTitle"
+                [docScopePathFor]="docScopePath"
+                [docFolderCountFor]="docFolderCount"
+                [docCommentCountFor]="docCommentCount"
+                (filterTypeChange)="docFilterType.set($event)"
+                (filterStatusChange)="docFilterStatus.set($event)"
+                (searchQueryChange)="docSearchQuery.set($event)"
+                (filterAuthorChange)="docFilterAuthor.set($event)"
+                (filterEpicChange)="docFilterEpic.set($event)"
+                (sortByChange)="onDocSortChange($event)"
+                (listViewModeChange)="setDocListViewMode($event)"
+                (enterFolder)="enterDocFolder($event)"
+                (createDoc)="openDocModal('create')"
+                (createFolder)="openDocFolderModal('create')"
+                (renameFolder)="openDocFolderModal('rename', $event)"
+                (deleteFolder)="deleteDocFolder($event)"
+                (openDoc)="openDocTab($event)"
+                (dragStart)="onDocDragStart($event.event, $event.item)"
+                (dragEnd)="onDocDragEnd()"
+                (dropOver)="onDocDropOver($event.event, $event.target)"
+                (dropLeave)="onDocDropLeave()"
+                (drop)="onDocDrop($event.event, $event.target)"
+              />
             }
             @if (activeTab() === 'kanban') {
               <app-kanban-tab

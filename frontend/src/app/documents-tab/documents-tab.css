@@ -1,0 +1,78 @@
+/* documents-tab.css — 阶段3 v7 增强（仅补充，不重复定义；基础规则在 styles.css/app.css 全局）
+ *
+ * 设计语言对齐原型 v7：
+ * - 面包屑 navy 文字 + 活动项 brand 描边
+ * - 工具栏 navy 虚线下划线（与 proposals-tab 一致）
+ * - 文件夹 tile hover brand 描边 + navy 图标底
+ * - 文档 tile/list 行 hover brand 描边
+ * - drop-target 加 navy 高亮（替代默认黄底）
+ * - badge 加 color-mix ring（与其他 tab 一致）
+ *
+ * 命名空间：.documents-tab-v7 仅作用于本组件面包屑，避免污染其他视图的 doc-breadcrumb。
+ */
+
+/* 面包屑 navy 文字 */
+.documents-tab-v7.doc-breadcrumb {
+  border-bottom: 1px dashed rgba(16, 36, 62, 0.15);
+  padding-bottom: 8px;
+}
+.documents-tab-v7 .doc-crumb {
+  color: var(--navy);
+  font-weight: 500;
+}
+.documents-tab-v7 .doc-crumb:hover {
+  color: var(--blue);
+}
+
+/* drop-target navy 高亮（增强默认黄底） */
+.documents-tab-v7 .doc-crumb.doc-drop-target,
+.doc-folder-tile.doc-drop-target,
+.doc-list-row.doc-drop-target,
+.doc-tile.doc-drop-target {
+  background: var(--blue-soft) !important;
+  border-color: var(--blue) !important;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+}
+
+/* 文件夹 tile hover brand 描边 */
+.doc-folder-tile:hover {
+  border-color: var(--brand-500);
+  box-shadow: 0 4px 12px var(--brand-ring);
+}
+
+/* 文档 tile hover brand 描边 */
+.doc-tile:hover {
+  border-color: var(--brand-500);
+  box-shadow: 0 4px 12px var(--brand-ring);
+}
+
+/* 文档 list 行 hover brand 描边 */
+.doc-list-row:hover {
+  border-color: var(--brand-500);
+  box-shadow: 0 2px 8px var(--brand-ring);
+}
+
+/* badge 加 color-mix ring */
+.doc-list .badge.doctype::before,
+.doc-list .badge.docstatus::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 5px;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 15%, transparent);
+  vertical-align: middle;
+}
+
+/* 暗色主题 */
+[data-theme='dark'] .documents-tab-v7.doc-breadcrumb {
+  border-bottom-color: rgba(100, 161, 255, 0.15);
+}
+[data-theme='dark'] .documents-tab-v7 .doc-crumb {
+  color: #c9d6ea;
+}
+[data-theme='dark'] .documents-tab-v7 .doc-crumb:hover {
+  color: var(--blue-bright);
+}
