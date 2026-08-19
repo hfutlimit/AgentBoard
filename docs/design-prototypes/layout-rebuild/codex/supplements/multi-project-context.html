@@ -31,7 +31,7 @@
   .sec { max-width: 1080px; margin: 0 auto 44px; padding: 0 28px; }
   .sec-head { font-size: 13px; font-weight: 700; color: var(--ink-muted); letter-spacing: .04em; text-transform: uppercase; margin: 0 0 10px; }
   .note { font-size: 12px; color: var(--ink-soft); margin: 0 0 18px; line-height: 1.7; }
-  .note code { background: var(--surface-blue); color: var(--blue-dark); padding: 1px 6px; border-radius: 6px; font-size: 11px; }
+  .note code { background: var(--surface-blue); color: var(--blue-dark); padding: 1px 6px; border-radius: 5px; font-size: 11px; }
 
   /* ===== 复用的基础组件 ===== */
   .topbar { position: relative; z-index: 20; display: flex; align-items: center; height: 64px; padding: 0 20px; gap: 10px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.96); backdrop-filter: blur(14px); }
@@ -64,7 +64,7 @@
   .project-tab.active::after { content: ""; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; border-radius: 2px 2px 0 0; background: var(--blue); }
   .project-tab .tab-close { display: inline-grid; width: 18px; height: 18px; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--ink-muted); cursor: pointer; }
   .project-tab .tab-close:hover { background: #edf0f3; color: var(--navy); }
-  .project-tab .tab-close .icon { width: 12px; height: 12px; }
+  .project-tab .tab-close .icon { width: 13px; height: 13px; }
   .tab-add { display: inline-grid; width: 30px; place-items: center; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--ink-muted); cursor: pointer; }
   .tab-add:hover { background: var(--surface-subtle); color: var(--blue); }
 
@@ -92,7 +92,7 @@
   .state-note { display: flex; gap: 12px; padding: 14px 16px; border: 1px solid var(--blue-soft); background: var(--surface-blue); border-radius: var(--radius-sm); margin-top: 4px; }
   .state-note .icon { width: 18px; height: 18px; color: var(--blue); margin-top: 1px; }
   .state-note p { margin: 0; font-size: 12px; color: var(--ink-soft); line-height: 1.7; }
-  .state-note code { background: #fff; border: 1px solid var(--line); color: var(--blue-dark); padding: 1px 6px; border-radius: 6px; font-size: 11px; }
+  .state-note code { background: #fff; border: 1px solid var(--line); color: var(--blue-dark); padding: 1px 6px; border-radius: 5px; font-size: 11px; }
 
   .demo-shell { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow: hidden; margin-bottom: 22px; }
 </style>

@@ -23,7 +23,7 @@
   }
   * { box-sizing: border-box; }
   svg { display: block; }
-  .icon { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  /* 红线 #7：本文件无 <use> 图标引用，移除孤立 16px .icon（图标须 18×18 接 sprite），避免引入集合外尺寸 */
   body { margin: 0; background: var(--canvas); color: var(--ink); font: 14px/1.5 Inter, "PingFang SC", "Microsoft YaHei", sans-serif; -webkit-font-smoothing: antialiased; padding: 20px; }
   .phone { max-width: 375px; margin: 0 auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; box-shadow: var(--shadow-sm); }
   .phone-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
