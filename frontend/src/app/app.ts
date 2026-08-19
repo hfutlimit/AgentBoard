@@ -15,6 +15,7 @@ import { AgentRow, AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epi
 import { PaginationComponent } from './pagination/pagination';
 import { ManagedListComponent } from './managed-list/managed-list';
 import { OverviewTabComponent } from './overview-tab/overview-tab';
+import { KanbanTabComponent } from './kanban-tab/kanban-tab';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
@@ -70,7 +71,7 @@ interface PaletteCommand {
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, PaginationComponent, ManagedListComponent, OverviewTabComponent],
+  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, PaginationComponent, ManagedListComponent, OverviewTabComponent, KanbanTabComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
   encapsulation: ViewEncapsulation.None,

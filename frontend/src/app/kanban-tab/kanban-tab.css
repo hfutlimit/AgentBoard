@@ -1,0 +1,46 @@
+/* ---- KanbanTabComponent（阶段3 / Story 319） ---- */
+/* 视觉来源：原型 v7 看板骨架 + 既有 app.css .kanban-col / .kanban-card 全局规则。
+   全局封装（ViewEncapsulation.None），列/卡片直接复用全局类；本文件仅补 v7 风格
+   的列头增强与暗色主题适配。过渡期 app.css 旧规则共存，阶段4 色板收口时统一清理。 */
+
+/* v7 列头：与原型 metric-card 一致的 navy 标题色 + 状态色点更明显 */
+.kanban-tab-content .kanban-col-header {
+  background: linear-gradient(180deg, var(--surface, #fff) 0%, var(--surface-2, #f1f5f9) 100%);
+}
+[data-theme="dark"] .kanban-tab-content .kanban-col-header {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, rgba(255, 255, 255, 0.05) 100%);
+}
+
+/* v7 卡片：状态色顶部细条（status--xxx 已有但只设背景，补一个顶部 accent） */
+.kanban-tab-content .kanban-col.status--todo .kanban-col-dot,
+.kanban-tab-content .kanban-col.status--in_progress .kanban-col-dot,
+.kanban-tab-content .kanban-col.status--in_review .kanban-col-dot,
+.kanban-tab-content .kanban-col.status--done .kanban-col-dot,
+.kanban-tab-content .kanban-col.status--blocked .kanban-col-dot {
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 15%, transparent);
+}
+
+/* v7 卡片 hover：保持现有 transform，加 brand 色描边提示可点击 */
+.kanban-tab-content .kanban-card.project-kanban-card {
+  cursor: pointer;
+}
+.kanban-tab-content .kanban-card.project-kanban-card:hover {
+  border-color: var(--brand-500, #6366f1);
+  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.15);
+}
+
+/* 列头工具栏：与 overview-card-header 对齐的虚线分隔 */
+.kanban-tab-header {
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--border, #e2e8f0);
+  margin-bottom: 12px;
+}
+.kanban-tab-header h3 {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 0; font-size: 15px; font-weight: 600; color: var(--text);
+}
+.kanban-tab-header .count-badge {
+  background: var(--brand-soft, #eef2ff);
+  color: var(--brand-600, #4f46e5);
+  font-weight: 600;
+}

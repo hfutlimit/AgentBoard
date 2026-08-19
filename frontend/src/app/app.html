@@ -1532,76 +1532,18 @@
               </app-managed-list>
             }
             @if (activeTab() === 'kanban') {
-              <div class="tab-content">
-                <div class="section-header">
-                  <h3>项目看板
-                    <span class="badge count-badge">{{ kanbanCount() }}</span>
-                    @if (!kanbanIncludeAll()) { <span class="badge docstatus docstatus--draft">仅看板标记</span> }
-                  </h3>
-                  <div class="row">
-                    <button class="ghost-sm" (click)="toggleKanbanIncludeAll()" [title]="kanbanIncludeAll() ? '只看标记进入看板的 Story' : '显示全部 Story（含未标记）'">
-                      {{ kanbanIncludeAll() ? '只看看板标记' : '显示全部' }}
-                    </button>
-                  </div>
-                </div>
-                @if (isProjectTabLoading('kanban')) {
-                  <div class="tab-list-skeleton" role="status" aria-label="正在加载看板">
-                    <div class="tab-loading-caption"><span class="spinner"></span>正在加载看板…</div>
-                    @for (row of tabSkeletonRows; track row) {
-                      <div class="tab-skeleton-row"><span class="tab-skeleton-icon"></span><span class="tab-skeleton-line"></span><span class="tab-skeleton-badge"></span></div>
-                    }
-                  </div>
-                } @else if (projectTabError('kanban')) {
-                  <div class="tab-load-error" role="alert">
-                    <span>看板加载失败：{{ projectTabError('kanban') }}</span>
-                    <button class="ghost-sm" (click)="retryProjectTab('kanban')">重试</button>
-                  </div>
-                } @else if (kanbanColumns().length === 0) {
-                  <div class="empty-state">
-                    看板暂无内容。将 Story 标记「进入看板」（在 Epic / Story 视图中操作）后，Agent 会自动开始认领 → 设计 → 开发 → 评审 → 测试 → 完成的全流程。
-                  </div>
-                } @else {
-                  <div class="kanban project-kanban" tabindex="0">
-                    @for (col of kanbanColumns(); track col.status) {
-                      <section class="kanban-col status--{{ col.status }}">
-                        <header class="kanban-col-header" [title]="col.stories.length + ' 个 Story'">
-                          <span class="kanban-col-dot" [style.background]="statusColor(col.status)"></span>
-                          <span class="kanban-col-title">{{ statusLabel(col.status) }}</span>
-                          <span class="kanban-col-count">{{ col.stories.length }}</span>
-                        </header>
-                        <div class="kanban-col-body">
-                          @for (story of col.stories; track story.id) {
-                            <div class="kanban-card project-kanban-card" (click)="openKanbanStory(story)" [title]="story.title">
-                              <div class="kanban-card-title">{{ story.title }}</div>
-                              <div class="kanban-card-badges">
-                                <span class="badge" [class.kb-in]="story.in_kanban" [class.kb-out]="!story.in_kanban">
-                                  {{ story.in_kanban ? '看板' : '未标记' }}
-                                </span>
-                                @if (story.needs_design) { <span class="badge kb-design">含设计</span> }
-                              </div>
-                              @if (story.tasks.length > 0) {
-                                <div class="kanban-card-tasks">
-                                  @for (t of story.tasks; track t.id) {
-                                    <span class="kb-task {{ kanbanTaskClass(t.type) }}" [title]="t.title + ' · ' + statusLabel(t.status)">
-                                      <i></i>{{ kanbanTaskTypeLabel(t.type) }}<em>{{ statusLabel(t.status) }}</em>
-                                    </span>
-                                  }
-                                </div>
-                              }
-                              <div class="kanban-card-actions">
-                                <button type="button" class="ghost-xs" (click)="$event.stopPropagation(); toggleKanbanStory(story)"
-                                  [title]="story.in_kanban ? '移出看板（不中断处理）' : '标记进入看板，Agent 开始自动化'">
-                                  {{ story.in_kanban ? '⏏ 移出' : '▶ 进入看板' }}
-                                </button>
-                              </div>
-                            </div>
-                          }
-                        </div>
-                      </section>
-                    }
-                  </div>
-                }
-              </div>
+              <app-kanban-tab
+                [columns]="kanbanColumns()"
+                [count]="kanbanCount()"
+                [includeAll]="kanbanIncludeAll()"
+                [loading]="isProjectTabLoading('kanban')"
+                [error]="projectTabError('kanban') || ''"
+                [skeletonRows]="tabSkeletonRows"
+                (toggleIncludeAll)="toggleKanbanIncludeAll()"
+                (retry)="retryProjectTab('kanban')"
+                (openStory)="openKanbanStory($event)"
+                (toggleStory)="toggleKanbanStory($event)"
+              />
             }
 
             @if (activeTab() === 'tickets') {
