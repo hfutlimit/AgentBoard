@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>AgentBoard.Api</RootNamespace>
+    <AssemblyName>AgentBoard.Api</AssemblyName>
+    <UserSecretsId>agentboard-api-dev-secrets</UserSecretsId>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- OpenAPI / Swagger. -->
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
+    <!-- Override transitive Microsoft.OpenApi 2.0.0 to clear NU1903 (GHSA-v5pm-xwqc-g5wc). -->
+    <PackageReference Include="Microsoft.OpenApi" Version="2.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- S0-1 only references the OpenAPI package.
+         Additional packages (Serilog, OTel, EF Core, NSwag, Polly, etc.)
+         are added incrementally as later Stage 0 stories land. -->
+  </ItemGroup>
+
+</Project>

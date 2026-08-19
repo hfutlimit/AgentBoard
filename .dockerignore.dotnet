@@ -1,0 +1,70 @@
+# Files/dirs excluded from the docker build context for the .NET image
+# (loaded with: docker build -f Dockerfile.dotnet --ignore-file .dockerignore.dotnet ...)
+#
+# Keep this in sync with the standard `.dockerignore` plus a few .NET-specifics.
+
+# Python / FastAPI artefacts
+.agentboard/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# Node / Angular
+node_modules/
+frontend/.angular/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# Tests / fixtures not needed at runtime
+tests/
+deliverables/
+docs/design-prototypes/
+screenshots/
+examples/
+
+# Local databases / SQLite
+*.db
+*.db-shm
+*.db-wal
+test_*.db
+*_test.db
+tmp_*.db
+tmp/
+
+# Git / IDE
+.git/
+.gitignore
+.gitattributes
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Docker artefacts
+docker-compose*.yml
+Dockerfile
+Dockerfile.*
+.dockerignore*
+
+# Logs / backups
+logs/
+backups/
+db-backups/
+*.log
+
+# Existing data
+data/
+agentboard.db
+agentboard.db-*
+
+# Coverage / test results
+coverage/
+coverage.*.json
+coverage.*.xml
+TestResults/
+*.coverage

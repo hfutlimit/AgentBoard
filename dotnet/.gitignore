@@ -1,0 +1,60 @@
+# Build outputs
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+[Ll]ogs/
+[Oo]ut/
+[Ll]ib/
+x64/
+x86/
+[Ww][Aa][Nn]/
+bld/
+[Bb]uild[Ll]og.*
+*.[Pp]ublish.xml
+*.pfx
+*.snupkg
+*.swp
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userprefs
+*.sln.docstates
+*.nupkg
+*.nuget.props
+*.nuget.targets
+
+# Test results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+coverage*.json
+coverage*.xml
+coverage*.info
+*.coverage
+TestResults/
+
+# Tooling
+.dotnet/
+.dot/
+
+# ASP.NET Core
+appsettings.*.local.json
+
+# Resharper
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+
+# NCrunch
+_NCrunch_*
+.*crunch*.local.xml
+
+# Local DB / sqlite
+*.db
+*.db-shm
+*.db-wal
+
+# Template backups (dotnet new generates sample code; we move it aside)
+.template-backups/

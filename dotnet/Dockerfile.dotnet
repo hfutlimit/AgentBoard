@@ -1,0 +1,64 @@
+# syntax=docker/dockerfile:1.7
+#
+# AgentBoard.Api — multi-stage build for the .NET 10 WebAPI.
+#
+# Build:  docker build -f Dockerfile.dotnet -t agentboard-api-dotnet ..
+# Run:    docker run --rm -p 18000:8080 -e AGENTBOARD_ENV=development agentboard-api-dotnet
+#
+# Build context: repository root (the dotnet/ folder is reached via the
+# relative path in the `COPY` instructions). The `.dockerignore.dotnet`
+# file at the repository root excludes Python / node_modules artefacts.
+
+# ---------- Stage 1: restore (cached independently) ----------
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS restore
+WORKDIR /src
+
+# Copy the solution and project files first so NuGet restore can be cached
+# independently of source code changes.
+COPY dotnet/AgentBoard.slnx dotnet/AgentBoard.slnx
+COPY dotnet/Directory.Build.props dotnet/Directory.Build.props
+COPY dotnet/Directory.Packages.props dotnet/Directory.Packages.props
+COPY dotnet/global.json dotnet/global.json
+COPY dotnet/src/AgentBoard.Api/AgentBoard.Api.csproj dotnet/src/AgentBoard.Api/AgentBoard.Api.csproj
+COPY dotnet/tests/AgentBoard.Api.Tests/AgentBoard.Api.Tests.csproj dotnet/tests/AgentBoard.Api.Tests/AgentBoard.Api.Tests.csproj
+
+RUN dotnet restore dotnet/AgentBoard.slnx
+
+# ---------- Stage 2: build ----------
+FROM restore AS build
+WORKDIR /src
+
+COPY dotnet/ dotnet/
+
+RUN dotnet publish dotnet/src/AgentBoard.Api/AgentBoard.Api.csproj \
+    --configuration Release \
+    --output /app/publish \
+    --no-restore \
+    /p:UseAppHost=false
+
+# ---------- Stage 3: runtime ----------
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
+WORKDIR /app
+
+# Non-root user for runtime hardening.
+RUN groupadd --system --gid 1001 agentboard \
+    && useradd --system --uid 1001 --gid agentboard agentboard \
+    && mkdir -p /app/Logs \
+    && chown -R agentboard:agentboard /app
+
+COPY --from=build --chown=agentboard:agentboard /app/publish /app
+
+USER agentboard
+
+ENV ASPNETCORE_ENVIRONMENT=Production \
+    AGENTBOARD_ENV=production \
+    AGENTBOARD_DOTNET_PORT=8080 \
+    DOTNET_RUNNING_IN_CONTAINER=true \
+    DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=true
+
+EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:8080/ || exit 1
+
+ENTRYPOINT ["dotnet", "AgentBoard.Api.dll"]

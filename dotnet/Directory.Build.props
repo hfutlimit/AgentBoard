@@ -1,0 +1,31 @@
+<Project>
+
+  <!-- Common properties for all projects under this directory -->
+  <PropertyGroup>
+    <!-- C# language version follows the .NET 10 SDK default. -->
+    <LangVersion>latest</LangVersion>
+
+    <!-- Nullable reference types and warnings-as-errors are required for new code. -->
+    <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <WarningsNotAsErrors>NU1903</WarningsNotAsErrors>
+
+    <!-- Deterministic builds and SourceLink for debugging. -->
+    <Deterministic>true</Deterministic>
+    <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>
+
+    <!-- Documentation. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <!-- Encoding / culture. -->
+    <NeutralLanguage>zh-CN</NeutralLanguage>
+  </PropertyGroup>
+
+  <!-- NOTE on Central Package Management:
+       We deliberately do NOT enable <ManagePackageVersionsCentrally> yet.
+       Each csproj declares an explicit Version attribute. When the dependency
+       list grows past ~10 packages we'll introduce Directory.Packages.props
+       and migrate to CPM in a single sweep (see S0-2 task list). -->
+
+</Project>

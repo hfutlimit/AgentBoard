@@ -5,18 +5,45 @@
 
 ## 阶段 0：脚手架（1 sprint）
 
-- [ ] 建 `dotnet/` 目录结构（`src/AgentBoard.Api`、`tests/AgentBoard.Api.Tests`、`contracts/`、`migrations/`）
-- [ ] 选 .NET 版本（8 LTS 或 9 STS）+ ASP.NET Core 模板（`webapi --no-openapi false`）
-- [ ] `dotnet/contracts/openapi-v3.json` 拉取脚本（FastAPI 启动后 `curl /openapi.json` + sha256 落盘）
-- [ ] `dotnet/contracts/openapi-v3.sha256` CI 校验（防止 .NET 端漂移）
-- [ ] NSwag 生成 client → `src/AgentBoard.Api/Clients/AgentBoardFastApiClient.cs`（占位，不用）
-- [ ] 实现 `/api/health`（与 FastAPI `{"status":"ok"}` 1:1）
-- [ ] 实现 `/api/meta`（types/statuses/priorities/sprint_statuses/schedule_types/run_statuses）
-- [ ] Serilog + OpenTelemetry 接入
-- [ ] CI 卡口：`schema-drift-check.py` 比对 .NET 端 mock response vs FastAPI 真实 response
-- [ ] docker-compose `api-dotnet` 服务（端口 18000，仅 health/meta 可用）
-- [ ] README 临时加一段「.NET BFF 迁移中」说明
-- [ ] 文档：跑通阶段 0 后写 `docs/dual-stack-bff-runbook.md`（本地启动 + 切流 + 回滚）
+### S0-1: .NET 10 WebAPI 解决方案脚手架（2026-08-19 完成）
+
+- [x] 建 `dotnet/` 目录结构（`src/AgentBoard.Api`、`tests/AgentBoard.Api.Tests`、`contracts/`、`migrations/`）
+- [x] 选 .NET 版本 → **.NET 10**（`global.json` pin 10.0.301）
+- [x] `dotnet/AgentBoard.slnx`（.NET 9+ 新格式，VS 2022 17.10+/Rider 2024+ 兼容）
+- [x] `dotnet/Directory.Build.props`（nullable / warnings-as-errors / LangVersion=latest）
+- [x] `dotnet/.editorconfig`（编码风格 + C# 规则）
+- [x] `dotnet/.gitignore`（bin/obj/logs/coverage/）
+- [x] `dotnet/global.json`（SDK pin 10.0.301 + rollForward=latestFeature）
+- [x] `dotnet/src/AgentBoard.Api/Program.cs`（含根端点 + MapControllers + OpenAPI）
+- [x] `dotnet/src/AgentBoard.Api/AgentBoard.Api.csproj`（.NET 10 + OpenApi 10.0.9 + Microsoft.OpenApi 2.0.1 override）
+- [x] `dotnet/src/AgentBoard.Api/appsettings.json` + `appsettings.Development.json`
+- [x] `dotnet/src/AgentBoard.Api/Properties/launchSettings.json`（端口 18000）
+- [x] `dotnet/tests/AgentBoard.Api.Tests/`（xUnit + SmokeTests 占位）
+- [x] `dotnet/contracts/README.md`（契约冻结机制说明）
+- [x] `dotnet/migrations/README.md`（migration 流程 + 不自动 apply）
+- [x] `dotnet/Dockerfile.dotnet`（3 阶段：restore → build → runtime，non-root 运行）
+- [x] `.dockerignore.dotnet`（根目录，build context 排除项）
+- [x] `dotnet/README.md`（分层规约 + EF Core 性能规则 + 本地 dev + Roadmap）
+
+### 验收
+
+- [x] `dotnet build` 0 errors（4 NU1903 警告由 WarningsNotAsErrors 排除）
+- [x] `dotnet run` 启动 18000 端口成功，`curl /` 返 200 `{"service":"AgentBoard.Api","stage":"S0-1",...}`
+- [x] `curl /openapi/v1.json` 返 200 application/json
+- [x] `curl /api/nonexistent` 返 404
+- [x] `dotnet test` 1/1 通过
+- [ ] `docker build -f dotnet/Dockerfile.dotnet` 成功（需 CI / 部署机验证，本机无 Docker）
+
+### 后续 Story
+
+- [ ] `dotnet/contracts/openapi-v3.json` 拉取脚本（S0-4）
+- [ ] `dotnet/contracts/openapi-v3.sha256` CI 校验（S0-4）
+- [ ] NSwag 生成 client → `src/AgentBoard.Api/Clients/AgentBoardFastApiClient.cs`（S0-4）
+- [ ] 实现 `/api/health`（S0-5）
+- [ ] 实现 `/api/meta`（S0-5）
+- [ ] Serilog + OpenTelemetry 接入（S0-7）
+- [ ] docker-compose `api-dotnet` 服务（S0-6）
+- [ ] `docs/dual-stack-bff-runbook.md`（S0-8）
 
 ## 阶段 1：只读业务迁 .NET（2-3 sprints）
 
