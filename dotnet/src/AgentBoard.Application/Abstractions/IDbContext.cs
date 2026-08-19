@@ -17,4 +17,13 @@ public interface IDbContext
 
     /// <summary>True if at least one entity in the change tracker is dirty.</summary>
     bool HasChanges { get; }
+
+    /// <summary>
+    /// Cheap smoke-test for the underlying connection. Returns true when
+    /// the database accepts a no-op round trip. The EF Core implementation
+    /// issues <c>SELECT 1</c>; the in-memory implementation always returns
+    /// true. This is the only IDbContext method that the API layer is
+    /// allowed to call directly (the health endpoint is the only consumer).
+    /// </summary>
+    Task<bool> CanConnectAsync(CancellationToken ct = default);
 }

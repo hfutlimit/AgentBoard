@@ -12,7 +12,7 @@ namespace AgentBoard.Infrastructure.Persistence;
 /// Single DbContext for the entire .NET BFF. Entity configurations live
 /// in <see cref="Configurations"/>. Audit / soft-delete / domain-event
 /// dispatch is handled by SaveChanges interceptors registered in
-/// <see cref="AgentBoard.Infrastructure.DependencyInjection"/>.
+/// <c>AgentBoard.Infrastructure.DependencyInjection</c>.
 /// </summary>
 public sealed class AppDbContext : DbContext, IDbContext, IUnitOfWork
 {
@@ -30,6 +30,9 @@ public sealed class AppDbContext : DbContext, IDbContext, IUnitOfWork
     }
 
     public bool HasChanges => ChangeTracker.HasChanges();
+
+    public Task<bool> CanConnectAsync(CancellationToken ct = default) =>
+        Database.CanConnectAsync(ct);
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

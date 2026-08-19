@@ -190,7 +190,61 @@
 
 ### 下一步
 
-S0-5: /api/health + /api/meta 端点实现（1:1 兼容 FastAPI）+ contract test
+---
+
+## S0-5: /api/health & /api/meta 端点实现（1:1 兼容 FastAPI）
+
+### 落地清单（2026-08-19）
+
+- [x] `Features/Health/HealthController.cs` + `HealthResponseDto.cs`
+  - `GET /api/health` 返 `{status, database, version, timestamp}` 与 FastAPI 1:1
+  - 走 BaseController<IHealthProvider> → HealthProvider → HealthService → IDbContext
+  - 不依赖 EF Core（架构测试通过）
+- [x] `Features/Meta/MetaController.cs` + `Dtos/MetaResponseDto.cs`
+  - `GET /api/meta` 返 6 个 enum 列表（types / statuses / priorities / sprint_statuses / schedule_types / run_statuses）
+  - **wire format snake_case**（`[JsonPropertyName]` 锁定）匹配 FastAPI
+  - 值硬编码（与 FastAPI `core/common/enums.py` 1:1）
+- [x] `Application/Health/IHealthService.cs` + `HealthService.cs` + `IHealthProvider.cs` + `HealthProvider.cs`
+  - Service 调 IDbContext.CanConnectAsync（EF Core 内部实现）
+  - Provider 装配 version 常量（`HealthProvider.ApiVersion`）
+- [x] `Application/Abstractions/IDbContext.cs` 加 `CanConnectAsync` 抽象
+- [x] `Infrastructure/Persistence/AppDbContext.cs` 实现 `CanConnectAsync`（`Database.CanConnectAsync`）
+- [x] `Application/DependencyInjection.cs` 注册 IHealthService + IHealthProvider
+- [x] 测试：
+  - `tests/AgentBoard.Api.Tests/Features/MetaControllerTests.cs`（3 用例：enum 完整性 + 公开 + wire format snake_case）
+  - `tests/AgentBoard.Api.Tests/Features/HealthControllerTests.cs`（2 用例：shape 验证 + 公开）
+- [x] `tests/AgentBoard.Api.Tests` 加 `Microsoft.AspNetCore.Mvc.Testing 10.0.0` + `FluentAssertions 7.0.0`
+- [x] `dotnet/contracts/openapi-v3.json` 加 `/api/health` + `/api/meta` paths + `HealthResponse` / `MetaResponse` schemas
+- [x] `scripts/write-snapshot.py` 新增（避免 PowerShell 写 CRLF 导致 hash 不一致）
+- [x] NSwag 重新生成 Client（62KB，含 health/me 端点）
+
+### 验收
+
+- [x] `dotnet build` 0 errors
+- [x] `dotnet test` 24/24 通过（Api 6 + Infrastructure 18）
+- [x] **端到端 5 场景全绿**（真实 HTTP）：
+  - `GET /api/health` → 200 `{status, database, version, timestamp}`
+  - `GET /api/meta` → 200 6 个 snake_case enum 列表
+- [x] `python scripts/schema-drift-check.py` 0 drift
+- [x] NetArchTest 5 条架构规则全绿（HealthController 通过 Provider/Service 间接调 IDbContext）
+
+### 关键设计决策
+
+- **Health 端点走 Provider/Service 模式**（不直连 IDbContext）→ 满足"Controller 不依赖 IDbContext"架构规则
+- **Meta DTO wire format snake_case** 用 `[JsonPropertyName]` 显式锁定，绕过 ASP.NET Core 默认 camelCase
+- **写 JSON 用 Python**（不用 PowerShell）—— PowerShell `WriteAllText` 写 CRLF，python 读时 hash 不匹配
+- **Enum 值硬编码**（不从 Domain 读）—— Domain enum 与 FastAPI 不一致（6 状态 vs 5 状态；dev/bug vs dev/bug/qa/design），后续 stage 1 业务迁移时统一
+
+### 踩坑（已沉淀到项目记忆）
+
+1. Controller 直接依赖 IDbContext/EF Core 触发 NetArchTest fail → 重构为 Provider/Service 模式
+2. ASP.NET Core 默认 System.Text.Json 输出 camelCase，与 FastAPI snake_case 不匹配 → `[JsonPropertyName]` 锁定
+3. PowerShell `WriteAllText` 默认 CRLF 换行，与 python raw-bytes hash 计算不一致 → 改用 python 写文件
+4. `ConvertTo-Json` 自动加 trailing newline，叠加后文件末尾多一个换行 → 去掉 `+ "`n"` 后缀
+
+### 下一步
+
+S0-6: docker-compose api-dotnet 服务接入
 
 ## 阶段 1：只读业务迁 .NET（2-3 sprints）
 

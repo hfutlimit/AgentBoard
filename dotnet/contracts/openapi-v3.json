@@ -6,19 +6,68 @@
     "description": "Source of truth: FastAPI (/openapi.json). The .NET BFF regenerates a C# client from this document on every sync. Update via pwsh scripts/sync-openapi.ps1 after pulling FastAPI changes."
   },
   "servers": [
-    { "url": "http://127.0.0.1:18000", "description": "Local FastAPI (Python dev compose)" }
+    {
+      "url": "http://127.0.0.1:18000",
+      "description": "Local FastAPI (Python dev compose)"
+    }
   ],
   "paths": {
+    "/api/health": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Liveness / readiness probe.",
+        "operationId": "health_get",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/meta": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Enum vocabularies used to populate dropdowns and validate inputs.",
+        "operationId": "meta_get",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetaResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/login": {
       "post": {
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "summary": "Authenticate and obtain a bearer token.",
         "operationId": "auth_login",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/LoginRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
             }
           }
         },
@@ -27,7 +76,9 @@
             "description": "OK",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/AuthSession" }
+                "schema": {
+                  "$ref": "#/components/schemas/AuthSession"
+                }
               }
             }
           },
@@ -35,7 +86,9 @@
             "description": "Validation failure",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/Error" }
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
               }
             }
           }
@@ -44,7 +97,9 @@
     },
     "/api/auth/me": {
       "get": {
-        "tags": ["auth"],
+        "tags": [
+          "auth"
+        ],
         "summary": "Return the currently-authenticated user.",
         "operationId": "auth_me",
         "responses": {
@@ -52,56 +107,203 @@
             "description": "OK",
             "content": {
               "application/json": {
-                "schema": { "$ref": "#/components/schemas/User" }
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "404": { "$ref": "#/components/responses/NotFound" }
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
         }
       }
     }
   },
   "components": {
     "schemas": {
+      "HealthResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "database",
+          "version",
+          "timestamp"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ]
+          },
+          "database": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "error"
+            ]
+          },
+          "version": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "MetaResponse": {
+        "type": "object",
+        "required": [
+          "types",
+          "statuses",
+          "priorities",
+          "sprint_statuses",
+          "schedule_types",
+          "run_statuses"
+        ],
+        "properties": {
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "statuses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "priorities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sprint_statuses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "schedule_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "run_statuses": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "LoginRequest": {
         "type": "object",
-        "required": ["username", "password"],
+        "required": [
+          "username",
+          "password"
+        ],
         "properties": {
-          "username": { "type": "string", "minLength": 1 },
-          "password": { "type": "string", "minLength": 1 }
+          "username": {
+            "type": "string",
+            "minLength": 1
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       },
       "AuthSession": {
         "type": "object",
-        "required": ["id", "username", "token", "token_type"],
+        "required": [
+          "id",
+          "username",
+          "token",
+          "token_type"
+        ],
         "properties": {
-          "id": { "type": "integer", "format": "int32" },
-          "username": { "type": "string" },
-          "token": { "type": "string", "description": "HMAC Bearer token, format v1.<payload>.<sig>." },
-          "token_type": { "type": "string", "default": "bearer" },
-          "expires_in": { "type": "integer", "format": "int32", "default": 0 }
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "username": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string",
+            "description": "HMAC Bearer token, format v1.<payload>.<sig>."
+          },
+          "token_type": {
+            "type": "string",
+            "default": "bearer"
+          },
+          "expires_in": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          }
         }
       },
       "User": {
         "type": "object",
-        "required": ["id", "username", "is_admin", "created_at", "updated_at"],
+        "required": [
+          "id",
+          "username",
+          "is_admin",
+          "created_at",
+          "updated_at"
+        ],
         "properties": {
-          "id": { "type": "integer", "format": "int32" },
-          "username": { "type": "string" },
-          "display_name": { "type": "string", "nullable": true },
-          "email": { "type": "string", "nullable": true },
-          "avatar_url": { "type": "string", "nullable": true },
-          "is_admin": { "type": "boolean" },
-          "created_at": { "type": "string", "format": "date-time" },
-          "updated_at": { "type": "string", "format": "date-time" }
+          "id": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "username": {
+            "type": "string"
+          },
+          "display_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "type": "string",
+            "nullable": true
+          },
+          "avatar_url": {
+            "type": "string",
+            "nullable": true
+          },
+          "is_admin": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "Error": {
         "type": "object",
-        "required": ["detail"],
+        "required": [
+          "detail"
+        ],
         "properties": {
-          "detail": { "type": "string" }
+          "detail": {
+            "type": "string"
+          }
         }
       }
     },
@@ -110,7 +312,9 @@
         "description": "Missing or invalid credentials",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/Error" }
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
           }
         }
       },
@@ -118,7 +322,9 @@
         "description": "Resource not found",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/Error" }
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
           }
         }
       }
