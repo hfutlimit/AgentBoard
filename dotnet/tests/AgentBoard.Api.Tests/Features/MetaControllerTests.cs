@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT
 using System.Net;
 using System.Net.Http.Json;
+using AgentBoard.Api.Tests.Infrastructure;
 using AgentBoard.Api.Features.Meta.Dtos;
 using FluentAssertions;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace AgentBoard.Api.Tests.Features;
 
-public sealed class MetaControllerTests : IClassFixture<WebApplicationFactory<Program>>
+public sealed class MetaControllerTests : IClassFixture<ApiWebApplicationFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiWebApplicationFactory _factory;
 
-    public MetaControllerTests(WebApplicationFactory<Program> factory)
+    public MetaControllerTests(ApiWebApplicationFactory factory)
     {
         _factory = factory;
     }
