@@ -163,6 +163,20 @@ export class App implements OnInit, OnDestroy {
   readonly notifications = signal<Notification[]>([]);
   readonly unreadCount = signal(0);
   readonly showUserMenu = signal(false);
+  // Epic 149 / Story 318: project-switcher + notification-panel popovers（inline @if，待 Story 319 抽独立组件）
+  readonly showProjectSwitcher = signal(false);
+  readonly showNotifPanel = signal(false);
+  readonly switcherSearch = signal('');
+  readonly filteredSwitcherProjects = computed<Project[]>(() => {
+    const q = this.switcherSearch().trim().toLowerCase();
+    const list = this.visibleProjects();
+    if (!q) return list;
+    return list.filter(p =>
+      (p.name || '').toLowerCase().includes(q) ||
+      (p.key || '').toLowerCase().includes(q) ||
+      (p.description || '').toLowerCase().includes(q),
+    );
+  });
   readonly projectStats = signal<ProjectStats | null>(null);
   // Epic 122 S4: 评审运营视图（统计 + 超时重派）
   readonly reviewStats = signal<ReviewStats | null>(null);
@@ -3915,6 +3929,63 @@ export class App implements OnInit, OnDestroy {
     opened.focus();
   }
 
+  // Epic 149 / Story 318: project-switcher + notification-panel popovers
+  /** 切换项目切换器 popover 显隐（互斥关闭其他 popover）。 */
+  toggleProjectSwitcher(): void {
+    const next = !this.showProjectSwitcher();
+    this.closeTransientPopovers();
+    this.showProjectSwitcher.set(next);
+    if (next) this.switcherSearch.set('');
+  }
+
+  /** 切换通知面板 popover 显隐（互斥关闭其他 popover）。 */
+  toggleNotifPanel(): void {
+    const next = !this.showNotifPanel();
+    this.closeTransientPopovers();
+    this.showNotifPanel.set(next);
+    if (next) void this.loadNotifications();
+  }
+
+  /** 关闭所有 transient popover（项目切换器 / 通知面板 / 用户菜单）。 */
+  closeTransientPopovers(): void {
+    this.showProjectSwitcher.set(false);
+    this.showNotifPanel.set(false);
+    this.showUserMenu.set(false);
+  }
+
+  /** 项目切换器列表项点击：关闭 popover 并路由到目标项目。 */
+  selectSwitcherProject(projectId: number): void {
+    this.closeTransientPopovers();
+    this.router.navigate(['/project', projectId]);
+  }
+
+  /** 项目切换器搜索框输入。 */
+  onSwitcherSearchInput(value: string): void {
+    this.switcherSearch.set(value);
+  }
+
+  /** 通知面板：单条点击 → 标记已读并跳转（复用 openNotification）。 */
+  async clickNotification(notif: Notification): Promise<void> {
+    this.closeTransientPopovers();
+    await this.openNotification(notif);
+  }
+
+  /** 通知面板：全部标为已读。 */
+  async markAllReadFromPanel(): Promise<void> {
+    await this.markAllRead();
+  }
+
+  /** 通知面板：单条删除。 */
+  async deleteNotificationFromPanel(notifId: number): Promise<void> {
+    await this.deleteNotification(notifId);
+  }
+
+  /** 项目切换器：触发"添加新项目"流程（关闭 popover 后调用现有创建方法）。 */
+  triggerAddProjectFromSwitcher(): void {
+    this.closeTransientPopovers();
+    this.openCreate('project');
+  }
+
   /* ---------- Project Stats ---------- */
   async loadProjectStats(projectId: number): Promise<void> {
     try {
@@ -7105,7 +7176,11 @@ export class App implements OnInit, OnDestroy {
   /** Esc 键退出 fullscreen（window 级，避免焦点在 input 时失效）。 */
   @HostListener('window:keydown.escape')
   onEscapeKey(): void {
-    if (this.docFullscreenOpen()) this.closeDocFullscreen();
+    if (this.docFullscreenOpen()) { this.closeDocFullscreen(); return; }
+    // Epic 149 / Story 318：Esc 关闭 transient popover（项目切换器 / 通知面板 / 用户菜单）
+    if (this.showProjectSwitcher() || this.showNotifPanel() || this.showUserMenu()) {
+      this.closeTransientPopovers();
+    }
   }
 
   /** 恢复指定 revision（创建新 revision 保留历史）。 */

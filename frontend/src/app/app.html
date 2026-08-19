@@ -52,13 +52,13 @@
             <svg class="icon-v7"><use href="#i-home"/></svg>全部项目
           </button>
           <span class="top-divider-v7"></span>
-          <button class="project-switcher-button-v7" type="button" [attr.aria-expanded]="false" title="切换项目">
+          <button class="project-switcher-button-v7" type="button" [attr.aria-expanded]="showProjectSwitcher()" [attr.aria-haspopup]="'true'" title="切换项目" (click)="toggleProjectSwitcher()">
             <span class="project-monogram-v7 sm">{{ (project() ? (project()!.name || project()!.key || 'AB') : 'AB').slice(0, 2).toUpperCase() }}</span>
             <span class="project-switcher-copy-v7">
               <small>当前项目</small>
               <strong>{{ project() ? (project()!.name || '未命名项目') : '未选择项目' }}</strong>
             </span>
-            <svg class="icon-v7"><use href="#i-chevron"/></svg>
+            <svg class="icon-v7" [class.icon-flipped]="showProjectSwitcher()"><use href="#i-chevron"/></svg>
           </button>
         } @else {
           <span class="topbar-divider"></span>
@@ -79,7 +79,7 @@
         <!-- Notification bell -->
         @if (currentUser()) {
           <div class="notif-wrap">
-            <button class="ghost-sm notif-btn notif-btn--bell" (click)="openNotificationsTab()" title="在新标签页打开通知">
+            <button class="ghost-sm notif-btn notif-btn--bell" (click)="toggleNotifPanel()" [attr.aria-expanded]="showNotifPanel()" [attr.aria-haspopup]="'true'" title="通知面板">
               <svg class="icon-v7"><use href="#i-bell"/></svg>
               @if (unreadCount() > 0) {
                 <span class="notif-badge notif-badge--pulse">{{ unreadCount() > 9 ? '9+' : unreadCount() }}</span>
@@ -121,6 +121,75 @@
     </div>
   </div>
 </header>
+<!-- Epic 149 / Story 318：project-switcher + notification-panel popovers（inline @if，待 Story 319 抽独立组件） -->
+@if (showProjectSwitcher() || showNotifPanel()) {
+  <div class="popover-overlay-v7" (click)="closeTransientPopovers()" aria-hidden="true"></div>
+}
+@if (showProjectSwitcher()) {
+  <section class="popover-v7 project-switcher-v7" role="dialog" aria-label="切换项目">
+    <label class="popover-search-v7">
+      <svg class="icon-v7"><use href="#i-search"/></svg>
+      <input type="search" placeholder="查找项目" aria-label="查找项目" [value]="switcherSearch()" (input)="onSwitcherSearchInput($any($event.target).value)" />
+    </label>
+    <div class="switcher-list-v7">
+      @if (filteredSwitcherProjects().length > 0) {
+        @for (p of filteredSwitcherProjects(); track p.id) {
+          <button type="button" class="switcher-project-v7" [class.selected]="project()?.id === p.id" (click)="selectSwitcherProject(p.id)">
+            <span class="project-monogram-v7">{{ (p.name || p.key || 'AB').slice(0, 2).toUpperCase() }}</span>
+            <span class="switcher-project-copy-v7">
+              <strong>{{ p.name }}</strong>
+              <span>{{ p.key || '项目' }}</span>
+            </span>
+            @if (project()?.id === p.id) {
+              <svg class="icon-v7 switcher-check-v7"><use href="#i-check"/></svg>
+            }
+          </button>
+        }
+      } @else {
+        <div class="switcher-empty-v7">未找到匹配的项目</div>
+      }
+    </div>
+    <div class="popover-footer-v7">
+      <button type="button" class="popover-add-v7" (click)="triggerAddProjectFromSwitcher()">
+        <svg class="icon-v7"><use href="#i-plus"/></svg>添加新项目
+      </button>
+    </div>
+  </section>
+}
+@if (showNotifPanel()) {
+  <section class="popover-v7 notification-panel-v7" role="dialog" aria-label="通知">
+    <div class="popover-title-v7">
+      <strong>通知</strong>
+      <button type="button" class="popover-mark-all-v7" (click)="markAllReadFromPanel()" [disabled]="unreadCount() === 0">全部标为已读</button>
+    </div>
+    <div class="notification-list-v7">
+      @if (notifications().length > 0) {
+        @for (n of notifications(); track n.id) {
+          <div class="notification-item-v7" [class.unread]="!n.is_read">
+            <button type="button" class="notification-main-v7" (click)="clickNotification(n)">
+              <span class="notif-dot-v7" [class.unread]="!n.is_read"></span>
+              <span class="notif-body-v7">
+                <strong>{{ n.title || '通知' }}</strong>
+                @if (n.content) { <p>{{ n.content }}</p> }
+                <time>{{ n.created_at }}</time>
+              </span>
+            </button>
+            <button type="button" class="notif-delete-v7" (click)="deleteNotificationFromPanel(n.id)" title="删除" aria-label="删除该通知">
+              <svg class="icon-v7"><use href="#i-close"/></svg>
+            </button>
+          </div>
+        }
+      } @else {
+        <div class="notification-empty-v7">暂无通知</div>
+      }
+    </div>
+    <div class="popover-footer-v7">
+      <button type="button" class="popover-view-all-v7" (click)="closeTransientPopovers(); openNotificationsTab()">
+        <svg class="icon-v7"><use href="#i-arrow"/></svg>在新标签页打开全部
+      </button>
+    </div>
+  </section>
+}
 }
 
 <div class="layout" [class.doc-mode]="view() === 'document'">
