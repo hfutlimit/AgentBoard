@@ -16,6 +16,8 @@ import { PaginationComponent } from './pagination/pagination';
 import { ManagedListComponent } from './managed-list/managed-list';
 import { OverviewTabComponent } from './overview-tab/overview-tab';
 import { KanbanTabComponent } from './kanban-tab/kanban-tab';
+import { EpicsTabComponent } from './epics-tab/epics-tab';
+import { ProposalsTabComponent } from './proposals-tab/proposals-tab';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
@@ -71,7 +73,7 @@ interface PaletteCommand {
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, PaginationComponent, ManagedListComponent, OverviewTabComponent, KanbanTabComponent],
+  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, PaginationComponent, ManagedListComponent, OverviewTabComponent, KanbanTabComponent, EpicsTabComponent, ProposalsTabComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
   encapsulation: ViewEncapsulation.None,
@@ -648,7 +650,9 @@ export class App implements OnInit, OnDestroy {
     return { total, done, pct: total > 0 ? Math.round((done / total) * 100) : 0 };
   });
   // Epic 33.1: Epic 进度可视化（Story 数 + Task 完成率）
-  epicProgress(epicId: number): { stories: number; doneStories: number; tasks: number; doneTasks: number; pct: number } {
+  // readonly 箭头属性：保证 this 绑定，可安全作为 @Input 函数引用传给子组件
+  // （EpicsTabComponent.epicProgressFor）。
+  readonly epicProgress = (epicId: number): { stories: number; doneStories: number; tasks: number; doneTasks: number; pct: number } => {
     const epicStories = this.stories().filter(s => s.epic_id === epicId);
     const storyIds = new Set(epicStories.map(s => s.id));
     const epicTasks = this.tasks().filter(t => t.story_id !== null && storyIds.has(t.story_id));
@@ -663,7 +667,7 @@ export class App implements OnInit, OnDestroy {
       doneTasks,
       pct: total > 0 ? Math.round((done / total) * 100) : 0,
     };
-  }
+  };
   // Task 602: 高级筛选面板 - 状态/优先级过滤
   // Epic 37 (v2.5): 状态快速筛选 chips —— 初始化读取持久化选择
   readonly filterStatus = signal(

@@ -1,0 +1,58 @@
+/* epics-tab.css — 阶段3 v7 增强（仅补充，不重复定义；基础规则在 styles.css/app.css 全局）
+ *
+ * 设计语言对齐原型 v7：
+ * - Epic 图标 navy 圆底（与 metric-card icon 一致）
+ * - 进度条 fill navy→blue 渐变（与原型 brand 渐变一致）
+ * - 状态 badge 加 color-mix ring（与 kanban-tab 状态点一致）
+ * - 暗色主题 navy 提亮（与 overview-tab metric-value 一致）
+ *
+ * 命名空间：.epics-tab-v7 仅作用于本组件 entity-list 容器，避免污染其他列表的 entity-item。
+ */
+
+/* Epic 图标 navy 圆底（替换 styles.css 默认 violet） */
+.epics-tab-v7 .type-icon.epic {
+  background: var(--blue-soft);
+  color: var(--navy);
+  font-weight: 700;
+}
+
+/* 进度条 fill 套 navy→blue 渐变 */
+.epics-tab-v7 .epic-progress-fill {
+  background: linear-gradient(90deg, var(--navy), var(--blue));
+}
+
+/* 进度条 track navy 弱化背景 */
+.epics-tab-v7 .epic-progress-track {
+  background: rgba(16, 36, 62, 0.08);
+}
+
+/* 进度条文字 navy */
+.epics-tab-v7 .epic-progress-text {
+  color: var(--navy);
+  font-weight: 600;
+}
+
+/* 状态 badge 前置 color-mix 色点（与 kanban 状态点视觉一致） */
+.epics-tab-v7 .badge.status::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 5px;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 15%, transparent);
+  vertical-align: middle;
+}
+
+/* 暗色主题：navy 提亮，对比度达标 */
+[data-theme='dark'] .epics-tab-v7 .type-icon.epic {
+  background: rgba(100, 161, 255, 0.15);
+  color: #c9d6ea;
+}
+[data-theme='dark'] .epics-tab-v7 .epic-progress-track {
+  background: rgba(100, 161, 255, 0.1);
+}
+[data-theme='dark'] .epics-tab-v7 .epic-progress-text {
+  color: #c9d6ea;
+}

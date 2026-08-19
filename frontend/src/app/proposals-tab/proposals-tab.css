@@ -1,0 +1,41 @@
+/* proposals-tab.css — 阶段3 v7 增强（仅补充，不重复定义；基础规则在 styles.css/app.css 全局）
+ *
+ * 设计语言对齐原型 v7：
+ * - 工具栏加 navy 虚线下划线（与 overview-card-header 一致）
+ * - proposal-row hover brand 描边（与 entity-item 一致）
+ * - status badge 加 color-mix ring（与 epics-tab/kanban-tab 状态点一致）
+ * - 暗色主题 navy 提亮
+ *
+ * 命名空间：.proposals-tab-v7 仅作用于本组件工具栏，避免污染其他列表。
+ */
+
+/* 工具栏 navy 虚线下划线 */
+.proposals-tab-v7.doc-toolbar {
+  border-bottom: 1px dashed rgba(16, 36, 62, 0.15);
+  padding-bottom: 8px;
+}
+
+/* 提案行 hover brand 描边（增强既有 .proposal-row:hover） */
+.proposals-tab-v7 ~ .proposal-list .proposal-row:hover,
+.proposal-list .proposal-row:hover {
+  border-color: var(--brand-500);
+  box-shadow: 0 4px 12px var(--brand-ring);
+}
+
+/* status badge 前置 color-mix 色点 */
+.proposal-list .badge.pstatus::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 5px;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 15%, transparent);
+  vertical-align: middle;
+}
+
+/* 暗色主题 */
+[data-theme='dark'] .proposals-tab-v7.doc-toolbar {
+  border-bottom-color: rgba(100, 161, 255, 0.15);
+}

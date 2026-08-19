@@ -1,0 +1,73 @@
+<app-managed-list
+  [loading]="loading"
+  [error]="error"
+  errorPrefix="Epic 列表加载失败"
+  loadingLabel="正在加载 Epic 列表…"
+  [skeletonRows]="5"
+  [empty]="!loading && !error && epics.length === 0"
+  [hidePaginationOnEmpty]="false"
+  [total]="epics.length"
+  [page]="page"
+  [pageSize]="pageSize"
+  paginationLabel="Epic 列表"
+  (pageChange)="pageChange.emit($event)"
+  (retry)="retry.emit()">
+  <ng-container ml-header>
+    <div class="section-header">
+      <h3>Epics</h3>
+      @if (projectId !== null) {
+        <button id="p-new-epic" class="btn-primary-sm" (click)="createEpic.emit(projectId!)">
+          ＋ 新建 Epic
+        </button>
+      }
+    </div>
+  </ng-container>
+  <div class="entity-list epics-tab-v7" id="epics-list">
+    @for (item of paginatedItems(epics, page); track item.id) {
+      <a [routerLink]="['/epic', item.id]" class="entity-item">
+        <div class="entity-item-main">
+          <span class="type-icon epic">E</span>
+          <span class="entity-item-title">{{ item.title }}</span>
+        </div>
+        @if (epicProgressFor(item.id).stories > 0) {
+          <div
+            class="epic-progress-mini"
+            title="{{ epicProgressFor(item.id).doneStories }}/{{ epicProgressFor(item.id).stories }} Story · {{ epicProgressFor(item.id).pct }}%">
+            <span class="epic-progress-text"
+              >{{ epicProgressFor(item.id).doneStories }}/{{ epicProgressFor(item.id).stories }}</span
+            >
+            <div class="epic-progress-track">
+              <div class="epic-progress-fill" [style.width.%]="epicProgressFor(item.id).pct"></div>
+            </div>
+          </div>
+        }
+        <span class="badge status status--{{ item.status }}">{{ statusLabel(item.status) }}</span>
+      </a>
+    } @empty {
+      <!-- Task 819: 空项目引导创建第一个 Epic -->
+      <div class="empty-state-guide">
+        <div class="empty-state-icon">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true">
+            <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+            <line x1="4" y1="22" x2="4" y2="15" />
+          </svg>
+        </div>
+        <div class="empty-state-title">开启你的第一个 Epic</div>
+        <div class="empty-state-desc">
+          Epic 是更大粒度的目标或功能模块，用来组织与管理大型工作。先建一个 Epic，再往里拆分 Story 与任务。
+        </div>
+        @if (projectId !== null) {
+          <button class="btn-primary-sm" (click)="createEpic.emit(projectId!)">＋ 创建第一个 Epic</button>
+        }
+        <div class="empty-state-hint">提示：Epic → Story → 任务，形成清晰的项目层级。</div>
+      </div>
+    }
+  </div>
+</app-managed-list>
