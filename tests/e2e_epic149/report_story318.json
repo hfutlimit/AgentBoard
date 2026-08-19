@@ -1,0 +1,99 @@
+{
+  "story": 318,
+  "title": "阶段2 侧边栏 + managed-list 抽象",
+  "project_id": 3,
+  "web": "http://127.0.0.1:4200",
+  "api": "http://124.220.44.12",
+  "started_at": "2026-08-20T07:41:55",
+  "checks": {
+    "sidebar": {
+      "present": true,
+      "navCount": 8,
+      "labels": [
+        "概览",
+        "看板",
+        "Epics",
+        "工作项",
+        "提案",
+        "文档",
+        "成员与 Agents",
+        "设置"
+      ],
+      "healthPulse": true,
+      "sidebarBg": "rgb(16, 36, 62)",
+      "asideClass": "project-sidebar-v7"
+    },
+    "shell_char_icons": {
+      "hits": [],
+      "shellRegions": 6
+    },
+    "managed_list_usage": {
+      "epics": {
+        "managedListCount": 1,
+        "svgUse": 0,
+        "mainTextLen": 931
+      },
+      "backlog": {
+        "managedListCount": 1,
+        "svgUse": 0,
+        "mainTextLen": 1140
+      },
+      "proposals": {
+        "managedListCount": 1,
+        "svgUse": 0,
+        "mainTextLen": 354
+      },
+      "documents": {
+        "managedListCount": 1,
+        "svgUse": 0,
+        "mainTextLen": 2693
+      },
+      "members": {
+        "managedListCount": 0,
+        "svgUse": 0,
+        "mainTextLen": 146
+      }
+    },
+    "popovers": {
+      "project_switcher": {
+        "visible": true,
+        "hasSearch": true,
+        "projectItems": 11
+      },
+      "notification_panel": {
+        "visible": true,
+        "hasList": true
+      }
+    }
+  },
+  "screenshots": [
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\01_sidebar.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\list_epics.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\list_backlog.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\list_proposals.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\list_documents.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\list_members.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\popover_project_switcher.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\popover_notification.png"
+  ],
+  "issues": [
+    "app.html 缺少 @if(activeTab()==='members') 渲染块；frontend/src/app/ 无 members-tab 组件。点击侧边栏「成员与 Agents」后 activeTab=members 但主内容区为空白，无 ManagedList、无成员/Agent 列表、无空状态。属于 Story 318「5 列表 ManagedList 抽取」与 Story 319「八视图迁移」共同遗漏。"
+  ],
+  "verdict": "FAIL",
+  "console_errors": [],
+  "console_warnings": [
+    {
+      "type": "debug",
+      "text": "[vite] connecting..."
+    },
+    {
+      "type": "debug",
+      "text": "[vite] connected."
+    },
+    {
+      "type": "log",
+      "text": "Angular is running in development mode."
+    }
+  ],
+  "page_errors": []
+}

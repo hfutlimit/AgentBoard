@@ -1,0 +1,120 @@
+{
+  "story": 319,
+  "title": "阶段3 视图逐个迁移（八视图）",
+  "project_id": 3,
+  "web": "http://127.0.0.1:4200",
+  "api": "http://124.220.44.12",
+  "started_at": "2026-08-20T07:41:55",
+  "views": [
+    {
+      "viewSelectorPresent": true,
+      "svgUse": 0,
+      "svgCount": 0,
+      "mainTextLen": 610,
+      "hasTable": 0,
+      "hasCards": 6,
+      "label": "概览",
+      "tab": "overview"
+    },
+    {
+      "viewSelectorPresent": true,
+      "svgUse": 0,
+      "svgCount": 0,
+      "mainTextLen": 257,
+      "hasTable": 0,
+      "hasCards": 1,
+      "label": "看板",
+      "tab": "kanban"
+    },
+    {
+      "viewSelectorPresent": true,
+      "svgUse": 0,
+      "svgCount": 0,
+      "mainTextLen": 939,
+      "hasTable": 0,
+      "hasCards": 1,
+      "label": "Epics",
+      "tab": "epics"
+    },
+    {
+      "viewSelectorPresent": true,
+      "svgUse": 0,
+      "svgCount": 0,
+      "mainTextLen": 1144,
+      "hasTable": 0,
+      "hasCards": 1,
+      "label": "工作项",
+      "tab": "backlog"
+    },
+    {
+      "viewSelectorPresent": true,
+      "svgUse": 0,
+      "svgCount": 0,
+      "mainTextLen": 356,
+      "hasTable": 0,
+      "hasCards": 1,
+      "label": "提案",
+      "tab": "proposals"
+    },
+    {
+      "viewSelectorPresent": true,
+      "svgUse": 0,
+      "svgCount": 0,
+      "mainTextLen": 2695,
+      "hasTable": 0,
+      "hasCards": 1,
+      "label": "文档",
+      "tab": "documents"
+    },
+    {
+      "viewSelectorPresent": null,
+      "svgUse": 0,
+      "svgCount": 0,
+      "mainTextLen": 148,
+      "hasTable": 0,
+      "hasCards": 1,
+      "label": "成员与 Agents",
+      "tab": "members"
+    },
+    {
+      "viewSelectorPresent": null,
+      "svgUse": 0,
+      "svgCount": 0,
+      "mainTextLen": 259,
+      "hasTable": 0,
+      "hasCards": 4,
+      "label": "设置",
+      "tab": "settings"
+    }
+  ],
+  "screenshots": [
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_overview.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_kanban.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_epics.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_backlog.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_proposals.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_documents.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_members.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_settings.png"
+  ],
+  "issues": [
+    "app.html 无 @if(activeTab()==='members') 块；frontend/src/app 无 members-tab 组件。Story 319 提交日志宣称「8/8」实际只迁移 7 视图（members 遗漏）。点击侧边栏「成员与 Agents」主内容区空白。已关联 Bug 关联 Story 318。"
+  ],
+  "verdict": "FAIL",
+  "console_errors": [],
+  "console_warnings": [
+    {
+      "type": "debug",
+      "text": "[vite] connecting..."
+    },
+    {
+      "type": "debug",
+      "text": "[vite] connected."
+    },
+    {
+      "type": "log",
+      "text": "Angular is running in development mode."
+    }
+  ],
+  "page_errors": []
+}
