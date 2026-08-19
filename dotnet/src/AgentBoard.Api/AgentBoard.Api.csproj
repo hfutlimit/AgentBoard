@@ -19,6 +19,7 @@
     </PackageReference>
     <!-- Override transitive Microsoft.OpenApi 2.0.0 to clear NU1903 (GHSA-v5pm-xwqc-g5wc). -->
     <PackageReference Include="Microsoft.OpenApi" Version="2.0.1" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
   <ItemGroup><!-- S0-1 only references the OpenAPI package.

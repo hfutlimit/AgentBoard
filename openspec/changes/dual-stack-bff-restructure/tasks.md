@@ -151,7 +151,46 @@
 
 ### 下一步
 
-S0-4: OpenAPI 契约冻结（sync-openapi.ps1 + schema-drift-check + NSwag 生成 client）
+---
+
+## S0-4: OpenAPI 契约冻结机制
+
+### 落地清单（2026-08-19）
+
+- [x] `scripts/sync-openapi.ps1` — 拉 FastAPI `/openapi.json` → 写 `dotnet/contracts/openapi-v3.json` + `openapi-v3.sha256`
+- [x] `scripts/schema-drift-check.py` — sha256 校验 + 可选 live 漂移检测
+- [x] `scripts/generate-fastapi-client.ps1` — NSwag 14.5 生成 C# Client
+- [x] `dotnet/contracts/openapi-v3.json` + `.sha256` — 占位（后续 sync-openapi.ps1 替换）
+- [x] `dotnet/src/AgentBoard.Api/Clients/AgentBoardFastApiClient.cs` — NSwag 生成（31KB）
+- [x] `.github/workflows/dotnet-contract-check.yml` — CI 卡口（hash + regen + build + test）
+- [x] `docs/contracts/contract-freeze.md` — 契约冻结规则 + 变更流程
+
+### 验收
+
+- [x] `python scripts/schema-drift-check.py` 0 drift
+- [x] `pwsh scripts/generate-fastapi-client.ps1` 成功生成 31KB Client
+- [x] `dotnet build` 0 errors
+- [x] `dotnet test` 19/19 通过
+- [x] NSwag 默认生成 Newtonsoft.Json 风格（Api 端加 Newtonsoft.Json 13.0.3 编译通过）
+
+### 关键决策
+
+- **NSwag 14.5 是 net9.0 binary**，在 .NET 10 上通过 `DOTNET_ROLL_FORWARD=Major` 跑通
+- **Hash 算法统一为 raw bytes**（Python + PowerShell 一致），不用 sorted-keys
+- **占位 openapi-v3.json 包含真实示例 schema**（LoginRequest / AuthSession / User / Error），后续 sync 直接覆盖
+- **CI workflow** 包含 hash-check + regen-client + build + test；live drift check 暂时注释（CI 没有 FastAPI runtime）
+
+### 踩坑
+
+1. NSwag 14.5 不识 `/generateEqualityComparers:false` 参数
+2. NSwag 默认用 Newtonsoft.Json，Api 项目需显式加 `Newtonsoft.Json 13.0.3` 包
+3. PowerShell `Set-Content -Encoding UTF8` 写带 BOM，python hash 比较失败；改用 `[System.IO.File]::WriteAllText` + `UTF8Encoding($false)`
+4. PowerShell 没有 `?.Source`（nullable 简写）语法，必须分多行
+5. `pwsh` 命令不在 Windows PowerShell 5.1 默认 PATH；脚本里不依赖 pwsh 直接用 `powershell -NoProfile -File` 兜底
+
+### 下一步
+
+S0-5: /api/health + /api/meta 端点实现（1:1 兼容 FastAPI）+ contract test
 
 ## 阶段 1：只读业务迁 .NET（2-3 sprints）
 

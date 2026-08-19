@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: MIT
+name: dotnet contract check
+
+# Fails the build if the committed OpenAPI snapshot / generated FastAPI
+# client doesn't match the live FastAPI /openapi.json, or if the
+# generated client file hasn't been regenerated after a contract change.
+#
+# This workflow is the single source of truth for the dual-stack
+# contract-freeze rules documented in
+# openspec/changes/dual-stack-bff-restructure/design.md §3.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dotnet/contracts/**'
+      - 'dotnet/src/AgentBoard.Api/Clients/**'
+      - 'scripts/**'
+      - '.github/workflows/dotnet-contract-check.yml'
+  pull_request:
+    paths:
+      - 'dotnet/contracts/**'
+      - 'dotnet/src/AgentBoard.Api/Clients/**'
+      - 'scripts/**'
+
+jobs:
+  contract:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install NSwag CLI
+        run: dotnet tool install --global NSwag.ConsoleCore --version 14.5.0
+
+      - name: Add tools to PATH
+        run: echo "$env:USERPROFILE\.dotnet\tools" | Out-File -Append $env:GITHUB_PATH
+
+      - name: Hash-check committed snapshot
+        run: python scripts/schema-drift-check.py
+
+      # The --check-live step requires a running FastAPI. The CI runner
+      # does not host one; the live drift check is a manual operation
+      # performed locally before opening a PR that touches contracts/.
+      # Uncomment + add a FastAPI service to the job when we wire one
+      # into CI in a later stage.
+      #
+      # - name: Start FastAPI + live drift check
+      #   run: |
+      #     docker compose up -d api
+      #     python scripts/schema-drift-check.py --check-live
+      #     docker compose down
+
+      - name: Regenerate FastAPI client
+        run: pwsh scripts/generate-fastapi-client.ps1
+
+      - name: Verify committed client matches regenerated client
+        run: |
+          if (-not (git diff --quiet dotnet/src/AgentBoard.Api/Clients/AgentBoardFastApiClient.cs) -or `
+              -not (git diff --quiet dotnet/contracts/openapi-v3.json) -or `
+              -not (git diff --quiet dotnet/contracts/openapi-v3.sha256)) {
+            Write-Host "::error::Committed client or snapshot does not match freshly-generated output."
+            Write-Host "Run pwsh scripts/sync-openapi.ps1 + pwsh scripts/generate-fastapi-client.ps1 locally and commit the diff."
+            git diff --stat
+            exit 1
+          }
+          Write-Host "Client and snapshot are in sync."
+
+      - name: Build .NET solution
+        run: dotnet build dotnet/AgentBoard.slnx --nologo -c Release
+
+      - name: Run .NET tests
+        run: dotnet test dotnet/AgentBoard.slnx --nologo -c Release --no-build

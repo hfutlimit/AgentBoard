@@ -1,0 +1,131 @@
+# Contract freeze — AgentBoard REST API
+
+> Tracks `openspec/changes/dual-stack-bff-restructure/design.md` §3. The
+> rules below are enforced by `.github/workflows/dotnet-contract-check.yml`.
+
+## TL;DR
+
+FastAPI is the **single source of truth** for the AgentBoard public REST
+contract. The .NET WebAPI must be 1:1 with it; every contract change
+flows FastAPI → committed snapshot → regenerated C# client.
+
+```
+[FastAPI /openapi.json]  →  [dotnet/contracts/openapi-v3.json]
+                              ↓ sha256 pin
+                              ↓
+                            [NSwag]  →  [dotnet/src/AgentBoard.Api/Clients/AgentBoardFastApiClient.cs]
+                              ↓
+                            [dotnet build]  →  [dotnet test]
+                              ↓
+                            [CI gate]
+```
+
+## What's frozen
+
+These attributes are pinned; any change is a breaking contract change
+that requires an RFC under `openspec/changes/<id>/`.
+
+| Attribute | Rule | Source |
+|---|---|---|
+| URL path | Exact match (case, hyphens, version) | `dotnet/contracts/openapi-v3.json` paths |
+| HTTP method | Exact match | `paths.<path>.<method>` |
+| Path / query parameter names | Exact match | OpenAPI `parameters[]` |
+| Request body schema | JSON keys / types / required 1:1 | OpenAPI `requestBody.content` |
+| Response body schema | Same | OpenAPI `responses` |
+| HTTP status codes | Business meaning 1:1 | OpenAPI `responses.<code>` |
+| Error format | `{"detail": "..."}` | FastAPI default; **never** switch to ProblemDetails |
+| Bearer token | `Authorization: Bearer v1.<payload>.<sig>` | `openspec/.../design.md` §7 |
+| API Key format | `abk_<digest>` | Same |
+
+**Known small breakage** (documented, not a violation):
+- `WebSocket /ws/agents` → `SignalR /hubs/agents` lands in stage 2
+  (S2-7). Frontend is updated in lockstep; only this one signal channel
+  is affected.
+
+## Workflow
+
+### 1. Pull a fresh snapshot (local development)
+
+Make sure FastAPI is running (`uvicorn agentboard.api:app --port 8000`
+or `docker compose up -d api`), then:
+
+```powershell
+pwsh scripts/sync-openapi.ps1
+# Writes dotnet/contracts/openapi-v3.json + openapi-v3.sha256
+```
+
+### 2. Sanity-check the diff
+
+```powershell
+git diff dotnet/contracts/openapi-v3.json
+```
+
+If the diff matches your intent, commit. If it contains a surprise
+(additions you didn't make), pause and investigate before committing.
+
+### 3. Regenerate the C# client
+
+```powershell
+pwsh scripts/generate-fastapi-client.ps1
+# Writes dotnet/src/AgentBoard.Api/Clients/AgentBoardFastApiClient.cs
+```
+
+### 4. Commit snapshot + client together
+
+```powershell
+git add dotnet/contracts/ dotnet/src/AgentBoard.Api/Clients/
+git commit -m "chore(contracts): refresh OpenAPI snapshot + client"
+```
+
+The CI workflow fails the build if the committed client file doesn't
+match a freshly-generated one — so step 3 is non-optional.
+
+### 5. (Optional, pre-merge) live drift check
+
+```powershell
+# Requires FastAPI running on AGENTBOARD_FASTAPI_URL
+python scripts/schema-drift-check.py --check-live
+```
+
+This is what CI will run once we wire FastAPI into the GitHub Actions
+runner (currently the workflow only runs the hash check; see the
+commented step in `dotnet-contract-check.yml`).
+
+## Changing the contract
+
+A "contract change" is any modification to:
+
+- A request or response schema
+- A URL path or HTTP method
+- A query / path / header parameter
+- The error envelope shape
+- The Bearer token format
+
+Process:
+
+1. Open an RFC under `openspec/changes/<id>/breaking-contract-change.md`
+   describing the impact, the migration plan, and a deprecation
+   window (minimum two weeks).
+2. Update FastAPI **and** the .NET implementation in lock-step, behind
+   a feature flag if you can't ship both at once.
+3. Bump the contract version (see `design.md` §3.3).
+4. Re-run `sync-openapi.ps1` and `generate-fastapi-client.ps1`, then
+   commit the regenerated artifacts.
+5. Coordinate the rollout with the Angular frontend / external SDK
+   consumers before removing the old field.
+
+**Additive** changes (new optional fields, new endpoints) are also
+considered contract changes — they still require a sync + regen + PR
+review, but the RFC can be lighter weight (no deprecation window).
+
+## Why this matters
+
+- The .NET WebAPI exists to absorb external load and provide strong
+  types for SDK consumers. If the .NET and FastAPI contracts drift,
+  the SDK breaks for downstream users in ways the FastAPI-only
+  `pytest` suite cannot catch.
+- The 1:1 contract is the **only** mechanism that lets the dual-stack
+  run side-by-side during the cutover (stage 2's grayscale).
+- The committed `.sha256` is the cheapest possible drift alarm: any
+  change to `openapi-v3.json` invalidates it, forcing a conscious
+  review.
