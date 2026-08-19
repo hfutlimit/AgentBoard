@@ -31,6 +31,9 @@
       --radius: 12px;
       --radius-sm: 8px;
       --transition: 180ms cubic-bezier(.2, .7, .2, 1);
+      /* design-token additions — Story 316 / P1 */
+      --blue-bright: #64a1ff;
+      --brand-mark-accent: #1fc9a3;
     }
 
     * { box-sizing: border-box; }
@@ -86,7 +89,7 @@
 
     .brand-mark::after {
       inset: 7px 5px 7px 17px;
-      background: #53d6bd;
+      background: var(--brand-mark-accent);
     }
 
     .topbar {
@@ -647,7 +650,7 @@
 
     .project-nav-button:hover { background: rgba(255,255,255,.07); color: #fff; }
     .project-nav-button.active { background: rgba(92,149,255,.16); color: #fff; }
-    .project-nav-button.active::before { position: absolute; top: 11px; bottom: 11px; left: 0; width: 2px; border-radius: 2px; background: #64a1ff; content: ""; }
+    .project-nav-button.active::before { position: absolute; top: 11px; bottom: 11px; left: 0; width: 2px; border-radius: 2px; background: var(--blue-bright); content: ""; }
     .project-nav-button .icon { width: 17px; height: 17px; }
     .nav-count { margin-left: auto; padding: 1px 7px; border-radius: 12px; background: rgba(255,255,255,.1); color: #aebcce; font-size: 10px; font-weight: 700; }
 
@@ -1078,7 +1081,7 @@
 
   <section class="workspace-shell" id="projectWorkspace" aria-hidden="true">
     <header class="topbar workspace-topbar">
-      <button class="back-button" id="backToHome"><svg class="icon"><use href="#i-back"/></svg>全部项目</button>
+      <button class="back-button" id="backToHome" aria-label="返回全部项目"><svg class="icon"><use href="#i-home"/></svg>全部项目</button>
       <span class="top-divider"></span>
       <button class="project-switcher-button" id="projectSwitcherButton" aria-expanded="false">
         <span class="project-monogram" id="workspaceProjectMonogram">AB</span>
