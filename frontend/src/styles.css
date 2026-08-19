@@ -116,6 +116,45 @@
   --radius-full: 9999px;
   --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
   --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px;
+
+  /* ===== Epic 149 / Story 317：原型 v7 navy 令牌体系（与 indigo 共存，不删旧令牌） =====
+     来源：docs/design-prototypes/layout-rebuild/codex/agentboard-home-workspace.html
+     映射契约：docs/design-prototypes/layout-rebuild/codex/MIGRATION.md §3
+     - --brand-* (indigo) 保留，--grad / --violet 保留为品牌资产
+     - 新代码外壳层优先使用 navy 体系 (--navy/--blue/--blue-dark/--blue-soft)
+     - 内部视图暂用既有 indigo 令牌，阶段4 再统一收口 */
+  --canvas: #f4f6f8;
+  --surface-subtle: #f8fafb;
+  --surface-blue: #f4f7ff;
+  --ink: #142033;
+  --ink-soft: #526074;
+  --ink-muted: #7a8798;
+  --line: #dfe5eb;
+  --line-strong: #cfd7e1;
+  --navy: #10243e;
+  --blue: #2864dc;
+  --blue-dark: #174db3;
+  --blue-soft: #eaf1ff;
+  --teal: #087f6a;
+  --teal-soft: #e6f6f2;
+  --amber: #a56507;
+  --amber-soft: #fff4dc;
+  --red-soft: #fff0ef;
+  --shadow-sm-v7: 0 1px 2px rgba(16, 36, 62, .06), 0 4px 12px rgba(16, 36, 62, .04);
+  --shadow-lg-v7: 0 22px 60px rgba(16, 36, 62, .16);
+  --radius-v7: 12px;
+  /* Story 316 / P1 新增 design-token */
+  --blue-bright: #64a1ff;
+  --brand-mark-accent: #1fc9a3;
+  /* navy 体系别名重定向（新外壳优先用） */
+  --primary-v7: var(--blue);
+  --primary-hover-v7: var(--blue-dark);
+  /* 侧边栏 navy 深色文本（workspace-shell 专用） */
+  --sidebar-nav-text: #aebcce;
+  --sidebar-nav-text-hover: #fff;
+  --sidebar-nav-active-bg: rgba(92, 149, 255, .16);
+  --sidebar-label-text: #768ba6;
+  --sidebar-border: rgba(255, 255, 255, .09);
 }
 
 /* 深色主题 */
@@ -144,6 +183,34 @@
   --status-verifying-text: #67e8f9;
   --status-done-bg: #064e3b;
   --status-done-text: #6ee7b7;
+
+  /* ===== Epic 149 / Story 317：navy 令牌暗色版本 =====
+     原型 v7 为 light-only，这里为 navy 令牌补暗色版本，
+     保证暗色主题下外壳层（topbar/sidebar/workspace-shell）对比度达标 */
+  --canvas: #0b1220;
+  --surface-subtle: #162032;
+  --surface-blue: #0f1a2e;
+  --ink: #e6edf6;
+  --ink-soft: #aebcce;
+  --ink-muted: #768ba6;
+  --line: #1e293b;
+  --line-strong: #334155;
+  --navy: #0a1726;
+  --blue: #3b7ae8;
+  --blue-dark: #2864dc;
+  --blue-soft: #0f1a2e;
+  --teal: #2dd4bf;
+  --teal-soft: #042f2e;
+  --amber: #fbbf24;
+  --amber-soft: #2a1c08;
+  --red-soft: #2a0f0f;
+  --blue-bright: #7ab8ff;
+  --brand-mark-accent: #2dd4bf;
+  --sidebar-nav-text: #768ba6;
+  --sidebar-nav-text-hover: #e6edf6;
+  --sidebar-nav-active-bg: rgba(123, 168, 255, .18);
+  --sidebar-label-text: #5b6f8a;
+  --sidebar-border: rgba(255, 255, 255, .06);
 }
 
 /* ========== Base ========== */
@@ -3131,3 +3198,319 @@ details.form-section > form { padding: 16px; }
 @media(max-width:800px){.dashboard-analytics{padding:18px}.analytics-grid{grid-template-columns:1fr}.analytics-card--activity{grid-column:auto}}
 @media(max-width:520px){.analytics-heading{align-items:flex-start;flex-direction:column;gap:8px}.status-chart-layout{flex-direction:column}.project-progress-row{grid-template-columns:minmax(90px,1fr) minmax(90px,1fr) 34px;gap:8px}.activity-chart-wrap{overflow-x:auto}.activity-chart,.activity-axis{min-width:520px}}
 .user-dropdown-item kbd{margin-left:auto;padding:2px 6px;color:var(--text-3);background:var(--surface-2);border:1px solid var(--border);border-radius:5px;box-shadow:none;font-size:9px;line-height:1.4}
+
+/* =====================================================================
+   Epic 149 / Story 317 —— 原型 v7 外壳层样式（Home Shell + Workspace Shell）
+   来源：docs/design-prototypes/layout-rebuild/codex/agentboard-home-workspace.html
+   契约：docs/design-prototypes/layout-rebuild/codex/MIGRATION.md
+   说明：仅外壳层（topbar/sidebar 两级 Shell）应用 navy 体系，
+        内部视图保留既有 indigo 令牌，阶段4 再统一收口。
+   ===================================================================== */
+
+/* ----- SVG symbol 通用 icon 类 ----- */
+.icon-v7 {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+  flex: 0 0 auto;
+  display: block;
+}
+
+/* ----- brand-mark 双圆（原型 .brand-mark） ----- */
+.brand-mark-v7 {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  overflow: hidden;
+  border-radius: 9px;
+  background: var(--navy);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,.12);
+  flex: 0 0 auto;
+}
+.brand-mark-v7::before,
+.brand-mark-v7::after {
+  position: absolute;
+  content: "";
+  border-radius: 50%;
+}
+.brand-mark-v7::before {
+  inset: 6px 13px 6px 6px;
+  background: #fff;
+}
+.brand-mark-v7::after {
+  inset: 7px 5px 7px 17px;
+  background: var(--brand-mark-accent);
+}
+
+/* ----- Home Shell 顶部 home-nav（项目/Agents 切换） ----- */
+.home-nav-v7 {
+  display: flex;
+  align-self: stretch;
+  justify-content: center;
+  gap: 6px;
+}
+.home-nav-button-v7 {
+  position: relative;
+  height: 64px;
+  padding: 0 18px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-soft);
+  font-weight: 650;
+  font-size: 14px;
+  cursor: pointer;
+  transition: color 180ms cubic-bezier(.2,.7,.2,1);
+}
+.home-nav-button-v7::after {
+  position: absolute;
+  right: 18px;
+  bottom: -1px;
+  left: 18px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--blue);
+  content: "";
+  opacity: 0;
+  transform: scaleX(.5);
+  transition: opacity 180ms cubic-bezier(.2,.7,.2,1), transform 180ms cubic-bezier(.2,.7,.2,1);
+}
+.home-nav-button-v7:hover { color: var(--navy); }
+.home-nav-button-v7.active { color: var(--blue-dark); }
+.home-nav-button-v7.active::after { opacity: 1; transform: scaleX(1); }
+
+/* ----- Workspace Shell 返回按钮 ----- */
+.back-button-v7 {
+  display: inline-flex;
+  height: 38px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-sm, 8px);
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  transition: background 180ms cubic-bezier(.2,.7,.2,1), color 180ms cubic-bezier(.2,.7,.2,1);
+}
+.back-button-v7:hover { background: var(--surface-subtle); color: var(--navy); }
+.back-button-v7 .icon-v7 { width: 17px; height: 17px; }
+
+.top-divider-v7 { width: 1px; height: 24px; margin: 0 12px; background: var(--line); flex: 0 0 auto; }
+
+/* ----- Workspace Shell 项目切换器 ----- */
+.project-switcher-button-v7 {
+  display: flex;
+  min-width: 210px;
+  height: 42px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm, 8px);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 180ms cubic-bezier(.2,.7,.2,1), background 180ms cubic-bezier(.2,.7,.2,1);
+}
+.project-switcher-button-v7:hover,
+.project-switcher-button-v7[aria-expanded="true"] {
+  border-color: var(--line);
+  background: var(--surface-subtle);
+}
+.project-switcher-copy-v7 { min-width: 0; flex: 1; }
+.project-switcher-copy-v7 small {
+  display: block;
+  color: var(--ink-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.project-switcher-copy-v7 strong {
+  display: block;
+  overflow: hidden;
+  color: var(--navy);
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-switcher-button-v7 > .icon-v7 { width: 15px; height: 15px; color: var(--ink-muted); }
+
+/* 项目 monogram（原型 .project-monogram） */
+.project-monogram-v7 {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--navy);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 760;
+  letter-spacing: -.02em;
+  flex: 0 0 auto;
+}
+.project-monogram-v7.green { background: #087765; }
+.project-monogram-v7.blue { background: #315eaa; }
+.project-monogram-v7.steel { background: #56667b; }
+.project-monogram-v7.sm { width: 38px; height: 38px; }
+
+/* ----- Workspace Shell 深 navy 侧边栏 ----- */
+.workspace-body-v7 {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: 218px minmax(0, 1fr);
+}
+.project-sidebar-v7 {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  border-right: 1px solid var(--sidebar-border);
+  background: var(--navy);
+  color: #d4deeb;
+}
+.sidebar-project-v7 { padding: 22px 18px 18px; border-bottom: 1px solid var(--sidebar-border); }
+.sidebar-project-v7 .project-monogram-v7 {
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(255,255,255,.2);
+  background: rgba(255,255,255,.1);
+}
+.sidebar-project-name-v7 {
+  margin-top: 12px;
+  overflow: hidden;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-project-meta-v7 { margin-top: 3px; color: #8fa1b8; font-size: 11px; }
+.sidebar-label-v7 {
+  padding: 20px 18px 8px;
+  color: var(--sidebar-label-text);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+}
+.project-nav-v7 { display: grid; gap: 3px; padding: 0 10px; }
+.project-nav-button-v7 {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 42px;
+  align-items: center;
+  gap: 11px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--sidebar-nav-text);
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 550;
+  transition: background 180ms cubic-bezier(.2,.7,.2,1), color 180ms cubic-bezier(.2,.7,.2,1);
+}
+.project-nav-button-v7:hover { background: rgba(255,255,255,.07); color: var(--sidebar-nav-text-hover); }
+.project-nav-button-v7.active { background: var(--sidebar-nav-active-bg); color: #fff; }
+.project-nav-button-v7.active::before {
+  position: absolute;
+  top: 11px;
+  bottom: 11px;
+  left: 0;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--blue-bright);
+  content: "";
+}
+.project-nav-button-v7 .icon-v7 { width: 17px; height: 17px; }
+.nav-count-v7 {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.1);
+  color: var(--sidebar-nav-text);
+  font-size: 10px;
+  font-weight: 700;
+}
+.sidebar-foot-v7 { margin-top: auto; padding: 16px 12px; border-top: 1px solid var(--sidebar-border); }
+.health-line-v7 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 10px;
+  color: #91a3b9;
+  font-size: 11px;
+}
+.health-pulse-v7 {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #55d4b8;
+  box-shadow: 0 0 0 4px rgba(85,212,184,.12);
+  flex: 0 0 auto;
+}
+
+/* ----- Home Shell 主内容区 ----- */
+.home-main-v7 {
+  min-width: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 24px 28px 36px;
+}
+.home-content-v7 { width: min(1370px, 100%); margin: 0 auto; }
+
+/* ----- 响应式：窄屏隐藏 workspace 侧边栏文字，仅留 icon ----- */
+@media (max-width: 1160px) {
+  .workspace-body-v7 { grid-template-columns: 64px minmax(0, 1fr); }
+  .project-nav-button-v7 span:not(.nav-count-v7),
+  .sidebar-project-name-v7,
+  .sidebar-project-meta-v7,
+  .sidebar-label-v7,
+  .health-line-v7 span:last-child { display: none; }
+  .project-nav-button-v7 { justify-content: center; padding: 0; }
+  .sidebar-project-v7 { text-align: center; }
+}
+@media (max-width: 840px) {
+  .workspace-body-v7 { grid-template-columns: 1fr; }
+  .project-sidebar-v7 { display: none; }
+  .home-nav-v7 { display: none; }
+}
+
+/* ----- 暗色主题下 navy 侧边栏深化（令牌已覆盖，此处补组件级微调） ----- */
+[data-theme="dark"] .project-sidebar-v7 { box-shadow: inset -1px 0 0 var(--sidebar-border); }
+[data-theme="dark"] .brand-mark-v7 { background: var(--navy); }
+
+/* Epic 149 / Story 317: project-sidebar-v7 作为 .layout flex 子项的布局适配 */
+.project-sidebar-v7 {
+  width: 218px;
+  min-width: 218px;
+  height: calc(100vh - var(--topbar-h));
+  position: sticky;
+  top: var(--topbar-h);
+  overflow-y: auto;
+  flex: 0 0 auto;
+  transition: width .25s, min-width .25s;
+}
+.project-sidebar-v7 .sidebar-project-v7 .project-monogram-v7 {
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(255,255,255,.2);
+  background: rgba(255,255,255,.1);
+}
+@media (max-width: 1160px) {
+  .project-sidebar-v7 { width: 64px; min-width: 64px; }
+}
+@media (max-width: 840px) {
+  .project-sidebar-v7 { display: none; }
+}
