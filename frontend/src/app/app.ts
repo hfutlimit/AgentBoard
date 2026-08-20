@@ -2681,6 +2681,11 @@ export class App implements OnInit, OnDestroy {
       this.isAdmin.set(result.is_admin ?? false);
       this.authVisible.set(false);
       this.notify(this.authMode() === 'register' ? '注册成功，已登录' : '登录成功');
+      // Epic 151 / Story 326 / Task 1298: 首次登录 Agent 加载竞态修复。
+      // ngOnInit 调 validateAuth + loadAgents 同步：首次访问无 token → loadAgents
+      // 失败（prod REQUIRE_AUTH=1 时 401 / dev mode 拿空数据），authenticate 成功
+      // 后必须补 loadAgents，否则 members tab / 侧栏「X 个 Agents 在线」= 0。
+      void this.loadAgents();
       if (this.router.url.startsWith('/login')) {
         await this.router.navigateByUrl('/');
       } else {
