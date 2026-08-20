@@ -357,6 +357,7 @@
             [agents]="agents()"
             [selected]="homeSelectedFallback()"
             [me]="me()"
+            [visible]="view() === 'home'"
             (selectProject)="selectHomeProject($event)"
             (newProject)="openCreate('project')"
             (enterWorkspace)="goProject($event)">
