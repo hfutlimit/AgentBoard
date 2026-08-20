@@ -1291,6 +1291,10 @@ export class App implements OnInit, OnDestroy {
     window.addEventListener('unhandledrejection', this.handleUnhandledRejection);
     // 启动时校验已有 token，失败则清除并显示登录
     void this.validateAuth();
+    // Epic 149 Bug #1290 follow-up: 工作台首次进入就拉全局 Agent 池，
+    // 避免侧边栏「X 个 Agents 在线」和 members tab 显示 0
+    // （之前仅在用户主动进 Agents 池视图时才加载，workspace shell 始终 0）
+    void this.loadAgents();
     this.routeSub = this.router.events
       .pipe(filter((event) => event instanceof NavigationEnd))
       .subscribe(() => {
