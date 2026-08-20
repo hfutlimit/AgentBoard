@@ -1226,6 +1226,61 @@ export class App implements OnInit, OnDestroy {
     this.showLogin();
     this.notify('登录已失效，请重新登录', 'error');
   };
+  // Story 329 / Task 1320：全局快捷键 keydown 监听（ngOnDestroy 移除，避免泄漏）
+  // 原内联匿名函数 ngOnDestroy 拿不到引用 → 提到字段
+  private readonly handleGlobalKeydown = (e: KeyboardEvent): void => {
+    // Epic 67 v5.4: Ctrl/Cmd+K 切换命令面板（全局，优先于其它快捷键）
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      this.togglePalette();
+      return;
+    }
+    if (this.confirmation()) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        this.cancelConfirmation();
+      }
+      return;
+    }
+    if (this.isInputFocused()) return;
+    if (e.key === '?') {
+      e.preventDefault();
+      this.toggleShortcuts();
+    }
+    // Task 711: Ctrl+A 全选当前列表任务
+    if (e.ctrlKey && e.key === 'a') {
+      e.preventDefault();
+      this.selectAllTasks();
+    }
+    // Task 711: Del 删除选中任务
+    if (e.key === 'Delete' && this.selectedTasks().size > 0) {
+      e.preventDefault();
+      this.bulkDelete();
+    }
+    // Task 815: '/' 快捷键聚焦搜索框
+    if (e.key === '/') {
+      e.preventDefault();
+      const searchInput = document.getElementById('global-search') as HTMLInputElement;
+      if (searchInput) searchInput.focus();
+    }
+    // Task 817: ←→ 方向键导航列表
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      this.handleArrowNav(e.key === 'ArrowLeft' ? -1 : 1);
+    }
+    // Task 817: Enter 键确认导航选择
+    if (e.key === 'Enter' && this.arrowNavIndex() >= 0) {
+      e.preventDefault();
+      this.confirmArrowNav();
+    }
+    // Task 605: 任务详情页快捷键 c/d/x
+    if (this.task() && (e.key === 'c' || e.key === 'd' || e.key === 'x')) {
+      e.preventDefault();
+      if (e.key === 'c') this.quickAdvanceStatus();
+      else if (e.key === 'd') this.quickCompleteTask();
+      else if (e.key === 'x') this.quickDeleteTask();
+    }
+  };
   // Task 402: 网络离线检测
   // Epic 21 Story 21.4: 优化离线状态提示
   private readonly handleOnline = (): void => {
@@ -1353,59 +1408,8 @@ export class App implements OnInit, OnDestroy {
     // Epic 26 Task 702: 加载搜索历史记录
     this.loadSearchHistory();
     // Task 716/711/815/817: 全局快捷键 - '?' 键打开快捷键帮助，Ctrl+A 全选，Del 删除选中，/ 聚焦搜索，←→ 导航
-    window.addEventListener('keydown', (e: KeyboardEvent) => {
-      // Epic 67 v5.4: Ctrl/Cmd+K 切换命令面板（全局，优先于其它快捷键）
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        this.togglePalette();
-        return;
-      }
-      if (this.confirmation()) {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          this.cancelConfirmation();
-        }
-        return;
-      }
-      if (this.isInputFocused()) return;
-      if (e.key === '?') {
-        e.preventDefault();
-        this.toggleShortcuts();
-      }
-      // Task 711: Ctrl+A 全选当前列表任务
-      if (e.ctrlKey && e.key === 'a') {
-        e.preventDefault();
-        this.selectAllTasks();
-      }
-      // Task 711: Del 删除选中任务
-      if (e.key === 'Delete' && this.selectedTasks().size > 0) {
-        e.preventDefault();
-        this.bulkDelete();
-      }
-      // Task 815: '/' 快捷键聚焦搜索框
-      if (e.key === '/') {
-        e.preventDefault();
-        const searchInput = document.getElementById('global-search') as HTMLInputElement;
-        if (searchInput) searchInput.focus();
-      }
-      // Task 817: ←→ 方向键导航列表
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-        e.preventDefault();
-        this.handleArrowNav(e.key === 'ArrowLeft' ? -1 : 1);
-      }
-      // Task 817: Enter 键确认导航选择
-      if (e.key === 'Enter' && this.arrowNavIndex() >= 0) {
-        e.preventDefault();
-        this.confirmArrowNav();
-      }
-      // Task 605: 任务详情页快捷键 c/d/x
-      if (this.task() && (e.key === 'c' || e.key === 'd' || e.key === 'x')) {
-        e.preventDefault();
-        if (e.key === 'c') this.quickAdvanceStatus();
-        else if (e.key === 'd') this.quickCompleteTask();
-        else if (e.key === 'x') this.quickDeleteTask();
-      }
-    });
+    // 改用 handleGlobalKeydown 字段以便 ngOnDestroy removeEventListener
+    window.addEventListener('keydown', this.handleGlobalKeydown);
   }
 
   // Task 716: 判断当前焦点是否在输入元素上
@@ -1593,6 +1597,7 @@ export class App implements OnInit, OnDestroy {
     window.removeEventListener('offline', this.handleOffline);
     window.removeEventListener('error', this.handleGlobalError);
     window.removeEventListener('unhandledrejection', this.handleUnhandledRejection);
+    window.removeEventListener('keydown', this.handleGlobalKeydown);  // Story 329 / Task 1320
     this.colorScheme?.removeEventListener('change', this.handleColorSchemeChange);
     this.routeSub?.unsubscribe();
     if (this.toastTimer) clearTimeout(this.toastTimer);
