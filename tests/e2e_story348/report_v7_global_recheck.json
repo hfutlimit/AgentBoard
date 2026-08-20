@@ -1,0 +1,246 @@
+{
+  "page_recheck": [
+    {
+      "path": "/epics",
+      "final_text_len": 10,
+      "h1": "",
+      "is_404": true,
+      "overflow_px": 0,
+      "verdict": "404"
+    },
+    {
+      "path": "/stories",
+      "final_text_len": 10,
+      "h1": "",
+      "is_404": true,
+      "overflow_px": 0,
+      "verdict": "404"
+    },
+    {
+      "path": "/tasks",
+      "final_text_len": 10,
+      "h1": "",
+      "is_404": true,
+      "overflow_px": 0,
+      "verdict": "404"
+    },
+    {
+      "path": "/bugs",
+      "final_text_len": 10,
+      "h1": "",
+      "is_404": true,
+      "overflow_px": 0,
+      "verdict": "404"
+    },
+    {
+      "path": "/documents",
+      "final_text_len": 1304,
+      "h1": "项目中心\n11",
+      "is_404": false,
+      "overflow_px": 0,
+      "verdict": "OK"
+    },
+    {
+      "path": "/dashboard",
+      "final_text_len": 10,
+      "h1": "",
+      "is_404": true,
+      "overflow_px": 0,
+      "verdict": "404"
+    },
+    {
+      "path": "/settings",
+      "final_text_len": 650,
+      "h1": "个人设置",
+      "is_404": false,
+      "overflow_px": 0,
+      "verdict": "OK"
+    },
+    {
+      "path": "/agents",
+      "final_text_len": 1462,
+      "h1": "Agent 池\n7",
+      "is_404": false,
+      "overflow_px": 0,
+      "verdict": "OK"
+    },
+    {
+      "path": "/proposals",
+      "final_text_len": 1304,
+      "h1": "项目中心\n11",
+      "is_404": false,
+      "overflow_px": 0,
+      "verdict": "OK"
+    }
+  ],
+  "sidebar_nav": [
+    {
+      "href": "/notifications",
+      "text": ""
+    },
+    {
+      "href": "/project/3",
+      "text": "进入工作台"
+    },
+    {
+      "href": "/",
+      "text": "首页"
+    },
+    {
+      "href": "/projects",
+      "text": "项目"
+    },
+    {
+      "href": "/projects",
+      "text": "工作台"
+    },
+    {
+      "href": "/notifications",
+      "text": "通知"
+    },
+    {
+      "href": "/settings",
+      "text": "我的"
+    }
+  ],
+  "theme": {
+    "all_buttons": [
+      {
+        "text": "项目",
+        "title": "",
+        "aria": "",
+        "cls": "hs-tab-button active",
+        "hasSvg": false,
+        "rect": "60x37"
+      },
+      {
+        "text": "Agents",
+        "title": "",
+        "aria": "",
+        "cls": "hs-tab-button",
+        "hasSvg": false,
+        "rect": "76x34"
+      },
+      {
+        "text": "A\nadmin",
+        "title": "",
+        "aria": "",
+        "cls": "user-button-v7",
+        "hasSvg": true,
+        "rect": "109x36"
+      },
+      {
+        "text": "新建项目",
+        "title": "",
+        "aria": "",
+        "cls": "master-create-button-v7",
+        "hasSvg": true,
+        "rect": "87x30"
+      },
+      {
+        "text": "AGB\nAgentBoa",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7 active",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "SBD\nSmartBid",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "ZPMC\nZPMC\nZP",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "DP\nDevPilot\n",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "RESUME\nResum",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "DEV\nDevPolit",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "KV\nKnowledge",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "m\nmcp\n— · Me",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "测\n测试项目\n— · M",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "TP\nTest Proj",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "CHESS\nChessP",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "",
+        "title": "项目操作",
+        "aria": "项目操作",
+        "cls": "btn-ghost-v7 icon-only-v7",
+        "hasSvg": true,
+        "rect": "36x36"
+      }
+    ],
+    "candidates": [],
+    "before": "light",
+    "toggle_selector": null,
+    "toggled": false
+  },
+  "create_dialog": {
+    "button_found": true,
+    "opened": false
+  }
+}
