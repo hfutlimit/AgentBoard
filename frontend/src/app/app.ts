@@ -7850,7 +7850,8 @@ export class App implements OnInit, OnDestroy {
   // 消除 ERR_NAME_NOT_RESOLVED 控制台错误（本地文件不依赖外网）
   private _docMermaidTried = 0; // 0=local, 1=jsdelivr, 2=unpkg, 3=baomitu
   private static readonly MERMAID_SOURCES = [
-    '/static/mermaid.min.js',                        // 本地（首选，无网络依赖）
+    '/mermaid.min.js',                               // 本地（首选，无网络依赖；ng serve / web_app.py 都直接服务）
+    '/static/mermaid.min.js',                        // 兼容：老部署可能仍有 nested static/ 路径
     'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js',
     'https://unpkg.com/mermaid@11/dist/mermaid.min.js',
     'https://lib.baomitu.com/mermaid/11.4.0/mermaid.min.js',
