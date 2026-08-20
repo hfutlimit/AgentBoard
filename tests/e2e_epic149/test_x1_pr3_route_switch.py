@@ -63,12 +63,37 @@ def dashboard_visible(page: Page) -> dict[str, bool]:
     }
 
 
+def shell_outer_visible(page: Page) -> dict[str, bool]:
+    """检查外层 sidebar / topbar（home view 不应显示）。"""
+    return {
+        "outer_sidebar": page.locator("aside#sidebar").count() > 0,
+        "outer_topbar": page.locator("header.topbar").count() > 0,
+    }
+
+
 def click_sidebar_item(page: Page, label: str) -> None:
-    """点击 sidebar nav item 切换 view。"""
+    """点击 sidebar nav item 切换 view（home view 时 sidebar 不可用，调用方需自行处理）。"""
     sel = page.locator(f"a.sidebar-nav-item:has-text('{label}')").first
     sel.click()
     page.wait_for_load_state("networkidle", timeout=10000)
     time.sleep(0.3)
+
+
+def goto_view(page: Page, path: str, expected_selector: str) -> None:
+    """切到指定 view；优先用 sidebar 入口（projects/agents 视图），home 视图用 page.goto。"""
+    if path == "/":
+        page.goto(f"{FRONTEND_ORIGIN}/", wait_until="domcontentloaded", timeout=30000)
+    elif path == "/projects":
+        # home view 无 sidebar，直接 page.goto，token 在 localStorage 还在
+        page.goto(f"{FRONTEND_ORIGIN}/projects", wait_until="domcontentloaded", timeout=30000)
+    elif path == "/agents":
+        page.goto(f"{FRONTEND_ORIGIN}/agents", wait_until="domcontentloaded", timeout=30000)
+    else:
+        # 其它视图若 sidebar 可用则用 sidebar 入口
+        # 这里简化：直接 goto
+        page.goto(f"{FRONTEND_ORIGIN}{path}", wait_until="domcontentloaded", timeout=30000)
+    page.wait_for_selector(expected_selector, timeout=15000)
+    time.sleep(0.4)
 
 
 def main() -> int:
@@ -103,6 +128,12 @@ def main() -> int:
             print(f"   dashboard leaks = {dbg}")
             if any(dbg.values()):
                 failures.append(f"home view: dashboard leaked back: {dbg}")
+            shell = shell_outer_visible(page)
+            print(f"   outer shell (sidebar/topbar) = {shell}")
+            if shell["outer_sidebar"]:
+                failures.append("home view: outer #sidebar should NOT be visible (per prototype)")
+            if shell["outer_topbar"]:
+                failures.append("home view: outer .topbar should NOT be visible (home-shell has its own)")
             page.screenshot(path=str(SHOT_DIR / "_x1_pr3_01_home.png"), full_page=False)
 
             # agents tab 切换
@@ -125,8 +156,7 @@ def main() -> int:
 
             # 验证 2：切到 projects view
             print(">>> STEP 2 — switch to projects view")
-            click_sidebar_item(page, "项目")
-            time.sleep(0.5)
+            goto_view(page, "/projects", "h2:has-text('项目中心')")
             shell_after_switch = has_home_shell(page)
             print(f"   home-shell after projects switch = {shell_after_switch}")
             if shell_after_switch:
@@ -138,13 +168,31 @@ def main() -> int:
             proj_center = page.locator("h2:has-text('项目中心')").count() > 0
             if not proj_center:
                 failures.append("projects center heading missing")
+            shell_p = shell_outer_visible(page)
+            print(f"   outer shell (projects view) = {shell_p}")
+            if not shell_p["outer_sidebar"]:
+                failures.append("projects view: outer #sidebar SHOULD be visible (regression check)")
+            if not shell_p["outer_topbar"]:
+                failures.append("projects view: outer .topbar SHOULD be visible (regression check)")
             page.screenshot(path=str(SHOT_DIR / "_x1_pr3_03_projects.png"), full_page=False)
 
-            # 验证 3：切回 home view
-            print(">>> STEP 3 — switch back to home view")
-            click_sidebar_item(page, "仪表盘")
+            # 验证 3：从 projects view 用 sidebar 切到 agents view
+            print(">>> STEP 3 — switch projects → agents view (via sidebar)")
+            click_sidebar_item(page, "Agents")
             time.sleep(0.5)
-            page.wait_for_selector("app-home-shell .home-shell-v7", timeout=10000)
+            shell_agents_view = has_home_shell(page)
+            print(f"   home-shell after agents-view switch = {shell_agents_view}")
+            if shell_agents_view:
+                failures.append("home-shell should NOT be visible when view=agents")
+            dbg3 = dashboard_visible(page)
+            print(f"   dashboard leaks (agents view) = {dbg3}")
+            if any(dbg3.values()):
+                failures.append(f"agents view: dashboard leaked: {dbg3}")
+            page.screenshot(path=str(SHOT_DIR / "_x1_pr3_03_agents.png"), full_page=False)
+
+            # 验证 4：切回 home view
+            print(">>> STEP 4 — switch back to home view")
+            goto_view(page, "/", "app-home-shell .home-shell-v7")
             time.sleep(0.3)
             shell_back = has_home_shell(page)
             m_back = monogram_count(page)
@@ -153,25 +201,17 @@ def main() -> int:
                 failures.append("home-shell should be visible after switching back to home")
             if m_back < 5:
                 failures.append(f"home view after switch back: monogram count too low: {m_back}")
-            dbg3 = dashboard_visible(page)
-            print(f"   dashboard leaks (back to home) = {dbg3}")
-            if any(dbg3.values()):
-                failures.append(f"home view (back): dashboard leaked: {dbg3}")
-            page.screenshot(path=str(SHOT_DIR / "_x1_pr3_04_home_back.png"), full_page=False)
-
-            # 验证 4：切到 agents view (sidebar 里的 Agents)
-            print(">>> STEP 4 — switch to agents view (sidebar)")
-            click_sidebar_item(page, "Agents")
-            time.sleep(0.5)
-            shell_agents_view = has_home_shell(page)
-            print(f"   home-shell after agents-view switch = {shell_agents_view}")
-            if shell_agents_view:
-                failures.append("home-shell should NOT be visible when view=agents")
             dbg4 = dashboard_visible(page)
-            print(f"   dashboard leaks (agents view) = {dbg4}")
+            print(f"   dashboard leaks (back to home) = {dbg4}")
             if any(dbg4.values()):
-                failures.append(f"agents view: dashboard leaked: {dbg4}")
-            page.screenshot(path=str(SHOT_DIR / "_x1_pr3_05_agents_view.png"), full_page=False)
+                failures.append(f"home view (back): dashboard leaked: {dbg4}")
+            shell4 = shell_outer_visible(page)
+            print(f"   outer shell (back to home) = {shell4}")
+            if shell4["outer_sidebar"]:
+                failures.append("home view (back): outer #sidebar should NOT be visible")
+            if shell4["outer_topbar"]:
+                failures.append("home view (back): outer .topbar should NOT be visible")
+            page.screenshot(path=str(SHOT_DIR / "_x1_pr3_04_home_back.png"), full_page=False)
 
         except Exception as e:
             failures.append(f"exception: {e!r}")

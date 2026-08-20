@@ -27,7 +27,7 @@
   </div>
 }
 
-@if (view() !== 'document') {
+@if (view() !== 'document' && view() !== 'home') {
 <header class="topbar">
   <div class="topbar-inner">
     <div class="topbar-left">
@@ -193,7 +193,7 @@
 }
 
 <div class="layout" [class.doc-mode]="view() === 'document'">
-  @if (sidebarOpen() && view() !== 'document' && view() !== 'project' && view() !== 'epic' && view() !== 'story' && view() !== 'task' && view() !== 'sprint') {
+  @if (sidebarOpen() && view() !== 'document' && view() !== 'home' && view() !== 'project' && view() !== 'epic' && view() !== 'story' && view() !== 'task' && view() !== 'sprint') {
     <aside id="sidebar" class="sidebar" [class.sidebar--collapsed]="sidebarCollapsed()">
       <div class="sidebar-workspace">
         <span class="sidebar-workspace-kicker">WORKSPACE</span>
