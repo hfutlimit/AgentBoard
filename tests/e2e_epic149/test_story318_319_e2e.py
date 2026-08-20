@@ -204,7 +204,7 @@ def main():
                   % (tab, info["managedListCount"], info["svgUse"], info["mainTextLen"]))
         rep318["checks"]["managed_list_usage"] = ml_result
         # ManagedList 期望在 epics/proposals/documents 至少出现；backlog 合并 workitems 也应走 managed-list
-        for tab in ["epics", "proposals", "documents", "backlog"]:
+        for tab in ["epics", "proposals", "documents", "backlog", "members"]:
             if ml_result.get(tab, {}).get("managedListCount", 0) == 0:
                 rep318["issues"].append("列表视图 %s 未检测到 app-managed-list 组件" % tab)
 
@@ -289,7 +289,12 @@ def main():
             shot = os.path.join(SHOT_319, "view_%s.png" % tab)
             page.screenshot(path=shot, full_page=False)
             rep319["screenshots"].append(shot)
-            ok = info["mainTextLen"] > 50 and (sel is None or info["viewSelectorPresent"])
+            if tab == "members":
+                # members 视图：持久 tab strip 约 146 字符，真实成员列表应远超；
+                # 严格判定（避免被持久页头拉高误判通过）：主内容区文本须远超持久条。
+                ok = info["mainTextLen"] > 300
+            else:
+                ok = info["mainTextLen"] > 50 and (sel is None or info["viewSelectorPresent"])
             print("[319] view=%s textLen=%s svgUse=%s selector(%s)=%s -> %s"
                   % (tab, info["mainTextLen"], info["svgUse"], sel, info["viewSelectorPresent"], "OK" if ok else "THIN"))
             if not ok:

@@ -1,0 +1,152 @@
+{
+  "story": 320,
+  "title": "阶段4 色板收口：indigo→navy 统一 + 删旧令牌 + 补暗色主题",
+  "project_id": 3,
+  "epic_id": 149,
+  "web": "http://127.0.0.1:4200",
+  "api": "http://124.220.44.12",
+  "started_at": "2026-08-20T09:06:55",
+  "checks": {
+    "load_ms": 725,
+    "shell_palette": {
+      "sidebarBg": "rgb(16, 36, 62)",
+      "sidebarBgRgb": [
+        16,
+        36,
+        62
+      ],
+      "brandColor": "rgb(23, 32, 51)"
+    },
+    "indigo_scan_light": {
+      "scanned": 315,
+      "indigo_hits": [],
+      "chart_hits": [],
+      "indigo_count": 0
+    },
+    "dark_theme": {
+      "light": {
+        "bodyClass": "",
+        "htmlClass": "",
+        "cardBg": "rgb(255, 255, 255)",
+        "cardBgVar": "#ffffff"
+      },
+      "dark": {
+        "bodyClass": "",
+        "htmlClass": "",
+        "cardBg": "rgb(23, 36, 54)",
+        "cardBgVar": "#172436",
+        "bodyBg": "rgb(15, 25, 40)"
+      },
+      "dark_active": true,
+      "light_lum": 765,
+      "dark_lum": 113
+    }
+  },
+  "views": [
+    {
+      "viewSelectorPresent": true,
+      "svgUse": 0,
+      "mainTextLen": 590,
+      "hasTable": 0,
+      "hasCards": 6,
+      "label": "概览",
+      "tab": "overview"
+    },
+    {
+      "viewSelectorPresent": true,
+      "svgUse": 0,
+      "mainTextLen": 248,
+      "hasTable": 0,
+      "hasCards": 1,
+      "label": "看板",
+      "tab": "kanban"
+    },
+    {
+      "viewSelectorPresent": true,
+      "svgUse": 0,
+      "mainTextLen": 933,
+      "hasTable": 0,
+      "hasCards": 1,
+      "label": "Epics",
+      "tab": "epics"
+    },
+    {
+      "viewSelectorPresent": true,
+      "svgUse": 0,
+      "mainTextLen": 1150,
+      "hasTable": 0,
+      "hasCards": 1,
+      "label": "工作项",
+      "tab": "backlog"
+    },
+    {
+      "viewSelectorPresent": true,
+      "svgUse": 0,
+      "mainTextLen": 356,
+      "hasTable": 0,
+      "hasCards": 1,
+      "label": "提案",
+      "tab": "proposals"
+    },
+    {
+      "viewSelectorPresent": true,
+      "svgUse": 0,
+      "mainTextLen": 2886,
+      "hasTable": 0,
+      "hasCards": 1,
+      "label": "文档",
+      "tab": "documents"
+    },
+    {
+      "viewSelectorPresent": null,
+      "svgUse": 0,
+      "mainTextLen": 148,
+      "hasTable": 0,
+      "hasCards": 1,
+      "label": "成员与 Agents",
+      "tab": "members"
+    },
+    {
+      "viewSelectorPresent": null,
+      "svgUse": 0,
+      "mainTextLen": 259,
+      "hasTable": 0,
+      "hasCards": 4,
+      "label": "设置",
+      "tab": "settings"
+    }
+  ],
+  "screenshots": [
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\320\\01_shell_light.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\320\\02_shell_dark.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\320\\view_overview.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\320\\view_kanban.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\320\\view_epics.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\320\\view_backlog.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\320\\view_proposals.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\320\\view_documents.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\320\\view_members.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\320\\view_settings.png"
+  ],
+  "issues": [],
+  "known_issues": [
+    "成员与 Agents 视图主内容区空白（已知 Bug #1290，跨 Story，不在 320 scope）：textLen=148"
+  ],
+  "verdict": "PASS",
+  "console_errors": [],
+  "console_warnings": [
+    {
+      "type": "debug",
+      "text": "[vite] connecting..."
+    },
+    {
+      "type": "log",
+      "text": "Angular is running in development mode."
+    },
+    {
+      "type": "debug",
+      "text": "[vite] connected."
+    }
+  ],
+  "page_errors": []
+}
