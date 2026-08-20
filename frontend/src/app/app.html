@@ -350,6 +350,17 @@
     } @else {
       @switch (view()) {
         @case ('home') {
+          <!-- Epic 150 / Story 321 (X1) Home Shell prototype v7 风格：项目 Master-Detail + Agents tab -->
+          <!-- PR 1：插入 home-shell 组件，原 dashboard 保留在下方作为 fallback 演示。后续 PR 2/3 路由切换 -->
+          <app-home-shell
+            [projects]="(projectsCenter().length ? projectsCenter() : visibleProjects())"
+            [agents]="agents()"
+            [selected]="homeSelectedFallback()"
+            [me]="me()"
+            (selectProject)="selectHomeProject($event)"
+            (newProject)="openCreate('project')"
+            (enterWorkspace)="goProject($event)">
+          </app-home-shell>
           <div class="dashboard">
             <section class="hero">
               <div>

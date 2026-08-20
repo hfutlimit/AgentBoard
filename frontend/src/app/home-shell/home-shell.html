@@ -1,0 +1,157 @@
+<div class="home-shell-v7">
+  <header class="home-topbar-v7">
+    <div class="home-brand-v7">
+      <span class="brand-mark-v7" aria-hidden="true"></span>
+      <span class="brand-text-v7">AgentBoard</span>
+    </div>
+    <nav class="home-nav-v7" aria-label="home-nav">
+      <button type="button" class="home-nav-button-v7" [class.active]="activeTab() === 'projects'" (click)="setTab('projects')">项目</button>
+      <button type="button" class="home-nav-button-v7" [class.active]="activeTab() === 'agents'" (click)="setTab('agents')">Agents</button>
+    </nav>
+    <span class="home-topbar-spacer-v7"></span>
+    <span class="search-control-v7">
+      <svg class="icon-v7"><use href="#i-search"/></svg>
+      <input type="search" placeholder="搜索项目或 Agent" aria-label="search"/>
+    </span>
+    <button type="button" class="icon-button-v7" aria-label="notif">
+      <svg class="icon-v7"><use href="#i-bell"/></svg>
+    </button>
+    <button type="button" class="user-button-v7">
+      <span class="avatar-v7">{{ userInitial() }}</span>
+      <span class="user-name-v7">{{ userName() }}</span>
+      <svg class="icon-v7"><use href="#i-chevron"/></svg>
+    </button>
+  </header>
+
+  <main class="home-main-v7">
+    <div class="home-content-v7">
+      <div class="page-heading-v7">
+        <div>
+          <h1>{{ activeTab() === 'projects' ? '项目' : '我的 Agents' }}</h1>
+          <p>{{ activeTab() === 'projects' ? '查看项目状态，选择一个项目进入独立工作台。' : '由你的 API Key 建立连接，并由 Worker 主动注册。' }}</p>
+        </div>
+        <div *ngIf="activeTab() === 'projects'">
+          <button type="button" class="btn-primary-sm-v7" (click)="newProject.emit()">
+            <svg class="icon-v7"><use href="#i-plus"/></svg>新建项目
+          </button>
+        </div>
+        <div *ngIf="activeTab() === 'agents'">
+          <span class="readonly-badge-v7">
+            <svg class="icon-v7"><use href="#i-lock"/></svg>只读视图
+          </span>
+        </div>
+      </div>
+
+      <!-- 项目 tab：Master-Detail 2-col -->
+      <div *ngIf="activeTab() === 'projects'" class="project-browser-v7">
+        <aside class="project-master-v7" aria-label="master">
+          <div class="master-toolbar-v7">
+            <span>全部项目 · {{ projects.length }}</span>
+          </div>
+          <ul class="master-list-v7">
+            <li *ngFor="let p of projects; trackBy: trackById">
+              <button type="button" class="project-master-row-v7" [class.active]="effectiveSelected()?.id === p.id" (click)="selectProject.emit(p.id)">
+                <span class="project-monogram-v7" [ngClass]="monogramClass(p)">{{ monogramText(p) }}</span>
+                <span class="project-row-main-v7">
+                  <span class="project-row-title-v7">{{ p.name }}</span>
+                  <span class="project-row-meta-v7">{{ p.key || '—' }} · {{ roleLabel(p) }}</span>
+                  <span class="project-row-footer-v7">
+                    <span class="mini-progress-v7"><span [style.width.%]="progress(p)"></span></span>
+                    <span class="progress-pct-v7">{{ progress(p) }}%</span>
+                    <span class="dot-sep-v7">·</span>
+                    <span class="online-count-v7">{{ onlineAgents(p) }} 个 Agent 在线</span>
+                  </span>
+                </span>
+                <span class="status-dot-v7" [ngClass]="statusClass(p)"></span>
+              </button>
+            </li>
+          </ul>
+          <div *ngIf="!projects.length" class="empty-state-v7 empty-compact-v7">
+            <h3>还没有项目</h3>
+            <p class="muted">创建第一个项目，让人类与 Agent 在同一处协作。</p>
+          </div>
+        </aside>
+
+        <!-- Detail（用 *ngIf 简化内层控制流） -->
+        <article *ngIf="effectiveSelected() as sel" class="project-detail-v7">
+            <div class="detail-topline-v7">
+              <strong class="status-ok-v7">进展正常</strong>
+              <span class="dot-sep-v7">·</span>
+              <span class="muted">{{ detailSubtitle(sel) }}</span>
+            </div>
+            <div class="detail-header-v7">
+              <div class="detail-title-wrap-v7">
+                <h2>{{ sel.name }}</h2>
+                <p>{{ sel.description || '当前项目的工作空间，所有任务、文档和 Agent 协作都集中在此。' }}</p>
+              </div>
+              <div class="detail-actions-v7">
+                <button type="button" class="btn-ghost-v7 icon-only-v7" aria-label="更多">
+                  <svg class="icon-v7"><use href="#i-more"/></svg>
+                </button>
+                <a [routerLink]="['/project', sel.id]" class="btn-primary-v7" (click)="enterWorkspace.emit(sel.id)">
+                  进入工作台
+                  <svg class="icon-v7"><use href="#i-arrow"/></svg>
+                </a>
+              </div>
+            </div>
+            <div class="detail-stats-v7">
+              <div class="detail-stat-v7"><span>工作项</span><strong>{{ sel.task_count || 0 }}</strong><small>共 {{ sel.task_done || 0 }} 完成</small></div>
+              <div class="detail-stat-v7"><span>完成率</span><strong>{{ progress(sel) }}%</strong><small>本项目任务</small></div>
+              <div class="detail-stat-v7"><span>成员</span><strong>{{ sel.member_count || 0 }}</strong><small>已加入</small></div>
+              <div class="detail-stat-v7"><span>Agents 在线</span><strong>{{ onlineAgents(sel) }}</strong><small>本项目空间</small></div>
+            </div>
+            <div class="detail-grid-v7">
+              <div class="detail-panel-v7">
+                <h3>近 6 周交付趋势</h3>
+                <svg class="delivery-chart-v7" viewBox="0 0 620 180" role="img" aria-label="交付趋势图（占位）">
+                  <path class="chart-grid-v7" d="M20 35H600M20 82H600M20 129H600"/>
+                  <path class="chart-area-v7" d="M20 143 L20 125 L125 111 L230 118 L335 81 L440 67 L545 39 L600 31 L600 143 Z"/>
+                  <path class="chart-line-v7" d="M20 125 L125 111 L230 118 L335 81 L440 67 L545 39 L600 31"/>
+                </svg>
+                <div class="chart-labels-v7">
+                  <span>W23</span><span>W24</span><span>W25</span><span>W26</span><span>W27</span><span>W28</span><span>本周</span>
+                </div>
+                <div class="empty-state-v7 empty-inline-v7">交付趋势图占位（待 Story X1 接入 /api/projects/{{ '{' }}id{{ '}' }}/delivery）</div>
+              </div>
+              <div class="detail-panel-v7">
+                <h3>本周重点</h3>
+                <div class="empty-state-v7 empty-inline-v7">本周重点列表（待 Story X1 接入 epic priority + due_at 排序）</div>
+              </div>
+            </div>
+        </article>
+        <div *ngIf="!effectiveSelected()" class="project-detail-v7">
+          <div class="empty-state-v7">请在左侧选择一个项目查看详情</div>
+        </div>
+      </div>
+
+      <!-- Agents tab：read-only Agent 池 -->
+      <div *ngIf="activeTab() === 'agents'">
+        <div class="agent-summary-v7">
+          <svg class="icon-v7"><use href="#i-cpu"/></svg>
+          <span><strong>{{ agents.length }} 个 Agents</strong>　由 Worker 通过 AgentBoard MCP 注册；这里展示当前账号关联的 Agent 池。</span>
+        </div>
+        <section class="agent-table-v7">
+          <div class="agent-table-head-v7">
+            <span>Agent</span><span>连接来源</span><span>状态</span><span>角色</span><span>最近心跳</span>
+          </div>
+          <div *ngFor="let a of agents; trackBy: trackById" class="agent-row-v7">
+            <span class="agent-identity-v7">
+              <span class="agent-icon-v7"><svg class="icon-v7"><use href="#i-cpu"/></svg></span>
+              <span>
+                <span class="agent-name-v7">{{ a.name }}</span>
+                <span class="agent-subline-v7">{{ a.agent_id }} · {{ a.model || '—' }}</span>
+              </span>
+            </span>
+            <span class="agent-cell-v7">worker-{{ a.user_id || 0 }}</span>
+            <span><span class="online-state-v7" [ngClass]="{ 'away': !a.online }">{{ a.online ? '在线' : '空闲' }}</span></span>
+            <span>
+              <span *ngFor="let r of agentRoles(a)" class="chip-v7">{{ r }}</span>
+            </span>
+            <span class="agent-cell-v7">{{ timeAgo(a.last_heartbeat) }}</span>
+          </div>
+          <div *ngIf="!agents.length" class="empty-state-v7 empty-inline-v7">还没有 Agent。可经 AgentBoard MCP 的 agent_register 自报身份。</div>
+        </section>
+      </div>
+    </div>
+  </main>
+</div>

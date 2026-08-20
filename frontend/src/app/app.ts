@@ -23,6 +23,7 @@ import { BacklogTabComponent } from './backlog-tab/backlog-tab';
 import { TicketsTabComponent } from './tickets-tab/tickets-tab';
 import { StatsTabComponent } from './stats-tab/stats-tab';
 import { MembersTabComponent } from './members-tab/members-tab';
+import { HomeShellComponent } from './home-shell/home-shell';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
@@ -78,7 +79,7 @@ interface PaletteCommand {
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, PaginationComponent, OverviewTabComponent, KanbanTabComponent, EpicsTabComponent, ProposalsTabComponent, DocumentsTabComponent, BacklogTabComponent, TicketsTabComponent, StatsTabComponent, MembersTabComponent],
+  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, PaginationComponent, OverviewTabComponent, KanbanTabComponent, EpicsTabComponent, ProposalsTabComponent, DocumentsTabComponent, BacklogTabComponent, TicketsTabComponent, StatsTabComponent, MembersTabComponent, HomeShellComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
   encapsulation: ViewEncapsulation.None,
@@ -567,6 +568,36 @@ export class App implements OnInit, OnDestroy {
 
   /** Story 137：首页项目空间 - 收藏/最近项目优先，附 task_count 等统计 */
   readonly homeProjectLimit = 6;
+
+  /** Epic 150 / Story 321 (X1) Home Shell 选中项目（X2 路由切换时启用，目前始终 fallback 到首项）。 */
+  readonly selectedHomeProject = signal<number | null>(null);
+
+  /** Epic 150 / Story 321 (X1) Home Shell：选中项目 fallback（详情面板永远有数据）。 */
+  readonly homeSelectedFallback = computed<Project | null>(() => {
+    const explicit = this.selectedHomeProject();
+    const list = this.projectsCenter().length ? this.projectsCenter() : this.visibleProjects();
+    if (explicit != null) {
+      const found = list.find((p) => p.id === explicit);
+      if (found) return found;
+    }
+    return list[0] ?? null;
+  });
+
+  /** HomeShell `me` 透传（取自 currentUser + 缓存 display_name）。 */
+  readonly me = computed<{ username: string; display_name?: string | null }>(() => ({
+    username: this.currentUser() || 'admin',
+    display_name: this.currentUser() || 'admin',
+  }));
+
+  /** HomeShell 项目选择事件。 */
+  selectHomeProject(id: number): void {
+    this.selectedHomeProject.set(id);
+  }
+
+  /** HomeShell 进入工作台（路由跳 /project/:id）。 */
+  goProject(id: number): void {
+    void this.router.navigate(['/project', id]);
+  }
   readonly homeProjectList = computed<Project[]>(() => {
     // 优先用 projectsCenter（有统计），fallback 到 projects
     const source = this.projectsCenter().length ? this.projectsCenter() : this.visibleProjects();
