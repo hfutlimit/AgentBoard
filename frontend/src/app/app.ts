@@ -28,6 +28,7 @@ import { MembersTabComponent } from './members-tab/members-tab';
 import { HomeShellComponent } from './home-shell/home-shell';
 import { WorkspaceTopbarComponent } from './workspace-topbar/workspace-topbar';
 import { WorkspaceHeadingComponent } from './workspace-heading/workspace-heading';
+import { ProjectWorkspaceShellComponent } from './project-workspace-shell/project-workspace-shell';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
@@ -83,7 +84,7 @@ interface PaletteCommand {
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, RouterLink, LoginComponent, PaginationComponent, OverviewTabComponent, KanbanTabComponent, EpicsTabComponent, ProposalsTabComponent, DocumentsTabComponent, BacklogTabComponent, MembersTabComponent, HomeShellComponent, WorkspaceTopbarComponent, WorkspaceHeadingComponent, BottomTabBarComponent, FocusTrapDirective],
+  imports: [CommonModule, FormsModule, RouterLink, LoginComponent, PaginationComponent, OverviewTabComponent, KanbanTabComponent, EpicsTabComponent, ProposalsTabComponent, DocumentsTabComponent, BacklogTabComponent, MembersTabComponent, HomeShellComponent, WorkspaceTopbarComponent, WorkspaceHeadingComponent, ProjectWorkspaceShellComponent, BottomTabBarComponent, FocusTrapDirective],
   templateUrl: './app.html',
   styleUrl: './app.css',
   encapsulation: ViewEncapsulation.None,

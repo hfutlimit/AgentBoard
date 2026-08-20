@@ -237,51 +237,17 @@
     </aside>
   }
 
-  <!-- Epic 149 / Story 317：Workspace Shell 深 navy 项目侧边栏（仅项目视图显示，8 项导航映射 activeTab） -->
+  <!-- Epic 152 / Story 332 (Sub-PR 1) 抽 ProjectWorkspaceShell：
+       复制原 line 240-285 navy sidebar + 8 tab routerLink 模板到独立组件。
+       外层条件保留（view() 决定 sidebar 是否显示）。
+       Sub-PR 1b 阶段：8 tab children 路由由 Router 接管（app.html 删 8 个 @if 块 → router-outlet）。 -->
   @if (sidebarOpen() && view() !== 'document' && (view() === 'project' || view() === 'epic' || view() === 'story' || view() === 'task' || view() === 'sprint')) {
-    <aside class="project-sidebar-v7" aria-label="项目工作台导航">
-      <div class="sidebar-project-v7">
-        <span class="project-monogram-v7">{{ (project() ? (project()!.name || project()!.key || 'AB') : 'AB').slice(0, 2).toUpperCase() }}</span>
-        <div class="sidebar-project-name-v7">{{ project() ? (project()!.name || '未命名项目') : '未选择项目' }}</div>
-        <div class="sidebar-project-meta-v7">{{ project() && project()!.key ? project()!.key : '项目工作台' }}</div>
-      </div>
-      <div class="sidebar-label-v7">项目工作台</div>
-      <!-- Epic 151 / Story 327 路由化：8 navy tab 改 routerLink 驱动 URL 切换，
-           由 app.ts loadRoute() 解析 path → activeTab.set 驱动 @if 渲染。
-           Epic 151 / Story 328 a11y：aria-label 提供语义（1160px 文字隐藏时屏幕阅读器仍可识别）。 -->
-      <nav class="project-nav-v7" aria-label="项目导航">
-        <a [routerLink]="['/project', project()?.id, 'overview']" class="project-nav-button-v7" [class.active]="activeTab() === 'overview'" aria-label="概览" [attr.aria-current]="activeTab() === 'overview' ? 'page' : null">
-          <svg class="icon-v7" aria-hidden="true"><use href="#i-home"/></svg><span>概览</span>
-        </a>
-        <a [routerLink]="['/project', project()?.id, 'kanban']" class="project-nav-button-v7" [class.active]="activeTab() === 'kanban'" aria-label="看板" [attr.aria-current]="activeTab() === 'kanban' ? 'page' : null">
-          <svg class="icon-v7" aria-hidden="true"><use href="#i-board"/></svg><span>看板</span>
-        </a>
-        <a [routerLink]="['/project', project()?.id, 'epics']" class="project-nav-button-v7" [class.active]="activeTab() === 'epics'" aria-label="Epics" [attr.aria-current]="activeTab() === 'epics' ? 'page' : null">
-          <svg class="icon-v7" aria-hidden="true"><use href="#i-flag"/></svg><span>Epics</span>
-        </a>
-        <a [routerLink]="['/project', project()?.id, 'backlog']" class="project-nav-button-v7" [class.active]="activeTab() === 'backlog' || activeTab() === 'tickets'" aria-label="工作项" [attr.aria-current]="activeTab() === 'backlog' ? 'page' : null">
-          <svg class="icon-v7" aria-hidden="true"><use href="#i-list"/></svg><span>工作项</span>
-        </a>
-        <a [routerLink]="['/project', project()?.id, 'proposals']" class="project-nav-button-v7" [class.active]="activeTab() === 'proposals'" aria-label="提案" [attr.aria-current]="activeTab() === 'proposals' ? 'page' : null">
-          <svg class="icon-v7" aria-hidden="true"><use href="#i-message"/></svg><span>提案</span>
-        </a>
-        <a [routerLink]="['/project', project()?.id, 'documents']" class="project-nav-button-v7" [class.active]="activeTab() === 'documents'" aria-label="文档" [attr.aria-current]="activeTab() === 'documents' ? 'page' : null">
-          <svg class="icon-v7" aria-hidden="true"><use href="#i-file"/></svg><span>文档</span>
-        </a>
-        <a [routerLink]="['/project', project()?.id, 'members']" class="project-nav-button-v7" [class.active]="activeTab() === 'members'" aria-label="成员与 Agents" [attr.aria-current]="activeTab() === 'members' ? 'page' : null">
-          <svg class="icon-v7" aria-hidden="true"><use href="#i-users"/></svg><span>成员与 Agents</span>
-        </a>
-        <a [routerLink]="['/project', project()?.id, 'settings']" class="project-nav-button-v7" [class.active]="activeTab() === 'settings'" aria-label="设置" [attr.aria-current]="activeTab() === 'settings' ? 'page' : null">
-          <svg class="icon-v7" aria-hidden="true"><use href="#i-settings"/></svg><span>设置</span>
-        </a>
-      </nav>
-      <div class="sidebar-foot-v7">
-        <div class="health-line-v7">
-          <span class="health-pulse-v7"></span>
-          <span>{{ agents().filter(a => a.online).length }} 个 Agents 在线</span>
-        </div>
-      </div>
-    </aside>
+    <app-project-workspace-shell
+      [project]="project()"
+      [activeTab]="activeTab()"
+      [sidebarOpen]="true"
+      [onlineAgentCount]="agents().filter(a => a.online).length">
+    </app-project-workspace-shell>
   }
 
   <main id="app">
