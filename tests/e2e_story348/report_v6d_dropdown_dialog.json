@@ -1,0 +1,135 @@
+{
+  "user_button_found": true,
+  "dropdown": {
+    "visibleMenus": [
+      {
+        "cls": "home-user-menu-wrap-v7",
+        "text": "A\nadmin\nA\nadmin\n协作成员\n个人设置\n退出登录"
+      },
+      {
+        "cls": "[object SVGAnimatedString]",
+        "text": ""
+      },
+      {
+        "cls": "home-dropdown-v7 home-user-dropdown-v7",
+        "text": "A\nadmin\n协作成员\n个人设置\n退出登录"
+      },
+      {
+        "cls": "home-dropdown-profile-v7",
+        "text": "A\nadmin\n协作成员"
+      },
+      {
+        "cls": "home-dropdown-divider-v7",
+        "text": ""
+      },
+      {
+        "cls": "home-dropdown-item-v7",
+        "text": "个人设置"
+      },
+      {
+        "cls": "home-dropdown-divider-v7",
+        "text": ""
+      },
+      {
+        "cls": "home-dropdown-item-v7 danger",
+        "text": "退出登录"
+      },
+      {
+        "cls": "project-action-menu-wrap-v7",
+        "text": ""
+      }
+    ],
+    "themeEls": []
+  },
+  "theme_via_menu": {
+    "before": "light",
+    "after": "light",
+    "toggled": false,
+    "clicked": false
+  },
+  "create_button_found": true,
+  "create_dialog_dom": {
+    "modalishClasses": [
+      "modal modal-create",
+      "modal-header",
+      "modal-eyebrow",
+      "modal-close",
+      "modal-body",
+      "modal-footer"
+    ],
+    "visibleFormFields": [
+      {
+        "tag": "INPUT",
+        "type": "search",
+        "ph": "搜索项目名称 / 短码 / 描述…",
+        "name": ""
+      },
+      {
+        "tag": "SELECT",
+        "type": "select-one",
+        "ph": "",
+        "name": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "ph": "",
+        "name": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "ph": "",
+        "name": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "ph": "",
+        "name": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "ph": "",
+        "name": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "ph": "",
+        "name": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "ph": "",
+        "name": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "ph": "",
+        "name": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "ph": "",
+        "name": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "ph": "",
+        "name": ""
+      },
+      {
+        "tag": "INPUT",
+        "type": "checkbox",
+        "ph": "",
+        "name": ""
+      }
+    ]
+  }
+}

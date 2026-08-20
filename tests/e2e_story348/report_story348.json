@@ -7,182 +7,130 @@
       "expected_selector_present": true,
       "expected_child_count": 1,
       "main_text_len": 775,
-      "h1": "项目",
       "is_404": false,
+      "h1": "项目",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 1646,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\home.png"
+      "screenshot": "screenshots_v6\\home.png"
     },
     {
       "name": "projects",
       "path": "/projects",
       "url": "http://127.0.0.1:4200/projects",
       "main_text_len": 1305,
-      "h1": "项目中心\n11",
       "is_404": false,
+      "h1": "项目中心\n11",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 937,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\projects.png"
+      "screenshot": "screenshots_v6\\projects.png"
     },
     {
       "name": "epics",
       "path": "/epics",
       "url": "http://127.0.0.1:4200/epics",
       "main_text_len": 10,
-      "h1": "",
       "is_404": true,
+      "h1": "",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 836,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\epics.png"
+      "screenshot": "screenshots_v6\\epics.png"
     },
     {
       "name": "stories",
       "path": "/stories",
       "url": "http://127.0.0.1:4200/stories",
-      "main_text_len": 10,
+      "main_text_len": 0,
+      "is_404": false,
       "h1": "",
-      "is_404": true,
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 836,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\stories.png"
+      "screenshot": "screenshots_v6\\stories.png"
     },
     {
       "name": "tasks",
       "path": "/tasks",
       "url": "http://127.0.0.1:4200/tasks",
       "main_text_len": 10,
-      "h1": "",
       "is_404": true,
+      "h1": "",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 836,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\tasks.png"
+      "screenshot": "screenshots_v6\\tasks.png"
     },
     {
       "name": "bugs",
       "path": "/bugs",
       "url": "http://127.0.0.1:4200/bugs",
-      "main_text_len": 10,
+      "main_text_len": 0,
+      "is_404": false,
       "h1": "",
-      "is_404": true,
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 836,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\bugs.png"
+      "screenshot": "screenshots_v6\\bugs.png"
     },
     {
       "name": "documents",
       "path": "/documents",
       "url": "http://127.0.0.1:4200/documents",
-      "main_text_len": 1305,
-      "h1": "项目中心\n11",
+      "main_text_len": 0,
       "is_404": false,
+      "h1": "",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 937,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\documents.png"
+      "screenshot": "screenshots_v6\\documents.png"
     },
     {
       "name": "dashboard",
       "path": "/dashboard",
       "url": "http://127.0.0.1:4200/dashboard",
-      "main_text_len": 10,
+      "main_text_len": 0,
+      "is_404": false,
       "h1": "",
-      "is_404": true,
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 836,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\dashboard.png"
+      "screenshot": "screenshots_v6\\dashboard.png"
     },
     {
       "name": "settings",
       "path": "/settings",
       "url": "http://127.0.0.1:4200/settings",
-      "main_text_len": 650,
-      "h1": "个人设置",
+      "main_text_len": 0,
       "is_404": false,
+      "h1": "",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 1472,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\settings.png"
+      "screenshot": "screenshots_v6\\settings.png"
     },
     {
       "name": "agents",
       "path": "/agents",
       "url": "http://127.0.0.1:4200/agents",
-      "main_text_len": 1462,
-      "h1": "Agent 池\n7",
+      "main_text_len": 0,
       "is_404": false,
+      "h1": "",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 1518,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\agents.png"
+      "screenshot": "screenshots_v6\\agents.png"
     },
     {
       "name": "proposals",
       "path": "/proposals",
       "url": "http://127.0.0.1:4200/proposals",
-      "main_text_len": 1305,
-      "h1": "项目中心\n11",
+      "main_text_len": 0,
       "is_404": false,
+      "h1": "",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 937,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\proposals.png"
+      "screenshot": "screenshots_v6\\proposals.png"
     },
     {
       "name": "notifications",
       "path": "/notifications",
       "url": "http://127.0.0.1:4200/notifications",
       "main_text_len": 79,
-      "h1": "通知中心\n0",
       "is_404": false,
+      "h1": "通知中心\n0",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 836,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\notifications.png"
+      "screenshot": "screenshots_v6\\notifications.png"
     },
     {
       "name": "admin",
       "path": "/admin",
       "url": "http://127.0.0.1:4200/admin",
-      "main_text_len": 1092,
-      "h1": "⚙ 管理员后台",
+      "main_text_len": 1093,
       "is_404": false,
+      "h1": "⚙ 管理员后台",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 2014,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\admin.png"
+      "screenshot": "screenshots_v6\\admin.png"
     },
     {
       "name": "ws_overview",
@@ -191,14 +139,10 @@
       "expected_selector_present": true,
       "expected_child_count": 1,
       "main_text_len": 492,
-      "h1": "项目概览",
       "is_404": false,
+      "h1": "项目概览",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 860,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\ws_overview.png"
+      "screenshot": "screenshots_v6\\ws_overview.png"
     },
     {
       "name": "ws_kanban",
@@ -207,14 +151,10 @@
       "expected_selector_present": true,
       "expected_child_count": 1,
       "main_text_len": 195,
-      "h1": "看板\n0\n仅看板标记",
       "is_404": false,
+      "h1": "看板\n0\n仅看板标记",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 836,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\ws_kanban.png"
+      "screenshot": "screenshots_v6\\ws_kanban.png"
     },
     {
       "name": "ws_epics",
@@ -223,14 +163,10 @@
       "expected_selector_present": true,
       "expected_child_count": 1,
       "main_text_len": 803,
-      "h1": "Epics",
       "is_404": false,
+      "h1": "Epics",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 1536,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\ws_epics.png"
+      "screenshot": "screenshots_v6\\ws_epics.png"
     },
     {
       "name": "ws_backlog",
@@ -239,14 +175,10 @@
       "expected_selector_present": true,
       "expected_child_count": 1,
       "main_text_len": 1151,
-      "h1": "工作项\n200",
       "is_404": false,
+      "h1": "工作项\n200",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 1536,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\ws_backlog.png"
+      "screenshot": "screenshots_v6\\ws_backlog.png"
     },
     {
       "name": "ws_proposals",
@@ -255,14 +187,10 @@
       "expected_selector_present": true,
       "expected_child_count": 1,
       "main_text_len": 281,
-      "h1": "需求提案",
       "is_404": false,
+      "h1": "需求提案",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 836,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\ws_proposals.png"
+      "screenshot": "screenshots_v6\\ws_proposals.png"
     },
     {
       "name": "ws_documents",
@@ -271,14 +199,10 @@
       "expected_selector_present": true,
       "expected_child_count": 1,
       "main_text_len": 1181,
-      "h1": "项目文档",
       "is_404": false,
+      "h1": "项目文档",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 1006,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\ws_documents.png"
+      "screenshot": "screenshots_v6\\ws_documents.png"
     },
     {
       "name": "ws_members",
@@ -287,14 +211,10 @@
       "expected_selector_present": true,
       "expected_child_count": 1,
       "main_text_len": 747,
-      "h1": "成员与 Agents\n5 成员 · 7 Agent（全局）",
       "is_404": false,
+      "h1": "成员与 Agents\n5 成员 · 7 Agent（全局）",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 931,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\ws_members.png"
+      "screenshot": "screenshots_v6\\ws_members.png"
     },
     {
       "name": "ws_settings",
@@ -303,97 +223,65 @@
       "expected_selector_present": true,
       "expected_child_count": 1,
       "main_text_len": 217,
-      "h1": "项目设置",
       "is_404": false,
+      "h1": "项目设置",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 836,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\ws_settings.png"
+      "screenshot": "screenshots_v6\\ws_settings.png"
     },
     {
       "name": "epic_152",
       "path": "/epic/152",
       "url": "http://127.0.0.1:4200/epic/152",
       "main_text_len": 2845,
-      "h1": "",
       "is_404": false,
+      "h1": "",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 2487,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\epic_152.png"
+      "screenshot": "screenshots_v6\\epic_152.png"
     },
     {
       "name": "story_348",
       "path": "/story/348",
       "url": "http://127.0.0.1:4200/story/348",
-      "main_text_len": 8228,
-      "h1": "页面持续修复 · 新版前端 UI 问题收集",
+      "main_text_len": 8967,
       "is_404": true,
+      "h1": "页面持续修复 · 新版前端 UI 问题收集",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 5704,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\story_348.png"
+      "screenshot": "screenshots_v6\\story_348.png"
     },
     {
       "name": "story_330",
       "path": "/story/330",
       "url": "http://127.0.0.1:4200/story/330",
       "main_text_len": 2903,
-      "h1": "Story 330: 测试改造 — E2E 改 pytest test_* 收集 + 去硬编码 admin/admin123 + 绝对路径",
       "is_404": false,
+      "h1": "Story 330: 测试改造 — E2E 改 pytest test_* 收集 + 去硬编码 admin/admin123 + 绝对路径",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 2326,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\story_330.png"
+      "screenshot": "screenshots_v6\\story_330.png"
     },
     {
       "name": "task_1342",
       "path": "/task/1342",
       "url": "http://127.0.0.1:4200/task/1342",
-      "main_text_len": 0,
-      "h1": "",
+      "main_text_len": 650,
       "is_404": false,
+      "h1": "修复 pytest 根目录收集时 test_review_84_85.py 的导入期副作用",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 836,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\task_1342.png"
+      "screenshot": "screenshots_v6\\task_1342.png"
     },
     {
       "name": "task_1339",
       "path": "/task/1339",
       "url": "http://127.0.0.1:4200/task/1339",
-      "main_text_len": 0,
-      "h1": "",
+      "main_text_len": 388,
       "is_404": false,
+      "h1": "实现：Story 332c · 路由完全收口 - Sub-PR 3（顶层 view 收尾 + 详情页路由化）",
       "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 836,
-        "w": 1440
-      },
-      "screenshot": "screenshots_v5\\task_1339.png"
+      "screenshot": "screenshots_v6\\task_1339.png"
     }
   ],
   "console_errors": [
     {
       "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
-      "artifact": true
-    },
-    {
-      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789853950.7451c36d0d17bbc4da3e8c3e1b90fc09f3dffae3dd9444180f97ac55ccecf281' failed: Error during WebSocket handshake: Unexpected response code: 200",
-      "artifact": true
-    },
-    {
-      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789853950.7451c36d0d17bbc4da3e8c3e1b90fc09f3dffae3dd9444180f97ac55ccecf281' failed: Error during WebSocket handshake: Unexpected response code: 200",
       "artifact": true
     }
   ],
@@ -408,9 +296,9 @@
   "interactions": [
     {
       "name": "theme_toggle",
-      "toggle_found": true,
-      "dark_applied": false,
-      "before": "light"
+      "candidates": [],
+      "toggle_found": false,
+      "dark_applied": false
     },
     {
       "name": "create_dialog",
@@ -427,28 +315,52 @@
   ],
   "findings": [
     {
-      "page": "task_1342",
-      "path": "/task/1342",
+      "page": "stories",
+      "path": "/stories",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
     {
-      "page": "task_1339",
-      "path": "/task/1339",
+      "page": "bugs",
+      "path": "/bugs",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
     {
-      "page": "ws_tabs",
-      "path": "/project/3/*",
-      "severity": "P2",
-      "issue": "工作区 tab 点击后路径异常: ['成员与 Agents']"
+      "page": "documents",
+      "path": "/documents",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "dashboard",
+      "path": "/dashboard",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "settings",
+      "path": "/settings",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "agents",
+      "path": "/agents",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "proposals",
+      "path": "/proposals",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
     {
       "page": "global",
       "path": "/",
       "severity": "P2",
-      "issue": "主题切换按钮点击后 dataset.theme 未切换(暗色主题切换失效)"
+      "issue": "未找到主题切换按钮(header 内无 ☀/🌙/主题 标识按钮)"
     },
     {
       "page": "projects",
@@ -462,7 +374,7 @@
       "bug": "#1427",
       "page": "story_330",
       "path": "/story/330",
-      "still_blank": true,
+      "still_blank": false,
       "is_404": false
     },
     {
@@ -478,6 +390,20 @@
       "path": "/task/1339",
       "still_blank": false,
       "is_404": false
+    },
+    {
+      "bug": "#1427",
+      "page": "epic_152",
+      "path": "/epic/152",
+      "still_blank": false,
+      "is_404": false
+    },
+    {
+      "bug": "#1427",
+      "page": "story_348",
+      "path": "/story/348",
+      "still_blank": false,
+      "is_404": true
     },
     {
       "bug": "#1428",
@@ -509,74 +435,92 @@
       "has_proposal_label": true
     }
   ],
+  "top_nav": [
+    {
+      "label": "",
+      "href": "/notifications",
+      "landed_path": "/notifications",
+      "main_text_len": 79,
+      "is_404": false,
+      "h1": "通知中心\n0",
+      "low_content": false
+    },
+    {
+      "label": "首页",
+      "href": "/",
+      "landed_path": "/",
+      "main_text_len": 775,
+      "is_404": false,
+      "h1": "项目",
+      "low_content": false
+    },
+    {
+      "label": "项目",
+      "href": "/projects",
+      "error": "Locator.click: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator(\"a[href='/projects']\").first\n    - locator resolved to <a aria-label=\"项目\" cl"
+    },
+    {
+      "label": "工作台",
+      "href": "/projects",
+      "error": "Locator.click: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator(\"a[href='/projects']\").first\n    - locator resolved to <a aria-label=\"项目\" cl"
+    },
+    {
+      "label": "通知",
+      "href": "/notifications",
+      "landed_path": "/notifications",
+      "main_text_len": 79,
+      "is_404": false,
+      "h1": "通知中心\n0",
+      "low_content": false
+    },
+    {
+      "label": "我的",
+      "href": "/settings",
+      "error": "Locator.click: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator(\"a[href='/settings']\").first\n    - locator resolved to <a aria-label=\"我的\" cl"
+    }
+  ],
   "ws_tabs": [
     {
       "tab": "概览",
       "path": "/project/3/overview",
-      "active": "概览",
       "url_ok": true
     },
     {
       "tab": "看板",
       "path": "/project/3/kanban",
-      "active": "看板",
       "url_ok": true
     },
     {
       "tab": "Epics",
       "path": "/project/3/epics",
-      "active": "Epics",
       "url_ok": true
     },
     {
       "tab": "工作项",
       "path": "/project/3/backlog",
-      "active": "工作项",
       "url_ok": true
     },
     {
       "tab": "提案",
       "path": "/project/3/proposals",
-      "active": "提案",
       "url_ok": true
     },
     {
       "tab": "文档",
       "path": "/project/3/documents",
-      "active": "文档",
       "url_ok": true
     },
     {
       "tab": "成员与 Agents",
       "path": "/project/3/members",
-      "active": "工作台",
       "url_ok": true
     },
     {
-      "tab": "成员与 Agents",
-      "error": "Locator.inner_text: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator(\".project-nav a, .project-nav button, [c"
+      "tab": "设置",
+      "path": "/project/3/settings",
+      "url_ok": true
     }
   ],
   "real_console_errors": [],
-  "real_failed_requests": [],
-  "run_meta": {
-    "run": 25,
-    "timestamp": "2026-08-21T05:35:00+08:00",
-    "trigger": "hourly automation",
-    "environment": "ng serve 127.0.0.1:4200 proxy->124.220.44.12",
-    "verdict": "0_new_bugs",
-    "known_bugs": {
-      "#1427_detail_blank": "FIXED (warm recheck passes for story_330, task_1342, task_1339)",
-      "#1428_global_routes": "STILL_REPRODUCES (/documents & /proposals render same as /projects)",
-      "#1429_sidebar_search_mislabel": "FIXED (sidebar labels correct: 提案 present, 搜索 absent)"
-    },
-    "false_positives": [
-      "v5 P1 detail blank for task_1342/task_1339 during cold-start skeleton loading; warm recheck renders",
-      "v5 P2 theme_toggle: script selectors do not match actual theme button; UI icon exists",
-      "v5 P3 create_dialog: modal opens correctly in warm recheck",
-      "v5 P2 ws_tab_members: transient locator timeout during click; path /project/3/members correct"
-    ],
-    "recheck_script": "tests/e2e_story348/focused_recheck_v5.py",
-    "recheck_report": "tests/e2e_story348/focused_recheck_v5.json"
-  }
+  "real_failed_requests": []
 }

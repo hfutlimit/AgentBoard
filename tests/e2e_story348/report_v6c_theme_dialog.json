@@ -1,0 +1,155 @@
+{
+  "all_button_count": 16,
+  "theme_candidates": [],
+  "header_buttons_sample": [
+    {
+      "text": "项目",
+      "title": "",
+      "aria": "",
+      "cls": "hs-tab-button active",
+      "hasSvg": false,
+      "w": 60,
+      "h": 37
+    },
+    {
+      "text": "Agents",
+      "title": "",
+      "aria": "",
+      "cls": "hs-tab-button",
+      "hasSvg": false,
+      "w": 76,
+      "h": 34
+    },
+    {
+      "text": "A\nadmin",
+      "title": "",
+      "aria": "",
+      "cls": "user-button-v7",
+      "hasSvg": true,
+      "w": 109,
+      "h": 36
+    },
+    {
+      "text": "新建项目",
+      "title": "",
+      "aria": "",
+      "cls": "master-create-button-v7",
+      "hasSvg": true,
+      "w": 87,
+      "h": 30
+    },
+    {
+      "text": "AGB\nAgentBoard",
+      "title": "",
+      "aria": "",
+      "cls": "project-master-row-v7 active",
+      "hasSvg": false,
+      "w": 341,
+      "h": 112
+    },
+    {
+      "text": "SBD\nSmartBid\nS",
+      "title": "",
+      "aria": "",
+      "cls": "project-master-row-v7",
+      "hasSvg": false,
+      "w": 341,
+      "h": 112
+    },
+    {
+      "text": "ZPMC\nZPMC\nZPMC",
+      "title": "",
+      "aria": "",
+      "cls": "project-master-row-v7",
+      "hasSvg": false,
+      "w": 341,
+      "h": 112
+    },
+    {
+      "text": "DP\nDevPilot\nDP",
+      "title": "",
+      "aria": "",
+      "cls": "project-master-row-v7",
+      "hasSvg": false,
+      "w": 341,
+      "h": 112
+    },
+    {
+      "text": "RESUME\nResumeG",
+      "title": "",
+      "aria": "",
+      "cls": "project-master-row-v7",
+      "hasSvg": false,
+      "w": 341,
+      "h": 112
+    },
+    {
+      "text": "DEV\nDevPolit\nD",
+      "title": "",
+      "aria": "",
+      "cls": "project-master-row-v7",
+      "hasSvg": false,
+      "w": 341,
+      "h": 112
+    },
+    {
+      "text": "KV\nKnowledgeVa",
+      "title": "",
+      "aria": "",
+      "cls": "project-master-row-v7",
+      "hasSvg": false,
+      "w": 341,
+      "h": 112
+    },
+    {
+      "text": "m\nmcp\n— · Memb",
+      "title": "",
+      "aria": "",
+      "cls": "project-master-row-v7",
+      "hasSvg": false,
+      "w": 341,
+      "h": 112
+    },
+    {
+      "text": "测\n测试项目\n— · Mem",
+      "title": "",
+      "aria": "",
+      "cls": "project-master-row-v7",
+      "hasSvg": false,
+      "w": 341,
+      "h": 112
+    },
+    {
+      "text": "TP\nTest Projec",
+      "title": "",
+      "aria": "",
+      "cls": "project-master-row-v7",
+      "hasSvg": false,
+      "w": 341,
+      "h": 112
+    },
+    {
+      "text": "CHESS\nChessPol",
+      "title": "",
+      "aria": "",
+      "cls": "project-master-row-v7",
+      "hasSvg": false,
+      "w": 341,
+      "h": 112
+    },
+    {
+      "text": "",
+      "title": "项目操作",
+      "aria": "项目操作",
+      "cls": "btn-ghost-v7 icon-only-v7",
+      "hasSvg": true,
+      "w": 36,
+      "h": 36
+    }
+  ],
+  "theme_before": "light",
+  "theme_toggle_selector": null,
+  "theme_toggled": false,
+  "create_button_found": true,
+  "create_opened": false
+}
