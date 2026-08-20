@@ -1,0 +1,50 @@
+/* WorkspaceHeadingComponent — Epic 150 / Story 323 (X2)
+ *
+ * ViewEncapsulation.None 模式下，组件内 class 与全局 styles.css 共享：
+ * - .eyebrow / .muted（全局已有）
+ *
+ * 组件专属：.workspace-heading-v7 容器用 flex 两端分布，gap 收紧。
+ */
+
+.workspace-heading-v7 {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.workspace-heading-v7 .workspace-heading-left {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.workspace-heading-v7 .workspace-heading-left h1 {
+  margin: 4px 0 4px;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--navy, #10243e);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.workspace-heading-v7 .workspace-heading-left .eyebrow {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--brand-500, #2864dc);
+}
+.workspace-heading-v7 .workspace-heading-left .muted {
+  margin: 0;
+  font-size: 13px;
+  color: #6b7a90;
+}
+.workspace-heading-v7 .workspace-heading-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+[data-theme='dark'] .workspace-heading-v7 .workspace-heading-left h1 { color: #e6edf7; }
+[data-theme='dark'] .workspace-heading-v7 .workspace-heading-left .muted { color: #93b7ff; }

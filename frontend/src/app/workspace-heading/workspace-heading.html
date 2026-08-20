@@ -1,0 +1,10 @@
+<div class="workspace-heading-v7" *ngIf="visible">
+  <div class="workspace-heading-left">
+    <span class="eyebrow" *ngIf="eyebrow">{{ eyebrow }}</span>
+    <h1 *ngIf="title">{{ title }} <ng-content select=".heading-title-badge"></ng-content></h1>
+    <p class="muted" *ngIf="subtitle">{{ subtitle }}</p>
+  </div>
+  <div class="workspace-heading-actions">
+    <ng-content select=".heading-action-btn"></ng-content>
+  </div>
+</div>
