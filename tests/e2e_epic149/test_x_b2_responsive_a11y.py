@@ -8,23 +8,21 @@
 - aria-label 存在性：topbar home-nav / sidebar nav / 8 navy tab 都有
 - focus trap 验证：打开 create modal，Tab 5 次后焦点仍在 modal 内
 
-2026-08-20 创建。
+Story 330 / Task 1323 改造（2026-08-20）：支持 pytest 收集。
 """
 from __future__ import annotations
 
 import json
-import os
 import sys
 import time
 import urllib.request
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+import pytest
+from playwright.sync_api import Page
 
-FRONTEND_ORIGIN = "http://127.0.0.1:4200"
-API_BASE = os.environ.get("AGENTBOARD_API_BASE", "http://127.0.0.1:18000")
-ADMIN_USER = os.environ.get("AGENTBOARD_E2E_USER", "admin")
-ADMIN_PASS = os.environ.get("AGENTBOARD_E2E_PASS", "admin123")
+# 兼容老 main() 入口
+from conftest import FRONTEND_ORIGIN, SHOT_DIR, log, goto_url_with_token
 
 VIEWPORTS = [
     (375, 800, "mobile_375"),
@@ -34,36 +32,12 @@ VIEWPORTS = [
     (1440, 900, "desktop_1440"),
 ]
 
-ROOT = Path(__file__).resolve().parent
-SHOT_DIR = ROOT / "screenshots"
-SHOT_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def log(msg: str, *, flush: bool = True) -> None:
-    print(msg, flush=flush)
-
-
-def login() -> str:
-    """经 dev API 拿 admin token。"""
-    req = urllib.request.Request(
-        f"{API_BASE}/api/auth/login",
-        data=json.dumps({"username": ADMIN_USER, "password": ADMIN_PASS}).encode(),
-        method="POST",
-    )
-    req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read().decode())["token"]
+EXPECTED_BTB_LABELS = {"首页", "项目", "工作台", "通知", "我的"}
+EXPECTED_NAVY_LABELS = {"概览", "看板", "Epics", "工作项", "提案", "文档", "成员与 Agents", "设置"}
 
 
 def open_home_with_token(page, token: str) -> None:
-    """进入 / (home) 注入 token。简化版：home view 不依赖项目 id/loadRoute，
-    只验证 token 注入 + authVisible 关闭 + bottom-tab-bar 渲染。
-
-    为什么不用 /project/1/overview：SPA 的 `validateAuth` 在没 token 时会调用
-    showLogin() + router.navigateByUrl('/login')，导致 URL 切走。validateAuth 修复
-    后（Epic 151 / Story 328 a11y）reload 仍可能让 Angular 客户端路由把 URL
-    拉回 home。home view 是验证响应式 + a11y 信号的足够入口。
-    """
+    """进入 / (home) 注入 token。"""
     page.goto(f"{FRONTEND_ORIGIN}/", wait_until="domcontentloaded", timeout=30000)
     page.evaluate(f"localStorage.setItem('agentboard_token', {json.dumps(token)})")
     page.evaluate("localStorage.setItem('agentboard_user', 'admin')")
@@ -72,11 +46,7 @@ def open_home_with_token(page, token: str) -> None:
 
 
 def open_project_with_token(page, token: str, path: str = "/project/1/overview") -> None:
-    """进入 project view（/projects 或 /project/:id/...）注入 token。
-
-    2026-08-20 Task 1310d + 1317a：project view 测 navy tab aria-label + btb
-    activeView 高亮修复。
-    """
+    """进入 project view（/projects 或 /project/:id/...）注入 token。"""
     page.goto(f"{FRONTEND_ORIGIN}/", wait_until="domcontentloaded", timeout=30000)
     page.evaluate(f"localStorage.setItem('agentboard_token', {json.dumps(token)})")
     page.evaluate("localStorage.setItem('agentboard_user', 'admin')")
@@ -99,12 +69,7 @@ def collect_project_signals(page) -> dict:
 
 
 def collect_layout_signals(page) -> dict:
-    """单次 evaluate 收集响应式 + a11y 信号（home view）。
-
-    注：navySidebar 仅在 project view 显示；home view 看 navySidebar
-    应该都是 'absent'，重点验证 bottom-tab-bar + 8 navy tab aria-label（后
-    者通过 selector 即可拿到，即便不在 active view）。
-    """
+    """单次 evaluate 收集响应式 + a11y 信号（home view）。"""
     return page.evaluate("""
         ({
             url: location.pathname,
@@ -119,208 +84,273 @@ def collect_layout_signals(page) -> dict:
     """)
 
 
+# ============================================================
+# Pytest fixtures：per-viewport context
+# ============================================================
+
+@pytest.fixture(params=[v for v in VIEWPORTS], ids=[v[2] for v in VIEWPORTS])
+def viewport_context(browser, request):
+    """每个视口一个独立 context + page（per-test isolation）。"""
+    w, h, _label = request.param
+    ctx = browser.new_context(viewport={"width": w, "height": h})
+    page = ctx.new_page()
+    try:
+        yield page, w, h
+    finally:
+        ctx.close()
+
+
+# ============================================================
+# Pytest test_* functions
+# ============================================================
+
+@pytest.mark.e2e
+def test_home_view_responsive_a11y(viewport_context, admin_token: str) -> None:
+    """PART A：5 视口 home view 响应式 + a11y。"""
+    page, w, h = viewport_context
+    log(f"   [{w}x{h}] home view")
+    open_home_with_token(page, admin_token)
+    sig = collect_layout_signals(page)
+    log(f"   sig = {sig}")
+
+    shot = SHOT_DIR / f"_x_b2_vp_{w}x{h}.png"
+    page.screenshot(path=str(shot), full_page=False)
+    size = shot.stat().st_size if shot.exists() else 0
+
+    is_mobile = w <= 840
+    is_desktop = w >= 1280
+
+    # 1) bottom-tab-bar 可见性
+    if is_mobile:
+        assert sig["btbDisplay"] != "none", f"{w}x{h}: 移动端 btb 应显示但 display={sig['btbDisplay']}"
+        assert sig["btbVisible"] == 5, f"{w}x{h}: 移动端 btb 应有 5 item 但 {sig['btbVisible']}"
+    else:
+        assert sig["btbDisplay"] == "none", f"{w}x{h}: 桌面 btb 应隐藏但 display={sig['btbDisplay']}"
+
+    # 2) btb 5 个 aria-label
+    actual_btb_labels = set(sig["btbAriaLabels"])
+    missing_btb = EXPECTED_BTB_LABELS - actual_btb_labels
+    assert not missing_btb, f"{w}x{h}: btb 缺 aria-label {missing_btb}"
+
+    # 3) URL 应为 / 或 /login
+    assert sig["url"] in ("/", "/login"), f"{w}x{h}: URL 应为 / 或 /login 但 '{sig['url']}'"
+
+    # 4) 截图非空
+    assert size >= 1000, f"{w}x{h}: 截图过小 ({size}B)"
+
+
+@pytest.mark.e2e
+def test_project_view_responsive_a11y(browser, admin_token: str) -> None:
+    """PART C：5 视口 project view 测 navy tab aria-label + btb 高亮。
+
+    单独 test 因为需要不同 path（/project/1/overview 而非 /），跟 PART A 拆开。
+    内部循环 5 视口（不用 parametrize 因为中间状态不一样）。
+    """
+    for w, h, label in VIEWPORTS:
+        ctx = browser.new_context(viewport={"width": w, "height": h})
+        page = ctx.new_page()
+        try:
+            log(f"   [{label}] project view {w}x{h}")
+            open_project_with_token(page, admin_token, "/project/1/overview")
+            sig = collect_project_signals(page)
+            log(f"   sig = {sig}")
+
+            shot = SHOT_DIR / f"_x_b2_project_vp_{label}.png"
+            page.screenshot(path=str(shot), full_page=False)
+            size = shot.stat().st_size if shot.exists() else 0
+
+            is_mobile = w <= 840
+            is_desktop = w >= 1280
+
+            # 1) 桌面 navy tab 8 个 aria-label
+            if is_desktop:
+                assert sig["navyTabCount"] == 8, f"{label}: 桌面 navy 应有 8 但 {sig['navyTabCount']}"
+                actual = set(sig["navyTabAriaLabels"])
+                missing = EXPECTED_NAVY_LABELS - actual
+                assert not missing, f"{label}: navy 缺 aria-label {missing}"
+                assert sig["navyTabActive"] == "概览", f"{label}: navy active 应为 概览 但 {sig['navyTabActive']!r}"
+
+            # 2) btb 显隐 + active
+            if is_mobile:
+                assert sig["btbDisplay"] != "none", f"{label}: 移动端 btb 应显示但 {sig['btbDisplay']}"
+                assert sig["btbActive"] == "当前项目工作台", (
+                    f"{label}: 移动端 btb active 应为 '当前项目工作台' 但 {sig['btbActive']!r}"
+                )
+            else:
+                assert sig["btbDisplay"] == "none", f"{label}: 桌面 btb 应隐藏但 {sig['btbDisplay']}"
+
+            assert size >= 1000, f"{label}: 截图过小 ({size}B)"
+        finally:
+            ctx.close()
+
+
+@pytest.mark.e2e
+def test_projects_list_btb_highlight(browser, admin_token: str) -> None:
+    """PART D：/projects 列表页 btb「项目」高亮（Task 1310d 修复点）。"""
+    ctx = browser.new_context(viewport={"width": 375, "height": 800})
+    page = ctx.new_page()
+    try:
+        open_project_with_token(page, admin_token, "/projects")
+        sig = collect_project_signals(page)
+        log(f"   /projects sig = {sig}")
+        assert sig["btbActive"] == "项目", (
+            f"/projects 移动端 btb active 应为 '项目' 但 {sig['btbActive']!r} "
+            f"（Task 1310d 修复点：/projects 不能映射成 'project' 让「工作台」亮）"
+        )
+        page.screenshot(path=str(SHOT_DIR / "_x_b2_projects_list_mobile.png"), full_page=False)
+    finally:
+        ctx.close()
+
+
+@pytest.mark.e2e
+def test_create_modal_focus_trap(browser, admin_token: str) -> None:
+    """PART B：create modal 焦点 trap 验证。"""
+    ctx = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = ctx.new_page()
+    try:
+        open_home_with_token(page, admin_token)
+        # 打开 create modal
+        page.evaluate("""
+            const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent && (b.textContent.includes('新建') || b.textContent.includes('+')));
+            if (btn) btn.click();
+        """)
+        time.sleep(1.0)
+        modal_visible = page.evaluate("!!document.querySelector('.modal.modal-create')")
+        assert modal_visible, "create modal 未被「+ 新建」按钮打开"
+
+        focus_in_modal_count = 0
+        for _ in range(5):
+            page.keyboard.press("Tab")
+            time.sleep(0.1)
+            in_modal = page.evaluate(
+                "document.activeElement && document.querySelector('.modal.modal-create')?.contains(document.activeElement)"
+            )
+            if in_modal:
+                focus_in_modal_count += 1
+        log(f"   focus 在 modal 内的次数: {focus_in_modal_count}/5")
+        assert focus_in_modal_count >= 4, (
+            f"focus trap 失效：Tab 5 次只有 {focus_in_modal_count} 次在 modal 内"
+        )
+        page.screenshot(path=str(SHOT_DIR / "_x_b2_focus_trap_modal.png"), full_page=False)
+    finally:
+        ctx.close()
+
+
+# ============================================================
+# 兼容老 main() 入口
+# ============================================================
+
 def main() -> int:
-    failures: list[str] = []
-    log(">>> login")
-    token = login()
+    import urllib.request
+    from playwright.sync_api import sync_playwright
+
+    from conftest import API_BASE, ADMIN_USER, ADMIN_PASS
+
+    log(">>> login (main 兼容入口)")
+    req = urllib.request.Request(
+        f"{API_BASE}/api/auth/login",
+        data=json.dumps({"username": ADMIN_USER, "password": ADMIN_PASS}).encode(),
+        method="POST",
+    )
+    req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req, timeout=30) as r:
+        token = json.loads(r.read().decode())["token"]
     log(f"   token len={len(token)}")
 
+    failures: list[str] = []
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-proxy-server"])
         try:
-            # === PART A: 5 视口响应式 + a11y 截图 ===
-            log(">>> PART A — 5 视口响应式截图 + 信号收集")
+            # PART A: 5 视口 home
             for w, h, label in VIEWPORTS:
                 ctx = browser.new_context(viewport={"width": w, "height": h})
                 page = ctx.new_page()
                 try:
-                    log(f"   [{label}] viewport {w}x{h}")
                     open_home_with_token(page, token)
                     sig = collect_layout_signals(page)
-                    log(f"   sig = {sig}")
-
-                    # 截图
-                    shot = SHOT_DIR / f"_x_b2_vp_{label}.png"
-                    page.screenshot(path=str(shot), full_page=False)
-                    size = shot.stat().st_size if shot.exists() else 0
-                    log(f"   shot {shot.name} size={size}B")
-
-                    # 视口判断
                     is_mobile = w <= 840
-                    is_desktop = w >= 1280
-                    is_mid = 840 < w < 1280
-
-                    # 1) bottom-tab-bar 可见性
                     if is_mobile:
                         if sig["btbDisplay"] == "none":
-                            failures.append(
-                                f"{label}: bottom-tab-bar 应显示但 display={sig['btbDisplay']}"
-                            )
-                        if sig["btbVisible"] < 3:
-                            failures.append(
-                                f"{label}: bottom-tab-bar item 数 {sig['btbVisible']} < 3"
-                            )
-                        # 移动端应有 5 个 nav item
+                            failures.append(f"PART A {label}: btb 应显示")
                         if sig["btbVisible"] != 5:
-                            failures.append(
-                                f"{label}: bottom-tab-bar 应有 5 item 但实际 {sig['btbVisible']}"
-                            )
+                            failures.append(f"PART A {label}: btb 应 5 item 但 {sig['btbVisible']}")
                     else:
                         if sig["btbDisplay"] != "none":
-                            failures.append(
-                                f"{label}: bottom-tab-bar 应隐藏但 display={sig['btbDisplay']}"
-                            )
-
-                    # 2) bottom-tab-bar 5 个 aria-label（每个 item）
-                    expected_btb_labels = {"首页", "项目", "工作台", "通知", "我的"}
-                    actual_btb_labels = set(sig["btbAriaLabels"])
-                    missing_btb = expected_btb_labels - actual_btb_labels
-                    if missing_btb:
-                        failures.append(
-                            f"{label}: bottom-tab-bar 缺 aria-label {missing_btb}"
-                        )
-
-                    # 3) home view 验证 URL
+                            failures.append(f"PART A {label}: btb 应隐藏")
+                    missing = EXPECTED_BTB_LABELS - set(sig["btbAriaLabels"])
+                    if missing:
+                        failures.append(f"PART A {label}: btb 缺 aria-label {missing}")
                     if sig["url"] not in ("/", "/login"):
-                        failures.append(
-                            f"{label}: url 应为 / 或 /login 但实际 '{sig['url']}'"
-                        )
-
-                except Exception as e:
-                    log(f"   EXCEPTION: {e!r}")
-                    failures.append(f"{label}: {e!r}")
+                        failures.append(f"PART A {label}: URL 错 {sig['url']}")
                 finally:
                     ctx.close()
 
-            # === PART B: focus trap 验证 ===
-            log(">>> PART B — focus trap 验证（create modal）")
+            # PART B: focus trap
             ctx = browser.new_context(viewport={"width": 1440, "height": 900})
             page = ctx.new_page()
             try:
                 open_home_with_token(page, token)
-                # 打开 create modal（点 + 按钮或按 n 键）
                 page.evaluate("""
                     const btn = Array.from(document.querySelectorAll('button')).find(b => b.textContent && (b.textContent.includes('新建') || b.textContent.includes('+')));
                     if (btn) btn.click();
                 """)
                 time.sleep(1.0)
                 modal_visible = page.evaluate("!!document.querySelector('.modal.modal-create')")
-                log(f"   create modal visible: {modal_visible}")
                 if not modal_visible:
-                    failures.append("create modal not opened by '+ 新建' button")
+                    failures.append("PART B: create modal 未打开")
                 else:
-                    focus_in_modal_count = 0
-                    for i in range(5):
+                    cnt = 0
+                    for _ in range(5):
                         page.keyboard.press("Tab")
                         time.sleep(0.1)
                         in_modal = page.evaluate(
                             "document.activeElement && document.querySelector('.modal.modal-create')?.contains(document.activeElement)"
                         )
                         if in_modal:
-                            focus_in_modal_count += 1
-                    log(f"   focus 在 modal 内的次数: {focus_in_modal_count}/5")
-                    if focus_in_modal_count < 4:
-                        failures.append(
-                            f"focus trap 失效：Tab 5 次只有 {focus_in_modal_count} 次在 modal 内"
-                        )
-                    page.screenshot(
-                        path=str(SHOT_DIR / "_x_b2_focus_trap_modal.png"),
-                        full_page=False,
-                    )
-            except Exception as e:
-                log(f"   EXCEPTION: {e!r}")
-                failures.append(f"focus trap: {e!r}")
+                            cnt += 1
+                    if cnt < 4:
+                        failures.append(f"PART B: focus trap 失效 {cnt}/5")
             finally:
                 ctx.close()
 
-            # === PART C: project view 5 视口 — navy tab aria-label + btb 高亮 ===
-            log(">>> PART C — project view 5 视口（navy tab + btb 高亮）")
-            EXPECTED_NAVY_LABELS = {"概览", "看板", "Epics", "工作项", "提案", "文档", "成员与 Agents", "设置"}
+            # PART C: project view 5 视口
             for w, h, label in VIEWPORTS:
                 ctx = browser.new_context(viewport={"width": w, "height": h})
                 page = ctx.new_page()
                 try:
-                    log(f"   [{label}] viewport {w}x{h}")
                     open_project_with_token(page, token, "/project/1/overview")
                     sig = collect_project_signals(page)
-                    log(f"   sig = {sig}")
-
-                    shot = SHOT_DIR / f"_x_b2_project_vp_{label}.png"
-                    page.screenshot(path=str(shot), full_page=False)
-                    size = shot.stat().st_size if shot.exists() else 0
-                    log(f"   shot {shot.name} size={size}B")
-
                     is_mobile = w <= 840
                     is_desktop = w >= 1280
-
-                    # 1) navy tab 8 个 aria-label 全部存在（只对桌面 + 1280+ 测）
                     if is_desktop:
                         if sig["navyTabCount"] != 8:
-                            failures.append(
-                                f"{label}: 桌面 navy tab 应有 8 但实际 {sig['navyTabCount']}"
-                            )
-                        actual = set(sig["navyTabAriaLabels"])
-                        missing = EXPECTED_NAVY_LABELS - actual
+                            failures.append(f"PART C {label}: navy {sig['navyTabCount']} != 8")
+                        missing = EXPECTED_NAVY_LABELS - set(sig["navyTabAriaLabels"])
                         if missing:
-                            failures.append(
-                                f"{label}: navy tab 缺 aria-label {missing}"
-                            )
-                        # 当前 active tab 应该是「概览」（我们 goto overview）
+                            failures.append(f"PART C {label}: navy 缺 {missing}")
                         if sig["navyTabActive"] != "概览":
-                            failures.append(
-                                f"{label}: navy active 应为 概览 但实际 {sig['navyTabActive']!r}"
-                            )
-
-                    # 2) bottom-tab-bar 在 project view 行为：
-                    #    - 移动（<= 840）：显示
-                    #    - 桌面（>= 1280）：隐藏
-                    #    - 中间：隐藏
+                            failures.append(f"PART C {label}: active {sig['navyTabActive']!r}")
                     if is_mobile:
                         if sig["btbDisplay"] == "none":
-                            failures.append(
-                                f"{label}: project view 移动端 btb 应显示但 display={sig['btbDisplay']}"
-                            )
-                        # project view 移动端：「工作台」按钮高亮（aria-current=page）
+                            failures.append(f"PART C {label}: btb 应显示")
                         if sig["btbActive"] != "当前项目工作台":
-                            failures.append(
-                                f"{label}: project view 移动端 btb active 应为 '当前项目工作台' 但实际 {sig['btbActive']!r}"
-                            )
-                    else:
-                        if sig["btbDisplay"] != "none":
-                            failures.append(
-                                f"{label}: project view 桌面 btb 应隐藏但 display={sig['btbDisplay']}"
-                            )
-
-                except Exception as e:
-                    log(f"   EXCEPTION: {e!r}")
-                    failures.append(f"project {label}: {e!r}")
+                            failures.append(f"PART C {label}: btb active {sig['btbActive']!r}")
                 finally:
                     ctx.close()
 
-            # === PART D: /projects 列表页 btb「项目」高亮（Task 1310d 修复）===
-            log(">>> PART D — /projects 列表页 btb「项目」高亮")
-            ctx = browser.new_context(viewport={"width": 375, "height": 800})  # 移动端
+            # PART D
+            ctx = browser.new_context(viewport={"width": 375, "height": 800})
             page = ctx.new_page()
             try:
                 open_project_with_token(page, token, "/projects")
                 sig = collect_project_signals(page)
-                log(f"   /projects sig = {sig}")
                 if sig["btbActive"] != "项目":
-                    failures.append(
-                        f"/projects 移动端 btb active 应为 '项目' 但实际 {sig['btbActive']!r} "
-                        f"（Task 1310d 修复点：/projects 不能映射成 'project' 让「工作台」亮）"
-                    )
-                shot = SHOT_DIR / "_x_b2_projects_list_mobile.png"
-                page.screenshot(path=str(shot), full_page=False)
-            except Exception as e:
-                log(f"   EXCEPTION: {e!r}")
-                failures.append(f"/projects: {e!r}")
+                    failures.append(f"PART D: btb active {sig['btbActive']!r}")
             finally:
                 ctx.close()
         finally:
             browser.close()
 
-    log("")
     if failures:
         log("FAIL:")
         for f in failures:
