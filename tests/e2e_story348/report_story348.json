@@ -7,100 +7,182 @@
       "expected_selector_present": true,
       "expected_child_count": 1,
       "main_text_len": 775,
+      "h1": "项目",
+      "is_404": false,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 1646,
         "w": 1440
       },
-      "screenshot": "screenshots\\home.png"
+      "screenshot": "screenshots_v5\\home.png"
     },
     {
       "name": "projects",
       "path": "/projects",
       "url": "http://127.0.0.1:4200/projects",
       "main_text_len": 1304,
+      "h1": "项目中心\n11",
+      "is_404": false,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 937,
         "w": 1440
       },
-      "screenshot": "screenshots\\projects.png"
+      "screenshot": "screenshots_v5\\projects.png"
     },
     {
-      "name": "agents",
-      "path": "/agents",
-      "url": "http://127.0.0.1:4200/agents",
-      "main_text_len": 1462,
+      "name": "epics",
+      "path": "/epics",
+      "url": "http://127.0.0.1:4200/epics",
+      "main_text_len": 10,
+      "h1": "",
+      "is_404": true,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 1518,
+        "h": 836,
         "w": 1440
       },
-      "screenshot": "screenshots\\agents.png"
+      "screenshot": "screenshots_v5\\epics.png"
+    },
+    {
+      "name": "stories",
+      "path": "/stories",
+      "url": "http://127.0.0.1:4200/stories",
+      "main_text_len": 10,
+      "h1": "",
+      "is_404": true,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 836,
+        "w": 1440
+      },
+      "screenshot": "screenshots_v5\\stories.png"
+    },
+    {
+      "name": "tasks",
+      "path": "/tasks",
+      "url": "http://127.0.0.1:4200/tasks",
+      "main_text_len": 10,
+      "h1": "",
+      "is_404": true,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 836,
+        "w": 1440
+      },
+      "screenshot": "screenshots_v5\\tasks.png"
+    },
+    {
+      "name": "bugs",
+      "path": "/bugs",
+      "url": "http://127.0.0.1:4200/bugs",
+      "main_text_len": 10,
+      "h1": "",
+      "is_404": true,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 836,
+        "w": 1440
+      },
+      "screenshot": "screenshots_v5\\bugs.png"
     },
     {
       "name": "documents",
       "path": "/documents",
       "url": "http://127.0.0.1:4200/documents",
-      "expected_selector_present": false,
-      "expected_child_count": -1,
       "main_text_len": 1304,
+      "h1": "项目中心\n11",
+      "is_404": false,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 937,
         "w": 1440
       },
-      "screenshot": "screenshots\\documents.png"
+      "screenshot": "screenshots_v5\\documents.png"
     },
     {
-      "name": "proposals",
-      "path": "/proposals",
-      "url": "http://127.0.0.1:4200/proposals",
-      "expected_selector_present": false,
-      "expected_child_count": -1,
-      "main_text_len": 1304,
+      "name": "dashboard",
+      "path": "/dashboard",
+      "url": "http://127.0.0.1:4200/dashboard",
+      "main_text_len": 10,
+      "h1": "",
+      "is_404": true,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 937,
+        "h": 836,
         "w": 1440
       },
-      "screenshot": "screenshots\\proposals.png"
+      "screenshot": "screenshots_v5\\dashboard.png"
     },
     {
       "name": "settings",
       "path": "/settings",
       "url": "http://127.0.0.1:4200/settings",
       "main_text_len": 650,
+      "h1": "个人设置",
+      "is_404": false,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 1472,
         "w": 1440
       },
-      "screenshot": "screenshots\\settings.png"
+      "screenshot": "screenshots_v5\\settings.png"
+    },
+    {
+      "name": "agents",
+      "path": "/agents",
+      "url": "http://127.0.0.1:4200/agents",
+      "main_text_len": 1462,
+      "h1": "Agent 池\n7",
+      "is_404": false,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 1518,
+        "w": 1440
+      },
+      "screenshot": "screenshots_v5\\agents.png"
+    },
+    {
+      "name": "proposals",
+      "path": "/proposals",
+      "url": "http://127.0.0.1:4200/proposals",
+      "main_text_len": 1304,
+      "h1": "项目中心\n11",
+      "is_404": false,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 937,
+        "w": 1440
+      },
+      "screenshot": "screenshots_v5\\proposals.png"
     },
     {
       "name": "notifications",
       "path": "/notifications",
       "url": "http://127.0.0.1:4200/notifications",
       "main_text_len": 79,
+      "h1": "通知中心\n0",
+      "is_404": false,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 836,
         "w": 1440
       },
-      "screenshot": "screenshots\\notifications.png"
+      "screenshot": "screenshots_v5\\notifications.png"
     },
     {
       "name": "admin",
       "path": "/admin",
       "url": "http://127.0.0.1:4200/admin",
       "main_text_len": 1092,
+      "h1": "⚙ 管理员后台",
+      "is_404": false,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 2014,
         "w": 1440
       },
-      "screenshot": "screenshots\\admin.png"
+      "screenshot": "screenshots_v5\\admin.png"
     },
     {
       "name": "ws_overview",
@@ -109,12 +191,14 @@
       "expected_selector_present": true,
       "expected_child_count": 1,
       "main_text_len": 492,
+      "h1": "项目概览",
+      "is_404": false,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 860,
         "w": 1440
       },
-      "screenshot": "screenshots\\ws_overview.png"
+      "screenshot": "screenshots_v5\\ws_overview.png"
     },
     {
       "name": "ws_kanban",
@@ -123,12 +207,14 @@
       "expected_selector_present": true,
       "expected_child_count": 1,
       "main_text_len": 195,
+      "h1": "看板\n0\n仅看板标记",
+      "is_404": false,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 836,
         "w": 1440
       },
-      "screenshot": "screenshots\\ws_kanban.png"
+      "screenshot": "screenshots_v5\\ws_kanban.png"
     },
     {
       "name": "ws_epics",
@@ -137,12 +223,14 @@
       "expected_selector_present": true,
       "expected_child_count": 1,
       "main_text_len": 803,
+      "h1": "Epics",
+      "is_404": false,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 1536,
         "w": 1440
       },
-      "screenshot": "screenshots\\ws_epics.png"
+      "screenshot": "screenshots_v5\\ws_epics.png"
     },
     {
       "name": "ws_backlog",
@@ -151,12 +239,14 @@
       "expected_selector_present": true,
       "expected_child_count": 1,
       "main_text_len": 1151,
+      "h1": "工作项\n200",
+      "is_404": false,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 1536,
         "w": 1440
       },
-      "screenshot": "screenshots\\ws_backlog.png"
+      "screenshot": "screenshots_v5\\ws_backlog.png"
     },
     {
       "name": "ws_proposals",
@@ -165,12 +255,14 @@
       "expected_selector_present": true,
       "expected_child_count": 1,
       "main_text_len": 281,
+      "h1": "需求提案",
+      "is_404": false,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 836,
         "w": 1440
       },
-      "screenshot": "screenshots\\ws_proposals.png"
+      "screenshot": "screenshots_v5\\ws_proposals.png"
     },
     {
       "name": "ws_documents",
@@ -179,12 +271,14 @@
       "expected_selector_present": true,
       "expected_child_count": 1,
       "main_text_len": 1181,
+      "h1": "项目文档",
+      "is_404": false,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 1006,
         "w": 1440
       },
-      "screenshot": "screenshots\\ws_documents.png"
+      "screenshot": "screenshots_v5\\ws_documents.png"
     },
     {
       "name": "ws_members",
@@ -193,12 +287,14 @@
       "expected_selector_present": true,
       "expected_child_count": 1,
       "main_text_len": 747,
+      "h1": "成员与 Agents\n5 成员 · 7 Agent（全局）",
+      "is_404": false,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 931,
         "w": 1440
       },
-      "screenshot": "screenshots\\ws_members.png"
+      "screenshot": "screenshots_v5\\ws_members.png"
     },
     {
       "name": "ws_settings",
@@ -207,89 +303,101 @@
       "expected_selector_present": true,
       "expected_child_count": 1,
       "main_text_len": 217,
+      "h1": "项目设置",
+      "is_404": false,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 836,
         "w": 1440
       },
-      "screenshot": "screenshots\\ws_settings.png"
+      "screenshot": "screenshots_v5\\ws_settings.png"
     },
     {
       "name": "epic_152",
       "path": "/epic/152",
       "url": "http://127.0.0.1:4200/epic/152",
       "main_text_len": 2845,
+      "h1": "",
+      "is_404": false,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 2487,
         "w": 1440
       },
-      "screenshot": "screenshots\\epic_152.png"
+      "screenshot": "screenshots_v5\\epic_152.png"
     },
     {
       "name": "story_348",
       "path": "/story/348",
       "url": "http://127.0.0.1:4200/story/348",
-      "main_text_len": 4668,
-      "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 3916,
-        "w": 1440
-      },
-      "screenshot": "screenshots\\story_348.png"
-    },
-    {
-      "name": "story_330",
-      "path": "/story/330",
-      "url": "http://127.0.0.1:4200/story/330",
-      "main_text_len": 2903,
-      "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 2326,
-        "w": 1440
-      },
-      "screenshot": "screenshots\\story_330.png"
-    },
-    {
-      "name": "task_1342",
-      "path": "/task/1342",
-      "url": "http://127.0.0.1:4200/task/1342",
-      "main_text_len": 650,
-      "horizontal_overflow_px": 0,
-      "main_dim": {
-        "h": 1129,
-        "w": 1440
-      },
-      "screenshot": "screenshots\\task_1342.png"
-    },
-    {
-      "name": "task_1339",
-      "path": "/task_1339",
-      "url": "http://127.0.0.1:4200/task_1339",
-      "main_text_len": 10,
+      "main_text_len": 0,
+      "h1": "",
+      "is_404": false,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 836,
         "w": 1440
       },
-      "screenshot": "screenshots\\task_1339.png"
+      "screenshot": "screenshots_v5\\story_348.png"
+    },
+    {
+      "name": "story_330",
+      "path": "/story/330",
+      "url": "http://127.0.0.1:4200/story/330",
+      "main_text_len": 0,
+      "h1": "",
+      "is_404": false,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 836,
+        "w": 1440
+      },
+      "screenshot": "screenshots_v5\\story_330.png"
+    },
+    {
+      "name": "task_1342",
+      "path": "/task/1342",
+      "url": "http://127.0.0.1:4200/task/1342",
+      "main_text_len": 0,
+      "h1": "",
+      "is_404": false,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 836,
+        "w": 1440
+      },
+      "screenshot": "screenshots_v5\\task_1342.png"
+    },
+    {
+      "name": "task_1339",
+      "path": "/task/1339",
+      "url": "http://127.0.0.1:4200/task/1339",
+      "main_text_len": 0,
+      "h1": "",
+      "is_404": false,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 836,
+        "w": 1440
+      },
+      "screenshot": "screenshots_v5\\task_1339.png"
     }
   ],
   "console_errors": [
+    {
+      "text": "Failed to load resource: net::ERR_CONNECTION_TIMED_OUT",
+      "artifact": false
+    },
     {
       "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
       "artifact": true
     },
     {
-      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789846636.55d55cb29d703dbeecd37afaa3d6bedf243864d916aec3fcf1c73b33f8915c07' failed: Error during WebSocket handshake: Unexpected response code: 200",
+      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789850452.16976eb8ed4a992245fe91a12bfb11066a6ca393376fc31b93eb42c51c87c271' failed: Error during WebSocket handshake: Unexpected response code: 200",
       "artifact": true
     },
     {
-      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789846636.55d55cb29d703dbeecd37afaa3d6bedf243864d916aec3fcf1c73b33f8915c07' failed: Error during WebSocket handshake: Unexpected response code: 200",
-      "artifact": true
-    },
-    {
-      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789850452.16976eb8ed4a992245fe91a12bfb11066a6ca393376fc31b93eb42c51c87c271' failed: Error during WebSocket handshake: Unexpected response code: 200",
       "artifact": true
     }
   ],
@@ -299,64 +407,14 @@
       "url": "http://127.0.0.1:4200/api/agents",
       "status": 401,
       "artifact": true
-    },
-    {
-      "url": "http://127.0.0.1:4200/api/projects/3",
-      "status": 500,
-      "artifact": false
     }
   ],
   "interactions": [
     {
       "name": "theme_toggle",
-      "toggle_button_found": false,
-      "result": "error: Page.wait_for_selector: Timeout 8000ms exceeded.\nCall log:\n  - waiting for locator(\"#theme-toggle\") to be visible\n"
-    },
-    {
-      "name": "ws_tab_clicks",
-      "result": [
-        {
-          "tab": "概览",
-          "clicked": false,
-          "err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\".project-nav-button-v7\")."
-        },
-        {
-          "tab": "看板",
-          "clicked": false,
-          "err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\".project-nav-button-v7\")."
-        },
-        {
-          "tab": "Epics",
-          "clicked": false,
-          "err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\".project-nav-button-v7\")."
-        },
-        {
-          "tab": "工作项",
-          "clicked": false,
-          "err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\".project-nav-button-v7\")."
-        },
-        {
-          "tab": "提案",
-          "clicked": false,
-          "err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\".project-nav-button-v7\")."
-        },
-        {
-          "tab": "文档",
-          "clicked": false,
-          "err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\".project-nav-button-v7\")."
-        },
-        {
-          "tab": "成员与 Agents",
-          "clicked": true,
-          "url": "http://127.0.0.1:4200/project/3/overview",
-          "url_matches": true
-        },
-        {
-          "tab": "设置",
-          "clicked": false,
-          "err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\".project-nav-button-v7\")."
-        }
-      ]
+      "toggle_found": true,
+      "dark_applied": false,
+      "before": "light"
     },
     {
       "name": "create_dialog",
@@ -364,33 +422,49 @@
     },
     {
       "name": "documents_search",
-      "result": "typed"
+      "result": "no_search_box"
+    },
+    {
+      "name": "story348_comment_box",
+      "found": false
     }
   ],
   "findings": [
     {
-      "page": "task_1339",
-      "path": "/task_1339",
+      "page": "story_348",
+      "path": "/story/348",
       "severity": "P1",
-      "issue": "主内容区文本长度仅 10 字符(疑似空白/未渲染视图)"
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "story_330",
+      "path": "/story/330",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "task_1342",
+      "path": "/task/1342",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "task_1339",
+      "path": "/task/1339",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
     {
       "page": "global",
       "path": "/",
       "severity": "P2",
-      "issue": "未找到 #theme-toggle 主题切换按钮(首页视图下应渲染)"
-    },
-    {
-      "page": "ws_tabs",
-      "path": "/project/3/*",
-      "severity": "P2",
-      "issue": "工作区 tab 点击后未正确导航: ['概览', '看板', 'Epics', '工作项', '提案', '文档', '设置']"
+      "issue": "主题切换按钮点击后 dataset.theme 未切换(暗色主题切换失效)"
     },
     {
       "page": "projects",
       "path": "/projects",
       "severity": "P3",
-      "issue": "点击 #proj-new-btn 未打开新建项目弹窗(或弹窗未渲染)"
+      "issue": "点击新建项目按钮未打开新建项目弹窗(或弹窗未渲染)"
     }
   ],
   "known_bug_recheck": [
@@ -398,19 +472,22 @@
       "bug": "#1427",
       "page": "story_330",
       "path": "/story/330",
-      "still_blank": false
+      "still_blank": false,
+      "is_404": false
     },
     {
       "bug": "#1427",
       "page": "task_1342",
       "path": "/task/1342",
-      "still_blank": false
+      "still_blank": false,
+      "is_404": false
     },
     {
       "bug": "#1427",
       "page": "task_1339",
       "path": "/task/1339",
-      "still_blank": false
+      "still_blank": false,
+      "is_404": false
     },
     {
       "bug": "#1428",
@@ -425,14 +502,78 @@
       "path": "/proposals",
       "h1": "项目中心\n11",
       "renders_as_project_center": true
+    },
+    {
+      "bug": "#1429",
+      "sidebar_labels": [
+        "概览",
+        "看板",
+        "Epics",
+        "工作项",
+        "提案",
+        "文档",
+        "成员与 Agents",
+        "设置"
+      ],
+      "still_has_search_label": false,
+      "has_proposal_label": true
     }
   ],
-  "real_console_errors": [],
-  "real_failed_requests": [
+  "ws_tabs": [
     {
-      "url": "http://127.0.0.1:4200/api/projects/3",
-      "status": 500,
+      "tab": "概览",
+      "path": "/project/3/overview",
+      "active": "概览",
+      "url_ok": true
+    },
+    {
+      "tab": "看板",
+      "path": "/project/3/kanban",
+      "active": "看板",
+      "url_ok": true
+    },
+    {
+      "tab": "Epics",
+      "path": "/project/3/epics",
+      "active": "Epics",
+      "url_ok": true
+    },
+    {
+      "tab": "工作项",
+      "path": "/project/3/backlog",
+      "active": "工作项",
+      "url_ok": true
+    },
+    {
+      "tab": "提案",
+      "path": "/project/3/proposals",
+      "active": "提案",
+      "url_ok": true
+    },
+    {
+      "tab": "文档",
+      "path": "/project/3/documents",
+      "active": "文档",
+      "url_ok": true
+    },
+    {
+      "tab": "成员与 Agents",
+      "path": "/project/3/members",
+      "active": "成员与 Agents",
+      "url_ok": true
+    },
+    {
+      "tab": "设置",
+      "path": "/project/3/settings",
+      "active": "设置",
+      "url_ok": true
+    }
+  ],
+  "real_console_errors": [
+    {
+      "text": "Failed to load resource: net::ERR_CONNECTION_TIMED_OUT",
       "artifact": false
     }
-  ]
+  ],
+  "real_failed_requests": []
 }
