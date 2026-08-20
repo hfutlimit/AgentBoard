@@ -31,16 +31,6 @@
   }
 
   <section class="project-workspace-main">
-    @if (host.project(); as current) {
-      <div class="crumb-bar">
-        <a routerLink="/projects">项目</a><span>›</span><span>{{ current.name }}</span>
-      </div>
-      <app-workspace-heading [title]="current.name">
-        @if (current.key) { <span class="heading-title-badge lg">{{ current.key }}</span> }
-        <span class="heading-title-badge" title="邀请制项目">🔒 邀请制</span>
-      </app-workspace-heading>
-      @if (current.description) { <div class="card md text-pre">{{ current.description }}</div> }
-    }
     <router-outlet />
   </section>
 </div>

@@ -2,13 +2,12 @@ import { Component, ViewEncapsulation, computed, inject } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import type { ProjectTabKind } from '../models';
 import { ProjectDataService } from '../services/project-data.service';
-import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
 
 /** Parent route for the project workspace. Navigation state belongs to Router. */
 @Component({
   selector: 'app-project-workspace-shell',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, RouterOutlet, WorkspaceHeadingComponent],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet],
   templateUrl: './project-workspace-shell.html',
   styleUrl: './project-workspace-shell.css',
   encapsulation: ViewEncapsulation.None,

@@ -3,7 +3,7 @@
    全局封装（ViewEncapsulation.None），与 App 组件一致；过渡期 app.css 旧规则共存，
    阶段4 色板收口时统一清理重复。 */
 
-.overview-content { padding: 20px 4px 0; display: flex; flex-direction: column; gap: 18px; }
+.overview-content { padding: 0; display: flex; flex-direction: column; gap: 18px; }
 .overview-hero {
   padding: 22px 24px;
   background: linear-gradient(135deg, var(--surface) 0%, var(--surface-2) 100%);
@@ -41,8 +41,8 @@
 
 /* ---- metric-card（原型 v7） ---- */
 .overview-stats.metric-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 14px;
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-column: 1 / -1; gap: 12px;
 }
 .metric-card {
   min-width: 0;
@@ -53,6 +53,7 @@
   display: flex; flex-direction: column; gap: 4px;
   cursor: default; transition: all .18s ease;
   box-shadow: 0 1px 2px rgba(15, 23, 42, .03);
+  color: inherit; font: inherit; text-align: left;
 }
 .metric-card.clickable { cursor: pointer; }
 .metric-card.clickable:hover {
@@ -64,6 +65,7 @@
   display: flex; align-items: center; justify-content: space-between;
   color: var(--ink-muted, var(--text-2)); font-size: 12px;
 }
+.metric-label .icon-v7 { width: 16px; height: 16px; color: #8794a5; }
 .metric-icon { font-size: 16px; opacity: .85; }
 .metric-value {
   margin-top: 6px;
@@ -77,8 +79,8 @@
 
 /* ---- overview-grid / workspace-card ---- */
 .overview-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 14px;
+  display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(300px, .72fr);
+  gap: 18px;
 }
 .overview-card {
   background: var(--surface); border: 1px solid var(--border);
@@ -91,10 +93,12 @@
   display: flex; align-items: center; justify-content: space-between;
   padding-bottom: 6px; border-bottom: 1px dashed var(--border);
 }
+.overview-card-header > div { min-width: 0; }
 .overview-card-header h4 {
   margin: 0; font-size: 14px; font-weight: 600; color: var(--text);
   letter-spacing: .02em;
 }
+.overview-card-header p { margin: 3px 0 0; color: var(--text-2); font-size: 11px; }
 .link-btn {
   background: transparent; border: none; cursor: pointer;
   color: var(--brand-600); font-size: 12px; font-weight: 500;
@@ -135,8 +139,9 @@
 .overview-epic-list { display: flex; flex-direction: column; gap: 6px; }
 .overview-epic {
   display: flex; align-items: center; gap: 10px;
-  padding: 8px 10px; border-radius: 8px; cursor: pointer;
-  transition: background .14s; border: 1px solid transparent;
+  width: 100%; padding: 8px 10px; border: 1px solid transparent;
+  border-radius: 8px; background: transparent; color: inherit;
+  font: inherit; text-align: left; cursor: pointer; transition: background .14s;
 }
 .overview-epic.clickable:hover {
   background: var(--surface-2); border-color: var(--border);
@@ -191,6 +196,110 @@
 .overview-shortcut-icon { font-size: 22px; }
 .overview-shortcut-label {
   font-size: 12px; font-weight: 500; color: var(--text);
+}
+
+.overview-health-badge {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 20px;
+  background: var(--teal-soft, #e5f5f0);
+  color: var(--teal, #087f6a);
+  font-size: 11px;
+  font-weight: 700;
+}
+.overview-velocity-card { min-height: 356px; }
+.overview-velocity-chart { width: 100%; height: 255px; margin-top: auto; }
+.overview-chart-axis { fill: none; stroke: var(--line, #dfe5eb); }
+.overview-chart-grid { fill: none; stroke: var(--border-2, #edf1f5); }
+.overview-bar { fill: #dfe9fa; transition: fill .16s ease; }
+.overview-bar.current { fill: var(--brand-500, #2864dc); }
+.overview-bar:hover { fill: #89acec; }
+.overview-axis-label { fill: #8793a3; font-size: 10px; }
+
+.overview-focus-card { min-height: 356px; }
+.overview-empty-panel {
+  display: grid;
+  min-height: 240px;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+  font-style: normal;
+}
+.overview-empty-panel strong { color: var(--text); font-size: 14px; }
+.overview-empty-panel > span:last-child { max-width: 250px; }
+.overview-empty-icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 4px;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--brand-soft);
+  color: var(--brand-600);
+}
+.overview-empty-icon .icon-v7 { width: 20px; height: 20px; }
+
+.overview-activity-card { grid-column: 1 / -1; min-height: 0; }
+.overview-project-summary { display: flex; align-items: center; gap: 12px; }
+.overview-project-mark {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--navy, #10243e);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 750;
+}
+.overview-project-summary > div { display: grid; min-width: 0; gap: 2px; }
+.overview-project-summary strong { color: var(--text); font-size: 14px; }
+.overview-project-summary span { overflow: hidden; color: var(--text-2); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.overview-member-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-2);
+  color: var(--text-2);
+  font-size: 12px;
+}
+.overview-member-strip .link-btn { margin-left: auto; }
+.overview-avatar-stack { display: flex; padding-left: 6px; }
+.overview-avatar-stack .overview-avatar {
+  width: 28px;
+  height: 28px;
+  margin-left: -6px;
+  border: 2px solid var(--surface);
+  font-size: 11px;
+}
+
+@media (min-width: 1800px) {
+  .overview-velocity-card,
+  .overview-focus-card { min-height: 390px; }
+  .overview-velocity-chart { height: 285px; }
+}
+
+@media (max-width: 1180px) {
+  .overview-grid { grid-template-columns: minmax(0, 1fr) 300px; }
+  .overview-stats.metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 900px) {
+  .overview-grid { grid-template-columns: 1fr; }
+  .overview-focus-card,
+  .overview-activity-card { grid-column: 1; }
+}
+
+@media (max-width: 560px) {
+  .overview-stats.metric-grid { grid-template-columns: 1fr; }
+  .overview-member-strip { align-items: flex-start; flex-wrap: wrap; }
+  .overview-member-strip .link-btn { margin-left: 0; }
 }
 
 /* ---- 暗色主题适配（原型 v7 是 light-only，navy 令牌补暗色版本） ---- */

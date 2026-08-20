@@ -31,6 +31,8 @@
 <header class="topbar">
   <div class="topbar-inner">
     <div class="topbar-left">
+      @if (view() !== 'project') {
+      @if (view() !== 'settings') {
       <button
         id="sidebar-toggle"
         class="icon-btn"
@@ -41,10 +43,12 @@
       >
         <svg class="icon-v7"><use href="#i-list"/></svg>
       </button>
+      }
       <a routerLink="/" class="logo" title="AgentBoard 首页" aria-label="AgentBoard">
         <span class="brand-mark-v7" aria-hidden="true"></span>
         <span class="logo-text">Agent<b>Board</b></span>
       </a>
+      }
       <div class="topbar-context">
         <!-- Epic 149 / Story 317：两级 Shell 切换 —— 非项目视图显示 home-nav，项目视图显示 back + project-switcher -->
         @if (view() === 'project' || view() === 'epic' || view() === 'story' || view() === 'task' || view() === 'sprint') {
@@ -72,9 +76,17 @@
       </div>
     </div>
     <div class="topbar-right">
+      @if (view() === 'project') {
+        <label class="workspace-project-search" aria-label="搜索当前项目">
+          <svg class="icon-v7" aria-hidden="true"><use href="#i-search"/></svg>
+          <input type="search" placeholder="搜索当前项目" />
+        </label>
+      }
+      @if (view() !== 'project') {
       <button id="theme-toggle" class="icon-btn" [title]="getThemeLabel()" (click)="toggleTheme()">
         <span class="theme-icon">{{ isDarkTheme() ? '🌙' : '☀️' }}</span>
       </button>
+      }
       <span id="user-info" class="muted">
         <!-- Notification bell -->
         @if (currentUser()) {
@@ -159,7 +171,7 @@
 }
 
 <div class="layout" [class.doc-mode]="view() === 'document'">
-  @if (sidebarOpen() && view() !== 'document' && view() !== 'home' && view() !== 'project' && view() !== 'epic' && view() !== 'story' && view() !== 'task' && view() !== 'sprint') {
+  @if (sidebarOpen() && view() !== 'document' && view() !== 'home' && view() !== 'project' && view() !== 'epic' && view() !== 'story' && view() !== 'task' && view() !== 'sprint' && view() !== 'settings') {
     <aside id="sidebar" class="sidebar" [class.sidebar--collapsed]="sidebarCollapsed()">
       <div class="sidebar-workspace">
         <span class="sidebar-workspace-kicker">WORKSPACE</span>
@@ -237,7 +249,11 @@
     </aside>
   }
 
-  <main id="app">
+  <main
+    id="app"
+    [class.home-shell-mode]="view() === 'home'"
+    [class.project-workspace-mode]="view() === 'project'"
+    [class.account-settings-mode]="view() === 'settings'">
     <!-- Task 804: Bulk operation progress indicator with percentage -->
     @if (bulkProgress()) {
       <div class="bulk-progress-bar" style="position:sticky;top:0;z-index:50;margin-bottom:8px">
@@ -283,7 +299,8 @@
               [visible]="view() === 'home'"
               (selectProject)="selectHomeProject($event)"
               (newProject)="openCreate('project')"
-              (enterWorkspace)="goProject($event)">
+              (enterWorkspace)="goProject($event)"
+              (logoutRequest)="logout()">
             </app-home-shell>
           }
 
@@ -2386,90 +2403,61 @@
         }
 
         @case ('settings') {
-          <div class="crumb-bar"><a routerLink="/">首页</a><span>›</span><span>个人设置</span></div>
-          <app-workspace-heading
-            eyebrow="ACCOUNT"
-            title="个人设置"
-            subtitle="管理个人资料、安全凭据和自己的项目。">
-          </app-workspace-heading>
+          @defer (when view() === 'settings' && !authVisible()) {
+            <app-account-settings
+              [profile]="profile()"
+              [projects]="myProjects()"
+              [apiKeys]="apiKeys()"
+              (editProfile)="openProfileEdit($event)"
+              (editPassword)="openPasswordModal()"
+              (newProject)="openCreate('project')"
+              (newApiKey)="showCreateKeyModal()"
+              (revokeApiKey)="revokeApiKey($event)">
+            </app-account-settings>
+          }
 
-          @if (profile(); as currentProfile) {
-            <div class="settings-grid">
-              <section class="card settings-card">
-                <h2>Profile</h2>
-                <form (submit)="saveProfile(displayName.value, profileEmail.value, avatarUrl.value); $event.preventDefault()">
-                  <label>用户名<input [value]="currentProfile.username" disabled /></label>
-                  <label>显示名称<input #displayName [value]="currentProfile.display_name || ''" maxlength="100" placeholder="你的显示名称" /></label>
-                  <label>邮箱<input #profileEmail type="email" [value]="currentProfile.email || ''" maxlength="254" placeholder="name@example.com" /></label>
-                  <label>头像 URL<input #avatarUrl type="url" [value]="currentProfile.avatar_url || ''" maxlength="500" placeholder="https://…" /></label>
-                  <button class="btn-primary-sm" type="submit" [disabled]="submitting()">保存资料</button>
-                </form>
-              </section>
-
-              <section class="card settings-card">
-                <h2>修改密码</h2>
-                <form (submit)="updatePassword(currentPassword.value, newPassword.value, confirmPassword.value); $event.preventDefault()">
-                  <label>当前密码<input #currentPassword type="password" required autocomplete="current-password" /></label>
-                  <label>新密码<input #newPassword type="password" required minlength="8" autocomplete="new-password" /></label>
-                  <label>确认新密码<input #confirmPassword type="password" required minlength="8" autocomplete="new-password" /></label>
-                  <button class="btn-primary-sm" type="submit" [disabled]="submitting()">更新密码</button>
+          @if (profileEditField()) {
+            <div class="modal-overlay" (click)="closeProfileEdit()">
+              <section class="modal settings-modal account-edit-modal" role="dialog" aria-modal="true" aria-labelledby="profile-edit-title" (click)="$event.stopPropagation()" appFocusTrap (appFocusTrapEscape)="closeProfileEdit()">
+                <div class="account-edit-modal-head">
+                  <div><h3 id="profile-edit-title">{{ profileEditTitle() }}</h3><p>保存后会立即用于 AgentBoard 中的身份展示。</p></div>
+                  <button type="button" class="account-modal-close" aria-label="关闭" (click)="closeProfileEdit()"><svg class="icon-v7"><use href="#i-close"/></svg></button>
+                </div>
+                <form (submit)="saveProfileEdit(); $event.preventDefault()">
+                  <label>{{ profileEditLabel() }}
+                    <input
+                      [type]="profileEditField() === 'email' ? 'email' : profileEditField() === 'avatar_url' ? 'url' : 'text'"
+                      [value]="profileEditValue()"
+                      (input)="profileEditValue.set($any($event.target).value)"
+                      [attr.maxlength]="profileEditField() === 'display_name' ? 100 : profileEditField() === 'email' ? 254 : 500"
+                      [placeholder]="profileEditPlaceholder()"
+                      autofocus />
+                  </label>
+                  @if (profileEditField() === 'avatar_url') {
+                    <p class="account-edit-help">留空将恢复为名称首字母头像。</p>
+                  }
+                  <div class="row modal-actions"><button type="button" class="ghost-sm" (click)="closeProfileEdit()">取消</button><button type="submit" class="btn-primary-sm" [disabled]="submitting()">保存</button></div>
                 </form>
               </section>
             </div>
           }
 
-          <section class="card settings-card settings-wide">
-            <div class="card-header">
-              <div><h2>我的项目</h2><p class="muted">仅显示你创建或参与的项目。</p></div>
-              <button class="btn-primary-sm" (click)="openCreate('project')">＋ 新建项目</button>
+          @if (passwordModalVisible()) {
+            <div class="modal-overlay" (click)="closePasswordModal()">
+              <section class="modal settings-modal account-edit-modal" role="dialog" aria-modal="true" aria-labelledby="password-edit-title" (click)="$event.stopPropagation()" appFocusTrap (appFocusTrapEscape)="closePasswordModal()">
+                <div class="account-edit-modal-head">
+                  <div><h3 id="password-edit-title">修改密码</h3><p>新密码至少 8 位；更新后请使用新密码登录。</p></div>
+                  <button type="button" class="account-modal-close" aria-label="关闭" (click)="closePasswordModal()"><svg class="icon-v7"><use href="#i-close"/></svg></button>
+                </div>
+                <form (submit)="updatePassword(currentPassword.value, newPassword.value, confirmPassword.value); $event.preventDefault()">
+                  <label>当前密码<input #currentPassword type="password" required autocomplete="current-password" /></label>
+                  <label>新密码<input #newPassword type="password" required minlength="8" autocomplete="new-password" /></label>
+                  <label>确认新密码<input #confirmPassword type="password" required minlength="8" autocomplete="new-password" /></label>
+                  <div class="row modal-actions"><button type="button" class="ghost-sm" (click)="closePasswordModal()">取消</button><button class="btn-primary-sm" type="submit" [disabled]="submitting()">更新密码</button></div>
+                </form>
+              </section>
             </div>
-            @if (myProjects().length) {
-              <div class="table-wrap">
-                <table class="data-table">
-                  <thead><tr><th>项目</th><th>短码</th><th>角色</th><th>操作</th></tr></thead>
-                  <tbody>
-                    @for (p of myProjects(); track p.id) {
-                      <tr>
-                        <td><a [routerLink]="['/project', p.id]" class="link-bold">{{ p.name }}</a></td>
-                        <td>{{ p.key || '—' }}</td>
-                        <td><span class="badge">{{ p.membership_role === 'owner' ? 'Owner / 我创建的' : 'Member / 我参与的' }}</span></td>
-                        <td><a [routerLink]="['/project', p.id, 'settings']" class="ghost-sm">{{ p.membership_role === 'owner' ? '管理设置' : '查看' }}</a></td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-            } @else {
-              <div class="empty-inline">你还没有创建或加入项目。</div>
-            }
-          </section>
-
-          <section class="card settings-card settings-wide">
-            <div class="card-header">
-              <div><h2>API Key</h2><p class="muted">用于脚本和第三方工具访问 AgentBoard API。</p></div>
-              <button class="btn-primary-sm" (click)="showCreateKeyModal()">＋ 新建 API Key</button>
-            </div>
-            @if (apiKeys().length) {
-              <div class="table-wrap">
-                <table class="data-table">
-                  <thead><tr><th>名称</th><th>前缀</th><th>权限</th><th>最后使用</th><th>状态</th><th>操作</th></tr></thead>
-                  <tbody>
-                    @for (key of apiKeys(); track key.id) {
-                      <tr>
-                        <td>{{ key.name }}</td><td><code>{{ key.prefix }}…</code></td>
-                        <td>{{ key.permissions.join(', ') || '无权限' }}</td>
-                        <td>{{ key.last_used_at ? (key.last_used_at | date:'yyyy-MM-dd HH:mm') : '从未使用' }}</td>
-                        <td><span [class]="key.enabled ? 'badge status--done' : 'badge'">{{ key.enabled ? '启用' : '禁用' }}</span></td>
-                        <td><button class="ghost-sm danger" (click)="revokeApiKey(key.id)">撤销</button></td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-            } @else {
-              <div class="empty-inline">暂无 API Key。</div>
-            }
-          </section>
+          }
 
           @if (keyModalVisible()) {
             <div class="modal-overlay" (click)="closeKeyModal()">

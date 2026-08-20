@@ -16,6 +16,7 @@ import { BottomTabBarComponent } from './bottom-tab-bar/bottom-tab-bar';
 import { FocusTrapDirective } from './shared/focus-trap.directive';
 import { ManagedListComponent } from './managed-list/managed-list';
 import { HomeShellComponent } from './home-shell/home-shell';
+import { AccountSettingsComponent } from './account-settings/account-settings';
 import { WorkspaceTopbarComponent } from './workspace-topbar/workspace-topbar';
 import { WorkspaceHeadingComponent } from './workspace-heading/workspace-heading';
 import { ProjectDataService } from './services/project-data.service';
@@ -74,7 +75,7 @@ interface PaletteCommand {
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, HomeShellComponent, WorkspaceTopbarComponent, WorkspaceHeadingComponent, BottomTabBarComponent, FocusTrapDirective],
+  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, HomeShellComponent, AccountSettingsComponent, WorkspaceTopbarComponent, WorkspaceHeadingComponent, BottomTabBarComponent, FocusTrapDirective],
   templateUrl: './app.html',
   styleUrls: ['./app.css', './app-features.css'],
   encapsulation: ViewEncapsulation.None,
@@ -430,6 +431,9 @@ export class App implements OnInit, OnDestroy {
   readonly profile = signal<UserProfile | null>(null);
   readonly myProjects = signal<Project[]>([]);
   readonly apiKeys = signal<ApiKeyInfo[]>([]);
+  readonly profileEditField = signal<'display_name' | 'email' | 'avatar_url' | null>(null);
+  readonly profileEditValue = signal('');
+  readonly passwordModalVisible = signal(false);
   readonly newKeyName = signal('');
   readonly newKeyPerms = signal('');
   readonly keyModalVisible = signal(false);
@@ -4275,6 +4279,61 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  openProfileEdit(field: 'display_name' | 'email' | 'avatar_url'): void {
+    const current = this.profile();
+    if (!current) return;
+    const value = field === 'display_name' ? current.display_name : field === 'email' ? current.email : current.avatar_url;
+    this.profileEditValue.set(value || '');
+    this.profileEditField.set(field);
+  }
+
+  closeProfileEdit(): void {
+    this.profileEditField.set(null);
+    this.profileEditValue.set('');
+  }
+
+  profileEditTitle(): string {
+    return ({ display_name: '编辑显示名称', email: '编辑邮箱', avatar_url: '编辑头像地址' } as const)[this.profileEditField() || 'display_name'];
+  }
+
+  profileEditLabel(): string {
+    return ({ display_name: '显示名称', email: '邮箱', avatar_url: '头像 URL' } as const)[this.profileEditField() || 'display_name'];
+  }
+
+  profileEditPlaceholder(): string {
+    return ({ display_name: '你的显示名称', email: 'name@example.com', avatar_url: 'https://…' } as const)[this.profileEditField() || 'display_name'];
+  }
+
+  async saveProfileEdit(): Promise<void> {
+    const current = this.profile();
+    const field = this.profileEditField();
+    if (!current || !field) return;
+    const value = this.profileEditValue().trim();
+    this.submitting.set(true);
+    try {
+      const profile = await firstValueFrom(this.api.updateProfile({
+        display_name: field === 'display_name' ? value : current.display_name,
+        email: field === 'email' ? value : (current.email || ''),
+        avatar_url: field === 'avatar_url' ? value : (current.avatar_url || ''),
+      }));
+      this.profile.set(profile);
+      this.closeProfileEdit();
+      this.notify('个人资料已更新');
+    } catch (error) {
+      this.notify(`保存失败：${this.message(error)}`, 'error');
+    } finally {
+      this.submitting.set(false);
+    }
+  }
+
+  openPasswordModal(): void {
+    this.passwordModalVisible.set(true);
+  }
+
+  closePasswordModal(): void {
+    this.passwordModalVisible.set(false);
+  }
+
   async saveProfile(displayName: string, email: string, avatarUrl: string): Promise<void> {
     this.submitting.set(true);
     try {
@@ -4298,6 +4357,7 @@ export class App implements OnInit, OnDestroy {
     this.submitting.set(true);
     try {
       await firstValueFrom(this.api.changePassword({ current_password: currentPassword, new_password: newPassword }));
+      this.closePasswordModal();
       this.notify('密码已更新');
     } catch (error) {
       this.notify(`修改密码失败：${this.message(error)}`, 'error');

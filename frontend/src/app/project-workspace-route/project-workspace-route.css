@@ -1,11 +1,18 @@
 :host {
   display: block;
   min-width: 0;
-  padding: 30px 36px 64px;
+}
+
+.project-workspace-route-content {
+  width: min(1500px, 100%);
+  min-width: 0;
+  margin-inline: auto;
+}
+
+@media (min-width: 1800px) {
+  .project-workspace-route-content { width: min(1680px, 100%); }
 }
 
 @media (max-width: 840px) {
-  :host {
-    padding: 20px 14px 72px;
-  }
+  .project-workspace-route-content { width: 100%; }
 }

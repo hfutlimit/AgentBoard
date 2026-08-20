@@ -1,4 +1,4 @@
-import { Component, EventEmitter, Input, Output, ViewEncapsulation, signal, computed } from '@angular/core';
+import { Component, EventEmitter, HostListener, Input, Output, ViewEncapsulation, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import type { Project, AgentRow } from '../models';
@@ -20,6 +20,7 @@ import type { Project, AgentRow } from '../models';
  *   selectProject  number  — Master 行被点击（父级更新 selectedHomeProject）
  *   newProject     void    — 「+ 新建项目」点击（父级调用 openCreate('project')）
  *   enterWorkspace number  — 「进入工作台」点击（父级路由跳转）
+ *   logoutRequest  void    — 用户菜单「退出登录」（父级清理登录态）
  *
  * 状态（组件内 signal）：
  *   activeTab  'projects' | 'agents' — 当前 tab
@@ -51,8 +52,11 @@ export class HomeShellComponent {
   @Output() selectProject = new EventEmitter<number>();
   @Output() newProject = new EventEmitter<void>();
   @Output() enterWorkspace = new EventEmitter<number>();
+  @Output() logoutRequest = new EventEmitter<void>();
 
   readonly activeTab = signal<'projects' | 'agents'>('projects');
+  readonly userMenuOpen = signal(false);
+  readonly projectMenuOpen = signal(false);
 
   /** 当前 Detail 选中项目：fallback 到第一个项目，确保 Detail 永远有数据。 */
   readonly effectiveSelected = computed<Project | null>(() => {
@@ -62,6 +66,29 @@ export class HomeShellComponent {
 
   setTab(tab: 'projects' | 'agents'): void {
     this.activeTab.set(tab);
+    this.closeMenus();
+  }
+
+  toggleUserMenu(event: MouseEvent): void {
+    event.stopPropagation();
+    this.projectMenuOpen.set(false);
+    this.userMenuOpen.update((open) => !open);
+  }
+
+  toggleProjectMenu(event: MouseEvent): void {
+    event.stopPropagation();
+    this.userMenuOpen.set(false);
+    this.projectMenuOpen.update((open) => !open);
+  }
+
+  closeMenus(): void {
+    this.userMenuOpen.set(false);
+    this.projectMenuOpen.set(false);
+  }
+
+  @HostListener('document:click')
+  onDocumentClick(): void {
+    this.closeMenus();
   }
 
   /** 项目 monogram 颜色：按 key/name 哈希稳定分配 5 色（navy/green/blue/amber/steel）。 */

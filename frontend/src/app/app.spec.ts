@@ -272,9 +272,10 @@ describe('App', () => {
     expect(element.textContent).toContain('Review the proposal');
   });
 
-  it('should render the user settings console', () => {
+  it('should render the user settings console', async () => {
     const fixture = TestBed.createComponent(App);
     fixture.detectChanges();
+    await fixture.whenStable();
     fixture.componentInstance.authVisible.set(false);
     fixture.componentInstance.loading.set(false);
     fixture.componentInstance.view.set('settings');
@@ -282,6 +283,8 @@ describe('App', () => {
       id: 1, username: 'alice', display_name: 'Alice', email: 'alice@example.com',
       avatar_url: null, is_admin: false, created_at: '2026-07-16T00:00:00',
     });
+    fixture.detectChanges();
+    await fixture.whenStable();
     fixture.detectChanges();
     const text = (fixture.nativeElement as HTMLElement).textContent || '';
     expect(text).toContain('个人设置');

@@ -44,3 +44,30 @@
   color: var(--brand-600, #2563eb);
   font-weight: 600;
 }
+
+.kanban-empty-state {
+  display: grid;
+  min-height: 340px;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 44px 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--sh-sm);
+  text-align: center;
+}
+.kanban-empty-icon {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 4px;
+  place-items: center;
+  border-radius: 14px;
+  background: var(--brand-soft);
+  color: var(--brand-600);
+}
+.kanban-empty-icon .icon-v7 { width: 24px; height: 24px; }
+.kanban-empty-state h2 { margin: 0; color: var(--text); font-size: 17px; }
+.kanban-empty-state p { max-width: 540px; margin: 0 0 8px; color: var(--text-2); font-size: 13px; line-height: 1.7; }

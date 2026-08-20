@@ -1,15 +1,31 @@
 .project-workspace-shell {
   display: grid;
-  grid-template-columns: minmax(220px, 248px) minmax(0, 1fr);
+  grid-template-columns: 218px minmax(0, 1fr);
   min-height: calc(100vh - 64px);
+  background: var(--canvas, #f4f6f8);
 }
 
 .project-workspace-main {
   min-width: 0;
-  padding: 0 20px 32px;
+  min-height: 0;
+  padding: 28px 32px 38px;
+  overflow: auto;
+}
+
+@media (min-width: 1600px) {
+  .project-workspace-main { padding-inline: clamp(32px, 2.5vw, 52px); }
+}
+
+@media (min-width: 1800px) {
+  .project-workspace-shell { grid-template-columns: 236px minmax(0, 1fr); }
+}
+
+@media (max-width: 1160px) {
+  .project-workspace-shell { grid-template-columns: 72px minmax(0, 1fr); }
+  .project-workspace-main { padding: 24px; }
 }
 
 @media (max-width: 800px) {
   .project-workspace-shell { grid-template-columns: 1fr; }
-  .project-workspace-main { padding: 0 12px 80px; }
+  .project-workspace-main { padding: 20px 14px 80px; }
 }

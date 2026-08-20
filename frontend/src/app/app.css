@@ -834,6 +834,14 @@ router-outlet {
 }
 
 /* ---- Settings ---- */
+.account-edit-modal { width: min(500px, calc(100vw - 32px)); }
+.account-edit-modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.account-edit-modal-head h3 { margin: 0; color: var(--text); font-size: 19px; }
+.account-edit-modal-head p { margin: 5px 0 0; color: var(--text-2); font-size: 12px; line-height: 1.5; }
+.account-modal-close { display: inline-flex; width: 32px; height: 32px; flex: 0 0 32px; align-items: center; justify-content: center; border: 0; border-radius: 7px; background: transparent; color: var(--text-2); cursor: pointer; }
+.account-modal-close:hover { background: var(--surface-3); color: var(--text); }
+.account-modal-close .icon-v7 { width: 15px; height: 15px; }
+.account-edit-help { margin: -4px 0 0; color: var(--text-2); font-size: 12px; }
 .settings-header { margin-bottom: 20px; }
 .settings-grid {
   display: grid;

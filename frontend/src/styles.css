@@ -3724,8 +3724,8 @@ details.form-section > form { padding: 16px; }
 
 /* Epic 149 / Story 317: project-sidebar-v7 作为 .layout flex 子项的布局适配 */
 .project-sidebar-v7 {
-  width: 218px;
-  min-width: 218px;
+  width: 100%;
+  min-width: 0;
   height: calc(100vh - var(--topbar-h));
   position: sticky;
   top: var(--topbar-h);
@@ -3740,7 +3740,7 @@ details.form-section > form { padding: 16px; }
   background: rgba(255,255,255,.1);
 }
 @media (max-width: 1160px) {
-  .project-sidebar-v7 { width: 64px; min-width: 64px; }
+  .project-sidebar-v7 { width: 100%; min-width: 0; }
 }
 @media (max-width: 840px) {
   .project-sidebar-v7 { display: none; }

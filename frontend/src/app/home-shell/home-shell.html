@@ -13,14 +13,36 @@
       <svg class="icon-v7"><use href="#i-search"/></svg>
       <input type="search" placeholder="搜索项目或 Agent" aria-label="search"/>
     </span>
-    <button type="button" class="icon-button-v7" aria-label="notif">
+    <a routerLink="/notifications" class="icon-button-v7" aria-label="通知" title="查看通知">
       <svg class="icon-v7"><use href="#i-bell"/></svg>
-    </button>
-    <button type="button" class="user-button-v7">
-      <span class="avatar-v7">{{ userInitial() }}</span>
-      <span class="user-name-v7">{{ userName() }}</span>
-      <svg class="icon-v7"><use href="#i-chevron"/></svg>
-    </button>
+    </a>
+    <div class="home-user-menu-wrap-v7" (click)="$event.stopPropagation()">
+      <button
+        type="button"
+        class="user-button-v7"
+        aria-haspopup="menu"
+        [attr.aria-expanded]="userMenuOpen()"
+        (click)="toggleUserMenu($event)"
+      >
+        <span class="avatar-v7">{{ userInitial() }}</span>
+        <span class="user-name-v7">{{ userName() }}</span>
+        <svg class="icon-v7 user-menu-chevron-v7" [class.open]="userMenuOpen()"><use href="#i-chevron"/></svg>
+      </button>
+      <div *ngIf="userMenuOpen()" class="home-dropdown-v7 home-user-dropdown-v7" role="menu">
+        <div class="home-dropdown-profile-v7">
+          <span class="avatar-v7">{{ userInitial() }}</span>
+          <span><strong>{{ userName() }}</strong><small>协作成员</small></span>
+        </div>
+        <div class="home-dropdown-divider-v7"></div>
+        <a routerLink="/settings" class="home-dropdown-item-v7" role="menuitem" (click)="closeMenus()">
+          <svg class="icon-v7"><use href="#i-settings"/></svg><span>个人设置</span>
+        </a>
+        <div class="home-dropdown-divider-v7"></div>
+        <button type="button" class="home-dropdown-item-v7 danger" role="menuitem" (click)="closeMenus(); logoutRequest.emit()">
+          <svg class="icon-v7"><use href="#i-back"/></svg><span>退出登录</span>
+        </button>
+      </div>
+    </div>
   </header>
 
   <main class="home-main-v7">
@@ -29,11 +51,6 @@
         <div>
           <h1>{{ activeTab() === 'projects' ? '项目' : '我的 Agents' }}</h1>
           <p>{{ activeTab() === 'projects' ? '查看项目状态，选择一个项目进入独立工作台。' : '由你的 API Key 建立连接，并由 Worker 主动注册。' }}</p>
-        </div>
-        <div *ngIf="activeTab() === 'projects'">
-          <button type="button" class="btn-primary-sm-v7" (click)="newProject.emit()">
-            <svg class="icon-v7"><use href="#i-plus"/></svg>新建项目
-          </button>
         </div>
         <div *ngIf="activeTab() === 'agents'">
           <span class="readonly-badge-v7">
@@ -47,6 +64,10 @@
         <aside class="project-master-v7" aria-label="master">
           <div class="master-toolbar-v7">
             <span>全部项目 · {{ projects.length }}</span>
+            <button type="button" class="master-create-button-v7" (click)="newProject.emit()">
+              <svg class="icon-v7" aria-hidden="true"><use href="#i-plus"/></svg>
+              <span>新建项目</span>
+            </button>
           </div>
           <ul class="master-list-v7">
             <li *ngFor="let p of projects; trackBy: trackById">
@@ -85,9 +106,30 @@
                 <p>{{ sel.description || '当前项目的工作空间，所有任务、文档和 Agent 协作都集中在此。' }}</p>
               </div>
               <div class="detail-actions-v7">
-                <button type="button" class="btn-ghost-v7 icon-only-v7" aria-label="更多">
-                  <svg class="icon-v7"><use href="#i-more"/></svg>
-                </button>
+                <div class="project-action-menu-wrap-v7" (click)="$event.stopPropagation()">
+                  <button
+                    type="button"
+                    class="btn-ghost-v7 icon-only-v7"
+                    aria-label="项目操作"
+                    title="项目操作"
+                    aria-haspopup="menu"
+                    [attr.aria-expanded]="projectMenuOpen()"
+                    (click)="toggleProjectMenu($event)"
+                  >
+                    <svg class="icon-v7"><use href="#i-more"/></svg>
+                  </button>
+                  <div *ngIf="projectMenuOpen()" class="home-dropdown-v7 project-action-dropdown-v7" role="menu">
+                    <a [routerLink]="['/project', sel.id, 'backlog']" class="home-dropdown-item-v7" role="menuitem" (click)="closeMenus()">
+                      <svg class="icon-v7"><use href="#i-list"/></svg><span>查看工作项</span>
+                    </a>
+                    <a [routerLink]="['/project', sel.id, 'members']" class="home-dropdown-item-v7" role="menuitem" (click)="closeMenus()">
+                      <svg class="icon-v7"><use href="#i-users"/></svg><span>成员与 Agents</span>
+                    </a>
+                    <a [routerLink]="['/project', sel.id, 'settings']" class="home-dropdown-item-v7" role="menuitem" (click)="closeMenus()">
+                      <svg class="icon-v7"><use href="#i-settings"/></svg><span>项目设置</span>
+                    </a>
+                  </div>
+                </div>
                 <a [routerLink]="['/project', sel.id]" class="btn-primary-v7" (click)="enterWorkspace.emit(sel.id)">
                   进入工作台
                   <svg class="icon-v7"><use href="#i-arrow"/></svg>
@@ -103,7 +145,7 @@
             <div class="detail-grid-v7">
               <div class="detail-panel-v7">
                 <h3>近 6 周交付趋势</h3>
-                <svg class="delivery-chart-v7" viewBox="0 0 620 180" role="img" aria-label="交付趋势图（占位）">
+                <svg class="delivery-chart-v7" viewBox="0 0 620 180" role="img" aria-label="最近六周交付趋势">
                   <path class="chart-grid-v7" d="M20 35H600M20 82H600M20 129H600"/>
                   <path class="chart-area-v7" d="M20 143 L20 125 L125 111 L230 118 L335 81 L440 67 L545 39 L600 31 L600 143 Z"/>
                   <path class="chart-line-v7" d="M20 125 L125 111 L230 118 L335 81 L440 67 L545 39 L600 31"/>
@@ -111,11 +153,11 @@
                 <div class="chart-labels-v7">
                   <span>W23</span><span>W24</span><span>W25</span><span>W26</span><span>W27</span><span>W28</span><span>本周</span>
                 </div>
-                <div class="empty-state-v7 empty-inline-v7">交付趋势图占位（待 Story X1 接入 /api/projects/{{ '{' }}id{{ '}' }}/delivery）</div>
+                <div class="empty-state-v7 empty-inline-v7">最近 6 周暂无已完成工作项</div>
               </div>
               <div class="detail-panel-v7">
                 <h3>本周重点</h3>
-                <div class="empty-state-v7 empty-inline-v7">本周重点列表（待 Story X1 接入 epic priority + due_at 排序）</div>
+                <div class="empty-state-v7 empty-inline-v7">创建 Epic 后，这里会展示近期优先事项</div>
               </div>
             </div>
         </article>

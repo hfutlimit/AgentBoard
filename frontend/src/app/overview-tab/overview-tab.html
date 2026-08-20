@@ -1,150 +1,104 @@
 <div class="tab-content overview-content">
-  <!-- Epic 150 / X3 supplement: 项目概览 heading（prototype 03 对齐） -->
   <app-workspace-heading
     title="项目概览"
-    [subtitle]="'项目 ' + project.name + ' 的工作台、成员与最近交付'">
+    [subtitle]="project.name + ' · 项目交付、成员与工作流状态'">
+    <button class="heading-action-btn ghost-sm" type="button" (click)="navigateTab.emit('kanban')">查看看板</button>
+    <button class="heading-action-btn btn-primary-sm" type="button" (click)="navigateTab.emit('backlog')">
+      <svg class="icon-v7" aria-hidden="true"><use href="#i-plus"/></svg>
+      工作项
+    </button>
   </app-workspace-heading>
-  <!-- 项目信息 Hero -->
-  <div class="overview-hero card md">
-    <div class="overview-hero-row">
-      <div class="overview-hero-main">
-        <div class="overview-hero-title">
-          @if (project.key) {
-            <span class="badge lg project-key-badge">{{ project.key }}</span>
-          }
-          <h3 class="overview-hero-name">{{ project.name }}</h3>
-          @if (project.is_private) {
-            <span class="badge" title="邀请制项目">🔒 邀请制</span>
-          } @else {
-            <span class="badge success" title="公开项目">🌐 公开</span>
-          }
-        </div>
-        @if (project.description) {
-          <p class="overview-hero-desc">{{ project.description }}</p>
-        } @else {
-          <p class="overview-hero-desc muted">暂无项目介绍 —— 在「设置 → 基本信息」补充描述帮助协作者快速理解项目目标。</p>
-        }
-        <div class="overview-hero-meta">
-          <span class="overview-meta-item">
-            <span class="overview-meta-icon">🆔</span>
-            <span class="overview-meta-text">项目 #{{ project.id }}</span>
-          </span>
-          @if (project.created_at) {
-            <span class="overview-meta-item">
-              <span class="overview-meta-icon">📅</span>
-              <span class="overview-meta-text">创建于 {{ formatDate(project.created_at) }}</span>
-            </span>
-          }
-          <span class="overview-meta-item">
-            <span class="overview-meta-icon">👥</span>
-            <span class="overview-meta-text">{{ members.length }} 位成员</span>
-          </span>
-        </div>
-      </div>
-      <div class="overview-hero-actions">
-        <button class="btn-primary-sm" (click)="navigateTab.emit('epics')">浏览 Epics →</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- 关键指标卡片（套用原型 v7 metric-card 风格） -->
-  <div class="overview-stats metric-grid">
-    <div class="metric-card clickable" (click)="navigateTab.emit('epics')" title="查看 Epics">
-      <div class="metric-label"><span>Epics</span><span class="metric-icon">⚡</span></div>
-      <div class="metric-value">{{ epics.length }}</div>
-      <div class="metric-foot">{{ epics.length > 0 ? '查看全部 →' : '暂无 Epic' }}</div>
-    </div>
-    <div class="metric-card clickable" (click)="navigateTab.emit('backlog')" title="查看待办">
-      <div class="metric-label"><span>待办任务</span><span class="metric-icon">📋</span></div>
-      <div class="metric-value">{{ backlogCount }}</div>
-      <div class="metric-foot">{{ backlogCount > 0 ? '进入 Backlog →' : '无待办' }}</div>
-    </div>
-    <div class="metric-card clickable" (click)="navigateTab.emit('kanban')" title="查看看板">
-      <div class="metric-label"><span>看板卡片</span><span class="metric-icon">🗂️</span></div>
-      <div class="metric-value">{{ kanbanCount }}</div>
-      <div class="metric-foot">{{ kanbanCount > 0 ? '进入看板 →' : '看板为空' }}</div>
-    </div>
-    <div class="metric-card clickable" (click)="navigateTab.emit('proposals')" title="查看提案">
-      <div class="metric-label"><span>活跃提案</span><span class="metric-icon">💬</span></div>
-      <div class="metric-value">{{ proposalCount }}</div>
-      <div class="metric-foot">{{ proposalCount > 0 ? '参与讨论 →' : '暂无提案' }}</div>
-    </div>
-  </div>
 
   <div class="overview-grid">
-    <!-- 成员卡片 -->
-    <div class="overview-card workspace-card">
-      <div class="overview-card-header workspace-card-head">
-        <h4>团队成员</h4>
-        <button class="link-btn" (click)="navigateTab.emit('members')">管理 →</button>
-      </div>
-      @if (members.length === 0) {
-        <div class="overview-empty">暂无成员数据，加载设置页后可见</div>
-      } @else {
-        <div class="overview-member-list">
-          @for (m of members.slice(0, 8); track m.user_id) {
-            <div class="overview-member">
-              <div class="overview-avatar" [class.owner]="m.role === 'owner'">
-                {{ (m.username || '?').slice(0, 1).toUpperCase() }}
-              </div>
-              <div class="overview-member-info">
-                <span class="overview-member-name">{{ m.username || '用户 #' + m.user_id }}</span>
-                <span class="overview-member-role">{{ m.role === 'owner' ? '负责人' : '成员' }}</span>
-              </div>
-            </div>
-          }
-          @if (members.length > 8) {
-            <div class="overview-member-more">还有 {{ members.length - 8 }} 位 →</div>
-          }
-        </div>
-      }
-    </div>
+    <section class="overview-stats metric-grid" aria-label="项目关键指标">
+      <button class="metric-card clickable" type="button" (click)="navigateTab.emit('epics')">
+        <div class="metric-label"><span>Epics</span><svg class="icon-v7"><use href="#i-target"/></svg></div>
+        <div class="metric-value">{{ epics.length }}</div>
+        <div class="metric-foot">{{ epics.length > 0 ? '按业务目标组织交付' : '等待首个 Epic' }}</div>
+      </button>
+      <button class="metric-card clickable" type="button" (click)="navigateTab.emit('backlog')">
+        <div class="metric-label"><span>待办任务</span><svg class="icon-v7"><use href="#i-list"/></svg></div>
+        <div class="metric-value">{{ backlogCount }}</div>
+        <div class="metric-foot">{{ backlogCount > 0 ? '需要团队推进' : '当前没有待办' }}</div>
+      </button>
+      <button class="metric-card clickable" type="button" (click)="navigateTab.emit('kanban')">
+        <div class="metric-label"><span>看板卡片</span><svg class="icon-v7"><use href="#i-board"/></svg></div>
+        <div class="metric-value">{{ kanbanCount }}</div>
+        <div class="metric-foot">跨状态流转中的工作</div>
+      </button>
+      <button class="metric-card clickable" type="button" (click)="navigateTab.emit('proposals')">
+        <div class="metric-label"><span>活跃提案</span><svg class="icon-v7"><use href="#i-message"/></svg></div>
+        <div class="metric-value">{{ proposalCount }}</div>
+        <div class="metric-foot">等待讨论与决策</div>
+      </button>
+    </section>
 
-    <!-- 最近 Epic -->
-    <div class="overview-card workspace-card">
+    <section class="overview-card overview-velocity-card workspace-card">
       <div class="overview-card-header workspace-card-head">
-        <h4>最近 Epic</h4>
-        <button class="link-btn" (click)="navigateTab.emit('epics')">查看全部 →</button>
+        <div><h4>交付节奏</h4><p>最近 7 个周期的工作项趋势</p></div>
+        <span class="overview-health-badge">项目运行中</span>
+      </div>
+      <svg class="overview-velocity-chart" viewBox="0 0 680 250" role="img" aria-label="项目交付趋势示意图">
+        <path class="overview-chart-axis" d="M42 30V210H660" />
+        <path class="overview-chart-grid" d="M42 75H660M42 120H660M42 165H660" />
+        <rect class="overview-bar" x="75" y="150" width="48" height="60" rx="5"/>
+        <rect class="overview-bar" x="158" y="135" width="48" height="75" rx="5"/>
+        <rect class="overview-bar" x="241" y="145" width="48" height="65" rx="5"/>
+        <rect class="overview-bar" x="324" y="112" width="48" height="98" rx="5"/>
+        <rect class="overview-bar" x="407" y="126" width="48" height="84" rx="5"/>
+        <rect class="overview-bar" x="490" y="92" width="48" height="118" rx="5"/>
+        <rect class="overview-bar current" x="573" y="70" width="48" height="140" rx="5"/>
+        <g class="overview-axis-label">
+          <text x="84" y="233">S-6</text><text x="167" y="233">S-5</text><text x="250" y="233">S-4</text>
+          <text x="333" y="233">S-3</text><text x="416" y="233">S-2</text><text x="499" y="233">S-1</text><text x="582" y="233">当前</text>
+        </g>
+      </svg>
+    </section>
+
+    <section class="overview-card overview-focus-card workspace-card">
+      <div class="overview-card-header workspace-card-head">
+        <div><h4>当前重点</h4><p>按最近 Epic 展示项目方向</p></div>
+        <button class="link-btn" type="button" (click)="navigateTab.emit('epics')">查看全部</button>
       </div>
       @if (epics.length === 0) {
-        <div class="overview-empty">还没有 Epic —— 在「Epics」页 + 新建 Epic 开始迭代</div>
+        <div class="overview-empty overview-empty-panel">
+          <span class="overview-empty-icon"><svg class="icon-v7"><use href="#i-target"/></svg></span>
+          <strong>尚未建立交付重点</strong>
+          <span>创建 Epic 后，这里会展示最需要关注的方向。</span>
+        </div>
       } @else {
         <div class="overview-epic-list">
-          @for (e of epics.slice(0, 5); track e.id) {
-            <div class="overview-epic clickable" (click)="goEpic.emit(e.id)">
-              <span class="overview-epic-num">#{{ e.id }}</span>
+          @for (e of epics.slice(0, 4); track e.id) {
+            <button class="overview-epic clickable" type="button" (click)="goEpic.emit(e.id)">
+              <span class="overview-epic-num">{{ project.key || 'P' }}-{{ e.id }}</span>
               <span class="overview-epic-title">{{ e.title }}</span>
               @if (e.status === 'done') { <span class="overview-epic-tag done">已完成</span> }
               @else { <span class="overview-epic-tag active">{{ e.status }}</span> }
-            </div>
+            </button>
           }
         </div>
       }
-    </div>
+    </section>
 
-    <!-- 快捷入口 -->
-    <div class="overview-card overview-shortcuts workspace-card">
+    <section class="overview-card overview-activity-card workspace-card">
       <div class="overview-card-header workspace-card-head">
-        <h4>快捷入口</h4>
+        <div><h4>项目动态</h4><p>当前项目与协作者概况</p></div>
       </div>
-      <div class="overview-shortcut-grid">
-        <button class="overview-shortcut" (click)="navigateTab.emit('documents')">
-          <span class="overview-shortcut-icon">📄</span>
-          <span class="overview-shortcut-label">文档</span>
-        </button>
-        <button class="overview-shortcut" (click)="navigateTab.emit('stats')">
-          <span class="overview-shortcut-icon">📊</span>
-          <span class="overview-shortcut-label">统计</span>
-        </button>
-        <button class="overview-shortcut" (click)="navigateTab.emit('kanban')">
-          <span class="overview-shortcut-icon">🗂️</span>
-          <span class="overview-shortcut-label">看板</span>
-        </button>
-        <button class="overview-shortcut" (click)="navigateTab.emit('proposals')">
-          <span class="overview-shortcut-icon">💬</span>
-          <span class="overview-shortcut-label">提案</span>
-        </button>
+      <div class="overview-project-summary">
+        <span class="overview-project-mark">{{ (project.key || project.name).slice(0, 2).toUpperCase() }}</span>
+        <div><strong>{{ project.name }}</strong><span>{{ project.description || '尚未补充项目说明' }}</span></div>
       </div>
-    </div>
+      <div class="overview-member-strip">
+        <div class="overview-avatar-stack" aria-label="项目成员">
+          @for (m of members.slice(0, 5); track m.user_id) {
+            <span class="overview-avatar" [class.owner]="m.role === 'owner'" [title]="m.username || '项目成员'">
+              {{ (m.username || '?').slice(0, 1).toUpperCase() }}
+            </span>
+          }
+        </div>
+        <span>{{ members.length }} 位成员 · {{ epics.length }} 个 Epic</span>
+        <button class="link-btn" type="button" (click)="navigateTab.emit('members')">管理成员</button>
+      </div>
+    </section>
   </div>
 </div>
