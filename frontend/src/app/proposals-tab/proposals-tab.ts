@@ -1,6 +1,7 @@
 import { Component, EventEmitter, Input, Output, ViewEncapsulation } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ManagedListComponent } from '../managed-list/managed-list';
+import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
 import type { ProposalItem, ProposalStatus } from '../models';
 
 /**
@@ -35,7 +36,7 @@ import type { ProposalItem, ProposalStatus } from '../models';
 @Component({
   selector: 'app-proposals-tab',
   standalone: true,
-  imports: [ManagedListComponent, RouterLink],
+  imports: [ManagedListComponent, RouterLink, WorkspaceHeadingComponent],
   templateUrl: './proposals-tab.html',
   styleUrl: './proposals-tab.css',
   encapsulation: ViewEncapsulation.None,

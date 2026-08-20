@@ -8,13 +8,12 @@
   [pageSize]="0"
   (retry)="retry.emit()">
   <ng-container ml-header>
-    <div class="section-header">
-      <div>
-        <h3>成员与 Agents</h3>
-        <p class="muted">管理项目成员与参与本项目的 Agent 池。成员由后端授权，Agents 由 AgentBoard MCP 注册并由 Worker 周期探测判活。</p>
-      </div>
-      <span class="badge count-badge">{{ members.length }} 成员 · {{ agents.length }} Agents</span>
-    </div>
+    <!-- Epic 150 / X3 supplement: 成员与 Agents heading -->
+    <app-workspace-heading
+      title="成员与 Agents"
+      subtitle="管理项目成员与参与本项目的 Agent 池。成员由后端授权，Agents 由 AgentBoard MCP 注册。">
+      <span class="heading-title-badge count-badge">{{ members.length }} 成员 · {{ agents.length }} Agents</span>
+    </app-workspace-heading>
   </ng-container>
 
   <!-- 上半：项目成员 -->

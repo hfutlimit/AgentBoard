@@ -1,6 +1,7 @@
 import { Component, EventEmitter, Input, Output, ViewEncapsulation } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ManagedListComponent } from '../managed-list/managed-list';
+import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
 import type { ProjectMember, AgentRow } from '../models';
 
 /**
@@ -32,7 +33,7 @@ import type { ProjectMember, AgentRow } from '../models';
 @Component({
   selector: 'app-members-tab',
   standalone: true,
-  imports: [CommonModule, ManagedListComponent],
+  imports: [CommonModule, ManagedListComponent, WorkspaceHeadingComponent],
   templateUrl: './members-tab.html',
   styleUrl: './members-tab.css',
   encapsulation: ViewEncapsulation.None,

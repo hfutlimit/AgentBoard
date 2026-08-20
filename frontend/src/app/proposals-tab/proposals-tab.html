@@ -8,13 +8,12 @@
   [pageSize]="0"
   (retry)="retry.emit()">
   <ng-container ml-header>
-    <div class="section-header">
-      <div>
-        <h3>项目提案</h3>
-        <p class="muted proposal-intro">围绕当前项目提交需求，由 Agent 逐轮澄清并收敛为可执行 Story。</p>
-      </div>
-      <button id="new-project-proposal-btn" class="btn-primary-sm" (click)="createProposal.emit()">＋ 新建提案</button>
-    </div>
+    <!-- Epic 150 / X3 supplement: 提案 heading（prototype 对齐） -->
+    <app-workspace-heading
+      title="需求提案"
+      subtitle="围绕当前项目提交需求，由 Agent 逐轮澄清并收敛为可执行 Story。">
+      <button id="new-project-proposal-btn" class="heading-action-btn btn-primary-sm" (click)="createProposal.emit()">＋ 新建提案</button>
+    </app-workspace-heading>
   </ng-container>
   <div class="row doc-toolbar proposals-tab-v7" ml-toolbar>
     <select

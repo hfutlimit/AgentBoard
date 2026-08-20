@@ -1,6 +1,7 @@
 import { Component, EventEmitter, Input, Output, ViewEncapsulation } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { ManagedListComponent } from '../managed-list/managed-list';
+import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
 import type { DocumentItem, DocumentFolder, DocumentType, DocumentStatus, Epic } from '../models';
 
 /**
@@ -78,7 +79,7 @@ type DocListViewMode = 'tile' | 'list';
 @Component({
   selector: 'app-documents-tab',
   standalone: true,
-  imports: [ManagedListComponent, DatePipe],
+  imports: [ManagedListComponent, DatePipe, WorkspaceHeadingComponent],
   templateUrl: './documents-tab.html',
   styleUrl: './documents-tab.css',
   encapsulation: ViewEncapsulation.None,

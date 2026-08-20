@@ -669,6 +669,11 @@
                     <button class="ghost-sm" type="button" (click)="retryProjectTab('settings')">重试</button>
                   </div>
                 } @else {
+                  <!-- Epic 150 / X3 supplement: 项目设置 heading（prototype 06 对齐） -->
+                  <app-workspace-heading
+                    title="项目设置"
+                    subtitle="仅影响当前项目，不改全局账号与 Agent 注册。">
+                  </app-workspace-heading>
                   <div class="settings-layout">
                     <!-- 左侧菜单 -->
                     <aside class="settings-sidebar card">

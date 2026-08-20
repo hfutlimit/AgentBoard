@@ -8,13 +8,13 @@
   [pageSize]="0"
   (retry)="retry.emit()">
   <ng-container ml-header>
-    <div class="section-header">
-      <h3>项目文档</h3>
-      <div class="row">
-        <button class="btn-primary-sm" (click)="createDoc.emit()">＋ 新建文档</button>
-        <button class="ghost-sm" (click)="createFolder.emit()">＋ 新建文件夹</button>
-      </div>
-    </div>
+    <!-- Epic 150 / X3 supplement: 文档 heading（prototype 对齐） -->
+    <app-workspace-heading
+      title="项目文档"
+      subtitle="所有项目相关文档集中管理。">
+      <button class="heading-action-btn btn-primary-sm" (click)="createDoc.emit()">＋ 新建文档</button>
+      <button class="heading-action-btn ghost-sm" (click)="createFolder.emit()">＋ 新建文件夹</button>
+    </app-workspace-heading>
   </ng-container>
   <nav
     class="doc-breadcrumb documents-tab-v7"
