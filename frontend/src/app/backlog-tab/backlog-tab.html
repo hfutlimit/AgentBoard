@@ -13,9 +13,12 @@
   (pageChange)="pageChange.emit($event)"
   (retry)="retry.emit()">
   <ng-container ml-header>
-    <div class="section-header">
-      <h3>Backlog <span class="count">{{ tasks.length }}</span></h3>
-    </div>
+    <!-- Epic 150 / X3 supplement: 工作项 heading（prototype 09 对齐） -->
+    <app-workspace-heading
+      title="工作项"
+      subtitle="项目的任务、缺陷和交付状态。">
+      <span class="heading-title-badge count">{{ tasks.length }}</span>
+    </app-workspace-heading>
   </ng-container>
   @if (tasks.length) {
     <div class="entity-list backlog-tab-v7" id="backlog-list">

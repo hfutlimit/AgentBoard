@@ -1,6 +1,7 @@
 import { Component, EventEmitter, Input, Output, ViewEncapsulation } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { ManagedListComponent } from '../managed-list/managed-list';
+import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
 import type { Task } from '../models';
 
 /**
@@ -32,7 +33,7 @@ import type { Task } from '../models';
 @Component({
   selector: 'app-backlog-tab',
   standalone: true,
-  imports: [ManagedListComponent, RouterLink],
+  imports: [ManagedListComponent, RouterLink, WorkspaceHeadingComponent],
   templateUrl: './backlog-tab.html',
   styleUrl: './backlog-tab.css',
   encapsulation: ViewEncapsulation.None,
