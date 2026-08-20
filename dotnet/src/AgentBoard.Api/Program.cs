@@ -76,11 +76,13 @@ if (app.Environment.IsDevelopment())
 
 app.MapControllers();
 
-// Dev-only: ensure the SQLite / InMemory schema exists so smoke
+// Dev + Testing: ensure the SQLite / InMemory schema exists so smoke
 // tests can hit the API without running `dotnet ef database update`.
 // Production uses the shared MariaDB applied by the Python Alembic
-// operator — never call EnsureCreated there.
-if (app.Environment.IsDevelopment())
+// operator — never call EnsureCreated there. The WebApplicationFactory
+// injects `Testing` so its per-instance temp SQLite gets a fresh schema
+// before the first /api/health call hits CanConnectAsync.
+if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == "Testing")
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

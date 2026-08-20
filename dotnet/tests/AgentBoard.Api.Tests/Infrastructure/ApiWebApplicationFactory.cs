@@ -45,9 +45,31 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        if (disposing && File.Exists(_databasePath))
+        if (!disposing || !File.Exists(_databasePath))
         {
-            File.Delete(_databasePath);
+            return;
+        }
+
+        // SQLite e_sqlite3 sometimes holds the file handle via mmap until
+        // GC finalizers run, so a plain File.Delete on Windows can race and
+        // fail with IOException. Best-effort retry with a short delay keeps
+        // xUnit's Test Class Cleanup quiet without masking real failures.
+        for (var attempt = 0; attempt < 5; attempt++)
+        {
+            try
+            {
+                File.Delete(_databasePath);
+                return;
+            }
+            catch (IOException) when (attempt < 4)
+            {
+                Thread.Sleep(50);
+            }
+            catch
+            {
+                // Give up silently — temp file will be reaped by the OS.
+                return;
+            }
         }
     }
 }

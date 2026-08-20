@@ -28,7 +28,7 @@
 - [ ] NSwag 生成 client → `src/AgentBoard.Api/Clients/AgentBoardFastApiClient.cs`（S0-4）
 - [ ] 实现 `/api/health`（S0-5）
 - [ ] 实现 `/api/meta`（S0-5）
-- [ ] Serilog + OpenTelemetry 接入（S0-7）
+- [x] Serilog + OpenTelemetry 接入（S0-7）
 - [ ] docker-compose `api-dotnet` 服务（S0-6）
 - [ ] `docs/dual-stack-bff-runbook.md`（S0-8）
 
@@ -288,6 +288,44 @@
 ### 下一步
 
 S0-7: Serilog + OpenTelemetry 接入
+
+## S0-7: Serilog + OpenTelemetry 接入
+
+### 落地清单（2026-08-20）
+
+- [x] `Observability/SerilogSetup.cs` — CLEF JSON console + 滚动文件 sink（14d retention, `Testing` 环境跳过文件 sink）
+  - 三个 enricher：`FromLogContext`（request_id 推入）、`Application`/`MachineName`、`TraceContextEnricher`（自动从 `Activity.Current` 取 trace_id/span_id）
+- [x] `Observability/OpenTelemetrySetup.cs` — ASP.NET Core + HttpClient instrumentation + Console exporter
+  - OTLP exporter 暂未启用（stage 2 接 collector 后再加）
+- [x] `Observability/AgentBoardActivitySource.cs` — `ActivitySource` 单例，供业务代码 hand-rolled span
+- [x] `Middleware/RequestIdMiddleware.cs` — `X-Request-Id` header 透传/生成 + 写入 `HttpContext.Items` + `LogContext.PushProperty("request_id", id)` + 响应头 echo
+- [x] `Middleware/TraceContextMiddleware.cs` — W3C `traceparent` echo（出站调用 FastAPI 时复用同一 trace）
+- [x] `Program.cs` 接入顺序：
+  1. `ConfigureSerilog()` + `ConfigureOpenTelemetry()`（host 启动早期）
+  2. `UseMiddleware<RequestIdMiddleware>()` 第一位
+  3. `UseMiddleware<TraceContextMiddleware>()` 第二位
+  4. Development 启用 `MapOpenApi()`
+- [x] `Directory.Build.props` 增 `WarningsNotAsErrors` 包含 `NU1902`（OpenTelemetry.Api 1.11.2 advisory 滞后）
+- [x] `ApiWebApplicationFactory.ConfigureWebHost` 改 `UseEnvironment("Testing")` + per-instance SQLite
+- [x] `Program.cs` 的 `EnsureCreated()` 改为 `IsDevelopment() || IsEnvironment("Testing")` — `Testing` 环境也建表（测试 host 启动时建表，避免 `CanConnectAsync` 返 false 导致 `dto.Database="error"`）
+- [x] `ApiWebApplicationFactory.Dispose` 加重试删除 temp SQLite（解决 e_sqlite3 句柄未及时释放 → IOException）
+
+### Verification
+
+- `dotnet test`：24/24 pass（Api 6 + Infrastructure 18，含 NetArchTest 5 rules + Repository CRUD + 健康契约）
+- 端到端 smoke：dotnet run 后 `curl /api/health` 返 200 + `database:"ok"` + `X-Request-Id`/`traceparent` 响应头 + Serilog CLEF JSON 含 `Application`/`MachineName` + OTel console exporter 抓 ASP.NET Core Activity
+
+### 踩坑
+
+1. **`ApiWebApplicationFactory` per-instance temp SQLite 未建表 → `CanConnectAsync=false`**：测试 `Testing` 环境跳过原 `IsDevelopment()` 判断；`EnsureCreated` 改为同时命中 `Testing`，问题解决（commit `49b44b5` 续作）
+2. **dotnet test 关闭时 `File.Delete(temp)` 偶发 IOException**：e_sqlite3 持 mmap 句柄未及时释放；`Dispose` 内加 5 次重试 × 50ms 延迟，最佳努力
+3. **OpenTelemetry 1.11.2 / SQLitePCLRaw 2.1.11 / System.Security.Cryptography.Xml 9.0.0 NU1902/NU1903 advisory 全部滞后**：当前统一通过 `<WarningsNotAsErrors>NU1902;NU1903</WarningsNotAsErrors>` 屏蔽，等上游发布再解锁
+4. **launchSettings.json 的 env var 会覆盖 shell env**：`AGENTBOARD_DOTNET_PORT=18099` 在 shell 设了但 `dotnet run` 走 launchSettings 仍用 18000；smoke 测试时改用 18000 或 `--no-launch-profile` 绕过
+5. **dotnet run 启动时日志双写**：每条 Serilog CLEF event 在 stdout 出现 2 次，疑似 Serilog console sink + OTel console exporter 各自输出；功能上不影响，结构化字段正确
+
+### 下一步
+
+S0-8: 双栈 runbook + architecture-v2 + dotnet/README 更新
 
 ## 阶段 1：只读业务迁 .NET（2-3 sprints）
 
