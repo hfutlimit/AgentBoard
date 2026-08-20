@@ -4,9 +4,9 @@
       <span class="brand-mark-v7" aria-hidden="true"></span>
       <span class="brand-text-v7">AgentBoard</span>
     </div>
-    <nav class="home-nav-v7" aria-label="home-nav">
-      <button type="button" class="home-nav-button-v7" [class.active]="activeTab() === 'projects'" (click)="setTab('projects')">项目</button>
-      <button type="button" class="home-nav-button-v7" [class.active]="activeTab() === 'agents'" (click)="setTab('agents')">Agents</button>
+    <nav class="hs-tab-nav" aria-label="home-tab-nav">
+      <button type="button" class="hs-tab-button" [class.active]="activeTab() === 'projects'" (click)="setTab('projects')">项目</button>
+      <button type="button" class="hs-tab-button" [class.active]="activeTab() === 'agents'" (click)="setTab('agents')">Agents</button>
     </nav>
     <span class="home-topbar-spacer-v7"></span>
     <span class="search-control-v7">
