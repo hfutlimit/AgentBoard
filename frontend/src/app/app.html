@@ -333,16 +333,15 @@
         }
         @case ('projects') {
           <!-- Story 137：项目中心 -->
-          <div class="page-header">
-            <div>
-              <span class="eyebrow">PROJECT CENTER</span>
-              <h2>项目中心 <span class="project-count-badge">{{ projectsCenter().length }}</span></h2>
-              <p class="muted project-center-sub">所有项目一站式管理 · 筛选、排序、批量归档</p>
-            </div>
-            <button id="proj-new-btn" class="btn-primary" (click)="openCreate('project')">
+          <app-workspace-heading
+            eyebrow="PROJECT CENTER"
+            title="项目中心"
+            subtitle="所有项目一站式管理 · 筛选、排序、批量归档">
+            <span class="heading-title-badge project-count-badge">{{ projectsCenter().length }}</span>
+            <button id="proj-new-btn" class="heading-action-btn btn-primary" (click)="openCreate('project')">
               ＋ 新建项目
             </button>
-          </div>
+          </app-workspace-heading>
 
           <!-- 筛选 Tabs -->
           <div class="project-center-tabs" role="tablist">
@@ -2119,18 +2118,13 @@
         }
         @case ('documents') {
           <div class="crumb-bar"><span>项目文档</span></div>
-          <div class="page-header">
-            <div class="page-title-row">
-              <h2>项目文档</h2>
-              <span class="badge count-badge">{{ docVisible().length }}</span>
-            </div>
-            <div class="page-actions">
-              <button class="btn-primary-sm" (click)="openDocModal('create')">＋ 新建文档</button>
-              @if (project(); as p) {
-                <button class="ghost-sm" (click)="openDocFolderModal('create')">＋ 新建文件夹</button>
-              }
-            </div>
-          </div>
+          <app-workspace-heading title="项目文档">
+            <span class="heading-title-badge">{{ docVisible().length }}</span>
+            <button class="heading-action-btn btn-primary-sm" (click)="openDocModal('create')">＋ 新建文档</button>
+            @if (project(); as p) {
+              <button class="heading-action-btn ghost-sm" (click)="openDocFolderModal('create')">＋ 新建文件夹</button>
+            }
+          </app-workspace-heading>
 
           <nav class="doc-breadcrumb" aria-label="文档目录"
             (dragover)="onDocDropOver($event, 'root')" (dragleave)="onDocDropLeave()" (drop)="onDocDrop($event, 'root')"
@@ -2544,16 +2538,11 @@
         }
         @case ('agents') {
           <div class="crumb-bar"><span>Agent 池</span></div>
-          <div class="page-header">
-            <div class="page-title-row">
-              <h2>Agent 池</h2>
-              <span class="badge count-badge">{{ agents().length }}</span>
-            </div>
-            <div class="page-actions">
-              <button class="btn-primary-sm" (click)="openAgentForm()">＋ 新建 Agent</button>
-              <button class="ghost-sm" (click)="loadAgents()">刷新</button>
-            </div>
-          </div>
+          <app-workspace-heading title="Agent 池">
+            <span class="heading-title-badge">{{ agents().length }}</span>
+            <button class="heading-action-btn btn-primary-sm" (click)="openAgentForm()">＋ 新建 Agent</button>
+            <button class="heading-action-btn ghost-sm" (click)="loadAgents()">刷新</button>
+          </app-workspace-heading>
           <p class="muted">在此创建/编辑 Agent 配置：同一 CLI（如 codebuddy）可建多个 Agent，各自注入不同模型（<code>cli_command</code> 中用 <code>{{ '{model}' }}</code> 占位，如 <code>hy3</code> / <code>deepseek-v4-flash</code>）。Worker 定期 probe 判活，状态经 WebSocket 实时推送。</p>
           @if (agentLoading()) {
             <div class="empty-state">加载中…</div>
@@ -2648,15 +2637,10 @@
 
         @case ('proposals') {
           <div class="crumb-bar"><span>需求提案</span></div>
-          <div class="page-header">
-            <div class="page-title-row">
-              <h2>需求提案</h2>
-              <span class="badge count-badge" id="proposal-count">{{ proposalVisible().length }}</span>
-            </div>
-            <div class="page-actions">
-              <button id="new-proposal-btn" class="btn-primary-sm" (click)="openProposalModal()">＋ 新建提案</button>
-            </div>
-          </div>
+          <app-workspace-heading title="需求提案">
+            <span class="heading-title-badge" id="proposal-count">{{ proposalVisible().length }}</span>
+            <button id="new-proposal-btn" class="heading-action-btn btn-primary-sm" (click)="openProposalModal()">＋ 新建提案</button>
+          </app-workspace-heading>
           <p class="muted proposal-intro">
             提交需求提案后，由 Agent 分轮次提出澄清问题；你逐条作答，多轮收敛后可转化为 Story。
           </p>
@@ -3040,21 +3024,18 @@
         }
         @case ('notifications') {
           <div class="crumb-bar"><a routerLink="/">首页</a><span>›</span><span>通知中心</span></div>
-          <div class="page-header notification-page-header">
-            <div>
-              <div class="page-title-row"><h2>通知中心</h2><span class="badge count-badge">{{ notifications().length }}</span></div>
-              <p class="muted">集中处理项目邀请、任务分配、状态变更和协作提醒。</p>
-            </div>
-            <div class="page-actions">
-              <button class="ghost-sm" type="button" (click)="loadNotifications()">刷新</button>
-              @if (unreadCount() > 0) {
-                <button class="ghost-sm" type="button" (click)="markAllRead()">全部标为已读</button>
-              }
-              @if (notifications().length > 0) {
-                <button class="ghost-sm danger" type="button" (click)="deleteAllNotifications()">清空通知</button>
-              }
-            </div>
-          </div>
+          <app-workspace-heading
+            title="通知中心"
+            subtitle="集中处理项目邀请、任务分配、状态变更和协作提醒。">
+            <span class="heading-title-badge">{{ notifications().length }}</span>
+            <button class="heading-action-btn ghost-sm" type="button" (click)="loadNotifications()">刷新</button>
+            @if (unreadCount() > 0) {
+              <button class="heading-action-btn ghost-sm" type="button" (click)="markAllRead()">全部标为已读</button>
+            }
+            @if (notifications().length > 0) {
+              <button class="heading-action-btn ghost-sm danger" type="button" (click)="deleteAllNotifications()">清空通知</button>
+            }
+          </app-workspace-heading>
           <section class="card notification-page">
             <div class="notification-page-toolbar">
               <div class="notification-summary">
