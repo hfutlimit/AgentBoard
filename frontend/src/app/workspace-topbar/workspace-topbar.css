@@ -1,0 +1,19 @@
+/* WorkspaceTopbarComponent — Epic 150 / Story 323 (X2)
+ *
+ * ViewEncapsulation.None 模式下，组件内的 class 与全局 styles.css 共享：
+ * - .back-button-v7（外层 styles.css 已定义）
+ * - .project-switcher-button-v7 / .project-monogram-v7 / .project-switcher-copy-v7
+ * - .top-divider-v7
+ * - .popover-v7 / .popover-overlay-v7 / .popover-search-v7 / .popover-footer-v7
+ * - .switcher-list-v7 / .switcher-project-v7 / .switcher-check-v7 / .switcher-empty-v7
+ * - .popover-add-v7
+ *
+ * 这里只放组件专属布局：workspace-topbar 容器内 back + divider + switcher 的间距。
+ * 几乎全部视觉规则都在全局 styles.css，避免重复定义。
+ */
+
+.workspace-topbar-v7 {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+}

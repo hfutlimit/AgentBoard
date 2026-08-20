@@ -1,0 +1,46 @@
+<div class="workspace-topbar-v7" *ngIf="visible">
+  <button class="back-button-v7" type="button" routerLink="/" aria-label="返回全部项目" title="返回全部项目" (click)="onBack()">
+    <svg class="icon-v7"><use href="#i-home"/></svg>
+    <span>全部项目</span>
+  </button>
+  <span class="top-divider-v7"></span>
+  <button class="project-switcher-button-v7" type="button" [attr.aria-expanded]="showSwitcher" [attr.aria-haspopup]="'true'" title="切换项目" (click)="onToggleSwitcher()">
+    <span class="project-monogram-v7 sm">{{ monogram() }}</span>
+    <span class="project-switcher-copy-v7">
+      <small>当前项目</small>
+      <strong>{{ projectName() }}</strong>
+    </span>
+    <svg class="icon-v7" [class.icon-flipped]="showSwitcher"><use href="#i-chevron"/></svg>
+  </button>
+</div>
+
+<!-- 切换器弹层（独立 @if，不依赖父级条件） -->
+<ng-container *ngIf="showSwitcher">
+  <div class="popover-overlay-v7" (click)="onOverlayClick()" aria-hidden="true"></div>
+  <section class="popover-v7 project-switcher-v7" role="dialog" aria-label="切换项目">
+    <label class="popover-search-v7">
+      <svg class="icon-v7"><use href="#i-search"/></svg>
+      <input type="search" placeholder="查找项目" aria-label="查找项目" [value]="switcherSearch" (input)="onSearchInput($any($event.target).value)" />
+    </label>
+    <div class="switcher-list-v7">
+      <ng-container *ngIf="filteredProjects().length > 0; else switcherEmpty">
+        <button *ngFor="let p of filteredProjects(); trackBy: trackById" type="button" class="switcher-project-v7" [class.selected]="isCurrent(p)" (click)="onSelectProject(p.id)">
+          <span class="project-monogram-v7">{{ monogramFor(p) }}</span>
+          <span class="switcher-project-copy-v7">
+            <strong>{{ p.name }}</strong>
+            <span>{{ p.key || '项目' }}</span>
+          </span>
+          <svg *ngIf="isCurrent(p)" class="icon-v7 switcher-check-v7"><use href="#i-check"/></svg>
+        </button>
+      </ng-container>
+      <ng-template #switcherEmpty>
+        <div class="switcher-empty-v7">未找到匹配的项目</div>
+      </ng-template>
+    </div>
+    <div class="popover-footer-v7">
+      <button type="button" class="popover-add-v7" (click)="onAddProject()">
+        <svg class="icon-v7"><use href="#i-plus"/></svg>添加新项目
+      </button>
+    </div>
+  </section>
+</ng-container>

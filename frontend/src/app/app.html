@@ -48,18 +48,18 @@
       <div class="topbar-context">
         <!-- Epic 149 / Story 317：两级 Shell 切换 —— 非项目视图显示 home-nav，项目视图显示 back + project-switcher -->
         @if (view() === 'project' || view() === 'epic' || view() === 'story' || view() === 'task' || view() === 'sprint') {
-          <button class="back-button-v7" routerLink="/" aria-label="返回全部项目" title="返回全部项目">
-            <svg class="icon-v7"><use href="#i-home"/></svg>全部项目
-          </button>
-          <span class="top-divider-v7"></span>
-          <button class="project-switcher-button-v7" type="button" [attr.aria-expanded]="showProjectSwitcher()" [attr.aria-haspopup]="'true'" title="切换项目" (click)="toggleProjectSwitcher()">
-            <span class="project-monogram-v7 sm">{{ (project() ? (project()!.name || project()!.key || 'AB') : 'AB').slice(0, 2).toUpperCase() }}</span>
-            <span class="project-switcher-copy-v7">
-              <small>当前项目</small>
-              <strong>{{ project() ? (project()!.name || '未命名项目') : '未选择项目' }}</strong>
-            </span>
-            <svg class="icon-v7" [class.icon-flipped]="showProjectSwitcher()"><use href="#i-chevron"/></svg>
-          </button>
+          <app-workspace-topbar
+            [project]="project()"
+            [projects]="visibleProjects()"
+            [showSwitcher]="showProjectSwitcher()"
+            [switcherSearch]="switcherSearch()"
+            (back)="closeTransientPopovers()"
+            (toggleSwitcherEvent)="toggleProjectSwitcher()"
+            (selectProject)="selectSwitcherProject($event)"
+            (addProject)="triggerAddProjectFromSwitcher()"
+            (searchChange)="onSwitcherSearchInput($event)"
+            (overlayClick)="closeTransientPopovers()">
+          </app-workspace-topbar>
         } @else {
           <span class="topbar-divider"></span>
           <nav class="home-nav-v7" aria-label="首页导航">
@@ -121,41 +121,7 @@
     </div>
   </div>
 </header>
-<!-- Epic 149 / Story 318：project-switcher + notification-panel popovers（inline @if，待 Story 319 抽独立组件） -->
-@if (showProjectSwitcher() || showNotifPanel()) {
-  <div class="popover-overlay-v7" (click)="closeTransientPopovers()" aria-hidden="true"></div>
-}
-@if (showProjectSwitcher()) {
-  <section class="popover-v7 project-switcher-v7" role="dialog" aria-label="切换项目">
-    <label class="popover-search-v7">
-      <svg class="icon-v7"><use href="#i-search"/></svg>
-      <input type="search" placeholder="查找项目" aria-label="查找项目" [value]="switcherSearch()" (input)="onSwitcherSearchInput($any($event.target).value)" />
-    </label>
-    <div class="switcher-list-v7">
-      @if (filteredSwitcherProjects().length > 0) {
-        @for (p of filteredSwitcherProjects(); track p.id) {
-          <button type="button" class="switcher-project-v7" [class.selected]="project()?.id === p.id" (click)="selectSwitcherProject(p.id)">
-            <span class="project-monogram-v7">{{ (p.name || p.key || 'AB').slice(0, 2).toUpperCase() }}</span>
-            <span class="switcher-project-copy-v7">
-              <strong>{{ p.name }}</strong>
-              <span>{{ p.key || '项目' }}</span>
-            </span>
-            @if (project()?.id === p.id) {
-              <svg class="icon-v7 switcher-check-v7"><use href="#i-check"/></svg>
-            }
-          </button>
-        }
-      } @else {
-        <div class="switcher-empty-v7">未找到匹配的项目</div>
-      }
-    </div>
-    <div class="popover-footer-v7">
-      <button type="button" class="popover-add-v7" (click)="triggerAddProjectFromSwitcher()">
-        <svg class="icon-v7"><use href="#i-plus"/></svg>添加新项目
-      </button>
-    </div>
-  </section>
-}
+<!-- Epic 149 / Story 318：notification-panel popovers（project-switcher 已在 WorkspaceTopbarComponent 内部，Story 323 X2 抽离） -->
 @if (showNotifPanel()) {
   <section class="popover-v7 notification-panel-v7" role="dialog" aria-label="通知">
     <div class="popover-title-v7">
