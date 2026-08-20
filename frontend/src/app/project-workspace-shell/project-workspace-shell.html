@@ -1,0 +1,35 @@
+<!--
+  ProjectWorkspaceShell template — Epic 152 / Story 332 (Sub-PR 1)
+  复制自 app.html line 240-285 navy project-sidebar-v7
+  Sub-PR 1 阶段：本文件只渲染 sidebar（children 渲染仍由 app.html @case ('project') 块 8 个 @if 块负责）
+  Sub-PR 1b 阶段：在 sidebar 后追加 <router-outlet />，children 由 Router 渲染
+-->
+@if (sidebarOpen) {
+  <aside class="project-sidebar-v7" aria-label="项目工作台导航">
+    <div class="sidebar-project-v7">
+      <span class="project-monogram-v7">{{ projectMonogram() }}</span>
+      <div class="sidebar-project-name-v7">{{ projectName() }}</div>
+      <div class="sidebar-project-meta-v7">{{ projectMeta() }}</div>
+    </div>
+    <div class="sidebar-label-v7">项目工作台</div>
+    <nav class="project-nav-v7" aria-label="项目导航">
+      @for (tab of tabs; track tab.kind) {
+        <a
+          [routerLink]="['/project', project?.id, tab.path]"
+          class="project-nav-button-v7"
+          [class.active]="tab.kind === 'backlog' ? isBacklogActive() : activeTab === tab.kind"
+          [attr.aria-label]="tab.ariaLabel"
+          [attr.aria-current]="(tab.kind === 'backlog' ? isBacklogActive() : activeTab === tab.kind) ? 'page' : null">
+          <svg class="icon-v7" aria-hidden="true"><use [attr.href]="'#' + tab.iconId"></use></svg>
+          <span>{{ tab.label }}</span>
+        </a>
+      }
+    </nav>
+    <div class="sidebar-foot-v7">
+      <div class="health-line-v7">
+        <span class="health-pulse-v7"></span>
+        <span>{{ onlineAgentCount }} 个 Agents 在线</span>
+      </div>
+    </div>
+  </aside>
+}
