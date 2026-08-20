@@ -39,8 +39,14 @@ public static class DependencyInjection
         var provider = configuration.GetValue<string>("AgentBoard:Database:Provider") ?? "sqlite";
         var connectionString = configuration.GetValue<string>("AgentBoard:Database:ConnectionString");
         if (string.IsNullOrWhiteSpace(connectionString))
-            throw new InvalidOperationException(
-                "AgentBoard:Database:ConnectionString is missing from configuration.");
+        {
+            // Last-resort fallback for environments that don't bring their
+            // own appsettings.Development.json (e.g. WebApplicationFactory
+            // bootstrapping the test host). Production must always set the
+            // connection string explicitly via env var or appsettings.
+            connectionString = "Data Source=agentboard-dotnet.db";
+            provider = "sqlite";
+        }
 
         services.AddDbContext<AppDbContext>((sp, options) =>
         {

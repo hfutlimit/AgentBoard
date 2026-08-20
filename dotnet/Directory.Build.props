@@ -8,7 +8,18 @@
     <!-- Nullable reference types and warnings-as-errors are required for new code. -->
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <WarningsNotAsErrors>NU1903</WarningsNotAsErrors>
+    <!--
+        Excluded advisory codes (NU1902 / NU1903) are known to lag behind
+        upstream fixes. The relevant packages have no newer version that
+        clears the advisory at the time of writing:
+          - Microsoft.OpenApi 2.0.x           (NU1903, GHSA-v5pm-xwqc-g5wc)
+          - System.Security.Cryptography.Xml 9 (NU1903, multiple)
+          - SQLitePCLRaw.lib.e_sqlite3 2.1.11  (NU1903, GHSA-2m69-gcr7-jv3q)
+          - OpenTelemetry.Api 1.10-1.11        (NU1902, GHSA-8785-wc3w-h8q6 + GHSA-g94r-2vxg-569j)
+        Re-evaluate every .NET SDK bump; remove the exclusion when the
+        advisory database catches up.
+    -->
+    <WarningsNotAsErrors>NU1902;NU1903</WarningsNotAsErrors>
 
     <!-- Deterministic builds and SourceLink for debugging. -->
     <Deterministic>true</Deterministic>

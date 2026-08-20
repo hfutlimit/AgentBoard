@@ -2,14 +2,16 @@
 //
 // AgentBoard.Api — Dual-stack BFF entry point.
 //
-// Stage 0 + Stage 3 deliverable: composition root that wires up the
+// Stage 0 + Stage 7 deliverable: composition root that wires up the
 // 5-layer stack (Controller → BaseController → Provider → Service →
-// Repository) plus the global DomainExceptionFilter and the API route
-// convention that strips the "Api" prefix from controller names.
+// Repository) plus observability (Serilog + OpenTelemetry) and the
+// request-id / trace-context middlewares.
 
 using AgentBoard.Api.Api.Common;
 using AgentBoard.Api.Api.Conventions;
 using AgentBoard.Api.Auth;
+using AgentBoard.Api.Middleware;
+using AgentBoard.Api.Observability;
 using AgentBoard.Application;
 using AgentBoard.Application.Abstractions;
 using AgentBoard.Infrastructure;
@@ -27,6 +29,11 @@ if (!string.IsNullOrWhiteSpace(dotnetPort) && int.TryParse(dotnetPort, out var p
 {
     builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 }
+
+// --- Observability (must be wired before any ILogging/Activity consumer) -
+
+builder.ConfigureSerilog();
+builder.ConfigureOpenTelemetry();
 
 // --- Services ---------------------------------------------------------
 
@@ -54,7 +61,13 @@ builder.Services.AddScoped<ICurrentUser, CurrentUserService>();
 
 var app = builder.Build();
 
-// --- Pipeline ---------------------------------------------------------
+// --- Pipeline (order matters!) ---------------------------------------
+
+// 1. Per-request id (logs use it; downstream middlewares read it).
+app.UseMiddleware<RequestIdMiddleware>();
+
+// 2. W3C trace context echo (Stage 1: outbound FastAPI calls).
+app.UseMiddleware<TraceContextMiddleware>();
 
 if (app.Environment.IsDevelopment())
 {
@@ -80,8 +93,8 @@ if (app.Environment.IsDevelopment())
 app.MapGet("/", () => Results.Ok(new
 {
     service = "AgentBoard.Api",
-    version = "0.3.0",
-    stage = "S0-3",
+    version = "0.7.0",
+    stage = "S0-7",
     env = app.Environment.EnvironmentName,
     utcNow = DateTime.UtcNow,
 }));
