@@ -1,7 +1,11 @@
 """
-AGB 全站前端质量巡检 v2 — Story 348 问题收集容器
-- 修复: 用 domcontentloaded + 显式等待, 规避本地 proxy 不支持 /ws websocket 升级
-  导致的 networkidle 永不过期(本地代理产物, 非前端 bug)
+AGB 全站前端质量巡检 v3 — Story 348 问题收集容器
+改进点(相对 v2):
+- 导航后等待 app-root + main 内容文本出现, 降低空白/时序误判
+- 新增 main_text_len 指标 + 空白视图自动判定(文本 < 30 视为疑似空白 P1)
+- 主题切换: 多次尝试点击并校验 html.dark, 失败判 P2
+- 工作区 tab 点击 / 新建弹窗 / 列表搜索筛选 交互验证
+- 暗色主题截图(home + overview)用于视觉对照
 - 仅巡检 + 截图 + 记录; 不通过 UI 提交任何表单(避免污染数据)
 """
 import sys, os, json, time, urllib.request
@@ -63,7 +67,7 @@ with sync_playwright() as p:
     browser = p.chromium.launch()
     ctx = browser.new_context(viewport={"width": 1440, "height": 900}, locale="zh-CN")
     page = ctx.new_page()
-    page.set_default_navigation_timeout(45000)
+    page.set_default_navigation_timeout(60000)
 
     def on_console(msg):
         if msg.type == "error":
@@ -80,29 +84,44 @@ with sync_playwright() as p:
     page.goto(BASE + "/", wait_until="domcontentloaded")
     page.evaluate("t => localStorage.setItem('agentboard_token', t)", TOKEN)
     page.reload(wait_until="domcontentloaded")
-    page.wait_for_selector("app-root", timeout=15000)
+    page.wait_for_selector("app-root", timeout=20000)
+    try:
+        page.wait_for_selector("aside, .sidebar, nav, app-sidebar", timeout=12000)
+    except Exception:
+        pass
     time.sleep(2)
 
-    def safe_goto(path):
-        page.goto(BASE + path, wait_until="domcontentloaded", timeout=45000)
+    def nav(path):
+        page.goto(BASE + path, wait_until="domcontentloaded", timeout=60000)
         try:
             page.wait_for_selector("app-root", timeout=15000)
         except Exception:
             pass
-        time.sleep(1.8)
+        try:
+            page.wait_for_function(
+                "()=>{const m=document.querySelector('main')||document.querySelector('app-root'); return m && (m.innerText||'').trim().length>20;}",
+                timeout=9000)
+        except Exception:
+            pass
+        time.sleep(1.2)
 
     for name, path, expect_sel in PAGES:
         rec = {"name": name, "path": path, "url": BASE + path}
         try:
-            safe_goto(path)
+            nav(path)
             if expect_sel:
                 present = page.query_selector(expect_sel) is not None
-                childcount = page.evaluate("""(s)=>{const e=document.querySelector(s); return e?e.children.length:-1;}""", expect_sel)
+                childcount = page.evaluate("(s)=>{const e=document.querySelector(s); return e?e.children.length:-1;}", expect_sel)
                 rec["expected_selector_present"] = present
                 rec["expected_child_count"] = childcount
                 if present and childcount == 0:
                     findings.append({"page": name, "path": path, "severity": "P1",
                                      "issue": f"期望组件 {expect_sel} 存在但无子内容(疑似空白视图)"})
+            txtlen = page.evaluate("()=>{const m=document.querySelector('main')||document.body; return (m.innerText||'').trim().length;}")
+            rec["main_text_len"] = txtlen
+            if txtlen < 30:
+                findings.append({"page": name, "path": path, "severity": "P1",
+                                 "issue": f"主内容区文本长度仅 {txtlen} 字符(疑似空白/未渲染视图)"})
             overflow = page.evaluate("""()=>{const de=document.documentElement; const b=document.body; return Math.max(de.scrollWidth-de.clientWidth, b.scrollWidth-b.clientWidth);}""")
             rec["horizontal_overflow_px"] = overflow
             if overflow and overflow > 4:
@@ -124,19 +143,31 @@ with sync_playwright() as p:
             except Exception:
                 pass
         report["pages"].append(rec)
-        print(f"[OK] {name:14s} {path:32s} overflow={rec.get('horizontal_overflow_px')} expect={rec.get('expected_selector_present')} child={rec.get('expected_child_count')}")
+        print(f"[OK] {name:14s} {path:32s} txt={rec.get('main_text_len')} overflow={rec.get('horizontal_overflow_px')} expect={rec.get('expected_selector_present')} child={rec.get('expected_child_count')}")
 
     # 主题切换 (#theme-toggle)
     try:
-        page.goto(BASE + "/", wait_until="domcontentloaded"); time.sleep(1)
+        page.goto(BASE + "/", wait_until="domcontentloaded"); time.sleep(1.5)
         el = page.query_selector("#theme-toggle")
         if el:
-            el.click(); time.sleep(0.6)
+            dark_after = None
+            for attempt in range(3):
+                try:
+                    el.click(timeout=3000); time.sleep(0.8)
+                except Exception:
+                    pass
+                dark_after = page.evaluate("""()=>{const h=document.documentElement; return h.classList.contains('dark')||h.getAttribute('data-theme')==='dark'||getComputedStyle(h).colorScheme==='dark';}""")
+                if dark_after:
+                    break
             page.screenshot(path=os.path.join(SHOT, "home_dark.png"))
-            # 读一下 html 上的 class/attr 判断是否真正切换
-            dark = page.evaluate("""()=>{const h=document.documentElement; return h.classList.contains('dark')||h.getAttribute('data-theme')==='dark'||getComputedStyle(h).colorScheme==='dark';}""")
-            el.click(); time.sleep(0.4)  # 切回
-            report["interactions"].append({"name": "theme_toggle", "result": "toggled", "dark_class_applied": dark})
+            # 切回亮色
+            try:
+                el.click(timeout=3000); time.sleep(0.6)
+            except Exception:
+                pass
+            report["interactions"].append({"name": "theme_toggle", "result": "toggled", "dark_class_applied": bool(dark_after)})
+            if not dark_after:
+                findings.append({"page": "global", "path": "/", "severity": "P2", "issue": "点击 #theme-toggle 后未观察到暗色主题生效(html 无 dark 类 / colorScheme 未变)"})
         else:
             report["interactions"].append({"name": "theme_toggle", "result": "no #theme-toggle found"})
             findings.append({"page": "global", "path": "/", "severity": "P2", "issue": "未找到 #theme-toggle 主题切换按钮"})
@@ -145,7 +176,7 @@ with sync_playwright() as p:
 
     # 工作区 8 tab 点击
     try:
-        safe_goto("/project/3/overview")
+        nav("/project/3/overview")
         tab_labels = ["概览","看板","Epics","工作项","提案","文档","成员与 Agents","设置"]
         tab_results = []
         for lab in tab_labels:
@@ -153,6 +184,7 @@ with sync_playwright() as p:
             try:
                 el.click(timeout=3000); time.sleep(0.7)
                 tab_results.append({"tab": lab, "clicked": True})
+                page.screenshot(path=os.path.join(SHOT, f"ws_tab_{lab}.png"))
             except Exception as ex:
                 tab_results.append({"tab": lab, "clicked": False, "err": str(ex)[:80]})
         report["interactions"].append({"name": "ws_tab_clicks", "result": tab_results})
@@ -162,9 +194,9 @@ with sync_playwright() as p:
     except Exception as e:
         report["interactions"].append({"name": "ws_tab_clicks", "result": "error: " + str(e)[:150]})
 
-    # 新建弹窗(不提交)
+    # 新建弹窗(不提交) + 表单校验(尝试空提交看校验)
     try:
-        safe_goto("/project/3/backlog")
+        nav("/project/3/backlog")
         opened = False
         for sel in ["#proj-new-btn", "button:has-text('新建项目')", "button:has-text('新建 Story')", "button:has-text('新建任务')", "button:has-text('＋')"]:
             el = page.query_selector(sel)
@@ -173,6 +205,18 @@ with sync_playwright() as p:
                     el.click(timeout=3000); time.sleep(0.8)
                     opened = True
                     page.screenshot(path=os.path.join(SHOT, "backlog_new_dialog.png"))
+                    # 尝试点击提交/保存按钮, 看是否出现校验错误(不真正提交)
+                    for sub in ["button:has-text('创建')", "button:has-text('保存')", "button[type=submit]"]:
+                        se = page.query_selector(sub)
+                        if se:
+                            try:
+                                se.click(timeout=1500); time.sleep(0.5)
+                                validated = page.evaluate("()=>{const e=document.querySelector('.error,.invalid,app-field-error,[class*=error]'); return !!e && e.offsetParent!==null;}")
+                                if validated:
+                                    report["interactions"].append({"name": "create_dialog_validation", "result": "validation_shown"})
+                                break
+                            except Exception:
+                                break
                     for c in ["button:has-text('取消')", "button:has-text('关闭')", "[aria-label='关闭']", ".modal-close", "button:has-text('×')"]:
                         ce = page.query_selector(c)
                         if ce:
@@ -185,6 +229,20 @@ with sync_playwright() as p:
             findings.append({"page": "ws_backlog", "path": "/project/3/backlog", "severity": "P3", "issue": "未找到/无法打开新建(工作项/Story)弹窗入口"})
     except Exception as e:
         report["interactions"].append({"name": "create_dialog", "result": "error: " + str(e)[:150]})
+
+    # 列表搜索/筛选(backlog 输入搜索框)
+    try:
+        nav("/project/3/backlog")
+        search = page.query_selector("input[type=search], input[placeholder*=搜索], input[placeholder*=Search]")
+        if search:
+            search.fill("任务")
+            time.sleep(0.8)
+            page.screenshot(path=os.path.join(SHOT, "backlog_search.png"))
+            report["interactions"].append({"name": "backlog_search", "result": "typed"})
+        else:
+            report["interactions"].append({"name": "backlog_search", "result": "no_search_box"})
+    except Exception as e:
+        report["interactions"].append({"name": "backlog_search", "result": "error: " + str(e)[:150]})
 
     browser.close()
 
@@ -209,3 +267,5 @@ for e in real_console[:20]:
     print("  REAL-CONSOLE-ERR:", e["text"][:160])
 for f in real_fail[:20]:
     print("  REAL-API-FAIL:", f["status"], f["url"][:120])
+for fnd in findings:
+    print("  FINDING:", fnd["severity"], fnd["page"], "-", fnd["issue"][:120])

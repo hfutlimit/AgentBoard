@@ -6,9 +6,10 @@
       "url": "http://127.0.0.1:4200/",
       "expected_selector_present": true,
       "expected_child_count": 1,
+      "main_text_len": 775,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 994,
+        "h": 1646,
         "w": 1440
       },
       "screenshot": "screenshots\\home.png"
@@ -17,6 +18,7 @@
       "name": "projects",
       "path": "/projects",
       "url": "http://127.0.0.1:4200/projects",
+      "main_text_len": 1303,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 937,
@@ -28,6 +30,7 @@
       "name": "agents",
       "path": "/agents",
       "url": "http://127.0.0.1:4200/agents",
+      "main_text_len": 1462,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 1518,
@@ -41,6 +44,7 @@
       "url": "http://127.0.0.1:4200/documents",
       "expected_selector_present": false,
       "expected_child_count": -1,
+      "main_text_len": 1303,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 937,
@@ -54,6 +58,7 @@
       "url": "http://127.0.0.1:4200/proposals",
       "expected_selector_present": false,
       "expected_child_count": -1,
+      "main_text_len": 1303,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 937,
@@ -65,9 +70,10 @@
       "name": "settings",
       "path": "/settings",
       "url": "http://127.0.0.1:4200/settings",
+      "main_text_len": 650,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 1339,
+        "h": 1472,
         "w": 1440
       },
       "screenshot": "screenshots\\settings.png"
@@ -76,6 +82,7 @@
       "name": "notifications",
       "path": "/notifications",
       "url": "http://127.0.0.1:4200/notifications",
+      "main_text_len": 79,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 836,
@@ -87,6 +94,7 @@
       "name": "admin",
       "path": "/admin",
       "url": "http://127.0.0.1:4200/admin",
+      "main_text_len": 1092,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 2014,
@@ -100,9 +108,10 @@
       "url": "http://127.0.0.1:4200/project/3/overview",
       "expected_selector_present": true,
       "expected_child_count": 1,
+      "main_text_len": 492,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 1107,
+        "h": 860,
         "w": 1440
       },
       "screenshot": "screenshots\\ws_overview.png"
@@ -113,9 +122,10 @@
       "url": "http://127.0.0.1:4200/project/3/kanban",
       "expected_selector_present": true,
       "expected_child_count": 1,
+      "main_text_len": 195,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 930,
+        "h": 836,
         "w": 1440
       },
       "screenshot": "screenshots\\ws_kanban.png"
@@ -126,9 +136,10 @@
       "url": "http://127.0.0.1:4200/project/3/epics",
       "expected_selector_present": true,
       "expected_child_count": 1,
+      "main_text_len": 803,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 1788,
+        "h": 1536,
         "w": 1440
       },
       "screenshot": "screenshots\\ws_epics.png"
@@ -139,9 +150,10 @@
       "url": "http://127.0.0.1:4200/project/3/backlog",
       "expected_selector_present": true,
       "expected_child_count": 1,
+      "main_text_len": 1162,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 1788,
+        "h": 1536,
         "w": 1440
       },
       "screenshot": "screenshots\\ws_backlog.png"
@@ -152,9 +164,10 @@
       "url": "http://127.0.0.1:4200/project/3/proposals",
       "expected_selector_present": true,
       "expected_child_count": 1,
+      "main_text_len": 281,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 930,
+        "h": 836,
         "w": 1440
       },
       "screenshot": "screenshots\\ws_proposals.png"
@@ -165,9 +178,10 @@
       "url": "http://127.0.0.1:4200/project/3/documents",
       "expected_selector_present": true,
       "expected_child_count": 1,
+      "main_text_len": 1181,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 1258,
+        "h": 1006,
         "w": 1440
       },
       "screenshot": "screenshots\\ws_documents.png"
@@ -178,9 +192,10 @@
       "url": "http://127.0.0.1:4200/project/3/members",
       "expected_selector_present": true,
       "expected_child_count": 1,
+      "main_text_len": 747,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 1184,
+        "h": 931,
         "w": 1440
       },
       "screenshot": "screenshots\\ws_members.png"
@@ -191,9 +206,10 @@
       "url": "http://127.0.0.1:4200/project/3/settings",
       "expected_selector_present": true,
       "expected_child_count": 1,
+      "main_text_len": 217,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 1074,
+        "h": 836,
         "w": 1440
       },
       "screenshot": "screenshots\\ws_settings.png"
@@ -202,6 +218,7 @@
       "name": "epic_152",
       "path": "/epic/152",
       "url": "http://127.0.0.1:4200/epic/152",
+      "main_text_len": 2845,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 2487,
@@ -213,9 +230,10 @@
       "name": "story_348",
       "path": "/story/348",
       "url": "http://127.0.0.1:4200/story/348",
+      "main_text_len": 1559,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 1439,
+        "h": 2084,
         "w": 1440
       },
       "screenshot": "screenshots\\story_348.png"
@@ -224,9 +242,10 @@
       "name": "story_330",
       "path": "/story/330",
       "url": "http://127.0.0.1:4200/story/330",
+      "main_text_len": 0,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 2326,
+        "h": 836,
         "w": 1440
       },
       "screenshot": "screenshots\\story_330.png"
@@ -235,9 +254,10 @@
       "name": "task_1342",
       "path": "/task/1342",
       "url": "http://127.0.0.1:4200/task/1342",
+      "main_text_len": 0,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 1129,
+        "h": 836,
         "w": 1440
       },
       "screenshot": "screenshots\\task_1342.png"
@@ -246,6 +266,7 @@
       "name": "task_1339",
       "path": "/task/1339",
       "url": "http://127.0.0.1:4200/task/1339",
+      "main_text_len": 0,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 836,
@@ -260,11 +281,11 @@
       "artifact": true
     },
     {
-      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789833084.a1a36427700290fef69bc347ed44858697978c721a51bf02829bf1700353e283' failed: Error during WebSocket handshake: Unexpected response code: 200",
+      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789835986.55320304679f0ae82aa74c611c8516963012d81abaafdb7e7fbbbf81d86323ac' failed: Error during WebSocket handshake: Unexpected response code: 200",
       "artifact": true
     },
     {
-      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789833084.a1a36427700290fef69bc347ed44858697978c721a51bf02829bf1700353e283' failed: Error during WebSocket handshake: Unexpected response code: 200",
+      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789835986.55320304679f0ae82aa74c611c8516963012d81abaafdb7e7fbbbf81d86323ac' failed: Error during WebSocket handshake: Unexpected response code: 200",
       "artifact": true
     }
   ],
@@ -329,9 +350,31 @@
     {
       "name": "create_dialog",
       "result": "no_dialog_trigger"
+    },
+    {
+      "name": "backlog_search",
+      "result": "typed"
     }
   ],
   "findings": [
+    {
+      "page": "story_330",
+      "path": "/story/330",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图)"
+    },
+    {
+      "page": "task_1342",
+      "path": "/task/1342",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图)"
+    },
+    {
+      "page": "task_1339",
+      "path": "/task/1339",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图)"
+    },
     {
       "page": "global",
       "path": "/",
