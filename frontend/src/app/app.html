@@ -527,15 +527,12 @@
             <div class="crumb-bar">
               <a routerLink="/projects">项目</a><span>›</span><span>{{ current.name }}</span>
             </div>
-            <div class="page-header">
-              <div class="page-title-row">
-                <h2>{{ current.name }}</h2>
-                @if (current.key) {
-                  <span class="badge lg">{{ current.key }}</span>
-                }
-                <span class="badge" title="邀请制项目">🔒 邀请制</span>
-              </div>
-            </div>
+            <app-workspace-heading [title]="current.name">
+              @if (current.key) {
+                <span class="heading-title-badge lg">{{ current.key }}</span>
+              }
+              <span class="heading-title-badge" title="邀请制项目">🔒 邀请制</span>
+            </app-workspace-heading>
             @if (current.description) {
               <div class="card md text-pre">{{ current.description }}</div>
             }
@@ -1908,16 +1905,14 @@
               ><span>›</span><a [routerLink]="['/story', story()?.id]">{{ story()?.title || '—' }}</a
               ><span>›</span><span class="crumb-current">{{ current.title }}</span>
             </div>
-            <div class="page-header">
-              <div class="page-title-row">
-                <h2 id="task-title">{{ current.title }}</h2>
-                <span class="badge {{ current.type }}">{{
-                  typeLabel(current.type)
-                }}</span
-                ><span id="stbadge" class="badge status status--{{ current.status }}">{{
-                  statusLabel(current.status)
-                }}</span>
-              </div>
+            <app-workspace-heading [title]="current.title">
+              <span class="heading-title-badge {{ current.type }}">{{
+                typeLabel(current.type)
+              }}</span>
+              <span id="stbadge" class="heading-title-badge status status--{{ current.status }}">{{
+                statusLabel(current.status)
+              }}</span>
+            </app-workspace-heading>
               <!-- Task 742/810: 任务详情页显示创建者/更新时间 -->
               <div class="task-meta-bar">
                 <span class="task-meta-item">
@@ -1984,7 +1979,6 @@
               <button class="ghost-sm" (click)="openTaskEditModal(current)" title="编辑任务">✎ 编辑</button>
               <button class="ghost-sm" (click)="generate()" title="生成子任务">⚡ 生成子任务</button>
               <button class="ghost-sm danger" (click)="quickDeleteTask()" title="删除当前任务">🗑 删除</button>
-            </div>
             </div>
             <!-- Task 744: 任务详情页显示相关任务链接 -->
             @if (getRelatedTasks().blocks.length > 0 || getRelatedTasks().blockedBy.length > 0) {
@@ -2442,27 +2436,18 @@
               <a [routerLink]="['/project', project()?.id]">{{ project()?.name }}</a
               ><span>›</span><span>{{ current.title }}</span>
             </div>
-            <div class="page-header">
-              <div class="page-title-row">
-                <h2>{{ current.title }}</h2>
-                <span class="badge sprint-status sprint-status--{{ current.status }} lg">{{
-                  sprintStatusLabel(current.status)
-                }}</span>
-              </div>
-              <div class="page-actions">
-                @if (current.status === 'planning') {
-                  <button class="btn-primary-sm" (click)="activateSprint(current.id)">
-                    ▶ 启动 Sprint
-                  </button>
-                }
-                @if (current.status === 'active') {
-                  <button class="btn-primary-sm" (click)="completeSprint(current.id)">
-                    ✓ 完成 Sprint
-                  </button>
-                }
-                <button class="danger" (click)="deleteSprint(current.id)">删除 Sprint</button>
-              </div>
-            </div>
+            <app-workspace-heading [title]="current.title">
+              <span class="heading-title-badge sprint-status sprint-status--{{ current.status }} lg">{{
+                sprintStatusLabel(current.status)
+              }}</span>
+              @if (current.status === 'planning') {
+                <button class="heading-action-btn btn-primary-sm" (click)="activateSprint(current.id)">▶ 启动 Sprint</button>
+              }
+              @if (current.status === 'active') {
+                <button class="heading-action-btn btn-primary-sm" (click)="completeSprint(current.id)">✓ 完成 Sprint</button>
+              }
+              <button class="heading-action-btn danger" (click)="deleteSprint(current.id)">删除 Sprint</button>
+            </app-workspace-heading>
             @if (current.goal) {
               <div class="card md text-pre">
                 <strong>Sprint 目标：</strong>{{ current.goal }}
@@ -2686,20 +2671,15 @@
             <div class="crumb-bar">
               <a [routerLink]="['/project', p.project_id, 'proposals']">{{ projectName(p.project_id) }} · 项目提案</a><span>›</span><span>{{ p.title }}</span>
             </div>
-            <div class="page-header">
-              <div class="page-title-row">
-                <h2 id="proposal-title">{{ p.title }}</h2>
-                <span class="badge pstatus pstatus--{{ p.status }}" id="proposal-status">{{ proposalStatusLabel(p.status) }}</span>
-              </div>
-              <div class="page-actions">
-                @if (p.status === 'draft' || p.status === 'pending') {
-                  <button id="proposal-queue-btn" class="btn-primary-sm" (click)="advanceProposalStatus('queued')">{{ p.status === 'pending' ? '开始 grill' : '派发给 Agent' }}</button>
-                }
-                @if (p.status === 'failed' && !isAgentFailure(p)) {
-                  <button id="proposal-requeue-btn" class="btn-primary-sm" (click)="advanceProposalStatus('queued')">重新派发</button>
-                }
-              </div>
-            </div>
+            <app-workspace-heading [title]="p.title">
+              <span id="proposal-status" class="heading-title-badge pstatus pstatus--{{ p.status }}">{{ proposalStatusLabel(p.status) }}</span>
+              @if (p.status === 'draft' || p.status === 'pending') {
+                <button id="proposal-queue-btn" class="heading-action-btn btn-primary-sm" (click)="advanceProposalStatus('queued')">{{ p.status === 'pending' ? '开始 grill' : '派发给 Agent' }}</button>
+              }
+              @if (p.status === 'failed' && !isAgentFailure(p)) {
+                <button id="proposal-requeue-btn" class="heading-action-btn btn-primary-sm" (click)="advanceProposalStatus('queued')">重新派发</button>
+              }
+            </app-workspace-heading>
 
             @if (p.error) {
               <div class="proposal-error" id="proposal-error">
@@ -3092,11 +3072,7 @@
         }
         @case ('admin') {
           <div class="crumb-bar"><a routerLink="/">首页</a><span>›</span><span>管理员后台</span></div>
-          <div class="page-header">
-            <div class="page-title-row">
-              <h2>⚙ 管理员后台</h2>
-            </div>
-          </div>
+          <app-workspace-heading title="⚙ 管理员后台"></app-workspace-heading>
           <div class="admin-section admin-health-section">
             <div class="admin-section-header">
               <div><h3>系统运行状态</h3><p class="muted">仅管理员可见的服务健康与性能信息。</p></div>
