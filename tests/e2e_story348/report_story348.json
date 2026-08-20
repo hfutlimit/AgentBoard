@@ -150,7 +150,7 @@
       "url": "http://127.0.0.1:4200/project/3/backlog",
       "expected_selector_present": true,
       "expected_child_count": 1,
-      "main_text_len": 1153,
+      "main_text_len": 1151,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 1536,
@@ -230,10 +230,10 @@
       "name": "story_348",
       "path": "/story/348",
       "url": "http://127.0.0.1:4200/story/348",
-      "main_text_len": 2552,
+      "main_text_len": 4668,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 2848,
+        "h": 3916,
         "w": 1440
       },
       "screenshot": "screenshots\\story_348.png"
@@ -281,15 +281,11 @@
       "artifact": true
     },
     {
-      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789843078.e24f90921f6d050cf7d74f0876a3b48689e8270685f9d290092fb51fb7e7c290' failed: Error during WebSocket handshake: Unexpected response code: 200",
+      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789846636.55d55cb29d703dbeecd37afaa3d6bedf243864d916aec3fcf1c73b33f8915c07' failed: Error during WebSocket handshake: Unexpected response code: 200",
       "artifact": true
     },
     {
-      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789843078.e24f90921f6d050cf7d74f0876a3b48689e8270685f9d290092fb51fb7e7c290' failed: Error during WebSocket handshake: Unexpected response code: 200",
-      "artifact": true
-    },
-    {
-      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789846636.55d55cb29d703dbeecd37afaa3d6bedf243864d916aec3fcf1c73b33f8915c07' failed: Error during WebSocket handshake: Unexpected response code: 200",
       "artifact": true
     },
     {
@@ -305,12 +301,7 @@
       "artifact": true
     },
     {
-      "url": "http://127.0.0.1:4200/api/agents",
-      "status": 500,
-      "artifact": false
-    },
-    {
-      "url": "http://127.0.0.1:4200/api/agents",
+      "url": "http://127.0.0.1:4200/api/projects/3",
       "status": 500,
       "artifact": false
     }
@@ -331,9 +322,8 @@
         },
         {
           "tab": "看板",
-          "clicked": true,
-          "url": "http://127.0.0.1:4200/project/3/kanban",
-          "url_matches": true
+          "clicked": false,
+          "err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\".project-nav-button-v7\")."
         },
         {
           "tab": "Epics",
@@ -352,21 +342,19 @@
         },
         {
           "tab": "文档",
-          "clicked": true,
-          "url": "http://127.0.0.1:4200/project/3/documents",
-          "url_matches": true
+          "clicked": false,
+          "err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\".project-nav-button-v7\")."
         },
         {
           "tab": "成员与 Agents",
           "clicked": true,
-          "url": "http://127.0.0.1:4200/project/3/documents",
+          "url": "http://127.0.0.1:4200/project/3/overview",
           "url_matches": true
         },
         {
           "tab": "设置",
-          "clicked": true,
-          "url": "http://127.0.0.1:4200/project/3/members",
-          "url_matches": true
+          "clicked": false,
+          "err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\".project-nav-button-v7\")."
         }
       ]
     },
@@ -396,7 +384,7 @@
       "page": "ws_tabs",
       "path": "/project/3/*",
       "severity": "P2",
-      "issue": "工作区 tab 点击后未正确导航: ['概览', 'Epics', '工作项', '提案']"
+      "issue": "工作区 tab 点击后未正确导航: ['概览', '看板', 'Epics', '工作项', '提案', '文档', '设置']"
     },
     {
       "page": "projects",
@@ -442,12 +430,7 @@
   "real_console_errors": [],
   "real_failed_requests": [
     {
-      "url": "http://127.0.0.1:4200/api/agents",
-      "status": 500,
-      "artifact": false
-    },
-    {
-      "url": "http://127.0.0.1:4200/api/agents",
+      "url": "http://127.0.0.1:4200/api/projects/3",
       "status": 500,
       "artifact": false
     }

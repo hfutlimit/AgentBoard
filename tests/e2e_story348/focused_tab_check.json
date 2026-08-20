@@ -11,7 +11,7 @@
   },
   {
     "tab": "看板",
-    "page_url": "http://127.0.0.1:4200/project/3/kanban",
+    "page_url": "http://127.0.0.1:4200/project/3/overview",
     "location_pathname": "/project/3/kanban",
     "active_texts": [
       "看板",
@@ -41,38 +41,21 @@
   },
   {
     "tab": "搜索",
-    "click_err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\"a, button\").filter(has_text=\"搜索\").first\n"
+    "page_url": "http://127.0.0.1:4200/task/1429",
+    "location_pathname": "/task/1429",
+    "active_texts": [],
+    "main_heading": ""
   },
   {
     "tab": "文档",
-    "page_url": "http://127.0.0.1:4200/project/3/backlog",
-    "location_pathname": "/project/3/documents",
-    "active_texts": [
-      "文档",
-      "⊞",
-      "工作台"
-    ],
-    "main_heading": "项目文档"
+    "click_err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\"a, button\").filter(has_text=\"文档\").first\n"
   },
   {
     "tab": "成员与 Agents",
-    "page_url": "http://127.0.0.1:4200/project/3/documents",
-    "location_pathname": "/project/3/members",
-    "active_texts": [
-      "成员与 Agents",
-      "工作台"
-    ],
-    "main_heading": "成员与 Agents\n5 成员 · 7 Agent（全局）"
+    "click_err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\"a, button\").filter(has_text=\"成员与 Agents\").fir"
   },
   {
     "tab": "设置",
-    "page_url": "http://127.0.0.1:4200/project/3/members",
-    "location_pathname": "/project/3/settings",
-    "active_texts": [
-      "设置",
-      "📦\n基本信息\n名称、描述、归档",
-      "工作台"
-    ],
-    "main_heading": "项目设置"
+    "click_err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\"a, button\").filter(has_text=\"设置\").first\n"
   }
 ]
