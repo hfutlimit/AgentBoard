@@ -13,14 +13,16 @@
   (pageChange)="pageChange.emit($event)"
   (retry)="retry.emit()">
   <ng-container ml-header>
-    <div class="section-header">
-      <h3>Epics</h3>
+    <!-- Epic 150 / X3 supplement: Epics heading（prototype 05 对齐） -->
+    <app-workspace-heading
+      title="Epics"
+      subtitle="按业务目标组织项目交付。">
       @if (projectId !== null) {
-        <button id="p-new-epic" class="btn-primary-sm" (click)="createEpic.emit(projectId!)">
+        <button id="p-new-epic" class="heading-action-btn btn-primary-sm" (click)="createEpic.emit(projectId!)">
           ＋ 新建 Epic
         </button>
       }
-    </div>
+    </app-workspace-heading>
   </ng-container>
   <div class="entity-list epics-tab-v7" id="epics-list">
     @for (item of paginatedItems(epics, page); track item.id) {
