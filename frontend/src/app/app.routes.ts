@@ -43,6 +43,7 @@ export const routes: Routes = [
   { path: 'notifications', component: RouteAnchor },
   { path: 'admin', component: RouteAnchor },
   { path: 'settings', component: RouteAnchor },
+  { path: 'agents', component: RouteAnchor },  // Story 329 / Task 1322: 真正的 router link，app.ts loadRoute 走 'agents' view
 
   // ─── 独立 tab 路由（顶层 view，无项目上下文） ─────────────────────────
   {

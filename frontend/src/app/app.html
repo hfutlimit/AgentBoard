@@ -64,7 +64,7 @@
           <span class="topbar-divider"></span>
           <nav class="home-nav-v7" aria-label="首页导航">
             <a class="home-nav-button-v7" [class.active]="view() === 'home' || view() === 'projects'" routerLink="/" aria-label="项目中心" style="cursor:pointer">项目</a>
-            <a class="home-nav-button-v7" [class.active]="view() === 'agents'" (click)="goAgents()" aria-label="Agent 池" style="cursor:pointer">Agents</a>
+            <a routerLink="/agents" [class.active]="view() === 'agents'" class="home-nav-button-v7" aria-label="Agent 池" [attr.aria-current]="view() === 'agents' ? 'page' : null">Agents</a>
           </nav>
           <span class="topbar-divider" style="margin-left:12px"></span>
           <span class="topbar-product">企业项目协作平台</span>
@@ -173,7 +173,7 @@
           <svg class="icon-v7 sidebar-nav-icon"><use href="#i-home"/></svg>
           <span class="sidebar-nav-label">仪表盘</span>
         </a>
-        <a (click)="goAgents()" [class.active]="view() === 'agents'" class="sidebar-nav-item" style="cursor:pointer" aria-label="Agent 池（在线 / 总数）">
+        <a routerLink="/agents" [class.active]="view() === 'agents'" class="sidebar-nav-item" aria-label="Agent 池（在线 / 总数）" [attr.aria-current]="view() === 'agents' ? 'page' : null">
           <svg class="icon-v7 sidebar-nav-icon"><use href="#i-cpu"/></svg>
           <span class="sidebar-nav-label">Agents</span>
           @if (agents().length > 0) {

@@ -2064,6 +2064,12 @@ export class App implements OnInit, OnDestroy {
         this.view.set('projects');
         // Story 137：项目中心数据
         await this.loadProjectsCenter();
+      } else if (kind === 'agents') {
+        // Story 329 / Task 1322：Agent 池视图（routerLink /agents 直达）。
+        // 复用 goAgents() 的数据加载逻辑，保留命令面板调用点。
+        this.view.set('agents');
+        this.connectAgentWs();
+        await this.loadAgents();
       } else if (kind === 'project' && id > 0) {
         this.view.set('project');
         // Epic 151 / Story 327 路由化：扩展 8 tab section 解析。
