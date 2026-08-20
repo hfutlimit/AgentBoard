@@ -19,7 +19,11 @@ import time
 import urllib.request
 import urllib.error
 
-from playwright.sync_api import sync_playwright
+import pytest
+try:
+    from playwright.sync_api import sync_playwright
+except ModuleNotFoundError:  # pragma: no cover - collected without E2E extras
+    sync_playwright = None
 
 WEB = "http://127.0.0.1:4200"
 API = "http://124.220.44.12"          # 生产后端（数据来源）
@@ -198,6 +202,15 @@ def main():
     print("console errors (type=error):", len(hard_console), "warnings:",
           len([c for c in console_errors if c["type"] == "warning"]))
     return report
+
+
+@pytest.mark.e2e
+@pytest.mark.legacy
+@pytest.mark.skip(reason="legacy manual E2E; run this file directly")
+def test_story317_legacy_e2e() -> None:
+    """Collect the legacy Story 317 script without running it by default."""
+    report = main()
+    assert report.get("verdict") == "PASS", report
 
 
 if __name__ == "__main__":

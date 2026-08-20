@@ -8,6 +8,17 @@ import json
 import time
 import sys
 import re
+import pytest
+
+# This is a legacy integration script, not a pytest test suite. Keep the
+# direct ``python tests/test_review_84_85.py`` entry point, but never execute
+# its external API calls while pytest imports the module for collection.
+pytestmark = pytest.mark.manual
+if __name__ != "__main__":
+    pytest.skip(
+        "legacy integration script; run directly with its target services",
+        allow_module_level=True,
+    )
 
 API = "http://localhost:8000"
 WEB = "http://localhost:8080"

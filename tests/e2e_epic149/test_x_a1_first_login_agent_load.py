@@ -34,7 +34,10 @@ import urllib.request
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import Page
+try:
+    from playwright.sync_api import Page
+except ModuleNotFoundError:  # pragma: no cover - collected without E2E extras
+    Page = object
 
 from conftest import (
     FRONTEND_ORIGIN,

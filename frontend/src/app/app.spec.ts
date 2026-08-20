@@ -203,6 +203,8 @@ describe('App', () => {
       ],
     });
     fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
 
     // 统计卡直接读 overview counts，不依赖整树
     expect(app.statProjects()).toBe(2);
@@ -361,6 +363,8 @@ describe('App', () => {
       is_private: false,
       created_at: '2026-08-01T00:00:00',
     });
+    (api as any).getProject = vi.fn(() => of(app.project()!));
+    (api as any).listAgents = vi.fn(() => of([]));
 
     app.selectProjectTab('proposals');
     expect(api.listProposals).toHaveBeenCalledWith({ project_id: 7, limit: 200 });

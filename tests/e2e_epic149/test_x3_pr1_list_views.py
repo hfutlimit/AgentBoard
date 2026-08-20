@@ -17,7 +17,11 @@ import time
 import urllib.request
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+import pytest
+try:
+    from playwright.sync_api import sync_playwright
+except ModuleNotFoundError:  # pragma: no cover - collected without E2E extras
+    sync_playwright = None
 
 FRONTEND_ORIGIN = "http://127.0.0.1:4200"
 PROD_API = "http://124.220.44.12"
@@ -146,6 +150,14 @@ def main() -> int:
         return 1
     print("PASS — X3 PR 1 5 list-style views OK")
     return 0
+
+
+@pytest.mark.e2e
+@pytest.mark.legacy
+@pytest.mark.skip(reason="legacy manual E2E; run this file directly")
+def test_x3_pr1_list_views_legacy() -> None:
+    """Collect the legacy X3 list script without running it by default."""
+    assert main() == 0
 
 
 if __name__ == "__main__":

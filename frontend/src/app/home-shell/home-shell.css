@@ -553,6 +553,9 @@
 [data-theme='dark'] .detail-title-wrap-v7 p { color: #93b7ff; }
 [data-theme='dark'] .detail-stat-v7 strong { color: #c9d6ea; }
 [data-theme='dark'] .agent-table-head-v7 { background: #1a2434; border-bottom-color: rgba(100, 161, 255, 0.12); }
+[data-theme='dark'] .hs-tab-button.active { color: #93b7ff; border-bottom-color: #93b7ff; }
+[data-theme='dark'] .chip-v7 { background: #142d55; color: #93b7ff; }
+[data-theme='dark'] .agent-table-head-v7 { color: #93b7ff; }
 [data-theme='dark'] .agent-row-v7 { border-bottom-color: rgba(100, 161, 255, 0.08); }
 [data-theme='dark'] .agent-row-v7:hover { background: #1a2434; }
 [data-theme='dark'] .agent-name-v7 { color: #e6edf7; }

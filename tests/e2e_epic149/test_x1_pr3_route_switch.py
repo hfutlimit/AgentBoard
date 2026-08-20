@@ -15,7 +15,12 @@ import time
 import urllib.request
 from pathlib import Path
 
-from playwright.sync_api import Page, sync_playwright
+import pytest
+try:
+    from playwright.sync_api import Page, sync_playwright
+except ModuleNotFoundError:  # pragma: no cover - collected without E2E extras
+    Page = object
+    sync_playwright = None
 
 FRONTEND_ORIGIN = "http://127.0.0.1:4200"
 PROD_API = "http://124.220.44.12"
@@ -231,6 +236,14 @@ def main() -> int:
         return 1
     print("PASS — X1 PR 3 route switch OK")
     return 0
+
+
+@pytest.mark.e2e
+@pytest.mark.legacy
+@pytest.mark.skip(reason="legacy manual E2E; run this file directly")
+def test_x1_pr3_route_switch_legacy() -> None:
+    """Collect the legacy X1 route script without running it by default."""
+    assert main() == 0
 
 
 if __name__ == "__main__":

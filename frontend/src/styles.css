@@ -22,13 +22,13 @@
   --primary-hover: var(--brand-600);
 
   /* 语义色（状态机对齐，对比度 ≥ 4.5:1） */
-  --success: #059669;
+  --success: #047857;
   --success-soft: #d1fae5;
   --warning: #d97706;
   --warning-soft: #fef3c7;
-  --danger: #dc2626;
+  --danger: #991b1b;
   --danger-soft: #fee2e2;
-  --info: #0891b2;
+  --info: #155e75;
   --info-soft: #cffafe;
   --violet: #7c3aed;
   --violet-soft: #ede9fe;
@@ -36,7 +36,7 @@
   /* 中性（slate 体系） */
   --text: #0f172a;
   --text-2: #475569;
-  --text-3: #94a3b8;
+  --text-3: #667085;
   --text-secondary: var(--text-2);
   --border: #e2e8f0;
   --border-2: #eef2f6;
@@ -76,19 +76,19 @@
   --status-verifying-bg: var(--color-sky-soft, #E6F6FE);
   --status-verifying-text: var(--color-sky-text, #0369A1);
   --status-done-bg: var(--color-success-soft, #E7F6EC);
-  --status-done-text: var(--color-success-text, #15803D);
+  --status-done-text: var(--color-success-text, #166534);
 
   /* 优先级色 */
   --priority-highest-bg: #dc2626;
   --priority-highest-text: #fff;
   --priority-high-bg: #f97316;
-  --priority-high-text: #fff;
+  --priority-high-text: #3b1d00;
   --priority-medium-bg: #eab308;
   --priority-medium-text: #422006;
   --priority-low-bg: #22c55e;
-  --priority-low-text: #fff;
+  --priority-low-text: #052e16;
   --priority-lowest-bg: #94a3b8;
-  --priority-lowest-text: #fff;
+  --priority-lowest-text: #0f172a;
 
   /* ===== Story 199 / DESIGN.md 蓝紫令牌（与 --brand-* 共存，新代码优先用 --color-*） ===== */
   --color-primary: #5B5BD6;
@@ -98,7 +98,7 @@
   --color-primary-subtle: #F5F4FE;
   --color-text-primary: #1A1A2E;
   --color-text-secondary: #6B6B80;
-  --color-text-tertiary: #9A9AB0;
+  --color-text-tertiary: #667085;
   --color-border-strong: #D4D4DC;
   --color-violet-soft: #F3EDFD;
   --color-violet-text: #7C3AED;
@@ -107,7 +107,7 @@
   --color-warning-soft: #FEF3E2;
   --color-warning-text: #B45309;
   --color-success-soft: #E7F6EC;
-  --color-success-text: #15803D;
+  --color-success-text: #166534;
   --color-danger-soft: #FDECEC;
   --color-danger-text: #B91C1C;
   --color-info-soft: #E6F6FE;
@@ -133,7 +133,7 @@
   --surface-blue: #f4f7ff;
   --ink: #142033;
   --ink-soft: #526074;
-  --ink-muted: #7a8798;
+  --ink-muted: #667085;
   --line: #dfe5eb;
   --line-strong: #cfd7e1;
   --navy: #10243e;
@@ -158,7 +158,7 @@
   --sidebar-nav-text: #aebcce;
   --sidebar-nav-text-hover: #fff;
   --sidebar-nav-active-bg: rgba(92, 149, 255, .16);
-  --sidebar-label-text: #768ba6;
+  --sidebar-label-text: #8fa1b8;
   --sidebar-border: rgba(255, 255, 255, .09);
 }
 
@@ -166,7 +166,7 @@
 [data-theme="dark"] {
   --text: #f1f5f9;
   --text-2: #94a3b8;
-  --text-3: #64748b;
+  --text-3: #aebcce;
   --text-secondary: var(--text-2);
   --border: #334155;
   --border-2: #1e293b;
@@ -190,6 +190,17 @@
   --status-verifying-text: #67e8f9;
   --status-done-bg: #064e3b;
   --status-done-text: #6ee7b7;
+  --success: #6ee7b7;
+  --success-soft: #064e3b;
+  --warning: #fcd34d;
+  --warning-soft: #3a2e0a;
+  --danger: #fca5a5;
+  --danger-soft: #450a0a;
+  --info: #67e8f9;
+  --info-soft: #164e63;
+  --violet: #c4b5fd;
+  --violet-soft: #2e1065;
+  --color-text-tertiary: #aebcce;
 
   /* ===== Epic 149 / Story 317：navy 令牌暗色版本 =====
      原型 v7 为 light-only，这里为 navy 令牌补暗色版本，
@@ -199,7 +210,7 @@
   --surface-blue: #0f1a2e;
   --ink: #e6edf6;
   --ink-soft: #aebcce;
-  --ink-muted: #768ba6;
+  --ink-muted: #aebcce;
   --line: #1e293b;
   --line-strong: #334155;
   --navy: #0a1726;
@@ -216,7 +227,7 @@
   --sidebar-nav-text: #768ba6;
   --sidebar-nav-text-hover: #e6edf6;
   --sidebar-nav-active-bg: rgba(123, 168, 255, .18);
-  --sidebar-label-text: #5b6f8a;
+  --sidebar-label-text: #8fa1b8;
   --sidebar-border: rgba(255, 255, 255, .06);
 }
 
@@ -766,7 +777,9 @@ main {
 .badge.bug { background: var(--danger-soft); color: var(--danger); }
 .badge.epic { background: var(--violet-soft); color: var(--violet); }
 .badge.story { background: var(--brand-soft); color: var(--brand-700); }
-.badge.test_execution { background: #ccfbf1; color: #0d9488; }
+.badge.test_execution { background: #ccfbf1; color: #115e59; }
+
+[data-theme="dark"] .badge.test_execution { background: #134e4a; color: #99f6e4; }
 
 /* Due-date group badges (v3.7) */
 .badge.due { font-weight: 700; }

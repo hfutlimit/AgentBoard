@@ -29,7 +29,10 @@ import time
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import Page
+try:
+    from playwright.sync_api import Page
+except ModuleNotFoundError:  # pragma: no cover - collected without E2E extras
+    Page = object
 
 # 兼容老 main() 入口：常量从 conftest 拉
 from conftest import (

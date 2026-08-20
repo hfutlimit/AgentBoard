@@ -27,13 +27,13 @@ python tests/e2e_epic149/test_x_b1_route_8tab.py
 
 ```bash
 # 全部 E2E（需 ng serve + API 在跑）
-pytest -m e2e tests/e2e_epic149/ -v
+pytest -m "e2e and not legacy" tests/e2e_epic149/ -v
 
 # 单个
 pytest tests/e2e_epic149/test_x_b1_route_8tab.py -v
 
 # 自定义凭据
-AGENTBOARD_E2E_USER=alice AGENTBOARD_E2E_PASS=alice123 pytest -m e2e tests/e2e_epic149/
+AGENTBOARD_E2E_USER=alice AGENTBOARD_E2E_PASS=alice123 pytest -m "e2e and not legacy" tests/e2e_epic149/
 ```
 
 ## 前置条件
@@ -68,7 +68,7 @@ AGENTBOARD_E2E_USER=alice AGENTBOARD_E2E_PASS=alice123 pytest -m e2e tests/e2e_e
 - name: Wait for services
   run: sleep 30
 - name: Run E2E
-  run: pytest -m e2e tests/e2e_epic149/ -v
+  run: pytest -m "e2e and not legacy" tests/e2e_epic149/ -v
 ```
 
 ## 维护
@@ -76,3 +76,27 @@ AGENTBOARD_E2E_USER=alice AGENTBOARD_E2E_PASS=alice123 pytest -m e2e tests/e2e_e
 - 新加 E2E 脚本：放 `tests/e2e_epic149/test_xxx.py`，顶部声明 env var 读取
 - 截图：自动存到 `tests/e2e_epic149/screenshots/`，gitignored
 - 报告 markdown：测试生成的 `report_*.md` 文件可提交，作为该次 review 的视觉证据
+
+# Pytest execution policy (Story 330)
+
+The four `test_x_a*` / `test_x_b*` modules contain active pytest E2E tests.
+The nine older scripts (`test_review_all_views.py`, `test_story317_e2e.py`,
+`test_story318_319_e2e.py`, `test_story320_e2e.py`, `test_x1_pr3_route_switch.py`,
+`test_x2_pr1_workspace_topbar.py`, `test_x2_pr3_heading_settings.py`,
+`test_x3_pr1_list_views.py`, and `test_x3_pr2_detail_views.py`) retain their
+manual `main()` entry points and expose skipped `test_*` wrappers solely for
+pytest collection. They are marked `legacy` because they use the historical
+production endpoints and should be run manually only after checking the target.
+
+Use the following commands:
+
+```bash
+# Collect every module without making network calls
+pytest --collect-only -m e2e tests/e2e_epic149/
+
+# Run active local E2E tests
+pytest -m "e2e and not legacy" tests/e2e_epic149/ -v
+
+# Run one legacy script manually (only when its target is intentional)
+python tests/e2e_epic149/test_x3_pr1_list_views.py
+```

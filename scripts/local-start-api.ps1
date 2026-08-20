@@ -1,7 +1,7 @@
 # Local dev: start AgentBoard REST API on port 18000.
 # Uses cmd.exe to detach from this PowerShell session.
 $ErrorActionPreference = 'Stop'
-$Root = 'D:\AI\Projects\AgentBoard'
+$Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Set-Location $Root
 
 # load .env into process env

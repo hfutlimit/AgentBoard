@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { Component, HostListener, OnDestroy, OnInit, ViewEncapsulation, computed, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { NavigationEnd, Router, RouterLink } from '@angular/router';
+import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
 import { firstValueFrom, Subscription } from 'rxjs';
 
 import { buildRevisionDiff, RevisionDiffBlock } from './shared/utils/revision-diff';
@@ -12,23 +12,13 @@ import { filter } from 'rxjs/operators';
 import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric, resolveApiBase } from './api.service';
 import { LoginComponent } from './login/login';
 import { AgentRow, AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, KanbanBoard, KanbanStory, Notification, OverviewStats, Priority, Project, ProjectTabKind, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, SprintStatus, Status, Story, StoryStatusHistoryRow, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentRevisionItem, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES, TicketRequestItem, TicketType, TicketItem } from './models';
-import { PaginationComponent } from './pagination/pagination';
 import { BottomTabBarComponent } from './bottom-tab-bar/bottom-tab-bar';
 import { FocusTrapDirective } from './shared/focus-trap.directive';
 import { ManagedListComponent } from './managed-list/managed-list';
-import { OverviewTabComponent } from './overview-tab/overview-tab';
-import { KanbanTabComponent } from './kanban-tab/kanban-tab';
-import { EpicsTabComponent } from './epics-tab/epics-tab';
-import { ProposalsTabComponent } from './proposals-tab/proposals-tab';
-import { DocumentsTabComponent } from './documents-tab/documents-tab';
-import { BacklogTabComponent } from './backlog-tab/backlog-tab';
-import { TicketsTabComponent } from './tickets-tab/tickets-tab';
-import { StatsTabComponent } from './stats-tab/stats-tab';
-import { MembersTabComponent } from './members-tab/members-tab';
 import { HomeShellComponent } from './home-shell/home-shell';
 import { WorkspaceTopbarComponent } from './workspace-topbar/workspace-topbar';
 import { WorkspaceHeadingComponent } from './workspace-heading/workspace-heading';
-import { ProjectWorkspaceShellComponent } from './project-workspace-shell/project-workspace-shell';
+import { ProjectDataService } from './services/project-data.service';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
@@ -84,9 +74,9 @@ interface PaletteCommand {
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, RouterLink, LoginComponent, PaginationComponent, OverviewTabComponent, KanbanTabComponent, EpicsTabComponent, ProposalsTabComponent, DocumentsTabComponent, BacklogTabComponent, MembersTabComponent, HomeShellComponent, WorkspaceTopbarComponent, WorkspaceHeadingComponent, ProjectWorkspaceShellComponent, BottomTabBarComponent, FocusTrapDirective],
+  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, HomeShellComponent, WorkspaceTopbarComponent, WorkspaceHeadingComponent, BottomTabBarComponent, FocusTrapDirective],
   templateUrl: './app.html',
-  styleUrl: './app.css',
+  styleUrls: ['./app.css', './app-features.css'],
   encapsulation: ViewEncapsulation.None,
 })
 export class App implements OnInit, OnDestroy {
@@ -165,7 +155,6 @@ export class App implements OnInit, OnDestroy {
   readonly submitting = signal(false);
   readonly confirmation = signal<ConfirmationDialog | null>(null);
   readonly confirmationBusy = signal(false);
-  readonly activeTab = signal<ProjectTabKind>('overview');
   // Epic 130: 项目看板（一个项目一个看板，卡片=Story 含 design/dev/qa task 状态）
   readonly kanban = signal<KanbanBoard | null>(null);
   readonly kanbanIncludeAll = signal(false);
@@ -1341,8 +1330,11 @@ export class App implements OnInit, OnDestroy {
   constructor(
     readonly api: ApiService,
     private readonly router: Router,
+    private readonly projectData: ProjectDataService,
     @Inject(DOCUMENT) private readonly document: Document,
-  ) {}
+  ) {
+    this.projectData.bindWorkspaceHost(this);
+  }
 
   toggleSidebar(): void {
     if (window.innerWidth <= 800) {
@@ -1638,11 +1630,16 @@ export class App implements OnInit, OnDestroy {
   }
 
   selectProjectTab(tab: ProjectTabKind): void {
-    this.activeTab.set(tab);
-    // 进入设置页时默认聚焦「基本信息」子标签
     if (tab === 'settings') this.settingsSubTab.set('basic');
     const projectId = this.project()?.id;
-    if (projectId) void this.loadProjectTab(tab, projectId);
+    if (projectId) {
+      void this.loadProjectTab(tab, projectId);
+      void this.router.navigate(['/project', projectId, tab]);
+    }
+  }
+
+  private projectSection(): string {
+    return this.router.url.split('?')[0].split('/').filter(Boolean)[2] || 'overview';
   }
 
   /** 设置页左侧菜单子标签（替代原设置 dropdown） */
@@ -1961,7 +1958,7 @@ export class App implements OnInit, OnDestroy {
   setTicketFilter(f: 'all' | 'incomplete' | 'complete'): void {
     this.ticketFilter.set(f);
     const pid = this.project()?.id;
-    if (pid && this.activeTab() === 'tickets') {
+    if (pid && this.projectSection() === 'tickets') {
       this.projectTabLoaded.update((s) => ({ ...s, tickets: false }));
       void this.loadTickets(pid, this.projectTabGeneration);
     }
@@ -1971,7 +1968,7 @@ export class App implements OnInit, OnDestroy {
   setTicketSort(s: 'created_at' | 'updated_at'): void {
     this.ticketSort.set(s);
     const pid = this.project()?.id;
-    if (pid && this.activeTab() === 'tickets') {
+    if (pid && this.projectSection() === 'tickets') {
       this.projectTabLoaded.update((s) => ({ ...s, tickets: false }));
       void this.loadTickets(pid, this.projectTabGeneration);
     }
@@ -1981,7 +1978,7 @@ export class App implements OnInit, OnDestroy {
   setTicketOrder(o: 'asc' | 'desc'): void {
     this.ticketOrder.set(o);
     const pid = this.project()?.id;
-    if (pid && this.activeTab() === 'tickets') {
+    if (pid && this.projectSection() === 'tickets') {
       this.projectTabLoaded.update((s) => ({ ...s, tickets: false }));
       void this.loadTickets(pid, this.projectTabGeneration);
     }
@@ -2099,9 +2096,10 @@ export class App implements OnInit, OnDestroy {
                       : section === 'settings' || section === 'schedules'
                         ? 'settings' // 定时计划已并入设置页
                         : 'overview'; // 默认进入「项目概览」tab
-        this.activeTab.set(projectTab);
-        this.resetProjectListPages();
-        this.resetProjectTabs();
+        if (this.project()?.id !== id) {
+          this.resetProjectListPages();
+          this.resetProjectTabs();
+        }
         const project = await firstValueFrom(this.api.getProject(id));
         this.project.set(project);
         this.trackRecentProject(project);
@@ -7448,7 +7446,7 @@ export class App implements OnInit, OnDestroy {
         this.notify('文档已创建');
         // 追加到列表，使新建文档在当前视图（含项目 Tab）中立即可见
         this.documents.set([created, ...this.documents()]);
-        const inProjectTab = this.view() === 'project' && this.activeTab() === 'documents';
+        const inProjectTab = this.view() === 'project' && this.projectSection() === 'documents';
         if (inProjectTab) {
           await this.openDocTab(created);
         } else {
@@ -7707,7 +7705,7 @@ export class App implements OnInit, OnDestroy {
       await firstValueFrom(this.api.deleteDocument(d.id));
       this.notify('文档已删除');
       this.documents.set(this.documents().filter((x) => x.id !== d.id));
-      const inProjectTab = this.view() === 'project' && this.activeTab() === 'documents';
+      const inProjectTab = this.view() === 'project' && this.projectSection() === 'documents';
       if (inProjectTab) {
         this.docItem.set(null);
       } else {

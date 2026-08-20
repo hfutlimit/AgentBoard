@@ -162,6 +162,19 @@
   background: var(--brand-soft); color: var(--brand-600);
 }
 
+[data-theme='dark'] .project-key-badge,
+[data-theme='dark'] .link-btn,
+[data-theme='dark'] .overview-member-more,
+[data-theme='dark'] .overview-epic-tag.active {
+  background: #142d55;
+  color: #93b7ff;
+}
+
+[data-theme='dark'] .overview-epic-tag.done {
+  background: #064e3b;
+  color: #6ee7b7;
+}
+
 .overview-shortcut-grid {
   display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
 }

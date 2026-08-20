@@ -1,4 +1,4 @@
-"""Epic 150 整体 review：截所有 view 渲染图 + 关键元素检查 + 视觉对比 prototype。
+r"""Epic 150 整体 review：截所有 view 渲染图 + 关键元素检查 + 视觉对比 prototype。
 
 跑法：cd D:\AI\Projects\AgentBoard; .venv\Scripts\python.exe tests/e2e_epic149/test_review_all_views.py
 
@@ -13,7 +13,11 @@ import time
 import urllib.request
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+import pytest
+try:
+    from playwright.sync_api import sync_playwright
+except ModuleNotFoundError:  # pragma: no cover - collected without E2E extras
+    sync_playwright = None
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -117,6 +121,14 @@ def main() -> int:
         return 1
     print(f"OK — captured {len(REVIEW_VIEWS)} screenshots in {SHOT_DIR}")
     return 0
+
+
+@pytest.mark.e2e
+@pytest.mark.legacy
+@pytest.mark.skip(reason="legacy manual E2E; run this file directly")
+def test_review_all_views_legacy() -> None:
+    """Collect the legacy screenshot script without running it by default."""
+    assert main() == 0
 
 
 if __name__ == "__main__":

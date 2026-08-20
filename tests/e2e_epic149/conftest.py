@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import urllib.request
+import urllib.error
 import json
 import sys
 import time
@@ -65,14 +66,24 @@ def admin_token(admin_creds) -> str:
         method="POST",
     )
     req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read().decode())["token"]
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return json.loads(r.read().decode())["token"]
+    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+        pytest.skip(
+            "live E2E credentials/API unavailable; set AGENTBOARD_API_BASE, "
+            "AGENTBOARD_E2E_USER and AGENTBOARD_E2E_PASS"
+        )
 
 
 @pytest.fixture(scope="session")
 def browser():
     """Playwright chromium 浏览器（session scope 一次启动）。"""
-    from playwright.sync_api import sync_playwright
+    playwright = pytest.importorskip(
+        "playwright.sync_api",
+        reason="live browser E2E requires the optional Playwright dependency",
+    )
+    sync_playwright = playwright.sync_playwright
     with sync_playwright() as p:
         b = p.chromium.launch(headless=True, args=["--no-proxy-server"])
         try:

@@ -237,19 +237,6 @@
     </aside>
   }
 
-  <!-- Epic 152 / Story 332 (Sub-PR 1) 抽 ProjectWorkspaceShell：
-       复制原 line 240-285 navy sidebar + 8 tab routerLink 模板到独立组件。
-       外层条件保留（view() 决定 sidebar 是否显示）。
-       Sub-PR 1b 阶段：8 tab children 路由由 Router 接管（app.html 删 8 个 @if 块 → router-outlet）。 -->
-  @if (sidebarOpen() && view() !== 'document' && (view() === 'project' || view() === 'epic' || view() === 'story' || view() === 'task' || view() === 'sprint')) {
-    <app-project-workspace-shell
-      [project]="project()"
-      [activeTab]="activeTab()"
-      [sidebarOpen]="true"
-      [onlineAgentCount]="agents().filter(a => a.online).length">
-    </app-project-workspace-shell>
-  }
-
   <main id="app">
     <!-- Task 804: Bulk operation progress indicator with percentage -->
     @if (bulkProgress()) {
@@ -287,16 +274,18 @@
         @case ('home') {
           <!-- Epic 150 / Story 321 (X1) Home Shell prototype v7 风格：项目 Master-Detail + Agents tab -->
           <!-- PR 1：插入 home-shell 组件，原 dashboard 保留在下方作为 fallback 演示。后续 PR 2/3 路由切换 -->
-          <app-home-shell
-            [projects]="(projectsCenter().length ? projectsCenter() : visibleProjects())"
-            [agents]="agents()"
-            [selected]="homeSelectedFallback()"
-            [me]="me()"
-            [visible]="view() === 'home'"
-            (selectProject)="selectHomeProject($event)"
-            (newProject)="openCreate('project')"
-            (enterWorkspace)="goProject($event)">
-          </app-home-shell>
+          @defer (when view() === 'home' && !authVisible()) {
+            <app-home-shell
+              [projects]="(projectsCenter().length ? projectsCenter() : visibleProjects())"
+              [agents]="agents()"
+              [selected]="homeSelectedFallback()"
+              [me]="me()"
+              [visible]="view() === 'home'"
+              (selectProject)="selectHomeProject($event)"
+              (newProject)="openCreate('project')"
+              (enterWorkspace)="goProject($event)">
+            </app-home-shell>
+          }
 
 
         }
@@ -492,411 +481,7 @@
           </div>
         }
         @case ('project') {
-          @if (project(); as current) {
-            <div class="crumb-bar">
-              <a routerLink="/projects">项目</a><span>›</span><span>{{ current.name }}</span>
-            </div>
-            <app-workspace-heading [title]="current.name">
-              @if (current.key) {
-                <span class="heading-title-badge lg">{{ current.key }}</span>
-              }
-              <span class="heading-title-badge" title="邀请制项目">🔒 邀请制</span>
-            </app-workspace-heading>
-            @if (current.description) {
-              <div class="card md text-pre">{{ current.description }}</div>
-            }
-            <!--
-              Epic 151 / Story 327 路由化：原 emoji tab-bar（含 stats/tickets 两个新
-              navy 侧栏没保留的 tab）已删除。8 tab 入口统一由 navy project-sidebar-v7
-              提供（line 250-273，routerLink 驱动）。下方 @if (activeTab() === X)
-              块保留渲染（hybrid 模式），由 loadRoute() 解析 URL path → activeTab.set
-              驱动。
-            -->
-
-            <!-- Tab: 项目概览（由 navy 侧栏 routerLink 触发） -->
-            @if (activeTab() === 'overview') {
-              <app-overview-tab
-                [project]="current"
-                [members]="members()"
-                [epics]="epics()"
-                [backlogCount]="backlogVisibleTasks().length"
-                [kanbanCount]="kanbanCount()"
-                [proposalCount]="proposalVisible().length"
-                (navigateTab)="selectProjectTab($event)"
-                (goEpic)="goEpic($event)"
-              />
-            }
-
-            <!-- Tab: Epics -->
-            <!-- Tab: Epics -->
-            @if (activeTab() === 'epics') {
-              <app-epics-tab
-                [epics]="visibleEpics()"
-                [epicProgressFor]="epicProgress"
-                [page]="epicsPage()"
-                [pageSize]="projectListPageSize"
-                [loading]="isProjectTabLoading('epics')"
-                [error]="projectTabError('epics')"
-                [projectId]="current.id"
-                (pageChange)="setProjectListPage('epics', $event)"
-                (retry)="retryProjectTab('epics')"
-                (createEpic)="openCreate('epic', $event)"
-              />
-            }
-
-            <!-- Tab: Backlog -->
-            @if (activeTab() === 'backlog') {
-              <app-backlog-tab
-                [tasks]="backlogVisibleTasks()"
-                [page]="backlogPage()"
-                [pageSize]="projectListPageSize"
-                [loading]="isProjectTabLoading('backlog')"
-                [error]="projectTabError('backlog')"
-                (pageChange)="setProjectListPage('backlog', $event)"
-                (retry)="retryProjectTab('backlog')"
-              />
-            }
-
-            <!--
-              Epic 151 / Story 327 路由化：原 stats tab @if 块已删除。
-              统计功能后续可并入 overview（原型 03 已是 Sprint 完成/进行中/交付率/
-              Agent 利用率），不必单独占一个 tab。stats-tab 组件保留代码资产
-              以备复用，stats signal / API 调用暂不删除（避免破坏其他视图）。
-            -->
-
-            <!-- Tab: Settings（左侧菜单 + 右侧内容） -->
-            @if (activeTab() === 'settings') {
-              <div class="tab-content settings-content">
-                @if (isProjectTabLoading('settings')) {
-                  <div class="tab-list-skeleton tab-settings-skeleton" role="status" aria-label="正在加载项目设置">
-                    <div class="tab-loading-caption"><span class="spinner"></span>正在加载项目设置…</div>
-                    @for (row of tabSkeletonRows.slice(0, 3); track row) {
-                      <div class="tab-skeleton-field"><span class="tab-skeleton-label"></span><span class="tab-skeleton-input"></span></div>
-                    }
-                  </div>
-                } @else if (projectTabError('settings')) {
-                  <div class="tab-load-error" role="alert">
-                    <span>项目设置加载失败：{{ projectTabError('settings') }}</span>
-                    <button class="ghost-sm" type="button" (click)="retryProjectTab('settings')">重试</button>
-                  </div>
-                } @else {
-                  <!-- Epic 150 / X3 supplement: 项目设置 heading（prototype 06 对齐） -->
-                  <app-workspace-heading
-                    title="项目设置"
-                    subtitle="仅影响当前项目，不改全局账号与 Agent 注册。">
-                  </app-workspace-heading>
-                  <div class="settings-layout">
-                    <!-- 左侧菜单 -->
-                    <aside class="settings-sidebar card">
-                      <h4 class="settings-sidebar-title">项目设置</h4>
-                      <nav class="settings-nav" aria-label="项目设置导航">
-                        <button class="settings-nav-item" type="button"
-                                [class.active]="settingsSubTab() === 'basic'"
-                                (click)="selectSettingsSubTab('basic')">
-                          <span class="settings-nav-icon">📦</span>
-                          <span class="settings-nav-text">
-                            <span class="settings-nav-label">基本信息</span>
-                            <span class="settings-nav-sub">名称、描述、归档</span>
-                          </span>
-                        </button>
-                        <button class="settings-nav-item" type="button"
-                                [class.active]="settingsSubTab() === 'members'"
-                                (click)="selectSettingsSubTab('members')">
-                          <span class="settings-nav-icon">👥</span>
-                          <span class="settings-nav-text">
-                            <span class="settings-nav-label">成员管理</span>
-                            <span class="settings-nav-sub">邀请、移除、角色</span>
-                          </span>
-                          @if (members().length) {
-                            <span class="settings-nav-count">{{ members().length }}</span>
-                          }
-                        </button>
-                        <button class="settings-nav-item" type="button"
-                                [class.active]="settingsSubTab() === 'schedules'"
-                                (click)="selectSettingsSubTab('schedules')">
-                          <span class="settings-nav-icon">⏰</span>
-                          <span class="settings-nav-text">
-                            <span class="settings-nav-label">自动化计划</span>
-                            <span class="settings-nav-sub">定时 Agent 运行</span>
-                          </span>
-                          @if (schedules().length) {
-                            <span class="settings-nav-count">{{ schedules().length }}</span>
-                          }
-                        </button>
-                        <button class="settings-nav-item" type="button"
-                                [class.active]="settingsSubTab() === 'export'"
-                                (click)="selectSettingsSubTab('export')">
-                          <span class="settings-nav-icon">📤</span>
-                          <span class="settings-nav-text">
-                            <span class="settings-nav-label">数据导出</span>
-                            <span class="settings-nav-sub">导出任务数据</span>
-                          </span>
-                        </button>
-                      </nav>
-                    </aside>
-
-                    <!-- 右侧内容：根据 settingsSubTab 切换 -->
-                    <section class="settings-main">
-                      <!-- 子页：基本信息 -->
-                      @if (settingsSubTab() === 'basic') {
-                        @if (isOwner() || isAdmin()) {
-                          <div class="card form-section">
-                            <h4>项目设置</h4>
-                            <form
-                              (submit)="saveProjectSettings(sName.value, sKey.value, sDesc.value); $event.preventDefault()"
-                            >
-                              <label>名称<input #sName [value]="current.name" required maxlength="200" /></label>
-                              <label>短码<input #sKey [value]="current.key || ''" maxlength="20" placeholder="如 AB" /></label>
-                              <label>描述<textarea #sDesc rows="4">{{ current.description }}</textarea></label>
-                              <div class="row">
-                                <button class="btn-primary-sm" type="submit">保存设置</button>
-                              </div>
-                            </form>
-                          </div>
-                          <div class="card danger-zone">
-                            <h4>危险操作</h4>
-                            <button class="danger" (click)="remove('project', current.id)">删除项目（不可恢复）</button>
-                          </div>
-                        } @else {
-                          <div class="info-box">只有项目 Owner 或管理员可以修改项目设置。</div>
-                          <div class="card">
-                            <h4>当前设置</h4>
-                            <dl class="setting-list">
-                              <dt>项目名称</dt><dd>{{ current.name }}</dd>
-                              <dt>短码</dt><dd>{{ current.key || '—' }}</dd>
-                              <dt>创建时间</dt><dd>{{ current.created_at | date }}</dd>
-                            </dl>
-                          </div>
-                        }
-                      }
-
-                      <!-- 子页：成员管理 -->
-                      @if (settingsSubTab() === 'members') {
-                        <div class="card">
-                          <div class="section-header">
-                            <h3>项目成员 <span class="count">{{ members().length }}</span></h3>
-                            @if (isOwner() || isAdmin()) {
-                              <details class="card sprint-create-section">
-                                <summary class="btn-primary-sm">＋ 邀请成员</summary>
-                                <form (submit)="addMember(current.id, mbUsername.value, mbRole.value); $event.preventDefault()">
-                                  <label>用户名<input #mbUsername required placeholder="输入用户名" /></label>
-                                  <label>角色
-                                    <select #mbRole>
-                                      <option value="member">Member（成员）</option>
-                                      <option value="owner">Owner（所有者）</option>
-                                    </select>
-                                  </label>
-                                  <button class="btn-primary-sm" type="submit">邀请</button>
-                                </form>
-                              </details>
-                            }
-                          </div>
-                          @if (members().length) {
-                            <!-- Task 809: 项目成员头像显示 -->
-                            <div class="members-grid" id="members-list">
-                              @for (m of paginatedItems(members(), membersPage()); track m.id) {
-                                <div class="member-card">
-                                  <div class="member-avatar">{{ getMemberAvatar(m) }}</div>
-                                  <div class="member-info">
-                                    <div class="member-name">{{ m.username || '用户#' + m.user_id }}</div>
-                                    <div class="member-role-badge {{ m.role }}">
-                                      {{ m.role === 'owner' ? '★ Owner' : '● Member' }}
-                                    </div>
-                                  </div>
-                                  @if ((isOwner() || isAdmin()) && m.role !== 'owner') {
-                                    <button class="ghost-sm danger member-action" (click)="removeMember(current.id, m.user_id)">移除</button>
-                                  }
-                                  @if ((isOwner() || isAdmin()) && m.role === 'member') {
-                                    <button class="ghost-sm member-action" (click)="updateMemberRole(current.id, m.user_id, 'owner')">升为 Owner</button>
-                                  }
-                                  @if ((isOwner() || isAdmin()) && m.role === 'owner') {
-                                    <button class="ghost-sm member-action" (click)="updateMemberRole(current.id, m.user_id, 'member')">降为 Member</button>
-                                  }
-                                </div>
-                              }
-                            </div>
-                            <app-pagination
-                              label="成员列表"
-                              [total]="members().length"
-                              [page]="membersPage()"
-                              [pageSize]="projectListPageSize"
-                              (pageChange)="setProjectListPage('members', $event)"
-                            />
-                          } @else {
-                            <div class="empty-inline">暂无成员</div>
-                          }
-                          @if (!isOwner() && !isAdmin()) {
-                            <div class="info-box">你是此项目的成员。如需管理成员，请联系项目 Owner。</div>
-                          }
-                        </div>
-                      }
-
-                      <!-- 子页：自动化计划 -->
-                      @if (settingsSubTab() === 'schedules') {
-                        <div class="card">
-                          <div class="section-header">
-                            <h3>定时 Agent 计划</h3>
-                            <button class="btn-primary-sm" (click)="openCreateSchedule(current.id)">＋ 新建计划</button>
-                          </div>
-                          @if (schedules().length) {
-                            <div class="schedule-list" id="schedules-list">
-                              @for (sch of paginatedItems(schedules(), schedulesPage()); track sch.id) {
-                                <div class="schedule-item">
-                                  <div class="schedule-info">
-                                    <div class="schedule-title">
-                                      <strong>{{ sch.title }}</strong>
-                                      <span class="badge" [class.schedule-active]="sch.enabled" [class.schedule-paused]="!sch.enabled">
-                                        {{ sch.enabled ? '启用' : '停用' }}
-                                      </span>
-                                      <span class="badge">{{ sch.schedule_type === 'cron' ? 'Cron' : '一次性' }}</span>
-                                      @if (sch.agent) {
-                                        <span class="badge schedule-agent" title="执行 Agent">{{ sch.agent }}</span>
-                                      }
-                                      @if (sch.task_id) {
-                                        <span class="badge" title="固定任务">#{{ sch.task_id }} 固定任务</span>
-                                      }
-                                    </div>
-                                    @if (sch.cron_expr) {
-                                      <div class="schedule-cron muted">{{ sch.cron_expr }}</div>
-                                    }
-                                    @if (sch.task_priority || sch.task_type || sch.epic_id) {
-                                      <div class="schedule-meta muted">
-                                        自动挑活：
-                                        @if (sch.task_priority) { 优先级 ≥ {{ sch.task_priority }} }
-                                        @if (sch.task_type) { · 类型 {{ sch.task_type }} }
-                                        @if (sch.epic_id) { · Epic #{{ sch.epic_id }} }
-                                      </div>
-                                    }
-                                    <div class="schedule-meta muted">
-                                      下次运行：{{ sch.next_run_at || '—' }} ·
-                                      最后运行：{{ sch.last_run_at || '从未' }}
-                                    </div>
-                                  </div>
-                                  <div class="schedule-actions">
-                                    <button class="btn-ghost-sm" (click)="toggleSchedule(sch.id, !sch.enabled)">
-                                      {{ sch.enabled ? '⏸ 停用' : '▶ 启用' }}
-                                    </button>
-                                    <button class="ghost-sm danger" (click)="deleteSchedule(sch.id)">🗑 删除</button>
-                                  </div>
-                                </div>
-                              }
-                            </div>
-                            <app-pagination
-                              label="定时计划列表"
-                              [total]="schedules().length"
-                              [page]="schedulesPage()"
-                              [pageSize]="projectListPageSize"
-                              (pageChange)="setProjectListPage('schedules', $event)"
-                            />
-                          } @else {
-                            <div class="empty-inline">暂无定时计划，配置 Agent 自动运行任务</div>
-                          }
-                        </div>
-                      }
-
-                      <!-- 子页：数据导出 -->
-                      @if (settingsSubTab() === 'export') {
-                        <div class="card">
-                          <h4>数据导出</h4>
-                          <p class="muted" style="margin-bottom:12px">导出项目的所有任务数据</p>
-                          <div class="row">
-                            <button class="ghost-sm" (click)="exportProjectTasks()">📥 导出全部任务</button>
-                          </div>
-                        </div>
-                      }
-                    </section>
-                  </div>
-                }
-              </div>
-            }
-            @if (activeTab() === 'proposals') {
-              <app-proposals-tab
-                [proposals]="proposalVisible()"
-                [filterStatus]="proposalFilterStatus()"
-                [searchQuery]="proposalSearchQuery()"
-                [statuses]="proposalStatuses"
-                [loading]="isProjectTabLoading('proposals')"
-                [error]="projectTabError('proposals')"
-                (filterStatusChange)="proposalFilterStatus.set($event)"
-                (searchQueryChange)="proposalSearchQuery.set($event)"
-                (createProposal)="openProposalModal()"
-                (retry)="retryProjectTab('proposals')"
-              />
-            }
-            @if (activeTab() === 'members') {
-              <app-members-tab
-                [members]="members()"
-                [agents]="agents()"
-                [loading]="isProjectTabLoading('members')"
-                [error]="projectTabError('members')"
-                (retry)="retryProjectTab('members')"
-              />
-            }
-            @if (activeTab() === 'documents') {
-              <app-documents-tab
-                [docs]="applyDocSort(projectDocVisible())"
-                [childFolders]="docChildFolders()"
-                [breadcrumb]="docBreadcrumb()"
-                [authorOptions]="docAuthorOptions()"
-                [epics]="epics()"
-                [filterType]="docFilterType()"
-                [filterStatus]="docFilterStatus()"
-                [searchQuery]="docSearchQuery()"
-                [filterAuthor]="docFilterAuthor()"
-                [filterEpic]="docFilterEpic()"
-                [sortBy]="docSortBy()"
-                [listViewMode]="docListViewMode()"
-                [docTypes]="docTypes"
-                [docStatuses]="docStatuses"
-                [loading]="isProjectTabLoading('documents')"
-                [error]="projectTabError('documents')"
-                [dragItem]="docDrag()"
-                [dropTargetId]="docDropId()"
-                [epicTitleFor]="epicTitle"
-                [docScopePathFor]="docScopePath"
-                [docFolderCountFor]="docFolderCount"
-                [docCommentCountFor]="docCommentCount"
-                (filterTypeChange)="docFilterType.set($event)"
-                (filterStatusChange)="docFilterStatus.set($event)"
-                (searchQueryChange)="docSearchQuery.set($event)"
-                (filterAuthorChange)="docFilterAuthor.set($event)"
-                (filterEpicChange)="docFilterEpic.set($event)"
-                (sortByChange)="onDocSortChange($event)"
-                (listViewModeChange)="setDocListViewMode($event)"
-                (enterFolder)="enterDocFolder($event)"
-                (createDoc)="openDocModal('create')"
-                (createFolder)="openDocFolderModal('create')"
-                (renameFolder)="openDocFolderModal('rename', $event)"
-                (deleteFolder)="deleteDocFolder($event)"
-                (openDoc)="openDocTab($event)"
-                (dragStart)="onDocDragStart($event.event, $event.item)"
-                (dragEnd)="onDocDragEnd()"
-                (dropOver)="onDocDropOver($event.event, $event.target)"
-                (dropLeave)="onDocDropLeave()"
-                (drop)="onDocDrop($event.event, $event.target)"
-              />
-            }
-            @if (activeTab() === 'kanban') {
-              <app-kanban-tab
-                [columns]="kanbanColumns()"
-                [count]="kanbanCount()"
-                [includeAll]="kanbanIncludeAll()"
-                [loading]="isProjectTabLoading('kanban')"
-                [error]="projectTabError('kanban') || ''"
-                [skeletonRows]="tabSkeletonRows"
-                (toggleIncludeAll)="toggleKanbanIncludeAll()"
-                (retry)="retryProjectTab('kanban')"
-                (openStory)="openKanbanStory($event)"
-                (toggleStory)="toggleKanbanStory($event)"
-              />
-            }
-
-            <!--
-              Epic 151 / Story 327 路由化：原 tickets @if 块已删除（统计 tab 同理）。
-              工单功能后续合并到 backlog tab 或迁移至 proposal 流程；tickets-tab
-              组件保留代码资产，ticket signal/API 调用暂不删除避免破坏其他视图。
-            -->
-          }
+          <router-outlet />
         }
         @case ('epic') {
           @if (epic(); as current) {
@@ -2848,7 +2433,7 @@
                         <td><a [routerLink]="['/project', p.id]" class="link-bold">{{ p.name }}</a></td>
                         <td>{{ p.key || '—' }}</td>
                         <td><span class="badge">{{ p.membership_role === 'owner' ? 'Owner / 我创建的' : 'Member / 我参与的' }}</span></td>
-                        <td><a [routerLink]="['/project', p.id]" (click)="activeTab.set('settings')" class="ghost-sm">{{ p.membership_role === 'owner' ? '管理设置' : '查看' }}</a></td>
+                        <td><a [routerLink]="['/project', p.id, 'settings']" class="ghost-sm">{{ p.membership_role === 'owner' ? '管理设置' : '查看' }}</a></td>
                       </tr>
                     }
                   </tbody>
@@ -3796,12 +3381,14 @@
 }
 
 } @else {
-  <app-login
-    [mode]="authMode()"
-    [submitting]="submitting()"
-    (modeChange)="authMode.set($event)"
-    (authenticate)="authenticate($event.username, $event.password)"
-  />
+  @defer (when authVisible()) {
+    <app-login
+      [mode]="authMode()"
+      [submitting]="submitting()"
+      (modeChange)="authMode.set($event)"
+      (authenticate)="authenticate($event.username, $event.password)"
+    />
+  }
 }
 
 @if (confirmation(); as dialog) {
@@ -3962,20 +3549,11 @@
 }
 
 <!--
-  Epic 151 / Story 327 路由化：原根 <router-outlet /> 已删除。
-  理由：app.html 顶层用 @switch (view()) 渲染所有顶层 view（home / projects /
-  project / epic / ...），加根 outlet 会导致路由 loadComponent 创建的实例
-  与 @switch 渲染的内容双重显示。路由表（app.routes.ts）保留 `loadComponent`
-  满足 review 高优先级 #4 要求，URL 解析由 `loadRoute()` 解析 path →
-  view()/activeTab() 驱动 @switch/@if 渲染（hybrid 模式）。
-  后续 Story 328+：拆 @switch 改为单一 router-outlet 挂载点，组件自管
-  ActivatedRoute + 数据加载。
--->
-
-<!--
   Epic 151 / Story 328 a11y：移动端底部 tab bar（< 840px 视口显示）。
   - 5 个核心入口：首页 / 项目 / 当前项目工作台（如在项目内）/ 通知 / 我的
   - 与 navy project-sidebar-v7 互斥（CSS @media (max-width: 840px)）
   - 每个 item 都有 aria-label + aria-current（active 时）
 -->
-<app-bottom-tab-bar></app-bottom-tab-bar>
+@defer (when true) {
+  <app-bottom-tab-bar></app-bottom-tab-bar>
+}

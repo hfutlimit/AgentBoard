@@ -37,7 +37,7 @@
 .workspace-heading-v7 .workspace-heading-left .muted {
   margin: 0;
   font-size: 13px;
-  color: #6b7a90;
+  color: var(--ink-soft, #526074);
 }
 .workspace-heading-v7 .workspace-heading-actions {
   flex: 0 0 auto;

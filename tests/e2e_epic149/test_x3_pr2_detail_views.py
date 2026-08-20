@@ -13,7 +13,11 @@ import time
 import urllib.request
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+import pytest
+try:
+    from playwright.sync_api import sync_playwright
+except ModuleNotFoundError:  # pragma: no cover - collected without E2E extras
+    sync_playwright = None
 
 # Force UTF-8 stdout (Windows console GBK can't print emoji)
 if hasattr(sys.stdout, "reconfigure"):
@@ -142,6 +146,14 @@ def main() -> int:
         return 1
     print("PASS — X3 PR 2 detail views OK")
     return 0
+
+
+@pytest.mark.e2e
+@pytest.mark.legacy
+@pytest.mark.skip(reason="legacy manual E2E; run this file directly")
+def test_x3_pr2_detail_views_legacy() -> None:
+    """Collect the legacy X3 detail script without running it by default."""
+    assert main() == 0
 
 
 if __name__ == "__main__":

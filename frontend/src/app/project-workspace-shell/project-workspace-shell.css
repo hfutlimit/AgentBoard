@@ -1,4 +1,15 @@
-/* ProjectWorkspaceShellComponent — Epic 152 / Story 332 (Sub-PR 1)
- * ViewEncapsulation.None，所有样式复用全局 .project-sidebar-v7 等规则（app.css）。
- * 本文件保留空位以便 Sub-PR 1b 阶段添加局部样式（如有需要）。
- */
+.project-workspace-shell {
+  display: grid;
+  grid-template-columns: minmax(220px, 248px) minmax(0, 1fr);
+  min-height: calc(100vh - 64px);
+}
+
+.project-workspace-main {
+  min-width: 0;
+  padding: 0 20px 32px;
+}
+
+@media (max-width: 800px) {
+  .project-workspace-shell { grid-template-columns: 1fr; }
+  .project-workspace-main { padding: 0 12px 80px; }
+}

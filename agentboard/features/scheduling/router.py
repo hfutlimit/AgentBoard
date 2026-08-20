@@ -28,7 +28,7 @@ def register_agent(body: AgentRegisterIn, authorization: str | None = Header(Non
     2026-08-20 Epic 151 / Task 1297a：返回字段按 caller 角色分（admin→to_admin_dict，
     普通用户/Agent 自报→to_public_dict）。
     """
-    uid, is_admin = api_helpers._caller_uid_admin(authorization)
+    uid, is_admin = api_helpers._caller_uid_admin(authorization, s)
     if api_helpers._auth_is_required() and uid is None:
         raise HTTPException(status_code=401, detail="unauthorized")
     agent = service.register_agent(s, agent_id=body.agent_id, name=body.name,
@@ -50,7 +50,7 @@ def update_agent(agent_id: str, body: AgentUpdateIn,
     2026-08-20 Epic 151 / Task 1297a：admin/owner 返回 to_admin_dict；其他用户
     to_public_dict。WS 广播统一 to_public_dict。
     """
-    uid, is_admin = api_helpers._caller_uid_admin(authorization)
+    uid, is_admin = api_helpers._caller_uid_admin(authorization, s)
     if api_helpers._auth_is_required() and uid is None:
         raise HTTPException(status_code=401, detail="unauthorized")
     agent = service.get_agent_by_agent_id(s, agent_id)
@@ -70,7 +70,7 @@ def update_agent(agent_id: str, body: AgentUpdateIn,
 def delete_agent(agent_id: str, authorization: str | None = Header(None),
                  s: Session = Depends(get_session)):
     """删除 Agent 注册记录（前端配置中心）。"""
-    uid, is_admin = api_helpers._caller_uid_admin(authorization)
+    uid, is_admin = api_helpers._caller_uid_admin(authorization, s)
     if api_helpers._auth_is_required() and uid is None:
         raise HTTPException(status_code=401, detail="unauthorized")
     agent = service.get_agent_by_agent_id(s, agent_id)
@@ -93,7 +93,7 @@ def agent_heartbeat(agent_id: str, body: AgentHeartbeatIn | None = None,
     2026-08-20 Epic 151 / Task 1297a：caller 是 Agent 自己，永远返回 to_public_dict
     （Agent 不需要看自己的 auth_key / cli_command）。
     """
-    uid, _is_admin = api_helpers._caller_uid_admin(authorization)
+    uid, _is_admin = api_helpers._caller_uid_admin(authorization, s)
     if api_helpers._auth_is_required() and uid is None:
         raise HTTPException(status_code=401, detail="unauthorized")
     probe_ok = body.probe_ok if body else None
@@ -117,7 +117,7 @@ def agent_deregister(agent_id: str, body: AgentHeartbeatIn | None = None,
     2026-08-20 Epic 151 / Task 1297a：admin 调可拿 to_admin_dict（看 probe_message 详情），
     Agent 自调用 to_public_dict。
     """
-    uid, is_admin = api_helpers._caller_uid_admin(authorization)
+    uid, is_admin = api_helpers._caller_uid_admin(authorization, s)
     if api_helpers._auth_is_required() and uid is None:
         raise HTTPException(status_code=401, detail="unauthorized")
     probe_message = body.probe_message if body else ""
@@ -147,7 +147,7 @@ def probe_agent(agent_id: str, body: AgentProbeIn | None = None,
     2026-08-20 Epic 151 / Task 1297a：probe 端点 caller 必登录，admin 可拿 to_admin_dict
     （看 cli_command / probe_message 详情），普通用户 to_public_dict。
     """
-    uid, is_admin = api_helpers._caller_uid_admin(authorization)
+    uid, is_admin = api_helpers._caller_uid_admin(authorization, s)
     if uid is None:  # B-A2: probe 端点永远要求鉴权（不再 _auth_is_required 软判定）
         raise HTTPException(status_code=401, detail="unauthorized")
     agent = service.get_agent_by_agent_id(s, agent_id)
@@ -175,7 +175,7 @@ def list_agents(online: bool | None = Query(None), role: str | None = Query(None
       ``cli_command`` / ``auth_key`` / ``probe_message`` / ``user_id``。
     - 排序：按 ``created_at`` 倒序（注册时间新→旧），前端默认展示一致。
     """
-    uid, _is_admin = api_helpers._caller_uid_admin(authorization)
+    uid, _is_admin = api_helpers._caller_uid_admin(authorization, s)
     if api_helpers._auth_is_required() and uid is None:
         raise HTTPException(status_code=401, detail="unauthorized")
     rows = service.list_agents(s, online=online, role=role, order_by_created=True)

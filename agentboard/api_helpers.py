@@ -13,11 +13,13 @@ import re
 import json
 import time
 import uuid
+import inspect
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, WebSocket
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -25,6 +27,55 @@ from . import service, auth, mq, cache
 from .cache import get_cache, API_CACHE_TTL
 from .features.projects.models import Sprint  # noqa: E402 — sprint_id 归属解析
 from .database import get_session, SessionLocal
+
+
+@contextmanager
+def request_session(request: Request | WebSocket):
+    """Yield the request DB session, honoring FastAPI dependency overrides.
+
+    Middleware runs before FastAPI resolves route dependencies, so it cannot
+    receive ``Depends(get_session)`` directly.  Resolving the app override here
+    keeps middleware on the same database boundary as the route while production
+    continues to use the normal ``SessionLocal`` factory.
+    """
+    override = request.app.dependency_overrides.get(get_session)
+    if override is None:
+        with SessionLocal() as session:
+            yield session
+        return
+
+    resource = override()
+    if inspect.isawaitable(resource) or inspect.isasyncgen(resource):
+        raise TypeError("request_session requires a synchronous get_session override")
+    if hasattr(resource, "__enter__"):
+        with resource as session:
+            yield session
+        return
+    if not inspect.isgenerator(resource):
+        yield resource
+        return
+
+    try:
+        session = next(resource)
+    except StopIteration as exc:
+        raise RuntimeError("get_session override did not yield a session") from exc
+    try:
+        yield session
+    except BaseException as exc:
+        try:
+            resource.throw(exc)
+        except StopIteration:
+            pass
+        raise
+    else:
+        try:
+            next(resource)
+        except StopIteration:
+            pass
+        else:
+            raise RuntimeError("get_session override yielded more than once")
+    finally:
+        resource.close()
 
 def _invalidate_stats_cache(project_id: int) -> None:
     """Invalidate project stats cache when data changes"""
@@ -166,7 +217,9 @@ def _require_project_owner(
         raise HTTPException(status_code=403, detail="project owner or admin required")
 
 
-def _caller_uid_admin(authorization: str | None) -> tuple[int | None, bool]:
+def _caller_uid_admin(
+    authorization: str | None, s: Session | None = None,
+) -> tuple[int | None, bool]:
     """Resolve ``(user_id, is_admin)`` from the Authorization header.
 
     Handles both Bearer user tokens and ``abk_`` API keys. Returns ``(None, False)``
@@ -179,14 +232,22 @@ def _caller_uid_admin(authorization: str | None) -> tuple[int | None, bool]:
         return None, False
     uid = auth.parse_token(token)
     if not uid and token.startswith(auth.API_KEY_PREFIX):
-        with SessionLocal() as s:
+        if s is None:
+            with SessionLocal() as session:
+                ak = service.lookup_api_key_by_hash(session, auth.hash_api_key(token))
+                if ak and ak.enabled:
+                    uid = ak.user_id
+        else:
             ak = service.lookup_api_key_by_hash(s, auth.hash_api_key(token))
             if ak and ak.enabled:
                 uid = ak.user_id
     if uid is None:
         return None, False
-    with SessionLocal() as s:
+    if s is not None:
         u = service.get_user(s, uid)
+        return uid, bool(u and u.is_admin)
+    with SessionLocal() as session:
+        u = service.get_user(session, uid)
         return uid, bool(u and u.is_admin)
 
 
@@ -204,14 +265,28 @@ def _enforce_member_or_admin(s: Session, project_id: int, uid: int | None, is_ad
         raise HTTPException(status_code=403, detail="project membership required")
 
 
-def _resolve_project_id_from_request(request: Request) -> int | None:
+def _resolve_project_id_from_request(
+    request: Request, s: Session | None = None,
+) -> int | None:
     """Map a request to the project it targets, or ``None`` if not project-scoped."""
     path = request.url.path
     m = re.match(r"^/api/projects/(\d+)", path)
     if m:
         return int(m.group(1))
+    if s is not None:
+        return _resolve_project_id_from_request_with_session(request, s)
+    if request.app.dependency_overrides.get(get_session) is not None:
+        with request_session(request) as session:
+            return _resolve_project_id_from_request_with_session(request, session)
+    with SessionLocal() as session:
+        return _resolve_project_id_from_request_with_session(request, session)
+
+
+def _resolve_project_id_from_request_with_session(request: Request, s: Session) -> int | None:
+    """Resolve child-resource ownership using an already-open request session."""
+    path = request.url.path
     qp = request.query_params
-    with SessionLocal() as s:
+    if path.startswith("/api/"):
         m = re.match(r"^/api/epics/(\d+)", path)
         if m:
             return service.get_epic_project_id(s, int(m.group(1)))

@@ -5,7 +5,7 @@ from .api_helpers import (
     _require_project_owner, _caller_uid_admin, _enforce_owner_or_admin,
     _enforce_member_or_admin, _resolve_project_id_from_request, _user_response,
     _api_key_response, _probe_cli_sync, _mention_notify, _ext_for_mime,
-    _require_admin, _dispatch_proposal, _write_audit_log,
+    _require_admin, _dispatch_proposal, _write_audit_log, request_session,
 )
 
 """AgentBoard REST API（纯 JSON，前后端分离的后端）。
@@ -84,7 +84,7 @@ async def require_business_auth(request: Request, call_next):
         # Also support API Key auth: token prefixed with abk_
         if not uid and raw_token and raw_token.startswith(auth.API_KEY_PREFIX):
             digest = auth.hash_api_key(raw_token)
-            with SessionLocal() as s:
+            with request_session(request) as s:
                 ak = service.lookup_api_key_by_hash(s, digest)
                 uid = ak.user_id if ak and ak.enabled else None
                 api_key_permissions = auth.decode_permissions(ak.permissions) if ak and ak.enabled else None
@@ -98,7 +98,7 @@ async def require_business_auth(request: Request, call_next):
                     status_code=403,
                     content={"detail": f"API key requires '{required_permission}' permission"},
                 )
-        with SessionLocal() as s:
+        with request_session(request) as s:
             if not uid or service.get_user(s, uid) is None:
                 return _apply_cors(request, JSONResponse(status_code=401, content={"detail": "unauthorized"}))
     return await call_next(request)
@@ -203,7 +203,7 @@ async def ws_agents(websocket: WebSocket, token: str | None = Query(None)):
     await websocket.accept()
     q = agent_state_hub.subscribe()
     try:
-        with SessionLocal() as s:
+        with request_session(websocket) as s:
             snapshot = [service._ser(x) for x in service.list_agents(s)]
         await websocket.send_text(json.dumps(
             {"type": "snapshot", "agents": snapshot}, ensure_ascii=False))
@@ -382,12 +382,12 @@ async def project_access_middleware(request: Request, call_next):
         is_project_root = bool(re.match(r"^/api/projects/\d+/?$", path))
         is_write = request.method not in {"GET", "HEAD"}
 
-        with SessionLocal() as s:
+        with request_session(request) as s:
             p = service.get_project(s, pid)
             if p is None:
                 # Unknown project: let the endpoint return 404.
                 return await call_next(request)
-            uid, is_admin = _caller_uid_admin(request.headers.get("authorization"))
+            uid, is_admin = _caller_uid_admin(request.headers.get("authorization"), s)
             if _auth_is_required() and uid is None:
                 return _apply_cors(request, JSONResponse(status_code=401, content={"detail": "unauthorized"}))
 
