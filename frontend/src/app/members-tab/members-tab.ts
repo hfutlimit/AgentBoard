@@ -5,19 +5,26 @@ import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-headin
 import type { ProjectMember, AgentRow } from '../models';
 
 /**
- * MembersTabComponent — Epic 149 Bug #1290 修复：
- * 项目「成员与 Agents」视图独立组件，补全 Epic 149 阶段2/3 漏迁的最后一个 tab（9/9）。
+ * MembersTabComponent — Epic 149 Bug #1290 修复 + Epic 151 Story 326 Task 1297 校准：
+ * 项目「成员与 Agents」视图独立组件。
  *
  * 背景：
- *   阶段2（Story 318）5 列表抽 ManagedListComponent 时漏 members；
- *   阶段3（Story 319）8 视图从 @switch 拆独立组件时也漏 members（提交 099eff0
- *   自称 "8/8 final" 但实际是 stats 而非 members）。
- *   表现：点击侧边栏「成员与 Agents」activeTab 切到 'members'，但 app.html 主内容区
- *   无对应 @if 渲染块，故主区完全空白。
+ *   - 阶段2/3（Story 318/319）漏迁 members tab：点击侧边栏「成员与 Agents」
+ *     activeTab 切到 'members' 但 app.html 主内容区无对应 @if 渲染块（Bug #1290）。
+ *   - Epic 149 静态 Review 阻断级 2（2026-08-20）：MembersTab 文案「参与本项目的
+ *     Agent 池」与后端数据不一致——后端 ``/api/agents`` 返回全表（无 project 过滤），
+ *     且 ``_ser`` 透出全列（含 ``cli_command`` / ``auth_key`` / ``probe_message``）。
+ *     文案与数据边界不一致，误导用户且有安全风险。
+ *   - Task 1297 修复：
+ *     * 后端：Agent class 加 ``to_public_dict()`` 脱敏；``/api/agents`` 加软鉴权
+ *       （``AGENTBOARD_REQUIRE_AUTH=1`` 时 401），list_agents endpoint 改用
+ *       ``to_public_dict``；list_agents service 加 ``order_by_created``。
+ *     * 前端：heading subtitle 改「全局 Agent 池 · 跨项目共享（按注册时间倒序）」；
+ *       下半区标题改「全局 Agent 池」；badge 改「N 个 Agent（全局）」。
  *
  * 数据契约（@Input）：
- *   members   项目成员列表（来自 App.members()）
- *   agents    全局 Agent 池（来自 App.agents()，与项目无关）
+ *   members   项目成员列表（来自 App.members()，仅本项目）
+ *   agents    全局 Agent 池（来自 App.agents()，跨项目共享，按 created_at 倒序）
  *   loading   members tab 是否加载中（App.isProjectTabLoading('members')）
  *   error     members tab 加载错误（App.projectTabError('members')）
  *
@@ -26,7 +33,7 @@ import type { ProjectMember, AgentRow } from '../models';
  *
  * 视觉：
  *   - 套 ManagedListComponent 外壳（loading/error/空态）
- *   - 两段：上半「项目成员」表格，下半「项目相关 Agents」表格
+ *   - 两段：上半「项目成员」表格，下半「全局 Agent 池」表格
  *   - v7 增强：表格行 hover brand 描边、role badge 提色（owner=navy / member=muted）
  *   - 暗色主题：表格表头 navy 提亮、文字降饱和
  */

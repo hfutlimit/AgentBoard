@@ -113,8 +113,13 @@ tmp/agent_history/**
 tmp/minimax/
 tmp/minimax/**
 
-# Epic 151 / Task 1296 ��̬�� backup����ֹ���ˣ�
+# Epic 151 / Task 1296 静态包 backup（防止回退）
 agentboard/web/static.bak.*
+
+# Epic 151 / Task 1297 临时调试脚本 / 单次性 login payload（不入仓）
+scripts/_test_debug.*
+scripts/_login.json
+scripts/_register_agent.json
 
 
 styles-orig.css

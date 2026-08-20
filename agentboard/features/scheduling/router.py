@@ -140,9 +140,21 @@ def probe_agent(agent_id: str, body: AgentProbeIn | None = None,
 
 @router.get("/api/agents")
 def list_agents(online: bool | None = Query(None), role: str | None = Query(None),
+                authorization: str | None = Header(None),
                 s: Session = Depends(get_session)):
-    """列出已注册 Agent（?online=true&role=reviewer 过滤）。"""
-    return [service._ser(x) for x in service.list_agents(s, online=online, role=role)]
+    """列出已注册 Agent（?online=true&role=reviewer 过滤）。
+
+    2026-08-20 Epic 151 Story 326 Task 1297：档 A 阻断级 — MembersTab 数据边界。
+    - 软鉴权：``AGENTBOARD_REQUIRE_AUTH=1`` 时未登录返回 401；dev 模式放行。
+    - 字段收窄：用 ``Agent.to_public_dict`` 替代 ``service._ser``，脱敏
+      ``cli_command`` / ``auth_key`` / ``probe_message`` / ``user_id``。
+    - 排序：按 ``created_at`` 倒序（注册时间新→旧），前端默认展示一致。
+    """
+    uid, _is_admin = api_helpers._caller_uid_admin(authorization)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    rows = service.list_agents(s, online=online, role=role, order_by_created=True)
+    return [a.to_public_dict() for a in rows]
 
 
 

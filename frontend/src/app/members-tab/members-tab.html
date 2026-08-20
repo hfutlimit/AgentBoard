@@ -8,11 +8,11 @@
   [pageSize]="0"
   (retry)="retry.emit()">
   <ng-container ml-header>
-    <!-- Epic 150 / X3 supplement: 成员与 Agents heading -->
+    <!-- Epic 151 / Story 326 Task 1297: 文案与后端数据边界对齐 -->
     <app-workspace-heading
       title="成员与 Agents"
-      subtitle="管理项目成员与参与本项目的 Agent 池。成员由后端授权，Agents 由 AgentBoard MCP 注册。">
-      <span class="heading-title-badge count-badge">{{ members.length }} 成员 · {{ agents.length }} Agents</span>
+      subtitle="上半区展示本项目的项目成员（ProjectMember，由后端授权）；下半区展示全局 Agent 池（跨项目共享，按注册时间倒序）。">
+      <span class="heading-title-badge count-badge">{{ members.length }} 成员 · {{ agents.length }} Agent（全局）</span>
     </app-workspace-heading>
   </ng-container>
 
@@ -46,9 +46,9 @@
     }
   </section>
 
-  <!-- 下半：Agents 池 -->
+  <!-- 下半：全局 Agent 池（与项目无关，跨项目共享） -->
   <section class="members-section" aria-labelledby="members-tab-agents-h">
-    <h4 id="members-tab-agents-h" class="subsection-title">Agents</h4>
+    <h4 id="members-tab-agents-h" class="subsection-title">全局 Agent 池</h4>
     @if (agents.length === 0) {
       <div class="empty-state empty-inline">还没有 Agent。可经 AgentBoard MCP 的 <code>agent_register</code> 自报身份，或在「设置 → Agents」中创建。</div>
     } @else {

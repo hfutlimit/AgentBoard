@@ -488,14 +488,22 @@ def review_story(s: Session, *, story_id: int, reviewer_user_id: int,
     raise InvalidValue("Story 评审已下线：评审在 Task 层进行（design 评审 / 实现评审）")
 
 
-def list_agents(s: Session, *, online: bool | None = None, role: str | None = None):
+def list_agents(s: Session, *, online: bool | None = None, role: str | None = None,
+                order_by_created: bool = False):
+    """列出 Agent 池（全局，与项目无关；按需过滤 online/role）。
+
+    2026-08-20 Epic 151 Story 326 Task 1297：MembersTab 文案已明确
+    「全局 Agent 池 · 跨项目共享」，故保持全局语义、仅脱敏返回，不按
+    project 过滤。``order_by_created=True`` 时按 ``created_at`` 倒序
+    （新→旧），与前端展示时间一致。
+    """
     q = s.query(Agent)
     if online is not None:
         q = q.filter(Agent.online == online)
     if role:
-        rows = q.order_by(Agent.id.desc()).all()
+        rows = q.order_by(Agent.created_at.desc() if order_by_created else Agent.id.desc()).all()
         return [a for a in rows if role in _parse_json_list(a.roles, "roles")]
-    return q.order_by(Agent.id.desc()).all()
+    return q.order_by(Agent.created_at.desc() if order_by_created else Agent.id.desc()).all()
 
 
 # ---------- Story 评审闭环（Epic 122 S1） ----------

@@ -171,6 +171,27 @@ class Agent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 
+    # ---- Serialization -------------------------------------------------
+    # ``to_public_dict`` 给常规业务端点（list/get）用：脱敏敏感配置（CLI 模板、
+    # auth_key 指纹、probe 诊断），避免 ``_ser`` 表全列透传到前端。
+    # ``_ser``（service_helpers）保留作内部 / admin 调试用。
+    #
+    # 2026-08-20 Epic 151 Story 326 Task 1297：档 A 阻断级修复 —
+    # MembersTab 标榜「全局 Agent 池」，但 ``/api/agents`` 原返回全列（含
+    # ``cli_command`` / ``auth_key`` / ``probe_message``），无 project 过滤，
+    # 任意登录用户可拉全表。修复=脱敏 + 软鉴权（``_auth_is_required`` 时要求登录）。
+    _PUBLIC_FIELDS = (
+        "id", "agent_id", "name", "roles", "capabilities",
+        "model", "online", "enabled",
+        "last_heartbeat", "last_probe_at", "created_at", "updated_at",
+    )
+
+    def to_public_dict(self) -> dict:
+        """返回业务端点用的脱敏 dict（无敏感配置）。"""
+        from ...core.service_helpers import _ser  # 避免循环 import
+        full = _ser(self) or {}
+        return {k: full.get(k) for k in self._PUBLIC_FIELDS}
+
 
 class ProjectMember(Base):
     __tablename__ = "project_members"
