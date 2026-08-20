@@ -121,8 +121,8 @@ def goto_project_members(page: Page) -> None:
         except Exception:
             print(f"   no workspace-heading at {path}, trying next")
     time.sleep(0.4)
-    # 切到 members tab：项目工作台 navy 侧栏 8 tab（project-nav-v7）
-    members_btn = page.locator("button.project-nav-button-v7:has-text('成员与 Agents')").first
+    # 切到 members tab：项目工作台 navy 侧栏 8 tab（project-nav-v7，Story 327 改 a + routerLink）
+    members_btn = page.locator("a.project-nav-button-v7:has-text('成员与 Agents')").first
     members_btn.click()
     page.wait_for_selector("app-members-tab", timeout=15000)
     time.sleep(0.5)
