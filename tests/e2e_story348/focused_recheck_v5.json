@@ -1,0 +1,95 @@
+{
+  "checks": [
+    {
+      "name": "story_330",
+      "path": "/story/330",
+      "txtlen": 2903,
+      "h1": "Story 330: 测试改造 — E2E 改 pytest test_* 收集 + 去硬编码 admin/admin123 + 绝对路径",
+      "is404": false,
+      "has_error_hint": false,
+      "screenshot": "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_story348\\screenshots_v5_recheck\\story_330_recheck.png",
+      "blank": false
+    },
+    {
+      "name": "task_1342",
+      "path": "/task/1342",
+      "txtlen": 650,
+      "h1": "修复 pytest 根目录收集时 test_review_84_85.py 的导入期副作用",
+      "is404": false,
+      "has_error_hint": false,
+      "screenshot": "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_story348\\screenshots_v5_recheck\\task_1342_recheck.png",
+      "blank": false
+    },
+    {
+      "name": "task_1339",
+      "path": "/task/1339",
+      "txtlen": 388,
+      "h1": "实现：Story 332c · 路由完全收口 - Sub-PR 3（顶层 view 收尾 + 详情页路由化）",
+      "is404": false,
+      "has_error_hint": false,
+      "screenshot": "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_story348\\screenshots_v5_recheck\\task_1339_recheck.png",
+      "blank": false
+    },
+    {
+      "name": "task_1429",
+      "path": "/task/1429",
+      "txtlen": 1726,
+      "h1": "Workspace 侧边栏 tab「搜索」误标 — 实际打开「需求提案」页",
+      "is404": false,
+      "has_error_hint": true,
+      "screenshot": "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_story348\\screenshots_v5_recheck\\task_1429_recheck.png",
+      "blank": false
+    },
+    {
+      "name": "theme_toggle",
+      "info": {
+        "tried_selectors": [
+          {
+            "sel": "button[aria-label*=\"主题\"]",
+            "found": false
+          },
+          {
+            "sel": "button[aria-label*=\"theme\"]",
+            "found": false
+          },
+          {
+            "sel": "button[title*=\"主题\"]",
+            "found": false
+          },
+          {
+            "sel": "header button:has(svg.sun)",
+            "found": false
+          },
+          {
+            "sel": "header button:has(svg.moon)",
+            "found": false
+          },
+          {
+            "sel": "[data-testid=\"theme-toggle\"]",
+            "found": false
+          },
+          {
+            "sel": "button[class*=\"theme\"]",
+            "found": false
+          }
+        ],
+        "screenshot": "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_story348\\screenshots_v5_recheck\\theme_toggle_notfound.png"
+      }
+    },
+    {
+      "name": "create_dialog",
+      "info": {
+        "sel_button:has-text('新建项目')": true,
+        "modal_found": true,
+        "modal_html": "<div id=\"create-modal\" class=\"modal-overlay\"><section role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"create-modal-title\" appfocustrap=\"\" class=\"modal modal-create\" tabindex=\"-1\"><header class=\"modal-header\"><div><span class=\"modal-eyebrow\">CREATE</span><h3 id=\"create-modal-title\">新建项目</h3></div><button type=\"button\" class=\"modal-close\">×</button></header><form novalidate=\"\" id=\"create-form\" class=\"ng-untouched ng-pristine ng-valid\"><div class=\"modal-body\"><div class=\"form-field\"><label>标题 <span class=\"required\">*</span></label><input id=\"create-title\" name=\"title\" required=\"\" maxlength=\"200\" autocomplete=\"off\"></div><div class=\"form-field\"><label>短码</label><input id=\"create-key\" name=\"key\" maxlength=\"20\"></div><!--container--><div class=\"form-field\"><label>描述</label><textarea id=\"create-",
+        "screenshot": "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_story348\\screenshots_v5_recheck\\create_project_recheck.png"
+      }
+    }
+  ],
+  "console_errors": [
+    {
+      "type": "error",
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+    }
+  ]
+}

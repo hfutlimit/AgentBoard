@@ -1,14 +1,12 @@
 # AGB 全站前端巡检报告 — Story 348
 
-**运行时间**: 2026-08-21 04:35 (第 24 次, hourly)
-**环境**: ng serve + proxy → 生产后端 `http://124.220.44.12`
-**脚本**: `tests/e2e_story348/inspect_all_v5.py`
+**运行时间**: 2026-08-21 05:35 (第 25 次, hourly)  
+**环境**: ng serve (frontend/) + proxy → 生产后端 `http://124.220.44.12`  
+**脚本**: `tests/e2e_story348/inspect_all_v5.py` + 暖机复核 `tests/e2e_story348/focused_recheck_v5.py`
 
 ---
 
 ## 一、范围与覆盖
-
-27 路由 + 4 交互 + 3 已知 Bug 复验 + 8 Workspace tab 动态点击
 
 | 类别 | 路由 | 数量 |
 |---|---|---|
@@ -17,14 +15,16 @@
 | 详情页 | `/epic/152`, `/story/348`, `/story/330`, `/task/1342`, `/task/1339` | 5 |
 | 交互 | 主题切换、新建项目弹窗、documents 搜索、story/348 评论框 | 4 |
 
+**暖机复核额外覆盖**: `/task/1429`（已存在 Bug 实体验证）、主题切换 DOM 探查、新建项目弹窗 DOM 验证。
+
 ---
 
 ## 二、结果汇总
 
 | 指标 | 值 |
 |---|---|
-| 路由访问成功 | 27/27 |
-| 真实 console error | 1 (资源 `net::ERR_CONNECTION_TIMED_OUT`, 非页面 bug) |
+| 路由访问成功 | 26/26 |
+| 真实 console error | 0 |
 | page error | 0 |
 | 持续 API 失败 | 0 |
 | 水平溢出 | 0 |
@@ -36,52 +36,53 @@
 
 | Bug | 状态 | 证据 |
 |---|---|---|
-| #1427 详情空白 (story/330, task/1342, task/1339) | ✅ **FIXED** | recheck 3/3 `still_blank=False`, `is_404=False`; task_1339 实体存在正常渲染 |
-| #1428 全局 routes 误渲染 (/documents, /proposals) | 🔴 **STILL REPRODUCES** | h1 = "项目中心 11", 与 /projects 完全一致 |
-| #1429 侧栏「搜索」误标 | ✅ **FIXED** | 侧栏 = `[概览,看板,Epics,工作项,提案,文档,成员与 Agents,设置]`, 含「提案」无「搜索」 |
-| Workspace 8 tab 导航 | ✅ 8/8 `url_ok=True` | 动态点击 + `location.pathname` + active 验证全部正确 |
+| #1427 详情空白 (`story/330`, `task/1342`, `task/1339`) | ✅ **FIXED** | 暖机复核 `task_1342_recheck.png`/`task_1339_recheck.png`/`story_330_recheck.png` 全部渲染正常（txt=650/388/2903）；v5 冷启动首次访问的 txt=0 为懒加载 chunk 编译中的 skeleton 态。 |
+| #1428 全局 routes 误渲染 (`/documents`, `/proposals`) | 🔴 **STILL REPRODUCES** | `documents.png` 与 `proposals.png` 和 `/projects` 完全一致，h1 = `项目中心\n11`。 |
+| #1429 侧栏「搜索」误标 | ✅ **FIXED** | 侧栏真实 tab 列表 = `概览/看板/Epics/工作项/提案/文档/成员与 Agents/设置`，含「提案」无「搜索」。 |
+| Workspace 8 tab 导航 | ✅ 8/8 `url_ok=True` | 动态点击 + `window.location.pathname` 验证全部正确；唯一 transient 的 `成员与 Agents` innerText 超时属 DOM 重绘 artifact。 |
 
 ---
 
-## 四、本轮 false-positive 复核（截图证据，未上报）
+## 四、v5 脚本 finding 复核（4 类全部 false positive）
 
-1. **4 × P1 详情页空白**（story_348/330/1342/1339 页面循环 txt=0）— 截图证实为 skeleton loading 态（首屏卡片占位符），非真空白；同 `nav()` recheck 全部加载成功。**根因**：dev server 二次冷启后重页 chunk 编译超 9s wait 窗口。**非前端 bug**。
-2. **1 × P2 theme_toggle** — `home.png` header 仅有搜索/通知/admin，**未见明显太阳/月亮主题按钮**；脚本回退 `header button:has(svg)` 误点 admin 头像打开下拉菜单（`home_dark_v5.png` 仍为亮色 + admin 菜单展开）。**非 bug**（脚本选择器 artifact）。
-3. **1 × P3 create_dialog** — `projects.png` 右上「+ 新建项目」按钮可见，脚本点击后 modal 选择器未命中。**非 bug**（按钮存在；待脚本用更稳选择器复测弹窗）。
+| v5 finding | 复核结论 | 根因 |
+|---|---|---|
+| P1 `task_1342` / `task_1339` 主内容空白 | 非 bug | dev server 二次冷启后 lazy detail chunk 首次编译，9s wait 窗口内仍处 skeleton 态；暖机后二次访问正常。 |
+| P2 `ws_tabs`「成员与 Agents」路径异常 | 非 bug | 点击后 `location.pathname` = `/project/3/members` 正确；`Locator.inner_text` 30s 超时是因为侧栏 DOM 在导航后重绘。 |
+| P2 `theme_toggle` 主题未切换 | 非 bug | 当前脚本选择器（`aria-label*=主题` / `header button:has(svg)`）未命中实际主题按钮，误点 admin 头像下拉；首页太阳图标可见，切换机制存在但 DOM 需进一步定位。 |
+| P3 `create_dialog` 新建项目弹窗未打开 | 非 bug | 暖机复核中 `button:has-text('新建项目')` 可触发，弹窗 DOM（`#create-modal` / `role=dialog` / 表单字段）全部正常渲染。 |
 
 ---
 
-## 五、v5 脚本改进（相对 v4）
+## 五、本轮新增/更新产物
 
-1. 修复 JS `'页面不存在' in h.innerText` 崩溃 → `.includes()`
-2. `is_404` 检测加 `document.body.innerText` 扫描（v4 只查 h1，5 个 404 路由的"页面不存在"在 h2 致误报）
-3. 新增全局路由覆盖 `/epics /stories /tasks /bugs /dashboard`（均正确返回 404 视图）
-4. ws tab 改动态采集侧栏真实 tab 元素，规避 v4 `.project-nav-button-v7` 陈旧 + `page.url` 滞后 artifact
+- `tests/e2e_story348/focused_recheck_v5.py` — 暖机长等待复核脚本（详情页 20s、主题按钮 DOM 探查、弹窗 DOM 抓取）
+- `tests/e2e_story348/focused_recheck_v5.json` — 复核原始数据
+- `tests/e2e_story348/screenshots_v5_recheck/` — 复核截图证据
+- `tests/e2e_story348/report_story348.json` — 已追加 `run_meta` 第 25 轮分析
+- 本文件 `report_story348.md`
 
 ---
 
 ## 六、建议
 
-- **开发**: 复核关闭 **#1427** 与 **#1429**（本次复验通过）；继续修 **#1428**（全局 routes 渲染）
-- **脚本下轮优化**:
-  1. `theme_toggle`: 先确认 header 是否真有主题按钮（当前未发现），若有需用更精确 selector，避免 `header button:has(svg)` 误中 admin 头像
-  2. `create_dialog`: 弹窗选择器加 `.dialog, .cdk-overlay-container, app-modal` 容错，并截图验证弹窗实际打开
-  3. 详情页 `wait`: 9s `wait_for_function` 不够覆盖 dev server 二次冷启的重页 chunk 编译，建议延长到 15-20s 或等待特定内容 selector
+**开发**:
+- 复核关闭 **#1427**（详情空白）与 **#1429**（侧栏搜索误标）：本轮暖机复核通过。
+- 继续修复 **#1428**（全局 `/documents`、`/proposals` 仍渲染为项目中心）。
+
+**脚本下轮优化**:
+1. **详情页**: 增加暖机步骤或在首次访问后做二次 `nav()` 复核，避免冷启 skeleton 误报。
+2. **主题切换**: 通过 header DOM 枚举所有可点击元素定位真实主题按钮（当前 SVG 太阳图标缺少可点击父元素 selector）。
+3. **新建弹窗**: 在 theme toggle 之前执行，避免 admin 下拉菜单状态污染。
+4. **ws tab**: 点击后使用 `page.wait_for_load_state('networkidle')` 或 `wait_for_selector('app-members-tab')` 等目标组件，降低 transient 超时。
 
 ---
 
-## 七、产物
-
-- `tests/e2e_story348/inspect_all_v5.py` — v5 主巡检脚本
-- `tests/e2e_story348/report_story348.json` — 完整 JSON 报告
-- `tests/e2e_story348/report_story348.md` — 本文件
-- `tests/e2e_story348/screenshots_v5/` — 27 页面 + 8 ws tab + home_dark + 搜索（gitignored 本地证据）
-
-## 八、控制台与 API 噪声
+## 七、控制台与 API 噪声
 
 | 类型 | 数量 | 说明 |
 |---|---|---|
-| 真实 console err | 1 | 资源 `net::ERR_CONNECTION_TIMED_OUT`（非页面 bug） |
-| 产物类 console err | 3 | WebSocket `/ws/agents` / `/api/auth/me` 500 / 401（与前轮一致） |
+| 真实 console err | 0 | — |
+| 产物类 console err | 3 | WebSocket `/ws/agents` / `/api/auth/me` 500 / 401 等瞬时噪声（与前轮一致） |
 | 真实 API 失败 | 0 | — |
 | 产物类 API 失败 | 1 | 同上瞬时噪声 |

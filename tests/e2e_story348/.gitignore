@@ -1,6 +1,10 @@
 # 本地巡检截图证据，不进入 Git
 screenshots/
+screenshots_v5/
+screenshots_v5_recheck/
+screenshots_focused/
 ngserve.log
+run_*.log
 *_check.png
 home_dark.png
 backlog_new_dialog.png

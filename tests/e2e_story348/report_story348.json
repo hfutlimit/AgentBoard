@@ -20,7 +20,7 @@
       "name": "projects",
       "path": "/projects",
       "url": "http://127.0.0.1:4200/projects",
-      "main_text_len": 1304,
+      "main_text_len": 1305,
       "h1": "项目中心\n11",
       "is_404": false,
       "horizontal_overflow_px": 0,
@@ -90,7 +90,7 @@
       "name": "documents",
       "path": "/documents",
       "url": "http://127.0.0.1:4200/documents",
-      "main_text_len": 1304,
+      "main_text_len": 1305,
       "h1": "项目中心\n11",
       "is_404": false,
       "horizontal_overflow_px": 0,
@@ -146,7 +146,7 @@
       "name": "proposals",
       "path": "/proposals",
       "url": "http://127.0.0.1:4200/proposals",
-      "main_text_len": 1304,
+      "main_text_len": 1305,
       "h1": "项目中心\n11",
       "is_404": false,
       "horizontal_overflow_px": 0,
@@ -330,12 +330,12 @@
       "name": "story_348",
       "path": "/story/348",
       "url": "http://127.0.0.1:4200/story/348",
-      "main_text_len": 0,
-      "h1": "",
-      "is_404": false,
+      "main_text_len": 8228,
+      "h1": "页面持续修复 · 新版前端 UI 问题收集",
+      "is_404": true,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 836,
+        "h": 5704,
         "w": 1440
       },
       "screenshot": "screenshots_v5\\story_348.png"
@@ -344,12 +344,12 @@
       "name": "story_330",
       "path": "/story/330",
       "url": "http://127.0.0.1:4200/story/330",
-      "main_text_len": 0,
-      "h1": "",
+      "main_text_len": 2903,
+      "h1": "Story 330: 测试改造 — E2E 改 pytest test_* 收集 + 去硬编码 admin/admin123 + 绝对路径",
       "is_404": false,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 836,
+        "h": 2326,
         "w": 1440
       },
       "screenshot": "screenshots_v5\\story_330.png"
@@ -385,19 +385,15 @@
   ],
   "console_errors": [
     {
-      "text": "Failed to load resource: net::ERR_CONNECTION_TIMED_OUT",
-      "artifact": false
-    },
-    {
       "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
       "artifact": true
     },
     {
-      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789850452.16976eb8ed4a992245fe91a12bfb11066a6ca393376fc31b93eb42c51c87c271' failed: Error during WebSocket handshake: Unexpected response code: 200",
+      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789853950.7451c36d0d17bbc4da3e8c3e1b90fc09f3dffae3dd9444180f97ac55ccecf281' failed: Error during WebSocket handshake: Unexpected response code: 200",
       "artifact": true
     },
     {
-      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789850452.16976eb8ed4a992245fe91a12bfb11066a6ca393376fc31b93eb42c51c87c271' failed: Error during WebSocket handshake: Unexpected response code: 200",
+      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789853950.7451c36d0d17bbc4da3e8c3e1b90fc09f3dffae3dd9444180f97ac55ccecf281' failed: Error during WebSocket handshake: Unexpected response code: 200",
       "artifact": true
     }
   ],
@@ -422,26 +418,14 @@
     },
     {
       "name": "documents_search",
-      "result": "no_search_box"
+      "result": "typed"
     },
     {
       "name": "story348_comment_box",
-      "found": false
+      "found": true
     }
   ],
   "findings": [
-    {
-      "page": "story_348",
-      "path": "/story/348",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
-    {
-      "page": "story_330",
-      "path": "/story/330",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
     {
       "page": "task_1342",
       "path": "/task/1342",
@@ -453,6 +437,12 @@
       "path": "/task/1339",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "ws_tabs",
+      "path": "/project/3/*",
+      "severity": "P2",
+      "issue": "工作区 tab 点击后路径异常: ['成员与 Agents']"
     },
     {
       "page": "global",
@@ -472,7 +462,7 @@
       "bug": "#1427",
       "page": "story_330",
       "path": "/story/330",
-      "still_blank": false,
+      "still_blank": true,
       "is_404": false
     },
     {
@@ -559,21 +549,34 @@
     {
       "tab": "成员与 Agents",
       "path": "/project/3/members",
-      "active": "成员与 Agents",
+      "active": "工作台",
       "url_ok": true
     },
     {
-      "tab": "设置",
-      "path": "/project/3/settings",
-      "active": "设置",
-      "url_ok": true
+      "tab": "成员与 Agents",
+      "error": "Locator.inner_text: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator(\".project-nav a, .project-nav button, [c"
     }
   ],
-  "real_console_errors": [
-    {
-      "text": "Failed to load resource: net::ERR_CONNECTION_TIMED_OUT",
-      "artifact": false
-    }
-  ],
-  "real_failed_requests": []
+  "real_console_errors": [],
+  "real_failed_requests": [],
+  "run_meta": {
+    "run": 25,
+    "timestamp": "2026-08-21T05:35:00+08:00",
+    "trigger": "hourly automation",
+    "environment": "ng serve 127.0.0.1:4200 proxy->124.220.44.12",
+    "verdict": "0_new_bugs",
+    "known_bugs": {
+      "#1427_detail_blank": "FIXED (warm recheck passes for story_330, task_1342, task_1339)",
+      "#1428_global_routes": "STILL_REPRODUCES (/documents & /proposals render same as /projects)",
+      "#1429_sidebar_search_mislabel": "FIXED (sidebar labels correct: 提案 present, 搜索 absent)"
+    },
+    "false_positives": [
+      "v5 P1 detail blank for task_1342/task_1339 during cold-start skeleton loading; warm recheck renders",
+      "v5 P2 theme_toggle: script selectors do not match actual theme button; UI icon exists",
+      "v5 P3 create_dialog: modal opens correctly in warm recheck",
+      "v5 P2 ws_tab_members: transient locator timeout during click; path /project/3/members correct"
+    ],
+    "recheck_script": "tests/e2e_story348/focused_recheck_v5.py",
+    "recheck_report": "tests/e2e_story348/focused_recheck_v5.json"
+  }
 }
