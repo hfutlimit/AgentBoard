@@ -120,6 +120,8 @@ agentboard/web/static.bak.*
 scripts/_test_debug.*
 scripts/_login.json
 scripts/_register_agent.json
+scripts/_check_*.py
+scripts/_check_*.png
 
 
 styles-orig.css
