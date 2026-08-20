@@ -1,4 +1,5 @@
 import { Component, EventEmitter, Input, Output, ViewEncapsulation } from '@angular/core';
+import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
 import type { Project, Epic, ProjectMember, ProjectTabKind } from '../models';
 
 /**
@@ -29,6 +30,7 @@ import type { Project, Epic, ProjectMember, ProjectTabKind } from '../models';
 @Component({
   selector: 'app-overview-tab',
   standalone: true,
+  imports: [WorkspaceHeadingComponent],
   templateUrl: './overview-tab.html',
   styleUrl: './overview-tab.css',
   encapsulation: ViewEncapsulation.None,
