@@ -7127,3 +7127,31 @@ select:focus {
   background: var(--hover);
 }
 
+
+
+/* ============================================================
+   Epic 151 / Story 328 a11y: 移动端 < 840px 断点
+   - 隐藏 navy project-sidebar-v7（桌面专属）
+   - 隐藏 workspace-topbar 项目的 back/switcher 区域（顶部 8 navy tab 在 < 840px 由
+     bottom-tab-bar 替代；项目内 view 入口走 BottomTabBar 的「工作台」按钮）
+   ============================================================ */
+@media (max-width: 840px) {
+  .project-sidebar-v7 {
+    display: none !important;
+  }
+  .layout > .sidebar#sidebar {
+    display: none !important;
+  }
+  /* project view 主内容区占满全宽 */
+  .layout.has-project-sidebar {
+    grid-template-columns: 1fr !important;
+  }
+  /* 缩小 workspace-topbar 高度，给底部 tab bar 留空间 */
+  app-workspace-topbar .topbar-context {
+    padding: 4px 8px;
+  }
+  /* 主页（home view）统计卡：4 列 → 2 列 */
+  .detail-stats-v7 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+}

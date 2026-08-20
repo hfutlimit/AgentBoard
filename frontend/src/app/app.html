@@ -63,8 +63,8 @@
         } @else {
           <span class="topbar-divider"></span>
           <nav class="home-nav-v7" aria-label="首页导航">
-            <a class="home-nav-button-v7" [class.active]="view() === 'home' || view() === 'projects'" routerLink="/" style="cursor:pointer">项目</a>
-            <a class="home-nav-button-v7" [class.active]="view() === 'agents'" (click)="goAgents()" style="cursor:pointer">Agents</a>
+            <a class="home-nav-button-v7" [class.active]="view() === 'home' || view() === 'projects'" routerLink="/" aria-label="项目中心" style="cursor:pointer">项目</a>
+            <a class="home-nav-button-v7" [class.active]="view() === 'agents'" (click)="goAgents()" aria-label="Agent 池" style="cursor:pointer">Agents</a>
           </nav>
           <span class="topbar-divider" style="margin-left:12px"></span>
           <span class="topbar-product">企业项目协作平台</span>
@@ -169,11 +169,11 @@
       <!-- 一级导航 -->
       <nav class="sidebar-nav">
         <div class="sidebar-nav-caption">核心工作台</div>
-        <a routerLink="/" [class.active]="view() === 'home'" class="sidebar-nav-item" title="仪表盘">
+        <a routerLink="/" [class.active]="view() === 'home'" class="sidebar-nav-item" title="仪表盘" aria-label="仪表盘 / 首页">
           <svg class="icon-v7 sidebar-nav-icon"><use href="#i-home"/></svg>
           <span class="sidebar-nav-label">仪表盘</span>
         </a>
-        <a (click)="goAgents()" [class.active]="view() === 'agents'" class="sidebar-nav-item" style="cursor:pointer">
+        <a (click)="goAgents()" [class.active]="view() === 'agents'" class="sidebar-nav-item" style="cursor:pointer" aria-label="Agent 池（在线 / 总数）">
           <svg class="icon-v7 sidebar-nav-icon"><use href="#i-cpu"/></svg>
           <span class="sidebar-nav-label">Agents</span>
           @if (agents().length > 0) {
@@ -181,7 +181,7 @@
           }
         </a>
         <div class="sidebar-nav-group">
-          <a routerLink="/projects" [class.active]="view() === 'projects'" class="sidebar-nav-item" title="项目">
+          <a routerLink="/projects" [class.active]="view() === 'projects'" class="sidebar-nav-item" title="项目" aria-label="项目中心">
             <svg class="icon-v7 sidebar-nav-icon"><use href="#i-file"/></svg>
             <span class="sidebar-nav-label">项目</span>
             @if (visibleProjects().length > 0) {
@@ -247,31 +247,32 @@
       </div>
       <div class="sidebar-label-v7">项目工作台</div>
       <!-- Epic 151 / Story 327 路由化：8 navy tab 改 routerLink 驱动 URL 切换，
-           由 app.ts loadRoute() 解析 path → activeTab.set 驱动 @if 渲染。 -->
+           由 app.ts loadRoute() 解析 path → activeTab.set 驱动 @if 渲染。
+           Epic 151 / Story 328 a11y：aria-label 提供语义（1160px 文字隐藏时屏幕阅读器仍可识别）。 -->
       <nav class="project-nav-v7" aria-label="项目导航">
-        <a [routerLink]="['/project', project()?.id, 'overview']" class="project-nav-button-v7" [class.active]="activeTab() === 'overview'">
-          <svg class="icon-v7"><use href="#i-home"/></svg><span>概览</span>
+        <a [routerLink]="['/project', project()?.id, 'overview']" class="project-nav-button-v7" [class.active]="activeTab() === 'overview'" aria-label="概览" [attr.aria-current]="activeTab() === 'overview' ? 'page' : null">
+          <svg class="icon-v7" aria-hidden="true"><use href="#i-home"/></svg><span>概览</span>
         </a>
-        <a [routerLink]="['/project', project()?.id, 'kanban']" class="project-nav-button-v7" [class.active]="activeTab() === 'kanban'">
-          <svg class="icon-v7"><use href="#i-board"/></svg><span>看板</span>
+        <a [routerLink]="['/project', project()?.id, 'kanban']" class="project-nav-button-v7" [class.active]="activeTab() === 'kanban'" aria-label="看板" [attr.aria-current]="activeTab() === 'kanban' ? 'page' : null">
+          <svg class="icon-v7" aria-hidden="true"><use href="#i-board"/></svg><span>看板</span>
         </a>
-        <a [routerLink]="['/project', project()?.id, 'epics']" class="project-nav-button-v7" [class.active]="activeTab() === 'epics'">
-          <svg class="icon-v7"><use href="#i-flag"/></svg><span>Epics</span>
+        <a [routerLink]="['/project', project()?.id, 'epics']" class="project-nav-button-v7" [class.active]="activeTab() === 'epics'" aria-label="Epics" [attr.aria-current]="activeTab() === 'epics' ? 'page' : null">
+          <svg class="icon-v7" aria-hidden="true"><use href="#i-flag"/></svg><span>Epics</span>
         </a>
-        <a [routerLink]="['/project', project()?.id, 'backlog']" class="project-nav-button-v7" [class.active]="activeTab() === 'backlog' || activeTab() === 'tickets'">
-          <svg class="icon-v7"><use href="#i-list"/></svg><span>工作项</span>
+        <a [routerLink]="['/project', project()?.id, 'backlog']" class="project-nav-button-v7" [class.active]="activeTab() === 'backlog' || activeTab() === 'tickets'" aria-label="工作项" [attr.aria-current]="activeTab() === 'backlog' ? 'page' : null">
+          <svg class="icon-v7" aria-hidden="true"><use href="#i-list"/></svg><span>工作项</span>
         </a>
-        <a [routerLink]="['/project', project()?.id, 'proposals']" class="project-nav-button-v7" [class.active]="activeTab() === 'proposals'">
-          <svg class="icon-v7"><use href="#i-message"/></svg><span>提案</span>
+        <a [routerLink]="['/project', project()?.id, 'proposals']" class="project-nav-button-v7" [class.active]="activeTab() === 'proposals'" aria-label="提案" [attr.aria-current]="activeTab() === 'proposals' ? 'page' : null">
+          <svg class="icon-v7" aria-hidden="true"><use href="#i-message"/></svg><span>提案</span>
         </a>
-        <a [routerLink]="['/project', project()?.id, 'documents']" class="project-nav-button-v7" [class.active]="activeTab() === 'documents'">
-          <svg class="icon-v7"><use href="#i-file"/></svg><span>文档</span>
+        <a [routerLink]="['/project', project()?.id, 'documents']" class="project-nav-button-v7" [class.active]="activeTab() === 'documents'" aria-label="文档" [attr.aria-current]="activeTab() === 'documents' ? 'page' : null">
+          <svg class="icon-v7" aria-hidden="true"><use href="#i-file"/></svg><span>文档</span>
         </a>
-        <a [routerLink]="['/project', project()?.id, 'members']" class="project-nav-button-v7" [class.active]="activeTab() === 'members'">
-          <svg class="icon-v7"><use href="#i-users"/></svg><span>成员与 Agents</span>
+        <a [routerLink]="['/project', project()?.id, 'members']" class="project-nav-button-v7" [class.active]="activeTab() === 'members'" aria-label="成员与 Agents" [attr.aria-current]="activeTab() === 'members' ? 'page' : null">
+          <svg class="icon-v7" aria-hidden="true"><use href="#i-users"/></svg><span>成员与 Agents</span>
         </a>
-        <a [routerLink]="['/project', project()?.id, 'settings']" class="project-nav-button-v7" [class.active]="activeTab() === 'settings'">
-          <svg class="icon-v7"><use href="#i-settings"/></svg><span>设置</span>
+        <a [routerLink]="['/project', project()?.id, 'settings']" class="project-nav-button-v7" [class.active]="activeTab() === 'settings'" aria-label="设置" [attr.aria-current]="activeTab() === 'settings' ? 'page' : null">
+          <svg class="icon-v7" aria-hidden="true"><use href="#i-settings"/></svg><span>设置</span>
         </a>
       </nav>
       <div class="sidebar-foot-v7">
@@ -1201,11 +1202,11 @@
                 </div>
                 <div class="taskbar__actions">
                   <details class="export-menu">
-                    <summary class="btn" title="导出任务">
+                    <summary class="btn" title="导出任务" aria-label="导出任务菜单">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                       导出
                     </summary>
-                    <div class="export-menu__panel" role="menu">
+                    <div class="export-menu__panel" role="menu" aria-label="导出任务选项">
                       <button type="button" (click)="exportToCSV()">导出 CSV</button>
                       <button type="button" (click)="exportToJSON()">导出 JSON</button>
                     </div>
@@ -2518,8 +2519,8 @@
 
           @if (agentFormVisible()) {
             <div class="modal-overlay" (click)="closeAgentForm()">
-              <section class="modal settings-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
-                <h3>{{ agentFormIsEdit() ? '编辑 Agent' : '新建 Agent' }}</h3>
+              <section class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="agent-form-title" (click)="$event.stopPropagation()" appFocusTrap (appFocusTrapEscape)="closeAgentForm()">
+                <h3 id="agent-form-title">{{ agentFormIsEdit() ? '编辑 Agent' : '新建 Agent' }}</h3>
                 <form (submit)="saveAgentForm(); $event.preventDefault()">
                   <label>agent_id<code class="form-hint">（唯一标识，创建后不可改）</code>
                     <input [disabled]="agentFormIsEdit()" required [value]="agentForm().agent_id"
@@ -2921,9 +2922,9 @@
 
           @if (keyModalVisible()) {
             <div class="modal-overlay" (click)="closeKeyModal()">
-              <section class="modal settings-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+              <section class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="key-modal-title" (click)="$event.stopPropagation()" appFocusTrap (appFocusTrapEscape)="closeKeyModal()">
                 @if (createdKeyPlaintext()) {
-                  <h3>✅ API Key 已创建</h3>
+                  <h3 id="key-modal-title">✅ API Key 已创建</h3>
                   <p class="muted">请立即复制并安全保存，关闭后无法再次查看。</p>
                   <div class="api-key-secret">{{ createdKeyPlaintext() }}</div>
                   <button class="btn-primary-sm" (click)="closeKeyModal()">我已复制</button>
@@ -3261,11 +3262,11 @@
 
 @if (modal(); as currentModal) {
   <div class="modal-overlay" id="create-modal">
-    <section class="modal modal-create" role="dialog" aria-modal="true">
+    <section class="modal modal-create" role="dialog" aria-modal="true" aria-labelledby="create-modal-title" appFocusTrap (appFocusTrapEscape)="closeCreate()">
       <header class="modal-header">
         <div>
           <span class="modal-eyebrow">CREATE</span>
-          <h3>{{ modalTitle() }}</h3>
+          <h3 id="create-modal-title">{{ modalTitle() }}</h3>
         </div>
         <button type="button" class="modal-close" (click)="closeCreate()">×</button>
       </header>
@@ -3476,13 +3477,13 @@
 
 @if (docModal(); as dm) {
   <div class="modal-overlay" (click)="closeDocModal()">
-    <section class="modal doc-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+    <section class="modal doc-modal" role="dialog" aria-modal="true" aria-labelledby="doc-modal-title" (click)="$event.stopPropagation()" appFocusTrap (appFocusTrapEscape)="closeDocModal()">
       <header class="modal-header">
         <div>
           <span class="modal-eyebrow">{{ dm.mode === 'create' ? 'NEW DOCUMENT' : 'EDIT DOCUMENT' }}</span>
-          <h3>{{ dm.mode === 'create' ? '新建文档' : '编辑文档' }}</h3>
+          <h3 id="doc-modal-title">{{ dm.mode === 'create' ? '新建文档' : '编辑文档' }}</h3>
         </div>
-        <button type="button" class="modal-close" (click)="closeDocModal()">×</button>
+        <button type="button" class="modal-close" aria-label="关闭文档编辑" (click)="closeDocModal()">×</button>
       </header>
       <form (submit)="submitDocModal()">
         <div class="modal-body">
@@ -3614,13 +3615,13 @@
 <!-- Epic 139: Revision Diff Dialog -->
 @if (docDiffLeft() != null && docDiffRight() != null && docItem()) {
   <div class="modal-overlay" (click)="setDocDiffSide('left', null); setDocDiffSide('right', null)">
-    <section class="modal doc-diff-modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+    <section class="modal doc-diff-modal" role="dialog" aria-modal="true" aria-labelledby="doc-diff-modal-title" (click)="$event.stopPropagation()">
       <header class="modal-header">
         <div>
           <span class="modal-eyebrow">REVISION DIFF</span>
-          <h3>r{{ docDiffLeft() }} ↔ r{{ docDiffRight() }}</h3>
+          <h3 id="doc-diff-modal-title">r{{ docDiffLeft() }} ↔ r{{ docDiffRight() }}</h3>
         </div>
-        <button type="button" class="modal-close" (click)="setDocDiffSide('left', null); setDocDiffSide('right', null)">×</button>
+        <button type="button" class="modal-close" aria-label="关闭 Diff" (click)="setDocDiffSide('left', null); setDocDiffSide('right', null)">×</button>
       </header>
       <div class="modal-body">
         @if (docDiffData(); as dd) {
@@ -3662,13 +3663,13 @@
 
 @if (docFolderModal(); as fm) {
   <div class="modal-overlay" (click)="closeDocFolderModal()">
-    <section class="modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="doc-folder-modal-title" (click)="$event.stopPropagation()" appFocusTrap (appFocusTrapEscape)="closeDocFolderModal()">
       <header class="modal-header">
         <div>
           <span class="modal-eyebrow">{{ fm.mode === 'create' ? 'NEW FOLDER' : 'RENAME FOLDER' }}</span>
-          <h3>{{ fm.mode === 'create' ? '新建文件夹' : '重命名文件夹' }}</h3>
+          <h3 id="doc-folder-modal-title">{{ fm.mode === 'create' ? '新建文件夹' : '重命名文件夹' }}</h3>
         </div>
-        <button type="button" class="modal-close" (click)="closeDocFolderModal()">×</button>
+        <button type="button" class="modal-close" aria-label="关闭文件夹编辑" (click)="closeDocFolderModal()">×</button>
       </header>
       <form (submit)="submitDocFolderModal()">
         <div class="modal-body">
@@ -3698,13 +3699,13 @@
 
 @if (sprintModalOpen(); as pid) {
   <div class="modal-overlay" (click)="closeSprintModal()">
-    <section class="modal" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="sprint-modal-title" (click)="$event.stopPropagation()" appFocusTrap (appFocusTrapEscape)="closeSprintModal()">
       <header class="modal-header">
         <div>
           <span class="modal-eyebrow">NEW SCHEDULE</span>
-          <h3>新建计划</h3>
+          <h3 id="sprint-modal-title">新建计划</h3>
         </div>
-        <button type="button" class="modal-close" (click)="closeSprintModal()">×</button>
+        <button type="button" class="modal-close" aria-label="关闭计划编辑" (click)="closeSprintModal()">×</button>
       </header>
       <form (submit)="submitSprintModal()">
         <div class="modal-body">
@@ -3747,13 +3748,13 @@
 
 @if (taskEditModal(); as editTask) {
   <div class="modal-overlay" (click)="closeTaskEditModal()">
-    <section class="modal modal-create" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+    <section class="modal modal-create" role="dialog" aria-modal="true" aria-labelledby="task-edit-modal-title" (click)="$event.stopPropagation()" appFocusTrap (appFocusTrapEscape)="closeTaskEditModal()">
       <header class="modal-header">
         <div>
           <span class="modal-eyebrow">EDIT TASK</span>
-          <h3>编辑任务</h3>
+          <h3 id="task-edit-modal-title">编辑任务</h3>
         </div>
-        <button type="button" class="modal-close" (click)="closeTaskEditModal()">×</button>
+        <button type="button" class="modal-close" aria-label="关闭任务编辑" (click)="closeTaskEditModal()">×</button>
       </header>
       <form (submit)="submitTaskEditModal(); $event.preventDefault()">
         <div class="modal-body">
@@ -4004,3 +4005,11 @@
   后续 Story 328+：拆 @switch 改为单一 router-outlet 挂载点，组件自管
   ActivatedRoute + 数据加载。
 -->
+
+<!--
+  Epic 151 / Story 328 a11y：移动端底部 tab bar（< 840px 视口显示）。
+  - 5 个核心入口：首页 / 项目 / 当前项目工作台（如在项目内）/ 通知 / 我的
+  - 与 navy project-sidebar-v7 互斥（CSS @media (max-width: 840px)）
+  - 每个 item 都有 aria-label + aria-current（active 时）
+-->
+<app-bottom-tab-bar></app-bottom-tab-bar>

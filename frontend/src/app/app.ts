@@ -13,6 +13,8 @@ import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker,
 import { LoginComponent } from './login/login';
 import { AgentRow, AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, KanbanBoard, KanbanStory, Notification, OverviewStats, Priority, Project, ProjectTabKind, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, SprintStatus, Status, Story, StoryStatusHistoryRow, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentRevisionItem, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES, TicketRequestItem, TicketType, TicketItem } from './models';
 import { PaginationComponent } from './pagination/pagination';
+import { BottomTabBarComponent } from './bottom-tab-bar/bottom-tab-bar';
+import { FocusTrapDirective } from './shared/focus-trap.directive';
 import { ManagedListComponent } from './managed-list/managed-list';
 import { OverviewTabComponent } from './overview-tab/overview-tab';
 import { KanbanTabComponent } from './kanban-tab/kanban-tab';
@@ -81,7 +83,7 @@ interface PaletteCommand {
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, RouterLink, LoginComponent, PaginationComponent, OverviewTabComponent, KanbanTabComponent, EpicsTabComponent, ProposalsTabComponent, DocumentsTabComponent, BacklogTabComponent, MembersTabComponent, HomeShellComponent, WorkspaceTopbarComponent, WorkspaceHeadingComponent],
+  imports: [CommonModule, FormsModule, RouterLink, LoginComponent, PaginationComponent, OverviewTabComponent, KanbanTabComponent, EpicsTabComponent, ProposalsTabComponent, DocumentsTabComponent, BacklogTabComponent, MembersTabComponent, HomeShellComponent, WorkspaceTopbarComponent, WorkspaceHeadingComponent, BottomTabBarComponent, FocusTrapDirective],
   templateUrl: './app.html',
   styleUrl: './app.css',
   encapsulation: ViewEncapsulation.None,
@@ -1564,6 +1566,11 @@ export class App implements OnInit, OnDestroy {
       this.isAdmin.set(me.is_admin ?? false);
       localStorage.setItem('agentboard_user', me.username);
       localStorage.setItem('agentboard_is_admin', String(me.is_admin ?? false));
+      // 关键（Epic 151 / Story 328 a11y 修复）：token 有效时必须关闭 authVisible，
+      // 否则之前 showLogin() 留下的登录 modal 仍然遮挡主内容区，loadRoute 也
+      // 会因 authVisible() 为 true 而提前 return（看 line 2029）。reload 后必须
+      // 进入"已登录"态。
+      this.authVisible.set(false);
     } catch {
       // token 失效，清除并显示登录
       localStorage.removeItem('agentboard_token');
