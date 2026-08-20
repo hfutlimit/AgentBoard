@@ -12,30 +12,32 @@ E2E 真实断言（2026-08-20 Task 1302a 加固）：
 1. 启动浏览器 + 注入 token → 直接 `goto /project/1/<tab>` 8 个 URL；
 2. 每个 URL 验证：
    - ``location.pathname`` 末段 = section 名（URL 正确）
-   - workspace-heading ``<h1>`` 包含预期关键字
+   - workspace-heading ``<h1>`` 非空
    - 当前 navy tab 按钮 ``[aria-current="page"]`` 落在预期位置
    - 8 navy tab aria-label 全部存在
 3. 浏览器前进 / 后退：依次 goto 8 tab → 按 back 5 次 → 验证前一个 tab 高亮（URL 断言）
 4. 截图 8 tab + back 5 步（视觉证据）
-5. **不复用 token-injection 之外的辅助**（保留端到端真实路径）
 
-2026-08-20 创建；2026-08-20 加固断言。
+Story 330 / Task 1323 改造（2026-08-20）：支持 pytest 收集 (`def test_xxx()`) +
+保留 `__main__` 入口（手动 `python tests/.../test_x_b1_route_8tab.py` 仍能跑）。
 """
 from __future__ import annotations
 
 import json
-import os
 import sys
 import time
-import urllib.request
 from pathlib import Path
 
-from playwright.sync_api import Page, sync_playwright
+import pytest
+from playwright.sync_api import Page
 
-FRONTEND_ORIGIN = "http://127.0.0.1:4200"
-API_BASE = os.environ.get("AGENTBOARD_API_BASE", "http://127.0.0.1:18000")
-ADMIN_USER = os.environ.get("AGENTBOARD_E2E_USER", "admin")
-ADMIN_PASS = os.environ.get("AGENTBOARD_E2E_PASS", "admin123")
+# 兼容老 main() 入口：常量从 conftest 拉
+from conftest import (
+    FRONTEND_ORIGIN,
+    SHOT_DIR,
+    goto_url_with_token,
+    log,
+)
 
 # 8 navy tab → (URL section, 期望 navy aria-label, workspace-heading h1 关键字)
 TABS: list[tuple[str, str, str]] = [
@@ -49,55 +51,7 @@ TABS: list[tuple[str, str, str]] = [
     ("settings", "设置", "项目设置"),
 ]
 
-# 期望 navy tab 完整 aria-label 集合（8 个）
 EXPECTED_NAVY_LABELS: set[str] = {label for _, label, _ in TABS}
-
-ROOT = Path(__file__).resolve().parent
-SHOT_DIR = ROOT / "screenshots"
-SHOT_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def log(msg: str, *, flush: bool = True) -> None:
-    """Safe print: 替换非 ASCII 字符为 ? 避免 Windows GBK 控制台崩溃。"""
-    safe = msg.encode("ascii", "replace").decode("ascii")
-    print(safe, flush=flush)
-
-
-def login() -> str:
-    """经 dev API 拿 admin token。"""
-    req = urllib.request.Request(
-        f"{API_BASE}/api/auth/login",
-        data=json.dumps({"username": ADMIN_USER, "password": ADMIN_PASS}).encode(),
-        method="POST",
-    )
-    req.add_header("Content-Type", "application/json")
-    with urllib.request.urlopen(req, timeout=30) as r:
-        return json.loads(r.read().decode())["token"]
-
-
-def goto_url_with_token(page: Page, token: str, url: str, first: bool = False) -> None:
-    """goto + 在目标 URL 完成 token 注入 + reload。
-
-    经验（2026-08-20 Task 1302a 加固）：
-    - 2-step「先 / 再 target」会污染 browser history 导致 back 跳 / 而不是 target
-    - 单次 goto target + setItem + reload：reload 后 validateAuth 把 URL 拉回 /
-      是旧 bug（已修 Task 1310d）
-    - 现在 validateAuth token 有效时设置 authVisible.set(false)，loadRoute 不会再
-      提前 return，所以 reload 目标 URL 后会留在目标
-    - **首次**调用要先在 / 完成 auth 状态建立，再切 target（否则 reload 后
-      validateAuth 还没完成就 loadRoute，仍可能拉回 /）
-    """
-    if first:
-        # Step 1: 在 / 完成 token 注入 + auth 状态
-        page.goto(f"{FRONTEND_ORIGIN}/", wait_until="domcontentloaded", timeout=30000)
-        page.evaluate(f"localStorage.setItem('agentboard_token', {json.dumps(token)})")
-        page.evaluate("localStorage.setItem('agentboard_user', 'admin')")
-        page.reload(wait_until="domcontentloaded", timeout=30000)
-        time.sleep(2.0)
-    # Step 2: 切到目标 URL
-    page.goto(url, wait_until="domcontentloaded", timeout=30000)
-    page.reload(wait_until="domcontentloaded", timeout=30000)  # 强制 reload 目标 URL
-    time.sleep(3.0)  # 等 loadRoute async + 项目数据加载
 
 
 def collect_signals(page: Page) -> dict:
@@ -114,130 +68,164 @@ def collect_signals(page: Page) -> dict:
     """)
 
 
-def main() -> int:
-    failures: list[str] = []
+# ============================================================
+# Pytest test_* functions (Task 1323)
+# ============================================================
 
-    log(">>> login")
-    token = login()
+@pytest.mark.e2e
+def test_8tab_url_and_browser_back(page: Page, admin_token: str) -> None:
+    """8 tab URL 直达 + 浏览器前进/后退 + 真实断言（单 test 内完成）。
+
+    合并原因：pytest 的 `page` fixture 是 function scope，back 5 步需要
+    同一 page context 的 history。两个 test 会拆成独立 page 上下文，
+    back 5 步会回到初始 / 而不是上一个 tab URL（实测 back #1: URL=/）。
+
+    顺序：
+    - PART A：依次 goto 8 tab（每次 reload 强制到 target URL，补充 history）
+    - PART B：再 goto settings（last tab），back 5 步回到 epics
+    """
+    # PART A
+    log(">>> PART A — 8 tab URL 直达 + 真实断言")
+    for idx, (section, expected_label, _h1_keyword) in enumerate(TABS):
+        url = f"{FRONTEND_ORIGIN}/project/1/{section}"
+        log(f"   goto {url}")
+        goto_url_with_token(page, admin_token, url, first=(idx == 0))
+        sig = collect_signals(page)
+        log(f"   sig = {sig}")
+
+        shot = SHOT_DIR / f"_x_b1_{section}.png"
+        page.screenshot(path=str(shot), full_page=False)
+        size = shot.stat().st_size if shot.exists() else 0
+        log(f"   shot {shot.name} size={size}B")
+
+        # URL 末段断言
+        assert sig["url"].endswith(f"/{section}"), (
+            f"{section}: URL 末段应为 /{section}，实际 '{sig['url']}'"
+        )
+        # h1 非空
+        assert sig["h1"], f"{section}: workspace-heading h1 空，组件可能未渲染"
+        # 当前 active navy tab aria-label
+        assert sig["navyTabActive"] == expected_label, (
+            f"{section}: navy active 应为 '{expected_label}'，实际 {sig['navyTabActive']!r}"
+        )
+        # 8 navy tab
+        assert sig["navyTabCount"] == 8, (
+            f"{section}: navy tab 数应为 8，实际 {sig['navyTabCount']}"
+        )
+        # aria-label 完整集合
+        actual = set(sig["navyTabAriaLabels"])
+        missing = EXPECTED_NAVY_LABELS - actual
+        assert not missing, f"{section}: navy tab 缺 aria-label {missing}"
+        # 截图非空
+        assert size >= 1000, f"{section}: 截图过小 ({size}B)"
+
+    # PART B
+    log(">>> PART B — back 5 步 + URL + navy active 断言")
+    goto_url_with_token(page, admin_token, f"{FRONTEND_ORIGIN}/project/1/settings")
+    sig_settings = collect_signals(page)
+    log(f"   settings sig = {sig_settings}")
+    assert sig_settings["navyTabActive"] == "设置", (
+        f"back 起点: settings tab 高亮应为 '设置'，实际 {sig_settings['navyTabActive']!r}"
+    )
+    page.screenshot(
+        path=str(SHOT_DIR / "_x_b1_back_0_settings.png"), full_page=False
+    )
+
+    expected_back_sections = ["members", "documents", "proposals", "backlog", "epics"]
+    expected_label_map = {sec: lab for sec, lab, _ in TABS}
+
+    for step, expected_section in enumerate(expected_back_sections, start=1):
+        page.go_back(wait_until="domcontentloaded", timeout=30000)
+        time.sleep(2.5)
+        sig = collect_signals(page)
+        log(f"   back #{step} sig = {sig}")
+
+        shot = SHOT_DIR / f"_x_b1_back_{step}.png"
+        page.screenshot(path=str(shot), full_page=False)
+        size = shot.stat().st_size if shot.exists() else 0
+        log(f"   back #{step}: shot {shot.name} size={size}B")
+
+        assert sig["url"].endswith(f"/{expected_section}"), (
+            f"back #{step}: URL 末段应为 /{expected_section}，实际 '{sig['url']}'"
+        )
+        expected_label = expected_label_map.get(expected_section)
+        if expected_label:
+            assert sig["navyTabActive"] == expected_label, (
+                f"back #{step}: navy active 应为 '{expected_label}'，实际 {sig['navyTabActive']!r}"
+            )
+        assert size >= 1000, f"back #{step}: 截图过小 ({size}B)"
+
+
+# ============================================================
+# 兼容老 main() 入口（手动 python tests/.../test_x_b1_route_8tab.py）
+# ============================================================
+
+def main() -> int:
+    """Story 330 兼容层：手动跑用。pytest 自动收集 test_*_xxx()。
+
+    流程：login → PART A 8 tab → PART B back 5 → 汇总 failures。
+    """
+    import urllib.request
+    from playwright.sync_api import sync_playwright
+
+    log(">>> login (main 兼容入口)")
+    # 用 urllib 拿 token（避免依赖 pytest fixture）
+    from conftest import API_BASE, ADMIN_USER, ADMIN_PASS
+    req = urllib.request.Request(
+        f"{API_BASE}/api/auth/login",
+        data=json.dumps({"username": ADMIN_USER, "password": ADMIN_PASS}).encode(),
+        method="POST",
+    )
+    req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req, timeout=30) as r:
+        token = json.loads(r.read().decode())["token"]
     log(f"   token len={len(token)}")
+
+    failures: list[str] = []
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-proxy-server"])
         ctx = browser.new_context(viewport={"width": 1440, "height": 900})
         page = ctx.new_page()
         try:
-            # === PART A: 8 tab 各自 URL 直达 + 真实断言 ===
-            log(">>> PART A — 8 tab 各自 URL 直达 + 真实断言")
-            for idx, (section, expected_label, h1_keyword) in enumerate(TABS):
+            # PART A
+            log(">>> PART A — 8 tab URL 直达 + 真实断言")
+            for idx, (section, expected_label, _) in enumerate(TABS):
                 url = f"{FRONTEND_ORIGIN}/project/1/{section}"
-                log(f"   goto {url}")
                 goto_url_with_token(page, token, url, first=(idx == 0))
                 sig = collect_signals(page)
-                log(f"   sig = {sig}")
-
-                shot = SHOT_DIR / f"_x_b1_{section}.png"
-                page.screenshot(path=str(shot), full_page=False)
-                size = shot.stat().st_size if shot.exists() else 0
-                log(f"   shot {shot.name} size={size}B")
-
-                # 1) URL 末段断言
                 if not sig["url"].endswith(f"/{section}"):
-                    failures.append(
-                        f"{section}: URL 末段应为 /{section}，实际 '{sig['url']}'"
-                    )
-
-                # 2) h1 包含项目名（workspace-heading 实际是项目名，不是 tab 名）
-                #    留这个断言是为了确认 workspace-heading 渲染了；不强求 tab 关键字
+                    failures.append(f"{section}: URL 末段错 '{sig['url']}'")
                 if not sig["h1"]:
-                    failures.append(
-                        f"{section}: workspace-heading h1 空，组件可能未渲染"
-                    )
-
-                # 3) 当前 active navy tab aria-label 断言
+                    failures.append(f"{section}: h1 空")
                 if sig["navyTabActive"] != expected_label:
-                    failures.append(
-                        f"{section}: navy active 应为 '{expected_label}'，实际 {sig['navyTabActive']!r}"
-                    )
-
-                # 4) navy tab 8 个全在
+                    failures.append(f"{section}: navy active 错 {sig['navyTabActive']!r}")
                 if sig["navyTabCount"] != 8:
-                    failures.append(
-                        f"{section}: navy tab 数应为 8，实际 {sig['navyTabCount']}"
-                    )
-
-                # 5) navy tab aria-label 完整集合断言
-                actual = set(sig["navyTabAriaLabels"])
-                missing = EXPECTED_NAVY_LABELS - actual
+                    failures.append(f"{section}: navy tab 数 {sig['navyTabCount']}")
+                missing = EXPECTED_NAVY_LABELS - set(sig["navyTabAriaLabels"])
                 if missing:
-                    failures.append(
-                        f"{section}: navy tab 缺 aria-label {missing}"
-                    )
+                    failures.append(f"{section}: 缺 aria-label {missing}")
+                page.screenshot(path=str(SHOT_DIR / f"_x_b1_{section}.png"), full_page=False)
 
-                # 6) 截图非空
-                if size < 1000:
-                    failures.append(
-                        f"{section}: 截图过小 ({size}B)，可能页面未渲染"
-                    )
-
-            # === PART B: 浏览器前进 / 后退 + URL 断言 ===
-            log(">>> PART B — 浏览器前进 / 后退 + URL 断言")
-            # 重新进 settings（最后一个 tab），然后连续 back
+            # PART B
+            log(">>> PART B — back 5 步")
             goto_url_with_token(page, token, f"{FRONTEND_ORIGIN}/project/1/settings")
-            sig_settings = collect_signals(page)
-            log(f"   settings sig = {sig_settings}")
-            if sig_settings["navyTabActive"] != "设置":
-                failures.append(
-                    f"back 起点: settings tab 高亮应为 '设置'，实际 {sig_settings['navyTabActive']!r}"
-                )
-            page.screenshot(
-                path=str(SHOT_DIR / "_x_b1_back_0_settings.png"), full_page=False
-            )
-
-            # back 顺序：settings → 倒序穿过 PART A 8 tab → 停在 kanban
-            # PART A 顺序：overview, kanban, epics, backlog, proposals, documents, members, settings
-            # 从 settings 往前 back 5 次：members, documents, proposals, backlog, epics
             expected_back_sections = ["members", "documents", "proposals", "backlog", "epics"]
+            expected_label_map = {sec: lab for sec, lab, _ in TABS}
             for step, expected_section in enumerate(expected_back_sections, start=1):
                 page.go_back(wait_until="domcontentloaded", timeout=30000)
-                time.sleep(2.5)  # 等 Angular 重新渲染
+                time.sleep(2.5)
                 sig = collect_signals(page)
-                log(f"   back #{step} sig = {sig}")
-
-                shot = SHOT_DIR / f"_x_b1_back_{step}.png"
-                page.screenshot(path=str(shot), full_page=False)
-                size = shot.stat().st_size if shot.exists() else 0
-                log(f"   back #{step}: shot {shot.name} size={size}B")
-
-                # URL 断言
                 if not sig["url"].endswith(f"/{expected_section}"):
-                    failures.append(
-                        f"back #{step}: URL 末段应为 /{expected_section}，实际 '{sig['url']}'"
-                    )
-                # navy active 断言（URL section → 期望 tab label）
-                expected_label_map = {sec: lab for sec, lab, _ in TABS}
+                    failures.append(f"back #{step}: URL 末段错 '{sig['url']}'")
                 expected_label = expected_label_map.get(expected_section)
                 if expected_label and sig["navyTabActive"] != expected_label:
-                    failures.append(
-                        f"back #{step}: navy active 应为 '{expected_label}'，实际 {sig['navyTabActive']!r}"
-                    )
-
-                if size < 1000:
-                    failures.append(
-                        f"back #{step}: 截图过小 ({size}B)"
-                    )
-
-        except Exception as e:
-            log(f"   EXCEPTION: {e!r}")
-            failures.append(f"exception: {e!r}")
-            try:
-                page.screenshot(path=str(SHOT_DIR / "_x_b1_error.png"), full_page=True)
-            except Exception:
-                pass
+                    failures.append(f"back #{step}: navy active 错 {sig['navyTabActive']!r}")
+                page.screenshot(path=str(SHOT_DIR / f"_x_b1_back_{step}.png"), full_page=False)
         finally:
             ctx.close()
             browser.close()
 
-    log("")
     if failures:
         log("FAIL:")
         for f in failures:

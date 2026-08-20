@@ -23,8 +23,8 @@ from playwright.sync_api import sync_playwright
 
 WEB = "http://127.0.0.1:4200"
 API = "http://124.220.44.12"          # 生产后端（数据来源）
-USER = "admin"
-PASS = "admin123"
+USER = os.environ.get("AGENTBOARD_E2E_USER", "admin")
+PASS = os.environ.get("AGENTBOARD_E2E_PASS", "admin123")
 PROJECT_ID = 3
 EPIC_ID = 149
 OUT = os.path.dirname(os.path.abspath(__file__))

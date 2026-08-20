@@ -18,7 +18,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-ROOT = Path(r"D:\AI\Projects\AgentBoard")
+# Story 330 / Task 1325：去绝对路径。git 根 = 本文件 parent.parent
+ROOT = Path(__file__).resolve().parent.parent
 DIST = ROOT / "frontend" / "dist" / "frontend" / "browser"
 STATIC = ROOT / "agentboard" / "web" / "static"
 

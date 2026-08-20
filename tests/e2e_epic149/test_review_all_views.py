@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 import urllib.request
@@ -20,9 +21,8 @@ if hasattr(sys.stdout, "reconfigure"):
 
 FRONTEND_ORIGIN = "http://127.0.0.1:4200"
 PROD_API = "http://124.220.44.12"
-ADMIN_USER = "admin"
-ADMIN_PASS = "admin123"
-
+ADMIN_USER = os.environ.get("AGENTBOARD_E2E_USER", "admin")
+ADMIN_PASS = os.environ.get("AGENTBOARD_E2E_PASS", "admin123")
 ROOT = Path(__file__).resolve().parent
 SHOT_DIR = ROOT / "screenshots"
 SHOT_DIR.mkdir(parents=True, exist_ok=True)
