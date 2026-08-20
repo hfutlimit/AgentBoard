@@ -44,7 +44,7 @@ NAV_ITEMS = [
     ("工作项", "backlog", "app-backlog-tab"),
     ("提案", "proposals", "app-proposals-tab"),
     ("文档", "documents", "app-documents-tab"),
-    ("成员与 Agents", "members", None),
+    ("成员与 Agents", "members", "app-members-tab"),
     ("设置", "settings", None),
 ]
 

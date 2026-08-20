@@ -4,7 +4,7 @@
   "project_id": 3,
   "web": "http://127.0.0.1:4200",
   "api": "http://124.220.44.12",
-  "started_at": "2026-08-20T07:41:55",
+  "started_at": "2026-08-20T09:01:50",
   "views": [
     {
       "viewSelectorPresent": true,
@@ -40,7 +40,7 @@
       "viewSelectorPresent": true,
       "svgUse": 0,
       "svgCount": 0,
-      "mainTextLen": 1144,
+      "mainTextLen": 1154,
       "hasTable": 0,
       "hasCards": 1,
       "label": "工作项",
@@ -60,17 +60,17 @@
       "viewSelectorPresent": true,
       "svgUse": 0,
       "svgCount": 0,
-      "mainTextLen": 2695,
+      "mainTextLen": 2886,
       "hasTable": 0,
       "hasCards": 1,
       "label": "文档",
       "tab": "documents"
     },
     {
-      "viewSelectorPresent": null,
+      "viewSelectorPresent": true,
       "svgUse": 0,
       "svgCount": 0,
-      "mainTextLen": 148,
+      "mainTextLen": 483,
       "hasTable": 0,
       "hasCards": 1,
       "label": "成员与 Agents",
@@ -88,19 +88,17 @@
     }
   ],
   "screenshots": [
-    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_overview.png",
-    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_kanban.png",
-    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_epics.png",
-    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_backlog.png",
-    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_proposals.png",
-    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_documents.png",
-    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_members.png",
-    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_settings.png"
+    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_overview.png",
+    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_kanban.png",
+    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_epics.png",
+    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_backlog.png",
+    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_proposals.png",
+    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_documents.png",
+    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_members.png",
+    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_settings.png"
   ],
-  "issues": [
-    "app.html 无 @if(activeTab()==='members') 块；frontend/src/app 无 members-tab 组件。Story 319 提交日志宣称「8/8」实际只迁移 7 视图（members 遗漏）。点击侧边栏「成员与 Agents」主内容区空白。已关联 Bug 关联 Story 318。"
-  ],
-  "verdict": "FAIL",
+  "issues": [],
+  "verdict": "PASS",
   "console_errors": [],
   "console_warnings": [
     {
@@ -108,12 +106,12 @@
       "text": "[vite] connecting..."
     },
     {
-      "type": "debug",
-      "text": "[vite] connected."
-    },
-    {
       "type": "log",
       "text": "Angular is running in development mode."
+    },
+    {
+      "type": "debug",
+      "text": "[vite] connected."
     }
   ],
   "page_errors": []

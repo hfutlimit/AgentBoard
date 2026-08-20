@@ -1,0 +1,182 @@
+/* members-tab.css — Epic 149 Bug #1290 修复（v7 增强）
+ *
+ * 设计语言对齐原型 v7：
+ * - entity-table 头部 navy 渐变底（与 epics-tab / backlog-tab 一致）
+ * - table row hover brand 描边（与 entity-item 一致）
+ * - role badge 提色：owner = navy 主色；member = muted
+ * - 暗色主题：navy 提亮、文字降饱和
+ *
+ * 命名空间：.members-tab-v7 仅作用于本组件 table row。
+ * ViewEncapsulation.None，所以全局样式可直接命中。
+ */
+
+/* 子段小标题（与 prototype section-header 风格一致） */
+.members-section {
+  margin-top: 16px;
+}
+.members-section:first-of-type {
+  margin-top: 0;
+}
+.subsection-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--navy, #10243e);
+  margin: 0 0 8px 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(16, 36, 62, 0.08);
+  letter-spacing: 0.02em;
+}
+
+/* entity-table 基础（复用全局已有规则，列宽微调） */
+.entity-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid rgba(16, 36, 62, 0.08);
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+.entity-table-head,
+.entity-table-row {
+  display: grid;
+  align-items: center;
+  padding: 10px 14px;
+  font-size: 13px;
+  gap: 12px;
+}
+.members-table .entity-table-head,
+.members-table .entity-table-row {
+  grid-template-columns: minmax(140px, 1.4fr) 100px 80px 120px;
+}
+.agents-table .entity-table-head,
+.agents-table .entity-table-row {
+  grid-template-columns: minmax(140px, 1.2fr) minmax(160px, 1.4fr) minmax(120px, 1.2fr) minmax(80px, 0.8fr) 110px 110px;
+}
+.entity-table-head {
+  background: linear-gradient(180deg, rgba(16, 36, 62, 0.04), rgba(16, 36, 62, 0.02));
+  color: var(--navy, #10243e);
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.entity-table-row {
+  border-top: 1px solid rgba(16, 36, 62, 0.05);
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.entity-table-row:hover {
+  background: rgba(40, 100, 220, 0.04);
+}
+
+/* 单元格：名称 + avatar/dot */
+.cell-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: var(--navy, #10243e);
+}
+.member-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--blue-soft, #e6efff);
+  color: var(--navy, #10243e);
+  font-size: 12px;
+  font-weight: 700;
+}
+.agent-online-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #c2c8d2;
+  box-shadow: 0 0 0 3px rgba(194, 200, 210, 0.15);
+}
+.agent-online-dot.online {
+  background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18);
+}
+.agent-online-dot.offline {
+  background: #c2c8d2;
+  box-shadow: 0 0 0 3px rgba(194, 200, 210, 0.15);
+}
+
+/* role badge */
+.role-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.role-badge.role-owner {
+  background: rgba(16, 36, 62, 0.08);
+  color: var(--navy, #10243e);
+  border: 1px solid rgba(16, 36, 62, 0.2);
+}
+.role-badge.role-member {
+  background: rgba(40, 100, 220, 0.08);
+  color: var(--brand-500, #2864dc);
+  border: 1px solid rgba(40, 100, 220, 0.2);
+}
+
+/* agent-id 等宽字体 */
+.agent-id-cell {
+  font-size: 12px;
+  color: #5a6473;
+  background: rgba(16, 36, 62, 0.04);
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 暗色主题 */
+[data-theme='dark'] .subsection-title {
+  color: #c9d6ea;
+  border-bottom-color: rgba(100, 161, 255, 0.12);
+}
+[data-theme='dark'] .entity-table {
+  background: #131c2c;
+  border-color: rgba(100, 161, 255, 0.12);
+}
+[data-theme='dark'] .entity-table-head {
+  background: linear-gradient(180deg, rgba(100, 161, 255, 0.08), rgba(100, 161, 255, 0.04));
+  color: #c9d6ea;
+}
+[data-theme='dark'] .entity-table-row {
+  border-top-color: rgba(100, 161, 255, 0.08);
+}
+[data-theme='dark'] .entity-table-row:hover {
+  background: rgba(100, 161, 255, 0.06);
+}
+[data-theme='dark'] .cell-name {
+  color: #e6edf7;
+}
+[data-theme='dark'] .member-avatar {
+  background: rgba(100, 161, 255, 0.15);
+  color: #c9d6ea;
+}
+[data-theme='dark'] .role-badge.role-owner {
+  background: rgba(100, 161, 255, 0.12);
+  color: #c9d6ea;
+  border-color: rgba(100, 161, 255, 0.25);
+}
+[data-theme='dark'] .role-badge.role-member {
+  background: rgba(40, 100, 220, 0.18);
+  color: #93b7ff;
+  border-color: rgba(40, 100, 220, 0.3);
+}
+[data-theme='dark'] .agent-id-cell {
+  background: rgba(100, 161, 255, 0.08);
+  color: #93b7ff;
+}

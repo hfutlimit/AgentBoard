@@ -1,0 +1,88 @@
+<app-managed-list
+  [loading]="loading"
+  [error]="error"
+  errorPrefix="成员列表加载失败"
+  loadingLabel="正在加载成员与 Agents…"
+  [skeletonRows]="3"
+  [empty]="!loading && !error && members.length === 0 && agents.length === 0"
+  [pageSize]="0"
+  (retry)="retry.emit()">
+  <ng-container ml-header>
+    <div class="section-header">
+      <div>
+        <h3>成员与 Agents</h3>
+        <p class="muted">管理项目成员与参与本项目的 Agent 池。成员由后端授权，Agents 由 AgentBoard MCP 注册并由 Worker 周期探测判活。</p>
+      </div>
+      <span class="badge count-badge">{{ members.length }} 成员 · {{ agents.length }} Agents</span>
+    </div>
+  </ng-container>
+
+  <!-- 上半：项目成员 -->
+  <section class="members-section" aria-labelledby="members-tab-members-h">
+    <h4 id="members-tab-members-h" class="subsection-title">项目成员</h4>
+    @if (members.length === 0) {
+      <div class="empty-state empty-inline">当前项目还没有成员记录。Owner 加入后将在此展示。</div>
+    } @else {
+      <div class="entity-table members-table">
+        <div class="entity-table-head members-tab-v7">
+          <span>用户名</span>
+          <span>角色</span>
+          <span>User ID</span>
+          <span>加入时间</span>
+        </div>
+        @for (m of members; track m.id) {
+          <div class="entity-table-row members-tab-v7">
+            <span class="cell-name">
+              <span class="member-avatar" aria-hidden="true">{{ memberDisplayName(m).charAt(0).toUpperCase() }}</span>
+              <span>{{ memberDisplayName(m) }}</span>
+            </span>
+            <span>
+              <span class="role-badge" [class]="memberRoleClass(m.role)">{{ memberRoleLabel(m.role) }}</span>
+            </span>
+            <span class="muted">#{{ m.user_id }}</span>
+            <span class="muted">{{ timeAgo(m.joined_at) }}</span>
+          </div>
+        }
+      </div>
+    }
+  </section>
+
+  <!-- 下半：Agents 池 -->
+  <section class="members-section" aria-labelledby="members-tab-agents-h">
+    <h4 id="members-tab-agents-h" class="subsection-title">Agents</h4>
+    @if (agents.length === 0) {
+      <div class="empty-state empty-inline">还没有 Agent。可经 AgentBoard MCP 的 <code>agent_register</code> 自报身份，或在「设置 → Agents」中创建。</div>
+    } @else {
+      <div class="entity-table agents-table">
+        <div class="entity-table-head members-tab-v7">
+          <span>名称</span>
+          <span>Agent ID</span>
+          <span>角色</span>
+          <span>模型</span>
+          <span>状态</span>
+          <span>心跳</span>
+        </div>
+        @for (a of agents; track a.id) {
+          <div class="entity-table-row members-tab-v7">
+            <span class="cell-name">
+              <span class="agent-online-dot" [class.online]="a.online" [class.offline]="!a.online" aria-hidden="true"></span>
+              <span>{{ a.name }}</span>
+            </span>
+            <code class="agent-id-cell">{{ a.agent_id }}</code>
+            <span>
+              @for (r of agentRoles(a); track r) {
+                <span class="chip chip-role">{{ r }}</span>
+              }
+            </span>
+            <span class="muted">{{ a.model || '—' }}</span>
+            <span>
+              <span class="badge" [class]="a.online ? 'badge-success' : 'badge-danger'">{{ a.online ? '在线' : '离线' }}</span>
+              @if (!a.enabled) { <span class="badge badge-warn">停用</span> }
+            </span>
+            <span class="muted">{{ timeAgo(a.last_heartbeat) }}</span>
+          </div>
+        }
+      </div>
+    }
+  </section>
+</app-managed-list>

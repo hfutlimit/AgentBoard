@@ -1093,6 +1093,15 @@
                 (retry)="retryProjectTab('proposals')"
               />
             }
+            @if (activeTab() === 'members') {
+              <app-members-tab
+                [members]="members()"
+                [agents]="agents()"
+                [loading]="isProjectTabLoading('members')"
+                [error]="projectTabError('members')"
+                (retry)="retryProjectTab('members')"
+              />
+            }
             @if (activeTab() === 'documents') {
               <app-documents-tab
                 [docs]="applyDocSort(projectDocVisible())"
