@@ -4,7 +4,7 @@
   "project_id": 3,
   "web": "http://127.0.0.1:4200",
   "api": "http://124.220.44.12",
-  "started_at": "2026-08-20T09:01:50",
+  "started_at": "2026-08-20T09:42:15",
   "views": [
     {
       "viewSelectorPresent": true,
@@ -40,7 +40,7 @@
       "viewSelectorPresent": true,
       "svgUse": 0,
       "svgCount": 0,
-      "mainTextLen": 1154,
+      "mainTextLen": 1190,
       "hasTable": 0,
       "hasCards": 1,
       "label": "工作项",
@@ -60,7 +60,7 @@
       "viewSelectorPresent": true,
       "svgUse": 0,
       "svgCount": 0,
-      "mainTextLen": 2886,
+      "mainTextLen": 2965,
       "hasTable": 0,
       "hasCards": 1,
       "label": "文档",
@@ -70,7 +70,7 @@
       "viewSelectorPresent": true,
       "svgUse": 0,
       "svgCount": 0,
-      "mainTextLen": 483,
+      "mainTextLen": 822,
       "hasTable": 0,
       "hasCards": 1,
       "label": "成员与 Agents",
@@ -88,14 +88,14 @@
     }
   ],
   "screenshots": [
-    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_overview.png",
-    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_kanban.png",
-    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_epics.png",
-    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_backlog.png",
-    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_proposals.png",
-    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_documents.png",
-    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_members.png",
-    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_settings.png"
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_overview.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_kanban.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_epics.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_backlog.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_proposals.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_documents.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_members.png",
+    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\319\\view_settings.png"
   ],
   "issues": [],
   "verdict": "PASS",
