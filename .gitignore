@@ -112,3 +112,10 @@ tmp/agent_history/
 tmp/agent_history/**
 tmp/minimax/
 tmp/minimax/**
+
+# Epic 151 / Task 1296 ¾²Ì¬°ü backup£¨·ÀÖ¹»ØÍË£©
+agentboard/web/static.bak.*
+
+
+styles-orig.css
+

@@ -1,7 +1,7 @@
 # Epic 149 Story 318 自动化 E2E 验证报告
 
 **标题**: 阶段2 侧边栏 + managed-list 抽象
-**验证时间**: 2026-08-20T09:42:15
+**验证时间**: 2026-08-20T12:04:01
 **环境**: 本地 ng serve http://127.0.0.1:4200（/api 代理生产后端 http://124.220.44.12），项目 3
 **结论**: **PASS**
 
@@ -22,11 +22,11 @@
 
 ## 截图
 
-- E:\Projects\WorkBuddy\AgentBoard\tests\e2e_epic149\screenshots\318\01_sidebar.png
-- E:\Projects\WorkBuddy\AgentBoard\tests\e2e_epic149\screenshots\318\list_epics.png
-- E:\Projects\WorkBuddy\AgentBoard\tests\e2e_epic149\screenshots\318\list_backlog.png
-- E:\Projects\WorkBuddy\AgentBoard\tests\e2e_epic149\screenshots\318\list_proposals.png
-- E:\Projects\WorkBuddy\AgentBoard\tests\e2e_epic149\screenshots\318\list_documents.png
-- E:\Projects\WorkBuddy\AgentBoard\tests\e2e_epic149\screenshots\318\list_members.png
-- E:\Projects\WorkBuddy\AgentBoard\tests\e2e_epic149\screenshots\318\popover_project_switcher.png
-- E:\Projects\WorkBuddy\AgentBoard\tests\e2e_epic149\screenshots\318\popover_notification.png
+- D:\AI\Projects\AgentBoard\tests\e2e_epic149\screenshots\318\01_sidebar.png
+- D:\AI\Projects\AgentBoard\tests\e2e_epic149\screenshots\318\list_epics.png
+- D:\AI\Projects\AgentBoard\tests\e2e_epic149\screenshots\318\list_backlog.png
+- D:\AI\Projects\AgentBoard\tests\e2e_epic149\screenshots\318\list_proposals.png
+- D:\AI\Projects\AgentBoard\tests\e2e_epic149\screenshots\318\list_documents.png
+- D:\AI\Projects\AgentBoard\tests\e2e_epic149\screenshots\318\list_members.png
+- D:\AI\Projects\AgentBoard\tests\e2e_epic149\screenshots\318\popover_project_switcher.png
+- D:\AI\Projects\AgentBoard\tests\e2e_epic149\screenshots\318\popover_notification.png

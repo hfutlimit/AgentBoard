@@ -4,7 +4,7 @@
   "project_id": 3,
   "web": "http://127.0.0.1:4200",
   "api": "http://124.220.44.12",
-  "started_at": "2026-08-20T09:42:15",
+  "started_at": "2026-08-20T12:04:01",
   "checks": {
     "sidebar": {
       "present": true,
@@ -25,18 +25,18 @@
     },
     "shell_char_icons": {
       "hits": [],
-      "shellRegions": 6
+      "shellRegions": 7
     },
     "managed_list_usage": {
       "epics": {
         "managedListCount": 1,
         "svgUse": 0,
-        "mainTextLen": 855
+        "mainTextLen": 870
       },
       "backlog": {
         "managedListCount": 1,
         "svgUse": 0,
-        "mainTextLen": 1186
+        "mainTextLen": 1331
       },
       "proposals": {
         "managedListCount": 1,
@@ -46,12 +46,12 @@
       "documents": {
         "managedListCount": 1,
         "svgUse": 0,
-        "mainTextLen": 2963
+        "mainTextLen": 3025
       },
       "members": {
         "managedListCount": 1,
         "svgUse": 0,
-        "mainTextLen": 820
+        "mainTextLen": 804
       }
     },
     "popovers": {
@@ -67,14 +67,14 @@
     }
   },
   "screenshots": [
-    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\01_sidebar.png",
-    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\list_epics.png",
-    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\list_backlog.png",
-    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\list_proposals.png",
-    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\list_documents.png",
-    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\list_members.png",
-    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\popover_project_switcher.png",
-    "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\popover_notification.png"
+    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\01_sidebar.png",
+    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\list_epics.png",
+    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\list_backlog.png",
+    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\list_proposals.png",
+    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\list_documents.png",
+    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\list_members.png",
+    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\popover_project_switcher.png",
+    "D:\\AI\\Projects\\AgentBoard\\tests\\e2e_epic149\\screenshots\\318\\popover_notification.png"
   ],
   "issues": [],
   "verdict": "PASS",

@@ -1,7 +1,7 @@
 # Epic 149 Story 319 自动化 E2E 验证报告
 
 **标题**: 阶段3 视图逐个迁移（八视图）
-**验证时间**: 2026-08-20T09:42:15
+**验证时间**: 2026-08-20T12:04:01
 **环境**: 本地 ng serve http://127.0.0.1:4200（/api 代理生产后端 http://124.220.44.12），项目 3
 **结论**: **PASS**
 
@@ -12,22 +12,22 @@
 
 ## Story 319 视图验证
 
-- 概览 (tab=overview): textLen=610 svgUse=0 selector=True
-- 看板 (tab=kanban): textLen=257 svgUse=0 selector=True
-- Epics (tab=epics): textLen=939 svgUse=0 selector=True
-- 工作项 (tab=backlog): textLen=1190 svgUse=0 selector=True
+- 概览 (tab=overview): textLen=644 svgUse=0 selector=True
+- 看板 (tab=kanban): textLen=279 svgUse=0 selector=True
+- Epics (tab=epics): textLen=954 svgUse=0 selector=True
+- 工作项 (tab=backlog): textLen=1335 svgUse=0 selector=True
 - 提案 (tab=proposals): textLen=356 svgUse=0 selector=True
-- 文档 (tab=documents): textLen=2965 svgUse=0 selector=True
-- 成员与 Agents (tab=members): textLen=822 svgUse=0 selector=True
-- 设置 (tab=settings): textLen=259 svgUse=0 selector=None
+- 文档 (tab=documents): textLen=3027 svgUse=0 selector=True
+- 成员与 Agents (tab=members): textLen=806 svgUse=0 selector=True
+- 设置 (tab=settings): textLen=292 svgUse=0 selector=None
 
 ## 截图
 
-- E:\Projects\WorkBuddy\AgentBoard\tests\e2e_epic149\screenshots\319\view_overview.png
-- E:\Projects\WorkBuddy\AgentBoard\tests\e2e_epic149\screenshots\319\view_kanban.png
-- E:\Projects\WorkBuddy\AgentBoard\tests\e2e_epic149\screenshots\319\view_epics.png
-- E:\Projects\WorkBuddy\AgentBoard\tests\e2e_epic149\screenshots\319\view_backlog.png
-- E:\Projects\WorkBuddy\AgentBoard\tests\e2e_epic149\screenshots\319\view_proposals.png
-- E:\Projects\WorkBuddy\AgentBoard\tests\e2e_epic149\screenshots\319\view_documents.png
-- E:\Projects\WorkBuddy\AgentBoard\tests\e2e_epic149\screenshots\319\view_members.png
-- E:\Projects\WorkBuddy\AgentBoard\tests\e2e_epic149\screenshots\319\view_settings.png
+- D:\AI\Projects\AgentBoard\tests\e2e_epic149\screenshots\319\view_overview.png
+- D:\AI\Projects\AgentBoard\tests\e2e_epic149\screenshots\319\view_kanban.png
+- D:\AI\Projects\AgentBoard\tests\e2e_epic149\screenshots\319\view_epics.png
+- D:\AI\Projects\AgentBoard\tests\e2e_epic149\screenshots\319\view_backlog.png
+- D:\AI\Projects\AgentBoard\tests\e2e_epic149\screenshots\319\view_proposals.png
+- D:\AI\Projects\AgentBoard\tests\e2e_epic149\screenshots\319\view_documents.png
+- D:\AI\Projects\AgentBoard\tests\e2e_epic149\screenshots\319\view_members.png
+- D:\AI\Projects\AgentBoard\tests\e2e_epic149\screenshots\319\view_settings.png
