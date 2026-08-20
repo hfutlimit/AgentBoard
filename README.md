@@ -23,6 +23,62 @@
 - **Web**（`frontend/` + `agentboard/web_app.py`）：Angular 21 LTS 独立 SPA，构建后由 FastAPI 托管，浏览器通过 `HttpClient` 调 API。
 - **MCP**（`agentboard/mcp_server.py`）：仅通过 httpx 调用 REST API，不直接访问数据库。
 
+### 2026-08 起：双栈 BFF 过渡（Stage 0+）
+
+公开入口从 FastAPI 单体演进为「.NET 10 BFF + FastAPI 内部 AI 服务」双栈。详细架构图、Feature 归属矩阵与数据访问边界见 [`docs/architecture-v2.md`](docs/architecture-v2.md)：
+
+```mermaid
+flowchart LR
+    subgraph External["External Clients"]
+        Web["Angular 21 SPA"]
+        MCPClient["MCP Clients"]
+        SDK["External SDKs"]
+    end
+
+    subgraph Edge["Reverse Proxy"]
+        Nginx["nginx :80/:443<br/>+ TLS + X-Request-Id"]
+    end
+
+    subgraph BFF[".NET 10 BFF (S0+)"]
+        DotNet["AgentBoard.Api :18000"]
+        SignalR["SignalR /hubs/agents<br/>(Stage 2)"]
+        DotNet -. hosts .-> SignalR
+    end
+
+    subgraph Legacy["FastAPI (Source of Truth)"]
+        FastAPI["agentboard.api:app :8000"]
+        McpServer["mcp_server.py<br/>(stdio + http)"]
+        Alembic["Alembic<br/>(DB schema 真源)"]
+    end
+
+    Data[("MariaDB 10.11<br/>+ RabbitMQ 3.13")]
+
+    Web --> Nginx
+    MCPClient --> Nginx
+    SDK --> Nginx
+    Nginx -->|"/api/* (Stage 2+)<br/>weight 10..100"| DotNet
+    Nginx -->|"/api/* (Stage 0/1)<br/>weight 90..0"| FastAPI
+    Nginx -->|"/mcp/*"| McpServer
+    DotNet -->|HttpClient<br/>+ traceparent| FastAPI
+    DotNet -. read-only .-> Data
+    FastAPI --> Data
+    Alembic --> Data
+    McpServer -->|httpx| FastAPI
+```
+
+**当前状态（Stage 0 完成）**：
+- ✅ .NET 10 脚手架 + 健康/元数据双端点 1:1 兼容 FastAPI
+- ✅ 契约冻结：FastAPI 仍是公开 REST 契约真源
+- ✅ 双栈 docker-compose 一键启停（`scripts/dev-up.ps1`）
+- ✅ Serilog + OpenTelemetry 接入（X-Request-Id + traceparent 跨栈）
+- ⏳ 切流：Stage 2 灰度（nginx upstream 权重 10 → 100）
+- ⏳ SignalR：Stage 2 全新
+- ⏳ 写路径迁 .NET：Stage 2+
+
+完整 Stage 0~3 任务清单：[`openspec/changes/dual-stack-bff-restructure/tasks.md`](openspec/changes/dual-stack-bff-restructure/tasks.md)。
+运维 & 切流手册：[`docs/dual-stack-bff-runbook.md`](docs/dual-stack-bff-runbook.md)。
+.NET 端规约：[`dotnet/README.md`](dotnet/README.md)。
+
 ## 目录结构
 
 > 2026-08 垂直切片重构后（`docs/refactor-plan.md` 9 阶段落地）：所有业务逻辑按

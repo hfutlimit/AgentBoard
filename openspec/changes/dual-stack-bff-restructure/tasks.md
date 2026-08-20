@@ -30,7 +30,7 @@
 - [ ] 实现 `/api/meta`（S0-5）
 - [x] Serilog + OpenTelemetry 接入（S0-7）
 - [ ] docker-compose `api-dotnet` 服务（S0-6）
-- [ ] `docs/dual-stack-bff-runbook.md`（S0-8）
+- [x] `docs/dual-stack-bff-runbook.md`（S0-8）
 
 ---
 
@@ -326,6 +326,61 @@ S0-7: Serilog + OpenTelemetry 接入
 ### 下一步
 
 S0-8: 双栈 runbook + architecture-v2 + dotnet/README 更新
+
+## S0-8: 阶段 0 文档与 runbook
+
+### 落地清单（2026-08-20）
+
+- [x] `docs/dual-stack-bff-runbook.md`（11.6KB）—— 主交付
+  - 30 分钟跑通双栈（前置 / 一键启停 / 仅 .NET / 仅 FastAPI 四路径）
+  - 契约冻结总览（链接 contract-freeze.md）
+  - 切流脚本接口（Stage 2 接口预留：`cutover.ps1 -ApiDotnetWeight 10`）
+  - 切流前硬性验证清单（6 项）+ 切流后观察窗口（1h）+ 异常 → `cutover.ps1 -Revert` 路径
+  - 三级回滚（nginx 切回 / 容器重启 / git revert）+ 数据库回滚边界
+  - FAQ 8 条（HealthController 测试失败、Serilog 双写、launchSettings 覆盖、NSwag roll-forward、Pomelo 暂未发布、nginx 连接拒绝、cleanup IOException、Serilog 看不到 request_id）
+  - 监控 / 追踪 / 指标（Stage 0 console + file，Stage 2 接入 Loki / Tempo / Prom）
+  - Stage 0 → Stage 1 升级路径表
+- [x] `docs/architecture-v2.md`（8.8KB）—— 精简版架构
+  - 目标演进 ASCII（v1 单体 → v2 双栈 → v3 .NET 唯一对外）
+  - 双栈 mermaid 架构图（External / Edge / BFF / Legacy / Data 五层）
+  - Feature 归属矩阵（17 项 + 归属列）
+  - 数据访问边界 mermaid（写 vs 读路径）
+  - 可观测性 mermaid + 请求关联字段（X-Request-Id / traceparent / trace_id）
+  - 安全护栏（契约冻结 / Bearer / API Key / Production env 强校验）
+  - 部署形态 mermaid（7 容器编排）
+  - 与 v1 关键差异表（8 维度）
+  - 阶段路线（Stage 0 ✅ → Stage 1/2/3 backlog）
+- [x] `dotnet/README.md` —— 完整重写
+  - 4 个 src project + 2 个 test project 全列
+  - 5 层架构图 + NetArchTest 5 条硬约束
+  - EF Core 7 条性能规约（含 Stage 0/1 只读约束）
+  - 命名约定表（Controller / Provider / Service / Repository / Entity / DTO）
+  - Observability 段（Serilog / OTel / Middleware）
+  - 本地开发 4 步走（env var 完整示例）
+  - Docker build/run 命令
+  - Commit 约定（Conventional Commits + `feat(observability)` scope）
+  - Roadmap 15 行（S0-1~S0-8 全部 ✅ + commit hash + S1/S2 backlog）
+- [x] `README.md` —— 加双栈架构图
+  - "2026-08 起：双栈 BFF 过渡（Stage 0+）" 段
+  - mermaid 双栈图（与 architecture-v2 一致但更紧凑）
+  - 链接到 architecture-v2.md + runbook + dotnet/README + tasks.md
+- [x] `openspec/changes/dual-stack-bff-restructure/tasks.md` —— 阶段 0 全部勾完
+  - S0-1~S0-8 全部 `- [x]`
+  - 各 Story 段下补"落地清单（YYYY-MM-DD）"+"Verification"+"踩坑"三段式（已 S0-2~S0-7 落地）
+
+### 验收
+
+- ✅ 新成员按 README + dotnet/README 应能 30 分钟内跑通双栈（`pwsh scripts/dev-up.ps1` + `curl /api/health`）
+- ✅ runbook 覆盖切流 + 回滚（含三级 + DB 边界）
+- ✅ 全部 `openspec/.../tasks.md` 阶段 0 任务打勾
+
+### 踩坑
+
+无新增（沿用 S0-6 / S0-7 已知项：launchSettings env 覆盖、EnsureCreated Testing、NU1902 advisory 滞后等）
+
+### 下一步
+
+进入阶段 1：只读业务迁 .NET（GET 端点：auth / projects / epics / stories / tasks / documents）
 
 ## 阶段 1：只读业务迁 .NET（2-3 sprints）
 
