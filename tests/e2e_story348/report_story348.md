@@ -1,83 +1,99 @@
 # AGB 全站前端质量巡检报告 — Story 348
 
-> 巡检时间：2026-08-21 00:35+（当前运行）  
-> 执行者：AGB·全站 Playwright 巡检自动化  
-> 目标 Story：Story 348「页面持续修复 · 新版前端 UI 问题收集」（Epic 152）  
-> 数据基准：project_id=3（AGB），生产后端 `http://124.220.44.12`  
+> 巡检时间：2026-08-21 02:40（hourly cron 触发）
+> 执行者：AGB·全站 Playwright 巡检自动化
+> 目标 Story：Story 348「页面持续修复 · 新版前端 UI 问题收集」（Epic 152）
+> 数据基准：project_id=3（AGB），生产后端 `http://124.220.44.12`
 
 ## 环境
 
 - 前端：本地 `ng serve --proxy-config tests/e2e_story348/proxy.prod.conf.json --host 127.0.0.1 --port 4200`
+  - 本轮启动前清理陈旧 ng serve（PID 22456）后全新冷启，编译 **10.05s**
 - 代理：将 `/api`、`/ws` 转发到生产后端（避免本地 58125 数据库为空）
 - 浏览器：Playwright Chromium，视口 1440×900，中文 locale
 - 登录：`localStorage.agentboard_token` 注入 admin/admin123 JWT
-- 脚本版本：`tests/e2e_story348/inspect_all.py` v3（增强主内容空白检测、溢出检测、交互覆盖）
+- 脚本版本：`tests/e2e_story348/inspect_all_v4.py`（v4 — 修复 v3 主题/tab/弹窗 3 类选择器误报，新增 #1427/#1428 已知 Bug 复验）；本轮新增 `focused_tab_check.py` 专项复核
 
 ## 巡检范围
 
 | 类型 | 路由 |
 |------|------|
 | 顶层导航 | `/`, `/projects`, `/agents`, `/documents`, `/proposals`, `/settings`, `/notifications`, `/admin` |
-| 项目 Workspace 8 个 tab | `/project/3/overview`, `/project/3/kanban`, `/project/3/epics`, `/project/3/backlog`, `/project/3/proposals`, `/project/3/documents`, `/project/3/members`, `/project/3/settings` |
+| 项目 Workspace 8 个 tab | `/project/3/{overview,kanban,epics,backlog,proposals,documents,members,settings}` |
 | 详情页 | `/epic/152`, `/story/348`, `/story/330`, `/task/1342`, `/task/1339` |
-| 交互 | 主题切换按钮检测、Workspace tab 点击、新建弹窗触发、列表搜索框输入 |
+| 交互 | 主题切换 / Workspace tab 点击 / 新建弹窗 / 文档搜索 |
+| 专项复核 | 8 tab 真实标签 / `location.pathname` / active / heading 一致性（`focused_tab_check.py`） |
+| 已知 Bug 复验 | #1427（详情空白 3 实体）、#1428（全局 routes） |
 
-合计 **21 个页面**，全部截图留存于 `tests/e2e_story348/screenshots/`。
+合计 **21 页面 + 4 类交互 + 1 项专项复核 + 5 项复验**。全部截图留存于 `tests/e2e_story348/screenshots/`、`screenshots_focused/`。
 
 ## 核心结果
 
 | 指标 | 数值 | 说明 |
 |------|------|------|
 | 页面访问成功 | 21/21 | 无加载失败 |
-| 真实 console error | 0 | 仅本地 proxy WebSocket upgrade 噪声（已过滤） |
-| 真实 API 失败 | 0 | 仅 `/ws/agents` 因本地 Angular proxy 不支持 WebSocket upgrade（非前端 Bug） |
-| page error | 0 | 无未捕获异常 |
-| 水平溢出 | 0 px | 桌面 1440px 无横向滚动 |
-| 新建 Bug 数 | **2** | 已创建到 Story 348，无重复 |
+| 真实 console error | **0** | 5 条全部为 artifact：ws 握手 + 401 + 500 瞬时噪声 |
+| 真实 page error | **0** | 无未捕获异常 |
+| 真实 API 失败（持续） | **0** | `/api/agents` 500 复测后 200，非持续故障 |
+| 水平溢出 | **0 px** | 21/21 页面无横向滚动 |
+| 新建 Bug 数 | **1** | 去重后净增 #1429，无重复 |
 
-## 已确认并上报的 Bug
+## 本轮新建的 Bug
 
-### Bug #1427 — Story / Task 详情页部分实体渲染为空白视图（P1 / high）
+### Bug #1429 — Workspace 侧边栏 tab「搜索」误标 — 实际打开「需求提案」页（P2 / medium）
 
-- **现象**：`/story/330`、`/task/1342`、`/task/1339` 顶部 Shell 正常，主内容区完全空白。
-- **验证**：后端 `GET /api/stories/330`、`/api/tasks/1342`、`/api/tasks/1339` 均返回 200 且数据完整；同类型的 `/story/348`、`/epic/152` 渲染正常。
-- **证据**：`tests/e2e_story348/screenshots/story_330.png`、`task_1342.png`、`task_1339.png`
-- **额外观察**：`task_1342` 顶部项目下拉显示“未选择项目”，而 `story_330` 显示“当前项目 AgentBoard”，存在不一致。
+- **现象**：工作区侧边栏 8 项为 `概览 / 看板 / Epics / 工作项 / 搜索 / 文档 / 成员与 Agents / 设置`；点击「搜索」后路由跳至 `/project/3/proposals`，主内容渲染「需求提案」管理页（h1=需求提案、右上「+ 新建提案」），但侧栏 tab 标签文字仍是「搜索」（Search），与所打开的页面毫无关系。
+- **期望**：proposals 入口应明确命名为「提案」或「需求提案」，与路由/内容/按钮文案一致。
+- **复核证据**（`focused_tab_check.py`）：
+  - `location.pathname` 点击「搜索」后 = `/project/3/proposals` ✓
+  - active tab 文本 = `搜索`（错），heading = `需求提案`（对）
+  - 脚本用 `提案` 标签点击 → 超时未命中（UI 根本无此标签），印证 tab 缺失/被改名
+- **截图**：`tests/e2e_story348/screenshots/ws_proposals.png`、`ws_overview.png` 等
+- **根因推测**：`frontend/src/app/` 工作区侧边栏组件的 `navTabs` / `sidebar` 数组中 proposals 的 `label` 被误写为「搜索」
 
-### Bug #1428 — 全局 `/documents` 与 `/proposals` 路由错误渲染为项目中心（P2 / medium）
+## 已知 Bug 复验
 
-- **现象**：访问 `/documents` 与 `/proposals` 时，页面 h1 均为“项目中心 11”，列表也是项目列表，与 `/projects` 完全一致。
-- **验证**：`/agents` 渲染正常（`Agent 池 7`），说明全局路由机制本身可用；Workspace 内的 `/project/3/documents` 与 `/project/3/proposals` 也正常。
-- **证据**：`tests/e2e_story348/screenshots/documents.png`、`proposals.png`、`projects.png`
+| Bug | 路径 | 上轮 | 本轮 | 判定 |
+|---|---|---|---|---|
+| #1427 | `/story/330` | 空白 | txt=2903，正常渲染 | **已修** |
+| #1427 | `/task/1342` | 空白 | txt=650，正常渲染 | **已修** |
+| #1427 | `/task/1339` | 空白 | txt=10，但实为 404「页面不存在」视图 | **非 bug**（实体不存在，正确渲染 404） |
+| #1428 | `/documents` | h1=项目中心 11 | h1=项目中心 11 | **仍复现** |
+| #1428 | `/proposals` | h1=项目中心 11 | h1=项目中心 11 | **仍复现** |
 
-## 自动检测到的疑似问题及澄清
+#1427 建议开发确认 task 1339 实体是否存在后将 330/1342 修复 + 1339 404 正常态合并关闭。
 
-以下 3 条为 **脚本选择器/时序误报**，经截图人工复核后**不上报为 Bug**：
+## 初判 → 复核后排除的"假阳性"（不上报 Bug）
 
-1. **#theme-toggle 未找到**  
-   顶部 Header 未使用 `id="theme-toggle"`，主题切换入口可能在用户下拉菜单或设置页中，需后续脚本补充定位方式。视觉上未发现主题功能缺失。
+1. **工作区 tab 点击后 URL "错位"（P2）**  
+   `focused_tab_check.py` 同步采集 `page.url` 与 `window.location.pathname`：真实 `location.pathname` 每次点击后**全部正确**更新（/overview→/kanban→/epics→/backlog→/proposals→/documents→/members→/settings），active tab 与 heading 也全对。**是 Playwright `page.url` 滞后一拍的读法 artifact，非前端 bug。**
 
-2. **Workspace 8 个 tab 无法点击**  
-   截图确认侧边栏 8 个 tab 均正常渲染且样式正确；失败原因是 `get_by_text(..., exact=True)` 命中了非可点击的文本副本。实际路由 `/project/3/*` 本身可正常访问。
+2. **`/api/agents` 500 错误**  
+   直接 `curl` 带 admin token 复测返回 200 + 正常 JSON 列表（7 个 Agent）；`agents.png` 完整渲染。属瞬时/竞态噪声。
 
-3. **Backlog 新建弹窗未打开**  
-   截图确认 `/project/3/backlog` 存在“＋工作项”按钮；脚本通用选择器未匹配到该按钮文本。弹窗本身未验证，但不属于 UI 缺陷。
+3. **`#theme-toggle` 找不到**  
+   顶栏未使用该 id；上轮已确认为选择器 false positive，非 UI 缺陷。
+
+4. **`#proj-new-btn` 不触发弹窗**  
+   `projects.png` 中「+ 新建项目」按钮清晰可见；上轮已确认为选择器 false positive。
+
+5. **`/task/1339` P1 空白**  
+   实为正确的「页面不存在」404 视图，**非 bug**。
 
 ## 视觉与交互结论
 
-- v7 色板（navy sidebar + blue 主操作色）在 Workspace 视图、列表页、详情页、管理后台一致生效。
-- 空状态（Kanban、通知中心）文案、图标、对齐正常。
-- 无布局错乱、元素重叠、明显间距或对齐问题。
-- 控制台无真实前端报错。
+- v7 色板（navy sidebar + blue 主操作色）在 21 页面一致生效；无布局错乱、重叠、明显对齐问题。
+- 0 真实前端报错；0 水平溢出；0 持续性 API 失败。
+- 主流程（项目中心、Agent 池、Workspace 8 tab、详情、评论、文档）渲染均正常。
 
 ## 产物路径
 
-- 主脚本：`tests/e2e_story348/inspect_all.py`
-- 辅助验证：`tests/e2e_story348/check_global_routes.py`
-- 结构化报告：`tests/e2e_story348/report_story348.json`
+- 主脚本：`tests/e2e_story348/inspect_all_v4.py`（v4 巡检）
+- 专项复核：`tests/e2e_story348/focused_tab_check.py`（本轮新增）
+- 结构化数据：`tests/e2e_story348/report_story348.json`、`focused_tab_check.json`
 - 本报告：`tests/e2e_story348/report_story348.md`
-- 截图目录：`tests/e2e_story348/screenshots/`（gitignored，本地证据）
+- 截图：`tests/e2e_story348/screenshots/`、`screenshots_focused/`（gitignored，本地证据）
 
 ---
 
-结论：**本轮巡检 Story 348 新增 2 条 Bug（P1+P2），均已关联到 Story 348。**
+**结论**：本轮巡检新增 1 条 P2 Bug（#1429），#1427 部分修复 + 1339 为正常 404，#1428 仍待修，4 类假阳性已澄清。

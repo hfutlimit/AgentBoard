@@ -1,0 +1,78 @@
+[
+  {
+    "tab": "概览",
+    "page_url": "http://127.0.0.1:4200/project/3/overview",
+    "location_pathname": "/project/3/overview",
+    "active_texts": [
+      "概览",
+      "工作台"
+    ],
+    "main_heading": "项目概览"
+  },
+  {
+    "tab": "看板",
+    "page_url": "http://127.0.0.1:4200/project/3/kanban",
+    "location_pathname": "/project/3/kanban",
+    "active_texts": [
+      "看板",
+      "工作台"
+    ],
+    "main_heading": "看板\n0\n仅看板标记"
+  },
+  {
+    "tab": "Epics",
+    "page_url": "http://127.0.0.1:4200/project/3/kanban",
+    "location_pathname": "/project/3/epics",
+    "active_texts": [
+      "Epics",
+      "工作台"
+    ],
+    "main_heading": "Epics"
+  },
+  {
+    "tab": "工作项",
+    "page_url": "http://127.0.0.1:4200/project/3/epics",
+    "location_pathname": "/project/3/backlog",
+    "active_texts": [
+      "工作项",
+      "工作台"
+    ],
+    "main_heading": "工作项\n200"
+  },
+  {
+    "tab": "搜索",
+    "click_err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\"a, button\").filter(has_text=\"搜索\").first\n"
+  },
+  {
+    "tab": "文档",
+    "page_url": "http://127.0.0.1:4200/project/3/backlog",
+    "location_pathname": "/project/3/documents",
+    "active_texts": [
+      "文档",
+      "⊞",
+      "工作台"
+    ],
+    "main_heading": "项目文档"
+  },
+  {
+    "tab": "成员与 Agents",
+    "page_url": "http://127.0.0.1:4200/project/3/documents",
+    "location_pathname": "/project/3/members",
+    "active_texts": [
+      "成员与 Agents",
+      "工作台"
+    ],
+    "main_heading": "成员与 Agents\n5 成员 · 7 Agent（全局）"
+  },
+  {
+    "tab": "设置",
+    "page_url": "http://127.0.0.1:4200/project/3/members",
+    "location_pathname": "/project/3/settings",
+    "active_texts": [
+      "设置",
+      "📦\n基本信息\n名称、描述、归档",
+      "工作台"
+    ],
+    "main_heading": "项目设置"
+  }
+]

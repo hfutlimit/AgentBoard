@@ -18,7 +18,7 @@
       "name": "projects",
       "path": "/projects",
       "url": "http://127.0.0.1:4200/projects",
-      "main_text_len": 1303,
+      "main_text_len": 1304,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 937,
@@ -44,7 +44,7 @@
       "url": "http://127.0.0.1:4200/documents",
       "expected_selector_present": false,
       "expected_child_count": -1,
-      "main_text_len": 1303,
+      "main_text_len": 1304,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 937,
@@ -58,7 +58,7 @@
       "url": "http://127.0.0.1:4200/proposals",
       "expected_selector_present": false,
       "expected_child_count": -1,
-      "main_text_len": 1303,
+      "main_text_len": 1304,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 937,
@@ -150,7 +150,7 @@
       "url": "http://127.0.0.1:4200/project/3/backlog",
       "expected_selector_present": true,
       "expected_child_count": 1,
-      "main_text_len": 1162,
+      "main_text_len": 1153,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 1536,
@@ -230,10 +230,10 @@
       "name": "story_348",
       "path": "/story/348",
       "url": "http://127.0.0.1:4200/story/348",
-      "main_text_len": 1559,
+      "main_text_len": 2552,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 2084,
+        "h": 2848,
         "w": 1440
       },
       "screenshot": "screenshots\\story_348.png"
@@ -242,10 +242,10 @@
       "name": "story_330",
       "path": "/story/330",
       "url": "http://127.0.0.1:4200/story/330",
-      "main_text_len": 0,
+      "main_text_len": 2903,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 836,
+        "h": 2326,
         "w": 1440
       },
       "screenshot": "screenshots\\story_330.png"
@@ -254,19 +254,19 @@
       "name": "task_1342",
       "path": "/task/1342",
       "url": "http://127.0.0.1:4200/task/1342",
-      "main_text_len": 0,
+      "main_text_len": 650,
       "horizontal_overflow_px": 0,
       "main_dim": {
-        "h": 836,
+        "h": 1129,
         "w": 1440
       },
       "screenshot": "screenshots\\task_1342.png"
     },
     {
       "name": "task_1339",
-      "path": "/task/1339",
-      "url": "http://127.0.0.1:4200/task/1339",
-      "main_text_len": 0,
+      "path": "/task_1339",
+      "url": "http://127.0.0.1:4200/task_1339",
+      "main_text_len": 10,
       "horizontal_overflow_px": 0,
       "main_dim": {
         "h": 836,
@@ -281,11 +281,19 @@
       "artifact": true
     },
     {
-      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789835986.55320304679f0ae82aa74c611c8516963012d81abaafdb7e7fbbbf81d86323ac' failed: Error during WebSocket handshake: Unexpected response code: 200",
+      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789843078.e24f90921f6d050cf7d74f0876a3b48689e8270685f9d290092fb51fb7e7c290' failed: Error during WebSocket handshake: Unexpected response code: 200",
       "artifact": true
     },
     {
-      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789835986.55320304679f0ae82aa74c611c8516963012d81abaafdb7e7fbbbf81d86323ac' failed: Error during WebSocket handshake: Unexpected response code: 200",
+      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789843078.e24f90921f6d050cf7d74f0876a3b48689e8270685f9d290092fb51fb7e7c290' failed: Error during WebSocket handshake: Unexpected response code: 200",
+      "artifact": true
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "artifact": true
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
       "artifact": true
     }
   ],
@@ -295,12 +303,23 @@
       "url": "http://127.0.0.1:4200/api/agents",
       "status": 401,
       "artifact": true
+    },
+    {
+      "url": "http://127.0.0.1:4200/api/agents",
+      "status": 500,
+      "artifact": false
+    },
+    {
+      "url": "http://127.0.0.1:4200/api/agents",
+      "status": 500,
+      "artifact": false
     }
   ],
   "interactions": [
     {
       "name": "theme_toggle",
-      "result": "no #theme-toggle found"
+      "toggle_button_found": false,
+      "result": "error: Page.wait_for_selector: Timeout 8000ms exceeded.\nCall log:\n  - waiting for locator(\"#theme-toggle\") to be visible\n"
     },
     {
       "name": "ws_tab_clicks",
@@ -308,42 +327,46 @@
         {
           "tab": "概览",
           "clicked": false,
-          "err": "Locator.click: Timeout 3000ms exceeded.\nCall log:\n  - waiting for get_by_text(\"概"
+          "err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\".project-nav-button-v7\")."
         },
         {
           "tab": "看板",
-          "clicked": false,
-          "err": "Locator.click: Timeout 3000ms exceeded.\nCall log:\n  - waiting for get_by_text(\"看"
+          "clicked": true,
+          "url": "http://127.0.0.1:4200/project/3/kanban",
+          "url_matches": true
         },
         {
           "tab": "Epics",
           "clicked": false,
-          "err": "Locator.click: Timeout 3000ms exceeded.\nCall log:\n  - waiting for get_by_text(\"E"
+          "err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\".project-nav-button-v7\")."
         },
         {
           "tab": "工作项",
           "clicked": false,
-          "err": "Locator.click: Timeout 3000ms exceeded.\nCall log:\n  - waiting for get_by_text(\"工"
+          "err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\".project-nav-button-v7\")."
         },
         {
           "tab": "提案",
           "clicked": false,
-          "err": "Locator.click: Timeout 3000ms exceeded.\nCall log:\n  - waiting for get_by_text(\"提"
+          "err": "Locator.click: Timeout 4000ms exceeded.\nCall log:\n  - waiting for locator(\".project-nav-button-v7\")."
         },
         {
           "tab": "文档",
-          "clicked": false,
-          "err": "Locator.click: Timeout 3000ms exceeded.\nCall log:\n  - waiting for get_by_text(\"文"
+          "clicked": true,
+          "url": "http://127.0.0.1:4200/project/3/documents",
+          "url_matches": true
         },
         {
           "tab": "成员与 Agents",
-          "clicked": false,
-          "err": "Locator.click: Timeout 3000ms exceeded.\nCall log:\n  - waiting for get_by_text(\"成"
+          "clicked": true,
+          "url": "http://127.0.0.1:4200/project/3/documents",
+          "url_matches": true
         },
         {
           "tab": "设置",
-          "clicked": false,
-          "err": "Locator.click: Timeout 3000ms exceeded.\nCall log:\n  - waiting for get_by_text(\"设"
+          "clicked": true,
+          "url": "http://127.0.0.1:4200/project/3/members",
+          "url_matches": true
         }
       ]
     },
@@ -352,48 +375,81 @@
       "result": "no_dialog_trigger"
     },
     {
-      "name": "backlog_search",
+      "name": "documents_search",
       "result": "typed"
     }
   ],
   "findings": [
     {
-      "page": "story_330",
-      "path": "/story/330",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图)"
-    },
-    {
-      "page": "task_1342",
-      "path": "/task/1342",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图)"
-    },
-    {
       "page": "task_1339",
-      "path": "/task/1339",
+      "path": "/task_1339",
       "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图)"
+      "issue": "主内容区文本长度仅 10 字符(疑似空白/未渲染视图)"
     },
     {
       "page": "global",
       "path": "/",
       "severity": "P2",
-      "issue": "未找到 #theme-toggle 主题切换按钮"
+      "issue": "未找到 #theme-toggle 主题切换按钮(首页视图下应渲染)"
     },
     {
       "page": "ws_tabs",
       "path": "/project/3/*",
       "severity": "P2",
-      "issue": "工作区 tab 无法点击: ['概览', '看板', 'Epics', '工作项', '提案', '文档', '成员与 Agents', '设置']"
+      "issue": "工作区 tab 点击后未正确导航: ['概览', 'Epics', '工作项', '提案']"
     },
     {
-      "page": "ws_backlog",
-      "path": "/project/3/backlog",
+      "page": "projects",
+      "path": "/projects",
       "severity": "P3",
-      "issue": "未找到/无法打开新建(工作项/Story)弹窗入口"
+      "issue": "点击 #proj-new-btn 未打开新建项目弹窗(或弹窗未渲染)"
+    }
+  ],
+  "known_bug_recheck": [
+    {
+      "bug": "#1427",
+      "page": "story_330",
+      "path": "/story/330",
+      "still_blank": false
+    },
+    {
+      "bug": "#1427",
+      "page": "task_1342",
+      "path": "/task/1342",
+      "still_blank": false
+    },
+    {
+      "bug": "#1427",
+      "page": "task_1339",
+      "path": "/task/1339",
+      "still_blank": false
+    },
+    {
+      "bug": "#1428",
+      "page": "documents",
+      "path": "/documents",
+      "h1": "项目中心\n11",
+      "renders_as_project_center": true
+    },
+    {
+      "bug": "#1428",
+      "page": "proposals",
+      "path": "/proposals",
+      "h1": "项目中心\n11",
+      "renders_as_project_center": true
     }
   ],
   "real_console_errors": [],
-  "real_failed_requests": []
+  "real_failed_requests": [
+    {
+      "url": "http://127.0.0.1:4200/api/agents",
+      "status": 500,
+      "artifact": false
+    },
+    {
+      "url": "http://127.0.0.1:4200/api/agents",
+      "status": 500,
+      "artifact": false
+    }
+  ]
 }
