@@ -1,7 +1,7 @@
 import { CommonModule } from '@angular/common';
 import { Component, HostListener, OnDestroy, OnInit, ViewEncapsulation, computed, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router';
+import { NavigationEnd, Router, RouterLink } from '@angular/router';
 import { firstValueFrom, Subscription } from 'rxjs';
 
 import { buildRevisionDiff, RevisionDiffBlock } from './shared/utils/revision-diff';
@@ -81,7 +81,7 @@ interface PaletteCommand {
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, PaginationComponent, OverviewTabComponent, KanbanTabComponent, EpicsTabComponent, ProposalsTabComponent, DocumentsTabComponent, BacklogTabComponent, TicketsTabComponent, StatsTabComponent, MembersTabComponent, HomeShellComponent, WorkspaceTopbarComponent, WorkspaceHeadingComponent],
+  imports: [CommonModule, FormsModule, RouterLink, LoginComponent, PaginationComponent, OverviewTabComponent, KanbanTabComponent, EpicsTabComponent, ProposalsTabComponent, DocumentsTabComponent, BacklogTabComponent, MembersTabComponent, HomeShellComponent, WorkspaceTopbarComponent, WorkspaceHeadingComponent],
   templateUrl: './app.html',
   styleUrl: './app.css',
   encapsulation: ViewEncapsulation.None,
@@ -2059,15 +2059,27 @@ export class App implements OnInit, OnDestroy {
         await this.loadProjectsCenter();
       } else if (kind === 'project' && id > 0) {
         this.view.set('project');
+        // Epic 151 / Story 327 路由化：扩展 8 tab section 解析。
+        // 原仅支持 overview/proposals/documents/schedules(→settings) 4 个，
+        // 现在支持全部 8 navy tab（overview/kanban/epics/backlog/proposals/
+        // documents/members/settings）；旧 /schedules 路径仍映射 settings。
         const projectTab: ProjectTabKind = section === 'overview'
           ? 'overview'
-          : section === 'proposals'
-            ? 'proposals'
-            : section === 'documents'
-              ? 'documents'
-              : section === 'schedules'
-                ? 'settings' // 定时计划已并入设置页
-                : 'overview'; // 默认进入「项目介绍」tab
+          : section === 'kanban'
+            ? 'kanban'
+            : section === 'epics'
+              ? 'epics'
+              : section === 'backlog'
+                ? 'backlog'
+                : section === 'proposals'
+                  ? 'proposals'
+                  : section === 'documents'
+                    ? 'documents'
+                    : section === 'members'
+                      ? 'members'
+                      : section === 'settings' || section === 'schedules'
+                        ? 'settings' // 定时计划已并入设置页
+                        : 'overview'; // 默认进入「项目概览」tab
         this.activeTab.set(projectTab);
         this.resetProjectListPages();
         this.resetProjectTabs();

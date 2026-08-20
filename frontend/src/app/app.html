@@ -246,31 +246,33 @@
         <div class="sidebar-project-meta-v7">{{ project() && project()!.key ? project()!.key : '项目工作台' }}</div>
       </div>
       <div class="sidebar-label-v7">项目工作台</div>
+      <!-- Epic 151 / Story 327 路由化：8 navy tab 改 routerLink 驱动 URL 切换，
+           由 app.ts loadRoute() 解析 path → activeTab.set 驱动 @if 渲染。 -->
       <nav class="project-nav-v7" aria-label="项目导航">
-        <button type="button" class="project-nav-button-v7" [class.active]="activeTab() === 'overview'" (click)="selectProjectTab('overview')">
+        <a [routerLink]="['/project', project()?.id, 'overview']" class="project-nav-button-v7" [class.active]="activeTab() === 'overview'">
           <svg class="icon-v7"><use href="#i-home"/></svg><span>概览</span>
-        </button>
-        <button type="button" class="project-nav-button-v7" [class.active]="activeTab() === 'kanban'" (click)="selectProjectTab('kanban')">
+        </a>
+        <a [routerLink]="['/project', project()?.id, 'kanban']" class="project-nav-button-v7" [class.active]="activeTab() === 'kanban'">
           <svg class="icon-v7"><use href="#i-board"/></svg><span>看板</span>
-        </button>
-        <button type="button" class="project-nav-button-v7" [class.active]="activeTab() === 'epics'" (click)="selectProjectTab('epics')">
+        </a>
+        <a [routerLink]="['/project', project()?.id, 'epics']" class="project-nav-button-v7" [class.active]="activeTab() === 'epics'">
           <svg class="icon-v7"><use href="#i-flag"/></svg><span>Epics</span>
-        </button>
-        <button type="button" class="project-nav-button-v7" [class.active]="activeTab() === 'backlog' || activeTab() === 'tickets'" (click)="selectProjectTab('backlog')">
+        </a>
+        <a [routerLink]="['/project', project()?.id, 'backlog']" class="project-nav-button-v7" [class.active]="activeTab() === 'backlog' || activeTab() === 'tickets'">
           <svg class="icon-v7"><use href="#i-list"/></svg><span>工作项</span>
-        </button>
-        <button type="button" class="project-nav-button-v7" [class.active]="activeTab() === 'proposals'" (click)="selectProjectTab('proposals')">
+        </a>
+        <a [routerLink]="['/project', project()?.id, 'proposals']" class="project-nav-button-v7" [class.active]="activeTab() === 'proposals'">
           <svg class="icon-v7"><use href="#i-message"/></svg><span>提案</span>
-        </button>
-        <button type="button" class="project-nav-button-v7" [class.active]="activeTab() === 'documents'" (click)="selectProjectTab('documents')">
+        </a>
+        <a [routerLink]="['/project', project()?.id, 'documents']" class="project-nav-button-v7" [class.active]="activeTab() === 'documents'">
           <svg class="icon-v7"><use href="#i-file"/></svg><span>文档</span>
-        </button>
-        <button type="button" class="project-nav-button-v7" [class.active]="activeTab() === 'members'" (click)="selectProjectTab('members')">
+        </a>
+        <a [routerLink]="['/project', project()?.id, 'members']" class="project-nav-button-v7" [class.active]="activeTab() === 'members'">
           <svg class="icon-v7"><use href="#i-users"/></svg><span>成员与 Agents</span>
-        </button>
-        <button type="button" class="project-nav-button-v7" [class.active]="activeTab() === 'settings'" (click)="selectProjectTab('settings')">
+        </a>
+        <a [routerLink]="['/project', project()?.id, 'settings']" class="project-nav-button-v7" [class.active]="activeTab() === 'settings'">
           <svg class="icon-v7"><use href="#i-settings"/></svg><span>设置</span>
-        </button>
+        </a>
       </nav>
       <div class="sidebar-foot-v7">
         <div class="health-line-v7">
@@ -536,59 +538,15 @@
             @if (current.description) {
               <div class="card md text-pre">{{ current.description }}</div>
             }
-            <!-- Tab bar -->
-            <div class="tab-bar tab-bar-card">
-              <button class="tab-btn" [class.active]="activeTab() === 'overview'" (click)="selectProjectTab('overview')">
-                <span class="tab-icon">📘</span>
-                <span class="tab-label">项目介绍</span>
-              </button>
-              <button class="tab-btn" [class.active]="activeTab() === 'epics'" (click)="selectProjectTab('epics')">
-                <span class="tab-icon">⚡</span>
-                <span class="tab-label">Epics</span>
-                @if (isProjectTabLoaded('epics')) { <span class="tab-count">{{ epics().length }}</span> }
-                @else if (isProjectTabLoading('epics')) { <span class="tab-loading-dot" title="加载中"></span> }
-              </button>
-              <button class="tab-btn" [class.active]="activeTab() === 'backlog'" (click)="selectProjectTab('backlog')">
-                <span class="tab-icon">📋</span>
-                <span class="tab-label">Backlog</span>
-                @if (isProjectTabLoaded('backlog')) { <span class="tab-count">{{ backlogVisibleTasks().length }}</span> }
-                @else if (isProjectTabLoading('backlog')) { <span class="tab-loading-dot" title="加载中"></span> }
-              </button>
-              <button class="tab-btn" [class.active]="activeTab() === 'proposals'" (click)="selectProjectTab('proposals')">
-                <span class="tab-icon">💬</span>
-                <span class="tab-label">提案</span>
-                @if (isProjectTabLoaded('proposals')) { <span class="tab-count">{{ proposalVisible().length }}</span> }
-                @else if (isProjectTabLoading('proposals')) { <span class="tab-loading-dot" title="加载中"></span> }
-              </button>
-              <button class="tab-btn" [class.active]="activeTab() === 'stats'" (click)="selectProjectTab('stats')">
-                <span class="tab-icon">📊</span>
-                <span class="tab-label">统计</span>
-                @if (isProjectTabLoading('stats')) { <span class="tab-loading-dot" title="加载中"></span> }
-              </button>
-              <!-- 设置：左侧菜单 tab（替代原 dropdown 直接切换） -->
-              <button class="tab-btn" [class.active]="activeTab() === 'settings'" (click)="selectProjectTab('settings')">
-                <span class="tab-icon">⚙️</span>
-                <span class="tab-label">设置</span>
-              </button>
-              <button class="tab-btn" [class.active]="activeTab() === 'documents'" (click)="selectProjectTab('documents')">
-                <span class="tab-icon">📄</span>
-                <span class="tab-label">文档</span>
-              </button>
-              <button class="tab-btn" [class.active]="activeTab() === 'kanban'" (click)="selectProjectTab('kanban')">
-                <span class="tab-icon">🗂️</span>
-                <span class="tab-label">看板</span>
-                @if (isProjectTabLoaded('kanban')) { <span class="tab-count">{{ kanbanCount() }}</span> }
-                @else if (isProjectTabLoading('kanban')) { <span class="tab-loading-dot" title="加载中"></span> }
-              </button>
-              <button class="tab-btn" [class.active]="activeTab() === 'tickets'" (click)="selectProjectTab('tickets')">
-                <span class="tab-icon">🎫</span>
-                <span class="tab-label">工单</span>
-                @if (isProjectTabLoaded('tickets')) { <span class="tab-count">{{ tickets().length }}</span> }
-                @else if (isProjectTabLoading('tickets')) { <span class="tab-loading-dot" title="加载中"></span> }
-              </button>
-            </div>
+            <!--
+              Epic 151 / Story 327 路由化：原 emoji tab-bar（含 stats/tickets 两个新
+              navy 侧栏没保留的 tab）已删除。8 tab 入口统一由 navy project-sidebar-v7
+              提供（line 250-273，routerLink 驱动）。下方 @if (activeTab() === X)
+              块保留渲染（hybrid 模式），由 loadRoute() 解析 URL path → activeTab.set
+              驱动。
+            -->
 
-            <!-- Tab: 项目介绍 -->
+            <!-- Tab: 项目概览（由 navy 侧栏 routerLink 触发） -->
             @if (activeTab() === 'overview') {
               <app-overview-tab
                 [project]="current"
@@ -632,26 +590,12 @@
               />
             }
 
-            <!-- Tab: Stats -->
-            @if (activeTab() === 'stats') {
-              <app-stats-tab
-                [loading]="isProjectTabLoading('stats')"
-                [error]="projectTabError('stats')"
-                [stats]="projectStats()"
-                [statsMaxCreated]="statsMaxCreated()"
-                [statsMaxDone]="statsMaxDone()"
-                [reviewStats]="reviewStats()"
-                [reviewStatsLoading]="reviewStatsLoading()"
-                [reviewStatsError]="reviewStatsError()"
-                [reviewReassignBusy]="reviewReassignBusy()"
-                [reviewReassignResult]="reviewReassignResult()"
-                [projectId]="current.id"
-                [skeletonRows]="tabSkeletonRows"
-                (retryProjectStats)="retryProjectTab('stats')"
-                (retryReviewStats)="loadReviewStats($event)"
-                (triggerReassign)="triggerReassignTimeout()"
-              />
-            }
+            <!--
+              Epic 151 / Story 327 路由化：原 stats tab @if 块已删除。
+              统计功能后续可并入 overview（原型 03 已是 Sprint 完成/进行中/交付率/
+              Agent 利用率），不必单独占一个 tab。stats-tab 组件保留代码资产
+              以备复用，stats signal / API 调用暂不删除（避免破坏其他视图）。
+            -->
 
             <!-- Tab: Settings（左侧菜单 + 右侧内容） -->
             @if (activeTab() === 'settings') {
@@ -980,22 +924,11 @@
               />
             }
 
-            @if (activeTab() === 'tickets') {
-              <app-tickets-tab
-                [tickets]="tickets()"
-                [filter]="ticketFilter()"
-                [sort]="ticketSort()"
-                [order]="ticketOrder()"
-                [loading]="isProjectTabLoading('tickets')"
-                [error]="projectTabError('tickets')"
-                [skeletonRows]="tabSkeletonRows"
-                (filterChange)="setTicketFilter($event)"
-                (sortChange)="setTicketSort($event)"
-                (orderChange)="setTicketOrder($event)"
-                (openTicket)="openTicket($event)"
-                (retry)="retryProjectTab('tickets')"
-              />
-            }
+            <!--
+              Epic 151 / Story 327 路由化：原 tickets @if 块已删除（统计 tab 同理）。
+              工单功能后续合并到 backlog tab 或迁移至 proposal 流程；tickets-tab
+              组件保留代码资产，ticket signal/API 调用暂不删除避免破坏其他视图。
+            -->
           }
         }
         @case ('epic') {
@@ -4060,4 +3993,14 @@
     </div>
   </div>
 }
-<router-outlet />
+
+<!--
+  Epic 151 / Story 327 路由化：原根 <router-outlet /> 已删除。
+  理由：app.html 顶层用 @switch (view()) 渲染所有顶层 view（home / projects /
+  project / epic / ...），加根 outlet 会导致路由 loadComponent 创建的实例
+  与 @switch 渲染的内容双重显示。路由表（app.routes.ts）保留 `loadComponent`
+  满足 review 高优先级 #4 要求，URL 解析由 `loadRoute()` 解析 path →
+  view()/activeTab() 驱动 @switch/@if 渲染（hybrid 模式）。
+  后续 Story 328+：拆 @switch 改为单一 router-outlet 挂载点，组件自管
+  ActivatedRoute + 数据加载。
+-->
