@@ -214,3 +214,236 @@ def test_list_agents_service_order_by_created_desc():
 
     s.close()
     engine.dispose()
+
+
+# ============================================================
+# 2026-08-20 Epic 151 / Task 1297a — 5 个写接口字段脱敏
+# ============================================================
+#
+# 验证：
+# 1. register_agent（POST /api/agents/register）：
+#    - admin caller → to_admin_dict（含 cli_command / auth_key / user_id）
+#    - 普通用户 caller → to_public_dict（脱敏）
+# 2. update_agent（PUT /api/agents/{id}）：
+#    - admin / owner → to_admin_dict；其他用户 → to_public_dict
+# 3. agent_heartbeat（POST /api/agents/{id}/heartbeat）：
+#    - Agent 自调用 → to_public_dict
+# 4. agent_deregister（POST /api/agents/{id}/deregister）：
+#    - admin → to_admin_dict（看 probe_message 原因）；Agent 自己 → to_public_dict
+# 5. probe_agent（POST /api/agents/{id}/probe）：
+#    - admin → to_admin_dict；普通用户 → to_public_dict
+# 6. delete_agent（DELETE /api/agents/{id}）：不变（返 {ok: True}）
+# ============================================================
+
+
+def _setup_app_two_users(require_auth: bool = False):
+    """建 1 admin + 1 普通用户 + 1 个 agent（admin 注册）。返回 (client, sessions, admin_id, user_id, agent_id_pk)"""
+    os.environ["AGENTBOARD_REQUIRE_AUTH"] = "1" if require_auth else "0"
+    from agentboard.core import config as cfg_mod
+    cfg_mod.get_settings.cache_clear()  # type: ignore[attr-defined]
+
+    from agentboard.api import app
+    from agentboard import service
+    from agentboard.database import get_session
+    from agentboard.models import Base
+
+    app.dependency_overrides.clear()
+
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(bind=engine)
+
+    with sessions() as s:
+        admin = service.register_user(s, username="admin", password="password123")
+        service.set_user_admin(s, admin.id, True)
+        normal = service.register_user(s, username="alice", password="password123")
+        agent = service.register_agent(
+            s, agent_id="wb-1", name="Test Bot",
+            roles='["reviewer"]', capabilities="[]",
+            cli_command="codebuddy --model {model}",  # noqa: S105 — test fixture
+            model="hy3", auth_key="abk_secretfingerprint",  # noqa: S105
+            user_id=admin.id,  # 归属 admin
+        )
+        admin_id_cached = admin.id
+        user_id_cached = normal.id
+        agent_id_pk = agent.id
+        s.commit()
+
+    def _override():
+        with sessions() as s:
+            try:
+                yield s
+                s.commit()
+            except Exception:
+                s.rollback()
+                raise
+
+    app.dependency_overrides[get_session] = _override
+    return TestClient(app), sessions, admin_id_cached, user_id_cached, agent_id_pk
+
+
+def _auth(uid: int) -> dict:
+    from agentboard import auth
+    return {"Authorization": f"Bearer {auth.make_token(uid)}"}
+
+
+def test_register_admin_sees_full_fields():
+    """register_agent：admin caller 看到 cli_command / auth_key / user_id。"""
+    client, _s, admin_id, _uid, _aid = _setup_app_two_users(require_auth=False)
+    try:
+        r = client.post(
+            "/api/agents/register",
+            json={
+                "agent_id": "new-agent-admin",
+                "name": "New Agent",
+                "roles": '["reviewer"]',
+                "capabilities": "[]",
+                "cli_command": "codebuddy --model {model}",  # noqa: S106 — test fixture
+                "model": "hy3",
+                "auth_key": "abk_newfingerprint",  # noqa: S106
+            },
+            headers=_auth(admin_id),
+        )
+        assert r.status_code == 201, r.text
+        body = r.json()
+        # admin 能看到敏感字段
+        assert body["cli_command"] == "codebuddy --model {model}"
+        assert body["auth_key"] == "abk_newfingerprint"
+        assert body["user_id"] == admin_id
+    finally:
+        _teardown_app()
+
+
+def test_register_normal_user_sees_public_only():
+    """register_agent：普通用户 caller 看到 to_public_dict（无 cli_command/auth_key/user_id）。"""
+    client, _s, _aid, normal_id, _aid2 = _setup_app_two_users(require_auth=False)
+    try:
+        r = client.post(
+            "/api/agents/register",
+            json={
+                "agent_id": "new-agent-normal",
+                "name": "New Agent",
+                "roles": '["reviewer"]',
+                "capabilities": "[]",
+                "cli_command": "codebuddy --model {model}",  # noqa: S106 — test fixture
+                "model": "hy3",
+                "auth_key": "abk_newfingerprint",  # noqa: S106
+            },
+            headers=_auth(normal_id),
+        )
+        assert r.status_code == 201, r.text
+        body = r.json()
+        for forbidden in ("cli_command", "auth_key", "probe_message", "user_id"):
+            assert forbidden not in body, f"register normal user leaked {forbidden}: {body.get(forbidden)!r}"
+    finally:
+        _teardown_app()
+
+
+def test_update_admin_sees_full_fields():
+    """update_agent：admin caller 看 to_admin_dict。"""
+    client, _s, admin_id, _uid, _aid = _setup_app_two_users(require_auth=False)
+    try:
+        r = client.put(
+            "/api/agents/wb-1",
+            json={"name": "Renamed"},
+            headers=_auth(admin_id),
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["cli_command"] == "codebuddy --model {model}"
+        assert body["auth_key"] == "abk_secretfingerprint"
+        assert body["user_id"] == admin_id
+    finally:
+        _teardown_app()
+
+
+def test_update_other_user_sees_public_only():
+    """update_agent：非 owner 非 admin → 403 拒绝（连写都不行）。"""
+    client, _s, _aid, normal_id, _aid2 = _setup_app_two_users(require_auth=False)
+    try:
+        r = client.put(
+            "/api/agents/wb-1",  # 归属 admin
+            json={"name": "Renamed"},
+            headers=_auth(normal_id),
+        )
+        assert r.status_code == 403, r.text
+    finally:
+        _teardown_app()
+
+
+def test_heartbeat_returns_public_only():
+    """agent_heartbeat：永远 to_public_dict（Agent 自己不需要看自己的敏感字段）。"""
+    client, _s, admin_id, _uid, _aid = _setup_app_two_users(require_auth=False)
+    try:
+        # 模拟 Agent 自己调（用任何合法 user 身份即可）
+        r = client.post(
+            "/api/agents/wb-1/heartbeat",
+            json={"probe_ok": True, "probe_message": "internal OK"},
+            headers=_auth(admin_id),
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        for forbidden in ("cli_command", "auth_key", "user_id"):
+            assert forbidden not in body, f"heartbeat leaked {forbidden}"
+    finally:
+        _teardown_app()
+
+
+def test_deregister_admin_sees_probe_message():
+    """agent_deregister：admin caller 看 to_admin_dict（含 probe_message）。"""
+    client, _s, admin_id, _uid, _aid = _setup_app_two_users(require_auth=False)
+    try:
+        r = client.post(
+            "/api/agents/wb-1/deregister",
+            json={"probe_message": "agent shutdown"},
+            headers=_auth(admin_id),
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        # admin 看到完整
+        assert body["cli_command"] == "codebuddy --model {model}"
+        assert body["auth_key"] == "abk_secretfingerprint"
+        assert body["probe_message"] == "agent shutdown"
+    finally:
+        _teardown_app()
+
+
+def test_probe_admin_sees_cli_command():
+    """probe_agent：admin caller 看 to_admin_dict（看 cli_command 详情）。"""
+    client, _s, admin_id, _uid, _aid = _setup_app_two_users(require_auth=False)
+    try:
+        r = client.post(
+            "/api/agents/wb-1/probe",
+            json={"timeout": 1},
+            headers=_auth(admin_id),
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["cli_command"] == "codebuddy --model {model}"
+        assert body["auth_key"] == "abk_secretfingerprint"
+    finally:
+        _teardown_app()
+
+
+def test_probe_requires_auth_even_in_dev():
+    """probe_agent 永远要求鉴权（B-A2 + Task 1297a 仍保留强鉴权）。"""
+    client, _s, _aid, _uid, _aid2 = _setup_app_two_users(require_auth=False)
+    try:
+        r = client.post("/api/agents/wb-1/probe", json={"timeout": 1})
+        assert r.status_code == 401, r.text
+    finally:
+        _teardown_app()
+
+
+def test_delete_returns_ok():
+    """delete_agent：返 {ok: True}，不返 agent 字段（无脱敏需求）。"""
+    client, _s, admin_id, _uid, _aid = _setup_app_two_users(require_auth=False)
+    try:
+        r = client.delete("/api/agents/wb-1", headers=_auth(admin_id))
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body == {"ok": True}
+    finally:
+        _teardown_app()

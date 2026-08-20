@@ -192,6 +192,17 @@ class Agent(Base):
         full = _ser(self) or {}
         return {k: full.get(k) for k in self._PUBLIC_FIELDS}
 
+    def to_admin_dict(self) -> dict:
+        """返回 admin / owner 可见的全字段 dict（含 ``cli_command`` / ``auth_key`` /
+        ``probe_message`` / ``user_id``）。仅写接口（register/update/probe）的
+        人类 admin 调用方可用；Agent 自调用（heartbeat/deregister）仍走
+        :meth:`to_public_dict`。
+
+        2026-08-20 Epic 151 Story 326 Task 1297a：闭合 5 个写接口字段暴露面。
+        """
+        from ...core.service_helpers import _ser  # 避免循环 import
+        return _ser(self) or {}
+
 
 class ProjectMember(Base):
     __tablename__ = "project_members"

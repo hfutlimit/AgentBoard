@@ -23,16 +23,21 @@ router = APIRouter(tags=["scheduling"])
 @router.post("/api/agents/register", status_code=201)
 def register_agent(body: AgentRegisterIn, authorization: str | None = Header(None),
                    s: Session = Depends(get_session)):
-    """注册/更新 Agent 身份（幂等，MCP/agent 自报入口）。绑定当前认证用户。"""
-    uid, _is_admin = api_helpers._caller_uid_admin(authorization)
+    """注册/更新 Agent 身份（幂等，MCP/agent 自报入口）。绑定当前认证用户。
+
+    2026-08-20 Epic 151 / Task 1297a：返回字段按 caller 角色分（admin→to_admin_dict，
+    普通用户/Agent 自报→to_public_dict）。
+    """
+    uid, is_admin = api_helpers._caller_uid_admin(authorization)
     if api_helpers._auth_is_required() and uid is None:
         raise HTTPException(status_code=401, detail="unauthorized")
     agent = service.register_agent(s, agent_id=body.agent_id, name=body.name,
                                    roles=body.roles, capabilities=body.capabilities,
                                    cli_command=body.cli_command, model=body.model,
                                    auth_key=body.auth_key, user_id=uid)
-    agent_state_hub.broadcast_agent(service._ser(agent))
-    return service._ser(agent)
+    payload = agent.to_admin_dict() if is_admin else agent.to_public_dict()
+    agent_state_hub.broadcast_agent(agent.to_public_dict())
+    return payload
 
 
 
@@ -40,7 +45,11 @@ def register_agent(body: AgentRegisterIn, authorization: str | None = Header(Non
 def update_agent(agent_id: str, body: AgentUpdateIn,
                  authorization: str | None = Header(None),
                  s: Session = Depends(get_session)):
-    """前端 Agent 配置中心：更新名称/角色/CLI 模板/模型/启用状态（全字段可选）。"""
+    """前端 Agent 配置中心：更新名称/角色/CLI 模板/模型/启用状态（全字段可选）。
+
+    2026-08-20 Epic 151 / Task 1297a：admin/owner 返回 to_admin_dict；其他用户
+    to_public_dict。WS 广播统一 to_public_dict。
+    """
     uid, is_admin = api_helpers._caller_uid_admin(authorization)
     if api_helpers._auth_is_required() and uid is None:
         raise HTTPException(status_code=401, detail="unauthorized")
@@ -50,8 +59,10 @@ def update_agent(agent_id: str, body: AgentUpdateIn,
     if not is_admin and agent.user_id not in (None, uid):
         raise HTTPException(status_code=403, detail="agent belongs to another user")
     agent = service.update_agent(s, agent_id, **body.model_dump(exclude_none=True))
-    agent_state_hub.broadcast_agent(service._ser(agent))
-    return service._ser(agent)
+    is_owner = (agent.user_id == uid)
+    payload = agent.to_admin_dict() if (is_admin or is_owner) else agent.to_public_dict()
+    agent_state_hub.broadcast_agent(agent.to_public_dict())
+    return payload
 
 
 
@@ -77,7 +88,11 @@ def delete_agent(agent_id: str, authorization: str | None = Header(None),
 def agent_heartbeat(agent_id: str, body: AgentHeartbeatIn | None = None,
                     authorization: str | None = Header(None),
                     s: Session = Depends(get_session)):
-    """Agent 心跳保活（置在线）。Worker probe 带 probe_ok/probe_message 上报详情。"""
+    """Agent 心跳保活（置在线）。Worker probe 带 probe_ok/probe_message 上报详情。
+
+    2026-08-20 Epic 151 / Task 1297a：caller 是 Agent 自己，永远返回 to_public_dict
+    （Agent 不需要看自己的 auth_key / cli_command）。
+    """
     uid, _is_admin = api_helpers._caller_uid_admin(authorization)
     if api_helpers._auth_is_required() and uid is None:
         raise HTTPException(status_code=401, detail="unauthorized")
@@ -87,8 +102,9 @@ def agent_heartbeat(agent_id: str, body: AgentHeartbeatIn | None = None,
                                     probe_ok=probe_ok, probe_message=probe_message)
     if not agent:
         raise HTTPException(status_code=404, detail="agent not found")
-    agent_state_hub.broadcast_agent(service._ser(agent))
-    return service._ser(agent)
+    payload = agent.to_public_dict()
+    agent_state_hub.broadcast_agent(payload)
+    return payload
 
 
 
@@ -96,7 +112,11 @@ def agent_heartbeat(agent_id: str, body: AgentHeartbeatIn | None = None,
 def agent_deregister(agent_id: str, body: AgentHeartbeatIn | None = None,
                      authorization: str | None = Header(None),
                      s: Session = Depends(get_session)):
-    """Agent 注销下线（自身或 admin）。Worker probe 失败带 probe_message 原因。"""
+    """Agent 注销下线（自身或 admin）。Worker probe 失败带 probe_message 原因。
+
+    2026-08-20 Epic 151 / Task 1297a：admin 调可拿 to_admin_dict（看 probe_message 详情），
+    Agent 自调用 to_public_dict。
+    """
     uid, is_admin = api_helpers._caller_uid_admin(authorization)
     if api_helpers._auth_is_required() and uid is None:
         raise HTTPException(status_code=401, detail="unauthorized")
@@ -105,8 +125,9 @@ def agent_deregister(agent_id: str, body: AgentHeartbeatIn | None = None,
                                      probe_message=probe_message)
     if not agent:
         raise HTTPException(status_code=404, detail="agent not found")
-    agent_state_hub.broadcast_agent(service._ser(agent))
-    return service._ser(agent)
+    payload = agent.to_admin_dict() if is_admin else agent.to_public_dict()
+    agent_state_hub.broadcast_agent(agent.to_public_dict())
+    return payload
 
 
 
@@ -122,8 +143,11 @@ def probe_agent(agent_id: str, body: AgentProbeIn | None = None,
 
     **强制鉴权**（B-A2）：dev 模式（``REQUIRE_AUTH=0``）也要求登录，不再
     匿名放行——与 ``_auth_is_required()`` 软判定解耦。
+
+    2026-08-20 Epic 151 / Task 1297a：probe 端点 caller 必登录，admin 可拿 to_admin_dict
+    （看 cli_command / probe_message 详情），普通用户 to_public_dict。
     """
-    uid, _is_admin = api_helpers._caller_uid_admin(authorization)
+    uid, is_admin = api_helpers._caller_uid_admin(authorization)
     if uid is None:  # B-A2: probe 端点永远要求鉴权（不再 _auth_is_required 软判定）
         raise HTTPException(status_code=401, detail="unauthorized")
     agent = service.get_agent_by_agent_id(s, agent_id)
@@ -133,8 +157,9 @@ def probe_agent(agent_id: str, body: AgentProbeIn | None = None,
     ok, msg = api_helpers._probe_cli_sync(agent.cli_command, model=agent.model, timeout=timeout)
     agent = service.agent_heartbeat(s, agent_id, user_id=uid,
                                     probe_ok=ok, probe_message=msg)
-    agent_state_hub.broadcast_agent(service._ser(agent))
-    return service._ser(agent)
+    payload = agent.to_admin_dict() if is_admin else agent.to_public_dict()
+    agent_state_hub.broadcast_agent(agent.to_public_dict())
+    return payload
 
 
 
