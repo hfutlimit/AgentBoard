@@ -2064,9 +2064,7 @@ export class App implements OnInit, OnDestroy {
         this.view.set('home');
         await this.loadDashboard(generation);
         // Story 137：首页项目空间需要统计字段
-        if (!this.projectsCenter().length) {
-          void this.loadProjectsCenter();
-        }
+        await this.loadProjectsCenter();
       } else if (kind === 'projects') {
         this.view.set('projects');
         // Story 137：项目中心数据

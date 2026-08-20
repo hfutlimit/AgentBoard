@@ -29,6 +29,39 @@ describe('App', () => {
     expect(app).toBeTruthy();
   });
 
+  it('should refresh every visible project collection after creating a project', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    const api = TestBed.inject(ApiService) as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    const created = {
+      id: 42,
+      name: 'Fresh Project',
+      key: 'FP',
+      description: '',
+      is_private: false,
+      created_at: '2026-08-20T00:00:00',
+    } satisfies Project;
+
+    api['createProject'] = vi.fn(() => of(created));
+    api['listProjects'] = vi.fn(() => of([created]));
+    api['listProjectsCenter'] = vi.fn(() => of({ items: [created], total: 1 }));
+    vi.spyOn(app as any, 'loadDashboard').mockResolvedValue(undefined);
+
+    const form = document.createElement('form');
+    form.innerHTML = '<input name="title" value="Fresh Project"><input name="key" value="FP">';
+    app.authVisible.set(false);
+    app.projectsCenter.set([{ ...created, id: 7, name: 'Existing Project', key: 'OLD' }]);
+    app.modal.set({ kind: 'project' });
+
+    await app.create({ preventDefault: vi.fn(), currentTarget: form } as unknown as Event);
+
+    expect(api['createProject']).toHaveBeenCalledWith({ name: 'Fresh Project', key: 'FP', description: '' });
+    expect(api['listProjectsCenter']).toHaveBeenCalled();
+    expect(app.projects()).toEqual([created]);
+    expect(app.projectsCenter()).toEqual([created]);
+    expect(app.projectsCenterTotal()).toBe(1);
+  });
+
   it('should render the AgentBoard shell', async () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;
