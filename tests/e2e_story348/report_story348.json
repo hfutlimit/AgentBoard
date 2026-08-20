@@ -1,0 +1,356 @@
+{
+  "pages": [
+    {
+      "name": "home",
+      "path": "/",
+      "url": "http://127.0.0.1:4200/",
+      "expected_selector_present": true,
+      "expected_child_count": 1,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 994,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\home.png"
+    },
+    {
+      "name": "projects",
+      "path": "/projects",
+      "url": "http://127.0.0.1:4200/projects",
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 937,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\projects.png"
+    },
+    {
+      "name": "agents",
+      "path": "/agents",
+      "url": "http://127.0.0.1:4200/agents",
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 1518,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\agents.png"
+    },
+    {
+      "name": "documents",
+      "path": "/documents",
+      "url": "http://127.0.0.1:4200/documents",
+      "expected_selector_present": false,
+      "expected_child_count": -1,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 937,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\documents.png"
+    },
+    {
+      "name": "proposals",
+      "path": "/proposals",
+      "url": "http://127.0.0.1:4200/proposals",
+      "expected_selector_present": false,
+      "expected_child_count": -1,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 937,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\proposals.png"
+    },
+    {
+      "name": "settings",
+      "path": "/settings",
+      "url": "http://127.0.0.1:4200/settings",
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 1339,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\settings.png"
+    },
+    {
+      "name": "notifications",
+      "path": "/notifications",
+      "url": "http://127.0.0.1:4200/notifications",
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 836,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\notifications.png"
+    },
+    {
+      "name": "admin",
+      "path": "/admin",
+      "url": "http://127.0.0.1:4200/admin",
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 2014,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\admin.png"
+    },
+    {
+      "name": "ws_overview",
+      "path": "/project/3/overview",
+      "url": "http://127.0.0.1:4200/project/3/overview",
+      "expected_selector_present": true,
+      "expected_child_count": 1,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 1107,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\ws_overview.png"
+    },
+    {
+      "name": "ws_kanban",
+      "path": "/project/3/kanban",
+      "url": "http://127.0.0.1:4200/project/3/kanban",
+      "expected_selector_present": true,
+      "expected_child_count": 1,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 930,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\ws_kanban.png"
+    },
+    {
+      "name": "ws_epics",
+      "path": "/project/3/epics",
+      "url": "http://127.0.0.1:4200/project/3/epics",
+      "expected_selector_present": true,
+      "expected_child_count": 1,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 1788,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\ws_epics.png"
+    },
+    {
+      "name": "ws_backlog",
+      "path": "/project/3/backlog",
+      "url": "http://127.0.0.1:4200/project/3/backlog",
+      "expected_selector_present": true,
+      "expected_child_count": 1,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 1788,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\ws_backlog.png"
+    },
+    {
+      "name": "ws_proposals",
+      "path": "/project/3/proposals",
+      "url": "http://127.0.0.1:4200/project/3/proposals",
+      "expected_selector_present": true,
+      "expected_child_count": 1,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 930,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\ws_proposals.png"
+    },
+    {
+      "name": "ws_documents",
+      "path": "/project/3/documents",
+      "url": "http://127.0.0.1:4200/project/3/documents",
+      "expected_selector_present": true,
+      "expected_child_count": 1,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 1258,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\ws_documents.png"
+    },
+    {
+      "name": "ws_members",
+      "path": "/project/3/members",
+      "url": "http://127.0.0.1:4200/project/3/members",
+      "expected_selector_present": true,
+      "expected_child_count": 1,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 1184,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\ws_members.png"
+    },
+    {
+      "name": "ws_settings",
+      "path": "/project/3/settings",
+      "url": "http://127.0.0.1:4200/project/3/settings",
+      "expected_selector_present": true,
+      "expected_child_count": 1,
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 1074,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\ws_settings.png"
+    },
+    {
+      "name": "epic_152",
+      "path": "/epic/152",
+      "url": "http://127.0.0.1:4200/epic/152",
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 2487,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\epic_152.png"
+    },
+    {
+      "name": "story_348",
+      "path": "/story/348",
+      "url": "http://127.0.0.1:4200/story/348",
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 1439,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\story_348.png"
+    },
+    {
+      "name": "story_330",
+      "path": "/story/330",
+      "url": "http://127.0.0.1:4200/story/330",
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 2326,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\story_330.png"
+    },
+    {
+      "name": "task_1342",
+      "path": "/task/1342",
+      "url": "http://127.0.0.1:4200/task/1342",
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 1129,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\task_1342.png"
+    },
+    {
+      "name": "task_1339",
+      "path": "/task/1339",
+      "url": "http://127.0.0.1:4200/task/1339",
+      "horizontal_overflow_px": 0,
+      "main_dim": {
+        "h": 836,
+        "w": 1440
+      },
+      "screenshot": "screenshots\\task_1339.png"
+    }
+  ],
+  "console_errors": [
+    {
+      "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "artifact": true
+    },
+    {
+      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789833084.a1a36427700290fef69bc347ed44858697978c721a51bf02829bf1700353e283' failed: Error during WebSocket handshake: Unexpected response code: 200",
+      "artifact": true
+    },
+    {
+      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789833084.a1a36427700290fef69bc347ed44858697978c721a51bf02829bf1700353e283' failed: Error during WebSocket handshake: Unexpected response code: 200",
+      "artifact": true
+    }
+  ],
+  "page_errors": [],
+  "failed_requests": [
+    {
+      "url": "http://127.0.0.1:4200/api/agents",
+      "status": 401,
+      "artifact": true
+    }
+  ],
+  "interactions": [
+    {
+      "name": "theme_toggle",
+      "result": "no #theme-toggle found"
+    },
+    {
+      "name": "ws_tab_clicks",
+      "result": [
+        {
+          "tab": "概览",
+          "clicked": false,
+          "err": "Locator.click: Timeout 3000ms exceeded.\nCall log:\n  - waiting for get_by_text(\"概"
+        },
+        {
+          "tab": "看板",
+          "clicked": false,
+          "err": "Locator.click: Timeout 3000ms exceeded.\nCall log:\n  - waiting for get_by_text(\"看"
+        },
+        {
+          "tab": "Epics",
+          "clicked": false,
+          "err": "Locator.click: Timeout 3000ms exceeded.\nCall log:\n  - waiting for get_by_text(\"E"
+        },
+        {
+          "tab": "工作项",
+          "clicked": false,
+          "err": "Locator.click: Timeout 3000ms exceeded.\nCall log:\n  - waiting for get_by_text(\"工"
+        },
+        {
+          "tab": "提案",
+          "clicked": false,
+          "err": "Locator.click: Timeout 3000ms exceeded.\nCall log:\n  - waiting for get_by_text(\"提"
+        },
+        {
+          "tab": "文档",
+          "clicked": false,
+          "err": "Locator.click: Timeout 3000ms exceeded.\nCall log:\n  - waiting for get_by_text(\"文"
+        },
+        {
+          "tab": "成员与 Agents",
+          "clicked": false,
+          "err": "Locator.click: Timeout 3000ms exceeded.\nCall log:\n  - waiting for get_by_text(\"成"
+        },
+        {
+          "tab": "设置",
+          "clicked": false,
+          "err": "Locator.click: Timeout 3000ms exceeded.\nCall log:\n  - waiting for get_by_text(\"设"
+        }
+      ]
+    },
+    {
+      "name": "create_dialog",
+      "result": "no_dialog_trigger"
+    }
+  ],
+  "findings": [
+    {
+      "page": "global",
+      "path": "/",
+      "severity": "P2",
+      "issue": "未找到 #theme-toggle 主题切换按钮"
+    },
+    {
+      "page": "ws_tabs",
+      "path": "/project/3/*",
+      "severity": "P2",
+      "issue": "工作区 tab 无法点击: ['概览', '看板', 'Epics', '工作项', '提案', '文档', '成员与 Agents', '设置']"
+    },
+    {
+      "page": "ws_backlog",
+      "path": "/project/3/backlog",
+      "severity": "P3",
+      "issue": "未找到/无法打开新建(工作项/Story)弹窗入口"
+    }
+  ],
+  "real_console_errors": [],
+  "real_failed_requests": []
+}
