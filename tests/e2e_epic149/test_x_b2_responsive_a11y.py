@@ -71,6 +71,33 @@ def open_home_with_token(page, token: str) -> None:
     time.sleep(3.0)
 
 
+def open_project_with_token(page, token: str, path: str = "/project/1/overview") -> None:
+    """进入 project view（/projects 或 /project/:id/...）注入 token。
+
+    2026-08-20 Task 1310d + 1317a：project view 测 navy tab aria-label + btb
+    activeView 高亮修复。
+    """
+    page.goto(f"{FRONTEND_ORIGIN}/", wait_until="domcontentloaded", timeout=30000)
+    page.evaluate(f"localStorage.setItem('agentboard_token', {json.dumps(token)})")
+    page.evaluate("localStorage.setItem('agentboard_user', 'admin')")
+    page.goto(f"{FRONTEND_ORIGIN}{path}", wait_until="domcontentloaded", timeout=30000)
+    time.sleep(3.0)
+
+
+def collect_project_signals(page) -> dict:
+    """单次 evaluate 收集 project view 的 navy tab + btb 信号。"""
+    return page.evaluate("""
+        ({
+            url: location.pathname,
+            btbDisplay: getComputedStyle(document.querySelector('app-bottom-tab-bar nav')).display,
+            btbActive: (document.querySelector('app-bottom-tab-bar nav a[aria-current="page"]')?.getAttribute('aria-label') || '').trim(),
+            navyTabCount: document.querySelectorAll('a.project-nav-button-v7').length,
+            navyTabAriaLabels: Array.from(document.querySelectorAll('a.project-nav-button-v7[aria-label]')).map(a => a.getAttribute('aria-label')),
+            navyTabActive: (document.querySelector('a.project-nav-button-v7[aria-current="page"]')?.getAttribute('aria-label') || '').trim(),
+        })
+    """)
+
+
 def collect_layout_signals(page) -> dict:
     """单次 evaluate 收集响应式 + a11y 信号（home view）。
 
@@ -203,6 +230,91 @@ def main() -> int:
             except Exception as e:
                 log(f"   EXCEPTION: {e!r}")
                 failures.append(f"focus trap: {e!r}")
+            finally:
+                ctx.close()
+
+            # === PART C: project view 5 视口 — navy tab aria-label + btb 高亮 ===
+            log(">>> PART C — project view 5 视口（navy tab + btb 高亮）")
+            EXPECTED_NAVY_LABELS = {"概览", "看板", "Epics", "工作项", "提案", "文档", "成员与 Agents", "设置"}
+            for w, h, label in VIEWPORTS:
+                ctx = browser.new_context(viewport={"width": w, "height": h})
+                page = ctx.new_page()
+                try:
+                    log(f"   [{label}] viewport {w}x{h}")
+                    open_project_with_token(page, token, "/project/1/overview")
+                    sig = collect_project_signals(page)
+                    log(f"   sig = {sig}")
+
+                    shot = SHOT_DIR / f"_x_b2_project_vp_{label}.png"
+                    page.screenshot(path=str(shot), full_page=False)
+                    size = shot.stat().st_size if shot.exists() else 0
+                    log(f"   shot {shot.name} size={size}B")
+
+                    is_mobile = w <= 840
+                    is_desktop = w >= 1280
+
+                    # 1) navy tab 8 个 aria-label 全部存在（只对桌面 + 1280+ 测）
+                    if is_desktop:
+                        if sig["navyTabCount"] != 8:
+                            failures.append(
+                                f"{label}: 桌面 navy tab 应有 8 但实际 {sig['navyTabCount']}"
+                            )
+                        actual = set(sig["navyTabAriaLabels"])
+                        missing = EXPECTED_NAVY_LABELS - actual
+                        if missing:
+                            failures.append(
+                                f"{label}: navy tab 缺 aria-label {missing}"
+                            )
+                        # 当前 active tab 应该是「概览」（我们 goto overview）
+                        if sig["navyTabActive"] != "概览":
+                            failures.append(
+                                f"{label}: navy active 应为 概览 但实际 {sig['navyTabActive']!r}"
+                            )
+
+                    # 2) bottom-tab-bar 在 project view 行为：
+                    #    - 移动（<= 840）：显示
+                    #    - 桌面（>= 1280）：隐藏
+                    #    - 中间：隐藏
+                    if is_mobile:
+                        if sig["btbDisplay"] == "none":
+                            failures.append(
+                                f"{label}: project view 移动端 btb 应显示但 display={sig['btbDisplay']}"
+                            )
+                        # project view 移动端：「工作台」按钮高亮（aria-current=page）
+                        if sig["btbActive"] != "当前项目工作台":
+                            failures.append(
+                                f"{label}: project view 移动端 btb active 应为 '当前项目工作台' 但实际 {sig['btbActive']!r}"
+                            )
+                    else:
+                        if sig["btbDisplay"] != "none":
+                            failures.append(
+                                f"{label}: project view 桌面 btb 应隐藏但 display={sig['btbDisplay']}"
+                            )
+
+                except Exception as e:
+                    log(f"   EXCEPTION: {e!r}")
+                    failures.append(f"project {label}: {e!r}")
+                finally:
+                    ctx.close()
+
+            # === PART D: /projects 列表页 btb「项目」高亮（Task 1310d 修复）===
+            log(">>> PART D — /projects 列表页 btb「项目」高亮")
+            ctx = browser.new_context(viewport={"width": 375, "height": 800})  # 移动端
+            page = ctx.new_page()
+            try:
+                open_project_with_token(page, token, "/projects")
+                sig = collect_project_signals(page)
+                log(f"   /projects sig = {sig}")
+                if sig["btbActive"] != "项目":
+                    failures.append(
+                        f"/projects 移动端 btb active 应为 '项目' 但实际 {sig['btbActive']!r} "
+                        f"（Task 1310d 修复点：/projects 不能映射成 'project' 让「工作台」亮）"
+                    )
+                shot = SHOT_DIR / "_x_b2_projects_list_mobile.png"
+                page.screenshot(path=str(shot), full_page=False)
+            except Exception as e:
+                log(f"   EXCEPTION: {e!r}")
+                failures.append(f"/projects: {e!r}")
             finally:
                 ctx.close()
         finally:

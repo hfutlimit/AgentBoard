@@ -45,7 +45,7 @@ import { filter, map, startWith } from 'rxjs/operators';
       </a>
       <a [routerLink]="currentProjectId() ? ['/project', currentProjectId(), 'overview'] : ['/projects']"
          class="btb-item"
-         [class.btb-active]="activeView() === 'project' || activeView() === 'projects'"
+         [class.btb-active]="activeView() === 'project'"
          [attr.aria-label]="currentProjectId() ? '当前项目工作台' : '工作台'"
          [attr.aria-current]="activeView() === 'project' ? 'page' : null">
         <svg class="btb-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
@@ -147,13 +147,23 @@ export class BottomTabBarComponent {
     { initialValue: this.router.url },
   );
 
-  /** 顶层 view：home / projects / project / notifications / settings / ... */
+  /**
+   * 顶层 view：home / projects / project / notifications / settings / ...
+   *
+   * 2026-08-20 Epic 151 / Task 1310d 修复：
+   * - 之前把 ``/projects`` 和 ``/project/:id/...`` 都映射为 ``'project'``，
+   *   导致「项目」按钮（在 ``/projects``）和「工作台」按钮（在 ``/projects``）
+   *   高亮语义错乱（「工作台」反被点亮）。
+   * - 现在区分：``/projects`` → ``'projects'``；``/project/:id/...`` → ``'project'``。
+   */
   readonly activeView = computed(() => {
     const url = this.currentUrl();
     const trimmed = url.replace(/^\/+|\/+$/g, '');
     const first = trimmed.split('/')[0] || '';
     if (first === '') return 'home';
-    if (first === 'project' || first === 'projects') return 'project';
+    // 项目内（带 :id） → 'project'；项目列表 → 'projects'
+    if (/^project\/\d+/.test(trimmed)) return 'project';
+    if (first === 'projects') return 'projects';
     if (first === 'notifications') return 'notifications';
     if (first === 'settings') return 'settings';
     return first;
