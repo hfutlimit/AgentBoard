@@ -1,4 +1,5 @@
 import { Component, EventEmitter, Input, Output, ViewEncapsulation } from '@angular/core';
+import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
 import type { KanbanStory } from '../models';
 
 /**
@@ -30,6 +31,7 @@ import type { KanbanStory } from '../models';
 @Component({
   selector: 'app-kanban-tab',
   standalone: true,
+  imports: [WorkspaceHeadingComponent],
   templateUrl: './kanban-tab.html',
   styleUrl: './kanban-tab.css',
   encapsulation: ViewEncapsulation.None,

@@ -1,21 +1,18 @@
 <div class="tab-content kanban-tab-content">
-  <!-- 列头工具栏：标题 + 计数 + 显示全部/仅看板标记 切换 -->
-  <div class="section-header kanban-tab-header">
-    <h3>
-      项目看板
-      <span class="badge count-badge">{{ count }}</span>
-      @if (!includeAll) { <span class="badge docstatus docstatus--draft">仅看板标记</span> }
-    </h3>
-    <div class="row">
-      <button
-        class="ghost-sm"
-        (click)="toggleIncludeAll.emit()"
-        [title]="includeAll ? '只看标记进入看板的 Story' : '显示全部 Story（含未标记）'"
-      >
-        {{ includeAll ? '只看看板标记' : '显示全部' }}
-      </button>
-    </div>
-  </div>
+  <!-- Epic 150 / X3 supplement: 看板 heading（prototype 04 对齐） -->
+  <app-workspace-heading
+    title="看板"
+    [subtitle]="'当前项目的工作项按状态分列 · 共 ' + count + ' 项'">
+    <span class="heading-title-badge">{{ count }}</span>
+    @if (!includeAll) {
+      <span class="heading-title-badge docstatus docstatus--draft">仅看板标记</span>
+    }
+    <button class="heading-action-btn ghost-sm"
+      (click)="toggleIncludeAll.emit()"
+      [title]="includeAll ? '只看标记进入看板的 Story' : '显示全部 Story（含未标记）'">
+      {{ includeAll ? '只看看板标记' : '显示全部' }}
+    </button>
+  </app-workspace-heading>
 
   <!-- 三态：loading / error / empty / 主体 -->
   @if (loading) {
