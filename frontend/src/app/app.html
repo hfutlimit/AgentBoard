@@ -2933,13 +2933,11 @@
 
         @case ('settings') {
           <div class="crumb-bar"><a routerLink="/">首页</a><span>›</span><span>个人设置</span></div>
-          <div class="page-header settings-header">
-            <div>
-              <span class="eyebrow">ACCOUNT</span>
-              <h1>个人设置</h1>
-              <p class="muted">管理个人资料、安全凭据和自己的项目。</p>
-            </div>
-          </div>
+          <app-workspace-heading
+            eyebrow="ACCOUNT"
+            title="个人设置"
+            subtitle="管理个人资料、安全凭据和自己的项目。">
+          </app-workspace-heading>
 
           @if (profile(); as currentProfile) {
             <div class="settings-grid">
