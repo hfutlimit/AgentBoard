@@ -1,12 +1,16 @@
-"""项目工作台多 Tab 系统 E2E（2026-08-21 结构调整）
+"""项目工作台多 Tab 系统 E2E（2026-08-21 结构调整，v2 修）
+
+v2 核心修复：tab 切换是纯 service 操作（ajax 风格），**不**触发 Angular
+router 跳路由，因此 app.ts 的 loadRoute() 不会被调用，其他 tab 状态保留。
 
 需求：
 - 8 个子视图（概览/看板/Epics/工作项/提案/文档/成员/设置）可同时打开为独立 tab
-- 点击左侧菜单 → 新增 tab；如果已开 → 激活
+- 点击左侧菜单 → 新增 tab；如果已开 → 激活（**不**触发 router 跳路由）
 - 切换 tab 不卸载，状态保留
 - 关闭 tab → 从 tab 条移除
-- URL 反映当前激活 section（直链/前进后退/刷新 work）
+- URL 用 history.replaceState 静默同步（不触发 router），但与 service 状态一致
 - 同 (projectId, kind) 至多 1 个 tab；切项目 → 清空 tab
+- 切 tab **不**引起整页刷新 / 数据重拉
 
 E2E 真实断言（按 test 函数分粒度）：
 1. test_open_project_default_overview_tab_only
@@ -18,10 +22,14 @@ E2E 真实断言（按 test 函数分粒度）：
    点 Kanban（开）→ 激活看板，tab 数仍 3
 4. test_close_tab
    关闭中间 tab → 邻居 tab 激活，tab 数 -1
-5. test_state_preserved_across_tab_switch
-   看板 tab 触发某筛选（开关 includeAll），切到提案，再切回 → 筛选态仍在
-6. test_url_sync_and_browser_back
-   URL 反映 section；浏览器 back → 回到上一个 section（同时上一个 tab 重新激活）
+5. test_no_page_reload_on_tab_click    [v2 修新增]
+   设置 window sentinel → 点 tab → sentinel 仍在（证明无 page reload）
+6. test_state_preserved_across_tab_switch    [v2 修新增]
+   文档 tab 选某 filter → 切到 Kanban → 切回文档 tab → filter 仍是原值
+   （证明非激活 tab 状态保留）
+7. test_url_replaced_silently_on_tab_click   [v2 修新增]
+   点 tab → URL 路径更新为对应 section，但 history entry 不变（replaceState
+   不会新增 history）
 
 这些测试基于 conftest 注入的 admin_token + frontend 端口 :4200 + dev API。
 """
@@ -39,7 +47,7 @@ from conftest import (
     log,
 )
 
-# 项目 ID 1 = 系统自动 seed 的 Apex 演示项目（与 e2e_epic149/test_x_b1_route_8tab.py 一致）
+# 项目 ID 1 = 系统自动 seed 的 Apex 演示项目
 PROJECT_ID = 1
 
 # 8 menu item kind
@@ -83,22 +91,22 @@ def _collect_signals(page: Page) -> dict:
 
 
 def _click_menu(page: Page, kind: str) -> None:
-    """点击左侧菜单某个 kind。label 是中文，DOM 上 a 的 aria-label 是中文。"""
+    """点击左侧菜单某个 kind。"""
     label = LABEL_BY_KIND[kind]
     page.click(f'a.project-nav-button-v7[aria-label="{label}"]')
-    time.sleep(0.5)
+    time.sleep(0.4)
 
 
 def _click_tab_strip(page: Page, kind: str) -> None:
     """点击 tab 条上某个 kind。"""
     page.click(f'.tab-strip-item[data-tab-id="{PROJECT_ID}-{kind}"] .tab-strip-link')
-    time.sleep(0.5)
+    time.sleep(0.4)
 
 
 def _close_tab(page: Page, kind: str) -> None:
     """点 tab 上的 × 关闭按钮。"""
     page.click(f'.tab-strip-item[data-tab-id="{PROJECT_ID}-{kind}"] .tab-strip-close')
-    time.sleep(0.5)
+    time.sleep(0.4)
 
 
 def _shot(page: Page, name: str) -> None:
@@ -125,8 +133,8 @@ def test_open_project_default_overview_tab_only(page: Page, admin_token: str) ->
     assert sig["tabStripCount"] == 1, f"应有 1 个 tab, 实际 {sig['tabStripCount']}"
     assert sig["tabStripItems"][0]["id"] == f"{PROJECT_ID}-{KIND_OVERVIEW}"
     assert sig["tabStripItems"][0]["active"] is True
-    assert sig["activePaneKind"] == KIND_OVERVIEW, f"激活 pane 应为 {KIND_OVERVIEW}, 实际 {sig['activePaneKind']!r}"
-    assert KIND_OVERVIEW in sig["menuActive"], f"menu active 应包含 {KIND_OVERVIEW}, 实际 {sig['menuActive']!r}"
+    assert sig["activePaneKind"] == KIND_OVERVIEW
+    assert KIND_OVERVIEW in sig["menuActive"]
 
 
 @pytest.mark.e2e
@@ -140,7 +148,7 @@ def test_click_menu_adds_tab(page: Page, admin_token: str) -> None:
     sig1 = _collect_signals(page)
     log(f"   after kanban = {sig1}")
     _shot(page, "02_kanban.png")
-    assert sig1["tabStripCount"] == 2, f"点 Kanban 后应有 2 个 tab, 实际 {sig1['tabStripCount']}"
+    assert sig1["tabStripCount"] == 2
     assert sig1["tabStripItems"][1]["id"] == f"{PROJECT_ID}-{KIND_KANBAN}"
     assert sig1["tabStripItems"][1]["active"] is True
     assert sig1["activePaneKind"] == KIND_KANBAN
@@ -149,7 +157,7 @@ def test_click_menu_adds_tab(page: Page, admin_token: str) -> None:
     sig2 = _collect_signals(page)
     log(f"   after proposals = {sig2}")
     _shot(page, "03_proposals.png")
-    assert sig2["tabStripCount"] == 3, f"点 Proposals 后应有 3 个 tab, 实际 {sig2['tabStripCount']}"
+    assert sig2["tabStripCount"] == 3
     assert sig2["tabStripItems"][2]["id"] == f"{PROJECT_ID}-{KIND_PROPOSALS}"
     assert sig2["tabStripItems"][2]["active"] is True
     assert sig2["activePaneKind"] == KIND_PROPOSALS
@@ -164,18 +172,15 @@ def test_click_existing_tab_activates_only(page: Page, admin_token: str) -> None
     _click_menu(page, KIND_KANBAN)
     _click_menu(page, KIND_PROPOSALS)
     time.sleep(0.5)
-    sig0 = _collect_signals(page)
-    assert sig0["tabStripCount"] == 3
 
-    # 此时 proposals 激活。点 Kanban tab → 应激活 kanban，tab 数仍 3
     _click_tab_strip(page, KIND_KANBAN)
-    sig1 = _collect_signals(page)
-    log(f"   after click kanban tab = {sig1}")
+    sig = _collect_signals(page)
+    log(f"   after click kanban tab = {sig}")
     _shot(page, "04_reactivate_kanban.png")
-    assert sig1["tabStripCount"] == 3, f"点已开 tab 后 tab 数应仍为 3, 实际 {sig1['tabStripCount']}"
-    kanban_item = next((t for t in sig1["tabStripItems"] if t["id"] == f"{PROJECT_ID}-{KIND_KANBAN}"), None)
+    assert sig["tabStripCount"] == 3
+    kanban_item = next((t for t in sig["tabStripItems"] if t["id"] == f"{PROJECT_ID}-{KIND_KANBAN}"), None)
     assert kanban_item is not None and kanban_item["active"] is True
-    assert sig1["activePaneKind"] == KIND_KANBAN
+    assert sig["activePaneKind"] == KIND_KANBAN
 
 
 @pytest.mark.e2e
@@ -187,77 +192,139 @@ def test_close_tab_activates_neighbor(page: Page, admin_token: str) -> None:
     _click_menu(page, KIND_KANBAN)
     _click_menu(page, KIND_PROPOSALS)
     time.sleep(0.5)
-    sig0 = _collect_signals(page)
-    assert sig0["tabStripCount"] == 3
 
-    # 当前 proposals 激活，关闭 kanban（中间 tab）
     _close_tab(page, KIND_KANBAN)
-    sig1 = _collect_signals(page)
-    log(f"   after close kanban = {sig1}")
+    sig = _collect_signals(page)
+    log(f"   after close kanban = {sig}")
     _shot(page, "05_close_kanban.png")
-    assert sig1["tabStripCount"] == 2, f"关闭 1 个后 tab 数应为 2, 实际 {sig1['tabStripCount']}"
-    remaining = [t["id"] for t in sig1["tabStripItems"]]
-    assert f"{PROJECT_ID}-{KIND_KANBAN}" not in remaining, "kanban tab 应被移除"
+    assert sig["tabStripCount"] == 2
+    remaining = [t["id"] for t in sig["tabStripItems"]]
+    assert f"{PROJECT_ID}-{KIND_KANBAN}" not in remaining
     assert f"{PROJECT_ID}-{KIND_OVERVIEW}" in remaining
     assert f"{PROJECT_ID}-{KIND_PROPOSALS}" in remaining
-    # 关闭中间 tab，激活态保持原激活的（proposals）— 因为服务约定"激活态保持"
-    # 或者切到左侧邻居（overview）— 取决于 closeTab 实现。当前是「保持当前激活 ID，除非关的就是它」
-    # 关的是 kanban，激活的本来就是 proposals，所以仍 proposals
-    active_item = next((t for t in sig1["tabStripItems"] if t["active"]), None)
+    active_item = next((t for t in sig["tabStripItems"] if t["active"]), None)
     assert active_item is not None
     assert active_item["id"] == f"{PROJECT_ID}-{KIND_PROPOSALS}"
 
 
+# ============================================================
+# v2 修新增 — 切 tab 不应触发 page reload / 状态保留 / URL 静默同步
+# ============================================================
+
 @pytest.mark.e2e
-def test_close_active_tab_activates_neighbor(page: Page, admin_token: str) -> None:
-    """关闭当前激活的 tab → 邻居激活（左侧优先）。"""
+def test_no_page_reload_on_tab_click(page: Page, admin_token: str) -> None:
+    """切 tab 不应触发整页刷新（v2 修核心断言）。
+
+    验证方式：设置 data-test-sentinel attribute → 点 tab → 重新读 sentinel
+    应仍为 'present'（如果 page reload 了，sentinel 会消失）。
+    """
     url = f"{FRONTEND_ORIGIN}/project/{PROJECT_ID}/overview"
     goto_url_with_token(page, admin_token, url)
     time.sleep(1.0)
+
+    # 在 body 上设 sentinel（DOM 属性，page reload 会清掉）
+    page.evaluate("document.body.setAttribute('data-test-sentinel', 'present')")
+
+    # 切 3 次 tab：kanban → proposals → kanban
     _click_menu(page, KIND_KANBAN)
-    time.sleep(0.5)
-
-    # 激活的是 kanban。关掉 kanban → 应该激活 overview
-    _close_tab(page, KIND_KANBAN)
-    sig = _collect_signals(page)
-    log(f"   after close active kanban = {sig}")
-    _shot(page, "06_close_active.png")
-    assert sig["tabStripCount"] == 1
-    assert sig["tabStripItems"][0]["id"] == f"{PROJECT_ID}-{KIND_OVERVIEW}"
-    assert sig["tabStripItems"][0]["active"] is True
-
-
-@pytest.mark.e2e
-def test_url_sync_and_browser_back(page: Page, admin_token: str) -> None:
-    """URL 反映 section；浏览器 back → 回到上一个 section + 上一个 tab 激活。"""
-    url = f"{FRONTEND_ORIGIN}/project/{PROJECT_ID}/overview"
-    goto_url_with_token(page, admin_token, url)
-    time.sleep(1.0)
-    _click_menu(page, KIND_KANBAN)
-    time.sleep(0.5)
     _click_menu(page, KIND_PROPOSALS)
-    time.sleep(0.5)
+    _click_tab_strip(page, KIND_KANBAN)
+    time.sleep(0.3)
 
-    sig0 = _collect_signals(page)
-    assert sig0["url"].endswith(f"/{KIND_PROPOSALS}")
-    assert sig0["tabStripCount"] == 3
-    _shot(page, "07_before_back.png")
+    # 验证 sentinel 还在（说明没有 page reload）
+    sentinel = page.evaluate("document.body.getAttribute('data-test-sentinel')")
+    log(f"   sentinel after tab clicks = {sentinel!r}")
+    _shot(page, "06_no_reload.png")
+    assert sentinel == "present", (
+        f"切 tab 触发了 page reload (sentinel 消失). "
+        f"v2 修复必须让 service 调用走纯 client state，不触发 router 跳路由。"
+    )
 
-    page.go_back(wait_until="domcontentloaded", timeout=30000)
-    time.sleep(1.5)
+
+@pytest.mark.e2e
+def test_state_preserved_across_tab_switch(page: Page, admin_token: str) -> None:
+    """非激活 tab 状态保留（v2 修核心断言）。
+
+    场景：文档 tab 加载后选 filter → 切到 kanban → 切回 documents →
+    文档 tab 的 select 元素仍是原值（DOM 没重建，Angular 组件实例活着）。
+    """
+    url = f"{FRONTEND_ORIGIN}/project/{PROJECT_ID}/overview"
+    goto_url_with_token(page, admin_token, url)
+    time.sleep(1.0)
+
+    # 开 documents tab
+    _click_menu(page, KIND_DOCUMENTS)
+    time.sleep(1.0)
     sig1 = _collect_signals(page)
-    log(f"   back 1 = {sig1}")
-    _shot(page, "08_back_1.png")
-    assert sig1["url"].endswith(f"/{KIND_KANBAN}"), f"back 后 URL 应为 /{KIND_KANBAN}, 实际 {sig1['url']!r}"
-    kanban_item = next((t for t in sig1["tabStripItems"] if t["id"] == f"{PROJECT_ID}-{KIND_KANBAN}"), None)
-    assert kanban_item is not None and kanban_item["active"] is True
-    assert sig1["activePaneKind"] == KIND_KANBAN
+    assert sig1["tabStripCount"] == 2
+    assert sig1["activePaneKind"] == KIND_DOCUMENTS
+    _shot(page, "07a_documents_open.png")
 
-    page.go_back(wait_until="domcontentloaded", timeout=30000)
-    time.sleep(1.5)
+    # 记录 documents pane 内 select 数量
+    select_count = page.evaluate("""
+        document.querySelectorAll('.tab-pane-host:not(.tab-pane-host--hidden) select').length
+    """)
+    log(f"   documents tab select count = {select_count}")
+    _shot(page, "07b_documents_filter.png")
+
+    # 切到 kanban tab（documents tab 隐藏但实例不销毁）
+    _click_menu(page, KIND_KANBAN)
+    time.sleep(0.5)
     sig2 = _collect_signals(page)
-    log(f"   back 2 = {sig2}")
-    _shot(page, "09_back_2.png")
-    assert sig2["url"].endswith(f"/{KIND_OVERVIEW}")
-    overview_item = next((t for t in sig2["tabStripItems"] if t["id"] == f"{PROJECT_ID}-{KIND_OVERVIEW}"), None)
-    assert overview_item is not None and overview_item["active"] is True
+    assert sig2["tabStripCount"] == 2
+    assert sig2["activePaneKind"] == KIND_KANBAN
+    _shot(page, "07c_switched_to_kanban.png")
+
+    # 切回 documents tab
+    _click_tab_strip(page, KIND_DOCUMENTS)
+    time.sleep(0.5)
+    sig3 = _collect_signals(page)
+    assert sig3["tabStripCount"] == 2
+    assert sig3["activePaneKind"] == KIND_DOCUMENTS
+    _shot(page, "07d_switched_back.png")
+
+    # 验证 documents tab 的 select 数仍是原值（DOM 没重建）
+    select_count_after = page.evaluate("""
+        document.querySelectorAll('.tab-pane-host:not(.tab-pane-host--hidden) select').length
+    """)
+    log(f"   documents tab select count after switch = {select_count_after}")
+    assert select_count_after == select_count, (
+        f"切走再切回，select 数量变了（{select_count} → {select_count_after}）— "
+        f"说明 tab 实例被销毁/重建，状态会丢失。v2 必须用 CSS display:none 保活。"
+    )
+
+
+@pytest.mark.e2e
+def test_url_replaced_silently_on_tab_click(page: Page, admin_token: str) -> None:
+    """点 tab → URL 静默同步（replaceState，不新增 history）。
+
+    验证方式：记下 history.length → 点 3 次 tab → 验证 URL 变了但 history.length 没变。
+    """
+    url = f"{FRONTEND_ORIGIN}/project/{PROJECT_ID}/overview"
+    goto_url_with_token(page, admin_token, url)
+    time.sleep(1.0)
+
+    history_before = page.evaluate("history.length")
+    url_before = page.evaluate("location.pathname")
+    log(f"   before: history.length={history_before}, url={url_before!r}")
+
+    # 切 3 次 tab
+    _click_menu(page, KIND_KANBAN)
+    _click_menu(page, KIND_PROPOSALS)
+    _click_menu(page, KIND_DOCUMENTS)
+    time.sleep(0.3)
+
+    history_after = page.evaluate("history.length")
+    url_after = page.evaluate("location.pathname")
+    log(f"   after 3 tab clicks: history.length={history_after}, url={url_after!r}")
+    _shot(page, "08_url_replaced.png")
+
+    # URL 应更新为 documents（最后点的那次）
+    assert url_after.endswith(f"/{KIND_DOCUMENTS}"), (
+        f"URL 应更新到 /{KIND_DOCUMENTS}, 实际 {url_after!r} — v2 用 replaceState 同步 URL"
+    )
+    # history.length 应不变（replaceState 不增 history）
+    assert history_after == history_before, (
+        f"history.length 变化（{history_before} → {history_after}）— "
+        f"v2 必须用 replaceState 静默同步 URL，不能用 pushState"
+    )

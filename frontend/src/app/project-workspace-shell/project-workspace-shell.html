@@ -10,7 +10,7 @@
       <nav class="project-nav-v7" aria-label="项目导航">
         @for (item of menuItems; track item.kind) {
           <a
-            [routerLink]="['/project', host.project()?.id, item.kind]"
+            href="#"
             class="project-nav-button-v7"
             [class.active]="isMenuActive(item.kind)"
             [attr.aria-label]="item.ariaLabel"
@@ -31,12 +31,12 @@
   }
 
   <section class="project-workspace-main">
-    <!-- 隐藏的子路由出口 — 让 8 section 路由能匹配；不渲染任何 UI -->
+    <!-- 隐藏的子路由出口 — 让 8 section 路由能匹配（直链 / 刷新用）；shell 不渲染其内容 -->
     <div class="section-placeholder-slot" aria-hidden="true">
       <router-outlet />
     </div>
 
-    <!-- 多 tab 状态条（2026-08-21 结构调整）：
+    <!-- 多 tab 状态条（2026-08-21 结构调整，v2 修）：
          始终显示在 main 顶部，tab 数量为 0 时不渲染。
          激活 tab 加 .tab-strip-item--active，未激活的 × 鼠标 hover 增强显示。 -->
     @if (!isEmpty()) {
@@ -50,7 +50,7 @@
             [attr.aria-label]="tab.title"
             [attr.data-tab-id]="tab.id">
             <a
-              [routerLink]="['/project', tab.projectId, tab.kind]"
+              href="#"
               class="tab-strip-link"
               (click)="onTabClick($event, tab)">
               <svg class="tab-strip-icon" aria-hidden="true"><use [attr.href]="'#' + tab.iconId"></use></svg>

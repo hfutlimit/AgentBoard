@@ -34,9 +34,10 @@ REGISTRY: list[DodEntry] = [
             "tests/e2e_workspace_tabs/test_workspace_tabs_e2e.py",
         ],
         coverage_summary=(
-            "6 个 Playwright 真实断言 test_* 函数覆盖："
+            "7 个 Playwright 真实断言 test_* 函数覆盖："
             "默认 1 tab / 点菜单加 tab / 重复点击激活 / 关闭 tab / "
-            "关闭激活 tab 激活邻居 / URL 同步 + 浏览器 back"
+            "无 page reload (v2 修) / 跨 tab 状态保留 (v2 修) / "
+            "URL replaceState 静默同步 (v2 修)"
         ),
         acceptance=[
             "进入项目默认 1 tab（概览）",
@@ -45,8 +46,10 @@ REGISTRY: list[DodEntry] = [
             "再点 Kanban tab（已开）→ 只切换激活态，tab 数仍 3",
             "点中间 tab 的 × → 关闭该 tab，激活态保持原激活",
             "关掉当前激活的 tab → 激活态切到左侧邻居（左侧优先）",
-            "URL 反映当前 section（直链 / 前进后退 / 刷新全部 work）",
-            "浏览器 back 5 步 → URL 回到上一个 section + 上一个 tab 重新激活",
+            "切 tab **不**触发整页刷新（v2 修核心，DOM sentinel 验证）",
+            "切走再切回，tab 内 select 数量不变（v2 修核心，证明组件实例保活）",
+            "切 tab → URL 静默更新（replaceState，不新增 history entry）",
+            "URL 与 service 状态保持一致，刷新能恢复用户当前激活 tab",
             "同 (projectId, kind) 至多 1 个 tab；切项目 → tab 列表清空",
             "顶部 topbar 完整保留（用户硬性约束）",
             "8 个 sidebar menu 项 aria-label 全部存在（向后兼容 test_x_b1）",
@@ -55,8 +58,11 @@ REGISTRY: list[DodEntry] = [
         closed_date="2026-08-21",
         notes=(
             "实现：WorkspaceTabsService (in-memory) + TabPaneComponent 包装派发器 + "
-            "ProjectWorkspaceShellComponent 重构为 sidebar + tab strip + tab pane stack。"
-            "URL = 激活态 source of truth (保留 e2e_epic149/test_x_b1_route_8tab 兼容)。"
+            "ProjectWorkspaceShellComponent 重构为 sidebar + tab strip + tab pane stack。\n"
+            "v1 → v2 修：菜单/tab 条点击不再用 <a routerLink>（会触发 Angular router "
+            "跳路由 → app.ts loadRoute 重拉数据 → 用户感知为'刷新 + 状态丢失'）。"
+            "v2 改用 (click) + tabsService 直接调 + history.replaceState 静默同步 URL，"
+            "tab 切换是纯 client state 操作（ajax 风格），其他 tab 状态完整保留。"
         ),
     ),
 ]
