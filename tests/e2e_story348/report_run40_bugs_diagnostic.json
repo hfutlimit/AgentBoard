@@ -1,0 +1,80 @@
+{
+  "api": [
+    {
+      "path": "/api/bugs?limit=5",
+      "error": "<HTTPError 404: 'Not Found'>"
+    },
+    {
+      "path": "/api/bugs?project_id=3&limit=5",
+      "error": "<HTTPError 404: 'Not Found'>"
+    },
+    {
+      "path": "/api/bugs",
+      "error": "<HTTPError 404: 'Not Found'>"
+    }
+  ],
+  "runs": [
+    {
+      "run": 1,
+      "samples_count": 2,
+      "final": {
+        "root_len": 434,
+        "main_len": 390,
+        "h1": "全局 Bugs 概览",
+        "skeleton_count": 0,
+        "empty_hint": ""
+      },
+      "main_text_sample": "全局 Bugs 概览\n\n跨项目缺陷与修复状态概览。\n\nEpics\n147\n跨项目业务目标\nStories\n333\n跨项目需求\nTasks\n832\n跨项目交付\nBugs\n0\n跨项目缺陷\n全局 Epics\n按业务目标组织交付 · 147 个\n全局 Stories\n需求提案与故事 · 333 个\n全局 Tasks\n任务与交付 · 832 个\n全局 Bugs\n缺陷与修复 · 0 个\n项目中心\n按项目维度浏览 · 11 个\n\n说明：当前为聚合概览视图（#1430 简化版）。完整的全局 epics / stories / tasks / bugs 列表视图 需要后端补 GET /api/epics、GET /api/stories、GET /api/tasks 端点 （目前必须传 project_id / epic_id / story_id）。本次先打通路由，列表渲染留到下一轮。",
+      "screenshot": "screenshots_run40\\bugs_run1.png",
+      "console_errors": [
+        {
+          "type": "error",
+          "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+        }
+      ],
+      "page_errors": [],
+      "network_failures": []
+    },
+    {
+      "run": 2,
+      "samples_count": 2,
+      "final": {
+        "root_len": 434,
+        "main_len": 390,
+        "h1": "全局 Bugs 概览",
+        "skeleton_count": 0,
+        "empty_hint": ""
+      },
+      "main_text_sample": "全局 Bugs 概览\n\n跨项目缺陷与修复状态概览。\n\nEpics\n147\n跨项目业务目标\nStories\n333\n跨项目需求\nTasks\n832\n跨项目交付\nBugs\n0\n跨项目缺陷\n全局 Epics\n按业务目标组织交付 · 147 个\n全局 Stories\n需求提案与故事 · 333 个\n全局 Tasks\n任务与交付 · 832 个\n全局 Bugs\n缺陷与修复 · 0 个\n项目中心\n按项目维度浏览 · 11 个\n\n说明：当前为聚合概览视图（#1430 简化版）。完整的全局 epics / stories / tasks / bugs 列表视图 需要后端补 GET /api/epics、GET /api/stories、GET /api/tasks 端点 （目前必须传 project_id / epic_id / story_id）。本次先打通路由，列表渲染留到下一轮。",
+      "screenshot": "screenshots_run40\\bugs_run2.png",
+      "console_errors": [],
+      "page_errors": [],
+      "network_failures": []
+    },
+    {
+      "run": 3,
+      "samples_count": 60,
+      "final": {
+        "root_len": 0,
+        "main_len": 0,
+        "h1": "",
+        "skeleton_count": 1,
+        "empty_hint": ""
+      },
+      "main_text_sample": "",
+      "screenshot": "screenshots_run40\\bugs_run3.png",
+      "console_errors": [
+        {
+          "type": "error",
+          "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+        }
+      ],
+      "page_errors": [],
+      "network_failures": []
+    }
+  ],
+  "after_warmup": {
+    "main_len": 390,
+    "h1": "全局 Bugs 概览"
+  }
+}

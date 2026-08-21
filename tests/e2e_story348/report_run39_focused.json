@@ -2,7 +2,7 @@
   "targets": [
     {
       "url": "/stories",
-      "txt": 400,
+      "txt": 44,
       "h1": "全局 Stories 概览",
       "blank": false,
       "is_404": false,
@@ -18,9 +18,9 @@
     },
     {
       "url": "/bugs",
-      "txt": 390,
-      "h1": "全局 Bugs 概览",
-      "blank": false,
+      "txt": 0,
+      "h1": "",
+      "blank": true,
       "is_404": false,
       "screenshot": "screenshots_run39\\bugs.png"
     },
