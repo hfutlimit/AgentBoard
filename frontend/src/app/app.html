@@ -76,12 +76,6 @@
       </div>
     </div>
     <div class="topbar-right">
-      @if (view() === 'project') {
-        <label class="workspace-project-search" aria-label="搜索当前项目">
-          <svg class="icon-v7" aria-hidden="true"><use href="#i-search"/></svg>
-          <input type="search" placeholder="搜索当前项目" />
-        </label>
-      }
       <button id="theme-toggle" class="icon-btn" [title]="getThemeLabel()" (click)="toggleTheme()">
         <svg class="icon-v7" aria-hidden="true"><use href="#i-theme"/></svg>
       </button>

@@ -1929,34 +1929,6 @@ h3 { font-size: 16px; line-height: 1.4; font-weight: 650; }
 .topbar-divider { width: 1px; height: 24px; background: var(--border); }
 .topbar-product { color: var(--text-2); font-size: 13px; font-weight: 550; }
 
-.workspace-project-search {
-  display: inline-flex;
-  width: clamp(180px, 14vw, 220px);
-  height: 36px;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-2);
-  color: var(--text-3);
-}
-.workspace-project-search .icon-v7 { width: 16px; height: 16px; flex: 0 0 auto; }
-.workspace-project-search input {
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-}
-.workspace-project-search:focus-within {
-  border-color: var(--brand-500);
-  background: var(--surface);
-  box-shadow: 0 0 0 3px var(--brand-ring);
-}
-
 .icon-btn,
 .topbar .ghost-sm {
   width: 36px;

@@ -73,6 +73,21 @@ describe('App', () => {
     expect(compiled.querySelector('.logo-text')?.textContent).toContain('AgentBoard');
   });
 
+  it('should keep theme switching available without rendering an inert project search', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    app.authVisible.set(false);
+    app.loading.set(false);
+    app.view.set('project');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('#theme-toggle')).not.toBeNull();
+    expect(element.querySelector('.workspace-project-search')).toBeNull();
+  });
+
   it('should collapse the desktop sidebar into a persistent icon rail', async () => {
     localStorage.removeItem('agentboard_sidebar_collapsed');
     const width = vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280);
