@@ -1,3 +1,9 @@
+/* ProjectWorkspaceShellComponent — 2026-08-21 结构调整
+ *
+ * 旧版：sidebar + main 单一内容
+ * 新版：sidebar + main（顶部多 tab 条 + 多 pane 容器）
+ * topbar 由 App 组件保留，这里只动 .project-workspace-shell 内部
+ */
 .project-workspace-shell {
   display: grid;
   grid-template-columns: 218px minmax(0, 1fr);
@@ -6,10 +12,13 @@
 }
 
 .project-workspace-main {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
-  padding: 28px 32px 38px;
-  overflow: auto;
+  /* 顶部 tab 条由内部 .tab-strip 自带 padding，main 自身不重复 padding-top */
+  padding: 0 32px 38px;
+  overflow: hidden;
 }
 
 @media (min-width: 1600px) {
@@ -22,10 +31,191 @@
 
 @media (max-width: 1160px) {
   .project-workspace-shell { grid-template-columns: 72px minmax(0, 1fr); }
-  .project-workspace-main { padding: 24px; }
+  .project-workspace-main { padding: 0 24px 24px; }
 }
 
 @media (max-width: 800px) {
   .project-workspace-shell { grid-template-columns: 1fr; }
-  .project-workspace-main { padding: 20px 14px 80px; }
+  .project-workspace-main { padding: 0 14px 80px; }
+}
+
+/* ─── Section placeholder 槽（占位渲染子路由，shell 不显示） ─────────── */
+.section-placeholder-slot {
+  display: none !important;
+}
+
+/* ─── Tab strip（VS Code 风格） ─────────────────────────────────────── */
+.tab-strip {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 10px 0 0;
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  position: relative;
+  z-index: 1;
+}
+
+.tab-strip::-webkit-scrollbar { height: 6px; }
+.tab-strip::-webkit-scrollbar-thumb {
+  background: var(--color-border, rgba(0, 0, 0, 0.15));
+  border-radius: 3px;
+}
+
+.tab-strip-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  padding: 0 4px 0 0;
+  min-width: 0;
+  max-width: 220px;
+  border: 1px solid var(--color-border, rgba(15, 23, 42, 0.12));
+  border-bottom: none;
+  border-top-left-radius: 6px;
+  border-top-right-radius: 6px;
+  background: var(--color-surface-2, #f8fafc);
+  color: var(--color-text-muted, #475569);
+  font-size: 13px;
+  font-weight: 500;
+  position: relative;
+  transition: background-color 0.12s ease, color 0.12s ease;
+  flex: 0 0 auto;
+}
+
+.tab-strip-item:hover {
+  background: var(--color-surface-3, #eef2f7);
+  color: var(--color-text, #0f172a);
+}
+
+.tab-strip-item--active {
+  background: var(--color-surface, #ffffff);
+  color: var(--color-text, #0f172a);
+  border-color: var(--color-border, rgba(15, 23, 42, 0.16));
+  z-index: 2;
+}
+
+/* VS Code 风格：激活 tab 的底部蓝色 2px 强调条 */
+.tab-strip-item--active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--color-accent, #2563eb);
+  border-bottom-left-radius: 2px;
+  border-bottom-right-radius: 2px;
+}
+
+.tab-strip-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 8px 0 12px;
+  color: inherit;
+  text-decoration: none;
+  height: 100%;
+}
+
+.tab-strip-link:hover {
+  color: inherit;
+  text-decoration: none;
+}
+
+.tab-strip-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  color: currentColor;
+  opacity: 0.8;
+}
+
+.tab-strip-item--active .tab-strip-icon {
+  opacity: 1;
+}
+
+.tab-strip-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tab-strip-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 2px;
+  border-radius: 4px;
+  color: inherit;
+  opacity: 0.55;
+  transition: background-color 0.12s ease, opacity 0.12s ease;
+  cursor: pointer;
+  flex: 0 0 18px;
+}
+
+.tab-strip-item:hover .tab-strip-close,
+.tab-strip-item--active .tab-strip-close {
+  opacity: 1;
+}
+
+.tab-strip-close:hover {
+  background: rgba(15, 23, 42, 0.12);
+}
+
+.tab-strip-close-icon {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+}
+
+/* ─── Tab pane stack ───────────────────────────────────────────────── */
+.tab-pane-stack {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.tab-pane-host {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  /* tab pane 顶部留白（替代原 main padding-top:28） */
+  padding: 24px 0 0;
+  overflow: auto;
+}
+
+/* 非激活 pane：彻底隐藏但组件实例保留 */
+.tab-pane-host--hidden {
+  display: none !important;
+}
+
+/* 暗色模式 */
+:host-context(.theme-dark) .tab-strip-item {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: rgba(226, 232, 240, 0.7);
+}
+:host-context(.theme-dark) .tab-strip-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(241, 245, 249, 0.95);
+}
+:host-context(.theme-dark) .tab-strip-item--active {
+  background: rgba(15, 23, 42, 0.9);
+  color: #f1f5f9;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+:host-context(.theme-dark) .tab-strip-close:hover {
+  background: rgba(255, 255, 255, 0.14);
 }

@@ -144,7 +144,12 @@ export const routes: Routes = [
     data: { entity: 'dashboard' },
   },
 
-  // ─── Project workspace: shell + eight lazy child routes ───────────────
+  // ─── Project workspace: shell + child section routes（2026-08-21 结构调整）
+  // 8 个子 section 仍保留路由（用于直链/前进后退/刷新），但 shell 内不再用
+  // <router-outlet> 渲染 — 它订阅 NavigationEnd 解析 section，调
+  // WorkspaceTabsService.openTab() 把 URL 同步到 tab 状态。
+  // 子路由用 SectionPlaceholderComponent 占位（不渲染任何 UI，纯占位让
+  // Angular 完成路由匹配，shell 自行渲染 tab 内容）。
   {
     path: 'project/:id',
     loadComponent: () =>
@@ -152,23 +157,23 @@ export const routes: Routes = [
         (m) => m.ProjectWorkspaceShellComponent,
       ),
     children: [
-      { path: '', pathMatch: 'full', redirectTo: 'overview' },
       ...['overview', 'kanban', 'epics', 'backlog', 'proposals', 'documents', 'members', 'settings'].map(
-        (path) => ({
-          path,
+        (section) => ({
+          path: section,
           loadComponent: () =>
-            import('./project-workspace-route/project-workspace-route').then(
-              (m) => m.ProjectWorkspaceRouteComponent,
+            import('./project-workspace-shell/section-placeholder/section-placeholder').then(
+              (m) => m.SectionPlaceholderComponent,
             ),
         }),
       ),
       {
         path: 'documents/:docId',
         loadComponent: () =>
-          import('./project-workspace-route/project-workspace-route').then(
-            (m) => m.ProjectWorkspaceRouteComponent,
+          import('./project-workspace-shell/section-placeholder/section-placeholder').then(
+            (m) => m.SectionPlaceholderComponent,
           ),
       },
+      { path: '', pathMatch: 'full', redirectTo: 'overview' },
     ],
   },
 

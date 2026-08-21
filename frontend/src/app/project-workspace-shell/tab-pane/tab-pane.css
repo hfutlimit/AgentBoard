@@ -1,0 +1,18 @@
+/* TabPaneComponent — 2026-08-21 结构调整
+ *
+ * 单个 tab pane 的内容容器样式。父级 (project-workspace-main) 通过
+ * [class.is-pane-hidden] 触发 display:none 隐藏非激活 pane，组件实例
+ * 保留，Angular 状态不丢。
+ *
+ * 容器只负责铺满父级高度，pane 内部布局由各自的 *-tab 组件控制。
+ */
+.tab-pane-content {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+/* 非激活 pane：父级会给 .tab-pane-host 加 is-pane-hidden，下面的内容彻底隐藏 */
+:host(.is-pane-hidden) .tab-pane-content {
+  display: none;
+}

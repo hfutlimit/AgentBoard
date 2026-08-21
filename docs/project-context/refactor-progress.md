@@ -18,6 +18,7 @@
 | D | 仓库清理 2026-08-19 | ⬜ 未开始 | 4 任务 / 0 完成 | `docs/superpowers/plans/2026-08-19-repository-cleanup.md` |
 | E | Epic 11 持续前端优化 | ✅ P/A/B 44 项 | 2026-07-11 收口 | `docs/tasks.md` §Epic 11 |
 | F | P1 后端欠债（来自 8-17 评审） | ⬜ 排队中 | 详见 §6 | `MCP project 3 → knowledge` 评审文档 |
+| G | **Epic 152 工作台多 Tab** | ✅ 完成 | 2026-08-21 | `docs/e2e-plan.md` §14 |
 
 ---
 

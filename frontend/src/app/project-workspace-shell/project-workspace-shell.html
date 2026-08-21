@@ -8,16 +8,16 @@
       </div>
       <div class="sidebar-label-v7">项目工作台</div>
       <nav class="project-nav-v7" aria-label="项目导航">
-        @for (tab of tabs; track tab.kind) {
+        @for (item of menuItems; track item.kind) {
           <a
-            [routerLink]="['/project', host.project()?.id, tab.path]"
+            [routerLink]="['/project', host.project()?.id, item.kind]"
             class="project-nav-button-v7"
-            routerLinkActive="active"
-            [routerLinkActiveOptions]="{ exact: true }"
-            [attr.aria-label]="tab.ariaLabel"
-            ariaCurrentWhenActive="page">
-            <svg class="icon-v7" aria-hidden="true"><use [attr.href]="'#' + tab.iconId"></use></svg>
-            <span>{{ tab.label }}</span>
+            [class.active]="isMenuActive(item.kind)"
+            [attr.aria-label]="item.ariaLabel"
+            [attr.aria-current]="isMenuActive(item.kind) ? 'page' : null"
+            (click)="onMenuClick($event, item.kind)">
+            <svg class="icon-v7" aria-hidden="true"><use [attr.href]="'#' + item.iconId"></use></svg>
+            <span>{{ item.label }}</span>
           </a>
         }
       </nav>
@@ -31,6 +31,59 @@
   }
 
   <section class="project-workspace-main">
-    <router-outlet />
+    <!-- 隐藏的子路由出口 — 让 8 section 路由能匹配；不渲染任何 UI -->
+    <div class="section-placeholder-slot" aria-hidden="true">
+      <router-outlet />
+    </div>
+
+    <!-- 多 tab 状态条（2026-08-21 结构调整）：
+         始终显示在 main 顶部，tab 数量为 0 时不渲染。
+         激活 tab 加 .tab-strip-item--active，未激活的 × 鼠标 hover 增强显示。 -->
+    @if (!isEmpty()) {
+      <div class="tab-strip" role="tablist" aria-label="已打开的视图">
+        @for (tab of tabs(); track tab.id) {
+          <div
+            class="tab-strip-item"
+            role="tab"
+            [class.tab-strip-item--active]="tab.id === activeId()"
+            [attr.aria-selected]="tab.id === activeId()"
+            [attr.aria-label]="tab.title"
+            [attr.data-tab-id]="tab.id">
+            <a
+              [routerLink]="['/project', tab.projectId, tab.kind]"
+              class="tab-strip-link"
+              (click)="onTabClick($event, tab)">
+              <svg class="tab-strip-icon" aria-hidden="true"><use [attr.href]="'#' + tab.iconId"></use></svg>
+              <span class="tab-strip-label">{{ tab.title }}</span>
+            </a>
+            <span
+              class="tab-strip-close"
+              role="button"
+              tabindex="0"
+              [attr.aria-label]="'关闭 ' + tab.title"
+              (click)="onTabClose($event, tab)"
+              (keydown.enter)="onTabClose($event, tab)">
+              <svg class="tab-strip-close-icon" aria-hidden="true" viewBox="0 0 16 16"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 0 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06z"/></svg>
+            </span>
+          </div>
+        }
+      </div>
+    }
+
+    <!-- 多 pane 容器：
+         所有打开的 tab 都挂一个 TabPaneComponent。
+         非激活的 pane 父级加 .tab-pane-host--hidden 触发 display:none，
+         组件实例保留，Angular 状态（筛选/滚动/已加载数据）不丢。 -->
+    <div class="tab-pane-stack">
+      @for (tab of tabs(); track tab.id) {
+        <div
+          class="tab-pane-host"
+          [class.tab-pane-host--hidden]="tab.id !== activeId()"
+          [attr.data-pane-id]="tab.id"
+          [attr.aria-hidden]="tab.id !== activeId()">
+          <app-tab-pane [tab]="tab" />
+        </div>
+      }
+    </div>
   </section>
 </div>

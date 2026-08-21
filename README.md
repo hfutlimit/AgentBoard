@@ -426,3 +426,20 @@ PYTHONPATH=. python tests/test_smoke.py
   - `openspec/AGENTS.md`：AI Agent 使用指引
 
 开发遵循 Superpowers / OpenSpec 规范：新功能先写变更提案，按 `tasks.md` 实现，完成后同步 `specs/`。
+
+## Status
+
+最近一次结构性变更（2026-08-21）：**项目工作台多 Tab 系统**。
+
+- 8 个子视图（概览/看板/Epics/工作项/提案/文档/成员/设置）从「单 slot 切换」升级为「浏览器风格多 tab 同时挂载」
+- 点击左侧菜单 → 新增 tab；已开 tab → 切换激活态
+- 切换 tab 不卸载，状态保留（筛选、滚动、已加载数据）
+- 关闭 tab → 从 tab 条移除
+- URL 反映当前激活 section（直链/前进后退/刷新 work）
+- 同 (projectId, kind) 至多 1 个 tab；切项目 → tab 列表清空
+- 顶部 topbar 完整保留
+
+详细：
+- 进度表 → [`docs/e2e-plan.md`](docs/e2e-plan.md) §14
+- 验收条目 → [`tests/e2e/dod_registry.py`](tests/e2e/dod_registry.py) `epic152-workspace-tabs-2026-08-21`
+- e2e 测试 → [`tests/e2e_workspace_tabs/test_workspace_tabs_e2e.py`](tests/e2e_workspace_tabs/test_workspace_tabs_e2e.py)

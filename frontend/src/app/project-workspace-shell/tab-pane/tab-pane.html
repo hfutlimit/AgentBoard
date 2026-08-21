@@ -1,0 +1,128 @@
+<div class="tab-pane-content" [attr.data-tab-kind]="tab.kind">
+  @switch (tab.kind) {
+    @case ('overview') {
+      @if (host.project(); as current) {
+        <app-overview-tab
+          [project]="current"
+          [members]="host.members()"
+          [epics]="host.epics()"
+          [backlogCount]="host.backlogVisibleTasks().length"
+          [kanbanCount]="host.kanbanCount()"
+          [proposalCount]="host.proposalVisible().length"
+          (navigateTab)="host.selectProjectTab($event)"
+          (goEpic)="host.goEpic($event)"
+        />
+      }
+    }
+    @case ('epics') {
+      <app-epics-tab
+        [epics]="host.visibleEpics()"
+        [epicProgressFor]="host.epicProgress"
+        [page]="host.epicsPage()"
+        [pageSize]="host.projectListPageSize"
+        [loading]="host.isProjectTabLoading('epics')"
+        [error]="host.projectTabError('epics')"
+        [projectId]="host.project()?.id ?? null"
+        (pageChange)="host.setProjectListPage('epics', $event)"
+        (retry)="host.retryProjectTab('epics')"
+        (createEpic)="host.openCreate('epic', $event)"
+      />
+    }
+    @case ('backlog') {
+      <app-backlog-tab
+        [tasks]="host.backlogVisibleTasks()"
+        [page]="host.backlogPage()"
+        [pageSize]="host.projectListPageSize"
+        [loading]="host.isProjectTabLoading('backlog')"
+        [error]="host.projectTabError('backlog')"
+        (pageChange)="host.setProjectListPage('backlog', $event)"
+        (retry)="host.retryProjectTab('backlog')"
+      />
+    }
+    @case ('proposals') {
+      <app-proposals-tab
+        [proposals]="host.proposalVisible()"
+        [filterStatus]="host.proposalFilterStatus()"
+        [searchQuery]="host.proposalSearchQuery()"
+        [statuses]="host.proposalStatuses"
+        [loading]="host.isProjectTabLoading('proposals')"
+        [error]="host.projectTabError('proposals')"
+        (filterStatusChange)="host.proposalFilterStatus.set($event)"
+        (searchQueryChange)="host.proposalSearchQuery.set($event)"
+        (createProposal)="host.openProposalModal()"
+        (retry)="host.retryProjectTab('proposals')"
+      />
+    }
+    @case ('members') {
+      <app-members-tab
+        [members]="host.members()"
+        [agents]="host.agents()"
+        [loading]="host.isProjectTabLoading('members')"
+        [error]="host.projectTabError('members')"
+        (retry)="host.retryProjectTab('members')"
+      />
+    }
+    @case ('documents') {
+      <app-documents-tab
+        [docs]="host.applyDocSort(host.projectDocVisible())"
+        [childFolders]="host.docChildFolders()"
+        [breadcrumb]="host.docBreadcrumb()"
+        [authorOptions]="host.docAuthorOptions()"
+        [epics]="host.epics()"
+        [filterType]="host.docFilterType()"
+        [filterStatus]="host.docFilterStatus()"
+        [searchQuery]="host.docSearchQuery()"
+        [filterAuthor]="host.docFilterAuthor()"
+        [filterEpic]="host.docFilterEpic()"
+        [sortBy]="host.docSortBy()"
+        [listViewMode]="host.docListViewMode()"
+        [docTypes]="host.docTypes"
+        [docStatuses]="host.docStatuses"
+        [loading]="host.isProjectTabLoading('documents')"
+        [error]="host.projectTabError('documents')"
+        [dragItem]="host.docDrag()"
+        [dropTargetId]="host.docDropId()"
+        [epicTitleFor]="host.epicTitle"
+        [docScopePathFor]="host.docScopePath"
+        [docFolderCountFor]="host.docFolderCount"
+        [docCommentCountFor]="host.docCommentCount"
+        (filterTypeChange)="host.docFilterType.set($event)"
+        (filterStatusChange)="host.docFilterStatus.set($event)"
+        (searchQueryChange)="host.docSearchQuery.set($event)"
+        (filterAuthorChange)="host.docFilterAuthor.set($event)"
+        (filterEpicChange)="host.docFilterEpic.set($event)"
+        (sortByChange)="host.onDocSortChange($event)"
+        (listViewModeChange)="host.setDocListViewMode($event)"
+        (enterFolder)="host.enterDocFolder($event)"
+        (createDoc)="host.openDocModal('create')"
+        (createFolder)="host.openDocFolderModal('create')"
+        (renameFolder)="host.openDocFolderModal('rename', $event)"
+        (deleteFolder)="host.deleteDocFolder($event)"
+        (openDoc)="host.openDocTab($event)"
+        (dragStart)="host.onDocDragStart($event.event, $event.item)"
+        (dragEnd)="host.onDocDragEnd()"
+        (dropOver)="host.onDocDropOver($event.event, $event.target)"
+        (dropLeave)="host.onDocDropLeave()"
+        (drop)="host.onDocDrop($event.event, $event.target)"
+        (retry)="host.retryProjectTab('documents')"
+      />
+    }
+    @case ('kanban') {
+      <app-kanban-tab
+        [columns]="host.kanbanColumns()"
+        [count]="host.kanbanCount()"
+        [includeAll]="host.kanbanIncludeAll()"
+        [loading]="host.isProjectTabLoading('kanban')"
+        [error]="host.projectTabError('kanban') || ''"
+        [skeletonRows]="host.tabSkeletonRows"
+        (toggleIncludeAll)="host.toggleKanbanIncludeAll()"
+        (retry)="host.retryProjectTab('kanban')"
+        (openStory)="host.openKanbanStory($event)"
+        (toggleStory)="host.toggleKanbanStory($event)"
+      />
+    }
+    @case ('settings') {
+      <app-settings-tab />
+    }
+  }
+</div>
