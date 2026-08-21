@@ -288,7 +288,7 @@
         @case ('home') {
           <!-- Epic 150 / Story 321 (X1) Home Shell prototype v7 风格：项目 Master-Detail + Agents tab -->
           <!-- PR 1：插入 home-shell 组件，原 dashboard 保留在下方作为 fallback 演示。后续 PR 2/3 路由切换 -->
-          @defer (when view() === 'home' && !authVisible()) {
+          @if (view() === 'home' && !authVisible()) {
             <app-home-shell
               [projects]="(projectsCenter().length ? projectsCenter() : visibleProjects())"
               [agents]="agents()"
