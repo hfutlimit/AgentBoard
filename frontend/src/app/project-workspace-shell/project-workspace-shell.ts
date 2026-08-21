@@ -1,4 +1,5 @@
-import { Component, ViewEncapsulation, computed, effect, inject, signal } from '@angular/core';
+import { DOCUMENT } from '@angular/common';
+import { Component, OnDestroy, ViewEncapsulation, computed, effect, inject, signal } from '@angular/core';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs/operators';
 import { DetailPaneComponent, DetailSelection } from './detail-pane/detail-pane';
@@ -35,17 +36,20 @@ import { WorkspaceTabsService, WorkspaceTab, WorkspaceTabKind } from '../service
   templateUrl: './project-workspace-shell.html',
   styleUrl: './project-workspace-shell.css',
   encapsulation: ViewEncapsulation.None,
-  host: {
-    // document-level capture-phase click 拦截 — 在 routerLink 之前执行,
-    // 阻止 *-tab 内部 `<a [routerLink]="['/story/:id', ...]">` 跳顶层全页,
-    // 改为 master-detail side panel (Step 1 占位内容,Step 2 真实详情)
-    '(document:click.capture)': 'onDocumentClickCapture($event)',
-  },
 })
 export class ProjectWorkspaceShellComponent {
   readonly host = inject(ProjectDataService).getWorkspaceHost<any>();
   readonly tabsService = inject(WorkspaceTabsService);
   private readonly router = inject(Router);
+  private readonly document = inject(DOCUMENT);
+
+  /**
+   * document-level capture-phase click listener 句柄（v3 Step 1 fix 2）。
+   * 用原生 addEventListener + { capture: true }（不靠 Angular host metadata
+   * 的 .capture 修饰符,因为部分 Angular 版本不识别,导致拦截失败）。
+   * 必须在 ngOnDestroy 释放。
+   */
+  private documentClickListener: ((e: Event) => void) | null = null;
 
   /** 左侧菜单 8 项（顺序固定：概览 → 设置），用于渲染 sidebar nav */
   readonly menuItems: ReadonlyArray<{ kind: WorkspaceTabKind; label: string; iconId: string; ariaLabel: string }> = [
@@ -114,6 +118,27 @@ export class ProjectWorkspaceShellComponent {
           this.tabsService.openTab(cur.pid, cur.kind);
         }
       });
+
+    // v3 Step 1 fix 2:用原生 addEventListener + capture:true 注册 document-level
+    // click 监听器,拦截 *-tab 内部 `<a [routerLink]>` 跳详情页。
+    //
+    // 上版用 @Component host metadata 的 `'(document:click.capture)'` 写法
+    // 在用户实际环境中**没拦住**(可能 Angular 21 不识别 .capture 修饰符),
+    // 切到原生 API 是最稳的写法,100% 在 routerLink 自己的 click handler 之前
+    // 执行。
+    this.documentClickListener = (event: Event) => this.onDocumentClickCapture(event);
+    this.document.addEventListener('click', this.documentClickListener, { capture: true });
+  }
+
+  /**
+   * v3 Step 1 fix 2 配套:在 component 销毁时释放 document listener,
+   * 避免内存泄漏(HMR 频繁刷新时尤其重要)。
+   */
+  ngOnDestroy(): void {
+    if (this.documentClickListener) {
+      this.document.removeEventListener('click', this.documentClickListener, { capture: true });
+      this.documentClickListener = null;
+    }
   }
 
   /** 从 router URL 解析 (projectId, kind) */
