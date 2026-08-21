@@ -1,8 +1,7 @@
 import { DOCUMENT } from '@angular/common';
-import { Component, OnDestroy, ViewEncapsulation, computed, effect, inject, signal } from '@angular/core';
+import { Component, OnDestroy, ViewEncapsulation, computed, effect, inject } from '@angular/core';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs/operators';
-import { DetailPaneComponent, DetailSelection } from './detail-pane/detail-pane';
 import { TabPaneComponent } from './tab-pane/tab-pane';
 import { ProjectDataService } from '../services/project-data.service';
 import { WorkspaceTabsService, WorkspaceTab, WorkspaceTabKind } from '../services/workspace-tabs.service';
@@ -32,7 +31,7 @@ import { WorkspaceTabsService, WorkspaceTab, WorkspaceTabKind } from '../service
 @Component({
   selector: 'app-project-workspace-shell',
   standalone: true,
-  imports: [RouterOutlet, TabPaneComponent, DetailPaneComponent],
+  imports: [RouterOutlet, TabPaneComponent],
   templateUrl: './project-workspace-shell.html',
   styleUrl: './project-workspace-shell.css',
   encapsulation: ViewEncapsulation.None,
@@ -74,15 +73,6 @@ export class ProjectWorkspaceShellComponent {
   readonly tabs = this.tabsService.tabs;
   readonly activeId = this.tabsService.activeId;
   readonly isEmpty = this.tabsService.isEmpty;
-
-  /**
-   * 当前选中的 detail（master-detail side panel 显示用）。
-   * *-tab 内部点 link → emit openDetail → shell 设置这里 → 侧边 panel 渲染。
-   * 设置 null → 关闭 panel。
-   */
-  readonly detailSelection = signal<DetailSelection | null>(null);
-  /** 当前 detail panel 是否打开（detailSelection != null 的便捷 getter） */
-  readonly detailOpen = computed(() => this.detailSelection() !== null);
 
   private readonly knownKinds: ReadonlySet<string> = new Set([
     'overview', 'kanban', 'epics', 'backlog', 'proposals', 'documents', 'members', 'settings',
@@ -223,34 +213,15 @@ export class ProjectWorkspaceShellComponent {
   }
 
   /**
-   * *-tab 内部点 link 触发 — 显示 master-detail side panel。
-   * 不触发 router 跳路由，详情保持在 workspace 上下文内。
-   */
-  onOpenDetail(selection: DetailSelection): void {
-    this.detailSelection.set(selection);
-  }
-
-  /** side panel 关闭按钮 */
-  onCloseDetail(): void {
-    this.detailSelection.set(null);
-  }
-
-  /** 用户在 side panel 里点 "open in full page" — 关闭 panel + 让 router 自然 navigate */
-  onOpenFullDetail(selection: DetailSelection): void {
-    this.detailSelection.set(null);
-    // routerLink 在 detail-pane.html 内部已经设置了目标 URL;
-    // 这里只需关闭 panel,navigate 由 <a> 自行完成
-    void selection;
-  }
-
-  /**
    * 全局 click 拦截 — *-tab 内部 `<a routerLink>` 跳详情页 (Story/Task/Epic/
-   * Proposal/Sprint/Document) 会被这里拦截,改为 master-detail side panel,
-   * 不会跳顶层全页路由（那样会退出 workspace 上下文）。
+   * Proposal/Sprint/Document) 会被这里拦截,改为**在新浏览器 tab 打开**全页路由,
+   * 而不切换当前 workspace tab（避免 routerLink 在当前 tab 内 navigate,
+   * 把 /epic/:id 渲染到 app.html @case('epic')，覆盖整个 workspace 上下文）。
    *
-   * 在 `@Component` 装饰器里用 `host: { '(document:click.capture)': ... }` 注册
-   * (capture phase) — 这让我们在事件冒泡到 routerLink 的 click handler **之前**
-   * 看到事件,这时 preventDefault + stopImmediatePropagation 就能阻止 navigate。
+   * 实现:capture phase 提前于 routerLink → preventDefault 当前 navigate
+   * + window.open(href, '_blank', 'noopener,noreferrer') 开新 tab。
+   * 修饰键 (Ctrl/Meta/Shift) + 中键 让浏览器原生处理 "open in new tab"，
+   * 我们不拦截。
    *
    * 仅在 workspace 上下文（window.location.pathname 以 /project/ 开头）生效,
    * 避免误伤顶栏 / 侧栏的同 URL link。
@@ -269,8 +240,6 @@ export class ProjectWorkspaceShellComponent {
     const anchor = target.closest('a') as HTMLAnchorElement | null;
     if (!anchor) return;
 
-    // 排除 side panel 内部的 link(panel 里的 "open in full page" 不应被拦截)
-    if (anchor.closest('.detail-pane')) return;
     // 排除 sidebar / topbar / tab strip 里的 link (不在 workspace main 区域)
     if (anchor.closest('.project-sidebar-v7')) return;
     if (anchor.closest('.workspace-topbar-v7')) return;
@@ -285,19 +254,16 @@ export class ProjectWorkspaceShellComponent {
     if (!m) return;
 
     // 关键：先 preventDefault + stopImmediatePropagation,
-    // 这样 routerLink 的 click handler 看不到这个事件,不会 navigate
+    // 这样 routerLink 的 click handler 看不到这个事件,不会在当前 tab navigate
     event.preventDefault();
     event.stopImmediatePropagation();
     if (mouseEvent.stopPropagation) mouseEvent.stopPropagation();
 
-    const kindMap: Record<string, DetailSelection['kind']> = {
-      story: 'story',
-      task: 'task',
-      epic: 'epic',
-      proposals: 'proposal',
-      sprint: 'sprint',
-      documents: 'document',
-    };
-    this.onOpenDetail({ kind: kindMap[m[1]]!, id: Number(m[2]) });
+    // 在新浏览器 tab 打开全页路由。
+    // noopener 防 tab-nabbing,noreferrer 不带 referrer。
+    const newWindow = window.open(href, '_blank', 'noopener,noreferrer');
+    if (newWindow) {
+      newWindow.opener = null;
+    }
   }
 }

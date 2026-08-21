@@ -66,46 +66,40 @@ REGISTRY: list[DodEntry] = [
         ),
     ),
 
-    # ── Epic 152 / 2026-08-21 v3 (Step 1) / Detail Pane ───────────────
+    # ── Epic 152 / 2026-08-21 v3 - 4 修 / Detail open in new tab ───────
     DodEntry(
-        id="epic152-detail-pane-2026-08-21",
-        feature="项目工作台 master-detail side panel",
+        id="epic152-detail-new-tab-2026-08-21",
+        feature="*-tab 内部点详情 link → 在新浏览器 tab 打开全页路由",
         date_added="2026-08-21",
         test_files=[
-            "tests/e2e_workspace_tabs/test_detail_pane_e2e.py",
+            "tests/e2e_workspace_tabs/test_detail_new_tab_e2e.py",
         ],
         coverage_summary=(
-            "5 个 Playwright 真实断言 test_* 函数覆盖："
-            "从 *-tab 内部点 link → side panel 出现 / 点 × 关闭 / "
-            "panel 打开时切 tab 不影响 / 侧栏菜单 link 不被误伤 / "
-            "'open in full page' 跳顶层路由"
+            "4 个 Playwright 真实断言 test_* 函数覆盖："
+            "点 epic → window.open 被调用 1 次 / 点 link 后无 side panel / "
+            "原 tab URL + tab 列表不变 / 侧栏菜单不被拦截"
         ),
         acceptance=[
-            "从 epics tab 点 Epic 链接 → side panel 出现，URL 不跳 /epic/:id",
-            "side panel 显示 kind (Epic) + id (#N) + 关闭按钮",
-            "点 × 关闭 side panel，workspace 上下文不变",
-            "side panel 打开时切 tab 仍 work（不关 panel，无 page reload）",
-            "左侧菜单的同 URL link 不被误伤（workspace click 拦截器只针对 6 类 detail 路由）",
-            "side panel 的 'open in full page' 走原顶层路由，panel 关闭 + URL = /epic/:id",
-            "顶部 topbar + 8 个 section tab 仍 work（向后兼容 v2 修）",
-            "workspace 上下文保留：active tab 不变、tab 列表不变、其他 tab 状态不丢",
+            "从 epics tab 点 epic → window.open 调 1 次,target=_blank,url=/epic/:id,带 noopener",
+            "原 workspace tab URL 保持 /project/1/epics,tab 列表不变",
+            "workspace main **不**出现 side panel (用户要求不要抽屉)",
+            "顶部 topbar + 左侧菜单 + 8 个 section tab 仍 work (拦截器不误伤)",
+            "原 tab 没有 page reload (无 URL navigate)",
         ],
-        status="in_progress",
-        closed_date="",
+        status="done",
+        closed_date="2026-08-21",
         notes=(
-            "v2 → v3 修 (Step 1)：*-tab 内部点 Story/Task/Epic/Proposal/Sprint/Document 链接 "
-            "不再跳顶层 /story/:id / /task/:id / /epic/:id 全页（会退出 workspace 上下文），"
-            "改为 workspace 内的 master-detail side panel（workspace main 右侧滑出）。\n"
-            "实现：\n"
-            "- DetailPaneComponent — workspace main 右侧 480px 滑出 panel\n"
-            "- project-workspace-shell.ts 加 detailSelection signal + onOpenDetail/Close\n"
-            "- workspace main 加全局 click 拦截：捕获指向 6 类 detail 路由的 <a> click，"
-            "preventDefault + 显示 side panel\n"
-            "- 仅在 /project/:id/* 路径下拦截（避免误伤侧边栏 / 顶栏同 URL link）\n"
-            "- Step 1 是占位 panel（kind + id + 关闭 + open full page 链接）\n"
-            "- Step 2 下一个 commit：提取 app.html @case ('story' / 'task' / 'epic' / 'proposal' / 'sprint') "
-            "到独立 component，side panel 用真实详情渲染。\n"
-            "顶层 /story/:id 全页路由仍 work（从命令面板 / 通知 / URL bar 进入的场景）。"
+            "v3 - 4 修:用户实测后拒绝 side panel 方案,要求点详情 link 直接**在新浏览器 tab 打开**全页路由 "
+            "(打开 /epic/:id 这种完整页面),workspace 上下文保持不变(切回原 tab 继续工作)。\n"
+            "实现:onDocumentClickCapture 在 capture phase 拦截 *-tab 内部 <a routerLink>, "
+            "preventDefault 当前 tab navigate + window.open(href, '_blank', 'noopener,noreferrer') "
+            "开新 tab,opener=null 防 tab-nabbing。\n"
+            "技术栈选型说明:\n"
+            "- 不修改任何 *-tab 组件的 template/TS (用 capture phase document-level 拦截)\n"
+            "- 修饰键 (Ctrl/Meta/Shift) + 中键 → 让浏览器原生处理 'open in new tab',我们不拦截\n"
+            "- 仅在 /project/:id/* 路径下生效,避免误伤顶栏/侧栏同 URL link\n"
+            "- 移除 v3 Step 1 的 DetailPaneComponent (用户实测不要抽屉)\n"
+            "- 顶层 /story/:id / /task/:id / /epic/:id 全页路由仍 work (从命令面板/通知/URL bar 进入)"
         ),
     ),
 ]

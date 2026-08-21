@@ -75,10 +75,9 @@
          非激活的 pane 父级加 .tab-pane-host--hidden 触发 display:none，
          组件实例保留，Angular 状态（筛选/滚动/已加载数据）不丢。
 
-         v3 (Epic152): 顶层 click 拦截器（@Component host 里的
-         '(document:click.capture)'）在 routerLink 之前执行,把 *-tab 内部
-         /story /task /epic /proposals /sprint /documents link 改为
-         master-detail side panel,不跳顶层全页。 -->
+         v3 - 4 修 (2026-08-21): *-tab 内部点详情 link → 在新浏览器 tab 打开
+         全页路由 (see shell.ts onDocumentClickCapture)。workspace main 不再出
+         side panel，用户切回原 tab 即可。 -->
     <div class="tab-pane-stack">
       @for (tab of tabs(); track tab.id) {
         <div
@@ -92,14 +91,3 @@
     </div>
   </section>
 </div>
-
-<!-- Master-detail side panel（v3 2026-08-21）：
-     *-tab 内部点 link → 不跳顶层路由 → 这边 panel 出现。
-     Step 1 是占位 (kind + id + 关闭按钮 + open full page 链接)。
-     Step 2 下一个 commit 把 app.html @case 内容提取进 component 后,panel 用真实详情渲染。 -->
-@if (detailOpen()) {
-  <app-detail-pane
-    [selection]="detailSelection()"
-    (close)="onCloseDetail()"
-    (openFull)="onOpenFullDetail($event)" />
-}
