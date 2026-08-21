@@ -1,4 +1,4 @@
-/* ============================================
+﻿/* ============================================
    AgentBoard Angular —— 完整设计系统样式
    ============================================ */
 
@@ -3271,7 +3271,8 @@ details.form-section > form { padding: 16px; }
 }
 .home-nav-button-v7 {
   position: relative;
-  height: 64px;
+  display: inline-flex;
+  align-items: center;
   padding: 0 18px;
   border: 0;
   background: transparent;
