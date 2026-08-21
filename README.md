@@ -429,17 +429,25 @@ PYTHONPATH=. python tests/test_smoke.py
 
 ## Status
 
-最近一次结构性变更（2026-08-21）：**项目工作台多 Tab 系统**。
+最近一次结构性变更（2026-08-21）：**项目工作台多 Tab 系统（v2 + v3 Step 1）**。
 
+### v2 修（commit 1a259db）：tab 切换走纯 service 状态
 - 8 个子视图（概览/看板/Epics/工作项/提案/文档/成员/设置）从「单 slot 切换」升级为「浏览器风格多 tab 同时挂载」
 - 点击左侧菜单 → 新增 tab；已开 tab → 切换激活态
 - 切换 tab 不卸载，状态保留（筛选、滚动、已加载数据）
 - 关闭 tab → 从 tab 条移除
-- URL 反映当前激活 section（直链/前进后退/刷新 work）
+- URL 用 history.replaceState 静默同步（不触发 Angular router 跳路由，**不**重拉数据）
 - 同 (projectId, kind) 至多 1 个 tab；切项目 → tab 列表清空
 - 顶部 topbar 完整保留
 
+### v3 修 Step 1（本 commit）：master-detail side panel
+- *-tab 内部点 Story/Task/Epic/Proposal/Sprint/Document 链接 → workspace 内的 side panel
+- 不再跳顶层 /story/:id / /task/:id / /epic/:id 全页（会退出 workspace 上下文）
+- 顶层路由仍 work（命令面板 / 通知 / URL bar 进入的场景）
+- Step 1 占位 panel（kind + id + 关闭 + open full page 链接）
+- **Step 2 backlog**：提取 app.html @case 内容到独立 component，side panel 用真实详情渲染
+
 详细：
 - 进度表 → [`docs/e2e-plan.md`](docs/e2e-plan.md) §14
-- 验收条目 → [`tests/e2e/dod_registry.py`](tests/e2e/dod_registry.py) `epic152-workspace-tabs-2026-08-21`
-- e2e 测试 → [`tests/e2e_workspace_tabs/test_workspace_tabs_e2e.py`](tests/e2e_workspace_tabs/test_workspace_tabs_e2e.py)
+- 验收条目 → [`tests/e2e/dod_registry.py`](tests/e2e/dod_registry.py) `epic152-workspace-tabs-2026-08-21` / `epic152-detail-pane-2026-08-21`
+- e2e 测试 → [`tests/e2e_workspace_tabs/test_workspace_tabs_e2e.py`](tests/e2e_workspace_tabs/test_workspace_tabs_e2e.py) + [`tests/e2e_workspace_tabs/test_detail_pane_e2e.py`](tests/e2e_workspace_tabs/test_detail_pane_e2e.py)

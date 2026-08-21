@@ -73,8 +73,12 @@
     <!-- 多 pane 容器：
          所有打开的 tab 都挂一个 TabPaneComponent。
          非激活的 pane 父级加 .tab-pane-host--hidden 触发 display:none，
-         组件实例保留，Angular 状态（筛选/滚动/已加载数据）不丢。 -->
-    <div class="tab-pane-stack">
+         组件实例保留，Angular 状态（筛选/滚动/已加载数据）不丢。
+
+         v3 (Epic152): 加全局 click 拦截 — tab 内部如果还有点顶层 detail 路由
+         (/story /task /epic /proposals /sprint /documents) 的 link,改成
+         触发 workspace 内的 master-detail side panel,不跳顶层全页。 -->
+    <div class="tab-pane-stack" (click)="onWorkspaceClick($event)">
       @for (tab of tabs(); track tab.id) {
         <div
           class="tab-pane-host"
@@ -87,3 +91,14 @@
     </div>
   </section>
 </div>
+
+<!-- Master-detail side panel（v3 2026-08-21）：
+     *-tab 内部点 link → 不跳顶层路由 → 这边 panel 出现。
+     Step 1 是占位 (kind + id + 关闭按钮 + open full page 链接)。
+     Step 2 下一个 commit 把 app.html @case 内容提取进 component 后,panel 用真实详情渲染。 -->
+@if (detailOpen()) {
+  <app-detail-pane
+    [selection]="detailSelection()"
+    (close)="onCloseDetail()"
+    (openFull)="onOpenFullDetail($event)" />
+}

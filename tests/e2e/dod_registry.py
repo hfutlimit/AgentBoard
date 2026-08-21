@@ -25,7 +25,7 @@ class DodEntry:
 
 
 REGISTRY: list[DodEntry] = [
-    # ── Epic 152 / 2026-08-21 / Workspace Tabs ─────────────────────
+    # ── Epic 152 / 2026-08-21 / Workspace Tabs (v2 修) ─────────────
     DodEntry(
         id="epic152-workspace-tabs-2026-08-21",
         feature="项目工作台多 Tab 系统",
@@ -63,6 +63,49 @@ REGISTRY: list[DodEntry] = [
             "跳路由 → app.ts loadRoute 重拉数据 → 用户感知为'刷新 + 状态丢失'）。"
             "v2 改用 (click) + tabsService 直接调 + history.replaceState 静默同步 URL，"
             "tab 切换是纯 client state 操作（ajax 风格），其他 tab 状态完整保留。"
+        ),
+    ),
+
+    # ── Epic 152 / 2026-08-21 v3 (Step 1) / Detail Pane ───────────────
+    DodEntry(
+        id="epic152-detail-pane-2026-08-21",
+        feature="项目工作台 master-detail side panel",
+        date_added="2026-08-21",
+        test_files=[
+            "tests/e2e_workspace_tabs/test_detail_pane_e2e.py",
+        ],
+        coverage_summary=(
+            "5 个 Playwright 真实断言 test_* 函数覆盖："
+            "从 *-tab 内部点 link → side panel 出现 / 点 × 关闭 / "
+            "panel 打开时切 tab 不影响 / 侧栏菜单 link 不被误伤 / "
+            "'open in full page' 跳顶层路由"
+        ),
+        acceptance=[
+            "从 epics tab 点 Epic 链接 → side panel 出现，URL 不跳 /epic/:id",
+            "side panel 显示 kind (Epic) + id (#N) + 关闭按钮",
+            "点 × 关闭 side panel，workspace 上下文不变",
+            "side panel 打开时切 tab 仍 work（不关 panel，无 page reload）",
+            "左侧菜单的同 URL link 不被误伤（workspace click 拦截器只针对 6 类 detail 路由）",
+            "side panel 的 'open in full page' 走原顶层路由，panel 关闭 + URL = /epic/:id",
+            "顶部 topbar + 8 个 section tab 仍 work（向后兼容 v2 修）",
+            "workspace 上下文保留：active tab 不变、tab 列表不变、其他 tab 状态不丢",
+        ],
+        status="in_progress",
+        closed_date="",
+        notes=(
+            "v2 → v3 修 (Step 1)：*-tab 内部点 Story/Task/Epic/Proposal/Sprint/Document 链接 "
+            "不再跳顶层 /story/:id / /task/:id / /epic/:id 全页（会退出 workspace 上下文），"
+            "改为 workspace 内的 master-detail side panel（workspace main 右侧滑出）。\n"
+            "实现：\n"
+            "- DetailPaneComponent — workspace main 右侧 480px 滑出 panel\n"
+            "- project-workspace-shell.ts 加 detailSelection signal + onOpenDetail/Close\n"
+            "- workspace main 加全局 click 拦截：捕获指向 6 类 detail 路由的 <a> click，"
+            "preventDefault + 显示 side panel\n"
+            "- 仅在 /project/:id/* 路径下拦截（避免误伤侧边栏 / 顶栏同 URL link）\n"
+            "- Step 1 是占位 panel（kind + id + 关闭 + open full page 链接）\n"
+            "- Step 2 下一个 commit：提取 app.html @case ('story' / 'task' / 'epic' / 'proposal' / 'sprint') "
+            "到独立 component，side panel 用真实详情渲染。\n"
+            "顶层 /story/:id 全页路由仍 work（从命令面板 / 通知 / URL bar 进入的场景）。"
         ),
     ),
 ]

@@ -1,6 +1,7 @@
-import { Component, ViewEncapsulation, computed, effect, inject } from '@angular/core';
+import { Component, ViewEncapsulation, computed, effect, inject, signal } from '@angular/core';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs/operators';
+import { DetailPaneComponent, DetailSelection } from './detail-pane/detail-pane';
 import { TabPaneComponent } from './tab-pane/tab-pane';
 import { ProjectDataService } from '../services/project-data.service';
 import { WorkspaceTabsService, WorkspaceTab, WorkspaceTabKind } from '../services/workspace-tabs.service';
@@ -25,7 +26,7 @@ import { WorkspaceTabsService, WorkspaceTab, WorkspaceTabKind } from '../service
 @Component({
   selector: 'app-project-workspace-shell',
   standalone: true,
-  imports: [RouterOutlet, TabPaneComponent],
+  imports: [RouterOutlet, TabPaneComponent, DetailPaneComponent],
   templateUrl: './project-workspace-shell.html',
   styleUrl: './project-workspace-shell.css',
   encapsulation: ViewEncapsulation.None,
@@ -58,6 +59,15 @@ export class ProjectWorkspaceShellComponent {
   readonly tabs = this.tabsService.tabs;
   readonly activeId = this.tabsService.activeId;
   readonly isEmpty = this.tabsService.isEmpty;
+
+  /**
+   * 当前选中的 detail（master-detail side panel 显示用）。
+   * *-tab 内部点 link → emit openDetail → shell 设置这里 → 侧边 panel 渲染。
+   * 设置 null → 关闭 panel。
+   */
+  readonly detailSelection = signal<DetailSelection | null>(null);
+  /** 当前 detail panel 是否打开（detailSelection != null 的便捷 getter） */
+  readonly detailOpen = computed(() => this.detailSelection() !== null);
 
   private readonly knownKinds: ReadonlySet<string> = new Set([
     'overview', 'kanban', 'epics', 'backlog', 'proposals', 'documents', 'members', 'settings',
@@ -174,5 +184,59 @@ export class ProjectWorkspaceShellComponent {
   isMenuActive(kind: WorkspaceTabKind): boolean {
     const at = this.tabsService.activeTab();
     return !!at && at.kind === kind;
+  }
+
+  /**
+   * *-tab 内部点 link 触发 — 显示 master-detail side panel。
+   * 不触发 router 跳路由，详情保持在 workspace 上下文内。
+   */
+  onOpenDetail(selection: DetailSelection): void {
+    this.detailSelection.set(selection);
+  }
+
+  /** side panel 关闭按钮 */
+  onCloseDetail(): void {
+    this.detailSelection.set(null);
+  }
+
+  /** 用户在 side panel 里点 "open in full page" — 关闭 panel + 让 router 自然 navigate */
+  onOpenFullDetail(selection: DetailSelection): void {
+    this.detailSelection.set(null);
+    // routerLink 在 detail-pane.html 内部已经设置了目标 URL;
+    // 这里只需关闭 panel,navigate 由 <a> 自行完成
+    void selection;
+  }
+
+  /**
+   * 全局 click 拦截 — *-tab 内部如果还有遗漏的 `[routerLink]="['/story' / 'task' / 'epic' / 'proposals' / 'sprint' / 'documents', id]"`
+   * 类型 link,在 workspace 上下文内应改为 side panel,而不是跳顶层全页。
+   *
+   * 拦截逻辑:捕获 click 事件,看事件 target 是不是 `<a routerLink>` 到这 6 类 detail
+   * 路由,如果是 → preventDefault + 显示 side panel。
+   * 侧边栏/顶栏的同 URL link 不受影响(它们不在 workspace main 区域里)。
+   */
+  onWorkspaceClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement | null;
+    if (!target) return;
+    const anchor = target.closest('a') as HTMLAnchorElement | null;
+    if (!anchor) return;
+    // routerLink 会在 href 上写出真实路径 (PathLocationStrategy)
+    const href = anchor.getAttribute('href') || anchor.getAttribute('ng-reflect-router-link') || '';
+    // 不依赖 routerLink 序列化,直接匹配 href 模式
+    const m = href.match(/^\/(story|task|epic|proposals|sprint|documents)\/(\d+)/);
+    if (!m) return;
+    // 只在 workspace 上下文里拦截 — 如果 URL 已经是这个 (workspace main 内点击)
+    if (!window.location.pathname.startsWith('/project/')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const kindMap: Record<string, DetailSelection['kind']> = {
+      story: 'story',
+      task: 'task',
+      epic: 'epic',
+      proposals: 'proposal',
+      sprint: 'sprint',
+      documents: 'document',
+    };
+    this.onOpenDetail({ kind: kindMap[m[1]]!, id: Number(m[2]) });
   }
 }
