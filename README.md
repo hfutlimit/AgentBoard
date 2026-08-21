@@ -429,10 +429,36 @@ PYTHONPATH=. python tests/test_smoke.py
 
 ## Status
 
-最近一次结构性变更（2026-08-21）：**项目工作台多 Tab 系统（v2 + v3 Step 1）**。
+最近一次结构性变更（2026-08-21 19:30）：**v7.3 Story 详情页任务列表简化 + delete cascade bugfix**。
+
+### v7.3 任务列表简化（本 commit）
+- Story 详情页「Task 列表」tab 旧 4 行 taskbar + 11 个 chip + 8 个 export 菜单项的繁复 UI
+  收敛为单行 `.taskbar--slim` + 选项 popover 收纳 + 零计数 chip 隐藏 + 行内降噪
+- icon-btn 标签默认隐藏，focus/hover 显（kbd 提示同样 focus 显）
+- 行内降噪：无 due 无 assignee 不渲染占位 pill，无「设截止」文案
+- 计数断言用 API 事实（适配 create_story 自动编排生成「设计：/开发：」2 子任务）
+- e2e 6/6 通过（35s），Angular 单测 70/70 + Build 0 error
+
+### v7.3 收尾 bugfix（本 commit）
+- **产品级 bug**：`DELETE /api/epics|/api/stories` 在 task 走过 done（落 learning outcome）后
+  返回 500 — 根因是 Epic 140 切片 1/3 引入 `task_outcome`/`episode_embedding`/`project_playbook*`
+  后（旧 facade 没跟进清理），旧 `delete_epic`/`delete_story` 走裸批量 delete 撞 NO ACTION FK
+- 修复：逐 task 调中央 `delete_task`（防御级联）+ 解绑 `agent_schedules.epic_id` + 切断
+  `ReviewVote` story 锚点 + 中央 `delete_task` 同步补 `ReviewVote.comment_id` 防御
+- 回归保护：`tests/test_delete_cascade_fk.py` 7 个 case 覆盖全部 NO ACTION FK 洞
+- 25 个 dev 库垃圾 epic 全部 DELETE 200 清空，e2e teardown 零残留
+
+### v3 - 4 修（之前 commit）：点 link 开新 tab
+- 用户原话「打开一个 epic 左边菜单依然没有，整个 epic 页面应该在 epic 列表的 tab 下，
+  epic 应该还在我的 tab 的区域里」实测后**拒绝** v3 Step 1 的 side panel 方案
+- *-tab 内部点 Story/Task/Epic 链接 → `window.open(href, '_blank', 'noopener,noreferrer')`
+  直接开新浏览器 tab 打开顶层 /story/:id / /task/:id / /epic/:id 全页路由
+- workspace 上下文保持不变（切回原 tab 继续工作）
+- 顶层路由仍 work（命令面板 / 通知 / URL bar 进入的场景）
 
 ### v2 修（commit 1a259db）：tab 切换走纯 service 状态
-- 8 个子视图（概览/看板/Epics/工作项/提案/文档/成员/设置）从「单 slot 切换」升级为「浏览器风格多 tab 同时挂载」
+- 8 个子视图（概览/看板/Epics/工作项/提案/文档/成员/设置）从「单 slot 切换」升级为
+  「浏览器风格多 tab 同时挂载」
 - 点击左侧菜单 → 新增 tab；已开 tab → 切换激活态
 - 切换 tab 不卸载，状态保留（筛选、滚动、已加载数据）
 - 关闭 tab → 从 tab 条移除
@@ -440,14 +466,12 @@ PYTHONPATH=. python tests/test_smoke.py
 - 同 (projectId, kind) 至多 1 个 tab；切项目 → tab 列表清空
 - 顶部 topbar 完整保留
 
-### v3 修 Step 1（本 commit）：master-detail side panel
-- *-tab 内部点 Story/Task/Epic/Proposal/Sprint/Document 链接 → workspace 内的 side panel
-- 不再跳顶层 /story/:id / /task/:id / /epic/:id 全页（会退出 workspace 上下文）
-- 顶层路由仍 work（命令面板 / 通知 / URL bar 进入的场景）
-- Step 1 占位 panel（kind + id + 关闭 + open full page 链接）
-- **Step 2 backlog**：提取 app.html @case 内容到独立 component，side panel 用真实详情渲染
-
 详细：
-- 进度表 → [`docs/e2e-plan.md`](docs/e2e-plan.md) §14
-- 验收条目 → [`tests/e2e/dod_registry.py`](tests/e2e/dod_registry.py) `epic152-workspace-tabs-2026-08-21` / `epic152-detail-pane-2026-08-21`
-- e2e 测试 → [`tests/e2e_workspace_tabs/test_workspace_tabs_e2e.py`](tests/e2e_workspace_tabs/test_workspace_tabs_e2e.py) + [`tests/e2e_workspace_tabs/test_detail_pane_e2e.py`](tests/e2e_workspace_tabs/test_detail_pane_e2e.py)
+- 进度表 → [`docs/e2e-plan.md`](docs/e2e-plan.md) §14-16
+- 验收条目 → [`tests/e2e/dod_registry.py`](tests/e2e/dod_registry.py)
+  `epic152-workspace-tabs-2026-08-21` / `epic152-detail-new-tab-2026-08-21` /
+  `v73-story-slim-tasks-2026-08-21` / `v73-bugfix-delete-cascade-fk-2026-08-21`
+- e2e 测试 → [`tests/e2e_workspace_tabs/test_workspace_tabs_e2e.py`](tests/e2e_workspace_tabs/test_workspace_tabs_e2e.py) +
+  [`tests/e2e_workspace_tabs/test_detail_new_tab_e2e.py`](tests/e2e_workspace_tabs/test_detail_new_tab_e2e.py) +
+  [`tests/e2e_story_slim_tasks/test_story_slim_tasks_e2e.py`](tests/e2e_story_slim_tasks/test_story_slim_tasks_e2e.py)
+- 回归单测 → [`tests/test_delete_cascade_fk.py`](tests/test_delete_cascade_fk.py)

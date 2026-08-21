@@ -3,7 +3,7 @@
 > 配套 `tests/e2e/dod_registry.py` — 每完成一个 e2e 阶段,在两处同步更新。
 > 维护规则:阶段完成 = 1) e2e test 跑过 2) 单测不被破坏 3) 文档就位 4) commit + push。
 
-最后更新:2026-08-21
+最后更新:2026-08-21 19:30 (v7.3 任务列表简化 + delete cascade bugfix 收尾)
 
 ---
 
@@ -39,11 +39,12 @@
 | 3 | ProjectWorkspaceShellComponent 重构 (sidebar + tab strip + pane stack) | ✅ done | 636298c | 同上 |
 | 4 | app.routes.ts 8 child section routes 保留 (直链/刷新用) + SectionPlaceholderComponent | ✅ done | 636298c | 同上 |
 | 5 | **v2 修**: 菜单/tab 条用 `(click) + service + history.replaceState`,**不**触发 router 跳路由 | ✅ done | 1a259db | 同上 |
-| 6 | **v3 修 (Step 1)**: DetailPaneComponent + workspace 内 click 拦截 + side panel | ✅ done | (v3 commit) | `tests/e2e/dod_registry.py::epic152-detail-pane-2026-08-21` |
-| 7 | Playwright e2e 7 (v2) + 5 (v3) test_* 真实断言 | ✅ done | (this PR) | 同上 |
-| 8 | Angular 单测 70/70 通过 + Build 0 error | ✅ done | (this PR) | 同上 |
-| 9 | **v3 修 (Step 2)**: 提取 app.html @case 内容到独立 component,side panel 用真实详情渲染 | 🟡 backlog | — | — |
-| 10 | Dev API + 真实浏览器验证 | 🟡 待 dev 栈跑 | — | — |
+| 6 | **v3 修 (Step 1)**: DetailPaneComponent + workspace 内 click 拦截 + side panel | 🗑️ deprecated | (v3 commit) | — (v3 - 4 修替换为「新浏览器 tab 打开」) |
+| 6' | **v3 - 4 修**: 用户拒绝 side panel → *-tab 内部点 link 直接 `window.open(href, '_blank', 'noopener,noreferrer')` 开新 tab，workspace 上下文不变 | ✅ done | (v3 - 4 commit) | `tests/e2e/dod_registry.py::epic152-detail-new-tab-2026-08-21` |
+| 7 | Playwright e2e 7 (v2) + 4 (v3 - 4) test_* 真实断言 | ✅ done | (v3 - 4 commit) | 同上 |
+| 8 | Angular 单测 70/70 通过 + Build 0 error | ✅ done | (v3 - 4 commit) | 同上 |
+| 9 | ~~v3 修 (Step 2)~~: side panel 真实详情渲染 — **v3 - 4 修后不再需要**（顶层 /story/:id 等全页路由直接在新 tab 打开） | ✅ done | (v3 - 4 commit) | — |
+| 10 | Dev API + 真实浏览器验证 | ✅ done (28080/18000) | (v3 - 4 commit) | — |
 
 ### 验收 (7 + 5 e2e test_* 函数)
 
@@ -89,7 +90,97 @@
 
 ### 后续 backlog (本 commit 不做)
 
-- **v3 Step 2**: 提取 app.html @case ('story' / 'task' / 'epic' / 'proposal' / 'sprint') 到独立 component,side panel 用真实详情渲染
+- ~~**v3 Step 2**: 提取 app.html @case ('story' / 'task' / 'epic' / 'proposal' / 'sprint') 到独立 component,side panel 用真实详情渲染~~ — **v3 - 4 修后废弃**（顶层 /story/:id 等全页路由直接在新 tab 打开，workspace 上下文不被污染）
 - Tab 顺序拖拽排序
 - Tab 持久化 (localStorage)
 - 移动端 ( < 840px ) tab 条折叠为下拉
+
+---
+
+## 15. Story 详情页任务列表简化 v7.3 (2026-08-21)
+
+**目标**:用户原话「task 列表里 task 不会那么多 重新设计下 简洁一点」。把 Story 详情页
+「Task 列表」tab 的旧 4 行 taskbar + 11 个 chip + 8 个 export 菜单项的繁复 UI
+收敛到 1 行 taskbar + 收纳到 popover + 零计数隐藏 + 行内降噪。
+
+**核心变化**:
+- **taskbar 单行**:n/m + 进度条 fill 在同一行,不再 4 行堆叠
+- **选项 popover**:点 `.icon-btn[aria-label='Task 选项']` → 6 个控件(只看我 / 密度 / 排序 /
+  分组 / 筛选预设 inline / 导出 CSV/JSON) 在 popover 内,不再摊在 taskbar 上
+- **零计数 chip 隐藏**:5 个状态 chip 中计数为 0 的不渲染(评审中 / 已阻塞常为 0)
+- **行内降噪**:task 行无 due 不渲染「无截止」占位 pill,无 assignee 不渲染「未分配」
+  占位 pill,无 due 时不显示「设截止」inline 编辑文案
+- **icon-btn 标签默认隐藏**:只有 focus/hover 显,kbd 提示 focus 显 (kbmode)
+- **filterbar--inline**:筛选预设条横置,不再浮动
+- **状态/进度数据走 service**:statusCounts / completedCounts / totalCounts 全部中央
+  helper,保证 zero-count 隐藏的精确性
+
+**约束**:
+- Story 详情页默认 tab 是「详情」,e2e 必须先切「Task 列表」tab
+- API 事实 = 页面事实:计数断言必须用 `GET /api/stories/{id}/tasks` 读回,
+  适配 `create_story` 自动编排生成「设计：/开发：」2 个子任务
+- 不再支持旧 `.task-list-summary` 结构(全替换为 `.taskbar--slim`)
+- 不再支持旧 `.export-menu`(移除,只有单个 `.icon-btn[aria-label='导出']`)
+
+### 进度表
+
+| # | 阶段 | 状态 | 关联 commit | DoD 链接 |
+|---|---|---|---|---|
+| 1 | app.ts: `taskOptionsOpen` / `taskOptionsActive` / `toggle` / `close` + 清理 `presetOpen` 死代码 | ✅ done | (v7.3 commit) | `tests/e2e/dod_registry.py::v73-story-slim-tasks-2026-08-21` |
+| 2 | app.html: 重写 Story Task 列表区(taskbar 精简 + 选项 popover + chips 隐藏零计数 + 行内降噪) | ✅ done | (v7.3 commit) | 同上 |
+| 3 | app-features.css: `.taskbar--slim` / `.task-opts-popover` / `.icon-btn` / `.hover-reveal` / `.kbd-hint` focus 显隐 | ✅ done | (v7.3 commit) | 同上 |
+| 4 | app.spec.ts: 更新 story task controls 断言到新结构 | ✅ done | (v7.3 commit) | 同上 |
+| 5 | e2e_story_slim_tasks 6 个 test_* 真实断言 | ✅ done (6/6, 35s) | (v7.3 commit) | 同上 |
+| 6 | Angular 单测 70/70 通过 + Build 0 error | ✅ done | (v7.3 commit) | 同上 |
+| 7 | **bugfix**: DELETE /api/epics\|/api/stories 500 修复 + e2e teardown 零残留 | ✅ done | (v7.3-bugfix commit) | `tests/e2e/dod_registry.py::v73-bugfix-delete-cascade-fk-2026-08-21` |
+| 8 | 注册 dod_registry + 更新 e2e-plan.md §14-16 + README Status | ✅ done | (v7.3 commit) | — |
+| 9 | commit + push to main | ✅ done | (v7.3 commit) | — |
+
+### 验收 (6 e2e test_* 函数 + 70 Angular 单测)
+
+**`tests/e2e_story_slim_tasks/test_story_slim_tasks_e2e.py`**:
+
+| test_* | 验什么 | 期望 |
+|---|---|---|
+| `test_taskbar_slim_structure` | Task 列表 tab 渲染新 taskbar | 单行 `.taskbar--slim`，内联进度条，无 `.task-list-summary`，icon-btn 标签 display:none |
+| `test_task_options_popover_opens_with_all_controls` | 点 Task 选项 icon-btn | `.task-opts-popover` 开合 + 6 个控件全在 + 无 `.export-menu` |
+| `test_zero_count_chips_hidden` | statusCounts 零计数 chip 隐藏 | 5 个状态最多 4 个 chip，评审中/已阻塞零计数不渲染 |
+| `test_task_row_inline_noise_reduction` | 行内降噪 | 无 due 无 assignee 不渲染占位 pill、无「设截止」文案 |
+| `test_density_change_persists_after_popover_close` | 密度切换持久 | popover 内切密度→关闭后 `.task-opts-dot` 仍显示活动点 |
+| `test_default_state_noise_reduction` | 默认态降噪 | task-checkbox 默认 opacity:0、kbd-hint 默认 display:none |
+
+**回归保护**:
+- `tests/test_delete_cascade_fk.py` 7 个 case 覆盖 delete_epic/delete_story/delete_task
+  的 NO ACTION FK 防御级联(task_outcome / episode_embedding / project_playbook* /
+  ReviewVote.comment_id / agent_schedules.epic_id)
+
+---
+
+## 16. DELETE /api/epics|/api/stories 500 Bug 修复 (2026-08-21)
+
+**目标**:v7.3 e2e 收尾时发现的产品级 bug —— task 走 done(落 learning outcome)
+后再删 epic/story → SQLite 抛 `FOREIGN KEY constraint failed` → HTTP 500。
+e2e teardown 全部静默失败，dev 库残留 18 个 v73-e2e epic + 7 个 fk-probe epic。
+
+**根因**:Epic 140 切片 1/3 引入 `task_outcome` / `episode_embedding` /
+`project_playbook*` / `project_playbook_episode` 后(FK → tasks.id，**NO ACTION**)，
+旧 `delete_epic`(:499) / `delete_story`(:829) 走裸批量 delete(只清 Comment+Task+
+Story+Epic)绕过了中央 `delete_task`(:1032)的防御性级联。
+
+**修复策略**:
+1. `delete_epic` / `delete_story` 改为**逐 task 调中央 `delete_task`**，单实现多入口
+2. `delete_epic` 同步**解绑 `agent_schedules.epic_id`**(NO ACTION 置 NULL 保留 schedule)
+3. `delete_epic` / `delete_story` 同步**切断 `ReviewVote` story 锚点**(entity_id 置 -1)
+4. 中央 `delete_task` 同步补 **`ReviewVote.comment_id` 防御**(删 task comment 前
+   先 NULL 化 vote.comment_id，防 NO ACTION FK 撞)
+
+**回归覆盖**:
+- `tests/test_delete_cascade_fk.py` 7 个 test_* 覆盖 4 类 NO ACTION FK + 2 个边界
+- 25 个 dev 库垃圾 epic 全部 DELETE 200 清空(回归 0 残留)
+- v7.3 e2e 6/6 跑完 teardown 零残留(全链路 200)
+
+**已知未覆盖**(本 commit 不做):
+- `delete_project` 同类洞(`project_playbook.project_id` / `project_playbook_episode.project_id`
+  也 NO ACTION)，待后续 follow-up。当前测试基础设施不支持跨 project 的 full test client 走通，
+  风险评估为低 — 项目删除走确认页 + 二次提示，存量 dev 数据无 task_outcome 关联的 project 删除场景。
+

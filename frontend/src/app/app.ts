@@ -823,7 +823,18 @@ export class App implements OnInit, OnDestroy {
   // v3.1: 筛选预设（保存/应用/删除当前筛选组合，纯前端 localStorage 持久化）
   readonly filterPresets = signal<FilterPreset[]>(this.loadFilterPresets());
   readonly presetName = signal('');
-  readonly presetOpen = signal(false);
+  // v7.3「简洁任务列表」：低频控件（只看我/排序/分组/密度/预设/导出）收进单一「选项」popover
+  readonly taskOptionsOpen = signal(false);
+  /** 选项面板是否有非默认设置（用于按钮上的活动小圆点提示）。 */
+  readonly taskOptionsActive = computed(
+    () =>
+      this.filterMineOnly() ||
+      this.taskGroupBy() !== 'none' ||
+      this.taskSortKey() !== 'created_at' ||
+      this.taskSortOrder() !== 'desc' ||
+      this.listDensity() === 'compact' ||
+      this.filterPresets().length > 0
+  );
   private loadFilterPresets(): FilterPreset[] {
     try {
       const raw = localStorage.getItem('agentboard_filter_presets');
@@ -6225,7 +6236,9 @@ export class App implements OnInit, OnDestroy {
     try { localStorage.setItem('agentboard_filter_mine', next ? '1' : '0'); } catch { /* ignore */ }
   }
   // v3.1 / v4.0: 筛选预设
-  togglePresetOpen(): void { this.presetOpen.update((v) => !v); }
+  // v7.3: 任务列表「选项」popover 开合（替代原独立预设面板开关）
+  toggleTaskOptions(): void { this.taskOptionsOpen.update((v) => !v); }
+  closeTaskOptions(): void { this.taskOptionsOpen.set(false); }
   saveFilterPreset(): void {
     const name = this.presetName().trim();
     if (!name) return;
@@ -6268,7 +6281,7 @@ export class App implements OnInit, OnDestroy {
     }
     if (p.sortKey) this.setTaskSortKey(p.sortKey);
     if (p.sortOrder) { this.taskSortOrder.set(p.sortOrder as any); try { localStorage.setItem('agentboard_sort_order', p.sortOrder); } catch { /* ignore */ } }
-    this.presetOpen.set(false);
+    // v7.3: 预设面板并入「选项」popover，应用后保持 popover 打开以便实时查看筛选效果
   }
   deleteFilterPreset(id: string): void {
     this.filterPresets.set(this.filterPresets().filter((p) => p.id !== id));

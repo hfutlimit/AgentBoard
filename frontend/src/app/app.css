@@ -1406,19 +1406,7 @@ router-outlet {
 .edit-story-textarea:focus { border-color: var(--color-primary, #5B5BD6); box-shadow: var(--focus-ring, 0 0 0 3px rgba(91, 91, 214, .25)); }
 .edit-story__actions { display: flex; gap: var(--space-2, 8px); }
 
-/* Epic 34.1: 任务列表汇总栏（状态分布堆叠条 + 计数文案） */
-.task-list-summary {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 10px;
-  margin-bottom: 8px;
-  background: var(--surface-2);
-  border: 1px solid var(--border-2);
-  border-radius: var(--r-md);
-  font-size: 0.82rem;
-  color: var(--text-2);
-}
+/* v7.3: 任务汇总并入 taskbar 内联进度（task-list-summary 容器移除），summary-stack/-seg 保留复用 */
 .summary-stack {
   flex: 1;
   height: 8px;
@@ -1821,6 +1809,7 @@ router-outlet {
   flex-shrink: 0;
   margin-left: 2px;
 }
+/* 未指派占位头像（指派菜单/批量指派/看板卡片仍在使用；列表行 v7.3 起不再渲染） */
 .assignee-avatar-sm.unassigned {
   background: var(--border, rgba(0,0,0,.1));
   color: var(--text-secondary, #94a3b8);
@@ -2478,26 +2467,7 @@ router-outlet {
   border-color: var(--danger);
 }
 
-/* v3.1: 筛选预设下拉 */
-.preset-wrap { position: relative; }
-.preset-toggle .preset-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  margin-left: 4px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--surface-2, #e5e7eb);
-  color: var(--text-muted, #6b7280);
-  font-size: 11px;
-  font-weight: 600;
-}
-.preset-toggle .preset-count.has {
-  background: var(--accent, #3b82f6);
-  color: #fff;
-}
+/* v3.1: 筛选预设下拉 —— v7.3 起预设面板内嵌「选项」popover（preset-wrap/preset-toggle 外壳移除） */
 .preset-panel {
   position: absolute;
   right: 0;
@@ -3217,10 +3187,7 @@ router-outlet {
   font-weight: 700;
   animation: pulse-overdue 2s ease-in-out infinite;
 }
-.due-pill-empty {
-  opacity: 0.7;
-  font-style: italic;
-}
+/* v7.3: due-pill-empty 移除（无截止日期不再渲染占位） */
 .due-menu-body {
   padding: 10px;
   display: flex;

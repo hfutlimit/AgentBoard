@@ -496,19 +496,56 @@ def update_project_member_role(s: Session, project_id: int, user_id: int, role: 
     pm.role = role; _commit(s); s.refresh(pm); return pm
 
 
+def _delete_task_defensive(s: Session, task_id: int) -> None:
+    """删 task + 清理所有指向它的 FK 引用（Epic 140 防御性级联）。
+
+    复刻 ``agentboard.service.delete_task``（中央 facade）的清理策略：避免
+    delete_epic / delete_story 绕过 facade 漏清 ``task_outcome`` / ``episode_embedding``
+    / ``project_playbook*`` 等 NO ACTION FK → 撞 ``FOREIGN KEY constraint failed``。
+    每次 commit 独立，性能可接受（epic/story 删除非热路径）。
+    """
+    from ...service import delete_task as _facade_delete_task  # type: ignore[attr-defined]
+    _facade_delete_task(s, task_id)
+
+
 def delete_epic(s: Session, id: int) -> bool:
+    """删除 Epic（FK 防御性级联，v7.3 e2e 收尾修复）。
+
+    **根因（v7.3 e2e 收尾发现）**：旧实现只清 ``Comment + Task + Story + Epic``，
+    绕过了中央 ``delete_task`` 的防御性清理（Epic 140 切片 1/3 引入 ``task_outcome`` /
+    ``episode_embedding`` / ``project_playbook*`` 后旧 facade 没跟进）。当 epic 下
+    task 走过 done（落 outcome + episode + playbook_episode）后再删 epic，SQLite
+    抛 ``FOREIGN KEY constraint failed``，HTTP 500。story 删除同病。
+
+    清理顺序：
+    1. 逐 task 调中央 ``delete_task``（自带 learning/dependency/comment 清理）；
+    2. 清 story 级 FK（comment + review_votes 终态锚点解绑）；
+    3. 解绑 ``agent_schedules.epic_id``（NO ACTION，置 NULL 保留 schedule）；
+    4. 删 story、epic。
+    """
     ep = s.get(Epic, id)
     if not ep:
         return False
-    for st in s.query(Story).filter(Story.epic_id == id):
-        task_ids = [x[0] for x in s.query(Task.id).filter(Task.story_id == st.id).all()]
-        if task_ids:
-            s.query(Comment).filter(Comment.task_id.in_(task_ids)).delete(synchronize_session=False)
-        s.query(Task).filter(Task.story_id == st.id).delete()
-    s.query(Comment).filter(Comment.story_id.in_(
-        s.query(Story.id).filter(Story.epic_id == id)
-    )).delete(synchronize_session=False)
+    story_ids = [x[0] for x in s.query(Story.id).filter(Story.epic_id == id).all()]
+    # 1) 逐 task 走中央 delete_task
+    for sid in story_ids:
+        for tid in [x[0] for x in s.query(Task.id).filter(Task.story_id == sid).all()]:
+            _delete_task_defensive(s, tid)
+    # 2) 清 story 级 FK：评论 + 评审投票（review_votes 终态锚点）
+    if story_ids:
+        s.query(Comment).filter(Comment.story_id.in_(story_ids)).delete(synchronize_session=False)
+        # review_votes 没有 story_id FK，只能按 entity_type=story 清；保留投票历史
+        # 但 entity_id 已无意义，将指向负 id 截断（避免 FK 引用悬空 story）。
+        s.query(ReviewVote).filter(
+            ReviewVote.entity_type == "story",
+            ReviewVote.entity_id.in_(story_ids),
+        ).update({ReviewVote.entity_id: -1, ReviewVote.comment_id: None}, synchronize_session=False)
     s.query(Comment).filter(Comment.epic_id == id).delete(synchronize_session=False)
+    # 3) 解绑 agent_schedules.epic_id（NO ACTION，置 NULL 保留 schedule）
+    s.query(AgentSchedule).filter(AgentSchedule.epic_id == id).update(
+        {AgentSchedule.epic_id: None}, synchronize_session=False,
+    )
+    # 4) 删 story + epic
     s.query(Story).filter(Story.epic_id == id).delete()
     s.delete(ep); _commit(s); return True
 
@@ -827,14 +864,28 @@ def create_project(s: Session, *, name: str, key=None, description: str = "", is
 
 
 def delete_story(s: Session, id: int) -> bool:
+    """删除 Story（FK 防御性级联，v7.3 e2e 收尾修复）。
+
+    根因同 ``delete_epic``：task 走过 done 落 outcome + episode + playbook 后再
+    删 story 撞 NO ACTION FK。清理策略：
+    1. 逐 task 调中央 ``delete_task``；
+    2. 清 story 级 FK（comment + review_votes 锚点解绑）；
+    3. 删 story。
+    """
     st = s.get(Story, id)
     if not st:
         return False
     task_ids = [x[0] for x in s.query(Task.id).filter(Task.story_id == id).all()]
-    if task_ids:
-        s.query(Comment).filter(Comment.task_id.in_(task_ids)).delete(synchronize_session=False)
+    # 1) 逐 task 走中央 delete_task
+    for tid in task_ids:
+        _delete_task_defensive(s, tid)
+    # 2) 清 story 级 FK：评论 + 评审投票
     s.query(Comment).filter(Comment.story_id == id).delete(synchronize_session=False)
-    s.query(Task).filter(Task.story_id == id).delete()
+    s.query(ReviewVote).filter(
+        ReviewVote.entity_type == "story",
+        ReviewVote.entity_id == id,
+    ).update({ReviewVote.entity_id: -1, ReviewVote.comment_id: None}, synchronize_session=False)
+    # 3) 删 story（StoryStatusHistory 由 ondelete CASCADE 自动清）
     s.delete(st); _commit(s); return True
 
 

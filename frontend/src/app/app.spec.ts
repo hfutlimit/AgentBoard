@@ -115,12 +115,30 @@ describe('App', () => {
 
     const element = fixture.nativeElement as HTMLElement;
     expect(element.querySelector('.taskbar')?.textContent).toContain('新建任务');
-    expect(element.querySelector('.export-menu')).not.toBeNull();
     expect(element.querySelector('.legend')).toBeNull();
-    expect(element.querySelectorAll('.filterbar .toggle')).toHaveLength(1);
-    expect(element.querySelector('#densityToggle')).not.toBeNull();
+
+    // v7.3: 低频控件收进「选项」popover，默认收起
+    expect(element.querySelector('.task-opts-popover')).toBeNull();
+    expect(app.taskOptionsActive() === true || app.taskOptionsActive() === false).toBe(true);
+    app.toggleTaskOptions();
+    fixture.detectChanges();
+    const popover = element.querySelector('.task-opts-popover');
+    expect(popover).not.toBeNull();
+    expect(popover?.textContent).toContain('只看我');
+    expect(popover?.textContent).toContain('排序');
+    expect(popover?.textContent).toContain('分组');
+    expect(popover?.textContent).toContain('预设');
+    expect(popover?.textContent).toContain('导出');
+    expect(popover?.querySelectorAll('.toggle')).toHaveLength(1); // 只看我（唯一 toggle，无重复状态 UI）
+    expect(popover?.querySelector('#densityToggle')).not.toBeNull();
+
+    // 关闭 popover 后再次打开仍可（开合状态正常）
+    app.closeTaskOptions();
+    fixture.detectChanges();
+    expect(element.querySelector('.task-opts-popover')).toBeNull();
 
     app.boardMode.set(true);
+    app.toggleTaskOptions();
     fixture.detectChanges();
     expect(element.querySelector('#densityToggle')).toBeNull();
     expect(element.querySelector('#boardToggle')?.classList).toContain('is-active');

@@ -1060,6 +1060,16 @@ def delete_task(s: Session, id: int) -> bool:
         TaskDependency.depends_on_id == id,
     )).delete(synchronize_session=False)
     s.query(Attachment).filter(Attachment.task_id == id).delete(synchronize_session=False)
+    # review_votes.comment_id → comments.id（NO ACTION）：删 task comment 前
+    # 必须先解绑引用，避免 ``FOREIGN KEY constraint failed``。先扫描要删的
+    # comment_id 列表，再 update 引用 + delete comment。
+    task_comment_ids = [
+        x[0] for x in s.query(Comment.id).filter(Comment.task_id == id).all()
+    ]
+    if task_comment_ids:
+        s.query(ReviewVote).filter(
+            ReviewVote.comment_id.in_(task_comment_ids)
+        ).update({ReviewVote.comment_id: None}, synchronize_session=False)
     s.query(Comment).filter(Comment.task_id == id).delete(synchronize_session=False)
     # Epic 140 切片 1：终态能力评分（task_id 唯一，硬删）
     try:

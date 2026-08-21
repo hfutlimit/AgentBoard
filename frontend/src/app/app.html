@@ -763,26 +763,197 @@
 
               <hr class="divider" />
 
-              <!-- Task toolbar -->
-              <div class="taskbar">
-                <div>
+              <!-- v7.3 简洁任务列表：taskbar 一行承载 标题+进度+动作；低频控件（只看我/排序/分组/密度/预设/导出）收进「选项」popover -->
+              <div class="taskbar taskbar--slim">
+                <div class="taskbar__lead">
                   <div class="taskbar__title">
                     任务
                     <span class="count-badge">{{ storyTaskTotal() }}</span>
                   </div>
-                  <p class="taskbar__hint">搜索、筛选并推进当前 Story 的任务</p>
+                  @if (storyTaskTotal() > 0) {
+                    <div class="taskbar__progress" [title]="'完成 ' + taskListSummary().done + '/' + storyTaskTotal()">
+                      <div class="summary-stack">
+                        @for (seg of taskListSummary().segments; track seg.status) {
+                          <span class="summary-seg status--{{ seg.status }}" [style.width.%]="taskListSummary().total > 0 ? (seg.count / taskListSummary().total) * 100 : 0" [title]="statusLabel(seg.status) + ' ' + seg.count"></span>
+                        }
+                      </div>
+                      <span class="taskbar__progress-text"><strong>{{ taskListSummary().done }}</strong>/{{ storyTaskTotal() }} 完成</span>
+                    </div>
+                  }
                 </div>
                 <div class="taskbar__actions">
-                  <details class="export-menu">
-                    <summary class="btn" title="导出任务" aria-label="导出任务菜单">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                      导出
-                    </summary>
-                    <div class="export-menu__panel" role="menu" aria-label="导出任务选项">
-                      <button type="button" (click)="exportToCSV()">导出 CSV</button>
-                      <button type="button" (click)="exportToJSON()">导出 JSON</button>
-                    </div>
-                  </details>
+                  <div class="task-opts-wrap">
+                    <button type="button" class="btn task-opts-btn" (click)="toggleTaskOptions()"
+                      [class.is-active]="taskOptionsOpen()"
+                      [attr.aria-expanded]="taskOptionsOpen()"
+                      title="显示选项：只看我 · 排序 · 分组 · 密度 · 预设 · 导出">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
+                      <span class="task-opts-label">选项</span>
+                      @if (taskOptionsActive()) { <span class="task-opts-dot" aria-hidden="true"></span> }
+                    </button>
+                    @if (taskOptionsOpen()) {
+                      <div class="status-menu-backdrop" (click)="closeTaskOptions(); $event.preventDefault()"></div>
+                      <div class="task-opts-popover" role="dialog" aria-label="任务列表显示选项" (click)="$event.stopPropagation()">
+                        <div class="task-opts-section">
+                          <div class="task-opts-row">
+                            <span class="task-opts-row-label">只看我</span>
+                            <label class="toggle" title="仅显示指派给我的任务">
+                              <input type="checkbox" [checked]="filterMineOnly()" (change)="toggleFilterMine()" />
+                              <span class="toggle__track" aria-hidden="true"></span>
+                            </label>
+                          </div>
+                          <div class="task-opts-row">
+                            <span class="task-opts-row-label">密度</span>
+                            @if (!boardMode()) {
+                              <button id="densityToggle" class="btn density-toggle" type="button" (click)="toggleListDensity()" [title]="listDensity() === 'compact' ? '切换为舒适模式' : '切换为紧凑模式'" [attr.aria-pressed]="listDensity() === 'compact'">
+                                <span class="density-glyph">{{ listDensity() === 'compact' ? '▤' : '▦' }}</span>
+                                <span class="density-label">{{ listDensity() === 'compact' ? '紧凑' : '舒适' }}</span>
+                              </button>
+                            } @else {
+                              <span class="task-opts-muted">看板视图下不可用</span>
+                            }
+                          </div>
+                        </div>
+                        <div class="task-opts-section">
+                          <div class="task-opts-row">
+                            <span class="task-opts-row-label">排序</span>
+                            <div class="dropdown">
+                              <span class="value">{{ taskSortLabel() }}</span>
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                              <select [value]="taskSortKey()" (change)="setTaskSortKey($any($event.target).value)" aria-label="排序字段">
+                                @for (opt of taskSortOptions; track opt.key) {
+                                  <option [value]="opt.key">{{ opt.label }}</option>
+                                }
+                              </select>
+                              <button class="btn" (click)="toggleTaskSortOrder()" [title]="taskSortOrder() === 'asc' ? '升序' : '降序'">
+                                {{ taskSortOrder() === 'asc' ? '↑' : '↓' }}
+                              </button>
+                            </div>
+                          </div>
+                          <div class="task-opts-row">
+                            <span class="task-opts-row-label">分组</span>
+                            <div class="dropdown">
+                              <span class="value">{{ taskGroupLabel() }}</span>
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+                              <select [value]="taskGroupBy()" (change)="setTaskGroup($any($event.target).value)" aria-label="分组字段">
+                                @for (opt of taskGroupOptions; track opt.key) {
+                                  <option [value]="opt.key">{{ opt.label }}</option>
+                                }
+                              </select>
+                              <button
+                                class="btn"
+                                [disabled]="taskGroupBy() === 'none' || groupedTasks().length === 0"
+                                (click)="allGroupsCollapsed() ? expandAllGroups() : collapseAllGroups()"
+                                [title]="allGroupsCollapsed() ? '展开全部分组' : '折叠全部分组'"
+                              >
+                                {{ allGroupsCollapsed() ? '▸' : '▾' }}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="task-opts-section">
+                          <div class="task-opts-section-title">筛选预设</div>
+                          <div class="preset-panel preset-panel--inline">
+                            <div class="preset-save">
+                              <input class="preset-name-input" [value]="presetName()" (input)="presetName.set($any($event.target).value)" placeholder="预设名称…" (keydown.enter)="saveFilterPreset()" />
+                              <button class="btn btn--primary" (click)="saveFilterPreset()">保存当前</button>
+                            </div>
+                            @if (defaultPreset(); as dp) {
+                              <button class="preset-apply-default" (click)="applyDefaultPreset()" title="一键应用默认预设">★ 应用默认「{{ dp.name }}」</button>
+                            }
+                            @if (filterPresets().length === 0) {
+                              <div class="preset-empty">调整筛选后点「保存当前」</div>
+                            }
+                            @if (filterPresets().length > 0) {
+                              <div class="preset-list">
+                                @for (p of filterPresets(); track p.id) {
+                                  <div class="preset-item" [class.is-default]="p.isDefault" [class.active]="p.id === activePresetId()">
+                                    <button class="preset-star" (click)="setDefaultPreset(p.id)" [title]="p.isDefault ? '取消默认' : '设为默认'" [class.on]="p.isDefault">{{ p.isDefault ? '★' : '☆' }}</button>
+                                    <div class="preset-body">
+                                      <div class="preset-title-row">
+                                        <button class="preset-apply" (click)="applyFilterPreset(p.id)" [title]="p.name">{{ p.name }}</button>
+                                        @if (p.id === activePresetId()) { <span class="preset-active-tag">当前</span> }
+                                      </div>
+                                      <div class="preset-meta">
+                                        <span class="preset-meta-chip">📂 {{ presetGroupLabel(p) }}</span>
+                                        <span class="preset-meta-chip">↕ {{ presetSortLabel(p) }}</span>
+                                        @if (presetFilterCount(p) > 0) {
+                                          <span class="preset-meta-chip">⚲ {{ presetFilterCount(p) }} 筛选</span>
+                                        }
+                                      </div>
+                                    </div>
+                                    <button class="preset-del" (click)="deleteFilterPreset(p.id)" title="删除预设">✕</button>
+                                  </div>
+                                }
+                              </div>
+                            }
+                          </div>
+                        </div>
+                        <div class="task-opts-section">
+                          <div class="task-opts-row">
+                            <span class="task-opts-row-label">导出</span>
+                            <div class="task-opts-export">
+                              <button class="btn" (click)="exportToCSV()">CSV</button>
+                              <button class="btn" (click)="exportToJSON()">JSON</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    }
+                  </div>
+
+                  <!-- Epic 78 (v6.6): 手动刷新（v7.3 图标化） -->
+                  <button id="refreshBtn" class="btn icon-btn refresh-btn" type="button"
+                    (click)="manualRefresh()" [disabled]="refreshing()"
+                    [title]="refreshing() ? '刷新中…' : '刷新当前视图'">
+                    @if (refreshing()) {
+                      <span class="refresh-spinner" aria-hidden="true"></span>
+                    } @else {
+                      <svg class="refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                    }
+                    <span class="refresh-label">{{ refreshing() ? '刷新中' : '刷新' }}</span>
+                  </button>
+
+                  <!-- Epic 81 (v6.9): 后台自动刷新轮询开关（v7.3 图标化）+ 倒计时 + 同步状态点 -->
+                  <button id="autoRefreshBtn" class="btn icon-btn auto-refresh-btn" type="button"
+                    (click)="toggleAutoRefresh()" [class.active]="autoRefresh()"
+                    [title]="autoRefresh() ? ('自动刷新已开启（每 ' + autoRefreshSeconds + ' 秒，' + lastSyncedLabel() + '）') : '开启后台自动刷新'">
+                    <span class="auto-refresh-dot" [class.failing]="autoRefreshFailing() && autoRefresh()" [class.synced]="autoSynced() && autoRefresh()"></span>
+                    <svg class="auto-refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
+                    <span class="auto-refresh-label">自动</span>
+                    @if (autoRefresh() && !refreshing()) {
+                      <span class="auto-refresh-count">{{ autoRefreshCountdown() }}s</span>
+                    }
+                  </button>
+
+                  <!-- Epic 82/84: 自动刷新失败提示（保留原语义，仅随自动按钮展示） -->
+                  @if (autoRefresh() && autoRefreshFailing()) {
+                    <span class="auto-refresh-fail" role="status" aria-live="polite">
+                      <span class="auto-refresh-fail-dot" aria-hidden="true"></span>
+                      <span class="auto-refresh-fail-text">自动同步失败（第 {{ autoRefreshAttempts() }} 次）· {{ autoRefreshCountdown() }}s 后自动重试</span>
+                      <button id="autoRefreshRetryBtn" class="auto-refresh-retry" type="button"
+                        (click)="retryAutoRefresh()"
+                        title="立即重试后台自动刷新">重试</button>
+                    </span>
+                  }
+                  @if (autoRefresh() && autoSynced()) {
+                    <span class="auto-refresh-ok" role="status" aria-live="polite">已同步</span>
+                  }
+
+                  @if (boardMode()) {
+                    <button id="boardColsToggle" class="btn icon-btn board-cols-toggle" type="button"
+                      (click)="allColumnsCollapsed() ? expandAllColumns() : collapseAllColumns()"
+                      [title]="allColumnsCollapsed() ? '展开全部状态列' : '折叠全部状态列'">
+                      <span class="board-cols-glyph">{{ allColumnsCollapsed() ? '⊞' : '⊟' }}</span>
+                      <span class="board-cols-label">{{ allColumnsCollapsed() ? '全展开' : '全折叠' }}</span>
+                    </button>
+                  }
+
+                  <button id="boardToggle" class="btn icon-btn view-toggle" [class.is-active]="boardMode()" type="button" (click)="setBoardMode(!boardMode())" [title]="boardMode() ? '切换为列表视图' : '切换为看板视图'" [attr.aria-pressed]="boardMode()">
+                    <span class="view-glyph">{{ boardMode() ? '▤' : '▦' }}</span>
+                    <span class="view-label">{{ boardMode() ? '列表' : '看板' }}</span>
+                  </button>
+
                   <button class="btn btn--primary" (click)="openCreate('task', current.id, project()?.id)">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     新建任务
@@ -790,8 +961,8 @@
                 </div>
               </div>
 
-              <!-- Filter toolbar -->
-              <div class="filterbar">
+              <!-- v7.3 简洁筛选行：搜索 + 状态 chips（零计数状态自动隐藏） -->
+              <div class="filterbar filterbar--inline">
                 <div class="filterbar__left">
                   <div class="search">
                     <svg class="search__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -809,166 +980,16 @@
                       全部 <span class="badge">{{ storyTaskTotal() }}</span>
                     </button>
                     @for (s of statuses; track s) {
-                      <button class="chip" [class.is-active]="filterStatus() === s" (click)="setQuickStatus(s)">
-                        <span class="dot" [style.background]="statusColor(s)"></span>
-                        {{ statusLabel(s) }} <span class="badge">{{ statusCounts()[s] }}</span>
-                      </button>
+                      @if ((statusCounts()[s] || 0) > 0 || filterStatus() === s) {
+                        <button class="chip" [class.is-active]="filterStatus() === s" (click)="setQuickStatus(s)">
+                          <span class="dot" [style.background]="statusColor(s)"></span>
+                          {{ statusLabel(s) }} <span class="badge">{{ statusCounts()[s] }}</span>
+                        </button>
+                      }
                     }
                   </div>
                 </div>
 
-                <div class="filterbar__right">
-                  <label class="toggle" title="仅显示指派给我的任务">
-                    <input type="checkbox" [checked]="filterMineOnly()" (change)="toggleFilterMine()" />
-                    <span class="toggle__track" aria-hidden="true"></span>
-                    只看我
-                  </label>
-
-                  <div class="dropdown">
-                    <span>排序</span>
-                    <span class="value">{{ taskSortLabel() }}</span>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    <select [value]="taskSortKey()" (change)="setTaskSortKey($any($event.target).value)">
-                      @for (opt of taskSortOptions; track opt.key) {
-                        <option [value]="opt.key">{{ opt.label }}</option>
-                      }
-                    </select>
-                    <button class="btn" (click)="toggleTaskSortOrder()" [title]="taskSortOrder() === 'asc' ? '升序' : '降序'">
-                      {{ taskSortOrder() === 'asc' ? '↑' : '↓' }}
-                    </button>
-                  </div>
-
-                  <div class="dropdown">
-                    <span>分组</span>
-                    <span class="value">{{ taskGroupLabel() }}</span>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    <select [value]="taskGroupBy()" (change)="setTaskGroup($any($event.target).value)">
-                      @for (opt of taskGroupOptions; track opt.key) {
-                        <option [value]="opt.key">{{ opt.label }}</option>
-                      }
-                    </select>
-                    <button
-                      class="btn"
-                      [disabled]="taskGroupBy() === 'none' || groupedTasks().length === 0"
-                      (click)="allGroupsCollapsed() ? expandAllGroups() : collapseAllGroups()"
-                      [title]="allGroupsCollapsed() ? '展开全部分组' : '折叠全部分组'"
-                    >
-                      {{ allGroupsCollapsed() ? '▸' : '▾' }}
-                    </button>
-                  </div>
-
-                  @if (!boardMode()) {
-                    <button id="densityToggle" class="btn density-toggle" type="button" (click)="toggleListDensity()" [title]="listDensity() === 'compact' ? '切换为舒适模式' : '切换为紧凑模式'" [attr.aria-pressed]="listDensity() === 'compact'">
-                      <span class="density-glyph">{{ listDensity() === 'compact' ? '▤' : '▦' }}</span>
-                      <span class="density-label">{{ listDensity() === 'compact' ? '紧凑' : '舒适' }}</span>
-                    </button>
-                  }
-
-                  <button id="boardToggle" class="btn view-toggle" [class.is-active]="boardMode()" type="button" (click)="setBoardMode(!boardMode())" [title]="boardMode() ? '切换为列表视图' : '切换为看板视图'" [attr.aria-pressed]="boardMode()">
-                    <span class="view-glyph">{{ boardMode() ? '▤' : '▦' }}</span>
-                    <span class="view-label">{{ boardMode() ? '列表' : '看板' }}</span>
-                  </button>
-
-                  @if (boardMode()) {
-                    <button id="boardColsToggle" class="btn board-cols-toggle" type="button"
-                      (click)="allColumnsCollapsed() ? expandAllColumns() : collapseAllColumns()"
-                      [title]="allColumnsCollapsed() ? '展开全部状态列' : '折叠全部状态列'">
-                      <span class="board-cols-glyph">{{ allColumnsCollapsed() ? '⊞' : '⊟' }}</span>
-                      <span class="board-cols-label">{{ allColumnsCollapsed() ? '全展开' : '全折叠' }}</span>
-                    </button>
-                  }
-
-                  <!-- Epic 78 (v6.6): 手动刷新按钮 + 刷新中加载态 -->
-                  <button id="refreshBtn" class="btn refresh-btn" type="button"
-                    (click)="manualRefresh()" [disabled]="refreshing()"
-                    [title]="refreshing() ? '刷新中…' : '刷新当前视图'">
-                    @if (refreshing()) {
-                      <span class="refresh-spinner" aria-hidden="true"></span>
-                    } @else {
-                      <svg class="refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
-                    }
-                    <span class="refresh-label">{{ refreshing() ? '刷新中' : '刷新' }}</span>
-                  </button>
-
-                  <!-- Epic 81 (v6.9): 后台自动刷新轮询开关 + 倒计时 + 同步状态点 -->
-                  <button id="autoRefreshBtn" class="btn auto-refresh-btn" type="button"
-                    (click)="toggleAutoRefresh()" [class.active]="autoRefresh()"
-                    [title]="autoRefresh() ? ('自动刷新已开启（每 ' + autoRefreshSeconds + ' 秒，' + lastSyncedLabel() + '）') : '开启后台自动刷新'">
-                    <span class="auto-refresh-dot" [class.failing]="autoRefreshFailing() && autoRefresh()" [class.synced]="autoSynced() && autoRefresh()"></span>
-                    <svg class="auto-refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/></svg>
-                    <span class="auto-refresh-label">自动</span>
-                    @if (autoRefresh() && !refreshing()) {
-                      <span class="auto-refresh-count">{{ autoRefreshCountdown() }}s</span>
-                    }
-                  </button>
-
-                  <!-- Epic 82 (v6.10): 自动刷新失败时低调提示 + 一键重试入口（不打扰式，复用 failing 状态） -->
-                  <!-- Epic 84 (v6.12): 失败条升级为「第 N 次重试 · M 秒后重试」的可量化反馈 -->
-                  @if (autoRefresh() && autoRefreshFailing()) {
-                    <span class="auto-refresh-fail" role="status" aria-live="polite">
-                      <span class="auto-refresh-fail-dot" aria-hidden="true"></span>
-                      <span class="auto-refresh-fail-text">自动同步失败（第 {{ autoRefreshAttempts() }} 次）· {{ autoRefreshCountdown() }}s 后自动重试</span>
-                      <button id="autoRefreshRetryBtn" class="auto-refresh-retry" type="button"
-                        (click)="retryAutoRefresh()"
-                        title="立即重试后台自动刷新">重试</button>
-                    </span>
-                  }
-
-                  <!-- Epic 83 (v6.11): 自动同步成功轻提示——短暂显示「已同步」，与 v6.10 失败提示呼应（不每周期打扰） -->
-                  @if (autoRefresh() && autoSynced()) {
-                    <span class="auto-refresh-ok" role="status" aria-live="polite">已同步</span>
-                  }
-
-                  <div class="preset-wrap">
-                    <button class="dropdown" (click)="togglePresetOpen()" [class.active]="presetOpen()">
-                      <span>预设</span>
-                      <span class="badge">{{ filterPresets().length }}</span>
-                    </button>
-                    @if (presetOpen()) {
-                      <div class="preset-panel">
-                        <div class="preset-save">
-                          <input class="preset-name-input" [value]="presetName()" (input)="presetName.set($any($event.target).value)" placeholder="预设名称…" (keydown.enter)="saveFilterPreset()" />
-                          <button class="btn btn--primary" (click)="saveFilterPreset()">保存当前</button>
-                        </div>
-                        @if (defaultPreset(); as dp) {
-                          <button class="preset-apply-default" (click)="applyDefaultPreset()" title="一键应用默认预设">★ 应用默认「{{ dp.name }}」</button>
-                        }
-                        @if (filterPresets().length === 0) {
-                          <div class="preset-empty">调整筛选后点「保存当前」</div>
-                        }
-                        @if (filterPresets().length > 0) {
-                          <div class="preset-list">
-                            @for (p of filterPresets(); track p.id) {
-                              <div class="preset-item" [class.is-default]="p.isDefault" [class.active]="p.id === activePresetId()">
-                                <button class="preset-star" (click)="setDefaultPreset(p.id)" [title]="p.isDefault ? '取消默认' : '设为默认'" [class.on]="p.isDefault">{{ p.isDefault ? '★' : '☆' }}</button>
-                                <div class="preset-body">
-                                  <div class="preset-title-row">
-                                    <button class="preset-apply" (click)="applyFilterPreset(p.id)" [title]="p.name">{{ p.name }}</button>
-                                    @if (p.id === activePresetId()) { <span class="preset-active-tag">当前</span> }
-                                  </div>
-                                  <div class="preset-meta">
-                                    <span class="preset-meta-chip">📂 {{ presetGroupLabel(p) }}</span>
-                                    <span class="preset-meta-chip">↕ {{ presetSortLabel(p) }}</span>
-                                    @if (presetFilterCount(p) > 0) {
-                                      <span class="preset-meta-chip">⚲ {{ presetFilterCount(p) }} 筛选</span>
-                                    }
-                                  </div>
-                                </div>
-                                <button class="preset-del" (click)="deleteFilterPreset(p.id)" title="删除预设">✕</button>
-                              </div>
-                            }
-                          </div>
-                        }
-                      </div>
-                    }
-                  </div>
-
-                  @if (showClearAll()) {
-                    <button class="btn" (click)="clearAllFilters()" title="清除全部筛选条件">
-                      ✕ 清除
-                    </button>
-                  }
-                </div>
               </div>
 
               <!-- Epic 76 (v6.3): 激活筛选条件可视化 chips 条（列表与看板视图共用） -->
@@ -1078,24 +1099,8 @@
                 }
               }
 
-              <!-- Task list / board -->
+              <!-- Task list / board（v7.3: 汇总条并入 taskbar 进度区，此处仅保留列表/看板本体） -->
               @if (!boardMode()) {
-                @if (storyTaskTotal() > 0) {
-                  <div class="task-list-summary" role="status" aria-label="任务汇总">
-                    <div class="summary-stack" title="状态分布（当前页）">
-                      @for (seg of taskListSummary().segments; track seg.status) {
-                        <span class="summary-seg status--{{ seg.status }}" [style.width.%]="taskListSummary().total > 0 ? (seg.count / taskListSummary().total) * 100 : 0" [title]="statusLabel(seg.status) + ' ' + seg.count"></span>
-                      }
-                    </div>
-                    <div class="summary-text">
-                      共 <strong>{{ storyTaskTotal() }}</strong> 项
-                      @if (storyTaskTotal() > storyTaskPageSize) {
-                         · 第 <strong>{{ storyTaskPage() }}</strong>/<strong>{{ taskPageCount() }}</strong> 页
-                      }
-                       · 本页完成 <strong>{{ taskListSummary().done }}</strong>/<strong>{{ tasks().length }}</strong>
-                    </div>
-                  </div>
-                }
                 <div class="entity-list" [class.density-compact]="listDensity() === 'compact'" (keydown)="handleTaskKeydown($event)" tabindex="0">
                   @for (grp of groupedTasks(); track grp.key) {
                     @if (grp.key) {
@@ -1165,28 +1170,34 @@
                               @if (item.sprint_id) {
                                 <span class="badge sprint-badge" title="已分配 Sprint">🏃</span>
                               }
-                              <span
-                                class="due-pill"
-                                role="button"
-                                tabindex="0"
-                                [class.has-due]="item.due_date"
-                                [class.due-overdue]="item.due_date && isOverdue(item.due_date)"
-                                [class.due-soon]="item.due_date && isDueSoon(item.due_date)"
-                                [title]="item.due_date ? ('点击修改截止日期：' + formatDueDate(item.due_date)) : '点击设置截止日期'"
-                                (click)="openDueMenu(item, $event); $event.stopPropagation(); $event.preventDefault()"
-                                (keydown.enter)="openDueMenu(item, $event); $event.stopPropagation(); $event.preventDefault()"
-                              >@if (item.due_date) { <span class="due-pill-date">⏰ {{ formatDueDate(item.due_date) }}</span> } @else { <span class="due-pill-empty">⏰ 设截止</span> }</span>
+                              <!-- v7.3: 截止日期未设置时不再渲染「设截止」空占位，行内更清爽（点击行上状态区/或编辑任务均可设置） -->
+                              @if (item.due_date) {
+                                <span
+                                  class="due-pill"
+                                  role="button"
+                                  tabindex="0"
+                                  [class.has-due]="true"
+                                  [class.due-overdue]="isOverdue(item.due_date)"
+                                  [class.due-soon]="isDueSoon(item.due_date)"
+                                  [title]="'点击修改截止日期：' + formatDueDate(item.due_date)"
+                                  (click)="openDueMenu(item, $event); $event.stopPropagation(); $event.preventDefault()"
+                                  (keydown.enter)="openDueMenu(item, $event); $event.stopPropagation(); $event.preventDefault()"
+                                ><span class="due-pill-date">⏰ {{ formatDueDate(item.due_date) }}</span></span>
+                              }
                               @for (lbl of parseLabels(item.labels); track lbl) {
                                 <span class="label-badge" [style.color]="labelColor(lbl)" [style.background]="labelBg(lbl)">{{ lbl }}</span>
                               }
-                              <span
-                                class="assignee-pill"
-                                role="button"
-                                tabindex="0"
-                                [title]="item.assignee_id ? ('点击改派：' + getAssigneeName(item.assignee_id)) : '点击指派'"
-                                (click)="openAssignMenu(item, $event); $event.stopPropagation(); $event.preventDefault()"
-                                (keydown.enter)="openAssignMenu(item, $event); $event.stopPropagation(); $event.preventDefault()"
-                              >@if (item.assignee_id) { <span class="assignee-avatar-sm" title="{{ getAssigneeName(item.assignee_id) }}">{{ getAssigneeInitials(item.assignee_id) }}</span> } @else { <span class="assignee-avatar-sm unassigned" title="未指派">?</span> }</span>
+                              <!-- v7.3: 未指派时不再渲染「?」占位头像 -->
+                              @if (item.assignee_id) {
+                                <span
+                                  class="assignee-pill"
+                                  role="button"
+                                  tabindex="0"
+                                  [title]="'点击改派：' + getAssigneeName(item.assignee_id)"
+                                  (click)="openAssignMenu(item, $event); $event.stopPropagation(); $event.preventDefault()"
+                                  (keydown.enter)="openAssignMenu(item, $event); $event.stopPropagation(); $event.preventDefault()"
+                                ><span class="assignee-avatar-sm" title="{{ getAssigneeName(item.assignee_id) }}">{{ getAssigneeInitials(item.assignee_id) }}</span></span>
+                              }
                               <span class="entity-item-time" title="最后更新">{{ timeAgo(item.updated_at) }}</span>
                             </div>
                           </a>

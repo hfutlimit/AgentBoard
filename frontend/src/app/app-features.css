@@ -849,25 +849,88 @@
   display: flex; align-items: center; gap: var(--space-2, 8px);
   font-size: 18px; font-weight: 700; color: var(--color-text-primary, #1A1A2E);
 }
-.taskbar__hint { margin-top: 2px; color: var(--color-text-tertiary, #9A9AB0); font-size: 12px; }
 .taskbar__actions { display: flex; align-items: center; gap: var(--space-2, 8px); }
 
-.export-menu { position: relative; }
-.export-menu summary { list-style: none; }
-.export-menu summary::-webkit-details-marker { display: none; }
-.export-menu[open] summary { background: var(--color-surface-3, #F0F0F4); border-color: var(--color-border-strong, #D4D4DC); }
-.export-menu__panel {
-  position: absolute; z-index: 40; top: calc(100% + 6px); right: 0;
-  width: 148px; padding: 6px;
-  background: var(--color-surface, #fff); border: 1px solid var(--color-border, #E6E6EC);
-  border-radius: var(--radius-md, 8px); box-shadow: 0 12px 28px rgba(15, 23, 42, .14);
+/* ===== v7.3 简洁任务列表（Story 详情 · Task 列表） =====
+   设计前提：单个 Story 的 task 数量不会很多。原五层堆叠工具条
+   （taskbar + filterbar + active-filter-bar + summary + kbd-hint）
+   收敛为「标题行 + 筛选行」两层；低频控件（只看我/排序/分组/密度/预设/导出）
+   收进单一「选项」popover；导出菜单（export-menu details）随之移除。 */
+
+/* 标题行：标题 + 内联进度（原 task-list-summary 并入） */
+.taskbar--slim { flex-wrap: wrap; row-gap: 8px; }
+.taskbar__lead { display: flex; align-items: center; gap: var(--space-3, 12px); min-width: 0; flex-wrap: wrap; }
+.taskbar__progress { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.taskbar__progress .summary-stack { flex: 0 1 96px; min-width: 48px; height: 6px; }
+.taskbar__progress-text { font-size: 12px; color: var(--color-text-tertiary, #9A9AB0); white-space: nowrap; }
+.taskbar__progress-text strong { color: var(--color-text-primary, #1A1A2E); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* 图标化按钮（刷新/自动/视图切换/看板列折叠）：仅图标 + tooltip，文字标签隐藏但保留 DOM */
+.taskbar--slim .btn.icon-btn { width: 32px; padding: 0; justify-content: center; flex: 0 0 auto; position: relative; }
+.taskbar--slim .btn.icon-btn .refresh-label,
+.taskbar--slim .btn.icon-btn .auto-refresh-label,
+.taskbar--slim .btn.icon-btn .view-label,
+.taskbar--slim .btn.icon-btn .board-cols-label { display: none; }
+/* 自动刷新倒计时改为图标右上角迷你徽标 */
+.taskbar--slim .btn.icon-btn .auto-refresh-count {
+  position: absolute; top: -6px; right: -6px;
+  min-width: 20px; padding: 0 4px; font-size: 10px; line-height: 14px;
 }
-.export-menu__panel button {
-  width: 100%; padding: 8px 10px; text-align: left;
-  color: var(--color-text-secondary, #6B6B80); background: transparent;
-  border: 0; border-radius: 6px; font: inherit; font-size: 13px; cursor: pointer;
+
+/* 「选项」popover（整合低频控件） */
+.task-opts-wrap { position: relative; display: inline-flex; }
+.task-opts-btn .task-opts-label { font-weight: 500; }
+.task-opts-btn .task-opts-dot {
+  width: 6px; height: 6px; border-radius: var(--radius-full, 9999px);
+  background: var(--color-primary, #5B5BD6); flex-shrink: 0;
 }
-.export-menu__panel button:hover { color: var(--color-text-primary, #1A1A2E); background: var(--color-surface-3, #F0F0F4); }
+.task-opts-popover {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 210;
+  width: 300px; max-height: min(70vh, 520px); overflow-y: auto;
+  padding: 6px;
+  background: var(--color-surface, #fff);
+  border: 1px solid var(--color-border, #E6E6EC);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, .16);
+}
+.task-opts-section + .task-opts-section { border-top: 1px solid var(--color-border, #E6E6EC); margin-top: 6px; padding-top: 6px; }
+.task-opts-section-title {
+  padding: 6px 10px 2px; font-size: 11px; font-weight: 600; letter-spacing: .04em;
+  color: var(--color-text-tertiary, #9A9AB0); text-transform: uppercase;
+}
+.task-opts-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 10px; min-height: 34px; }
+.task-opts-row-label { font-size: 13px; color: var(--color-text-secondary, #6B6B80); flex-shrink: 0; }
+.task-opts-muted { font-size: 12px; color: var(--color-text-tertiary, #9A9AB0); }
+.task-opts-popover .dropdown { flex: 1; max-width: 190px; min-width: 0; }
+.task-opts-export { display: flex; gap: 6px; }
+
+/* 预设面板内嵌到 popover：去掉绝对定位外壳 */
+.preset-panel--inline { position: static; width: auto; padding: 4px 6px 6px; border: 0; box-shadow: none; background: transparent; }
+
+/* 筛选行：去卡片化，轻量一行（搜索 + 状态 chips） */
+.filterbar--inline {
+  min-height: 0; padding: 0 0 var(--space-3, 12px);
+  background: transparent; border: 0; border-radius: 0;
+  border-bottom: 1px solid var(--color-border, #E6E6EC);
+  margin-bottom: var(--space-3, 12px);
+}
+.filterbar--inline .filterbar__left { grid-template-columns: minmax(200px, 280px) minmax(0, 1fr); }
+
+/* 行内降噪：批量勾选框 hover 才显现（选中/键盘焦点态常显，元素保留可聚焦） */
+.task-checkbox { opacity: 0; transition: opacity .15s ease; }
+.entity-item--rich:hover .task-checkbox,
+.entity-item--rich.selected .task-checkbox,
+.entity-item--rich.kbd-focused .task-checkbox,
+.task-checkbox:focus-visible { opacity: 1; }
+
+/* 状态/优先级 pill 的 ▾ 编辑提示 hover 才显现（默认渲染为干净的纯文本 pill） */
+.status-pill-caret, .priority-pill-caret { opacity: 0; transition: opacity .15s ease; }
+.status-pill:hover .status-pill-caret, .status-pill:focus-visible .status-pill-caret,
+.priority-pill:hover .priority-pill-caret, .priority-pill:focus-visible .priority-pill-caret { opacity: .7; }
+
+/* 快捷键提示：聚焦列表/看板时才显示（平时完全隐藏，还页面清爽） */
+.kbd-hint { display: none; }
+.entity-list:focus ~ .kbd-hint, .kanban:focus ~ .kbd-hint { display: block; }
 
 /* Button group */
 .btn-group { display: flex; align-items: center; gap: var(--space-1, 4px); }
@@ -1097,7 +1160,7 @@
   .layout > .sidebar { width: 200px; min-width: 200px; }
   main { padding: 20px 16px; }
   .filterbar__left { grid-template-columns: 1fr; }
-  .filterbar__right { flex-wrap: wrap; }
+  .taskbar--slim .taskbar__actions { flex-wrap: wrap; }
 }
 @media (max-width: 640px) {
   .layout { flex-direction: column; }
@@ -1112,8 +1175,7 @@
   main { padding: 16px 12px; }
   .filterbar { padding: 12px; }
   .filterbar__left { grid-template-columns: 1fr; }
-  .filterbar__right .preset-wrap { margin-left: 0; }
-  .taskbar__hint { display: none; }
+  .task-opts-popover { width: min(280px, calc(100vw - 48px)); }
   .story-title-left h2 { font-size: 1.125rem; }
   .qf-chip { padding: 4px 10px; font-size: 11px; }
   .task-search-input { width: 100%; min-width: 0; }

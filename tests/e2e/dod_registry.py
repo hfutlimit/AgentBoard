@@ -102,6 +102,96 @@ REGISTRY: list[DodEntry] = [
             "- 顶层 /story/:id / /task/:id / /epic/:id 全页路由仍 work (从命令面板/通知/URL bar 进入)"
         ),
     ),
+
+    # ── v7.3 / 2026-08-21 / Story 详情页任务列表简化 ─────────────────
+    DodEntry(
+        id="v73-story-slim-tasks-2026-08-21",
+        feature="Story 详情页任务列表简化（taskbar 精简 + 选项 popover + chips 隐藏零计数 + 行内降噪）",
+        date_added="2026-08-21",
+        test_files=[
+            "tests/e2e_story_slim_tasks/test_story_slim_tasks_e2e.py",
+        ],
+        coverage_summary=(
+            "6 个 Playwright 真实断言 test_* 函数覆盖："
+            "taskbar 单行结构 / 选项 popover 控件全开合 / 零计数 chip 隐藏 / "
+            "行内降噪 / 密度切换持久 / 默认态降噪 (checkbox+kbd)"
+        ),
+        acceptance=[
+            "Story 详情页 'Task 列表' tab → taskbar 单行 + 内联进度条 (n/m + 进度条 fill)，无 .task-list-summary 旧结构",
+            "点 `.icon-btn[aria-label='Task 选项']` → .task-opts-popover 开，6 个控件全在 (只看我 / 密度 / 排序 / 分组 / 筛选预设 inline / 导出 CSV/JSON)",
+            "无 .export-menu (新设计移除),只有 .icon-btn[aria-label='导出'] 单按钮",
+            "statusCounts 0 的 chip 不渲染：5 个状态最多 4 个 chip,评审中/已阻塞零计数不出现",
+            "task 行无 due 时不渲染 '无截止' 占位 pill；无 assignee 时不渲染 '未分配' 占位 pill",
+            "task 行无 due 时无 '设截止' inline 编辑文案",
+            "popover 内切密度 → 关闭后 .task-opts-dot 仍显示密度对应活动点 (持久化到 service)",
+            "task-checkbox 默认 opacity:0 (focus/hover 显);kbd-hint 默认 display:none (focus 显)",
+            "API 事实 = 页面事实: 计数断言用 GET /api/stories/{id}/tasks 读回,适配 create_story 自动编排生成 '设计：/开发：' 2 个子任务",
+        ],
+        status="done",
+        closed_date="2026-08-21",
+        notes=(
+            "v7.3 收尾:用户原话 'task 列表里 task 不会那么多 重新设计下 简洁一点' → 把旧 4 行 taskbar "
+            "+ 11 个 chip + 8 个 export 菜单项的繁复 UI 收敛到 1 行 taskbar + popover 收纳 + "
+            "零计数隐藏 + 行内降噪。\n"
+            "实现要点:\n"
+            "- taskbar--slim 单行容器:左侧 n/m + 进度条 fill,右侧 icon-btn 收纳到 popover\n"
+            "- taskOptionsOpen / taskOptionsActive / taskOptionsHandlers (open/toggle/close) "
+            "app.ts 加,清理 presetOpen 死代码\n"
+            "- icon-btn 标签默认 display:none,kbd 提示 focus 显 (kbmode)\n"
+            "- 行内降噪:无 due 不渲染占位 pill,无 assignee 不渲染占位 pill\n"
+            "- filterbar--inline:筛选预设条横置\n"
+            "- statusCounts 计算走中央 helper,0 计数的 chip 不渲染 (.slim-count-0 selector 直接 filter 掉)\n"
+            "app.spec.ts 更新 story task controls 断言到新结构 (icon-btn + popover),70 passed / 1 skipped 全绿。"
+        ),
+    ),
+
+    # ── v7.3 bugfix / 2026-08-21 / delete_epic|delete_story FK 500 ──────
+    DodEntry(
+        id="v73-bugfix-delete-cascade-fk-2026-08-21",
+        feature="DELETE /api/epics|/api/stories 500 产品级 bug 修复（FK 防御级联）",
+        date_added="2026-08-21",
+        test_files=[
+            "tests/test_delete_cascade_fk.py",
+        ],
+        coverage_summary=(
+            "7 个 pytest 服务端单测 test_* 函数覆盖："
+            "epic 删 done 任务 (落 task_outcome) 不 500 / story 删 done 任务不 500 / "
+            "task 删含 ReviewVote.comment_id 引用不 500 / "
+            "epic 删解绑 agent_schedules.epic_id / epic 删解绑 review_votes entity_id 锚点 / "
+            "删不存在 epic/story 返回 False"
+        ),
+        acceptance=[
+            "task 走 done（落 task_outcome + episode_embedding + project_playbook_episode）后 DELETE /api/epics/{id} → 200，learning 引用全部联动清",
+            "task 走 done 后 DELETE /api/stories/{id} → 200",
+            "task 含评审 comment 且被 ReviewVote.comment_id 引用 → DELETE /api/tasks/{id} → 200（vote.comment_id 已被 NULL 化）",
+            "绑了 agent_schedule 的 epic 被删 → schedule.epic_id 被 NULL 化，schedule 配置保留",
+            "删 epic 时其下 story 的 review_votes 锚点 (entity_type=story) 被切断 (entity_id 置 -1)",
+            "删不存在的 epic/story → 返回 False（不抛 500）",
+            "dev API 重启后 25 个 v73-e2e / fk-probe 残留垃圾 epic 全部 DELETE 200 清空",
+            "v7.3 e2e 6/6 跑完 teardown 零残留（DELETE /api/epics 100% 生效）",
+        ],
+        status="done",
+        closed_date="2026-08-21",
+        notes=(
+            "v7.3 e2e 收尾发现的产品级 bug：Epic 140 切片 1/3 引入 task_outcome / "
+            "episode_embedding / project_playbook* 后（旧 facade 没跟进清理）→ "
+            "task 走 done 落 learning 引用 → 用户删 epic/story → SQLite 抛 "
+            "FOREIGN KEY constraint failed → HTTP 500。\n"
+            "根因：agentboard/features/projects/service.py 的 delete_epic(:499) / "
+            "delete_story(:829) 走裸批量 delete（只清 Comment+Task+Story+Epic），"
+            "绕过了 agentboard/service.py:1032 中央 delete_task 的防御性级联。\n"
+            "修复策略：\n"
+            "1) delete_epic / delete_story 改为逐 task 调中央 delete_task（自带动所有 "
+            "learning/dependency/comment/attachment 清理），单实现多入口；\n"
+            "2) delete_epic 同步解绑 agent_schedules.epic_id (NO ACTION FK 防御，置 NULL 保留 schedule)；\n"
+            "3) delete_epic / delete_story 同步切断 review_votes entity_id 锚点 (置 -1，"
+            "保留 vote 历史但截断对已删 story 的引用)；\n"
+            "4) 中央 delete_task 同步补 ReviewVote.comment_id 防御：删 task comment 前先 "
+            "NULL 化 vote.comment_id（防 NO ACTION FK 撞）。\n"
+            "性能：每次 commit 独立，delete 是非热路径，可接受。\n"
+            "回归保护：tests/test_delete_cascade_fk.py 7 个 case 覆盖全部 NO ACTION FK 洞 + 边界。"
+        ),
+    ),
 ]
 
 
