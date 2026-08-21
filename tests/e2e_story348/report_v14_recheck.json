@@ -1,0 +1,111 @@
+{
+  "warm_global": [
+    {
+      "path": "/",
+      "txt": 775,
+      "h1": "项目",
+      "is_404": false
+    },
+    {
+      "path": "/projects",
+      "txt": 1305,
+      "h1": "项目中心\n11",
+      "is_404": false
+    },
+    {
+      "path": "/epics",
+      "txt": 42,
+      "h1": "全局 Epics 概览",
+      "is_404": false
+    },
+    {
+      "path": "/tasks",
+      "txt": 391,
+      "h1": "全局 Tasks 概览",
+      "is_404": false
+    },
+    {
+      "path": "/bugs",
+      "txt": 390,
+      "h1": "全局 Bugs 概览",
+      "is_404": false
+    },
+    {
+      "path": "/documents",
+      "txt": 255,
+      "h1": "项目文档\n0",
+      "is_404": false
+    },
+    {
+      "path": "/settings",
+      "txt": 0,
+      "h1": "",
+      "is_404": false
+    },
+    {
+      "path": "/agents",
+      "txt": 0,
+      "h1": "",
+      "is_404": false
+    },
+    {
+      "path": "/notifications",
+      "txt": 79,
+      "h1": "通知中心\n0",
+      "is_404": false
+    },
+    {
+      "path": "/admin",
+      "txt": 1092,
+      "h1": "⚙ 管理员后台",
+      "is_404": false
+    }
+  ],
+  "bug_1428": {
+    "documents": {
+      "h1": "项目文档\n0",
+      "txt": 255
+    },
+    "proposals": {
+      "h1": "需求提案\n0",
+      "txt": 180
+    },
+    "resolves_to_project_center": false
+  },
+  "bug_1430": [
+    {
+      "path": "/epics",
+      "txt": 398,
+      "h1": "全局 Epics 概览",
+      "is_404": false
+    },
+    {
+      "path": "/stories",
+      "txt": 400,
+      "h1": "全局 Stories 概览",
+      "is_404": false
+    },
+    {
+      "path": "/tasks",
+      "txt": 391,
+      "h1": "全局 Tasks 概览",
+      "is_404": false
+    },
+    {
+      "path": "/bugs",
+      "txt": 390,
+      "h1": "全局 Bugs 概览",
+      "is_404": false
+    },
+    {
+      "path": "/dashboard",
+      "txt": 408,
+      "h1": "项目大脑 / 总览",
+      "is_404": false
+    }
+  ],
+  "bug_1431": {
+    "theme_candidates": 0,
+    "detail": []
+  }
+}

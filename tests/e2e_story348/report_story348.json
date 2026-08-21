@@ -4,11 +4,11 @@
       "name": "home",
       "path": "/",
       "url": "http://127.0.0.1:4200/",
-      "expected_selector_present": true,
-      "expected_child_count": 1,
-      "main_text_len": 775,
+      "expected_selector_present": false,
+      "expected_child_count": -1,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "项目",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\home.png"
     },
@@ -16,9 +16,9 @@
       "name": "projects",
       "path": "/projects",
       "url": "http://127.0.0.1:4200/projects",
-      "main_text_len": 1304,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "项目中心\n11",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\projects.png"
     },
@@ -36,8 +36,8 @@
       "name": "stories",
       "path": "/stories",
       "url": "http://127.0.0.1:4200/stories",
-      "main_text_len": 10,
-      "is_404": true,
+      "main_text_len": 0,
+      "is_404": false,
       "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\stories.png"
@@ -56,9 +56,9 @@
       "name": "bugs",
       "path": "/bugs",
       "url": "http://127.0.0.1:4200/bugs",
-      "main_text_len": 0,
+      "main_text_len": 390,
       "is_404": false,
-      "h1": "",
+      "h1": "全局 Bugs 概览",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\bugs.png"
     },
@@ -76,9 +76,9 @@
       "name": "dashboard",
       "path": "/dashboard",
       "url": "http://127.0.0.1:4200/dashboard",
-      "main_text_len": 0,
+      "main_text_len": 408,
       "is_404": false,
-      "h1": "",
+      "h1": "项目大脑 / 总览",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\dashboard.png"
     },
@@ -106,9 +106,9 @@
       "name": "proposals",
       "path": "/proposals",
       "url": "http://127.0.0.1:4200/proposals",
-      "main_text_len": 1304,
+      "main_text_len": 180,
       "is_404": false,
-      "h1": "项目中心\n11",
+      "h1": "需求提案\n0",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\proposals.png"
     },
@@ -116,9 +116,9 @@
       "name": "notifications",
       "path": "/notifications",
       "url": "http://127.0.0.1:4200/notifications",
-      "main_text_len": 0,
+      "main_text_len": 79,
       "is_404": false,
-      "h1": "",
+      "h1": "通知中心\n0",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\notifications.png"
     },
@@ -126,9 +126,9 @@
       "name": "admin",
       "path": "/admin",
       "url": "http://127.0.0.1:4200/admin",
-      "main_text_len": 1092,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "⚙ 管理员后台",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\admin.png"
     },
@@ -136,11 +136,11 @@
       "name": "ws_overview",
       "path": "/project/3/overview",
       "url": "http://127.0.0.1:4200/project/3/overview",
-      "expected_selector_present": true,
-      "expected_child_count": 1,
-      "main_text_len": 492,
+      "expected_selector_present": false,
+      "expected_child_count": -1,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "项目概览",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_overview.png"
     },
@@ -232,7 +232,7 @@
       "name": "epic_152",
       "path": "/epic/152",
       "url": "http://127.0.0.1:4200/epic/152",
-      "main_text_len": 2845,
+      "main_text_len": 2843,
       "is_404": false,
       "h1": "",
       "horizontal_overflow_px": 0,
@@ -242,7 +242,7 @@
       "name": "story_348",
       "path": "/story/348",
       "url": "http://127.0.0.1:4200/story/348",
-      "main_text_len": 16911,
+      "main_text_len": 18731,
       "is_404": true,
       "h1": "页面持续修复 · 新版前端 UI 问题收集",
       "horizontal_overflow_px": 0,
@@ -252,7 +252,7 @@
       "name": "story_330",
       "path": "/story/330",
       "url": "http://127.0.0.1:4200/story/330",
-      "main_text_len": 2903,
+      "main_text_len": 2900,
       "is_404": false,
       "h1": "Story 330: 测试改造 — E2E 改 pytest test_* 收集 + 去硬编码 admin/admin123 + 绝对路径",
       "horizontal_overflow_px": 0,
@@ -283,6 +283,22 @@
     {
       "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
       "artifact": true
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "artifact": true
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "artifact": true
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "artifact": true
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "artifact": true
     }
   ],
   "page_errors": [],
@@ -291,6 +307,26 @@
       "url": "http://127.0.0.1:4200/api/agents",
       "status": 401,
       "artifact": true
+    },
+    {
+      "url": "http://127.0.0.1:4200/api/epics/121/stories",
+      "status": 500,
+      "artifact": false
+    },
+    {
+      "url": "http://127.0.0.1:4200/api/projects/3",
+      "status": 500,
+      "artifact": false
+    },
+    {
+      "url": "http://127.0.0.1:4200/api/epics/127/stories",
+      "status": 500,
+      "artifact": false
+    },
+    {
+      "url": "http://127.0.0.1:4200/api/epics/139/stories",
+      "status": 500,
+      "artifact": false
     }
   ],
   "interactions": [
@@ -310,13 +346,31 @@
     },
     {
       "name": "story348_comment_box",
-      "found": false
+      "found": true
     }
   ],
   "findings": [
     {
+      "page": "home",
+      "path": "/",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "projects",
+      "path": "/projects",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
       "page": "epics",
       "path": "/epics",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "stories",
+      "path": "/stories",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
@@ -327,20 +381,8 @@
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
     {
-      "page": "bugs",
-      "path": "/bugs",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
-    {
       "page": "documents",
       "path": "/documents",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
-    {
-      "page": "dashboard",
-      "path": "/dashboard",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
@@ -357,10 +399,22 @@
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
     {
-      "page": "notifications",
-      "path": "/notifications",
+      "page": "admin",
+      "path": "/admin",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "ws_overview",
+      "path": "/project/3/overview",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "ws_tabs",
+      "path": "/project/3/*",
+      "severity": "P2",
+      "issue": "工作区 tab 点击后路径异常: ['工作项']"
     },
     {
       "page": "global",
@@ -415,15 +469,15 @@
       "bug": "#1428",
       "page": "documents",
       "path": "/documents",
-      "h1": "项目中心\n11",
-      "renders_as_project_center": true
+      "h1": "项目文档\n0",
+      "renders_as_project_center": false
     },
     {
       "bug": "#1428",
       "page": "proposals",
       "path": "/proposals",
-      "h1": "项目中心\n11",
-      "renders_as_project_center": true
+      "h1": "需求提案\n0",
+      "renders_as_project_center": false
     },
     {
       "bug": "#1429",
@@ -507,9 +561,8 @@
       "url_ok": true
     },
     {
-      "tab": "提案",
-      "path": "/project/3/proposals",
-      "url_ok": true
+      "tab": "工作项",
+      "error": "Locator.inner_text: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator(\".project-nav a, .project-nav button, [c"
     },
     {
       "tab": "文档",
@@ -528,5 +581,26 @@
     }
   ],
   "real_console_errors": [],
-  "real_failed_requests": []
+  "real_failed_requests": [
+    {
+      "url": "http://127.0.0.1:4200/api/epics/121/stories",
+      "status": 500,
+      "artifact": false
+    },
+    {
+      "url": "http://127.0.0.1:4200/api/projects/3",
+      "status": 500,
+      "artifact": false
+    },
+    {
+      "url": "http://127.0.0.1:4200/api/epics/127/stories",
+      "status": 500,
+      "artifact": false
+    },
+    {
+      "url": "http://127.0.0.1:4200/api/epics/139/stories",
+      "status": 500,
+      "artifact": false
+    }
+  ]
 }

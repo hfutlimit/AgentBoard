@@ -1,0 +1,68 @@
+{
+  "/settings": {
+    "path": "/settings",
+    "readings": [
+      0,
+      650,
+      650,
+      650,
+      650
+    ],
+    "final_txt": 650,
+    "body_len": 697,
+    "h1": "个人设置",
+    "is_404": false,
+    "has_skeleton": false,
+    "component_tags": [],
+    "console_errors": [
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789879517.27057ec4bd02ed789498a0459c9bcfadaa01bed8ec498d22980f507eaabdc9b6' failed: Error during WebSocket handshake: Unexpected response code: 200"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789879517.27057ec4bd02ed789498a0459c9bcfadaa01bed8ec498d22980f507eaabdc9b6' failed: Error during WebSocket handshake: Unexpected response code: 200"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789879517.27057ec4bd02ed789498a0459c9bcfadaa01bed8ec498d22980f507eaabdc9b6' failed: Error during WebSocket handshake: Unexpected response code: 200"
+      }
+    ],
+    "failed_requests": [],
+    "screenshot": "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_story348\\screenshots_verify_run32\\_settings.png",
+    "elapsed": 4.102243661880493
+  },
+  "/agents": {
+    "path": "/agents",
+    "readings": [
+      0,
+      1462,
+      1462,
+      1462,
+      1462
+    ],
+    "final_txt": 1462,
+    "body_len": 1647,
+    "h1": "Agent 池\n7",
+    "is_404": false,
+    "has_skeleton": false,
+    "component_tags": [],
+    "console_errors": [
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789879517.27057ec4bd02ed789498a0459c9bcfadaa01bed8ec498d22980f507eaabdc9b6' failed: Error during WebSocket handshake: Unexpected response code: 200"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789879517.27057ec4bd02ed789498a0459c9bcfadaa01bed8ec498d22980f507eaabdc9b6' failed: Error during WebSocket handshake: Unexpected response code: 200"
+      },
+      {
+        "type": "error",
+        "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789879517.27057ec4bd02ed789498a0459c9bcfadaa01bed8ec498d22980f507eaabdc9b6' failed: Error during WebSocket handshake: Unexpected response code: 200"
+      }
+    ],
+    "failed_requests": [],
+    "screenshot": "E:\\Projects\\WorkBuddy\\AgentBoard\\tests\\e2e_story348\\screenshots_verify_run32\\_agents.png",
+    "elapsed": 4.113954782485962
+  }
+}
