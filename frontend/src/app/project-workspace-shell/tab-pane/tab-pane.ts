@@ -1,4 +1,4 @@
-import { Component, Input, ViewEncapsulation, inject } from '@angular/core';
+import { Component, EventEmitter, Input, Output, ViewEncapsulation, inject } from '@angular/core';
 import { BacklogTabComponent } from '../../backlog-tab/backlog-tab';
 import { DocumentsTabComponent } from '../../documents-tab/documents-tab';
 import { EpicsTabComponent } from '../../epics-tab/epics-tab';
@@ -10,6 +10,9 @@ import { ProjectDataService } from '../../services/project-data.service';
 import { SettingsTabComponent } from '../../settings-tab/settings-tab';
 import type { WorkspaceTab } from '../../services/workspace-tabs.service';
 
+export type DetailKind = 'story' | 'task' | 'epic' | 'proposal' | 'sprint' | 'document';
+export interface DetailSelection { kind: DetailKind; id: number; }
+
 /**
  * TabPaneComponent — 单个 tab 的内容容器
  *
@@ -18,8 +21,10 @@ import type { WorkspaceTab } from '../../services/workspace-tabs.service';
  * 内部状态（筛选、滚动、已加载数据）。非激活的 pane 由外层用 [class.hidden]
  * 触发 CSS display:none，组件不销毁。
  *
- * @Input tab 决定渲染哪个子 tab 组件。所有 *-tab 组件的 @Input/@Output
- * 契约与旧 dispatcher 完全一致，仅数据源换成 ProjectDataService workspace host。
+ * 2026-08-21 v3 修：*-tab 内部点详情 link 由 ProjectWorkspaceShellComponent
+ * 的 document-level capture-phase click 拦截器统一处理（见 shell.ts）,
+ * shell 接收后 emit openDetail → 调 side panel。tab-pane 这里不重复拦截,
+ * 只做 event 转发（如果 *-tab 用 emit 形式而非 routerLink,这里转发）。
  */
 @Component({
   selector: 'app-tab-pane',

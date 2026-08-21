@@ -14,6 +14,11 @@ import { WorkspaceTabsService, WorkspaceTab, WorkspaceTabKind } from '../service
  * 现在 v2：tab 切换走纯 service 状态（ajax 风格），URL 只用 history.replaceState
  *         静默同步，绝不再触发 router 跳路由。
  *
+ * v3 修 (Step 1)：*-tab 内部点详情 link (Story/Task/Epic/Proposal/Sprint/
+ * Document) 改为 master-detail side panel,不再跳顶层全页路由。
+ * 实现:document-level capture-phase click 拦截器(`'document:click.capture'`),
+ * 早于 routerLink 的 click handler 执行,preventDefault + emit openDetail。
+ *
  * URL ↔ Tab 状态映射规则（v2 调整后）：
  * - 初次加载 / 直链 / 刷新：shell 构造函数读一次 URL，调 openTab(projectId, kind)，
  *   让 service 与 URL 对齐
@@ -30,6 +35,12 @@ import { WorkspaceTabsService, WorkspaceTab, WorkspaceTabKind } from '../service
   templateUrl: './project-workspace-shell.html',
   styleUrl: './project-workspace-shell.css',
   encapsulation: ViewEncapsulation.None,
+  host: {
+    // document-level capture-phase click 拦截 — 在 routerLink 之前执行,
+    // 阻止 *-tab 内部 `<a [routerLink]="['/story/:id', ...]">` 跳顶层全页,
+    // 改为 master-detail side panel (Step 1 占位内容,Step 2 真实详情)
+    '(document:click.capture)': 'onDocumentClickCapture($event)',
+  },
 })
 export class ProjectWorkspaceShellComponent {
   readonly host = inject(ProjectDataService).getWorkspaceHost<any>();
@@ -208,27 +219,52 @@ export class ProjectWorkspaceShellComponent {
   }
 
   /**
-   * 全局 click 拦截 — *-tab 内部如果还有遗漏的 `[routerLink]="['/story' / 'task' / 'epic' / 'proposals' / 'sprint' / 'documents', id]"`
-   * 类型 link,在 workspace 上下文内应改为 side panel,而不是跳顶层全页。
+   * 全局 click 拦截 — *-tab 内部 `<a routerLink>` 跳详情页 (Story/Task/Epic/
+   * Proposal/Sprint/Document) 会被这里拦截,改为 master-detail side panel,
+   * 不会跳顶层全页路由（那样会退出 workspace 上下文）。
    *
-   * 拦截逻辑:捕获 click 事件,看事件 target 是不是 `<a routerLink>` 到这 6 类 detail
-   * 路由,如果是 → preventDefault + 显示 side panel。
-   * 侧边栏/顶栏的同 URL link 不受影响(它们不在 workspace main 区域里)。
+   * 在 `@Component` 装饰器里用 `host: { '(document:click.capture)': ... }` 注册
+   * (capture phase) — 这让我们在事件冒泡到 routerLink 的 click handler **之前**
+   * 看到事件,这时 preventDefault + stopImmediatePropagation 就能阻止 navigate。
+   *
+   * 仅在 workspace 上下文（window.location.pathname 以 /project/ 开头）生效,
+   * 避免误伤顶栏 / 侧栏的同 URL link。
    */
-  onWorkspaceClick(event: MouseEvent): void {
-    const target = event.target as HTMLElement | null;
+  onDocumentClickCapture(event: Event): void {
+    if (typeof window === 'undefined') return;
+    if (!window.location.pathname.startsWith('/project/')) return;
+
+    const mouseEvent = event as MouseEvent;
+    // 修饰键 / 中键 → 让浏览器处理 "open in new tab" 行为,不拦截
+    if (mouseEvent.ctrlKey || mouseEvent.metaKey || mouseEvent.shiftKey) return;
+    if (mouseEvent.button !== undefined && mouseEvent.button !== 0) return;
+
+    const target = event.target as Element | null;
     if (!target) return;
     const anchor = target.closest('a') as HTMLAnchorElement | null;
     if (!anchor) return;
-    // routerLink 会在 href 上写出真实路径 (PathLocationStrategy)
-    const href = anchor.getAttribute('href') || anchor.getAttribute('ng-reflect-router-link') || '';
-    // 不依赖 routerLink 序列化,直接匹配 href 模式
+
+    // 排除 side panel 内部的 link(panel 里的 "open in full page" 不应被拦截)
+    if (anchor.closest('.detail-pane')) return;
+    // 排除 sidebar / topbar / tab strip 里的 link (不在 workspace main 区域)
+    if (anchor.closest('.project-sidebar-v7')) return;
+    if (anchor.closest('.workspace-topbar-v7')) return;
+    if (anchor.closest('.tab-strip')) return;
+    if (anchor.closest('.tab-pane-stack') === null) {
+      // 拦截器只对 workspace main 区域内的点击生效
+      return;
+    }
+
+    const href = anchor.getAttribute('href') || '';
     const m = href.match(/^\/(story|task|epic|proposals|sprint|documents)\/(\d+)/);
     if (!m) return;
-    // 只在 workspace 上下文里拦截 — 如果 URL 已经是这个 (workspace main 内点击)
-    if (!window.location.pathname.startsWith('/project/')) return;
+
+    // 关键：先 preventDefault + stopImmediatePropagation,
+    // 这样 routerLink 的 click handler 看不到这个事件,不会 navigate
     event.preventDefault();
-    event.stopPropagation();
+    event.stopImmediatePropagation();
+    if (mouseEvent.stopPropagation) mouseEvent.stopPropagation();
+
     const kindMap: Record<string, DetailSelection['kind']> = {
       story: 'story',
       task: 'task',
