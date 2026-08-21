@@ -2204,19 +2204,22 @@ export class App implements OnInit, OnDestroy {
         this.view.set('notifications');
         await this.loadNotifications();
       } else if (kind === 'documents') {
+        // #1428 修复：app.routes.ts 已经路由化 /documents（全局 + /documents/:id），
+        // 这里只处理 id > 0 的详情场景；id=NaN（顶层 /documents）走 @case 'documents' 全局文档中心
+        // 渲染（app.html:1618 已有完整实现，Epic 138）。
         if (id > 0) {
           await this.loadDocumentDetail(id);
         } else {
-          await this.router.navigateByUrl('/projects');
-          return;
+          this.view.set('documents');
         }
       } else if (kind === 'proposals') {
-        // Epic 96 P0: Proposal 澄清回路 —— 列表 / 问答工作台
-        if (!localStorage.getItem('agentboard_token')) {
-          this.router.navigateByUrl('/login');
-          return;
-        }
+        // #1428 修复：同 documents，全局 /proposals 走 @case 'proposals' 全局提案中心
         if (id > 0) {
+          // Epic 96 P0: Proposal 澄清回路 —— 列表 / 问答工作台
+          if (!localStorage.getItem('agentboard_token')) {
+            this.router.navigateByUrl('/login');
+            return;
+          }
           this.view.set('proposal');
           await this.loadProposalDetail(id);
           const p = this.proposalItem();
@@ -2225,8 +2228,7 @@ export class App implements OnInit, OnDestroy {
             this.project.set(await firstValueFrom(this.api.getProject(p.project_id)));
           }
         } else {
-          await this.router.navigateByUrl('/projects');
-          return;
+          this.view.set('proposals');
         }
       } else {
         this.view.set('not-found');

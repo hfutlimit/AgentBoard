@@ -1,18 +1,22 @@
 <app-managed-list
-  [loading]="loading"
-  [error]="error"
+  [loading]="effectiveLoading"
+  [error]="effectiveError"
   errorPrefix="提案加载失败"
   loadingLabel="正在加载提案列表…"
   [skeletonRows]="4"
-  [empty]="!loading && !error && proposals.length === 0"
+  [empty]="!effectiveLoading && !effectiveError && effectiveProposals.length === 0"
   [pageSize]="0"
   (retry)="retry.emit()">
   <ng-container ml-header>
     <!-- Epic 150 / X3 supplement: 提案 heading（prototype 对齐） -->
     <app-workspace-heading
-      title="需求提案"
-      subtitle="围绕当前项目提交需求，由 Agent 逐轮澄清并收敛为可执行 Story。">
-      <button id="new-project-proposal-btn" class="heading-action-btn btn-primary-sm" (click)="createProposal.emit()">＋ 新建提案</button>
+      [title]="scope === 'global' ? '全局提案中心' : '需求提案'"
+      [subtitle]="scope === 'global' ? '跨项目所有需求提案一览。' : '围绕当前项目提交需求，由 Agent 逐轮澄清并收敛为可执行 Story。'">
+      @if (scope === 'project') {
+        <ng-container>
+          <button id="new-project-proposal-btn" class="heading-action-btn btn-primary-sm" (click)="createProposal.emit()">＋ 新建提案</button>
+        </ng-container>
+      }
     </app-workspace-heading>
   </ng-container>
   <div class="row doc-toolbar proposals-tab-v7" ml-toolbar>
@@ -34,11 +38,11 @@
       [value]="searchQuery"
       (input)="searchQueryChange.emit($any($event.target).value)" />
   </div>
-  @if (proposals.length === 0) {
-    <div class="empty-state">当前项目还没有提案。点击上方「＋ 新建提案」，把想法交给 Agent 澄清。</div>
+  @if (effectiveProposals.length === 0) {
+    <div class="empty-state">{{ scope === 'global' ? '全局暂无提案，或当前筛选条件下无结果。' : '当前项目还没有提案。点击上方「＋ 新建提案」，把想法交给 Agent 澄清。' }}</div>
   } @else {
     <div class="proposal-list">
-      @for (p of proposals; track p.id) {
+      @for (p of effectiveProposals; track p.id) {
         <a class="proposal-row" [routerLink]="['/proposals', p.id]">
           <div class="proposal-row-main">
             <div class="proposal-row-title">{{ p.title }}</div>
@@ -46,6 +50,10 @@
               <span>第 {{ p.current_round }} 轮</span>
               <span class="dot-sep">·</span>
               <time>{{ timeAgo(p.updated_at) }}</time>
+              @if (scope === 'global') {
+                <span class="dot-sep">·</span>
+                <span class="proposal-row-project">{{ projectNameFor(p) }}</span>
+              }
             </div>
           </div>
           <span class="badge pstatus pstatus--{{ p.status }}">{{ proposalStatusLabel(p.status) }}</span>

@@ -1,37 +1,34 @@
-import { Component, EventEmitter, Input, Output, ViewEncapsulation } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { Component, EventEmitter, inject, Input, OnChanges, OnInit, Output, signal, SimpleChanges, ViewEncapsulation } from '@angular/core';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
 import { ManagedListComponent } from '../managed-list/managed-list';
 import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
-import type { ProposalItem, ProposalStatus } from '../models';
+import { ApiService } from '../api.service';
+import type { ProposalItem, ProposalStatus, Project } from '../models';
 
 /**
  * ProposalsTabComponent — 阶段3（Epic 149 / Story 319）从单体 app.html @switch 拆出的
- * 项目「提案」视图独立组件（4/8）。
+ * 提案视图独立组件（4/8），支持 project / global 两种 scope。
  *
  * 设计目标（见 docs/design-prototypes/layout-rebuild/codex/MIGRATION.md §2）：
- * 将项目工作区 proposals tab 从单体模板中拆出，套用原型 v7 的卡片视觉骨架
- * （proposal-row 加 brand 描边 + status badge color-mix ring + 工具栏 navy 下划线），
- * 同时保留原有业务逻辑（状态过滤 / 搜索 / 提案列表 / 新建入口 / 路由跳转）。
+ * 套用原型 v7 的卡片视觉骨架，同时保留原有业务逻辑（状态过滤 / 搜索 / 列表 / 新建入口 / 路由跳转）。
  *
- * 与 ManagedListComponent 关系：
- *   proposals tab 在阶段2 已套用 ManagedListComponent 外壳，本次将「外壳 + 主体」整体抽出。
+ * scope 模式：
+ *   - 'project' (默认)：从父组件 @Input 接收 proposals（已过滤+搜索），显示"需求提案"+ 创建按钮
+ *   - 'global'    ：#1428 修复。独立调 api.listProposals({}) 拉所有项目提案，
+ *                   显示"全局提案中心"，隐藏创建按钮（创建必须在项目内）
  *
  * 数据契约（@Input）：
- *   proposals    已过滤+搜索后的提案列表（来自 App.proposalVisible()）
- *   filterStatus 当前状态过滤值（来自 App.proposalFilterStatus()）
- *   searchQuery  当前搜索关键词（来自 App.proposalSearchQuery()）
- *   statuses     状态枚举数组（来自 App.proposalStatuses = PROPOSAL_STATUSES）
+ *   proposals    已过滤+搜索后的提案列表（project scope）
+ *   filterStatus 当前状态过滤值
+ *   searchQuery  当前搜索关键词
+ *   statuses     状态枚举数组
  *   loading      proposals tab 是否加载中
  *   error        proposals tab 加载错误信息
+ *   projects     全局模式下需要项目列表（用于显示提案归属项目名）
  *
  * 事件契约（@Output）：
- *   filterStatusChange  状态过滤变更（父组件 proposalFilterStatus.set($event)）
- *   searchQueryChange   搜索关键词变更（父组件 proposalSearchQuery.set($event)）
- *   createProposal      新建提案（替代 App.openProposalModal()）
- *   retry               重试加载（替代 App.retryProjectTab('proposals')）
- *
- * 视觉：基础规则复用全局 .proposal-row / .proposal-list / .doc-toolbar
- * （ViewEncapsulation.None），本组件 css 仅补 v7 增强。
+ *   filterStatusChange / searchQueryChange / createProposal / retry
  */
 @Component({
   selector: 'app-proposals-tab',
@@ -41,7 +38,17 @@ import type { ProposalItem, ProposalStatus } from '../models';
   styleUrl: './proposals-tab.css',
   encapsulation: ViewEncapsulation.None,
 })
-export class ProposalsTabComponent {
+export class ProposalsTabComponent implements OnInit, OnChanges {
+  @Input() scope: 'project' | 'global' = 'project';
+  /** 全局视图需要项目列表，用于提案列表显示"归属项目"列 */
+  @Input() projects: Project[] = [];
+  private readonly route = inject(ActivatedRoute);
+  ngOnInit(): void {
+    // 优先用路由 data.scope 覆盖（#1428 修复：/proposals 全局路由传 'global'）
+    const routeScope = this.route.snapshot.data['scope'] as 'project' | 'global' | undefined;
+    if (routeScope) this.scope = routeScope;
+  }
+
   @Input({ required: true }) proposals: ProposalItem[] = [];
   @Input() filterStatus: ProposalStatus | '' = '';
   @Input() searchQuery = '';
@@ -53,6 +60,42 @@ export class ProposalsTabComponent {
   @Output() searchQueryChange = new EventEmitter<string>();
   @Output() createProposal = new EventEmitter<void>();
   @Output() retry = new EventEmitter<void>();
+
+  // ─── 全局模式独立数据流 ───
+  private readonly api = inject(ApiService);
+  readonly globalProposals = signal<ProposalItem[]>([]);
+  readonly globalLoading = signal(false);
+  readonly globalError = signal('');
+
+  get effectiveProposals(): ProposalItem[] {
+    return this.scope === 'global' ? this.globalProposals() : this.proposals;
+  }
+  get effectiveLoading(): boolean {
+    return this.scope === 'global' ? this.globalLoading() : this.loading;
+  }
+  get effectiveError(): string {
+    return this.scope === 'global' ? this.globalError() : this.error;
+  }
+  projectNameFor(p: ProposalItem): string {
+    const proj = this.projects.find((x) => x.id === p.project_id);
+    return proj ? proj.name : `#${p.project_id}`;
+  }
+
+  async ngOnChanges(changes: SimpleChanges): Promise<void> {
+    if (this.scope !== 'global') return;
+    if (!changes['scope'] && !changes['projects']) return;
+    this.globalLoading.set(true);
+    this.globalError.set('');
+    try {
+      const rows = await firstValueFrom(this.api.listProposals({}));
+      this.globalProposals.set(Array.isArray(rows) ? rows : []);
+    } catch (e: any) {
+      this.globalError.set(e?.error?.detail || e?.message || '全局提案加载失败');
+      this.globalProposals.set([]);
+    } finally {
+      this.globalLoading.set(false);
+    }
+  }
 
   /** 提案状态文案（与 App.proposalStatusLabel 一致，纯函数复制）。 */
   proposalStatusLabel(s: ProposalStatus): string {

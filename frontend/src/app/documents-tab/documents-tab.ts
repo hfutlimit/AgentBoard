@@ -1,8 +1,11 @@
-import { Component, EventEmitter, Input, Output, ViewEncapsulation } from '@angular/core';
+import { Component, EventEmitter, inject, Input, OnChanges, OnInit, Output, signal, SimpleChanges, ViewEncapsulation } from '@angular/core';
 import { DatePipe } from '@angular/common';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
 import { ManagedListComponent } from '../managed-list/managed-list';
 import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
-import type { DocumentItem, DocumentFolder, DocumentType, DocumentStatus, Epic } from '../models';
+import { ApiService } from '../api.service';
+import type { DocumentItem, DocumentFolder, DocumentType, DocumentStatus, Epic, Project } from '../models';
 
 /**
  * DocBreadcrumbItem — 面包屑项（id null = 根目录）。
@@ -79,12 +82,22 @@ type DocListViewMode = 'tile' | 'list';
 @Component({
   selector: 'app-documents-tab',
   standalone: true,
-  imports: [ManagedListComponent, DatePipe, WorkspaceHeadingComponent],
+  imports: [ManagedListComponent, DatePipe, RouterLink, WorkspaceHeadingComponent],
   templateUrl: './documents-tab.html',
   styleUrl: './documents-tab.css',
   encapsulation: ViewEncapsulation.None,
 })
-export class DocumentsTabComponent {
+export class DocumentsTabComponent implements OnInit, OnChanges {
+  @Input() scope: 'project' | 'global' = 'project';
+  private readonly route = inject(ActivatedRoute);
+  ngOnInit(): void {
+    // 优先用路由 data.scope 覆盖（#1428 修复：/documents 全局路由传 'global'）
+    const routeScope = this.route.snapshot.data['scope'] as 'project' | 'global' | undefined;
+    if (routeScope) this.scope = routeScope;
+  }
+  /** 全局视图下需要项目列表，用于文档列表显示"归属项目"列 */
+  @Input() projects: Project[] = [];
+
   @Input({ required: true }) docs: DocumentItem[] = [];
   @Input() childFolders: DocumentFolder[] = [];
   @Input() breadcrumb: DocBreadcrumbItem[] = [];
@@ -159,5 +172,65 @@ export class DocumentsTabComponent {
     if (diff < 86400) return `${Math.floor(diff / 3600)}h前`;
     if (diff < 604800) return `${Math.floor(diff / 86400)}d前`;
     return new Date(dateStr).toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' });
+  }
+
+  // ─── 全局模式（scope === 'global'）独立数据流 ───
+  private readonly api = inject(ApiService);
+  readonly globalDocs = signal<DocumentItem[]>([]);
+  readonly globalLoading = signal(false);
+  readonly globalError = signal('');
+
+  /** 全局模式下文档来源：独立拉取（不依赖父组件 @Input） */
+  get effectiveDocs(): DocumentItem[] {
+    return this.scope === 'global' ? this.globalDocs() : this.docs;
+  }
+  get effectiveLoading(): boolean {
+    return this.scope === 'global' ? this.globalLoading() : this.loading;
+  }
+  get effectiveError(): string {
+    return this.scope === 'global' ? this.globalError() : this.error;
+  }
+  /** 全局模式下显示空目录（不显示文件夹树） */
+  get showFolderTree(): boolean {
+    return this.scope === 'project';
+  }
+  /** 全局模式下隐藏项目级筛选（author / epic） */
+  get showProjectFilters(): boolean {
+    return this.scope === 'project';
+  }
+  /** 全局模式下不显示面包屑（无项目上下文） */
+  get showBreadcrumb(): boolean {
+    return this.scope === 'project';
+  }
+  /** 全局模式下不显示新建按钮（创建文档需在项目内） */
+  get showCreateButtons(): boolean {
+    return this.scope === 'project';
+  }
+  /** 全局模式下不显示拖拽 */
+  get enableDrag(): boolean {
+    return this.scope === 'project';
+  }
+  /** 文档归属项目名（仅全局模式需要查 projects 输入） */
+  projectNameFor(d: DocumentItem): string {
+    const p = this.projects.find((x) => x.id === d.project_id);
+    return p ? p.name : `#${d.project_id}`;
+  }
+
+  async ngOnChanges(changes: SimpleChanges): Promise<void> {
+    // scope 切到 global 或 docs/projects 输入变化时，重新拉全局文档
+    if (this.scope !== 'global') return;
+    if (!changes['scope'] && !changes['projects']) return;
+    this.globalLoading.set(true);
+    this.globalError.set('');
+    try {
+      // 不传 project_id = 查所有项目文档（api.listDocuments 已支持）
+      const rows = await firstValueFrom(this.api.listDocuments({ sort: 'updated' }));
+      this.globalDocs.set(Array.isArray(rows) ? rows : []);
+    } catch (e: any) {
+      this.globalError.set(e?.error?.detail || e?.message || '全局文档加载失败');
+      this.globalDocs.set([]);
+    } finally {
+      this.globalLoading.set(false);
+    }
   }
 }

@@ -85,8 +85,11 @@ export const routes: Routes = [
   { path: 'agents', component: RouteAnchor },  // Story 329 / Task 1322: 真正的 router link，app.ts loadRoute 走 'agents' view
 
   // ─── 独立 tab 路由（顶层 view，无项目上下文） ─────────────────────────
+  // #1428 修复：全局 /documents /proposals 路由通过 data.scope = 'global' 区分
+  // 与项目工作区（/project/:id/documents）的 project 模式。
   {
     path: 'documents',
+    data: { scope: 'global' },
     loadComponent: () =>
       import('./documents-tab/documents-tab').then(
         (m) => m.DocumentsTabComponent,
@@ -94,6 +97,7 @@ export const routes: Routes = [
   },
   {
     path: 'documents/:id',
+    data: { scope: 'global' },
     loadComponent: () =>
       import('./documents-tab/documents-tab').then(
         (m) => m.DocumentsTabComponent,
@@ -101,6 +105,7 @@ export const routes: Routes = [
   },
   {
     path: 'proposals',
+    data: { scope: 'global' },
     loadComponent: () =>
       import('./proposals-tab/proposals-tab').then(
         (m) => m.ProposalsTabComponent,
@@ -108,6 +113,7 @@ export const routes: Routes = [
   },
   {
     path: 'proposals/:id',
+    data: { scope: 'global' },
     loadComponent: () =>
       import('./proposals-tab/proposals-tab').then(
         (m) => m.ProposalsTabComponent,
