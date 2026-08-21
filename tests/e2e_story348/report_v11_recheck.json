@@ -1,0 +1,146 @@
+{
+  "warm_recheck": [
+    {
+      "path": "/projects",
+      "final_text_len": 1304,
+      "h1": "项目中心\n11",
+      "is_404": false,
+      "overflow_px": 0,
+      "verdict": "OK"
+    },
+    {
+      "path": "/epics",
+      "final_text_len": 10,
+      "h1": "",
+      "is_404": true,
+      "overflow_px": 0,
+      "verdict": "404"
+    },
+    {
+      "path": "/tasks",
+      "final_text_len": 10,
+      "h1": "",
+      "is_404": true,
+      "overflow_px": 0,
+      "verdict": "404"
+    },
+    {
+      "path": "/bugs",
+      "final_text_len": 10,
+      "h1": "",
+      "is_404": true,
+      "overflow_px": 0,
+      "verdict": "404"
+    },
+    {
+      "path": "/documents",
+      "final_text_len": 1304,
+      "h1": "项目中心\n11",
+      "is_404": false,
+      "overflow_px": 0,
+      "verdict": "OK"
+    },
+    {
+      "path": "/dashboard",
+      "final_text_len": 10,
+      "h1": "",
+      "is_404": true,
+      "overflow_px": 0,
+      "verdict": "404"
+    },
+    {
+      "path": "/settings",
+      "final_text_len": 650,
+      "h1": "个人设置",
+      "is_404": false,
+      "overflow_px": 0,
+      "verdict": "OK"
+    }
+  ],
+  "known_bug_recheck": {
+    "1428": {
+      "/documents": {
+        "h1": "项目中心\n11",
+        "renders_as_project_center": true,
+        "verdict": "OK"
+      },
+      "/proposals": {
+        "h1": "项目中心\n11",
+        "renders_as_project_center": true,
+        "verdict": "OK"
+      }
+    },
+    "1430": {
+      "/epics": {
+        "is_404": false,
+        "verdict": "BLANK"
+      },
+      "/stories": {
+        "is_404": false,
+        "verdict": "BLANK"
+      },
+      "/tasks": {
+        "is_404": true,
+        "verdict": "404"
+      },
+      "/bugs": {
+        "is_404": false,
+        "verdict": "BLANK"
+      },
+      "/dashboard": {
+        "is_404": false,
+        "verdict": "BLANK"
+      }
+    },
+    "1431": {
+      "header": {
+        "button_count": 0,
+        "theme_button_count": 0,
+        "theme_text_elements": [],
+        "dataset_theme": "light"
+      },
+      "user_menu_items": [],
+      "theme_in_menu": false,
+      "verdict": "MISSING"
+    }
+  },
+  "responsive": [
+    {
+      "viewport": 1440,
+      "pages": {
+        "/": 0,
+        "/projects": 0,
+        "/project/3/overview": 0
+      }
+    },
+    {
+      "viewport": 1280,
+      "pages": {
+        "/": 0,
+        "/projects": 0,
+        "/project/3/overview": 0
+      }
+    },
+    {
+      "viewport": 1024,
+      "pages": {
+        "/": 0,
+        "/projects": 0,
+        "/project/3/overview": 0
+      }
+    }
+  ],
+  "list_smoke": {
+    "input_placeholders": [
+      "搜索当前项目"
+    ],
+    "paginator_count": 0,
+    "filter_buttons": [],
+    "row_like_count": 1
+  },
+  "create_dialog": {
+    "opened": false,
+    "form_fields": 0,
+    "error": "button 新建项目 not found"
+  }
+}

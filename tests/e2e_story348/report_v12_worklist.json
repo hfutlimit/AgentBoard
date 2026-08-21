@@ -1,0 +1,18 @@
+{
+  "workitems_backlog": {
+    "main_txt": 1192,
+    "h1": "工作项\n200",
+    "inputs": [
+      "搜索当前项目"
+    ],
+    "paginator": 8,
+    "rows": 0,
+    "cards": 0
+  },
+  "theme_dom_probe": {
+    "html_class": "",
+    "body_class": "",
+    "has_dark_class": false,
+    "navy_token": "#10243e"
+  }
+}
