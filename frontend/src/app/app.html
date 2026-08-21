@@ -82,11 +82,9 @@
           <input type="search" placeholder="搜索当前项目" />
         </label>
       }
-      @if (view() !== 'project') {
       <button id="theme-toggle" class="icon-btn" [title]="getThemeLabel()" (click)="toggleTheme()">
         <span class="theme-icon">{{ isDarkTheme() ? '🌙' : '☀️' }}</span>
       </button>
-      }
       <span id="user-info" class="muted">
         <!-- Notification bell -->
         @if (currentUser()) {
