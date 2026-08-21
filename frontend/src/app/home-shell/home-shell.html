@@ -38,6 +38,11 @@
           <svg class="icon-v7"><use href="#i-settings"/></svg><span>个人设置</span>
         </a>
         <div class="home-dropdown-divider-v7"></div>
+        <button type="button" class="home-dropdown-item-v7" role="menuitem" (click)="toggleThemeFromMenu()">
+          <svg class="icon-v7" aria-hidden="true"><use href="#i-theme"/></svg>
+          <span>{{ isDarkTheme() ? '切换到浅色模式' : '切换到深色模式' }}</span>
+        </button>
+        <div class="home-dropdown-divider-v7"></div>
         <button type="button" class="home-dropdown-item-v7 danger" role="menuitem" (click)="closeMenus(); logoutRequest.emit()">
           <svg class="icon-v7"><use href="#i-back"/></svg><span>退出登录</span>
         </button>

@@ -1,5 +1,5 @@
-import { Component, EventEmitter, HostListener, Input, Output, ViewEncapsulation, signal, computed } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, EventEmitter, HostListener, inject, Input, Output, ViewEncapsulation, signal, computed } from '@angular/core';
+import { CommonModule, DOCUMENT } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import type { Project, AgentRow } from '../models';
 
@@ -42,6 +42,8 @@ import type { Project, AgentRow } from '../models';
   encapsulation: ViewEncapsulation.None,
 })
 export class HomeShellComponent {
+  private readonly document = inject(DOCUMENT);
+
   @Input({ required: true }) projects: Project[] = [];
   @Input({ required: true }) agents: AgentRow[] = [];
   @Input() selected: Project | null = null;
@@ -84,6 +86,21 @@ export class HomeShellComponent {
   closeMenus(): void {
     this.userMenuOpen.set(false);
     this.projectMenuOpen.set(false);
+  }
+
+  /** 主题切换：补 home-shell 缺失的入口（#1431 续修）。
+   * app.ts 已在 topbar 提供 theme-toggle，home view 走 home-shell 自有 header
+   * （与 topbar 不共享 DOM），所以在 user dropdown 加菜单项，inline 切 dataset.theme + localStorage。
+   * 与 app.ts:4432 toggleTheme() 行为一致（保持单一真相应抽 ThemeService，本轮按 Epic 11
+   * 单交付纪律先 inline，等下一次抽）。 */
+  isDarkTheme(): boolean {
+    return this.document.documentElement.dataset['theme'] === 'dark';
+  }
+  toggleThemeFromMenu(): void {
+    const newTheme = this.isDarkTheme() ? 'light' : 'dark';
+    this.document.documentElement.dataset['theme'] = newTheme;
+    try { localStorage.setItem('agentboard_theme', newTheme); } catch {}
+    this.closeMenus();
   }
 
   @HostListener('document:click')

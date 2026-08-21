@@ -2651,7 +2651,9 @@
         @default {
           <div class="card empty-state">
             <h2>页面不存在</h2>
-            <a routerLink="/">返回首页</a>
+            <p class="muted empty-state-hint">访问的路由未在 <code>app.routes.ts</code> 中定义。</p>
+            <p class="muted empty-state-hint">可能属于 Story 1430 待补全局列表页（/epics /stories /tasks /bugs /dashboard），或访问地址有误。</p>
+            <a routerLink="/" class="btn-primary-sm">返回首页</a>
           </div>
         }
       }
