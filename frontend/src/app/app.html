@@ -1,4 +1,4 @@
-@if (!authVisible()) {
+﻿@if (!authVisible()) {
 <!-- Task 402: 离线提示条 + Task 808: 离线队列数量 -->
 @if (offlineBanner()) {
   <div class="offline-banner">
@@ -27,7 +27,7 @@
   </div>
 }
 
-@if (view() !== 'document' && view() !== 'home' && view() !== 'settings') {
+@if (view() !== 'document' && view() !== 'home') {
 <header class="topbar">
   <div class="topbar-inner">
     <div class="topbar-left">
