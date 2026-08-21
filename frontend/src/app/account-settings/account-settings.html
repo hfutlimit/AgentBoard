@@ -1,25 +1,18 @@
 @if (profile; as currentProfile) {
   <div class="account-settings-page">
     <aside class="account-settings-nav" aria-label="个人设置导航">
-      <div class="account-settings-identity">
-        <span class="account-settings-avatar">
-          @if (currentProfile.avatar_url) { <img [src]="currentProfile.avatar_url" alt="" /> }
-          @else { {{ (currentProfile.display_name || currentProfile.username).slice(0, 1).toUpperCase() }} }
-        </span>
-        <span><strong>{{ currentProfile.display_name || currentProfile.username }}</strong><small>{{ currentProfile.username }}</small></span>
-      </div>
       <nav class="account-settings-nav-list">
         <button type="button" [class.active]="activeSection() === 'profile'" (click)="selectSection('profile')"><svg class="icon-v7"><use href="#i-users"/></svg><span>个人资料</span></button>
         <button type="button" [class.active]="activeSection() === 'security'" (click)="selectSection('security')"><svg class="icon-v7"><use href="#i-lock"/></svg><span>密码与安全</span></button>
         <button type="button" [class.active]="activeSection() === 'projects'" (click)="selectSection('projects')"><svg class="icon-v7"><use href="#i-file"/></svg><span>我的项目</span><small>{{ projects.length }}</small></button>
         <button type="button" [class.active]="activeSection() === 'api-keys'" (click)="selectSection('api-keys')"><svg class="icon-v7"><use href="#i-branch"/></svg><span>API Keys</span><small>{{ apiKeys.length }}</small></button>
       </nav>
-      <a routerLink="/" class="account-settings-back"><svg class="icon-v7"><use href="#i-back"/></svg>返回项目首页</a>
     </aside>
 
     <main class="account-settings-main">
       <header class="account-settings-header"><span>ACCOUNT SETTINGS</span><h1>个人设置</h1><p>管理个人资料、安全凭据和你参与的项目。</p></header>
 
+      @if (activeSection() === 'profile') {
       <section id="account-settings-profile" class="account-settings-section">
         <div class="account-settings-section-head"><div><h2>个人资料</h2><p>这些信息用于协作界面中的身份展示。</p></div></div>
         <div class="account-setting-row"><div><strong>用户名</strong><p>{{ currentProfile.username }}</p></div><span class="account-setting-locked"><svg class="icon-v7"><use href="#i-lock"/></svg>不可修改</span></div>
@@ -27,12 +20,16 @@
         <div class="account-setting-row"><div><strong>邮箱</strong><p>{{ currentProfile.email || '尚未设置' }}</p></div><button type="button" class="account-setting-edit" (click)="editProfile.emit('email')">编辑</button></div>
         <div class="account-setting-row"><div><strong>头像</strong><p>{{ currentProfile.avatar_url ? '已设置自定义头像' : '使用名称首字母作为头像' }}</p></div><button type="button" class="account-setting-edit" (click)="editProfile.emit('avatar_url')">编辑</button></div>
       </section>
+      }
 
+      @if (activeSection() === 'security') {
       <section id="account-settings-security" class="account-settings-section">
         <div class="account-settings-section-head"><div><h2>密码与安全</h2><p>修改密码时需要验证当前密码。</p></div></div>
         <div class="account-setting-row"><div><strong>登录密码</strong><p>建议定期更新，并使用至少 8 位的强密码。</p></div><button type="button" class="account-setting-edit" (click)="editPassword.emit()">修改密码</button></div>
       </section>
+      }
 
+      @if (activeSection() === 'projects') {
       <section id="account-settings-projects" class="account-settings-section">
         <div class="account-settings-section-head account-settings-section-head--action"><div><h2>我的项目</h2><p>仅显示你创建或参与的项目。</p></div><button class="account-section-action" (click)="newProject.emit()"><svg class="icon-v7"><use href="#i-plus"/></svg>新建项目</button></div>
         @if (projects.length) {
@@ -41,7 +38,9 @@
           </tbody></table></div>
         } @else { <div class="empty-inline">你还没有创建或加入项目。</div> }
       </section>
+      }
 
+      @if (activeSection() === 'api-keys') {
       <section id="account-settings-api-keys" class="account-settings-section">
         <div class="account-settings-section-head account-settings-section-head--action"><div><h2>API Keys</h2><p>用于脚本和第三方工具访问 AgentBoard API。</p></div><button class="account-section-action" (click)="newApiKey.emit()"><svg class="icon-v7"><use href="#i-plus"/></svg>新建 API Key</button></div>
         @if (apiKeys.length) {
@@ -50,6 +49,7 @@
           </tbody></table></div>
         } @else { <div class="empty-inline">暂无 API Key。</div> }
       </section>
+      }
     </main>
   </div>
 }
