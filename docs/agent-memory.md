@@ -129,3 +129,49 @@
   - `AGENTBOARD_API_URL` vs `AGENTBOARD_WEB_API_URL` 命名困惑
   - 任何 web_app（28080）+ FastAPI（18000）单栈模式启动
 - **具体事件**：2026-08-21 修完 de86f83 后启 28080，用户登录后报「Agent 列表加载失败: Http failure response for http://127.0.0.1:58124/api/agents: 0 Unknown Error」。根因：web_app 注入 58124 而非 18000。debug 流程：inline `os.getenv` 拿得到 18000，但 `web_app.API_URL` 是 58124 → 锁定 web_app.py:20 key 不一致。修法已 commit 待 push。
+
+---
+
+## `Failed to execute 'open' on 'XMLHttpRequest': Invalid URL` 根因（2026-08-21）
+
+**规则 → web_app.py 注入 `API_URL` 时必须 `.strip()`，且本地 dev 启动 cmdline 写法不能有 `set NAME=VAL && ` 那个 trailing space。**
+
+- **证据/原因**：
+  - **cmd.exe `set` 吞 trailing space**：`set X=http://y && python ...` 中 set 后面的空格被 set 当作 X 值的一部分 → 进程内 `os.getenv('X')` = `'http://y '`（带尾空格）
+  - 注入到 index.html：`window.AGENTBOARD_API = "http://127.0.0.1:18000 "`（带尾空格）
+  - 前端 `XMLHttpRequest.open('POST', 'http://...:18000 ')` 抛 `Invalid URL`（URL spec 拒绝尾空格）
+  - 表象：登录页能渲染但**点登录按钮后完全没 /api/* 请求发出**（XMLHttpRequest 构造直接挂，无 console error）
+- **修法（双管齐下）**：
+  1. `agentboard/web_app.py:20` 注入前 `.strip()` 防御兜底：
+     ```python
+     API_URL = (
+         (os.getenv("AGENTBOARD_WEB_API_URL") or os.getenv("AGENTBOARD_API_URL") or "http://127.0.0.1:58124")
+         .strip()
+     )
+     ```
+  2. 启动 cmdline 写 `set NAME=VAL&&"exe"`（无空格）：
+     ```powershell
+     $cmdLine = "set AGENTBOARD_WEB_API_URL=http://127.0.0.1:18000&&`"$exe`" -m uvicorn ..."
+     # 注意：set 后立刻 &&，不要空格
+     ```
+- **为什么 Playwright 验证比 PowerShell 强**：
+  - PowerShell `Invoke-WebRequest` 测后端是好的（API 200 + token），但**前端构造 URL 失败这种纯前端 bug 看不见**
+  - Playwright `page.on('request', lambda r: all_reqs.append((r.method, r.url)))` 能看到**实际浏览器发起的所有 URL**，没有 `/api/*` 就是前端 hang 住
+  - 抓 `window.AGENTBOARD_API` 字面值：带尾空格就是 invalid URL 的物证
+- **完整排查套路**（如怀疑前端 URL 构造 bug）：
+  ```python
+  # Playwright 脚本
+  console_msgs, all_reqs = [], []
+  page.on("console", lambda m: console_msgs.append(f"[{m.type}] {m.text}"))
+  page.on("request", lambda r: all_reqs.append((r.method, r.url)))
+  # ...
+  info = page.evaluate("({api_url: window.AGENTBOARD_API, token: localStorage.getItem('agentboard_token')})")
+  # 1) api_url 有 trailing space? repr() 比对
+  # 2) /api/* 请求数 = 0? 前端 hang
+  # 3) console errors? 可能在 catch 里 swallow
+  ```
+- **适用场景**：
+  - 启动 web_app (28080) 后，登录按钮点了**无任何反应**（没 /api/* 请求发出）
+  - 浏览器报 `Failed to execute 'open' on 'XMLHttpRequest': Invalid URL` 或 `new URL('...')` 抛错
+  - PowerShell 测后端 OK 但前端死活不动
+- **具体事件**：2026-08-21 f93bb0f 修 web_app key 不一致后，用户硬刷 28080 仍报「Agent 列表加载失败: Failed to execute 'open' on 'XMLHttpRequest': Invalid URL」。debug：Playwright 抓 `window.AGENTBOARD_API = "http://127.0.0.1:18000 "`（**带尾空格**），同时启动日志里 `set AGENTBOARD_WEB_API_URL=...:18000` 后面有个空格被 set 吞。修法：web_app.py 加 .strip() + 修 cmdline 无尾空格。已 commit 待 push。

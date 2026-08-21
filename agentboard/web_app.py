@@ -21,10 +21,12 @@ STATIC_DIR_RESOLVED = STATIC_DIR.resolve()
 # - 优先读 AGENTBOARD_WEB_API_URL（与 .env / docker-compose 对外 key 约定一致，本地 dev 走这个）
 # - 兼容读 AGENTBOARD_API_URL（docker-compose 会把对外 key 映射到容器内同名 env）
 # - 默认 58124 兜底（生产 .NET BFF 默认端口）
+# - 统一 .strip()：cmd.exe 的 `set NAME=VALUE && ...` 会把 set 后面的空格吞进 env 值，
+#   注入到前端 <script>window.AGENTBOARD_API = "..."</script> 后 `new URL("...18000 ")`
+#   抛 Invalid URL（XMLHttpRequest.open 也会拒绝带空格的 URL）
 API_URL = (
-    os.getenv("AGENTBOARD_WEB_API_URL")
-    or os.getenv("AGENTBOARD_API_URL")
-    or "http://127.0.0.1:58124"
+    (os.getenv("AGENTBOARD_WEB_API_URL") or os.getenv("AGENTBOARD_API_URL") or "http://127.0.0.1:58124")
+    .strip()
 )
 
 app = FastAPI(title="AgentBoard Web (Angular)")
