@@ -1,0 +1,9 @@
+{
+  "create_dialog": {
+    "visible_after_click": true,
+    "matched_selector": ".modal",
+    "sel": ".modal",
+    "fields": 3,
+    "text": "CREATE\n新建项目\n×\n标题 *\n短码\n描述\n取消\n创建"
+  }
+}

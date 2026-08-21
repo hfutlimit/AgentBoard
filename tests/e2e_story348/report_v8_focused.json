@@ -1,0 +1,56 @@
+{
+  "warm_recheck": [
+    {
+      "path": "/tasks",
+      "final_text_len": 10,
+      "h1": "",
+      "is_404": true,
+      "overflow_px": 0,
+      "verdict": "404"
+    },
+    {
+      "path": "/settings",
+      "final_text_len": 650,
+      "h1": "个人设置",
+      "is_404": false,
+      "overflow_px": 0,
+      "verdict": "OK"
+    },
+    {
+      "path": "/agents",
+      "final_text_len": 1462,
+      "h1": "Agent 池\n7",
+      "is_404": false,
+      "overflow_px": 0,
+      "verdict": "OK"
+    },
+    {
+      "path": "/admin",
+      "final_text_len": 1092,
+      "h1": "⚙ 管理员后台",
+      "is_404": false,
+      "overflow_px": 0,
+      "verdict": "OK"
+    },
+    {
+      "path": "/project/3/overview",
+      "final_text_len": 492,
+      "h1": "项目概览",
+      "is_404": false,
+      "overflow_px": 0,
+      "verdict": "OK"
+    }
+  ],
+  "api_27_tasks": {
+    "attempt": 1,
+    "status": 200,
+    "count": "n/a"
+  },
+  "story348_comment": {
+    "error": "Page.evaluate: SyntaxError: Failed to execute 'querySelectorAll' on 'Document': 'button:has-text(\"评论\")' is not a valid selector.\n    at eval (eval at "
+  },
+  "tasks_404": {
+    "body_preview": "AgentBoard\n项目\nAgents\n企业项目协作平台\n☀️\nA\nadmin\n系统管理员\nWORKSPACE\n项目协作中心\n规划 · 执行 · 交付\n核心工作台\n仪表盘\nAgents\n4/7\n项目\n11\n项目列表\nAgentBoard\nAGB\nZPMC\nZPMC\nDevPilot\nDP\nResumeGenAgent\nRESUME\nmcp\n查看全部 (11)\n 最近访问\nAgentBoard\n页",
+    "has_404_text": false
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "story348_comment": {
+    "textarea": 1,
+    "input": 1,
+    "[contenteditable=true]": 0,
+    "[class*=comment]": 35,
+    "app-comment": 0,
+    "app-comment-editor": 0,
+    "form": 1,
+    "comment_text_nodes": [
+      "BUTTON:发表评论"
+    ],
+    "has_comments_section": true
+  },
+  "create_dialog": {
+    "opened": false,
+    "fields": 3
+  }
+}

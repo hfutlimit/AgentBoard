@@ -26,8 +26,8 @@
       "name": "epics",
       "path": "/epics",
       "url": "http://127.0.0.1:4200/epics",
-      "main_text_len": 0,
-      "is_404": false,
+      "main_text_len": 10,
+      "is_404": true,
       "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\epics.png"
@@ -36,8 +36,8 @@
       "name": "stories",
       "path": "/stories",
       "url": "http://127.0.0.1:4200/stories",
-      "main_text_len": 0,
-      "is_404": false,
+      "main_text_len": 10,
+      "is_404": true,
       "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\stories.png"
@@ -46,8 +46,8 @@
       "name": "tasks",
       "path": "/tasks",
       "url": "http://127.0.0.1:4200/tasks",
-      "main_text_len": 10,
-      "is_404": true,
+      "main_text_len": 0,
+      "is_404": false,
       "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\tasks.png"
@@ -66,9 +66,9 @@
       "name": "documents",
       "path": "/documents",
       "url": "http://127.0.0.1:4200/documents",
-      "main_text_len": 0,
+      "main_text_len": 1304,
       "is_404": false,
-      "h1": "",
+      "h1": "项目中心\n11",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\documents.png"
     },
@@ -106,9 +106,9 @@
       "name": "proposals",
       "path": "/proposals",
       "url": "http://127.0.0.1:4200/proposals",
-      "main_text_len": 0,
+      "main_text_len": 1304,
       "is_404": false,
-      "h1": "",
+      "h1": "项目中心\n11",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\proposals.png"
     },
@@ -126,9 +126,9 @@
       "name": "admin",
       "path": "/admin",
       "url": "http://127.0.0.1:4200/admin",
-      "main_text_len": 1092,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "⚙ 管理员后台",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\admin.png"
     },
@@ -136,11 +136,11 @@
       "name": "ws_overview",
       "path": "/project/3/overview",
       "url": "http://127.0.0.1:4200/project/3/overview",
-      "expected_selector_present": true,
-      "expected_child_count": 1,
-      "main_text_len": 492,
+      "expected_selector_present": false,
+      "expected_child_count": -1,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "项目概览",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_overview.png"
     },
@@ -174,7 +174,7 @@
       "url": "http://127.0.0.1:4200/project/3/backlog",
       "expected_selector_present": true,
       "expected_child_count": 1,
-      "main_text_len": 1160,
+      "main_text_len": 1192,
       "is_404": false,
       "h1": "工作项\n200",
       "horizontal_overflow_px": 0,
@@ -242,7 +242,7 @@
       "name": "story_348",
       "path": "/story/348",
       "url": "http://127.0.0.1:4200/story/348",
-      "main_text_len": 9974,
+      "main_text_len": 13915,
       "is_404": true,
       "h1": "页面持续修复 · 新版前端 UI 问题收集",
       "horizontal_overflow_px": 0,
@@ -283,6 +283,10 @@
     {
       "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
       "artifact": true
+    },
+    {
+      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+      "artifact": true
     }
   ],
   "page_errors": [],
@@ -291,6 +295,11 @@
       "url": "http://127.0.0.1:4200/api/agents",
       "status": 401,
       "artifact": true
+    },
+    {
+      "url": "http://127.0.0.1:4200/api/stories/27/tasks",
+      "status": 500,
+      "artifact": false
     }
   ],
   "interactions": [
@@ -315,20 +324,8 @@
   ],
   "findings": [
     {
-      "page": "epics",
-      "path": "/epics",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
-    {
-      "page": "stories",
-      "path": "/stories",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
-    {
-      "page": "documents",
-      "path": "/documents",
+      "page": "tasks",
+      "path": "/tasks",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
@@ -345,8 +342,14 @@
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
     {
-      "page": "proposals",
-      "path": "/proposals",
+      "page": "admin",
+      "path": "/admin",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "ws_overview",
+      "path": "/project/3/overview",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
@@ -410,14 +413,23 @@
       "bug": "#1428",
       "page": "proposals",
       "path": "/proposals",
-      "h1": "",
-      "renders_as_project_center": false
+      "h1": "项目中心\n11",
+      "renders_as_project_center": true
     },
     {
       "bug": "#1429",
-      "sidebar_labels": [],
+      "sidebar_labels": [
+        "概览",
+        "看板",
+        "Epics",
+        "工作项",
+        "提案",
+        "文档",
+        "成员与 Agents",
+        "设置"
+      ],
       "still_has_search_label": false,
-      "has_proposal_label": false
+      "has_proposal_label": true
     }
   ],
   "top_nav": [
@@ -464,7 +476,54 @@
       "error": "Locator.click: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator(\"a[href='/settings']\").first\n    - locator resolved to <a aria-label=\"我的\" cl"
     }
   ],
-  "ws_tabs": [],
+  "ws_tabs": [
+    {
+      "tab": "概览",
+      "path": "/project/3/overview",
+      "url_ok": true
+    },
+    {
+      "tab": "看板",
+      "path": "/project/3/kanban",
+      "url_ok": true
+    },
+    {
+      "tab": "Epics",
+      "path": "/project/3/epics",
+      "url_ok": true
+    },
+    {
+      "tab": "工作项",
+      "path": "/project/3/backlog",
+      "url_ok": true
+    },
+    {
+      "tab": "提案",
+      "path": "/project/3/proposals",
+      "url_ok": true
+    },
+    {
+      "tab": "文档",
+      "path": "/project/3/documents",
+      "url_ok": true
+    },
+    {
+      "tab": "成员与 Agents",
+      "path": "/project/3/members",
+      "url_ok": true
+    },
+    {
+      "tab": "设置",
+      "path": "/project/3/settings",
+      "url_ok": true
+    }
+  ],
   "real_console_errors": [],
-  "real_failed_requests": []
+  "real_failed_requests": [
+    {
+      "url": "http://127.0.0.1:4200/api/stories/27/tasks",
+      "status": 500,
+      "artifact": false
+    }
+  ]
 }
