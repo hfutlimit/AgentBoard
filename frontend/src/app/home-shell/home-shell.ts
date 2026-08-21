@@ -62,11 +62,17 @@ export class HomeShellComponent {
   readonly userMenuOpen = signal(false);
   readonly projectMenuOpen = signal(false);
 
-  /** 当前 Detail 选中项目：fallback 到第一个项目，确保 Detail 永远有数据。 */
-  readonly effectiveSelected = computed<Project | null>(() => {
+  /**
+   * 当前 Detail 选中项目：fallback 到第一个项目，确保 Detail 永远有数据。
+   * Review 2026-08-21：改为普通方法而非 computed——@Input 字段不是 signal，
+   * computed() 只在创建时执行一次，之后 selectedHomeProject.set(id) 不会触发重算，
+   * 导致 [class.active] 永远停在 list[0]。改为方法后，Angular 变更检测
+   * 会重新调用 effectiveSelected()，重读 this.selected。
+   */
+  effectiveSelected(): Project | null {
     if (this.selected) return this.selected;
     return this.projects[0] ?? null;
-  });
+  }
 
   setTab(tab: 'projects' | 'agents'): void {
     this.activeTab.set(tab);
