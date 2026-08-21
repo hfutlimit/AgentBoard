@@ -3,7 +3,7 @@ import os
 import re
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -30,6 +30,23 @@ API_URL = (
 )
 
 app = FastAPI(title="AgentBoard Web (Angular)")
+
+
+@app.middleware("http")
+async def no_cache_static(request: Request, call_next):
+    """Review 2026-08-21：浏览器缓存导致 sync_static 同步新 bundle 后用户还看旧版。
+
+    index.html 没哈希化（永远是 index.html），浏览器可能拿缓存的旧版指向老 chunk 名。
+    chunk 虽然哈希化（main-XXXX.js）但浏览器也可能缓存。
+    一律加 no-cache 头，强制每次回源确认（Angular dev 默认也是这策略）。
+    """
+    response: Response = await call_next(request)
+    if request.url.path.startswith(("/static", "/")):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
 
 # 挂载静态文件（StaticFiles 自动处理 MIME 类型）
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
