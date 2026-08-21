@@ -12,21 +12,17 @@ from __future__ import annotations
 
 import uvicorn
 
-from .config import settings
+from .core.config import settings
+from . import api  # 拿到 agentboard.api:app（9 阶段重构后的真入口）
 
 
-# 延迟 import,确保 settings 加载完再初始化 DB
-def _build_app():
-    from .core.api.app import create_app
-    return create_app()
-
-
-app = _build_app()
+# 兼容 "uvicorn agentboard.main:app" 启动方式
+app = api.app
 
 
 def main() -> None:
     uvicorn.run(
-        "agentboard.main:app",
+        app,
         host=settings.api_host,
         port=settings.api_port,
         reload=settings.debug,
