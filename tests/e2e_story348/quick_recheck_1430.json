@@ -1,0 +1,97 @@
+{
+  "per_route": {
+    "/epics": {
+      "url": "/epics",
+      "loaded": true,
+      "title": "全局 Epics 概览",
+      "expected": "全局 Epics 概览",
+      "metric_count": 4,
+      "metric_values": [
+        "102",
+        "166",
+        "457",
+        "0"
+      ],
+      "active_jump": "全局",
+      "error": null,
+      "title_match": true
+    },
+    "/stories": {
+      "url": "/stories",
+      "loaded": true,
+      "title": "全局 Stories 概览",
+      "expected": "全局 Stories 概览",
+      "metric_count": 4,
+      "metric_values": [
+        "102",
+        "166",
+        "457",
+        "0"
+      ],
+      "active_jump": "全局",
+      "error": null,
+      "title_match": true
+    },
+    "/tasks": {
+      "url": "/tasks",
+      "loaded": true,
+      "title": "全局 Tasks 概览",
+      "expected": "全局 Tasks 概览",
+      "metric_count": 4,
+      "metric_values": [
+        "102",
+        "166",
+        "457",
+        "0"
+      ],
+      "active_jump": "全局",
+      "error": null,
+      "title_match": true
+    },
+    "/bugs": {
+      "url": "/bugs",
+      "loaded": true,
+      "title": "全局 Bugs 概览",
+      "expected": "全局 Bugs 概览",
+      "metric_count": 4,
+      "metric_values": [
+        "102",
+        "166",
+        "457",
+        "0"
+      ],
+      "active_jump": "全局",
+      "error": null,
+      "title_match": true
+    },
+    "/dashboard": {
+      "url": "/dashboard",
+      "loaded": true,
+      "title": "项目大脑 / 总览",
+      "expected": "项目大脑 / 总览",
+      "metric_count": 4,
+      "metric_values": [
+        "102",
+        "166",
+        "457",
+        "0"
+      ],
+      "active_jump": null,
+      "error": null,
+      "title_match": true
+    }
+  },
+  "overview_api": {
+    "status": "ok",
+    "counts": {
+      "projects": 0,
+      "epics": 0,
+      "stories": 0,
+      "tasks": 0,
+      "done_tasks": 0
+    }
+  },
+  "errors": [],
+  "sidebar_hidden_on_global_stats": true,
+  "wildcard_404": true
+}

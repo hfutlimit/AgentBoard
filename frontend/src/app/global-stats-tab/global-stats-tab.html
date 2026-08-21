@@ -1,0 +1,64 @@
+<app-workspace-heading
+  [title]="title"
+  [subtitle]="subtitle">
+</app-workspace-heading>
+
+@if (loading()) {
+  <div class="empty-state">正在加载概览…</div>
+} @else if (error()) {
+  <div class="empty-state error-state">{{ error() }}</div>
+} @else if (snapshot(); as s) {
+  <section class="global-stats-grid" aria-label="跨项目聚合统计">
+    <button class="metric-card clickable" type="button" [routerLink]="['/epics']">
+      <div class="metric-label"><span>Epics</span></div>
+      <div class="metric-value">{{ s.epics }}</div>
+      <div class="metric-foot">跨项目业务目标</div>
+    </button>
+    <button class="metric-card clickable" type="button" [routerLink]="['/stories']">
+      <div class="metric-label"><span>Stories</span></div>
+      <div class="metric-value">{{ s.stories }}</div>
+      <div class="metric-foot">跨项目需求</div>
+    </button>
+    <button class="metric-card clickable" type="button" [routerLink]="['/tasks']">
+      <div class="metric-label"><span>Tasks</span></div>
+      <div class="metric-value">{{ s.tasks }}</div>
+      <div class="metric-foot">跨项目交付</div>
+    </button>
+    <button class="metric-card clickable" type="button" [routerLink]="['/bugs']">
+      <div class="metric-label"><span>Bugs</span></div>
+      <div class="metric-value">{{ s.bugs }}</div>
+      <div class="metric-foot">跨项目缺陷</div>
+    </button>
+  </section>
+
+  <section class="global-stats-jump" aria-label="按实体快速进入">
+    <a class="jump-card" [routerLink]="['/epics']" [class.active]="activeEntity === 'epics'">
+      <div class="jump-card-title">全局 Epics</div>
+      <div class="jump-card-meta">按业务目标组织交付 · {{ s.epics }} 个</div>
+    </a>
+    <a class="jump-card" [routerLink]="['/stories']" [class.active]="activeEntity === 'stories'">
+      <div class="jump-card-title">全局 Stories</div>
+      <div class="jump-card-meta">需求提案与故事 · {{ s.stories }} 个</div>
+    </a>
+    <a class="jump-card" [routerLink]="['/tasks']" [class.active]="activeEntity === 'tasks'">
+      <div class="jump-card-title">全局 Tasks</div>
+      <div class="jump-card-meta">任务与交付 · {{ s.tasks }} 个</div>
+    </a>
+    <a class="jump-card" [routerLink]="['/bugs']" [class.active]="activeEntity === 'bugs'">
+      <div class="jump-card-title">全局 Bugs</div>
+      <div class="jump-card-meta">缺陷与修复 · {{ s.bugs }} 个</div>
+    </a>
+    <a class="jump-card" [routerLink]="['/projects']">
+      <div class="jump-card-title">项目中心</div>
+      <div class="jump-card-meta">按项目维度浏览 · {{ s.projects }} 个</div>
+    </a>
+  </section>
+
+  <p class="global-stats-note muted">
+    说明：当前为聚合概览视图（#1430 简化版）。完整的全局 epics / stories / tasks / bugs 列表视图
+    需要后端补 <code>GET /api/epics</code>、<code>GET /api/stories</code>、<code>GET /api/tasks</code> 端点
+    （目前必须传 project_id / epic_id / story_id）。本次先打通路由，列表渲染留到下一轮。
+  </p>
+} @else {
+  <div class="empty-state">暂无聚合数据。</div>
+}

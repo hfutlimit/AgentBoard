@@ -61,7 +61,7 @@ class RouteAnchor {
       this.eyebrow.set('404');
       this.title.set('页面不存在');
       this.subtitle.set(`访问的路由 ${path} 未定义`);
-      this.message.set('该路由未在 app.routes.ts 中定义，或属于 Story 1430 待补全局列表页（/epics /stories /tasks /bugs /dashboard）。');
+      this.message.set('该路由未在 app.routes.ts 中定义。');
     }
   }
 }
@@ -118,6 +118,51 @@ export const routes: Routes = [
       import('./proposals-tab/proposals-tab').then(
         (m) => m.ProposalsTabComponent,
       ),
+  },
+
+  // ─── Story 348 #1430：全局聚合视图路由（无项目上下文） ───────────────
+  // 5 个路由共用 GlobalStatsTabComponent，靠 @Input entity 切标题 / 高亮。
+  // 全局 list endpoint 待后端补（GET /api/epics|stories|tasks 需 project_id/epic_id/story_id），
+  // 当前只展示 /api/overview 聚合 + 跳转卡。详见组件注释。
+  {
+    path: 'epics',
+    loadComponent: () =>
+      import('./global-stats-tab/global-stats-tab').then(
+        (m) => m.GlobalStatsTabComponent,
+      ),
+    data: { entity: 'epics' },
+  },
+  {
+    path: 'stories',
+    loadComponent: () =>
+      import('./global-stats-tab/global-stats-tab').then(
+        (m) => m.GlobalStatsTabComponent,
+      ),
+    data: { entity: 'stories' },
+  },
+  {
+    path: 'tasks',
+    loadComponent: () =>
+      import('./global-stats-tab/global-stats-tab').then(
+        (m) => m.GlobalStatsTabComponent,
+      ),
+    data: { entity: 'tasks' },
+  },
+  {
+    path: 'bugs',
+    loadComponent: () =>
+      import('./global-stats-tab/global-stats-tab').then(
+        (m) => m.GlobalStatsTabComponent,
+      ),
+    data: { entity: 'bugs' },
+  },
+  {
+    path: 'dashboard',
+    loadComponent: () =>
+      import('./global-stats-tab/global-stats-tab').then(
+        (m) => m.GlobalStatsTabComponent,
+      ),
+    data: { entity: 'dashboard' },
   },
 
   // ─── Project workspace: shell + eight lazy child routes ───────────────

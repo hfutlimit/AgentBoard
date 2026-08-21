@@ -21,7 +21,7 @@ import { WorkspaceTopbarComponent } from './workspace-topbar/workspace-topbar';
 import { WorkspaceHeadingComponent } from './workspace-heading/workspace-heading';
 import { ProjectDataService } from './services/project-data.service';
 
-type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'not-found';
+type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'global-stats' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
 type ProjectListKind = 'epics' | 'sprints' | 'backlog' | 'members' | 'schedules';
 /** 设置页左侧菜单子标签：basic=基本信息，members=成员管理，schedules=自动化计划，export=数据导出 */
@@ -2230,6 +2230,11 @@ export class App implements OnInit, OnDestroy {
         } else {
           this.view.set('proposals');
         }
+      } else if (kind === 'epics' || kind === 'stories' || kind === 'tasks' || kind === 'bugs' || kind === 'dashboard') {
+        // Story 348 #1430：5 个全局聚合视图路由。
+        // 路由实体由 app.routes.ts loadComponent 到 GlobalStatsTabComponent，
+        // 这里只负责切 view()，让 app.html @case ('global-stats') 渲染 <router-outlet />。
+        this.view.set('global-stats');
       } else {
         this.view.set('not-found');
       }

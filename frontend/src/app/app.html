@@ -169,7 +169,7 @@
 }
 
 <div class="layout" [class.doc-mode]="view() === 'document'">
-  @if (sidebarOpen() && view() !== 'document' && view() !== 'home' && view() !== 'project' && view() !== 'epic' && view() !== 'story' && view() !== 'task' && view() !== 'sprint' && view() !== 'settings') {
+  @if (sidebarOpen() && view() !== 'document' && view() !== 'home' && view() !== 'project' && view() !== 'epic' && view() !== 'story' && view() !== 'task' && view() !== 'sprint' && view() !== 'settings' && view() !== 'global-stats') {
     <aside id="sidebar" class="sidebar" [class.sidebar--collapsed]="sidebarCollapsed()">
       <div class="sidebar-workspace">
         <span class="sidebar-workspace-kicker">WORKSPACE</span>
@@ -496,6 +496,11 @@
           </div>
         }
         @case ('project') {
+          <router-outlet />
+        }
+        @case ('global-stats') {
+          <!-- Story 348 #1430：5 个全局聚合视图（/epics /stories /tasks /bugs /dashboard）
+               共享 router-outlet，由 app.routes.ts loadComponent 到 GlobalStatsTabComponent -->
           <router-outlet />
         }
         @case ('epic') {
