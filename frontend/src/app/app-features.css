@@ -4,7 +4,7 @@
   align-items: center;
   gap: 10px;
   margin: 14px 0;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 .doc-toolbar.doc-toolbar--extended {
   flex-wrap: wrap;
@@ -1869,7 +1869,7 @@ h3 { font-size: 16px; line-height: 1.4; font-weight: 650; }
 
 .workspace-project-search {
   display: inline-flex;
-  width: clamp(220px, 18vw, 300px);
+  width: clamp(180px, 14vw, 220px);
   height: 36px;
   align-items: center;
   gap: 8px;
