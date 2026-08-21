@@ -26,9 +26,9 @@
       "name": "epics",
       "path": "/epics",
       "url": "http://127.0.0.1:4200/epics",
-      "main_text_len": 0,
+      "main_text_len": 398,
       "is_404": false,
-      "h1": "",
+      "h1": "全局 Epics 概览",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\epics.png"
     },
@@ -56,9 +56,9 @@
       "name": "bugs",
       "path": "/bugs",
       "url": "http://127.0.0.1:4200/bugs",
-      "main_text_len": 34,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "全局 Bugs 概览",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\bugs.png"
     },
@@ -66,9 +66,9 @@
       "name": "documents",
       "path": "/documents",
       "url": "http://127.0.0.1:4200/documents",
-      "main_text_len": 255,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "项目文档\n0",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\documents.png"
     },
@@ -96,9 +96,9 @@
       "name": "agents",
       "path": "/agents",
       "url": "http://127.0.0.1:4200/agents",
-      "main_text_len": 0,
+      "main_text_len": 1462,
       "is_404": false,
-      "h1": "",
+      "h1": "Agent 池\n7",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\agents.png"
     },
@@ -106,9 +106,9 @@
       "name": "proposals",
       "path": "/proposals",
       "url": "http://127.0.0.1:4200/proposals",
-      "main_text_len": 180,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "需求提案\n0",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\proposals.png"
     },
@@ -116,9 +116,9 @@
       "name": "notifications",
       "path": "/notifications",
       "url": "http://127.0.0.1:4200/notifications",
-      "main_text_len": 0,
+      "main_text_len": 79,
       "is_404": false,
-      "h1": "",
+      "h1": "通知中心\n0",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\notifications.png"
     },
@@ -242,7 +242,7 @@
       "name": "story_348",
       "path": "/story/348",
       "url": "http://127.0.0.1:4200/story/348",
-      "main_text_len": 28502,
+      "main_text_len": 30197,
       "is_404": true,
       "h1": "页面持续修复 · 新版前端 UI 问题收集",
       "horizontal_overflow_px": 0,
@@ -315,12 +315,6 @@
   ],
   "findings": [
     {
-      "page": "epics",
-      "path": "/epics",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
-    {
       "page": "stories",
       "path": "/stories",
       "severity": "P1",
@@ -329,6 +323,18 @@
     {
       "page": "tasks",
       "path": "/tasks",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "bugs",
+      "path": "/bugs",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "documents",
+      "path": "/documents",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
@@ -345,14 +351,8 @@
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
     {
-      "page": "agents",
-      "path": "/agents",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
-    {
-      "page": "notifications",
-      "path": "/notifications",
+      "page": "proposals",
+      "path": "/proposals",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
