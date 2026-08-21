@@ -1,0 +1,322 @@
+{
+  "clickable_count": 57,
+  "all_buttons": [
+    {
+      "tag": "a",
+      "text": "AgentBoard",
+      "cls": "logo"
+    },
+    {
+      "tag": "a",
+      "text": "项目",
+      "cls": "home-nav-button-v7 active"
+    },
+    {
+      "tag": "a",
+      "text": "Agents",
+      "cls": "home-nav-button-v7"
+    },
+    {
+      "tag": "button",
+      "text": "A admin 系统管理员",
+      "cls": "user-menu-trigger"
+    },
+    {
+      "tag": "a",
+      "text": "仪表盘",
+      "cls": "sidebar-nav-item"
+    },
+    {
+      "tag": "a",
+      "text": "Agents 4/7",
+      "cls": "sidebar-nav-item"
+    },
+    {
+      "tag": "a",
+      "text": "项目 11",
+      "cls": "sidebar-nav-item active"
+    },
+    {
+      "tag": "a",
+      "text": "ZPMC ZPMC",
+      "cls": "sidebar-sub-item"
+    },
+    {
+      "tag": "a",
+      "text": "DevPilot DP",
+      "cls": "sidebar-sub-item"
+    },
+    {
+      "tag": "a",
+      "text": "ResumeGenAgent RESUME",
+      "cls": "sidebar-sub-item"
+    },
+    {
+      "tag": "a",
+      "text": "mcp",
+      "cls": "sidebar-sub-item"
+    },
+    {
+      "tag": "a",
+      "text": "KnowledgeVault KV",
+      "cls": "sidebar-sub-item"
+    },
+    {
+      "tag": "a",
+      "text": "查看全部 (11)",
+      "cls": "sidebar-sub-more"
+    },
+    {
+      "tag": "button",
+      "text": "＋ 新建项目",
+      "cls": "heading-action-btn btn-primary"
+    },
+    {
+      "tag": "button",
+      "text": "活跃",
+      "cls": "pc-tab active"
+    },
+    {
+      "tag": "button",
+      "text": "已归档",
+      "cls": "pc-tab"
+    },
+    {
+      "tag": "button",
+      "text": "我参与",
+      "cls": "pc-tab"
+    },
+    {
+      "tag": "button",
+      "text": "我创建",
+      "cls": "pc-tab"
+    },
+    {
+      "tag": "button",
+      "text": "全部",
+      "cls": "pc-tab"
+    },
+    {
+      "tag": "a",
+      "text": "AgentBoard",
+      "cls": "link-bold pc-name-link"
+    },
+    {
+      "tag": "button",
+      "text": "☆",
+      "cls": "favorite-toggle-inline"
+    },
+    {
+      "tag": "a",
+      "text": "打开",
+      "cls": "link"
+    },
+    {
+      "tag": "a",
+      "text": "SmartBid",
+      "cls": "link-bold pc-name-link"
+    },
+    {
+      "tag": "button",
+      "text": "☆",
+      "cls": "favorite-toggle-inline"
+    },
+    {
+      "tag": "a",
+      "text": "打开",
+      "cls": "link"
+    },
+    {
+      "tag": "a",
+      "text": "ZPMC",
+      "cls": "link-bold pc-name-link"
+    },
+    {
+      "tag": "button",
+      "text": "☆",
+      "cls": "favorite-toggle-inline"
+    },
+    {
+      "tag": "a",
+      "text": "打开",
+      "cls": "link"
+    },
+    {
+      "tag": "a",
+      "text": "DevPilot",
+      "cls": "link-bold pc-name-link"
+    },
+    {
+      "tag": "button",
+      "text": "☆",
+      "cls": "favorite-toggle-inline"
+    },
+    {
+      "tag": "a",
+      "text": "打开",
+      "cls": "link"
+    },
+    {
+      "tag": "a",
+      "text": "ResumeGenAgent",
+      "cls": "link-bold pc-name-link"
+    },
+    {
+      "tag": "button",
+      "text": "☆",
+      "cls": "favorite-toggle-inline"
+    },
+    {
+      "tag": "a",
+      "text": "打开",
+      "cls": "link"
+    },
+    {
+      "tag": "a",
+      "text": "DevPolit",
+      "cls": "link-bold pc-name-link"
+    },
+    {
+      "tag": "button",
+      "text": "☆",
+      "cls": "favorite-toggle-inline"
+    },
+    {
+      "tag": "a",
+      "text": "打开",
+      "cls": "link"
+    },
+    {
+      "tag": "a",
+      "text": "KnowledgeVault",
+      "cls": "link-bold pc-name-link"
+    },
+    {
+      "tag": "button",
+      "text": "☆",
+      "cls": "favorite-toggle-inline"
+    },
+    {
+      "tag": "a",
+      "text": "打开",
+      "cls": "link"
+    },
+    {
+      "tag": "a",
+      "text": "mcp",
+      "cls": "link-bold pc-name-link"
+    },
+    {
+      "tag": "button",
+      "text": "☆",
+      "cls": "favorite-toggle-inline"
+    },
+    {
+      "tag": "a",
+      "text": "打开",
+      "cls": "link"
+    },
+    {
+      "tag": "a",
+      "text": "测试项目",
+      "cls": "link-bold pc-name-link"
+    },
+    {
+      "tag": "button",
+      "text": "☆",
+      "cls": "favorite-toggle-inline"
+    },
+    {
+      "tag": "a",
+      "text": "打开",
+      "cls": "link"
+    },
+    {
+      "tag": "a",
+      "text": "Test Project",
+      "cls": "link-bold pc-name-link"
+    },
+    {
+      "tag": "button",
+      "text": "☆",
+      "cls": "favorite-toggle-inline"
+    },
+    {
+      "tag": "a",
+      "text": "打开",
+      "cls": "link"
+    },
+    {
+      "tag": "a",
+      "text": "ChessPolit",
+      "cls": "link-bold pc-name-link"
+    },
+    {
+      "tag": "button",
+      "text": "☆",
+      "cls": "favorite-toggle-inline"
+    },
+    {
+      "tag": "a",
+      "text": "打开",
+      "cls": "link"
+    },
+    {
+      "tag": "a",
+      "text": "首页",
+      "cls": "btb-item"
+    },
+    {
+      "tag": "a",
+      "text": "项目",
+      "cls": "btb-item btb-active"
+    },
+    {
+      "tag": "a",
+      "text": "工作台",
+      "cls": "btb-item"
+    },
+    {
+      "tag": "a",
+      "text": "通知",
+      "cls": "btb-item"
+    },
+    {
+      "tag": "a",
+      "text": "我的",
+      "cls": "btb-item"
+    }
+  ],
+  "new_related": [
+    {
+      "tag": "a",
+      "text": "项目",
+      "cls": "home-nav-button-v7 active"
+    },
+    {
+      "tag": "a",
+      "text": "项目 11",
+      "cls": "sidebar-nav-item active"
+    },
+    {
+      "tag": "button",
+      "text": "＋ 新建项目",
+      "cls": "heading-action-btn btn-primary"
+    },
+    {
+      "tag": "button",
+      "text": "我创建",
+      "cls": "pc-tab"
+    },
+    {
+      "tag": "a",
+      "text": "测试项目",
+      "cls": "link-bold pc-name-link"
+    },
+    {
+      "tag": "a",
+      "text": "项目",
+      "cls": "btb-item btb-active"
+    }
+  ]
+}

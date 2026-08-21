@@ -26,9 +26,9 @@
       "name": "epics",
       "path": "/epics",
       "url": "http://127.0.0.1:4200/epics",
-      "main_text_len": 398,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "全局 Epics 概览",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\epics.png"
     },
@@ -56,9 +56,9 @@
       "name": "bugs",
       "path": "/bugs",
       "url": "http://127.0.0.1:4200/bugs",
-      "main_text_len": 0,
+      "main_text_len": 34,
       "is_404": false,
-      "h1": "",
+      "h1": "全局 Bugs 概览",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\bugs.png"
     },
@@ -66,9 +66,9 @@
       "name": "documents",
       "path": "/documents",
       "url": "http://127.0.0.1:4200/documents",
-      "main_text_len": 0,
+      "main_text_len": 255,
       "is_404": false,
-      "h1": "",
+      "h1": "项目文档\n0",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\documents.png"
     },
@@ -138,9 +138,9 @@
       "url": "http://127.0.0.1:4200/project/3/overview",
       "expected_selector_present": false,
       "expected_child_count": -1,
-      "main_text_len": 495,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "项目概览",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_overview.png"
     },
@@ -150,9 +150,9 @@
       "url": "http://127.0.0.1:4200/project/3/kanban",
       "expected_selector_present": false,
       "expected_child_count": -1,
-      "main_text_len": 390,
+      "main_text_len": 198,
       "is_404": false,
-      "h1": "项目概览",
+      "h1": "看板\n0\n仅看板标记",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_kanban.png"
     },
@@ -162,9 +162,9 @@
       "url": "http://127.0.0.1:4200/project/3/epics",
       "expected_selector_present": false,
       "expected_child_count": -1,
-      "main_text_len": 485,
+      "main_text_len": 809,
       "is_404": false,
-      "h1": "项目概览",
+      "h1": "Epics",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_epics.png"
     },
@@ -174,9 +174,9 @@
       "url": "http://127.0.0.1:4200/project/3/backlog",
       "expected_selector_present": false,
       "expected_child_count": -1,
-      "main_text_len": 392,
+      "main_text_len": 1196,
       "is_404": false,
-      "h1": "项目概览",
+      "h1": "工作项\n200",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_backlog.png"
     },
@@ -186,9 +186,9 @@
       "url": "http://127.0.0.1:4200/project/3/proposals",
       "expected_selector_present": false,
       "expected_child_count": -1,
-      "main_text_len": 390,
+      "main_text_len": 284,
       "is_404": false,
-      "h1": "项目概览",
+      "h1": "需求提案",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_proposals.png"
     },
@@ -198,9 +198,9 @@
       "url": "http://127.0.0.1:4200/project/3/documents",
       "expected_selector_present": false,
       "expected_child_count": -1,
-      "main_text_len": 390,
+      "main_text_len": 1184,
       "is_404": false,
-      "h1": "项目概览",
+      "h1": "项目文档",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_documents.png"
     },
@@ -210,9 +210,9 @@
       "url": "http://127.0.0.1:4200/project/3/members",
       "expected_selector_present": false,
       "expected_child_count": -1,
-      "main_text_len": 400,
+      "main_text_len": 758,
       "is_404": false,
-      "h1": "项目概览",
+      "h1": "成员与 Agents\n5 成员 · 7 Agent（全局）",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_members.png"
     },
@@ -222,9 +222,9 @@
       "url": "http://127.0.0.1:4200/project/3/settings",
       "expected_selector_present": false,
       "expected_child_count": -1,
-      "main_text_len": 400,
+      "main_text_len": 260,
       "is_404": false,
-      "h1": "项目概览",
+      "h1": "项目设置",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_settings.png"
     },
@@ -242,7 +242,7 @@
       "name": "story_348",
       "path": "/story/348",
       "url": "http://127.0.0.1:4200/story/348",
-      "main_text_len": 24670,
+      "main_text_len": 28502,
       "is_404": true,
       "h1": "页面持续修复 · 新版前端 UI 问题收集",
       "horizontal_overflow_px": 0,
@@ -283,26 +283,6 @@
     {
       "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
       "artifact": true
-    },
-    {
-      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
-      "artifact": true
-    },
-    {
-      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
-      "artifact": true
-    },
-    {
-      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
-      "artifact": true
-    },
-    {
-      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
-      "artifact": true
-    },
-    {
-      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
-      "artifact": true
     }
   ],
   "page_errors": [],
@@ -311,31 +291,6 @@
       "url": "http://127.0.0.1:4200/api/agents",
       "status": 401,
       "artifact": true
-    },
-    {
-      "url": "http://127.0.0.1:4200/api/auth/me",
-      "status": 500,
-      "artifact": true
-    },
-    {
-      "url": "http://127.0.0.1:4200/api/epics/3/stories",
-      "status": 500,
-      "artifact": false
-    },
-    {
-      "url": "http://127.0.0.1:4200/api/tasks?project_id=3&limit=200",
-      "status": 500,
-      "artifact": false
-    },
-    {
-      "url": "http://127.0.0.1:4200/api/proposals?project_id=3&limit=200",
-      "status": 500,
-      "artifact": false
-    },
-    {
-      "url": "http://127.0.0.1:4200/api/epics/150/stories",
-      "status": 500,
-      "artifact": false
     }
   ],
   "interactions": [
@@ -351,7 +306,7 @@
     },
     {
       "name": "documents_search",
-      "result": "no_search_box"
+      "result": "typed"
     },
     {
       "name": "story348_comment_box",
@@ -359,6 +314,12 @@
     }
   ],
   "findings": [
+    {
+      "page": "epics",
+      "path": "/epics",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
     {
       "page": "stories",
       "path": "/stories",
@@ -368,18 +329,6 @@
     {
       "page": "tasks",
       "path": "/tasks",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
-    {
-      "page": "bugs",
-      "path": "/bugs",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
-    {
-      "page": "documents",
-      "path": "/documents",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
@@ -410,6 +359,12 @@
     {
       "page": "admin",
       "path": "/admin",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "ws_overview",
+      "path": "/project/3/overview",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
@@ -579,26 +534,5 @@
     }
   ],
   "real_console_errors": [],
-  "real_failed_requests": [
-    {
-      "url": "http://127.0.0.1:4200/api/epics/3/stories",
-      "status": 500,
-      "artifact": false
-    },
-    {
-      "url": "http://127.0.0.1:4200/api/tasks?project_id=3&limit=200",
-      "status": 500,
-      "artifact": false
-    },
-    {
-      "url": "http://127.0.0.1:4200/api/proposals?project_id=3&limit=200",
-      "status": 500,
-      "artifact": false
-    },
-    {
-      "url": "http://127.0.0.1:4200/api/epics/150/stories",
-      "status": 500,
-      "artifact": false
-    }
-  ]
+  "real_failed_requests": []
 }

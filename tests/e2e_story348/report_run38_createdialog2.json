@@ -1,0 +1,20 @@
+{
+  "button_text": "＋ 新建项目",
+  "opened_selector": ".modal",
+  "form_fields": [
+    "搜索项目名称 / 短码 / 描述…",
+    "select-one",
+    "checkbox",
+    "checkbox",
+    "checkbox",
+    "checkbox",
+    "checkbox",
+    "checkbox",
+    "checkbox",
+    "checkbox",
+    "checkbox",
+    "checkbox"
+  ],
+  "dialog_opened": true,
+  "verdict": "OK_OPENS"
+}

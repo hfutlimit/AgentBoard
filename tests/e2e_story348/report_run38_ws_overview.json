@@ -1,0 +1,10 @@
+{
+  "ws_overview": {
+    "page": "ws_overview",
+    "path": "/project/3/overview",
+    "final_text_len": 495,
+    "h1": "项目概览",
+    "is_404": false,
+    "verdict": "OK_RENDERED"
+  }
+}
