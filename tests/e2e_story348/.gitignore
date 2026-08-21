@@ -1,16 +1,15 @@
-# 本地巡检截图证据，不进入 Git
+# 本地巡检脚本/截图/日志，不进入 Git
+# Review 2026-08-21：补 debug_*.py / quick_recheck_*.py，
+# 避免下次 git add . 时再把临时脚本带进库。
+debug_*.py
+quick_recheck_*.py
+quick_recheck_*.json
 screenshots/
 screenshots_v5/
 screenshots_v5_recheck/
 screenshots_focused/
-screenshots_v6/
-screenshots_v6_recheck/
-screenshots_v7/
-screenshots_v8/
-screenshots_v9/
-screenshots_v10/
-screenshots_v11/
-screenshots_v12/
+# v6 及以上版本靠下面 screenshots_*/ 通配覆盖
+screenshots_*/
 ngserve.log
 ngserve_run*.log
 run_*.log
@@ -18,5 +17,3 @@ run*.log
 *_check.png
 home_dark.png
 backlog_new_dialog.png
-screenshots_*/
-quick_recheck_*.json

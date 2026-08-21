@@ -4,7 +4,7 @@
  * Project workspace navigation is a real parent/child route tree. The router
  * owns the active tab; App only remains the transitional data/action host.
  */
-import { Component, signal } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import type { Routes } from '@angular/router';
 import { WorkspaceHeadingComponent } from './workspace-heading/workspace-heading';
@@ -41,13 +41,14 @@ import { WorkspaceHeadingComponent } from './workspace-heading/workspace-heading
   `],
 })
 class RouteAnchor {
+  private readonly router = inject(Router);
   readonly url = signal('');
   readonly eyebrow = signal('占位');
   readonly title = signal('正在加载中…');
   readonly subtitle = signal('Epic 152 路由收口过渡');
   readonly message = signal('该视图正在迁移中。');
 
-  constructor(private router: Router) {
+  constructor() {
     const path = this.router.url;
     this.url.set(path);
     const m = path.match(/^\/(story|task|epic|sprint)\/(\d+)/);

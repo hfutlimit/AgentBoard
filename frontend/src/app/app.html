@@ -83,7 +83,7 @@
         </label>
       }
       <button id="theme-toggle" class="icon-btn" [title]="getThemeLabel()" (click)="toggleTheme()">
-        <span class="theme-icon">{{ isDarkTheme() ? '🌙' : '☀️' }}</span>
+        <svg class="icon-v7" aria-hidden="true"><use href="#i-theme"/></svg>
       </button>
       <span id="user-info" class="muted">
         <!-- Notification bell -->
@@ -3140,7 +3140,7 @@
       </div>
       <div class="doc-fullscreen__actions">
         <button type="button" class="ghost-sm" (click)="toggleDocFullscreenTheme()" [title]="docFullscreenTheme() === 'dark' ? '切到亮色' : '切到暗色'">
-          {{ docFullscreenTheme() === 'dark' ? '☀' : '🌙' }}
+          <svg class="icon-v7" aria-hidden="true"><use href="#i-theme"/></svg>
         </button>
         <button type="button" class="ghost-sm" (click)="closeDocFullscreen()" title="退出全屏（Esc）">⨯ 退出</button>
       </div>
