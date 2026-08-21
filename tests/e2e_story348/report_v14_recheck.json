@@ -2,32 +2,30 @@
   "warm_global": [
     {
       "path": "/",
-      "txt": 0,
-      "h1": "",
-      "is_404": false
+      "error": "Page.goto: Timeout 60000ms exceeded.\nCall log:\n  - navigating to \"http://127.0.0.1:4200/\", waiting until \"domcontentloaded\"\n"
     },
     {
       "path": "/projects",
-      "txt": 1305,
+      "txt": 1303,
       "h1": "项目中心\n11",
       "is_404": false
     },
     {
       "path": "/epics",
-      "txt": 0,
-      "h1": "",
+      "txt": 398,
+      "h1": "全局 Epics 概览",
       "is_404": false
     },
     {
       "path": "/tasks",
-      "txt": 0,
-      "h1": "",
+      "txt": 391,
+      "h1": "全局 Tasks 概览",
       "is_404": false
     },
     {
       "path": "/bugs",
-      "txt": 0,
-      "h1": "",
+      "txt": 390,
+      "h1": "全局 Bugs 概览",
       "is_404": false
     },
     {
@@ -56,7 +54,7 @@
     },
     {
       "path": "/admin",
-      "txt": 1092,
+      "txt": 1093,
       "h1": "⚙ 管理员后台",
       "is_404": false
     }

@@ -1,0 +1,84 @@
+{
+  "targets": [
+    {
+      "url": "/project/3/backlog",
+      "txt": 1192,
+      "h1": "工作项\n200",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run35\\project_3_backlog.png"
+    },
+    {
+      "url": "/project/3/proposals",
+      "txt": 281,
+      "h1": "需求提案",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run35\\project_3_proposals.png"
+    },
+    {
+      "url": "/project/3/documents",
+      "txt": 1181,
+      "h1": "项目文档",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run35\\project_3_documents.png"
+    },
+    {
+      "url": "/project/3/members",
+      "txt": 747,
+      "h1": "成员与 Agents\n5 成员 · 7 Agent（全局）",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run35\\project_3_members.png"
+    },
+    {
+      "url": "/project/3/settings",
+      "txt": 257,
+      "h1": "项目设置",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run35\\project_3_settings.png"
+    },
+    {
+      "url": "/proposals",
+      "txt": 180,
+      "h1": "需求提案\n0",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run35\\proposals.png"
+    },
+    {
+      "url": "/epic/152",
+      "txt": 2843,
+      "h1": "",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run35\\epic_152.png"
+    },
+    {
+      "url": "/story/330",
+      "txt": 2900,
+      "h1": "Story 330: 测试改造 — E2E 改 pytest test_* 收集 + 去硬编码 admin/admin123 + 绝对路径",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run35\\story_330.png"
+    },
+    {
+      "url": "/task/1342",
+      "txt": 650,
+      "h1": "修复 pytest 根目录收集时 test_review_84_85.py 的导入期副作用",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run35\\task_1342.png"
+    },
+    {
+      "url": "/task/1339",
+      "txt": 388,
+      "h1": "实现：Story 332c · 路由完全收口 - Sub-PR 3（顶层 view 收尾 + 详情页路由化）",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run35\\task_1339.png"
+    }
+  ]
+}

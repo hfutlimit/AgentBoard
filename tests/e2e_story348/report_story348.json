@@ -6,7 +6,7 @@
       "url": "http://127.0.0.1:4200/",
       "expected_selector_present": true,
       "expected_child_count": 1,
-      "main_text_len": 775,
+      "main_text_len": 787,
       "is_404": false,
       "h1": "项目",
       "horizontal_overflow_px": 0,
@@ -16,7 +16,7 @@
       "name": "projects",
       "path": "/projects",
       "url": "http://127.0.0.1:4200/projects",
-      "main_text_len": 1305,
+      "main_text_len": 1303,
       "is_404": false,
       "h1": "项目中心\n11",
       "horizontal_overflow_px": 0,
@@ -46,9 +46,9 @@
       "name": "tasks",
       "path": "/tasks",
       "url": "http://127.0.0.1:4200/tasks",
-      "main_text_len": 0,
+      "main_text_len": 391,
       "is_404": false,
-      "h1": "",
+      "h1": "全局 Tasks 概览",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\tasks.png"
     },
@@ -56,9 +56,9 @@
       "name": "bugs",
       "path": "/bugs",
       "url": "http://127.0.0.1:4200/bugs",
-      "main_text_len": 0,
+      "main_text_len": 390,
       "is_404": false,
-      "h1": "",
+      "h1": "全局 Bugs 概览",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\bugs.png"
     },
@@ -76,7 +76,7 @@
       "name": "dashboard",
       "path": "/dashboard",
       "url": "http://127.0.0.1:4200/dashboard",
-      "main_text_len": 52,
+      "main_text_len": 408,
       "is_404": false,
       "h1": "项目大脑 / 总览",
       "horizontal_overflow_px": 0,
@@ -86,9 +86,9 @@
       "name": "settings",
       "path": "/settings",
       "url": "http://127.0.0.1:4200/settings",
-      "main_text_len": 0,
+      "main_text_len": 162,
       "is_404": false,
-      "h1": "",
+      "h1": "个人设置",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\settings.png"
     },
@@ -96,9 +96,9 @@
       "name": "agents",
       "path": "/agents",
       "url": "http://127.0.0.1:4200/agents",
-      "main_text_len": 0,
+      "main_text_len": 1462,
       "is_404": false,
-      "h1": "",
+      "h1": "Agent 池\n7",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\agents.png"
     },
@@ -126,9 +126,9 @@
       "name": "admin",
       "path": "/admin",
       "url": "http://127.0.0.1:4200/admin",
-      "main_text_len": 0,
+      "main_text_len": 1092,
       "is_404": false,
-      "h1": "",
+      "h1": "⚙ 管理员后台",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\admin.png"
     },
@@ -136,11 +136,11 @@
       "name": "ws_overview",
       "path": "/project/3/overview",
       "url": "http://127.0.0.1:4200/project/3/overview",
-      "expected_selector_present": false,
-      "expected_child_count": -1,
-      "main_text_len": 0,
+      "expected_selector_present": true,
+      "expected_child_count": 1,
+      "main_text_len": 492,
       "is_404": false,
-      "h1": "",
+      "h1": "项目概览",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_overview.png"
     },
@@ -148,11 +148,11 @@
       "name": "ws_kanban",
       "path": "/project/3/kanban",
       "url": "http://127.0.0.1:4200/project/3/kanban",
-      "expected_selector_present": false,
-      "expected_child_count": -1,
-      "main_text_len": 0,
+      "expected_selector_present": true,
+      "expected_child_count": 1,
+      "main_text_len": 195,
       "is_404": false,
-      "h1": "",
+      "h1": "看板\n0\n仅看板标记",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_kanban.png"
     },
@@ -160,11 +160,11 @@
       "name": "ws_epics",
       "path": "/project/3/epics",
       "url": "http://127.0.0.1:4200/project/3/epics",
-      "expected_selector_present": false,
-      "expected_child_count": -1,
-      "main_text_len": 0,
+      "expected_selector_present": true,
+      "expected_child_count": 1,
+      "main_text_len": 803,
       "is_404": false,
-      "h1": "",
+      "h1": "Epics",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_epics.png"
     },
@@ -172,11 +172,11 @@
       "name": "ws_backlog",
       "path": "/project/3/backlog",
       "url": "http://127.0.0.1:4200/project/3/backlog",
-      "expected_selector_present": true,
-      "expected_child_count": 1,
-      "main_text_len": 1192,
+      "expected_selector_present": false,
+      "expected_child_count": -1,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "工作项\n200",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_backlog.png"
     },
@@ -184,11 +184,11 @@
       "name": "ws_proposals",
       "path": "/project/3/proposals",
       "url": "http://127.0.0.1:4200/project/3/proposals",
-      "expected_selector_present": true,
-      "expected_child_count": 1,
-      "main_text_len": 281,
+      "expected_selector_present": false,
+      "expected_child_count": -1,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "需求提案",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_proposals.png"
     },
@@ -196,11 +196,11 @@
       "name": "ws_documents",
       "path": "/project/3/documents",
       "url": "http://127.0.0.1:4200/project/3/documents",
-      "expected_selector_present": true,
-      "expected_child_count": 1,
-      "main_text_len": 1181,
+      "expected_selector_present": false,
+      "expected_child_count": -1,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "项目文档",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_documents.png"
     },
@@ -208,11 +208,11 @@
       "name": "ws_members",
       "path": "/project/3/members",
       "url": "http://127.0.0.1:4200/project/3/members",
-      "expected_selector_present": true,
-      "expected_child_count": 1,
-      "main_text_len": 747,
+      "expected_selector_present": false,
+      "expected_child_count": -1,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "成员与 Agents\n5 成员 · 7 Agent（全局）",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_members.png"
     },
@@ -220,11 +220,11 @@
       "name": "ws_settings",
       "path": "/project/3/settings",
       "url": "http://127.0.0.1:4200/project/3/settings",
-      "expected_selector_present": true,
-      "expected_child_count": 1,
-      "main_text_len": 217,
+      "expected_selector_present": false,
+      "expected_child_count": -1,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "项目设置",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_settings.png"
     },
@@ -232,7 +232,7 @@
       "name": "epic_152",
       "path": "/epic/152",
       "url": "http://127.0.0.1:4200/epic/152",
-      "main_text_len": 2843,
+      "main_text_len": 0,
       "is_404": false,
       "h1": "",
       "horizontal_overflow_px": 0,
@@ -242,7 +242,7 @@
       "name": "story_348",
       "path": "/story/348",
       "url": "http://127.0.0.1:4200/story/348",
-      "main_text_len": 21871,
+      "main_text_len": 22734,
       "is_404": true,
       "h1": "页面持续修复 · 新版前端 UI 问题收集",
       "horizontal_overflow_px": 0,
@@ -252,9 +252,9 @@
       "name": "story_330",
       "path": "/story/330",
       "url": "http://127.0.0.1:4200/story/330",
-      "main_text_len": 2900,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "Story 330: 测试改造 — E2E 改 pytest test_* 收集 + 去硬编码 admin/admin123 + 绝对路径",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\story_330.png"
     },
@@ -262,9 +262,9 @@
       "name": "task_1342",
       "path": "/task/1342",
       "url": "http://127.0.0.1:4200/task/1342",
-      "main_text_len": 650,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "修复 pytest 根目录收集时 test_review_84_85.py 的导入期副作用",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\task_1342.png"
     },
@@ -272,9 +272,9 @@
       "name": "task_1339",
       "path": "/task/1339",
       "url": "http://127.0.0.1:4200/task/1339",
-      "main_text_len": 388,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "实现：Story 332c · 路由完全收口 - Sub-PR 3（顶层 view 收尾 + 详情页路由化）",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\task_1339.png"
     }
@@ -282,6 +282,14 @@
   "console_errors": [
     {
       "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+      "artifact": true
+    },
+    {
+      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789890037.e31c3947f4f268e186b894f988a04f1804226f225e2c63ad4ee0150d350195a3' failed: Error during WebSocket handshake: Unexpected response code: 200",
+      "artifact": true
+    },
+    {
+      "text": "WebSocket connection to 'ws://127.0.0.1:4200/ws/agents?token=v1.4.1789890037.e31c3947f4f268e186b894f988a04f1804226f225e2c63ad4ee0150d350195a3' failed: Error during WebSocket handshake: Unexpected response code: 200",
       "artifact": true
     }
   ],
@@ -315,56 +323,62 @@
   ],
   "findings": [
     {
-      "page": "tasks",
-      "path": "/tasks",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
-    {
-      "page": "bugs",
-      "path": "/bugs",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
-    {
-      "page": "settings",
-      "path": "/settings",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
-    {
-      "page": "agents",
-      "path": "/agents",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
-    {
       "page": "proposals",
       "path": "/proposals",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
     {
-      "page": "admin",
-      "path": "/admin",
+      "page": "ws_backlog",
+      "path": "/project/3/backlog",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
     {
-      "page": "ws_overview",
-      "path": "/project/3/overview",
+      "page": "ws_proposals",
+      "path": "/project/3/proposals",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
     {
-      "page": "ws_kanban",
-      "path": "/project/3/kanban",
+      "page": "ws_documents",
+      "path": "/project/3/documents",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
     {
-      "page": "ws_epics",
-      "path": "/project/3/epics",
+      "page": "ws_members",
+      "path": "/project/3/members",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "ws_settings",
+      "path": "/project/3/settings",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "epic_152",
+      "path": "/epic/152",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "story_330",
+      "path": "/story/330",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "task_1342",
+      "path": "/task/1342",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "task_1339",
+      "path": "/task/1339",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
@@ -449,46 +463,7 @@
   ],
   "top_nav": [
     {
-      "label": "",
-      "href": "/notifications",
-      "landed_path": "/notifications",
-      "main_text_len": 79,
-      "is_404": false,
-      "h1": "通知中心\n0",
-      "low_content": false
-    },
-    {
-      "label": "首页",
-      "href": "/",
-      "landed_path": "/",
-      "main_text_len": 775,
-      "is_404": false,
-      "h1": "项目",
-      "low_content": false
-    },
-    {
-      "label": "项目",
-      "href": "/projects",
-      "error": "Locator.click: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator(\"a[href='/projects']\").first\n    - locator resolved to <a aria-label=\"项目\" cl"
-    },
-    {
-      "label": "工作台",
-      "href": "/projects",
-      "error": "Locator.click: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator(\"a[href='/projects']\").first\n    - locator resolved to <a aria-label=\"项目\" cl"
-    },
-    {
-      "label": "通知",
-      "href": "/notifications",
-      "landed_path": "/notifications",
-      "main_text_len": 79,
-      "is_404": false,
-      "h1": "通知中心\n0",
-      "low_content": false
-    },
-    {
-      "label": "我的",
-      "href": "/settings",
-      "error": "Locator.click: Timeout 5000ms exceeded.\nCall log:\n  - waiting for locator(\"a[href='/settings']\").first\n    - locator resolved to <a aria-label=\"我的\" cl"
+      "error": "Page.goto: Timeout 60000ms exceeded.\nCall log:\n  - navigating to \"http://127.0.0.1:4200/\", waiting until \"domcontentloaded\"\n"
     }
   ],
   "ws_tabs": [
