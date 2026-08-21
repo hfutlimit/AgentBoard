@@ -2251,7 +2251,36 @@ export class App implements OnInit, OnDestroy {
     } finally {
       // Epic 78 (v6.6): 手动刷新（skeleton=false）时不切换骨架屏
       if (skeleton && generation === this.routeLoadGeneration) this.loading.set(false);
+      // Review 2026-08-21：浏览器 tab 标题（之前完全没人管，tab 一直显示初始 favicon 字母）
+      if (generation === this.routeLoadGeneration) this.syncDocumentTitle();
     }
+  }
+
+  /** 把当前 view 同步到 document.title，让浏览器 tab 显示有意义的标题。 */
+  private syncDocumentTitle(): void {
+    const view = this.view();
+    const project = this.project();
+    const base = 'AgentBoard';
+    let title: string;
+    switch (view) {
+      case 'home': title = `${base} · 项目中心`; break;
+      case 'projects': title = `${base} · 项目中心`; break;
+      case 'project': title = project ? `${project.name} · ${base}` : `${base} · 项目`; break;
+      case 'epic': title = project ? `Epic · ${project.name}` : `${base} · Epic`; break;
+      case 'story': title = project ? `Story · ${project.name}` : `${base} · Story`; break;
+      case 'task': title = project ? `Task · ${project.name}` : `${base} · Task`; break;
+      case 'sprint': title = project ? `Sprint · ${project.name}` : `${base} · Sprint`; break;
+      case 'documents': case 'document': title = project ? `文档 · ${project.name}` : `${base} · 文档`; break;
+      case 'proposals': case 'proposal': title = project ? `提案 · ${project.name}` : `${base} · 提案`; break;
+      case 'agents': title = `${base} · Agents`; break;
+      case 'notifications': title = `${base} · 通知`; break;
+      case 'admin': title = `${base} · 管理后台`; break;
+      case 'settings': title = `${base} · 个人设置`; break;
+      case 'global-stats': title = `${base} · 全局统计`; break;
+      case 'not-found': title = `${base} · 页面不存在`; break;
+      default: title = base;
+    }
+    this.document.title = title;
   }
 
   private async loadProjects(): Promise<void> {
