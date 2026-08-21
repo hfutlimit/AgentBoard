@@ -66,6 +66,12 @@ def _fixed_index() -> str:
     content = re.sub(r'src="(main-[^"]+\.js)"', r'src="/static/\1"', content)
     # 修复 CSS 引用: href="styles-XXX.css" → href="/static/styles-XXX.css"
     content = re.sub(r'href="(styles-[^"]+\.css)"', r'href="/static/\1"', content)
+    # Review 2026-08-21：注入 build fingerprint 到 <head> 末尾，让用户能直接看出浏览器拿的版本
+    # 解决"sync_static 同步新 bundle 后用户浏览器还看旧"的排查困难
+    bundle = re.search(r'main-([A-Z0-9]+)\.js', content)
+    styles = re.search(r'styles-([A-Z0-9]+)\.css', content)
+    fp = f'<meta name="agb-build" content="js={bundle.group(1) if bundle else "?"};css={styles.group(1) if styles else "?"};api={API_URL};pid={os.getpid()}"/>'
+    content = content.replace('</head>', f'{fp}</head>', 1)
     return content
 
 
