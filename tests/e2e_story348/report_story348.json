@@ -56,9 +56,9 @@
       "name": "bugs",
       "path": "/bugs",
       "url": "http://127.0.0.1:4200/bugs",
-      "main_text_len": 390,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "全局 Bugs 概览",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\bugs.png"
     },
@@ -66,9 +66,9 @@
       "name": "documents",
       "path": "/documents",
       "url": "http://127.0.0.1:4200/documents",
-      "main_text_len": 0,
+      "main_text_len": 255,
       "is_404": false,
-      "h1": "",
+      "h1": "项目文档\n0",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\documents.png"
     },
@@ -76,7 +76,7 @@
       "name": "dashboard",
       "path": "/dashboard",
       "url": "http://127.0.0.1:4200/dashboard",
-      "main_text_len": 408,
+      "main_text_len": 52,
       "is_404": false,
       "h1": "项目大脑 / 总览",
       "horizontal_overflow_px": 0,
@@ -116,9 +116,9 @@
       "name": "notifications",
       "path": "/notifications",
       "url": "http://127.0.0.1:4200/notifications",
-      "main_text_len": 0,
+      "main_text_len": 79,
       "is_404": false,
-      "h1": "",
+      "h1": "通知中心\n0",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\notifications.png"
     },
@@ -160,11 +160,11 @@
       "name": "ws_epics",
       "path": "/project/3/epics",
       "url": "http://127.0.0.1:4200/project/3/epics",
-      "expected_selector_present": true,
-      "expected_child_count": 1,
-      "main_text_len": 803,
+      "expected_selector_present": false,
+      "expected_child_count": -1,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "Epics",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_epics.png"
     },
@@ -242,7 +242,7 @@
       "name": "story_348",
       "path": "/story/348",
       "url": "http://127.0.0.1:4200/story/348",
-      "main_text_len": 20519,
+      "main_text_len": 21871,
       "is_404": true,
       "h1": "页面持续修复 · 新版前端 UI 问题收集",
       "horizontal_overflow_px": 0,
@@ -321,8 +321,8 @@
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
     {
-      "page": "documents",
-      "path": "/documents",
+      "page": "bugs",
+      "path": "/bugs",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
@@ -345,12 +345,6 @@
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
     {
-      "page": "notifications",
-      "path": "/notifications",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
-    {
       "page": "admin",
       "path": "/admin",
       "severity": "P1",
@@ -365,6 +359,12 @@
     {
       "page": "ws_kanban",
       "path": "/project/3/kanban",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "ws_epics",
+      "path": "/project/3/epics",
       "severity": "P1",
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },

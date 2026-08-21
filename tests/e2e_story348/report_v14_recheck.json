@@ -14,20 +14,20 @@
     },
     {
       "path": "/epics",
-      "txt": 398,
-      "h1": "全局 Epics 概览",
+      "txt": 0,
+      "h1": "",
       "is_404": false
     },
     {
       "path": "/tasks",
-      "txt": 391,
-      "h1": "全局 Tasks 概览",
+      "txt": 0,
+      "h1": "",
       "is_404": false
     },
     {
       "path": "/bugs",
-      "txt": 390,
-      "h1": "全局 Bugs 概览",
+      "txt": 0,
+      "h1": "",
       "is_404": false
     },
     {
