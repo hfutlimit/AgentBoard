@@ -26,6 +26,7 @@ builder.Services.AddSingleton<IProcessExecutor, ProcessExecutor>();
 builder.Services.AddSingleton<IAgentAdapter, WorkBuddyAdapter>();
 builder.Services.AddSingleton<IAgentAdapter, MiniMaxAdapter>();
 builder.Services.AddSingleton<IAgentAdapter, CodexAdapter>();
+builder.Services.AddSingleton<IAgentAdapter, FakeAdapter>();
 builder.Services.AddSingleton<IAgentAdapterRegistry, AgentAdapterRegistry>();
 
 // ---- Sprint 1+2: storage + inbox ------------------------------------------

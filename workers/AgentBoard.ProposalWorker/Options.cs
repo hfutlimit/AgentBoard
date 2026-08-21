@@ -48,6 +48,13 @@ public sealed class AgentsOptions
     public AgentOptions WorkBuddy { get; set; } = new() { Command = "workbuddy" };
     public AgentOptions MiniMax { get; set; } = new() { Command = "MiniMax" };
     public AgentOptions Codex { get; set; } = new() { Command = "codex" };
+    /// <summary>
+    /// In-process stand-in adapter. Always returns a synthetic success
+    /// decision without spawning any external CLI. Useful for local dev /
+    /// smoke when no real CLI is installed; <see cref="Agents.FakeAdapter"/>
+    /// never reads this object.
+    /// </summary>
+    public AgentOptions Fake { get; set; } = new() { Command = "" };
 }
 
 // =============================================================================
