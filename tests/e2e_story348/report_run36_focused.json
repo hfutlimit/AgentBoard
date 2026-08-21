@@ -1,0 +1,76 @@
+{
+  "targets": [
+    {
+      "url": "/stories",
+      "txt": 400,
+      "h1": "全局 Stories 概览",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run36\\stories.png"
+    },
+    {
+      "url": "/tasks",
+      "txt": 391,
+      "h1": "全局 Tasks 概览",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run36\\tasks.png"
+    },
+    {
+      "url": "/bugs",
+      "txt": 390,
+      "h1": "全局 Bugs 概览",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run36\\bugs.png"
+    },
+    {
+      "url": "/documents",
+      "txt": 255,
+      "h1": "项目文档\n0",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run36\\documents.png"
+    },
+    {
+      "url": "/dashboard",
+      "txt": 408,
+      "h1": "项目大脑 / 总览",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run36\\dashboard.png"
+    },
+    {
+      "url": "/settings",
+      "txt": 162,
+      "h1": "个人设置",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run36\\settings.png"
+    },
+    {
+      "url": "/agents",
+      "txt": 1462,
+      "h1": "Agent 池\n7",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run36\\agents.png"
+    },
+    {
+      "url": "/notifications",
+      "txt": 79,
+      "h1": "通知中心\n0",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run36\\notifications.png"
+    },
+    {
+      "url": "/admin",
+      "txt": 1092,
+      "h1": "⚙ 管理员后台",
+      "blank": false,
+      "is_404": false,
+      "screenshot": "screenshots_run36\\admin.png"
+    }
+  ]
+}
