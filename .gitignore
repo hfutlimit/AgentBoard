@@ -122,6 +122,9 @@ scripts/_login.json
 scripts/_register_agent.json
 scripts/_check_*.py
 scripts/_check_*.png
+# 2026-08-21 review follow-up：诊断脚本完成后退场（move-to-trash pattern）
+scripts/_trash_*.py
+scripts/_trash_*.png
 
 
 styles-orig.css
