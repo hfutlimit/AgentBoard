@@ -1,4 +1,4 @@
-<app-managed-list
+﻿﻿﻿<app-managed-list
   [loading]="loading"
   [error]="error"
   errorPrefix="文档加载失败"
@@ -56,7 +56,7 @@
         <option [value]="s">{{ docStatusLabel(s) }}</option>
       }
     </select>
-    <input class="doc-search-input" [value]="searchQuery" (input)="searchQueryChange.emit($any($event.target).value)" placeholder="搜索文档…" />
+
   </div>
   <!-- Epic 138: 文档列表 + 过滤增强：项目内视图（项目已由 route 锁定，仅显示作者/Epic/排序/视图切换） -->
   <div class="row doc-toolbar doc-toolbar--extended" ml-toolbar>
