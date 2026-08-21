@@ -17,7 +17,15 @@ STATIC_DIR = Path(os.getenv(
 # B-A4（Epic 145 / Story 291）：STATIC_DIR resolve 一次缓存，避免每次请求重复解析
 # 路径穿越校验依赖该锚点。
 STATIC_DIR_RESOLVED = STATIC_DIR.resolve()
-API_URL = os.getenv("AGENTBOARD_API_URL", "http://127.0.0.1:58124")
+# 浏览器端可访问的 API 地址。
+# - 优先读 AGENTBOARD_WEB_API_URL（与 .env / docker-compose 对外 key 约定一致，本地 dev 走这个）
+# - 兼容读 AGENTBOARD_API_URL（docker-compose 会把对外 key 映射到容器内同名 env）
+# - 默认 58124 兜底（生产 .NET BFF 默认端口）
+API_URL = (
+    os.getenv("AGENTBOARD_WEB_API_URL")
+    or os.getenv("AGENTBOARD_API_URL")
+    or "http://127.0.0.1:58124"
+)
 
 app = FastAPI(title="AgentBoard Web (Angular)")
 

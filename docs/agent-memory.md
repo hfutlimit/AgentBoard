@@ -92,3 +92,40 @@
   - 用户截图报 "Http failure response for /api/...: 0 Unknown Error"
   - 巡检脚本里 API 调用突然全 0 错
 - **具体事件**：2026-08-21 review follow-up 提交 `de86f83` push 后，用户截图登录页 0 Unknown Error。根因：proxy target 58125 (.NET BFF) 没 LISTEN，浏览器请求被拒绝。18000 直连 admin/admin123 成功（id=1, is_admin=True, token 拿到）。用户当场要求「部署后自己先用测试账号登录验证」（已沉淀到 user memory 跨项目偏好）。
+
+---
+
+## `agentboard.web_app` 本地 dev 注入 API URL 失败的隐藏 bug（2026-08-21）
+
+**规则 → `agentboard/web_app.py` 读 `AGENTBOARD_API_URL` 而不是 `.env` 约定的 `AGENTBOARD_WEB_API_URL`，本地 dev 模式下 web 端拿不到正确 API 地址。已修：web_app.py 同时兼容两个 key。**
+
+- **证据/原因**：
+  - `.env:9` 写 `AGENTBOARD_WEB_API_URL=http://127.0.0.1:18000`（项目对外约定 key）
+  - `docker-compose.yml:102` 用 `${AGENTBOARD_WEB_API_URL:?...}` 读这个 key，再映射到容器内 `AGENTBOARD_API_URL`
+  - `agentboard/web_app.py:20` 原代码只读 `AGENTBOARD_API_URL`——**本地 dev 模式没 docker-compose 帮映射**，所以 `.env` 里的 `AGENTBOARD_WEB_API_URL` 永远拿不到
+  - 表现：浏览器访问 28080 web_app，index.html 注入 `window.AGENTBOARD_API = 'http://127.0.0.1:58124'`（默认值），前端发请求到 58124（.NET BFF）但 58124 没 LISTEN → 0 Unknown Error
+  - **修复**：`web_app.py:20` 改成 `os.getenv("AGENTBOARD_WEB_API_URL") or os.getenv("AGENTBOARD_API_URL") or "http://127.0.0.1:58124"`，本地 dev 走 `AGENTBOARD_WEB_API_URL`，docker 容器内仍走 `AGENTBOARD_API_URL`（docker-compose 映射的），默认值兜底
+- **不要踩的坑**：
+  - **别只改 `.env`**——`.env` 的 key 是项目约定的，改 web_app.py 才正确
+  - **别删默认 fallback**——生产环境（.NET BFF 58124）可能没设任何 env
+  - **别用 `[Environment]::SetEnvironmentVariable` 不带 target 参数**——只设当前进程 env，`Start-Process` 子进程拿不到（`local-start-web.ps1` 也有这隐藏 bug，但暂未修）
+  - **别用 `EnvironmentVariableTarget.User` SetEnvironmentVariable**——子进程不重读 registry，要新 PowerShell 进程才生效
+  - **正确启动方式（本地 dev）**：
+    ```powershell
+    # 方式 1：cmd 包装 set（推荐，env 显式传递）
+    $cmdLine = "set AGENTBOARD_WEB_API_URL=http://127.0.0.1:18000 && `"$exe`" -m uvicorn agentboard.web_app:app --host 127.0.0.1 --port 28080"
+    Start-Process cmd.exe -ArgumentList '/d','/s','/c',$cmdLine ...
+    # 方式 2：直接 inline python（不用 uvicorn CLI）
+    Start-Process cmd.exe -ArgumentList '/d','/s','/c',"set AGENTBOARD_WEB_API_URL=http://127.0.0.1:18000 && `"$exe`" -c `"import uvicorn; uvicorn.run('agentboard.web_app:app', host='127.0.0.1', port=28080, log_config=None)`"
+    ```
+- **验证 web_app 注入对错**（必做，比 POST 登录更快定位）：
+  ```powershell
+  $r = Invoke-WebRequest -Uri 'http://127.0.0.1:28080/' -Method GET -UseBasicParsing
+  $m = [regex]::Match($r.Content, 'AGENTBOARD_API\s*=\s*["'']([^"'']+)["'']')
+  $m.Groups[1].Value  # 期望你设的 API 地址，不是 58124
+  ```
+- **适用场景**：
+  - 本地 dev 启动 28080 web_app 后，浏览器 API 请求全 0 Unknown Error，但 18000 API 直连 OK
+  - `AGENTBOARD_API_URL` vs `AGENTBOARD_WEB_API_URL` 命名困惑
+  - 任何 web_app（28080）+ FastAPI（18000）单栈模式启动
+- **具体事件**：2026-08-21 修完 de86f83 后启 28080，用户登录后报「Agent 列表加载失败: Http failure response for http://127.0.0.1:58124/api/agents: 0 Unknown Error」。根因：web_app 注入 58124 而非 18000。debug 流程：inline `os.getenv` 拿得到 18000，但 `web_app.API_URL` 是 58124 → 锁定 web_app.py:20 key 不一致。修法已 commit 待 push。
