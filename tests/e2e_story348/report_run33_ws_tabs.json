@@ -1,0 +1,18 @@
+{
+  "pages": [
+    {
+      "url": "/project/3",
+      "txt": 492,
+      "h1": "项目概览",
+      "blank": false,
+      "note": "warm settle recheck"
+    },
+    {
+      "url": "/project/3/kanban",
+      "txt": 195,
+      "h1": "看板\n0\n仅看板标记",
+      "blank": false,
+      "note": "warm settle recheck"
+    }
+  ]
+}

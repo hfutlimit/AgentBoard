@@ -4,11 +4,11 @@
       "name": "home",
       "path": "/",
       "url": "http://127.0.0.1:4200/",
-      "expected_selector_present": false,
-      "expected_child_count": -1,
-      "main_text_len": 0,
+      "expected_selector_present": true,
+      "expected_child_count": 1,
+      "main_text_len": 775,
       "is_404": false,
-      "h1": "",
+      "h1": "项目",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\home.png"
     },
@@ -16,9 +16,9 @@
       "name": "projects",
       "path": "/projects",
       "url": "http://127.0.0.1:4200/projects",
-      "main_text_len": 0,
+      "main_text_len": 1305,
       "is_404": false,
-      "h1": "",
+      "h1": "项目中心\n11",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\projects.png"
     },
@@ -26,9 +26,9 @@
       "name": "epics",
       "path": "/epics",
       "url": "http://127.0.0.1:4200/epics",
-      "main_text_len": 0,
+      "main_text_len": 398,
       "is_404": false,
-      "h1": "",
+      "h1": "全局 Epics 概览",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\epics.png"
     },
@@ -36,9 +36,9 @@
       "name": "stories",
       "path": "/stories",
       "url": "http://127.0.0.1:4200/stories",
-      "main_text_len": 0,
+      "main_text_len": 400,
       "is_404": false,
-      "h1": "",
+      "h1": "全局 Stories 概览",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\stories.png"
     },
@@ -106,9 +106,9 @@
       "name": "proposals",
       "path": "/proposals",
       "url": "http://127.0.0.1:4200/proposals",
-      "main_text_len": 180,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "需求提案\n0",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\proposals.png"
     },
@@ -116,9 +116,9 @@
       "name": "notifications",
       "path": "/notifications",
       "url": "http://127.0.0.1:4200/notifications",
-      "main_text_len": 79,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "通知中心\n0",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\notifications.png"
     },
@@ -148,11 +148,11 @@
       "name": "ws_kanban",
       "path": "/project/3/kanban",
       "url": "http://127.0.0.1:4200/project/3/kanban",
-      "expected_selector_present": true,
-      "expected_child_count": 1,
-      "main_text_len": 195,
+      "expected_selector_present": false,
+      "expected_child_count": -1,
+      "main_text_len": 0,
       "is_404": false,
-      "h1": "看板\n0\n仅看板标记",
+      "h1": "",
       "horizontal_overflow_px": 0,
       "screenshot": "screenshots_v6\\ws_kanban.png"
     },
@@ -242,7 +242,7 @@
       "name": "story_348",
       "path": "/story/348",
       "url": "http://127.0.0.1:4200/story/348",
-      "main_text_len": 18731,
+      "main_text_len": 20519,
       "is_404": true,
       "h1": "页面持续修复 · 新版前端 UI 问题收集",
       "horizontal_overflow_px": 0,
@@ -283,22 +283,6 @@
     {
       "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
       "artifact": true
-    },
-    {
-      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
-      "artifact": true
-    },
-    {
-      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
-      "artifact": true
-    },
-    {
-      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
-      "artifact": true
-    },
-    {
-      "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
-      "artifact": true
     }
   ],
   "page_errors": [],
@@ -307,26 +291,6 @@
       "url": "http://127.0.0.1:4200/api/agents",
       "status": 401,
       "artifact": true
-    },
-    {
-      "url": "http://127.0.0.1:4200/api/epics/121/stories",
-      "status": 500,
-      "artifact": false
-    },
-    {
-      "url": "http://127.0.0.1:4200/api/projects/3",
-      "status": 500,
-      "artifact": false
-    },
-    {
-      "url": "http://127.0.0.1:4200/api/epics/127/stories",
-      "status": 500,
-      "artifact": false
-    },
-    {
-      "url": "http://127.0.0.1:4200/api/epics/139/stories",
-      "status": 500,
-      "artifact": false
     }
   ],
   "interactions": [
@@ -350,30 +314,6 @@
     }
   ],
   "findings": [
-    {
-      "page": "home",
-      "path": "/",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
-    {
-      "page": "projects",
-      "path": "/projects",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
-    {
-      "page": "epics",
-      "path": "/epics",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
-    {
-      "page": "stories",
-      "path": "/stories",
-      "severity": "P1",
-      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
-    },
     {
       "page": "tasks",
       "path": "/tasks",
@@ -399,6 +339,18 @@
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
     {
+      "page": "proposals",
+      "path": "/proposals",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
+      "page": "notifications",
+      "path": "/notifications",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
+    },
+    {
       "page": "admin",
       "path": "/admin",
       "severity": "P1",
@@ -411,10 +363,10 @@
       "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
     {
-      "page": "ws_tabs",
-      "path": "/project/3/*",
-      "severity": "P2",
-      "issue": "工作区 tab 点击后路径异常: ['工作项']"
+      "page": "ws_kanban",
+      "path": "/project/3/kanban",
+      "severity": "P1",
+      "issue": "主内容区文本长度仅 0 字符(疑似空白/未渲染视图, 非404)"
     },
     {
       "page": "global",
@@ -561,8 +513,9 @@
       "url_ok": true
     },
     {
-      "tab": "工作项",
-      "error": "Locator.inner_text: Timeout 30000ms exceeded.\nCall log:\n  - waiting for locator(\".project-nav a, .project-nav button, [c"
+      "tab": "提案",
+      "path": "/project/3/proposals",
+      "url_ok": true
     },
     {
       "tab": "文档",
@@ -581,26 +534,5 @@
     }
   ],
   "real_console_errors": [],
-  "real_failed_requests": [
-    {
-      "url": "http://127.0.0.1:4200/api/epics/121/stories",
-      "status": 500,
-      "artifact": false
-    },
-    {
-      "url": "http://127.0.0.1:4200/api/projects/3",
-      "status": 500,
-      "artifact": false
-    },
-    {
-      "url": "http://127.0.0.1:4200/api/epics/127/stories",
-      "status": 500,
-      "artifact": false
-    },
-    {
-      "url": "http://127.0.0.1:4200/api/epics/139/stories",
-      "status": 500,
-      "artifact": false
-    }
-  ]
+  "real_failed_requests": []
 }

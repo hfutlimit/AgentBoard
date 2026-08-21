@@ -2,8 +2,8 @@
   "warm_global": [
     {
       "path": "/",
-      "txt": 775,
-      "h1": "项目",
+      "txt": 0,
+      "h1": "",
       "is_404": false
     },
     {
@@ -14,7 +14,7 @@
     },
     {
       "path": "/epics",
-      "txt": 42,
+      "txt": 398,
       "h1": "全局 Epics 概览",
       "is_404": false
     },
@@ -38,14 +38,14 @@
     },
     {
       "path": "/settings",
-      "txt": 0,
-      "h1": "",
+      "txt": 162,
+      "h1": "个人设置",
       "is_404": false
     },
     {
       "path": "/agents",
-      "txt": 0,
-      "h1": "",
+      "txt": 1462,
+      "h1": "Agent 池\n7",
       "is_404": false
     },
     {
