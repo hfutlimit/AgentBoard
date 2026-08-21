@@ -134,7 +134,8 @@ def test_open_project_default_overview_tab_only(page: Page, admin_token: str) ->
     assert sig["tabStripItems"][0]["id"] == f"{PROJECT_ID}-{KIND_OVERVIEW}"
     assert sig["tabStripItems"][0]["active"] is True
     assert sig["activePaneKind"] == KIND_OVERVIEW
-    assert KIND_OVERVIEW in sig["menuActive"]
+    # menu active 是中文 label,断言含中文字符串
+    assert LABEL_BY_KIND[KIND_OVERVIEW] in sig["menuActive"], f"menu active 应含 '{LABEL_BY_KIND[KIND_OVERVIEW]}', 实际 {sig['menuActive']!r}"
 
 
 @pytest.mark.e2e
@@ -267,19 +268,21 @@ def test_state_preserved_across_tab_switch(page: Page, admin_token: str) -> None
     log(f"   documents tab select count = {select_count}")
     _shot(page, "07b_documents_filter.png")
 
-    # 切到 kanban tab（documents tab 隐藏但实例不销毁）
+    # 切到 kanban tab（documents tab 隐藏但实例不销毁）— 打开新 tab
     _click_menu(page, KIND_KANBAN)
     time.sleep(0.5)
     sig2 = _collect_signals(page)
-    assert sig2["tabStripCount"] == 2
+    # 应该是 3 tab:overview + documents + kanban
+    assert sig2["tabStripCount"] == 3, f"加 kanban 后应是 3 tab, 实际 {sig2['tabStripCount']}"
     assert sig2["activePaneKind"] == KIND_KANBAN
     _shot(page, "07c_switched_to_kanban.png")
 
-    # 切回 documents tab
+    # 切回 documents tab（在 tab strip 上点 documents）
     _click_tab_strip(page, KIND_DOCUMENTS)
     time.sleep(0.5)
     sig3 = _collect_signals(page)
-    assert sig3["tabStripCount"] == 2
+    # 仍是 3 tab:overview + documents + kanban (激活的是 documents)
+    assert sig3["tabStripCount"] == 3, f"切 tab 不增删 tab,应是 3, 实际 {sig3['tabStripCount']}"
     assert sig3["activePaneKind"] == KIND_DOCUMENTS
     _shot(page, "07d_switched_back.png")
 
