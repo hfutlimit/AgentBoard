@@ -51,3 +51,44 @@
 - **临时方案**：在 `docs/agent-memory.md` 维护项目级沉淀，Mavis 会话启动时先读这个文件。
 - **不阻塞**：项目代码改动本身不依赖 mcp 记忆功能。
 - **后续**：等服务端修好（看错误信息像模板渲染变量未注入）。
+
+---
+
+## Angular HttpClient `status: 0` "Unknown Error" 排查套路（2026-08-21）
+
+**规则 → 前端报错 `Http failure response for /api/...: 0 Unknown Error`（或 toast 0 Unknown Error）时，先按这套 60 秒排查套路定位，不直接看代码。**
+
+- **证据/原因**：
+  - `status: 0` 不是 HTTP 4xx/5xx，是 Angular HttpClient 在**网络层**根本没收到 HTTP 响应。常见根因（按概率）：
+    1. **proxy 目标端口没起**：`frontend/proxy.conf.json` 把 `/api` 转发到某端口（如 AgentBoard = 58125 = .NET BFF），但该端口 LISTEN 不存在
+    2. **CORS preflight 失败**：浏览器 OPTIONS 预检被拦截（生产 web_app `AGENTBOARD_CORS_ORIGINS` 缺前端 origin）
+    3. **后端进程崩了 / 端口被换**：API 进程退出或换了端口
+    4. **混合内容**：HTTPS 页 → HTTP API 被浏览器拦
+    5. **STATIC_DIR stale**：模块加载时缓存的 `STATIC_DIR_RESOLVED` 没刷新（重启 web 进程才生效）
+- **排查套路**（按顺序执行）：
+  1. **看 LISTEN 端口**：
+     ```powershell
+     Get-NetTCPConnection -LocalPort 18000,28080,4200,58124,58125 -State Listen
+     ```
+     对比项目期望：AgentBoard dev 期望 18000=API + 28080=web_app / 4200=ng serve + 58125=.NET BFF
+  2. **直连后端 POST 登录**：
+     ```powershell
+     Invoke-RestMethod -Uri 'http://127.0.0.1:18000/api/auth/login' -Method POST `
+       -Body '{"username":"admin","password":"admin123"}' -ContentType 'application/json'
+     ```
+     - 200 + token → 后端 + 账号都没问题，问题在前端链路
+     - 401 → 账号密码错（去 DB 查 `users.password_hash` 或重新 register）
+     - Connection refused → 端口没起或进程崩
+  3. **检查 proxy 配置**：`frontend/proxy.conf.json` → `/api` target 端口必须 LISTEN
+  4. **检查 web 进程**：web_app（28080）若用 `local-start-web.ps1` 跑过，看 `STATIC_DIR` 是否变了（`AGENTBOARD_WEB_STATIC_DIR` 环境变量）
+  5. **检查 CORS**：FastAPI `agentboard/api.py` 里 `CORSMiddleware allow_origins` 是否含前端 origin
+- **AgentBoard 项目特定**：
+  - `proxy.conf.json` 把 `/api` → 58125（.NET BFF）
+  - 双栈模式（Stage 0 default）需要同时起 18000（Python API）+ 58125（.NET BFF）
+  - **单跑 Python 模式 → 登录必 0 Unknown Error**；要么起 .NET BFF，要么改 proxy 指向 18000
+  - dev 凭据：`admin/admin123`（e2e_docker_setup.py / verify_admin.py / track_epic39_status.py 等多个脚本的默认登录）
+- **适用场景**：
+  - dev-up / docker compose up / ng serve / local-start-web 任意一种启动方式后，前端第一次 API 调用失败
+  - 用户截图报 "Http failure response for /api/...: 0 Unknown Error"
+  - 巡检脚本里 API 调用突然全 0 错
+- **具体事件**：2026-08-21 review follow-up 提交 `de86f83` push 后，用户截图登录页 0 Unknown Error。根因：proxy target 58125 (.NET BFF) 没 LISTEN，浏览器请求被拒绝。18000 直连 admin/admin123 成功（id=1, is_admin=True, token 拿到）。用户当场要求「部署后自己先用测试账号登录验证」（已沉淀到 user memory 跨项目偏好）。
