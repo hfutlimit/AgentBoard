@@ -298,7 +298,8 @@
               (selectProject)="selectHomeProject($event)"
               (newProject)="openCreate('project')"
               (enterWorkspace)="goProject($event)"
-              (logoutRequest)="logout()">
+              (logoutRequest)="logout()"
+              (includeArchivedChange)="onIncludeArchivedChange($event)">
             </app-home-shell>
           }
 

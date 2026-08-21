@@ -69,6 +69,10 @@
         <aside class="project-master-v7" aria-label="master">
           <div class="master-toolbar-v7">
             <span>全部项目 · {{ projects.length }}</span>
+            <label class="master-show-paused-v7" title="包含已暂停项目">
+              <input type="checkbox" [checked]="includeArchived()" (change)="toggleIncludeArchived($event)">
+              <span>显示全部（含已暂停的）</span>
+            </label>
             <button type="button" class="master-create-button-v7" (click)="newProject.emit()">
               <svg class="icon-v7" aria-hidden="true"><use href="#i-plus"/></svg>
               <span>新建项目</span>

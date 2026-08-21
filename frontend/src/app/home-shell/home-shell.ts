@@ -55,6 +55,8 @@ export class HomeShellComponent {
   @Output() newProject = new EventEmitter<void>();
   @Output() enterWorkspace = new EventEmitter<number>();
   @Output() logoutRequest = new EventEmitter<void>();
+ // Review 2026-08-21: 复选框"显示全部（含已暂停的）"—— emit 触发 app.ts 重新加载项目
+ @Output() includeArchivedChange = new EventEmitter<boolean>();
 
   readonly activeTab = signal<'projects' | 'agents'>('projects');
   readonly userMenuOpen = signal(false);
@@ -108,7 +110,16 @@ export class HomeShellComponent {
     this.closeMenus();
   }
 
-  /** 项目 monogram 颜色：按 key/name 哈希稳定分配 5 色（navy/green/blue/amber/steel）。 */
+  // Review 2026-08-21: 复选框"显示全部（含已暂停的）"状态
+ readonly includeArchived = signal(false);
+
+ toggleIncludeArchived(evt: Event): void {
+    const checked = (evt.target as HTMLInputElement).checked;
+    this.includeArchived.set(checked);
+    this.includeArchivedChange.emit(checked);
+  }
+
+ /** 项目 monogram 颜色：按 key/name 哈希稳定分配 5 色（navy/green/blue/amber/steel）。 */
   monogramClass(p: Project): string {
     const seed = (p.key || p.name || '').split('').reduce((s, c) => s + c.charCodeAt(0), 0);
     return ['monogram-navy', 'monogram-green', 'monogram-blue', 'monogram-amber', 'monogram-steel'][seed % 5];

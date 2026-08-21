@@ -31,6 +31,9 @@ export class SettingsTabComponent {
   readonly isAdmin = this.host.isAdmin.bind(this.host);
   readonly saveProjectSettings = this.host.saveProjectSettings.bind(this.host);
   readonly remove = this.host.remove.bind(this.host);
+ // Review 2026-08-21: 暂停/恢复项目（替代删除）
+ readonly archiveProject = this.host.archiveProject.bind(this.host);
+ readonly unarchiveProject = this.host.unarchiveProject.bind(this.host);
   readonly paginatedItems = this.host.paginatedItems.bind(this.host);
   readonly getMemberAvatar = this.host.getMemberAvatar.bind(this.host);
   readonly removeMember = this.host.removeMember.bind(this.host);

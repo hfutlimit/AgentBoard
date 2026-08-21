@@ -587,6 +587,31 @@ export class App implements OnInit, OnDestroy {
     display_name: this.currentUser() || 'admin',
   }));
 
+  // Review 2026-08-21: 复选框"显示全部（含已暂停的）"—— 控制 listProjects 是否传 include_archived
+  readonly includeArchivedProjects = signal(false);
+
+  onIncludeArchivedChange(includeArchived: boolean): void {
+    this.includeArchivedProjects.set(includeArchived);
+    // 复选框改变时切换项目中心 scope：
+    // - false → scope='active'（仅未暂停，默认行为）
+    // - true  → scope='all'（含已暂停）
+    // setProjectCenterScope 内部会调 loadProjectsCenter 重新拉数据。
+    this.setProjectCenterScope(includeArchived ? 'all' : 'active');
+  }
+
+  /** 复选框改变后用当前 includeArchivedProjects 重新拉列表 */
+  private async reloadProjectsWithFilter(): Promise<void> {
+    try {
+      const result: any = await firstValueFrom(
+        this.api.listProjects({ includeArchived: this.includeArchivedProjects() || undefined })
+      );
+      const items = Array.isArray(result) ? result : (result?.items || []);
+      this.projects.set(items);
+    } catch (error) {
+      this.notify(`加载项目失败：${this.message(error)}`, 'error');
+    }
+  }
+
   /** HomeShell 项目选择事件。 */
   selectHomeProject(id: number): void {
     this.selectedHomeProject.set(id);
@@ -5435,7 +5460,41 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
-  deleteWebhook(webhookId: number, projectId?: number): void {
+  // Review 2026-08-21: 单项目暂停/恢复（替代删除按钮）。
+ archiveProject(): void {
+    void this.archiveProjectAsync();
+  }
+
+ private async archiveProjectAsync(): Promise<void> {
+    const project = this.project();
+    if (!project) return;
+    if (!window.confirm(`确定要暂停项目「${project.name}」吗？暂停后该项目默认不在项目列表展示，但数据全部保留，可随时恢复。`)) return;
+    try {
+      const r = await firstValueFrom(this.api.archiveProject(project.id));
+      this.project.set({ ...project, is_archived: r.is_archived });
+      this.notify(`项目「${project.name}」已暂停`);
+    } catch (error) {
+      this.notify(`暂停失败：${this.message(error)}`, 'error');
+    }
+  }
+
+ unarchiveProject(): void {
+    void this.unarchiveProjectAsync();
+  }
+
+ private async unarchiveProjectAsync(): Promise<void> {
+    const project = this.project();
+    if (!project) return;
+    try {
+      const r = await firstValueFrom(this.api.unarchiveProject(project.id));
+      this.project.set({ ...project, is_archived: r.is_archived });
+      this.notify(`项目「${project.name}」已恢复`);
+    } catch (error) {
+      this.notify(`恢复失败：${this.message(error)}`, 'error');
+    }
+  }
+
+ deleteWebhook(webhookId: number, projectId?: number): void {
     void this.deleteWebhookAsync(webhookId, projectId);
   }
 

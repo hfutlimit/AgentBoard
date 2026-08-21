@@ -1,4 +1,4 @@
-"""Projects feature router (Phase 5 split from api.py)。
+﻿"""Projects feature router (Phase 5 split from api.py)。
 
 Phase 5:从 api.py 拆出的 FastAPI 路由。179 个端点按 2nd path segment 分组,
 本文件包含本 feature 的所有 @router.X 端点。
@@ -261,6 +261,35 @@ def update_project(
     r = service.update_project(s, pid, **body.model_dump(exclude_none=True))
     return service._ser(api_helpers._need(r, "project"))
 
+
+
+@router.post("/api/projects/{pid}/archive")
+def archive_project(
+    pid: int, authorization: str | None = Header(None), s: Session = Depends(get_session),
+):
+    """Review 2026-08-21：单项目暂停（UI 替代删除按钮）。复用 service.archive_project
+    + Project.is_archived 字段。已暂停项目默认不在列表里。
+    """
+    api_helpers._need(service.get_project(s, pid), "project")
+    api_helpers._require_project_owner(s, pid, authorization)
+    uid = api_helpers._optional_user_id(authorization, s)
+    p_obj = service.archive_project(s, pid, user_id=uid)
+    if not p_obj:
+        raise HTTPException(status_code=404, detail="project not found")
+    return {"ok": True, "is_archived": p_obj.is_archived}
+
+
+@router.post("/api/projects/{pid}/unarchive")
+def unarchive_project(
+    pid: int, authorization: str | None = Header(None), s: Session = Depends(get_session),
+):
+    """Review 2026-08-21：恢复暂停项目。"""
+    api_helpers._need(service.get_project(s, pid), "project")
+    api_helpers._require_project_owner(s, pid, authorization)
+    p_obj = service.unarchive_project(s, pid)
+    if not p_obj:
+        raise HTTPException(status_code=404, detail="project not found")
+    return {"ok": True, "is_archived": p_obj.is_archived}
 
 
 @router.delete("/api/projects/{pid}")

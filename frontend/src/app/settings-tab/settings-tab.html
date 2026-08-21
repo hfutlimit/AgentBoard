@@ -86,9 +86,21 @@
                               </div>
                             </form>
                           </div>
-                          <div class="card danger-zone">
-                            <h4>危险操作</h4>
-                            <button class="danger" (click)="remove('project', current.id)">删除项目（不可恢复）</button>
+                          <!-- Review 2026-08-21: 用"暂停"替代"删除"按钮（更柔和，数据全保留可恢复） -->
+                          <div class="card project-archive-zone">
+                            <h4>项目状态</h4>
+                            <p class="muted project-archive-hint">
+                              @if (current.is_archived) {
+                                此项目已暂停。暂停后默认不在项目列表展示，但数据全部保留；勾选"显示全部（含已暂停的）"即可看到。
+                              } @else {
+                                暂停后项目默认不在列表展示，但数据全部保留，可随时恢复。需要彻底删除请联系系统管理员。
+                              }
+                            </p>
+                            @if (current.is_archived) {
+                              <button class="btn-primary-sm" type="button" (click)="unarchiveProject()">恢复项目</button>
+                            } @else {
+                              <button class="ghost-sm warn" type="button" (click)="archiveProject()">暂停项目</button>
+                            }
                           </div>
                         } @else {
                           <div class="info-box">只有项目 Owner 或管理员可以修改项目设置。</div>

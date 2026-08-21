@@ -1,4 +1,4 @@
-import { HttpClient, HttpErrorResponse, HttpHeaders, HttpParams } from '@angular/common/http';
+﻿import { HttpClient, HttpErrorResponse, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable, of, throwError, timer, Subject } from 'rxjs';
 import { catchError, tap, map, switchMap, mergeMap, debounceTime, takeUntil } from 'rxjs/operators';
@@ -373,11 +373,19 @@ export class ApiService {
       );
   }
 
-  listProjects() {
-    const cacheKey = '/api/projects';
+  /**
+   * Review 2026-08-21: listProjects(opts) includeArchived parameter.
+   * Default: server filters out is_archived=true; pass true to include.
+   */
+  listProjects(opts: { includeArchived?: boolean } = {}) {
+    const params = new URLSearchParams();
+    if (opts.includeArchived) params.set('include_archived', 'true');
+    const qs = params.toString();
+    const url = qs ? `/api/projects?${qs}` : '/api/projects';
+    const cacheKey = url;
     const cached = apiCache.get<PagedResult<Project>>(cacheKey);
     if (cached) return of(cached);
-    return this.request<PagedResult<Project>>('GET', '/api/projects').pipe(
+    return this.request<PagedResult<Project>>('GET', url).pipe(
       tap(data => apiCache.set(cacheKey, data))
     );
   }
@@ -457,6 +465,17 @@ export class ApiService {
   }
   deleteProject(id: number) {
     return this.request<{ ok: boolean }>('DELETE', `/api/projects/${id}`).pipe(
+      tap(() => this.invalidateProjectCache())
+    );
+  }
+  // Review 2026-08-21：单项目暂停/恢复（替代删除按钮）。复用 Project.is_archived。
+  archiveProject(id: number) {
+    return this.request<{ ok: boolean; is_archived: boolean }>('POST', `/api/projects/${id}/archive`).pipe(
+      tap(() => this.invalidateProjectCache())
+    );
+  }
+  unarchiveProject(id: number) {
+    return this.request<{ ok: boolean; is_archived: boolean }>('POST', `/api/projects/${id}/unarchive`).pipe(
       tap(() => this.invalidateProjectCache())
     );
   }
