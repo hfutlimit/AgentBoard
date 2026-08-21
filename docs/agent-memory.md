@@ -175,3 +175,45 @@
   - æµè§ˆå™¨æŠ¥ `Failed to execute 'open' on 'XMLHttpRequest': Invalid URL` æˆ– `new URL('...')` æŠ›é”™
   - PowerShell æµ‹åç«¯ OK ä½†å‰ç«¯æ­»æ´»ä¸åŠ¨
 - **å…·ä½“äº‹ä»¶**ï¼š2026-08-21 f93bb0f ä¿® web_app key ä¸ä¸€è‡´åï¼Œç”¨æˆ·ç¡¬åˆ· 28080 ä»æŠ¥ã€ŒAgent åˆ—è¡¨åŠ è½½å¤±è´¥: Failed to execute 'open' on 'XMLHttpRequest': Invalid URLã€ã€‚debugï¼šPlaywright æŠ“ `window.AGENTBOARD_API = "http://127.0.0.1:18000 "`ï¼ˆ**å¸¦å°¾ç©ºæ ¼**ï¼‰ï¼ŒåŒæ—¶å¯åŠ¨æ—¥å¿—é‡Œ `set AGENTBOARD_WEB_API_URL=...:18000` åé¢æœ‰ä¸ªç©ºæ ¼è¢« set åã€‚ä¿®æ³•ï¼šweb_app.py åŠ  .strip() + ä¿® cmdline æ— å°¾ç©ºæ ¼ã€‚å·² commit å¾… pushã€‚
+
+---
+
+## PowerShell `Set-Content -Encoding UTF8` ÆÆ»µÌØÊâ Unicode ×Ö·û£¨2026-08-21£©
+
+**¹æÔò ¡ú Windows PowerShell 5.1 ÉÏ±à¼­º¬ `?`£¨U+203A£©/ `¡ï` / `?` µÈÌØÊâ Unicode ×Ö·ûµÄÔ´ÎÄ¼şÊ±£¬**±ğÓÃ** `Set-Content -Encoding UTF8` »ò `[System.IO.File]::WriteAllText`£¬¸ÄÓÃ Python£¨`open(p, 'wb')` + ÏÔÊ½ UTF-8 + BOM£©»ò `git checkout -- <file>` »Ö¸´¡£**
+
+- **Ö¤¾İ/Ô­Òò**£º
+  - PS 5.1 `Set-Content -Encoding UTF8` Êµ¼ÊĞ´µÄÊÇ **UTF-8 with BOM µ«²»Ğ´ BOM**£¨PS 5.1 ¾ÉĞĞÎª£©£¬¶Ô ASCII ×Ö·û±íÏÖÕı³££¬µ«Óöµ½ `?`£¨U+203A SINGLE RIGHT-POINTING ANGLE QUOTATION MARK£©ÕâÖÖ**²»³£ÓÃ×Ö·û**»áĞ´»µ³É mojibake `â€?` Ö®Àà
+  - Í¬Ñù `[System.IO.File]::WriteAllText($content, [System.Text.Encoding]::UTF8)` Ò²¿ÉÄÜËğ»µ£¨È¡¾öÓÚ PS °æ±¾ºÍ .NET Framework °æ±¾£©
+  - ±íÏÖ£ºapp.html ÀïµÄ `<span class="qv-sep">?</span>` ±»¸Ä³É `<span class="qv-sep">â€?/span>`£¬Angular ±àÒë±¨ NG5002: Unexpected character "EOF" / Unclosed block "if"£¨¼¶Áª´íÎó£¬´Ó line 0:0 ±¨Æğ£©
+  - **¸ùÒò**£ºPS 5.1 + Windows Ä¬ÈÏ ANSI ´úÂëÒ³£¨GBK/CP936£©ÏÂ£¬PS °Ñ×Ö·û´®µ± ANSI ´¦ÀíºóÔÙ×ª UTF-8 Ê±Ëğ»µ¶à×Ö½Ú×Ö·û
+- **ĞŞ·¨**£º
+  1. **±ğÓÃ PowerShell ¸Äº¬ÌØÊâ×Ö·ûµÄÎÄ¼ş**£¬¸ÄÓÃ Python£º
+     ```python
+     import io
+     p = ''frontend/src/app/app.html''
+     with open(p, ''rb'') as f:
+         data = f.read()
+     if data.startswith(b''\xef\xbb\xbf''):
+         data = data[3:]
+     text = data.decode(''utf-8'')
+     text = text.replace(old_str, new_str, 1)
+     with open(p, ''wb'') as f:
+         f.write(b''\xef\xbb\xbf'' + text.encode(''utf-8''))
+     ```
+  2. »ò `git checkout HEAD -- <file>` »Ö¸´ºó£¬**Ö»¶ÔÒª¸ÄµÄ×Ö½Ú¸½½üÓÃ Python ¸Ä**£¨±ÜÃâÈ«ÎÄ¼ş¸²¸ÇËğ»µ£©
+  3. »ò PS 6+/PS Core£¨`pwsh` ¶ø²»ÊÇ `powershell`£©£¬`Set-Content -Encoding utf8` ĞĞÎªÕıÈ·
+- **¼ì²â½Å±¾**£¨Èç»³ÒÉÎÄ¼ş±» mojibake£©£º
+  ```python
+  with open(''file.html'', ''rb'') as f:
+      data = f.read()
+  text = data.decode(''utf-8'')
+  for c in ''â€?'':
+      if c in text:
+          print(f''mojibake found: {c} at offset {text.index(c)}'')
+  ```
+- **ÊÊÓÃ³¡¾°**£º
+  - Windows PowerShell 5.1 (Ä¬ÈÏ powershell.exe) ±à¼­ UTF-8 Ô´ÎÄ¼şºó Angular/Rollup/esbuild ±àÒë±¨ NG5002
+  - minified ÎÄ¼şÀïº¬ CJK + ÌØÊâ·ûºÅµÄ»ìºÏÄÚÈİ
+  - git diff ÏÔÊ¾´óÁ¿ `â€?/button>` / `â€?/span>` µÈÌæ»»
+- **¾ßÌåÊÂ¼ş**£º2026-08-21 »Ø¹ö app.html line 30 Ê±ÓÃ `[System.IO.File]::WriteAllText` ¸ÄÎÄ¼ş£¬µ¼ÖÂ app.html Àï 17 ´¦ `?` ×Ö·û±»ÆÆ»µ³É `â€?`£¬Angular ±àÒë±¨ NG5002¡£ĞŞ·¨£ºgit checkout HEAD »Ö¸´ + Python (open 'wb') ¸Ä line 30¡£ÒÑ commit 5b3a2cb ĞŞ¸´¡£
