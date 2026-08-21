@@ -85,40 +85,18 @@ export const routes: Routes = [
   { path: 'agents', component: RouteAnchor },  // Story 329 / Task 1322: 真正的 router link，app.ts loadRoute 走 'agents' view
 
   // ─── 独立 tab 路由（顶层 view，无项目上下文） ─────────────────────────
-  // #1428 修复：全局 /documents /proposals 路由通过 data.scope = 'global' 区分
-  // 与项目工作区（/project/:id/documents）的 project 模式。
-  {
-    path: 'documents',
-    data: { scope: 'global' },
-    loadComponent: () =>
-      import('./documents-tab/documents-tab').then(
-        (m) => m.DocumentsTabComponent,
-      ),
-  },
-  {
-    path: 'documents/:id',
-    data: { scope: 'global' },
-    loadComponent: () =>
-      import('./documents-tab/documents-tab').then(
-        (m) => m.DocumentsTabComponent,
-      ),
-  },
-  {
-    path: 'proposals',
-    data: { scope: 'global' },
-    loadComponent: () =>
-      import('./proposals-tab/proposals-tab').then(
-        (m) => m.ProposalsTabComponent,
-      ),
-  },
-  {
-    path: 'proposals/:id',
-    data: { scope: 'global' },
-    loadComponent: () =>
-      import('./proposals-tab/proposals-tab').then(
-        (m) => m.ProposalsTabComponent,
-      ),
-  },
+  // #1428 / review 2026-08-21：全局 /documents /proposals 由 app.html @case
+  // 内联实现接管（Epic 138 全局文档/提案中心），documents-tab / proposals-tab
+  // 仅在项目工作区（/project/:id/...，project-workspace-route）内使用。
+  // 因此这里与 /projects /agents 一致挂 RouteAnchor，路由仅负责让
+  // NavigationEnd 触发 app.ts loadRoute 切 view()；不再 loadComponent —
+  // 旧写法的组件在无 router-outlet 的 view 下永远不会被实例化（dead code），
+  // 且 DocumentsTabComponent.docs 是 required @Input，一旦被 router 实例化
+  // 会抛 NG0950。待 Epic 152 路由收口时再改回真正的组件路由。
+  { path: 'documents', component: RouteAnchor },
+  { path: 'documents/:id', component: RouteAnchor },
+  { path: 'proposals', component: RouteAnchor },
+  { path: 'proposals/:id', component: RouteAnchor },
 
   // ─── Story 348 #1430：全局聚合视图路由（无项目上下文） ───────────────
   // 5 个路由共用 GlobalStatsTabComponent，靠 @Input entity 切标题 / 高亮。

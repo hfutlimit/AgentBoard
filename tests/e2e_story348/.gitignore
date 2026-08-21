@@ -8,3 +8,5 @@ run_*.log
 *_check.png
 home_dark.png
 backlog_new_dialog.png
+screenshots_*/
+quick_recheck_*.json

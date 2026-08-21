@@ -22,7 +22,8 @@ app = api.app
 
 def main() -> None:
     uvicorn.run(
-        app,
+        # reload=True 时 uvicorn 只接受 import string；保持字符串形式两种模式都可用
+        "agentboard.main:app",
         host=settings.api_host,
         port=settings.api_port,
         reload=settings.debug,

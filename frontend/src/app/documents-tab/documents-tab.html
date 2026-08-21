@@ -1,54 +1,48 @@
 <app-managed-list
-  [loading]="effectiveLoading"
-  [error]="effectiveError"
+  [loading]="loading"
+  [error]="error"
   errorPrefix="文档加载失败"
   loadingLabel="正在加载文档列表…"
   [skeletonRows]="4"
-  [empty]="!effectiveLoading && !effectiveError && effectiveDocs.length === 0 && childFolders.length === 0"
+  [empty]="!loading && !error && docs.length === 0 && childFolders.length === 0"
   [pageSize]="0"
   (retry)="retry.emit()">
   <ng-container ml-header>
     <!-- Epic 150 / X3 supplement: 文档 heading（prototype 对齐） -->
     <app-workspace-heading
-      [title]="scope === 'global' ? '全局文档中心' : '项目文档'"
-      [subtitle]="scope === 'global' ? '跨项目所有 memory / plan / knowledge / design 文档统一查看。' : '所有项目相关文档集中管理。'">
-      @if (scope === 'project') {
-        <ng-container>
-          <button class="heading-action-btn btn-primary-sm" (click)="createDoc.emit()">＋ 新建文档</button>
-          <button class="heading-action-btn ghost-sm" (click)="createFolder.emit()">＋ 新建文件夹</button>
-        </ng-container>
-      }
+      title="项目文档"
+      subtitle="所有项目相关文档集中管理。">
+      <button class="heading-action-btn btn-primary-sm" (click)="createDoc.emit()">＋ 新建文档</button>
+      <button class="heading-action-btn ghost-sm" (click)="createFolder.emit()">＋ 新建文件夹</button>
     </app-workspace-heading>
   </ng-container>
-  @if (scope === 'project') {
-    <nav
-      class="doc-breadcrumb documents-tab-v7"
-      aria-label="文档目录"
-      (dragover)="dropOver.emit({ event: $event, target: 'root' })"
-      (dragleave)="dropLeave.emit()"
-      (drop)="drop.emit({ event: $event, target: 'root' })"
-      [class.doc-drop-target]="dropTargetId === 'root' && !!dragItem">
-      @for (crumb of breadcrumb; track $index) {
-        <button
-          type="button"
-          class="doc-crumb"
-          (click)="enterFolder.emit(crumb.id)"
-          [class.doc-drop-target]="dropTargetId === (crumb.id === null ? 'root' : crumb.id) && !!dragItem"
-          (dragover)="dropOver.emit({ event: $event, target: crumb.id === null ? 'root' : crumb.id })"
-          (dragleave)="dropLeave.emit()"
-          (drop)="drop.emit({ event: $event, target: crumb.id === null ? 'root' : crumb.id })">
-          @if (crumb.id === null) {
-            <span class="doc-crumb-icon">🗂</span> {{ crumb.name }}
-          } @else {
-            <span class="doc-crumb-icon">📁</span> {{ crumb.name }}
-          }
-        </button>
-        @if (!$last) {
-          <span class="doc-crumb-sep">›</span>
+  <nav
+    class="doc-breadcrumb documents-tab-v7"
+    aria-label="文档目录"
+    (dragover)="dropOver.emit({ event: $event, target: 'root' })"
+    (dragleave)="dropLeave.emit()"
+    (drop)="drop.emit({ event: $event, target: 'root' })"
+    [class.doc-drop-target]="dropTargetId === 'root' && !!dragItem">
+    @for (crumb of breadcrumb; track $index) {
+      <button
+        type="button"
+        class="doc-crumb"
+        (click)="enterFolder.emit(crumb.id)"
+        [class.doc-drop-target]="dropTargetId === (crumb.id === null ? 'root' : crumb.id) && !!dragItem"
+        (dragover)="dropOver.emit({ event: $event, target: crumb.id === null ? 'root' : crumb.id })"
+        (dragleave)="dropLeave.emit()"
+        (drop)="drop.emit({ event: $event, target: crumb.id === null ? 'root' : crumb.id })">
+        @if (crumb.id === null) {
+          <span class="doc-crumb-icon">🗂</span> {{ crumb.name }}
+        } @else {
+          <span class="doc-crumb-icon">📁</span> {{ crumb.name }}
         }
+      </button>
+      @if (!$last) {
+        <span class="doc-crumb-sep">›</span>
       }
-    </nav>
-  }
+    }
+  </nav>
   <div class="doc-toolbar" ml-toolbar>
     <select class="doc-filter-select" [value]="filterType" (change)="filterTypeChange.emit($any($event.target).value)">
       <option value="">全部类型</option>
@@ -64,53 +58,51 @@
     </select>
     <input class="doc-search-input" [value]="searchQuery" (input)="searchQueryChange.emit($any($event.target).value)" placeholder="搜索文档…" />
   </div>
-  @if (scope === 'project') {
-    <!-- Epic 138: 文档列表 + 过滤增强：项目内视图（项目已由 route 锁定，仅显示作者/Epic/排序/视图切换） -->
-    <div class="row doc-toolbar doc-toolbar--extended" ml-toolbar>
-      <select
-        class="doc-filter-select"
-        [value]="filterAuthor === '' ? '' : filterAuthor"
-        (change)="filterAuthorChange.emit($any($event.target).value === '' ? '' : +$any($event.target).value)"
-        title="按作者过滤">
-        <option value="">全部作者</option>
-        @for (u of authorOptions; track u.user_id) {
-          <option [value]="u.user_id">{{ u.username }}</option>
-        }
-      </select>
-      <select
-        class="doc-filter-select"
-        [value]="filterEpic === '' ? '' : filterEpic"
-        (change)="filterEpicChange.emit($any($event.target).value === '' ? '' : +$any($event.target).value)"
-        title="按 Epic 过滤">
-        <option value="">全部 Epic</option>
-        @for (e of epics; track e.id) {
-          <option [value]="e.id">{{ e.title }}</option>
-        }
-      </select>
-      <select class="doc-filter-select" [value]="sortBy" (change)="sortByChange.emit($any($event.target).value)" title="排序">
-        <option value="updated">按更新时间</option>
-        <option value="created">按创建时间</option>
-        <option value="title">按标题</option>
-      </select>
-      <div class="doc-view-switch" role="group" aria-label="文档视图切换">
-        <button
-          type="button"
-          class="ghost-sm"
-          [class.active]="listViewMode === 'tile'"
-          (click)="listViewModeChange.emit('tile')"
-          title="Tile 视图"
-          aria-label="Tile 视图">⊞</button>
-        <button
-          type="button"
-          class="ghost-sm"
-          [class.active]="listViewMode === 'list'"
-          (click)="listViewModeChange.emit('list')"
-          title="列表视图"
-          aria-label="列表视图">☰</button>
-      </div>
+  <!-- Epic 138: 文档列表 + 过滤增强：项目内视图（项目已由 route 锁定，仅显示作者/Epic/排序/视图切换） -->
+  <div class="row doc-toolbar doc-toolbar--extended" ml-toolbar>
+    <select
+      class="doc-filter-select"
+      [value]="filterAuthor === '' ? '' : filterAuthor"
+      (change)="filterAuthorChange.emit($any($event.target).value === '' ? '' : +$any($event.target).value)"
+      title="按作者过滤">
+      <option value="">全部作者</option>
+      @for (u of authorOptions; track u.user_id) {
+        <option [value]="u.user_id">{{ u.username }}</option>
+      }
+    </select>
+    <select
+      class="doc-filter-select"
+      [value]="filterEpic === '' ? '' : filterEpic"
+      (change)="filterEpicChange.emit($any($event.target).value === '' ? '' : +$any($event.target).value)"
+      title="按 Epic 过滤">
+      <option value="">全部 Epic</option>
+      @for (e of epics; track e.id) {
+        <option [value]="e.id">{{ e.title }}</option>
+      }
+    </select>
+    <select class="doc-filter-select" [value]="sortBy" (change)="sortByChange.emit($any($event.target).value)" title="排序">
+      <option value="updated">按更新时间</option>
+      <option value="created">按创建时间</option>
+      <option value="title">按标题</option>
+    </select>
+    <div class="doc-view-switch" role="group" aria-label="文档视图切换">
+      <button
+        type="button"
+        class="ghost-sm"
+        [class.active]="listViewMode === 'tile'"
+        (click)="listViewModeChange.emit('tile')"
+        title="Tile 视图"
+        aria-label="Tile 视图">⊞</button>
+      <button
+        type="button"
+        class="ghost-sm"
+        [class.active]="listViewMode === 'list'"
+        (click)="listViewModeChange.emit('list')"
+        title="列表视图"
+        aria-label="列表视图">☰</button>
     </div>
-  }
-  @if (scope === 'project' && childFolders.length > 0) {
+  </div>
+  @if (childFolders.length > 0) {
     <div class="doc-list folder-view">
       @for (f of childFolders; track f.id) {
         <div
@@ -136,84 +128,58 @@
       }
     </div>
   }
-  @if (effectiveDocs.length === 0 && childFolders.length === 0) {
-    <div class="empty-state">{{ scope === 'global' ? '全局暂无文档，或当前筛选条件下无结果。' : '当前目录还没有内容。可点击上方「＋ 新建文档 / 新建文件夹」，或将其他文档拖拽到此处归档。' }}</div>
-  } @else if (effectiveDocs.length > 0) {
-    @if (listViewMode === 'list' || scope === 'global') {
-      <div class="doc-list list-view" role="table" aria-label="{{ scope === 'global' ? '全局文档列表' : '项目文档列表' }}">
+  @if (docs.length === 0 && childFolders.length === 0) {
+    <div class="empty-state">当前目录还没有内容。可点击上方「＋ 新建文档 / 新建文件夹」，或将其他文档拖拽到此处归档。</div>
+  } @else if (docs.length > 0) {
+    @if (listViewMode === 'list') {
+      <div class="doc-list list-view" role="table" aria-label="项目文档列表">
         <div class="doc-list-head" role="row">
           <span role="columnheader">标题</span>
-          @if (scope === 'global') {
-            <span role="columnheader">归属项目</span>
-          }
           <span role="columnheader">类型</span>
           <span role="columnheader">状态</span>
-          @if (scope === 'project') {
-            <span role="columnheader">归属</span>
-            <span role="columnheader">作者</span>
-            <span role="columnheader" title="评论数">💬</span>
-          }
+          <span role="columnheader">归属</span>
+          <span role="columnheader">作者</span>
+          <span role="columnheader" title="评论数">💬</span>
           <span role="columnheader">更新</span>
-          @if (scope === 'project') {
-            <span role="columnheader">操作</span>
-          }
+          <span role="columnheader">操作</span>
         </div>
-        @for (d of effectiveDocs; track d.id) {
+        @for (d of docs; track d.id) {
           <div
             class="doc-list-row"
             role="row"
-            [class.doc-dragging]="scope === 'project' && dragItem?.kind === 'document' && dragItem?.id === d.id"
-            [attr.draggable]="scope === 'project' ? 'true' : null"
-            (click)="scope === 'project' ? openDoc.emit(d) : null"
-            (dragstart)="scope === 'project' ? dragStart.emit({ event: $event, item: { kind: 'document', id: d.id } }) : null"
-            (dragend)="scope === 'project' ? dragEnd.emit() : null">
-            @if (scope === 'global') {
-              <a
-                class="doc-list-title"
-                role="cell"
-                [routerLink]="['/documents', d.id]"
-                target="_blank"
-                rel="noopener noreferrer"
-                (click)="$event.stopPropagation()"
-                [title]="d.title">
-                <span class="doc-list-title-main">{{ d.title }}</span>
-                @if (docSummary(d)) {
-                  <small class="doc-list-summary">{{ docSummary(d) }}</small>
-                }
-              </a>
-              <span class="badge doc-list-scope" role="cell" [title]="'项目 #' + d.project_id">{{ projectNameFor(d) }}</span>
-            } @else {
-              <a
-                class="doc-list-title"
-                role="cell"
-                [attr.href]="'/documents/' + d.id"
-                target="_blank"
-                rel="noopener noreferrer"
-                (click)="$event.stopPropagation()"
-                [title]="d.title">
-                <span class="doc-list-title-main">{{ d.title }}</span>
-                @if (docSummary(d)) {
-                  <small class="doc-list-summary">{{ docSummary(d) }}</small>
-                }
-              </a>
-              <span class="badge doctype doctype--{{ d.type }}" role="cell">{{ docTypeLabel(d.type) }}</span>
-              <span class="badge docstatus docstatus--{{ d.status }}" role="cell">{{ docStatusLabel(d.status) }}</span>
-              <span class="doc-list-scope" role="cell" [title]="docScopePathFor(d)">{{ docScopePathFor(d) }}</span>
-              <span class="doc-list-author" role="cell" [title]="d.author || ''">{{ d.author || '—' }}</span>
-              <span class="doc-list-comments" role="cell" [title]="docCommentCountFor(d.id) + ' 条评论'">{{ docCommentCountFor(d.id) }}</span>
-            }
+            [class.doc-dragging]="dragItem?.kind === 'document' && dragItem?.id === d.id"
+            draggable="true"
+            (click)="openDoc.emit(d)"
+            (dragstart)="dragStart.emit({ event: $event, item: { kind: 'document', id: d.id } })"
+            (dragend)="dragEnd.emit()">
+            <a
+              class="doc-list-title"
+              role="cell"
+              [attr.href]="'/documents/' + d.id"
+              target="_blank"
+              rel="noopener noreferrer"
+              (click)="$event.stopPropagation()"
+              [title]="d.title">
+              <span class="doc-list-title-main">{{ d.title }}</span>
+              @if (docSummary(d)) {
+                <small class="doc-list-summary">{{ docSummary(d) }}</small>
+              }
+            </a>
+            <span class="badge doctype doctype--{{ d.type }}" role="cell">{{ docTypeLabel(d.type) }}</span>
+            <span class="badge docstatus docstatus--{{ d.status }}" role="cell">{{ docStatusLabel(d.status) }}</span>
+            <span class="doc-list-scope" role="cell" [title]="docScopePathFor(d)">{{ docScopePathFor(d) }}</span>
+            <span class="doc-list-author" role="cell" [title]="d.author || ''">{{ d.author || '—' }}</span>
+            <span class="doc-list-comments" role="cell" [title]="docCommentCountFor(d.id) + ' 条评论'">{{ docCommentCountFor(d.id) }}</span>
             <time class="doc-list-updated" role="cell" [title]="d.updated_at">{{ timeAgo(d.updated_at) }}</time>
-            @if (scope === 'project') {
-              <span class="doc-list-actions" role="cell">
-                <button type="button" class="ghost-xs" (click)="$event.stopPropagation(); openDoc.emit(d)" title="查看">👁</button>
-              </span>
-            }
+            <span class="doc-list-actions" role="cell">
+              <button type="button" class="ghost-xs" (click)="$event.stopPropagation(); openDoc.emit(d)" title="查看">👁</button>
+            </span>
           </div>
         }
       </div>
     } @else {
       <div class="doc-list tile-view">
-        @for (d of effectiveDocs; track d.id) {
+        @for (d of docs; track d.id) {
           <button
             type="button"
             class="doc-row doc-tile"
