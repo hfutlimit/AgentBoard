@@ -207,7 +207,7 @@ dotnet/
 │   │   ├── Program.cs
 │   │   ├── appsettings.json
 │   │   ├── appsettings.Development.json
-│   │   ├── launchSettings.json           # 18000 端口
+│   │   ├── launchSettings.json           # 18099 端口
 │   │   ├── Api/
 │   │   │   ├── Base/
 │   │   │   │   └── BaseController.cs     # 统一异常映射 + UserContext
@@ -760,7 +760,7 @@ AgentBoard.Domain（直接引用）
 | **S0-3 分层骨架** | `BaseController.cs` + `IAuthProvider` + `AuthProvider` + `IUserService` + `UserService` + `IUserRepository` + `UserRepository` + 架构测试 | 5 层独立单测 + 端到端跑通 + NetArchTest 全绿 |
 | **S0-4 契约冻结** | `scripts/sync-openapi.ps1` + `schema-drift-check.py` + `generate-fastapi-client.ps1` + CI workflow | 快照生成 + 0 drift + NSwag client 编译通过 |
 | **S0-5 health/meta** | `Features/Health/HealthController.cs` + `Features/Meta/MetaController.cs` + Contract Tests | 双栈 1:1；contract test 全绿 |
-| **S0-6 docker** | `docker-compose.yml` 新增 `api-dotnet` + nginx 注释 | 6 服务全绿；18000 端口可达 |
+| **S0-6 docker** | `docker-compose.yml` 新增 `api-dotnet` + nginx 注释 | 6 服务全绿；.NET 18099 / FastAPI 18000 端口可达 |
 | **S0-7 OTel** | `SerilogSetup` + `OpenTelemetrySetup` + 3 个 Middleware | 日志带 request_id；trace 可见 |
 | **S0-8 文档** | `docs/dual-stack-bff-runbook.md` + `dotnet/README.md` + `README.md` 架构图 | 新人 30 分钟跑通 |
 
@@ -770,8 +770,8 @@ AgentBoard.Domain（直接引用）
 
 - [ ] `dotnet build` 全绿
 - [ ] `dotnet test` 100% 绿（含 contract test）
-- [ ] `dotnet run` 启动后 `curl http://localhost:18000/api/health` 返 200 `{"status":"ok"}`
-- [ ] `curl http://localhost:18000/api/meta` 返与 FastAPI 完全一致
+- [ ] `dotnet run` 启动后 `curl http://localhost:18099/api/health` 返 200 `{"status":"ok"}`
+- [ ] `curl http://localhost:18099/api/meta` 返与 FastAPI 完全一致
 - [ ] `docker compose up -d` 6 个服务全绿
 - [ ] `docker build -f Dockerfile.dotnet .` 成功
 - [ ] Serilog 日志带 `request_id`

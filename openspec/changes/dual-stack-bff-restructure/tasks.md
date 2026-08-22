@@ -17,7 +17,7 @@
 - [x] `dotnet/src/AgentBoard.Api/Program.cs`（含根端点 + MapControllers + OpenAPI）
 - [x] `dotnet/src/AgentBoard.Api/AgentBoard.Api.csproj`（.NET 10 + OpenApi 10.0.9 + Microsoft.OpenApi 2.0.1 override）
 - [x] `dotnet/src/AgentBoard.Api/appsettings.json` + `appsettings.Development.json`
-- [x] `dotnet/src/AgentBoard.Api/Properties/launchSettings.json`（端口 18000）
+- [x] `dotnet/src/AgentBoard.Api/Properties/launchSettings.json`（端口 18099）
 - [x] `dotnet/tests/AgentBoard.Api.Tests/`（xUnit + SmokeTests 占位）
 - [x] `dotnet/contracts/README.md`（契约冻结机制说明）
 - [x] `dotnet/migrations/README.md`（migration 流程 + 不自动 apply）
@@ -251,13 +251,13 @@
 ### 落地清单（2026-08-20）
 
 - [x] `docker-compose.yml` 新增 `api-dotnet` service
-  - 端口 18000 → 容器内 8080
+  - 端口 18099 → 容器内 8080
   - 共享 `AGENTBOARD_SECRET`（与 FastAPI 同一密钥）
   - 默认 SQLite（Stage 0 不连 MariaDB，Stage 1 Pomelo 10.0 接入后再共享）
-  - Healthcheck: `wget --spider http://localhost:8080/`
+  - Healthcheck: `wget --spider http://localhost:8080/api/health`
   - 独立 volume `agentboard_dotnet_data`
 - [x] `docker-compose.dev.yml` 把 api-dotnet 放到 `dotnet` profile（host 跑 `dotnet watch`）
-- [x] `.env.example` 加 `AGENTBOARD_DOTNET_PORT=18000`
+- [x] `.env.example` 加 `AGENTBOARD_DOTNET_PORT=18099`
 - [x] `examples/nginx-agentboard.conf` 加 `upstream api_dotnet { ... }` + grayscale 切流注释
   - `proxy_next_upstream error timeout http_500/502/503` + `tries 2` 实现 fallback
   - FastAPI = primary，.NET BFF = backup（Stage 0），Stage 2 调权重
@@ -320,7 +320,7 @@ S0-7: Serilog + OpenTelemetry 接入
 1. **`ApiWebApplicationFactory` per-instance temp SQLite 未建表 → `CanConnectAsync=false`**：测试 `Testing` 环境跳过原 `IsDevelopment()` 判断；`EnsureCreated` 改为同时命中 `Testing`，问题解决（commit `49b44b5` 续作）
 2. **dotnet test 关闭时 `File.Delete(temp)` 偶发 IOException**：e_sqlite3 持 mmap 句柄未及时释放；`Dispose` 内加 5 次重试 × 50ms 延迟，最佳努力
 3. **OpenTelemetry 1.11.2 / SQLitePCLRaw 2.1.11 / System.Security.Cryptography.Xml 9.0.0 NU1902/NU1903 advisory 全部滞后**：当前统一通过 `<WarningsNotAsErrors>NU1902;NU1903</WarningsNotAsErrors>` 屏蔽，等上游发布再解锁
-4. **launchSettings.json 的 env var 会覆盖 shell env**：`AGENTBOARD_DOTNET_PORT=18099` 在 shell 设了但 `dotnet run` 走 launchSettings 仍用 18000；smoke 测试时改用 18000 或 `--no-launch-profile` 绕过
+4. **launchSettings.json 默认端口**：早期版本 launchSettings 强制 `AGENTBOARD_DOTNET_PORT=18000`，会覆盖 shell 设的 18099；现已将 launchSettings / Program.cs 默认 / compose / .env.example 统一为 18099（FastAPI api 占用宿主 18000），`dotnet run` 与 shell env 不再冲突（commit ba10927）
 5. **dotnet run 启动时日志双写**：每条 Serilog CLEF event 在 stdout 出现 2 次，疑似 Serilog console sink + OTel console exporter 各自输出；功能上不影响，结构化字段正确
 
 ### 下一步

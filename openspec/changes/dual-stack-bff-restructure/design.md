@@ -79,13 +79,13 @@
 
 ```
 docker-compose
-├── api-dotnet  ←── 新增（.NET 8/9，对外 18000）
-├── api         ←── 保留（FastAPI，对外 18000 改内网 8000，不暴露）
+├── api-dotnet  ←── 新增（.NET 10，对外 18099）
+├── api         ←── 保留（FastAPI，对外 18000；内网化延至 Stage 2）
 ├── mcp         ←── 保留（FastAPI 8001/mcp，内网）
 ├── web         ←── 保留（FastAPI 静态托管 28080）
 ├── mariadb     ←── 保留
 ├── rabbitmq    ←── 保留
-└── nginx       ←── 改：api-dotnet → 18000（生产）；api → 仅内网白名单
+└── nginx       ←── 改：api-dotnet → 18099（生产对外）；api → 18000 对外
 ```
 
 ---
@@ -346,7 +346,7 @@ services:
       AGENTBOARD_FASTAPI_INTERNAL_URL: http://api:8000
       AGENTBOARD_FASTAPI_INTERNAL_TOKEN: ${AGENTBOARD_SERVICE_TOKEN}
     ports:
-      - "18000:8080"    # 对外
+      - "18099:8080"    # 对外（FastAPI api 占用宿主 18000）
     depends_on: [mariadb, api]
 
   api:                  # 保留，内网化
@@ -360,7 +360,7 @@ services:
 
   web:                  # 保留
     ports: ["28080:8080"]
-    # 切流前指向 api-dotnet:18000，切流后改 .NET 入口
+    # 切流前指向 api-dotnet:18099，切流后改 .NET 入口
     environment:
       AGENTBOARD_WEB_API_URL: http://api-dotnet:8080
 
@@ -379,9 +379,9 @@ services:
 
 ### 8.2 本地开发
 
-- `dotnet watch run` 启动 .NET（端口 18000）
+- `dotnet watch run` 启动 .NET（端口 18099）
 - `uvicorn agentboard.api:app --port 8000` 启动 FastAPI（端口 8000）
-- Angular `environment.apiBaseUrl` 临时改 `http://localhost:18000` 即可切到 .NET 调试
+- Angular `environment.apiBaseUrl` 临时改 `http://localhost:18099` 即可切到 .NET 调试
 - 共享同一个 SQLite/MariaDB（dev 用 SQLite，.NET 端跳过 SQLite，dev 全用 FastAPI；prod 两边都接 MariaDB）
 
 ---
@@ -400,9 +400,9 @@ services:
 - [ ] 实现 `/api/meta` 端点（types/statuses/priorities，与 FastAPI 1:1）
 - [ ] Contract test：FastAPI /api/health vs .NET /api/health 响应 diff（snapshot 测试）
 - [ ] CI 卡：schema drift check、生成 client 未更新报错
-- [ ] 部署：api-dotnet 跑在 18000，仅 health/meta 可用
+- [ ] 部署：api-dotnet 跑在 18099，仅 health/meta 可用
 
-**退出标准**：打开 http://localhost:18000/api/health 返回 200 + 与 FastAPI 完全一致的 JSON。
+**退出标准**：打开 http://localhost:18099/api/health 返回 200 + 与 FastAPI 完全一致的 JSON。
 
 ### 阶段 1：只读业务迁 .NET（2-3 sprints）
 **目标**：所有 GET 端点迁 .NET；不切流；FastAPI 仍服务所有写。
