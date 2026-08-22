@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 using AgentBoard.Application.Abstractions;
 using AgentBoard.Domain.Common;
+using AgentBoard.Domain.Entities;
 using AgentBoard.Domain.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
@@ -19,6 +20,11 @@ public sealed class AppDbContext : DbContext, IDbContext, IUnitOfWork
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
     public DbSet<User> Users => Set<User>();
+    public DbSet<Project> Projects => Set<Project>();
+    public DbSet<Epic> Epics => Set<Epic>();
+    public DbSet<Story> Stories => Set<Story>();
+    public DbSet<TaskItem> Tasks => Set<TaskItem>();
+    public DbSet<Comment> Comments => Set<Comment>();
 
     public new Task<int> SaveChangesAsync(CancellationToken ct = default) =>
         base.SaveChangesAsync(ct);

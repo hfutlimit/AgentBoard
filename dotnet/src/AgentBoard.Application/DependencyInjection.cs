@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+using AgentBoard.Application.Board;
 using AgentBoard.Application.Health;
 using AgentBoard.Application.Identity;
 using Microsoft.Extensions.DependencyInjection;
@@ -23,6 +24,7 @@ public static class DependencyInjection
         // Providers — composed on top of Services; Controllers depend on these.
         services.TryAddScoped<IAuthProvider, AuthProvider>();
         services.TryAddScoped<IHealthProvider, HealthProvider>();
+        services.TryAddScoped<IBoardProvider, BoardProvider>();
 
         return services;
     }

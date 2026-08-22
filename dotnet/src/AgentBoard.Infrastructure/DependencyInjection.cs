@@ -89,6 +89,11 @@ public static class DependencyInjection
 
         // --- Repositories ------------------------------------------------
         services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<IProjectRepository, ProjectRepository>();
+        services.AddScoped<IEpicRepository, EpicRepository>();
+        services.AddScoped<IStoryRepository, StoryRepository>();
+        services.AddScoped<ITaskItemRepository, TaskItemRepository>();
+        services.AddScoped<ICommentRepository, CommentRepository>();
 
         // --- Interceptors ------------------------------------------------
         services.AddScoped<AuditFieldsInterceptor>();
