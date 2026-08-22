@@ -3,7 +3,7 @@
    全局封装（ViewEncapsulation.None），与 App 组件一致；过渡期 app.css 旧规则共存，
    阶段4 色板收口时统一清理重复。 */
 
-.overview-content { padding: 0; display: flex; flex-direction: column; gap: 18px; }
+.overview-content { padding: 0; display: flex; flex-direction: column; gap: 18px; container-type: inline-size; }
 .overview-hero {
   padding: 22px 24px;
   background: linear-gradient(135deg, var(--surface) 0%, var(--surface-2) 100%);
@@ -279,24 +279,24 @@
   font-size: 11px;
 }
 
-@media (min-width: 1800px) {
+@container (min-width: 1500px) {
   .overview-velocity-card,
   .overview-focus-card { min-height: 390px; }
   .overview-velocity-chart { height: 285px; }
 }
 
-@media (max-width: 1180px) {
+@container (max-width: 880px) {
   .overview-grid { grid-template-columns: minmax(0, 1fr) 300px; }
   .overview-stats.metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-@media (max-width: 900px) {
+@container (max-width: 600px) {
   .overview-grid { grid-template-columns: 1fr; }
   .overview-focus-card,
   .overview-activity-card { grid-column: 1; }
 }
 
-@media (max-width: 560px) {
+@container (max-width: 360px) {
   .overview-stats.metric-grid { grid-template-columns: 1fr; }
   .overview-member-strip { align-items: flex-start; flex-wrap: wrap; }
   .overview-member-strip .link-btn { margin-left: 0; }
