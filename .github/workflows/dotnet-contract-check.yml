@@ -113,3 +113,60 @@ jobs:
           name: security-audit-report
           path: security-audit-report.json
           if-no-files-found: warn
+
+  # Live contract-drift gate. Boots the real FastAPI stack and diffs its
+  # /openapi.json against the committed .NET BFF snapshot. Fail-closed:
+  #   - FastAPI unreachable  -> exit 2 -> job red
+  #   - unapproved drift     -> exit 1 -> job red
+  #   - match / approved diff -> exit 0
+  # Intentional breaking changes are approved by committing an
+  # `approved-drift` JSON (docs/contracts/contract-freeze.md) together with
+  # a refreshed snapshot in the same PR.
+  live-drift:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+
+      - name: Start FastAPI stack
+        env:
+          AGENTBOARD_SECRET: ci-contract-test
+          MARIADB_PASSWORD: ci-contract-test
+          AGENTBOARD_CORS_ORIGINS: http://localhost:28080
+        run: docker compose up -d api
+
+      - name: Wait for FastAPI /openapi.json
+        run: |
+          $url = "http://localhost:18000/openapi.json"
+          for ($i = 0; $i -lt 30; $i++) {
+            try {
+              $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 5
+              if ($r.StatusCode -eq 200) { Write-Host "FastAPI is up."; exit 0 }
+            } catch {}
+            Start-Sleep -Seconds 5
+          }
+          Write-Host "::error::FastAPI did not become reachable in time."
+          docker compose logs api
+          exit 1
+
+      - name: Live drift check
+        run: python scripts/schema-drift-check.py --check-live --approved-drift .github/contract-approved-drift.json --report drift-report.json
+
+      - name: Upload drift report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-drift-report
+          path: drift-report.json
+          if-no-files-found: warn
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

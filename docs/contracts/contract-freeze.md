@@ -80,16 +80,43 @@ git commit -m "chore(contracts): refresh OpenAPI snapshot + client"
 The CI workflow fails the build if the committed client file doesn't
 match a freshly-generated one — so step 3 is non-optional.
 
-### 5. (Optional, pre-merge) live drift check
+### 5. Live drift check (CI-enforced)
+
+The `dotnet-contract-check.yml` `live-drift` job boots the real FastAPI
+stack via `docker compose up -d api` and runs the drift check against the
+live `/openapi.json`. It is **fail-closed**:
+
+- FastAPI unreachable → exit 2 → job red.
+- Unapproved drift → exit 1 → job red.
+- Match / fully-approved drift → exit 0.
+
+A JSON report (`drift-report.json`, semantic summary + full path-level
+diff) is uploaded as the `contract-drift-report` artifact on every run.
+
+Local equivalent (FastAPI must be running on `AGENTBOARD_FASTAPI_URL`):
 
 ```powershell
-# Requires FastAPI running on AGENTBOARD_FASTAPI_URL
-python scripts/schema-drift-check.py --check-live
+python scripts/schema-drift-check.py --check-live --report drift-report.json
 ```
 
-This is what CI will run once we wire FastAPI into the GitHub Actions
-runner (currently the workflow only runs the hash check; see the
-commented step in `dotnet-contract-check.yml`).
+### 6. Approving an intentional breaking change
+
+If a contract change is deliberate and already reviewed via an RFC, you
+may land it without the `live-drift` job going red by committing an
+**approved-drift** JSON alongside the refreshed snapshot **in the same PR**:
+
+```json
+// .github/contract-approved-drift.json
+{
+  "added":   ["paths.$.x.new_field", "paths.$.new_resource.get"],
+  "removed": ["paths.$.old_resource.get"]
+}
+```
+
+Then the `live-drift` step passes `--approved-drift .github/contract-approved-drift.json`;
+any path diff **not** listed there still fails the gate. After the PR
+merges, delete the file (the snapshot now matches and no approval is
+needed). The hash check (`--check-live` off) never needs this file.
 
 ## Changing the contract
 
