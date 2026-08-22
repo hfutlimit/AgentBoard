@@ -15,7 +15,7 @@
   --brand-600: #1d4ed8;
   --brand-700: #1e40af;
   --brand-soft: #eff6ff;
-  --brand-soft: color-mix(in srgb, var(--brand-500) 12%, transparent);
+  --brand-soft: color-mix(in srgb, var(--brand-500) 10%, transparent);
   --brand-ring: rgba(37, 99, 235, .16);
   --brand-ring: color-mix(in srgb, var(--brand-500) 25%, transparent);
   /* --grad：navy→blue→cyan 渐变（保留为品牌强调资产，色值已收口到 navy 体系） */
@@ -26,19 +26,19 @@
   /* 语义色（状态机对齐，对比度 ≥ 4.5:1） */
   --success: #047857;
   --success-soft: #d1fae5;
-  --success-soft: color-mix(in srgb, var(--success) 15%, transparent);
+  --success-soft: color-mix(in srgb, var(--success) 10%, transparent);
   --warning: #d97706;
   --warning-soft: #fef3c7;
-  --warning-soft: color-mix(in srgb, var(--warning) 15%, transparent);
+  --warning-soft: color-mix(in srgb, var(--warning) 10%, transparent);
   --danger: #991b1b;
   --danger-soft: #fee2e2;
-  --danger-soft: color-mix(in srgb, var(--danger) 15%, transparent);
+  --danger-soft: color-mix(in srgb, var(--danger) 10%, transparent);
   --info: #155e75;
   --info-soft: #cffafe;
-  --info-soft: color-mix(in srgb, var(--info) 15%, transparent);
+  --info-soft: color-mix(in srgb, var(--info) 10%, transparent);
   --violet: #7c3aed;
   --violet-soft: #ede9fe;
-  --violet-soft: color-mix(in srgb, var(--violet) 15%, transparent);
+  --violet-soft: color-mix(in srgb, var(--violet) 10%, transparent);
 
   /* 中性（slate 体系） */
   --text: #0f172a;
@@ -73,7 +73,7 @@
 
   /* 状态色 —— Story 199：按 DESIGN.md 映射 (待规划=warning、待办=info、进行中=primary、评审中=violet、验证中=sky、完成=success) */
   --status-backlog-bg: var(--color-warning-soft, #FEF3E2);
-  --status-backlog-text: var(--color-warning-text, #B45309);
+  --status-backlog-text: var(--color-warning-text, #92400e);
   --status-todo-bg: var(--color-info-soft, #E6F6FE);
   --status-todo-text: var(--color-info-text, #0369A1);
   --status-in_progress-bg: var(--color-primary-soft, #EEEEFB);
@@ -102,29 +102,29 @@
   --color-primary-hover: #4A4AC4;
   --color-primary-active: #3F3FB0;
   --color-primary-soft: #EEEEFB;
-  --color-primary-soft: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  --color-primary-soft: color-mix(in srgb, var(--color-primary) 10%, transparent);
   --color-primary-subtle: #F5F4FE;
   --color-text-primary: #1A1A2E;
   --color-text-secondary: #6B6B80;
   --color-text-tertiary: #667085;
   --color-border-strong: #D4D4DC;
   --color-violet-soft: #F3EDFD;
-  --color-violet-soft: color-mix(in srgb, var(--color-violet-text) 15%, transparent);
+  --color-violet-soft: color-mix(in srgb, var(--color-violet-text) 10%, transparent);
   --color-violet-text: #7C3AED;
   --color-sky-soft: #E6F6FE;
-  --color-sky-soft: color-mix(in srgb, var(--color-sky-text) 15%, transparent);
+  --color-sky-soft: color-mix(in srgb, var(--color-sky-text) 10%, transparent);
   --color-sky-text: #0369A1;
   --color-warning-soft: #FEF3E2;
-  --color-warning-soft: color-mix(in srgb, var(--color-warning-text) 15%, transparent);
-  --color-warning-text: #B45309;
+  --color-warning-soft: color-mix(in srgb, var(--color-warning-text) 10%, transparent);
+  --color-warning-text: #92400e;
   --color-success-soft: #E7F6EC;
-  --color-success-soft: color-mix(in srgb, var(--color-success-text) 15%, transparent);
+  --color-success-soft: color-mix(in srgb, var(--color-success-text) 10%, transparent);
   --color-success-text: #166534;
   --color-danger-soft: #FDECEC;
-  --color-danger-soft: color-mix(in srgb, var(--color-danger-text) 15%, transparent);
+  --color-danger-soft: color-mix(in srgb, var(--color-danger-text) 10%, transparent);
   --color-danger-text: #B91C1C;
   --color-info-soft: #E6F6FE;
-  --color-info-soft: color-mix(in srgb, var(--color-info-text) 15%, transparent);
+  --color-info-soft: color-mix(in srgb, var(--color-info-text) 10%, transparent);
   --color-info-text: #0369A1;
   --focus-ring: 0 0 0 3px rgba(91, 91, 214, .25);
   --shadow-xs: 0 1px 2px rgba(26, 26, 46, .04);
@@ -154,13 +154,13 @@
   --blue: #2864dc;
   --blue-dark: #174db3;
   --blue-soft: #eaf1ff;
-  --blue-soft: color-mix(in srgb, var(--blue) 12%, transparent);
+  --blue-soft: color-mix(in srgb, var(--blue) 10%, transparent);
   --teal: #087f6a;
   --teal-soft: #e6f6f2;
-  --teal-soft: color-mix(in srgb, var(--teal) 15%, transparent);
+  --teal-soft: color-mix(in srgb, var(--teal) 10%, transparent);
   --amber: #a56507;
   --amber-soft: #fff4dc;
-  --amber-soft: color-mix(in srgb, var(--amber) 15%, transparent);
+  --amber-soft: color-mix(in srgb, var(--amber) 10%, transparent);
   --red-soft: #fff0ef;
   --red-soft: color-mix(in srgb, #dc2626 10%, transparent);
   --shadow-sm-v7: 0 1px 2px rgba(16, 36, 62, .06), 0 4px 12px rgba(16, 36, 62, .04);
