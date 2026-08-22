@@ -335,6 +335,8 @@
   cursor: pointer;
   transition: all 160ms ease;
   width: 100%;
+  content-visibility: auto;
+  contain-intrinsic-size: 112px;
 }
 .project-master-row-v7:hover { border-color: var(--line, #dfe5eb); background: var(--surface, #fff); }
 .project-master-row-v7.active {
@@ -587,7 +589,12 @@
   letter-spacing: 0.05em;
   border-bottom: 1px solid var(--line, #dfe5eb);
 }
-.agent-row-v7 { border-bottom: 1px solid var(--line, #dfe5eb); transition: background 160ms ease; }
+.agent-row-v7 { 
+  border-bottom: 1px solid var(--line, #dfe5eb); 
+  transition: background 160ms ease; 
+  content-visibility: auto;
+  contain-intrinsic-size: 56px;
+}
 .agent-row-v7:last-child { border-bottom: none; }
 .agent-row-v7:hover { background: var(--canvas, #f4f6f8); }
 .agent-table-v7 .agent-table-head-v7,

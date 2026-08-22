@@ -186,8 +186,10 @@ router-outlet {
   padding: 11px 14px; background: var(--surface);
   border: 1px solid var(--border); border-radius: 10px;
   cursor: pointer; transition: border-color .14s, box-shadow .14s, transform .06s;
+  content-visibility: auto;
+  contain-intrinsic-size: 60px;
 }
-.ticket-row:hover {
+.ticket-row:hover, .ticket-row:has(input:checked) {
   border-color: var(--brand-500);
   box-shadow: 0 2px 10px rgba(15,23,42,.06);
 }
@@ -757,6 +759,34 @@ router-outlet {
   align-items: center;
   gap: 6px;
   white-space: nowrap;
+}
+
+.data-table th,
+.data-table td {
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  font-size: 13.5px;
+  color: var(--text);
+}
+.data-table th {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--surface-2);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom-width: 2px;
+}
+.data-table tbody tr {
+  transition: background .15s, border-color .15s;
+  content-visibility: auto;
+  contain-intrinsic-size: 50px;
+}
+.data-table tbody tr:hover { background: var(--surface-2); }
+.data-table tbody tr:has(input[type="checkbox"]:checked) {
+  background-color: var(--brand-soft);
 }
 
 .review-vote-total {

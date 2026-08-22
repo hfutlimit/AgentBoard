@@ -1,4 +1,4 @@
-﻿/* ============================================
+/* ============================================
    AgentBoard Angular —— 完整设计系统样式
    ============================================ */
 
@@ -247,7 +247,13 @@ body {
 html { scroll-behavior: smooth; }
 
 /* Unified heading typography */
-h1, h2, h3, h4 { letter-spacing: -0.02em; }
+h1, h2, h3, h4 {
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+p {
+  text-wrap: pretty;
+}
 h1 { font-size: 2rem; font-weight: 800; }
 h2 { font-size: 1.5rem; font-weight: 700; }
 h3 { font-size: 1.15rem; font-weight: 600; }
