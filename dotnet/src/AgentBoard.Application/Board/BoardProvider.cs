@@ -181,6 +181,138 @@ public sealed class BoardProvider : IBoardProvider
         return true;
     }
 
+    // ===================== P2: project writes =====================
+
+    /// <inheritdoc cref="IBoardProvider.CreateProjectAsync"/>
+    public async Task<ProjectDto> CreateProjectAsync(
+        string? name, string? key, string? description, int? currentUserId, CancellationToken ct = default)
+    {
+        name = (name ?? string.Empty).Trim();
+        if (name.Length == 0 || name.Length > 200)
+            throw new InvalidValueException("name must be 1-200 characters");
+        if (!string.IsNullOrWhiteSpace(key))
+        {
+            key = key.Trim();
+            if (key.Length > 20)
+                throw new InvalidValueException("key must be at most 20 characters");
+        }
+        else
+        {
+            key = null;
+        }
+
+        var project = new Project
+        {
+            Name = name,
+            Key = key,
+            Description = description ?? string.Empty,
+            IsPrivate = true, // FastAPI forces invite-only for all new projects
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        if (project.Key is not null)
+        {
+            var clash = await _projects.ListAsync(p => p.Key == project.Key, ct);
+            if (clash.Count != 0)
+                throw new DuplicateException($"project key '{project.Key}' already exists");
+        }
+
+        await _projects.AddAsync(project, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        if (currentUserId is not null)
+        {
+            await _members.AddAsync(new ProjectMember
+            {
+                ProjectId = project.Id,
+                UserId = currentUserId.Value,
+                Role = "owner",
+                JoinedAt = DateTime.UtcNow,
+            }, ct);
+            await _uow.SaveChangesAsync(ct);
+        }
+
+        return ToProjectDto(project);
+    }
+
+    /// <inheritdoc cref="IBoardProvider.UpdateProjectAsync"/>
+    public async Task<ProjectDto?> UpdateProjectAsync(
+        int id, string? name, string? key, string? description, bool? isPrivate, bool? isArchived, CancellationToken ct = default)
+    {
+        var p = await _projects.GetByIdAsync(id, ct);
+        if (p is null) return null;
+
+        if (name is not null)
+        {
+            name = name.Trim();
+            if (name.Length == 0 || name.Length > 200)
+                throw new InvalidValueException("name must be 1-200 characters");
+            p.Name = name;
+        }
+        if (key is not null)
+        {
+            key = key.Trim();
+            if (key.Length == 0) key = null;
+            if (key is not null)
+            {
+                if (key.Length > 20)
+                    throw new InvalidValueException("key must be at most 20 characters");
+                var clash = await _projects.ListAsync(x => x.Key == key && x.Id != id, ct);
+                if (clash.Count != 0)
+                    throw new DuplicateException($"project key '{key}' already exists");
+            }
+            p.Key = key;
+        }
+        if (description is not null) p.Description = description;
+        if (isPrivate is not null) p.IsPrivate = isPrivate.Value;
+        if (isArchived is not null)
+        {
+            p.IsArchived = isArchived.Value;
+            if (isArchived.Value) p.ArchivedAt = DateTime.UtcNow;
+            else { p.ArchivedAt = null; p.ArchivedBy = null; }
+        }
+
+        _projects.Update(p);
+        await _uow.SaveChangesAsync(ct);
+        return ToProjectDto(p);
+    }
+
+    /// <inheritdoc cref="IBoardProvider.DeleteProjectAsync"/>
+    public async Task<bool> DeleteProjectAsync(int id, CancellationToken ct = default)
+    {
+        var project = await _projects.GetByIdAsync(id, ct);
+        if (project is null) return false;
+
+        // Cascade the board hierarchy (mirrors FastAPI delete_project's core scope).
+        // Documents / Proposals / Schedules subsystems are out of .NET scope (P3) and
+        // are a known gap noted in the migration plan.
+        var epics = await _epics.ListAsync(e => e.ProjectId == id, ct);
+        var epicIds = epics.Select(e => e.Id).ToHashSet();
+        var stories = epicIds.Count == 0
+            ? Array.Empty<Story>()
+            : await _stories.ListAsync(s => epicIds.Contains(s.EpicId), ct);
+        var storyIds = stories.Select(s => s.Id).ToHashSet();
+        var tasks = storyIds.Count == 0
+            ? Array.Empty<TaskItem>()
+            : await _tasks.ListAsync(t => t.StoryId != null && storyIds.Contains(t.StoryId.Value), ct);
+
+        foreach (var t in tasks)
+            _comments.RemoveRange(await _comments.ListAsync(c => c.TaskId == t.Id, ct));
+        foreach (var s in stories)
+            _comments.RemoveRange(await _comments.ListAsync(c => c.StoryId == s.Id, ct));
+        foreach (var e in epics)
+            _comments.RemoveRange(await _comments.ListAsync(c => c.EpicId == e.Id, ct));
+
+        _tasks.RemoveRange(tasks);
+        _stories.RemoveRange(stories);
+        _epics.RemoveRange(epics);
+        _members.RemoveRange(await _members.ListAsync(m => m.ProjectId == id, ct));
+        _projects.Remove(project);
+
+        await _uow.SaveChangesAsync(ct);
+        return true;
+    }
+
     // ===================== P1: dashboard / board reads =====================
 
     /// <summary>Cross-project overview. Admin sees all; member sees own; anon sees empty.</summary>

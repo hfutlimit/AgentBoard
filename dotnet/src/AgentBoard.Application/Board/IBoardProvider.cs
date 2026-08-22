@@ -15,6 +15,25 @@ public interface IBoardProvider : IProvider
     Task<IReadOnlyList<ProjectDto>> ListProjectsAsync(CancellationToken ct = default);
     Task<ProjectDto?> GetProjectAsync(int id, CancellationToken ct = default);
 
+    // ---- P2: write operations (mirrors FastAPI projects router) ----
+
+    /// <summary>
+    /// Create a project. <paramref name="name"/> is required (1-200); <paramref name="key"/>
+    /// is optional and truncated to 20; <c>is_private</c> is forced true (FastAPI rule).
+    /// When <paramref name="currentUserId"/> is set, the creator is added as owner.
+    /// Throws <see cref="InvalidValueException"/> on bad input, <see cref="DuplicateException"/>
+    /// on a duplicate key. Returns the created project (201).
+    /// </summary>
+    Task<ProjectDto> CreateProjectAsync(string? name, string? key, string? description, int? currentUserId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Patch a project (name/key/description/is_private/is_archived). Returns null when not found (404).
+    /// </summary>
+    Task<ProjectDto?> UpdateProjectAsync(int id, string? name, string? key, string? description, bool? isPrivate, bool? isArchived, CancellationToken ct = default);
+
+    /// <summary>Delete a project and its board hierarchy. Returns false when not found (404).</summary>
+    Task<bool> DeleteProjectAsync(int id, CancellationToken ct = default);
+
     Task<IReadOnlyList<EpicDto>> ListEpicsAsync(int? projectId, CancellationToken ct = default);
     Task<EpicDto?> GetEpicAsync(int id, CancellationToken ct = default);
 

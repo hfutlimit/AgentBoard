@@ -63,3 +63,21 @@ public sealed record CommentDto(
 public sealed record CommentCreateRequest(
     string? Author,
     string? Content);
+
+/// <summary>Request body for <c>POST /api/projects</c>. Mirrors FastAPI <c>ProjectIn</c>.
+/// Properties are nullable so a missing <c>name</c> reaches the provider (which throws
+/// <see cref="AgentBoard.Domain.Common.InvalidValueException"/> → 422), matching FastAPI's
+/// Pydantic <c>min_length=1</c> validation rather than ASP.NET's implicit [Required] → 400.</summary>
+public sealed record ProjectCreateRequest(
+    string? Name,
+    string? Key,
+    string? Description);
+
+/// <summary>Request body for <c>PATCH /api/projects/{id}</c>. Mirrors FastAPI <c>ProjectPatchExtended</c>.
+/// All fields are optional; a null field means "leave unchanged".</summary>
+public sealed record ProjectPatchRequest(
+    string? Name,
+    string? Key,
+    string? Description,
+    bool? IsPrivate,
+    bool? IsArchived);

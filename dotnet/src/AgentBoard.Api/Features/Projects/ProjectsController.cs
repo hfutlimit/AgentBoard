@@ -57,4 +57,38 @@ public sealed class ProjectsController : BaseController<IBoardProvider>
         var dto = await Provider.ListProjectMembersAsync(id, limit, offset, ct);
         return dto is null ? NotFound(new ApiError($"project {id} not found")) : Ok(dto);
     }
+
+    // ===================== P2b: project writes (mirrors FastAPI projects router) =====================
+
+    [HttpPost]
+    [ProducesResponseType(typeof(AgentBoard.Application.Board.Dtos.ProjectDto), 201)]
+    [ProducesResponseType(typeof(ApiError), 422)]
+    [ProducesResponseType(typeof(ApiError), 409)]
+    public async Task<ActionResult<AgentBoard.Application.Board.Dtos.ProjectDto>> Create(
+        [FromBody] AgentBoard.Application.Board.Dtos.ProjectCreateRequest body, CancellationToken ct)
+    {
+        var dto = await Provider.CreateProjectAsync(body.Name, body.Key, body.Description, CurrentUser.UserId, ct);
+        return StatusCode(StatusCodes.Status201Created, dto);
+    }
+
+    [HttpPatch("{id:int}")]
+    [ProducesResponseType(typeof(AgentBoard.Application.Board.Dtos.ProjectDto), 200)]
+    [ProducesResponseType(typeof(ApiError), 404)]
+    [ProducesResponseType(typeof(ApiError), 422)]
+    [ProducesResponseType(typeof(ApiError), 409)]
+    public async Task<ActionResult<AgentBoard.Application.Board.Dtos.ProjectDto>> Patch(
+        int id, [FromBody] AgentBoard.Application.Board.Dtos.ProjectPatchRequest body, CancellationToken ct)
+    {
+        var dto = await Provider.UpdateProjectAsync(id, body.Name, body.Key, body.Description, body.IsPrivate, body.IsArchived, ct);
+        return dto is null ? NotFound(new ApiError($"project {id} not found")) : Ok(dto);
+    }
+
+    [HttpDelete("{id:int}")]
+    [ProducesResponseType(typeof(OkResult), 200)]
+    [ProducesResponseType(typeof(ApiError), 404)]
+    public async Task<ActionResult> Delete(int id, CancellationToken ct)
+    {
+        var ok = await Provider.DeleteProjectAsync(id, ct);
+        return ok ? Ok(new { ok = true }) : NotFound(new ApiError($"project {id} not found"));
+    }
 }
