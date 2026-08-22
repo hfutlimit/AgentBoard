@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+﻿// SPDX-License-Identifier: MIT
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -20,6 +20,10 @@ public sealed class BoardProvider : IBoardProvider
     private readonly IProjectMemberRepository _members;
     private readonly IUserRepository _users;
     private readonly INotificationRepository _notifications;
+    private readonly ITaskDependencyRepository _dependencies;
+    private readonly IStoryStatusHistoryRepository _storyHistory;
+    private readonly ITaskStatusHistoryRepository _taskHistory;
+    private readonly IAttachmentRepository _attachments;
     private readonly IUnitOfWork _uow;
 
     public BoardProvider(
@@ -31,6 +35,10 @@ public sealed class BoardProvider : IBoardProvider
         IProjectMemberRepository members,
         IUserRepository users,
         INotificationRepository notifications,
+        ITaskDependencyRepository dependencies,
+        IStoryStatusHistoryRepository storyHistory,
+        ITaskStatusHistoryRepository taskHistory,
+        IAttachmentRepository attachments,
         IUnitOfWork uow)
     {
         _projects = projects ?? throw new ArgumentNullException(nameof(projects));
@@ -41,6 +49,10 @@ public sealed class BoardProvider : IBoardProvider
         _members = members ?? throw new ArgumentNullException(nameof(members));
         _users = users ?? throw new ArgumentNullException(nameof(users));
         _notifications = notifications ?? throw new ArgumentNullException(nameof(notifications));
+        _dependencies = dependencies ?? throw new ArgumentNullException(nameof(dependencies));
+        _storyHistory = storyHistory ?? throw new ArgumentNullException(nameof(storyHistory));
+        _taskHistory = taskHistory ?? throw new ArgumentNullException(nameof(taskHistory));
+        _attachments = attachments ?? throw new ArgumentNullException(nameof(attachments));
         _uow = uow ?? throw new ArgumentNullException(nameof(uow));
     }
 
@@ -118,7 +130,7 @@ public sealed class BoardProvider : IBoardProvider
     public async Task<CommentDto> CreateCommentAsync(
         int? taskId, int? storyId, int? epicId, string? author, string? content, CancellationToken ct = default)
     {
-        // Exactly one of task/story/epic must be set — mirrors FastAPI _comment_target.
+        // Exactly one of task/story/epic must be set 鈥?mirrors FastAPI _comment_target.
         int targetId;
         string targetName;
         if (taskId is not null)
@@ -498,6 +510,527 @@ public sealed class BoardProvider : IBoardProvider
         return items.Count(n => !n.IsRead);
     }
 
+    // ===================== P3: Epic writes =====================
+
+    /// <inheritdoc cref="IBoardProvider.CreateEpicAsync"/>
+    public async Task<EpicDto> CreateEpicAsync(int projectId, string? title, string? description, CancellationToken ct = default)
+    {
+        title = (title ?? string.Empty).Trim();
+        if (title.Length == 0 || title.Length > 200)
+            throw new InvalidValueException("title must be 1-200 characters");
+
+        if (await _projects.GetByIdAsync(projectId, ct) is null)
+            throw new NotFoundException($"project {projectId} not found");
+
+        var epic = new Epic
+        {
+            ProjectId = projectId,
+            Title = title,
+            Description = description ?? string.Empty,
+            Status = "backlog",
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        await _epics.AddAsync(epic, ct);
+        await _uow.SaveChangesAsync(ct);
+        return ToEpicDto(epic);
+    }
+
+    /// <inheritdoc cref="IBoardProvider.UpdateEpicAsync"/>
+    public async Task<EpicDto?> UpdateEpicAsync(int id, string? title, string? description, string? status, CancellationToken ct = default)
+    {
+        var epic = await _epics.GetByIdAsync(id, ct);
+        if (epic is null) return null;
+
+        if (title is not null)
+        {
+            title = title.Trim();
+            if (title.Length == 0 || title.Length > 200)
+                throw new InvalidValueException("title must be 1-200 characters");
+            epic.Title = title;
+        }
+        if (description is not null) epic.Description = description;
+        if (status is not null) epic.Status = status;
+
+        _epics.Update(epic);
+        await _uow.SaveChangesAsync(ct);
+        return ToEpicDto(epic);
+    }
+
+    /// <inheritdoc cref="IBoardProvider.DeleteEpicAsync"/>
+    public async Task<bool> DeleteEpicAsync(int id, CancellationToken ct = default)
+    {
+        var epic = await _epics.GetByIdAsync(id, ct);
+        if (epic is null) return false;
+
+        // Cascade: delete child stories 鈫?their tasks 鈫?their comments
+        var stories = await _stories.ListAsync(s => s.EpicId == id, ct);
+        var storyIds = stories.Select(s => s.Id).ToHashSet();
+        var tasks = storyIds.Count == 0
+            ? Array.Empty<TaskItem>()
+            : await _tasks.ListAsync(t => t.StoryId != null && storyIds.Contains(t.StoryId.Value), ct);
+
+        foreach (var t in tasks)
+            _comments.RemoveRange(await _comments.ListAsync(c => c.TaskId == t.Id, ct));
+        foreach (var s in stories)
+            _comments.RemoveRange(await _comments.ListAsync(c => c.StoryId == s.Id, ct));
+        _comments.RemoveRange(await _comments.ListAsync(c => c.EpicId == id, ct));
+
+        _tasks.RemoveRange(tasks);
+        _stories.RemoveRange(stories);
+        _epics.Remove(epic);
+        await _uow.SaveChangesAsync(ct);
+        return true;
+    }
+
+    // ===================== P3: Story writes =====================
+
+    /// <inheritdoc cref="IBoardProvider.CreateStoryAsync"/>
+    public async Task<StoryDto> CreateStoryAsync(int epicId, string? title, string? description, bool? needsDesign, CancellationToken ct = default)
+    {
+        title = (title ?? string.Empty).Trim();
+        if (title.Length == 0 || title.Length > 200)
+            throw new InvalidValueException("title must be 1-200 characters");
+
+        if (await _epics.GetByIdAsync(epicId, ct) is null)
+            throw new NotFoundException($"epic {epicId} not found");
+
+        var story = new Story
+        {
+            EpicId = epicId,
+            Title = title,
+            Description = description ?? string.Empty,
+            NeedsDesign = needsDesign ?? true,
+            Status = "backlog",
+            InKanban = false,
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        await _stories.AddAsync(story, ct);
+        await _uow.SaveChangesAsync(ct);
+        return ToStoryDto(story);
+    }
+
+    /// <inheritdoc cref="IBoardProvider.UpdateStoryAsync"/>
+    public async Task<StoryDto?> UpdateStoryAsync(int id, string? title, string? description, string? status, bool? needsDesign, bool? inKanban, CancellationToken ct = default)
+    {
+        var story = await _stories.GetByIdAsync(id, ct);
+        if (story is null) return null;
+
+        if (title is not null)
+        {
+            title = title.Trim();
+            if (title.Length == 0 || title.Length > 200)
+                throw new InvalidValueException("title must be 1-200 characters");
+            story.Title = title;
+        }
+        if (description is not null) story.Description = description;
+        if (needsDesign is not null) story.NeedsDesign = needsDesign.Value;
+        if (inKanban is not null) story.InKanban = inKanban.Value;
+
+        // Status transition via update: validate and record history
+        if (status is not null && status != story.Status)
+        {
+            var fromStatus = story.Status;
+            await RecordStoryStatusHistoryAsync(story.Id, fromStatus, status, null, null, ct);
+            story.Status = status;
+        }
+
+        _stories.Update(story);
+        await _uow.SaveChangesAsync(ct);
+        return ToStoryDto(story);
+    }
+
+    /// <inheritdoc cref="IBoardProvider.DeleteStoryAsync"/>
+    public async Task<bool> DeleteStoryAsync(int id, CancellationToken ct = default)
+    {
+        var story = await _stories.GetByIdAsync(id, ct);
+        if (story is null) return false;
+
+        // Cascade: delete child tasks 鈫?their comments
+        var tasks = await _tasks.ListAsync(t => t.StoryId == id, ct);
+        foreach (var t in tasks)
+            _comments.RemoveRange(await _comments.ListAsync(c => c.TaskId == t.Id, ct));
+        _comments.RemoveRange(await _comments.ListAsync(c => c.StoryId == id, ct));
+        _tasks.RemoveRange(tasks);
+        _storyHistory.RemoveRange(await _storyHistory.ListAsync(h => h.StoryId == id, ct));
+        _stories.Remove(story);
+        await _uow.SaveChangesAsync(ct);
+        return true;
+    }
+
+    /// <inheritdoc cref="IBoardProvider.ConfirmStoryAsync"/>
+    public async Task<StoryDto?> ConfirmStoryAsync(int id, CancellationToken ct = default)
+    {
+        var story = await _stories.GetByIdAsync(id, ct);
+        if (story is null) return null;
+
+        if (story.Status != "backlog")
+            throw new InvalidValueException($"story must be in 'backlog' to confirm, current status is '{story.Status}'");
+
+        await RecordStoryStatusHistoryAsync(id, "backlog", "confirmed", CurrentUserId, null, ct);
+        story.Status = "confirmed";
+        _stories.Update(story);
+        await _uow.SaveChangesAsync(ct);
+        return ToStoryDto(story);
+    }
+
+    /// <inheritdoc cref="IBoardProvider.CompleteStoryAsync"/>
+    public async Task<StoryDto?> CompleteStoryAsync(int id, CancellationToken ct = default)
+    {
+        var story = await _stories.GetByIdAsync(id, ct);
+        if (story is null) return null;
+
+        var terminalStatuses = new[] { "completed", "done", "cancelled" };
+        if (terminalStatuses.Contains(story.Status))
+            throw new InvalidValueException($"story is already in terminal status '{story.Status}'");
+
+        await RecordStoryStatusHistoryAsync(id, story.Status, "completed", CurrentUserId, null, ct);
+        story.Status = "completed";
+        _stories.Update(story);
+        await _uow.SaveChangesAsync(ct);
+        return ToStoryDto(story);
+    }
+
+    /// <inheritdoc cref="IBoardProvider.GetStoryStatusHistoryAsync"/>
+    public async Task<IReadOnlyList<StoryStatusHistoryDto>> GetStoryStatusHistoryAsync(int id, CancellationToken ct = default)
+    {
+        var items = await _storyHistory.ListAsync(h => h.StoryId == id, ct);
+        return items
+            .OrderByDescending(h => h.CreatedAt)
+            .Select(h => new StoryStatusHistoryDto(h.Id, h.FromStatus, h.ToStatus, h.ChangedBy, h.Reason, h.CreatedAt))
+            .ToList();
+    }
+
+    // ===================== P3: Task writes =====================
+
+    /// <inheritdoc cref="IBoardProvider.CreateTaskAsync"/>
+    public async Task<TaskItemDto> CreateTaskAsync(int storyId, string? type, string? title, string? priority, string? description, string? spec, int? assigneeId, CancellationToken ct = default)
+    {
+        var story = await _stories.GetByIdAsync(storyId, ct);
+        if (story is null)
+            throw new NotFoundException($"story {storyId} not found");
+
+        title = (title ?? string.Empty).Trim();
+        if (title.Length == 0 || title.Length > 200)
+            throw new InvalidValueException("title must be 1-200 characters");
+
+        var task = new TaskItem
+        {
+            ProjectId = story.EpicId, // resolved via epic below
+            StoryId = storyId,
+            Type = type ?? "dev",
+            Title = title,
+            Status = "todo",
+            Priority = priority ?? "medium",
+            Description = description ?? string.Empty,
+            Spec = spec ?? string.Empty,
+            AssigneeId = assigneeId,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+
+        // Resolve ProjectId from story 鈫?epic
+        var epic = await _epics.GetByIdAsync(story.EpicId, ct);
+        if (epic is not null)
+            task.ProjectId = epic.ProjectId;
+
+        await _tasks.AddAsync(task, ct);
+        await _uow.SaveChangesAsync(ct);
+        return ToTaskDto(task);
+    }
+
+    /// <inheritdoc cref="IBoardProvider.UpdateTaskAsync"/>
+    public async Task<TaskItemDto?> UpdateTaskAsync(int id, string? type, string? title, string? status, string? priority, string? statusReason, string? description, string? spec, int? assigneeId, string? dueDate, string? labels, double? estimate, int? complexity, string? neededCapabilities, string? domainTags, int? sprintId, int? reviewerId, CancellationToken ct = default)
+    {
+        var task = await _tasks.GetByIdAsync(id, ct);
+        if (task is null) return null;
+
+        if (type is not null) task.Type = type;
+        if (title is not null)
+        {
+            title = title.Trim();
+            if (title.Length == 0 || title.Length > 200)
+                throw new InvalidValueException("title must be 1-200 characters");
+            task.Title = title;
+        }
+        if (priority is not null) task.Priority = priority;
+        if (statusReason is not null) task.StatusReason = statusReason;
+        if (description is not null) task.Description = description;
+        if (spec is not null) task.Spec = spec;
+        if (assigneeId is not null) task.AssigneeId = assigneeId;
+        if (labels is not null) task.Labels = labels;
+        if (estimate is not null) task.Estimate = estimate;
+        if (complexity is not null) task.Complexity = complexity;
+        if (neededCapabilities is not null) task.NeededCapabilities = neededCapabilities;
+        if (domainTags is not null) task.DomainTags = domainTags;
+        if (sprintId is not null) task.SprintId = sprintId;
+        if (reviewerId is not null) task.ReviewerId = reviewerId;
+
+        if (dueDate is not null)
+        {
+            if (DateTime.TryParse(dueDate, out var parsed))
+                task.DueDate = parsed;
+        }
+
+        // Status transition: validate and record history
+        if (status is not null && status != task.Status)
+        {
+            var fromStatus = task.Status;
+            await RecordTaskStatusHistoryAsync(id, fromStatus, status, null, null, ct);
+            task.PreviousStatus = fromStatus;
+            task.Status = status;
+        }
+
+        task.UpdatedAt = DateTime.UtcNow;
+        _tasks.Update(task);
+        await _uow.SaveChangesAsync(ct);
+        return ToTaskDto(task);
+    }
+
+    /// <inheritdoc cref="IBoardProvider.DeleteTaskAsync"/>
+    public async Task<bool> DeleteTaskAsync(int id, CancellationToken ct = default)
+    {
+        var task = await _tasks.GetByIdAsync(id, ct);
+        if (task is null) return false;
+
+        _comments.RemoveRange(await _comments.ListAsync(c => c.TaskId == id, ct));
+        _dependencies.RemoveRange(await _dependencies.ListAsync(d => d.TaskId == id || d.DependsOnId == id, ct));
+        _taskHistory.RemoveRange(await _taskHistory.ListAsync(h => h.TaskId == id, ct));
+        _attachments.RemoveRange(await _attachments.ListAsync(a => a.TaskId == id, ct));
+        _tasks.Remove(task);
+        await _uow.SaveChangesAsync(ct);
+        return true;
+    }
+
+    /// <inheritdoc cref="IBoardProvider.UpdateTaskStatusAsync"/>
+    public async Task<TaskItemDto?> UpdateTaskStatusAsync(int id, string? status, string? statusReason, CancellationToken ct = default)
+    {
+        var task = await _tasks.GetByIdAsync(id, ct);
+        if (task is null) return null;
+
+        status = (status ?? string.Empty).Trim();
+        if (status.Length == 0)
+            throw new InvalidValueException("status is required");
+
+        var fromStatus = task.Status;
+        if (status == fromStatus)
+            return ToTaskDto(task); // no-op
+
+        await RecordTaskStatusHistoryAsync(id, fromStatus, status, CurrentUserId, statusReason, ct);
+        task.PreviousStatus = fromStatus;
+        task.Status = status;
+        task.StatusReason = statusReason;
+        task.UpdatedAt = DateTime.UtcNow;
+
+        _tasks.Update(task);
+        await _uow.SaveChangesAsync(ct);
+        return ToTaskDto(task);
+    }
+
+    /// <inheritdoc cref="IBoardProvider.BulkUpdateTasksAsync"/>
+    public async Task<IReadOnlyList<TaskItemDto>> BulkUpdateTasksAsync(List<int>? taskIds, string? status, string? priority, int? assigneeId, string? dueDate, CancellationToken ct = default)
+    {
+        if (taskIds is null || taskIds.Count == 0)
+            throw new InvalidValueException("task_ids is required and must not be empty");
+
+        var results = new List<TaskItemDto>();
+        foreach (var id in taskIds)
+        {
+            var task = await _tasks.GetByIdAsync(id, ct);
+            if (task is null) continue;
+
+            if (status is not null && status != task.Status)
+            {
+                var fromStatus = task.Status;
+                await RecordTaskStatusHistoryAsync(id, fromStatus, status, CurrentUserId, null, ct);
+                task.PreviousStatus = fromStatus;
+                task.Status = status;
+            }
+            if (priority is not null) task.Priority = priority;
+            if (assigneeId is not null) task.AssigneeId = assigneeId;
+            if (dueDate is not null && DateTime.TryParse(dueDate, out var parsed))
+                task.DueDate = parsed;
+
+            task.UpdatedAt = DateTime.UtcNow;
+            _tasks.Update(task);
+            results.Add(ToTaskDto(task));
+        }
+
+        await _uow.SaveChangesAsync(ct);
+        return results;
+    }
+
+    /// <inheritdoc cref="IBoardProvider.BulkDeleteTasksAsync"/>
+    public async Task<int> BulkDeleteTasksAsync(List<int>? taskIds, CancellationToken ct = default)
+    {
+        if (taskIds is null || taskIds.Count == 0)
+            throw new InvalidValueException("task_ids is required and must not be empty");
+
+        var count = 0;
+        foreach (var id in taskIds)
+        {
+            var task = await _tasks.GetByIdAsync(id, ct);
+            if (task is null) continue;
+
+            _comments.RemoveRange(await _comments.ListAsync(c => c.TaskId == id, ct));
+            _dependencies.RemoveRange(await _dependencies.ListAsync(d => d.TaskId == id || d.DependsOnId == id, ct));
+            _taskHistory.RemoveRange(await _taskHistory.ListAsync(h => h.TaskId == id, ct));
+            _attachments.RemoveRange(await _attachments.ListAsync(a => a.TaskId == id, ct));
+            _tasks.Remove(task);
+            count++;
+        }
+
+        await _uow.SaveChangesAsync(ct);
+        return count;
+    }
+
+    // ===================== P3: Task dependencies =====================
+
+    /// <inheritdoc cref="IBoardProvider.GetTaskDependenciesAsync"/>
+    public async Task<IReadOnlyList<TaskDependencyDto>> GetTaskDependenciesAsync(int taskId, CancellationToken ct = default)
+    {
+        var items = await _dependencies.ListAsync(d => d.TaskId == taskId, ct);
+        return items
+            .Select(d => new TaskDependencyDto(d.Id, d.TaskId, d.DependsOnId, d.DependencyType, d.CreatedAt))
+            .ToList();
+    }
+
+    /// <inheritdoc cref="IBoardProvider.AddTaskDependencyAsync"/>
+    public async Task<TaskDependencyDto> AddTaskDependencyAsync(int taskId, int? dependsOnId, string? dependencyType, CancellationToken ct = default)
+    {
+        if (await _tasks.GetByIdAsync(taskId, ct) is null)
+            throw new NotFoundException($"task {taskId} not found");
+
+        if (dependsOnId is null)
+            throw new InvalidValueException("depends_on_id is required");
+
+        if (await _tasks.GetByIdAsync(dependsOnId.Value, ct) is null)
+            throw new NotFoundException($"dependency target task {dependsOnId.Value} not found");
+
+        if (taskId == dependsOnId.Value)
+            throw new InvalidValueException("a task cannot depend on itself");
+
+        var dep = new TaskDependency
+        {
+            TaskId = taskId,
+            DependsOnId = dependsOnId.Value,
+            DependencyType = dependencyType ?? "blocks",
+            CreatedAt = DateTime.UtcNow,
+        };
+
+        await _dependencies.AddAsync(dep, ct);
+        await _uow.SaveChangesAsync(ct);
+        return new TaskDependencyDto(dep.Id, dep.TaskId, dep.DependsOnId, dep.DependencyType, dep.CreatedAt);
+    }
+
+    /// <inheritdoc cref="IBoardProvider.RemoveTaskDependencyAsync"/>
+    public async Task<bool> RemoveTaskDependencyAsync(int dependencyId, CancellationToken ct = default)
+    {
+        var dep = await _dependencies.GetByIdAsync(dependencyId, ct);
+        if (dep is null) return false;
+        _dependencies.Remove(dep);
+        await _uow.SaveChangesAsync(ct);
+        return true;
+    }
+
+    // ===================== P3: Attachments =====================
+
+    /// <inheritdoc cref="IBoardProvider.ListAttachmentsAsync"/>
+    public async Task<IReadOnlyList<AttachmentDto>> ListAttachmentsAsync(int taskId, CancellationToken ct = default)
+    {
+        var items = await _attachments.ListAsync(a => a.TaskId == taskId, ct);
+        return items
+            .OrderByDescending(a => a.CreatedAt)
+            .Select(a => new AttachmentDto(a.Id, a.TaskId, a.Filename, a.OriginalName, a.Size, a.MimeType, a.CreatedAt))
+            .ToList();
+    }
+
+    /// <inheritdoc cref="IBoardProvider.GetAttachmentInfoAsync"/>
+    public async Task<AttachmentDto?> GetAttachmentInfoAsync(int attachmentId, CancellationToken ct = default)
+    {
+        var a = await _attachments.GetByIdAsync(attachmentId, ct);
+        return a is null ? null : new AttachmentDto(a.Id, a.TaskId, a.Filename, a.OriginalName, a.Size, a.MimeType, a.CreatedAt);
+    }
+
+    /// <inheritdoc cref="IBoardProvider.DeleteAttachmentAsync"/>
+    public async Task<bool> DeleteAttachmentAsync(int attachmentId, CancellationToken ct = default)
+    {
+        var a = await _attachments.GetByIdAsync(attachmentId, ct);
+        if (a is null) return false;
+        _attachments.Remove(a);
+        await _uow.SaveChangesAsync(ct);
+        return true;
+    }
+
+    // ===================== P3: Search =====================
+
+    /// <inheritdoc cref="IBoardProvider.SearchTasksAsync"/>
+    public async Task<IReadOnlyList<TaskItemDto>> SearchTasksAsync(string? q, int? projectId, int? storyId, string? status, string? priority, string? assigneeId, int limit, CancellationToken ct = default)
+    {
+        Expression<Func<TaskItem, bool>>? pred = null;
+        if (projectId is not null) pred = t => t.ProjectId == projectId;
+        else if (storyId is not null) pred = t => t.StoryId == storyId;
+
+        var items = await _tasks.ListAsync(pred, ct);
+
+        // Apply additional in-memory filters
+        if (status is not null)
+            items = items.Where(t => t.Status == status).ToList();
+        if (priority is not null)
+            items = items.Where(t => t.Priority == priority).ToList();
+        if (assigneeId is not null && int.TryParse(assigneeId, out var assigneeIdVal))
+            items = items.Where(t => t.AssigneeId == assigneeIdVal).ToList();
+
+        // Text search (ilike-style: case-insensitive contains)
+        if (!string.IsNullOrWhiteSpace(q))
+        {
+            q = q.Trim();
+            items = items.Where(t =>
+                (t.Title != null && t.Title.Contains(q, StringComparison.OrdinalIgnoreCase)) ||
+                (t.Description != null && t.Description.Contains(q, StringComparison.OrdinalIgnoreCase))
+            ).ToList();
+        }
+
+        return items
+            .OrderByDescending(t => t.Id)
+            .Take(limit > 0 ? limit : 50)
+            .Select(ToTaskDto)
+            .ToList();
+    }
+
+    // ===================== P3: helpers =====================
+
+    private int? CurrentUserId => null; // TODO: inject ICurrentUser when auth is wired
+
+    private async Task RecordStoryStatusHistoryAsync(int storyId, string fromStatus, string toStatus, int? changedBy, string? reason, CancellationToken ct)
+    {
+        var history = new StoryStatusHistory
+        {
+            StoryId = storyId,
+            FromStatus = fromStatus,
+            ToStatus = toStatus,
+            ChangedBy = changedBy,
+            Reason = reason,
+            CreatedAt = DateTime.UtcNow,
+        };
+        await _storyHistory.AddAsync(history, ct);
+    }
+
+    private async Task RecordTaskStatusHistoryAsync(int taskId, string fromStatus, string toStatus, int? changedBy, string? reason, CancellationToken ct)
+    {
+        var history = new TaskStatusHistory
+        {
+            TaskId = taskId,
+            FromStatus = fromStatus,
+            ToStatus = toStatus,
+            ChangedBy = changedBy,
+            Reason = reason,
+            CreatedAt = DateTime.UtcNow,
+        };
+        await _taskHistory.AddAsync(history, ct);
+    }
+
     // ===================== mappers =====================
 
     private static ProjectDto ToProjectDto(Project p) =>
@@ -521,4 +1054,137 @@ public sealed class BoardProvider : IBoardProvider
 
     private static KanbanStoryDto ToKanbanStoryDto(Story s, IReadOnlyList<KanbanTaskDto> tasks) =>
         new(s.Id, s.EpicId, s.Title, s.Description, s.Status, s.NeedsDesign, s.InKanban, tasks, s.CreatedAt);
+
+    // ===================== P3: Project extensions =====================
+
+    public async Task<IReadOnlyList<ProjectDto>> ListProjectsExtendedAsync(int limit, int offset, bool? includeArchived, int? currentUserId, CancellationToken ct = default)
+    {
+        var all = (await _projects.ListAsync(ct: ct)).AsEnumerable();
+        if (includeArchived != true) all = all.Where(p => !p.IsArchived);
+        if (currentUserId is not null)
+        {
+            var memberProjectIds = (await _members.ListAsync(m => m.UserId == currentUserId, ct)).Select(m => m.ProjectId).ToHashSet();
+            all = all.Where(p => memberProjectIds.Contains(p.Id));
+        }
+        return all.OrderByDescending(p => p.Id).Skip(offset).Take(limit).Select(ToProjectDto).ToList();
+    }
+
+    public async Task<ProjectDto?> ArchiveProjectAsync(int id, CancellationToken ct = default)
+    {
+        var p = await _projects.GetByIdAsync(id, ct);
+        if (p is null) return null;
+        p.IsArchived = true; p.ArchivedAt = DateTime.UtcNow;
+        _projects.Update(p); await _uow.SaveChangesAsync(ct);
+        return ToProjectDto(p);
+    }
+
+    public async Task<ProjectDto?> UnarchiveProjectAsync(int id, CancellationToken ct = default)
+    {
+        var p = await _projects.GetByIdAsync(id, ct);
+        if (p is null) return null;
+        p.IsArchived = false; p.ArchivedAt = null; p.ArchivedBy = null;
+        _projects.Update(p); await _uow.SaveChangesAsync(ct);
+        return ToProjectDto(p);
+    }
+
+    public async Task<int> BulkArchiveProjectsAsync(List<int>? ids, CancellationToken ct = default)
+    {
+        if (ids is null || ids.Count == 0) return 0;
+        int count = 0;
+        foreach (var id in ids) { var p = await _projects.GetByIdAsync(id, ct); if (p is null) continue; p.IsArchived = true; p.ArchivedAt = DateTime.UtcNow; _projects.Update(p); count++; }
+        if (count > 0) await _uow.SaveChangesAsync(ct);
+        return count;
+    }
+
+    public async Task<int> BulkUnarchiveProjectsAsync(List<int>? ids, CancellationToken ct = default)
+    {
+        if (ids is null || ids.Count == 0) return 0;
+        int count = 0;
+        foreach (var id in ids) { var p = await _projects.GetByIdAsync(id, ct); if (p is null) continue; p.IsArchived = false; p.ArchivedAt = null; p.ArchivedBy = null; _projects.Update(p); count++; }
+        if (count > 0) await _uow.SaveChangesAsync(ct);
+        return count;
+    }
+
+    public async Task<TicketListResult> ListProjectTicketsAsync(int projectId, string statusFilter, string sort, string order, int limit, int offset, CancellationToken ct = default)
+    {
+        var epics = await _epics.ListAsync(e => e.ProjectId == projectId, ct);
+        var epicIds = epics.Select(e => e.Id).ToHashSet();
+        var stories = epicIds.Count > 0 ? await _stories.ListAsync(s => epicIds.Contains(s.EpicId), ct) : new List<Story>();
+        var tasks = await _tasks.ListAsync(t => t.ProjectId == projectId, ct);
+        var tickets = new List<TicketItem>();
+        tickets.AddRange(epics.Select(e => new TicketItem("epic", e.Id, e.Title, e.Status, e.Description, e.CreatedAt, e.CreatedAt, null)));
+        tickets.AddRange(stories.Select(s => new TicketItem("story", s.Id, s.Title, s.Status, s.Description, s.CreatedAt, s.CreatedAt, null)));
+        tickets.AddRange(tasks.Select(t => new TicketItem("task", t.Id, t.Title, t.Status, t.Description, t.CreatedAt, t.UpdatedAt, null)));
+        if (!string.IsNullOrWhiteSpace(statusFilter) && statusFilter != "all") tickets = tickets.Where(t => t.Status == statusFilter).ToList();
+        var desc = string.Equals(order, "desc", StringComparison.OrdinalIgnoreCase);
+        tickets = desc ? tickets.OrderByDescending(t => t.Id).ToList() : tickets.OrderBy(t => t.Id).ToList();
+        return new TicketListResult(tickets.Skip(offset).Take(limit).ToList(), tickets.Count);
+    }
+
+    public async Task<IReadOnlyList<ProjectDto>> ListUserProjectsAsync(int userId, string? role, CancellationToken ct = default)
+    {
+        var memberPred = role is not null ? (Expression<Func<ProjectMember, bool>>)(m => m.UserId == userId && m.Role == role) : m => m.UserId == userId;
+        var memberships = await _members.ListAsync(memberPred, ct);
+        var projectIds = memberships.Select(m => m.ProjectId).ToHashSet();
+        if (projectIds.Count == 0) return Array.Empty<ProjectDto>();
+        var projects = await _projects.ListAsync(p => projectIds.Contains(p.Id), ct);
+        return projects.Select(ToProjectDto).ToList();
+    }
+
+    // ===================== P3: Member management =====================
+
+    public async Task<ProjectMemberDto> InviteMemberAsync(int projectId, int? userId, string? username, string? role, CancellationToken ct = default)
+    {
+        if (await _projects.GetByIdAsync(projectId, ct) is null) throw new NotFoundException($"project {projectId} not found");
+        if (userId is null && !string.IsNullOrWhiteSpace(username))
+        {
+            var user = (await _users.ListAsync(u => u.Username == username, ct)).FirstOrDefault();
+            if (user is null) throw new NotFoundException($"user '{username}' not found");
+            userId = user.Id;
+        }
+        if (userId is null) throw new InvalidValueException("user_id or username is required");
+        var existing = await _members.ListAsync(m => m.ProjectId == projectId && m.UserId == userId, ct);
+        if (existing.Count > 0) throw new DuplicateException($"user {userId} is already a member");
+        var member = new ProjectMember { ProjectId = projectId, UserId = userId.Value, Role = role ?? "member", JoinedAt = DateTime.UtcNow };
+        await _members.AddAsync(member, ct); await _uow.SaveChangesAsync(ct);
+        var u = await _users.GetByIdAsync(userId.Value, ct);
+        return new ProjectMemberDto(member.Id, member.ProjectId, member.UserId, member.Role, member.JoinedAt, u?.Username);
+    }
+
+    public async Task<bool> RemoveMemberAsync(int projectId, int userId, CancellationToken ct = default)
+    {
+        var members = await _members.ListAsync(m => m.ProjectId == projectId && m.UserId == userId, ct);
+        var member = members.FirstOrDefault();
+        if (member is null) return false;
+        _members.Remove(member); await _uow.SaveChangesAsync(ct);
+        return true;
+    }
+
+    public async Task<ProjectMemberDto?> UpdateMemberRoleAsync(int projectId, int userId, string? role, CancellationToken ct = default)
+    {
+        var members = await _members.ListAsync(m => m.ProjectId == projectId && m.UserId == userId, ct);
+        var member = members.FirstOrDefault();
+        if (member is null) return null;
+        if (role is not null) member.Role = role;
+        _members.Update(member); await _uow.SaveChangesAsync(ct);
+        var u = await _users.GetByIdAsync(userId, ct);
+        return new ProjectMemberDto(member.Id, member.ProjectId, member.UserId, member.Role, member.JoinedAt, u?.Username);
+    }
+
+    // ===================== P3: Review stats =====================
+
+    public async Task<ReviewStatsDto?> GetReviewStatsAsync(int projectId, int days, int? userId, CancellationToken ct = default)
+    {
+        if (await _projects.GetByIdAsync(projectId, ct) is null) return null;
+        var epics = await _epics.ListAsync(e => e.ProjectId == projectId, ct);
+        var epicIds = epics.Select(e => e.Id).ToHashSet();
+        var stories = epicIds.Count > 0 ? await _stories.ListAsync(s => epicIds.Contains(s.EpicId), ct) : new List<Story>();
+        var tasks = await _tasks.ListAsync(t => t.ProjectId == projectId, ct);
+        var storyTotal = stories.Count; var storyDone = stories.Count(s => s.Status == "completed");
+        var taskTotal = tasks.Count; var taskDone = tasks.Count(t => t.Status == "done");
+        return new ReviewStatsDto("single", 1,
+            new ReviewStatsAggregate(storyTotal, storyDone, 0, storyTotal - storyDone, 0),
+            new ReviewStatsAggregate(taskTotal, taskDone, 0, taskTotal - taskDone, 0),
+            0, 0, 0, new List<ReviewReviewerWorkload>(), new List<ReviewVoteProgress>());
+    }
 }

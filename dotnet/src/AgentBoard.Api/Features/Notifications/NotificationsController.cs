@@ -7,13 +7,23 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace AgentBoard.Api.Features.Notifications;
 
-/// <summary>Notification reads. Mirrors FastAPI <c>/api/notifications</c> (reads only; writes land in P2).</summary>
+/// <summary>Notification reads + writes. Mirrors FastAPI <c>/api/notifications</c>.</summary>
 [ApiController]
 [Route("api/notifications")]
 [Produces("application/json")]
-public sealed class NotificationsController : BaseController<IBoardProvider>
+public sealed class NotificationsController : BaseController
 {
-    public NotificationsController(IBoardProvider provider, ICurrentUser current) : base(provider, current) { }
+    private readonly IBoardProvider _boardProvider;
+    private readonly INotificationProvider _notificationProvider;
+
+    public NotificationsController(
+        IBoardProvider boardProvider,
+        INotificationProvider notificationProvider,
+        ICurrentUser current) : base(current)
+    {
+        _boardProvider = boardProvider ?? throw new ArgumentNullException(nameof(boardProvider));
+        _notificationProvider = notificationProvider ?? throw new ArgumentNullException(nameof(notificationProvider));
+    }
 
     [HttpGet]
     [ProducesResponseType(typeof(AgentBoard.Application.Board.Dtos.NotificationsResult), 200)]
@@ -25,7 +35,7 @@ public sealed class NotificationsController : BaseController<IBoardProvider>
     {
         var uid = CurrentUser.UserId;
         if (uid is null) return Problem(401, "authentication required");
-        return Ok(await Provider.ListNotificationsAsync(uid.Value, limit, offset, unreadOnly, ct));
+        return Ok(await _boardProvider.ListNotificationsAsync(uid.Value, limit, offset, unreadOnly, ct));
     }
 
     [HttpGet("unread-count")]
@@ -35,6 +45,41 @@ public sealed class NotificationsController : BaseController<IBoardProvider>
     {
         var uid = CurrentUser.UserId;
         if (uid is null) return Problem(401, "authentication required");
-        return Ok(new { count = await Provider.GetUnreadNotificationCountAsync(uid.Value, ct) });
+        return Ok(new { count = await _boardProvider.GetUnreadNotificationCountAsync(uid.Value, ct) });
+    }
+
+    [HttpPost("{notifId:int}/read")]
+    [ProducesResponseType(typeof(object), 200)]
+    [ProducesResponseType(typeof(ApiError), 401)]
+    [ProducesResponseType(typeof(ApiError), 404)]
+    public async Task<ActionResult> MarkRead(int notifId, CancellationToken ct)
+    {
+        var uid = CurrentUser.UserId;
+        if (uid is null) return Problem(401, "authentication required");
+        var ok = await _notificationProvider.MarkReadAsync(notifId, uid.Value, ct);
+        return ok ? Ok(new { ok = true }) : NotFound(new ApiError($"notification {notifId} not found"));
+    }
+
+    [HttpPost("read-all")]
+    [ProducesResponseType(typeof(object), 200)]
+    [ProducesResponseType(typeof(ApiError), 401)]
+    public async Task<ActionResult> MarkAllRead(CancellationToken ct)
+    {
+        var uid = CurrentUser.UserId;
+        if (uid is null) return Problem(401, "authentication required");
+        var count = await _notificationProvider.MarkAllReadAsync(uid.Value, ct);
+        return Ok(new { count });
+    }
+
+    [HttpDelete("{notifId:int}")]
+    [ProducesResponseType(typeof(object), 200)]
+    [ProducesResponseType(typeof(ApiError), 401)]
+    [ProducesResponseType(typeof(ApiError), 404)]
+    public async Task<ActionResult> Delete(int notifId, CancellationToken ct)
+    {
+        var uid = CurrentUser.UserId;
+        if (uid is null) return Problem(401, "authentication required");
+        var ok = await _notificationProvider.DeleteNotificationAsync(notifId, uid.Value, ct);
+        return ok ? Ok(new { ok = true }) : NotFound(new ApiError($"notification {notifId} not found"));
     }
 }

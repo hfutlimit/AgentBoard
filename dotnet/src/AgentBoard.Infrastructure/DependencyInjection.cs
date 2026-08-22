@@ -96,6 +96,18 @@ public static class DependencyInjection
         services.AddScoped<ICommentRepository, CommentRepository>();
         services.AddScoped<IProjectMemberRepository, ProjectMemberRepository>();
         services.AddScoped<INotificationRepository, NotificationRepository>();
+        services.AddScoped<ISprintRepository, SprintRepository>();
+        services.AddScoped<IAttachmentRepository, AttachmentRepository>();
+        services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+        services.AddScoped<ITaskDependencyRepository, TaskDependencyRepository>();
+        services.AddScoped<IWebhookConfigRepository, WebhookConfigRepository>();
+        services.AddScoped<IApiKeyRepository, ApiKeyRepository>();
+        services.AddScoped<IDocumentRepository, DocumentRepository>();
+        services.AddScoped<IDocumentRevisionRepository, DocumentRevisionRepository>();
+        services.AddScoped<IDocumentFolderRepository, DocumentFolderRepository>();
+        services.AddScoped<IDocumentCommentRepository, DocumentCommentRepository>();
+        services.AddScoped<IStoryStatusHistoryRepository, StoryStatusHistoryRepository>();
+        services.AddScoped<ITaskStatusHistoryRepository, TaskStatusHistoryRepository>();
 
         // --- Interceptors ------------------------------------------------
         services.AddScoped<AuditFieldsInterceptor>();

@@ -51,4 +51,25 @@ public sealed class AuthProvider : IAuthProvider
 
     public Task ChangePasswordAsync(int uid, string currentPassword, string newPassword, CancellationToken ct = default) =>
         _users.ChangePasswordAsync(uid, currentPassword, newPassword, ct);
+
+    public async Task<AuthSessionDto> RegisterAsync(string? username, string? password, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(username))
+            throw new InvalidValueException("username is required");
+        if (string.IsNullOrWhiteSpace(password) || password.Length < 8)
+            throw new InvalidValueException("password must be at least 8 characters");
+
+        var request = new CreateUserRequest(username.Trim(), password);
+        var userDto = await _users.CreateAsync(request, ct);
+
+        // Issue token for the newly created user.
+        var token = _tokens.IssueToken(userDto.Id);
+        return new AuthSessionDto(userDto.Id, userDto.Username, token);
+    }
+
+    public async Task<UserDto> UpdateProfileAsync(int userId, string? displayName, string? email, string? avatarUrl, CancellationToken ct = default)
+    {
+        await _users.UpdateProfileAsync(userId, displayName, email, avatarUrl, ct);
+        return await GetCurrentAsync(userId, ct);
+    }
 }

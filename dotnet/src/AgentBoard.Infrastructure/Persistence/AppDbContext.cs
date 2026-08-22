@@ -27,6 +27,18 @@ public sealed class AppDbContext : DbContext, IDbContext, IUnitOfWork
     public DbSet<Comment> Comments => Set<Comment>();
     public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<Sprint> Sprints => Set<Sprint>();
+    public DbSet<Attachment> Attachments => Set<Attachment>();
+    public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<TaskDependency> TaskDependencies => Set<TaskDependency>();
+    public DbSet<WebhookConfig> WebhookConfigs => Set<WebhookConfig>();
+    public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+    public DbSet<Document> Documents => Set<Document>();
+    public DbSet<DocumentRevision> DocumentRevisions => Set<DocumentRevision>();
+    public DbSet<DocumentFolder> DocumentFolders => Set<DocumentFolder>();
+    public DbSet<DocumentComment> DocumentComments => Set<DocumentComment>();
+    public DbSet<StoryStatusHistory> StoryStatusHistories => Set<StoryStatusHistory>();
+    public DbSet<TaskStatusHistory> TaskStatusHistories => Set<TaskStatusHistory>();
 
     public new Task<int> SaveChangesAsync(CancellationToken ct = default) =>
         base.SaveChangesAsync(ct);

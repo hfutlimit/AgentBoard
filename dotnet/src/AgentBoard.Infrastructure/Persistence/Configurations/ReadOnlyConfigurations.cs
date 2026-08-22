@@ -162,3 +162,207 @@ public sealed class NotificationConfiguration : ReadOnlyConfiguration<Notificati
         b.HasIndex(e => e.UserId);
     }
 }
+
+// ===== New entity configurations (Phase 0补全) =====
+
+public sealed class SprintConfiguration : ReadOnlyConfiguration<Sprint>
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Sprint> b)
+    {
+        b.ToTable("sprints", t => t.ExcludeFromMigrations());
+        b.Property(e => e.ProjectId).HasColumnName("project_id").IsRequired();
+        b.Property(e => e.Title).HasColumnName("title").HasMaxLength(300).IsRequired();
+        b.Property(e => e.Goal).HasColumnName("goal");
+        b.Property(e => e.Status).HasColumnName("status").HasMaxLength(20).HasDefaultValue("planning");
+        b.Property(e => e.StartDate).HasColumnName("start_date");
+        b.Property(e => e.EndDate).HasColumnName("end_date");
+        b.Property(e => e.CreatedAt).HasColumnName("created_at");
+        b.HasIndex(e => e.ProjectId);
+    }
+}
+
+public sealed class AttachmentConfiguration : ReadOnlyConfiguration<Attachment>
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Attachment> b)
+    {
+        b.ToTable("attachments", t => t.ExcludeFromMigrations());
+        b.Property(e => e.TaskId).HasColumnName("task_id").IsRequired();
+        b.Property(e => e.Filename).HasColumnName("filename").HasMaxLength(255).IsRequired();
+        b.Property(e => e.OriginalName).HasColumnName("original_name").HasMaxLength(500).IsRequired();
+        b.Property(e => e.Size).HasColumnName("size").IsRequired();
+        b.Property(e => e.MimeType).HasColumnName("mime_type").HasMaxLength(200).IsRequired();
+        b.Property(e => e.CreatedAt).HasColumnName("created_at");
+        b.HasIndex(e => e.TaskId);
+    }
+}
+
+public sealed class AuditLogConfiguration : ReadOnlyConfiguration<AuditLog>
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<AuditLog> b)
+    {
+        b.ToTable("audit_logs", t => t.ExcludeFromMigrations());
+        b.Property(e => e.UserId).HasColumnName("user_id");
+        b.Property(e => e.Action).HasColumnName("action").HasMaxLength(50).IsRequired();
+        b.Property(e => e.EntityType).HasColumnName("entity_type").HasMaxLength(30).IsRequired();
+        b.Property(e => e.EntityId).HasColumnName("entity_id");
+        b.Property(e => e.Method).HasColumnName("method").HasMaxLength(10).IsRequired();
+        b.Property(e => e.Path).HasColumnName("path").HasMaxLength(500).IsRequired();
+        b.Property(e => e.IpAddress).HasColumnName("ip_address").HasMaxLength(45);
+        b.Property(e => e.UserAgent).HasColumnName("user_agent").HasMaxLength(500);
+        b.Property(e => e.RequestBody).HasColumnName("request_body");
+        b.Property(e => e.ResponseStatus).HasColumnName("response_status");
+        b.Property(e => e.DurationMs).HasColumnName("duration_ms");
+        b.Property(e => e.CreatedAt).HasColumnName("created_at");
+        b.HasIndex(e => e.UserId);
+        b.HasIndex(e => e.EntityId);
+    }
+}
+
+public sealed class TaskDependencyConfiguration : ReadOnlyConfiguration<TaskDependency>
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<TaskDependency> b)
+    {
+        b.ToTable("task_dependencies", t => t.ExcludeFromMigrations());
+        b.Property(e => e.TaskId).HasColumnName("task_id").IsRequired();
+        b.Property(e => e.DependsOnId).HasColumnName("depends_on_id").IsRequired();
+        b.Property(e => e.DependencyType).HasColumnName("dependency_type").HasMaxLength(20).HasDefaultValue("blocks");
+        b.Property(e => e.CreatedAt).HasColumnName("created_at");
+        b.HasIndex(e => e.TaskId);
+        b.HasIndex(e => e.DependsOnId);
+    }
+}
+
+public sealed class WebhookConfigConfiguration : ReadOnlyConfiguration<WebhookConfig>
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<WebhookConfig> b)
+    {
+        b.ToTable("webhook_configs", t => t.ExcludeFromMigrations());
+        b.Property(e => e.ProjectId).HasColumnName("project_id");
+        b.Property(e => e.Name).HasColumnName("name").HasMaxLength(100).IsRequired();
+        b.Property(e => e.Url).HasColumnName("url").HasMaxLength(2000).IsRequired();
+        b.Property(e => e.Secret).HasColumnName("secret").HasMaxLength(256);
+        b.Property(e => e.Events).HasColumnName("events");
+        b.Property(e => e.Enabled).HasColumnName("enabled").HasDefaultValue(true);
+        b.Property(e => e.CreatedBy).HasColumnName("created_by");
+        b.Property(e => e.CreatedAt).HasColumnName("created_at");
+        b.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+        b.HasIndex(e => e.ProjectId);
+    }
+}
+
+public sealed class ApiKeyConfiguration : ReadOnlyConfiguration<ApiKey>
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<ApiKey> b)
+    {
+        b.ToTable("api_keys", t => t.ExcludeFromMigrations());
+        b.Property(e => e.UserId).HasColumnName("user_id").IsRequired();
+        b.Property(e => e.AgentRegistryId).HasColumnName("agent_registry_id");
+        b.Property(e => e.Name).HasColumnName("name").HasMaxLength(100).IsRequired();
+        b.Property(e => e.KeyPrefix).HasColumnName("key_prefix").HasMaxLength(20).IsRequired();
+        b.Property(e => e.KeyHash).HasColumnName("key_hash").HasMaxLength(256).IsRequired();
+        b.Property(e => e.Scopes).HasColumnName("scopes");
+        b.Property(e => e.Enabled).HasColumnName("enabled").HasDefaultValue(true);
+        b.Property(e => e.LastUsedAt).HasColumnName("last_used_at");
+        b.Property(e => e.CreatedAt).HasColumnName("created_at");
+        b.HasIndex(e => e.UserId);
+    }
+}
+
+public sealed class DocumentConfiguration : ReadOnlyConfiguration<Document>
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Document> b)
+    {
+        b.ToTable("documents", t => t.ExcludeFromMigrations());
+        b.Property(e => e.ProjectId).HasColumnName("project_id").IsRequired();
+        b.Property(e => e.EpicId).HasColumnName("epic_id");
+        b.Property(e => e.StoryId).HasColumnName("story_id");
+        b.Property(e => e.FolderId).HasColumnName("folder_id");
+        b.Property(e => e.Title).HasColumnName("title").HasMaxLength(300).IsRequired();
+        b.Property(e => e.Content).HasColumnName("content");
+        b.Property(e => e.Type).HasColumnName("type").HasMaxLength(20).HasDefaultValue("plan");
+        b.Property(e => e.Status).HasColumnName("status").HasMaxLength(20).HasDefaultValue("draft");
+        b.Property(e => e.AuthorId).HasColumnName("author_id");
+        b.Property(e => e.CurrentRevisionId).HasColumnName("current_revision_id").HasDefaultValue(0);
+        b.Property(e => e.CurrentRevisionNumber).HasColumnName("current_revision_number").HasDefaultValue(0);
+        b.Property(e => e.CreatedAt).HasColumnName("created_at");
+        b.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+        b.HasIndex(e => e.ProjectId);
+        b.HasIndex(e => e.FolderId);
+    }
+}
+
+public sealed class DocumentRevisionConfiguration : ReadOnlyConfiguration<DocumentRevision>
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<DocumentRevision> b)
+    {
+        b.ToTable("document_revisions", t => t.ExcludeFromMigrations());
+        b.Property(e => e.DocumentId).HasColumnName("document_id").IsRequired();
+        b.Property(e => e.RevisionNumber).HasColumnName("revision_number").IsRequired();
+        b.Property(e => e.AuthorId).HasColumnName("author_id");
+        b.Property(e => e.Author).HasColumnName("author").HasMaxLength(100).IsRequired();
+        b.Property(e => e.Content).HasColumnName("content").IsRequired();
+        b.Property(e => e.ChangeNote).HasColumnName("change_note").HasMaxLength(500);
+        b.Property(e => e.CreatedAt).HasColumnName("created_at");
+        b.HasIndex(e => e.DocumentId);
+    }
+}
+
+public sealed class DocumentFolderConfiguration : ReadOnlyConfiguration<DocumentFolder>
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<DocumentFolder> b)
+    {
+        b.ToTable("document_folders", t => t.ExcludeFromMigrations());
+        b.Property(e => e.ProjectId).HasColumnName("project_id").IsRequired();
+        b.Property(e => e.ParentId).HasColumnName("parent_id");
+        b.Property(e => e.Name).HasColumnName("name").HasMaxLength(300).IsRequired();
+        b.Property(e => e.CreatedAt).HasColumnName("created_at");
+        b.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+        b.HasIndex(e => e.ProjectId);
+        b.HasIndex(e => e.ParentId);
+    }
+}
+
+public sealed class DocumentCommentConfiguration : ReadOnlyConfiguration<DocumentComment>
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<DocumentComment> b)
+    {
+        b.ToTable("document_comments", t => t.ExcludeFromMigrations());
+        b.Property(e => e.DocumentId).HasColumnName("document_id").IsRequired();
+        b.Property(e => e.AuthorId).HasColumnName("author_id");
+        b.Property(e => e.Author).HasColumnName("author").HasMaxLength(100).IsRequired();
+        b.Property(e => e.Content).HasColumnName("content").IsRequired();
+        b.Property(e => e.CreatedAt).HasColumnName("created_at");
+        b.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+        b.HasIndex(e => e.DocumentId);
+    }
+}
+
+public sealed class StoryStatusHistoryConfiguration : ReadOnlyConfiguration<StoryStatusHistory>
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<StoryStatusHistory> b)
+    {
+        b.ToTable("story_status_history", t => t.ExcludeFromMigrations());
+        b.Property(e => e.StoryId).HasColumnName("story_id").IsRequired();
+        b.Property(e => e.FromStatus).HasColumnName("from_status").HasMaxLength(40).IsRequired();
+        b.Property(e => e.ToStatus).HasColumnName("to_status").HasMaxLength(40).IsRequired();
+        b.Property(e => e.ChangedBy).HasColumnName("changed_by");
+        b.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(200);
+        b.Property(e => e.CreatedAt).HasColumnName("created_at");
+        b.HasIndex(e => e.StoryId);
+    }
+}
+
+public sealed class TaskStatusHistoryConfiguration : ReadOnlyConfiguration<TaskStatusHistory>
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<TaskStatusHistory> b)
+    {
+        b.ToTable("task_status_history", t => t.ExcludeFromMigrations());
+        b.Property(e => e.TaskId).HasColumnName("task_id").IsRequired();
+        b.Property(e => e.FromStatus).HasColumnName("from_status").HasMaxLength(40).IsRequired();
+        b.Property(e => e.ToStatus).HasColumnName("to_status").HasMaxLength(40).IsRequired();
+        b.Property(e => e.ChangedBy).HasColumnName("changed_by");
+        b.Property(e => e.Reason).HasColumnName("reason").HasMaxLength(200);
+        b.Property(e => e.CreatedAt).HasColumnName("created_at");
+        b.HasIndex(e => e.TaskId);
+    }
+}

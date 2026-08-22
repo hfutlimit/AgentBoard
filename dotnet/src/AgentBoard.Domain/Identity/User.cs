@@ -72,6 +72,14 @@ public sealed class User : Entity, IAuditableEntity
         UpdatedAt = now;
         UpdatedBy = updatedBy;
     }
+
+    public void SetAdminStatus(bool isAdmin, DateTime now, int updatedBy)
+    {
+        if (IsAdmin == isAdmin) return;
+        IsAdmin = isAdmin;
+        UpdatedAt = now;
+        UpdatedBy = updatedBy;
+    }
 }
 
 /// <summary>Raised when a new user record is created.</summary>

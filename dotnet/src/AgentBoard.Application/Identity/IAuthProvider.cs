@@ -17,4 +17,6 @@ public interface IAuthProvider : IProvider
     Task<AuthSessionDto> LoginAsync(string username, string password, CancellationToken ct = default);
     Task<UserDto> GetCurrentAsync(int uid, CancellationToken ct = default);
     Task ChangePasswordAsync(int uid, string currentPassword, string newPassword, CancellationToken ct = default);
+    Task<AuthSessionDto> RegisterAsync(string? username, string? password, CancellationToken ct = default);
+    Task<UserDto> UpdateProfileAsync(int userId, string? displayName, string? email, string? avatarUrl, CancellationToken ct = default);
 }

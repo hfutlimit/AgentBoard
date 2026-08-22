@@ -25,6 +25,15 @@ public static class DependencyInjection
         services.TryAddScoped<IAuthProvider, AuthProvider>();
         services.TryAddScoped<IHealthProvider, HealthProvider>();
         services.TryAddScoped<IBoardProvider, BoardProvider>();
+        // services.TryAddScoped<IDocumentProvider, DocumentProvider>(); // TODO: DocumentProvider implementation not yet created
+        services.TryAddScoped<ISprintProvider, SprintProvider>();
+        services.TryAddScoped<IMemberProvider, MemberProvider>();
+        services.TryAddScoped<INotificationProvider, NotificationProvider>();
+        services.TryAddScoped<IAdminProvider, AdminProvider>();
+        services.TryAddScoped<IAuditProvider, AuditProvider>();
+        services.TryAddScoped<IApiKeyProvider, ApiKeyProvider>();
+        services.TryAddScoped<IWebhookProvider, WebhookProvider>();
+        services.TryAddScoped<ISearchProvider, SearchProvider>();
 
         return services;
     }

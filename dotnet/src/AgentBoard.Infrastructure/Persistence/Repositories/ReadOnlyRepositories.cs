@@ -46,3 +46,77 @@ public sealed class NotificationRepository : Repository<Notification>, INotifica
     public NotificationRepository(AppDbContext db) : base(db) { }
     protected override DbSet<Notification> Set => Db.Set<Notification>();
 }
+
+// ===== New entity repositories (Phase 0补全) =====
+
+public sealed class SprintRepository : Repository<Sprint>, ISprintRepository
+{
+    public SprintRepository(AppDbContext db) : base(db) { }
+    protected override DbSet<Sprint> Set => Db.Set<Sprint>();
+}
+
+public sealed class AttachmentRepository : Repository<Attachment>, IAttachmentRepository
+{
+    public AttachmentRepository(AppDbContext db) : base(db) { }
+    protected override DbSet<Attachment> Set => Db.Set<Attachment>();
+}
+
+public sealed class AuditLogRepository : Repository<AuditLog>, IAuditLogRepository
+{
+    public AuditLogRepository(AppDbContext db) : base(db) { }
+    protected override DbSet<AuditLog> Set => Db.Set<AuditLog>();
+}
+
+public sealed class TaskDependencyRepository : Repository<TaskDependency>, ITaskDependencyRepository
+{
+    public TaskDependencyRepository(AppDbContext db) : base(db) { }
+    protected override DbSet<TaskDependency> Set => Db.Set<TaskDependency>();
+}
+
+public sealed class WebhookConfigRepository : Repository<WebhookConfig>, IWebhookConfigRepository
+{
+    public WebhookConfigRepository(AppDbContext db) : base(db) { }
+    protected override DbSet<WebhookConfig> Set => Db.Set<WebhookConfig>();
+}
+
+public sealed class ApiKeyRepository : Repository<ApiKey>, IApiKeyRepository
+{
+    public ApiKeyRepository(AppDbContext db) : base(db) { }
+    protected override DbSet<ApiKey> Set => Db.Set<ApiKey>();
+}
+
+public sealed class DocumentRepository : Repository<Document>, IDocumentRepository
+{
+    public DocumentRepository(AppDbContext db) : base(db) { }
+    protected override DbSet<Document> Set => Db.Set<Document>();
+}
+
+public sealed class DocumentRevisionRepository : Repository<DocumentRevision>, IDocumentRevisionRepository
+{
+    public DocumentRevisionRepository(AppDbContext db) : base(db) { }
+    protected override DbSet<DocumentRevision> Set => Db.Set<DocumentRevision>();
+}
+
+public sealed class DocumentFolderRepository : Repository<DocumentFolder>, IDocumentFolderRepository
+{
+    public DocumentFolderRepository(AppDbContext db) : base(db) { }
+    protected override DbSet<DocumentFolder> Set => Db.Set<DocumentFolder>();
+}
+
+public sealed class DocumentCommentRepository : Repository<DocumentComment>, IDocumentCommentRepository
+{
+    public DocumentCommentRepository(AppDbContext db) : base(db) { }
+    protected override DbSet<DocumentComment> Set => Db.Set<DocumentComment>();
+}
+
+public sealed class StoryStatusHistoryRepository : Repository<StoryStatusHistory>, IStoryStatusHistoryRepository
+{
+    public StoryStatusHistoryRepository(AppDbContext db) : base(db) { }
+    protected override DbSet<StoryStatusHistory> Set => Db.Set<StoryStatusHistory>();
+}
+
+public sealed class TaskStatusHistoryRepository : Repository<TaskStatusHistory>, ITaskStatusHistoryRepository
+{
+    public TaskStatusHistoryRepository(AppDbContext db) : base(db) { }
+    protected override DbSet<TaskStatusHistory> Set => Db.Set<TaskStatusHistory>();
+}

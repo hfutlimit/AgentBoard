@@ -91,6 +91,19 @@ builder.Services.AddSingleton<ITokenService>(_ => new HmacTokenService(jwtSecret
 // populated by the auth middleware (added in S0-7).
 builder.Services.AddScoped<ICurrentUser, CurrentUserService>();
 
+// CORS: allow Angular dev server (4200) + any local origin for dual-stack dev.
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy
+            .SetIsOriginAllowed(_ => true) // dev: allow all origins; tighten in prod
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
+    });
+});
+
 var app = builder.Build();
 
 // --- Pipeline (order matters!) ---------------------------------------
@@ -109,6 +122,7 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+app.UseCors();
 app.MapControllers();
 
 // Dev + Testing: ensure the SQLite / InMemory schema exists so smoke

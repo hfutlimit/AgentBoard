@@ -75,4 +75,87 @@ public interface IBoardProvider : IProvider
     Task<NotificationsResult> ListNotificationsAsync(int userId, int limit, int offset, bool unreadOnly, CancellationToken ct = default);
 
     Task<int> GetUnreadNotificationCountAsync(int userId, CancellationToken ct = default);
+
+    // ---- P3: Epic writes ----
+
+    Task<EpicDto> CreateEpicAsync(int projectId, string? title, string? description, CancellationToken ct = default);
+    Task<EpicDto?> UpdateEpicAsync(int id, string? title, string? description, string? status, CancellationToken ct = default);
+    Task<bool> DeleteEpicAsync(int id, CancellationToken ct = default);
+
+    // ---- P3: Story writes ----
+
+    Task<StoryDto> CreateStoryAsync(int epicId, string? title, string? description, bool? needsDesign, CancellationToken ct = default);
+    Task<StoryDto?> UpdateStoryAsync(int id, string? title, string? description, string? status, bool? needsDesign, bool? inKanban, CancellationToken ct = default);
+    Task<bool> DeleteStoryAsync(int id, CancellationToken ct = default);
+    Task<StoryDto?> ConfirmStoryAsync(int id, CancellationToken ct = default);
+    Task<StoryDto?> CompleteStoryAsync(int id, CancellationToken ct = default);
+    Task<IReadOnlyList<StoryStatusHistoryDto>> GetStoryStatusHistoryAsync(int id, CancellationToken ct = default);
+
+    // ---- P3: Task writes ----
+
+    Task<TaskItemDto> CreateTaskAsync(int storyId, string? type, string? title, string? priority, string? description, string? spec, int? assigneeId, CancellationToken ct = default);
+    Task<TaskItemDto?> UpdateTaskAsync(int id, string? type, string? title, string? status, string? priority, string? statusReason, string? description, string? spec, int? assigneeId, string? dueDate, string? labels, double? estimate, int? complexity, string? neededCapabilities, string? domainTags, int? sprintId, int? reviewerId, CancellationToken ct = default);
+    Task<bool> DeleteTaskAsync(int id, CancellationToken ct = default);
+    Task<TaskItemDto?> UpdateTaskStatusAsync(int id, string? status, string? statusReason, CancellationToken ct = default);
+    Task<IReadOnlyList<TaskItemDto>> BulkUpdateTasksAsync(List<int>? taskIds, string? status, string? priority, int? assigneeId, string? dueDate, CancellationToken ct = default);
+    Task<int> BulkDeleteTasksAsync(List<int>? taskIds, CancellationToken ct = default);
+
+    // ---- P3: Task dependencies ----
+
+    Task<IReadOnlyList<TaskDependencyDto>> GetTaskDependenciesAsync(int taskId, CancellationToken ct = default);
+    Task<TaskDependencyDto> AddTaskDependencyAsync(int taskId, int? dependsOnId, string? dependencyType, CancellationToken ct = default);
+    Task<bool> RemoveTaskDependencyAsync(int dependencyId, CancellationToken ct = default);
+
+    // ---- P3: Attachments (read-only; upload handled by FastAPI) ----
+
+    Task<IReadOnlyList<AttachmentDto>> ListAttachmentsAsync(int taskId, CancellationToken ct = default);
+    Task<AttachmentDto?> GetAttachmentInfoAsync(int attachmentId, CancellationToken ct = default);
+    Task<bool> DeleteAttachmentAsync(int attachmentId, CancellationToken ct = default);
+
+    // ---- P3: Search extensions ----
+
+    Task<IReadOnlyList<TaskItemDto>> SearchTasksAsync(string? q, int? projectId, int? storyId, string? status, string? priority, string? assigneeId, int limit, CancellationToken ct = default);
+
+    // ---- P3: project extensions ----
+
+    /// <summary>Extended project list with pagination and archive filter.</summary>
+    Task<IReadOnlyList<ProjectDto>> ListProjectsExtendedAsync(
+        int limit, int offset, bool? includeArchived, int? currentUserId, CancellationToken ct = default);
+
+    /// <summary>Archive a project (set IsArchived=true).</summary>
+    Task<ProjectDto?> ArchiveProjectAsync(int id, CancellationToken ct = default);
+
+    /// <summary>Unarchive a project (set IsArchived=false).</summary>
+    Task<ProjectDto?> UnarchiveProjectAsync(int id, CancellationToken ct = default);
+
+    /// <summary>Bulk archive projects by id list.</summary>
+    Task<int> BulkArchiveProjectsAsync(List<int>? ids, CancellationToken ct = default);
+
+    /// <summary>Bulk unarchive projects by id list.</summary>
+    Task<int> BulkUnarchiveProjectsAsync(List<int>? ids, CancellationToken ct = default);
+
+    /// <summary>Unified ticket list for a project (Epics + Stories + Tasks).</summary>
+    Task<TicketListResult> ListProjectTicketsAsync(
+        int projectId, string statusFilter, string sort, string order,
+        int limit, int offset, CancellationToken ct = default);
+
+    /// <summary>Projects the user is a member of.</summary>
+    Task<IReadOnlyList<ProjectDto>> ListUserProjectsAsync(int userId, string? role, CancellationToken ct = default);
+
+    // ---- P3: member management ----
+
+    /// <summary>Invite a member to a project.</summary>
+    Task<ProjectMemberDto> InviteMemberAsync(
+        int projectId, int? userId, string? username, string? role, CancellationToken ct = default);
+
+    /// <summary>Remove a member from a project.</summary>
+    Task<bool> RemoveMemberAsync(int projectId, int userId, CancellationToken ct = default);
+
+    /// <summary>Update a member's role.</summary>
+    Task<ProjectMemberDto?> UpdateMemberRoleAsync(int projectId, int userId, string? role, CancellationToken ct = default);
+
+    // ---- P3: review stats ----
+
+    /// <summary>Get review statistics for a project.</summary>
+    Task<ReviewStatsDto?> GetReviewStatsAsync(int projectId, int days, int? userId, CancellationToken ct = default);
 }
