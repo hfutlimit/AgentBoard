@@ -230,9 +230,14 @@ body {
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  scrollbar-gutter: stable;
 }
 
-html { scroll-behavior: smooth; }
+html { 
+  scroll-behavior: smooth; 
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+}
 
 /* Unified heading typography */
 h1, h2, h3, h4 {
@@ -1483,6 +1488,15 @@ select:focus {
   outline: none;
   border-color: var(--brand-500);
   box-shadow: 0 0 0 3px var(--brand-ring);
+}
+input:not(:placeholder-shown):user-invalid,
+textarea:not(:placeholder-shown):user-invalid {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
+}
+input:not(:placeholder-shown):user-valid,
+textarea:not(:placeholder-shown):user-valid {
+  border-color: var(--success);
 }
 input::placeholder,
 textarea::placeholder { color: var(--text-3); }
