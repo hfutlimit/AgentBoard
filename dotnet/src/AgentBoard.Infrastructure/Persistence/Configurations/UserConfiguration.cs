@@ -24,12 +24,17 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         b.Property(u => u.AvatarUrl).HasColumnName("avatar_url").HasMaxLength(512);
         b.Property(u => u.IsAdmin).HasColumnName("is_admin").HasDefaultValue(false);
 
-        b.Property(u => u.RowVersion).HasColumnName("row_version")
-            .IsConcurrencyToken().ValueGeneratedOnAddOrUpdate();
-
         b.Property(u => u.CreatedAt).HasColumnName("created_at");
-        b.Property(u => u.UpdatedAt).HasColumnName("updated_at");
-        b.Property(u => u.CreatedBy).HasColumnName("created_by");
-        b.Property(u => u.UpdatedBy).HasColumnName("updated_by");
+
+        // The FastAPI `users` table carries no audit/version columns
+        // (created_by, updated_by, updated_at, row_version) and no domain
+        // event storage. Those properties exist on the entity for write-path
+        // parity but MUST NOT be mapped to the shared schema — mapping them
+        // makes every users query throw "no such column: u.created_by".
+        b.Ignore(u => u.UpdatedAt);
+        b.Ignore(u => u.CreatedBy);
+        b.Ignore(u => u.UpdatedBy);
+        b.Ignore(u => u.RowVersion);
+        b.Ignore(u => u.DomainEvents);
     }
 }

@@ -1,12 +1,12 @@
 {
   "/api": {
-    "target": "http://127.0.0.1:58125",
+    "target": "http://127.0.0.1:18099",
     "secure": false,
     "changeOrigin": true,
     "logLevel": "info"
   },
   "/ws": {
-    "target": "http://127.0.0.1:58125",
+    "target": "http://127.0.0.1:18099",
     "secure": false,
     "changeOrigin": true,
     "ws": true,
