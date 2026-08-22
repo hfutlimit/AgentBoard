@@ -55,6 +55,10 @@ public static class OpenTelemetrySetup
                 // ship to. Wiring it up here would pull another NuGet
                 // package; we don't need it for stage 0/1 dev.
                 tb.AddConsoleExporter();
+
+                // Drop sensitive span attributes (Authorization / API key /
+                // cookie / token) before export — #313 masking gate.
+                tb.AddProcessor(new SensitiveAttributeProcessor());
             });
     }
 }

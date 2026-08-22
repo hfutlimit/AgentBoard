@@ -38,6 +38,9 @@ public static class SerilogSetup
               .Enrich.WithProperty("MachineName", Environment.MachineName)
               // Pull trace_id / span_id from the current Activity when present.
               .Enrich.With(new TraceContextEnricher())
+              // Never log raw secret header values (Authorization / Api-Key /
+              // Cookie / ...) when an HttpRequestMessage or headers bag is logged.
+              .Destructure.With<SensitiveHeadersDestructuringPolicy>()
               .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
               .MinimumLevel.Override("Microsoft.Hosting.Lifetime", LogEventLevel.Information)
               .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)

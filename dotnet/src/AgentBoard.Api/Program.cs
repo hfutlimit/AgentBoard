@@ -39,6 +39,19 @@ builder.ConfigureOpenTelemetry();
 
 builder.Services.AddHttpContextAccessor();
 
+// Outbound trace propagation: the FastAPI internal client (Stage 1) carries
+// the same traceparent + X-Request-Id so the .NET -> FastAPI call continues
+// one distributed trace. The handler is a no-op until the client is used.
+builder.Services.AddTransient<TracePropagationDelegatingHandler>();
+var fastApiInternalUrl = Environment.GetEnvironmentVariable("AGENTBOARD_FASTAPI__INTERNALURL")
+    ?? "http://api:8000";
+if (Uri.TryCreate(fastApiInternalUrl, UriKind.Absolute, out var fastApiUri))
+{
+    builder.Services
+        .AddHttpClient("AgentBoardFastApi", c => c.BaseAddress = fastApiUri)
+        .AddHttpMessageHandler<TracePropagationDelegatingHandler>();
+}
+
 builder.Services.AddControllers(options =>
 {
     options.Conventions.Add(new ApiRouteConvention());
