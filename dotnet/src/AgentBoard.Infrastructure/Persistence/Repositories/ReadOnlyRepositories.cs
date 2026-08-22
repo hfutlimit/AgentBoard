@@ -34,3 +34,15 @@ public sealed class CommentRepository : Repository<Comment>, ICommentRepository
     public CommentRepository(AppDbContext db) : base(db) { }
     protected override DbSet<Comment> Set => Db.Set<Comment>();
 }
+
+public sealed class ProjectMemberRepository : Repository<ProjectMember>, IProjectMemberRepository
+{
+    public ProjectMemberRepository(AppDbContext db) : base(db) { }
+    protected override DbSet<ProjectMember> Set => Db.Set<ProjectMember>();
+}
+
+public sealed class NotificationRepository : Repository<Notification>, INotificationRepository
+{
+    public NotificationRepository(AppDbContext db) : base(db) { }
+    protected override DbSet<Notification> Set => Db.Set<Notification>();
+}

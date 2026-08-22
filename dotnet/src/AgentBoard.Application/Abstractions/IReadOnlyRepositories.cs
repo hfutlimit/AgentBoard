@@ -9,3 +9,5 @@ public interface IEpicRepository : IRepository<Epic> { }
 public interface IStoryRepository : IRepository<Story> { }
 public interface ITaskItemRepository : IRepository<TaskItem> { }
 public interface ICommentRepository : IRepository<Comment> { }
+public interface IProjectMemberRepository : IRepository<ProjectMember> { }
+public interface INotificationRepository : IRepository<Notification> { }

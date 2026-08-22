@@ -132,3 +132,33 @@ public sealed class CommentConfiguration : ReadOnlyConfiguration<Comment>
         b.HasIndex(e => e.EpicId);
     }
 }
+
+public sealed class ProjectMemberConfiguration : ReadOnlyConfiguration<ProjectMember>
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<ProjectMember> b)
+    {
+        b.ToTable("project_members", t => t.ExcludeFromMigrations());
+        b.Property(e => e.ProjectId).HasColumnName("project_id").IsRequired();
+        b.Property(e => e.UserId).HasColumnName("user_id").IsRequired();
+        b.Property(e => e.Role).HasColumnName("role").HasMaxLength(20).HasDefaultValue("member");
+        b.Property(e => e.JoinedAt).HasColumnName("joined_at");
+        b.HasIndex(e => e.ProjectId);
+        b.HasIndex(e => e.UserId);
+    }
+}
+
+public sealed class NotificationConfiguration : ReadOnlyConfiguration<Notification>
+{
+    protected override void ConfigureEntity(EntityTypeBuilder<Notification> b)
+    {
+        b.ToTable("notifications", t => t.ExcludeFromMigrations());
+        b.Property(e => e.UserId).HasColumnName("user_id").IsRequired();
+        b.Property(e => e.Type).HasColumnName("type").HasMaxLength(30).IsRequired();
+        b.Property(e => e.Title).HasColumnName("title").HasMaxLength(300).IsRequired();
+        b.Property(e => e.Content).HasColumnName("content");
+        b.Property(e => e.IsRead).HasColumnName("is_read").HasDefaultValue(false);
+        b.Property(e => e.Link).HasColumnName("link").HasMaxLength(500);
+        b.Property(e => e.CreatedAt).HasColumnName("created_at");
+        b.HasIndex(e => e.UserId);
+    }
+}

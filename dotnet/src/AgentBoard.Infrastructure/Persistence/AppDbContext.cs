@@ -25,6 +25,8 @@ public sealed class AppDbContext : DbContext, IDbContext, IUnitOfWork
     public DbSet<Story> Stories => Set<Story>();
     public DbSet<TaskItem> Tasks => Set<TaskItem>();
     public DbSet<Comment> Comments => Set<Comment>();
+    public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     public new Task<int> SaveChangesAsync(CancellationToken ct = default) =>
         base.SaveChangesAsync(ct);

@@ -94,6 +94,8 @@ public static class DependencyInjection
         services.AddScoped<IStoryRepository, StoryRepository>();
         services.AddScoped<ITaskItemRepository, TaskItemRepository>();
         services.AddScoped<ICommentRepository, CommentRepository>();
+        services.AddScoped<IProjectMemberRepository, ProjectMemberRepository>();
+        services.AddScoped<INotificationRepository, NotificationRepository>();
 
         // --- Interceptors ------------------------------------------------
         services.AddScoped<AuditFieldsInterceptor>();

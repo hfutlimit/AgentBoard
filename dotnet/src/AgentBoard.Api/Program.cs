@@ -20,6 +20,7 @@ using AgentBoard.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ApplicationModels;
+using System.Text.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -57,7 +58,11 @@ builder.Services.AddControllers(options =>
 {
     options.Conventions.Add(new ApiRouteConvention());
     options.Filters.Add<DomainExceptionFilter>();
-});
+})
+// FastAPI serializes every response in snake_case (pydantic default). The .NET
+// BFF must emit the identical wire format so the front-end contract is frozen
+// across the dual-stack transition — no per-handler translation needed.
+.AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
 builder.Services.AddOpenApi();
 
 // Application layer (Services + Provider interfaces) — registrations

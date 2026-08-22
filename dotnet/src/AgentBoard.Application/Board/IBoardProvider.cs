@@ -26,4 +26,19 @@ public interface IBoardProvider : IProvider
     Task<IReadOnlyList<CommentDto>> ListCommentsAsync(
         int? taskId, int? storyId, int? epicId, CancellationToken ct = default);
     Task<CommentDto?> GetCommentAsync(int id, CancellationToken ct = default);
+
+    // ---- P1: dashboard / board reads (mirrors FastAPI aggregation endpoints) ----
+
+    /// <summary>Cross-project overview. Admin sees all; member sees own; anon sees empty.</summary>
+    Task<OverviewDto> GetOverviewAsync(int? currentUserId, bool isAdmin, CancellationToken ct = default);
+
+    Task<ProjectStatsDto?> GetProjectStatsAsync(int projectId, CancellationToken ct = default);
+
+    Task<KanbanDto?> GetProjectKanbanAsync(int projectId, bool includeAll, CancellationToken ct = default);
+
+    Task<ProjectMembersResult?> ListProjectMembersAsync(int projectId, int limit, int offset, CancellationToken ct = default);
+
+    Task<NotificationsResult> ListNotificationsAsync(int userId, int limit, int offset, bool unreadOnly, CancellationToken ct = default);
+
+    Task<int> GetUnreadNotificationCountAsync(int userId, CancellationToken ct = default);
 }
