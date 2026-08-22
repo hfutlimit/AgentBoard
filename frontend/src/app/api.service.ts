@@ -536,7 +536,13 @@ export class ApiService {
       'GET', `/api/stories/${id}/status-history`);
   }
   listAgents() {
-    return this.request<AgentRow[]>('GET', '/api/agents');
+    // Stage 2 follow-up: .NET BFF does not yet implement /api/agents*
+    // (commit 228740d skipped the Scheduling module). Until AgentsController
+    // lands, return an empty list so the login shell does not show a 404
+    // toast. MembersTab will render "暂未就绪" instead of a hard error.
+    return this.request<AgentRow[]>('GET', '/api/agents').pipe(
+      catchError(() => of([] as AgentRow[]))
+    );
   }
   registerAgent(body: Partial<AgentRow>) {
     return this.request<AgentRow>('POST', '/api/agents/register', body);

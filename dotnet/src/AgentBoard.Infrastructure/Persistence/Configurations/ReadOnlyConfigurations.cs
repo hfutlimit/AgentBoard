@@ -7,13 +7,25 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 namespace AgentBoard.Infrastructure.Persistence.Configurations;
 
 /// <summary>
-/// Base mapping for read-only entities that mirror FastAPI/Alembic-owned
-/// tables. The entities inherit <see cref="Entity"/> (for the generic
+/// Base mapping for entities that mirror FastAPI/Alembic-owned tables.
+/// The entities inherit <see cref="Entity"/> (for the generic
 /// <c>IRepository&lt;T&gt;</c> contract) but the framework-owned columns
 /// <c>row_version</c> and <c>DomainEvents</c> do not exist in the shared
-/// schema, so they are ignored. The <c>ToTable(...)</c> overload with
-/// <c>ExcludeFromMigrations</c> keeps EF from emitting DDL — the ADR rule
-/// "shared tables are owned by Alembic".
+/// schema, so they are ignored.
+///
+/// Schema ownership (dual-stack ADR):
+///   - Production: shared MariaDB schema is owned by the Python Alembic
+///     operator; .NET BFF never runs <c>Database.Migrate</c> or
+///     <c>EnsureCreated</c> on prod (gated by
+///     <c>Program.cs:134</c> env check). Do NOT run
+///     <c>dotnet ef migrations add</c> for these entities — the resulting
+///     DDL would drift from the Alembic source of truth.
+///   - Dev / Testing: the .NET BFF boots a SQLite shadow database and
+///     calls <c>EnsureCreated</c>; the resulting tables MUST be kept in
+///     lock-step with the FastAPI schema (see <c>openspec/changes/
+///     dual-stack-bff-restructure/schema-ownership.md</c>). Whenever you
+///     add a new <c>ReadOnlyConfiguration</c> here, mirror the change in
+///     the FastAPI alembic migration on the same day.
 /// </summary>
 public abstract class ReadOnlyConfiguration<T> : IEntityTypeConfiguration<T>
     where T : Entity
@@ -35,7 +47,7 @@ public sealed class ProjectConfiguration : ReadOnlyConfiguration<Project>
 {
     protected override void ConfigureEntity(EntityTypeBuilder<Project> b)
     {
-        b.ToTable("projects", t => t.ExcludeFromMigrations());
+        b.ToTable("projects");
         b.Property(e => e.Name).HasColumnName("name").HasMaxLength(200).IsRequired();
         b.Property(e => e.Key).HasColumnName("key").HasMaxLength( 20);
         b.Property(e => e.Description).HasColumnName("description");
@@ -52,7 +64,7 @@ public sealed class EpicConfiguration : ReadOnlyConfiguration<Epic>
 {
     protected override void ConfigureEntity(EntityTypeBuilder<Epic> b)
     {
-        b.ToTable("epics", t => t.ExcludeFromMigrations());
+        b.ToTable("epics");
         b.Property(e => e.ProjectId).HasColumnName("project_id");
         b.Property(e => e.Title).HasColumnName("title").HasMaxLength(300).IsRequired();
         b.Property(e => e.Description).HasColumnName("description");
@@ -66,7 +78,7 @@ public sealed class StoryConfiguration : ReadOnlyConfiguration<Story>
 {
     protected override void ConfigureEntity(EntityTypeBuilder<Story> b)
     {
-        b.ToTable("stories", t => t.ExcludeFromMigrations());
+        b.ToTable("stories");
         b.Property(e => e.EpicId).HasColumnName("epic_id");
         b.Property(e => e.Title).HasColumnName("title").HasMaxLength( 300).IsRequired();
         b.Property(e => e.Description).HasColumnName("description");
@@ -84,7 +96,7 @@ public sealed class TaskItemConfiguration : ReadOnlyConfiguration<TaskItem>
 {
     protected override void ConfigureEntity(EntityTypeBuilder<TaskItem> b)
     {
-        b.ToTable("tasks", t => t.ExcludeFromMigrations());
+        b.ToTable("tasks");
         b.Property(e => e.ProjectId).HasColumnName("project_id");
         b.Property(e => e.StoryId).HasColumnName("story_id");
         b.Property(e => e.SprintId).HasColumnName("sprint_id");
@@ -119,7 +131,7 @@ public sealed class CommentConfiguration : ReadOnlyConfiguration<Comment>
 {
     protected override void ConfigureEntity(EntityTypeBuilder<Comment> b)
     {
-        b.ToTable("comments", t => t.ExcludeFromMigrations());
+        b.ToTable("comments");
         b.Property(e => e.TaskId).HasColumnName("task_id");
         b.Property(e => e.StoryId).HasColumnName("story_id");
         b.Property(e => e.EpicId).HasColumnName("epic_id");
@@ -137,7 +149,7 @@ public sealed class ProjectMemberConfiguration : ReadOnlyConfiguration<ProjectMe
 {
     protected override void ConfigureEntity(EntityTypeBuilder<ProjectMember> b)
     {
-        b.ToTable("project_members", t => t.ExcludeFromMigrations());
+        b.ToTable("project_members");
         b.Property(e => e.ProjectId).HasColumnName("project_id").IsRequired();
         b.Property(e => e.UserId).HasColumnName("user_id").IsRequired();
         b.Property(e => e.Role).HasColumnName("role").HasMaxLength(20).HasDefaultValue("member");
@@ -151,7 +163,7 @@ public sealed class NotificationConfiguration : ReadOnlyConfiguration<Notificati
 {
     protected override void ConfigureEntity(EntityTypeBuilder<Notification> b)
     {
-        b.ToTable("notifications", t => t.ExcludeFromMigrations());
+        b.ToTable("notifications");
         b.Property(e => e.UserId).HasColumnName("user_id").IsRequired();
         b.Property(e => e.Type).HasColumnName("type").HasMaxLength(30).IsRequired();
         b.Property(e => e.Title).HasColumnName("title").HasMaxLength(300).IsRequired();
@@ -169,7 +181,7 @@ public sealed class SprintConfiguration : ReadOnlyConfiguration<Sprint>
 {
     protected override void ConfigureEntity(EntityTypeBuilder<Sprint> b)
     {
-        b.ToTable("sprints", t => t.ExcludeFromMigrations());
+        b.ToTable("sprints");
         b.Property(e => e.ProjectId).HasColumnName("project_id").IsRequired();
         b.Property(e => e.Title).HasColumnName("title").HasMaxLength(300).IsRequired();
         b.Property(e => e.Goal).HasColumnName("goal");
@@ -185,7 +197,7 @@ public sealed class AttachmentConfiguration : ReadOnlyConfiguration<Attachment>
 {
     protected override void ConfigureEntity(EntityTypeBuilder<Attachment> b)
     {
-        b.ToTable("attachments", t => t.ExcludeFromMigrations());
+        b.ToTable("attachments");
         b.Property(e => e.TaskId).HasColumnName("task_id").IsRequired();
         b.Property(e => e.Filename).HasColumnName("filename").HasMaxLength(255).IsRequired();
         b.Property(e => e.OriginalName).HasColumnName("original_name").HasMaxLength(500).IsRequired();
@@ -200,7 +212,7 @@ public sealed class AuditLogConfiguration : ReadOnlyConfiguration<AuditLog>
 {
     protected override void ConfigureEntity(EntityTypeBuilder<AuditLog> b)
     {
-        b.ToTable("audit_logs", t => t.ExcludeFromMigrations());
+        b.ToTable("audit_logs");
         b.Property(e => e.UserId).HasColumnName("user_id");
         b.Property(e => e.Action).HasColumnName("action").HasMaxLength(50).IsRequired();
         b.Property(e => e.EntityType).HasColumnName("entity_type").HasMaxLength(30).IsRequired();
@@ -222,7 +234,7 @@ public sealed class TaskDependencyConfiguration : ReadOnlyConfiguration<TaskDepe
 {
     protected override void ConfigureEntity(EntityTypeBuilder<TaskDependency> b)
     {
-        b.ToTable("task_dependencies", t => t.ExcludeFromMigrations());
+        b.ToTable("task_dependencies");
         b.Property(e => e.TaskId).HasColumnName("task_id").IsRequired();
         b.Property(e => e.DependsOnId).HasColumnName("depends_on_id").IsRequired();
         b.Property(e => e.DependencyType).HasColumnName("dependency_type").HasMaxLength(20).HasDefaultValue("blocks");
@@ -236,7 +248,7 @@ public sealed class WebhookConfigConfiguration : ReadOnlyConfiguration<WebhookCo
 {
     protected override void ConfigureEntity(EntityTypeBuilder<WebhookConfig> b)
     {
-        b.ToTable("webhook_configs", t => t.ExcludeFromMigrations());
+        b.ToTable("webhook_configs");
         b.Property(e => e.ProjectId).HasColumnName("project_id");
         b.Property(e => e.Name).HasColumnName("name").HasMaxLength(100).IsRequired();
         b.Property(e => e.Url).HasColumnName("url").HasMaxLength(2000).IsRequired();
@@ -254,7 +266,7 @@ public sealed class ApiKeyConfiguration : ReadOnlyConfiguration<ApiKey>
 {
     protected override void ConfigureEntity(EntityTypeBuilder<ApiKey> b)
     {
-        b.ToTable("api_keys", t => t.ExcludeFromMigrations());
+        b.ToTable("api_keys");
         b.Property(e => e.UserId).HasColumnName("user_id").IsRequired();
         b.Property(e => e.AgentRegistryId).HasColumnName("agent_registry_id");
         b.Property(e => e.Name).HasColumnName("name").HasMaxLength(100).IsRequired();
@@ -272,7 +284,7 @@ public sealed class DocumentConfiguration : ReadOnlyConfiguration<Document>
 {
     protected override void ConfigureEntity(EntityTypeBuilder<Document> b)
     {
-        b.ToTable("documents", t => t.ExcludeFromMigrations());
+        b.ToTable("documents");
         b.Property(e => e.ProjectId).HasColumnName("project_id").IsRequired();
         b.Property(e => e.EpicId).HasColumnName("epic_id");
         b.Property(e => e.StoryId).HasColumnName("story_id");
@@ -295,7 +307,7 @@ public sealed class DocumentRevisionConfiguration : ReadOnlyConfiguration<Docume
 {
     protected override void ConfigureEntity(EntityTypeBuilder<DocumentRevision> b)
     {
-        b.ToTable("document_revisions", t => t.ExcludeFromMigrations());
+        b.ToTable("document_revisions");
         b.Property(e => e.DocumentId).HasColumnName("document_id").IsRequired();
         b.Property(e => e.RevisionNumber).HasColumnName("revision_number").IsRequired();
         b.Property(e => e.AuthorId).HasColumnName("author_id");
@@ -311,7 +323,7 @@ public sealed class DocumentFolderConfiguration : ReadOnlyConfiguration<Document
 {
     protected override void ConfigureEntity(EntityTypeBuilder<DocumentFolder> b)
     {
-        b.ToTable("document_folders", t => t.ExcludeFromMigrations());
+        b.ToTable("document_folders");
         b.Property(e => e.ProjectId).HasColumnName("project_id").IsRequired();
         b.Property(e => e.ParentId).HasColumnName("parent_id");
         b.Property(e => e.Name).HasColumnName("name").HasMaxLength(300).IsRequired();
@@ -326,7 +338,7 @@ public sealed class DocumentCommentConfiguration : ReadOnlyConfiguration<Documen
 {
     protected override void ConfigureEntity(EntityTypeBuilder<DocumentComment> b)
     {
-        b.ToTable("document_comments", t => t.ExcludeFromMigrations());
+        b.ToTable("document_comments");
         b.Property(e => e.DocumentId).HasColumnName("document_id").IsRequired();
         b.Property(e => e.AuthorId).HasColumnName("author_id");
         b.Property(e => e.Author).HasColumnName("author").HasMaxLength(100).IsRequired();
@@ -341,7 +353,7 @@ public sealed class StoryStatusHistoryConfiguration : ReadOnlyConfiguration<Stor
 {
     protected override void ConfigureEntity(EntityTypeBuilder<StoryStatusHistory> b)
     {
-        b.ToTable("story_status_history", t => t.ExcludeFromMigrations());
+        b.ToTable("story_status_history");
         b.Property(e => e.StoryId).HasColumnName("story_id").IsRequired();
         b.Property(e => e.FromStatus).HasColumnName("from_status").HasMaxLength(40).IsRequired();
         b.Property(e => e.ToStatus).HasColumnName("to_status").HasMaxLength(40).IsRequired();
@@ -356,7 +368,7 @@ public sealed class TaskStatusHistoryConfiguration : ReadOnlyConfiguration<TaskS
 {
     protected override void ConfigureEntity(EntityTypeBuilder<TaskStatusHistory> b)
     {
-        b.ToTable("task_status_history", t => t.ExcludeFromMigrations());
+        b.ToTable("task_status_history");
         b.Property(e => e.TaskId).HasColumnName("task_id").IsRequired();
         b.Property(e => e.FromStatus).HasColumnName("from_status").HasMaxLength(40).IsRequired();
         b.Property(e => e.ToStatus).HasColumnName("to_status").HasMaxLength(40).IsRequired();
