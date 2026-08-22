@@ -2930,10 +2930,9 @@ export class App implements OnInit, OnDestroy {
     } catch (error) {
       // Render auth errors inside the login card (next to the submit button)
       // instead of the bottom-right corner toast — the toast is too far from
-      // the form to be noticed after a failed submit.
-      this.authError.set(
-        `${this.authMode() === 'register' ? '注册' : '登录'}失败：${this.message(error)}`,
-      );
+      // the form to be noticed after a failed submit. Use i18n so the user
+      // never sees the raw backend English (e.g. "invalid credentials").
+      this.authError.set(this.authErrorMessage(error, this.authMode()));
     } finally {
       this.submitting.set(false);
     }
@@ -5548,6 +5547,42 @@ export class App implements OnInit, OnDestroy {
 
   private message(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+  }
+
+  /**
+   * Translate a backend auth error into a user-friendly Chinese message.
+   *
+   * .NET BFF DomainExceptionFilter maps:
+   *   InvalidValueException → 422
+   *   DuplicateException    → 409
+   *   NotFoundException     → 404
+   *   IllegalTransition     → 400
+   * Anything else (network / 5xx) falls through to the raw backend text.
+   */
+  private authErrorMessage(error: unknown, mode: 'login' | 'register'): string {
+    const status = (error as (Error & { status?: number }))?.status;
+    const raw = this.message(error) || '';
+    const lower = raw.toLowerCase();
+    if (mode === 'login') {
+      // The .NET AuthProvider throws InvalidValueException("invalid credentials")
+      // for both "user not found" and "password mismatch" (anti-enumeration).
+      if (status === 422 && (lower.includes('invalid credentials') || lower.includes('username and password'))) {
+        return '用户名或密码错误';
+      }
+      if (status === 404) return '用户不存在';
+      if (status === 0 || status === undefined) return '网络连接失败，请重试';
+    } else {
+      if (status === 409) return '该用户名已被注册';
+      if (status === 422) {
+        if (lower.includes('at least 8')) return '密码长度至少 8 位';
+        if (lower.includes('username is required')) return '请输入用户名';
+        if (lower.includes('password')) return '请检查密码格式';
+        return '请检查输入的用户名和密码';
+      }
+      if (status === 0 || status === undefined) return '网络连接失败，请重试';
+    }
+    // Fallback: keep the original (English) text so the user still sees the reason.
+    return raw || (mode === 'login' ? '登录失败，请稍后重试' : '注册失败，请稍后重试');
   }
 
   /* ---------- Epic 22: Task Dependencies ---------- */
