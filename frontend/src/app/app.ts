@@ -20,6 +20,7 @@ import { AccountSettingsComponent } from './account-settings/account-settings';
 import { WorkspaceTopbarComponent } from './workspace-topbar/workspace-topbar';
 import { WorkspaceHeadingComponent } from './workspace-heading/workspace-heading';
 import { ProjectDataService } from './services/project-data.service';
+import { WorkspaceEntityTabKind, WorkspaceTabsService } from './services/workspace-tabs.service';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'global-stats' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
@@ -1371,6 +1372,7 @@ export class App implements OnInit, OnDestroy {
     readonly api: ApiService,
     private readonly router: Router,
     private readonly projectData: ProjectDataService,
+    private readonly workspaceTabs: WorkspaceTabsService,
     @Inject(DOCUMENT) private readonly document: Document,
   ) {
     this.projectData.bindWorkspaceHost(this);
@@ -1679,7 +1681,14 @@ export class App implements OnInit, OnDestroy {
   }
 
   private projectSection(): string {
-    return this.router.url.split('?')[0].split('/').filter(Boolean)[2] || 'overview';
+    return this.activePathname().split('/').filter(Boolean)[2] || 'overview';
+  }
+
+  /** Workspace tabs may update history silently; tests and non-workspace routes still use Router.url. */
+  private activePathname(): string {
+    const browserPath = window.location.pathname;
+    if (browserPath.startsWith('/project/')) return browserPath;
+    return this.router.url.split('?')[0];
   }
 
   /** 设置页左侧菜单子标签（替代原设置 dropdown） */
@@ -1699,6 +1708,11 @@ export class App implements OnInit, OnDestroy {
 
   /** 项目介绍卡片：跳转到 Epic 详情 */
   goEpic(epicId: number): void {
+    const workspaceProjectId = this.project()?.id;
+    if (workspaceProjectId && this.activePathname().startsWith(`/project/${workspaceProjectId}`)) {
+      void this.openWorkspaceEntity('epic', epicId);
+      return;
+    }
     this.view.set('epic');
     this.epicTab.set('detail');
     // 参照路由切换 epic：拉取 epic + stories + comments
@@ -1712,6 +1726,124 @@ export class App implements OnInit, OnDestroy {
       this.epicComments.set(epicComments);
       this.project.set(await firstValueFrom(this.api.getProject(epic.project_id)));
     }).catch(() => { /* 静默：toast 由既有错误处理兜底 */ });
+  }
+
+  /** 在项目工作台内加载 Epic 详情，不切换根级 view。 */
+  async loadWorkspaceEpicDetail(epicId: number): Promise<void> {
+    this.epicTab.set('detail');
+    this.epicEditOpen.set(false);
+    this.epic.set(null);
+    const [epic, stories, epicComments] = await Promise.all([
+      firstValueFrom(this.api.getEpic(epicId)),
+      firstValueFrom(this.api.listStories(epicId)),
+      firstValueFrom(this.api.listEpicComments(epicId)),
+    ]);
+    this.epic.set(epic);
+    this.stories.set(stories);
+    this.epicComments.set(epicComments);
+  }
+
+  /** 工作台切换 Proposal Tab 时先清理上一个实体的瞬时 UI，避免短暂串页。 */
+  async loadWorkspaceProposalDetail(proposalId: number): Promise<void> {
+    this.stopTicketPolling();
+    this.proposalRoundDetail.set(null);
+    this.proposalItem.set(null);
+    await this.loadProposalDetail(proposalId);
+  }
+
+  /** Load a Story inside the project shell without switching the root view. */
+  async loadWorkspaceStoryDetail(storyId: number): Promise<void> {
+    this.storyTab.set('detail');
+    this.storyTaskPage.set(1);
+    this.story.set(null);
+    this.tasks.set([]);
+    this.storyComments.set([]);
+    const story = await firstValueFrom(this.api.getStory(storyId));
+    const [epic, storyComments] = await Promise.all([
+      firstValueFrom(this.api.getEpic(story.epic_id)),
+      firstValueFrom(this.api.listStoryComments(storyId)),
+    ]);
+    const projectId = this.project()?.id;
+    if (projectId && epic.project_id !== projectId) throw new Error('Story does not belong to this project');
+    this.story.set(story);
+    this.epic.set(epic);
+    this.storyComments.set(storyComments);
+    await Promise.all([
+      this.loadStoryTasks(storyId, 1),
+      this.loadMembers(epic.project_id),
+    ]);
+  }
+
+  /** Load a Task inside the project shell without switching the root view. */
+  async loadWorkspaceTaskDetail(taskId: number): Promise<void> {
+    this.task.set(null);
+    this.comments.set([]);
+    this.attachments.set([]);
+    const [task, comments] = await Promise.all([
+      firstValueFrom(this.api.getTask(taskId)),
+      firstValueFrom(this.api.listComments(taskId)),
+    ]);
+    const projectId = this.project()?.id;
+    if (projectId && task.project_id !== projectId) throw new Error('Task does not belong to this project');
+    this.task.set(task);
+    this.comments.set(comments);
+    await this.loadAttachments(taskId);
+    if (task.story_id) {
+      const story = await firstValueFrom(this.api.getStory(task.story_id));
+      const epic = await firstValueFrom(this.api.getEpic(story.epic_id));
+      if (projectId && epic.project_id !== projectId) throw new Error('Task does not belong to this project');
+      this.story.set(story);
+      this.epic.set(epic);
+    }
+    await Promise.all([
+      this.loadSprints(task.project_id),
+      this.loadMembers(task.project_id),
+    ]);
+    this.updatePrevNextTasks(taskId);
+  }
+
+  /** 普通单击在应用工作台内打开；实体链接本身仍保留原生新浏览器标签能力。 */
+  async openWorkspaceEntity(
+    kind: WorkspaceEntityTabKind,
+    entityId: number,
+    title?: string,
+  ): Promise<void> {
+    const projectId = this.project()?.id;
+    if (!projectId) return;
+    const kindLabels: Record<WorkspaceEntityTabKind, string> = {
+      epic: 'Epic',
+      proposal: '提案',
+      story: 'Story',
+      task: 'Task',
+    };
+    const label = title ? `${kindLabels[kind]} · ${title}` : undefined;
+    this.workspaceTabs.openEntityTab(projectId, kind, entityId, label);
+    const sections: Record<WorkspaceEntityTabKind, string> = {
+      epic: 'epics',
+      proposal: 'proposals',
+      story: 'stories',
+      task: 'tasks',
+    };
+    const section = sections[kind];
+    const path = `/project/${projectId}/${section}/${entityId}`;
+    if (!this.activePathname().startsWith(`/project/${projectId}`)) {
+      await this.router.navigateByUrl(path);
+      return;
+    }
+    if (window.location.pathname !== path) window.history.pushState({}, '', path);
+    try {
+      if (kind === 'epic') {
+        await this.loadWorkspaceEpicDetail(entityId);
+      } else if (kind === 'proposal') {
+        await this.loadWorkspaceProposalDetail(entityId);
+      } else if (kind === 'story') {
+        await this.loadWorkspaceStoryDetail(entityId);
+      } else {
+        await this.loadWorkspaceTaskDetail(entityId);
+      }
+    } catch (error) {
+      this.notify(`详情加载失败：${this.message(error)}`, 'error');
+    }
   }
 
   /** 简单日期格式化（YYYY-MM-DD） */
@@ -2082,7 +2214,7 @@ export class App implements OnInit, OnDestroy {
     // Epic 78 (v6.6): 手动刷新时 skeleton=false，保留当前内容，仅由刷新按钮显示加载态
     if (skeleton) this.loading.set(true);
     this.error.set('');
-    const path = this.router.url.split('?')[0].replace(/^\//, '');
+    const path = this.activePathname().replace(/^\//, '');
     const [kind = '', rawId, section = '', rawChildId = ''] = path.split('/');
     const id = Number(rawId);
     const childId = Number(rawChildId);
@@ -2141,7 +2273,16 @@ export class App implements OnInit, OnDestroy {
         const project = await firstValueFrom(this.api.getProject(id));
         this.project.set(project);
         this.trackRecentProject(project);
-        if (projectTab === 'documents' && childId > 0) {
+        if (projectTab === 'epics' && childId > 0) {
+          await this.loadWorkspaceEpicDetail(childId);
+        } else if (projectTab === 'proposals' && childId > 0) {
+          await this.loadWorkspaceProposalDetail(childId);
+          if (this.proposalItem()?.project_id !== id) throw new Error('提案不属于当前项目');
+        } else if (section === 'stories' && childId > 0) {
+          await this.loadWorkspaceStoryDetail(childId);
+        } else if (section === 'tasks' && childId > 0) {
+          await this.loadWorkspaceTaskDetail(childId);
+        } else if (projectTab === 'documents' && childId > 0) {
           // 文档详情：进入纯净独立视图（无列表、无侧栏），而非项目页内嵌
           await this.loadDocumentDetail(childId);
         } else {
@@ -2894,14 +3035,23 @@ export class App implements OnInit, OnDestroy {
           this.api.createProject({ name: title.trim(), key: key.trim() || undefined, description }),
         );
       } else if (modal.kind === 'epic' && modal.parentId) {
-        await firstValueFrom(
+        const created = await firstValueFrom(
           this.api.createEpic(modal.parentId, { title: title.trim(), description }),
         );
+        this.projectTabLoaded.update((state) => ({ ...state, epics: false }));
+        this.modal.set(null);
+        this.notify('创建成功');
+        await this.openWorkspaceEntity('epic', created.id, created.title);
+        return;
       } else if (modal.kind === 'story' && modal.parentId) {
         const needsDesign = data.get('needs_design') !== null;
-        await firstValueFrom(
+        const created = await firstValueFrom(
           this.api.createStory(modal.parentId, { title: title.trim(), description, needs_design: needsDesign }),
         );
+        this.modal.set(null);
+        this.notify('创建成功');
+        await this.openWorkspaceEntity('story', created.id, created.title);
+        return;
       } else if (modal.kind === 'task' && modal.projectId) {
         // 从文档（仅关联 Epic）进入时，以弹窗所选 Story 为准；否则沿用 parentId（Story）
         const storyId = modal.epicId ? Number(data.get('story_id')) : modal.parentId;
@@ -2909,7 +3059,7 @@ export class App implements OnInit, OnDestroy {
           this.notify('请先选择 Story', 'error');
           return;
         }
-        await firstValueFrom(
+        const created = await firstValueFrom(
           this.api.createTask(storyId, {
             project_id: modal.projectId,
             title: title.trim(),
@@ -2921,6 +3071,10 @@ export class App implements OnInit, OnDestroy {
             assignee_id: assigneeId,
           }),
         );
+        this.modal.set(null);
+        this.notify('创建成功');
+        await this.openWorkspaceEntity('task', created.id, created.title);
+        return;
       }
       this.modal.set(null);
       this.notify('创建成功');
@@ -6870,8 +7024,9 @@ export class App implements OnInit, OnDestroy {
         this.api.createProposal({ project_id: pid, title, content: this.proposalNewContent() }),
       );
       this.proposalModalOpen.set(false);
+      this.projectTabLoaded.update((state) => ({ ...state, proposals: false }));
       this.notify('提案已创建', 'success');
-      await this.router.navigateByUrl(`/proposals/${created.id}`);
+      await this.openWorkspaceEntity('proposal', created.id, created.title);
     } catch (e) {
       this.notify(`创建失败：${this.message(e)}`, 'error');
     }
@@ -7238,6 +7393,11 @@ export class App implements OnInit, OnDestroy {
   }
   /** 打开看板卡片对应 Story。 */
   openKanbanStory(story: KanbanStory): void {
+    const projectId = this.project()?.id;
+    if (projectId && this.activePathname().startsWith(`/project/${projectId}`)) {
+      void this.openWorkspaceEntity('story', story.id, story.title);
+      return;
+    }
     void this.router.navigateByUrl(`/story/${story.id}`);
   }
 

@@ -173,6 +173,34 @@ export const routes: Routes = [
             (m) => m.SectionPlaceholderComponent,
           ),
       },
+      {
+        path: 'epics/:epicId',
+        loadComponent: () =>
+          import('./project-workspace-shell/section-placeholder/section-placeholder').then(
+            (m) => m.SectionPlaceholderComponent,
+          ),
+      },
+      {
+        path: 'proposals/:proposalId',
+        loadComponent: () =>
+          import('./project-workspace-shell/section-placeholder/section-placeholder').then(
+            (m) => m.SectionPlaceholderComponent,
+          ),
+      },
+      {
+        path: 'stories/:storyId',
+        loadComponent: () =>
+          import('./project-workspace-shell/section-placeholder/section-placeholder').then(
+            (m) => m.SectionPlaceholderComponent,
+          ),
+      },
+      {
+        path: 'tasks/:taskId',
+        loadComponent: () =>
+          import('./project-workspace-shell/section-placeholder/section-placeholder').then(
+            (m) => m.SectionPlaceholderComponent,
+          ),
+      },
       { path: '', pathMatch: 'full', redirectTo: 'overview' },
     ],
   },

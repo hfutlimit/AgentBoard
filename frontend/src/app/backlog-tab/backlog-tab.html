@@ -24,7 +24,7 @@
     <div class="entity-list backlog-tab-v7" id="backlog-list">
       @for (task of paginatedItems(tasks, page); track task.id) {
         <div class="entity-item">
-          <a [routerLink]="['/task', task.id]" class="entity-item-main">
+          <a [attr.href]="'/task/' + task.id" class="entity-item-main" (click)="openTask.emit({ event: $event, task })">
             <span class="type-icon {{ task.type }}">{{ typeGlyph(task.type) }}</span>
             <span class="entity-item-title">{{ task.title }}</span>
           </a>

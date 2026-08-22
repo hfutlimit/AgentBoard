@@ -1,5 +1,4 @@
 import { Component, EventEmitter, Input, Output, ViewEncapsulation } from '@angular/core';
-import { RouterLink } from '@angular/router';
 import { ManagedListComponent } from '../managed-list/managed-list';
 import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
 import type { Task } from '../models';
@@ -33,7 +32,7 @@ import type { Task } from '../models';
 @Component({
   selector: 'app-backlog-tab',
   standalone: true,
-  imports: [ManagedListComponent, RouterLink, WorkspaceHeadingComponent],
+  imports: [ManagedListComponent, WorkspaceHeadingComponent],
   templateUrl: './backlog-tab.html',
   styleUrl: './backlog-tab.css',
   encapsulation: ViewEncapsulation.None,
@@ -47,6 +46,7 @@ export class BacklogTabComponent {
 
   @Output() pageChange = new EventEmitter<number>();
   @Output() retry = new EventEmitter<void>();
+  @Output() openTask = new EventEmitter<{ event: MouseEvent; task: Task }>();
 
   /** 类型图标字符（与 App.typeGlyph 一致，纯函数复制）。 */
   typeGlyph(type: string): string {

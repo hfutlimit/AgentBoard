@@ -1,0 +1,152 @@
+@if (host.story(); as current) {
+  <div class="story-view workspace-story-detail">
+    <nav class="crumb-bar" aria-label="面包屑">
+      <a [attr.href]="'/project/' + host.project()?.id">{{ host.project()?.name }}</a>
+      <span class="sep">›</span>
+      @if (host.epic(); as parentEpic) {
+        <a [attr.href]="'/epic/' + parentEpic.id" (click)="openEntity($event, 'epic', parentEpic.id, parentEpic.title)">{{ parentEpic.title }}</a>
+      }
+      <span class="sep">›</span>
+      <span class="crumb-current">{{ current.title }}</span>
+    </nav>
+
+    <div class="tab-bar detail-tabs">
+      <button class="tab-btn" [class.active]="host.storyTab() === 'detail'" (click)="host.storyTab.set('detail')">📋 详情</button>
+      <button class="tab-btn" [class.active]="host.storyTab() === 'list'" (click)="host.storyTab.set('list')">📝 Task 列表</button>
+    </div>
+
+    @if (host.storyTab() === 'detail') {
+      <div class="detail-panel">
+        <div class="title-row">
+          <h1>{{ current.title }}</h1>
+          <span class="tag tag--{{ host.statusSemanticClass(current.status) }}">{{ host.statusLabel(current.status) }}</span>
+        </div>
+        <div class="detail-meta">
+          <span class="detail-meta__item">🗓 创建于 {{ host.formatDateTime(current.created_at) }}</span>
+        </div>
+
+        @if (current.status === 'backlog') {
+          <div class="story-confirm-row">
+            <button id="confirm-story-btn" class="btn-primary-sm" (click)="host.confirmStory()" [disabled]="host.confirmingStory()">
+              {{ host.confirmingStory() ? '确认中…' : '✅ 确认开始（触发 Agent 自动处理）' }}
+            </button>
+            <span class="muted">确认后 Story 进入自动流转：设计 → 开发 → 评审 → 测试</span>
+          </div>
+        }
+
+        @if (current.description) {
+          <div class="card md story-description task-md" [innerHTML]="host.renderMarkdown(current.description)"></div>
+        } @else {
+          <div class="card md story-description task-md-empty">（空）</div>
+        }
+
+        <button class="btn-edit-detail" (click)="host.toggleEditStory(current)">✏ 编辑 Story</button>
+        <div class="story-history-toggle">
+          <button class="ghost-sm" (click)="host.toggleStoryStatusHistory()">
+            {{ host.showStoryStatusHistory() ? '▾ 收起状态历史' : '▸ 状态历史' }}
+            @if (host.storyStatusHistory().length > 0) { <span class="count">{{ host.storyStatusHistory().length }}</span> }
+          </button>
+        </div>
+
+        @if (host.showStoryStatusHistory()) {
+          <div class="story-status-history" id="story-status-history">
+            @for (item of host.storyStatusHistory(); track item.id) {
+              <div class="status-history-item">
+                <span class="badge status status--{{ item.from_status }}">{{ host.statusLabel(item.from_status) }}</span>
+                <span class="history-arrow">→</span>
+                <span class="badge status status--{{ item.to_status }}">{{ host.statusLabel(item.to_status) }}</span>
+                <span class="muted">{{ host.timeAgo(item.created_at) }}</span>
+                @if (item.reason) { <span class="muted history-reason">{{ item.reason }}</span> }
+              </div>
+            } @empty {
+              <div class="empty-inline">暂无状态变更记录。</div>
+            }
+          </div>
+        }
+
+        @if (host.editStoryOpen()) {
+          <div class="edit-popup-overlay">
+            <div class="edit-popup">
+              <h3>编辑 Story 描述</h3>
+              <div class="edit-story__body">
+                <textarea class="edit-story-textarea" [value]="host.editStoryDesc()" (input)="host.editStoryDesc.set($any($event.target).value)" rows="4"></textarea>
+                <label class="inline-check edit-story-needs-design">
+                  <input type="checkbox" [checked]="host.editNeedsDesign()" (change)="host.editNeedsDesign.set($any($event.target).checked)" />
+                  需要设计评审（todo → in_design → 设计评审 → 开发）
+                </label>
+                <div class="edit-story__actions">
+                  <button class="btn btn--primary" (click)="host.saveEditStory(current)" [disabled]="host.savingStory()">{{ host.savingStory() ? '保存中…' : '更新' }}</button>
+                  <button class="btn" (click)="host.cancelEditStory()" type="button">取消</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        }
+
+        <div class="card comments-card">
+          <div class="section-header">
+            <h3>评论 <span class="count">{{ host.storyComments().length }}</span></h3>
+            <button class="ghost-sm" (click)="host.toggleCommentPreview()" [class.active]="host.isCommentPreviewMode()">
+              {{ host.isCommentPreviewMode() ? '✏ 编辑' : '👁 预览' }}
+            </button>
+          </div>
+          <div class="comment-list">
+            @for (comment of host.storyComments(); track comment.id) {
+              <article class="comment-item">
+                <span class="avatar comment-avatar">{{ comment.author.slice(0, 2) }}</span>
+                <div class="comment-body">
+                  <div class="comment-meta"><strong>{{ comment.author }}</strong><time>{{ host.timeAgo(comment.created_at) }}</time></div>
+                  <div class="md text-pre" [innerHTML]="host.renderMarkdown(comment.content)"></div>
+                </div>
+              </article>
+            } @empty {
+              <div class="empty-inline">还没有评论。</div>
+            }
+          </div>
+          <form class="comment-form" (submit)="host.addStoryComment($event, storyAuthor.value, storyContent.value)">
+            <input #storyAuthor name="author" [value]="host.commentAuthor()" required maxlength="100" placeholder="你的名字" />
+            @if (host.isCommentPreviewMode()) {
+              <div class="comment-preview md" [innerHTML]="host.renderMarkdown(storyContent.value)"></div>
+            }
+            <textarea #storyContent name="content" rows="4" required [placeholder]="host.isCommentPreviewMode() ? '切换到编辑模式输入…' : '记录进展、决策或阻塞…'" [disabled]="host.isCommentPreviewMode()"></textarea>
+            <button type="submit" class="btn-primary-sm" [disabled]="host.isCommentPreviewMode()">发表评论</button>
+          </form>
+        </div>
+      </div>
+    } @else {
+      <div class="list-panel workspace-story-task-list">
+        <div class="section-header">
+          <h3>Tasks <span class="count">{{ host.storyTaskTotal() }}</span></h3>
+          <button class="btn-primary-sm" (click)="host.openCreate('task', current.id, host.project()?.id)">＋ 新建 Task</button>
+        </div>
+        <div class="entity-list">
+          @for (item of host.tasks(); track item.id) {
+            <a [attr.href]="'/task/' + item.id" class="entity-item" (click)="openEntity($event, 'task', item.id, item.title)">
+              <div class="entity-item-main">
+                <span class="type-icon {{ item.type }}">{{ host.typeGlyph(item.type) }}</span>
+                <span class="entity-item-title">{{ item.title }}</span>
+              </div>
+              <div class="entity-item-badges">
+                <span class="badge status status--{{ item.status }}">{{ host.statusLabel(item.status) }}</span>
+                @if (item.priority !== 'medium') {
+                  <span class="badge priority priority--{{ item.priority }}">{{ host.priorityLabel(item.priority) }}</span>
+                }
+              </div>
+            </a>
+          } @empty {
+            <div class="empty-inline">暂无 Task</div>
+          }
+        </div>
+        @if (host.taskPageCount() > 1) {
+          <nav class="pagination" aria-label="Story Task 列表">
+            <button class="ghost-sm" [disabled]="host.storyTaskPage() <= 1" (click)="host.goStoryTaskPage(host.storyTaskPage() - 1)">上一页</button>
+            <span>{{ host.storyTaskPage() }} / {{ host.taskPageCount() }}</span>
+            <button class="ghost-sm" [disabled]="host.storyTaskPage() >= host.taskPageCount()" (click)="host.goStoryTaskPage(host.storyTaskPage() + 1)">下一页</button>
+          </nav>
+        }
+      </div>
+    }
+  </div>
+} @else {
+  <div class="detail-panel workspace-entity-loading"><span class="spinner"></span>正在加载 Story 详情…</div>
+}

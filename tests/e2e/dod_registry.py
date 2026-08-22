@@ -66,40 +66,33 @@ REGISTRY: list[DodEntry] = [
         ),
     ),
 
-    # ── Epic 152 / 2026-08-21 v3 - 4 修 / Detail open in new tab ───────
+    # ── Epic 152 / 2026-08-22 v4 / Workspace entity tabs ─────────────
     DodEntry(
-        id="epic152-detail-new-tab-2026-08-21",
-        feature="*-tab 内部点详情 link → 在新浏览器 tab 打开全页路由",
-        date_added="2026-08-21",
+        id="epic152-workspace-entity-tabs-2026-08-22",
+        feature="Epic / Proposal / Story / Task 详情作为项目工作台实体 Tab 打开",
+        date_added="2026-08-22",
         test_files=[
             "tests/e2e_workspace_tabs/test_detail_new_tab_e2e.py",
         ],
         coverage_summary=(
-            "4 个 Playwright 真实断言 test_* 函数覆盖："
-            "点 epic → window.open 被调用 1 次 / 点 link 后无 side panel / "
-            "原 tab URL + tab 列表不变 / 侧栏菜单不被拦截"
+            "5 个 Playwright 真实断言覆盖：普通点击打开实体 Tab / 同一 Epic 复用 / "
+            "Epic→Story→Task 全链路与深链接刷新 / 链接保留真实 href / 侧栏模块 Tab 切换不回归"
         ),
         acceptance=[
-            "从 epics tab 点 epic → window.open 调 1 次,target=_blank,url=/epic/:id,带 noopener",
-            "原 workspace tab URL 保持 /project/1/epics,tab 列表不变",
-            "workspace main **不**出现 side panel (用户要求不要抽屉)",
-            "顶部 topbar + 左侧菜单 + 8 个 section tab 仍 work (拦截器不误伤)",
-            "原 tab 没有 page reload (无 URL navigate)",
+            "普通点击 Epic → /project/:projectId/epics/:epicId，并保留工作台 Shell",
+            "Epics 列表 Tab 与 Epic 详情 Tab 同时存在；再次打开同一 Epic 不重复创建",
+            "Proposal 使用同一实体 Tab 契约；新建 Epic/Proposal 成功后直接进入详情 Tab",
+            "Story / Task 使用同一实体 Tab 契约；Epic→Story→Task 不跳出项目工作台",
+            "Story / Task 项目内深链接刷新后恢复对应详情 Tab",
+            "Ctrl/Cmd/中键通过真实 href 保留浏览器原生新标签行为",
+            "workspace main 不出现 side panel；列表 pane 的筛选、分页和滚动状态保留",
         ],
         status="done",
-        closed_date="2026-08-21",
+        closed_date="2026-08-22",
         notes=(
-            "v3 - 4 修:用户实测后拒绝 side panel 方案,要求点详情 link 直接**在新浏览器 tab 打开**全页路由 "
-            "(打开 /epic/:id 这种完整页面),workspace 上下文保持不变(切回原 tab 继续工作)。\n"
-            "实现:onDocumentClickCapture 在 capture phase 拦截 *-tab 内部 <a routerLink>, "
-            "preventDefault 当前 tab navigate + window.open(href, '_blank', 'noopener,noreferrer') "
-            "开新 tab,opener=null 防 tab-nabbing。\n"
-            "技术栈选型说明:\n"
-            "- 不修改任何 *-tab 组件的 template/TS (用 capture phase document-level 拦截)\n"
-            "- 修饰键 (Ctrl/Meta/Shift) + 中键 → 让浏览器原生处理 'open in new tab',我们不拦截\n"
-            "- 仅在 /project/:id/* 路径下生效,避免误伤顶栏/侧栏同 URL link\n"
-            "- 移除 v3 Step 1 的 DetailPaneComponent (用户实测不要抽屉)\n"
-            "- 顶层 /story/:id / /task/:id / /epic/:id 全页路由仍 work (从命令面板/通知/URL bar 进入)"
+            "v4 将模块 Tab 和实体 Tab 纳入同一 WorkspaceTabsService。普通点击直接驱动工作台状态，"
+            "URL 使用项目内嵌套路由；实体详情加载后更新 Tab 标题。链接仍是普通 href，"
+            "因此用户主动的 Ctrl/Cmd/中键新标签行为不需要额外拦截器。"
         ),
     ),
 

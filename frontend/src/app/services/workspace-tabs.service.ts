@@ -19,13 +19,22 @@ export type WorkspaceTabKind =
   | 'proposals'
   | 'documents'
   | 'members'
-  | 'settings';
+  | 'settings'
+  | 'epic'
+  | 'proposal'
+  | 'story'
+  | 'task';
+
+export type WorkspaceSectionTabKind = Exclude<WorkspaceTabKind, 'epic' | 'proposal' | 'story' | 'task'>;
+export type WorkspaceEntityTabKind = Extract<WorkspaceTabKind, 'epic' | 'proposal' | 'story' | 'task'>;
 
 export interface WorkspaceTab {
   /** 稳定 id: `${projectId}-${kind}` */
   id: string;
   projectId: number;
   kind: WorkspaceTabKind;
+  /** Entity tabs carry their record id; section tabs leave it unset. */
+  entityId?: number;
   /** 显示文字 */
   title: string;
   /** SVG icon id (与 app.html 内联 SVG <use href="#i-xxx"> 一致) */
@@ -46,6 +55,10 @@ const TAB_META: Record<WorkspaceTabKind, TabKindMeta> = {
   documents:  { title: '文档',     iconId: 'i-file' },
   members:    { title: '成员与 Agents', iconId: 'i-users' },
   settings:   { title: '设置',     iconId: 'i-settings' },
+  epic:       { title: 'Epic',     iconId: 'i-flag' },
+  proposal:   { title: '提案',     iconId: 'i-message' },
+  story:      { title: 'Story',    iconId: 'i-list' },
+  task:       { title: 'Task',     iconId: 'i-list' },
 };
 
 @Injectable({ providedIn: 'root' })
@@ -72,7 +85,7 @@ export class WorkspaceTabsService {
    * - 若已存在 → 激活即可
    * - 若不存在 → 新建并激活
    */
-  openTab(projectId: number, kind: WorkspaceTabKind): void {
+  openTab(projectId: number, kind: WorkspaceSectionTabKind): void {
     if (this._currentProjectId !== projectId) {
       this.setProject(projectId);
     }
@@ -92,6 +105,47 @@ export class WorkspaceTabsService {
     };
     this._tabs.update((list) => [...list, tab]);
     this._activeId.set(id);
+  }
+
+  /** Open or activate a concrete Epic / Proposal / Story / Task inside the project workspace. */
+  openEntityTab(
+    projectId: number,
+    kind: WorkspaceEntityTabKind,
+    entityId: number,
+    title?: string,
+  ): void {
+    if (this._currentProjectId !== projectId) {
+      this.setProject(projectId);
+    }
+    const id = this.makeEntityId(projectId, kind, entityId);
+    const existing = this._tabs().find((tab) => tab.id === id);
+    if (existing) {
+      if (title && existing.title !== title) this.updateTitle(id, title);
+      this._activeId.set(id);
+      return;
+    }
+    const meta = TAB_META[kind];
+    this._tabs.update((list) => [
+      ...list,
+      {
+        id,
+        projectId,
+        kind,
+        entityId,
+        title: title || `${meta.title} #${entityId}`,
+        iconId: meta.iconId,
+      },
+    ]);
+    this._activeId.set(id);
+  }
+
+  /** Refresh an entity tab label after its detail payload has loaded. */
+  updateTitle(id: string, title: string): void {
+    const nextTitle = title.trim();
+    if (!nextTitle) return;
+    this._tabs.update((list) =>
+      list.map((tab) => (tab.id === id ? { ...tab, title: nextTitle } : tab)),
+    );
   }
 
   /** 关闭一个 tab。激活其相邻 tab（左侧优先，无则右侧，无则 null） */
@@ -140,8 +194,12 @@ export class WorkspaceTabsService {
   }
 
   /** 由 (projectId, kind) 推算 id — 暴露给模板 / 路由同步使用 */
-  makeId(projectId: number, kind: WorkspaceTabKind): string {
+  makeId(projectId: number, kind: WorkspaceSectionTabKind): string {
     return `${projectId}-${kind}`;
+  }
+
+  makeEntityId(projectId: number, kind: WorkspaceEntityTabKind, entityId: number): string {
+    return `${projectId}-${kind}-${entityId}`;
   }
 
   /** 工具方法：根据 kind 拿到展示元信息 */

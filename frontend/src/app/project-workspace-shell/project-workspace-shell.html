@@ -75,9 +75,8 @@
          非激活的 pane 父级加 .tab-pane-host--hidden 触发 display:none，
          组件实例保留，Angular 状态（筛选/滚动/已加载数据）不丢。
 
-         v3 - 4 修 (2026-08-21): *-tab 内部点详情 link → 在新浏览器 tab 打开
-         全页路由 (see shell.ts onDocumentClickCapture)。workspace main 不再出
-         side panel，用户切回原 tab 即可。 -->
+         v4: Epic / Proposal 详情也作为 pane 常驻；切回列表时，筛选、分页和滚动
+         状态仍由原 pane 保留。 -->
     <div class="tab-pane-stack">
       @for (tab of tabs(); track tab.id) {
         <div

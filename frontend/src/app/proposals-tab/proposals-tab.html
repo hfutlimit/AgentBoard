@@ -39,7 +39,10 @@
   } @else {
     <div class="proposal-list">
       @for (p of proposals; track p.id) {
-        <a class="proposal-row" [routerLink]="['/proposals', p.id]">
+        <a
+          class="proposal-row"
+          [attr.href]="'/project/' + projectId + '/proposals/' + p.id"
+          (click)="openProposal.emit({ event: $event, proposal: p })">
           <div class="proposal-row-main">
             <div class="proposal-row-title">{{ p.title }}</div>
             <div class="proposal-row-meta">

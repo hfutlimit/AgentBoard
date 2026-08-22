@@ -10,7 +10,7 @@
           [kanbanCount]="host.kanbanCount()"
           [proposalCount]="host.proposalVisible().length"
           (navigateTab)="host.selectProjectTab($event)"
-          (goEpic)="host.goEpic($event)"
+          (goEpic)="host.openWorkspaceEntity('epic', $event)"
         />
       }
     }
@@ -26,6 +26,7 @@
         (pageChange)="host.setProjectListPage('epics', $event)"
         (retry)="host.retryProjectTab('epics')"
         (createEpic)="host.openCreate('epic', $event)"
+        (openEpic)="openEntity($event.event, 'epic', $event.epic.id, $event.epic.title)"
       />
     }
     @case ('backlog') {
@@ -37,6 +38,7 @@
         [error]="host.projectTabError('backlog')"
         (pageChange)="host.setProjectListPage('backlog', $event)"
         (retry)="host.retryProjectTab('backlog')"
+        (openTask)="openEntity($event.event, 'task', $event.task.id, $event.task.title)"
       />
     }
     @case ('proposals') {
@@ -47,9 +49,11 @@
         [statuses]="host.proposalStatuses"
         [loading]="host.isProjectTabLoading('proposals')"
         [error]="host.projectTabError('proposals')"
+        [projectId]="host.project()?.id ?? null"
         (filterStatusChange)="host.proposalFilterStatus.set($event)"
         (searchQueryChange)="host.proposalSearchQuery.set($event)"
         (createProposal)="host.openProposalModal()"
+        (openProposal)="openEntity($event.event, 'proposal', $event.proposal.id, $event.proposal.title)"
         (retry)="host.retryProjectTab('proposals')"
       />
     }
@@ -123,6 +127,18 @@
     }
     @case ('settings') {
       <app-settings-tab />
+    }
+    @case ('epic') {
+      <app-epic-detail-view />
+    }
+    @case ('proposal') {
+      <app-proposal-detail-view />
+    }
+    @case ('story') {
+      <app-story-detail-view />
+    }
+    @case ('task') {
+      <app-task-detail-view />
     }
   }
 </div>

@@ -8,6 +8,10 @@ import { OverviewTabComponent } from '../../overview-tab/overview-tab';
 import { ProposalsTabComponent } from '../../proposals-tab/proposals-tab';
 import { ProjectDataService } from '../../services/project-data.service';
 import { SettingsTabComponent } from '../../settings-tab/settings-tab';
+import { EpicDetailViewComponent } from '../../epic-detail-view/epic-detail-view';
+import { ProposalDetailViewComponent } from '../../proposal-detail-view/proposal-detail-view';
+import { StoryDetailViewComponent } from '../../story-detail-view/story-detail-view';
+import { TaskDetailViewComponent } from '../../task-detail-view/task-detail-view';
 import type { WorkspaceTab } from '../../services/workspace-tabs.service';
 
 export type DetailKind = 'story' | 'task' | 'epic' | 'proposal' | 'sprint' | 'document';
@@ -38,6 +42,10 @@ export interface DetailSelection { kind: DetailKind; id: number; }
     DocumentsTabComponent,
     MembersTabComponent,
     SettingsTabComponent,
+    EpicDetailViewComponent,
+    ProposalDetailViewComponent,
+    StoryDetailViewComponent,
+    TaskDetailViewComponent,
   ],
   templateUrl: './tab-pane.html',
   styleUrl: './tab-pane.css',
@@ -47,4 +55,16 @@ export class TabPaneComponent {
   @Input({ required: true }) tab!: WorkspaceTab;
 
   readonly host = inject(ProjectDataService).getWorkspaceHost<any>();
+
+  openEntity(
+    event: MouseEvent,
+    kind: 'epic' | 'proposal' | 'story' | 'task',
+    entityId: number,
+    title: string,
+  ): void {
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    this.host.openWorkspaceEntity(kind, entityId, title);
+  }
 }

@@ -1,0 +1,97 @@
+@if (epic(); as current) {
+  <div class="crumb-bar">
+    <a [routerLink]="['/project', project()?.id, 'epics']">{{ project()?.name }}</a
+    ><span>›</span><span>{{ current.title }}</span>
+  </div>
+  <div class="tab-bar detail-tabs">
+    <button class="tab-btn" [class.active]="epicTab() === 'detail'" (click)="epicTab.set('detail')">📋 详情</button>
+    <button class="tab-btn" [class.active]="epicTab() === 'list'" (click)="epicTab.set('list')">📚 Story 列表</button>
+  </div>
+  @if (epicTab() === 'detail') {
+    <div class="detail-panel">
+      <div class="detail-header">
+        <h2>{{ current.title }}</h2>
+        <span class="badge status status--{{ current.status }}">{{ statusLabel(current.status) }}</span>
+      </div>
+      <div class="detail-meta">
+        <span class="detail-meta__item">🗓 创建于 {{ formatDateTime(current.created_at) }}</span>
+      </div>
+      @if (current.description) {
+        <div class="card md task-md" [innerHTML]="renderMarkdown(current.description)"></div>
+      } @else {
+        <div class="card md task-md-empty">（空）</div>
+      }
+      <button class="btn-edit-detail" (click)="epicEditOpen.set(true)">✏ 编辑 Epic</button>
+      @if (epicEditOpen()) {
+        <div class="edit-popup-overlay">
+          <div class="edit-popup">
+            <h3>编辑 Epic</h3>
+            <form (submit)="saveEpic(eTitle.value, eDesc.value, $any(eStatus.value)); epicEditOpen.set(false); $event.preventDefault()">
+              <label>标题<input #eTitle [value]="current.title" required /></label>
+              <label>状态<select #eStatus [value]="current.status">
+                @for (status of statuses.filter((s) => s !== 'blocked'); track status) {
+                  <option [value]="status">{{ statusLabel(status) }}</option>
+                }
+              </select></label>
+              <label>描述<textarea #eDesc rows="5">{{ current.description }}</textarea></label>
+              <div class="row">
+                <button class="btn-primary-sm" type="submit">保存</button>
+                <button class="danger" type="button" (click)="epicEditOpen.set(false)">取消</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      }
+      <div class="card comments-card">
+        <div class="section-header">
+          <h3>评论 <span class="count">{{ epicComments().length }}</span></h3>
+          <button class="ghost-sm" (click)="toggleCommentPreview()" [class.active]="isCommentPreviewMode()">
+            {{ isCommentPreviewMode() ? '✏ 编辑' : '👁 预览' }}
+          </button>
+        </div>
+        <div class="comment-list">
+          @for (comment of epicComments(); track comment.id) {
+            <article class="comment-item">
+              <span class="avatar comment-avatar">{{ comment.author.slice(0, 2) }}</span>
+              <div class="comment-body">
+                <div class="comment-meta"><strong>{{ comment.author }}</strong><time>{{ timeAgo(comment.created_at) }}</time></div>
+                <div class="md text-pre" [innerHTML]="renderMarkdown(comment.content)"></div>
+              </div>
+            </article>
+          } @empty {
+            <div class="empty-inline">还没有评论。</div>
+          }
+        </div>
+        <form class="comment-form" (submit)="addEpicComment($event, epAuthor.value, epContent.value)">
+          <input #epAuthor name="author" [value]="commentAuthor()" required maxlength="100" placeholder="你的名字" />
+          @if (isCommentPreviewMode()) {
+            <div class="comment-preview md" [innerHTML]="renderMarkdown(epContent.value)"></div>
+          }
+          <textarea #epContent name="content" rows="4" required
+            [placeholder]="isCommentPreviewMode() ? '切换到编辑模式输入…' : '记录进展、决策或阻塞…'"
+            [disabled]="isCommentPreviewMode()"></textarea>
+          <button type="submit" class="btn-primary-sm" [disabled]="isCommentPreviewMode()">发表评论</button>
+        </form>
+      </div>
+    </div>
+  } @else {
+    <div class="list-panel">
+      <div class="section-header">
+        <h3>Stories <span class="count">{{ stories().length }}</span></h3>
+        <button id="e-new-story" class="btn-primary-sm" (click)="openCreate('story', current.id)">＋ 新建 Story</button>
+      </div>
+      <div class="entity-list">
+        @for (item of visibleStories(); track item.id) {
+          <a [attr.href]="'/story/' + item.id" class="entity-item" (click)="openStory($event, item)">
+            <div class="entity-item-main"><span class="type-icon story">S</span><span class="entity-item-title">{{ item.title }}</span></div>
+            <span class="badge status status--{{ item.status }}">{{ statusLabel(item.status) }}</span>
+          </a>
+        } @empty {
+          <div class="empty-inline">暂无 Story</div>
+        }
+      </div>
+    </div>
+  }
+} @else {
+  <div class="detail-panel workspace-entity-loading"><span class="spinner"></span>正在加载 Epic 详情…</div>
+}

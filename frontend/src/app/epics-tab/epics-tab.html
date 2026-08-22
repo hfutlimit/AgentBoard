@@ -26,7 +26,10 @@
   </ng-container>
   <div class="entity-list epics-tab-v7" id="epics-list">
     @for (item of paginatedItems(epics, page); track item.id) {
-      <a [routerLink]="['/epic', item.id]" class="entity-item">
+      <a
+        [attr.href]="'/project/' + projectId + '/epics/' + item.id"
+        class="entity-item"
+        (click)="openEpic.emit({ event: $event, epic: item })">
         <div class="entity-item-main">
           <span class="type-icon epic">E</span>
           <span class="entity-item-title">{{ item.title }}</span>

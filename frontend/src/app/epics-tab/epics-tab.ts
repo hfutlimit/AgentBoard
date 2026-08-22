@@ -1,5 +1,4 @@
 import { Component, EventEmitter, Input, Output, ViewEncapsulation } from '@angular/core';
-import { RouterLink } from '@angular/router';
 import { ManagedListComponent } from '../managed-list/managed-list';
 import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
 import type { Epic } from '../models';
@@ -50,7 +49,7 @@ export interface EpicProgress {
 @Component({
   selector: 'app-epics-tab',
   standalone: true,
-  imports: [ManagedListComponent, RouterLink, WorkspaceHeadingComponent],
+  imports: [ManagedListComponent, WorkspaceHeadingComponent],
   templateUrl: './epics-tab.html',
   styleUrl: './epics-tab.css',
   encapsulation: ViewEncapsulation.None,
@@ -80,6 +79,7 @@ export class EpicsTabComponent {
   @Output() pageChange = new EventEmitter<number>();
   @Output() retry = new EventEmitter<void>();
   @Output() createEpic = new EventEmitter<number>();
+  @Output() openEpic = new EventEmitter<{ event: MouseEvent; epic: Epic }>();
 
   /** 状态文案（与 App.statusLabel 一致，纯函数复制以避免跨组件依赖）。 */
   statusLabel(status: string): string {

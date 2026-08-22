@@ -1,5 +1,4 @@
 import { Component, EventEmitter, Input, Output, ViewEncapsulation } from '@angular/core';
-import { RouterLink } from '@angular/router';
 import { ManagedListComponent } from '../managed-list/managed-list';
 import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
 import type { ProposalItem, ProposalStatus } from '../models';
@@ -36,7 +35,7 @@ import type { ProposalItem, ProposalStatus } from '../models';
 @Component({
   selector: 'app-proposals-tab',
   standalone: true,
-  imports: [ManagedListComponent, RouterLink, WorkspaceHeadingComponent],
+  imports: [ManagedListComponent, WorkspaceHeadingComponent],
   templateUrl: './proposals-tab.html',
   styleUrl: './proposals-tab.css',
   encapsulation: ViewEncapsulation.None,
@@ -48,11 +47,13 @@ export class ProposalsTabComponent {
   @Input() statuses: ProposalStatus[] = [];
   @Input() loading = false;
   @Input() error = '';
+  @Input() projectId: number | null = null;
 
   @Output() filterStatusChange = new EventEmitter<ProposalStatus | ''>();
   @Output() searchQueryChange = new EventEmitter<string>();
   @Output() createProposal = new EventEmitter<void>();
   @Output() retry = new EventEmitter<void>();
+  @Output() openProposal = new EventEmitter<{ event: MouseEvent; proposal: ProposalItem }>();
 
   /** 提案状态文案（与 App.proposalStatusLabel 一致，纯函数复制）。 */
   proposalStatusLabel(s: ProposalStatus): string {

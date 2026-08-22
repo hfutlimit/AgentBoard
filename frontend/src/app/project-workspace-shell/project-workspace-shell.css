@@ -201,6 +201,15 @@
   display: none !important;
 }
 
+.workspace-entity-loading {
+  display: flex;
+  min-height: 180px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--color-text-muted, #64748b);
+}
+
 /* 暗色模式 */
 :host-context(.theme-dark) .tab-strip-item {
   background: rgba(255, 255, 255, 0.04);

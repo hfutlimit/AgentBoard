@@ -1,10 +1,14 @@
-import { DOCUMENT } from '@angular/common';
-import { Component, OnDestroy, ViewEncapsulation, computed, effect, inject } from '@angular/core';
+import { Component, ViewEncapsulation, computed, effect, inject } from '@angular/core';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs/operators';
 import { TabPaneComponent } from './tab-pane/tab-pane';
 import { ProjectDataService } from '../services/project-data.service';
-import { WorkspaceTabsService, WorkspaceTab, WorkspaceTabKind } from '../services/workspace-tabs.service';
+import {
+  WorkspaceEntityTabKind,
+  WorkspaceSectionTabKind,
+  WorkspaceTabsService,
+  WorkspaceTab,
+} from '../services/workspace-tabs.service';
 
 /**
  * ProjectWorkspaceShellComponent — 项目工作台外壳（2026-08-21 结构调整，v2 修）
@@ -14,10 +18,8 @@ import { WorkspaceTabsService, WorkspaceTab, WorkspaceTabKind } from '../service
  * 现在 v2：tab 切换走纯 service 状态（ajax 风格），URL 只用 history.replaceState
  *         静默同步，绝不再触发 router 跳路由。
  *
- * v3 修 (Step 1)：*-tab 内部点详情 link (Story/Task/Epic/Proposal/Sprint/
- * Document) 改为 master-detail side panel,不再跳顶层全页路由。
- * 实现:document-level capture-phase click 拦截器(`'document:click.capture'`),
- * 早于 routerLink 的 click handler 执行,preventDefault + emit openDetail。
+ * v4：Epic / Proposal 详情成为工作台实体 tab。普通单击由工作台状态接管，
+ * Ctrl/Cmd/中键仍通过链接 href 使用浏览器原生新标签行为。
  *
  * URL ↔ Tab 状态映射规则（v2 调整后）：
  * - 初次加载 / 直链 / 刷新：shell 构造函数读一次 URL，调 openTab(projectId, kind)，
@@ -40,18 +42,8 @@ export class ProjectWorkspaceShellComponent {
   readonly host = inject(ProjectDataService).getWorkspaceHost<any>();
   readonly tabsService = inject(WorkspaceTabsService);
   private readonly router = inject(Router);
-  private readonly document = inject(DOCUMENT);
-
-  /**
-   * document-level capture-phase click listener 句柄（v3 Step 1 fix 2）。
-   * 用原生 addEventListener + { capture: true }（不靠 Angular host metadata
-   * 的 .capture 修饰符,因为部分 Angular 版本不识别,导致拦截失败）。
-   * 必须在 ngOnDestroy 释放。
-   */
-  private documentClickListener: ((e: Event) => void) | null = null;
-
   /** 左侧菜单 8 项（顺序固定：概览 → 设置），用于渲染 sidebar nav */
-  readonly menuItems: ReadonlyArray<{ kind: WorkspaceTabKind; label: string; iconId: string; ariaLabel: string }> = [
+  readonly menuItems: ReadonlyArray<{ kind: WorkspaceSectionTabKind; label: string; iconId: string; ariaLabel: string }> = [
     { kind: 'overview',  label: '概览',        iconId: 'i-home',     ariaLabel: '概览' },
     { kind: 'kanban',    label: '看板',        iconId: 'i-board',    ariaLabel: '看板' },
     { kind: 'epics',     label: 'Epics',      iconId: 'i-flag',     ariaLabel: 'Epics' },
@@ -89,10 +81,48 @@ export class ProjectWorkspaceShellComponent {
       }
     });
 
+    effect(() => {
+      const epic = this.host.epic();
+      if (!epic) return;
+      this.tabsService.updateTitle(
+        this.tabsService.makeEntityId(epic.project_id, 'epic', epic.id),
+        `Epic · ${epic.title}`,
+      );
+    });
+
+    effect(() => {
+      const proposal = this.host.proposalItem();
+      if (!proposal) return;
+      this.tabsService.updateTitle(
+        this.tabsService.makeEntityId(proposal.project_id, 'proposal', proposal.id),
+        `提案 · ${proposal.title}`,
+      );
+    });
+
+    effect(() => {
+      const story = this.host.story();
+      const projectId = this.host.project()?.id;
+      if (!story || !projectId) return;
+      this.tabsService.updateTitle(
+        this.tabsService.makeEntityId(projectId, 'story', story.id),
+        `Story · ${story.title}`,
+      );
+    });
+
+    effect(() => {
+      const task = this.host.task();
+      const projectId = this.host.project()?.id;
+      if (!task || !projectId) return;
+      this.tabsService.updateTitle(
+        this.tabsService.makeEntityId(projectId, 'task', task.id),
+        `Task · ${task.title}`,
+      );
+    });
+
     // 初次挂载：从 router.url 同步当前激活 tab 到 service
     const initial = this.parseRouterUrl(this.router.url);
     if (initial) {
-      this.tabsService.openTab(initial.pid, initial.kind);
+      this.openParsedTab(initial);
     }
 
     // 监听 router 跳路由：仅同步 URL → service，**不**调用 router.navigate 自己。
@@ -105,42 +135,54 @@ export class ProjectWorkspaceShellComponent {
       .subscribe((event) => {
         const cur = this.parseRouterUrl(event.urlAfterRedirects);
         if (cur) {
-          this.tabsService.openTab(cur.pid, cur.kind);
+          this.openParsedTab(cur);
         }
       });
-
-    // v3 Step 1 fix 2:用原生 addEventListener + capture:true 注册 document-level
-    // click 监听器,拦截 *-tab 内部 `<a [routerLink]>` 跳详情页。
-    //
-    // 上版用 @Component host metadata 的 `'(document:click.capture)'` 写法
-    // 在用户实际环境中**没拦住**(可能 Angular 21 不识别 .capture 修饰符),
-    // 切到原生 API 是最稳的写法,100% 在 routerLink 自己的 click handler 之前
-    // 执行。
-    this.documentClickListener = (event: Event) => this.onDocumentClickCapture(event);
-    this.document.addEventListener('click', this.documentClickListener, { capture: true });
   }
 
-  /**
-   * v3 Step 1 fix 2 配套:在 component 销毁时释放 document listener,
-   * 避免内存泄漏(HMR 频繁刷新时尤其重要)。
-   */
-  ngOnDestroy(): void {
-    if (this.documentClickListener) {
-      this.document.removeEventListener('click', this.documentClickListener, { capture: true });
-      this.documentClickListener = null;
-    }
-  }
-
-  /** 从 router URL 解析 (projectId, kind) */
-  private parseRouterUrl(url: string): { pid: number; kind: WorkspaceTabKind } | null {
+  /** 从 router URL 解析 section tab 或 entity tab。 */
+  private parseRouterUrl(url: string): {
+    pid: number;
+    kind: WorkspaceSectionTabKind | WorkspaceEntityTabKind;
+    entityId?: number;
+  } | null {
     // URL 形如 /project/<id>/<section>[/...]
     const m = url.match(/^\/project\/(\d+)(?:\/([a-z-]+))?/);
     if (!m) return null;
     const pid = Number(m[1]);
-    const section = (m[2] || 'overview') as WorkspaceTabKind;
-    if (!this.knownKinds.has(section)) return null;
+    const section = (m[2] || 'overview') as WorkspaceSectionTabKind;
     if (typeof pid !== 'number' || Number.isNaN(pid)) return null;
+    const detail = url.match(/^\/project\/\d+\/(epics|proposals|stories|tasks)\/(\d+)/);
+    if (detail) {
+      const entityKinds: Record<string, WorkspaceEntityTabKind> = {
+        epics: 'epic',
+        proposals: 'proposal',
+        stories: 'story',
+        tasks: 'task',
+      };
+      return {
+        pid,
+        kind: entityKinds[detail[1]],
+        entityId: Number(detail[2]),
+      };
+    }
+    if (!this.knownKinds.has(section)) return null;
     return { pid, kind: section };
+  }
+
+  private openParsedTab(parsed: {
+    pid: number;
+    kind: WorkspaceSectionTabKind | WorkspaceEntityTabKind;
+    entityId?: number;
+  }): void {
+    if (
+      parsed.entityId &&
+      (parsed.kind === 'epic' || parsed.kind === 'proposal' || parsed.kind === 'story' || parsed.kind === 'task')
+    ) {
+      this.tabsService.openEntityTab(parsed.pid, parsed.kind, parsed.entityId);
+      return;
+    }
+    this.tabsService.openTab(parsed.pid, parsed.kind as WorkspaceSectionTabKind);
   }
 
   /**
@@ -150,13 +192,13 @@ export class ProjectWorkspaceShellComponent {
    * 仍需主动调 host.loadProjectTab(kind) — 旧版靠 router.navigate 触发
    * app.ts loadRoute 来拉数据，v2 不再走 router，得手动拉。
    */
-  onMenuClick(event: MouseEvent, kind: WorkspaceTabKind): void {
+  onMenuClick(event: MouseEvent, kind: WorkspaceSectionTabKind): void {
     event.preventDefault();
     event.stopPropagation();
     const pid = this.host.project()?.id;
     if (typeof pid !== 'number') return;
     this.tabsService.openTab(pid, kind);
-    this.replaceUrl(pid, kind);
+    this.replaceUrl(this.tabsService.activeTab()!);
     this.loadProjectTabIfNeeded(kind, pid);
   }
 
@@ -167,15 +209,15 @@ export class ProjectWorkspaceShellComponent {
     event.preventDefault();
     event.stopPropagation();
     this.tabsService.activateTab(tab.id);
-    this.replaceUrl(tab.projectId, tab.kind);
-    this.loadProjectTabIfNeeded(tab.kind, tab.projectId);
+    this.replaceUrl(tab);
+    this.loadWorkspaceTab(tab);
   }
 
   /**
    * 调 host.loadProjectTab 拉 tab 数据（已加载则跳过，内部有 guard）。
    * v2 关键补偿 — 之前靠 router.navigate 顺路触发 app.ts.loadRoute 拉数据。
    */
-  private loadProjectTabIfNeeded(kind: WorkspaceTabKind, pid: number): void {
+  private loadProjectTabIfNeeded(kind: WorkspaceSectionTabKind, pid: number): void {
     if (kind === 'settings') {
       // settings 走聚合 loadProjectSettings
       if (typeof (this.host as any).loadProjectSettings === 'function') {
@@ -188,82 +230,74 @@ export class ProjectWorkspaceShellComponent {
     }
   }
 
+  private loadWorkspaceTab(tab: WorkspaceTab): void {
+    if (tab.kind === 'epic' && tab.entityId) {
+      if (typeof this.host.loadWorkspaceEpicDetail === 'function') {
+        void this.host.loadWorkspaceEpicDetail(tab.entityId);
+      }
+      return;
+    }
+    if (tab.kind === 'proposal' && tab.entityId) {
+      if (typeof this.host.loadWorkspaceProposalDetail === 'function') {
+        void this.host.loadWorkspaceProposalDetail(tab.entityId);
+      }
+      return;
+    }
+    if (tab.kind === 'story' && tab.entityId) {
+      if (typeof this.host.loadWorkspaceStoryDetail === 'function') {
+        void this.host.loadWorkspaceStoryDetail(tab.entityId);
+      }
+      return;
+    }
+    if (tab.kind === 'task' && tab.entityId) {
+      if (typeof this.host.loadWorkspaceTaskDetail === 'function') {
+        void this.host.loadWorkspaceTaskDetail(tab.entityId);
+      }
+      return;
+    }
+    this.loadProjectTabIfNeeded(tab.kind as WorkspaceSectionTabKind, tab.projectId);
+  }
+
   /** 关闭单个 tab（× 按钮 — 鼠标点击 / 键盘 Enter 共用） */
   onTabClose(event: Event, tab: WorkspaceTab): void {
     event.stopPropagation();
     event.preventDefault();
     this.tabsService.closeTab(tab.id);
+    const active = this.tabsService.activeTab();
+    if (active) {
+      this.replaceUrl(active);
+      this.loadWorkspaceTab(active);
+    }
   }
 
   /**
    * 静默改 URL（用 history.replaceState，不触发 Angular router 跳路由）。
    * 让 URL 与 service 状态保持一致，刷新能恢复用户当前激活 tab。
    */
-  private replaceUrl(pid: number, kind: WorkspaceTabKind): void {
+  private replaceUrl(tab: WorkspaceTab): void {
     if (typeof window === 'undefined') return;
-    const newPath = `/project/${pid}/${kind}`;
+    const newPath = tab.kind === 'epic' && tab.entityId
+      ? `/project/${tab.projectId}/epics/${tab.entityId}`
+      : tab.kind === 'proposal' && tab.entityId
+        ? `/project/${tab.projectId}/proposals/${tab.entityId}`
+        : tab.kind === 'story' && tab.entityId
+          ? `/project/${tab.projectId}/stories/${tab.entityId}`
+          : tab.kind === 'task' && tab.entityId
+            ? `/project/${tab.projectId}/tasks/${tab.entityId}`
+        : `/project/${tab.projectId}/${tab.kind}`;
     if (window.location.pathname === newPath) return;
     window.history.replaceState({}, '', newPath);
   }
 
   /** 菜单项是否当前激活（用于 sidebar 高亮） */
-  isMenuActive(kind: WorkspaceTabKind): boolean {
+  isMenuActive(kind: WorkspaceSectionTabKind): boolean {
     const at = this.tabsService.activeTab();
-    return !!at && at.kind === kind;
+    if (!at) return false;
+    if (at.kind === 'epic') return kind === 'epics';
+    if (at.kind === 'proposal') return kind === 'proposals';
+    if (at.kind === 'story') return kind === 'epics';
+    if (at.kind === 'task') return kind === 'backlog';
+    return at.kind === kind;
   }
 
-  /**
-   * 全局 click 拦截 — *-tab 内部 `<a routerLink>` 跳详情页 (Story/Task/Epic/
-   * Proposal/Sprint/Document) 会被这里拦截,改为**在新浏览器 tab 打开**全页路由,
-   * 而不切换当前 workspace tab（避免 routerLink 在当前 tab 内 navigate,
-   * 把 /epic/:id 渲染到 app.html @case('epic')，覆盖整个 workspace 上下文）。
-   *
-   * 实现:capture phase 提前于 routerLink → preventDefault 当前 navigate
-   * + window.open(href, '_blank', 'noopener,noreferrer') 开新 tab。
-   * 修饰键 (Ctrl/Meta/Shift) + 中键 让浏览器原生处理 "open in new tab"，
-   * 我们不拦截。
-   *
-   * 仅在 workspace 上下文（window.location.pathname 以 /project/ 开头）生效,
-   * 避免误伤顶栏 / 侧栏的同 URL link。
-   */
-  onDocumentClickCapture(event: Event): void {
-    if (typeof window === 'undefined') return;
-    if (!window.location.pathname.startsWith('/project/')) return;
-
-    const mouseEvent = event as MouseEvent;
-    // 修饰键 / 中键 → 让浏览器处理 "open in new tab" 行为,不拦截
-    if (mouseEvent.ctrlKey || mouseEvent.metaKey || mouseEvent.shiftKey) return;
-    if (mouseEvent.button !== undefined && mouseEvent.button !== 0) return;
-
-    const target = event.target as Element | null;
-    if (!target) return;
-    const anchor = target.closest('a') as HTMLAnchorElement | null;
-    if (!anchor) return;
-
-    // 排除 sidebar / topbar / tab strip 里的 link (不在 workspace main 区域)
-    if (anchor.closest('.project-sidebar-v7')) return;
-    if (anchor.closest('.workspace-topbar-v7')) return;
-    if (anchor.closest('.tab-strip')) return;
-    if (anchor.closest('.tab-pane-stack') === null) {
-      // 拦截器只对 workspace main 区域内的点击生效
-      return;
-    }
-
-    const href = anchor.getAttribute('href') || '';
-    const m = href.match(/^\/(story|task|epic|proposals|sprint|documents)\/(\d+)/);
-    if (!m) return;
-
-    // 关键：先 preventDefault + stopImmediatePropagation,
-    // 这样 routerLink 的 click handler 看不到这个事件,不会在当前 tab navigate
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    if (mouseEvent.stopPropagation) mouseEvent.stopPropagation();
-
-    // 在新浏览器 tab 打开全页路由。
-    // noopener 防 tab-nabbing,noreferrer 不带 referrer。
-    const newWindow = window.open(href, '_blank', 'noopener,noreferrer');
-    if (newWindow) {
-      newWindow.opener = null;
-    }
-  }
 }

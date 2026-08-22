@@ -1,0 +1,133 @@
+@if (host.task(); as current) {
+  <div class="workspace-task-detail">
+    <nav class="crumb-bar" aria-label="面包屑">
+      <a [attr.href]="'/project/' + host.project()?.id">{{ host.project()?.name }}</a>
+      <span>›</span>
+      @if (host.epic(); as parentEpic) {
+        <a [attr.href]="'/epic/' + parentEpic.id" (click)="openEntity($event, 'epic', parentEpic.id, parentEpic.title)">{{ parentEpic.title }}</a>
+        <span>›</span>
+      }
+      @if (host.story(); as parentStory) {
+        <a [attr.href]="'/story/' + parentStory.id" (click)="openEntity($event, 'story', parentStory.id, parentStory.title)">{{ parentStory.title }}</a>
+        <span>›</span>
+      }
+      <span class="crumb-current">{{ current.title }}</span>
+    </nav>
+
+    <app-workspace-heading [title]="current.title">
+      <span class="heading-title-badge {{ current.type }}">{{ host.typeLabel(current.type) }}</span>
+      <span class="heading-title-badge status status--{{ current.status }}">{{ host.statusLabel(current.status) }}</span>
+    </app-workspace-heading>
+
+    <div class="task-meta-bar">
+      <span class="task-meta-item"><span class="meta-icon">👤</span><span class="meta-label">负责人</span><span class="meta-value">{{ host.getAssigneeName(current.assignee_id) }}</span></span>
+      <span class="task-meta-item"><span class="meta-icon">📅</span><span class="meta-label">创建</span><span class="meta-value">{{ host.formatDateTime(current.created_at) }}</span></span>
+      <span class="task-meta-item"><span class="meta-icon">🔄</span><span class="meta-label">更新</span><span class="meta-value">{{ host.formatDateTime(current.updated_at) }}</span></span>
+      @if (current.due_date) {
+        <span class="task-meta-item" [class.overdue]="host.isOverdue(current.due_date)" [class.due-soon]="host.isDueSoon(current.due_date)">
+          <span class="meta-icon">⏰</span><span class="meta-label">截止</span><span class="meta-value">{{ host.formatDueDate(current.due_date) }}</span>
+        </span>
+      }
+    </div>
+
+    <div class="row workspace-task-status-row">
+      <select [value]="current.status" (change)="host.changeTaskStatus($any($event.target).value)">
+        @for (status of host.statuses; track status) { <option [value]="status">{{ host.statusLabel(status) }}</option> }
+      </select>
+      <button class="ghost-sm" (click)="host.copyTaskLink(current.id)" title="复制任务链接">🔗 复制链接</button>
+    </div>
+
+    <div class="quick-actions">
+      <button class="ghost-sm" (click)="host.quickAdvanceStatus()" title="推进到下一状态">→ 下一状态</button>
+      <button class="ghost-sm" (click)="host.quickCompleteTask()" title="标记为完成">✓ 完成</button>
+      <button class="ghost-sm" (click)="host.openTaskEditModal(current)" title="编辑任务">✎ 编辑</button>
+      <button class="ghost-sm" (click)="host.generate()" title="生成子任务">⚡ 生成子任务</button>
+      <button class="ghost-sm danger" (click)="host.quickDeleteTask()" title="删除当前任务">🗑 删除</button>
+    </div>
+
+    @if (host.getRelatedTasks().blocks.length > 0 || host.getRelatedTasks().blockedBy.length > 0) {
+      <div class="card related-tasks-card">
+        <h3>相关任务</h3>
+        @if (host.getRelatedTasks().blocks.length > 0) {
+          <div class="related-section">
+            <span class="related-label">阻塞：</span>
+            @for (item of host.getRelatedTasks().blocks; track item.id) {
+              <a [attr.href]="'/task/' + item.id" class="related-link" (click)="openEntity($event, 'task', item.id, item.title)">
+                <span class="badge status status--{{ item.status }}">{{ host.statusLabel(item.status) }}</span>{{ item.title }}
+              </a>
+            }
+          </div>
+        }
+        @if (host.getRelatedTasks().blockedBy.length > 0) {
+          <div class="related-section">
+            <span class="related-label">被阻塞：</span>
+            @for (item of host.getRelatedTasks().blockedBy; track item.id) {
+              <a [attr.href]="'/task/' + item.id" class="related-link" (click)="openEntity($event, 'task', item.id, item.title)">
+                <span class="badge status status--{{ item.status }}">{{ host.statusLabel(item.status) }}</span>{{ item.title }}
+              </a>
+            }
+          </div>
+        }
+      </div>
+    }
+
+    <div class="two-col">
+      <div class="card">
+        <h3>Description</h3>
+        @if (current.description) { <div class="task-md" [innerHTML]="host.renderMarkdown(current.description)"></div> }
+        @else { <div class="task-md-empty">（空）</div> }
+      </div>
+      <div class="card">
+        <h3>Spec（OpenSpec）</h3>
+        @if (current.spec) { <div class="task-md" [innerHTML]="host.renderMarkdown(current.spec)"></div> }
+        @else { <div class="task-md-empty">（空）</div> }
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-header"><h3>附件 <span class="count">{{ host.attachments().length }}</span></h3></div>
+      @if (host.attachments().length) {
+        <div class="attachment-list">
+          @for (attachment of host.attachments(); track attachment.id) {
+            <div class="attachment-item">
+              <span class="att-icon">{{ attachment.mime_type.startsWith('image/') ? '🖼' : '📎' }}</span>
+              <div class="att-info"><span class="att-name">{{ attachment.original_name }}</span><span class="att-meta">{{ (attachment.size / 1024).toFixed(1) }} KB · {{ attachment.mime_type }}</span></div>
+              <a [attr.href]="host.api.baseUrl + '/api/attachments/' + attachment.id" target="_blank" rel="noopener noreferrer" class="btn-ghost-sm">下载</a>
+              <button class="ghost-sm danger" (click)="host.deleteAttachment(current.id, attachment.id)">✕</button>
+            </div>
+          }
+        </div>
+      } @else {
+        <div class="empty-inline">暂无附件</div>
+      }
+      <div class="upload-area">
+        <input type="file" #attachmentFile style="display:none" (change)="host.onAttachmentFileSelected($event, current.id)" />
+        <button class="btn-ghost-sm" (click)="attachmentFile.click()">＋ 上传附件</button>
+        <span class="muted" style="margin-left:8px;font-size:12px">支持图片、PDF、文本等，最大 10MB</span>
+      </div>
+    </div>
+
+    <div class="card comments-card">
+      <div class="section-header">
+        <h3>评论 <span class="count">{{ host.comments().length }}</span></h3>
+        <button class="ghost-sm" (click)="host.toggleCommentPreview()" [class.active]="host.isCommentPreviewMode()">{{ host.isCommentPreviewMode() ? '✏ 编辑' : '👁 预览' }}</button>
+      </div>
+      <div class="comment-list">
+        @for (comment of host.comments(); track comment.id) {
+          <article class="comment-item">
+            <span class="avatar comment-avatar">{{ comment.author.slice(0, 2) }}</span>
+            <div class="comment-body"><div class="comment-meta"><strong>{{ comment.author }}</strong><time>{{ host.timeAgo(comment.created_at) }}</time></div><div class="md text-pre" [innerHTML]="host.renderMarkdown(comment.content)"></div></div>
+          </article>
+        } @empty { <div class="empty-inline">还没有评论。</div> }
+      </div>
+      <form class="comment-form" (submit)="host.addComment($event, taskAuthor.value, taskContent.value)">
+        <input #taskAuthor name="author" [value]="host.commentAuthor()" required maxlength="100" placeholder="你的名字" />
+        @if (host.isCommentPreviewMode()) { <div class="comment-preview md" [innerHTML]="host.renderMarkdown(taskContent.value)"></div> }
+        <textarea #taskContent name="content" rows="4" required [placeholder]="host.isCommentPreviewMode() ? '切换到编辑模式输入…' : '记录进展、决策或阻塞…'" [disabled]="host.isCommentPreviewMode()"></textarea>
+        <button type="submit" class="btn-primary-sm" [disabled]="host.isCommentPreviewMode()">发表评论</button>
+      </form>
+    </div>
+  </div>
+} @else {
+  <div class="detail-panel workspace-entity-loading"><span class="spinner"></span>正在加载 Task 详情…</div>
+}
