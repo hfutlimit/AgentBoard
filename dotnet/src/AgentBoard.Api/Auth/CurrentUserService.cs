@@ -6,11 +6,9 @@ using Microsoft.AspNetCore.Http;
 namespace AgentBoard.Api.Auth;
 
 /// <summary>
-/// Default <see cref="ICurrentUser"/> implementation. Reads the
-/// <c>X-User-Id</c>, <c>X-User-Name</c>, <c>X-Is-Admin</c> and
-/// <c>X-Api-Key-Permissions</c> headers that the <c>AuthMiddleware</c>
-/// (lands in S0-7) is expected to populate. In stage 0 the headers are
-/// optional — when missing, the service reports an anonymous caller.
+/// Default <see cref="ICurrentUser"/> implementation. Reads the caller from
+/// the <see cref="ClaimsPrincipal"/> that <see cref="AuthMiddleware"/> builds
+/// from the bearer token. Anonymous requests expose a null <see cref="UserId"/>.
 /// </summary>
 public sealed class CurrentUserService : ICurrentUser
 {
@@ -19,18 +17,19 @@ public sealed class CurrentUserService : ICurrentUser
     public CurrentUserService(IHttpContextAccessor http) =>
         _http = http ?? throw new ArgumentNullException(nameof(http));
 
-    public int? UserId => ParseInt(_http.HttpContext?.Request.Headers["X-User-Id"]);
-    public string? Username => _http.HttpContext?.Request.Headers["X-User-Name"].ToString();
-    public bool IsAdmin => bool.TryParse(_http.HttpContext?.Request.Headers["X-Is-Admin"], out var b) && b;
+    private ClaimsPrincipal? Principal => _http.HttpContext?.User;
+
+    public int? UserId => UserIdFromPrincipal(Principal);
+    public string? Username => Principal?.FindFirstValue("username");
+    public bool IsAdmin => bool.TryParse(Principal?.FindFirstValue("is_admin"), out var b) && b;
     public IReadOnlyList<string> ApiKeyPermissions =>
-        (_http.HttpContext?.Request.Headers["X-Api-Key-Permissions"].ToString() ?? "")
+        (Principal?.FindFirstValue("api_key_permissions") ?? "")
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-    private static int? ParseInt(string? s) =>
-        int.TryParse(s, out var v) ? v : null;
-
-    /// <summary>Convenience for the auth middleware: read uid from the
-    /// <see cref="ClaimsPrincipal"/> it just built.</summary>
-    public static int? UserIdFromPrincipal(ClaimsPrincipal? principal) =>
-        principal is null ? null : ParseInt(principal.FindFirstValue("uid"));
+    /// <summary>Reads the uid claim set by <see cref="AuthMiddleware"/>.</summary>
+    public static int? UserIdFromPrincipal(ClaimsPrincipal? principal)
+    {
+        var v = principal?.FindFirstValue("uid");
+        return int.TryParse(v, out var id) ? id : null;
+    }
 }

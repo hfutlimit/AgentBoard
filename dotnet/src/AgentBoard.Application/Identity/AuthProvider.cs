@@ -15,11 +15,13 @@ public sealed class AuthProvider : IAuthProvider
 {
     private readonly IUserService _users;
     private readonly IClock _clock;
+    private readonly ITokenService _tokens;
 
-    public AuthProvider(IUserService users, IClock clock)
+    public AuthProvider(IUserService users, IClock clock, ITokenService tokens)
     {
         _users = users ?? throw new ArgumentNullException(nameof(users));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _tokens = tokens ?? throw new ArgumentNullException(nameof(tokens));
     }
 
     public async Task<AuthSessionDto> LoginAsync(string username, string password, CancellationToken ct = default)
@@ -32,8 +34,9 @@ public sealed class AuthProvider : IAuthProvider
         if (!await _users.VerifyPasswordAsync(user.Id, password, ct))
             throw new InvalidValueException("invalid credentials");
 
-        // Stage 0 stub: deterministic string token. Stage 1 swaps in HMAC.
-        var token = $"v1.dev-stub.{user.Id}.{_clock.UtcNow:yyyyMMddHHmmss}";
+        // Stateless HMAC token (v1.{uid}.{exp}.{sig}) — wire-compatible with
+        // the FastAPI backend. The middleware re-validates it on /api/auth/me.
+        var token = _tokens.IssueToken(user.Id);
         return new AuthSessionDto(user.Id, user.Username, token);
     }
 

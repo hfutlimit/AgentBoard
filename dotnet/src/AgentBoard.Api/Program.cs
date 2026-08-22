@@ -14,6 +14,7 @@ using AgentBoard.Api.Middleware;
 using AgentBoard.Api.Observability;
 using AgentBoard.Application;
 using AgentBoard.Application.Abstractions;
+using AgentBoard.Application.Identity;
 using AgentBoard.Infrastructure;
 using AgentBoard.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
@@ -68,6 +69,19 @@ builder.Services.AddApplication();
 // (memory / sqlite / mysql) based on configuration.
 builder.Services.AddInfrastructure(builder.Configuration);
 
+// Auth: PBKDF2 password hashing + stateless HMAC bearer token. Both mirror
+// the FastAPI formats so the .NET BFF authenticates against the same users
+// table. The JWT secret falls back to a dev default when the production
+// placeholder is still in place (local dev only — never in production).
+var jwtSecret = builder.Configuration["AgentBoard:Jwt:Secret"];
+if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret.StartsWith("REPLACE_WITH", StringComparison.Ordinal))
+    jwtSecret = "dev-insecure-secret-change-me";
+var jwtTtl = builder.Configuration.GetValue<int>("AgentBoard:Jwt:TtlSeconds");
+if (jwtTtl <= 0)
+    jwtTtl = 172800;
+builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
+builder.Services.AddSingleton<ITokenService>(_ => new HmacTokenService(jwtSecret!, jwtTtl));
+
 // HTTP-scoped CurrentUser — resolves the caller from X-User-* headers
 // populated by the auth middleware (added in S0-7).
 builder.Services.AddScoped<ICurrentUser, CurrentUserService>();
@@ -81,6 +95,9 @@ app.UseMiddleware<RequestIdMiddleware>();
 
 // 2. W3C trace context echo (Stage 1: outbound FastAPI calls).
 app.UseMiddleware<TraceContextMiddleware>();
+
+// 2b. Bearer token resolution — populates HttpContext.User for ICurrentUser.
+app.UseMiddleware<AuthMiddleware>();
 
 if (app.Environment.IsDevelopment())
 {

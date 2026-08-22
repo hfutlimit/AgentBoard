@@ -16,12 +16,14 @@ public sealed class UserService : IUserService
     private readonly IUserRepository _users;
     private readonly IUnitOfWork _uow;
     private readonly IClock _clock;
+    private readonly IPasswordHasher _hasher;
 
-    public UserService(IUserRepository users, IUnitOfWork uow, IClock clock)
+    public UserService(IUserRepository users, IUnitOfWork uow, IClock clock, IPasswordHasher hasher)
     {
         _users = users ?? throw new ArgumentNullException(nameof(users));
         _uow = uow ?? throw new ArgumentNullException(nameof(uow));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _hasher = hasher ?? throw new ArgumentNullException(nameof(hasher));
     }
 
     public Task<User?> GetByIdAsync(int id, CancellationToken ct = default) =>
@@ -41,9 +43,9 @@ public sealed class UserService : IUserService
         if (await _users.ExistsByUsernameAsync(request.Username, ct))
             throw new DuplicateException($"username '{request.Username}' already exists");
 
-        // Password hashing is a stage 1 concern (S0-3 keeps a stub).
-        // Stage 1 (S1) will inject IPasswordHasher and replace the literal.
-        var passwordHash = $"plain:{request.Password}";
+        // Password hashing mirrors FastAPI's PBKDF2-SHA256 scheme so the
+        // .NET BFF authenticates against the same users table.
+        var passwordHash = _hasher.Hash(request.Password);
         var user = User.Create(request.Username, passwordHash, request.IsAdmin, _clock.UtcNow);
         await _users.AddAsync(user, ct);
         await _uow.SaveChangesAsync(ct);
@@ -70,8 +72,8 @@ public sealed class UserService : IUserService
 
         var user = await _users.GetByIdAsync(id, ct)
             ?? throw new NotFoundException(nameof(User), id);
-        // Stub hash: stage 1 replaces with IPasswordHasher.Hash(newPassword).
-        user.ChangePassword($"plain:{newPassword}", _clock.UtcNow, id);
+        // Re-hash with the same PBKDF2 scheme FastAPI uses.
+        user.ChangePassword(_hasher.Hash(newPassword), _clock.UtcNow, id);
         _users.Update(user);
         await _uow.SaveChangesAsync(ct);
     }
@@ -79,9 +81,7 @@ public sealed class UserService : IUserService
     public async Task<bool> VerifyPasswordAsync(int id, string password, CancellationToken ct = default)
     {
         var user = await _users.GetByIdAsync(id, ct);
-        // Stage 0 stub: password is stored as-is (no hashing). Stage 1 swaps
-        // in IPasswordHasher.Verify(password, user.PasswordHash).
-        return user is not null && user.PasswordHash == password;
+        return user is not null && _hasher.Verify(user.PasswordHash, password);
     }
 
     private static UserDto ToDto(User u) =>
