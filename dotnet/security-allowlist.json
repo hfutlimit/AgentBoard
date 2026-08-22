@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "generatedOn": "2026-08-22",
+  "reviewBy": "2026-11-22",
+  "owner": "platform-team",
+  "policy": "CI fails if `dotnet list package --vulnerable --include-transitive` reports ANY advisory whose GHSA id is NOT present in `advisories`. The known advisories below are explicitly accepted because no upstream fix exists at the time of writing (see dotnet/Directory.Build.props `WarningsNotAsErrors`). Re-evaluate on every .NET SDK / NuGet package bump and before the review-by date. To accept a new advisory, add it here with a justification and bump `reviewBy`.",
+  "advisories": [
+    {
+      "ghsa": "GHSA-v5pm-xwqc-g5wc",
+      "package": "Microsoft.OpenApi",
+      "version": "2.0.1",
+      "severity": "High",
+      "nugetWarning": "NU1903",
+      "status": "accepted-no-upstream-fix",
+      "note": "OpenAPI/Swagger tooling used only at build time for the NSwag client generation. Not present in the BFF runtime request path."
+    },
+    {
+      "ghsa": "GHSA-g94r-2vxg-569j",
+      "package": "OpenTelemetry.Api",
+      "version": "1.11.2",
+      "severity": "Moderate",
+      "nugetWarning": "NU1902",
+      "status": "accepted-no-upstream-fix",
+      "note": "Transitive via OpenTelemetry instrumentation. Latest 1.x line; no patched 1.11.x published."
+    },
+    {
+      "ghsa": "GHSA-2m69-gcr7-jv3q",
+      "package": "SQLitePCLRaw.lib.e_sqlite3",
+      "version": "2.1.11",
+      "severity": "High",
+      "nugetWarning": "NU1903",
+      "status": "accepted-no-upstream-fix",
+      "note": "SQLite native library. Only used for dev / Testing SQLite; the production path uses MariaDB via Pomelo (Stage 1). No patched 2.1.x published."
+    },
+    {
+      "ghsa": "GHSA-37gx-xxp4-5rgx",
+      "package": "System.Security.Cryptography.Xml",
+      "version": "9.0.0",
+      "severity": "High",
+      "nugetWarning": "NU1903",
+      "status": "accepted-no-upstream-fix"
+    },
+    {
+      "ghsa": "GHSA-w3x6-4m5h-cxqf",
+      "package": "System.Security.Cryptography.Xml",
+      "version": "9.0.0",
+      "severity": "High",
+      "nugetWarning": "NU1903",
+      "status": "accepted-no-upstream-fix"
+    },
+    {
+      "ghsa": "GHSA-cvvh-rhrc-wg4q",
+      "package": "System.Security.Cryptography.Xml",
+      "version": "9.0.0",
+      "severity": "High",
+      "nugetWarning": "NU1903",
+      "status": "accepted-no-upstream-fix"
+    },
+    {
+      "ghsa": "GHSA-g8r8-53c2-pm3f",
+      "package": "System.Security.Cryptography.Xml",
+      "version": "9.0.0",
+      "severity": "High",
+      "nugetWarning": "NU1903",
+      "status": "accepted-no-upstream-fix"
+    },
+    {
+      "ghsa": "GHSA-23rf-6693-g89p",
+      "package": "System.Security.Cryptography.Xml",
+      "version": "9.0.0",
+      "severity": "High",
+      "nugetWarning": "NU1903",
+      "status": "accepted-no-upstream-fix"
+    },
+    {
+      "ghsa": "GHSA-8q5v-6pqq-x66h",
+      "package": "System.Security.Cryptography.Xml",
+      "version": "9.0.0",
+      "severity": "High",
+      "nugetWarning": "NU1903",
+      "status": "accepted-no-upstream-fix"
+    },
+    {
+      "ghsa": "GHSA-mmjf-rqrv-855v",
+      "package": "System.Security.Cryptography.Xml",
+      "version": "9.0.0",
+      "severity": "High",
+      "nugetWarning": "NU1903",
+      "status": "accepted-no-upstream-fix"
+    },
+    {
+      "ghsa": "GHSA-6588-8gv4-xfgh",
+      "package": "System.Security.Cryptography.Xml",
+      "version": "9.0.0",
+      "severity": "High",
+      "nugetWarning": "NU1903",
+      "status": "accepted-no-upstream-fix"
+    }
+  ]
+}
