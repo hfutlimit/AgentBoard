@@ -242,6 +242,43 @@
   cursor: pointer;
   transition: all 0.15s;
 }
+
+/* ---------- 登录/注册错误提示 (inline, near the submit button) ---------- */
+.auth-error {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.10);
+  border: 1px solid rgba(239, 68, 68, 0.32);
+  color: #b91c1c;
+  font-size: 0.86rem;
+  line-height: 1.4;
+  margin: -4px 0 2px;
+  animation: authErrorIn 0.18s ease-out;
+}
+.auth-error-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ef4444;
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 0.78rem;
+  flex-shrink: 0;
+}
+.auth-error-text {
+  flex: 1;
+  word-break: break-word;
+}
+@keyframes authErrorIn {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 .login-submit:hover:not(:disabled) {
   box-shadow: 0 10px 24px -6px rgba(37, 99, 235, 0.5);
   transform: translateY(-1px);

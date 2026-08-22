@@ -50,6 +50,12 @@
       </div>
 
       <form class="auth-form" (submit)="submit()">
+        @if (error) {
+          <div class="auth-error" role="alert" data-testid="auth-error">
+            <span class="auth-error-icon" aria-hidden="true">!</span>
+            <span class="auth-error-text">{{ error }}</span>
+          </div>
+        }
         <label class="field">
           <span class="field-label">用户名</span>
           <input

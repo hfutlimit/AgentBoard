@@ -3384,7 +3384,8 @@
     <app-login
       [mode]="authMode()"
       [submitting]="submitting()"
-      (modeChange)="authMode.set($event)"
+      [error]="authError()"
+      (modeChange)="onAuthModeChange($event)"
       (authenticate)="authenticate($event.username, $event.password)"
     />
   }

@@ -11,6 +11,8 @@ import { FormsModule } from '@angular/forms';
 export class LoginComponent {
   @Input() mode: 'login' | 'register' = 'login';
   @Input() submitting = false;
+  /** Inline error from the parent (shown inside the auth card, not as a corner toast). */
+  @Input() error = '';
   @Output() modeChange = new EventEmitter<'login' | 'register'>();
   @Output() authenticate = new EventEmitter<{ username: string; password: string }>();
 

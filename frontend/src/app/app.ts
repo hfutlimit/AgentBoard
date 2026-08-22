@@ -149,6 +149,8 @@ export class App implements OnInit, OnDestroy {
   readonly authVisible = signal(!localStorage.getItem('agentboard_token'));
   readonly authMode = signal<'login' | 'register'>('login');
   readonly currentUser = signal(localStorage.getItem('agentboard_user') || '');
+  /** Login/register inline error (rendered inside the auth card, not as a corner toast). */
+  readonly authError = signal('');
   readonly toastMessage = signal('');
   readonly toastType = signal<'success' | 'error'>('success');
   // Epic 24 Story 24.2: Toast 增强 - 多 toasts 支持
@@ -2900,6 +2902,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   async authenticate(username: string, password: string): Promise<void> {
+    this.authError.set('');
     this.submitting.set(true);
     try {
       const result = await firstValueFrom(
@@ -2925,13 +2928,21 @@ export class App implements OnInit, OnDestroy {
         await this.loadRoute();
       }
     } catch (error) {
-      this.notify(
+      // Render auth errors inside the login card (next to the submit button)
+      // instead of the bottom-right corner toast — the toast is too far from
+      // the form to be noticed after a failed submit.
+      this.authError.set(
         `${this.authMode() === 'register' ? '注册' : '登录'}失败：${this.message(error)}`,
-        'error',
       );
     } finally {
       this.submitting.set(false);
     }
+  }
+
+  /** v6.x: clear the inline auth error when the user toggles between login/register. */
+  onAuthModeChange(mode: 'login' | 'register'): void {
+    this.authMode.set(mode);
+    this.authError.set('');
   }
 
   logout(): void {
