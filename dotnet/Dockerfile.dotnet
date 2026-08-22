@@ -19,7 +19,11 @@ COPY dotnet/AgentBoard.slnx dotnet/AgentBoard.slnx
 COPY dotnet/Directory.Build.props dotnet/Directory.Build.props
 COPY dotnet/global.json dotnet/global.json
 COPY dotnet/src/AgentBoard.Api/AgentBoard.Api.csproj dotnet/src/AgentBoard.Api/AgentBoard.Api.csproj
+COPY dotnet/src/AgentBoard.Application/AgentBoard.Application.csproj dotnet/src/AgentBoard.Application/AgentBoard.Application.csproj
+COPY dotnet/src/AgentBoard.Domain/AgentBoard.Domain.csproj dotnet/src/AgentBoard.Domain/AgentBoard.Domain.csproj
+COPY dotnet/src/AgentBoard.Infrastructure/AgentBoard.Infrastructure.csproj dotnet/src/AgentBoard.Infrastructure/AgentBoard.Infrastructure.csproj
 COPY dotnet/tests/AgentBoard.Api.Tests/AgentBoard.Api.Tests.csproj dotnet/tests/AgentBoard.Api.Tests/AgentBoard.Api.Tests.csproj
+COPY dotnet/tests/AgentBoard.Infrastructure.Tests/AgentBoard.Infrastructure.Tests.csproj dotnet/tests/AgentBoard.Infrastructure.Tests/AgentBoard.Infrastructure.Tests.csproj
 
 RUN dotnet restore dotnet/AgentBoard.slnx
 
