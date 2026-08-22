@@ -1,0 +1,38 @@
+{
+  "run_ts_utc": "20260821T143839Z",
+  "total": 5,
+  "passed": 5,
+  "failed": 0,
+  "results": [
+    {
+      "name": "backend_health",
+      "ok": true,
+      "detail": "PASS",
+      "shot": null
+    },
+    {
+      "name": "ui_register_flow",
+      "ok": true,
+      "detail": "PASS",
+      "shot": null
+    },
+    {
+      "name": "ui_login_flow",
+      "ok": true,
+      "detail": "PASS",
+      "shot": null
+    },
+    {
+      "name": "dashboard_render",
+      "ok": true,
+      "detail": "PASS",
+      "shot": null
+    },
+    {
+      "name": "rest_full_crud_pipeline",
+      "ok": true,
+      "detail": "PASS",
+      "shot": null
+    }
+  ]
+}
