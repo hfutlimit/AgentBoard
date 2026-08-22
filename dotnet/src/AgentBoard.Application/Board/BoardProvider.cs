@@ -91,6 +91,12 @@ public sealed class BoardProvider : IBoardProvider
         return items.Select(ToCommentDto).ToList();
     }
 
+    public async Task<CommentDto?> GetCommentAsync(int id, CancellationToken ct = default)
+    {
+        var c = await _comments.GetByIdAsync(id, ct);
+        return c is null ? null : ToCommentDto(c);
+    }
+
     private static ProjectDto ToProjectDto(Project p) =>
         new(p.Id, p.Name, p.Key, p.Description, p.IsPrivate, p.CreatedAt, p.IsArchived);
 

@@ -25,4 +25,5 @@ public interface IBoardProvider : IProvider
 
     Task<IReadOnlyList<CommentDto>> ListCommentsAsync(
         int? taskId, int? storyId, int? epicId, CancellationToken ct = default);
+    Task<CommentDto?> GetCommentAsync(int id, CancellationToken ct = default);
 }
