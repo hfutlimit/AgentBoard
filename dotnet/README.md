@@ -89,18 +89,18 @@ JSON wire format = **snake_case** (FastAPI 兼容)，用 `[JsonPropertyName("sna
 cd dotnet
 dotnet build
 
-# 2. Run the API (binds 0.0.0.0:18000)
-$env:AGENTBOARD_DOTNET_PORT = "18000"     # launchSettings.json 也可改
+# 2. Run the API (binds 0.0.0.0:18099)
+$env:AGENTBOARD_DOTNET_PORT = "18099"     # launchSettings.json 也可改
 $env:AGENTBOARD_ENV         = "development"
 $env:AgentBoard__Database__ConnectionString = "Data Source=agentboard-dev.db"
 dotnet run --project src/AgentBoard.Api
 
 # 3. Hit the smoke endpoints
-curl http://localhost:18000/api/health
+curl http://localhost:18099/api/health
 # → 200 { "status": "ok", "database": "ok", "version": "0.1.0", "timestamp": "..." }
 # Header: X-Request-Id, traceparent
 
-curl http://localhost:18000/api/meta | python -m json.tool
+curl http://localhost:18099/api/meta | python -m json.tool
 # → 6 个 snake_case enum 列表
 
 # 4. Run tests
@@ -115,7 +115,7 @@ dotnet test
 docker build -f Dockerfile.dotnet -t agentboard-api-dotnet .
 
 # Run (本地连 sqlite shadow db)
-docker run --rm -p 18000:8080 agentboard-api-dotnet
+docker run --rm -p 18099:8080 agentboard-api-dotnet
 ```
 
 The image is a multi-stage build (sdk → aspnet) and runs as the

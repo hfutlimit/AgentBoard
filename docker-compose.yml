@@ -78,8 +78,8 @@ services:
       db:
         condition: service_healthy
     ports:
-      # Host 18000 → container 8080 (the .NET 10 ASP.NET Core default).
-      - "${AGENTBOARD_DOTNET_PORT:-18000}:8080"
+      # Host 18099 → container 8080 (FastAPI api 占用宿主 18000，.NET 用 18099 避免宿主端口冲突).
+      - "${AGENTBOARD_DOTNET_PORT:-18099}:8080"
     volumes:
       # The .NET BFF keeps its own SQLite file (no shared-schema writes until
       # Stage 2). In Stage 1 the BFF reads via the MariaDB wire (Pomelo) and

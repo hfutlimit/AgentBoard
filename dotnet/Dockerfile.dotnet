@@ -3,7 +3,7 @@
 # AgentBoard.Api — multi-stage build for the .NET 10 WebAPI.
 #
 # Build:  docker build -f Dockerfile.dotnet -t agentboard-api-dotnet ..
-# Run:    docker run --rm -p 18000:8080 -e AGENTBOARD_ENV=development agentboard-api-dotnet
+# Run:    docker run --rm -p 18099:8080 -e AGENTBOARD_ENV=development agentboard-api-dotnet
 #
 # Build context: repository root (the dotnet/ folder is reached via the
 # relative path in the `COPY` instructions). The `.dockerignore.dotnet`

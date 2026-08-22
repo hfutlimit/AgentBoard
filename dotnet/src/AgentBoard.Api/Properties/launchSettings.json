@@ -6,12 +6,12 @@
       "dotnetRunMessages": true,
       "launchBrowser": true,
       "launchUrl": "swagger",
-      "applicationUrl": "http://0.0.0.0:18000",
+      "applicationUrl": "http://0.0.0.0:18099",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
         "AGENTBOARD_ENV": "development",
         "AGENTBOARD_DB_URL": "Server=127.0.0.1;Port=13306;Database=agentboard;User=agentboard;Password=agentboard;",
-        "AGENTBOARD_DOTNET_PORT": "18000"
+        "AGENTBOARD_DOTNET_PORT": "18099"
       }
     },
     "Docker": {

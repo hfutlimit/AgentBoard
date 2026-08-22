@@ -23,8 +23,8 @@ using Microsoft.AspNetCore.Mvc.ApplicationModels;
 var builder = WebApplication.CreateBuilder(args);
 
 // Bind Kestrel to the AGENTBOARD_DOTNET_PORT env var when present,
-// otherwise fall back to 18000 (see launchSettings.json).
-var dotnetPort = Environment.GetEnvironmentVariable("AGENTBOARD_DOTNET_PORT");
+// otherwise fall back to 18099 (FastAPI api 占用宿主 18000).
+var dotnetPort = Environment.GetEnvironmentVariable("AGENTBOARD_DOTNET_PORT") ?? "18099";
 if (!string.IsNullOrWhiteSpace(dotnetPort) && int.TryParse(dotnetPort, out var port))
 {
     builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
