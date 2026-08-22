@@ -9,6 +9,7 @@ import { DOCUMENT } from '@angular/common';
 import { Inject } from '@angular/core';
 import { filter } from 'rxjs/operators';
 
+import { ThemeService } from './core/services/theme';
 import { ApiService, AUTH_EXPIRED_EVENT, OFFLINE_QUEUE_FLUSH_EVENT, perfTracker, ApiMetric, resolveApiBase } from './api.service';
 import { LoginComponent } from './login/login';
 import { AgentRow, AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, KanbanBoard, KanbanStory, Notification, OverviewStats, Priority, Project, ProjectTabKind, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, SprintStatus, Status, Story, StoryStatusHistoryRow, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentRevisionItem, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES, TicketRequestItem, TicketType, TicketItem } from './models';
@@ -1244,12 +1245,6 @@ export class App implements OnInit, OnDestroy {
   private routeLoadGeneration = 0;
   private toastTimer?: ReturnType<typeof setTimeout>;
   private notifTimer?: ReturnType<typeof setInterval>;    // Task 401: 通知轮询
-  private readonly colorScheme = window.matchMedia?.('(prefers-color-scheme: dark)');
-  private readonly handleColorSchemeChange = (event: MediaQueryListEvent): void => {
-    if (!localStorage.getItem('agentboard_theme')) {
-      this.applyTheme(event.matches ? 'dark' : 'light');
-    }
-  };
   private readonly handleAuthExpired = (): void => {
     this.currentUser.set('');
     this.isAdmin.set(false);
@@ -1374,6 +1369,7 @@ export class App implements OnInit, OnDestroy {
     private readonly projectData: ProjectDataService,
     private readonly workspaceTabs: WorkspaceTabsService,
     @Inject(DOCUMENT) private readonly document: Document,
+    public readonly themeService: ThemeService,
   ) {
     this.projectData.bindWorkspaceHost(this);
   }
@@ -1403,14 +1399,8 @@ export class App implements OnInit, OnDestroy {
     window.addEventListener('online', this.handleOnline);    // Task 402: 离线检测
     window.addEventListener('offline', this.handleOffline);
     window.addEventListener('error', this.handleGlobalError); // Task 431: 错误边界
-    const saved = localStorage.getItem('agentboard_theme');
-    // 优先使用用户偏好，其次跟随系统
-    const theme = saved || (this.colorScheme?.matches ? 'dark' : 'light');
-    this.applyTheme(theme);
     this.loadRecentProjects();
     this.loadFavorites();
-    // Listen for system theme changes
-    this.colorScheme?.addEventListener('change', this.handleColorSchemeChange);
     // Epic 21 Story 21.4: 全局错误处理
     window.addEventListener('error', this.handleGlobalError);
     window.addEventListener('unhandledrejection', this.handleUnhandledRejection);
@@ -1633,7 +1623,6 @@ export class App implements OnInit, OnDestroy {
     window.removeEventListener('error', this.handleGlobalError);
     window.removeEventListener('unhandledrejection', this.handleUnhandledRejection);
     window.removeEventListener('keydown', this.handleGlobalKeydown);  // Story 329 / Task 1320
-    this.colorScheme?.removeEventListener('change', this.handleColorSchemeChange);
     this.routeSub?.unsubscribe();
     if (this.toastTimer) clearTimeout(this.toastTimer);
     if (this.notifTimer) clearInterval(this.notifTimer);     // Task 401
@@ -4656,8 +4645,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   toggleTheme(): void {
-    this.applyTheme(this.document.documentElement.dataset['theme'] === 'dark' ? 'light' : 'dark');
-    // Task 717: Theme change toast feedback
+    this.themeService.toggleTheme();
     this.notify(
       this.isDarkTheme() ? '已切换到深色模式 🌙' : '已切换到浅色模式 ☀️'
     );
@@ -4671,7 +4659,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   isDarkTheme(): boolean {
-    return this.document.documentElement.dataset['theme'] === 'dark';
+    return this.themeService.currentTheme() === 'dark';
   }
 
   // Task 708: 切换常驻性能徽标显隐（持久化到 localStorage）
@@ -4726,10 +4714,6 @@ export class App implements OnInit, OnDestroy {
     return keys.map((k) => ({ key: k, label: this.groupLabel(g, k), count: buckets[k].length, items: buckets[k] }));
   }
 
-  private applyTheme(theme: string): void {
-    this.document.documentElement.dataset['theme'] = theme;
-    localStorage.setItem('agentboard_theme', theme);
-  }
 
   // Task 721/722: 看板列折叠/展开
   toggleColumnCollapse(status: string): void {

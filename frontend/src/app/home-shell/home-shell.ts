@@ -1,3 +1,4 @@
+import { ThemeService } from '../core/services/theme';
 import { Component, EventEmitter, HostListener, inject, Input, Output, ViewEncapsulation, signal, computed } from '@angular/core';
 import { CommonModule, DOCUMENT } from '@angular/common';
 import { RouterLink } from '@angular/router';
@@ -43,6 +44,7 @@ import type { Project, AgentRow } from '../models';
 })
 export class HomeShellComponent {
   private readonly document = inject(DOCUMENT);
+  private readonly themeService = inject(ThemeService);
 
   @Input({ required: true }) projects: Project[] = [];
   @Input({ required: true }) agents: AgentRow[] = [];
@@ -102,12 +104,10 @@ export class HomeShellComponent {
    * 与 app.ts:4432 toggleTheme() 行为一致（保持单一真相应抽 ThemeService，本轮按 Epic 11
    * 单交付纪律先 inline，等下一次抽）。 */
   isDarkTheme(): boolean {
-    return this.document.documentElement.dataset['theme'] === 'dark';
+    return this.themeService.currentTheme() === 'dark';
   }
   toggleThemeFromMenu(): void {
-    const newTheme = this.isDarkTheme() ? 'light' : 'dark';
-    this.document.documentElement.dataset['theme'] = newTheme;
-    try { localStorage.setItem('agentboard_theme', newTheme); } catch {}
+    this.themeService.toggleTheme();
     this.closeMenus();
   }
 
