@@ -17,7 +17,6 @@ WORKDIR /src
 # independently of source code changes.
 COPY dotnet/AgentBoard.slnx dotnet/AgentBoard.slnx
 COPY dotnet/Directory.Build.props dotnet/Directory.Build.props
-COPY dotnet/Directory.Packages.props dotnet/Directory.Packages.props
 COPY dotnet/global.json dotnet/global.json
 COPY dotnet/src/AgentBoard.Api/AgentBoard.Api.csproj dotnet/src/AgentBoard.Api/AgentBoard.Api.csproj
 COPY dotnet/tests/AgentBoard.Api.Tests/AgentBoard.Api.Tests.csproj dotnet/tests/AgentBoard.Api.Tests/AgentBoard.Api.Tests.csproj
@@ -59,6 +58,6 @@ ENV ASPNETCORE_ENVIRONMENT=Production \
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:8080/ || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:8080/api/health || exit 1
 
 ENTRYPOINT ["dotnet", "AgentBoard.Api.dll"]
