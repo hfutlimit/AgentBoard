@@ -14,7 +14,9 @@
   --brand-500: #2563eb;
   --brand-600: #1d4ed8;
   --brand-700: #1e40af;
+  --brand-soft: #eff6ff;
   --brand-soft: color-mix(in srgb, var(--brand-500) 12%, transparent);
+  --brand-ring: rgba(37, 99, 235, .16);
   --brand-ring: color-mix(in srgb, var(--brand-500) 25%, transparent);
   /* --grad：navy→blue→cyan 渐变（保留为品牌强调资产，色值已收口到 navy 体系） */
   --grad: linear-gradient(135deg, #1d4ed8 0%, #2563eb 58%, #0891b2 100%);
@@ -23,14 +25,19 @@
 
   /* 语义色（状态机对齐，对比度 ≥ 4.5:1） */
   --success: #047857;
+  --success-soft: #d1fae5;
   --success-soft: color-mix(in srgb, var(--success) 15%, transparent);
   --warning: #d97706;
+  --warning-soft: #fef3c7;
   --warning-soft: color-mix(in srgb, var(--warning) 15%, transparent);
   --danger: #991b1b;
+  --danger-soft: #fee2e2;
   --danger-soft: color-mix(in srgb, var(--danger) 15%, transparent);
   --info: #155e75;
+  --info-soft: #cffafe;
   --info-soft: color-mix(in srgb, var(--info) 15%, transparent);
   --violet: #7c3aed;
+  --violet-soft: #ede9fe;
   --violet-soft: color-mix(in srgb, var(--violet) 15%, transparent);
 
   /* 中性（slate 体系） */
@@ -94,22 +101,29 @@
   --color-primary: #5B5BD6;
   --color-primary-hover: #4A4AC4;
   --color-primary-active: #3F3FB0;
+  --color-primary-soft: #EEEEFB;
   --color-primary-soft: color-mix(in srgb, var(--color-primary) 12%, transparent);
   --color-primary-subtle: #F5F4FE;
   --color-text-primary: #1A1A2E;
   --color-text-secondary: #6B6B80;
   --color-text-tertiary: #667085;
   --color-border-strong: #D4D4DC;
+  --color-violet-soft: #F3EDFD;
   --color-violet-soft: color-mix(in srgb, var(--color-violet-text) 15%, transparent);
   --color-violet-text: #7C3AED;
+  --color-sky-soft: #E6F6FE;
   --color-sky-soft: color-mix(in srgb, var(--color-sky-text) 15%, transparent);
   --color-sky-text: #0369A1;
+  --color-warning-soft: #FEF3E2;
   --color-warning-soft: color-mix(in srgb, var(--color-warning-text) 15%, transparent);
   --color-warning-text: #B45309;
+  --color-success-soft: #E7F6EC;
   --color-success-soft: color-mix(in srgb, var(--color-success-text) 15%, transparent);
   --color-success-text: #166534;
+  --color-danger-soft: #FDECEC;
   --color-danger-soft: color-mix(in srgb, var(--color-danger-text) 15%, transparent);
   --color-danger-text: #B91C1C;
+  --color-info-soft: #E6F6FE;
   --color-info-soft: color-mix(in srgb, var(--color-info-text) 15%, transparent);
   --color-info-text: #0369A1;
   --focus-ring: 0 0 0 3px rgba(91, 91, 214, .25);
@@ -139,11 +153,15 @@
   --navy: #10243e;
   --blue: #2864dc;
   --blue-dark: #174db3;
+  --blue-soft: #eaf1ff;
   --blue-soft: color-mix(in srgb, var(--blue) 12%, transparent);
   --teal: #087f6a;
+  --teal-soft: #e6f6f2;
   --teal-soft: color-mix(in srgb, var(--teal) 15%, transparent);
   --amber: #a56507;
+  --amber-soft: #fff4dc;
   --amber-soft: color-mix(in srgb, var(--amber) 15%, transparent);
+  --red-soft: #fff0ef;
   --red-soft: color-mix(in srgb, #dc2626 10%, transparent);
   --shadow-sm-v7: 0 1px 2px rgba(16, 36, 62, .06), 0 4px 12px rgba(16, 36, 62, .04);
   --shadow-lg-v7: 0 22px 60px rgba(16, 36, 62, .16);
@@ -188,11 +206,19 @@
   --status-done-bg: #064e3b;
   --status-done-text: #6ee7b7;
   --success: #6ee7b7;
+  --success-soft: #064e3b;
   --warning: #fcd34d;
+  --warning-soft: #3a2e0a;
   --danger: #fca5a5;
+  --danger-soft: #450a0a;
   --info: #67e8f9;
+  --info-soft: #164e63;
   --violet: #c4b5fd;
+  --violet-soft: #2e1065;
   --color-text-tertiary: #aebcce;
+
+  --brand-soft: #142d55;
+  --brand-ring: rgba(96, 165, 250, .22);
 
   /* ===== Epic 149 / Story 317：navy 令牌暗色版本 =====
      原型 v7 为 light-only，这里为 navy 令牌补暗色版本，
@@ -208,8 +234,12 @@
   --navy: #0a1726;
   --blue: #3b7ae8;
   --blue-dark: #2864dc;
+  --blue-soft: #0f1a2e;
   --teal: #2dd4bf;
+  --teal-soft: #042f2e;
   --amber: #fbbf24;
+  --amber-soft: #2a1c08;
+  --red-soft: #2a0f0f;
   --blue-bright: #7ab8ff;
   --brand-mark-accent: #2dd4bf;
   --sidebar-nav-text: #768ba6;
@@ -230,14 +260,9 @@ body {
   min-height: 100vh;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  scrollbar-gutter: stable;
 }
 
-html { 
-  scroll-behavior: smooth; 
-  scrollbar-color: var(--border) transparent;
-  scrollbar-width: thin;
-}
+html { scroll-behavior: smooth; }
 
 /* Unified heading typography */
 h1, h2, h3, h4 {
@@ -251,6 +276,23 @@ h1 { font-size: 2rem; font-weight: 800; }
 h2 { font-size: 1.5rem; font-weight: 700; }
 h3 { font-size: 1.15rem; font-weight: 600; }
 h4 { font-size: 1rem; font-weight: 600; }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+}
 
 /* Selection */
 ::selection { background: var(--brand-soft); color: var(--brand-700); }
@@ -1488,15 +1530,6 @@ select:focus {
   outline: none;
   border-color: var(--brand-500);
   box-shadow: 0 0 0 3px var(--brand-ring);
-}
-input:not(:placeholder-shown):user-invalid,
-textarea:not(:placeholder-shown):user-invalid {
-  border-color: var(--danger);
-  box-shadow: 0 0 0 3px var(--danger-soft);
-}
-input:not(:placeholder-shown):user-valid,
-textarea:not(:placeholder-shown):user-valid {
-  border-color: var(--success);
 }
 input::placeholder,
 textarea::placeholder { color: var(--text-3); }

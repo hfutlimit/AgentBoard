@@ -1,1 +1,0 @@
-import{J as r}from"./chunk-J3MFWZXL.js";var s=class o{workspaceHost=null;bindWorkspaceHost(t){this.workspaceHost=t}getWorkspaceHost(){if(!this.workspaceHost)throw new Error("Project workspace host is not bound");return this.workspaceHost}static \u0275fac=function(e){return new(e||o)};static \u0275prov=r({token:o,factory:o.\u0275fac,providedIn:"root"})};export{s as a};
