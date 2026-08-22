@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 using AgentBoard.Application.Abstractions;
 using AgentBoard.Application.Board.Dtos;
+using AgentBoard.Domain.Common;
 
 namespace AgentBoard.Application.Board;
 
@@ -26,6 +27,20 @@ public interface IBoardProvider : IProvider
     Task<IReadOnlyList<CommentDto>> ListCommentsAsync(
         int? taskId, int? storyId, int? epicId, CancellationToken ct = default);
     Task<CommentDto?> GetCommentAsync(int id, CancellationToken ct = default);
+
+    // ---- P2: write operations (mirrors FastAPI work_items comment router) ----
+
+    /// <summary>
+    /// Create a comment attached to exactly one of Task / Story / Epic.
+    /// Throws <see cref="InvalidValueException"/> when the target is ambiguous
+    /// or author/content is empty, <see cref="NotFoundException"/> when the
+    /// target row does not exist. Returns the persisted comment (201).
+    /// </summary>
+    Task<CommentDto> CreateCommentAsync(
+        int? taskId, int? storyId, int? epicId, string? author, string? content, CancellationToken ct = default);
+
+    /// <summary>Delete a comment by id. Returns false when not found (404).</summary>
+    Task<bool> DeleteCommentAsync(int id, CancellationToken ct = default);
 
     // ---- P1: dashboard / board reads (mirrors FastAPI aggregation endpoints) ----
 

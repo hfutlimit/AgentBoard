@@ -56,3 +56,10 @@ public sealed record CommentDto(
     string Content,
     DateTime CreatedAt,
     DateTime UpdatedAt);
+
+/// <summary>Request body for <c>POST /api/{tasks|stories|epics}/{id}/comments</c>. Mirrors FastAPI <c>CommentIn</c>.
+/// Properties are nullable so a missing field reaches the provider (which throws <see cref="AgentBoard.Domain.Common.InvalidValueException"/>
+/// → 422), matching FastAPI's Pydantic <c>min_length=1</c> validation rather than ASP.NET's implicit [Required] → 400.</summary>
+public sealed record CommentCreateRequest(
+    string? Author,
+    string? Content);

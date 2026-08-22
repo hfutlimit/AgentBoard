@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using AgentBoard.Application.Abstractions;
 using AgentBoard.Application.Board.Dtos;
+using AgentBoard.Domain.Common;
 using AgentBoard.Domain.Entities;
 using AgentBoard.Domain.Identity;
 
@@ -19,6 +20,7 @@ public sealed class BoardProvider : IBoardProvider
     private readonly IProjectMemberRepository _members;
     private readonly IUserRepository _users;
     private readonly INotificationRepository _notifications;
+    private readonly IUnitOfWork _uow;
 
     public BoardProvider(
         IProjectRepository projects,
@@ -28,7 +30,8 @@ public sealed class BoardProvider : IBoardProvider
         ICommentRepository comments,
         IProjectMemberRepository members,
         IUserRepository users,
-        INotificationRepository notifications)
+        INotificationRepository notifications,
+        IUnitOfWork uow)
     {
         _projects = projects ?? throw new ArgumentNullException(nameof(projects));
         _epics = epics ?? throw new ArgumentNullException(nameof(epics));
@@ -38,6 +41,7 @@ public sealed class BoardProvider : IBoardProvider
         _members = members ?? throw new ArgumentNullException(nameof(members));
         _users = users ?? throw new ArgumentNullException(nameof(users));
         _notifications = notifications ?? throw new ArgumentNullException(nameof(notifications));
+        _uow = uow ?? throw new ArgumentNullException(nameof(uow));
     }
 
     public async Task<IReadOnlyList<ProjectDto>> ListProjectsAsync(CancellationToken ct = default)
@@ -106,6 +110,75 @@ public sealed class BoardProvider : IBoardProvider
     {
         var c = await _comments.GetByIdAsync(id, ct);
         return c is null ? null : ToCommentDto(c);
+    }
+
+    // ===================== P2: write operations =====================
+
+    /// <inheritdoc cref="IBoardProvider.CreateCommentAsync"/>
+    public async Task<CommentDto> CreateCommentAsync(
+        int? taskId, int? storyId, int? epicId, string? author, string? content, CancellationToken ct = default)
+    {
+        // Exactly one of task/story/epic must be set — mirrors FastAPI _comment_target.
+        int targetId;
+        string targetName;
+        if (taskId is not null)
+        {
+            targetId = taskId.Value; targetName = "task";
+            if (storyId is not null || epicId is not null)
+                throw new InvalidValueException("exactly one of task_id/story_id/epic_id must be set");
+        }
+        else if (storyId is not null)
+        {
+            targetId = storyId.Value; targetName = "story";
+            if (epicId is not null)
+                throw new InvalidValueException("exactly one of task_id/story_id/epic_id must be set");
+        }
+        else if (epicId is not null)
+        {
+            targetId = epicId.Value; targetName = "epic";
+        }
+        else
+        {
+            throw new InvalidValueException("exactly one of task_id/story_id/epic_id must be set");
+        }
+
+        Entity? target = targetName switch
+        {
+            "task" => await _tasks.GetByIdAsync(targetId, ct),
+            "story" => await _stories.GetByIdAsync(targetId, ct),
+            _ => await _epics.GetByIdAsync(targetId, ct),
+        };
+        if (target is null)
+            throw new NotFoundException($"{targetName} {targetId} not found");
+
+        author = (author ?? string.Empty).Trim();
+        content = (content ?? string.Empty).Trim();
+        if (author.Length == 0 || content.Length == 0)
+            throw new InvalidValueException("author and content are required");
+
+        var comment = new Comment
+        {
+            TaskId = taskId,
+            StoryId = storyId,
+            EpicId = epicId,
+            Author = author.Length <= 100 ? author : author[..100],
+            Content = content,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        await _comments.AddAsync(comment, ct);
+        await _uow.SaveChangesAsync(ct);
+        return ToCommentDto(comment);
+    }
+
+    /// <inheritdoc cref="IBoardProvider.DeleteCommentAsync"/>
+    public async Task<bool> DeleteCommentAsync(int id, CancellationToken ct = default)
+    {
+        var comment = await _comments.GetByIdAsync(id, ct);
+        if (comment is null) return false;
+        _comments.Remove(comment);
+        await _uow.SaveChangesAsync(ct);
+        return true;
     }
 
     // ===================== P1: dashboard / board reads =====================
