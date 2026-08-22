@@ -285,6 +285,21 @@
 2. `healthcheck` 的 `wget` 在 aspnet:10 镜像里可用（不需装 curl）
 3. PowerShell 5.1 写文件默认 CRLF，sh 脚本里 `curl -s` 调用没问题但需要保持 sh 语法
 
+### 评审闭环：meta 枚举一致性核验（2026-08-22，Story #311 / S0-5）
+
+- **结论：无需代码改动（no-op）。** 评审提出的 ".NET 与 FastAPI meta 枚举漂移" 经源码比对不成立。
+- **证据（均为当前 `main` 源码，非部署实例）：**
+  - `dotnet/src/AgentBoard.Api/Features/Meta/MetaController.cs:25-30` 硬编码
+    `Types=[dev,bug,qa,design]` / `Statuses=[todo,in_progress,in_review,done,blocked]` /
+    `Priorities=[highest,high,medium,low,lowest]` / `SprintStatuses=[planning,active,completed]` /
+    `ScheduleTypes=[once,cron]` / `RunStatuses=[pending,running,success,failed,cancelled]`。
+  - `agentboard/core/common/enums.py:4-96`（Story 265 收敛后）`ALL_TYPES=[dev,bug,qa,design]`、
+    `Status` 5 值、`Priority/SprintStatus/ScheduleType/RunStatus` 与 .NET 逐项一致。
+- **根因：** 评审探针采到的 `[task,bug,test_execution]` 来自 Story 265 **收敛前**的旧部署实例；
+  当前仓库两侧枚举已在 Story 265 统一，属于"假漂移"。
+- **处置：** 不修改契约代码；本条目以"已核验一致"闭环。跨栈枚举若后续再变更，
+  仍以 `scripts/sync-openapi.ps1` 刷新快照 + NSwag 重新生成 Client（S0-4 卡口保障）。
+
 ### 下一步
 
 S0-7: Serilog + OpenTelemetry 接入
