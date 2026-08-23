@@ -56,7 +56,7 @@ public interface IDocumentProvider : IProvider
 
     // ---- Document Folders ----
     Task<(IReadOnlyList<DocumentFolderDto> Items, int Total)> ListFoldersAsync(
-        int? projectId, CancellationToken ct);
+        int? projectId, int? parentId, CancellationToken ct);
 
     Task<DocumentFolderDto> CreateFolderAsync(
         int projectId, int? parentId, string? name, CancellationToken ct);

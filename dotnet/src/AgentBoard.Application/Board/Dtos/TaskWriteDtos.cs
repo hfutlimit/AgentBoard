@@ -56,3 +56,30 @@ public sealed record BulkTaskUpdateRequest(
     string? Priority,
     int? AssigneeId,
     string? DueDate);
+
+// ===== P6: AI task generation (BFF module 6, 2026-08-23) =====
+//
+// `GenerateSubtasksRequest` accepts a target count; the BFF currently returns
+// stub rows (TODO: integrate AI service in stage 2). `GenerateSubtasksResponse`
+// matches the FastAPI `{"generated": [...]}` envelope. `StoryTasksPage` is
+// a thin `items + total` wrapper (the broader `PagedResult<T>` lives in the
+// frontend models and the existing `TicketListResult` is project-scoped, so
+// keeping a dedicated record here avoids pulling a generic PagedResult
+// into the Application layer just for this endpoint).
+
+public sealed record GenerateSubtasksRequest(int? Count);
+
+public sealed record GenerateSubtasksResponse(
+    IReadOnlyList<TaskItemDto> Generated);
+
+public sealed record StoryTasksPage(
+    IReadOnlyList<TaskItemDto> Items,
+    int Total);
+
+/// <summary>Body for <c>POST /api/stories/{storyId}/tasks</c> (create task under story).</summary>
+public sealed record TaskCreateUnderStoryRequest(
+    string? Title,
+    string? Type,
+    string? Priority,
+    string? Description,
+    int? AssigneeId);

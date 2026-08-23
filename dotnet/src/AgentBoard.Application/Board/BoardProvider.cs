@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Expressions;
 using AgentBoard.Application.Abstractions;
 using AgentBoard.Application.Board.Dtos;
+using AgentBoard.Application.Scheduling.Dtos;
 using AgentBoard.Domain.Common;
 using AgentBoard.Domain.Entities;
 using AgentBoard.Domain.Identity;
@@ -24,6 +25,7 @@ public sealed class BoardProvider : IBoardProvider
     private readonly IStoryStatusHistoryRepository _storyHistory;
     private readonly ITaskStatusHistoryRepository _taskHistory;
     private readonly IAttachmentRepository _attachments;
+    private readonly ISprintRepository _sprints;
     private readonly IUnitOfWork _uow;
 
     public BoardProvider(
@@ -39,6 +41,7 @@ public sealed class BoardProvider : IBoardProvider
         IStoryStatusHistoryRepository storyHistory,
         ITaskStatusHistoryRepository taskHistory,
         IAttachmentRepository attachments,
+        ISprintRepository sprints,
         IUnitOfWork uow)
     {
         _projects = projects ?? throw new ArgumentNullException(nameof(projects));
@@ -53,6 +56,7 @@ public sealed class BoardProvider : IBoardProvider
         _storyHistory = storyHistory ?? throw new ArgumentNullException(nameof(storyHistory));
         _taskHistory = taskHistory ?? throw new ArgumentNullException(nameof(taskHistory));
         _attachments = attachments ?? throw new ArgumentNullException(nameof(attachments));
+        _sprints = sprints ?? throw new ArgumentNullException(nameof(sprints));
         _uow = uow ?? throw new ArgumentNullException(nameof(uow));
     }
 
@@ -1046,6 +1050,9 @@ public sealed class BoardProvider : IBoardProvider
         new(t.Id, t.ProjectId, t.StoryId, t.Type, t.Title, t.Status, t.Priority, t.StatusReason,
             t.Description, t.AssigneeId, t.DueDate, t.Labels, t.Estimate, t.Complexity, t.CreatedAt, t.UpdatedAt);
 
+    private static SprintDto ToSprintDto(Domain.Entities.Sprint s) =>
+        new(s.Id, s.ProjectId, s.Title, s.Goal, s.Status, s.StartDate, s.EndDate, s.CreatedAt);
+
     private static CommentDto ToCommentDto(Comment c) =>
         new(c.Id, c.TaskId, c.StoryId, c.EpicId, c.Author, c.Content, c.CreatedAt, c.UpdatedAt);
 
@@ -1186,5 +1193,339 @@ public sealed class BoardProvider : IBoardProvider
             new ReviewStatsAggregate(storyTotal, storyDone, 0, storyTotal - storyDone, 0),
             new ReviewStatsAggregate(taskTotal, taskDone, 0, taskTotal - taskDone, 0),
             0, 0, 0, new List<ReviewReviewerWorkload>(), new List<ReviewVoteProgress>());
+    }
+
+    // ===================== P6: workspace nested creation (BFF module 6, 2026-08-23) =====================
+
+    public async Task<StoryDto?> CreateEpicStoryAsync(int epicId, string? title, string? description, CancellationToken ct = default)
+    {
+        if (await _epics.GetByIdAsync(epicId, ct) is null) return null;
+        title = (title ?? string.Empty).Trim();
+        if (title.Length == 0 || title.Length > 300)
+            throw new InvalidValueException("title must be 1-300 characters");
+        var story = new Story
+        {
+            EpicId = epicId,
+            Title = title,
+            Description = description ?? string.Empty,
+            Status = "backlog",
+            NeedsDesign = true,
+            CreatedAt = DateTime.UtcNow,
+        };
+        await _stories.AddAsync(story, ct);
+        await _uow.SaveChangesAsync(ct);
+        return ToStoryDto(story);
+    }
+
+    public async Task<(IReadOnlyList<TaskItemDto> Items, int Total)> ListStoryTasksAsync(
+        int storyId, string? status, int limit, int offset, CancellationToken ct = default)
+    {
+        var all = await _tasks.ListAsync(t => t.StoryId == storyId, ct);
+        var filtered = string.IsNullOrWhiteSpace(status) ? all : all.Where(t => t.Status == status).ToList();
+        var page = filtered.Skip(offset).Take(limit).ToList();
+        return (page.Select(ToTaskDto).ToList(), filtered.Count);
+    }
+
+    public async Task<TaskItemDto?> CreateStoryTaskAsync(
+        int storyId, string? type, string? title, string? priority,
+        int? assigneeId, CancellationToken ct = default)
+    {
+        var story = await _stories.GetByIdAsync(storyId, ct);
+        if (story is null) return null;
+        var epic = await _epics.GetByIdAsync(story.EpicId, ct);
+        if (epic is null) return null;
+        title = (title ?? string.Empty).Trim();
+        if (title.Length == 0 || title.Length > 300)
+            throw new InvalidValueException("title must be 1-300 characters");
+        var task = new TaskItem
+        {
+            StoryId = storyId,
+            ProjectId = epic.ProjectId,
+            Type = type ?? "dev",
+            Title = title,
+            Status = "todo",
+            Priority = priority ?? "medium",
+            Description = string.Empty,
+            AssigneeId = assigneeId,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        await _tasks.AddAsync(task, ct);
+        await _uow.SaveChangesAsync(ct);
+        return ToTaskDto(task);
+    }
+
+    public async Task<IReadOnlyList<TaskItemDto>?> GenerateSubtasksAsync(int parentTaskId, int count, CancellationToken ct = default)
+    {
+        var parent = await _tasks.GetByIdAsync(parentTaskId, ct);
+        if (parent is null) return null;
+        if (count <= 0) count = 5;
+        if (count > 20) count = 20;  // 上限, 防止 AI 灌水
+        var created = new List<TaskItem>();
+        for (int i = 1; i <= count; i++)
+        {
+            var sub = new TaskItem
+            {
+                StoryId = parent.StoryId,
+                ProjectId = parent.ProjectId,
+                Type = "dev",
+                Title = $"{parent.Title} - Subtask {i}",  // TODO stage 2: integrate AI service
+                Status = "todo",
+                Priority = parent.Priority,
+                Description = string.Empty,
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            };
+            created.Add(sub);
+        }
+        await _tasks.AddRangeAsync(created, ct);
+        await _uow.SaveChangesAsync(ct);
+        return created.Select(ToTaskDto).ToList();
+    }
+
+    // ===================== P1: project center / workspace nested (BFF module 1, 2026-08-23) =====================
+
+    public async Task<ProjectsCenterResult> ListProjectsCenterAsync(
+        int? currentUserId, bool isAdmin, string scope, string sort,
+        int limit, int offset, CancellationToken ct = default)
+    {
+        // 1. 拿到 visible projects (admin 看全部, member 看自己的)
+        var all = isAdmin
+            ? await _projects.ListAsync(ct: ct)
+            : (currentUserId is null
+                ? new List<Project>()
+                : await GetMemberVisibleProjectsAsync(currentUserId.Value, ct));
+
+        // 2. scope 过滤
+        var filtered = scope switch
+        {
+            "archived" => all.Where(p => p.IsArchived).ToList(),
+            "all"      => all.ToList(),
+            _          => all.Where(p => !p.IsArchived).ToList(),  // "active" | "mine" | "created" 都先 default active
+        };
+
+        // 3. sort
+        var sorted = sort switch
+        {
+            "name"    => filtered.OrderBy(p => p.Name).ToList(),
+            "created" => filtered.OrderByDescending(p => p.CreatedAt).ToList(),
+            _         => filtered.OrderByDescending(p => p.CreatedAt).ToList(),  // "recent" (默认) | "tasks" 暂按 created
+        };
+
+        // 4. page
+        var total = sorted.Count;
+        var page = sorted.Skip(offset).Take(limit).ToList();
+        var dtos = page.Select(ToProjectDto).ToList();
+        return new ProjectsCenterResult(dtos, dtos, total, scope, sort);
+    }
+
+    /// <summary>Helper: 拿 currentUserId 可见的 projects (是 member 的)。</summary>
+    private async Task<List<Project>> GetMemberVisibleProjectsAsync(int currentUserId, CancellationToken ct)
+    {
+        var myMemberships = await _members.ListAsync(m => m.UserId == currentUserId, ct);
+        if (myMemberships.Count == 0) return new List<Project>();
+        var myProjectIds = myMemberships.Select(m => m.ProjectId).ToHashSet();
+        return (await _projects.ListAsync(p => myProjectIds.Contains(p.Id), ct)).ToList();
+    }
+
+    public async Task<IReadOnlyList<EpicDto>> ListProjectEpicsAsync(
+        int projectId, string? status, int limit, int offset, CancellationToken ct = default)
+    {
+        if (await _projects.GetByIdAsync(projectId, ct) is null) return new List<EpicDto>();
+        var all = await _epics.ListAsync(e => e.ProjectId == projectId, ct);
+        var filtered = string.IsNullOrWhiteSpace(status) ? all : all.Where(e => e.Status == status).ToList();
+        var page = filtered.Skip(offset).Take(limit).ToList();
+        return page.Select(ToEpicDto).ToList();
+    }
+
+    public async Task<EpicDto?> CreateProjectEpicAsync(int projectId, string? title, string? description, CancellationToken ct = default)
+    {
+        if (await _projects.GetByIdAsync(projectId, ct) is null) return null;
+        title = (title ?? string.Empty).Trim();
+        if (title.Length == 0 || title.Length > 300)
+            throw new InvalidValueException("title must be 1-300 characters");
+        var epic = new Epic
+        {
+            ProjectId = projectId,
+            Title = title,
+            Description = description ?? string.Empty,
+            Status = "backlog",
+            CreatedAt = DateTime.UtcNow,
+        };
+        await _epics.AddAsync(epic, ct);
+        await _uow.SaveChangesAsync(ct);
+        return ToEpicDto(epic);
+    }
+
+    public async Task<SprintDto?> CreateProjectSprintAsync(
+        int projectId, string? title, string? goal, DateTime? startDate, DateTime? endDate, CancellationToken ct = default)
+    {
+        if (await _projects.GetByIdAsync(projectId, ct) is null) return null;
+        title = (title ?? string.Empty).Trim();
+        if (title.Length == 0 || title.Length > 300)
+            throw new InvalidValueException("title must be 1-300 characters");
+        var sprint = new Domain.Entities.Sprint
+        {
+            ProjectId = projectId,
+            Title = title,
+            Goal = goal ?? string.Empty,
+            Status = "planning",
+            StartDate = startDate,
+            EndDate = endDate,
+            CreatedAt = DateTime.UtcNow,
+        };
+        await _sprints.AddAsync(sprint, ct);
+        await _uow.SaveChangesAsync(ct);
+        return ToSprintDto(sprint);
+    }
+
+    public async Task<IReadOnlyList<AgentScheduleDto>> ListProjectSchedulesAsync(
+        int projectId, int limit, int offset, CancellationToken ct = default)
+    {
+        if (await _projects.GetByIdAsync(projectId, ct) is null) return new List<AgentScheduleDto>();
+        // AgentSchedule 没有直接的 ProjectId 列, 但可以走 task.ThroughTask.ProjectId 间接拿, 或
+        // 走 Schedule.ThroughEpic.ProjectId. 我们这里用 task.ThroughProjectId 简化:
+        // 当前 SQLite shadow 没有 schedule 表数据, 简单返回空 list 即可 (UI 显示空状态).
+        // TODO stage 2: 走完整的 Schedule → Epic → Project 关联.
+        return new List<AgentScheduleDto>();
+    }
+
+    public async Task<ProjectExportDto?> ExportProjectAsync(int projectId, CancellationToken ct = default)
+    {
+        var project = await _projects.GetByIdAsync(projectId, ct);
+        if (project is null) return null;
+        var epics = await _epics.ListAsync(e => e.ProjectId == projectId, ct);
+        var epicIds = epics.Select(e => e.Id).ToHashSet();
+        var stories = epicIds.Count > 0
+            ? await _stories.ListAsync(s => epicIds.Contains(s.EpicId), ct)
+            : new List<Domain.Entities.Story>();
+        var tasks = await _tasks.ListAsync(t => t.ProjectId == projectId, ct);
+        return new ProjectExportDto(
+            ToProjectDto(project),
+            epics.Select(ToEpicDto).ToList(),
+            stories.Select(ToStoryDto).ToList(),
+            tasks.Select(ToTaskDto).ToList(),
+            DateTime.UtcNow);
+    }
+
+    public async Task<ProjectImportResult?> ImportProjectAsync(int targetProjectId, ProjectImportRequest body, CancellationToken ct = default)
+    {
+        if (await _projects.GetByIdAsync(targetProjectId, ct) is null) return null;
+        // 简化实现: 把 epics/stories/tasks 都建到 target project 下, id 由 EF 重生
+        var errors = new List<string>();
+        var importedEpics = new List<int>();
+        var importedStories = new List<int>();
+        var importedTasks = new List<int>();
+        foreach (var epicDto in body.Epics ?? new List<EpicDto>())
+        {
+            try
+            {
+                var newEpic = new Domain.Entities.Epic
+                {
+                    ProjectId = targetProjectId,
+                    Title = epicDto.Title,
+                    Description = epicDto.Description,
+                    Status = epicDto.Status ?? "backlog",
+                    CreatedAt = DateTime.UtcNow,
+                };
+                await _epics.AddAsync(newEpic, ct);
+                await _uow.SaveChangesAsync(ct);
+                importedEpics.Add(newEpic.Id);
+            }
+            catch (Exception ex) { errors.Add($"epic '{epicDto.Title}': {ex.Message}"); }
+        }
+        foreach (var storyDto in body.Stories ?? new List<StoryDto>())
+        {
+            try
+            {
+                // 找一个 epic (从 importedEpics 取第一个, 简化)
+                var epicId = importedEpics.FirstOrDefault();
+                if (epicId == 0) { errors.Add($"story '{storyDto.Title}': no epic available"); continue; }
+                var newStory = new Domain.Entities.Story
+                {
+                    EpicId = epicId,
+                    Title = storyDto.Title,
+                    Description = storyDto.Description,
+                    Status = storyDto.Status ?? "backlog",
+                    NeedsDesign = storyDto.NeedsDesign,
+                    CreatedAt = DateTime.UtcNow,
+                };
+                await _stories.AddAsync(newStory, ct);
+                await _uow.SaveChangesAsync(ct);
+                importedStories.Add(newStory.Id);
+            }
+            catch (Exception ex) { errors.Add($"story '{storyDto.Title}': {ex.Message}"); }
+        }
+        foreach (var taskDto in body.Tasks ?? new List<TaskItemDto>())
+        {
+            try
+            {
+                var storyId = importedStories.FirstOrDefault();
+                var newTask = new TaskItem
+                {
+                    StoryId = storyId == 0 ? null : storyId,
+                    ProjectId = targetProjectId,
+                    Type = taskDto.Type ?? "dev",
+                    Title = taskDto.Title,
+                    Status = taskDto.Status ?? "todo",
+                    Priority = taskDto.Priority ?? "medium",
+                    Description = taskDto.Description,
+                    CreatedAt = DateTime.UtcNow,
+                    UpdatedAt = DateTime.UtcNow,
+                };
+                await _tasks.AddAsync(newTask, ct);
+                await _uow.SaveChangesAsync(ct);
+                importedTasks.Add(newTask.Id);
+            }
+            catch (Exception ex) { errors.Add($"task '{taskDto.Title}': {ex.Message}"); }
+        }
+        return new ProjectImportResult(
+            1,  // project 已存在, 不再创建
+            importedEpics.Count,
+            importedStories.Count,
+            importedTasks.Count,
+            importedEpics.Count + importedStories.Count + importedTasks.Count,  // Imported (sum of all)
+            errors.Count,
+            errors);
+    }
+
+    // ===================== P5: sprint burndown + sprint tasks (BFF module 5, 2026-08-23) =====================
+
+    public async Task<SprintBurndownDto?> GetSprintBurndownAsync(int sprintId, int days, CancellationToken ct = default)
+    {
+        var sprint = await _sprints.GetByIdAsync(sprintId, ct);
+        if (sprint is null) return null;
+        if (days <= 0) days = 14;
+        var tasks = await _tasks.ListAsync(t => t.SprintId == sprintId, ct);
+        var total = tasks.Count;
+        var start = sprint.StartDate ?? sprint.CreatedAt;
+        var today = DateTime.UtcNow.Date;
+        var points = new List<SprintBurndownPoint>();
+        for (int i = 0; i < days; i++)
+        {
+            var day = start.Date.AddDays(i);
+            if (day > today) break;
+            // actual remaining: 任务在 day 之前没 done
+            var actualRemaining = tasks.Count(t => t.UpdatedAt.Date >= day || t.Status != "done");
+            // 简化: actual = total - done count
+            var doneCount = tasks.Count(t => t.Status == "done" && t.UpdatedAt.Date <= day);
+            actualRemaining = total - doneCount;
+            // ideal 线性
+            var idealRemaining = (int)Math.Round(total * (1.0 - (double)(i + 1) / days));
+            points.Add(new SprintBurndownPoint(day, Math.Max(0, idealRemaining), Math.Max(0, actualRemaining)));
+        }
+        var burnRate = points.Count > 1
+            ? (points[0].ActualRemaining - points[^1].ActualRemaining) / (double)points.Count
+            : 0;
+        return new SprintBurndownDto(sprintId, total, points, burnRate);
+    }
+
+    public async Task<(IReadOnlyList<TaskItemDto> Items, int Total)> ListSprintTasksAsync(
+        int sprintId, string? status, int limit, int offset, CancellationToken ct = default)
+    {
+        var all = await _tasks.ListAsync(t => t.SprintId == sprintId, ct);
+        var filtered = string.IsNullOrWhiteSpace(status) ? all : all.Where(t => t.Status == status).ToList();
+        var page = filtered.Skip(offset).Take(limit).ToList();
+        return (page.Select(ToTaskDto).ToList(), filtered.Count);
     }
 }

@@ -259,9 +259,11 @@ public sealed class DocumentProvider : IDocumentProvider
 
     // ---- Folders ----
 
-    public async Task<(IReadOnlyList<DocumentFolderDto> Items, int Total)> ListFoldersAsync(int? projectId, CancellationToken ct)
+    public async Task<(IReadOnlyList<DocumentFolderDto> Items, int Total)> ListFoldersAsync(int? projectId, int? parentId, CancellationToken ct)
     {
-        var all = await _folders.ListAsync(f => projectId == null || f.ProjectId == projectId, ct);
+        var all = await _folders.ListAsync(f =>
+            (projectId == null || f.ProjectId == projectId) &&
+            (parentId == null ? f.ParentId == null : f.ParentId == parentId), ct);
         return (all.Select(ToFolderDto).ToList(), all.Count);
     }
 

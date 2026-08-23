@@ -64,4 +64,22 @@ public sealed class EpicsController : BaseController<IBoardProvider>
         var deleted = await Provider.DeleteEpicAsync(id, ct);
         return deleted ? NoContent() : NotFound(new ApiError($"epic {id} not found"));
     }
+
+    // ===================== P6: nested Story create (BFF module 6, 2026-08-23) =====================
+
+    /// <summary>
+    /// Create a Story under an Epic. Mirrors FastAPI <c>POST /api/epics/{eid}/stories</c>.
+    /// </summary>
+    [HttpPost("{epicId:int}/stories")]
+    [ProducesResponseType(typeof(StoryDto), 201)]
+    [ProducesResponseType(typeof(ApiError), 404)]
+    [ProducesResponseType(typeof(ApiError), 422)]
+    public async Task<ActionResult<StoryDto>> CreateStory(
+        int epicId,
+        [FromBody] StoryCreateRequest body,
+        CancellationToken ct)
+    {
+        var dto = await Provider.CreateEpicStoryAsync(epicId, body.Title, body.Description, ct);
+        return StatusCode(StatusCodes.Status201Created, dto);
+    }
 }

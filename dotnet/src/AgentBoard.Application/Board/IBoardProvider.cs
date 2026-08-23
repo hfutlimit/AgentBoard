@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 using AgentBoard.Application.Abstractions;
 using AgentBoard.Application.Board.Dtos;
+using AgentBoard.Application.Scheduling.Dtos;
 using AgentBoard.Domain.Common;
 
 namespace AgentBoard.Application.Board;
@@ -158,4 +159,61 @@ public interface IBoardProvider : IProvider
 
     /// <summary>Get review statistics for a project.</summary>
     Task<ReviewStatsDto?> GetReviewStatsAsync(int projectId, int days, int? userId, CancellationToken ct = default);
+
+    // ---- P6: workspace nested creation (BFF module 6, 2026-08-23) ----
+
+    /// <summary>Create a Story under a specific Epic. Returns null when the epic is missing (404).</summary>
+    Task<StoryDto?> CreateEpicStoryAsync(int epicId, string? title, string? description, CancellationToken ct = default);
+
+    /// <summary>List tasks for a story with optional status filter. Returns items + total for paging.</summary>
+    Task<(IReadOnlyList<TaskItemDto> Items, int Total)> ListStoryTasksAsync(
+        int storyId, string? status, int limit, int offset, CancellationToken ct = default);
+
+    /// <summary>Create a task directly under a story (skips the per-story context endpoint).</summary>
+    Task<TaskItemDto?> CreateStoryTaskAsync(
+        int storyId, string? type, string? title, string? priority,
+        int? assigneeId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Generate <paramref name="count"/> sub-tasks under the given task as a stub
+    /// (the AI service integration is stage 2). Returns the freshly-created rows.
+    /// Returns null when the parent task is missing (404).
+    /// </summary>
+    Task<IReadOnlyList<TaskItemDto>?> GenerateSubtasksAsync(int parentTaskId, int count, CancellationToken ct = default);
+
+    // ---- P1: project center / workspace nested creation (BFF module 1, 2026-08-23) ----
+
+    /// <summary>List projects in the project center with scope filter (active | archived | all | mine | created) + sort.</summary>
+    Task<ProjectsCenterResult> ListProjectsCenterAsync(
+        int? currentUserId, bool isAdmin, string scope, string sort,
+        int limit, int offset, CancellationToken ct = default);
+
+    /// <summary>List epics for a specific project. Used by workspace Epics tab.</summary>
+    Task<IReadOnlyList<EpicDto>> ListProjectEpicsAsync(int projectId, string? status, int limit, int offset, CancellationToken ct = default);
+
+    /// <summary>Create an epic under a specific project.</summary>
+    Task<EpicDto?> CreateProjectEpicAsync(int projectId, string? title, string? description, CancellationToken ct = default);
+
+    /// <summary>Create a sprint under a specific project (workspace Sprint tab).</summary>
+    Task<SprintDto?> CreateProjectSprintAsync(
+        int projectId, string? title, string? goal, DateTime? startDate, DateTime? endDate, CancellationToken ct = default);
+
+    /// <summary>List schedules for a specific project (workspace Schedules tab).</summary>
+    Task<IReadOnlyList<AgentScheduleDto>> ListProjectSchedulesAsync(
+        int projectId, int limit, int offset, CancellationToken ct = default);
+
+    /// <summary>Export the full project tree (project + epics + stories + tasks) for backup / migration.</summary>
+    Task<ProjectExportDto?> ExportProjectAsync(int projectId, CancellationToken ct = default);
+
+    /// <summary>Import a project tree from <see cref="ProjectImportRequest"/>. Returns count summary.</summary>
+    Task<ProjectImportResult?> ImportProjectAsync(int targetProjectId, ProjectImportRequest body, CancellationToken ct = default);
+
+    // ---- P5: sprint burndown + sprint tasks (BFF module 5, 2026-08-23) ----
+
+    /// <summary>Get the burndown chart data for a sprint (ideal vs actual remaining per day).</summary>
+    Task<SprintBurndownDto?> GetSprintBurndownAsync(int sprintId, int days, CancellationToken ct = default);
+
+    /// <summary>List tasks belonging to a sprint, paged.</summary>
+    Task<(IReadOnlyList<TaskItemDto> Items, int Total)> ListSprintTasksAsync(
+        int sprintId, string? status, int limit, int offset, CancellationToken ct = default);
 }

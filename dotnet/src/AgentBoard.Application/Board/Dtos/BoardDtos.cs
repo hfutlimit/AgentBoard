@@ -8,7 +8,9 @@ public sealed record ProjectDto(
     string Description,
     bool IsPrivate,
     DateTime CreatedAt,
-    bool IsArchived);
+    bool IsArchived,
+    int? TaskCount = null,
+    int? TaskDone = null);
 
 public sealed record EpicDto(
     int Id,
@@ -81,3 +83,54 @@ public sealed record ProjectPatchRequest(
     string? Description,
     bool? IsPrivate,
     bool? IsArchived);
+
+// ===== P6: project center / export / import (BFF module 1, 2026-08-23) =====
+
+/// <summary>Response for <c>GET /api/projects/center</c> with scope+sort+limit
+/// filtering. Mirrors the FastAPI <c>/api/projects/center</c> envelope.</summary>
+public sealed record ProjectsCenterResult(
+    IReadOnlyList<ProjectDto> Items,
+    IReadOnlyList<ProjectDto> Page,
+    int Total,
+    string Scope,
+    string Sort);
+
+/// <summary>Response for <c>GET /api/projects/{id}/export</c>. Includes the
+/// project itself plus its child epics / stories / tasks for offline restore.</summary>
+public sealed record ProjectExportDto(
+    ProjectDto Project,
+    IReadOnlyList<EpicDto> Epics,
+    IReadOnlyList<StoryDto> Stories,
+    IReadOnlyList<TaskItemDto> Tasks,
+    DateTime ExportedAt);
+
+/// <summary>Response for <c>POST /api/projects/{id}/import</c>. Reports
+/// counts of imported vs error rows so the UI can show a summary.</summary>
+public sealed record ProjectImportResult(
+    int ProjectCreated,
+    int EpicsImported,
+    int StoriesImported,
+    int TasksImported,
+    int Imported,
+    int Errors,
+    IReadOnlyList<string> ErrorMessages);
+
+/// <summary>Request body for <c>POST /api/projects/{id}/import</c>.</summary>
+public sealed record ProjectImportRequest(
+    ProjectDto Project,
+    IReadOnlyList<EpicDto>? Epics,
+    IReadOnlyList<StoryDto>? Stories,
+    IReadOnlyList<TaskItemDto>? Tasks);
+
+/// <summary>Response for <c>GET /api/sprints/{id}/burndown</c>. Linear ideal
+/// vs actual remaining for each day of the sprint window.</summary>
+public sealed record SprintBurndownDto(
+    int SprintId,
+    int TotalTasks,
+    IReadOnlyList<SprintBurndownPoint> Days,
+    double CurrentBurnRate);
+
+public sealed record SprintBurndownPoint(
+    DateTime Date,
+    int IdealRemaining,
+    int ActualRemaining);

@@ -104,4 +104,25 @@ public sealed class TasksController : BaseController<IBoardProvider>
         var count = await Provider.BulkDeleteTasksAsync(body.TaskIds, ct);
         return Ok(new { deleted = count });
     }
+
+    // ===================== P6: AI task generation (BFF module 6, 2026-08-23) =====================
+
+    /// <summary>
+    /// Generate AI-suggested sub-tasks under a Task. Mirrors FastAPI
+    /// <c>POST /api/tasks/{tid}/generate-subtasks</c>. The .NET BFF currently
+    /// returns stub "Subtask {i}" rows (TODO: integrate AI service in stage 2).
+    /// Response envelope: <c>{"generated": [...]}</c>.
+    /// </summary>
+    [HttpPost("{id:int}/generate-subtasks")]
+    [ProducesResponseType(typeof(GenerateSubtasksResponse), 200)]
+    [ProducesResponseType(typeof(ApiError), 404)]
+    public async Task<ActionResult<GenerateSubtasksResponse>> GenerateSubtasks(
+        int id,
+        [FromBody] GenerateSubtasksRequest? body,
+        CancellationToken ct)
+    {
+        var count = body?.Count ?? 5;
+        var created = await Provider.GenerateSubtasksAsync(id, count, ct);
+        return Ok(new GenerateSubtasksResponse(created));
+    }
 }

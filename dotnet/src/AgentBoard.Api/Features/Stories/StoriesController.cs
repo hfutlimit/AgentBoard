@@ -90,4 +90,41 @@ public sealed class StoriesController : BaseController<IBoardProvider>
     public async Task<ActionResult<IReadOnlyList<StoryStatusHistoryDto>>> GetStatusHistory(
         int id, CancellationToken ct) =>
         Ok(await Provider.GetStoryStatusHistoryAsync(id, ct));
+
+    // ===================== P6: nested + AI (BFF module 6, 2026-08-23) =====================
+
+    /// <summary>
+    /// Paged tasks under a Story. Mirrors FastAPI
+    /// <c>GET /api/stories/{sid}/tasks?status=&amp;limit=&amp;offset=</c> — returns
+    /// <c>{items, total}</c> consumed by the Angular <c>listTasks</c> service.
+    /// </summary>
+    [HttpGet("{storyId:int}/tasks")]
+    [ProducesResponseType(typeof(StoryTasksPage), 200)]
+    [ProducesResponseType(typeof(ApiError), 404)]
+    public async Task<ActionResult<StoryTasksPage>> ListTasks(
+        int storyId,
+        [FromQuery] string? status = null,
+        [FromQuery] int limit = 100,
+        [FromQuery] int offset = 0,
+        CancellationToken ct = default)
+    {
+        return Ok(await Provider.ListStoryTasksAsync(storyId, status, limit, offset, ct));
+    }
+
+    /// <summary>
+    /// Create a Task under a Story. Mirrors FastAPI <c>POST /api/stories/{sid}/tasks</c>.
+    /// </summary>
+    [HttpPost("{storyId:int}/tasks")]
+    [ProducesResponseType(typeof(TaskItemDto), 201)]
+    [ProducesResponseType(typeof(ApiError), 404)]
+    [ProducesResponseType(typeof(ApiError), 422)]
+    public async Task<ActionResult<TaskItemDto>> CreateTask(
+        int storyId,
+        [FromBody] TaskCreateUnderStoryRequest body,
+        CancellationToken ct)
+    {
+        var dto = await Provider.CreateStoryTaskAsync(
+            storyId, body.Type, body.Title, body.Priority, body.AssigneeId, ct);
+        return StatusCode(StatusCodes.Status201Created, dto);
+    }
 }
