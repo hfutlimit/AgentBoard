@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+using System.Security.Cryptography;
+using System.Text;
 using AgentBoard.Application.Abstractions;
 using AgentBoard.Application.Board.Dtos;
 using AgentBoard.Domain.Common;
@@ -30,15 +32,15 @@ public sealed class ApiKeyProvider : IApiKeyProvider
         if (name.Length == 0 || name.Length > 200)
             throw new InvalidValueException("name must be 1-200 characters");
 
-        var rawKey = Guid.NewGuid().ToString("N");
-        var keyPrefix = rawKey[..8];
+		var rawKey = GenerateRawKey();
+		var keyPrefix = rawKey[..12];
 
         var apiKey = new ApiKey
         {
             UserId = userId,
             Name = name,
             KeyPrefix = keyPrefix,
-            KeyHash = rawKey, // In production, hash this
+			KeyHash = HashKey(rawKey),
             Scopes = scopes ?? "[]",
             Enabled = true,
             CreatedAt = DateTime.UtcNow,
@@ -48,8 +50,21 @@ public sealed class ApiKeyProvider : IApiKeyProvider
         await _uow.SaveChangesAsync(ct);
 
         var dto = new ApiKeyDto(apiKey.Id, apiKey.Name, apiKey.KeyPrefix, apiKey.Scopes, apiKey.Enabled, apiKey.LastUsedAt, apiKey.CreatedAt);
-        return (dto, rawKey);
-    }
+		return (dto, rawKey);
+	}
+
+	internal static string GenerateRawKey()
+	{
+		var bytes = RandomNumberGenerator.GetBytes(32);
+		var token = Convert.ToBase64String(bytes)
+			.TrimEnd('=')
+			.Replace('+', '-')
+			.Replace('/', '_');
+		return $"abk_{token}";
+	}
+
+	internal static string HashKey(string rawKey) =>
+		Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawKey))).ToLowerInvariant();
 
     public async Task<bool> DeleteApiKeyAsync(int keyId, int userId, CancellationToken ct = default)
     {

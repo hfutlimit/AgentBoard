@@ -31,6 +31,16 @@ public sealed class InvalidValueException : DomainException
     public InvalidValueException(string message) : base(message) { }
 }
 
+public sealed class UnauthorizedException : DomainException
+{
+    public UnauthorizedException(string message = "authentication required") : base(message) { }
+}
+
+public sealed class ForbiddenException : DomainException
+{
+    public ForbiddenException(string message = "forbidden") : base(message) { }
+}
+
 /// <summary>Maps to HTTP 400 (illegal state transition).</summary>
 public sealed class IllegalTransitionException : DomainException
 {

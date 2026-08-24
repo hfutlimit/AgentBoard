@@ -12,7 +12,8 @@ import httpx
 from fastmcp import Client
 
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ROOT = os.path.join(REPO_ROOT, "src", "backend-fastapi")
 
 
 def _free_port() -> int:

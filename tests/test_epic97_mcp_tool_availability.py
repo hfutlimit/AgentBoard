@@ -40,7 +40,8 @@ from pathlib import Path
 import httpx
 import pytest
 
-_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_ROOT = os.path.join(_REPO_ROOT, "src", "backend-fastapi")
 sys.path.insert(0, _ROOT)
 
 # 独立临时数据库（与其它测试隔离），子进程通过环境变量继承同一个库

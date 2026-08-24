@@ -21,14 +21,45 @@ from fastmcp import Client
 
 API_URL = os.environ.get("AGENTBOARD_API_URL", "http://127.0.0.1:18001")
 # in-process 引用: 把 agentboard.mcp_server 的模块路径塞进 sys.path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.abspath(os.path.join(
+    os.path.dirname(__file__), "..", "src", "backend-fastapi"
+)))
 
 
 def step(name: str) -> None:
     print(f"\n--- {name} ---")
 
 
+class _TokenScopedClient:
+    """Apply one token through a context variable for in-process MCP calls."""
+
+    def __init__(self, transport: Any, token: str):
+        self._transport = transport
+        self._token = token
+
+    async def call_tool(self, name: str, arguments: dict[str, Any]):
+        from agentboard.features.mcp.shared import token_context
+
+        with token_context(self._token):
+            async with Client(self._transport) as client:
+                return await client.call_tool(name, arguments)
+
+
 async def main() -> int:
+    """Run the hybrid proposal workflow without leaking its token to callers."""
+    env_keys = ("AGENTBOARD_API_URL", "AGENTBOARD_MCP_REQUIRE_AUTH")
+    previous_env = {key: os.environ.get(key) for key in env_keys}
+    try:
+        return await _run_workflow()
+    finally:
+        for key, value in previous_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+async def _run_workflow() -> int:
     # 让 mcp_server 模块以为 AGENTBOARD_API_URL 指向我们刚启动的 FastAPI
     os.environ["AGENTBOARD_API_URL"] = API_URL
     os.environ["AGENTBOARD_MCP_REQUIRE_AUTH"] = "0"
@@ -66,9 +97,10 @@ async def main() -> int:
         ]
         missing = [r for r in required if r not in tool_names]
         if missing:
-            print(f"   MISSING: {missing}")
+            print(f"   MISSING required MCP tools: {missing}", file=sys.stderr)
+            return 1
         else:
-            print(f"   OK — 关键 11 个工具全注册")
+            print(f"   OK — required {len(required)} tools registered")
         # 额外: 验证 auth_register/login/me 也在
         for r in ("auth_register", "auth_login", "auth_me"):
             if r not in tool_names:
@@ -92,8 +124,9 @@ async def main() -> int:
         # FastMCP call_tool 返回 CallToolResult, content 是 TextContent
         reg = _parse(r)
         admin_token = reg.get("token")
-        # 把 token 喂给 _current_token()（通过 AGENTBOARD_MCP_TOKEN 环境变量）
-        os.environ["AGENTBOARD_MCP_TOKEN"] = admin_token or ""
+        if not admin_token:
+            raise RuntimeError("auth_register did not return a token")
+        client = _TokenScopedClient(mcp, admin_token)
         print(f"   user_id={reg.get('id')} token_len={len(admin_token or '')}")
 
         # B2. 创建 project

@@ -17,7 +17,8 @@ import sys
 import unittest.mock as mock
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, _ROOT)
+_PYTHON_ROOT = os.path.join(_ROOT, "src", "backend-fastapi")
+sys.path.insert(0, _PYTHON_ROOT)
 # 直调 mcp_server 内部函数需服务端上下文（历史经验：AST 护栏 + 直调 .fn 设 env）
 os.environ.setdefault("AGENTBOARD_MCP_TOKEN", "test-token")
 
@@ -42,6 +43,7 @@ def test_claim_free_task_creates_run():
     """空闲任务（backlog）→ 创建 Run + 推进 in_progress，不复用。"""
     calls = [
         _task("todo"),                    # GET task
+        [{"id": 1}],                       # GET project schedules
         [],                                  # GET runs → 无 active run
         _run(1, "pending", 42),              # POST create run → 返回 run
         {"ok": True},                        # PUT status in_progress
@@ -56,13 +58,14 @@ def test_claim_free_task_creates_run():
     paths = [c.args[1] for c in m.call_args_list]
     assert paths == [
         "/api/tasks/42",
+        "/api/projects/3/schedules",
         "/api/schedules/1/runs",
         "/api/schedules/1/runs",
         "/api/tasks/42/status",
         "/api/tasks/42",
     ]
     # 新 run 的 idempotency_key 带 agent 名前缀
-    post_kw = m.call_args_list[2].kwargs.get("json", {})
+    post_kw = m.call_args_list[3].kwargs.get("json", {})
     assert post_kw["task_id"] == 42 and post_kw["idempotency_key"].startswith("agent-a-")
 
 
@@ -90,6 +93,7 @@ def test_claim_reuses_active_run():
     """已有 active Run（running）→ 幂等复用（reused=True），不新建。"""
     calls = [
         _task("todo"),        # GET task
+        [{"id": 1}],          # GET project schedules
         [_run(9, "running", 42)],  # GET list runs → 命中 active run
         {"ok": True},            # PUT status in_progress
         _task("in_progress"),    # GET task 刷新
@@ -108,6 +112,7 @@ def test_claim_no_reuse_when_run_terminal():
     """已有 Run 但为终态（success/failed）→ 不复用，新建 Run。"""
     calls = [
         _task("todo"),                       # GET task
+        [{"id": 1}],                          # GET project schedules
         [_run(9, "success", 42)],               # GET list runs → 仅终态 run
         _run(10, "pending", 42),                # POST create run → 新 run
         {"ok": True},                           # PUT status
@@ -133,18 +138,19 @@ def test_claim_create_run_error():
     """创建 Run 失败（如 409/404）→ 返回 error，不推进状态。"""
     calls = [
         _task("todo"),
+        [{"id": 1}],
         [],
         {"error": "run with idempotency_key already exists"},
     ]
     with _patch_http(calls) as m:
         out = ms._agent_claim_task(42)
     assert "error" in out and out["run"] is None
-    assert len(m.call_args_list) == 3
+    assert len(m.call_args_list) == 4
 
 
 def test_ast_no_dead_code_if_false():
     """AST 静态护栏：`_agent_claim_task` 内无 `if False`/`if 0` 死代码残留。"""
-    src = open(os.path.join(_ROOT, "agentboard", "features", "mcp", "scheduling.py"),
+    src = open(os.path.join(_PYTHON_ROOT, "agentboard", "features", "mcp", "scheduling.py"),
                encoding="utf-8").read()
     tree = ast.parse(src)
     fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)

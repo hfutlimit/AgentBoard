@@ -33,6 +33,8 @@ public sealed class DomainExceptionFilter : IExceptionFilter
             NotFoundException => (StatusCodes.Status404NotFound, "not_found"),
             DuplicateException => (StatusCodes.Status409Conflict, "duplicate"),
             InvalidValueException => (StatusCodes.Status422UnprocessableEntity, "invalid_value"),
+            UnauthorizedException => (StatusCodes.Status401Unauthorized, "unauthorized"),
+            ForbiddenException => (StatusCodes.Status403Forbidden, "forbidden"),
             IllegalTransitionException => (StatusCodes.Status400BadRequest, "illegal_transition"),
             _ => (StatusCodes.Status500InternalServerError, "domain_error"),
         };

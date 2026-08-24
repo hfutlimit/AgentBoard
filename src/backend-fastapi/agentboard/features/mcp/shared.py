@@ -11,12 +11,25 @@ we want that patch to propagate. We fall back to the real `httpx` module
 if mcp_server isn't loaded yet.
 """
 from __future__ import annotations
+from contextlib import contextmanager
+from contextvars import ContextVar
 import os
 import sys
 import httpx as _httpx_real
 from fastmcp.server.dependencies import get_access_token
 
 API_URL = os.getenv("AGENTBOARD_API_URL", "http://127.0.0.1:58124")
+_TOKEN_OVERRIDE: ContextVar[str | None] = ContextVar("agentboard_mcp_token", default=None)
+
+
+@contextmanager
+def token_context(token: str | None):
+    """Provide an in-process MCP token without mutating process globals."""
+    marker = _TOKEN_OVERRIDE.set(token)
+    try:
+        yield
+    finally:
+        _TOKEN_OVERRIDE.reset(marker)
 
 
 def _current_token():
@@ -24,7 +37,7 @@ def _current_token():
         access = get_access_token()
     except RuntimeError:
         access = None
-    return access.token if access else os.getenv("AGENTBOARD_MCP_TOKEN")
+    return access.token if access else (_TOKEN_OVERRIDE.get() or os.getenv("AGENTBOARD_MCP_TOKEN"))
 
 
 def _http(method, path, **kw):

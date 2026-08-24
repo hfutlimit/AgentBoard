@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import ast
+import sys
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PYTHON_ROOT = REPO_ROOT / "src" / "backend-fastapi" / "agentboard"
+sys.path.insert(0, str(PYTHON_ROOT.parent))
 
 
 def _python_files(relative_root: str) -> list[Path]:

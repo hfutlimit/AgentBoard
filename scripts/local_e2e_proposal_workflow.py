@@ -194,8 +194,13 @@ def main() -> int:
                                "description": ticket_spec}, headers=H)
         task_id = task_body.get("id") or task_body.get("task", {}).get("id")
         print(f"   task_id={task_id}")
-        task_id = (body.get("ticket") or {}).get("id") or (body.get("request") or {}).get("ticket_id")
-        print(f"   task_id={task_id}")
+        assert task_id is not None, f"task create response did not contain an id: {task_body}"
+        created_task = c.get(f"/api/tasks/{task_id}", headers=H)
+        assert_ok(created_task, 200)
+        created_task_body = created_task.json()
+        assert created_task_body.get("id") == task_id, created_task_body
+        assert created_task_body.get("story_id") == story_id, created_task_body
+        assert created_task_body.get("project_id") == pid, created_task_body
 
         # ===== 10. task workflow =====
         step(f"10. claim task_id={task_id} (TODO → IN_PROGRESS)")

@@ -14,7 +14,10 @@ namespace AgentBoard.Api.Features.Sprints;
 [Produces("application/json")]
 public sealed class SprintsController : BaseController<ISprintProvider>
 {
-    public SprintsController(ISprintProvider provider, ICurrentUser current) : base(provider, current) { }
+    private readonly IBoardProvider _board;
+
+    public SprintsController(ISprintProvider provider, IBoardProvider board, ICurrentUser current) : base(provider, current) =>
+        _board = board ?? throw new ArgumentNullException(nameof(board));
 
     [HttpGet]
     [ProducesResponseType(typeof(IReadOnlyList<SprintDto>), 200)]
@@ -60,6 +63,41 @@ public sealed class SprintsController : BaseController<ISprintProvider>
     {
         var ok = await Provider.DeleteSprintAsync(id, ct);
         return ok ? Ok(new { ok = true }) : NotFound(new ApiError($"sprint {id} not found"));
+    }
+
+    [HttpGet("{id:int}/burndown")]
+    [ProducesResponseType(typeof(SprintBurndownDto), 200)]
+    [ProducesResponseType(typeof(ApiError), 404)]
+    public async Task<ActionResult<SprintBurndownDto>> Burndown(
+        int id, [FromQuery] int days = 14, CancellationToken ct = default)
+    {
+        var dto = await _board.GetSprintBurndownAsync(id, days, ct);
+        return dto is null ? NotFound(new ApiError($"sprint {id} not found")) : Ok(dto);
+    }
+
+    [HttpGet("{id:int}/tasks")]
+    [ProducesResponseType(200)]
+    [ProducesResponseType(typeof(ApiError), 404)]
+    public async Task<ActionResult> Tasks(
+        int id,
+        [FromQuery] string? status,
+        [FromQuery] int limit = 100,
+        [FromQuery] int offset = 0,
+        CancellationToken ct = default)
+    {
+        if (await Provider.GetSprintAsync(id, ct) is null)
+            return NotFound(new ApiError($"sprint {id} not found"));
+
+        limit = Math.Clamp(limit, 1, 200);
+        offset = Math.Max(offset, 0);
+        var result = await _board.ListSprintTasksAsync(id, status, limit, offset, ct);
+        return Ok(new
+        {
+            items = result.Items,
+            page = offset / limit + 1,
+            page_size = limit,
+            total = result.Total,
+        });
     }
 
     [HttpPost("{id:int}/activate")]

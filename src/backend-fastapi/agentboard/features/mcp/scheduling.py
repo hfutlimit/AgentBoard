@@ -66,6 +66,26 @@ def _run_update(run_id, fields):
 def _run_delete(run_id):
     return _http("DELETE", f"/api/runs/{run_id}")
 
+
+def _get_or_create_claim_schedule(project_id, task_id):
+    """Return a usable schedule for manual claims without relying on id=1."""
+    schedules = _http("GET", f"/api/projects/{project_id}/schedules")
+    if isinstance(schedules, dict) and schedules.get("error"):
+        return schedules
+    if isinstance(schedules, list):
+        for schedule in schedules:
+            if isinstance(schedule, dict) and schedule.get("id") is not None:
+                return schedule
+
+    return _http(
+        "POST",
+        f"/api/projects/{project_id}/schedules",
+        json={
+            "title": f"Manual task claim {task_id}",
+            "schedule_type": "once",
+        },
+    )
+
 def _agent_claim_task(task_id, agent_name="agent"):
     """Agent 认领任务（Epic 118 并发护栏版）：
     - 任务非 backlog/todo（已被认领或已结束）→ 返回明确错误，不创建 Run、不改状态；
@@ -87,7 +107,14 @@ def _agent_claim_task(task_id, agent_name="agent"):
             "run": None,
         }
     # Run 幂等复用：同一 task 已有 active Run（pending/running）则复用，不新建
-    runs = _http("GET", "/api/schedules/1/runs")
+    schedule = _get_or_create_claim_schedule(t.get("project_id"), task_id)
+    if not isinstance(schedule, dict) or schedule.get("error"):
+        return {"error": schedule.get("error", "unable to resolve claim schedule"), "task": t, "run": None}
+    schedule_id = schedule.get("id")
+    if not isinstance(schedule_id, int):
+        return {"error": "claim schedule did not contain an id", "task": t, "run": None}
+
+    runs = _http("GET", f"/api/schedules/{schedule_id}/runs")
     if isinstance(runs, list):
         for r in runs:
             if r.get("task_id") == task_id and r.get("status") in ("pending", "running"):
@@ -96,7 +123,7 @@ def _agent_claim_task(task_id, agent_name="agent"):
                 return {"run": r, "task": t, "schedule": None, "reused": True}
     # 创建 run（schedule 1 为手动触发占位，历史约定保持不变）
     idempotency_key = f"{agent_name}-{task_id}-{uuid.uuid4().hex[:8]}"
-    run = _http("POST", "/api/schedules/1/runs",
+    run = _http("POST", f"/api/schedules/{schedule_id}/runs",
                 json={"task_id": task_id, "idempotency_key": idempotency_key})
     if "error" in run:
         return {"error": run["error"], "task": t, "run": None}
@@ -114,3 +141,6 @@ def _agent_complete_run(run_id, output, status="success", error_message=None):
     if error_message:
         fields["error_message"] = error_message
     return _http("PATCH", f"/api/runs/{run_id}", json=fields)
+
+def _run_event_create(run_id, event_type, payload):
+    return _http("POST", f"/api/agent-runs/{run_id}/events", json={"event_type": event_type, "payload": payload})

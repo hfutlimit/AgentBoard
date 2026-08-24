@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+using AgentBoard.Application.Abstractions;
 using AgentBoard.Application.Board;
 using AgentBoard.Application.Health;
 using AgentBoard.Application.Identity;
@@ -25,6 +26,7 @@ public static class DependencyInjection
 		services.TryAddScoped<IAuthProvider, AuthProvider>();
 		services.TryAddScoped<IHealthProvider, HealthProvider>();
 		services.TryAddScoped<IBoardProvider, BoardProvider>();
+		services.TryAddScoped<IProjectAccessService, ProjectAccessService>();
 		services.TryAddScoped<IDocumentProvider, DocumentProvider>();
 		services.TryAddScoped<ISprintProvider, SprintProvider>();
 		services.TryAddScoped<IMemberProvider, MemberProvider>();

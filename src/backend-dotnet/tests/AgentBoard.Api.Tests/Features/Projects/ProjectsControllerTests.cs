@@ -24,6 +24,7 @@ using AgentBoard.Application.Scheduling.Dtos;
 using AgentBoard.Domain.Entities;
 using AgentBoard.Infrastructure.Persistence;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace AgentBoard.Api.Tests.Features.Projects;
@@ -31,7 +32,11 @@ namespace AgentBoard.Api.Tests.Features.Projects;
 public sealed class ProjectsControllerTests : IClassFixture<ApiWebApplicationFactory>
 {
     private readonly ApiWebApplicationFactory _factory;
-    private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions JsonOpts = new(JsonSerializerDefaults.Web)
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        PropertyNameCaseInsensitive = true,
+    };
 
     public ProjectsControllerTests(ApiWebApplicationFactory factory) => _factory = factory;
 
@@ -46,7 +51,7 @@ public sealed class ProjectsControllerTests : IClassFixture<ApiWebApplicationFac
         var project = new Project
         {
             Name = name,
-            Key = name.Length > 4 ? name[..4].ToUpperInvariant() : name.ToUpperInvariant(),
+            Key = $"{(name.Length > 4 ? name[..4] : name).ToUpperInvariant()}-{Guid.NewGuid():N}"[..15],
             Description = "seeded by test",
             IsPrivate = false,
             CreatedAt = DateTime.UtcNow,
@@ -524,7 +529,7 @@ public sealed class ProjectsControllerTests : IClassFixture<ApiWebApplicationFac
     }
 
     [Fact]
-    public async Task Import_Collects_Errors_For_Invalid_Rows_But_Imports_Valid_Ones()
+    public async Task Import_Rolls_Back_When_Any_Row_Is_Invalid()
     {
         var p = await SeedProjectAsync("ImportMixed");
         var client = NewClient();
@@ -541,14 +546,14 @@ public sealed class ProjectsControllerTests : IClassFixture<ApiWebApplicationFac
                 },
             },
             JsonOpts);
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var dto = await response.Content.ReadFromJsonAsync<ProjectImportResult>(JsonOpts);
-        dto!.Imported.Should().Be(1);
-        dto.Errors.Should().Be(3);
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await db.Tasks.CountAsync(t => t.ProjectId == p.Id)).Should().Be(0);
     }
 
     [Fact]
-    public async Task Import_All_Invalid_Returns_Imported_Zero()
+    public async Task Import_All_Invalid_Returns_422_And_Leaves_No_Rows()
     {
         var p = await SeedProjectAsync("ImportAllBad");
         var client = NewClient();
@@ -563,10 +568,10 @@ public sealed class ProjectsControllerTests : IClassFixture<ApiWebApplicationFac
                 },
             },
             JsonOpts);
-        response.StatusCode.Should().Be(HttpStatusCode.OK);
-        var dto = await response.Content.ReadFromJsonAsync<ProjectImportResult>(JsonOpts);
-        dto!.Imported.Should().Be(0);
-        dto.Errors.Should().Be(2);
+        response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await db.Tasks.CountAsync(t => t.ProjectId == p.Id)).Should().Be(0);
     }
 
     [Fact]

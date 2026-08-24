@@ -123,15 +123,48 @@ public sealed record ProjectImportResult(
 /// <summary>Request body for <c>POST /api/projects/{id}/import</c>.</summary>
 public sealed record ProjectImportRequest(
 	ProjectDto? Project,
-	IReadOnlyList<EpicDto>? Epics,
-	IReadOnlyList<StoryDto>? Stories,
-	IReadOnlyList<TaskItemDto>? Tasks);
+	IReadOnlyList<ProjectImportEpicDto>? Epics,
+	IReadOnlyList<ProjectImportStoryDto>? Stories,
+	IReadOnlyList<ProjectImportTaskDto>? Tasks);
+
+/// <summary>Nullable-field import rows. Import payloads are partial exports in practice,
+/// so they must not be validated as complete response DTOs.</summary>
+public sealed record ProjectImportEpicDto(
+	int Id = 0,
+	string? Title = null,
+	string? Description = null,
+	string? Status = null);
+
+public sealed record ProjectImportStoryDto(
+	int Id = 0,
+	int EpicId = 0,
+	string? Title = null,
+	string? Description = null,
+	string? Status = null,
+	bool NeedsDesign = true);
+
+public sealed record ProjectImportTaskDto(
+	int Id = 0,
+	int? StoryId = null,
+	string? Type = null,
+	string? Title = null,
+	string? Status = null,
+	string? Priority = null,
+	string? StatusReason = null,
+	string? Description = null);
 
 /// <summary>Response for <c>GET /api/sprints/{id}/burndown</c>. Linear ideal
 /// vs actual remaining for each day of the sprint window.</summary>
 public sealed record SprintBurndownDto(
 	int SprintId,
+	int ProjectId,
+	string Title,
+	string Status,
+	DateTime? StartDate,
+	DateTime? EndDate,
 	int TotalTasks,
+	int DoneTasks,
+	int RemainingTasks,
 	IReadOnlyList<SprintBurndownPoint> Days,
 	double CurrentBurnRate);
 

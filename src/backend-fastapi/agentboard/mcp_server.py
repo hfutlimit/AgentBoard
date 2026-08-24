@@ -10,7 +10,6 @@ from typing import Any
 from fastmcp import FastMCP
 from fastmcp.server.auth import AccessToken
 from fastmcp.server.auth.auth import TokenVerifier
-from fastmcp.server.dependencies import get_access_token
 
 from . import auth as agent_auth
 
@@ -23,6 +22,7 @@ from .features.mcp import projects as mcp_projects
 from .features.mcp import proposals as mcp_proposals
 from .features.mcp import scheduling as mcp_scheduling
 from .features.mcp import work_items as mcp_work_items
+from .features.mcp.shared import _current_token as _shared_current_token
 
 # Phase 6: backward-compat facade — old code/tests did
 # `from agentboard import mcp_server as m; m._proj_create(...)` and expected
@@ -70,11 +70,7 @@ mcp = FastMCP("AgentBoard", auth=AgentBoardTokenVerifier() if MCP_REQUIRE_AUTH e
 import httpx
 
 def _current_token():
-    try:
-        access = get_access_token()
-    except RuntimeError:
-        access = None
-    return access.token if access else os.getenv("AGENTBOARD_MCP_TOKEN")
+    return _shared_current_token()
 
 def _http(method, path, **kw):
     headers = dict(kw.pop("headers", {}) or {})
@@ -598,11 +594,7 @@ def auth_login(username: str, password: str) -> dict:
 def auth_me(token: str | None = None) -> dict:
     """校验显式 Token；未提供时使用当前远程 MCP Bearer Token。"""
     if token is None:
-        try:
-            access = get_access_token()
-        except RuntimeError:
-            access = None
-        token = access.token if access else os.getenv("AGENTBOARD_MCP_TOKEN")
+        token = _current_token()
     if not token:
         return {"error": "unauthorized"}
     return mcp_auth._auth_me(token)
@@ -1649,3 +1641,13 @@ if __name__ == "__main__":
         mcp.run()
     else:
         raise RuntimeError(f"unsupported AGENTBOARD_MCP_TRANSPORT: {transport}")
+
+@mcp.tool()
+def report_run_event(run_id: int, event_type: str, payload: dict) -> dict:
+    """Report a real-time event for an agent run (e.g., state_change, mcp_call, log)."""
+    return _run_event_create(run_id, event_type, payload)
+
+@mcp.tool()
+def get_task_review_context(task_id: int) -> dict:
+    """Retrieve full context for reviewing a Task, including its diff and the parent Proposal's Specs."""
+    return _get_task_review_context(task_id)

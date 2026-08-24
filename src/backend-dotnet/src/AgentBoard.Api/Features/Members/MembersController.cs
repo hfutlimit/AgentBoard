@@ -12,9 +12,9 @@ namespace AgentBoard.Api.Features.Members;
 [ApiController]
 [Route("api/projects/{projectId:int}/members")]
 [Produces("application/json")]
-public sealed class MembersController : BaseController<IBoardProvider>
+public sealed class MembersController : BaseController<IMemberProvider>
 {
-    public MembersController(IBoardProvider provider, ICurrentUser current) : base(provider, current) { }
+    public MembersController(IMemberProvider provider, ICurrentUser current) : base(provider, current) { }
 
     [HttpPost]
     [ProducesResponseType(typeof(ProjectMemberDto), 201)]

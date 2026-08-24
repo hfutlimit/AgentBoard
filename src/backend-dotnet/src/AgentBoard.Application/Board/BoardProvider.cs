@@ -1259,6 +1259,8 @@ public sealed class BoardProvider : IBoardProvider
 
 	public async Task<ProjectImportResult?> ImportProjectAsync(int targetProjectId, ProjectImportRequest body, CancellationToken ct = default)
 	{
+		return await ImportProjectAtomicallyAsync(targetProjectId, body, ct);
+#if false
 		if (await _projects.GetByIdAsync(targetProjectId, ct) is null) return null;
 		// 简化实现: 把 epics/stories/tasks 都建到 target project 下, id 由 EF 重生
 		var errors = new List<string>();
@@ -1337,11 +1339,129 @@ public sealed class BoardProvider : IBoardProvider
 			errors.Count,
 			errors);
 	}
+#endif
+	}
+
+	private async Task<ProjectImportResult?> ImportProjectAtomicallyAsync(
+		int targetProjectId, ProjectImportRequest body, CancellationToken ct)
+	{
+		if (await _projects.GetByIdAsync(targetProjectId, ct) is null) return null;
+		ArgumentNullException.ThrowIfNull(body);
+
+		if (body.Epics is null && body.Stories is null && body.Tasks is null)
+			throw new InvalidValueException("at least one import collection is required");
+
+		var epics = (body.Epics ?? Array.Empty<ProjectImportEpicDto>()).ToList();
+		var stories = (body.Stories ?? Array.Empty<ProjectImportStoryDto>()).ToList();
+		var tasks = (body.Tasks ?? Array.Empty<ProjectImportTaskDto>()).ToList();
+		ValidateImportReferences(epics, stories, tasks);
+
+		await using var transaction = await _uow.BeginTransactionAsync(ct);
+		try
+		{
+			var now = DateTime.UtcNow;
+			var newEpics = epics.Select(epicDto => new Domain.Entities.Epic
+			{
+				ProjectId = targetProjectId,
+				Title = RequireImportTitle(epicDto.Title, "epic"),
+				Description = epicDto.Description ?? string.Empty,
+				Status = epicDto.Status ?? "backlog",
+				CreatedAt = now,
+			}).ToList();
+			await _epics.AddRangeAsync(newEpics, ct);
+			await _uow.SaveChangesAsync(ct);
+			var epicMap = epics
+				.Zip(newEpics, (source, target) => new { SourceId = source.Id, TargetId = target.Id })
+				.ToDictionary(x => x.SourceId, x => x.TargetId);
+
+			var newStories = stories.Select(storyDto => new Domain.Entities.Story
+			{
+				EpicId = epicMap[storyDto.EpicId],
+				Title = RequireImportTitle(storyDto.Title, "story"),
+				Description = storyDto.Description ?? string.Empty,
+				Status = storyDto.Status ?? "backlog",
+				NeedsDesign = storyDto.NeedsDesign,
+				CreatedAt = now,
+			}).ToList();
+			await _stories.AddRangeAsync(newStories, ct);
+			await _uow.SaveChangesAsync(ct);
+			var storyMap = stories
+				.Zip(newStories, (source, target) => new { SourceId = source.Id, TargetId = target.Id })
+				.ToDictionary(x => x.SourceId, x => x.TargetId);
+
+			var newTasks = tasks.Select(taskDto => new TaskItem
+			{
+				StoryId = taskDto.StoryId is null ? null : storyMap[taskDto.StoryId.Value],
+				ProjectId = targetProjectId,
+				Type = ValidateImportType(taskDto.Type ?? "dev"),
+				Title = RequireImportTitle(taskDto.Title, "task"),
+				Status = taskDto.Status ?? "todo",
+				Priority = ValidateImportPriority(taskDto.Priority ?? "medium"),
+				StatusReason = taskDto.StatusReason,
+				Description = taskDto.Description ?? string.Empty,
+				CreatedAt = now,
+				UpdatedAt = now,
+			}).ToList();
+			await _tasks.AddRangeAsync(newTasks, ct);
+			await _uow.SaveChangesAsync(ct);
+			await transaction.CommitAsync(ct);
+
+			var imported = newEpics.Count + newStories.Count + newTasks.Count;
+			return new ProjectImportResult(1, newEpics.Count, newStories.Count, newTasks.Count, imported, 0, Array.Empty<string>());
+		}
+		catch
+		{
+			try { await transaction.RollbackAsync(CancellationToken.None); }
+			catch { /* preserve the original import failure */ }
+			throw;
+		}
+	}
+
+	private static void ValidateImportReferences(
+		IReadOnlyList<ProjectImportEpicDto> epics,
+		IReadOnlyList<ProjectImportStoryDto> stories,
+		IReadOnlyList<ProjectImportTaskDto> tasks)
+	{
+		var epicIds = epics.Select(e => e.Id).Where(id => id > 0).ToHashSet();
+		var storyIds = stories.Select(s => s.Id).Where(id => id > 0).ToHashSet();
+		if (epics.Count != epicIds.Count)
+			throw new InvalidValueException("each imported epic must have a unique positive source id");
+		if (stories.Count != storyIds.Count)
+			throw new InvalidValueException("each imported story must have a unique positive source id");
+		foreach (var story in stories)
+			if (!epicIds.Contains(story.EpicId))
+				throw new InvalidValueException($"story '{story.Title}' references missing epic id {story.EpicId}");
+		foreach (var task in tasks)
+			if (task.StoryId is not null && !storyIds.Contains(task.StoryId.Value))
+				throw new InvalidValueException($"task '{task.Title}' references missing story id {task.StoryId}");
+	}
+
+	private static string RequireImportTitle(string? value, string entityName)
+	{
+		var title = (value ?? string.Empty).Trim();
+		if (title.Length == 0 || title.Length > 300)
+			throw new InvalidValueException($"{entityName} title must be 1-300 characters");
+		return title;
+	}
+
+	private static string ValidateImportType(string value) => value switch
+	{
+		"dev" or "bug" => value,
+		_ => throw new InvalidValueException($"invalid task type: {value}"),
+	};
+
+	private static string ValidateImportPriority(string value) => value switch
+	{
+		"lowest" or "low" or "medium" or "high" or "highest" => value,
+		_ => throw new InvalidValueException($"invalid task priority: {value}"),
+	};
 
 	// ===================== P5: sprint burndown + sprint tasks (BFF module 5, 2026-08-23) =====================
 
 	public async Task<SprintBurndownDto?> GetSprintBurndownAsync(int sprintId, int days, CancellationToken ct = default)
 	{
+		return await GetHistoricalSprintBurndownAsync(sprintId, days, ct);
+#if false
 		var sprint = await _sprints.GetByIdAsync(sprintId, ct);
 		if (sprint is null) return null;
 		if (days <= 0) days = 14;
@@ -1367,6 +1487,73 @@ public sealed class BoardProvider : IBoardProvider
 			? (points[0].ActualRemaining - points[^1].ActualRemaining) / (double)points.Count
 			: 0;
 		return new SprintBurndownDto(sprintId, total, points, burnRate);
+	}
+#endif
+	}
+
+	private async Task<SprintBurndownDto?> GetHistoricalSprintBurndownAsync(
+		int sprintId, int days, CancellationToken ct)
+	{
+		var sprint = await _sprints.GetByIdAsync(sprintId, ct);
+		if (sprint is null) return null;
+		if (days <= 0) days = 14;
+
+		var tasks = await _tasks.ListAsync(t => t.SprintId == sprintId, ct);
+		var taskIds = tasks.Select(t => t.Id).ToHashSet();
+		var histories = taskIds.Count == 0
+			? Array.Empty<TaskStatusHistory>()
+			: await _taskHistory.ListAsync(h => taskIds.Contains(h.TaskId), ct);
+		var historyByTask = histories
+			.GroupBy(h => h.TaskId)
+			.ToDictionary(g => g.Key, g => g.OrderBy(h => h.CreatedAt).ToList());
+
+		var total = tasks.Count;
+		var today = DateTime.UtcNow.Date;
+		var start = (sprint.StartDate ?? today.AddDays(-(days - 1))).Date;
+		var end = (sprint.EndDate ?? start.AddDays(days - 1)).Date;
+		if (end < start) end = start;
+		var windowDays = (end - start).Days + 1;
+		var points = new List<SprintBurndownPoint>();
+		for (var i = 0; i < windowDays; i++)
+		{
+			var day = start.AddDays(i);
+			var doneCount = tasks.Count(task => IsDoneAsOf(task, day, historyByTask));
+			var idealRemaining = windowDays == 1
+				? 0
+				: (int)Math.Round(total * (1.0 - (double)i / (windowDays - 1)));
+			points.Add(new SprintBurndownPoint(day, Math.Max(0, idealRemaining), Math.Max(0, total - doneCount)));
+		}
+
+		var currentDone = tasks.Count(t => t.Status == "done");
+		return new SprintBurndownDto(
+			sprintId,
+			sprint.ProjectId,
+			sprint.Title,
+			sprint.Status,
+			sprint.StartDate,
+			sprint.EndDate,
+			total,
+			currentDone,
+			Math.Max(0, total - currentDone),
+			points,
+			total == 0 ? 0 : (double)currentDone / total);
+	}
+
+	private static bool IsDoneAsOf(
+		TaskItem task,
+		DateTime day,
+		IReadOnlyDictionary<int, List<TaskStatusHistory>> historyByTask)
+	{
+		if (!historyByTask.TryGetValue(task.Id, out var history) || history.Count == 0)
+			return task.CreatedAt.Date <= day && task.Status == "done";
+
+		var status = history[0].FromStatus;
+		foreach (var transition in history)
+		{
+			if (transition.CreatedAt.Date > day) break;
+			status = transition.ToStatus;
+		}
+		return status == "done";
 	}
 
 	public async Task<(IReadOnlyList<TaskItemDto> Items, int Total)> ListSprintTasksAsync(
