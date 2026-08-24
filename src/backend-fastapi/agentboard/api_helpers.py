@@ -27,6 +27,7 @@ from . import service, auth, mq, cache
 from .cache import get_cache, API_CACHE_TTL
 from .features.projects.models import Sprint  # noqa: E402 — sprint_id 归属解析
 from .database import get_session, SessionLocal
+from .core.common.models import utc_now
 
 
 @contextmanager
@@ -124,6 +125,8 @@ class ActorContext:
     api_key_id: int | None = None
     agent_registry_id: int | None = None
     agent_ref: str | None = None
+    username: str | None = None
+    api_key_prefix: str | None = None
 
 
 def resolve_actor_context(
@@ -169,6 +172,8 @@ def resolve_actor_context(
         api_key_id=api_key.id if api_key else None,
         agent_registry_id=agent.id if agent else None,
         agent_ref=agent.agent_id if agent else None,
+        username=user.username,
+        api_key_prefix=api_key.key_prefix if api_key else None,
     )
 
 
@@ -195,8 +200,9 @@ def _authorize_run_mutation(
     execution mutations. Agent-scoped API keys (or the user who owns the
     bound Agent) may emit events/report results for that Agent's run, subject
     to an active run lease when one is present. Run
-    patching is additionally available to the project owner, while deletion
-    is owner-only (apart from admins). Local open-CRUD mode remains available
+    patching is additionally available to the project owner, subject to the
+    same lease fence, while deletion is owner-only (apart from admins). Local
+    open-CRUD mode remains available
     when no credential is supplied, matching the documented development
     posture.
     """
@@ -221,10 +227,13 @@ def _authorize_run_mutation(
             return run, actor
         raise HTTPException(status_code=403, detail="run deletion requires project owner or admin")
 
+    lease_matches = _run_lease_allows_mutation(run, worker_id)
     if operation == "patch" and project_id is not None and service.user_is_project_owner(
         s, project_id, actor.user_id,
     ):
-        return run, actor
+        if lease_matches:
+            return run, actor
+        raise HTTPException(status_code=403, detail="run patch requires the active lease worker")
 
     bound_agent = (
         s.get(service.Agent, run.agent_registry_id)
@@ -239,14 +248,6 @@ def _authorize_run_mutation(
         and bound_agent is not None
         and bound_agent.user_id == actor.user_id
     )
-    lease_worker_id = getattr(run, "lease_worker_id", None)
-    lease_matches = (
-        lease_worker_id is None
-        or (
-            worker_id is not None
-            and worker_id == lease_worker_id
-        )
-    )
     if operation in {"event", "report", "patch"} and (
         (is_matching_agent_key or is_bound_agent_owner) and lease_matches
     ):
@@ -256,6 +257,29 @@ def _authorize_run_mutation(
         status_code=403,
         detail=f"run {operation} requires the bound Agent or project owner",
     )
+
+
+def _run_lease_worker_id(run: Any, worker_id: str | None) -> str | None:
+    """Return a worker id only when it matches a currently active lease."""
+    lease_worker_id = getattr(run, "lease_worker_id", None)
+    lease_expires_at = getattr(run, "lease_expires_at", None)
+    if (
+        lease_worker_id
+        and worker_id == lease_worker_id
+        and lease_expires_at is not None
+        and lease_expires_at > utc_now()
+    ):
+        return worker_id
+    return None
+
+
+def _run_lease_allows_mutation(run: Any, worker_id: str | None) -> bool:
+    """Allow an unleased run or a caller holding its active lease only."""
+    lease_worker_id = getattr(run, "lease_worker_id", None)
+    lease_expires_at = getattr(run, "lease_expires_at", None)
+    if lease_worker_id is None and lease_expires_at is None:
+        return True
+    return _run_lease_worker_id(run, worker_id) is not None
 
 
 def _apply_cors(request: Request, resp: JSONResponse) -> JSONResponse:

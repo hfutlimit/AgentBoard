@@ -229,7 +229,7 @@ export interface AgentRun {
   id: number;
   schedule_id: number;
   task_id: number | null;
-  status: 'pending' | 'running' | 'success' | 'failed';
+  status: 'pending' | 'running' | 'success' | 'failed' | 'cancelled';
   idempotency_key: string | null;
   started_at: string | null;
   finished_at: string | null;

@@ -29,5 +29,12 @@
     "changeOrigin": true,
     "ws": true,
     "logLevel": "info"
+  },
+  "/hubs": {
+    "target": "http://127.0.0.1:18099",
+    "secure": false,
+    "changeOrigin": true,
+    "ws": true,
+    "logLevel": "info"
   }
 }

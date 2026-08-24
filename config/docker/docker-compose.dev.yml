@@ -28,6 +28,9 @@ services:
       AGENTBOARD_ENV: "development"
       AGENTBOARD_ALLOW_REGISTRATION: "1"
       AGENTBOARD_CORS_ORIGINS: "http://localhost:28080,http://localhost:4200"
+      # Host .NET BFF receives the goal-mode SignalR bridge in dev.
+      AGENTBOARD_REALTIME_NOTIFY_URL: "${AGENTBOARD_REALTIME_NOTIFY_URL:-http://host.docker.internal:18099/api/internal/realtime/proposals/questions}"
+      AGENTBOARD_REALTIME_INTERNAL_KEY: "${AGENTBOARD_REALTIME_INTERNAL_KEY:-}"
 
   web:
     # 开发模式挂载静态文件目录，更新旧版 Web 静态资源后无需重建容器

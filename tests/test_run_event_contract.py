@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -77,7 +78,12 @@ def test_run_mutation_accepts_matching_agent_identity(monkeypatch):
 
 
 def test_run_mutation_honors_an_active_worker_lease(monkeypatch):
-    run = SimpleNamespace(id=42, agent_registry_id=7, lease_worker_id="worker-a")
+    run = SimpleNamespace(
+        id=42,
+        agent_registry_id=7,
+        lease_worker_id="worker-a",
+        lease_expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=5),
+    )
     actor = api_helpers.ActorContext(
         user_id=11,
         is_admin=False,

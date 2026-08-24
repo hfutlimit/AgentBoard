@@ -135,6 +135,16 @@ Conventional Commits 格式：`type(scope): subject`：
 
 **每次 commit 后必须 `git push origin main`**（CI 自动部署）。
 
+## Goal proposal realtime flow
+
+The BFF hosts the authenticated SignalR hub at `/hubs/proposals`. FastAPI
+posts the identifier-only `goal` notification to
+`/api/internal/realtime/proposals/questions` with the
+`X-AgentBoard-Realtime-Key` header; the shared value is configured through
+`AGENTBOARD_REALTIME_INTERNAL_KEY`. Connected Angular clients receive
+`ProposalQuestionRaised`, then reload the proposal through the normal REST
+API so question content remains behind the existing authorization boundary.
+
 ## Roadmap (Stage 0+)
 
 | Story | Title | Status | Commit |

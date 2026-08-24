@@ -22,6 +22,7 @@ import { WorkspaceTopbarComponent } from './workspace-topbar/workspace-topbar';
 import { WorkspaceHeadingComponent } from './workspace-heading/workspace-heading';
 import { ProjectDataService } from './services/project-data.service';
 import { WorkspaceEntityTabKind, WorkspaceTabsService } from './services/workspace-tabs.service';
+import { ProposalRealtimeService, ProposalQuestionRaised } from './proposal-realtime.service';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'global-stats' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
@@ -135,6 +136,7 @@ export class App implements OnInit, OnDestroy {
   readonly autoSynced = signal(false);
   private autoSyncedTimer: ReturnType<typeof setTimeout> | null = null;
   private autoTimer: ReturnType<typeof setInterval> | null = null;
+  private proposalRealtimeSub?: Subscription;
   readonly error = signal('');
   readonly search = signal('');
   readonly sidebarOpen = signal(window.innerWidth > 800);
@@ -1372,6 +1374,7 @@ export class App implements OnInit, OnDestroy {
     private readonly workspaceTabs: WorkspaceTabsService,
     @Inject(DOCUMENT) private readonly document: Document,
     public readonly themeService: ThemeService,
+    private readonly proposalRealtime: ProposalRealtimeService,
   ) {
     this.projectData.bindWorkspaceHost(this);
   }
@@ -1406,6 +1409,9 @@ export class App implements OnInit, OnDestroy {
     // Epic 21 Story 21.4: 全局错误处理
     window.addEventListener('error', this.handleGlobalError);
     window.addEventListener('unhandledrejection', this.handleUnhandledRejection);
+    this.proposalRealtimeSub = this.proposalRealtime.questionRaised$.subscribe((event) => {
+      void this.handleProposalQuestionRaised(event);
+    });
     // 启动时校验已有 token，失败则清除并显示登录
     void this.validateAuth();
     // Epic 149 Bug #1290 follow-up: 工作台首次进入就拉全局 Agent 池，
@@ -1602,8 +1608,10 @@ export class App implements OnInit, OnDestroy {
       // 会因 authVisible() 为 true 而提前 return（看 line 2029）。reload 后必须
       // 进入"已登录"态。
       this.authVisible.set(false);
+      this.proposalRealtime.start();
     } catch {
       // token 失效，清除并显示登录
+      void this.proposalRealtime.stop();
       localStorage.removeItem('agentboard_token');
       localStorage.removeItem('agentboard_user');
       localStorage.removeItem('agentboard_is_admin');
@@ -1626,6 +1634,8 @@ export class App implements OnInit, OnDestroy {
     window.removeEventListener('unhandledrejection', this.handleUnhandledRejection);
     window.removeEventListener('keydown', this.handleGlobalKeydown);  // Story 329 / Task 1320
     this.routeSub?.unsubscribe();
+    this.proposalRealtimeSub?.unsubscribe();
+    void this.proposalRealtime.stop();
     if (this.toastTimer) clearTimeout(this.toastTimer);
     if (this.notifTimer) clearInterval(this.notifTimer);     // Task 401
   }
@@ -2916,6 +2926,7 @@ export class App implements OnInit, OnDestroy {
       this.currentUser.set(result.username);
       this.isAdmin.set(result.is_admin ?? false);
       this.authVisible.set(false);
+      this.proposalRealtime.start();
       this.notify(this.authMode() === 'register' ? '注册成功，已登录' : '登录成功');
       // Epic 151 / Story 326 / Task 1298: 首次登录 Agent 加载竞态修复。
       // ngOnInit 调 validateAuth + loadAgents 同步：首次访问无 token → loadAgents
@@ -2946,6 +2957,7 @@ export class App implements OnInit, OnDestroy {
 
   logout(): void {
     this.stopAutoTimer();
+    void this.proposalRealtime.stop();
     localStorage.removeItem('agentboard_token');
     localStorage.removeItem('agentboard_user');
     localStorage.removeItem('agentboard_is_admin');
@@ -6869,6 +6881,25 @@ export class App implements OnInit, OnDestroy {
     if (this.proposalFilterStatus()) params['status'] = this.proposalFilterStatus();
     const rows = await firstValueFrom(this.api.listProposals(params));
     this.proposals.set(Array.isArray(rows) ? rows : []);
+  }
+
+  private async handleProposalQuestionRaised(event: ProposalQuestionRaised): Promise<void> {
+    if (event.workflow && event.workflow !== 'goal') return;
+    try {
+      if (this.view() === 'proposal' && this.proposalItem()?.id === event.proposal_id) {
+        await this.loadProposalDetail(event.proposal_id);
+        this.notify('Agent 已提出新的澄清问题，页面已刷新', 'success');
+        return;
+      }
+      if (this.view() === 'proposals' || this.view() === 'project') {
+        const projectId = this.project()?.id;
+        if (!projectId || projectId === event.project_id) {
+          await this.loadProposals(projectId);
+        }
+      }
+    } catch (error) {
+      this.notify(`刷新 Agent 提问失败：${this.message(error)}`, 'error');
+    }
   }
 
   async onProposalFilterChange(): Promise<void> {

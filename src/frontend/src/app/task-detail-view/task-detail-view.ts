@@ -24,6 +24,9 @@ interface RunEvent {
         <div class="run-header">
           Run #{{run.id}} - <span class="status status--{{run.status}}">{{run.status}}</span>
         </div>
+        <button *ngIf="eventsByRun[run.id]?.length && !noOlderEvents.has(run.id)"
+          type="button" class="load-older" [disabled]="loadingOlder.has(run.id)"
+          (click)="loadOlder(run.id)">加载更早事件</button>
         <div class="run-events" *ngIf="eventsByRun[run.id]">
           <div *ngFor="let evt of eventsByRun[run.id]" class="run-event">
             <span class="evt-time">{{evt.created_at | date:'HH:mm:ss'}}</span>
@@ -42,13 +45,16 @@ interface RunEvent {
     .run-event { margin-bottom: 4px; }
     .evt-time { color: var(--text-muted); margin-right: 8px; }
     .evt-type { color: var(--primary-color); margin-right: 8px; }
+    .load-older { margin-bottom: 8px; }
   `]
 })
 export class AgentRunStreamComponent implements OnInit, OnDestroy {
   @Input() taskId?: number;
   runs: AgentRun[] = [];
   eventsByRun: { [runId: number]: RunEvent[] } = {};
-  private readonly streamControllers: AbortController[] = [];
+  readonly loadingOlder = new Set<number>();
+  readonly noOlderEvents = new Set<number>();
+  private readonly streamControllers = new Map<number, AbortController>();
 
   constructor(private api: ApiService, private cdr: ChangeDetectorRef) {}
 
@@ -74,21 +80,66 @@ export class AgentRunStreamComponent implements OnInit, OnDestroy {
 
   private async streamRun(runId: number): Promise<void> {
     const controller = new AbortController();
-    this.streamControllers.push(controller);
+    this.streamControllers.set(runId, controller);
     try {
       await this.api.streamRunEvents(runId, event => {
         const runEvent = event as unknown as RunEvent;
         if (!this.eventsByRun[runId]) this.eventsByRun[runId] = [];
-        this.eventsByRun[runId].push(runEvent);
+        if (!this.eventsByRun[runId].some(existing => existing.id === runEvent.id)) {
+          this.eventsByRun[runId].push(runEvent);
+          if (this.eventsByRun[runId].length > 500) this.eventsByRun[runId].splice(0, this.eventsByRun[runId].length - 500);
+        }
+        const status = this.terminalStatus(runEvent);
+        if (status) {
+          const index = this.runs.findIndex(run => run.id === runId);
+          if (index >= 0) this.runs[index] = { ...this.runs[index], status };
+          controller.abort();
+          this.streamControllers.delete(runId);
+        }
         this.cdr.detectChanges();
       }, controller.signal);
     } catch {
       if (!controller.signal.aborted) this.cdr.detectChanges();
+    } finally {
+      this.streamControllers.delete(runId);
     }
+  }
+
+  async loadOlder(runId: number): Promise<void> {
+    if (this.loadingOlder.has(runId) || this.noOlderEvents.has(runId)) return;
+    const current = this.eventsByRun[runId] || [];
+    const beforeId = current[0]?.id;
+    if (!beforeId) return;
+    this.loadingOlder.add(runId);
+    try {
+      const older = await firstValueFrom(this.api.listRunEvents(runId, beforeId));
+      if (!older.length) {
+        this.noOlderEvents.add(runId);
+      } else {
+        const byId = new Map<number, RunEvent>();
+        for (const event of [...older.reverse(), ...current]) {
+          const typed = event as unknown as RunEvent;
+          byId.set(typed.id, typed);
+        }
+        this.eventsByRun[runId] = [...byId.values()].slice(0, 500);
+      }
+      this.cdr.detectChanges();
+    } catch {
+      this.cdr.detectChanges();
+    } finally {
+      this.loadingOlder.delete(runId);
+    }
+  }
+
+  private terminalStatus(event: RunEvent): AgentRun['status'] | null {
+    const payload = event.payload as { status?: string } | null;
+    const status = payload?.status || event.event_type.replace(/^run\./, '');
+    return status === 'success' || status === 'failed' || status === 'cancelled' ? status : null;
   }
 
   ngOnDestroy(): void {
     this.streamControllers.forEach(controller => controller.abort());
+    this.streamControllers.clear();
   }
 }
 

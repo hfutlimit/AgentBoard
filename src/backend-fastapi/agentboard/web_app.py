@@ -35,6 +35,7 @@ API_URL = (
     (os.getenv("AGENTBOARD_WEB_API_URL") or os.getenv("AGENTBOARD_API_URL") or "http://127.0.0.1:58124")
     .strip()
 )
+SIGNALR_URL = (os.getenv("AGENTBOARD_WEB_SIGNALR_URL") or os.getenv("AGENTBOARD_SIGNALR_URL") or "").strip()
 
 app = FastAPI(title="AgentBoard Web (Angular)")
 
@@ -67,6 +68,7 @@ def _fixed_index() -> str:
     content = index_file.read_text(encoding="utf-8")
     # 注入 API URL
     content = content.replace("__API_URL__", API_URL)
+    content = content.replace("__SIGNALR_URL__", SIGNALR_URL)
     # 修复 favicon
     content = content.replace('href="favicon.svg"', 'href="/static/favicon.svg"')
     # 修复 JS 引用: src="main-XXX.js" → src="/static/main-XXX.js"

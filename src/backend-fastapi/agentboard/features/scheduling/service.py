@@ -78,7 +78,6 @@ from .models import (
     MAX_REVIEW_ROUNDS,
     REVIEW_MODE_MAJORITY,
     REVIEW_MODE_SINGLE,
-    RUN_TRANSITIONS,
 )
 
 
@@ -188,6 +187,9 @@ def create_run_event(
     api_key_id: int | None = None,
     agent_registry_id: int | None = None,
     worker_id: str | None = None,
+    actor_username_snapshot: str | None = None,
+    api_key_prefix_snapshot: str | None = None,
+    agent_ref_snapshot: str | None = None,
 ) -> RunEvent:
     run = s.get(AgentRun, run_id)
     if not run:
@@ -200,6 +202,9 @@ def create_run_event(
         api_key_id=api_key_id,
         agent_registry_id=agent_registry_id,
         worker_id=worker_id,
+        actor_username_snapshot=actor_username_snapshot,
+        api_key_prefix_snapshot=api_key_prefix_snapshot,
+        agent_ref_snapshot=agent_ref_snapshot,
     )
     s.add(event)
     _commit(s)
@@ -209,24 +214,26 @@ def create_run_event(
 def list_run_events(
     s: Session,
     run_id: int,
-    limit: int | None = None,
+    limit: int | None = 200,
     offset: int = 0,
     after_id: int = 0,
+    before_id: int | None = None,
 ):
-    q = (
-        s.query(RunEvent)
-        .filter(RunEvent.run_id == run_id, RunEvent.id > after_id)
-        .order_by(RunEvent.id.asc())
-    )
+    q = s.query(RunEvent).filter(RunEvent.run_id == run_id)
+    if before_id is not None:
+        q = q.filter(RunEvent.id < before_id).order_by(RunEvent.id.desc())
+    else:
+        q = q.filter(RunEvent.id > after_id).order_by(RunEvent.id.asc())
     return _paginate(q, limit, offset).all()
 
 def claim_lease(s: Session, run_id: int, worker_id: str, ttl_seconds: int = 60) -> bool:
-    now = datetime.utcnow()
+    now = utc_now()
     expires_at = now + timedelta(seconds=ttl_seconds)
     r = s.execute(
         update(AgentRun).where(
             and_(
                 AgentRun.id == run_id,
+                AgentRun.status.in_(("pending", "running")),
                 or_(
                     AgentRun.lease_worker_id == None,
                     AgentRun.lease_expires_at < now,
@@ -301,6 +308,9 @@ def update_run(s: Session, id: int, **fields) -> AgentRun | None:
         if k == "status" and v is not None:
             if v not in ALL_RUN_STATUSES:
                 raise InvalidValue(f"invalid run status '{v}'")
+            current = str(run.status)
+            if v != current and v not in RUN_TRANSITIONS.get(current, set()):
+                raise IllegalTransition(f"run status {current} -> {v} illegal")
             run.status = v
         elif k == "output" and v is not None:
             run.output = v

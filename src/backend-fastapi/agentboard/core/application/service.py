@@ -1659,17 +1659,6 @@ def pick_eligible_task(s: Session, schedule: AgentSchedule):
     )
     return q.order_by(rank_case.desc(), Task.id.asc()).first()
 
-# AgentRun 状态机合法迁移表（Story 104）
-# pending → running（执行器认领）；running → success/failed/cancelled（Agent 回写或执行器检测）
-# 终态 success/failed/cancelled 不可再迁移。
-RUN_TRANSITIONS = {
-    "pending": {"running", "success", "failed", "cancelled"},
-    "running": {"success", "failed", "cancelled"},
-    "success": set(),
-    "failed": set(),
-    "cancelled": set(),
-}
-
 def delete_run(s: Session, id: int) -> bool:
     run = s.get(AgentRun, id)
     if not run:

@@ -31,6 +31,13 @@ public sealed class AuthMiddleware
     public async Task InvokeAsync(HttpContext context, IApiKeyRepository apiKeys)
     {
         var auth = context.Request.Headers.Authorization.ToString();
+        if (string.IsNullOrWhiteSpace(auth)
+            && context.Request.Path.StartsWithSegments("/hubs")
+            && context.Request.Query.TryGetValue("access_token", out var accessToken)
+            && !string.IsNullOrWhiteSpace(accessToken))
+        {
+            auth = $"Bearer {accessToken}";
+        }
         if (auth.StartsWith(Scheme, StringComparison.OrdinalIgnoreCase))
         {
             var raw = auth.Substring(Scheme.Length).Trim();

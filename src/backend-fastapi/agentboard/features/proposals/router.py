@@ -33,6 +33,7 @@ from .schemas import (
 )
 from ...core.infrastructure import messaging as mq
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
+from ... import realtime
 
 router = APIRouter(tags=["proposals"])
 
@@ -465,10 +466,18 @@ def ask_proposal_questions(pid: int, body: ProposalAskIn, s: Session = Depends(g
     同一 (proposal, round) 重复提交幂等复用既有轮次，兜底 at-least-once 重投。
     """
     try:
-        return service.add_proposal_questions(
+        result = service.add_proposal_questions(
             s, proposal_id=pid, questions=body.questions, round_no=body.round,
             summary=body.summary, agent=body.agent,
         )
+        proposal = service.get_proposal(s, pid)
+        if proposal is not None:
+            realtime.notify_proposal_questions(
+                proposal_id=pid,
+                project_id=proposal.project_id,
+                round_no=result["round"]["round_no"],
+            )
+        return result
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
     except service.IllegalTransition as e:

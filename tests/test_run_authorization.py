@@ -5,6 +5,7 @@ import os
 import sys
 import tempfile
 import asyncio
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -95,6 +96,7 @@ def seeded():
 
         return {
             "run_id": run.id,
+            "schedule_id": schedule.id,
             "owner": auth.make_token(owner.id),
             "member": auth.make_token(member.id),
             "outsider": auth.make_token(outsider.id),
@@ -144,6 +146,78 @@ def test_wrong_agent_key_is_rejected_and_correct_key_is_audited(seeded):
     body = correct.json()
     assert body["api_key_id"] is not None
     assert body["agent_registry_id"] is not None
+    assert body["actor_username_snapshot"] == "run-auth-owner"
+    assert body["api_key_prefix_snapshot"]
+
+
+def test_event_endpoint_requires_the_active_lease_worker(seeded):
+    client = TestClient(api.app)
+    run_id = seeded["run_id"]
+    with SessionLocal() as session:
+        run = session.get(AgentRun, run_id)
+        run.lease_worker_id = "worker-a"
+        run.lease_expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=5)
+        session.commit()
+    try:
+        owner_patch = client.patch(
+            f"/api/runs/{run_id}",
+            headers=_headers(seeded["owner"]),
+            json={"status": "running"},
+        )
+        missing = client.post(
+            f"/api/agent-runs/{run_id}/events",
+            headers=_headers(seeded["correct_key"]),
+            json={"event_type": "agent.output", "payload": {"message": "missing worker"}},
+        )
+        wrong = client.post(
+            f"/api/agent-runs/{run_id}/events",
+            headers={**_headers(seeded["correct_key"]), "X-Worker-ID": "worker-b"},
+            json={"event_type": "agent.output", "payload": {"message": "wrong worker"}},
+        )
+        with SessionLocal() as session:
+            run = session.get(AgentRun, run_id)
+            run.lease_expires_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=1)
+            session.commit()
+        expired = client.post(
+            f"/api/agent-runs/{run_id}/events",
+            headers={**_headers(seeded["correct_key"]), "X-Worker-ID": "worker-a"},
+            json={"event_type": "agent.output", "payload": {"message": "expired"}},
+        )
+        with SessionLocal() as session:
+            run = session.get(AgentRun, run_id)
+            run.lease_expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=5)
+            session.commit()
+        correct = client.post(
+            f"/api/agent-runs/{run_id}/events",
+            headers={**_headers(seeded["correct_key"]), "X-Worker-ID": "worker-a"},
+            json={"event_type": "agent.output", "payload": {"message": "leased"}},
+        )
+        assert owner_patch.status_code == 403
+        assert missing.status_code == 403
+        assert wrong.status_code == 403
+        assert expired.status_code == 403
+        assert correct.status_code == 201, correct.text
+        assert correct.json()["worker_id"] == "worker-a"
+    finally:
+        with SessionLocal() as session:
+            run = session.get(AgentRun, run_id)
+            run.lease_worker_id = None
+            run.lease_expires_at = None
+            session.commit()
+
+
+def test_patch_cannot_roll_back_a_terminal_run(seeded):
+    client = TestClient(api.app)
+    with SessionLocal() as session:
+        run = AgentRun(schedule_id=seeded["schedule_id"], status="pending")
+        session.add(run)
+        session.commit()
+        run_id = run.id
+    headers = _headers(seeded["owner"])
+    assert client.patch(f"/api/runs/{run_id}", headers=headers, json={"status": "running"}).status_code == 200
+    assert client.patch(f"/api/runs/{run_id}", headers=headers, json={"status": "success"}).status_code == 200
+    rollback = client.patch(f"/api/runs/{run_id}", headers=headers, json={"status": "running"})
+    assert rollback.status_code == 409, rollback.text
 
 
 def test_outsider_cannot_open_run_stream(seeded):
@@ -193,3 +267,13 @@ def test_last_event_id_replays_only_newer_events(seeded):
     text = "".join(chunk.decode() if isinstance(chunk, bytes) else chunk for chunk in chunks)
     assert f"id: {second['id']}\n" in text
     assert f"id: {first['id']}\n" not in text
+
+    older = client.get(
+        f"/api/agent-runs/{run_id}/events",
+        headers=headers,
+        params={"before_id": second["id"], "limit": 200},
+    )
+    assert older.status_code == 200, older.text
+    older_ids = [event["id"] for event in older.json()]
+    assert first["id"] in older_ids
+    assert second["id"] not in older_ids

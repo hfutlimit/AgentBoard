@@ -80,6 +80,9 @@ class RunEvent(Base):
         ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True,
     )
     worker_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    actor_username_snapshot: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    api_key_prefix_snapshot: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    agent_ref_snapshot: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, index=True)
 
 
@@ -158,11 +161,3 @@ DEFAULT_REVIEW_QUORUM = 3          # 法定票数
 MAX_REVIEW_ROUNDS = 5              # 与 Proposal max_rounds 对齐
 DEFAULT_REVIEW_TIMEOUT_MINUTES = 30  # 评审超时（30 分钟）
 DEFAULT_TIMEOUT_SCAN_BATCH = 20    # 每次扫描批大小
-
-# Run 状态迁移（与 RunStatus 枚举对齐）
-RUN_TRANSITIONS: dict[str, set[str]] = {
-    "pending":    {"running", "failed"},   # 启动或启动失败
-    "running":    {"succeeded", "failed"}, # 正常完成或失败
-    "succeeded":  set(),                    # 终态
-    "failed":     {"pending"},              # 可重试
-}

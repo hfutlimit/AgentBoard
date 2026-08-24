@@ -38,6 +38,9 @@ services:
       AGENTBOARD_ENV: "${AGENTBOARD_ENV:-production}"
       AGENTBOARD_CORS_ORIGINS: "${AGENTBOARD_CORS_ORIGINS:?Set AGENTBOARD_CORS_ORIGINS to the public Web origin}"
       AGENTBOARD_TOKEN_TTL_SECONDS: "${AGENTBOARD_TOKEN_TTL_SECONDS:-2592000}"
+      # Optional shared secret for the FastAPI -> .NET SignalR notification bridge.
+      AGENTBOARD_REALTIME_NOTIFY_URL: "http://api-dotnet:8080/api/internal/realtime/proposals/questions"
+      AGENTBOARD_REALTIME_INTERNAL_KEY: "${AGENTBOARD_REALTIME_INTERNAL_KEY:-}"
     depends_on:
       db:
         condition: service_healthy
@@ -76,6 +79,7 @@ services:
       # (Stage 1 wires this through Polly + token passthrough).
       AGENTBOARD_FASTAPI__INTERNALURL: "http://api:8000"
       AGENTBOARD_FASTAPI__INTERNALONLY: "0"
+      AGENTBOARD_REALTIME_INTERNAL_KEY: "${AGENTBOARD_REALTIME_INTERNAL_KEY:-}"
     depends_on:
       db:
         condition: service_healthy
@@ -104,6 +108,7 @@ services:
       # 注：此地址由浏览器（用户机器）发起请求，必须用宿主机可访问地址，
       # 默认 localhost:8000 适用于本机 docker；生产改为真实域名/IP。
       AGENTBOARD_API_URL: "${AGENTBOARD_WEB_API_URL:?Set AGENTBOARD_WEB_API_URL to the browser-accessible API URL}"
+      AGENTBOARD_WEB_SIGNALR_URL: "${AGENTBOARD_WEB_SIGNALR_URL:-}"
     ports:
       - "28080:8080"
     depends_on:

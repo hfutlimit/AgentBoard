@@ -32,12 +32,16 @@ export class ThemeService {
     } catch {}
 
     // 2. Fallback to OS preference
-    const mediaQuery = this.window.matchMedia('(prefers-color-scheme: dark)');
+    const mediaQuery = typeof this.window.matchMedia === 'function'
+      ? this.window.matchMedia('(prefers-color-scheme: dark)')
+      : null;
     if (!initialTheme) {
-      initialTheme = mediaQuery.matches ? 'dark' : 'light';
+      initialTheme = mediaQuery?.matches ? 'dark' : 'light';
     }
 
     this.applyTheme(initialTheme, false);
+
+    if (!mediaQuery) return;
 
     // 3. Listen to OS changes if no manual override is set
     mediaQuery.addEventListener('change', (e) => {
@@ -72,7 +76,9 @@ export class ThemeService {
       this.currentTheme.set(theme);
     };
 
-    const reducedMotion = this.window?.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const reducedMotion = typeof this.window?.matchMedia === 'function'
+      ? this.window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false;
 
     // Type casting document to any to access startViewTransition which might not be in TS types yet
     const doc = this.document as any;

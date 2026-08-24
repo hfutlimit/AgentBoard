@@ -18,7 +18,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from ...core.infrastructure.database import get_session
+from ...core.infrastructure.database import get_session, SessionLocal
 from ...core.application import service
 from .schemas import (
 	AgentHeartbeatIn,
@@ -101,6 +101,9 @@ def _event_to_wire(event) -> dict:
         "api_key_id": getattr(event, "api_key_id", None),
         "agent_registry_id": getattr(event, "agent_registry_id", None),
         "worker_id": getattr(event, "worker_id", None),
+        "actor_username_snapshot": getattr(event, "actor_username_snapshot", None),
+        "api_key_prefix_snapshot": getattr(event, "api_key_prefix_snapshot", None),
+        "agent_ref_snapshot": getattr(event, "agent_ref_snapshot", None),
         "created_at": event.created_at.isoformat(),
     }
 
@@ -122,8 +125,8 @@ def create_run_event_endpoint(
     worker_id: str | None = Header(None, alias="X-Worker-ID"),
     s: Session = Depends(get_session),
 ):
-    _run, actor = api_helpers._authorize_run_mutation(
-        authorization, s, run_id, operation="event",
+    run, actor = api_helpers._authorize_run_mutation(
+        authorization, s, run_id, operation="event", worker_id=worker_id,
     )
     try:
         run_event = service.create_run_event(
@@ -134,13 +137,32 @@ def create_run_event_endpoint(
             actor_user_id=actor.user_id if actor else None,
             api_key_id=actor.api_key_id if actor else None,
             agent_registry_id=actor.agent_registry_id if actor else None,
-            worker_id=worker_id,
+            worker_id=api_helpers._run_lease_worker_id(run, worker_id),
+            actor_username_snapshot=actor.username if actor else None,
+            api_key_prefix_snapshot=actor.api_key_prefix if actor else None,
+            agent_ref_snapshot=actor.agent_ref if actor else None,
         )
     except service.NotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     payload = _event_to_wire(run_event)
     run_event_hub.broadcast(run_id, payload)
     return payload
+
+
+@router.get("/api/agent-runs/{run_id}/events")
+def list_run_events_endpoint(
+    run_id: int,
+    authorization: str | None = Header(None),
+    before_id: int | None = Query(None, ge=1),
+    limit: int = Query(200, ge=1, le=200),
+    s: Session = Depends(get_session),
+):
+    api_helpers._current_user(authorization, s, required_permission="api:read")
+    api_helpers._need(service.get_run(s, run_id), "run")
+    rows = service.list_run_events(s, run_id=run_id, before_id=before_id, limit=limit)
+    if before_id is not None:
+        rows.reverse()
+    return [_event_to_wire(event) for event in rows]
 
 
 @router.get("/api/agent-runs/{run_id}/events/stream")
@@ -151,7 +173,7 @@ async def stream_run_events(
     s: Session = Depends(get_session),
 ):
     api_helpers._current_user(authorization, s, required_permission="api:read")
-    api_helpers._need(service.get_run(s, run_id), "run")
+    run = api_helpers._need(service.get_run(s, run_id), "run")
     try:
         last_event_id = max(0, int(request.headers.get("last-event-id", "0")))
     except ValueError:
@@ -165,7 +187,7 @@ async def stream_run_events(
         replay_events = [
             _event_to_wire(ev)
             for ev in service.list_run_events(
-                s, run_id=run_id, after_id=last_event_id,
+                s, run_id=run_id, after_id=last_event_id, limit=200,
             )
         ]
     except Exception:
@@ -180,17 +202,41 @@ async def stream_run_events(
             for payload in replay_events:
                 replay_high_watermark = max(replay_high_watermark, payload["id"])
                 yield _format_sse(payload)
+            if str(run.status) in {"success", "failed", "cancelled"}:
+                return
+            ping_count = 0
             while True:
                 if await request.is_disconnected():
                     break
                 try:
-                    data = await asyncio.wait_for(subscription.queue.get(), timeout=15)
+                    data = await asyncio.wait_for(subscription.queue.get(), timeout=1)
                     if data["id"] <= replay_high_watermark:
                         continue
                     replay_high_watermark = data["id"]
                     yield _format_sse(data)
+                    event_payload = data.get("payload")
+                    event_status = event_payload.get("status") if isinstance(event_payload, dict) else None
+                    if event_status in {"success", "failed", "cancelled"} or data.get("event_type") in {
+                        "run.success", "run.failed", "run.cancelled",
+                    }:
+                        return
                 except asyncio.TimeoutError:
-                    yield ": ping\n\n"
+                    ping_count += 1
+                    if ping_count >= 15:
+                        yield ": ping\n\n"
+                        ping_count = 0
+                    with SessionLocal() as live_session:
+                        live_run = service.get_run(live_session, run_id)
+                        if live_run is None or str(live_run.status) in {"success", "failed", "cancelled"}:
+                            if live_run is not None:
+                                yield _format_sse({
+                                    "id": replay_high_watermark,
+                                    "run_id": run_id,
+                                    "event_type": f"run.{live_run.status}",
+                                    "payload": {"status": str(live_run.status)},
+                                    "created_at": live_run.finished_at.isoformat() if live_run.finished_at else "",
+                                })
+                            return
         finally:
             run_event_hub.unsubscribe(run_id, subscription)
     return StreamingResponse(event_generator(), media_type="text/event-stream")
@@ -464,14 +510,31 @@ def update_run(
     worker_id: str | None = Header(None, alias="X-Worker-ID"),
     s: Session = Depends(get_session),
 ):
-    api_helpers._authorize_run_mutation(
+    run, actor = api_helpers._authorize_run_mutation(
         authorization, s, rid, operation="patch", worker_id=worker_id,
     )
     try:
+        before = service.get_run(s, rid)
+        before_status = str(before.status) if before is not None else None
         r = service.update_run(s, rid, **body.model_dump(exclude_none=True))
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
-    return service._ser(api_helpers._need(r, "run"))
+    except service.IllegalTransition as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    r = api_helpers._need(r, "run")
+    if before_status != str(r.status) and str(r.status) in {"success", "failed", "cancelled"}:
+        event = service.create_run_event(
+            s, run_id=rid, event_type=f"run.{r.status}", payload={"status": r.status},
+            actor_user_id=actor.user_id if actor else None,
+            api_key_id=actor.api_key_id if actor else None,
+            agent_registry_id=actor.agent_registry_id if actor else None,
+            worker_id=api_helpers._run_lease_worker_id(before, worker_id),
+            actor_username_snapshot=actor.username if actor else None,
+            api_key_prefix_snapshot=actor.api_key_prefix if actor else None,
+            agent_ref_snapshot=actor.agent_ref if actor else None,
+        )
+        run_event_hub.broadcast(rid, _event_to_wire(event))
+    return service._ser(r)
 
 
 
@@ -486,7 +549,7 @@ def report_run_result(
     """Agent 主动报告 run 结果（Epic 78 Story 104）：
     仅 pending/running → success/failed/cancelled 合法；终态不可再变（幂等除外）。
     """
-    api_helpers._authorize_run_mutation(
+    run, actor = api_helpers._authorize_run_mutation(
         authorization, s, rid, operation="report", worker_id=worker_id,
     )
     try:
@@ -499,6 +562,18 @@ def report_run_result(
         raise HTTPException(status_code=422, detail=str(e))
     except service.IllegalTransition as e:
         raise HTTPException(status_code=409, detail=str(e))
+    if str(r.status) in {"success", "failed", "cancelled"}:
+        event = service.create_run_event(
+            s, run_id=rid, event_type=f"run.{r.status}", payload={"status": r.status},
+            actor_user_id=actor.user_id if actor else None,
+            api_key_id=actor.api_key_id if actor else None,
+            agent_registry_id=actor.agent_registry_id if actor else None,
+            worker_id=api_helpers._run_lease_worker_id(run, worker_id),
+            actor_username_snapshot=actor.username if actor else None,
+            api_key_prefix_snapshot=actor.api_key_prefix if actor else None,
+            agent_ref_snapshot=actor.agent_ref if actor else None,
+        )
+        run_event_hub.broadcast(rid, _event_to_wire(event))
     return service._ser(r)
 
 

@@ -41,6 +41,7 @@ builder.ConfigureOpenTelemetry();
 // --- Services ---------------------------------------------------------
 
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddAuthorization();
 
 // Outbound trace propagation: the FastAPI internal client (Stage 1) carries
 // the same traceparent + X-Request-Id so the .NET -> FastAPI call continues
@@ -64,7 +65,10 @@ builder.Services.AddControllers(options =>
 // FastAPI serializes every response in snake_case (pydantic default). The .NET
 // BFF must emit the identical wire format so the front-end contract is frozen
 // across the dual-stack transition — no per-handler translation needed.
-.AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
+	.AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
+builder.Services.AddSignalR()
+	.AddJsonProtocol(options =>
+		options.PayloadSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower);
 builder.Services.AddOpenApi();
 
 // Application layer (Services + Provider interfaces) — registrations
@@ -123,6 +127,7 @@ app.UseMiddleware<TraceContextMiddleware>();
 
 // 2b. Bearer token resolution — populates HttpContext.User for ICurrentUser.
 app.UseMiddleware<AuthMiddleware>();
+app.UseAuthorization();
 
 // 2c. API keys are authenticated above; this middleware enforces their
 // read/write scope before any controller or application service executes.
@@ -135,6 +140,7 @@ if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == "Testi
 
 app.UseCors();
 app.MapControllers();
+app.MapHub<AgentBoard.Api.Realtime.ProposalHub>("/hubs/proposals");
 
 // Dev + Testing: ensure the SQLite / InMemory schema exists so smoke
 // tests can hit the API without running `dotnet ef database update`.

@@ -10,6 +10,7 @@ export const AUTH_EXPIRED_EVENT = 'agentboard:auth-expired';
 declare global {
   interface Window {
     AGENTBOARD_API?: string;
+    AGENTBOARD_SIGNALR_URL?: string;
     AGENTBOARD_STATS_CACHE_TTL?: string;
   }
 }
@@ -28,6 +29,12 @@ declare global {
 export function resolveApiBase(): string {
   const injected = (window as any).AGENTBOARD_API as string | undefined;
   if (injected && injected !== '__API_URL__') return injected;
+  return '';
+}
+
+export function resolveSignalRBase(): string {
+  const injected = (window as any).AGENTBOARD_SIGNALR_URL as string | undefined;
+  if (injected && injected !== '__SIGNALR_URL__') return injected.replace(/\/$/, '');
   return '';
 }
 
@@ -240,6 +247,13 @@ export const OFFLINE_QUEUE_FLUSH_EVENT = 'agentboard:flush-offline-queue';
 export class ApiService {
   listTaskRuns(taskId: number) {
     return this.request<{ items: AgentRun[]; total: number }>('GET', `/api/tasks/${taskId}/runs`);
+  }
+
+  listRunEvents(runId: number, beforeId: number, limit = 200) {
+    return this.request<Record<string, unknown>[]>('GET', `/api/agent-runs/${runId}/events`, undefined, {
+      before_id: beforeId,
+      limit,
+    });
   }
 
   async streamRunEvents(
