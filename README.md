@@ -66,14 +66,15 @@ flowchart LR
     McpServer -->|httpx| FastAPI
 ```
 
-**当前状态（Stage 0 完成）**：
+**当前状态（Stage 1 backend hardening）**：
 - ✅ .NET 10 脚手架 + 健康/元数据双端点 1:1 兼容 FastAPI
 - ✅ 契约冻结：FastAPI 仍是公开 REST 契约真源
 - ✅ 双栈 docker-compose 一键启停（`scripts/dev-up.ps1`）
 - ✅ Serilog + OpenTelemetry 接入（X-Request-Id + traceparent 跨栈）
-- ⏳ 切流：Stage 2 灰度（nginx upstream 权重 10 → 100）
-- ⏳ SignalR：Stage 2 全新
-- ⏳ 写路径迁 .NET：Stage 2+
+- ✅ .NET 后端已具备项目/任务写入、事务边界、数据库侧分页聚合和 FastAPI AI 代理实现
+- ⚠️ 切流：仍需逐 endpoint 完成 FastAPI/.NET 行为对照和生产灰度验收
+- ⏳ SignalR：应用事件边界已建立，SignalR broadcaster / RabbitMQ outbox 尚未接入
+- ⚠️ 写路径迁 .NET：代码已实现但不是自动的生产切流许可；仍需契约、权限和恢复验收
 
 完整 Stage 0~3 任务清单：[`openspec/changes/dual-stack-bff-restructure/tasks.md`](openspec/changes/dual-stack-bff-restructure/tasks.md)。
 运维 & 切流手册：[`docs/dual-stack-bff-runbook.md`](docs/dual-stack-bff-runbook.md)。

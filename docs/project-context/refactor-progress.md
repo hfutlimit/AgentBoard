@@ -4,7 +4,7 @@
 > 维护规则：每条目标 / 每个任务如有变更,先改本文件再改代码。
 > 评审周期：双周一次（与 Sprint 同步）,重大变更即时更新。
 
-最后更新：2026-08-20
+最后更新：2026-08-24
 
 ---
 
@@ -14,7 +14,7 @@
 |---|---|---|---|---|
 | A | 后端 9 阶段垂直切片 | ✅ 完成 | 2026-08-14 全量 push | `docs/refactor-plan.md` |
 | B | Epic 149 前端拆 tab | 🟡 进行中 5/8 | 阶段 0 冻结契约 / 5 个 tab 已抽 | `docs/design-prototypes/layout-rebuild/codex/MIGRATION.md` |
-| C | 双栈 BFF 演进 | 🟡 Stage 0 完成 | 2026-08-19 Stage 0 收口 | `docs/architecture-v2.md` |
+| C | 双栈 BFF 演进 | 🟡 Stage 1 backend hardening | 事务、query layer、AI proxy、security gates、application events | `docs/architecture-v2.md` |
 | D | 仓库清理 2026-08-19 | ⬜ 未开始 | 4 任务 / 0 完成 | `docs/superpowers/plans/2026-08-19-repository-cleanup.md` |
 | E | Epic 11 持续前端优化 | ✅ P/A/B 44 项 | 2026-07-11 收口 | `docs/tasks.md` §Epic 11 |
 | F | P1 后端欠债（来自 8-17 评审） | ⬜ 排队中 | 详见 §6 | `MCP project 3 → knowledge` 评审文档 |
@@ -139,7 +139,7 @@
 ### 关键约束
 
 - 公开 REST 契约由 FastAPI 冻结，.NET 端 1:1 镜像
-- .NET 端 EF Core **永远不写**（Stage 0/1），只读 + AsNoTracking
+- .NET 读路径使用 AsNoTracking；已迁移写路径必须显式事务，并在行为/权限/恢复验收通过后才能切流
 - 双栈查询结果必须 1:1 一致（由契约测试守护）
 - 跨栈 trace：.NET 调 FastAPI 透传 `traceparent`
 

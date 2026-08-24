@@ -69,7 +69,7 @@ flowchart LR
     Alembic --> MariaDB
 ```
 
-> **Stage 0 状态**：nginx 仍 100% 走 FastAPI；.NET 端只跑 `/api/health` + `/api/meta` 做契约影子。
+> **当前状态**：.NET 已实现一批 REST 读写路径并建立事务、query projection 和 application-event 边界；nginx 仍默认 100% 走 FastAPI。实现完成不等于生产切流，切流必须逐 endpoint 通过行为、权限、恢复和灰度验收。
 > 切流发生在 Stage 2 灰度阶段，由 `scripts/cutover.ps1` 控制 nginx upstream 权重。
 
 ## 3. Feature 归属矩阵
@@ -79,10 +79,10 @@ flowchart LR
 | `/api/health` | ✅ | ✅ | 双栈 1:1 兼容（Stage 0 完成） |
 | `/api/meta` | ✅ | ✅ | 双栈 1:1 兼容（Stage 0 完成） |
 | Auth (login/register/me) | ✅ | 计划中 | Stage 1 第一批 |
-| Projects CRUD | ✅ | 计划中 | Stage 1 |
-| Epics / Stories | ✅ | 计划中 | Stage 1 |
-| Tasks / Bugs | ✅ | 计划中 | Stage 1+ |
-| Comments / Attachments | ✅ | 计划中 | Stage 1+ |
+| Projects CRUD | ✅ | implemented | Stage 1 hardening + per-endpoint cutover gate |
+| Epics / Stories | ✅ | implemented | Stage 1 hardening + per-endpoint cutover gate |
+| Tasks / Bugs | ✅ | implemented | Stage 1+ hardening + per-endpoint cutover gate |
+| Comments / Attachments | ✅ | implemented | Stage 1+ hardening + per-endpoint cutover gate |
 | Webhooks | ✅ | 计划中 | Stage 2 接管分发 |
 | Notifications | ✅ | 计划中 | Stage 2 |
 | **SignalR /hubs/agents** | ❌ | ✅ | **Stage 2 全新**（.NET 优势） |
@@ -94,7 +94,7 @@ flowchart LR
 
 ```mermaid
 flowchart TD
-    subgraph Write["写路径 (Stage 2 前仅 FastAPI)"]
+    subgraph Write["写路径 (未获切流批准的 endpoint 仍由 FastAPI)"]
         FastAPIWrite["FastAPI routers<br/>→ Service → SQLAlchemy<br/>→ MariaDB"]
         AlembicWrite["Alembic<br/>(schema migrations)"]
     end
@@ -111,7 +111,7 @@ flowchart TD
 ```
 
 **关键约束**：
-- .NET 端 EF Core **永远不写**（Stage 0/1），只读连接 + `AsNoTracking()`。
+- .NET 端读路径使用 `AsNoTracking()`；已迁移写路径必须经过显式事务和行为验收。未获切流批准的 endpoint 仍由 FastAPI 提供生产流量。
 - 表结构变更必须由 Alembic 管控；.NET 端 `dotnet ef migrations add` 仅作为本地影子比对，**不 apply**。
 - 双栈的查询结果必须 1:1 一致（由契约测试守护）。
 
@@ -199,7 +199,7 @@ flowchart TB
 | Stage | 关键交付 | 状态 |
 |---|---|---|
 | **0** | 脚手架 + 契约冻结 + health/meta + docker-compose + Serilog/OTel | ✅ done (commit `ac6f623`~`6de19b4`) |
-| 1 | 只读业务迁 .NET（GET 端点：projects/epics/stories/tasks） | backlog |
+| 1 | 业务读模型 + 已验收的 .NET 写路径（projects/epics/stories/tasks） | in progress |
 | 2 | 写迁 .NET + Webhooks/Notifications/SignalR + 灰度切流 | backlog |
 | 3 | FastAPI 业务 router 下架，FastAPI 内部化为 AI service | backlog |
 

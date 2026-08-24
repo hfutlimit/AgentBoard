@@ -2,7 +2,7 @@
 //
 // AgentBoard.Api — Dual-stack BFF entry point.
 //
-// Stage 0 + Stage 7 deliverable: composition root that wires up the
+// Stage 1 hardening deliverable: composition root that wires up the
 // 5-layer stack (Controller → BaseController → Provider → Service →
 // Repository) plus observability (Serilog + OpenTelemetry) and the
 // request-id / trace-context middlewares.
@@ -12,6 +12,7 @@ using AgentBoard.Api.Api.Conventions;
 using AgentBoard.Api.Auth;
 using AgentBoard.Api.Middleware;
 using AgentBoard.Api.Observability;
+using AgentBoard.Api.Security;
 using AgentBoard.Application;
 using AgentBoard.Application.Abstractions;
 using AgentBoard.Application.Identity;
@@ -29,7 +30,7 @@ var builder = WebApplication.CreateBuilder(args);
 var dotnetPort = Environment.GetEnvironmentVariable("AGENTBOARD_DOTNET_PORT") ?? "18099";
 if (!string.IsNullOrWhiteSpace(dotnetPort) && int.TryParse(dotnetPort, out var port))
 {
-    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+	builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 }
 
 // --- Observability (must be wired before any ILogging/Activity consumer) -
@@ -46,18 +47,19 @@ builder.Services.AddHttpContextAccessor();
 // one distributed trace. The handler is a no-op until the client is used.
 builder.Services.AddTransient<TracePropagationDelegatingHandler>();
 var fastApiInternalUrl = Environment.GetEnvironmentVariable("AGENTBOARD_FASTAPI__INTERNALURL")
-    ?? "http://api:8000";
+	?? "http://api:8000";
 if (Uri.TryCreate(fastApiInternalUrl, UriKind.Absolute, out var fastApiUri))
 {
-    builder.Services
-        .AddHttpClient("AgentBoardFastApi", c => c.BaseAddress = fastApiUri)
-        .AddHttpMessageHandler<TracePropagationDelegatingHandler>();
+	builder.Services
+		.AddHttpClient("AgentBoardFastApi", c => c.BaseAddress = fastApiUri)
+		.AddHttpMessageHandler<TracePropagationDelegatingHandler>();
 }
+builder.Services.AddScoped<AgentBoard.Api.Clients.FastApiTaskClient>();
 
 builder.Services.AddControllers(options =>
 {
-    options.Conventions.Add(new ApiRouteConvention());
-    options.Filters.Add<DomainExceptionFilter>();
+	options.Conventions.Add(new ApiRouteConvention());
+	options.Filters.Add<DomainExceptionFilter>();
 })
 // FastAPI serializes every response in snake_case (pydantic default). The .NET
 // BFF must emit the identical wire format so the front-end contract is frozen
@@ -78,12 +80,13 @@ builder.Services.AddInfrastructure(builder.Configuration);
 // the FastAPI formats so the .NET BFF authenticates against the same users
 // table. The JWT secret falls back to a dev default when the production
 // placeholder is still in place (local dev only — never in production).
-var jwtSecret = builder.Configuration["AgentBoard:Jwt:Secret"];
-if (string.IsNullOrWhiteSpace(jwtSecret) || jwtSecret.StartsWith("REPLACE_WITH", StringComparison.Ordinal))
-    jwtSecret = "dev-insecure-secret-change-me";
+var jwtSecret = RuntimeSecurityConfiguration.ResolveJwtSecret(
+	builder.Configuration,
+	builder.Environment.IsDevelopment(),
+	builder.Environment.IsEnvironment("Testing"));
 var jwtTtl = builder.Configuration.GetValue<int>("AgentBoard:Jwt:TtlSeconds");
 if (jwtTtl <= 0)
-    jwtTtl = 172800;
+	jwtTtl = 172800;
 builder.Services.AddSingleton<IPasswordHasher, Pbkdf2PasswordHasher>();
 builder.Services.AddSingleton<ITokenService>(_ => new HmacTokenService(jwtSecret!, jwtTtl));
 
@@ -91,17 +94,21 @@ builder.Services.AddSingleton<ITokenService>(_ => new HmacTokenService(jwtSecret
 // populated by the auth middleware (added in S0-7).
 builder.Services.AddScoped<ICurrentUser, CurrentUserService>();
 
-// CORS: allow Angular dev server (4200) + any local origin for dual-stack dev.
+// CORS: wildcard is development-only; production must configure explicit origins.
+var corsOrigins = RuntimeSecurityConfiguration.ResolveCorsOrigins(
+	builder.Configuration,
+	builder.Environment.IsDevelopment(),
+	builder.Environment.IsEnvironment("Testing"));
 builder.Services.AddCors(options =>
 {
-    options.AddDefaultPolicy(policy =>
-    {
-        policy
-            .SetIsOriginAllowed(_ => true) // dev: allow all origins; tighten in prod
-            .AllowAnyHeader()
-            .AllowAnyMethod()
-            .AllowCredentials();
-    });
+	options.AddDefaultPolicy(policy =>
+	{
+		policy.AllowAnyHeader().AllowAnyMethod();
+		if (corsOrigins.Contains("*", StringComparer.Ordinal))
+			policy.AllowAnyOrigin();
+		else
+			policy.WithOrigins(corsOrigins.ToArray()).AllowCredentials();
+	});
 });
 
 var app = builder.Build();
@@ -117,9 +124,9 @@ app.UseMiddleware<TraceContextMiddleware>();
 // 2b. Bearer token resolution — populates HttpContext.User for ICurrentUser.
 app.UseMiddleware<AuthMiddleware>();
 
-if (app.Environment.IsDevelopment())
+if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == "Testing")
 {
-    app.MapOpenApi();
+	app.MapOpenApi();
 }
 
 app.UseCors();
@@ -133,9 +140,9 @@ app.MapControllers();
 // before the first /api/health call hits CanConnectAsync.
 if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == "Testing")
 {
-    using var scope = app.Services.CreateScope();
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.EnsureCreated();
+	using var scope = app.Services.CreateScope();
+	var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+	db.Database.EnsureCreated();
 }
 
 // Temporary root endpoint so curl smoke tests succeed before S0-5
@@ -143,11 +150,11 @@ if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == "Testi
 // the host is up and bound to the expected port.
 app.MapGet("/", () => Results.Ok(new
 {
-    service = "AgentBoard.Api",
-    version = "0.7.0",
-    stage = "S0-7",
-    env = app.Environment.EnvironmentName,
-    utcNow = DateTime.UtcNow,
+	service = "AgentBoard.Api",
+	version = "0.7.0",
+	stage = "S1-hardening",
+	env = app.Environment.EnvironmentName,
+	utcNow = DateTime.UtcNow,
 }));
 
 app.Run();

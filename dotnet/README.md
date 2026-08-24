@@ -53,7 +53,7 @@ Domain (Entity / ValueObject / DomainEvent, Domain project)
 4. Aggregations belong in `GroupBy(...).Select(g => new { Count = g.Count()... })`
    so we get a single round-trip instead of N+1.
 5. All read queries use `AsNoTracking()` unless change tracking is required.
-6. **Stage 0/1**: .NET 端 EF Core **只读连接**；写由 FastAPI 端管控。
+6. **Migration stages**: .NET reads use `AsNoTracking` and query-specific projections; selected project/task writes now have explicit transactions. FastAPI/Alembic remains the contract/schema source of truth until endpoint-level cutover is explicitly approved.
 7. **Alembic 是 DB schema 真源**；`dotnet ef migrations add` 仅作本地影子比对，**不 apply 到生产**。
 
 See [`openspec/changes/dual-stack-bff-restructure/code-structure.md`](../openspec/changes/dual-stack-bff-restructure/code-structure.md) §2.3.2 for an example.
@@ -147,9 +147,9 @@ Conventional Commits 格式：`type(scope): subject`：
 | S0-6 | docker-compose `api-dotnet` service | ✅ done | `b6deadd` |
 | S0-7 | Serilog + OpenTelemetry + request middleware | ✅ done | `6de19b4` |
 | S0-8 | Runbook + architecture-v2 + dotnet/README | ✅ done | (this commit) |
-| S1-1 | Project/Epic/Story GET endpoints (read-only) | backlog | — |
-| S1-2 | Task/Bug GET endpoints (read-only) | backlog | — |
-| S1-3 | Contract test for all read endpoints | backlog | — |
+| S1-1 | Project/Epic/Story GET endpoints (read/query layer) | implemented | — |
+| S1-2 | Task/Bug GET endpoints (read/query layer) | implemented | — |
+| S1-3 | Contract and behavior tests for migrated endpoints | in progress | — |
 | S2-1 | nginx cutover script (10% → 100%) | backlog | — |
 | S2-2 | SignalR /hubs/agents | backlog | — |
 | S2-3 | Write path migration to .NET | backlog | — |
