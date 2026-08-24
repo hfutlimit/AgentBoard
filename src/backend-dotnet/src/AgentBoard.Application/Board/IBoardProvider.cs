@@ -180,7 +180,7 @@ public interface IBoardProvider : IProvider
 	/// <summary>List projects in the project center with scope filter (active | archived | all | mine | created) + sort.</summary>
 	Task<ProjectsCenterResult> ListProjectsCenterAsync(
 		int? currentUserId, bool isAdmin, string scope, string sort,
-		int limit, int offset, CancellationToken ct = default);
+		int limit, int offset, bool? includeArchived = null, CancellationToken ct = default);
 
 	/// <summary>List epics for a specific project. Used by workspace Epics tab.</summary>
 	Task<IReadOnlyList<EpicDto>> ListProjectEpicsAsync(int projectId, string? status, int limit, int offset, CancellationToken ct = default);

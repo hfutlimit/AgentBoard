@@ -124,6 +124,10 @@ app.UseMiddleware<TraceContextMiddleware>();
 // 2b. Bearer token resolution — populates HttpContext.User for ICurrentUser.
 app.UseMiddleware<AuthMiddleware>();
 
+// 2c. API keys are authenticated above; this middleware enforces their
+// read/write scope before any controller or application service executes.
+app.UseMiddleware<ApiKeyPermissionMiddleware>();
+
 if (app.Environment.IsDevelopment() || app.Environment.EnvironmentName == "Testing")
 {
 	app.MapOpenApi();

@@ -9,8 +9,12 @@ public sealed record TicketItem(
     string Status,
     string? Description,
     DateTime CreatedAt,
-    DateTime UpdatedAt,
-    string? AssigneeName);
+    DateTime? UpdatedAt,
+    string? AssigneeName,
+    string? Priority = null,
+    int? AssigneeId = null,
+    int? EpicId = null,
+    int? StoryId = null);
 
 /// <summary>Paginated ticket list result.</summary>
 public sealed record TicketListResult(IReadOnlyList<TicketItem> Items, int Total);

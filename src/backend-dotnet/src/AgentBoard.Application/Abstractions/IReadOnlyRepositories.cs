@@ -53,5 +53,6 @@ public interface IProjectReadRepository
 		string sort,
 		int limit,
 		int offset,
+		bool? includeArchived = null,
 		CancellationToken ct = default);
 }

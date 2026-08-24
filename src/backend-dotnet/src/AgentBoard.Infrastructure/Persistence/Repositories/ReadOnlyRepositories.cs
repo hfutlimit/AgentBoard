@@ -290,6 +290,7 @@ public sealed class ProjectReadRepository : IProjectReadRepository
 		string sort,
 		int limit,
 		int offset,
+		bool? includeArchived = null,
 		CancellationToken ct = default)
 	{
 		var ids = projectIds.ToArray();
@@ -299,36 +300,66 @@ public sealed class ProjectReadRepository : IProjectReadRepository
 		query = scope switch
 		{
 			"archived" => query.Where(p => p.IsArchived),
+			"all" when includeArchived is false => query.Where(p => !p.IsArchived),
 			"all" => query,
 			_ => query.Where(p => !p.IsArchived),
 		};
 
-		var projected = query.Select(p => new
-		{
-			p.Id,
-			p.Name,
-			p.Key,
-			p.Description,
-			p.IsPrivate,
-			p.CreatedAt,
-			p.IsArchived,
-			TaskCount = _db.Tasks.Count(t => t.ProjectId == p.Id),
-			TaskDone = _db.Tasks.Count(t => t.ProjectId == p.Id && t.Status == "done"),
-		});
+		var rows = await query.ToListAsync(ct);
+		var rowIds = rows.Select(p => p.Id).ToArray();
+		var taskStats = await _db.Tasks.AsNoTracking()
+			.Where(t => rowIds.Contains(t.ProjectId))
+			.GroupBy(t => t.ProjectId)
+			.Select(g => new
+			{
+				ProjectId = g.Key,
+				TaskCount = g.Count(),
+				TaskDone = g.Count(t => t.Status == "done"),
+				LastActivityAt = g.Max(t => (DateTime?)t.UpdatedAt),
+			})
+			.ToDictionaryAsync(x => x.ProjectId, ct);
+		var memberCounts = await _db.ProjectMembers.AsNoTracking()
+			.Where(m => rowIds.Contains(m.ProjectId))
+			.GroupBy(m => m.ProjectId)
+			.Select(g => new { ProjectId = g.Key, Count = g.Count() })
+			.ToDictionaryAsync(x => x.ProjectId, x => x.Count, ct);
+		var epicActivity = await _db.Epics.AsNoTracking()
+			.Where(e => rowIds.Contains(e.ProjectId))
+			.GroupBy(e => e.ProjectId)
+			.Select(g => new { ProjectId = g.Key, LastActivityAt = g.Max(e => (DateTime?)e.CreatedAt) })
+			.ToDictionaryAsync(x => x.ProjectId, x => x.LastActivityAt, ct);
+		var storyActivity = await (
+			from story in _db.Stories.AsNoTracking()
+			join epic in _db.Epics.AsNoTracking() on story.EpicId equals epic.Id
+			where rowIds.Contains(epic.ProjectId)
+			group story by epic.ProjectId into grouped
+			select new { ProjectId = grouped.Key, LastActivityAt = grouped.Max(s => (DateTime?)s.CreatedAt) })
+			.ToDictionaryAsync(x => x.ProjectId, x => x.LastActivityAt, ct);
 
-		var ordered = sort switch
+		var items = rows.Select(project =>
 		{
-			"name" => projected.OrderBy(p => p.Name).ThenBy(p => p.Id),
-			"tasks" => projected.OrderByDescending(p => p.TaskCount).ThenByDescending(p => p.CreatedAt),
-			_ => projected.OrderByDescending(p => p.CreatedAt).ThenByDescending(p => p.Id),
+			taskStats.TryGetValue(project.Id, out var taskStat);
+			epicActivity.TryGetValue(project.Id, out var epicAt);
+			storyActivity.TryGetValue(project.Id, out var storyAt);
+			var candidates = new[] { taskStat?.LastActivityAt, epicAt, storyAt };
+			return new ProjectCenterItem(
+				project.Id, project.Name, project.Key, project.Description, project.IsPrivate,
+				project.CreatedAt, project.IsArchived, taskStat?.TaskCount ?? 0,
+				taskStat?.TaskDone ?? 0, memberCounts.GetValueOrDefault(project.Id),
+				candidates.Max());
+		}).ToList();
+
+		items = sort switch
+		{
+			"name" => items.OrderBy(i => i.Name).ThenBy(i => i.Id).ToList(),
+			"created" => items.OrderByDescending(i => i.CreatedAt).ThenByDescending(i => i.Id).ToList(),
+			"tasks" => items.OrderByDescending(i => i.TaskCount).ThenByDescending(i => i.CreatedAt).ThenByDescending(i => i.Id).ToList(),
+			_ => items.OrderByDescending(i => i.LastActivityAt ?? i.CreatedAt).ThenByDescending(i => i.Id).ToList(),
 		};
 
-		var total = await ordered.CountAsync(ct);
-		var rows = await ordered.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, 200)).ToListAsync(ct);
-		var page = rows.Select(p => new ProjectDto(
-			p.Id, p.Name, p.Key, p.Description, p.IsPrivate, p.CreatedAt, p.IsArchived,
-			p.TaskCount, p.TaskDone)).ToList();
-		return new ProjectsCenterResult(page, page, total, scope, sort);
+		return new ProjectsCenterResult(
+			items.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, 200)).ToList(),
+			items.Count);
 	}
 
 	private static OverviewDto EmptyOverview() => new(

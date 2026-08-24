@@ -67,6 +67,7 @@ public sealed class ProjectsController : BaseController<IBoardProvider>
 	public async Task<ActionResult<AgentBoard.Application.Board.Dtos.ProjectsCenterResult>> Center(
 		[FromQuery] string scope = "active",
 		[FromQuery] string sort = "recent",
+		[FromQuery(Name = "include_archived")] bool? includeArchived = null,
 		[FromQuery] int limit = 50,
 		[FromQuery] int offset = 0,
 		CancellationToken ct = default)
@@ -74,7 +75,7 @@ public sealed class ProjectsController : BaseController<IBoardProvider>
 		limit = Math.Clamp(limit, 1, 200);
 		offset = Math.Max(0, offset);
 		var result = await Provider.ListProjectsCenterAsync(
-			CurrentUser.UserId, CurrentUser.IsAdmin, scope, sort, limit, offset, ct);
+			CurrentUser.UserId, CurrentUser.IsAdmin, scope, sort, limit, offset, includeArchived, ct);
 		return Ok(result);
 	}
 
@@ -250,14 +251,14 @@ public sealed class ProjectsController : BaseController<IBoardProvider>
 	[ProducesResponseType(typeof(ApiError), 404)]
 	public async Task<ActionResult<AgentBoard.Application.Board.Dtos.TicketListResult>> Tickets(
 		int id,
-		[FromQuery(Name = "status")] string status = "all",
-		[FromQuery] string sort = "id",
+		[FromQuery(Name = "status")] string status = "incomplete",
+		[FromQuery] string sort = "created_at",
 		[FromQuery] string order = "desc",
-		[FromQuery] int limit = 50,
+		[FromQuery] int limit = 200,
 		[FromQuery] int offset = 0,
 		CancellationToken ct = default)
 	{
-		var result = await Provider.ListProjectTicketsAsync(id, status, sort, order, limit, offset, ct);
+		var result = await Provider.ListProjectTicketsAsync(id, status, sort, order, Math.Clamp(limit, 1, 500), Math.Max(0, offset), ct);
 		return Ok(result);
 	}
 }

@@ -121,12 +121,16 @@ public sealed class TasksController : BaseController<IBoardProvider>
 	[ProducesResponseType(200)]
 	[ProducesResponseType(typeof(ApiError), 404)]
 	[ProducesResponseType(typeof(ApiError), 502)]
-	public async Task<IActionResult> GenerateSubtasks(
-		int id,
-		[FromBody] GenerateSubtasksRequest? _,
-		CancellationToken ct)
-	{
-		var response = await _fastApiTaskClient.ProxyGenerateSubtasksAsync(id, ct);
+    public async Task<IActionResult> GenerateSubtasks(
+        int id,
+        [FromBody] GenerateSubtasksRequest? _,
+        CancellationToken ct)
+    {
+        // The downstream FastAPI call must not become an authorization bypass:
+        // resolve the task through the same project access boundary first.
+        if (await Provider.GetTaskAsync(id, ct) is null)
+            return NotFound(new ApiError($"task {id} not found"));
+        var response = await _fastApiTaskClient.ProxyGenerateSubtasksAsync(id, ct);
 		return new ContentResult
 		{
 			StatusCode = (int)response.StatusCode,

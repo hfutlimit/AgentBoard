@@ -101,39 +101,66 @@ public sealed class BoardProvider : IBoardProvider
 
 	public async Task<IReadOnlyList<EpicDto>> ListEpicsAsync(int? projectId, CancellationToken ct = default)
 	{
+		var accessibleIds = await _access.GetAccessibleProjectIdsAsync(ct);
+		if (projectId is { } requestedProjectId)
+			await _access.RequireProjectReadAsync(requestedProjectId, ct);
+
 		var items = await _epics.ListAsync(projectId is null ? null : e => e.ProjectId == projectId, ct);
+		if (accessibleIds is not null && projectId is null)
+			items = items.Where(e => accessibleIds.Contains(e.ProjectId)).ToList();
 		return items.Select(ToEpicDto).ToList();
 	}
 
 	public async Task<EpicDto?> GetEpicAsync(int id, CancellationToken ct = default)
 	{
+		await _access.RequireEpicReadAsync(id, ct);
 		var e = await _epics.GetByIdAsync(id, ct);
 		return e is null ? null : ToEpicDto(e);
 	}
 
 	public async Task<IReadOnlyList<StoryDto>> ListStoriesAsync(int? epicId, CancellationToken ct = default)
 	{
+		var accessibleIds = await _access.GetAccessibleProjectIdsAsync(ct);
+		if (epicId is { } requestedEpicId)
+			await _access.RequireEpicReadAsync(requestedEpicId, ct);
+
 		var items = await _stories.ListAsync(epicId is null ? null : s => s.EpicId == epicId, ct);
+		if (accessibleIds is not null && epicId is null)
+		{
+			var visibleEpicIds = (await _epics.ListAsync(e => accessibleIds.Contains(e.ProjectId), ct))
+				.Select(e => e.Id).ToHashSet();
+			items = items.Where(s => visibleEpicIds.Contains(s.EpicId)).ToList();
+		}
 		return items.Select(ToStoryDto).ToList();
 	}
 
 	public async Task<StoryDto?> GetStoryAsync(int id, CancellationToken ct = default)
 	{
+		await _access.RequireStoryReadAsync(id, ct);
 		var s = await _stories.GetByIdAsync(id, ct);
 		return s is null ? null : ToStoryDto(s);
 	}
 
 	public async Task<IReadOnlyList<TaskItemDto>> ListTasksAsync(int? projectId, int? storyId, CancellationToken ct = default)
 	{
+		var accessibleIds = await _access.GetAccessibleProjectIdsAsync(ct);
+		if (projectId is { } requestedProjectId)
+			await _access.RequireProjectReadAsync(requestedProjectId, ct);
+		else if (storyId is { } requestedStoryId)
+			await _access.RequireStoryReadAsync(requestedStoryId, ct);
+
 		Expression<Func<TaskItem, bool>>? pred = null;
 		if (projectId is not null) pred = t => t.ProjectId == projectId;
 		else if (storyId is not null) pred = t => t.StoryId == storyId;
 		var items = await _tasks.ListAsync(pred, ct);
+		if (accessibleIds is not null && projectId is null && storyId is null)
+			items = items.Where(t => accessibleIds.Contains(t.ProjectId)).ToList();
 		return items.Select(ToTaskDto).ToList();
 	}
 
 	public async Task<TaskItemDto?> GetTaskAsync(int id, CancellationToken ct = default)
 	{
+		await _access.RequireTaskReadAsync(id, ct);
 		var t = await _tasks.GetByIdAsync(id, ct);
 		return t is null ? null : ToTaskDto(t);
 	}
@@ -141,6 +168,10 @@ public sealed class BoardProvider : IBoardProvider
 	public async Task<IReadOnlyList<CommentDto>> ListCommentsAsync(
 		int? taskId, int? storyId, int? epicId, CancellationToken ct = default)
 	{
+		if (taskId is { } requestedTaskId) await _access.RequireTaskReadAsync(requestedTaskId, ct);
+		else if (storyId is { } requestedStoryId) await _access.RequireStoryReadAsync(requestedStoryId, ct);
+		else if (epicId is { } requestedEpicId) await _access.RequireEpicReadAsync(requestedEpicId, ct);
+
 		Expression<Func<Comment, bool>>? pred = null;
 		if (taskId is not null) pred = c => c.TaskId == taskId;
 		else if (storyId is not null) pred = c => c.StoryId == storyId;
@@ -151,6 +182,7 @@ public sealed class BoardProvider : IBoardProvider
 
 	public async Task<CommentDto?> GetCommentAsync(int id, CancellationToken ct = default)
 	{
+		await _access.RequireCommentReadAsync(id, ct);
 		var c = await _comments.GetByIdAsync(id, ct);
 		return c is null ? null : ToCommentDto(c);
 	}
@@ -193,6 +225,9 @@ public sealed class BoardProvider : IBoardProvider
 		};
 		if (target is null)
 			throw new NotFoundException($"{targetName} {targetId} not found");
+		if (targetName == "task") await _access.RequireTaskWriteAsync(targetId, ct);
+		else if (targetName == "story") await _access.RequireStoryWriteAsync(targetId, ct);
+		else await _access.RequireEpicWriteAsync(targetId, ct);
 
 		author = (author ?? string.Empty).Trim();
 		content = (content ?? string.Empty).Trim();
@@ -217,6 +252,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.DeleteCommentAsync"/>
 	public async Task<bool> DeleteCommentAsync(int id, CancellationToken ct = default)
 	{
+		await _access.RequireCommentWriteAsync(id, ct);
 		var comment = await _comments.GetByIdAsync(id, ct);
 		if (comment is null) return false;
 		_comments.Remove(comment);
@@ -396,6 +432,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.CreateEpicAsync"/>
 	public async Task<EpicDto> CreateEpicAsync(int projectId, string? title, string? description, CancellationToken ct = default)
 	{
+		await _access.RequireProjectWriteAsync(projectId, ct);
 		title = (title ?? string.Empty).Trim();
 		if (title.Length == 0 || title.Length > 200)
 			throw new InvalidValueException("title must be 1-200 characters");
@@ -420,6 +457,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.UpdateEpicAsync"/>
 	public async Task<EpicDto?> UpdateEpicAsync(int id, string? title, string? description, string? status, CancellationToken ct = default)
 	{
+		await _access.RequireEpicWriteAsync(id, ct);
 		var epic = await _epics.GetByIdAsync(id, ct);
 		if (epic is null) return null;
 
@@ -441,6 +479,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.DeleteEpicAsync"/>
 	public async Task<bool> DeleteEpicAsync(int id, CancellationToken ct = default)
 	{
+		await _access.RequireEpicWriteAsync(id, ct);
 		var epic = await _epics.GetByIdAsync(id, ct);
 		if (epic is null) return false;
 
@@ -469,6 +508,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.CreateStoryAsync"/>
 	public async Task<StoryDto> CreateStoryAsync(int epicId, string? title, string? description, bool? needsDesign, CancellationToken ct = default)
 	{
+		await _access.RequireEpicWriteAsync(epicId, ct);
 		title = (title ?? string.Empty).Trim();
 		if (title.Length == 0 || title.Length > 200)
 			throw new InvalidValueException("title must be 1-200 characters");
@@ -495,6 +535,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.UpdateStoryAsync"/>
 	public async Task<StoryDto?> UpdateStoryAsync(int id, string? title, string? description, string? status, bool? needsDesign, bool? inKanban, CancellationToken ct = default)
 	{
+		await _access.RequireStoryWriteAsync(id, ct);
 		var story = await _stories.GetByIdAsync(id, ct);
 		if (story is null) return null;
 
@@ -525,6 +566,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.DeleteStoryAsync"/>
 	public async Task<bool> DeleteStoryAsync(int id, CancellationToken ct = default)
 	{
+		await _access.RequireStoryWriteAsync(id, ct);
 		var story = await _stories.GetByIdAsync(id, ct);
 		if (story is null) return false;
 
@@ -543,6 +585,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.ConfirmStoryAsync"/>
 	public async Task<StoryDto?> ConfirmStoryAsync(int id, CancellationToken ct = default)
 	{
+		await _access.RequireStoryWriteAsync(id, ct);
 		var story = await _stories.GetByIdAsync(id, ct);
 		if (story is null) return null;
 
@@ -559,6 +602,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.CompleteStoryAsync"/>
 	public async Task<StoryDto?> CompleteStoryAsync(int id, CancellationToken ct = default)
 	{
+		await _access.RequireStoryWriteAsync(id, ct);
 		var story = await _stories.GetByIdAsync(id, ct);
 		if (story is null) return null;
 
@@ -576,6 +620,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.GetStoryStatusHistoryAsync"/>
 	public async Task<IReadOnlyList<StoryStatusHistoryDto>> GetStoryStatusHistoryAsync(int id, CancellationToken ct = default)
 	{
+		await _access.RequireStoryReadAsync(id, ct);
 		var items = await _storyHistory.ListAsync(h => h.StoryId == id, ct);
 		return items
 			.OrderByDescending(h => h.CreatedAt)
@@ -588,6 +633,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.CreateTaskAsync"/>
 	public async Task<TaskItemDto> CreateTaskAsync(int storyId, string? type, string? title, string? priority, string? description, string? spec, int? assigneeId, CancellationToken ct = default)
 	{
+		await _access.RequireStoryWriteAsync(storyId, ct);
 		var story = await _stories.GetByIdAsync(storyId, ct);
 		if (story is null)
 			throw new NotFoundException($"story {storyId} not found");
@@ -624,6 +670,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.UpdateTaskAsync"/>
 	public async Task<TaskItemDto?> UpdateTaskAsync(int id, string? type, string? title, string? status, string? priority, string? statusReason, string? description, string? spec, int? assigneeId, string? dueDate, string? labels, double? estimate, int? complexity, string? neededCapabilities, string? domainTags, int? sprintId, int? reviewerId, CancellationToken ct = default)
 	{
+		await _access.RequireTaskWriteAsync(id, ct);
 		var task = await _tasks.GetByIdAsync(id, ct);
 		if (task is null) return null;
 
@@ -673,6 +720,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.DeleteTaskAsync"/>
 	public async Task<bool> DeleteTaskAsync(int id, CancellationToken ct = default)
 	{
+		await _access.RequireTaskWriteAsync(id, ct);
 		var task = await _tasks.GetByIdAsync(id, ct);
 		if (task is null) return false;
 
@@ -688,6 +736,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.UpdateTaskStatusAsync"/>
 	public async Task<TaskItemDto?> UpdateTaskStatusAsync(int id, string? status, string? statusReason, CancellationToken ct = default)
 	{
+		await _access.RequireTaskWriteAsync(id, ct);
 		var task = await _tasks.GetByIdAsync(id, ct);
 		if (task is null) return null;
 
@@ -722,6 +771,7 @@ public sealed class BoardProvider : IBoardProvider
 		{
 			var task = await _tasks.GetByIdAsync(id, ct);
 			if (task is null) continue;
+			await _access.RequireTaskWriteAsync(id, ct);
 
 			if (status is not null && status != task.Status)
 			{
@@ -755,6 +805,7 @@ public sealed class BoardProvider : IBoardProvider
 		{
 			var task = await _tasks.GetByIdAsync(id, ct);
 			if (task is null) continue;
+			await _access.RequireTaskWriteAsync(id, ct);
 
 			_comments.RemoveRange(await _comments.ListAsync(c => c.TaskId == id, ct));
 			_dependencies.RemoveRange(await _dependencies.ListAsync(d => d.TaskId == id || d.DependsOnId == id, ct));
@@ -773,6 +824,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.GetTaskDependenciesAsync"/>
 	public async Task<IReadOnlyList<TaskDependencyDto>> GetTaskDependenciesAsync(int taskId, CancellationToken ct = default)
 	{
+		await _access.RequireTaskReadAsync(taskId, ct);
 		var items = await _dependencies.ListAsync(d => d.TaskId == taskId, ct);
 		return items
 			.Select(d => new TaskDependencyDto(d.Id, d.TaskId, d.DependsOnId, d.DependencyType, d.CreatedAt))
@@ -782,6 +834,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.AddTaskDependencyAsync"/>
 	public async Task<TaskDependencyDto> AddTaskDependencyAsync(int taskId, int? dependsOnId, string? dependencyType, CancellationToken ct = default)
 	{
+		await _access.RequireTaskWriteAsync(taskId, ct);
 		if (await _tasks.GetByIdAsync(taskId, ct) is null)
 			throw new NotFoundException($"task {taskId} not found");
 
@@ -790,6 +843,7 @@ public sealed class BoardProvider : IBoardProvider
 
 		if (await _tasks.GetByIdAsync(dependsOnId.Value, ct) is null)
 			throw new NotFoundException($"dependency target task {dependsOnId.Value} not found");
+		await _access.RequireTaskReadAsync(dependsOnId.Value, ct);
 
 		if (taskId == dependsOnId.Value)
 			throw new InvalidValueException("a task cannot depend on itself");
@@ -812,6 +866,7 @@ public sealed class BoardProvider : IBoardProvider
 	{
 		var dep = await _dependencies.GetByIdAsync(dependencyId, ct);
 		if (dep is null) return false;
+		await _access.RequireTaskWriteAsync(dep.TaskId, ct);
 		_dependencies.Remove(dep);
 		await _uow.SaveChangesAsync(ct);
 		return true;
@@ -822,6 +877,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.ListAttachmentsAsync"/>
 	public async Task<IReadOnlyList<AttachmentDto>> ListAttachmentsAsync(int taskId, CancellationToken ct = default)
 	{
+		await _access.RequireTaskReadAsync(taskId, ct);
 		var items = await _attachments.ListAsync(a => a.TaskId == taskId, ct);
 		return items
 			.OrderByDescending(a => a.CreatedAt)
@@ -832,6 +888,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.GetAttachmentInfoAsync"/>
 	public async Task<AttachmentDto?> GetAttachmentInfoAsync(int attachmentId, CancellationToken ct = default)
 	{
+		await _access.RequireAttachmentReadAsync(attachmentId, ct);
 		var a = await _attachments.GetByIdAsync(attachmentId, ct);
 		return a is null ? null : new AttachmentDto(a.Id, a.TaskId, a.Filename, a.OriginalName, a.Size, a.MimeType, a.CreatedAt);
 	}
@@ -839,6 +896,7 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.DeleteAttachmentAsync"/>
 	public async Task<bool> DeleteAttachmentAsync(int attachmentId, CancellationToken ct = default)
 	{
+		await _access.RequireAttachmentWriteAsync(attachmentId, ct);
 		var a = await _attachments.GetByIdAsync(attachmentId, ct);
 		if (a is null) return false;
 		_attachments.Remove(a);
@@ -851,11 +909,19 @@ public sealed class BoardProvider : IBoardProvider
 	/// <inheritdoc cref="IBoardProvider.SearchTasksAsync"/>
 	public async Task<IReadOnlyList<TaskItemDto>> SearchTasksAsync(string? q, int? projectId, int? storyId, string? status, string? priority, string? assigneeId, int limit, CancellationToken ct = default)
 	{
+		var accessibleIds = await _access.GetAccessibleProjectIdsAsync(ct);
+		if (projectId is { } requestedProjectId)
+			await _access.RequireProjectReadAsync(requestedProjectId, ct);
+		else if (storyId is { } requestedStoryId)
+			await _access.RequireStoryReadAsync(requestedStoryId, ct);
+
 		Expression<Func<TaskItem, bool>>? pred = null;
 		if (projectId is not null) pred = t => t.ProjectId == projectId;
 		else if (storyId is not null) pred = t => t.StoryId == storyId;
 
 		var items = await _tasks.ListAsync(pred, ct);
+		if (accessibleIds is not null && projectId is null && storyId is null)
+			items = items.Where(t => accessibleIds.Contains(t.ProjectId)).ToList();
 
 		// Apply additional in-memory filters
 		if (status is not null)
@@ -1017,13 +1083,38 @@ public sealed class BoardProvider : IBoardProvider
 		var epicIds = epics.Select(e => e.Id).ToHashSet();
 		var stories = epicIds.Count > 0 ? await _stories.ListAsync(s => epicIds.Contains(s.EpicId), ct) : new List<Story>();
 		var tasks = await _tasks.ListAsync(t => t.ProjectId == projectId, ct);
+		var epicByStoryId = stories.ToDictionary(s => s.Id, s => s.EpicId);
+		var assigneeIds = tasks.Where(t => t.AssigneeId is not null).Select(t => t.AssigneeId!.Value).Distinct().ToList();
+		var assignees = assigneeIds.Count == 0
+			? new Dictionary<int, string>()
+			: (await _users.ListAsync(u => assigneeIds.Contains(u.Id), ct))
+				.ToDictionary(u => u.Id, u => u.DisplayName ?? u.Username);
 		var tickets = new List<TicketItem>();
-		tickets.AddRange(epics.Select(e => new TicketItem("epic", e.Id, e.Title, e.Status, e.Description, e.CreatedAt, e.CreatedAt, null)));
-		tickets.AddRange(stories.Select(s => new TicketItem("story", s.Id, s.Title, s.Status, s.Description, s.CreatedAt, s.CreatedAt, null)));
-		tickets.AddRange(tasks.Select(t => new TicketItem("task", t.Id, t.Title, t.Status, t.Description, t.CreatedAt, t.UpdatedAt, null)));
-		if (!string.IsNullOrWhiteSpace(statusFilter) && statusFilter != "all") tickets = tickets.Where(t => t.Status == statusFilter).ToList();
+		tickets.AddRange(epics.Select(e => new TicketItem(
+			"epic", e.Id, e.Title, e.Status, e.Description, e.CreatedAt, null, null,
+			EpicId: null)));
+		tickets.AddRange(stories.Select(s => new TicketItem(
+			"story", s.Id, s.Title, s.Status, s.Description, s.CreatedAt, null, null,
+			EpicId: s.EpicId)));
+		tickets.AddRange(tasks.Select(t => new TicketItem(
+			"task", t.Id, t.Title, t.Status, t.Description, t.CreatedAt, t.UpdatedAt,
+			assignees.GetValueOrDefault(t.AssigneeId ?? 0), t.Priority, t.AssigneeId,
+			t.StoryId is { } storyId && epicByStoryId.TryGetValue(storyId, out var epicId) ? epicId : null,
+			t.StoryId)));
+		statusFilter = statusFilter?.ToLowerInvariant() switch
+		{
+			"complete" => "complete",
+			"all" => "all",
+			_ => "incomplete",
+		};
+		if (statusFilter == "complete") tickets = tickets.Where(t => t.Status == "done").ToList();
+		else if (statusFilter == "incomplete") tickets = tickets.Where(t => t.Status != "done").ToList();
 		var desc = string.Equals(order, "desc", StringComparison.OrdinalIgnoreCase);
-		tickets = desc ? tickets.OrderByDescending(t => t.Id).ToList() : tickets.OrderBy(t => t.Id).ToList();
+		tickets = sort?.ToLowerInvariant() switch
+		{
+			"updated_at" => (desc ? tickets.OrderByDescending(t => t.UpdatedAt) : tickets.OrderBy(t => t.UpdatedAt)).ThenBy(t => t.Id).ToList(),
+			_ => (desc ? tickets.OrderByDescending(t => t.CreatedAt) : tickets.OrderBy(t => t.CreatedAt)).ThenBy(t => t.Id).ToList(),
+		};
 		return new TicketListResult(tickets.Skip(offset).Take(limit).ToList(), tickets.Count);
 	}
 
@@ -1098,6 +1189,7 @@ public sealed class BoardProvider : IBoardProvider
 
 	public async Task<StoryDto?> CreateEpicStoryAsync(int epicId, string? title, string? description, CancellationToken ct = default)
 	{
+		await _access.RequireEpicWriteAsync(epicId, ct);
 		if (await _epics.GetByIdAsync(epicId, ct) is null) return null;
 		title = (title ?? string.Empty).Trim();
 		if (title.Length == 0 || title.Length > 300)
@@ -1119,6 +1211,7 @@ public sealed class BoardProvider : IBoardProvider
 	public async Task<(IReadOnlyList<TaskItemDto> Items, int Total)> ListStoryTasksAsync(
 		int storyId, string? status, int limit, int offset, CancellationToken ct = default)
 	{
+		await _access.RequireStoryReadAsync(storyId, ct);
 		var all = await _tasks.ListAsync(t => t.StoryId == storyId, ct);
 		var filtered = string.IsNullOrWhiteSpace(status) ? all : all.Where(t => t.Status == status).ToList();
 		var page = filtered.Skip(offset).Take(limit).ToList();
@@ -1129,6 +1222,7 @@ public sealed class BoardProvider : IBoardProvider
 		int storyId, string? type, string? title, string? priority,
 		int? assigneeId, CancellationToken ct = default)
 	{
+		await _access.RequireStoryWriteAsync(storyId, ct);
 		var story = await _stories.GetByIdAsync(storyId, ct);
 		if (story is null) return null;
 		var epic = await _epics.GetByIdAsync(story.EpicId, ct);
@@ -1158,14 +1252,23 @@ public sealed class BoardProvider : IBoardProvider
 
 	public async Task<ProjectsCenterResult> ListProjectsCenterAsync(
 		int? currentUserId, bool isAdmin, string scope, string sort,
-		int limit, int offset, CancellationToken ct = default)
+		int limit, int offset, bool? includeArchived = null, CancellationToken ct = default)
 	{
 		var accessibleIds = await _access.GetAccessibleProjectIdsAsync(ct);
 		var projectIds = accessibleIds is null
 			? (await _projects.ListAsync(ct: ct)).Select(p => p.Id).ToList()
 			: accessibleIds.ToList();
+		if (scope is "mine" or "created")
+		{
+			var memberProjectIds = currentUserId is { } userId
+				? (await _members.ListAsync(
+					m => m.UserId == userId && (scope != "created" || m.Role == "owner"), ct))
+					.Select(m => m.ProjectId).ToHashSet()
+				: new HashSet<int>();
+			projectIds = projectIds.Where(memberProjectIds.Contains).ToList();
+		}
 		return await _readQueries.GetCenterAsync(
-			projectIds, accessibleIds is null || accessibleIds.Count > 0, scope, sort, limit, offset, ct);
+			projectIds, accessibleIds is null || accessibleIds.Count > 0, scope, sort, limit, offset, includeArchived, ct);
 	}
 
 	/// <summary>Helper: 拿 currentUserId 可见的 projects (是 member 的)。</summary>

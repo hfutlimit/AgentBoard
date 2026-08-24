@@ -100,14 +100,24 @@ public sealed record ProjectScheduleCreateRequest(
 
 // ===== P6: project center / export / import (BFF module 1, 2026-08-23) =====
 
-/// <summary>Response for <c>GET /api/projects/center</c> with scope+sort+limit
-/// filtering. Mirrors the FastAPI <c>/api/projects/center</c> envelope.</summary>
+/// <summary>One enriched project item returned by the project center.</summary>
+public sealed record ProjectCenterItem(
+	int Id,
+	string Name,
+	string? Key,
+	string Description,
+	bool IsPrivate,
+	DateTime CreatedAt,
+	bool IsArchived,
+	int TaskCount,
+	int TaskDone,
+	int MemberCount,
+	DateTime? LastActivityAt);
+
+/// <summary>FastAPI-compatible <c>GET /api/projects/center</c> envelope.</summary>
 public sealed record ProjectsCenterResult(
-	IReadOnlyList<ProjectDto> Items,
-	IReadOnlyList<ProjectDto> Page,
-	int Total,
-	string Scope,
-	string Sort);
+	IReadOnlyList<ProjectCenterItem> Items,
+	int Total);
 
 /// <summary>Response for <c>GET /api/projects/{id}/export</c>. Includes the
 /// project itself plus its child epics / stories / tasks for offline restore.</summary>

@@ -18,6 +18,8 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using AgentBoard.Api.Tests.Infrastructure;
 using AgentBoard.Application.Identity;
@@ -84,6 +86,79 @@ public sealed class ProjectsControllerTests : IClassFixture<ApiWebApplicationFac
         client.DefaultRequestHeaders.Authorization =
             new AuthenticationHeaderValue("Bearer", tokenService.IssueToken(user.Id));
         return client;
+    }
+
+    private async Task<string> SeedApiKeyAsync(User user, params string[] scopes)
+    {
+        var rawKey = $"abk_test_{Guid.NewGuid():N}";
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        db.ApiKeys.Add(new ApiKey
+        {
+            UserId = user.Id,
+            Name = "review-test-key",
+            KeyPrefix = rawKey[..12],
+            KeyHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawKey))).ToLowerInvariant(),
+            Scopes = JsonSerializer.Serialize(scopes),
+            Enabled = true,
+            CreatedAt = DateTime.UtcNow,
+        });
+        await db.SaveChangesAsync();
+        return rawKey;
+    }
+
+    private HttpClient NewApiKeyClient(string rawKey)
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", rawKey);
+        return client;
+    }
+
+    private async Task<(Epic Epic, Story Story, TaskItem Task)> SeedAggregateAsync(int projectId)
+    {
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var epic = new Epic
+        {
+            ProjectId = projectId,
+            Title = "aggregate epic",
+            Description = string.Empty,
+            Status = "backlog",
+            CreatedAt = DateTime.UtcNow,
+        };
+        db.Epics.Add(epic);
+        await db.SaveChangesAsync();
+        var story = new Story
+        {
+            EpicId = epic.Id,
+            Title = "aggregate story",
+            Description = string.Empty,
+            Status = "backlog",
+            CreatedAt = DateTime.UtcNow,
+        };
+        db.Stories.Add(story);
+        await db.SaveChangesAsync();
+        var task = new TaskItem
+        {
+            ProjectId = projectId,
+            StoryId = story.Id,
+            Type = "dev",
+            Title = "aggregate task",
+            Status = "todo",
+            Priority = "medium",
+            Description = string.Empty,
+            Spec = string.Empty,
+            Labels = "[]",
+            NeededCapabilities = "[]",
+            DomainTags = "[]",
+            AssignmentMode = "claim",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        db.Tasks.Add(task);
+        await db.SaveChangesAsync();
+        return (epic, story, task);
     }
 
     private async Task<Project> SeedProjectAsync(string name = "Test Project", bool archived = false)
@@ -158,7 +233,7 @@ public sealed class ProjectsControllerTests : IClassFixture<ApiWebApplicationFac
         dto.Should().NotBeNull();
         dto!.Items.Should().NotBeNull();
         dto.Total.Should().BeGreaterThanOrEqualTo(0);
-        dto.Page.Should().BeEmpty();
+        dto.Items.Should().BeEmpty();
     }
 
     [Fact]
@@ -223,6 +298,8 @@ public sealed class ProjectsControllerTests : IClassFixture<ApiWebApplicationFac
     public async Task Center_Item_Has_Aggregate_Counters()
     {
         var p = await SeedProjectAsync("AggregateTest");
+        var member = await SeedUserAsync($"center-member-{Guid.NewGuid():N}");
+        await SeedMemberAsync(p.Id, member.Id, "member");
         await SeedTaskAsync(p.Id, null, "open");
         await SeedTaskAsync(p.Id, null, "done", status: "done");
 
@@ -233,6 +310,24 @@ public sealed class ProjectsControllerTests : IClassFixture<ApiWebApplicationFac
         var item = dto!.Items.Single(i => i.Id == p.Id);
         item.TaskCount.Should().Be(2);
         item.TaskDone.Should().Be(1);
+        item.MemberCount.Should().Be(1);
+        item.LastActivityAt.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task Center_All_Honors_IncludeArchived()
+    {
+        var active = await SeedProjectAsync("Center Active", archived: false);
+        var archived = await SeedProjectAsync("Center Archived", archived: true);
+        var client = NewClient();
+
+        var response = await client.GetAsync("/api/projects/center?scope=all&include_archived=false&limit=200");
+        var withoutArchived = await response.Content.ReadFromJsonAsync<ProjectsCenterResult>(JsonOpts);
+        withoutArchived!.Items.Select(i => i.Id).Should().Contain(active.Id).And.NotContain(archived.Id);
+
+        response = await client.GetAsync("/api/projects/center?scope=all&include_archived=true&limit=200");
+        var withArchived = await response.Content.ReadFromJsonAsync<ProjectsCenterResult>(JsonOpts);
+        withArchived!.Items.Select(i => i.Id).Should().Contain(active.Id).And.Contain(archived.Id);
     }
 
     [Fact]
@@ -726,6 +821,93 @@ public sealed class ProjectsControllerTests : IClassFixture<ApiWebApplicationFac
         var verifyDb = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
         (await verifyDb.AgentSchedules.CountAsync(x => x.ProjectId == project.Id)).Should().Be(0);
         (await verifyDb.AgentRuns.CountAsync(x => x.ScheduleId == scheduleId)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Child_Resources_Require_Project_Membership()
+    {
+        var project = await SeedProjectAsync("Child Authorization");
+        var owner = await SeedUserAsync($"child-owner-{Guid.NewGuid():N}");
+        await SeedMemberAsync(project.Id, owner.Id, "owner");
+        var outsider = await SeedUserAsync($"child-outsider-{Guid.NewGuid():N}");
+        var aggregate = await SeedAggregateAsync(project.Id);
+        var client = NewClientFor(outsider);
+
+        (await client.GetAsync($"/api/epics/{aggregate.Epic.Id}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await client.GetAsync($"/api/stories/{aggregate.Story.Id}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await client.GetAsync($"/api/tasks/{aggregate.Task.Id}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await client.GetAsync($"/api/epics?projectId={project.Id}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await client.GetAsync($"/api/stories?epicId={aggregate.Epic.Id}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await client.GetAsync($"/api/tasks?storyId={aggregate.Story.Id}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await client.PatchAsJsonAsync($"/api/epics/{aggregate.Epic.Id}", new { title = "blocked" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await client.DeleteAsync($"/api/stories/{aggregate.Story.Id}"))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await client.PostAsJsonAsync($"/api/tasks?storyId={aggregate.Story.Id}", new { title = "blocked" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        (await NewAnonymousClient().GetAsync($"/api/tasks/{aggregate.Task.Id}"))
+            .StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task ApiKey_Scopes_Enforce_Read_And_Write_Operations()
+    {
+        var project = await SeedProjectAsync("API Key Authorization");
+        var owner = await SeedUserAsync($"api-key-owner-{Guid.NewGuid():N}");
+        await SeedMemberAsync(project.Id, owner.Id, "owner");
+        var outsider = await SeedUserAsync($"api-key-outsider-{Guid.NewGuid():N}");
+        var aggregate = await SeedAggregateAsync(project.Id);
+
+        var readKey = await SeedApiKeyAsync(owner, "api:read");
+        var readClient = NewApiKeyClient(readKey);
+        (await readClient.GetAsync($"/api/projects/{project.Id}")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await readClient.GetAsync($"/api/epics/{aggregate.Epic.Id}")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await readClient.PatchAsJsonAsync($"/api/epics/{aggregate.Epic.Id}", new { title = "blocked" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await readClient.DeleteAsync($"/api/tasks/{aggregate.Task.Id}"))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+
+        var writeKey = await SeedApiKeyAsync(owner, "api:read", "api:write");
+        var writeClient = NewApiKeyClient(writeKey);
+        (await writeClient.PatchAsJsonAsync($"/api/epics/{aggregate.Epic.Id}", new { title = "updated" }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var outsiderWriteKey = await SeedApiKeyAsync(outsider, "api:read", "api:write");
+        (await NewApiKeyClient(outsiderWriteKey)
+            .PatchAsJsonAsync($"/api/epics/{aggregate.Epic.Id}", new { title = "blocked" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task ProjectTickets_Default_To_Incomplete_And_CreatedAt_Order()
+    {
+        var project = await SeedProjectAsync("Ticket Contract");
+        var aggregate = await SeedAggregateAsync(project.Id);
+        await SeedTaskAsync(project.Id, aggregate.Story.Id, "open ticket");
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var done = await db.Tasks.SingleAsync(t => t.Id == aggregate.Task.Id);
+            done.Status = "done";
+            done.CreatedAt = DateTime.UtcNow.AddMinutes(-10);
+            done.UpdatedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+
+        var client = NewClient();
+        var response = await client.GetAsync($"/api/projects/{project.Id}/tickets");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var incomplete = await response.Content.ReadFromJsonAsync<TicketListResult>(JsonOpts);
+        incomplete!.Items.Should().NotContain(i => i.Id == aggregate.Task.Id);
+        incomplete.Items.Should().Contain(i => i.Id != aggregate.Task.Id && i.Status != "done");
+
+        response = await client.GetAsync($"/api/projects/{project.Id}/tickets?status=complete");
+        var complete = await response.Content.ReadFromJsonAsync<TicketListResult>(JsonOpts);
+        complete!.Items.Should().ContainSingle(i => i.Id == aggregate.Task.Id);
+        complete.Items.Single().Priority.Should().Be("medium");
+        complete.Items.Single().StoryId.Should().Be(aggregate.Story.Id);
+        complete.Items.Single().EpicId.Should().Be(aggregate.Epic.Id);
     }
 
     // ===================== /openapi/v1.json snapshot =====================

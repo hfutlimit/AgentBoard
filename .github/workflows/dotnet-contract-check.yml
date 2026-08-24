@@ -13,15 +13,18 @@ on:
   push:
     branches: [main]
     paths:
+      - 'src/backend-dotnet/src/**'
+      - 'src/backend-dotnet/tests/**'
       - 'src/backend-dotnet/contracts/**'
-      - 'src/backend-dotnet/src/AgentBoard.Api/Clients/**'
       - 'scripts/**'
       - '.github/workflows/dotnet-contract-check.yml'
   pull_request:
     paths:
+      - 'src/backend-dotnet/src/**'
+      - 'src/backend-dotnet/tests/**'
       - 'src/backend-dotnet/contracts/**'
-      - 'src/backend-dotnet/src/AgentBoard.Api/Clients/**'
       - 'scripts/**'
+      - '.github/workflows/dotnet-contract-check.yml'
 
 jobs:
   contract:
