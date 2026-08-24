@@ -127,6 +127,7 @@
         <button type="submit" class="btn-primary-sm" [disabled]="host.isCommentPreviewMode()">发表评论</button>
       </form>
     </div>
+    <app-agent-run-stream [taskId]="current.id"></app-agent-run-stream>
   </div>
 } @else {
   <div class="detail-panel workspace-entity-loading"><span class="spinner"></span>正在加载 Task 详情…</div>

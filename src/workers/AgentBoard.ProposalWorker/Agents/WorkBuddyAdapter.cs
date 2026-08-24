@@ -30,6 +30,7 @@ public sealed class WorkBuddyAdapter : IAgentAdapter
         var spec = new ProcessSpec
         {
             Executable = opts.Command,
+            Arguments = opts.Arguments,
             WorkingDirectory = opts.WorkingDirectory,
             StdinPayload = BuildPrompt(context),
             Timeout = TimeSpan.FromMinutes(Math.Max(1, opts.TimeoutMinutes)),

@@ -175,6 +175,57 @@ def create_run(s: Session, *, schedule_id: int, task_id: int | None = None,
     return run
 
 
+
+from .models import RunEvent
+
+def create_run_event(s: Session, run_id: int, event_type: str, payload: dict) -> RunEvent:
+    run = s.get(AgentRun, run_id)
+    if not run:
+        raise NotFound(f"run {run_id} not found")
+    event = RunEvent(run_id=run_id, event_type=event_type, payload=json.dumps(payload))
+    s.add(event)
+    _commit(s)
+    s.refresh(event)
+    return event
+
+def list_run_events(s: Session, run_id: int, limit: int | None = None, offset: int = 0):
+    q = s.query(RunEvent).filter(RunEvent.run_id == run_id).order_by(RunEvent.created_at.asc(), RunEvent.id.asc())
+    return _paginate(q, limit, offset).all()
+
+def claim_lease(s: Session, run_id: int, worker_id: str, ttl_seconds: int = 60) -> bool:
+    now = datetime.utcnow()
+    expires_at = now + timedelta(seconds=ttl_seconds)
+    r = s.execute(
+        update(AgentRun).where(
+            and_(
+                AgentRun.id == run_id,
+                or_(
+                    AgentRun.lease_worker_id == None,
+                    AgentRun.lease_expires_at < now,
+                    AgentRun.lease_worker_id == worker_id
+                )
+            )
+        ).values(
+            lease_worker_id=worker_id,
+            lease_expires_at=expires_at
+        )
+    )
+    _commit(s)
+    return r.rowcount > 0
+
+def release_lease(s: Session, run_id: int, worker_id: str) -> bool:
+    r = s.execute(
+        update(AgentRun).where(
+            and_(AgentRun.id == run_id, AgentRun.lease_worker_id == worker_id)
+        ).values(
+            lease_worker_id=None,
+            lease_expires_at=None
+        )
+    )
+    _commit(s)
+    return r.rowcount > 0
+
+
 def list_runs(s: Session, schedule_id: int, limit: int | None = None, offset: int = 0):
     q = s.query(AgentRun).filter(AgentRun.schedule_id == schedule_id).order_by(AgentRun.id.desc())
     return _paginate(q, limit, offset).all()

@@ -1,12 +1,30 @@
 {
-  "/api": {
+  "/api/auth": {
     "target": "http://127.0.0.1:18099",
     "secure": false,
     "changeOrigin": true,
     "logLevel": "info"
   },
-  "/ws": {
+  "/api/health": {
     "target": "http://127.0.0.1:18099",
+    "secure": false,
+    "changeOrigin": true,
+    "logLevel": "info"
+  },
+  "/api/meta": {
+    "target": "http://127.0.0.1:18099",
+    "secure": false,
+    "changeOrigin": true,
+    "logLevel": "info"
+  },
+  "/api": {
+    "target": "http://127.0.0.1:8000",
+    "secure": false,
+    "changeOrigin": true,
+    "logLevel": "info"
+  },
+  "/ws": {
+    "target": "http://127.0.0.1:8000",
     "secure": false,
     "changeOrigin": true,
     "ws": true,

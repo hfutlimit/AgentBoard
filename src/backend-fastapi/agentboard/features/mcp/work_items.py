@@ -68,3 +68,6 @@ def _attachment_list(task_id):
 
 def _attachment_get(attachment_id):
     return _http("GET", f"/api/attachments/{attachment_id}/info")
+
+def _get_task_review_context(task_id):
+    return _http("GET", f"/api/tasks/{task_id}/review-context")

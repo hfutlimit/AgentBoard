@@ -28,7 +28,7 @@ from .domains.projects.models import (
     StoryStatusHistory,
 )
 from .domains.scheduling.models import (
-    AgentRun, AgentSchedule, TaskApplication, TaskAssignment,
+    AgentRun, AgentSchedule, RunEvent, TaskApplication, TaskAssignment,
 )
 from .domains.work_items.models import Attachment, AuditLog, Comment, Task, TaskDependency, TaskStatusHistory, WebhookConfig
 from .domains.documents.models import Document, DocumentComment, DocumentFolder, DocumentRevision
@@ -55,6 +55,6 @@ __all__ = [
     "RunStatus",
     "STATUS_REASONS_BY_STATUS",
     "ScheduleType", "Sprint", "SprintStatus", "Status", "StatusReason", "Story", "StoryStatusHistory",
-    "Task", "TaskApplication", "TaskAssignment", "TaskDependency", "TaskOutcome",
+    "Task", "TaskApplication", "TaskAssignment", "TaskDependency", "TaskOutcome", "RunEvent",
     "TaskStatusHistory", "User", "WebhookConfig",
 ]

@@ -3096,7 +3096,7 @@ from ...features.webhooks.service import (  # noqa: F401,F403
 )
 from ...features.scheduling.service import (  # noqa: F401,F403
     create_schedule, list_schedules, get_schedule, update_schedule, delete_schedule,
-    create_run, list_runs, get_run, update_run, report_run_result,
+    create_run, list_runs, create_run_event, list_run_events, claim_lease, release_lease, get_run, update_run, report_run_result,
     register_agent, update_agent, agent_heartbeat, agent_deregister, list_agents,
     claim_story, submit_task_for_review,
     assign_task_reviewer, review_story, review_task,

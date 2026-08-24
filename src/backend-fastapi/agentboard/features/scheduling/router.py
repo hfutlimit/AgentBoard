@@ -26,7 +26,80 @@ from .schemas import (
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
 from ...api import agent_state_hub  # noqa: E402 — Agent 状态 WebSocket 广播 hub（定义于 api.py 顶层）
 
+
 router = APIRouter(tags=["scheduling"])
+
+import asyncio
+import threading
+import json
+from fastapi.responses import StreamingResponse
+
+class RunEventHub:
+    def __init__(self):
+        self._subs = {}
+        self._lock = threading.Lock()
+
+    def subscribe(self, run_id: int):
+        q = asyncio.Queue()
+        with self._lock:
+            if run_id not in self._subs:
+                self._subs[run_id] = set()
+            self._subs[run_id].add(q)
+        return q
+
+    def unsubscribe(self, run_id: int, q):
+        with self._lock:
+            if run_id in self._subs:
+                self._subs[run_id].discard(q)
+                if not self._subs[run_id]:
+                    del self._subs[run_id]
+
+    def broadcast(self, run_id: int, event: dict):
+        data = json.dumps(event, ensure_ascii=False)
+        with self._lock:
+            subs = list(self._subs.get(run_id, []))
+        for q in subs:
+            try:
+                q.put_nowait(data)
+            except Exception:
+                pass
+
+run_event_hub = RunEventHub()
+
+from pydantic import BaseModel
+class RunEventIn(BaseModel):
+    event_type: str
+    payload: dict
+
+@router.post("/api/agent-runs/{run_id}/events", status_code=201)
+def create_run_event_endpoint(run_id: int, body: RunEventIn, s: Session = Depends(get_session)):
+    run_event = service.create_run_event(s, run_id=run_id, event_type=body.event_type, payload=body.payload)
+    payload_dict = {"id": run_event.id, "run_id": run_event.run_id, "event_type": run_event.event_type, "payload": run_event.payload, "created_at": run_event.created_at.isoformat()}
+    run_event_hub.broadcast(run_id, payload_dict)
+    return payload_dict
+
+
+@router.get("/api/agent-runs/{run_id}/events/stream")
+async def stream_run_events(run_id: int, request: Request, s: Session = Depends(get_session)):
+    q = run_event_hub.subscribe(run_id)
+    async def event_generator():
+        try:
+            events = service.list_run_events(s, run_id=run_id, limit=1000)
+            for ev in events:
+                payload = {"id": ev.id, "run_id": ev.run_id, "event_type": ev.event_type, "payload": ev.payload, "created_at": ev.created_at.isoformat()}
+                yield f"data: {json.dumps(payload)}\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    data = await asyncio.wait_for(q.get(), timeout=15)
+                    yield f"data: {data}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"
+        finally:
+            run_event_hub.unsubscribe(run_id, q)
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 
 
 @router.post("/api/agents/register", status_code=201)

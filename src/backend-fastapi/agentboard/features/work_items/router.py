@@ -688,3 +688,27 @@ def get_dependencies(tid: int, s: Session = Depends(get_session)):
         return service.get_task_dependencies(s, tid)
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/api/tasks/{tid}/review-context")
+def get_task_review_context(tid: int, s: Session = Depends(get_session)):
+    task = service.get_task(s, tid)
+    if not task:
+        raise HTTPException(status_code=404, detail="task not found")
+    # 获取任务及附属 PR Diff
+    context = {
+        "task": task.to_dict(),
+        "pr_diff": task.description if "diff" in (task.description or "").lower() else "No PR diff provided."
+    }
+    # 向上追溯 Proposal Specs
+    if task.story_id:
+        from ..projects.models import Story, Epic
+        from ..proposals.models import Proposal
+        story = s.get(Story, task.story_id)
+        if story:
+            epic = s.get(Epic, story.epic_id)
+            if epic and epic.proposal_id:
+                proposal = s.get(Proposal, epic.proposal_id)
+                if proposal:
+                    context["proposal_spec"] = proposal.converged_spec or proposal.content
+    return context

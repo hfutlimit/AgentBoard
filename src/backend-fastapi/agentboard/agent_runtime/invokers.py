@@ -155,14 +155,10 @@ def _resolve_project_cwd(context: dict, fallback: str | None) -> str | None:
         return fallback
     raw = os.getenv("AGENTBOARD_LOCAL_MAPPINGS")
     if not raw:
-        # 默认取 AgentBoard 仓库 tmp/project-mappings.json
-        module_root = Path(__file__).resolve().parents[2]
-        application_root = module_root.parent
-        repository_root = (
-            application_root
-            if (application_root / "tmp").is_dir()
-            else application_root.parent.parent.parent
-        )
+        # 默认取 AgentBoard 仓库 tmp/project-mappings.json。
+        # 当前运行时代码位于 src/backend-fastapi/agentboard/agent_runtime，
+        # 因此从文件路径向上 5 层回到仓库根目录。
+        repository_root = Path(__file__).resolve().parents[4]
         raw = str(repository_root / "tmp" / "project-mappings.json")
     p = Path(raw)
     if not p.exists():

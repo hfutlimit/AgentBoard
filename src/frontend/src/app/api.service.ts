@@ -238,6 +238,11 @@ export const OFFLINE_QUEUE_FLUSH_EVENT = 'agentboard:flush-offline-queue';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
+  listenRunEvents(runId: number): EventSource {
+    const url = `${this.baseUrl}/api/agent-runs/${runId}/events/stream`;
+    return new EventSource(url);
+  }
+
   // Task 261: local dev hot-reload support — resolveApiBase() returns a relative
   // base on the dev server so proxy.conf.json can forward /api to the local
   // backend. Production keeps the injected absolute URL.

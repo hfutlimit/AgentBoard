@@ -37,6 +37,7 @@ public sealed class RabbitMqOptions
 public sealed class AgentOptions
 {
     public string Command { get; set; } = "";
+    public string[] Arguments { get; set; } = Array.Empty<string>();
     public string WorkingDirectory { get; set; } = "";
     public int TimeoutMinutes { get; set; } = 30;
     public int MaxCapturedOutputChars { get; set; } = 20000;
