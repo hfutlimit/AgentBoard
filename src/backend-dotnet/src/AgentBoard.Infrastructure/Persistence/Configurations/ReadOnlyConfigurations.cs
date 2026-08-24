@@ -85,6 +85,34 @@ public sealed class AgentScheduleConfiguration : ReadOnlyConfiguration<AgentSche
 	}
 }
 
+public sealed class AgentRunConfiguration : ReadOnlyConfiguration<AgentRun>
+{
+	protected override void ConfigureEntity(EntityTypeBuilder<AgentRun> b)
+	{
+		b.ToTable("agent_runs");
+		b.Property(e => e.ScheduleId).HasColumnName("schedule_id").IsRequired();
+		b.Property(e => e.TaskId).HasColumnName("task_id");
+		b.Property(e => e.AgentRegistryId).HasColumnName("agent_registry_id");
+		b.Property(e => e.AssignmentId).HasColumnName("assignment_id");
+		b.Property(e => e.Agent).HasColumnName("agent").HasMaxLength(64);
+		b.Property(e => e.Model).HasColumnName("model").HasMaxLength(100);
+		b.Property(e => e.Status).HasColumnName("status").HasMaxLength(20).HasDefaultValue("pending");
+		b.Property(e => e.IdempotencyKey).HasColumnName("idempotency_key").HasMaxLength(128);
+		b.Property(e => e.StartedAt).HasColumnName("started_at");
+		b.Property(e => e.FinishedAt).HasColumnName("finished_at");
+		b.Property(e => e.Output).HasColumnName("output");
+		b.Property(e => e.ErrorMessage).HasColumnName("error_message");
+		b.Property(e => e.Summary).HasColumnName("summary");
+		b.Property(e => e.LogRef).HasColumnName("log_ref").HasMaxLength(512);
+		b.Property(e => e.CreatedAt).HasColumnName("created_at");
+		b.HasIndex(e => e.ScheduleId);
+		b.HasIndex(e => e.TaskId);
+		b.HasIndex(e => e.AgentRegistryId);
+		b.HasIndex(e => e.AssignmentId);
+		b.HasIndex(e => e.IdempotencyKey).IsUnique();
+	}
+}
+
 public sealed class EpicConfiguration : ReadOnlyConfiguration<Epic>
 {
 	protected override void ConfigureEntity(EntityTypeBuilder<Epic> b)

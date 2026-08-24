@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: MIT
+using System.Net.Http.Headers;
 using System.Net;
+using AgentBoard.Application.Identity;
 using AgentBoard.Api.Tests.Infrastructure;
 using AgentBoard.Domain.Entities;
+using AgentBoard.Domain.Identity;
 using AgentBoard.Infrastructure.Persistence;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +17,25 @@ public sealed class ProjectDeletionTests : IClassFixture<ApiWebApplicationFactor
 	private readonly ApiWebApplicationFactory _factory;
 
 	public ProjectDeletionTests(ApiWebApplicationFactory factory) => _factory = factory;
+
+	private HttpClient NewAdminClient()
+	{
+		using var scope = _factory.Services.CreateScope();
+		var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+		var admin = db.Users.SingleOrDefault(u => u.Username == "project-deletion-admin");
+		if (admin is null)
+		{
+			admin = User.Create("project-deletion-admin", "test-hash", true, DateTime.UtcNow);
+			db.Users.Add(admin);
+			db.SaveChanges();
+		}
+
+		var tokenService = scope.ServiceProvider.GetRequiredService<ITokenService>();
+		var client = _factory.CreateClient();
+		client.DefaultRequestHeaders.Authorization =
+			new AuthenticationHeaderValue("Bearer", tokenService.IssueToken(admin.Id));
+		return client;
+	}
 
 	[Fact]
 	public async Task Delete_Removes_All_DotNet_Owned_Project_Children()
@@ -106,7 +128,7 @@ public sealed class ProjectDeletionTests : IClassFixture<ApiWebApplicationFactor
 			await db.SaveChangesAsync();
 		}
 
-		var response = await _factory.CreateClient().DeleteAsync($"/api/projects/{projectId}");
+		var response = await NewAdminClient().DeleteAsync($"/api/projects/{projectId}");
 		response.StatusCode.Should().Be(HttpStatusCode.OK);
 
 		await using var verifyScope = _factory.Services.CreateAsyncScope();

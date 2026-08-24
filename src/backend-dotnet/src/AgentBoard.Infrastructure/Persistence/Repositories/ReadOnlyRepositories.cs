@@ -128,6 +128,12 @@ public sealed class AgentScheduleRepository : Repository<AgentSchedule>, IAgentS
 	protected override DbSet<AgentSchedule> Set => Db.AgentSchedules;
 }
 
+public sealed class AgentRunRepository : Repository<AgentRun>, IAgentRunRepository
+{
+	public AgentRunRepository(AppDbContext db) : base(db) { }
+	protected override DbSet<AgentRun> Set => Db.AgentRuns;
+}
+
 public sealed class ProjectReadRepository : IProjectReadRepository
 {
 	private readonly AppDbContext _db;

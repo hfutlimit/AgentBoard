@@ -16,12 +16,15 @@
 // Application Factory's service provider) so the test is end-to-end.
 
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using AgentBoard.Api.Tests.Infrastructure;
+using AgentBoard.Application.Identity;
 using AgentBoard.Application.Board.Dtos;
 using AgentBoard.Application.Scheduling.Dtos;
 using AgentBoard.Domain.Entities;
+using AgentBoard.Domain.Identity;
 using AgentBoard.Infrastructure.Persistence;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -42,7 +45,46 @@ public sealed class ProjectsControllerTests : IClassFixture<ApiWebApplicationFac
 
     // ---------- helpers ----------
 
-    private HttpClient NewClient() => _factory.CreateClient();
+    private HttpClient NewClient()
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var admin = db.Users.SingleOrDefault(u => u.Username == "projects-test-admin");
+        if (admin is null)
+        {
+            admin = User.Create("projects-test-admin", "test-hash", isAdmin: true, DateTime.UtcNow);
+            db.Users.Add(admin);
+            db.SaveChanges();
+        }
+
+        var tokenService = scope.ServiceProvider.GetRequiredService<ITokenService>();
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", tokenService.IssueToken(admin.Id));
+        return client;
+    }
+
+    private HttpClient NewAnonymousClient() => _factory.CreateClient();
+
+    private async Task<User> SeedUserAsync(string username, bool isAdmin = false)
+    {
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var user = User.Create(username, "test-hash", isAdmin, DateTime.UtcNow);
+        db.Users.Add(user);
+        await db.SaveChangesAsync();
+        return user;
+    }
+
+    private HttpClient NewClientFor(User user)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var tokenService = scope.ServiceProvider.GetRequiredService<ITokenService>();
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", tokenService.IssueToken(user.Id));
+        return client;
+    }
 
     private async Task<Project> SeedProjectAsync(string name = "Test Project", bool archived = false)
     {
@@ -109,14 +151,14 @@ public sealed class ProjectsControllerTests : IClassFixture<ApiWebApplicationFac
     [Fact]
     public async Task Center_Returns_200_And_Empty_Items_On_Empty_Db()
     {
-        var client = NewClient();
+        var client = NewAnonymousClient();
         var response = await client.GetAsync("/api/projects/center");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var dto = await response.Content.ReadFromJsonAsync<ProjectsCenterResult>(JsonOpts);
         dto.Should().NotBeNull();
         dto!.Items.Should().NotBeNull();
         dto.Total.Should().BeGreaterThanOrEqualTo(0);
-        dto.Page.Should().HaveCountGreaterThanOrEqualTo(1);
+        dto.Page.Should().BeEmpty();
     }
 
     [Fact]
@@ -149,7 +191,7 @@ public sealed class ProjectsControllerTests : IClassFixture<ApiWebApplicationFac
     public async Task Center_Returns_Empty_For_Scope_Mine_When_Anonymous()
     {
         await SeedProjectAsync("Lonely");
-        var client = NewClient();
+        var client = NewAnonymousClient();
         var response = await client.GetAsync("/api/projects/center?scope=mine&limit=200");
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         var dto = await response.Content.ReadFromJsonAsync<ProjectsCenterResult>(JsonOpts);
@@ -612,6 +654,78 @@ public sealed class ProjectsControllerTests : IClassFixture<ApiWebApplicationFac
             new { },
             JsonOpts);
         response.StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+    }
+
+    // ===================== project access and lifecycle =====================
+
+    [Fact]
+    public async Task ListProjects_Returns_FastApi_Envelope_And_Hides_Archived_By_Default()
+    {
+        var active = await SeedProjectAsync("List Active");
+        var archived = await SeedProjectAsync("List Archived", archived: true);
+
+        var response = await NewClient().GetAsync("/api/projects?limit=200&offset=0");
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var page = await response.Content.ReadFromJsonAsync<ProjectListResult>(JsonOpts);
+        page!.Total.Should().BeGreaterThanOrEqualTo(1);
+        page.Items.Should().Contain(x => x.Id == active.Id);
+        page.Items.Should().NotContain(x => x.Id == archived.Id);
+
+        response = await NewClient().GetAsync("/api/projects?include_archived=true&limit=200");
+        var withArchived = await response.Content.ReadFromJsonAsync<ProjectListResult>(JsonOpts);
+        withArchived!.Items.Should().Contain(x => x.Id == archived.Id);
+    }
+
+    [Fact]
+    public async Task NonMember_Cannot_Read_Or_Write_Project()
+    {
+        var project = await SeedProjectAsync("Private Project");
+        var outsider = await SeedUserAsync($"outsider-{Guid.NewGuid():N}");
+        var client = NewClientFor(outsider);
+
+        (await client.GetAsync($"/api/projects/{project.Id}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await client.PatchAsJsonAsync($"/api/projects/{project.Id}", new { name = "hijacked" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await client.DeleteAsync($"/api/projects/{project.Id}"))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
+    public async Task ProjectDelete_Removes_Schedules_And_Runs()
+    {
+        var project = await SeedProjectAsync("Delete Scheduling Tree");
+        int scheduleId;
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var schedule = new AgentSchedule
+            {
+                ProjectId = project.Id,
+                Title = "nightly",
+                ScheduleType = "cron",
+                CronExpr = "0 3 * * *",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            };
+            db.AgentSchedules.Add(schedule);
+            await db.SaveChangesAsync();
+            scheduleId = schedule.Id;
+            db.AgentRuns.Add(new AgentRun
+            {
+                ScheduleId = scheduleId,
+                Status = "pending",
+                CreatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        }
+
+        (await NewClient().DeleteAsync($"/api/projects/{project.Id}"))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await using var verifyScope = _factory.Services.CreateAsyncScope();
+        var verifyDb = verifyScope.ServiceProvider.GetRequiredService<AppDbContext>();
+        (await verifyDb.AgentSchedules.CountAsync(x => x.ProjectId == project.Id)).Should().Be(0);
+        (await verifyDb.AgentRuns.CountAsync(x => x.ScheduleId == scheduleId)).Should().Be(0);
     }
 
     // ===================== /openapi/v1.json snapshot =====================

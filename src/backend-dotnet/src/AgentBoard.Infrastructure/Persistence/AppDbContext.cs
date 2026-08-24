@@ -40,6 +40,7 @@ public sealed class AppDbContext : DbContext, IDbContext, IUnitOfWork
 	public DbSet<StoryStatusHistory> StoryStatusHistories => Set<StoryStatusHistory>();
 	public DbSet<TaskStatusHistory> TaskStatusHistories => Set<TaskStatusHistory>();
 	public DbSet<AgentSchedule> AgentSchedules => Set<AgentSchedule>();
+	public DbSet<AgentRun> AgentRuns => Set<AgentRun>();
 
 	public new Task<int> SaveChangesAsync(CancellationToken ct = default) =>
 		base.SaveChangesAsync(ct);

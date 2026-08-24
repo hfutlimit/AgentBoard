@@ -20,6 +20,7 @@ public sealed class BoardProvider : IBoardProvider
 	private readonly ITaskItemRepository _tasks;
 	private readonly ICommentRepository _comments;
 	private readonly IProjectMemberRepository _members;
+	private readonly IProjectAccessService _access;
 	private readonly IUserRepository _users;
 	private readonly INotificationRepository _notifications;
 	private readonly ITaskDependencyRepository _dependencies;
@@ -40,6 +41,7 @@ public sealed class BoardProvider : IBoardProvider
 		ITaskItemRepository tasks,
 		ICommentRepository comments,
 		IProjectMemberRepository members,
+		IProjectAccessService access,
 		IUserRepository users,
 		INotificationRepository notifications,
 		ITaskDependencyRepository dependencies,
@@ -59,6 +61,7 @@ public sealed class BoardProvider : IBoardProvider
 		_tasks = tasks ?? throw new ArgumentNullException(nameof(tasks));
 		_comments = comments ?? throw new ArgumentNullException(nameof(comments));
 		_members = members ?? throw new ArgumentNullException(nameof(members));
+		_access = access ?? throw new ArgumentNullException(nameof(access));
 		_users = users ?? throw new ArgumentNullException(nameof(users));
 		_notifications = notifications ?? throw new ArgumentNullException(nameof(notifications));
 		_dependencies = dependencies ?? throw new ArgumentNullException(nameof(dependencies));
@@ -73,14 +76,25 @@ public sealed class BoardProvider : IBoardProvider
 		_uow = uow ?? throw new ArgumentNullException(nameof(uow));
 	}
 
-	public async Task<IReadOnlyList<ProjectDto>> ListProjectsAsync(CancellationToken ct = default)
+	public async Task<ProjectListResult> ListProjectsAsync(
+		int limit, int offset, bool? includeArchived, CancellationToken ct = default)
 	{
-		var items = await _projects.ListAsync(ct: ct);
-		return items.Select(ToProjectDto).ToList();
+		var accessibleIds = await _access.GetAccessibleProjectIdsAsync(ct);
+		var projects = (await _projects.ListAsync(ct: ct)).AsEnumerable();
+		if (accessibleIds is not null)
+			projects = projects.Where(p => accessibleIds.Contains(p.Id));
+		if (includeArchived != true)
+			projects = projects.Where(p => !p.IsArchived);
+
+		var ordered = projects.OrderByDescending(p => p.Id).ToList();
+		return new ProjectListResult(
+			ordered.Skip(Math.Max(0, offset)).Take(Math.Clamp(limit, 1, 200)).Select(ToProjectDto).ToList(),
+			ordered.Count);
 	}
 
 	public async Task<ProjectDto?> GetProjectAsync(int id, CancellationToken ct = default)
 	{
+		await _access.RequireProjectReadAsync(id, ct);
 		var p = await _projects.GetByIdAsync(id, ct);
 		return p is null ? null : ToProjectDto(p);
 	}
@@ -221,6 +235,7 @@ public sealed class BoardProvider : IBoardProvider
 	public async Task<ProjectDto?> UpdateProjectAsync(
 		int id, string? name, string? key, string? description, bool? isPrivate, bool? isArchived, CancellationToken ct = default)
 	{
+		await _access.RequireProjectOwnerAsync(id, ct);
 		var p = await _projects.GetByIdAsync(id, ct);
 		if (p is null) return null;
 
@@ -261,7 +276,10 @@ public sealed class BoardProvider : IBoardProvider
 
 	/// <inheritdoc cref="IBoardProvider.DeleteProjectAsync"/>
 	public async Task<bool> DeleteProjectAsync(int id, CancellationToken ct = default)
-		=> await _projectLifecycle.DeleteAsync(id, ct);
+	{
+		await _access.RequireProjectOwnerAsync(id, ct);
+		return await _projectLifecycle.DeleteAsync(id, ct);
+	}
 
 	// ===================== P1: dashboard / board reads =====================
 
@@ -285,6 +303,7 @@ public sealed class BoardProvider : IBoardProvider
 
 	public async Task<ProjectStatsDto?> GetProjectStatsAsync(int projectId, CancellationToken ct = default)
 	{
+		await _access.RequireProjectReadAsync(projectId, ct);
 		if (await _projects.GetByIdAsync(projectId, ct) is null)
 			return null;
 
@@ -313,6 +332,7 @@ public sealed class BoardProvider : IBoardProvider
 
 	public async Task<KanbanDto?> GetProjectKanbanAsync(int projectId, bool includeAll, CancellationToken ct = default)
 	{
+		await _access.RequireProjectReadAsync(projectId, ct);
 		if (await _projects.GetByIdAsync(projectId, ct) is null)
 			return null;
 
@@ -354,6 +374,7 @@ public sealed class BoardProvider : IBoardProvider
 
 	public async Task<ProjectMembersResult?> ListProjectMembersAsync(int projectId, int limit, int offset, CancellationToken ct = default)
 	{
+		await _access.RequireProjectReadAsync(projectId, ct);
 		if (await _projects.GetByIdAsync(projectId, ct) is null)
 			return null;
 		return await _readQueries.ListMembersAsync(projectId, limit, offset, ct);
@@ -931,16 +952,17 @@ public sealed class BoardProvider : IBoardProvider
 	{
 		var all = (await _projects.ListAsync(ct: ct)).AsEnumerable();
 		if (includeArchived != true) all = all.Where(p => !p.IsArchived);
-		if (currentUserId is not null)
+		var accessibleIds = await _access.GetAccessibleProjectIdsAsync(ct);
+		if (accessibleIds is not null)
 		{
-			var memberProjectIds = (await _members.ListAsync(m => m.UserId == currentUserId, ct)).Select(m => m.ProjectId).ToHashSet();
-			all = all.Where(p => memberProjectIds.Contains(p.Id));
+			all = all.Where(p => accessibleIds.Contains(p.Id));
 		}
 		return all.OrderByDescending(p => p.Id).Skip(offset).Take(limit).Select(ToProjectDto).ToList();
 	}
 
 	public async Task<ProjectDto?> ArchiveProjectAsync(int id, CancellationToken ct = default)
 	{
+		await _access.RequireProjectOwnerAsync(id, ct);
 		var p = await _projects.GetByIdAsync(id, ct);
 		if (p is null) return null;
 		p.IsArchived = true; p.ArchivedAt = DateTime.UtcNow;
@@ -950,6 +972,7 @@ public sealed class BoardProvider : IBoardProvider
 
 	public async Task<ProjectDto?> UnarchiveProjectAsync(int id, CancellationToken ct = default)
 	{
+		await _access.RequireProjectOwnerAsync(id, ct);
 		var p = await _projects.GetByIdAsync(id, ct);
 		if (p is null) return null;
 		p.IsArchived = false; p.ArchivedAt = null; p.ArchivedBy = null;
@@ -961,7 +984,13 @@ public sealed class BoardProvider : IBoardProvider
 	{
 		if (ids is null || ids.Count == 0) return 0;
 		int count = 0;
-		foreach (var id in ids) { var p = await _projects.GetByIdAsync(id, ct); if (p is null) continue; p.IsArchived = true; p.ArchivedAt = DateTime.UtcNow; _projects.Update(p); count++; }
+		foreach (var id in ids)
+		{
+			var p = await _projects.GetByIdAsync(id, ct);
+			if (p is null) continue;
+			await _access.RequireProjectOwnerAsync(id, ct);
+			p.IsArchived = true; p.ArchivedAt = DateTime.UtcNow; _projects.Update(p); count++;
+		}
 		if (count > 0) await _uow.SaveChangesAsync(ct);
 		return count;
 	}
@@ -970,13 +999,20 @@ public sealed class BoardProvider : IBoardProvider
 	{
 		if (ids is null || ids.Count == 0) return 0;
 		int count = 0;
-		foreach (var id in ids) { var p = await _projects.GetByIdAsync(id, ct); if (p is null) continue; p.IsArchived = false; p.ArchivedAt = null; p.ArchivedBy = null; _projects.Update(p); count++; }
+		foreach (var id in ids)
+		{
+			var p = await _projects.GetByIdAsync(id, ct);
+			if (p is null) continue;
+			await _access.RequireProjectOwnerAsync(id, ct);
+			p.IsArchived = false; p.ArchivedAt = null; p.ArchivedBy = null; _projects.Update(p); count++;
+		}
 		if (count > 0) await _uow.SaveChangesAsync(ct);
 		return count;
 	}
 
 	public async Task<TicketListResult> ListProjectTicketsAsync(int projectId, string statusFilter, string sort, string order, int limit, int offset, CancellationToken ct = default)
 	{
+		await _access.RequireProjectReadAsync(projectId, ct);
 		var epics = await _epics.ListAsync(e => e.ProjectId == projectId, ct);
 		var epicIds = epics.Select(e => e.Id).ToHashSet();
 		var stories = epicIds.Count > 0 ? await _stories.ListAsync(s => epicIds.Contains(s.EpicId), ct) : new List<Story>();
@@ -1124,14 +1160,12 @@ public sealed class BoardProvider : IBoardProvider
 		int? currentUserId, bool isAdmin, string scope, string sort,
 		int limit, int offset, CancellationToken ct = default)
 	{
-		var projectIds = isAdmin || currentUserId is null
+		var accessibleIds = await _access.GetAccessibleProjectIdsAsync(ct);
+		var projectIds = accessibleIds is null
 			? (await _projects.ListAsync(ct: ct)).Select(p => p.Id).ToList()
-			: (await _members.ListAsync(m => m.UserId == currentUserId.Value, ct))
-				.Select(m => m.ProjectId).Distinct().ToList();
-		if (currentUserId is null && (scope == "mine" || scope == "created"))
-			projectIds = new List<int>();
+			: accessibleIds.ToList();
 		return await _readQueries.GetCenterAsync(
-			projectIds, currentUserId is not null || isAdmin, scope, sort, limit, offset, ct);
+			projectIds, accessibleIds is null || accessibleIds.Count > 0, scope, sort, limit, offset, ct);
 	}
 
 	/// <summary>Helper: 拿 currentUserId 可见的 projects (是 member 的)。</summary>
@@ -1146,6 +1180,7 @@ public sealed class BoardProvider : IBoardProvider
 	public async Task<IReadOnlyList<EpicDto>> ListProjectEpicsAsync(
 		int projectId, string? status, int limit, int offset, CancellationToken ct = default)
 	{
+		await _access.RequireProjectReadAsync(projectId, ct);
 		if (await _projects.GetByIdAsync(projectId, ct) is null) return new List<EpicDto>();
 		var all = await _epics.ListAsync(e => e.ProjectId == projectId, ct);
 		var filtered = string.IsNullOrWhiteSpace(status) ? all : all.Where(e => e.Status == status).ToList();
@@ -1155,6 +1190,7 @@ public sealed class BoardProvider : IBoardProvider
 
 	public async Task<EpicDto?> CreateProjectEpicAsync(int projectId, string? title, string? description, CancellationToken ct = default)
 	{
+		await _access.RequireProjectWriteAsync(projectId, ct);
 		if (await _projects.GetByIdAsync(projectId, ct) is null) return null;
 		title = (title ?? string.Empty).Trim();
 		if (title.Length == 0 || title.Length > 300)
@@ -1175,6 +1211,7 @@ public sealed class BoardProvider : IBoardProvider
 	public async Task<SprintDto?> CreateProjectSprintAsync(
 		int projectId, string? title, string? goal, DateTime? startDate, DateTime? endDate, CancellationToken ct = default)
 	{
+		await _access.RequireProjectWriteAsync(projectId, ct);
 		if (await _projects.GetByIdAsync(projectId, ct) is null) return null;
 		title = (title ?? string.Empty).Trim();
 		if (title.Length == 0 || title.Length > 300)
@@ -1197,6 +1234,7 @@ public sealed class BoardProvider : IBoardProvider
 	public async Task<IReadOnlyList<AgentScheduleDto>> ListProjectSchedulesAsync(
 		int projectId, int limit, int offset, CancellationToken ct = default)
 	{
+		await _access.RequireProjectReadAsync(projectId, ct);
 		if (await _projects.GetByIdAsync(projectId, ct) is null) return new List<AgentScheduleDto>();
 		var schedules = await _schedules.ListAsync(s => s.ProjectId == projectId, ct);
 		return schedules
@@ -1211,6 +1249,7 @@ public sealed class BoardProvider : IBoardProvider
 		int projectId, string? title, string? scheduleType, string? cronExpr,
 		int? currentUserId, CancellationToken ct = default)
 	{
+		await _access.RequireProjectWriteAsync(projectId, ct);
 		if (await _projects.GetByIdAsync(projectId, ct) is null) return null;
 		title = (title ?? string.Empty).Trim();
 		scheduleType = (scheduleType ?? string.Empty).Trim();
@@ -1241,6 +1280,7 @@ public sealed class BoardProvider : IBoardProvider
 
 	public async Task<ProjectExportDto?> ExportProjectAsync(int projectId, CancellationToken ct = default)
 	{
+		await _access.RequireProjectReadAsync(projectId, ct);
 		var project = await _projects.GetByIdAsync(projectId, ct);
 		if (project is null) return null;
 		var epics = await _epics.ListAsync(e => e.ProjectId == projectId, ct);
@@ -1259,87 +1299,8 @@ public sealed class BoardProvider : IBoardProvider
 
 	public async Task<ProjectImportResult?> ImportProjectAsync(int targetProjectId, ProjectImportRequest body, CancellationToken ct = default)
 	{
+		await _access.RequireProjectOwnerAsync(targetProjectId, ct);
 		return await ImportProjectAtomicallyAsync(targetProjectId, body, ct);
-#if false
-		if (await _projects.GetByIdAsync(targetProjectId, ct) is null) return null;
-		// 简化实现: 把 epics/stories/tasks 都建到 target project 下, id 由 EF 重生
-		var errors = new List<string>();
-		var importedEpics = new List<int>();
-		var importedStories = new List<int>();
-		var importedTasks = new List<int>();
-		foreach (var epicDto in body.Epics ?? new List<EpicDto>())
-		{
-			try
-			{
-				var newEpic = new Domain.Entities.Epic
-				{
-					ProjectId = targetProjectId,
-					Title = epicDto.Title,
-					Description = epicDto.Description,
-					Status = epicDto.Status ?? "backlog",
-					CreatedAt = DateTime.UtcNow,
-				};
-				await _epics.AddAsync(newEpic, ct);
-				await _uow.SaveChangesAsync(ct);
-				importedEpics.Add(newEpic.Id);
-			}
-			catch (Exception ex) { errors.Add($"epic '{epicDto.Title}': {ex.Message}"); }
-		}
-		foreach (var storyDto in body.Stories ?? new List<StoryDto>())
-		{
-			try
-			{
-				// 找一个 epic (从 importedEpics 取第一个, 简化)
-				var epicId = importedEpics.FirstOrDefault();
-				if (epicId == 0) { errors.Add($"story '{storyDto.Title}': no epic available"); continue; }
-				var newStory = new Domain.Entities.Story
-				{
-					EpicId = epicId,
-					Title = storyDto.Title,
-					Description = storyDto.Description,
-					Status = storyDto.Status ?? "backlog",
-					NeedsDesign = storyDto.NeedsDesign,
-					CreatedAt = DateTime.UtcNow,
-				};
-				await _stories.AddAsync(newStory, ct);
-				await _uow.SaveChangesAsync(ct);
-				importedStories.Add(newStory.Id);
-			}
-			catch (Exception ex) { errors.Add($"story '{storyDto.Title}': {ex.Message}"); }
-		}
-		foreach (var taskDto in body.Tasks ?? new List<TaskItemDto>())
-		{
-			try
-			{
-				var storyId = importedStories.FirstOrDefault();
-				var newTask = new TaskItem
-				{
-					StoryId = storyId == 0 ? null : storyId,
-					ProjectId = targetProjectId,
-					Type = taskDto.Type ?? "dev",
-					Title = taskDto.Title,
-					Status = taskDto.Status ?? "todo",
-					Priority = taskDto.Priority ?? "medium",
-					Description = taskDto.Description,
-					CreatedAt = DateTime.UtcNow,
-					UpdatedAt = DateTime.UtcNow,
-				};
-				await _tasks.AddAsync(newTask, ct);
-				await _uow.SaveChangesAsync(ct);
-				importedTasks.Add(newTask.Id);
-			}
-			catch (Exception ex) { errors.Add($"task '{taskDto.Title}': {ex.Message}"); }
-		}
-		return new ProjectImportResult(
-			1,  // project 已存在, 不再创建
-			importedEpics.Count,
-			importedStories.Count,
-			importedTasks.Count,
-			importedEpics.Count + importedStories.Count + importedTasks.Count,  // Imported (sum of all)
-			errors.Count,
-			errors);
-	}
-#endif
 	}
 
 	private async Task<ProjectImportResult?> ImportProjectAtomicallyAsync(
@@ -1461,34 +1422,6 @@ public sealed class BoardProvider : IBoardProvider
 	public async Task<SprintBurndownDto?> GetSprintBurndownAsync(int sprintId, int days, CancellationToken ct = default)
 	{
 		return await GetHistoricalSprintBurndownAsync(sprintId, days, ct);
-#if false
-		var sprint = await _sprints.GetByIdAsync(sprintId, ct);
-		if (sprint is null) return null;
-		if (days <= 0) days = 14;
-		var tasks = await _tasks.ListAsync(t => t.SprintId == sprintId, ct);
-		var total = tasks.Count;
-		var start = sprint.StartDate ?? sprint.CreatedAt;
-		var today = DateTime.UtcNow.Date;
-		var points = new List<SprintBurndownPoint>();
-		for (int i = 0; i < days; i++)
-		{
-			var day = start.Date.AddDays(i);
-			if (day > today) break;
-			// actual remaining: 任务在 day 之前没 done
-			var actualRemaining = tasks.Count(t => t.UpdatedAt.Date >= day || t.Status != "done");
-			// 简化: actual = total - done count
-			var doneCount = tasks.Count(t => t.Status == "done" && t.UpdatedAt.Date <= day);
-			actualRemaining = total - doneCount;
-			// ideal 线性
-			var idealRemaining = (int)Math.Round(total * (1.0 - (double)(i + 1) / days));
-			points.Add(new SprintBurndownPoint(day, Math.Max(0, idealRemaining), Math.Max(0, actualRemaining)));
-		}
-		var burnRate = points.Count > 1
-			? (points[0].ActualRemaining - points[^1].ActualRemaining) / (double)points.Count
-			: 0;
-		return new SprintBurndownDto(sprintId, total, points, burnRate);
-	}
-#endif
 	}
 
 	private async Task<SprintBurndownDto?> GetHistoricalSprintBurndownAsync(

@@ -16,9 +16,13 @@ public sealed class ProjectsController : BaseController<IBoardProvider>
 	public ProjectsController(IBoardProvider provider, ICurrentUser current) : base(provider, current) { }
 
 	[HttpGet]
-	[ProducesResponseType(typeof(IReadOnlyList<AgentBoard.Application.Board.Dtos.ProjectDto>), 200)]
-	public async Task<ActionResult<IReadOnlyList<AgentBoard.Application.Board.Dtos.ProjectDto>>> List(CancellationToken ct) =>
-		Ok(await Provider.ListProjectsAsync(ct));
+	[ProducesResponseType(typeof(AgentBoard.Application.Board.Dtos.ProjectListResult), 200)]
+	public async Task<ActionResult<AgentBoard.Application.Board.Dtos.ProjectListResult>> List(
+		[FromQuery] int limit = 100,
+		[FromQuery] int offset = 0,
+		[FromQuery(Name = "include_archived")] bool? includeArchived = null,
+		CancellationToken ct = default) =>
+		Ok(await Provider.ListProjectsAsync(Math.Clamp(limit, 1, 200), Math.Max(0, offset), includeArchived, ct));
 
 	[HttpGet("{id:int}")]
 	[ProducesResponseType(typeof(AgentBoard.Application.Board.Dtos.ProjectDto), 200)]
@@ -200,37 +204,45 @@ public sealed class ProjectsController : BaseController<IBoardProvider>
 	}
 
 	[HttpPost("{id:int}/archive")]
-	[ProducesResponseType(typeof(AgentBoard.Application.Board.Dtos.ProjectDto), 200)]
+	[ProducesResponseType(typeof(AgentBoard.Application.Board.Dtos.ProjectArchiveResult), 200)]
 	[ProducesResponseType(typeof(ApiError), 404)]
-	public async Task<ActionResult<AgentBoard.Application.Board.Dtos.ProjectDto>> Archive(int id, CancellationToken ct)
+	public async Task<ActionResult<AgentBoard.Application.Board.Dtos.ProjectArchiveResult>> Archive(int id, CancellationToken ct)
 	{
 		var dto = await Provider.ArchiveProjectAsync(id, ct);
-		return dto is null ? NotFound(new ApiError($"project {id} not found")) : Ok(dto);
+		return dto is null
+			? NotFound(new ApiError($"project {id} not found"))
+			: Ok(new AgentBoard.Application.Board.Dtos.ProjectArchiveResult(true, dto.IsArchived));
 	}
 
 	[HttpPost("{id:int}/unarchive")]
-	[ProducesResponseType(typeof(AgentBoard.Application.Board.Dtos.ProjectDto), 200)]
+	[ProducesResponseType(typeof(AgentBoard.Application.Board.Dtos.ProjectArchiveResult), 200)]
 	[ProducesResponseType(typeof(ApiError), 404)]
-	public async Task<ActionResult<AgentBoard.Application.Board.Dtos.ProjectDto>> Unarchive(int id, CancellationToken ct)
+	public async Task<ActionResult<AgentBoard.Application.Board.Dtos.ProjectArchiveResult>> Unarchive(int id, CancellationToken ct)
 	{
 		var dto = await Provider.UnarchiveProjectAsync(id, ct);
-		return dto is null ? NotFound(new ApiError($"project {id} not found")) : Ok(dto);
+		return dto is null
+			? NotFound(new ApiError($"project {id} not found"))
+			: Ok(new AgentBoard.Application.Board.Dtos.ProjectArchiveResult(true, dto.IsArchived));
 	}
 
 	[HttpPost("bulk-archive")]
 	[ProducesResponseType(typeof(object), 200)]
-	public async Task<ActionResult> BulkArchive([FromBody] List<int>? ids, CancellationToken ct)
+	public async Task<ActionResult> BulkArchive([FromBody] AgentBoard.Application.Board.Dtos.ProjectIdsRequest? body, CancellationToken ct)
 	{
-		var count = await Provider.BulkArchiveProjectsAsync(ids, ct);
-		return Ok(new { archived = count });
+		if (body?.Ids is null)
+			return UnprocessableEntity(new ApiError("ids must be a list of integers"));
+		var count = await Provider.BulkArchiveProjectsAsync(body.Ids.ToList(), ct);
+		return Ok(new { ok = true, archived = count });
 	}
 
 	[HttpPost("bulk-unarchive")]
 	[ProducesResponseType(typeof(object), 200)]
-	public async Task<ActionResult> BulkUnarchive([FromBody] List<int>? ids, CancellationToken ct)
+	public async Task<ActionResult> BulkUnarchive([FromBody] AgentBoard.Application.Board.Dtos.ProjectIdsRequest? body, CancellationToken ct)
 	{
-		var count = await Provider.BulkUnarchiveProjectsAsync(ids, ct);
-		return Ok(new { unarchived = count });
+		if (body?.Ids is null)
+			return UnprocessableEntity(new ApiError("ids must be a list of integers"));
+		var count = await Provider.BulkUnarchiveProjectsAsync(body.Ids.ToList(), ct);
+		return Ok(new { ok = true, unarchived = count });
 	}
 
 	[HttpGet("{id:int}/tickets")]

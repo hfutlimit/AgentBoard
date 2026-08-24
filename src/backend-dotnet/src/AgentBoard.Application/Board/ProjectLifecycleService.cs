@@ -25,6 +25,8 @@ public sealed class ProjectLifecycleService : IProjectLifecycleService
 	private readonly ITaskStatusHistoryRepository _taskHistory;
 	private readonly IAttachmentRepository _attachments;
 	private readonly ISprintRepository _sprints;
+	private readonly IAgentScheduleRepository _schedules;
+	private readonly IAgentRunRepository _runs;
 	private readonly IWebhookConfigRepository _webhooks;
 	private readonly IDocumentRepository _documents;
 	private readonly IDocumentRevisionRepository _documentRevisions;
@@ -45,6 +47,8 @@ public sealed class ProjectLifecycleService : IProjectLifecycleService
 		ITaskStatusHistoryRepository taskHistory,
 		IAttachmentRepository attachments,
 		ISprintRepository sprints,
+		IAgentScheduleRepository schedules,
+		IAgentRunRepository runs,
 		IWebhookConfigRepository webhooks,
 		IDocumentRepository documents,
 		IDocumentRevisionRepository documentRevisions,
@@ -64,6 +68,8 @@ public sealed class ProjectLifecycleService : IProjectLifecycleService
 		_taskHistory = taskHistory ?? throw new ArgumentNullException(nameof(taskHistory));
 		_attachments = attachments ?? throw new ArgumentNullException(nameof(attachments));
 		_sprints = sprints ?? throw new ArgumentNullException(nameof(sprints));
+		_schedules = schedules ?? throw new ArgumentNullException(nameof(schedules));
+		_runs = runs ?? throw new ArgumentNullException(nameof(runs));
 		_webhooks = webhooks ?? throw new ArgumentNullException(nameof(webhooks));
 		_documents = documents ?? throw new ArgumentNullException(nameof(documents));
 		_documentRevisions = documentRevisions ?? throw new ArgumentNullException(nameof(documentRevisions));
@@ -159,6 +165,11 @@ public sealed class ProjectLifecycleService : IProjectLifecycleService
 		var documentComments = documentIds.Count == 0 ? Array.Empty<DocumentComment>() : await _documentComments.ListAsync(c => documentIds.Contains(c.DocumentId), ct);
 		var webhooks = await _webhooks.ListAsync(w => w.ProjectId == id, ct);
 		var sprints = await _sprints.ListAsync(s => s.ProjectId == id, ct);
+		var schedules = await _schedules.ListAsync(s => s.ProjectId == id, ct);
+		var scheduleIds = schedules.Select(s => s.Id).ToHashSet();
+		var runs = scheduleIds.Count == 0
+			? Array.Empty<AgentRun>()
+			: await _runs.ListAsync(r => scheduleIds.Contains(r.ScheduleId), ct);
 		var members = await _members.ListAsync(m => m.ProjectId == id, ct);
 
 		await using var transaction = await _uow.BeginTransactionAsync(ct);
@@ -175,6 +186,8 @@ public sealed class ProjectLifecycleService : IProjectLifecycleService
 			_documentFolders.RemoveRange(folders);
 			_webhooks.RemoveRange(webhooks);
 			_sprints.RemoveRange(sprints);
+			_runs.RemoveRange(runs);
+			_schedules.RemoveRange(schedules);
 			_tasks.RemoveRange(tasks);
 			_stories.RemoveRange(stories);
 			_epics.RemoveRange(epics);

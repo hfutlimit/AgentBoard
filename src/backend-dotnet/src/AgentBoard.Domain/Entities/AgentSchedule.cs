@@ -6,8 +6,8 @@ namespace AgentBoard.Domain.Entities;
 /// <summary>
 /// AgentSchedule aggregate. Maps to the <c>agent_schedules</c> table that
 /// the FastAPI/Alembic operator owns. The .NET BFF is a read+write shim
-/// for PATCH/DELETE that landed in Stage 2 — the create flow stays
-/// FastAPI-side via <c>POST /api/projects/{id}/schedules</c> for now.
+/// for PATCH/DELETE that landed in Stage 2. The BFF also persists project
+/// schedule creation through <c>POST /api/projects/{id}/schedules</c>.
 ///
 /// Stage 2 module 4: BFF gains the 4 schedule/runs write endpoints
 /// (PATCH/DELETE schedule + list/create run) so the front-end Agent

@@ -220,22 +220,15 @@ def main() -> int:
         step("12. assign-reviewer (admin 自评)")
         r = c.post(f"/api/tasks/{task_id}/assign-reviewer",
                    headers={**H, "X-User-Id": str(admin_user_id)})
-        if r.status_code >= 400:
-            print(f"   assign-reviewer 跳过 (HTTP {r.status_code})，dev 模式可手动 review")
-        else:
-            assert_ok(r)
-            print(f"   reviewer 已指派")
+        assert_ok(r)
+        print(f"   reviewer 已指派")
 
         step("13. review approve (IN_REVIEW → DONE)")
         r = c.post(f"/api/tasks/{task_id}/review",
                    json={"verdict": "approve", "comment": "looks good"}, headers=H)
-        if r.status_code >= 400:
-            print(f"   review 路径受限（HTTP {r.status_code}），fallback 到 PUT /status done")
-            put(c, f"/api/tasks/{task_id}/status",
-                json={"status": "done", "status_reason": "completed"}, headers=H)
-        else:
-            assert_ok(r)
+        assert_ok(r)
         st = c.get(f"/api/tasks/{task_id}", headers=H).json()
+        assert st.get("status") == "done", st
         print(f"   status={st.get('status')}")
 
         # ===== 11. 终态摘要 =====

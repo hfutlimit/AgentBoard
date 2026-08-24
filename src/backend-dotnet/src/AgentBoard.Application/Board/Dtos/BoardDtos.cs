@@ -12,6 +12,15 @@ public sealed record ProjectDto(
 	int? TaskCount = null,
 	int? TaskDone = null);
 
+/// <summary>FastAPI-compatible project list envelope.</summary>
+public sealed record ProjectListResult(
+	IReadOnlyList<ProjectDto> Items,
+	int Total);
+
+public sealed record ProjectIdsRequest(IReadOnlyList<int>? Ids);
+
+public sealed record ProjectArchiveResult(bool Ok, bool IsArchived);
+
 public sealed record EpicDto(
 	int Id,
 	int ProjectId,

@@ -13,7 +13,8 @@ namespace AgentBoard.Application.Board;
 /// </summary>
 public interface IBoardProvider : IProvider
 {
-	Task<IReadOnlyList<ProjectDto>> ListProjectsAsync(CancellationToken ct = default);
+	Task<ProjectListResult> ListProjectsAsync(
+		int limit, int offset, bool? includeArchived, CancellationToken ct = default);
 	Task<ProjectDto?> GetProjectAsync(int id, CancellationToken ct = default);
 
 	// ---- P2: write operations (mirrors FastAPI projects router) ----

@@ -112,6 +112,7 @@ public static class DependencyInjection
 		services.AddScoped<IStoryStatusHistoryRepository, StoryStatusHistoryRepository>();
 		services.AddScoped<ITaskStatusHistoryRepository, TaskStatusHistoryRepository>();
 		services.AddScoped<IAgentScheduleRepository, AgentScheduleRepository>();
+		services.AddScoped<IAgentRunRepository, AgentRunRepository>();
 		services.AddScoped<IProjectReadRepository, ProjectReadRepository>();
 		services.AddScoped<IProjectLifecycleService, ProjectLifecycleService>();
 		services.AddScoped<IApplicationEventPublisher, ApplicationEventPublisher>();
