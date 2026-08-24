@@ -13,9 +13,25 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from ...core.infrastructure.database import get_session
-from ... import service
-from agentboard.schemas import *  # Phase 5: forward-ref-safe
-from ... import mq
+from ...core.application import service
+from .schemas import (
+	ProposalAnswerIn,
+	ProposalAskIn,
+	ProposalClaimIn,
+	ProposalConvertIn,
+	ProposalIn,
+	ProposalPatch,
+	ProposalReclaimIn,
+	ProposalStatusIn,
+	RecoverFailedIn,
+	TicketFailIn,
+	TicketReclaimIn,
+	TicketRequestExecuteIn,
+	TicketRequestExecuteSpec,
+	TicketRequestSpec,
+	ProposalTicketIn,
+)
+from ...core.infrastructure import messaging as mq
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
 
 router = APIRouter(tags=["proposals"])

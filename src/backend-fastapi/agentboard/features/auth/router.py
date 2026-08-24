@@ -12,8 +12,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request, U
 from sqlalchemy.orm import Session
 
 from ...core.infrastructure.database import get_session
-from ... import service
-from agentboard.schemas import *  # Phase 5: forward-ref-safe
+from ...core.application import service
+from .schemas import (
+	ApiKeyCreate,
+	ApiKeyPatch,
+	AuthLogin,
+	AuthRegister,
+	PasswordChange,
+	UserProfilePatch,
+)
 import os
 from ... import auth
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.

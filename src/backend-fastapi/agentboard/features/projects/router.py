@@ -12,8 +12,19 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request, U
 from sqlalchemy.orm import Session
 
 from ...core.infrastructure.database import get_session
-from ... import service
-from agentboard.schemas import *  # Phase 5: forward-ref-safe
+from ...core.application import service
+from ...core.api.schemas import CommentIn
+from ..scheduling.schemas import ScheduleIn, SprintIn
+from ..work_items.schemas import AgentReviewIn, TaskIn
+from .schemas import (
+	EpicIn,
+	EpicPatch,
+	MemberRoleIn,
+	ProjectIn,
+	ProjectPatchExtended,
+	StoryIn,
+	StoryPatch,
+)
 from ...features.projects.models import ProjectMember, Epic, Story  # bulk-archive 非 admin 分支权限校验
 from ...features.work_items.models import Task
 from ...features.identity.models import User
@@ -21,7 +32,7 @@ import os
 import uuid
 from ...cache import get_cache, STATS_CACHE_TTL
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
-from ... import mq  # publish_workflow_event + EVENT_* constants
+from ...core.infrastructure import messaging as mq  # publish_workflow_event + EVENT_* constants
 from ...mq import (
     EVENT_STORY_CREATED, EVENT_STORY_CONFIRMED, EVENT_STORY_READY,
     EVENT_STORY_REVIEW_REQUESTED, EVENT_STORY_REVIEW_REJECTED,

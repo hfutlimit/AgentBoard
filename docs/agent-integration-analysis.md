@@ -8,13 +8,13 @@
 
 worker 端两层架构都有接缝，**多数 Agent 已在仓库里有代码**，完成度差异大：
 
-### 1.1 Python Worker 层（`agentboard/worker/`）
+### 1.1 Python Worker 层（`src/backend-fastapi/agentboard/agent_runtime/`）
 
 - `SubprocessAgentInvoker`（`invokers.py`）：通用 stdin→prompt / stdout→JSON 协议，任何 headless CLI 可接
 - `AgentConfig Center`（`docs/agent-config-center.md`）：同 CLI 多 Agent + `{model}` 占位符，Worker 周期 `--version` 探活
 - `minimax_invoker.py` / `minimax_invoker.py`：MiniMax 直打 API 桥接
 
-### 1.2 C# ProposalWorker 层（`workers/AgentBoard.ProposalWorker/`）
+### 1.2 C# ProposalWorker 层（`src/workers/AgentBoard.ProposalWorker/`）
 
 - `WorkBuddyRunner.cs`：拉起 `workbuddy`（实际是 codebuddy CLI，subprocess + stdin），生产正在跑
 - `appsettings.json` 里 `WorkBuddy:Command/WorkingDirectory/TimeoutMinutes` 是配置项

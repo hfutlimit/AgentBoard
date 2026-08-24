@@ -1,7 +1,7 @@
-"""``python -m agentboard.worker`` 包入口（Epic 123 Step 2 拆分后）。"""
-from __future__ import annotations
+"""Compatibility entry point for ``python -m agentboard.features.workers``."""
 
-from .cli import main
+from agentboard.agent_runtime.cli import main
+
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+	main()

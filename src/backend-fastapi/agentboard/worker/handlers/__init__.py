@@ -1,6 +1,6 @@
-"""Backward-compat facade for handlers (Phase 7 moved to features/workers/handlers/)."""
-from agentboard.features.workers.handlers import *  # noqa: F401,F403
-from agentboard.features.workers.handlers import (  # noqa: F401
+"""Backward-compat facade for handlers moved to ``agent_runtime``."""
+from agentboard.agent_runtime.handlers import *  # noqa: F401,F403
+from agentboard.agent_runtime.handlers import (  # noqa: F401
     ClarifyHandler,
     StoryHandler,
     TicketHandler,

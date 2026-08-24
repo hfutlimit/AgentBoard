@@ -1,7 +1,7 @@
 # Local dev: start AgentBoard Proposal Worker (.NET 10) on portal port 58240
 $ErrorActionPreference = 'Stop'
 $Root = 'D:\AI\Projects\AgentBoard'
-$WorkerRoot = Join-Path $Root 'workers\AgentBoard.ProposalWorker'
+$WorkerRoot = Join-Path $Root 'src\workers\AgentBoard.ProposalWorker'
 $WorkerBin  = Join-Path $WorkerRoot 'bin\Debug\net10.0'
 
 if (-not (Test-Path (Join-Path $WorkerBin 'AgentBoard.ProposalWorker.exe'))) {

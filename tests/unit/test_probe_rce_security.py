@@ -284,7 +284,7 @@ class TestSourceCodeGuards:
     def test_update_agent_calls_validate_cli_command(self) -> None:
         """B-A2: update_agent 必须调用 validate_cli_command（入口拦截）。"""
         import ast
-        src = (AGENTBOARD_PKG / "service.py").read_text(encoding="utf-8")
+        src = (AGENTBOARD_PKG / "core" / "application" / "service.py").read_text(encoding="utf-8")
         tree = ast.parse(src)
         for node in ast.walk(tree):
             if isinstance(node, ast.FunctionDef) and node.name == "update_agent":

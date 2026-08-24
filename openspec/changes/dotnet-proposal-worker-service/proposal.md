@@ -6,7 +6,7 @@ The existing Python worker can consume proposal work, but worker computers need 
 
 ## What changes
 
-- Add a standalone .NET 10 Windows Worker Service under `workers/AgentBoard.ProposalWorker`.
+- Add a standalone .NET 10 Windows Worker Service under `src/workers/AgentBoard.ProposalWorker`.
 - Consume the existing shared RabbitMQ proposal queue and a per-worker direct queue.
 - Start WorkBuddy CLI with a full MCP-oriented proposal prompt; WorkBuddy owns proposal updates through its configured MCP and memory.
 - Host a LAN-accessible, API-key-protected operations portal with health, pause/resume, retry, execution history, detail, and CLI output.
@@ -18,4 +18,3 @@ The existing Python worker can consume proposal work, but worker computers need 
 - Do not remove or modify the existing Python worker.
 - Do not add an unimplemented server-side worker registry, affinity dispatcher, or WebSocket endpoint in this change.
 - Do not change the existing public proposal message payload.
-

@@ -235,9 +235,9 @@ def test_old_cross_proposal_404_kept(ctx):
 # ---------- 5. 调用点静态断言（worker / mcp_server 已切新 URL） ----------
 
 def _worker_package_src() -> str:
-    """拼接 worker 包全部 .py 源码（Phase 7 后实现在 features/workers/，顶层 worker/ 是 facade shim）。"""
+    """拼接现代 Python worker 包的全部源码。"""
     import os
-    from agentboard.features import workers as w
+    from agentboard import agent_runtime as w
     pkg_dir = os.path.dirname(w.__file__)
     parts: list[str] = []
     for root, _dirs, files in os.walk(pkg_dir):

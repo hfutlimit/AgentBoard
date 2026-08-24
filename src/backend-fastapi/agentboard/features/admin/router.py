@@ -9,8 +9,10 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ...core.infrastructure.database import get_session
-from ... import service
-from agentboard.schemas import *  # Phase 5: forward-ref-safe
+from ...core.application import service
+from ..identity.schemas import UserAdminPatch
+from ..proposals.schemas import TicketReclaimIn
+from ..scheduling.schemas import SprintPatch
 from datetime import datetime
 from ...models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.

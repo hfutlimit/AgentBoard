@@ -1,14 +1,15 @@
 """Backward-compat facade for the moved worker package (Phase 7).
 
-The actual implementation now lives in :mod:`agentboard.features.workers`
-(Phase 7: ``agentboard/worker.py`` → ``agentboard/features/workers/``).
+The actual implementation now lives in :mod:`agentboard.agent_runtime`.
+The old ``agentboard.features.workers`` path is retained as a compatibility
+shim for callers that have not migrated yet.
 
 This shim re-exports every public name so existing callers that do
 ``from agentboard.worker import ProposalWorker`` keep working without
 code changes.
 """
-from agentboard.features.workers import *  # noqa: F401, F403
-from agentboard.features.workers import (  # noqa: F401
+from agentboard.agent_runtime import *  # noqa: F401, F403
+from agentboard.agent_runtime import (  # noqa: F401
     ACTION_ASK,
     ACTION_FAIL,
     ACTION_FINALIZE,

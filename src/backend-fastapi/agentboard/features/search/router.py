@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request, U
 from sqlalchemy.orm import Session
 
 from ...core.infrastructure.database import get_session
-from ... import service
+from ...core.application import service
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
 
 router = APIRouter(tags=["search"])

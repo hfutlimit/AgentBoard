@@ -33,7 +33,7 @@ from typing import Any, Iterable
 
 import httpx
 
-from . import mq
+from .core.infrastructure import messaging as mq
 from .mq import (
     EVENT_COMMENT_REPLIED,
     EVENT_REVIEW_REJECTED,

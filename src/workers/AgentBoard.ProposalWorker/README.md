@@ -16,7 +16,7 @@ Copy `appsettings.json` beside the executable (or use `appsettings.Production.js
 ## Run locally
 
 ```powershell
-dotnet run --project workers\AgentBoard.ProposalWorker
+dotnet run --project src\workers\AgentBoard.ProposalWorker
 ```
 
 Portal health: `GET http://localhost:58240/health`. Open `http://localhost:58240/` (or the worker machine's LAN address) to view worker state, execution history/detail, CLI output, pause/resume consumption, and request an operator-approved retry. The page asks for the portal key and retains it only in that browser session.
@@ -24,7 +24,7 @@ Portal health: `GET http://localhost:58240/health`. Open `http://localhost:58240
 ## Publish and install as a Windows service
 
 ```powershell
-dotnet publish workers\AgentBoard.ProposalWorker -c Release -r win-x64 --self-contained false -o C:\AgentBoard\ProposalWorker
+dotnet publish src\workers\AgentBoard.ProposalWorker -c Release -r win-x64 --self-contained false -o C:\AgentBoard\ProposalWorker
 sc.exe create "AgentBoard Proposal Worker" binPath= "C:\AgentBoard\ProposalWorker\AgentBoard.ProposalWorker.exe" start= auto
 sc.exe start "AgentBoard Proposal Worker"
 ```

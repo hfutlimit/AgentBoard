@@ -12,12 +12,20 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request, U
 from sqlalchemy.orm import Session
 
 from ...core.infrastructure.database import get_session
-from ... import service
-from agentboard.schemas import *  # Phase 5: forward-ref-safe
+from ...core.application import service
+from ...core.api.schemas import CommentIn, StatusIn
+from .schemas import (
+	AgentReviewIn,
+	BulkTaskDelete,
+	BulkTaskUpdate,
+	ReassignTimeoutIn,
+	SpecAppendIn,
+	TaskPatch,
+)
 import os
 from ...models import Status
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
-from ... import mq  # publish_workflow_event + EVENT_* constants
+from ...core.infrastructure import messaging as mq  # publish_workflow_event + EVENT_* constants
 from ...mq import (
     EVENT_TASK_ASSIGNED, EVENT_TASK_READY_FOR_REVIEW, EVENT_TASK_REVIEWED,
     EVENT_TASK_REJECTED, EVENT_TASK_REVIEW_REQUESTED, EVENT_TASK_REVIEW_VOTE_CAST,
