@@ -304,9 +304,14 @@ async def audit_log_middleware(request: Request, call_next):
     # 提取用户 ID
     uid = None
     authorization = request.headers.get("authorization")
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization.split(" ", 1)[1]
-        uid = auth.parse_token(token)
+    if authorization:
+        try:
+            with SessionLocal() as audit_session:
+                uid = api_helpers.resolve_actor_context(
+                    authorization, audit_session,
+                ).user_id
+        except Exception:
+            uid = None
 
     # 提取实体信息
     path = request.url.path
@@ -319,8 +324,10 @@ async def audit_log_middleware(request: Request, call_next):
         (r"^/api/epics/(\d+)", "epic"),
         (r"^/api/stories/(\d+)", "story"),
         (r"^/api/tasks/(\d+)", "task"),
+        (r"^/api/(?:runs|agent-runs)/(\d+)", "run"),
         (r"^/api/comments/(\d+)", "comment"),
         (r"^/api/attachments/(\d+)", "attachment"),
+        (r"^/api/dependencies/(\d+)", "dependency"),
         (r"^/api/schedules/(\d+)", "schedule"),
         (r"^/api/documents/(\d+)", "document"),
         (r"^/api/document-comments/(\d+)", "document_comment"),

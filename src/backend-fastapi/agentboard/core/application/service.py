@@ -1735,10 +1735,20 @@ def user_is_project_owner(s: Session, project_id: int, user_id: int | None) -> b
 # ---------- Child-resource -> project resolution (access control) ----------
 
 def get_task_project_id(s: Session, task_id: int) -> int | None:
-    t = s.get(Task, task_id)
-    if not t:
+    task = s.get(Task, task_id)
+    if not task:
         return None
-    return get_story_project_id(s, t.story_id)
+    # Task.project_id is the canonical ownership boundary.  story_id is
+    # nullable and is only a content relationship; using it for access
+    # control incorrectly makes standalone tasks unscoped.
+    if task.story_id:
+        story_project_id = get_story_project_id(s, task.story_id)
+        if story_project_id is not None and story_project_id != task.project_id:
+            log.error(
+                "task %s has project_id=%s but story %s resolves to project_id=%s",
+                task.id, task.project_id, task.story_id, story_project_id,
+            )
+    return task.project_id
 
 def get_schedule_project_id(s: Session, schedule_id: int) -> int | None:
     sch = s.get(AgentSchedule, schedule_id)

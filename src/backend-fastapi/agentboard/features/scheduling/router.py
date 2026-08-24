@@ -97,6 +97,10 @@ def _event_to_wire(event) -> dict:
         "run_id": event.run_id,
         "event_type": event.event_type,
         "payload": _decode_event_payload(event.payload),
+        "actor_user_id": getattr(event, "actor_user_id", None),
+        "api_key_id": getattr(event, "api_key_id", None),
+        "agent_registry_id": getattr(event, "agent_registry_id", None),
+        "worker_id": getattr(event, "worker_id", None),
         "created_at": event.created_at.isoformat(),
     }
 
@@ -115,12 +119,22 @@ def create_run_event_endpoint(
     run_id: int,
     body: RunEventIn,
     authorization: str | None = Header(None),
+    worker_id: str | None = Header(None, alias="X-Worker-ID"),
     s: Session = Depends(get_session),
 ):
-    api_helpers._current_user(authorization, s, required_permission="api:write")
+    _run, actor = api_helpers._authorize_run_mutation(
+        authorization, s, run_id, operation="event",
+    )
     try:
         run_event = service.create_run_event(
-            s, run_id=run_id, event_type=body.event_type, payload=body.payload,
+            s,
+            run_id=run_id,
+            event_type=body.event_type,
+            payload=body.payload,
+            actor_user_id=actor.user_id if actor else None,
+            api_key_id=actor.api_key_id if actor else None,
+            agent_registry_id=actor.agent_registry_id if actor else None,
+            worker_id=worker_id,
         )
     except service.NotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -143,12 +157,27 @@ async def stream_run_events(
     except ValueError:
         last_event_id = 0
     subscription = run_event_hub.subscribe(run_id)
+    try:
+        # Subscribe before taking the snapshot so events published during the
+        # replay query are queued. Materialize the replay while the request
+        # session is still alive, then release its DB connection before the
+        # long-lived response starts.
+        replay_events = [
+            _event_to_wire(ev)
+            for ev in service.list_run_events(
+                s, run_id=run_id, after_id=last_event_id,
+            )
+        ]
+    except Exception:
+        run_event_hub.unsubscribe(run_id, subscription)
+        raise
+    finally:
+        s.close()
+
     async def event_generator():
         try:
-            events = service.list_run_events(s, run_id=run_id, after_id=last_event_id)
             replay_high_watermark = last_event_id
-            for ev in events:
-                payload = _event_to_wire(ev)
+            for payload in replay_events:
                 replay_high_watermark = max(replay_high_watermark, payload["id"])
                 yield _format_sse(payload)
             while True:
@@ -428,7 +457,16 @@ def get_run(rid: int, s: Session = Depends(get_session)):
 
 
 @router.patch("/api/runs/{rid}")
-def update_run(rid: int, body: RunPatch, s: Session = Depends(get_session)):
+def update_run(
+    rid: int,
+    body: RunPatch,
+    authorization: str | None = Header(None),
+    worker_id: str | None = Header(None, alias="X-Worker-ID"),
+    s: Session = Depends(get_session),
+):
+    api_helpers._authorize_run_mutation(
+        authorization, s, rid, operation="patch", worker_id=worker_id,
+    )
     try:
         r = service.update_run(s, rid, **body.model_dump(exclude_none=True))
     except service.InvalidValue as e:
@@ -438,10 +476,19 @@ def update_run(rid: int, body: RunPatch, s: Session = Depends(get_session)):
 
 
 @router.post("/api/runs/{rid}/report")
-def report_run_result(rid: int, body: RunReportIn, s: Session = Depends(get_session)):
+def report_run_result(
+    rid: int,
+    body: RunReportIn,
+    authorization: str | None = Header(None),
+    worker_id: str | None = Header(None, alias="X-Worker-ID"),
+    s: Session = Depends(get_session),
+):
     """Agent 主动报告 run 结果（Epic 78 Story 104）：
     仅 pending/running → success/failed/cancelled 合法；终态不可再变（幂等除外）。
     """
+    api_helpers._authorize_run_mutation(
+        authorization, s, rid, operation="report", worker_id=worker_id,
+    )
     try:
         r = service.report_run_result(
             s, rid, status=body.status, summary=body.summary, log_ref=body.log_ref,
@@ -457,7 +504,14 @@ def report_run_result(rid: int, body: RunReportIn, s: Session = Depends(get_sess
 
 
 @router.delete("/api/runs/{rid}")
-def delete_run(rid: int, s: Session = Depends(get_session)):
+def delete_run(
+    rid: int,
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    api_helpers._authorize_run_mutation(
+        authorization, s, rid, operation="delete",
+    )
     if not service.delete_run(s, rid):
         raise HTTPException(status_code=404, detail="run not found")
     return {"ok": True}

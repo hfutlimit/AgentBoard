@@ -181,6 +181,83 @@ def _current_user(
     return service.get_user(s, actor.user_id)
 
 
+def _authorize_run_mutation(
+    authorization: str | None,
+    s: Session,
+    run_id: int,
+    *,
+    operation: str,
+    worker_id: str | None = None,
+):
+    """Authorize a state-changing AgentRun operation.
+
+    Project membership is sufficient for reads, but it is too broad for
+    execution mutations. Agent-scoped API keys (or the user who owns the
+    bound Agent) may emit events/report results for that Agent's run, subject
+    to an active run lease when one is present. Run
+    patching is additionally available to the project owner, while deletion
+    is owner-only (apart from admins). Local open-CRUD mode remains available
+    when no credential is supplied, matching the documented development
+    posture.
+    """
+    run = service.get_run(s, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+
+    if not authorization and not _auth_is_required():
+        return run, None
+
+    actor = resolve_actor_context(
+        authorization, s, required_permission="api:write",
+    )
+    if actor.is_admin:
+        return run, actor
+
+    project_id = service.get_run_project_id(s, run_id)
+    if operation == "delete":
+        if project_id is not None and service.user_is_project_owner(
+            s, project_id, actor.user_id,
+        ):
+            return run, actor
+        raise HTTPException(status_code=403, detail="run deletion requires project owner or admin")
+
+    if operation == "patch" and project_id is not None and service.user_is_project_owner(
+        s, project_id, actor.user_id,
+    ):
+        return run, actor
+
+    bound_agent = (
+        s.get(service.Agent, run.agent_registry_id)
+        if run.agent_registry_id is not None else None
+    )
+    is_matching_agent_key = (
+        actor.agent_registry_id is not None
+        and actor.agent_registry_id == run.agent_registry_id
+    )
+    is_bound_agent_owner = (
+        actor.api_key_id is None
+        and bound_agent is not None
+        and bound_agent.user_id == actor.user_id
+    )
+    lease_worker_id = getattr(run, "lease_worker_id", None)
+    lease_matches = (
+        lease_worker_id is None
+        or (
+            worker_id is not None
+            and worker_id == lease_worker_id
+        )
+    )
+    if operation in {"event", "report", "patch"} and (
+        (is_matching_agent_key or is_bound_agent_owner) and lease_matches
+    ):
+        return run, actor
+
+    raise HTTPException(
+        status_code=403,
+        detail=f"run {operation} requires the bound Agent or project owner",
+    )
+
+
 def _apply_cors(request: Request, resp: JSONResponse) -> JSONResponse:
     """为 middleware 早返回的 JSONResponse 注入 CORS 头（防 CORS 拦截致 0 status）。
 

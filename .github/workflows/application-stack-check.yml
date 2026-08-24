@@ -35,7 +35,9 @@ jobs:
           AGENTBOARD_DB_URL: sqlite:///ci-agentboard.db
           AGENTBOARD_REQUIRE_AUTH: '0'
           PYTHONPATH: src/backend-fastapi
-        run: python -m pytest tests/test_worker_execution_records.py tests/test_run_event_contract.py tests/test_run_search.py -q
+        run: |
+          python -m pytest tests/test_run_authorization.py -q
+          python -m pytest tests/test_worker_execution_records.py tests/test_run_event_contract.py tests/test_run_search.py -q
 
   frontend:
     runs-on: ubuntu-latest

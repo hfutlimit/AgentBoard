@@ -9,6 +9,7 @@ from agentboard import service
 from agentboard.domains.common.models import Base
 from agentboard.domains.projects.models import Agent, Project
 from agentboard.domains.scheduling.models import AgentRun, AgentSchedule
+from agentboard.features.scheduling import service as scheduling_service
 from agentboard.domains.work_items.models import Task
 from agentboard import worker_portal
 
@@ -108,6 +109,36 @@ def test_enriched_records_filter_by_task_id():
     assert result["total"] == 1
     assert result["items"][0]["id"] == run_a
     assert result["items"][0]["id"] != run_b
+
+
+def test_task_project_resolver_uses_direct_project_id_for_standalone_tasks():
+    session, _, _ = _seed_session()
+    try:
+        task_id = session.query(Task).filter(Task.title == "Fallback spec task").one().id
+        assert service.get_task_project_id(session, task_id) == session.query(Project).one().id
+    finally:
+        session.close()
+
+
+def test_run_event_persists_actor_identity():
+    session, run_a, _ = _seed_session()
+    try:
+        event = scheduling_service.create_run_event(
+            session,
+            run_a,
+            "agent.output",
+            {"message": "working"},
+            actor_user_id=11,
+            api_key_id=22,
+            agent_registry_id=33,
+            worker_id="worker-a",
+        )
+        assert event.actor_user_id == 11
+        assert event.api_key_id == 22
+        assert event.agent_registry_id == 33
+        assert event.worker_id == "worker-a"
+    finally:
+        session.close()
 
 
 def test_create_run_snapshots_agent_and_model():

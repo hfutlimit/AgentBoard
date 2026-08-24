@@ -178,7 +178,17 @@ def create_run(s: Session, *, schedule_id: int, task_id: int | None = None,
 
 from .models import RunEvent
 
-def create_run_event(s: Session, run_id: int, event_type: str, payload: dict) -> RunEvent:
+def create_run_event(
+    s: Session,
+    run_id: int,
+    event_type: str,
+    payload: dict,
+    *,
+    actor_user_id: int | None = None,
+    api_key_id: int | None = None,
+    agent_registry_id: int | None = None,
+    worker_id: str | None = None,
+) -> RunEvent:
     run = s.get(AgentRun, run_id)
     if not run:
         raise NotFound(f"run {run_id} not found")
@@ -186,6 +196,10 @@ def create_run_event(s: Session, run_id: int, event_type: str, payload: dict) ->
         run_id=run_id,
         event_type=event_type,
         payload=json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        actor_user_id=actor_user_id,
+        api_key_id=api_key_id,
+        agent_registry_id=agent_registry_id,
+        worker_id=worker_id,
     )
     s.add(event)
     _commit(s)
