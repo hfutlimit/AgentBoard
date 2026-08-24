@@ -2,10 +2,10 @@
 #
 # AgentBoard.Api — multi-stage build for the .NET 10 WebAPI.
 #
-# Build:  docker build -f Dockerfile.dotnet -t agentboard-api-dotnet ..
+# Build:  docker build -f src/backend-dotnet/Dockerfile -t agentboard-api-dotnet .
 # Run:    docker run --rm -p 18099:8080 -e AGENTBOARD_ENV=development agentboard-api-dotnet
 #
-# Build context: repository root (the dotnet/ folder is reached via the
+# Build context: repository root (the src/backend-dotnet/ folder is reached via the
 # relative path in the `COPY` instructions). The `.dockerignore.dotnet`
 # file at the repository root excludes Python / node_modules artefacts.
 
@@ -15,25 +15,25 @@ WORKDIR /src
 
 # Copy the solution and project files first so NuGet restore can be cached
 # independently of source code changes.
-COPY dotnet/AgentBoard.slnx dotnet/AgentBoard.slnx
-COPY dotnet/Directory.Build.props dotnet/Directory.Build.props
-COPY dotnet/global.json dotnet/global.json
-COPY dotnet/src/AgentBoard.Api/AgentBoard.Api.csproj dotnet/src/AgentBoard.Api/AgentBoard.Api.csproj
-COPY dotnet/src/AgentBoard.Application/AgentBoard.Application.csproj dotnet/src/AgentBoard.Application/AgentBoard.Application.csproj
-COPY dotnet/src/AgentBoard.Domain/AgentBoard.Domain.csproj dotnet/src/AgentBoard.Domain/AgentBoard.Domain.csproj
-COPY dotnet/src/AgentBoard.Infrastructure/AgentBoard.Infrastructure.csproj dotnet/src/AgentBoard.Infrastructure/AgentBoard.Infrastructure.csproj
-COPY dotnet/tests/AgentBoard.Api.Tests/AgentBoard.Api.Tests.csproj dotnet/tests/AgentBoard.Api.Tests/AgentBoard.Api.Tests.csproj
-COPY dotnet/tests/AgentBoard.Infrastructure.Tests/AgentBoard.Infrastructure.Tests.csproj dotnet/tests/AgentBoard.Infrastructure.Tests/AgentBoard.Infrastructure.Tests.csproj
+COPY src/backend-dotnet/AgentBoard.slnx src/backend-dotnet/AgentBoard.slnx
+COPY src/backend-dotnet/Directory.Build.props src/backend-dotnet/Directory.Build.props
+COPY src/backend-dotnet/global.json src/backend-dotnet/global.json
+COPY src/backend-dotnet/src/AgentBoard.Api/AgentBoard.Api.csproj src/backend-dotnet/src/AgentBoard.Api/AgentBoard.Api.csproj
+COPY src/backend-dotnet/src/AgentBoard.Application/AgentBoard.Application.csproj src/backend-dotnet/src/AgentBoard.Application/AgentBoard.Application.csproj
+COPY src/backend-dotnet/src/AgentBoard.Domain/AgentBoard.Domain.csproj src/backend-dotnet/src/AgentBoard.Domain/AgentBoard.Domain.csproj
+COPY src/backend-dotnet/src/AgentBoard.Infrastructure/AgentBoard.Infrastructure.csproj src/backend-dotnet/src/AgentBoard.Infrastructure/AgentBoard.Infrastructure.csproj
+COPY src/backend-dotnet/tests/AgentBoard.Api.Tests/AgentBoard.Api.Tests.csproj src/backend-dotnet/tests/AgentBoard.Api.Tests/AgentBoard.Api.Tests.csproj
+COPY src/backend-dotnet/tests/AgentBoard.Infrastructure.Tests/AgentBoard.Infrastructure.Tests.csproj src/backend-dotnet/tests/AgentBoard.Infrastructure.Tests/AgentBoard.Infrastructure.Tests.csproj
 
-RUN dotnet restore dotnet/AgentBoard.slnx
+RUN dotnet restore src/backend-dotnet/AgentBoard.slnx
 
 # ---------- Stage 2: build ----------
 FROM restore AS build
 WORKDIR /src
 
-COPY dotnet/ dotnet/
+COPY src/backend-dotnet/ src/backend-dotnet/
 
-RUN dotnet publish dotnet/src/AgentBoard.Api/AgentBoard.Api.csproj \
+RUN dotnet publish src/backend-dotnet/src/AgentBoard.Api/AgentBoard.Api.csproj \
     --configuration Release \
     --output /app/publish \
     --no-restore \

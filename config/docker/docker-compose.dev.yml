@@ -1,14 +1,14 @@
 # AgentBoard 开发模式配置
 # 用途：启用热重载，提高开发效率
 # 使用方法：
-#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#   docker compose -f config/docker/docker-compose.yml -f config/docker/docker-compose.dev.yml up -d
 # 或：
 #   ./scripts/dev-hot-reload.sh
 #
 # Dual-stack BFF development (Stage 0):
 #   - api  uses uvicorn --reload (Python)
 #   - api-dotnet uses the multi-stage Dockerfile; hot-reload isn't wired in
-#     compose yet (run `dotnet watch run --project dotnet/src/AgentBoard.Api`
+#     compose yet (run `dotnet watch run --project src/backend-dotnet/src/AgentBoard.Api`
 #     on the host instead — file changes are picked up in <1s).
 #
 version: "3.8"
@@ -19,9 +19,9 @@ services:
     command: uvicorn agentboard.api:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app
     # 挂载源码目录（开发时实时同步代码变化）
     volumes:
-      - ./agentboard:/app/agentboard
-      - ./migrations:/app/migrations
-      - ./data:/app/data
+      - ../../src/backend-fastapi/agentboard:/app/agentboard
+      - ../../src/backend-fastapi/migrations:/app/migrations
+      - ../../data:/app/data
     environment:
       # 开发模式：SQLite 方便调试
       AGENTBOARD_DB_URL: "sqlite:////app/data/agentboard.db"
@@ -32,7 +32,7 @@ services:
   web:
     # 开发模式挂载静态文件目录，更新旧版 Web 静态资源后无需重建容器
     volumes:
-      - ./agentboard/web/static:/app/agentboard/web/static:ro
+      - ../../src/backend-fastapi/agentboard/web/static:/app/agentboard/web/static:ro
     environment:
       # 强制使用挂载的 static（镜像内 dist 快照会优先于挂载目录，导致更新不生效）
       AGENTBOARD_WEB_STATIC_DIR: "/app/agentboard/web/static"
@@ -42,7 +42,7 @@ services:
     # 开发时建议单独运行：python -m agentboard.mcp_server
     command: python -m agentboard.mcp_server
     volumes:
-      - ./agentboard:/app/agentboard
+      - ../../src/backend-fastapi/agentboard:/app/agentboard
 
   api-dotnet:
     # In dev compose, run the .NET BFF on the host (dotnet watch) and
@@ -52,7 +52,7 @@ services:
       - dotnet
     # Override the production entrypoint with a no-op so `docker compose up`
     # doesn't try to start a second instance. The .NET API runs on the
-    # host via `dotnet watch run --project dotnet/src/AgentBoard.Api`.
+    # host via `dotnet watch run --project src/backend-dotnet/src/AgentBoard.Api`.
     command: ["sh", "-c", "echo 'api-dotnet container disabled in dev — run dotnet watch run on the host' && sleep infinity"]
 
   db:

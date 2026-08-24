@@ -18,7 +18,7 @@ import pytest
 # 仓库根：tests/unit/xx.py -> 上两级
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCKERIGNORE_PATH = REPO_ROOT / ".dockerignore"
-DOCKERFILE_PATH = REPO_ROOT / "Dockerfile"
+DOCKERFILE_PATH = REPO_ROOT / "src" / "backend-fastapi" / "Dockerfile"
 
 
 def _read_dockerignore_patterns() -> list[str]:
@@ -76,20 +76,21 @@ class TestDockerignoreEnvExclusion:
         )
 
     def test_dockerfile_copy_all_present(self) -> None:
-        """确认 Dockerfile 仍含 `COPY . .`（修复前提：上下文全量拷贝靠 .dockerignore 收口）。"""
+        """确认 FastAPI Dockerfile 使用迁移后的源码路径。"""
         text = DOCKERFILE_PATH.read_text(encoding="utf-8")
-        assert "COPY . ." in text, "Dockerfile 结构已变，请复查 B-A3 修复前提"
+        assert "COPY src/backend-fastapi/ ." in text
 
 
 class TestNoEnvInGitTracking:
     """B-A3 关联：.env 不得被 git 跟踪（防 git 历史泄漏，与镜像层互补）。"""
 
     def test_env_not_tracked(self) -> None:
-        from subprocess import run
+        from subprocess import DEVNULL, run
 
         res = run(
             ["git", "ls-files", ".env"],
             cwd=str(REPO_ROOT),
+            stdin=DEVNULL,
             capture_output=True,
             text=True,
             check=False,

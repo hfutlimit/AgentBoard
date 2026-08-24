@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 """
 Compare the live FastAPI /openapi.json against the committed
-dotnet/contracts/openapi-v3.json snapshot.
+src/backend-dotnet/contracts/openapi-v3.json snapshot.
 
 Two modes:
     * default      — just hash-check the committed snapshot against the
@@ -39,7 +39,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CONTRACTS_DIR = REPO_ROOT / "dotnet" / "contracts"
+CONTRACTS_DIR = REPO_ROOT / "src" / "backend-dotnet" / "contracts"
 SNAPSHOT_PATH = CONTRACTS_DIR / "openapi-v3.json"
 SHA_PATH = CONTRACTS_DIR / "openapi-v3.sha256"
 

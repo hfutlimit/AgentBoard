@@ -40,7 +40,7 @@ def test_all_domain_tables_registered_on_shared_metadata():
 
 def test_domains_do_not_depend_on_transport_or_entrypoints():
     forbidden = {"agentboard.api", "agentboard.mcp_server", "agentboard.scheduler"}
-    for path in Path("agentboard/domains").rglob("*.py"):
+    for path in Path("src/backend-fastapi/agentboard/domains").rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         imports = {
             node.module

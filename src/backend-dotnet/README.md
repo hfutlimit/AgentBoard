@@ -112,7 +112,7 @@ dotnet test
 
 ```powershell
 # Build (context = repo root)
-docker build -f Dockerfile.dotnet -t agentboard-api-dotnet .
+docker build -f src/backend-dotnet/Dockerfile -t agentboard-api-dotnet .
 
 # Run (本地连 sqlite shadow db)
 docker run --rm -p 18099:8080 agentboard-api-dotnet

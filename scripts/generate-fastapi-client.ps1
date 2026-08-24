@@ -5,8 +5,8 @@
     BFF to call into the internal AI subsystem.
 
 .DESCRIPTION
-    Reads dotnet/contracts/openapi-v3.json and writes
-    dotnet/src/AgentBoard.Api/Clients/AgentBoardFastApiClient.cs.
+    Reads src/backend-dotnet/contracts/openapi-v3.json and writes
+    src/backend-dotnet/src/AgentBoard.Api/Clients/AgentBoardFastApiClient.cs.
 
     The generated file is committed to source so reviewers can see the
     diff when the FastAPI contract changes. The CI workflow asserts the
@@ -27,8 +27,8 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repoRoot   = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$snapshot   = Join-Path $repoRoot 'dotnet/contracts/openapi-v3.json'
-$output     = Join-Path $repoRoot 'dotnet/src/AgentBoard.Api/Clients/AgentBoardFastApiClient.cs'
+$snapshot   = Join-Path $repoRoot 'src/backend-dotnet/contracts/openapi-v3.json'
+$output     = Join-Path $repoRoot 'src/backend-dotnet/src/AgentBoard.Api/Clients/AgentBoardFastApiClient.cs'
 $namespace  = 'AgentBoard.Api.Clients'
 
 # Allow nswag (shipped as net9.0) to run on .NET 10 hosts.
@@ -64,5 +64,5 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Wrote $output ($((Get-Item $output).Length) bytes)"
 Write-Host ""
 Write-Host "Next:"
-Write-Host "  git diff dotnet/src/AgentBoard.Api/Clients/AgentBoardFastApiClient.cs"
-Write-Host "  git add dotnet/ && git commit -m 'chore(clients): regenerate FastAPI client'"
+Write-Host "  git diff src/backend-dotnet/src/AgentBoard.Api/Clients/AgentBoardFastApiClient.cs"
+Write-Host "  git add src/backend-dotnet/ && git commit -m 'chore(clients): regenerate FastAPI client'"

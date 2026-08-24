@@ -10,10 +10,10 @@ import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
-APP_CSS = ROOT / "frontend/src/app/app-features.css"
-HOME_CSS = ROOT / "frontend/src/app/home-shell/home-shell.css"
-ROUTE_CSS = ROOT / "frontend/src/app/project-workspace-route/project-workspace-route.css"
-SHELL_CSS = ROOT / "frontend/src/app/project-workspace-shell/project-workspace-shell.css"
+APP_CSS = ROOT / "src/frontend/src/app/app-features.css"
+HOME_CSS = ROOT / "src/frontend/src/app/home-shell/home-shell.css"
+ROUTE_CSS = ROOT / "src/frontend/src/app/project-workspace-route/project-workspace-route.css"
+SHELL_CSS = ROOT / "src/frontend/src/app/project-workspace-shell/project-workspace-shell.css"
 
 
 def _block(css: str, selector: str) -> str:

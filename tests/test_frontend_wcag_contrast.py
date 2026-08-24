@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-STYLES = (ROOT / "frontend/src/styles.css").read_text(encoding="utf-8")
+STYLES = (ROOT / "src/frontend/src/styles.css").read_text(encoding="utf-8")
 
 
 def _luminance(hex_color: str) -> float:
@@ -109,9 +109,9 @@ def test_dark_theme_and_component_overrides_meet_wcag_aa() -> None:
     for foreground, background in pairs:
         assert _contrast(foreground, background) >= 4.5, f"Contrast {foreground} on {background} failed"
 
-    home_css = (ROOT / "frontend/src/app/home-shell/home-shell.css").read_text(encoding="utf-8")
-    overview_css = (ROOT / "frontend/src/app/overview-tab/overview-tab.css").read_text(encoding="utf-8")
-    app_css = (ROOT / "frontend/src/app/app.css").read_text(encoding="utf-8")
+    home_css = (ROOT / "src/frontend/src/app/home-shell/home-shell.css").read_text(encoding="utf-8")
+    overview_css = (ROOT / "src/frontend/src/app/overview-tab/overview-tab.css").read_text(encoding="utf-8")
+    app_css = (ROOT / "src/frontend/src/app/app.css").read_text(encoding="utf-8")
     assert "[data-theme='dark'] .hs-tab-button.active" in home_css
     assert "[data-theme='dark'] .overview-epic-tag.done" in overview_css
     assert "[data-theme='dark'] .settings-nav-item.active" in app_css

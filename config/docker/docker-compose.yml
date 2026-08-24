@@ -23,7 +23,9 @@
 
 services:
   api:
-    build: .
+    build:
+      context: ../..
+      dockerfile: src/backend-fastapi/Dockerfile
     command: uvicorn agentboard.api:app --host 0.0.0.0 --port 8000
     environment:
       # 生产数据库：MariaDB（容器名 db，内部端口 3306）
@@ -55,8 +57,8 @@ services:
   # the .NET endpoints against the FastAPI /openapi.json.
   api-dotnet:
     build:
-      context: .
-      dockerfile: dotnet/Dockerfile.dotnet
+      context: ../..
+      dockerfile: src/backend-dotnet/Dockerfile
     environment:
       # Same secret as api — the BFF re-uses the FastAPI HMAC tokens as-is.
       AGENTBOARD_SECRET: "${AGENTBOARD_SECRET:?Set AGENTBOARD_SECRET to a strong random value}"
@@ -94,7 +96,9 @@ services:
       start_period: 15s
 
   web:
-    build: .
+    build:
+      context: ../..
+      dockerfile: src/backend-fastapi/Dockerfile
     command: uvicorn agentboard.web_app:app --host 0.0.0.0 --port 8080
     environment:
       # 注：此地址由浏览器（用户机器）发起请求，必须用宿主机可访问地址，
@@ -114,7 +118,9 @@ services:
       start_period: 10s
 
   mcp:
-    build: .
+    build:
+      context: ../..
+      dockerfile: src/backend-fastapi/Dockerfile
     command: python -m agentboard.mcp_server
     environment:
       AGENTBOARD_MCP_TRANSPORT: "http"

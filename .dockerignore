@@ -36,6 +36,6 @@ tests/
 .vscode/
 .workbuddy/
 .DS_Store
-frontend/node_modules/
-frontend/dist/
-frontend/.angular/
+src/frontend/node_modules/
+src/frontend/dist/
+src/frontend/.angular/

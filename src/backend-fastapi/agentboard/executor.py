@@ -539,7 +539,15 @@ class MiniMaxLauncher(CliLauncher):
     description = "MiniMax 直打 chat API（scripts/minimax_invoker.py 桥接）"
     command = [
         sys.executable,
-        str(Path(__file__).resolve().parent.parent / "scripts" / "minimax_invoker.py"),
+        str(
+            (
+                Path(__file__).resolve().parent.parent
+                if (Path(__file__).resolve().parent.parent / "scripts").is_dir()
+                else Path(__file__).resolve().parent.parent.parent.parent
+            )
+            / "scripts"
+            / "minimax_invoker.py"
+        ),
     ]
     env_var = "AGENTBOARD_MINIMAX_BIN"
     timeout_seconds = 600.0

@@ -25,7 +25,7 @@ S0-2 lands. They are generated but **never auto-applied to production**.
 3. **Hand to the Alembic operator**
 
    The Python operator reviews the SQL and applies it via Alembic so the
-   `dotnet/` migrations stay in lock-step with the FastAPI schema. **Do
+`src/backend-dotnet/` migrations stay in lock-step with the FastAPI schema. **Do
    not** let EF Core auto-apply migrations to a shared database.
 
 4. **CI guard**

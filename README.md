@@ -19,9 +19,9 @@
 [MCP]      --httpx-->  [REST API]        （或 MCP 直连 DB）
 ```
 
-- **API**（`agentboard/api.py`）：纯 JSON REST，带 CORS，不含任何 HTML。
-- **Web**（`frontend/` + `agentboard/web_app.py`）：Angular 21 LTS 独立 SPA，构建后由 FastAPI 托管，浏览器通过 `HttpClient` 调 API。
-- **MCP**（`agentboard/mcp_server.py`）：仅通过 httpx 调用 REST API，不直接访问数据库。
+- **API**（`src/backend-fastapi/agentboard/api.py`）：纯 JSON REST，带 CORS，不含任何 HTML。
+- **Web**（`src/frontend/` + `src/backend-fastapi/agentboard/web_app.py`）：Angular 21 LTS 独立 SPA，构建后由 FastAPI 托管，浏览器通过 `HttpClient` 调 API。
+- **MCP**（`src/backend-fastapi/agentboard/mcp_server.py`）：仅通过 httpx 调用 REST API，不直接访问数据库。
 
 ### 2026-08 起：双栈 BFF 过渡（Stage 0+）
 
@@ -78,7 +78,7 @@ flowchart LR
 
 完整 Stage 0~3 任务清单：[`openspec/changes/dual-stack-bff-restructure/tasks.md`](openspec/changes/dual-stack-bff-restructure/tasks.md)。
 运维 & 切流手册：[`docs/dual-stack-bff-runbook.md`](docs/dual-stack-bff-runbook.md)。
-.NET 端规约：[`dotnet/README.md`](dotnet/README.md)。
+.NET 端规约：[`src/backend-dotnet/README.md`](src/backend-dotnet/README.md)。
 
 ## 目录结构
 
@@ -86,7 +86,7 @@ flowchart LR
 > feature 模块拆分,顶层文件保持薄 facade 兼容老 import。
 
 ```
-agentboard/
+src/backend-fastapi/agentboard/
   api.py                # 薄 facade: lifespan + middleware + app.include_router(...)
   api_helpers.py        # 共享 helper: _current_user / _auth_is_required / _ser / ...
   schemas.py            # 58 个 Pydantic BaseModel 集中地(router 与 api.py 共享)
@@ -128,8 +128,10 @@ agentboard/
     search/             # 全文搜索端点 + router
     auth/               # 登录/注册/me/api-keys router(走 identity service)
     mcp/                # MCP 工具的 HTTP 客户端 helper(按 feature 拆分)
-    workers/            # ProposalWorker 异步执行器(Phase 7 从 agentboard/worker 搬过来)
-frontend/              # Angular 21 源码、路由、类型化 API 服务
+src/backend-fastapi/   # FastAPI、MCP、Alembic、Python 依赖配置
+src/backend-dotnet/    # .NET BFF 源码、测试、合同和 SDK 配置
+src/frontend/          # Angular 21 源码、路由、类型化 API 服务
+src/workers/           # ProposalWorker 异步执行器
 tests/
   conftest.py           # 共享 pytest 工厂 fixture(uname/make_user/auth_headers/...)
   test_domain_boundaries.py  # Phase 2 架构边界护栏
@@ -144,13 +146,14 @@ docs/
 ## 运行
 
 ```bash
-pip install -r requirements.txt
+pip install -r src/backend-fastapi/requirements.txt
+export PYTHONPATH="$PWD/src/backend-fastapi"
 
 # 构建 Angular（需要 Node 20.19+/22.12+/24，或直接使用 docker compose）
-cd frontend
+cd src/frontend
 npm ci
 npm run build
-cd ..
+cd ../..
 
 # 1) 启动 REST API（默认 SQLite，端口 8000）
 uvicorn agentboard.api:app --reload --port 8000
@@ -184,8 +187,8 @@ python -m agentboard.mcp_server
 dotnet --version
 
 # 2) 构建 .NET BFF（首次或 csproj 变化时）
-cd dotnet
-dotnet build
+cd src/backend-dotnet
+dotnet build src/backend-dotnet/AgentBoard.slnx
 
 # 3) 启动 .NET BFF（端口 18000，host 网络监听）
 $env:AGENTBOARD_DOTNET_PORT = "18000"
@@ -264,7 +267,7 @@ python -c "import secrets; print(secrets.token_hex(32))"
 cp .env.production .env
 # 编辑 .env，逐一替换占位符为强随机值
 # 特别注意：AGENTBOARD_SECRET、MARIADB_PASSWORD、MARIADB_ROOT_PASSWORD 必须独立生成
-docker compose up -d --build
+docker compose -f config/docker/docker-compose.yml up -d --build
 ```
 
 **维护窗口注册新 Agent 账号**（详见下方「获取 Agent Token」）：
@@ -283,7 +286,7 @@ docker compose up -d --build
 Copy-Item .env.production .env
 # 编辑 .env，把 AGENTBOARD_SECRET 换成：
 python -c "import secrets; print(secrets.token_hex(32))"
-docker compose up -d --build
+docker compose -f config/docker/docker-compose.yml up -d --build
 ```
 
 生产部署的 `.env` 必须同时设置 `AGENTBOARD_WEB_API_URL`、`AGENTBOARD_CORS_ORIGINS`、`MARIADB_PASSWORD` 和 `MARIADB_ROOT_PASSWORD`；Compose 默认以 `AGENTBOARD_ENV=production`、`AGENTBOARD_ALLOW_REGISTRATION=0` 启动。宿主机端口为 API `18000`、MCP `18001/mcp`、Web `28080`，MariaDB 仅绑定 `127.0.0.1:13306`。
@@ -335,7 +338,7 @@ npm i -g @openai/codex   # 或官方安装方式
 # 2. 启动 executor daemon（指定 codex 为默认 agent）
 AGENTBOARD_DEFAULT_AGENT=codex \
 AGENTBOARD_CODEX_BIN="codex exec --json" \
-  python -m agentboard.executor --loop
+  PYTHONPATH=src/backend-fastapi python -m agentboard.executor --loop
 ```
 
 > 端到端验证：见 `tests/test_codex_e2e.py`（fake codex CLI 模拟真实协议）。
@@ -354,7 +357,7 @@ $env:MINIMAX_MODEL="MiniMax-M2"                       # 国内模型名
 
 # 2. 启动 executor daemon
 AGENTBOARD_DEFAULT_AGENT=minimax \
-  python -m agentboard.executor --loop
+  PYTHONPATH=src/backend-fastapi python -m agentboard.executor --loop
 ```
 
 `AgentSchedule.agent = "minimax"` 走 MiniMax；`agent = "codex"` 走 Codex；
@@ -393,11 +396,11 @@ AGENTBOARD_DEFAULT_AGENT=minimax \
 
 ```bash
 # Web 测试需要先执行 frontend 的 npm run build
-PYTHONPATH=. python -m pytest tests/ -q
+PYTHONPATH=src/backend-fastapi python -m pytest -c src/backend-fastapi/pytest.ini tests/ -q
 
 # 仅跑前端 E2E（首次需安装浏览器二进制）：
 pip install playwright && playwright install chromium
-PYTHONPATH=. python -m pytest tests/test_playwright_e2e.py -q
+PYTHONPATH=src/backend-fastapi python -m pytest -c src/backend-fastapi/pytest.ini tests/test_playwright_e2e.py -q
 ```
 
 ## 数据库迁移（Alembic）
@@ -405,8 +408,8 @@ PYTHONPATH=. python -m pytest tests/test_playwright_e2e.py -q
 `init_db()` 执行 `alembic upgrade head`。迁移失败时服务会中止启动，不再用 `create_all` 静默掩盖结构或权限错误。
 
 ```bash
-alembic revision --autogenerate -m "描述"   # 生成迁移
-alembic upgrade head                        # 应用迁移
+(cd src/backend-fastapi && alembic revision --autogenerate -m "描述")   # 生成迁移
+(cd src/backend-fastapi && alembic upgrade head)                        # 应用迁移
 ```
 
 > 注意：`alembic.ini` 为 ASCII，避免 Windows 下 GBK 读取报错；`env.py` 复用 `AGENTBOARD_DB_URL` 与项目 engine。
@@ -414,7 +417,7 @@ alembic upgrade head                        # 应用迁移
 ## 测试（smoke test）
 
 ```bash
-PYTHONPATH=. python tests/test_smoke.py
+PYTHONPATH=src/backend-fastapi python tests/test_smoke.py
 ```
 
 ## 需求与任务

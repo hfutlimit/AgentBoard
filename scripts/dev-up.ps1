@@ -22,18 +22,19 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Set-Location $repoRoot
+$compose = @('-f', 'config/docker/docker-compose.yml', '-f', 'config/docker/docker-compose.dev.yml')
 
 Write-Host '=== Pulling base images ==='
-docker compose pull db
+docker compose @compose pull db
 
 Write-Host '=== Building custom images (api, api-dotnet, web) ==='
-docker compose build
+docker compose @compose build
 
 Write-Host '=== Starting stack ==='
 if ($WithDotnet) {
-    docker compose --profile dotnet up -d
+    docker compose @compose --profile dotnet up -d
 } else {
-    docker compose up -d
+    docker compose @compose up -d
 }
 
 Start-Sleep -Seconds 5
@@ -66,5 +67,5 @@ Write-Host '=== Service endpoints ==='
 
 Write-Host '=== Next ==='
 Write-Host '  - Verify the contract:  python scripts/schema-drift-check.py'
-Write-Host '  - Tail logs:            docker compose logs -f api api-dotnet'
+Write-Host '  - Tail logs:            docker compose -f config/docker/docker-compose.yml -f config/docker/docker-compose.dev.yml logs -f api api-dotnet'
 Write-Host '  - Tear down:            scripts/dev-down.ps1'

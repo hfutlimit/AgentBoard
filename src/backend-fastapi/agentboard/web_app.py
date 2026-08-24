@@ -9,7 +9,14 @@ from fastapi.staticfiles import StaticFiles
 
 
 _legacy_static_dir = Path(__file__).parent / "web" / "static"
-_angular_dist_dir = Path(__file__).parent.parent / "frontend" / "dist" / "frontend" / "browser"
+_angular_dist_candidates = (
+    Path(__file__).parent.parent / "frontend" / "dist" / "frontend" / "browser",
+    Path(__file__).resolve().parents[2] / "frontend" / "dist" / "frontend" / "browser",
+)
+_angular_dist_dir = next(
+    (candidate for candidate in _angular_dist_candidates if candidate.is_dir()),
+    _angular_dist_candidates[0],
+)
 STATIC_DIR = Path(os.getenv(
     "AGENTBOARD_WEB_STATIC_DIR",
     str(_angular_dist_dir if _angular_dist_dir.is_dir() else _legacy_static_dir),

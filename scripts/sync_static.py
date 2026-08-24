@@ -1,4 +1,4 @@
-"""Sync ``frontend/dist/frontend/browser/*`` → ``agentboard/web/static/``.
+"""Sync ``src/frontend/dist/frontend/browser/*`` → ``src/backend-fastapi/agentboard/web/static/``.
 
 Build 之后调用一次：
     python scripts/sync_static.py
@@ -8,7 +8,7 @@ Build 之后调用一次：
 - 打印最终大小
 
 为什么需要：Angular 源码和随仓静态包分离（``web_app.py`` 优先 serve
-``frontend/dist/frontend/browser/``，否则回退 ``agentboard/web/static/``）。
+``src/frontend/dist/frontend/browser/``，否则回退 ``src/backend-fastapi/agentboard/web/static/``）。
 CI / 后端 Dockerfile 不会 rebuild 前端 → 静态包是 release 的产物。
 
 2026-08-20 created for Task 1296 + 1297。
@@ -20,8 +20,8 @@ from pathlib import Path
 
 # Story 330 / Task 1325：去绝对路径。git 根 = 本文件 parent.parent
 ROOT = Path(__file__).resolve().parent.parent
-DIST = ROOT / "frontend" / "dist" / "frontend" / "browser"
-STATIC = ROOT / "agentboard" / "web" / "static"
+DIST = ROOT / "src" / "frontend" / "dist" / "frontend" / "browser"
+STATIC = ROOT / "src" / "backend-fastapi" / "agentboard" / "web" / "static"
 
 
 def main() -> int:

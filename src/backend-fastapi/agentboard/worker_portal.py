@@ -81,12 +81,20 @@ def _now_iso() -> str:
 
 
 def _repo_root() -> Path:
-    return Path(__file__).resolve().parent.parent
+    application_root = Path(__file__).resolve().parent.parent
+    if (application_root / "scripts").is_dir():
+        return application_root
+    return application_root.parent.parent
 
 
 def _web_dist() -> Path:
-    """Angular 构建产物目录（frontend/dist/worker-portal/browser）。"""
-    p = _repo_root() / "frontend" / "dist" / "worker-portal" / "browser"
+    """Angular 构建产物目录（src/frontend/dist/worker-portal/browser）。"""
+    root = _repo_root()
+    candidates = (
+        root / "src" / "frontend" / "dist" / "worker-portal" / "browser",
+        root / "frontend" / "dist" / "worker-portal" / "browser",
+    )
+    p = next((candidate for candidate in candidates if candidate.exists()), candidates[0])
     if not p.exists():
         # 兼容直接部署时把 dist 放在本模块旁
         p = _repo_root() / "worker-portal-dist"

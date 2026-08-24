@@ -26,7 +26,7 @@ from fastapi import FastAPI
 
 # 仓库根：tests/unit/xx.py -> 上两级
 REPO_ROOT = Path(__file__).resolve().parents[2]
-AGENTBOARD_PKG = REPO_ROOT / "agentboard"
+AGENTBOARD_PKG = REPO_ROOT / "src" / "backend-fastapi" / "agentboard"
 
 
 class TestCreateAppFailFast:

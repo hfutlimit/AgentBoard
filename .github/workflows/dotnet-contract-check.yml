@@ -13,14 +13,14 @@ on:
   push:
     branches: [main]
     paths:
-      - 'dotnet/contracts/**'
-      - 'dotnet/src/AgentBoard.Api/Clients/**'
+      - 'src/backend-dotnet/contracts/**'
+      - 'src/backend-dotnet/src/AgentBoard.Api/Clients/**'
       - 'scripts/**'
       - '.github/workflows/dotnet-contract-check.yml'
   pull_request:
     paths:
-      - 'dotnet/contracts/**'
-      - 'dotnet/src/AgentBoard.Api/Clients/**'
+      - 'src/backend-dotnet/contracts/**'
+      - 'src/backend-dotnet/src/AgentBoard.Api/Clients/**'
       - 'scripts/**'
 
 jobs:
@@ -68,9 +68,9 @@ jobs:
 
       - name: Verify committed client matches regenerated client
         run: |
-          if (-not (git diff --quiet dotnet/src/AgentBoard.Api/Clients/AgentBoardFastApiClient.cs) -or `
-              -not (git diff --quiet dotnet/contracts/openapi-v3.json) -or `
-              -not (git diff --quiet dotnet/contracts/openapi-v3.sha256)) {
+          if (-not (git diff --quiet src/backend-dotnet/src/AgentBoard.Api/Clients/AgentBoardFastApiClient.cs) -or `
+              -not (git diff --quiet src/backend-dotnet/contracts/openapi-v3.json) -or `
+              -not (git diff --quiet src/backend-dotnet/contracts/openapi-v3.sha256)) {
             Write-Host "::error::Committed client or snapshot does not match freshly-generated output."
             Write-Host "Run pwsh scripts/sync-openapi.ps1 + pwsh scripts/generate-fastapi-client.ps1 locally and commit the diff."
             git diff --stat
@@ -79,14 +79,14 @@ jobs:
           Write-Host "Client and snapshot are in sync."
 
       - name: Build .NET solution
-        run: dotnet build dotnet/AgentBoard.slnx --nologo -c Release
+        run: dotnet build src/backend-dotnet/AgentBoard.slnx --nologo -c Release
 
       - name: Run .NET tests
-        run: dotnet test dotnet/AgentBoard.slnx --nologo -c Release --no-build
+        run: dotnet test src/backend-dotnet/AgentBoard.slnx --nologo -c Release --no-build
 
   # Close the NU1902/NU1903 security gate: every reported advisory must be on
-  # the curated allowlist (dotnet/security-allowlist.json). Any NEW (un-reviewed)
-  # advisory turns this job red (fail-closed). See dotnet/SECURITY-AUDIT.md.
+  # the curated allowlist (src/backend-dotnet/security-allowlist.json). Any NEW (un-reviewed)
+  # advisory turns this job red (fail-closed). See src/backend-dotnet/SECURITY-AUDIT.md.
   security-audit:
     runs-on: windows-latest
     defaults:
@@ -101,7 +101,7 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore solution
-        run: dotnet restore dotnet/AgentBoard.slnx
+        run: dotnet restore src/backend-dotnet/AgentBoard.slnx
 
       - name: Run NuGet audit gate
         run: python scripts/nuget-audit-gate.py --report security-audit-report.json

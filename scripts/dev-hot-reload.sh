@@ -19,10 +19,10 @@ export AGENTBOARD_RATE_LIMIT_ENABLED="0"
 
 # 启动 API 服务（带热重载）
 echo "启动 API 服务（热重载模式）..."
-docker compose run --rm \
+docker compose -f config/docker/docker-compose.yml -f config/docker/docker-compose.dev.yml run --rm \
   -p 8000:8000 \
-  -v "$(pwd)/agentboard:/app/agentboard" \
-  -v "$(pwd)/migrations:/app/migrations" \
+  -v "$(pwd)/src/backend-fastapi/agentboard:/app/agentboard" \
+  -v "$(pwd)/src/backend-fastapi/migrations:/app/migrations" \
   -v "$(pwd)/data:/app/data" \
   api \
   uvicorn agentboard.api:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app

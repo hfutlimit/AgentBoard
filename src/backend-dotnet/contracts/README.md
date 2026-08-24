@@ -16,7 +16,7 @@ contract. The .NET BFF is contract-compatible with FastAPI, so:
 pwsh scripts/sync-openapi.ps1
 
 # 3. Commit the regenerated openapi-v3.json + openapi-v3.sha256
-git add dotnet/contracts/
+git add src/backend-dotnet/contracts/
 git commit -m "chore(contracts): refresh OpenAPI snapshot from FastAPI"
 ```
 

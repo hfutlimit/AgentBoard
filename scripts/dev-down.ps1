@@ -16,11 +16,12 @@ $ErrorActionPreference = 'Stop'
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Set-Location $repoRoot
+$compose = @('-f', 'config/docker/docker-compose.yml', '-f', 'config/docker/docker-compose.dev.yml')
 
 if ($WithVolumes) {
     Write-Host '=== Stopping stack + removing volumes ==='
-    docker compose down --volumes
+    docker compose @compose down --volumes
 } else {
     Write-Host '=== Stopping stack (volumes preserved) ==='
-    docker compose down
+    docker compose @compose down
 }

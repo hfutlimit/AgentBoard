@@ -239,7 +239,7 @@ class TestStaticDirResolvedInvariant:
 
     def test_source_uses_is_relative_to(self) -> None:
         """源码必须用 ``is_relative_to`` 做归属校验（静态扫描防回归）。"""
-        src = (REPO_ROOT / "agentboard" / "web_app.py").read_text(encoding="utf-8")
+        src = (REPO_ROOT / "src" / "backend-fastapi" / "agentboard" / "web_app.py").read_text(encoding="utf-8")
         assert "is_relative_to(STATIC_DIR_RESOLVED)" in src, (
             "web_app.py 必须使用 is_relative_to(STATIC_DIR_RESOLVED) 收口路径"
             "（B-A4 修复契约）"

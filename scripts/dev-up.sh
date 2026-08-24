@@ -7,15 +7,16 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+COMPOSE=(docker compose -f config/docker/docker-compose.yml -f config/docker/docker-compose.dev.yml)
 
 echo "=== Pulling base images ==="
-docker compose pull db
+"${COMPOSE[@]}" pull db
 
 echo "=== Building custom images (api, api-dotnet, web) ==="
-docker compose build
+"${COMPOSE[@]}" build
 
 echo "=== Starting stack (api, api-dotnet, web, mcp, db) ==="
-docker compose up -d
+"${COMPOSE[@]}" up -d
 
 echo
 echo "=== Health check ==="
@@ -42,5 +43,5 @@ EOF
 echo
 echo "=== Next ==="
 echo "  - Verify the contract: python scripts/schema-drift-check.py"
-echo "  - Tail logs:           docker compose logs -f api api-dotnet"
+echo "  - Tail logs:           ${COMPOSE[*]} logs -f api api-dotnet"
 echo "  - Tear down:           scripts/dev-down.sh"

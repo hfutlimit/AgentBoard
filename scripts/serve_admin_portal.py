@@ -2,7 +2,7 @@
 """
 Admin Portal 静态服务 + /api 反向代理。
 
-将 `frontend/dist/admin-portal/browser` 以静态文件方式提供，
+将 `src/frontend/dist/admin-portal/browser` 以静态文件方式提供，
 并将以 `/api` 开头的请求代理到本地 API (默认 http://127.0.0.1:58125)，
 使 E2E 测试可在同源下访问 API (无 CORS 干扰)。
 

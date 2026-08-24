@@ -15,7 +15,7 @@ declare global {
 }
 
 // Task 261: resolve the API base URL for both production and local dev.
-// Production: web_app.py / scripts/deploy/configure-api-url.ps1 inject the real
+// Production: web_app.py / config/deployment/configure-api-url.ps1 inject the real
 // URL into window.AGENTBOARD_API (replacing the "__API_URL__" placeholder in
 // index.html). In local dev (ng serve) that placeholder is left as-is, so we
 // treat it as unset and use a relative base URL — letting proxy.conf.json

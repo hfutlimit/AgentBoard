@@ -1,6 +1,6 @@
 # .NET BFF — 依赖安全审计（NU1902 / NU1903）
 
-> 配套：`dotnet/security-allowlist.json`、`scripts/nuget-audit-gate.py`、
+> 配套：`src/backend-dotnet/security-allowlist.json`、`scripts/nuget-audit-gate.py`、
 > `.github/workflows/dotnet-contract-check.yml` 的 `security-audit` 作业。
 
 ## 背景
@@ -8,7 +8,7 @@
 双栈 BFF 的 .NET 10 解决方案引入了若干传递依赖，其中 4 个包当前携带
 **NU1902 / NU1903** 已知的供应链安全公告（GitHub Advisory，GHSA）。截至
 2026-08-22，这些公告**上游尚无修复版本**，因此构建层面通过
-`dotnet/Directory.Build.props` 的 `<WarningsNotAsErrors>NU1902;NU1903</WarningsNotAsErrors>`
+`src/backend-dotnet/Directory.Build.props` 的 `<WarningsNotAsErrors>NU1902;NU1903</WarningsNotAsErrors>`
 将其降级为警告，避免阻断编译。
 
 但"降级为警告"不等于"安全门关闭"。本目录的审计机制用于**显式闭环**这些已知风险：
@@ -50,7 +50,7 @@ python scripts/nuget-audit-gate.py --report security-audit-report.json
 ## CI 门禁
 
 `dotnet-contract-check.yml` 的 `security-audit` 作业在每次 push / PR（涉及
-`dotnet/**`、`scripts/**`）时执行：
+`src/backend-dotnet/**`、`scripts/**`）时执行：
 
 1. `setup-dotnet` + `dotnet restore`
 2. 运行 `scripts/nuget-audit-gate.py --report security-audit-report.json`
@@ -60,7 +60,7 @@ python scripts/nuget-audit-gate.py --report security-audit-report.json
 ## 如何接受一条新公告
 
 1. 确认该包确无上游修复版本（查 nuget.org / GHSA 页面）。
-2. 在 `dotnet/security-allowlist.json` 的 `advisories` 中追加一条：
+2. 在 `src/backend-dotnet/security-allowlist.json` 的 `advisories` 中追加一条：
    ```json
    {
      "ghsa": "GHSA-xxxx-xxxx-xxxx",

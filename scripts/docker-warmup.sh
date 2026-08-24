@@ -15,8 +15,8 @@ IMAGES=(
     "mariadb:11"
 )
 
-# 从 docker-compose.yml 提取所有 build 镜像
-echo "正在分析 docker-compose.yml..."
+# 从 config/docker/docker-compose.yml 提取所有 build 镜像
+echo "正在分析 config/docker/docker-compose.yml..."
 
 # 预热基础镜像
 echo ""
@@ -30,7 +30,7 @@ done
 echo ""
 echo "步骤 2/2: 检查已构建的镜像..."
 for svc in api web mcp; do
-    img=$(docker-compose images -q "$svc" 2>/dev/null || echo "")
+    img=$(docker compose -f config/docker/docker-compose.yml images -q "$svc" 2>/dev/null || echo "")
     if [ -n "$img" ]; then
         echo "  $svc: 镜像已存在"
     else
@@ -44,6 +44,6 @@ echo "预热完成！"
 echo "=========================================="
 echo ""
 echo "启动命令："
-echo "  开发模式：docker compose up -d"
-echo "  完整构建：docker compose up -d --build"
+echo "  开发模式：docker compose -f config/docker/docker-compose.yml -f config/docker/docker-compose.dev.yml up -d"
+echo "  完整构建：docker compose -f config/docker/docker-compose.yml up -d --build"
 echo ""

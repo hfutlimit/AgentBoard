@@ -156,7 +156,14 @@ def _resolve_project_cwd(context: dict, fallback: str | None) -> str | None:
     raw = os.getenv("AGENTBOARD_LOCAL_MAPPINGS")
     if not raw:
         # 默认取 AgentBoard 仓库 tmp/project-mappings.json
-        raw = str(Path(__file__).resolve().parent.parent / "tmp" / "project-mappings.json")
+        module_root = Path(__file__).resolve().parents[2]
+        application_root = module_root.parent
+        repository_root = (
+            application_root
+            if (application_root / "tmp").is_dir()
+            else application_root.parent.parent.parent
+        )
+        raw = str(repository_root / "tmp" / "project-mappings.json")
     p = Path(raw)
     if not p.exists():
         return fallback

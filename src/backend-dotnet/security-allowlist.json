@@ -3,7 +3,7 @@
   "generatedOn": "2026-08-22",
   "reviewBy": "2026-11-22",
   "owner": "platform-team",
-  "policy": "CI fails if `dotnet list package --vulnerable --include-transitive` reports ANY advisory whose GHSA id is NOT present in `advisories`. The known advisories below are explicitly accepted because no upstream fix exists at the time of writing (see dotnet/Directory.Build.props `WarningsNotAsErrors`). Re-evaluate on every .NET SDK / NuGet package bump and before the review-by date. To accept a new advisory, add it here with a justification and bump `reviewBy`.",
+  "policy": "CI fails if `dotnet list package --vulnerable --include-transitive` reports ANY advisory whose GHSA id is NOT present in `advisories`. The known advisories below are explicitly accepted because no upstream fix exists at the time of writing (see src/backend-dotnet/Directory.Build.props `WarningsNotAsErrors`). Re-evaluate on every .NET SDK / NuGet package bump and before the review-by date. To accept a new advisory, add it here with a justification and bump `reviewBy`.",
   "advisories": [
     {
       "ghsa": "GHSA-v5pm-xwqc-g5wc",

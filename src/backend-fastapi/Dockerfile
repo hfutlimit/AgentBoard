@@ -2,9 +2,9 @@
 FROM node:22.22-alpine AS frontend-build
 
 WORKDIR /frontend
-COPY frontend/package.json frontend/package-lock.json ./
+COPY src/frontend/package.json src/frontend/package-lock.json ./
 RUN npm ci
-COPY frontend/ ./
+COPY src/frontend/ ./
 RUN npm run build
 
 FROM python:3.13-slim
@@ -17,15 +17,16 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # 先装依赖（利用层缓存：requirements 不变时不会重装）
-COPY requirements.txt .
+COPY src/backend-fastapi/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 再拷源码
-COPY . .
+COPY src/backend-fastapi/ .
+COPY scripts/ /app/scripts/
 COPY --from=frontend-build /frontend/dist/frontend/browser /app/frontend/dist/frontend/browser
 
 # SQLite 持久化目录（compose 中以命名卷挂载到这里）
-RUN mkdir -p /app/data
+RUN mkdir -p /app/data /app/tmp
 
 # 默认入口：REST API。Web 服务在 compose 中覆盖 command。
 # 数据库地址默认指向卷内 SQLite；生产可改用 MariaDB（见 docker-compose.yml）。

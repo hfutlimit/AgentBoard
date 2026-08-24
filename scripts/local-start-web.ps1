@@ -2,6 +2,8 @@
 $ErrorActionPreference = 'Stop'
 $Root = 'D:\AI\Projects\AgentBoard'
 Set-Location $Root
+$AppRoot = Join-Path $Root 'src\backend-fastapi'
+$env:PYTHONPATH = $AppRoot
 
 Get-Content .env | ForEach-Object {
     $line = $_.Trim()

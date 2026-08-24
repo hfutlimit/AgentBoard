@@ -24,4 +24,4 @@ FastAPI/uvicorn 实现的 REST API，作为 Windows 服务（NSSM）跑在 `127.
 - `run-webapi.ps1` — 启动入口（NSSM 调用），含自动建 venv。
 - `install-service.ps1` — 安装为 Windows 服务。
 - `make-mcp-token.py` — 为 MCP 生成长期 API Key（见 MCP 包说明）。
-- `agentboard/`、`migrations/`、`alembic.ini`、`requirements.txt` — 应用源码与依赖。
+- `src/backend-fastapi/agentboard/`、`src/backend-fastapi/migrations/`、`src/backend-fastapi/alembic.ini`、`src/backend-fastapi/requirements.txt` — 应用源码与依赖。

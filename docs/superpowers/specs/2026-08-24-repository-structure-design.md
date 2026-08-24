@@ -1,7 +1,7 @@
 # AgentBoard Repository Structure Design
 
 **Date:** 2026-08-24
-**Status:** Approved direction; implementation pending
+**Status:** Approved direction; implementation completed pending commit
 
 ## Goal
 
@@ -57,9 +57,10 @@ existing .NET project-layer boundaries.
 │        ├─ AgentBoard.ProposalWorker.csproj
 │        └─ README.md
 ├─ tests/
-│  ├─ python/
-│  ├─ frontend/
-│  └─ e2e/
+│  ├─ conftest.py
+│  ├─ unit/
+│  ├─ e2e*/
+│  └─ test_*.py
 ├─ config/
 │  ├─ docker/
 │  │  ├─ docker-compose.yml
@@ -77,8 +78,9 @@ existing .NET project-layer boundaries.
 ```
 
 The root keeps only repository-level metadata and entry-point documentation:
-`.gitignore`, `.dockerignore`, `README.md`, `.github/`, `docs/`, `scripts/`,
-`src/`, `tests/`, `config/`, and operational directories. Root-level
+`.gitignore`, `.dockerignore`, `.dockerignore.dotnet`, `README.md`, `.github/`,
+`docs/`, `scripts/`, `src/`, `tests/`, `config/`, and operational directories.
+Root-level
 dependency/config files that belong to one application are removed after
 their references are updated.
 
@@ -119,9 +121,9 @@ their references are updated.
 
 ### Tests and tools
 
-- Move Python tests into `tests/python/`, frontend tests into `tests/frontend/`
-  when they are repository-level tests, and keep end-to-end suites under
-  `tests/e2e/`.
+- Keep repository-level tests under `tests/` with their existing `unit/`,
+  `e2e*`, fixture, and root test-file layout. This preserves the shared
+  `tests/conftest.py` and the existing repository-root path assumptions.
 - Keep application-owned .NET tests under `src/backend-dotnet/tests/` so they
   remain next to the solution they test.
 - Keep reusable operational scripts under `scripts/`; update them rather than
@@ -130,6 +132,9 @@ their references are updated.
 ### Cross-application configuration
 
 - Move Compose files and deployment-only configuration into `config/`.
+- Keep `.dockerignore` and `.dockerignore.dotnet` at the repository root;
+  Docker resolves ignore files from the build context root, so relocating them
+  would weaken the secret and generated-artifact boundary.
 - Keep secrets out of Git; retain only examples/templates.
 - Do not move runtime databases, logs, temporary files, or local virtual
   environments into `src/`.
@@ -165,8 +170,9 @@ The implementation must search and update, at minimum:
 
 1. No production application source remains in the old root-level
    `agentboard/`, `frontend/`, `dotnet/`, or `workers/` locations.
-2. All production source is under `src/`; repository tests are isolated under
-   `tests/` or their owning .NET application directory.
+2. All production source is under `src/`; repository tests remain isolated
+   under `tests/`, and .NET application tests live beside their solution under
+   `src/backend-dotnet/tests/`.
 3. Each runnable application has its own dependency/build/runtime files.
 4. `dotnet build src/backend-dotnet/AgentBoard.slnx` succeeds.
 5. The focused .NET tests and worker tests pass from their new paths.

@@ -3,7 +3,7 @@
   - agentboard-webapi.zip  : REST API（WebAPI 服务）
   - agentboard-mcp.zip     : MCP Streamable-HTTP 服务
   - agentboard-web.zip     : Angular 静态前端（IIS 托管）
-依赖 scripts/deploy/ 下的运行时脚本与 web.config。
+依赖 config/deployment/ 下的运行时脚本与 web.config。
 
 用法：
     python scripts/package_windows.py            # 重新构建全部产物
@@ -26,11 +26,11 @@ import zipfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(ROOT, "dist")
-DEPLOY = os.path.join(ROOT, "scripts", "deploy")
+DEPLOY = os.path.join(ROOT, "config", "deployment")
 
 # Web 静态来源：优先用新构建产物，回退到已拷贝的 static 目录
-WEB_BUILD = os.path.join(ROOT, "frontend", "dist", "frontend", "browser")
-WEB_STATIC_FALLBACK = os.path.join(ROOT, "agentboard", "web", "static")
+WEB_BUILD = os.path.join(ROOT, "src", "frontend", "dist", "frontend", "browser")
+WEB_STATIC_FALLBACK = os.path.join(ROOT, "src", "backend-fastapi", "agentboard", "web", "static")
 
 # 不进入发布产物的目录/后缀（构建缓存，随平台与 Python 版本变化，不具备可比性）
 EXCLUDE_DIRS = {"__pycache__"}
@@ -52,12 +52,12 @@ def web_source_dir():
 def package_specs():
     common_py = {
         "trees": [
-            (os.path.join(ROOT, "agentboard"), "agentboard"),
-            (os.path.join(ROOT, "migrations"), "migrations"),
+            (os.path.join(ROOT, "src", "backend-fastapi", "agentboard"), "agentboard"),
+            (os.path.join(ROOT, "src", "backend-fastapi", "migrations"), "migrations"),
         ],
         "files": [
-            (os.path.join(ROOT, "alembic.ini"), ""),
-            (os.path.join(ROOT, "requirements.txt"), ""),
+            (os.path.join(ROOT, "src", "backend-fastapi", "alembic.ini"), ""),
+            (os.path.join(ROOT, "src", "backend-fastapi", "requirements.txt"), ""),
         ],
     }
     return {

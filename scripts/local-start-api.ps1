@@ -3,6 +3,8 @@
 $ErrorActionPreference = 'Stop'
 $Root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 Set-Location $Root
+$AppRoot = Join-Path $Root 'src\backend-fastapi'
+$env:PYTHONPATH = $AppRoot
 
 # load .env into process env
 Get-Content .env | ForEach-Object {

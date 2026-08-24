@@ -5,7 +5,7 @@ NuGet vulnerability audit gate for the .NET BFF.
 
 Runs `dotnet list package --vulnerable --include-transitive`, extracts every
 advisory (GHSA id), and compares it against the curated allowlist in
-`dotnet/security-allowlist.json`.
+`src/backend-dotnet/security-allowlist.json`.
 
 Exit codes (CI semantics):
     0  - no vulnerabilities, OR every reported advisory is on the allowlist
@@ -20,8 +20,8 @@ in the allowlist with a justification + review-by date.
 
 Usage:
     python scripts/nuget-audit-gate.py
-    python scripts/nuget-audit-gate.py --allowlist dotnet/security-allowlist.json \
-        --solution dotnet/AgentBoard.slnx --report security-audit-report.json
+    python scripts/nuget-audit-gate.py --allowlist src/backend-dotnet/security-allowlist.json \
+        --solution src/backend-dotnet/AgentBoard.slnx --report security-audit-report.json
 """
 
 from __future__ import annotations
@@ -34,8 +34,8 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_ALLOWLIST = REPO_ROOT / "dotnet" / "security-allowlist.json"
-DEFAULT_SOLUTION = REPO_ROOT / "dotnet" / "AgentBoard.slnx"
+DEFAULT_ALLOWLIST = REPO_ROOT / "src" / "backend-dotnet" / "security-allowlist.json"
+DEFAULT_SOLUTION = REPO_ROOT / "src" / "backend-dotnet" / "AgentBoard.slnx"
 
 GHSA_RE = re.compile(r"GHSA-[0-9A-Za-z]{4}-[0-9A-Za-z]{4}-[0-9A-Za-z]{4}", re.IGNORECASE)
 

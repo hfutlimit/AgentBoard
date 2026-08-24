@@ -12,8 +12,8 @@
       1. Resolves the FastAPI base URL (env var or default).
       2. GETs the live /openapi.json document.
       3. Pretty-prints it (sorted keys) for diff stability.
-      4. Writes dotnet/contracts/openapi-v3.json.
-      5. Writes dotnet/contracts/openapi-v3.sha256.
+      4. Writes src/backend-dotnet/contracts/openapi-v3.json.
+      5. Writes src/backend-dotnet/contracts/openapi-v3.sha256.
 
 .PARAMETER FastApiUrl
     Base URL of the FastAPI service. Defaults to
@@ -31,7 +31,7 @@
 [CmdletBinding()]
 param(
     [string]$FastApiUrl = $env:AGENTBOARD_FASTAPI_URL ?? 'http://127.0.0.1:18000',
-    [string]$ContractsDir = (Join-Path $PSScriptRoot '..' 'dotnet' 'contracts')
+    [string]$ContractsDir = (Join-Path $PSScriptRoot '..' 'src' 'backend-dotnet' 'contracts')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,7 +43,7 @@ try {
     $response = Invoke-WebRequest -Uri $openApiPath -Method GET -UseBasicParsing -TimeoutSec 10
 }
 catch {
-    Write-Error "Failed to fetch $openApiPath. Is FastAPI running? Start it with 'docker compose up -d api' or 'uvicorn agentboard.api:app --port 8000'."
+    Write-Error "Failed to fetch $openApiPath. Is FastAPI running? Start it with 'docker compose -f config/docker/docker-compose.yml up -d api' or 'uvicorn agentboard.api:app --port 8000'."
     exit 1
 }
 
@@ -73,6 +73,6 @@ Write-Host "Wrote $outJson ($((Get-Item $outJson).Length) bytes)"
 Write-Host "Wrote $outSha  ($hash)"
 Write-Host ""
 Write-Host "Next:"
-Write-Host "  1. Review the diff:  git diff dotnet/contracts/openapi-v3.json"
-Write-Host "  2. Commit the snapshot: git add dotnet/contracts/ && git commit -m 'chore(contracts): refresh OpenAPI snapshot'"
+Write-Host "  1. Review the diff:  git diff src/backend-dotnet/contracts/openapi-v3.json"
+Write-Host "  2. Commit the snapshot: git add src/backend-dotnet/contracts/ && git commit -m 'chore(contracts): refresh OpenAPI snapshot'"
 Write-Host "  3. (Optional) Regenerate the FastAPI client: pwsh scripts/generate-fastapi-client.ps1"

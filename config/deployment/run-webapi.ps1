@@ -3,10 +3,12 @@
 # 首次运行会自动创建 .venv 并安装依赖。
 $ErrorActionPreference = 'Stop'
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location $Here
+$RepoRoot = (Resolve-Path (Join-Path $Here '..\..')).Path
+$AppRoot = Join-Path $RepoRoot 'src\backend-fastapi'
+Set-Location $RepoRoot
 
 # ---- 加载同目录 .env ----
-$EnvFile = Join-Path $Here '.env'
+$EnvFile = Join-Path $RepoRoot '.env'
 if (Test-Path $EnvFile) {
     Get-Content $EnvFile | ForEach-Object {
         $line = $_.Trim()
@@ -17,14 +19,15 @@ if (Test-Path $EnvFile) {
 }
 
 # ---- 准备虚拟环境 ----
-$Venv = Join-Path $Here '.venv'
+$Venv = Join-Path $RepoRoot '.venv'
 if (-not (Test-Path $Venv)) {
     Write-Host "[webapi] 创建虚拟环境 .venv ..."
     python -m venv $Venv
     & "$Venv\Scripts\pip.exe" install --upgrade pip
-    & "$Venv\Scripts\pip.exe" install -r (Join-Path $Here 'requirements.txt')
+    & "$Venv\Scripts\pip.exe" install -r (Join-Path $AppRoot 'requirements.txt')
 }
 
 $Port = if ($env:AGENTBOARD_API_PORT) { $env:AGENTBOARD_API_PORT } else { '8000' }
 Write-Host "[webapi] 启动 uvicorn agentboard.api:app on 127.0.0.1:$Port"
+$env:PYTHONPATH = $AppRoot
 & "$Venv\Scripts\python.exe" -m uvicorn agentboard.api:app --host 127.0.0.1 --port $Port

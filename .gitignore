@@ -1,6 +1,6 @@
 __pycache__/
 node_modules/
-frontend/dist/
+src/frontend/dist/
 *.pyc
 agentboard.db
 *.db
@@ -67,7 +67,7 @@ test-results/
 # 自动化并发锁（90min 过期，运行时生成，勿提交）
 .workbuddy/autodev.lock
 # 前端构建误拷入的重复子目录（static 根已含产物，browser/ 为 cp 残留）
-agentboard/web/static/browser/
+src/backend-fastapi/agentboard/web/static/browser/
 
 # ===== 2026-08-09 清理：历史误跟踪的本地产物（移除跟踪，本地保留） =====
 # 构建打包产物（dist zip/源码快照可再生成，不入源码库）
@@ -114,7 +114,7 @@ tmp/minimax/
 tmp/minimax/**
 
 # Epic 151 / Task 1296 静态包 backup（防止回退）
-agentboard/web/static.bak.*
+src/backend-fastapi/agentboard/web/static.bak.*
 
 # Epic 151 / Task 1297 临时调试脚本 / 单次性 login payload（不入仓）
 scripts/_test_debug.*
