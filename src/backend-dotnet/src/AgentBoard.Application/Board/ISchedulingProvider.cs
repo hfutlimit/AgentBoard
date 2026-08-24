@@ -9,9 +9,8 @@ namespace AgentBoard.Application.Board;
 /// Application-layer provider for the AgentSchedule / AgentRun
 /// aggregates. Stage 2 module 4 ships the four write endpoints
 /// (<c>PATCH</c> / <c>DELETE</c> schedule + <c>GET</c> / <c>POST</c>
-/// runs); the same provider may grow additional methods in module 2
-/// (Agents) — see the comment on <c>SchedulingProvider</c>
-/// for the partial-class extension point.
+/// runs). Agent registration is intentionally exposed by the separate
+/// <c>IAgentProvider</c> contract.
 ///
 /// All methods are async + cancellation-token aware to match the
 /// rest of the <c>Board</c> namespace convention. Methods return

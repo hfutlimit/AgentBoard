@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: MIT
+name: application stack check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/backend-fastapi/**'
+      - 'src/frontend/**'
+      - 'src/workers/**'
+      - 'tests/**'
+      - '.github/workflows/application-stack-check.yml'
+  pull_request:
+    paths:
+      - 'src/backend-fastapi/**'
+      - 'src/frontend/**'
+      - 'src/workers/**'
+      - 'tests/**'
+      - '.github/workflows/application-stack-check.yml'
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Install backend dependencies
+        run: python -m pip install -r src/backend-fastapi/requirements.txt
+      - name: Compile backend
+        run: python -m compileall -q src/backend-fastapi/agentboard
+      - name: Run focused backend tests
+        env:
+          AGENTBOARD_DB_URL: sqlite:///ci-agentboard.db
+          AGENTBOARD_REQUIRE_AUTH: '0'
+          PYTHONPATH: src/backend-fastapi
+        run: python -m pytest tests/test_worker_execution_records.py tests/test_run_event_contract.py tests/test_run_search.py -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: src/frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Test ProposalWorker
+        run: dotnet test src/workers/AgentBoard.ProposalWorker.Tests/AgentBoard.ProposalWorker.Tests.csproj --nologo -c Release

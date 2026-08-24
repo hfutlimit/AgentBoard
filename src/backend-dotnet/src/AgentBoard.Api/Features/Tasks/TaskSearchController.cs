@@ -22,8 +22,8 @@ public sealed class TaskSearchController : BaseController<IBoardProvider>
     [ProducesResponseType(typeof(IReadOnlyList<TaskItemDto>), 200)]
     public async Task<ActionResult<IReadOnlyList<TaskItemDto>>> Search(
         [FromQuery] string? q,
-        [FromQuery] int? projectId,
-        [FromQuery] int? storyId,
+        [FromQuery(Name = "project_id")] int? projectId,
+        [FromQuery(Name = "story_id")] int? storyId,
         [FromQuery] string? status,
         [FromQuery] string? priority,
         [FromQuery] string? assigneeId,

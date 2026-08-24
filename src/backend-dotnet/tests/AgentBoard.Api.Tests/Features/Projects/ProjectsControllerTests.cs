@@ -838,12 +838,12 @@ public sealed class ProjectsControllerTests : IClassFixture<ApiWebApplicationFac
         (await client.GetAsync($"/api/tasks/{aggregate.Task.Id}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await client.GetAsync($"/api/epics?projectId={project.Id}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await client.GetAsync($"/api/stories?epicId={aggregate.Epic.Id}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await client.GetAsync($"/api/tasks?storyId={aggregate.Story.Id}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await client.GetAsync($"/api/tasks?story_id={aggregate.Story.Id}")).StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await client.PatchAsJsonAsync($"/api/epics/{aggregate.Epic.Id}", new { title = "blocked" }))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
         (await client.DeleteAsync($"/api/stories/{aggregate.Story.Id}"))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
-        (await client.PostAsJsonAsync($"/api/tasks?storyId={aggregate.Story.Id}", new { title = "blocked" }))
+        (await client.PostAsJsonAsync($"/api/tasks?story_id={aggregate.Story.Id}", new { title = "blocked" }))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
 
         (await NewAnonymousClient().GetAsync($"/api/tasks/{aggregate.Task.Id}"))
@@ -925,5 +925,40 @@ public sealed class ProjectsControllerTests : IClassFixture<ApiWebApplicationFac
         raw.Should().Contain("/api/projects/{projectId}/sprints");
         raw.Should().Contain("/api/projects/{projectId}/export");
         raw.Should().Contain("/api/projects/{projectId}/import");
+    }
+
+    [Fact]
+    public async Task Task_List_And_Search_Use_Snake_Case_Query_Filters()
+    {
+        var project = await SeedProjectAsync("Task Query Contract");
+        var aggregate = await SeedAggregateAsync(project.Id);
+        var client = NewClient();
+
+        var list = await client.GetAsync($"/api/tasks?project_id={project.Id}");
+        list.StatusCode.Should().Be(HttpStatusCode.OK);
+        var tasks = await list.Content.ReadFromJsonAsync<IReadOnlyList<TaskItemDto>>(JsonOpts);
+        tasks.Should().ContainSingle(task => task.Id == aggregate.Task.Id);
+
+        var storyList = await client.GetAsync($"/api/tasks?story_id={aggregate.Story.Id}");
+        storyList.StatusCode.Should().Be(HttpStatusCode.OK);
+        var storyTasks = await storyList.Content.ReadFromJsonAsync<IReadOnlyList<TaskItemDto>>(JsonOpts);
+        storyTasks.Should().ContainSingle(task => task.Id == aggregate.Task.Id);
+
+        var search = await client.GetAsync($"/api/tasks/search?project_id={project.Id}");
+        search.StatusCode.Should().Be(HttpStatusCode.OK);
+        var searchedTasks = await search.Content.ReadFromJsonAsync<IReadOnlyList<TaskItemDto>>(JsonOpts);
+        searchedTasks.Should().ContainSingle(task => task.Id == aggregate.Task.Id);
+    }
+
+    [Fact]
+    public async Task Bulk_Task_Endpoints_Return_422_When_Body_Is_Missing()
+    {
+        var client = NewClient();
+
+        using var updateRequest = new HttpRequestMessage(HttpMethod.Patch, "/api/tasks/bulk");
+        (await client.SendAsync(updateRequest)).StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
+
+        using var deleteRequest = new HttpRequestMessage(HttpMethod.Delete, "/api/tasks/bulk");
+        (await client.SendAsync(deleteRequest)).StatusCode.Should().Be(HttpStatusCode.UnprocessableEntity);
     }
 }

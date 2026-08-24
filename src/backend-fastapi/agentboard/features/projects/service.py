@@ -941,6 +941,13 @@ def get_schedule_project_id(s: Session, schedule_id: int) -> int | None:
     sch = s.get(AgentSchedule, schedule_id)
     return sch.project_id if sch else None
 
+
+def get_run_project_id(s: Session, run_id: int) -> int | None:
+    run = s.get(AgentRun, run_id)
+    if not run:
+        return None
+    return get_schedule_project_id(s, run.schedule_id)
+
 # ---- 同步自 service.py ----
 def get_comment_project_id(s: Session, comment_id: int) -> int | None:
     c = s.get(Comment, comment_id)
@@ -1590,6 +1597,7 @@ def list_run_records(
     agent: str | None = None,
     status: str | None = None,
     q: str | None = None,
+    task_id: int | None = None,
     limit: int = 100,
     offset: int = 0,
     user_id: int | None = None,
@@ -1630,6 +1638,8 @@ def list_run_records(
         qry = qry.filter(func.coalesce(AgentRun.agent, AgentSchedule.agent) == agent)
     if status:
         qry = qry.filter(AgentRun.status == status)
+    if task_id is not None:
+        qry = qry.filter(AgentRun.task_id == task_id)
     if q and q.strip():
         like = f"%{q.strip()}%"
         qry = qry.filter(or_(

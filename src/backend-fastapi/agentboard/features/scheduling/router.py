@@ -8,7 +8,14 @@ Phase 5:从 api.py 拆出的 FastAPI 路由。179 个端点按 2nd path segment 
 """
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
+import threading
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request, UploadFile, File, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ...core.infrastructure.database import get_session
@@ -29,75 +36,134 @@ from ...api import agent_state_hub  # noqa: E402 — Agent 状态 WebSocket 广�
 
 router = APIRouter(tags=["scheduling"])
 
-import asyncio
-import threading
-import json
-from fastapi.responses import StreamingResponse
+log = logging.getLogger("agentboard.features.scheduling.router")
+
+class RunEventSubscription:
+    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
+        self.loop = loop
+        self.queue: asyncio.Queue[dict] = asyncio.Queue()
+
 
 class RunEventHub:
     def __init__(self):
         self._subs = {}
         self._lock = threading.Lock()
 
-    def subscribe(self, run_id: int):
-        q = asyncio.Queue()
+    def subscribe(self, run_id: int) -> RunEventSubscription:
+        subscription = RunEventSubscription(asyncio.get_running_loop())
         with self._lock:
             if run_id not in self._subs:
                 self._subs[run_id] = set()
-            self._subs[run_id].add(q)
-        return q
+            self._subs[run_id].add(subscription)
+        return subscription
 
-    def unsubscribe(self, run_id: int, q):
+    def unsubscribe(self, run_id: int, subscription: RunEventSubscription) -> None:
         with self._lock:
             if run_id in self._subs:
-                self._subs[run_id].discard(q)
+                self._subs[run_id].discard(subscription)
                 if not self._subs[run_id]:
                     del self._subs[run_id]
 
-    def broadcast(self, run_id: int, event: dict):
-        data = json.dumps(event, ensure_ascii=False)
+    def broadcast(self, run_id: int, event: dict) -> None:
         with self._lock:
             subs = list(self._subs.get(run_id, []))
-        for q in subs:
+        for subscription in subs:
             try:
-                q.put_nowait(data)
-            except Exception:
-                pass
+                subscription.loop.call_soon_threadsafe(
+                    subscription.queue.put_nowait, dict(event),
+                )
+            except RuntimeError as exc:
+                log.debug("run event subscriber is no longer active: %s", exc)
+                self.unsubscribe(run_id, subscription)
 
 run_event_hub = RunEventHub()
 
-from pydantic import BaseModel
 class RunEventIn(BaseModel):
     event_type: str
     payload: dict
 
+def _decode_event_payload(payload: str | dict) -> str | dict:
+    if not isinstance(payload, str):
+        return payload
+    try:
+        return json.loads(payload)
+    except json.JSONDecodeError:
+        return payload
+
+
+def _event_to_wire(event) -> dict:
+    return {
+        "id": event.id,
+        "run_id": event.run_id,
+        "event_type": event.event_type,
+        "payload": _decode_event_payload(event.payload),
+        "created_at": event.created_at.isoformat(),
+    }
+
+
+def _format_sse(event: dict) -> str:
+    event_type = str(event.get("event_type") or "message").replace("\r", " ").replace("\n", " ")
+    return (
+        f"id: {event['id']}\n"
+        f"event: {event_type}\n"
+        f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+    )
+
+
 @router.post("/api/agent-runs/{run_id}/events", status_code=201)
-def create_run_event_endpoint(run_id: int, body: RunEventIn, s: Session = Depends(get_session)):
-    run_event = service.create_run_event(s, run_id=run_id, event_type=body.event_type, payload=body.payload)
-    payload_dict = {"id": run_event.id, "run_id": run_event.run_id, "event_type": run_event.event_type, "payload": run_event.payload, "created_at": run_event.created_at.isoformat()}
-    run_event_hub.broadcast(run_id, payload_dict)
-    return payload_dict
+def create_run_event_endpoint(
+    run_id: int,
+    body: RunEventIn,
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    api_helpers._current_user(authorization, s, required_permission="api:write")
+    try:
+        run_event = service.create_run_event(
+            s, run_id=run_id, event_type=body.event_type, payload=body.payload,
+        )
+    except service.NotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    payload = _event_to_wire(run_event)
+    run_event_hub.broadcast(run_id, payload)
+    return payload
 
 
 @router.get("/api/agent-runs/{run_id}/events/stream")
-async def stream_run_events(run_id: int, request: Request, s: Session = Depends(get_session)):
-    q = run_event_hub.subscribe(run_id)
+async def stream_run_events(
+    run_id: int,
+    request: Request,
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    api_helpers._current_user(authorization, s, required_permission="api:read")
+    api_helpers._need(service.get_run(s, run_id), "run")
+    try:
+        last_event_id = max(0, int(request.headers.get("last-event-id", "0")))
+    except ValueError:
+        last_event_id = 0
+    subscription = run_event_hub.subscribe(run_id)
     async def event_generator():
         try:
-            events = service.list_run_events(s, run_id=run_id, limit=1000)
+            events = service.list_run_events(s, run_id=run_id, after_id=last_event_id)
+            replay_high_watermark = last_event_id
             for ev in events:
-                payload = {"id": ev.id, "run_id": ev.run_id, "event_type": ev.event_type, "payload": ev.payload, "created_at": ev.created_at.isoformat()}
-                yield f"data: {json.dumps(payload)}\n\n"
+                payload = _event_to_wire(ev)
+                replay_high_watermark = max(replay_high_watermark, payload["id"])
+                yield _format_sse(payload)
             while True:
                 if await request.is_disconnected():
                     break
                 try:
-                    data = await asyncio.wait_for(q.get(), timeout=15)
-                    yield f"data: {data}\n\n"
+                    data = await asyncio.wait_for(subscription.queue.get(), timeout=15)
+                    if data["id"] <= replay_high_watermark:
+                        continue
+                    replay_high_watermark = data["id"]
+                    yield _format_sse(data)
                 except asyncio.TimeoutError:
                     yield ": ping\n\n"
         finally:
-            run_event_hub.unsubscribe(run_id, q)
+            run_event_hub.unsubscribe(run_id, subscription)
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
@@ -284,6 +350,21 @@ def list_run_records_api(
         )
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
+
+
+@router.get("/api/tasks/{task_id}/runs")
+def list_task_runs_api(
+    task_id: int,
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    s: Session = Depends(get_session),
+    authorization: str | None = Header(None),
+):
+    uid = api_helpers._current_user(authorization, s, required_permission="api:read").id
+    api_helpers._need(service.get_task(s, task_id), "task")
+    return service.list_run_records(
+        task_id=task_id, limit=limit, offset=offset, user_id=uid, s=s,
+    )
 
 
 # ---------- Sprint ----------

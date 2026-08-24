@@ -302,6 +302,9 @@ def _resolve_project_id_from_request_with_session(request: Request, s: Session) 
         m = re.match(r"^/api/schedules/(\d+)", path)
         if m:
             return service.get_schedule_project_id(s, int(m.group(1)))
+        m = re.match(r"^/api/(?:runs|agent-runs)/(\d+)", path)
+        if m:
+            return service.get_run_project_id(s, int(m.group(1)))
         m = re.match(r"^/api/comments/(\d+)", path)
         if m:
             return service.get_comment_project_id(s, int(m.group(1)))

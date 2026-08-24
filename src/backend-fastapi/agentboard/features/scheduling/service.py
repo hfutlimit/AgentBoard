@@ -182,14 +182,28 @@ def create_run_event(s: Session, run_id: int, event_type: str, payload: dict) ->
     run = s.get(AgentRun, run_id)
     if not run:
         raise NotFound(f"run {run_id} not found")
-    event = RunEvent(run_id=run_id, event_type=event_type, payload=json.dumps(payload))
+    event = RunEvent(
+        run_id=run_id,
+        event_type=event_type,
+        payload=json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+    )
     s.add(event)
     _commit(s)
     s.refresh(event)
     return event
 
-def list_run_events(s: Session, run_id: int, limit: int | None = None, offset: int = 0):
-    q = s.query(RunEvent).filter(RunEvent.run_id == run_id).order_by(RunEvent.created_at.asc(), RunEvent.id.asc())
+def list_run_events(
+    s: Session,
+    run_id: int,
+    limit: int | None = None,
+    offset: int = 0,
+    after_id: int = 0,
+):
+    q = (
+        s.query(RunEvent)
+        .filter(RunEvent.run_id == run_id, RunEvent.id > after_id)
+        .order_by(RunEvent.id.asc())
+    )
     return _paginate(q, limit, offset).all()
 
 def claim_lease(s: Session, run_id: int, worker_id: str, ttl_seconds: int = 60) -> bool:

@@ -691,14 +691,21 @@ def get_dependencies(tid: int, s: Session = Depends(get_session)):
 
 
 @router.get("/api/tasks/{tid}/review-context")
-def get_task_review_context(tid: int, s: Session = Depends(get_session)):
+def get_task_review_context(
+    tid: int,
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    api_helpers._current_user(authorization, s, required_permission="api:read")
     task = service.get_task(s, tid)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
     # 获取任务及附属 PR Diff
     context = {
         "task": task.to_dict(),
-        "pr_diff": task.description if "diff" in (task.description or "").lower() else "No PR diff provided."
+        "pr_diff": None,
+        "pr_diff_available": False,
+        "pr_diff_source": None,
     }
     # 向上追溯 Proposal Specs
     if task.story_id:

@@ -9,13 +9,10 @@ namespace AgentBoard.Application.Scheduling;
 /// <c>/api/agents*</c> router family (see
 /// <c>agentboard/features/admin/router.py::agents_*</c>).
 ///
-/// Note on the shared name with the Schedule module (Stage 2 module 4):
-/// this provider is intentionally the Agents-only surface. If a future
-/// Schedules module also defines <c>ISchedulingProvider</c>, the root
-/// session can reconcile via a partial-class extension or a dedicated
-/// <c>IAgentScheduleProvider</c> wrapper.
+/// This provider is intentionally the Agents-only surface. Schedule and
+/// AgentRun operations use the separate board scheduling contract.
 /// </summary>
-public interface ISchedulingProvider : IProvider
+public interface IAgentProvider : IProvider
 {
     /// <summary>List all registered agents (enabled and disabled).</summary>
     Task<IReadOnlyList<AgentDto>> ListAgentsAsync(CancellationToken ct = default);

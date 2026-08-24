@@ -28,7 +28,8 @@ public sealed class TasksController : BaseController<IBoardProvider>
 	[HttpGet]
 	[ProducesResponseType(typeof(IReadOnlyList<TaskItemDto>), 200)]
 	public async Task<ActionResult<IReadOnlyList<TaskItemDto>>> List(
-		[FromQuery] int? projectId, [FromQuery] int? storyId, CancellationToken ct) =>
+		[FromQuery(Name = "project_id")] int? projectId,
+		[FromQuery(Name = "story_id")] int? storyId, CancellationToken ct) =>
 		Ok(await Provider.ListTasksAsync(projectId, storyId, ct));
 
 	[HttpGet("{id:int}")]
@@ -45,7 +46,7 @@ public sealed class TasksController : BaseController<IBoardProvider>
 	[ProducesResponseType(typeof(ApiError), 404)]
 	[ProducesResponseType(typeof(ApiError), 422)]
 	public async Task<ActionResult<TaskItemDto>> Create(
-		[FromQuery] int storyId,
+		[FromQuery(Name = "story_id")] int storyId,
 		[FromBody] TaskCreateRequest body,
 		CancellationToken ct)
 	{
@@ -96,9 +97,11 @@ public sealed class TasksController : BaseController<IBoardProvider>
 	[ProducesResponseType(typeof(IReadOnlyList<TaskItemDto>), 200)]
 	[ProducesResponseType(typeof(ApiError), 422)]
 	public async Task<ActionResult<IReadOnlyList<TaskItemDto>>> BulkUpdate(
-		[FromBody] BulkTaskUpdateRequest body,
+		[FromBody] BulkTaskUpdateRequest? body,
 		CancellationToken ct)
 	{
+		if (body is null || body.TaskIds is null)
+			return UnprocessableEntity(new ApiError("task_ids is required and must not be empty"));
 		var result = await Provider.BulkUpdateTasksAsync(body.TaskIds, body.Status, body.Priority, body.AssigneeId, body.DueDate, ct);
 		return Ok(result);
 	}
@@ -107,9 +110,11 @@ public sealed class TasksController : BaseController<IBoardProvider>
 	[ProducesResponseType(200)]
 	[ProducesResponseType(typeof(ApiError), 422)]
 	public async Task<IActionResult> BulkDelete(
-		[FromBody] BulkTaskUpdateRequest body,
+		[FromBody] BulkTaskUpdateRequest? body,
 		CancellationToken ct)
 	{
+		if (body is null || body.TaskIds is null)
+			return UnprocessableEntity(new ApiError("task_ids is required and must not be empty"));
 		var count = await Provider.BulkDeleteTasksAsync(body.TaskIds, ct);
 		return Ok(new { deleted = count });
 	}

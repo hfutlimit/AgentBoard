@@ -1,7 +1,17 @@
 
-import { OnDestroy, ChangeDetectorRef, Input, OnInit } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { ChangeDetectorRef, Component, Input, OnDestroy, OnInit } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
 import { ApiService } from '../api.service';
 import { AgentRun } from '../models';
+
+interface RunEvent {
+  id: number;
+  run_id: number;
+  event_type: string;
+  payload: unknown;
+  created_at: string;
+}
 
 @Component({
   selector: 'app-agent-run-stream',
@@ -37,45 +47,52 @@ import { AgentRun } from '../models';
 export class AgentRunStreamComponent implements OnInit, OnDestroy {
   @Input() taskId?: number;
   runs: AgentRun[] = [];
-  eventsByRun: { [runId: number]: any[] } = {};
-  private eventSources: any[] = [];
+  eventsByRun: { [runId: number]: RunEvent[] } = {};
+  private readonly streamControllers: AbortController[] = [];
 
   constructor(private api: ApiService, private cdr: ChangeDetectorRef) {}
 
-  ngOnInit() {
-    if (this.taskId) {
-      // Note: searchRuns doesn't exist on ApiService in the way I expect? Let's check api.service.ts
-      // actually, ApiService has `searchRuns(params)`. But wait, in api.service.ts:
-      // `searchRuns(params?: any): Promise<AgentRun[]> { return this.request('GET', '/api/search/runs', undefined, params); }`
-      // Wait, let's just use `fetch` if searchRuns doesn't work.
-      const url = `${this.api.baseUrl}/api/search/runs?task_id=${this.taskId}`;
-      fetch(url).then(r => r.json()).then(data => {
-        const runs = Array.isArray(data) ? data : (data.items || []);
-        this.runs = runs;
-        for (const run of runs) {
-          if (run.status === 'running' || run.status === 'pending') {
-            const es = this.api.listenRunEvents(run.id);
-            es.onmessage = (event) => {
-              const evtData = JSON.parse(event.data);
-              if (!this.eventsByRun[run.id]) this.eventsByRun[run.id] = [];
-              this.eventsByRun[run.id].push(evtData);
-              this.cdr.detectChanges();
-            };
-            this.eventSources.push(es);
-          }
+  ngOnInit(): void {
+    void this.loadRuns();
+  }
+
+  private async loadRuns(): Promise<void> {
+    if (!this.taskId) return;
+    try {
+      const result = await firstValueFrom(this.api.listTaskRuns(this.taskId));
+      this.runs = result.items || [];
+      for (const run of this.runs) {
+        if (run.status === 'running' || run.status === 'pending') {
+          void this.streamRun(run.id);
         }
-        this.cdr.detectChanges();
-      });
+      }
+      this.cdr.detectChanges();
+    } catch {
+      this.runs = [];
     }
   }
 
-  ngOnDestroy() {
-    this.eventSources.forEach(es => es.close());
+  private async streamRun(runId: number): Promise<void> {
+    const controller = new AbortController();
+    this.streamControllers.push(controller);
+    try {
+      await this.api.streamRunEvents(runId, event => {
+        const runEvent = event as unknown as RunEvent;
+        if (!this.eventsByRun[runId]) this.eventsByRun[runId] = [];
+        this.eventsByRun[runId].push(runEvent);
+        this.cdr.detectChanges();
+      }, controller.signal);
+    } catch {
+      if (!controller.signal.aborted) this.cdr.detectChanges();
+    }
+  }
+
+  ngOnDestroy(): void {
+    this.streamControllers.forEach(controller => controller.abort());
   }
 }
 
-import { CommonModule } from '@angular/common';
-import { Component, ViewEncapsulation, inject } from '@angular/core';
+import { ViewEncapsulation, inject } from '@angular/core';
 import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
 import { ProjectDataService } from '../services/project-data.service';
 

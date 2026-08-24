@@ -238,9 +238,53 @@ export const OFFLINE_QUEUE_FLUSH_EVENT = 'agentboard:flush-offline-queue';
 
 @Injectable({ providedIn: 'root' })
 export class ApiService {
-  listenRunEvents(runId: number): EventSource {
-    const url = `${this.baseUrl}/api/agent-runs/${runId}/events/stream`;
-    return new EventSource(url);
+  listTaskRuns(taskId: number) {
+    return this.request<{ items: AgentRun[]; total: number }>('GET', `/api/tasks/${taskId}/runs`);
+  }
+
+  async streamRunEvents(
+    runId: number,
+    onEvent: (event: Record<string, unknown>) => void,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    const token = localStorage.getItem('agentboard_token');
+    const headers: Record<string, string> = { Accept: 'text/event-stream' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const response = await fetch(`${this.baseUrl}/api/agent-runs/${runId}/events/stream`, {
+      headers,
+      signal,
+    });
+    if (!response.ok) {
+      throw new Error(`Run event stream failed: HTTP ${response.status}`);
+    }
+    if (!response.body) return;
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    const consume = (frame: string): void => {
+      const data = frame
+        .split('\n')
+        .filter(line => line.startsWith('data:'))
+        .map(line => line.slice(5).trimStart())
+        .join('\n');
+      if (!data) return;
+      onEvent(JSON.parse(data) as Record<string, unknown>);
+    };
+
+    while (true) {
+      const { value, done } = await reader.read();
+      buffer += decoder.decode(value || new Uint8Array(), { stream: !done }).replace(/\r\n/g, '\n');
+      let separator = buffer.indexOf('\n\n');
+      while (separator >= 0) {
+        consume(buffer.slice(0, separator));
+        buffer = buffer.slice(separator + 2);
+        separator = buffer.indexOf('\n\n');
+      }
+      if (done) break;
+    }
+    if (buffer.trim()) consume(buffer);
   }
 
   // Task 261: local dev hot-reload support — resolveApiBase() returns a relative

@@ -97,6 +97,19 @@ def test_enriched_records_support_status_and_text_search():
     assert item["error_message"] == "model timeout"
 
 
+def test_enriched_records_filter_by_task_id():
+    session, run_a, run_b = _seed_session()
+    try:
+        task_id = session.query(Task).filter(Task.title == "Review worker output").one().id
+        result = service.list_run_records(session, task_id=task_id, limit=20)
+    finally:
+        session.close()
+
+    assert result["total"] == 1
+    assert result["items"][0]["id"] == run_a
+    assert result["items"][0]["id"] != run_b
+
+
 def test_create_run_snapshots_agent_and_model():
     session, _, _ = _seed_session()
     try:

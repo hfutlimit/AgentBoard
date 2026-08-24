@@ -465,6 +465,7 @@ def list_run_records(
     agent: str | None = None,
     status: str | None = None,
     q: str | None = None,
+    task_id: int | None = None,
     limit: int = 100,
     offset: int = 0,
     user_id: int | None = None,
@@ -505,6 +506,8 @@ def list_run_records(
         qry = qry.filter(func.coalesce(AgentRun.agent, AgentSchedule.agent) == agent)
     if status:
         qry = qry.filter(AgentRun.status == status)
+    if task_id is not None:
+        qry = qry.filter(AgentRun.task_id == task_id)
     if q and q.strip():
         like = f"%{q.strip()}%"
         qry = qry.filter(or_(
@@ -3046,6 +3049,7 @@ from ...features.projects.service import (  # noqa: F401,F403
     add_project_member, list_project_members, remove_project_member,
     update_project_member_role, get_project_member,
     get_epic_project_id, get_story_project_id, get_sprint_project_id,
+    get_run_project_id,
     get_project_stats,
     # Story 137：项目中心
     archive_project, unarchive_project, bulk_archive, bulk_unarchive,
