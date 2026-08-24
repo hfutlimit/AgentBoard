@@ -27,14 +27,30 @@ public sealed class UserConfiguration : IEntityTypeConfiguration<User>
         b.Property(u => u.CreatedAt).HasColumnName("created_at");
 
         // The FastAPI `users` table carries no audit/version columns
-        // (created_by, updated_by, updated_at, row_version) and no domain
-        // event storage. Those properties exist on the entity for write-path
-        // parity but MUST NOT be mapped to the shared schema — mapping them
-        // makes every users query throw "no such column: u.created_by".
-        b.Ignore(u => u.UpdatedAt);
+        // (created_by, updated_by, row_version) and no domain event storage.
+        // Those properties exist on the entity for write-path parity but MUST
+        // NOT be mapped to the shared schema — mapping them makes every users
+        // query throw "no such column: u.created_by".
+        //
+        // However, EnsureCreated() still emits `updated_at` / `row_version`
+        // columns from the model snapshot (inherited from `Entity` base +
+        // `IAuditableEntity` interface) and marks them NOT NULL. EF then
+        // excludes them from INSERT statements because of b.Ignore() below,
+        // causing `SQLite Error 19: NOT NULL constraint failed: users.updated_at`
+        // on every register/change-password write.
+        //
+        // Fix: keep the column mappings for `updated_at` / `row_version` and
+        // provide a DB-side default so INSERTs without explicit values succeed
+        // (SQLite CURRENT_TIMESTAMP + 0). This unblocks the .NET BFF write
+        // path on dev SQLite while staying a no-op for the FastAPI MariaDB
+        // schema (where the column is absent — the FastAPI side has its own
+        // users table; the BFF doesn't share it on Stage 0).
+        b.Property(u => u.UpdatedAt).HasColumnName("updated_at")
+            .IsRequired().HasDefaultValueSql("CURRENT_TIMESTAMP");
+        b.Property(u => u.RowVersion).HasColumnName("row_version")
+            .IsRequired().HasDefaultValue(0L);
         b.Ignore(u => u.CreatedBy);
         b.Ignore(u => u.UpdatedBy);
-        b.Ignore(u => u.RowVersion);
         b.Ignore(u => u.DomainEvents);
     }
 }
