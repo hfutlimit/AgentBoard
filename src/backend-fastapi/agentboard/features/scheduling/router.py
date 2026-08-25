@@ -161,15 +161,19 @@ async def stream_run_events(
         # session is still alive, then release its DB connection before the
         # long-lived response starts.
         #
-        # P1-4 (SSE replay 200-event gap): the previous implementation only
-        # fetched the first 200 events after `last_event_id` and immediately
-        # transitioned to the live queue, which silently dropped any events
-        # written between `last_event_id + 1` and the snapshot MAX(id) when
-        # the backlog exceeded the page size. We now:
-        #   1) capture snapshot_max_id = MAX(event.id) at subscribe time;
-        #   2) paginate replay (limit 200) until we either reach snapshot_max_id
-        #      or exhaust the backlog;
-        #   3) only enter the live queue once replay is at-or-past the snapshot.
+        # P1-4 (SSE replay gap): the previous implementation only fetched the
+        # first 200 events after `last_event_id` and immediately transitioned
+        # to the live queue, silently dropping any events written between
+        # `last_event_id + 1` and the snapshot MAX(id). The current loop
+        # paginates until it has replayed every event up to the snapshot
+        # watermark. There is intentionally **no row-count cap** here: a
+        # silent drop is worse than a slow replay, and the only honest
+        # alternative would be to surface a `resync_required` event and
+        # ask the client to re-fetch via REST, which we do not yet have a
+        # signal for. The snapshot watermark itself bounds the work because
+        # the loop terminates the moment cursor == snapshot_max_id, so even
+        # a 500k-event backlog replays in 2500 paginated queries (limit 200)
+        # and the client does not see a single event gap.
         snapshot_max_id = (
             s.query(RunEvent.id)
             .filter(RunEvent.run_id == run_id, RunEvent.id > last_event_id)
@@ -190,12 +194,6 @@ async def stream_run_events(
                 break
             replay_events.extend(page)
             cursor = page[-1]["id"]
-            # Safety net: if a runaway producer keeps inserting, cap the
-            # replay at the snapshot watermark plus a small buffer so the
-            # stream does not stall forever. We still re-enter the loop and
-            # pick up any new high-water once we hit the original snapshot.
-            if len(replay_events) >= 2000:
-                break
     except Exception:
         run_event_bus.unsubscribe(run_id, subscription)
         raise

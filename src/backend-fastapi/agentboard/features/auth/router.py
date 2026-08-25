@@ -128,7 +128,7 @@ def update_api_key(body: ApiKeyPatch, api_key_id: int, authorization: str | None
 @router.delete("/api/api-keys/{api_key_id}", status_code=204)
 def revoke_api_key(api_key_id: int, authorization: str | None = Header(None), s: Session = Depends(get_session)):
     user = api_helpers._current_user(authorization, s)
-    if not service.revoke_api_key(s, user_id=user.id, api_key_id=api_key_id):
+    if not service.revoke_api_key(s, user_id=user.id, key_id=api_key_id):
         raise HTTPException(status_code=404, detail="api key not found")
 
 

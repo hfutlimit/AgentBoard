@@ -35,6 +35,11 @@ class ApiKey(Base):
     key_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     permissions: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # P0 audit-trail protection: revoked_at is set instead of physically
+    # deleting the key. agent_run_events.api_key_id has ON DELETE RESTRICT
+    # (migration 9k0l1m2n3o4p) so we can never destroy audit history by
+    # accident; the user-facing action is soft-revocation here.
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

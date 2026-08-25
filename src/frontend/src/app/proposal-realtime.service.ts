@@ -13,13 +13,17 @@ export interface ProposalQuestionRaised {
 /**
  * Connects the goal-mode UI to the .NET BFF SignalR hub.
  *
- * P1-5 + P1-9: the hub now exposes `JoinProject` / `LeaveProject` so the
- * server only forwards `ProposalQuestionRaised` to the `project:{id}`
- * group whose members the caller has verified project membership for.
- * Browsers start with no subscriptions, and we lazy-join whenever the
- * app navigates into a project view. We also bail out early when no
- * auth token is present so anonymous SPA sessions do not open a
- * no-op SignalR handshake.
+ * P1-5 / P1-9 / P2: subscription state is split into two sets so a
+ * mid-reconnect ``joinProject`` call does not poison the desired state.
+ *  - ``desiredProjects`` — what the app currently wants to be subscribed to.
+ *  - ``joinedProjects`` — what the server has actually confirmed.
+ * During a re-connect window, ``joinProject`` keeps the id in
+ * ``desiredProjects`` even if the hub invoke throws; ``onreconnected``
+ * replays the desired set against the (newly re-established) connection
+ * and only then promotes the id into ``joinedProjects``. This avoids
+ * the previous race where a failed invoke would delete the project
+ * from the only tracking set and the reconnect handler would never
+ * re-subscribe.
  */
 @Injectable({ providedIn: 'root' })
 export class ProposalRealtimeService {
@@ -28,6 +32,7 @@ export class ProposalRealtimeService {
   private connection?: import('@microsoft/signalr').HubConnection;
   private starting?: Promise<void>;
   private stopRequested = false;
+  private readonly desiredProjects = new Set<number>();
   private readonly joinedProjects = new Set<number>();
 
   start(): void {
@@ -43,31 +48,43 @@ export class ProposalRealtimeService {
   }
 
   /**
-   * Subscribe to proposal question events for a single project. No-op
-   * until the connection is established; rejects if the server denies
-   * project membership (the hub raises an error which propagates here).
+   * Mark a project as "wanted" and try to join the corresponding
+   * SignalR group. The project is added to ``desiredProjects``
+   * immediately so a later ``onreconnected`` will always pick it up,
+   * even if the live ``invoke`` call fails (e.g. the connection is
+   * mid-reconnect).
    */
   async joinProject(projectId: number): Promise<void> {
-    if (this.joinedProjects.has(projectId)) return;
+    if (this.desiredProjects.has(projectId)) {
+      // Already wanted. If we are joined too there is nothing to do.
+      if (this.joinedProjects.has(projectId)) return;
+    } else {
+      this.desiredProjects.add(projectId);
+    }
     if (!this.connection) {
-      // Defer: the app will retry once `start()` resolves.
-      this.joinedProjects.add(projectId);
+      // Defer: the app will retry once `start()` resolves via the
+      // flush loop inside connect() / onreconnected().
       void this.starting?.then(() => this.joinProject(projectId));
+      return;
+    }
+    if (this.connection.state !== 'Connected') {
+      // The connection is alive (we have a reference) but not currently
+      // Connected — leave the id in desiredProjects and wait for
+      // onreconnected to drive the actual join.
       return;
     }
     try {
       await this.connection.invoke('JoinProject', projectId);
       this.joinedProjects.add(projectId);
-    } catch (error) {
-      // Drop the speculative join so the next attempt re-tries cleanly.
-      this.joinedProjects.delete(projectId);
-      throw error;
+    } catch {
+      // Leave desiredProjects intact. onreconnected will retry.
     }
   }
 
   async leaveProject(projectId: number): Promise<void> {
-    if (!this.joinedProjects.delete(projectId)) return;
-    if (!this.connection) return;
+    if (!this.desiredProjects.delete(projectId)) return;
+    this.joinedProjects.delete(projectId);
+    if (!this.connection || this.connection.state !== 'Connected') return;
     try {
       await this.connection.invoke('LeaveProject', projectId);
     } catch {
@@ -91,21 +108,34 @@ export class ProposalRealtimeService {
     connection.on('ProposalQuestionRaised', (payload: ProposalQuestionRaised) => {
       this.questionRaisedSubject.next(payload);
     });
-    // On reconnect the server has dropped every group, so re-join the
-    // projects we previously subscribed to.
-    connection.onreconnected(() => {
-      for (const id of this.joinedProjects) {
-        void connection.invoke('JoinProject', id).catch(() => undefined);
+    // P2: on (re)connect, the server has dropped every group; replay
+    // the desired set and only then promote the ids into joinedProjects.
+    // The handler also fires after the very first ``connection.start()``,
+    // so it doubles as the flush for any joinProject calls that were
+    // queued while the connection was being established.
+    const flushDesired = async (): Promise<void> => {
+      // Clear joinedProjects: nothing is currently joined on the new
+      // server-side connection. desiredProjects is the source of truth.
+      this.joinedProjects.clear();
+      for (const id of this.desiredProjects) {
+        try {
+          await connection.invoke('JoinProject', id);
+          this.joinedProjects.add(id);
+        } catch {
+          // Network blip; the next onreconnected tick will retry.
+        }
       }
+    };
+    connection.onreconnected(() => {
+      void flushDesired();
     });
     this.connection = connection;
     try {
       await connection.start();
       if (this.stopRequested) await this.stop();
-      // Flush any join calls that were queued before the connection came up.
-      for (const id of this.joinedProjects) {
-        await connection.invoke('JoinProject', id).catch(() => undefined);
-      }
+      // First connect also needs the flush so projects the app called
+      // joinProject for before the connection was up end up subscribed.
+      await flushDesired();
     } catch (error) {
       if (this.connection === connection) this.connection = undefined;
       await connection.stop().catch(() => undefined);
@@ -115,6 +145,7 @@ export class ProposalRealtimeService {
 
   async stop(): Promise<void> {
     this.stopRequested = true;
+    this.desiredProjects.clear();
     this.joinedProjects.clear();
     const connection = this.connection;
     this.connection = undefined;

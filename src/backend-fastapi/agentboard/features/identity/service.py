@@ -143,11 +143,22 @@ def list_api_keys(s: Session, user_id: int) -> list[ApiKey]:
 
 
 def revoke_api_key(s: Session, key_id: int, user_id: int) -> bool:
-    """撤销(删除)API Key,只能删自己的。返回是否成功。"""
+    """Soft-revoke an API key. The row is preserved so existing
+    ``agent_run_events.api_key_id`` foreign keys remain valid (that FK
+    is ``ON DELETE RESTRICT`` as of migration 9k0l1m2n3o4p).
+
+    Authentication: ``lookup_api_key_by_hash`` already filters on
+    ``api_key.enabled``, so a revoked key cannot be used to mint new
+    requests. Audit reads continue to see the actor identity.
+    """
     k = s.get(ApiKey, key_id)
     if not k or k.user_id != user_id:
         return False
-    s.delete(k)
+    if k.revoked_at is not None:
+        # Idempotent: re-revoking an already revoked key is a no-op.
+        return True
+    k.enabled = False
+    k.revoked_at = models._now()
     _commit(s)
     return True
 

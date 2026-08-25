@@ -44,9 +44,17 @@ class InProcessRunEventBus:
     """Single-process implementation. State lives in memory; broadcasts
     are dispatched to each subscriber's loop via ``call_soon_threadsafe``.
 
-    Suitable for development and the current single-replica deployments.
-    Replace with a broker-backed bus once multiple FastAPI replicas
-    need to share live event traffic.
+    Concurrency contract:
+    - ``_lock`` guards the ``_subs`` dictionary exclusively. It is held
+      only for the duration of dict read / write, never across an
+      ``asyncio`` cross-loop call. That avoids the (hypothetical)
+      re-entrant deadlock a future refactor could introduce if it
+      started calling ``unsubscribe`` from inside a ``with self._lock``
+      block while a subscriber's loop was already closed.
+    - ``broadcast`` collects "dead" subscribers during the dispatch
+      phase (lock not held) and re-acquires the lock once at the end
+      to evict them. The dead-set is only used to skip unsubscribes
+      that have no observable effect.
     """
 
     def __init__(self) -> None:
@@ -69,13 +77,31 @@ class InProcessRunEventBus:
                     del self._subs[run_id]
 
     def broadcast(self, run_id: int, event: dict) -> None:
+        # Phase 1: snapshot the subscriber set under the lock. After
+        # this block, the dict is free to mutate and the snapshot is
+        # stable.
         with self._lock:
             subs = list(self._subs.get(run_id, []))
+
+        # Phase 2: dispatch to each subscriber's loop. Any RuntimeError
+        # means the loop is closed and the subscriber is no longer
+        # reachable; collect them so phase 3 can drop them.
+        dead: list[RunEventSubscription] = []
         for subscription in subs:
             try:
                 subscription.loop.call_soon_threadsafe(
                     subscription.queue.put_nowait, dict(event),
                 )
             except RuntimeError:
-                # Loop already closed — drop the subscriber.
-                self.unsubscribe(run_id, subscription)
+                dead.append(subscription)
+
+        # Phase 3: drop the dead subscribers. The lock is brief and
+        # only held across dict edits, never across a call_soon.
+        if dead:
+            with self._lock:
+                bucket = self._subs.get(run_id)
+                if bucket is not None:
+                    for subscription in dead:
+                        bucket.discard(subscription)
+                    if not bucket:
+                        del self._subs[run_id]

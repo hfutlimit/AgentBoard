@@ -268,3 +268,53 @@ def test_sse_stream_replays_full_backlog_past_page_size(seeded):
     # 350 seeded + 3 fixture events = 353; verify all ids 1..353 were emitted.
     for i in range(1, 354):
         assert f"id: {i}\n" in text, f"missing event id={i} in SSE replay"
+
+
+def test_sse_stream_replays_full_backlog_past_2000_cap(seeded):
+    """P1-4 follow-up: an earlier version added a 2000-event safety cap
+    that could itself cause the same silent-drop bug we just fixed. With
+    the cap removed, every event between the client's Last-Event-ID and
+    the snapshot MAX(id) must be replayed even when the backlog is
+    thousands of rows deep.
+    """
+    from agentboard.features.scheduling.models import RunEvent
+
+    run_id = seeded["run_id"]
+    # Seed 5000 events so the backlog is well past the old cap.
+    with SessionLocal() as session:
+        for i in range(5000):
+            session.add(RunEvent(
+                run_id=run_id,
+                event_type="agent.output",
+                payload=f'{{"i":{i}}}',
+            ))
+        session.commit()
+
+    from agentboard.features.scheduling.router import stream_run_events
+
+    class ReplayRequest:
+        headers = {}  # last-event-id unset → replay everything
+
+        async def is_disconnected(self):
+            return True
+
+    async def collect_replay():
+        with SessionLocal() as session:
+            response = await stream_run_events(
+                run_id,
+                ReplayRequest(),
+                authorization=_headers(seeded["owner_a"])["Authorization"],
+                s=session,
+            )
+            chunks = []
+            async for chunk in response.body_iterator:
+                chunks.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
+            return "".join(chunks)
+
+    text = asyncio.run(collect_replay())
+
+    # 5000 + 3 fixture events; the new code must replay every one.
+    # The 2001st event is exactly the row that the old 2000 cap would
+    # have dropped, so we assert it is present.
+    assert f"id: 2001\n" in text, "replay dropped event id=2001 (regression of the 2000 cap bug)"
+    assert f"id: 5000\n" in text, "replay dropped last event of the 5000-event backlog"

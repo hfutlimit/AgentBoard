@@ -95,3 +95,66 @@ def test_broadcast_from_another_thread_round_trips_via_call_soon_threadsafe():
             bus.unsubscribe(11, sub)
 
     _run(scenario())
+
+
+def test_broadcast_does_not_deadlock_when_subscriber_loop_is_closed():
+    """The bus must drop a dead subscriber (its asyncio loop has been
+    shut down) without deadlocking. A re-entrant ``threading.Lock``
+    would hang here if the implementation called ``unsubscribe`` while
+    still holding the dispatch lock. The new implementation snapshots
+    the subscriber set first, so the lock is only ever held across
+    plain dict edits.
+    """
+    import threading
+
+    bus = InProcessRunEventBus()
+
+    async def scenario():
+        # Build a subscriber whose asyncio loop has already been
+        # closed. We spin up a private loop in a worker thread, run
+        # a no-op coroutine, then close it from the worker thread.
+        # After the worker thread joins, ``private_loop`` is fully
+        # closed and any subsequent ``call_soon_threadsafe`` raises
+        # ``RuntimeError`` — exactly the failure mode the bus must
+        # survive.
+        holder: dict[str, asyncio.AbstractEventLoop] = {}
+
+        def worker():
+            loop = asyncio.new_event_loop()
+            try:
+                loop.run_until_complete(asyncio.sleep(0))
+            finally:
+                loop.close()
+            holder["loop"] = loop
+
+        t = threading.Thread(target=worker)
+        t.start()
+        t.join(timeout=1.0)
+        dead_sub = RunEventSubscription(holder["loop"])
+        with bus._lock:
+            bus._subs.setdefault(33, set()).add(dead_sub)
+
+        # Broadcast from yet another thread to maximise the chance of
+        # a re-entrant acquisition. The call must complete within a
+        # small budget; a deadlock would make the thread hang and
+        # ``Thread.join`` would time out (and ``is_alive()`` would still
+        # be True).
+        done = threading.Event()
+
+        def fire():
+            try:
+                bus.broadcast(33, {"id": "dead"})
+            finally:
+                done.set()
+
+        t2 = threading.Thread(target=fire)
+        t2.start()
+        t2.join(timeout=1.0)
+        assert not t2.is_alive(), "broadcast deadlocked on a closed subscriber loop"
+        assert done.is_set()
+
+        # The dead subscriber should have been evicted so the bucket
+        # for run 33 is now empty.
+        assert 33 not in bus._subs, "dead subscriber was not evicted"
+
+    _run(scenario())
