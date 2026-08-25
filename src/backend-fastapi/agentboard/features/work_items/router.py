@@ -32,6 +32,7 @@ from ...mq import (
     EVENT_STORY_REVIEW_REQUESTED,
     publish_workflow_event,
 )
+from ..scheduling.models import TaskAssignment
 
 router = APIRouter(tags=["work_items"])
 
@@ -335,6 +336,12 @@ def review_task(tid: int, body: AgentReviewIn, authorization: str | None = Heade
     try:
         before = s.get(service.Task, tid)
         before_round = (before.review_round or 0) if before is not None else 0
+        owner_agent_id = None
+        if before is not None and before.current_assignment_id is not None:
+            assignment = s.get(TaskAssignment, before.current_assignment_id)
+            if assignment is not None and assignment.agent_registry_id is not None:
+                owner = s.get(service.Agent, assignment.agent_registry_id)
+                owner_agent_id = owner.agent_id if owner is not None else None
         t = service.review_task(s, task_id=tid, reviewer_user_id=uid,
                                 verdict=body.verdict, comment=body.comment)
     except service.NotFound as e:
@@ -357,7 +364,10 @@ def review_task(tid: int, body: AgentReviewIn, authorization: str | None = Heade
         ref_id = uid
     else:
         ref_id = t.review_round
-    publish_workflow_event(event, "task", t.id, ref_id=ref_id)
+    event_kwargs = {"ref_id": ref_id}
+    if owner_agent_id and event in (EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED):
+        event_kwargs["agent_id"] = owner_agent_id
+    publish_workflow_event(event, "task", t.id, **event_kwargs)
     # Webhook 通道（Epic 122 切片 3）
     api_helpers._notify_webhooks(s, t.project_id, event,
                      {"id": t.id, "status": t.status, "reviewer_id": t.reviewer_id,
@@ -707,9 +717,21 @@ def get_task_review_context(
     task = service.get_task(s, tid)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
+    assignment = (
+        s.get(TaskAssignment, task.current_assignment_id)
+        if task.current_assignment_id is not None else None
+    )
+    owner_agent = (
+        s.get(service.Agent, assignment.agent_registry_id)
+        if assignment is not None and assignment.agent_registry_id is not None
+        else None
+    )
     # 获取任务及附属 PR Diff
     context = {
-        "task": task.to_dict(),
+        "task": service._ser(task),
+        "comments": [service._ser(c) for c in service.list_comments(s, task_id=tid)],
+        "review_round": task.review_round,
+        "owner_agent_id": owner_agent.agent_id if owner_agent is not None else None,
         "pr_diff": None,
         "pr_diff_available": False,
         "pr_diff_source": None,
@@ -717,12 +739,22 @@ def get_task_review_context(
     # 向上追溯 Proposal Specs
     if task.story_id:
         from ..projects.models import Story, Epic
-        from ..proposals.models import Proposal
+        from ..proposals.models import Proposal, ProposalTicketRequest
         story = s.get(Story, task.story_id)
         if story:
             epic = s.get(Epic, story.epic_id)
-            if epic and epic.proposal_id:
-                proposal = s.get(Proposal, epic.proposal_id)
+            proposal_id = getattr(epic, "proposal_id", None) if epic else None
+            if proposal_id is None and epic is not None:
+                request = s.query(ProposalTicketRequest).filter(
+                    ProposalTicketRequest.parent_story_id == story.id,
+                ).order_by(ProposalTicketRequest.id.desc()).first()
+                if request is None:
+                    request = s.query(ProposalTicketRequest).filter(
+                        ProposalTicketRequest.parent_epic_id == epic.id,
+                    ).order_by(ProposalTicketRequest.id.desc()).first()
+                proposal_id = request.proposal_id if request is not None else None
+            if proposal_id is not None:
+                proposal = s.get(Proposal, proposal_id)
                 if proposal:
                     context["proposal_spec"] = proposal.converged_spec or proposal.content
     return context

@@ -22,7 +22,8 @@ sys.path.insert(0, _ROOT)
 
 from agentboard import mq, worker  # noqa: E402
 from agentboard.mq import (  # noqa: E402
-    EVENT_TASK_ASSIGNED, EVENT_TASK_AVAILABLE, WorkflowMessage,
+    EVENT_TASK_ASSIGNED, EVENT_TASK_AVAILABLE, EVENT_TASK_REJECTED,
+    EVENT_TASK_REVIEW_REQUESTED, WorkflowMessage,
 )
 from agentboard.worker import (  # noqa: E402
     AgentDecision, ProposalWorker, WorkerConfig,
@@ -70,7 +71,7 @@ class _FakeClient:
 
 
 def _cfg() -> WorkerConfig:
-    return WorkerConfig(api_url="http://x", token="t", agent_cmd="x",
+    return WorkerConfig(api_url="http://x", token="t", agent_id="agent-a", agent_cmd="x",
                         agent_timeout=5)
 
 
@@ -179,6 +180,38 @@ def test_workflow_message_dispatch():
     # 未知事件 ack
     from agentboard.mq import EVENT_STORY_CREATED
     assert w.handle_workflow_message(_msg(EVENT_STORY_CREATED, 1)) is True
+
+
+def test_review_requested_invokes_reviewer_and_submits_verdict():
+    client = _FakeClient(get_responses={
+        "/api/tasks/1/review-context": {
+            "task": {"id": 1, "status": "in_review", "review_round": 0},
+            "comments": [],
+        },
+    })
+    invoker = _StubInvoker(AgentDecision(action="approve", summary="LGTM"))
+    w = _worker(client=client, invoker=invoker)
+
+    assert w.handle_workflow_message(
+        _msg(EVENT_TASK_REVIEW_REQUESTED, 1)) is True
+    assert invoker.calls == 1
+    assert ("POST", "/api/tasks/1/review") in client.calls
+
+
+def test_review_result_invokes_owner_handler():
+    client = _FakeClient(get_responses={
+        "/api/tasks/1/review-context": {
+            "task": {"id": 1, "status": "in_progress", "review_round": 1},
+            "comments": [{"content": "please fix"}],
+            "owner_agent_id": "agent-a",
+        },
+    })
+    invoker = _StubInvoker(AgentDecision(action="story_handled", summary="ack"))
+    w = _worker(client=client, invoker=invoker)
+
+    assert w.handle_workflow_message(
+        _msg(EVENT_TASK_REJECTED, 1)) is True
+    assert invoker.calls == 1
 
 
 # ===================== run_agent_mq_forever（InMemory 端到端） =====================

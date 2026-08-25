@@ -40,6 +40,7 @@ from agentboard import api, auth, mq, service, workflow_worker  # noqa: E402
 from agentboard.features.work_items import router as wi_router  # noqa: E402
 from agentboard.database import SessionLocal, init_db  # noqa: E402
 from agentboard.models import Task  # noqa: E402
+from agentboard.features.work_items.models import TaskDependency  # noqa: E402
 from agentboard.mq import (  # noqa: E402
     EVENT_TASK_READY_FOR_REVIEW, EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED,
     EVENT_TASK_REVIEW_REQUESTED, WorkflowMessage,
@@ -136,6 +137,21 @@ def test_reviewer_assignment_uses_matching_not_random_choice(seeded):
         s.rollback()
 
 
+def test_claim_rejects_unfinished_blocking_dependency(seeded):
+    pid, dev, _, _, _, sid = seeded
+    with SessionLocal() as s:
+        blocker = _make_task(s, sid, pid, title="T-blocker")
+        target = _make_task(s, sid, pid, title="T-dependent")
+        s.add(TaskDependency(task_id=target.id, depends_on_id=blocker.id,
+                             dependency_type="blocks"))
+        s.commit()
+
+        with pytest.raises(service.InvalidValue, match="blocked by dependencies"):
+            service.claim_development_task(s, target.id, user_id=dev)
+
+        s.rollback()
+
+
 def test_assign_reviewer_idempotent(seeded):
     pid, dev, rev1, _, _, sid = seeded
     with SessionLocal() as s:
@@ -210,6 +226,7 @@ def test_review_approve_sets_done_and_comment(seeded):
         t2 = service.review_task(s, task_id=t.id, reviewer_user_id=rev1,
                                  verdict="approve", comment="LGTM")
         assert t2.status == "done"
+        assert t2.status_reason == "completed"
         assert t2.review_round == 0
         # 评审意见落评论（唯一载体）
         comments = service.list_comments(s, task_id=t.id)
@@ -248,6 +265,8 @@ def test_review_reject_round_limit_blocks(seeded):
                                  verdict="reject", comment="第5轮仍未收敛")
         assert t2.status == "blocked"  # 护栏
         assert t2.review_round == service.MAX_REVIEW_ROUNDS
+        assert t2.status_reason == "pending_requirement_change"
+        assert t2.previous_status == "in_review"
         s.rollback()
 
 
@@ -372,6 +391,43 @@ def test_api_assign_and_review_full_flow(seeded):
         assert r2.status_code == 200, r2.text
         assert r2.json()["status"] == "done"
         pub.assert_called_once_with(EVENT_TASK_REVIEWED, "task", tid, ref_id=rev1)
+
+
+def test_api_review_targets_the_exact_owner_agent(seeded):
+    pid, dev, rev1, _, _, sid = seeded
+    with SessionLocal() as s:
+        owner = service.register_agent(
+            s, agent_id="s2m2-owner", name="Owner",
+            roles='["developer"]', user_id=dev,
+        )
+        owner_agent_id = owner.agent_id
+        service.agent_heartbeat(s, owner.agent_id, user_id=dev)
+        t = _make_task(s, sid, pid, title="T-owner-route")
+        service.claim_development_task(
+            s, t.id, user_id=dev, agent_registry_id=owner.id,
+        )
+        service.submit_task_for_review(s, t.id, user_id=dev)
+        service.assign_task_reviewer(s, t.id)
+        t = service.get_task(s, t.id)
+        t.reviewer_id = rev1
+        tid = t.id
+        s.commit()
+
+    c = _client()
+    context = c.get(
+        f"/api/tasks/{tid}/review-context",
+        headers={"Authorization": f"Bearer {auth.make_token(rev1)}"},
+    )
+    assert context.status_code == 200, context.text
+    assert context.json()["owner_agent_id"] == owner_agent_id
+    with mock.patch.object(wi_router, "publish_workflow_event") as pub:
+        r = c.post(
+            f"/api/tasks/{tid}/review",
+            headers={"Authorization": f"Bearer {auth.make_token(rev1)}"},
+            json={"verdict": "approve", "comment": "owner route"},
+        )
+        assert r.status_code == 200, r.text
+        assert pub.call_args.kwargs["agent_id"] == owner_agent_id
 
 
 def test_api_review_reject_broadcasts_task_rejected(seeded):
@@ -501,6 +557,18 @@ def test_task_ready_for_review_http_error_acks(seeded):
     assert w.handle_message(
         WorkflowMessage(event=EVENT_TASK_READY_FOR_REVIEW, entity_type="task",
                         entity_id=23, ref_id=4)) is True
+
+
+def test_confirm_broadcast_skips_tasks_blocked_by_dependencies(seeded):
+    client = _FakeClient(_FakeResponse(200, {"items": [
+        {"id": 41, "status": "todo", "ready": False},
+        {"id": 42, "status": "todo", "ready": True},
+    ]}))
+    w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
+    with mock.patch.object(workflow_worker.mq, "publish_workflow_event") as pub:
+        assert w._broadcast_available_tasks(4) is True
+
+    assert [call.args[2] for call in pub.call_args_list] == [42]
 
 
 class _RouteClient:

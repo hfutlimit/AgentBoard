@@ -34,6 +34,8 @@ from .config import (  # noqa: F401
     ACTION_ASK,
     ACTION_FAIL,
     ACTION_FINALIZE,
+    ACTION_REVIEW_APPROVE,
+    ACTION_REVIEW_REJECT,
     ACTION_STORY_HANDLED,
     ACTION_TICKET_CREATED,
     CLAIMABLE_STATUSES,
@@ -64,7 +66,8 @@ from .worker import ProposalWorker, _parse_dt  # noqa: F401
 
 __all__ = [
     # 常量
-    "ACTION_ASK", "ACTION_FAIL", "ACTION_FINALIZE", "ACTION_STORY_HANDLED",
+    "ACTION_ASK", "ACTION_FAIL", "ACTION_FINALIZE", "ACTION_REVIEW_APPROVE",
+    "ACTION_REVIEW_REJECT", "ACTION_STORY_HANDLED",
     "ACTION_TICKET_CREATED", "CLAIMABLE_STATUSES", "VALID_ACTIONS",
     # 异常
     "AgentInvocationError", "AgentOutputError", "WorkerError",

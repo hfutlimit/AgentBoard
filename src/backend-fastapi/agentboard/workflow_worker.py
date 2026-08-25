@@ -178,7 +178,7 @@ class WorkflowConsumer:
             return False
         claimed = 0
         for t in items:
-            if t.get("status") in ("backlog", "todo"):
+            if t.get("status") in ("backlog", "todo") and t.get("ready", True):
                 mq.publish_workflow_event(EVENT_TASK_AVAILABLE, "task", t["id"],
                                           ref_id=story_id)
                 claimed += 1

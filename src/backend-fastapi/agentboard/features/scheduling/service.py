@@ -851,7 +851,7 @@ def review_task(s: Session, *, task_id: int, reviewer_user_id: int,
                 Task.id == task_id,
                 Task.reviewer_id == reviewer_user_id,
                 Task.status == Status.IN_REVIEW,
-            ).values(status=Status.DONE)
+            ).values(status=Status.DONE, status_reason="completed")
         )
         if r.rowcount != 1:
             s.rollback()
@@ -867,7 +867,18 @@ def review_task(s: Session, *, task_id: int, reviewer_user_id: int,
                 Task.id == task_id,
                 Task.reviewer_id == reviewer_user_id,
                 Task.status == Status.IN_REVIEW,
-            ).values(review_round=new_round, status=target)
+            ).values(
+                review_round=new_round,
+                status=target,
+                status_reason=(
+                    "pending_requirement_change"
+                    if target == Status.BLOCKED else None
+                ),
+                previous_status=(
+                    str(Status.IN_REVIEW)
+                    if target == Status.BLOCKED else None
+                ),
+            )
         )
         if r.rowcount != 1:
             s.rollback()
@@ -1195,7 +1206,7 @@ def _settle_majority_approved(s: Session, entity, entity_type: str):
         r = s.execute(update(Task).where(
             Task.id == entity.id,
             Task.status == Status.IN_REVIEW,
-        ).values(status=Status.DONE))
+        ).values(status=Status.DONE, status_reason="completed"))
     if r.rowcount != 1:
         s.rollback()
         raise InvalidValue("review conflict: entity state changed concurrently")
@@ -1227,7 +1238,17 @@ def _settle_majority_rejected(s: Session, entity, entity_type: str):
         r = s.execute(update(Task).where(
             Task.id == entity.id,
             Task.status == Status.IN_REVIEW,
-        ).values(review_round=new_round, status=target))
+        ).values(
+            review_round=new_round,
+            status=target,
+            status_reason=(
+                "pending_requirement_change"
+                if target == Status.BLOCKED else None
+            ),
+            previous_status=(
+                str(Status.IN_REVIEW) if target == Status.BLOCKED else None
+            ),
+        ))
     if r.rowcount != 1:
         s.rollback()
         raise InvalidValue("review conflict: entity state changed concurrently")

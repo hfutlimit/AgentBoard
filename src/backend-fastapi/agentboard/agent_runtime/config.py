@@ -24,8 +24,11 @@ ACTION_TICKET_CREATED = "ticket_created"
 # Ticket 全流程（2026-08-09）：agent 处理 Story 编排后确认（story_handled）。
 # agent 经 MCP 逐步推进 Story 下 task（design→实现→评审→测试），完成后打印该 action。
 ACTION_STORY_HANDLED = "story_handled"
+ACTION_REVIEW_APPROVE = "approve"
+ACTION_REVIEW_REJECT = "reject"
 VALID_ACTIONS = {ACTION_ASK, ACTION_FINALIZE, ACTION_FAIL,
-                 ACTION_TICKET_CREATED, ACTION_STORY_HANDLED}
+                 ACTION_TICKET_CREATED, ACTION_STORY_HANDLED,
+                 ACTION_REVIEW_APPROVE, ACTION_REVIEW_REJECT}
 
 # Worker 会主动认领的状态：queued=首轮，answered=用户答完进入下一轮
 CLAIMABLE_STATUSES = ("queued", "answered")
@@ -129,6 +132,7 @@ class AgentDecision:
     action: str
     questions: list[str] = field(default_factory=list)
     summary: str = ""
+    comment: str = ""
     converged_spec: str = ""
     error: str = ""
     round: int | None = None
@@ -156,6 +160,7 @@ class AgentDecision:
             action=action,
             questions=questions,
             summary=str(data.get("summary") or "").strip(),
+            comment=str(data.get("comment") or "").strip(),
             converged_spec=spec,
             error=str(data.get("error") or "").strip(),
             round=int(rnd) if isinstance(rnd, (int, float, str)) and str(rnd).strip().isdigit() else None,

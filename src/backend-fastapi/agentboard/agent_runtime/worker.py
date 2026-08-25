@@ -129,6 +129,10 @@ class ProposalWorker:
             return self._handlers["story"].build_prompt(context)
         if action == "process_task":
             return self._handlers["story"].build_task_prompt(context)
+        if action == "review_task":
+            return self._handlers["review"].build_prompt(context)
+        if action == "owner_response":
+            return self._handlers["owner_response"].build_prompt(context)
         return self._handlers["clarify"].build_prompt(context)
 
     # ---------- 域便捷转发（向后兼容） ----------
@@ -176,6 +180,10 @@ class ProposalWorker:
         return self._handlers["story"].handle_direct_task(msg, self.invoker)
 
     def handle_workflow_message(self, msg: "mq.WorkflowMessage") -> bool:
+        if msg.event == mq.EVENT_TASK_REVIEW_REQUESTED:
+            return self._handlers["review"].handle_requested(msg, self.invoker)
+        if msg.event in (mq.EVENT_TASK_REVIEWED, mq.EVENT_TASK_REJECTED):
+            return self._handlers["owner_response"].handle_result(msg, self.invoker)
         return self._handlers["story"].handle_workflow_message(msg, self.invoker)
 
     # ---------- 私有成员兼容转发（旧 worker.py 单文件时期的内部 API） ----------
@@ -474,6 +482,7 @@ class ProposalWorker:
         stop = stop or threading.Event()
         publisher = publisher or mq.ProposalPublisher(self.config.mq)
         broker.declare_topology()
+        self.config.agent_id = agent_id
         wf_topology = mq.WorkflowTopology()
         broadcast_broker = wf_broker or mq.PikaWorkflowBroker(self.config.mq)
         broadcast_broker.declare_topology()

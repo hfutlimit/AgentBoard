@@ -403,7 +403,7 @@ def update_story(sid: int, body: StoryPatch, s: Session = Depends(get_session)):
                 publish_workflow_event(EVENT_STORY_CONFIRMED, "story", st.id,
                                        ref_id=st.epic_id)
             for t in service.list_tasks(s, story_id=sid, limit=200):
-                if t.status in ("backlog", "todo"):
+                if t.status in ("backlog", "todo") and service.get_task_readiness(s, t)["ready"]:
                     publish_workflow_event(EVENT_TASK_AVAILABLE, "task", t.id,
                                            ref_id=sid)
         except Exception:
@@ -428,7 +428,7 @@ def confirm_story(sid: int, authorization: str | None = Header(None),
     # 由 worker 的 story 扫描轮询兜底（handle_story 竞争认领）。
     try:
         for t in service.list_tasks(s, story_id=sid, limit=200):
-            if t.status in ("backlog", "todo"):
+            if t.status in ("backlog", "todo") and service.get_task_readiness(s, t)["ready"]:
                 publish_workflow_event(EVENT_TASK_AVAILABLE, "task", t.id,
                                        ref_id=sid)
     except Exception:
@@ -623,7 +623,11 @@ def list_tasks(sid: int, s: Session = Depends(get_session), limit: int = Query(1
                offset: int = Query(0, ge=0), sprint_id: int | None = Query(None)):
     q_base = service.query_task_count(s, sid, sprint_id=sprint_id)
     total = q_base
-    items = [service._ser(t) for t in service.list_tasks(s, sid, sprint_id=sprint_id, limit=limit, offset=offset)]
+    items = []
+    for task in service.list_tasks(s, sid, sprint_id=sprint_id, limit=limit, offset=offset):
+        payload = service._ser(task)
+        payload.update(service.get_task_readiness(s, task))
+        items.append(payload)
     return {"items": items, "total": total}
 
 

@@ -139,6 +139,36 @@ def list_tasks(
     return _paginate(q, limit, offset).all()
 
 
+BLOCKING_DEPENDENCY_TYPES = frozenset({"blocks"})
+
+
+def get_task_readiness(s: Session, task_or_id: Task | int) -> dict:
+    """Return whether a task may be claimed and the unfinished blockers.
+
+    ``blocks`` is the only dependency type that gates execution.  The other
+    relationship types are informational and must not prevent a claim.
+    """
+    task = task_or_id if isinstance(task_or_id, Task) else s.get(Task, task_or_id)
+    if task is None:
+        raise NotFound(f"task {task_or_id} not found")
+
+    dependencies = s.query(TaskDependency).filter(
+        TaskDependency.task_id == task.id,
+        TaskDependency.dependency_type.in_(BLOCKING_DEPENDENCY_TYPES),
+    ).all()
+    blockers = []
+    for dependency in dependencies:
+        blocker = s.get(Task, dependency.depends_on_id)
+        if blocker is None or blocker.status != Status.DONE:
+            blockers.append({
+                "dependency_id": dependency.id,
+                "task_id": dependency.depends_on_id,
+                "status": blocker.status if blocker is not None else "missing",
+                "title": blocker.title if blocker is not None else "missing task",
+            })
+    return {"ready": not blockers, "blocked_by": blockers}
+
+
 def query_task_count(
     s: Session, story_id: int | None = None, sprint_id: int | None = None,
 ) -> int:
@@ -265,6 +295,12 @@ def try_assign_task(
     if task.status != Status.TODO or task.current_assignment_id is not None:
         raise InvalidValue(
             f"task {task_id} already claimed or not claimable (status={task.status})"
+        )
+    readiness = get_task_readiness(s, task)
+    if not readiness["ready"]:
+        blocker_ids = ", ".join(str(item["task_id"]) for item in readiness["blocked_by"])
+        raise InvalidValue(
+            f"task {task_id} is blocked by dependencies: {blocker_ids}"
         )
     agent = s.get(Agent, agent_registry_id) if agent_registry_id is not None else None
     if agent_registry_id is not None and agent is None:
