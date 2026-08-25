@@ -78,15 +78,39 @@ class ProposalWorker:
         set_prompt_builder(self.build_prompt_for)
         # 心跳节流
         self._last_heartbeat_ts: float = 0.0
+        # 后台 Story 执行器（2026-08-26 根治 process_story 阻塞 main loop）。
+        # 默认不启用；config.async_story_executor=True 时 init。
+        self._story_executor: _StoryAsyncExecutor | None = None
+        if getattr(config, "async_story_executor", False):
+            from .async_story import _StoryAsyncExecutor  # 延迟导入避免循环
+            max_c = max(1, int(getattr(config, "async_story_max_concurrent", 1)))
+            join_to = float(getattr(config, "async_story_join_timeout", 30.0))
+            self._story_executor = _StoryAsyncExecutor(
+                invoker=self.invoker, handlers=self._handlers,
+                agent=self.config.agent, max_concurrent=max_c, join_timeout=join_to,
+            )
 
     # ---------- 构造辅助 ----------
 
     @staticmethod
     def _default_invoker(config: WorkerConfig) -> "AgentInvoker":
+        # 优先级（2026-08-25 多通道路由）：
+        #   1. AGENTBOARD_WORKER_AGENT_COMMANDS（多 alias 路由表）→ RoutedSubprocessInvoker
+        #   2. AGENTBOARD_WORKER_AGENT_CMD（旧单字符串）→ SubprocessAgentInvoker
+        # 都没配 → fail-fast
+        from .invokers import (
+            RoutedSubprocessInvoker, parse_agent_command_map,
+        )
+        cmds = parse_agent_command_map()
+        if cmds:
+            try:
+                return RoutedSubprocessInvoker(commands=cmds, timeout=config.agent_timeout)
+            except ValueError as e:
+                log.warning("RoutedSubprocessInvoker 初始化失败：%s", e)
         if not config.agent_cmd.strip():
             raise ValueError(
-                "未配置 AGENTBOARD_WORKER_AGENT_CMD，且未显式传入 invoker —— "
-                "Worker 不知道该拉起哪个无头 Agent"
+                "未配置 AGENTBOARD_WORKER_AGENT_COMMANDS / AGENTBOARD_WORKER_AGENT_CMD，"
+                "且未显式传入 invoker —— Worker 不知道该拉起哪个无头 Agent"
             )
         return SubprocessAgentInvoker(config.agent_cmd, timeout=config.agent_timeout)
 
@@ -99,6 +123,14 @@ class ProposalWorker:
         return None
 
     def close(self) -> None:
+        # 后台 Story 执行器（2026-08-26）：先停接新任务，再 join in-flight。
+        # 超时由 config.async_story_join_timeout 控制（默认 30s），
+        # 超过则强制退场，Story 进程随主进程一起被 OS 回收。
+        if self._story_executor is not None:
+            try:
+                self._story_executor.shutdown()
+            except Exception:
+                log.exception("StoryAsyncExecutor 收尾异常")
         if self._owns_client:
             self.client.close()
 
@@ -254,7 +286,11 @@ class ProposalWorker:
     # ---------- 轮询 ----------
 
     def poll_once(self) -> dict:
-        """执行一轮：先做崩溃恢复 + agent 失败自动重投，再消费三类工作项。"""
+        """执行一轮：先做崩溃恢复 + agent 失败自动重投，再消费三类工作项。
+
+        2026-08-26 起：config.async_story_executor=True 时 process_story 走后台
+        线程池，main loop 不再被 600s 长任务阻塞；close() 时等待后台收尾。
+        """
         now_ts = time.time()
         if now_ts - self._last_heartbeat_ts >= self.config.heartbeat_interval:
             self._last_heartbeat_ts = now_ts
@@ -278,9 +314,18 @@ class ProposalWorker:
             handled.append({"ticket_request_id": req.get("id"), "outcome": outcome})
         story_results: dict[str, int] = {}
         for story in self.fetch_confirmed_stories():
-            outcome = self.handle_story(story)
-            story_results[outcome] = story_results.get(outcome, 0) + 1
-            handled.append({"story_id": story.get("id"), "outcome": outcome})
+            if self._story_executor is not None:
+                outcome = self._story_executor.submit(story, on_decision=self._on_story_decision)
+                story_results[outcome] = story_results.get(outcome, 0) + 1
+                handled.append({"story_id": story.get("id"), "outcome": outcome})
+            else:
+                outcome = self.handle_story(story)
+                story_results[outcome] = story_results.get(outcome, 0) + 1
+                handled.append({"story_id": story.get("id"), "outcome": outcome})
+        # 回收本轮中已完成的后台 story（写入 metrics）
+        if self._story_executor is not None:
+            for finished in self._story_executor.drain_finished():
+                pass  # 已在 submit 时的 Future callback 计数
         return {
             "reclaimed": reclaimed,
             "ticket_reclaimed": ticket_reclaimed,
@@ -290,6 +335,13 @@ class ProposalWorker:
             "ticket_counts": ticket_results,
             "story_counts": story_results,
         }
+
+    def _on_story_decision(self, story_id: int, outcome: str, exc: BaseException | None) -> None:
+        """后台 Story 完成回调：仅记日志，metrics 由 main loop 在下一轮 drain。"""
+        if exc is not None:
+            log.warning("Story #%s 后台执行异常：%s", story_id, exc)
+        else:
+            log.info("Story #%s 后台执行完成：%s", story_id, outcome)
 
     def run_forever(self, stop: threading.Event | None = None,
                     max_cycles: int | None = None) -> int:

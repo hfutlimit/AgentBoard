@@ -93,6 +93,14 @@ class WorkerConfig:
     heartbeat_interval: float = 60.0
     # 单次 CLI 探测超时（秒）
     heartbeat_timeout: float = 8.0
+    # Story 后台异步执行（2026-08-26 根治）。开启后 process_story 提交到后台
+    # 线程池，main loop 不再被 600s 长任务阻塞，能继续拉取 proposal / answered
+    # / ticket_request。默认 off 向后兼容；生产建议开。
+    async_story_executor: bool = False
+    # 后台 Story 线程最大并发（同 invoker 不假设线程安全；默认 1）
+    async_story_max_concurrent: int = 1
+    # close() 等待后台 Story 完成的最多秒数（超过则强制收尾）
+    async_story_join_timeout: float = 30.0
 
     @classmethod
     def from_env(cls) -> "WorkerConfig":
@@ -115,6 +123,10 @@ class WorkerConfig:
             max_rounds=_env_int("AGENTBOARD_WORKER_MAX_ROUNDS", 5),
             agent_cmd=os.getenv("AGENTBOARD_WORKER_AGENT_CMD", ""),
             agent_timeout=_env_int("AGENTBOARD_WORKER_AGENT_TIMEOUT", 900),
+            async_story_executor=_env_int("AGENTBOARD_WORKER_ASYNC_STORY", 0) == 1,
+            async_story_max_concurrent=_env_int("AGENTBOARD_WORKER_ASYNC_STORY_CONCURRENCY", 1),
+            async_story_join_timeout=float(
+                _env_int("AGENTBOARD_WORKER_ASYNC_STORY_JOIN_TIMEOUT", 30)),
         )
 
 

@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any
 
@@ -136,6 +137,9 @@ class StoryHandler:
         self._story_attempts: dict[int, float] = {}      # story_id → 上次拉起时间戳
         self._story_fail_counts: dict[int, int] = {}     # story_id → 连续失败次数
         self._story_min_interval: float = 30.0           # 同一 Story 最小拉起间隔（秒）
+        # 后台异步模式（2026-08-26 起，Story 不再阻塞 main loop）：多线程访问
+        # _story_attempts / _story_fail_counts / claim → 全部走同一把锁。
+        self._async_lock = threading.Lock()
 
     # ---------- HTTP 辅助 ----------
 
@@ -273,18 +277,23 @@ class StoryHandler:
         多 Worker 竞争模型：claim（CAS 恰一赢家）→ agent 推进 →
         story_handled + 全 done → complete；部分推进 → unclaim 交接；
         失败计数 3 次 → blocked。返回：skipped / handled / blocked / failed。
+
+        线程安全（2026-08-26）：_async_story_executor 启用后，本方法可能在
+        后台线程中并发调用。_story_attempts / claim 由 _async_lock 串行化。
         """
         sid = story.get("id")
         if sid is None:
             return "skipped"
-        now = time.time()
-        last = self._story_attempts.get(sid, 0.0)
-        if now - last < self._story_min_interval:
-            return "skipped"
-        self._story_attempts[sid] = now
-        if not self.claim(story):
-            log.info("Story #%s 认领失败（其它 Worker 已处理或状态不可认领），跳过", sid)
-            return "skipped"
+        with self._async_lock:
+            now = time.time()
+            last = self._story_attempts.get(sid, 0.0)
+            if now - last < self._story_min_interval:
+                return "skipped"
+            self._story_attempts[sid] = now
+            if not self.claim(story):
+                log.info("Story #%s 认领失败（其它 Worker 已处理或状态不可认领），跳过", sid)
+                return "skipped"
+        # claim 后释放锁，load_context / invoker.invoke 允许并发（不抢同一把锁）
         try:
             context = self.load_context(story)
         except Exception as e:

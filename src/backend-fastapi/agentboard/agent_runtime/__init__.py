@@ -49,9 +49,12 @@ from .config import (  # noqa: F401
 )
 from .invokers import (  # noqa: F401
     CallableAgentInvoker,
+    RoutedSubprocessInvoker,
     SubprocessAgentInvoker,
     build_prompt,
     extract_decision_json,
+    parse_agent_command_map,
+    parse_agent_routing,
     set_prompt_builder,
     split_command,
 )
@@ -74,8 +77,9 @@ __all__ = [
     # 数据 / 配置
     "AgentDecision", "AgentInvoker", "WorkerConfig",
     # 调用器
-    "CallableAgentInvoker", "SubprocessAgentInvoker",
+    "CallableAgentInvoker", "RoutedSubprocessInvoker", "SubprocessAgentInvoker",
     "build_prompt", "extract_decision_json", "split_command", "set_prompt_builder",
+    "parse_agent_command_map", "parse_agent_routing",
     # prompt 构建（旧私有名兼容）
     "_build_story_prompt", "_build_task_prompt", "_build_ticket_prompt",
     # 工具
