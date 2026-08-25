@@ -286,8 +286,12 @@ def test_proposal_convert_mcp_tool_registered():
     )
 
     import ast
-    src = open(os.path.join(_ROOT, "agentboard", "mcp_server.py"),
-               encoding="utf-8").read()
+    mcp_path = (
+        os.path.join(_ROOT, "src", "backend-fastapi", "agentboard", "mcp_server.py")
+        if os.path.exists(os.path.join(_ROOT, "src", "backend-fastapi", "agentboard", "mcp_server.py"))
+        else os.path.join(_ROOT, "agentboard", "mcp_server.py")
+    )
+    src = open(mcp_path, encoding="utf-8").read()
     tree = ast.parse(src)
     fn = next(n for n in tree.body
               if isinstance(n, ast.FunctionDef) and n.name == "proposal_convert")

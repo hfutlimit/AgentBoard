@@ -242,6 +242,15 @@ def convert_proposal(pid: int, body: ProposalConvertIn, s: Session = Depends(get
 
 
 
+@router.get("/api/proposals/{pid}/task-graph")
+def get_proposal_task_graph(pid: int, s: Session = Depends(get_session)):
+    """获取 Proposal 结构化 TaskGraph（DAG 任务图与依赖关系）。"""
+    try:
+        return service.build_proposal_task_graph(s, pid)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 @router.delete("/api/proposals/{pid}")
 def delete_proposal(pid: int, s: Session = Depends(get_session)):
     if not service.delete_proposal(s, pid):

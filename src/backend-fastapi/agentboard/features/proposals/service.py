@@ -18,12 +18,12 @@ from sqlalchemy.orm import Session
 
 from ... import models  # 顶层 facade
 from ...core.common.models import utc_now  # noqa: F401  (跨域常量)
-from ...core.common.enums import Priority
+from ...core.common.enums import ItemType, Priority
 from ...core.exceptions import Conflict, InvalidValue, NotFound
 from ...core.service_helpers import _commit, _invalidate_project_stats_cache, _paginate, _required, _ser
 from ..projects.models import Epic, Project, Story
 from ..identity.models import User
-from ..work_items.models import Task
+from ..work_items.models import Task, TaskDependency
 from .state_machine import (
     IllegalTransitionError as _SM_IllegalTransitionError,
     ProposalStateMachine,
@@ -933,6 +933,10 @@ def convert_proposal_to_story(
         title=_required(title or p.title, "title", 300),
         description=p.converged_spec,
     )
+    design_task = s.query(Task).filter(
+        Task.story_id == story.id, Task.type == ItemType.DESIGN,
+    ).first()
+
     created: list[Task] = []
     seen: set[str] = set()
     for line in (p.converged_spec or "").splitlines():
@@ -943,13 +947,15 @@ def convert_proposal_to_story(
         if not t_title or t_title in seen:
             continue
         seen.add(t_title)
-        created.append(
-            create_task(
-                s, project_id=p.project_id, story_id=story.id,
-                title=t_title[:300], description=t_title,
-                priority=Priority.MEDIUM,
-            )
+        t = create_task(
+            s, project_id=p.project_id, story_id=story.id,
+            title=t_title[:300], description=t_title,
+            priority=Priority.MEDIUM,
         )
+        created.append(t)
+        if design_task is not None:
+            s.add(TaskDependency(task_id=t.id, depends_on_id=design_task.id,
+                                 dependency_type="blocks"))
 
     p.story_id = story.id
     # converged → story_created（终态）；直接改状态字段，不经 set_proposal_status
@@ -962,6 +968,45 @@ def convert_proposal_to_story(
     for t in created:
         s.refresh(t)
     return story, created, p
+
+
+def build_proposal_task_graph(s: Session, proposal_id: int) -> dict:
+    """Build a structured DAG representation (nodes and dependency edges) for a Proposal.
+
+    Pipeline structure: Design -> Implementation (depends on Design) -> QA (depends on Implementation)
+    """
+    p = _proposal_or_404(s, proposal_id)
+    spec = p.converged_spec or p.content or ""
+    tasks: list[dict] = []
+    seen: set[str] = set()
+    for line in spec.splitlines():
+        m = _SPEC_TASK_RE.match(line)
+        if m:
+            title = m.group(1).strip()
+            if title and title not in seen:
+                seen.add(title)
+                tasks.append({"id": f"dev-{len(tasks) + 1}", "type": "dev", "title": title})
+
+    if not tasks:
+        tasks = [{"id": "dev-1", "type": "dev", "title": f"实现：{p.title}"}]
+
+    nodes = [
+        {"id": "design-1", "type": "design", "title": f"设计：{p.title}"},
+        *tasks,
+        {"id": "qa-1", "type": "qa", "title": f"QA验收：{p.title}"},
+    ]
+
+    edges = []
+    for t in tasks:
+        edges.append({"source": "design-1", "target": t["id"], "type": "blocks"})
+        edges.append({"source": t["id"], "target": "qa-1", "type": "blocks"})
+
+    return {
+        "proposal_id": proposal_id,
+        "title": p.title,
+        "nodes": nodes,
+        "edges": edges,
+    }
 
 # ---- 同步自 service.py ----
 def update_proposal(s: Session, id: int, **fields) -> Proposal | None:

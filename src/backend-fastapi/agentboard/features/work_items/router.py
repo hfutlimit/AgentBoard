@@ -27,9 +27,9 @@ from ...models import Status
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
 from ...core.infrastructure import messaging as mq  # publish_workflow_event + EVENT_* constants
 from ...mq import (
-    EVENT_TASK_ASSIGNED, EVENT_TASK_READY_FOR_REVIEW, EVENT_TASK_REVIEWED,
-    EVENT_TASK_REJECTED, EVENT_TASK_REVIEW_REQUESTED, EVENT_TASK_REVIEW_VOTE_CAST,
-    EVENT_STORY_REVIEW_REQUESTED,
+    EVENT_TASK_AVAILABLE, EVENT_TASK_ASSIGNED, EVENT_TASK_READY_FOR_REVIEW,
+    EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED, EVENT_TASK_REVIEW_REQUESTED,
+    EVENT_TASK_REVIEW_VOTE_CAST, EVENT_STORY_REVIEW_REQUESTED,
     publish_workflow_event,
 )
 from ..scheduling.models import TaskAssignment
@@ -368,12 +368,22 @@ def review_task(tid: int, body: AgentReviewIn, authorization: str | None = Heade
     if owner_agent_id and event in (EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED):
         event_kwargs["agent_id"] = owner_agent_id
     publish_workflow_event(event, "task", t.id, **event_kwargs)
+    if event == EVENT_TASK_REVIEWED:
+        try:
+            for successor in service.get_unlocked_dependent_tasks(s, t.id):
+                publish_workflow_event(
+                    EVENT_TASK_AVAILABLE,
+                    "task",
+                    successor.id,
+                    ref_id=successor.story_id,
+                )
+        except Exception:
+            pass
     # Webhook 通道（Epic 122 切片 3）
     api_helpers._notify_webhooks(s, t.project_id, event,
                      {"id": t.id, "status": t.status, "reviewer_id": t.reviewer_id,
                       "review_round": t.review_round})
     return service._ser(t)
-
 
 
 @router.delete("/api/tasks/{tid}")

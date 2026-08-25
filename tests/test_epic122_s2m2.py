@@ -36,19 +36,24 @@ for _m in list(sys.modules):
     if _m == "agentboard" or _m.startswith("agentboard."):
         del sys.modules[_m]
 
+
 from agentboard import api, auth, mq, service, workflow_worker  # noqa: E402
 from agentboard.features.work_items import router as wi_router  # noqa: E402
 from agentboard.database import SessionLocal, init_db  # noqa: E402
 from agentboard.models import Task  # noqa: E402
 from agentboard.features.work_items.models import TaskDependency  # noqa: E402
 from agentboard.mq import (  # noqa: E402
-    EVENT_TASK_READY_FOR_REVIEW, EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED,
-    EVENT_TASK_REVIEW_REQUESTED, WorkflowMessage,
+    EVENT_TASK_AVAILABLE, EVENT_TASK_READY_FOR_REVIEW, EVENT_TASK_REVIEWED,
+    EVENT_TASK_REJECTED, EVENT_TASK_REVIEW_REQUESTED, WorkflowMessage,
 )
 
 init_db()
 
-_MCP_SOURCE = Path(_ROOT) / "agentboard" / "mcp_server.py"
+_MCP_SOURCE = (
+    Path(_ROOT) / "src" / "backend-fastapi" / "agentboard" / "mcp_server.py"
+    if (Path(_ROOT) / "src" / "backend-fastapi" / "agentboard" / "mcp_server.py").exists()
+    else Path(_ROOT) / "agentboard" / "mcp_server.py"
+)
 _SEQ = itertools.count(1)
 
 _S2M2_TOOLS = {
@@ -92,10 +97,10 @@ def seeded():
 
 
 def _make_task(s, story_id, project_id, title="T", status="todo",
-               assignee_id=None, reviewer_id=None, review_round=0):
+               assignee_id=None, reviewer_id=None, review_round=0, type="dev"):
     t = Task(project_id=project_id, story_id=story_id, title=title,
              status=status, assignee_id=assignee_id,
-             reviewer_id=reviewer_id, review_round=review_round)
+             reviewer_id=reviewer_id, review_round=review_round, type=type)
     s.add(t)
     s.flush()
     return t
@@ -644,3 +649,90 @@ def test_s2m2_tools_registered_in_mcp_server():
     for tool, (path_frag, method) in _S2M2_TOOLS.items():
         assert any(m == method and path_frag in p for m, p in rest_calls), (
             f"{tool} 缺少 {method} {path_frag} 的 _http 调用")
+
+
+def test_proposal_convert_creates_structured_dag_task_graph(seeded):
+    pid, dev, _, _, _, sid = seeded
+    with SessionLocal() as s:
+        p = service.create_proposal(
+            s, project_id=pid, title="P-DAG",
+            content="## Features\n- [ ] Task A\n- [ ] Task B",
+            author_id=dev,
+        )
+        service.set_proposal_status(s, p.id, "queued")
+        service.claim_proposal(s, p.id, agent="test-agent")
+        service.set_proposal_status(s, p.id, "converged")
+        p = service.get_proposal(s, p.id)
+        p.converged_spec = "- [ ] Feature 1\n- [ ] Feature 2"
+        s.commit()
+
+        story_obj = s.get(service.Story, sid)
+        epic_id = story_obj.epic_id
+        story, tasks, _ = service.convert_proposal_to_story(
+            s, p.id, epic_id=epic_id, title="Story DAG",
+        )
+        design_task = s.query(Task).filter(
+            Task.story_id == story.id, Task.type == "design",
+        ).first()
+        assert design_task is not None
+
+        # 检查 TaskDependency 中 Feature 1 和 Feature 2 均被 design_task 阻塞
+        for t in tasks:
+            deps = s.query(TaskDependency).filter(
+                TaskDependency.task_id == t.id,
+                TaskDependency.depends_on_id == design_task.id,
+                TaskDependency.dependency_type == "blocks",
+            ).all()
+            assert len(deps) == 1
+
+        # 检查 TaskGraph 结构化接口
+        graph = service.build_proposal_task_graph(s, p.id)
+        node_ids = {n["id"] for n in graph["nodes"]}
+        assert "design-1" in node_ids
+        assert "qa-1" in node_ids
+        assert any(e["source"] == "design-1" for e in graph["edges"])
+        assert any(e["target"] == "qa-1" for e in graph["edges"])
+        s.rollback()
+
+
+def test_review_approval_automatically_unlocks_and_broadcasts_successor_tasks(seeded):
+    pid, dev, rev1, _, _, sid = seeded
+    with SessionLocal() as s:
+        t_design = _make_task(s, sid, pid, title="T-Design", type="design")
+        t_impl = _make_task(s, sid, pid, title="T-Impl", type="dev")
+        s.add(TaskDependency(task_id=t_impl.id, depends_on_id=t_design.id,
+                             dependency_type="blocks"))
+        s.commit()
+
+        # 初始状态：t_impl 因依赖未完成不可 claim
+        assert service.get_task_readiness(s, t_impl)["ready"] is False
+
+        # 将 t_design 推进到 in_review
+        t_design.status = "in_review"
+        t_design.reviewer_id = rev1
+        s.commit()
+        design_tid = t_design.id
+        impl_tid = t_impl.id
+
+    c = _client()
+    with mock.patch.object(wi_router, "publish_workflow_event") as pub:
+        r = c.post(
+            f"/api/tasks/{design_tid}/review",
+            headers={"Authorization": f"Bearer {auth.make_token(rev1)}"},
+            json={"verdict": "approve", "comment": "Design approved"},
+        )
+        assert r.status_code == 200, r.text
+
+        # 验证广播了 EVENT_TASK_AVAILABLE 给 t_impl
+        available_calls = [
+            call for call in pub.call_args_list
+            if call.args[0] == EVENT_TASK_AVAILABLE and call.args[2] == impl_tid
+        ]
+        assert len(available_calls) >= 1
+
+    # 验证 t_impl 现在变为 ready: True，且可以正常 claim
+    with SessionLocal() as s:
+        assert service.get_task_readiness(s, impl_tid)["ready"] is True
+        t_assigned = service.claim_development_task(s, impl_tid, user_id=dev)
+        assert t_assigned.status == "in_progress"
+        s.rollback()

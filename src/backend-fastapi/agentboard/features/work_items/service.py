@@ -169,6 +169,28 @@ def get_task_readiness(s: Session, task_or_id: Task | int) -> dict:
     return {"ready": not blockers, "blocked_by": blockers}
 
 
+def get_unlocked_dependent_tasks(s: Session, completed_task_id: int) -> list[Task]:
+    """Return all downstream tasks blocked by this task that are now fully unblocked and ready to claim."""
+    dependencies = s.query(TaskDependency).filter(
+        TaskDependency.depends_on_id == completed_task_id,
+        TaskDependency.dependency_type.in_(BLOCKING_DEPENDENCY_TYPES),
+    ).all()
+    unlocked: list[Task] = []
+    seen_ids: set[int] = set()
+    for dep in dependencies:
+        if dep.task_id in seen_ids:
+            continue
+        seen_ids.add(dep.task_id)
+        target = s.get(Task, dep.task_id)
+        if target is None:
+            continue
+        if target.status in (Status.TODO, "backlog") and target.current_assignment_id is None:
+            readiness = get_task_readiness(s, target)
+            if readiness["ready"]:
+                unlocked.append(target)
+    return unlocked
+
+
 def query_task_count(
     s: Session, story_id: int | None = None, sprint_id: int | None = None,
 ) -> int:

@@ -462,12 +462,19 @@ def create_story(s: Session, *, epic_id: int, title: str, description: str = "",
     s.add(st)
     s.flush()  # 取 st.id 供默认 Task 关联
     base = st.title.strip()
-    s.add_all([
-        Task(project_id=epic.project_id, story_id=st.id, type=ItemType.DESIGN,
-             title=f"设计：{base}"[:300]),
-        Task(project_id=epic.project_id, story_id=st.id, type=ItemType.DEV,
-             title=f"实现：{base}"[:300]),
-    ])
+    design_task = None
+    if needs_design:
+        design_task = Task(project_id=epic.project_id, story_id=st.id, type=ItemType.DESIGN,
+                           title=f"设计：{base}"[:300])
+        s.add(design_task)
+        s.flush()
+    dev_task = Task(project_id=epic.project_id, story_id=st.id, type=ItemType.DEV,
+                    title=f"实现：{base}"[:300])
+    s.add(dev_task)
+    s.flush()
+    if design_task is not None:
+        s.add(TaskDependency(task_id=dev_task.id, depends_on_id=design_task.id,
+                             dependency_type="blocks"))
     _invalidate_project_stats_cache(epic.project_id)
     _commit(s); s.refresh(st); return st
 
