@@ -97,6 +97,26 @@ def test_broadcast_from_another_thread_round_trips_via_call_soon_threadsafe():
     _run(scenario())
 
 
+def test_slow_subscriber_overflow_requests_replay_resync():
+    from agentboard.features.scheduling.run_event_bus import RESYNC_REQUIRED_CONTROL
+
+    bus = InProcessRunEventBus(queue_maxsize=1)
+
+    async def scenario():
+        sub = bus.subscribe(12)
+        try:
+            bus.broadcast(12, {"id": 1})
+            bus.broadcast(12, {"id": 2})
+            await asyncio.sleep(0)
+            assert await asyncio.wait_for(sub.queue.get(), timeout=0.5) == {
+                "_control": RESYNC_REQUIRED_CONTROL,
+            }
+        finally:
+            bus.unsubscribe(12, sub)
+
+    _run(scenario())
+
+
 def test_broadcast_does_not_deadlock_when_subscriber_loop_is_closed():
     """The bus must drop a dead subscriber (its asyncio loop has been
     shut down) without deadlocking. A re-entrant ``threading.Lock``

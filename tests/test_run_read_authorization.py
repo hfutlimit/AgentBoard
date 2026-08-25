@@ -318,3 +318,37 @@ def test_sse_stream_replays_full_backlog_past_2000_cap(seeded):
     # have dropped, so we assert it is present.
     assert f"id: 2001\n" in text, "replay dropped event id=2001 (regression of the 2000 cap bug)"
     assert f"id: 5000\n" in text, "replay dropped last event of the 5000-event backlog"
+
+
+def test_sse_stream_emits_terminal_control_event_for_already_finished_run(seeded):
+    from agentboard.features.scheduling.models import AgentRun
+    from agentboard.features.scheduling.router import stream_run_events
+
+    with SessionLocal() as session:
+        run = session.get(AgentRun, seeded["run_id"])
+        run.status = "success"
+        run.finished_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        session.commit()
+
+    class ReplayRequest:
+        headers = {}
+
+        async def is_disconnected(self):
+            return True
+
+    async def collect_terminal_event():
+        with SessionLocal() as session:
+            response = await stream_run_events(
+                seeded["run_id"],
+                ReplayRequest(),
+                authorization=_headers(seeded["owner_a"])["Authorization"],
+                s=session,
+            )
+            chunks = []
+            async for chunk in response.body_iterator:
+                chunks.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
+            return "".join(chunks)
+
+    text = asyncio.run(collect_terminal_event())
+    assert "event: run.success\n" in text
+    assert '"status": "success"' in text

@@ -32,7 +32,11 @@ from .schemas import (
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
 from ...api import agent_state_hub  # noqa: E402 — Agent 状态 WebSocket 广播 hub（定义于 api.py 顶层）
 from .models import AgentRun, RunEvent  # noqa: E402 — P1-4 SSE watermark snapshot
-from .run_event_bus import IRunEventBus, InProcessRunEventBus  # noqa: E402 — P1-7 broker-ready bus
+from .run_event_bus import (
+    IRunEventBus,
+    InProcessRunEventBus,
+    RESYNC_REQUIRED_CONTROL,
+)  # noqa: E402 — P1-7 broker-ready bus
 
 
 router = APIRouter(tags=["scheduling"])
@@ -82,6 +86,23 @@ def _format_sse(event: dict) -> str:
         f"event: {event_type}\n"
         f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
     )
+
+
+_TERMINAL_RUN_STATUSES = {"success", "failed", "cancelled"}
+
+
+def _is_terminal_event(event: dict) -> bool:
+    event_payload = event.get("payload")
+    event_status = (
+        event_payload.get("status")
+        if isinstance(event_payload, dict)
+        else None
+    )
+    return event_status in _TERMINAL_RUN_STATUSES or event.get("event_type") in {
+        "run.success",
+        "run.failed",
+        "run.cancelled",
+    }
 
 
 @router.post("/api/agent-runs/{run_id}/events", status_code=201)
@@ -150,6 +171,8 @@ async def stream_run_events(
     run = service.get_run(s, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
+    initial_run_status = str(run.status)
+    initial_finished_at = run.finished_at.isoformat() if run.finished_at else ""
     try:
         last_event_id = max(0, int(request.headers.get("last-event-id", "0")))
     except ValueError:
@@ -157,23 +180,13 @@ async def stream_run_events(
     subscription = run_event_bus.subscribe(run_id)
     try:
         # Subscribe before taking the snapshot so events published during the
-        # replay query are queued. Materialize the replay while the request
-        # session is still alive, then release its DB connection before the
-        # long-lived response starts.
+        # replay query are queued. Keep only the watermark here; the response
+        # generator reads and yields pages lazily so a large backlog cannot be
+        # duplicated in memory per SSE connection.
         #
-        # P1-4 (SSE replay gap): the previous implementation only fetched the
-        # first 200 events after `last_event_id` and immediately transitioned
-        # to the live queue, silently dropping any events written between
-        # `last_event_id + 1` and the snapshot MAX(id). The current loop
-        # paginates until it has replayed every event up to the snapshot
-        # watermark. There is intentionally **no row-count cap** here: a
-        # silent drop is worse than a slow replay, and the only honest
-        # alternative would be to surface a `resync_required` event and
-        # ask the client to re-fetch via REST, which we do not yet have a
-        # signal for. The snapshot watermark itself bounds the work because
-        # the loop terminates the moment cursor == snapshot_max_id, so even
-        # a 500k-event backlog replays in 2500 paginated queries (limit 200)
-        # and the client does not see a single event gap.
+        # P1-4 (SSE replay gap): paginate to the snapshot MAX(id) so no
+        # events between the client's cursor and the watermark are silently
+        # dropped. The page data is intentionally not materialized here.
         snapshot_max_id = (
             s.query(RunEvent.id)
             .filter(RunEvent.run_id == run_id, RunEvent.id > last_event_id)
@@ -181,19 +194,6 @@ async def stream_run_events(
             .first()
         )
         snapshot_max_id = snapshot_max_id[0] if snapshot_max_id else last_event_id
-        replay_events: list[dict] = []
-        cursor = last_event_id
-        while cursor < snapshot_max_id:
-            page = [
-                _event_to_wire(ev)
-                for ev in service.list_run_events(
-                    s, run_id=run_id, after_id=cursor, limit=200,
-                )
-            ]
-            if not page:
-                break
-            replay_events.extend(page)
-            cursor = page[-1]["id"]
     except Exception:
         run_event_bus.unsubscribe(run_id, subscription)
         raise
@@ -203,10 +203,39 @@ async def stream_run_events(
     async def event_generator():
         try:
             replay_high_watermark = last_event_id
-            for payload in replay_events:
-                replay_high_watermark = max(replay_high_watermark, payload["id"])
-                yield _format_sse(payload)
-            if str(run.status) in {"success", "failed", "cancelled"}:
+            saw_terminal_event = False
+            with SessionLocal() as replay_session:
+                while replay_high_watermark < snapshot_max_id:
+                    page = service.list_run_events(
+                        replay_session,
+                        run_id=run_id,
+                        after_id=replay_high_watermark,
+                        limit=200,
+                    )
+                    if not page:
+                        break
+                    page_start_watermark = replay_high_watermark
+                    for event in page:
+                        payload = _event_to_wire(event)
+                        replay_high_watermark = max(
+                            replay_high_watermark, payload["id"],
+                        )
+                        saw_terminal_event = (
+                            saw_terminal_event or _is_terminal_event(payload)
+                        )
+                        yield _format_sse(payload)
+                    if replay_high_watermark <= page_start_watermark:
+                        break
+
+            if initial_run_status in _TERMINAL_RUN_STATUSES:
+                if not saw_terminal_event:
+                    yield _format_sse({
+                        "id": replay_high_watermark,
+                        "run_id": run_id,
+                        "event_type": f"run.{initial_run_status}",
+                        "payload": {"status": initial_run_status},
+                        "created_at": initial_finished_at,
+                    })
                 return
             ping_count = 0
             while True:
@@ -214,15 +243,17 @@ async def stream_run_events(
                     break
                 try:
                     data = await asyncio.wait_for(subscription.queue.get(), timeout=1)
+                    if data.get("_control") == RESYNC_REQUIRED_CONTROL:
+                        log.warning(
+                            "SSE subscriber lagged; closing run %s stream for replay resync",
+                            run_id,
+                        )
+                        return
                     if data["id"] <= replay_high_watermark:
                         continue
                     replay_high_watermark = data["id"]
                     yield _format_sse(data)
-                    event_payload = data.get("payload")
-                    event_status = event_payload.get("status") if isinstance(event_payload, dict) else None
-                    if event_status in {"success", "failed", "cancelled"} or data.get("event_type") in {
-                        "run.success", "run.failed", "run.cancelled",
-                    }:
+                    if _is_terminal_event(data):
                         return
                 except asyncio.TimeoutError:
                     ping_count += 1
@@ -231,7 +262,7 @@ async def stream_run_events(
                         ping_count = 0
                     with SessionLocal() as live_session:
                         live_run = service.get_run(live_session, run_id)
-                        if live_run is None or str(live_run.status) in {"success", "failed", "cancelled"}:
+                        if live_run is None or str(live_run.status) in _TERMINAL_RUN_STATUSES:
                             if live_run is not None:
                                 yield _format_sse({
                                     "id": replay_high_watermark,

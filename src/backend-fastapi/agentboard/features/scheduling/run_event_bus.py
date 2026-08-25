@@ -20,10 +20,44 @@ import threading
 from typing import Any, Protocol
 
 
+DEFAULT_RUN_EVENT_QUEUE_MAXSIZE = 1000
+RESYNC_REQUIRED_CONTROL = "resync_required"
+
+
 class RunEventSubscription:
-    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
+    def __init__(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        *,
+        queue_maxsize: int = DEFAULT_RUN_EVENT_QUEUE_MAXSIZE,
+    ) -> None:
+        if queue_maxsize <= 0:
+            raise ValueError("queue_maxsize must be positive")
         self.loop = loop
-        self.queue: asyncio.Queue[dict] = asyncio.Queue()
+        self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=queue_maxsize)
+        self._lagged = False
+
+    def enqueue(self, event: dict[str, Any]) -> None:
+        """Queue an event on the subscription's owning event loop.
+
+        This method is only called through ``call_soon_threadsafe``. Once a
+        slow consumer fills the bounded queue, replace the buffered events
+        with a control item. The SSE endpoint closes on that item and the
+        browser reconnects with its last delivered event id, allowing the
+        durable DB log to fill the gap without unbounded memory growth.
+        """
+        if self._lagged:
+            return
+        try:
+            self.queue.put_nowait(dict(event))
+        except asyncio.QueueFull:
+            self._lagged = True
+            while True:
+                try:
+                    self.queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+            self.queue.put_nowait({"_control": RESYNC_REQUIRED_CONTROL})
 
 
 class IRunEventBus(Protocol):
@@ -57,12 +91,15 @@ class InProcessRunEventBus:
       that have no observable effect.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, queue_maxsize: int = DEFAULT_RUN_EVENT_QUEUE_MAXSIZE) -> None:
         self._subs: dict[int, set[RunEventSubscription]] = {}
         self._lock = threading.Lock()
+        self._queue_maxsize = queue_maxsize
 
     def subscribe(self, run_id: int) -> RunEventSubscription:
-        subscription = RunEventSubscription(asyncio.get_running_loop())
+        subscription = RunEventSubscription(
+            asyncio.get_running_loop(), queue_maxsize=self._queue_maxsize,
+        )
         with self._lock:
             if run_id not in self._subs:
                 self._subs[run_id] = set()
@@ -90,7 +127,7 @@ class InProcessRunEventBus:
         for subscription in subs:
             try:
                 subscription.loop.call_soon_threadsafe(
-                    subscription.queue.put_nowait, dict(event),
+                    subscription.enqueue, dict(event),
                 )
             except RuntimeError:
                 dead.append(subscription)
