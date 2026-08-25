@@ -148,6 +148,10 @@ class AgentDecision:
     converged_spec: str = ""
     error: str = ""
     round: int | None = None
+    # 2026-08-26 增强：agent 自报本次决策前实际看过的项目文件（相对路径数组）。
+    # 任何 agent 不强制要求非空；仅做审计与提示，handler 拿到后会 log 一行。
+    # 该字段不参与 action 校验，缺失/为 [] 都不影响决策落库。
+    inspected_files: list[str] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: Any) -> "AgentDecision":
@@ -168,6 +172,10 @@ class AgentDecision:
         if action == ACTION_FINALIZE and not spec:
             raise AgentOutputError("action=finalize 必须给出非空 converged_spec")
         rnd = data.get("round")
+        raw_files = data.get("inspected_files") or []
+        if isinstance(raw_files, str):
+            raw_files = [raw_files]
+        inspected = [str(f).strip() for f in raw_files if str(f).strip()]
         return cls(
             action=action,
             questions=questions,
@@ -176,6 +184,7 @@ class AgentDecision:
             converged_spec=spec,
             error=str(data.get("error") or "").strip(),
             round=int(rnd) if isinstance(rnd, (int, float, str)) and str(rnd).strip().isdigit() else None,
+            inspected_files=inspected,
         )
 
 

@@ -26,8 +26,14 @@ def build_ticket_prompt(context: dict) -> str:
     ttype = str(context.get("ticket_type") or "")
     parent_epic = context.get("parent_epic_id")
     parent_story = context.get("parent_story_id")
+    project_dir = context.get("project_dir") or "(未知项目目录)"
     lines = [
         "你是需求落单助手。下面的提案已通过多轮澄清收敛（converged_spec 即最终需求规格）。",
+        "",
+        f"## 铁律（必须遵守）",
+        f"你的工作目录已 cd 到项目根：`{project_dir}`。**创建工单前**用 MCP 工具",
+        "（read_file / glob / list_dir）确认相关代码 / 接口存在并理解上下文，",
+        "在输出 JSON 里加 `inspected_files` 数组（相对路径）。**禁止**编造。",
         "",
         f"## 任务：把提案 #{context.get('proposal_id')} 生成为「{ttype}」类型工单",
         "",
@@ -45,11 +51,11 @@ def build_ticket_prompt(context: dict) -> str:
         "",
         "## 决策协议（必须严格遵守）",
         "调用成功后，在输出的最后打印 JSON：",
-        '{"action":"ticket_created"}',
+        '{"action":"ticket_created","inspected_files":[...]}',
         "若调用失败（工具报错），打印：",
-        '{"action":"fail","error":"原因"}',
+        '{"action":"fail","error":"原因","inspected_files":[...]}',
         "不要省略参数、不要修改 type。若你所在环境没有 AgentBoard MCP 连接，",
-        "直接打印 {\"action\":\"fail\",\"error\":\"缺少 AgentBoard MCP 连接\"}。",
+        "直接打印 {\"action\":\"fail\",\"error\":\"缺少 AgentBoard MCP 连接\",\"inspected_files\":[]}。",
         "",
         f"## 提案 #{context.get('proposal_id')}：{context.get('title')}",
         "",
@@ -130,16 +136,36 @@ class TicketHandler:
             "parent_epic_id": work_item.get("parent_epic_id"),
             "parent_story_id": work_item.get("parent_story_id"),
             "ticket_title": work_item.get("title") or "",
+            "project_dir": self._resolve_project_dir(proposal.get("project_id")),
         }
+
+    def _resolve_project_dir(self, project_id: Any) -> str:
+        if not project_id:
+            return ""
+        try:
+            from ..invokers import _resolve_project_cwd
+            return str(_resolve_project_cwd({"project_id": int(project_id)}, None) or "")
+        except Exception:
+            return ""
 
     def build_prompt(self, context: dict) -> str:
         """转化模式提示词（委托模块级 build_ticket_prompt）。"""
         return build_ticket_prompt(context)
 
+    def _log_inspected(self, decision: AgentDecision, label: str) -> None:
+        files = decision.inspected_files or []
+        n = len(files)
+        if n == 0:
+            log.info("[%s] agent 未报 inspected_files（可能未读代码）", label)
+            return
+        sample = ", ".join(files[:5]) + (" ..." if n > 5 else "")
+        log.info("[%s] agent 报告读了 %d 个文件：%s", label, n, sample)
+
     def handle_decision(self, work_item: dict, decision: AgentDecision,
                         context: dict) -> str:
         """落决策：ticket_created 信任成功；fail 标记失败（含单条回查兜底）。"""
         rid = work_item.get("id")
+        self._log_inspected(decision, label="ticket")
         if decision.action == ACTION_TICKET_CREATED:
             log.info("ticket 请求 #%s agent 报告已创建（信任其 decision）", rid)
             return "created"

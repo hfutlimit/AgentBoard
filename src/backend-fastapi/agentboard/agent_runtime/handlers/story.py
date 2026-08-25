@@ -43,8 +43,15 @@ def build_story_prompt(context: dict) -> str:
     """
     story_id = context.get("story_id")
     tasks = context.get("tasks") or []
+    project_dir = context.get("project_dir") or "(未知项目目录)"
     lines = [
         "你是软件开发执行 Agent。下面的 Story 已被用户确认，请经 AgentBoard MCP 自动推进其下任务。",
+        "",
+        "## 铁律（必须遵守）",
+        f"你的工作目录已 cd 到项目根：`{project_dir}`。**推进任何 task 前**必须用",
+        "MCP 工具（read_file / glob / list_dir）读相关源代码、测试、配置；",
+        "修改完成后在输出 JSON 里加 `inspected_files` 数组，列出本次读过的相对",
+        "路径。**禁止**编造文件路径——只写真正读过的。",
         "",
         "## 执行铁律（必须严格遵守）",
         "1. **状态流（Story 265 收敛）**：所有 task 走通用 5 状态流 "
@@ -90,9 +97,15 @@ def build_story_prompt(context: dict) -> str:
 def build_task_prompt(context: dict) -> str:
     """单 Task 执行模式提示词（MQ 竞争/定向编排，2026-08-09）。"""
     task = context.get("task") or {}
+    project_dir = context.get("project_dir") or "(未知项目目录)"
     lines = [
         "你是软件开发执行 Agent。下面这个任务已分配给你（竞争认领成功或指定指派），"
         "请经 AgentBoard MCP 把它推进到完成。",
+        "",
+        "## 铁律（必须遵守）",
+        f"你的工作目录已 cd 到项目根：`{project_dir}`。**改任何代码前**必须用 MCP 工具",
+        "（read_file / glob / list_dir）读相关源码、测试、配置；完成后在输出 JSON 里",
+        "加 `inspected_files` 数组（相对路径）。**禁止**编造。",
         "",
         "## 执行要点（必须严格遵守）",
         "1. 任务状态已由 Worker 置 in_progress（开发中）；",
@@ -104,9 +117,9 @@ def build_task_prompt(context: dict) -> str:
         "",
         "## 决策协议（必须严格遵守）",
         "处理完成（或确认无需处理）后，在输出最后打印 JSON：",
-        '{"action":"story_handled","summary":"本轮完成的工作"}',
+        '{"action":"story_handled","summary":"本轮完成的工作","inspected_files":[...]}',
         "若无法继续（缺 MCP 连接 / 依赖缺失 / 需求不清晰等），打印：",
-        '{"action":"fail","error":"原因"}',
+        '{"action":"fail","error":"原因","inspected_files":[...]}',
         "",
         f"## Task #{task.get('id')}：{task.get('title')}",
         "",
@@ -201,10 +214,20 @@ class StoryHandler:
             "needs_design": bool(work_item.get("needs_design", True)),
             "status": work_item.get("status"),
             "tasks": (tasks or {}).get("items", []) if isinstance(tasks, dict) else (tasks or []),
+            "project_dir": self._resolve_project_dir(project_id),
         }
         # Epic 140 切片 3：派单前 recall 项目历史经验（失败 fallback 不带记忆，不阻断）
         ctx["recalled"] = self._recall_episodes(project_id, ctx)
         return ctx
+
+    def _resolve_project_dir(self, project_id: Any) -> str:
+        if not project_id:
+            return ""
+        try:
+            from ..invokers import _resolve_project_cwd
+            return str(_resolve_project_cwd({"project_id": int(project_id)}, None) or "")
+        except Exception:
+            return ""
 
     # ---------- Epic 140 切片 3：项目记忆 recall ----------
 
@@ -251,10 +274,20 @@ class StoryHandler:
         """Story 执行模式提示词（委托模块级 build_story_prompt）。"""
         return build_story_prompt(context)
 
+    def _log_inspected(self, decision: AgentDecision, label: str) -> None:
+        files = decision.inspected_files or []
+        n = len(files)
+        if n == 0:
+            log.info("[%s] agent 未报 inspected_files（可能未读代码）", label)
+            return
+        sample = ", ".join(files[:5]) + (" ..." if n > 5 else "")
+        log.info("[%s] agent 报告读了 %d 个文件：%s", label, n, sample)
+
     def handle_decision(self, work_item: dict, decision: AgentDecision,
                         context: dict) -> str:
         """落决策：story_handled → 收尾/交接；fail → 失败计数 + 回退/blocked。"""
         sid = work_item.get("id")
+        self._log_inspected(decision, label="story")
         if decision.action == ACTION_STORY_HANDLED:
             # 本轮执行成功：节流清零，继续扫描（若任务未全完成则交接下轮继续）
             self._story_fail_counts.pop(sid, None)

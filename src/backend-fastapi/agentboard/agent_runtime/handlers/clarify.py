@@ -29,14 +29,23 @@ def build_clarify_prompt(context: dict) -> str:
     协议刻意做成「一次调用、一次决策、纯 JSON 收口」：Agent 无需记忆，
     每轮都拿到完整历史，输出严格 JSON，Worker 只负责落库。
     """
+    project_dir = context.get("project_dir") or "(未知项目目录)"
     lines = [
         "你是需求澄清分析师。请阅读下面的需求提案与全部历史问答，判断需求是否已足够清晰。",
         "",
+        "## 铁律（必须遵守）",
+        f"你的工作目录已 cd 到项目根：`{project_dir}`。**提问前必须**用 MCP 工具",
+        "（read_file / glob / list_dir）读代码、配置文件、相关文件，让问题落到具体文件、",
+        "接口、字段；不要问那些看一眼代码就能得到答案的通用问题。",
+        "完成阅读后，在输出 JSON 里加 `inspected_files` 数组，列出本次读过的",
+        "相对路径（例：`[\"src/frontend/projects/admin-portal/src/app/dashboard/projects-list.component.ts\"]`），",
+        "Worker 会记录它。**禁止**编造文件路径——只写真正读过的。",
+        "",
         "## 决策协议（必须严格遵守）",
         "在输出的最后打印一个 JSON 对象，且只能是以下三种之一：",
-        '1. 仍需澄清：{"action":"ask","questions":["问题1","问题2"],"summary":"本轮聚焦点"}',
-        '2. 已经收敛：{"action":"finalize","converged_spec":"最终需求规格(Markdown)"}',
-        '3. 无法处理：{"action":"fail","error":"原因"}',
+        '1. 仍需澄清：{"action":"ask","questions":["问题1","问题2"],"summary":"本轮聚焦点","inspected_files":[...]}',
+        '2. 已经收敛：{"action":"finalize","converged_spec":"最终需求规格(Markdown)","inspected_files":[...]}',
+        '3. 无法处理：{"action":"fail","error":"原因","inspected_files":[...]}',
         "问题要具体、可回答，不要重复历史中已问过或已答明确的内容。",
         "",
         f"## 提案 #{context.get('proposal_id')}：{context.get('title')}",
@@ -166,7 +175,20 @@ class ClarifyHandler:
             "answered_count": sum(1 for h in history if h["answered"]),
             "total_questions": len(history),
             "max_rounds": self.config.max_rounds,
+            "project_dir": self._resolve_project_dir(proposal.get("project_id")),
         }
+
+    def _resolve_project_dir(self, project_id: Any) -> str:
+        """从与 SubprocessAgentInvoker 同一份本地映射文件查 project_dir。"""
+        if not project_id:
+            return ""
+        try:
+            from pathlib import Path
+            from ..invokers import _resolve_project_cwd
+            cwd = _resolve_project_cwd({"project_id": int(project_id)}, None)
+            return str(cwd or "")
+        except Exception:
+            return ""
 
     def build_prompt(self, context: dict) -> str:
         """需求澄清提示词（委托模块级 build_clarify_prompt）。"""
@@ -176,12 +198,23 @@ class ClarifyHandler:
                         context: dict) -> str:
         """落决策：ask → 回写问题（awaiting）；finalize → 收敛；fail → 标记失败。"""
         pid = work_item.get("id")
+        self._log_inspected(decision, label="clarify")
         if decision.action == ACTION_ASK:
             return self._apply_ask(pid, decision)
         if decision.action == ACTION_FINALIZE:
             return self._apply_finalize(pid, decision)
         # fail
         return self.mark_failed(pid, decision.error or "Agent 主动判定无法处理")
+
+    def _log_inspected(self, decision: AgentDecision, label: str) -> None:
+        """统一格式 log agent 自报看过的文件，便于审计 agent 是否真看了代码。"""
+        files = decision.inspected_files or []
+        n = len(files)
+        if n == 0:
+            log.info("[%s] agent 未报 inspected_files（可能未读代码）", label)
+            return
+        sample = ", ".join(files[:5]) + (" ..." if n > 5 else "")
+        log.info("[%s] agent 报告读了 %d 个文件：%s", label, n, sample)
 
     def _apply_ask(self, proposal_id: int, decision: AgentDecision) -> str:
         """回写一轮 open questions，推进 awaiting。"""
