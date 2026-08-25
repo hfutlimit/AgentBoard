@@ -8,7 +8,7 @@ Phase 5:从 api.py 拆出的 FastAPI 路由。179 个端点按 2nd path segment 
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request, UploadFile, File, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request, UploadFile, File, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -460,10 +460,19 @@ def claim_ticket_request_deprecated(pid: int, rid: int,
 
 
 @router.post("/api/proposals/{pid}/questions", status_code=201)
-def ask_proposal_questions(pid: int, body: ProposalAskIn, s: Session = Depends(get_session)):
+def ask_proposal_questions(
+    pid: int,
+    body: ProposalAskIn,
+    background: BackgroundTasks,
+    s: Session = Depends(get_session),
+):
     """Agent 回写一轮 open questions，并把提案推进到 awaiting（仅 analyzing 可提问）。
 
     同一 (proposal, round) 重复提交幂等复用既有轮次，兜底 at-least-once 重投。
+
+    P2-10: the SignalR notification goes out via FastAPI BackgroundTasks
+    so the request returns as soon as the proposal is persisted, instead
+    of waiting up to 2 s for the .NET BFF to acknowledge the bridge call.
     """
     try:
         result = service.add_proposal_questions(
@@ -472,7 +481,8 @@ def ask_proposal_questions(pid: int, body: ProposalAskIn, s: Session = Depends(g
         )
         proposal = service.get_proposal(s, pid)
         if proposal is not None:
-            realtime.notify_proposal_questions(
+            realtime.schedule_proposal_questions(
+                background,
                 proposal_id=pid,
                 project_id=proposal.project_id,
                 round_no=result["round"]["round_no"],

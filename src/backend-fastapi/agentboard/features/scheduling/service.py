@@ -218,12 +218,25 @@ def list_run_events(
     offset: int = 0,
     after_id: int = 0,
     before_id: int | None = None,
+    order: str = "asc",
 ):
+    """List run events for one run.
+
+    ``order='asc'`` (default) returns the oldest events first — the natural
+    shape for replay and pagination. ``order='desc'`` returns the newest
+    first, which is what the ``before_id`` window wants for efficient
+    scroll queries. Callers are explicit about which they need so the
+    router no longer has to ``rows.reverse()`` after the fact.
+    """
     q = s.query(RunEvent).filter(RunEvent.run_id == run_id)
     if before_id is not None:
-        q = q.filter(RunEvent.id < before_id).order_by(RunEvent.id.desc())
+        q = q.filter(RunEvent.id < before_id)
     else:
-        q = q.filter(RunEvent.id > after_id).order_by(RunEvent.id.asc())
+        q = q.filter(RunEvent.id > after_id)
+    if order == "desc":
+        q = q.order_by(RunEvent.id.desc())
+    else:
+        q = q.order_by(RunEvent.id.asc())
     return _paginate(q, limit, offset).all()
 
 def claim_lease(s: Session, run_id: int, worker_id: str, ttl_seconds: int = 60) -> bool:

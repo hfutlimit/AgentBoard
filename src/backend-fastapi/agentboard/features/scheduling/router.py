@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import threading
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
@@ -33,51 +32,18 @@ from .schemas import (
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
 from ...api import agent_state_hub  # noqa: E402 — Agent 状态 WebSocket 广播 hub（定义于 api.py 顶层）
 from .models import AgentRun, RunEvent  # noqa: E402 — P1-4 SSE watermark snapshot
+from .run_event_bus import IRunEventBus, InProcessRunEventBus  # noqa: E402 — P1-7 broker-ready bus
 
 
 router = APIRouter(tags=["scheduling"])
 
 log = logging.getLogger("agentboard.features.scheduling.router")
 
-class RunEventSubscription:
-    def __init__(self, loop: asyncio.AbstractEventLoop) -> None:
-        self.loop = loop
-        self.queue: asyncio.Queue[dict] = asyncio.Queue()
-
-
-class RunEventHub:
-    def __init__(self):
-        self._subs = {}
-        self._lock = threading.Lock()
-
-    def subscribe(self, run_id: int) -> RunEventSubscription:
-        subscription = RunEventSubscription(asyncio.get_running_loop())
-        with self._lock:
-            if run_id not in self._subs:
-                self._subs[run_id] = set()
-            self._subs[run_id].add(subscription)
-        return subscription
-
-    def unsubscribe(self, run_id: int, subscription: RunEventSubscription) -> None:
-        with self._lock:
-            if run_id in self._subs:
-                self._subs[run_id].discard(subscription)
-                if not self._subs[run_id]:
-                    del self._subs[run_id]
-
-    def broadcast(self, run_id: int, event: dict) -> None:
-        with self._lock:
-            subs = list(self._subs.get(run_id, []))
-        for subscription in subs:
-            try:
-                subscription.loop.call_soon_threadsafe(
-                    subscription.queue.put_nowait, dict(event),
-                )
-            except RuntimeError as exc:
-                log.debug("run event subscriber is no longer active: %s", exc)
-                self.unsubscribe(run_id, subscription)
-
-run_event_hub = RunEventHub()
+# P1-7: the bus is now an in-process implementation behind the
+# ``IRunEventBus`` protocol. Tests and the local dev path keep using the
+# in-memory bus; a future ``MqRunEventBus`` (RabbitMQ topic
+# ``agentboard.run.events``) can replace it without touching the router.
+run_event_bus: IRunEventBus = InProcessRunEventBus()
 
 class RunEventIn(BaseModel):
     event_type: str
@@ -146,7 +112,7 @@ def create_run_event_endpoint(
     except service.NotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     payload = _event_to_wire(run_event)
-    run_event_hub.broadcast(run_id, payload)
+    run_event_bus.broadcast(run_id, payload)
     return payload
 
 
@@ -159,9 +125,14 @@ def list_run_events_endpoint(
     s: Session = Depends(get_session),
 ):
     api_helpers._authorize_run_read(authorization, s, run_id)
-    rows = service.list_run_events(s, run_id=run_id, before_id=before_id, limit=limit)
-    if before_id is not None:
-        rows.reverse()
+    # Service returns events in the requested order so the router can be
+    # explicit. Without ``before_id`` we want ascending (oldest first) so
+    # the client can stream-replay; with ``before_id`` we want the newest
+    # events strictly less than the cursor so pagination is O(limit).
+    order = "desc" if before_id is not None else "asc"
+    rows = service.list_run_events(
+        s, run_id=run_id, before_id=before_id, limit=limit, order=order,
+    )
     return [_event_to_wire(event) for event in rows]
 
 
@@ -183,7 +154,7 @@ async def stream_run_events(
         last_event_id = max(0, int(request.headers.get("last-event-id", "0")))
     except ValueError:
         last_event_id = 0
-    subscription = run_event_hub.subscribe(run_id)
+    subscription = run_event_bus.subscribe(run_id)
     try:
         # Subscribe before taking the snapshot so events published during the
         # replay query are queued. Materialize the replay while the request
@@ -226,7 +197,7 @@ async def stream_run_events(
             if len(replay_events) >= 2000:
                 break
     except Exception:
-        run_event_hub.unsubscribe(run_id, subscription)
+        run_event_bus.unsubscribe(run_id, subscription)
         raise
     finally:
         s.close()
@@ -273,7 +244,7 @@ async def stream_run_events(
                                 })
                             return
         finally:
-            run_event_hub.unsubscribe(run_id, subscription)
+            run_event_bus.unsubscribe(run_id, subscription)
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
@@ -578,7 +549,7 @@ def update_run(
             api_key_prefix_snapshot=actor.api_key_prefix if actor else None,
             agent_ref_snapshot=actor.agent_ref if actor else None,
         )
-        run_event_hub.broadcast(rid, _event_to_wire(event))
+        run_event_bus.broadcast(rid, _event_to_wire(event))
     return service._ser(r)
 
 
@@ -618,7 +589,7 @@ def report_run_result(
             api_key_prefix_snapshot=actor.api_key_prefix if actor else None,
             agent_ref_snapshot=actor.agent_ref if actor else None,
         )
-        run_event_hub.broadcast(rid, _event_to_wire(event))
+        run_event_bus.broadcast(rid, _event_to_wire(event))
     return service._ser(r)
 
 

@@ -73,13 +73,22 @@ services:
       AGENTBOARD_ENV: "${AGENTBOARD_ENV:-production}"
       AGENTBOARD_REQUIRE_AUTH: "1"
       AGENTBOARD_CORS_ORIGINS: "${AGENTBOARD_CORS_ORIGINS:-*}"
+      # Container-internal bind; host-side mapping is set via
+      # AGENTBOARD_DOTNET_PORT below. Program.cs reads this env var and
+      # calls UseUrls() — do not also set ASPNETCORE_URLS (would conflict).
       AGENTBOARD_DOTNET_PORT: "8080"
-      ASPNETCORE_URLS: "http://0.0.0.0:8080"
       # Internal address the .NET BFF uses to call FastAPI for AI orchestration
       # (Stage 1 wires this through Polly + token passthrough).
       AGENTBOARD_FASTAPI__INTERNALURL: "http://api:8000"
       AGENTBOARD_FASTAPI__INTERNALONLY: "0"
       AGENTBOARD_REALTIME_INTERNAL_KEY: "${AGENTBOARD_REALTIME_INTERNAL_KEY:-}"
+      # P1-6: extend the default trusted-proxy allowlist (loopback +
+      # RFC1918) with the docker bridge network. The FastAPI api container
+      # is the only legitimate caller of /api/internal/realtime/* and it
+      # lives in 172.16.0.0/12 in compose.
+      AgentBoard__Realtime__TrustedProxies__0: "10.0.0.0/8"
+      AgentBoard__Realtime__TrustedProxies__1: "172.16.0.0/12"
+      AgentBoard__Realtime__TrustedProxies__2: "192.168.0.0/16"
     depends_on:
       db:
         condition: service_healthy
