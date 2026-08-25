@@ -163,10 +163,16 @@ def revoke_api_key(s: Session, key_id: int, user_id: int) -> bool:
     return True
 
 
+def _ensure_api_key_can_be_enabled(item: ApiKey, enabled: bool) -> None:
+    if enabled and item.revoked_at is not None:
+        raise InvalidValue("revoked API key cannot be re-enabled")
+
+
 def toggle_api_key(s: Session, key_id: int, user_id: int, enabled: bool) -> ApiKey | None:
     k = s.get(ApiKey, key_id)
     if not k or k.user_id != user_id:
         return None
+    _ensure_api_key_can_be_enabled(k, enabled)
     k.enabled = enabled
     _commit(s)
     s.refresh(k)
@@ -218,6 +224,7 @@ def update_api_key(
     if name is not None:
         item.name = name.strip()
     if enabled is not None:
+        _ensure_api_key_can_be_enabled(item, enabled)
         item.enabled = enabled
     if permissions is not None:
         item.permissions = auth.encode_permissions(permissions)

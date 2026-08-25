@@ -149,7 +149,7 @@ def resolve_actor_context(
     api_key = None
     if not uid and token.startswith(auth.API_KEY_PREFIX):
         api_key = service.lookup_api_key_by_hash(s, auth.hash_api_key(token))
-        if api_key and api_key.enabled:
+        if api_key and api_key.enabled and api_key.revoked_at is None:
             permissions = auth.decode_permissions(api_key.permissions)
             if required_permission and not auth.permission_allows(
                 permissions, required_permission

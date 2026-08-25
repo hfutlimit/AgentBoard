@@ -8,7 +8,9 @@ os.environ["AGENTBOARD_DB_URL"] = "sqlite:///./_test_identity_tmp.db"
 
 import uuid
 import pytest
+from fastapi import HTTPException
 
+from agentboard.api_helpers import resolve_actor_context
 from agentboard.core.exceptions import Conflict, InvalidValue
 from agentboard.core.infrastructure.database import (
     SessionLocal, engine, init_db,
@@ -17,7 +19,7 @@ from agentboard.features.identity.service import (
     authenticate_user, change_user_password, create_api_key,
     get_user, get_user_by_username, has_users, list_api_keys,
     list_users, register_user, revoke_api_key, set_user_admin,
-    toggle_api_key, update_user_profile,
+    toggle_api_key, update_api_key, update_user_profile,
 )
 
 
@@ -145,7 +147,43 @@ def test_revoke_api_key(session, uname):
     key, _ = create_api_key(session, user_id=u.id, name="k", permissions=[])
     assert revoke_api_key(session, key.id, u.id) is True
     keys = list_api_keys(session, u.id)
-    assert all(k.id != key.id for k in keys)
+    assert [k.id for k in keys] == [key.id]
+    session.refresh(key)
+    assert key.enabled is False
+    assert key.revoked_at is not None
+
+
+def test_revoked_api_key_cannot_be_reenabled(session, uname):
+    n = uname("liam-reenable")
+    u = register_user(session, username=n, password="secret123")
+    key, _ = create_api_key(session, user_id=u.id, name="k", permissions=[])
+    assert revoke_api_key(session, key.id, u.id) is True
+
+    with pytest.raises(InvalidValue, match="revoked API key"):
+        update_api_key(session, key, enabled=True)
+
+    with pytest.raises(InvalidValue, match="revoked API key"):
+        toggle_api_key(session, key.id, u.id, enabled=True)
+
+    session.refresh(key)
+    assert key.enabled is False
+
+
+def test_auth_rejects_key_with_revoked_at_even_if_enabled(session, uname):
+    n = uname("liam-auth-defense")
+    u = register_user(session, username=n, password="secret123")
+    key, plaintext = create_api_key(session, user_id=u.id, name="k", permissions=[])
+    assert revoke_api_key(session, key.id, u.id) is True
+
+    # Simulate a stale/corrupt write that flips only the enabled flag.
+    key.enabled = True
+    session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        resolve_actor_context(f"Bearer {plaintext}", session)
+
+    assert exc_info.value.status_code == 401
+    assert key.revoked_at is not None
 
 
 def test_revoke_api_key_other_user_returns_false(session, uname):

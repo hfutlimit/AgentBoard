@@ -181,6 +181,15 @@ def test_revoke_after_audit_event_preserves_audit_trail():
     )
     assert after.status_code == 401, after.text
 
+    # A revoked key is terminal and cannot be resurrected through the
+    # management endpoint either.
+    reenable = client.patch(
+        f"/api/api-keys/{key_id}",
+        headers=headers,
+        json={"enabled": True},
+    )
+    assert reenable.status_code == 422, reenable.text
+
     # 6. Re-revoking is idempotent (no error, no state regression).
     again = client.delete(f"/api/api-keys/{key_id}", headers=headers)
     assert again.status_code == 204, again.text
