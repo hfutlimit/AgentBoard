@@ -3,18 +3,21 @@ using System.Security.Claims;
 using System.Text.Json;
 using AgentBoard.Application.Abstractions;
 using AgentBoard.Application.Identity;
+using AgentBoard.Domain.Identity;
 using Microsoft.AspNetCore.Http;
 
 namespace AgentBoard.Api.Auth;
 
 /// <summary>
 /// Resolves the caller from the <c>Authorization: Bearer v1....</c> token
-/// issued by <see cref="HmacTokenService"/> and populates
-/// <see cref="HttpContext.User"/> so <see cref="CurrentUserService"/> can
-/// read it. Anonymous requests pass through untouched, leaving the read-only
-/// endpoints open (the .NET BFF only enforces auth on /api/auth/me and write
-/// paths). The token is stateless and verified locally — no DB round trip
-/// is required for validation.
+/// issued by <see cref="HmacTokenService"/> (or from an <c>abk_</c> API
+/// key) and populates <see cref="HttpContext.User"/> so
+/// <see cref="CurrentUserService"/> can read it. Anonymous requests pass
+/// through untouched, leaving the read-only endpoints open (the .NET BFF
+/// only enforces auth on /api/auth/me and write paths). The bearer token
+/// is stateless and verified locally — no DB round trip is required for
+/// validation. API keys are validated against the unique <c>key_hash</c>
+/// index via <see cref="IApiKeyRepository.GetByHashAsync"/>.
 /// </summary>
 public sealed class AuthMiddleware
 {
@@ -28,7 +31,10 @@ public sealed class AuthMiddleware
         _tokens = tokens;
     }
 
-    public async Task InvokeAsync(HttpContext context, IApiKeyRepository apiKeys)
+    public async Task InvokeAsync(
+        HttpContext context,
+        IApiKeyRepository apiKeys,
+        IUserRepository users)
     {
         var auth = context.Request.Headers.Authorization.ToString();
         if (string.IsNullOrWhiteSpace(auth)
@@ -43,21 +49,29 @@ public sealed class AuthMiddleware
             var raw = auth.Substring(Scheme.Length).Trim();
             if (raw.StartsWith("abk_", StringComparison.Ordinal))
             {
+                // P0-3: single-row index seek via the unique key_hash column
+                // instead of the previous ListAsync(predicate) scan. We still
+                // do an in-memory `Enabled` check so disabled keys are
+                // rejected even if a stale hash somehow matched.
                 var digest = Convert.ToHexString(
                     System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(raw)))
                     .ToLowerInvariant();
-                var prefix = raw[..Math.Min(12, raw.Length)];
-                var keys = await apiKeys.ListAsync(
-                    k => k.Enabled && k.KeyPrefix == prefix && k.KeyHash == digest,
-                    context.RequestAborted);
-                var key = keys.FirstOrDefault();
-                if (key is not null)
+                var key = await apiKeys.GetByHashAsync(digest, context.RequestAborted);
+                if (key is { Enabled: true })
                 {
+                    var user = await users.GetByIdAsync(key.UserId, context.RequestAborted);
                     var claims = new List<Claim>
                     {
                         new("uid", key.UserId.ToString(), ClaimValueTypes.Integer32),
                         new("auth_scheme", "api_key"),
                     };
+                    if (user is not null)
+                    {
+                        // P0-2: stamp username + is_admin so CurrentUserService
+                        // does not have to round-trip the DB on every read.
+                        claims.Add(new Claim("username", user.Username));
+                        claims.Add(new Claim("is_admin", user.IsAdmin ? "true" : "false"));
+                    }
                     foreach (var permission in ParseScopes(key.Scopes))
                         claims.Add(new Claim("api_key_permission", permission));
                     context.User = new ClaimsPrincipal(new ClaimsIdentity(claims, "AgentBoardApiKey"));
@@ -68,9 +82,21 @@ public sealed class AuthMiddleware
                 var uid = _tokens.ValidateToken(raw);
                 if (uid is { } id)
                 {
-                    var identity = new ClaimsIdentity(
-                        new[] { new Claim("uid", id.ToString(), ClaimValueTypes.Integer32) },
-                        "AgentBoardBearer");
+                    var user = await users.GetByIdAsync(id, context.RequestAborted);
+                    var claims = new List<Claim>
+                    {
+                        new("uid", id.ToString(), ClaimValueTypes.Integer32),
+                    };
+                    if (user is not null)
+                    {
+                        // P0-2: same as the api_key branch — populate the
+                        // identity claims that CurrentUserService exposes
+                        // (Username, IsAdmin) so middleware and downstream
+                        // code never sees null where a real value exists.
+                        claims.Add(new Claim("username", user.Username));
+                        claims.Add(new Claim("is_admin", user.IsAdmin ? "true" : "false"));
+                    }
+                    var identity = new ClaimsIdentity(claims, "AgentBoardBearer");
                     context.User = new ClaimsPrincipal(identity);
                 }
             }

@@ -84,6 +84,15 @@ public sealed class ApiKeyRepository : Repository<ApiKey>, IApiKeyRepository
 {
 	public ApiKeyRepository(AppDbContext db) : base(db) { }
 	protected override DbSet<ApiKey> Set => Db.Set<ApiKey>();
+
+	/// <summary>
+	/// P0-3: replace the previous <c>ListAsync(predicate)</c> scan with a
+	/// single index seek against the unique <c>key_hash</c> column. The
+	/// returned row is already filtered to <c>Enabled = true</c> at the
+	/// call site (the previous implementation did this in memory).
+	/// </summary>
+	public Task<ApiKey?> GetByHashAsync(string keyHash, CancellationToken ct = default) =>
+		Set.AsNoTracking().FirstOrDefaultAsync(k => k.KeyHash == keyHash, ct);
 }
 
 public sealed class DocumentRepository : Repository<Document>, IDocumentRepository

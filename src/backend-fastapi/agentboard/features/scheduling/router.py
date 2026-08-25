@@ -32,6 +32,7 @@ from .schemas import (
 )
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
 from ...api import agent_state_hub  # noqa: E402 — Agent 状态 WebSocket 广播 hub（定义于 api.py 顶层）
+from .models import AgentRun, RunEvent  # noqa: E402 — P1-4 SSE watermark snapshot
 
 
 router = APIRouter(tags=["scheduling"])
@@ -157,8 +158,7 @@ def list_run_events_endpoint(
     limit: int = Query(200, ge=1, le=200),
     s: Session = Depends(get_session),
 ):
-    api_helpers._current_user(authorization, s, required_permission="api:read")
-    api_helpers._need(service.get_run(s, run_id), "run")
+    api_helpers._authorize_run_read(authorization, s, run_id)
     rows = service.list_run_events(s, run_id=run_id, before_id=before_id, limit=limit)
     if before_id is not None:
         rows.reverse()
@@ -172,8 +172,13 @@ async def stream_run_events(
     authorization: str | None = Header(None),
     s: Session = Depends(get_session),
 ):
-    api_helpers._current_user(authorization, s, required_permission="api:read")
-    run = api_helpers._need(service.get_run(s, run_id), "run")
+    # P0-1: read auth is enforced here too — the SSE response includes the
+    # same audit metadata as the JSON list endpoint, so a member of another
+    # project must not be able to subscribe to a foreign run's event stream.
+    api_helpers._authorize_run_read(authorization, s, run_id)
+    run = service.get_run(s, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
     try:
         last_event_id = max(0, int(request.headers.get("last-event-id", "0")))
     except ValueError:
@@ -184,12 +189,42 @@ async def stream_run_events(
         # replay query are queued. Materialize the replay while the request
         # session is still alive, then release its DB connection before the
         # long-lived response starts.
-        replay_events = [
-            _event_to_wire(ev)
-            for ev in service.list_run_events(
-                s, run_id=run_id, after_id=last_event_id, limit=200,
-            )
-        ]
+        #
+        # P1-4 (SSE replay 200-event gap): the previous implementation only
+        # fetched the first 200 events after `last_event_id` and immediately
+        # transitioned to the live queue, which silently dropped any events
+        # written between `last_event_id + 1` and the snapshot MAX(id) when
+        # the backlog exceeded the page size. We now:
+        #   1) capture snapshot_max_id = MAX(event.id) at subscribe time;
+        #   2) paginate replay (limit 200) until we either reach snapshot_max_id
+        #      or exhaust the backlog;
+        #   3) only enter the live queue once replay is at-or-past the snapshot.
+        snapshot_max_id = (
+            s.query(RunEvent.id)
+            .filter(RunEvent.run_id == run_id, RunEvent.id > last_event_id)
+            .order_by(RunEvent.id.desc())
+            .first()
+        )
+        snapshot_max_id = snapshot_max_id[0] if snapshot_max_id else last_event_id
+        replay_events: list[dict] = []
+        cursor = last_event_id
+        while cursor < snapshot_max_id:
+            page = [
+                _event_to_wire(ev)
+                for ev in service.list_run_events(
+                    s, run_id=run_id, after_id=cursor, limit=200,
+                )
+            ]
+            if not page:
+                break
+            replay_events.extend(page)
+            cursor = page[-1]["id"]
+            # Safety net: if a runaway producer keeps inserting, cap the
+            # replay at the snapshot watermark plus a small buffer so the
+            # stream does not stall forever. We still re-enter the loop and
+            # pick up any new high-water once we hit the original snapshot.
+            if len(replay_events) >= 2000:
+                break
     except Exception:
         run_event_hub.unsubscribe(run_id, subscription)
         raise
@@ -445,13 +480,18 @@ def list_task_runs_api(
 # ---------- Sprint ----------
 
 @router.get("/api/schedules/{sid}")
-def get_schedule(sid: int, s: Session = Depends(get_session)):
+def get_schedule(sid: int, authorization: str | None = Header(None),
+                 s: Session = Depends(get_session)):
+    api_helpers._authorize_schedule_read(authorization, s, sid)
     return service._ser(api_helpers._need(service.get_schedule(s, sid), "schedule"))
 
 
 
 @router.patch("/api/schedules/{sid}")
-def update_schedule(sid: int, body: SchedulePatch, s: Session = Depends(get_session)):
+def update_schedule(sid: int, body: SchedulePatch,
+                    authorization: str | None = Header(None),
+                    s: Session = Depends(get_session)):
+    api_helpers._authorize_schedule_write(authorization, s, sid)
     fields = body.model_dump(exclude_none=True)
     for k in ("agent", "task_id", "task_priority", "task_type", "epic_id"):
         if k in body.model_fields_set:
@@ -467,7 +507,9 @@ def update_schedule(sid: int, body: SchedulePatch, s: Session = Depends(get_sess
 
 
 @router.delete("/api/schedules/{sid}")
-def delete_schedule(sid: int, s: Session = Depends(get_session)):
+def delete_schedule(sid: int, authorization: str | None = Header(None),
+                    s: Session = Depends(get_session)):
+    api_helpers._authorize_schedule_write(authorization, s, sid)
     if not service.delete_schedule(s, sid):
         raise HTTPException(status_code=404, detail="schedule not found")
     return {"ok": True}
@@ -489,15 +531,18 @@ def create_run(sid: int, body: RunIn, s: Session = Depends(get_session)):
 
 
 @router.get("/api/schedules/{sid}/runs")
-def list_runs(sid: int, s: Session = Depends(get_session),
+def list_runs(sid: int, authorization: str | None = Header(None),
+              s: Session = Depends(get_session),
               limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0)):
-    api_helpers._need(service.get_schedule(s, sid), "schedule")
+    api_helpers._authorize_schedule_read(authorization, s, sid)
     return [service._ser(r) for r in service.list_runs(s, sid, limit=limit, offset=offset)]
 
 
 
 @router.get("/api/runs/{rid}")
-def get_run(rid: int, s: Session = Depends(get_session)):
+def get_run(rid: int, authorization: str | None = Header(None),
+            s: Session = Depends(get_session)):
+    api_helpers._authorize_run_read(authorization, s, rid)
     return service._ser(api_helpers._need(service.get_run(s, rid), "run"))
 
 

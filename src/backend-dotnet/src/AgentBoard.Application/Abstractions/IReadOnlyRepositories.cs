@@ -17,7 +17,15 @@ public interface IAttachmentRepository : IRepository<Attachment> { }
 public interface IAuditLogRepository : IRepository<AuditLog> { }
 public interface ITaskDependencyRepository : IRepository<TaskDependency> { }
 public interface IWebhookConfigRepository : IRepository<WebhookConfig> { }
-public interface IApiKeyRepository : IRepository<ApiKey> { }
+public interface IApiKeyRepository : IRepository<ApiKey>
+{
+    /// <summary>
+    /// Look up an enabled API key by its full SHA-256 hex digest. Returns
+    /// null when no enabled key matches. Uses the unique <c>key_hash</c>
+    /// index so this is a single-row index seek.
+    /// </summary>
+    Task<ApiKey?> GetByHashAsync(string keyHash, CancellationToken ct = default);
+}
 public interface IDocumentRepository : IRepository<Document> { }
 public interface IDocumentRevisionRepository : IRepository<DocumentRevision> { }
 public interface IDocumentFolderRepository : IRepository<DocumentFolder> { }

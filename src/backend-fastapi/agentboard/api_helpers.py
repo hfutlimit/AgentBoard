@@ -282,6 +282,143 @@ def _run_lease_allows_mutation(run: Any, worker_id: str | None) -> bool:
     return _run_lease_worker_id(run, worker_id) is not None
 
 
+# ---------- Read-side aggregate authorization (P0-1) ----------
+#
+# Mirror of `_authorize_run_mutation` for read endpoints. The run/schedule
+# read paths previously only checked `api:read` permission, which let any
+# authenticated user read another project's AgentRun + RunEvent audit
+# metadata (api_key_id, agent_registry_id, worker_id, payload). The
+# helpers below resolve the run/schedule/task back to its owning project
+# and enforce project membership (admin always passes).
+#
+# Local open-CRUD dev mode (AGENTBOARD_REQUIRE_AUTH=0) is preserved
+# exactly as in `_authorize_run_mutation` so existing dev workflows keep
+# working without a credential.
+
+
+def _authorize_run_read(
+    authorization: str | None,
+    s: Session,
+    run_id: int,
+):
+    """Authorize a read against an AgentRun and its derived records.
+
+    Returns ``(run, actor)`` where ``actor`` is ``None`` in open-CRUD dev mode.
+    Raises 404 when the run is missing and 403 when the caller cannot see it.
+    """
+    run = service.get_run(s, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="run not found")
+
+    if not authorization and not _auth_is_required():
+        return run, None
+
+    actor = resolve_actor_context(
+        authorization, s, required_permission="api:read",
+    )
+    if actor.is_admin:
+        return run, actor
+
+    project_id = service.get_run_project_id(s, run_id)
+    if project_id is not None and service.user_is_project_member(
+        s, project_id, actor.user_id,
+    ):
+        return run, actor
+
+    raise HTTPException(
+        status_code=403,
+        detail="run read requires project membership",
+    )
+
+
+def _authorize_task_read(
+    authorization: str | None,
+    s: Session,
+    task_id: int,
+):
+    """Authorize a read against a Task and its derived records (history, deps, review context)."""
+    task = service.get_task(s, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="task not found")
+
+    if not authorization and not _auth_is_required():
+        return task, None
+
+    actor = resolve_actor_context(
+        authorization, s, required_permission="api:read",
+    )
+    if actor.is_admin:
+        return task, actor
+
+    if service.user_is_project_member(s, task.project_id, actor.user_id):
+        return task, actor
+
+    raise HTTPException(
+        status_code=403,
+        detail="task read requires project membership",
+    )
+
+
+def _authorize_schedule_read(
+    authorization: str | None,
+    s: Session,
+    schedule_id: int,
+):
+    """Authorize a read against an AgentSchedule. Project membership or admin required."""
+    schedule = service.get_schedule(s, schedule_id)
+    if schedule is None:
+        raise HTTPException(status_code=404, detail="schedule not found")
+
+    if not authorization and not _auth_is_required():
+        return schedule, None
+
+    actor = resolve_actor_context(
+        authorization, s, required_permission="api:read",
+    )
+    if actor.is_admin:
+        return schedule, actor
+
+    if service.user_is_project_member(
+        s, schedule.project_id, actor.user_id,
+    ):
+        return schedule, actor
+
+    raise HTTPException(
+        status_code=403,
+        detail="schedule read requires project membership",
+    )
+
+
+def _authorize_schedule_write(
+    authorization: str | None,
+    s: Session,
+    schedule_id: int,
+):
+    """Authorize a write against an AgentSchedule. Project owner or admin required."""
+    schedule = service.get_schedule(s, schedule_id)
+    if schedule is None:
+        raise HTTPException(status_code=404, detail="schedule not found")
+
+    if not authorization and not _auth_is_required():
+        return schedule, None
+
+    actor = resolve_actor_context(
+        authorization, s, required_permission="api:write",
+    )
+    if actor.is_admin:
+        return schedule, actor
+
+    if service.user_is_project_owner(
+        s, schedule.project_id, actor.user_id,
+    ):
+        return schedule, actor
+
+    raise HTTPException(
+        status_code=403,
+        detail="schedule write requires project owner",
+    )
+
+
 def _apply_cors(request: Request, resp: JSONResponse) -> JSONResponse:
     """为 middleware 早返回的 JSONResponse 注入 CORS 头（防 CORS 拦截致 0 status）。
 

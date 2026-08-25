@@ -66,7 +66,11 @@ def search_tasks_enhanced_api(
 
 
 @router.get("/api/tasks/{tid}")
-def get_task(tid: int, s: Session = Depends(get_session)):
+def get_task(tid: int, authorization: str | None = Header(None),
+             s: Session = Depends(get_session)):
+    # P0-1: Task read auth matches the new `_authorize_task_read` contract;
+    # unauthenticated callers in dev (REQUIRE_AUTH=0) still pass.
+    api_helpers._authorize_task_read(authorization, s, tid)
     return service._ser(api_helpers._need(service.get_task(s, tid), "task"))
 
 
@@ -149,7 +153,7 @@ def set_status(
 def get_task_status_history(tid: int, authorization: str | None = Header(None),
                             s: Session = Depends(get_session)):
     """任务状态变更历史（Epic 123）：from_status → to_status、操作人、原因、时间，倒序。"""
-    api_helpers._need(service.get_task(s, tid), "task")
+    api_helpers._authorize_task_read(authorization, s, tid)
     return [service._ser(h) for h in service.list_task_status_history(s, tid)]
 
 
@@ -696,7 +700,10 @@ def get_task_review_context(
     authorization: str | None = Header(None),
     s: Session = Depends(get_session),
 ):
-    api_helpers._current_user(authorization, s, required_permission="api:read")
+    # P0-1: review-context returns task + parent proposal spec; project
+    # membership must be enforced or any authenticated caller could read
+    # another project's proposal content via the task id alone.
+    api_helpers._authorize_task_read(authorization, s, tid)
     task = service.get_task(s, tid)
     if not task:
         raise HTTPException(status_code=404, detail="task not found")
