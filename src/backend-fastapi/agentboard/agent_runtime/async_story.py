@@ -60,16 +60,62 @@ class _SerializedInvoker:
 
 
 class AsyncWorkExecutor:
-    """后台线程池执行 Handler.handle(work_item, invoker)，不阻塞 main loop。"""
+    """后台线程池执行 WorkerCoordinator.dispatch(command)，不阻塞 main loop。
+
+    2026-08-26 P1 架构收口：原版直接调 ``handler.handle(work_item, invoker)``，
+    绕过统一执行内核 → 临时 timeout 走 async path 不会 retry（被算成 Story 失败
+    计数 +1，三次后 blocked）。新版本构造 ``ExecutionCommand`` 调
+    ``coordinator.dispatch``，错误分类与 polling / MQ 路径完全一致。
+    """
 
     #: 支持的业务域（必须与 handlers.build_handlers 的 key 一致）
     KINDS: tuple[str, ...] = ("clarify", "ticket", "story")
 
-    def __init__(self, invoker: Any, handlers: dict[str, Any],
+    # kind → (WorkType, entity_type) 映射（与 coordinator.poll_once 对齐）
+    _KIND_WT_MAP: dict[str, tuple[Any, str]] = {}
+
+    def __init__(self, coordinator: Any = None,
+                 invoker: Any = None, handlers: dict[str, Any] | None = None,
                  max_concurrent: int = 1,
                  join_timeout: float = 30.0):
-        self._invoker = _SerializedInvoker(invoker)
-        self._handlers = handlers
+        """初始化（两种签名兼容）：
+
+        - **新签名 (P1 推荐)**: ``AsyncWorkExecutor(coordinator, max_concurrent=...)``
+          —— 通过 ``coordinator.dispatch()`` 走统一执行内核。
+        - **旧签名 (deprecated)**: ``AsyncWorkExecutor(invoker, handlers, ...)``
+          —— 仍可工作但路径被分叉，新代码不要用。
+        """
+        import warnings
+        if coordinator is not None and handlers is None:
+            # 新签名：coordinator-based
+            self._coordinator = coordinator
+            self._invoker = coordinator.invoker
+        elif handlers is not None and invoker is not None:
+            # 旧签名：handler-based（fallback 走旧 handle 路径，仅用于未升级
+            # 测试 / 历史兼容；新部署全部走 coordinator）
+            warnings.warn(
+                "AsyncWorkExecutor(invoker=, handlers=) is deprecated; "
+                "use AsyncWorkExecutor(coordinator=) so async path joins the "
+                "unified execution kernel (Phase 1 P1, 2026-08-26).",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self._coordinator = None
+            self._invoker = _SerializedInvoker(invoker)
+            self._handlers = handlers
+        else:
+            raise TypeError(
+                "AsyncWorkExecutor requires either (coordinator=) or "
+                "(invoker=, handlers=)"
+            )
+        # 延迟初始化 kind→work_type 映射（避免循环 import contract）
+        if not AsyncWorkExecutor._KIND_WT_MAP:
+            from .contract import WorkType as _WT
+            AsyncWorkExecutor._KIND_WT_MAP = {
+                "clarify": (_WT.PROPOSAL_CLARIFY, "proposal"),
+                "ticket": (_WT.PROPOSAL_CONVERT, "proposal"),
+                "story": (_WT.IMPLEMENTATION, "story"),
+            }
         self._join_timeout = max(0.0, join_timeout)
         # per-kind 串行化：慢域不占快域槽位（同 invoker 不假定线程安全）
         self._sems = {
@@ -86,7 +132,7 @@ class AsyncWorkExecutor:
 
     def submit(self, kind: str, work_item: dict,
                on_decision: OnDecision | None = None) -> str:
-        """立即返回；后台线程执行对应 handler。in-flight 重复提交被拒绝。"""
+        """立即返回；后台线程执行对应命令。in-flight 重复提交被拒绝。"""
         if kind not in self.KINDS:
             return f"rejected_unknown_kind:{kind}"
         wid = work_item.get("id")
@@ -119,11 +165,12 @@ class AsyncWorkExecutor:
         outcome = ""
         exc: BaseException | None = None
         try:
-            handler = self._handlers.get(kind)
-            if handler is None:
-                outcome = "no_handler"
+            if self._coordinator is not None:
+                # 新路径：构造 ExecutionCommand 走 coordinator.dispatch
+                outcome = self._dispatch_via_coordinator(kind, work_item)
             else:
-                outcome = str(handler.handle(work_item, self._invoker))
+                # 旧路径（deprecated）：直接调 handler.handle
+                outcome = self._dispatch_via_legacy_handler(kind, work_item)
         except BaseException as e:  # noqa: BLE001 —— 后台必须吞掉避免线程死
             exc = e
             log.exception("%s #%s 后台执行异常", kind, wid)
@@ -137,6 +184,28 @@ class AsyncWorkExecutor:
                     on_decision(kind, wid, outcome, exc)
                 except Exception:
                     log.exception("on_decision 回调异常（%s #%s）", kind, wid)
+
+    def _dispatch_via_coordinator(self, kind: str, work_item: dict) -> str:
+        """构造 ExecutionCommand 走 coordinator.dispatch（统一执行内核入口）。"""
+        from .contract import ExecutionCommand
+        wt, entity_type = self._KIND_WT_MAP[kind]
+        entity_id = int(work_item.get("id", 0) or 0)
+        cmd = ExecutionCommand(
+            execution_id=f"async_{kind}_{entity_id}",
+            work_type=wt,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            context=dict(work_item),
+        )
+        result = self._coordinator.dispatch(cmd)
+        return str(result.action or "dispatched")
+
+    def _dispatch_via_legacy_handler(self, kind: str, work_item: dict) -> str:
+        """旧路径（deprecated）：直接调 handler.handle。仅供未迁移测试用。"""
+        handler = self._handlers.get(kind)
+        if handler is None:
+            return "no_handler"
+        return str(handler.handle(work_item, self._invoker))
 
     def inflight_count(self, kind: str | None = None) -> int:
         """当前在跑的后台任务数（调试/测试用）。"""

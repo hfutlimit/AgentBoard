@@ -79,9 +79,10 @@ class WorkerCoordinator:
             from .async_story import AsyncWorkExecutor
             max_c = max(1, int(getattr(config, "async_story_max_concurrent", 1)))
             join_to = float(getattr(config, "async_story_join_timeout", 30.0))
+            # P1 收口（2026-08-26）：AsyncWorkExecutor 接 coordinator 而非 handlers，
+            # async 路径走统一执行内核（统一 error taxonomy + dispatch 去重）。
             self._work_executor = AsyncWorkExecutor(
-                invoker=self.invoker,
-                handlers=self._handlers_by_name,
+                coordinator=self,
                 max_concurrent=max_c,
                 join_timeout=join_to,
             )

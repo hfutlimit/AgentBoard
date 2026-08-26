@@ -60,6 +60,39 @@ def _parse_dt(value: Any) -> datetime | None:
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
 
+def _outcome_from_result(result: Any, default: str = "handled") -> str:
+    """把 ExecutionResult 映射到旧 handler.handle() 返回的 outcome 字符串。
+
+    旧 handler 返回值（test_worker_heartbeat.py 等历史测试用）：
+        - "handled"  成功推进
+        - "skipped"  节流 / in-flight / 无可处理
+        - "failed"   调用异常
+        - "blocked"  连续失败达上限转人工
+    ExecutionResult.status (P1 收口后统一来源)：
+        - SUCCESS → "handled"
+        - SKIPPED → "skipped"
+        - FAILED → "failed"（handler 显式 action="fail"）
+        - FAILED_TRANSIENT → "failed"（瞬时异常，unclaim 让下轮重试）
+        - FAILED_PERMANENT → "failed"（永久异常，_story_fail 计数 +1，但本次
+          还没到上限 → outcome "failed"，达到 3 次才转 BLOCKED）
+        - BLOCKED → "blocked"（_story_fail 达到上限，转人工）
+        - REJECTED → "failed"（review 驳回也算失败）
+    """
+    status = getattr(result, "status", None)
+    if status is None:
+        return default
+    name = getattr(status, "name", str(status))
+    if name == "SUCCESS":
+        return "handled"
+    if name == "SKIPPED":
+        return "skipped"
+    if name in ("FAILED", "FAILED_TRANSIENT", "FAILED_PERMANENT", "REJECTED"):
+        return "failed"
+    if name == "BLOCKED":
+        return "blocked"
+    return default
+
+
 def _stamp_command(
     work_type: WorkType,
     entity_type: str,
@@ -110,29 +143,34 @@ class ProposalWorker:
     def __init__(self, config: WorkerConfig, invoker: AgentInvoker | None = None,
                  client: httpx.Client | None = None):
         from .config import AgentInvoker  # 协议，延迟导入避免循环
-        self.config = config
-        self.invoker = invoker or self._default_invoker(config)
-        self._owns_client = client is None
-        self.client = client or httpx.Client(
-            base_url=config.api_url, timeout=config.http_timeout,
-            headers=({"Authorization": f"Bearer {config.token}"} if config.token else {}),
+        # P1 架构收口（2026-08-26 review）：WorkerCoordinator 是统一执行内核，
+        # ProposalWorker 薄化为 main loop / broker adapter / backward-compat facade。
+        # config.use_coordinator=False 时所有 handle* 方法走旧 _handlers 路径（灰度用），
+        # 默认 True → 所有 ExecutionCommand 走 coordinator.dispatch()。
+        from .coordinator import WorkerCoordinator
+        self._coordinator = WorkerCoordinator(
+            config=config, invoker=invoker, client=client,
         )
-        # prompt 构建：注入各 Handler 的实现（invokers.build_prompt 委托）
-        from .handlers import build_handlers as _build_handlers
-        self._handlers = _build_handlers(self.client, self.config)
+        self.config = self._coordinator.config
+        self.invoker = self._coordinator.invoker
+        self._owns_client = self._coordinator._owns_client
+        self.client = self._coordinator.client
+        # backward-compat: 旧 _handlers dict 暴露给直接调 handler 的测试
+        self._handlers = self._coordinator._handlers_by_name
         set_prompt_builder(self.build_prompt_for)
         # 心跳节流
         self._last_heartbeat_ts: float = 0.0
         # 后台工作项执行器（2026-08-26 根治长任务阻塞 main loop）。
         # 默认不启用；config.async_story_executor=True 时 init。
-        # Stage 0 泛化：覆盖 clarify / ticket / story 三域（配置名沿用旧值兼容）。
+        # P1 收口：coordinator-based 走统一执行内核（统一 error taxonomy），
+        # 不再直接调 handler.handle() 走旧失败计数路径。
         self._work_executor: "AsyncWorkExecutor | None" = None
         if getattr(config, "async_story_executor", False):
             from .async_story import AsyncWorkExecutor  # 延迟导入避免循环
             max_c = max(1, int(getattr(config, "async_story_max_concurrent", 1)))
             join_to = float(getattr(config, "async_story_join_timeout", 30.0))
             self._work_executor = AsyncWorkExecutor(
-                invoker=self.invoker, handlers=self._handlers,
+                coordinator=self._coordinator,
                 max_concurrent=max_c, join_timeout=join_to,
             )
         # MQ 消费瞬时错误重试计数（proposal_id → 已重试次数），成功消费后清除
@@ -187,16 +225,23 @@ class ProposalWorker:
         return None
 
     def close(self) -> None:
-        # 后台工作项执行器（2026-08-26）：先停接新任务，再 join in-flight。
-        # 超时由 config.async_story_join_timeout 控制（默认 30s），
-        # 超过则强制退场，子进程随主进程一起被 OS 回收。
-        if self._work_executor is not None:
+        # P1 收口（2026-08-26）：协调器是 client / executor / invoker 的 owner，
+        # close 委派给它确保不漏回收（包括 AsyncWorkExecutor 的 in-flight join）。
+        try:
+            self._coordinator.close()
+        except Exception:
+            log.exception("WorkerCoordinator.close 异常")
+        if self._work_executor is not None and self._work_executor is not getattr(
+            self._coordinator, "_work_executor", None
+        ):
+            # 灰度期 use_coordinator=False 路径：executor 由 ProposalWorker 自管
             try:
                 self._work_executor.shutdown()
             except Exception:
                 log.exception("AsyncWorkExecutor 收尾异常")
         if self._owns_client:
-            self.client.close()
+            # coordinator 已 close 过；这里仅做幂等保护
+            pass
 
     def __enter__(self) -> "ProposalWorker":
         return self
@@ -243,6 +288,19 @@ class ProposalWorker:
         return self._handlers["clarify"].load_context({"id": proposal_id})
 
     def handle(self, proposal: dict) -> str:
+        # P1 收口（2026-08-26）：所有 work 走 coordinator.dispatch 统一执行内核
+        if self.config.use_coordinator:
+            from .contract import ExecutionCommand, WorkType as _WT
+            cmd = ExecutionCommand(
+                execution_id=f"proposal_{proposal.get('id')}",
+                work_type=_WT.PROPOSAL_CLARIFY,
+                entity_type="proposal",
+                entity_id=int(proposal.get("id", 0) or 0),
+                context=proposal,
+            )
+            result = self._coordinator.dispatch(cmd)
+            return _outcome_from_result(result, default="handled")
+        # 灰度 fallback：use_coordinator=False 走旧 handler.handle 路径
         return self._handlers["clarify"].handle(proposal, self.invoker)
 
     def mark_failed(self, proposal_id: int, error: str) -> str:
@@ -255,6 +313,17 @@ class ProposalWorker:
         return self._handlers["ticket"].load_context(request)
 
     def handle_ticket_request(self, request: dict) -> str:
+        if self.config.use_coordinator:
+            from .contract import ExecutionCommand, WorkType as _WT
+            cmd = ExecutionCommand(
+                execution_id=f"ticket_{request.get('id')}",
+                work_type=_WT.PROPOSAL_CONVERT,
+                entity_type="proposal",
+                entity_id=int(request.get("id", 0) or 0),
+                context=request,
+            )
+            result = self._coordinator.dispatch(cmd)
+            return _outcome_from_result(result, default="handled")
         return self._handlers["ticket"].handle(request, self.invoker)
 
     def fetch_confirmed_stories(self) -> list[dict]:
@@ -264,18 +333,37 @@ class ProposalWorker:
         return self._handlers["story"].load_context(story)
 
     def handle_story(self, story: dict) -> str:
+        if self.config.use_coordinator:
+            from .contract import ExecutionCommand, WorkType as _WT
+            cmd = ExecutionCommand(
+                execution_id=f"story_{story.get('id')}",
+                work_type=_WT.IMPLEMENTATION,
+                entity_type="story",
+                entity_id=int(story.get("id", 0) or 0),
+                context=story,
+            )
+            result = self._coordinator.dispatch(cmd)
+            return _outcome_from_result(result, default="handled")
         return self._handlers["story"].handle(story, self.invoker)
 
     def build_task_context(self, task: dict) -> dict:
         return self._handlers["story"].build_task_context(task)
 
     def handle_task_available(self, msg: "mq.WorkflowMessage") -> bool:
+        if self.config.use_coordinator:
+            return self._coordinator.handle_workflow_message(msg)
         return self._handlers["story"].handle_task_available(msg, self.invoker)
 
     def handle_direct_task(self, msg: "mq.WorkflowMessage") -> bool:
+        if self.config.use_coordinator:
+            return self._coordinator.handle_workflow_message(msg)
         return self._handlers["story"].handle_direct_task(msg, self.invoker)
 
     def handle_workflow_message(self, msg: "mq.WorkflowMessage") -> bool:
+        # P1 收口（2026-08-26）：MQ 事件统一走 coordinator.handle_workflow_message，
+        # 它内部对每个 event wrap 成 ExecutionCommand 调 dispatch。
+        if self.config.use_coordinator:
+            return self._coordinator.handle_workflow_message(msg)
         if msg.event == mq.EVENT_TASK_REVIEW_REQUESTED:
             return self._handlers["review"].handle_requested(msg, self.invoker)
         if msg.event in (mq.EVENT_TASK_REVIEWED, mq.EVENT_TASK_REJECTED):

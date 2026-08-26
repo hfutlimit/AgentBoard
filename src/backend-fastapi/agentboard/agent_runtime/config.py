@@ -117,6 +117,12 @@ class WorkerConfig:
     async_story_max_concurrent: int = 1
     # close() 等待后台 Story 完成的最多秒数（超过则强制收尾）
     async_story_join_timeout: float = 30.0
+    # P1 架构收口（2026-08-26 review）：统一执行内核
+    # - True  → ProposalWorker 把 ExecutionCommand 转给 WorkerCoordinator.dispatch()
+    #          所有路径（polling / MQ / async）走同一入口，错误分类一致
+    # - False → 走旧 ``handler.handle()`` 路径（保留到所有调用方迁移完）
+    # 生产建议开；灰度期可以一台 worker 开 + 一台不开对比
+    use_coordinator: bool = True
 
     @classmethod
     def from_env(cls) -> "WorkerConfig":
@@ -144,6 +150,7 @@ class WorkerConfig:
             async_story_max_concurrent=_env_int("AGENTBOARD_WORKER_ASYNC_STORY_CONCURRENCY", 1),
             async_story_join_timeout=float(
                 _env_int("AGENTBOARD_WORKER_ASYNC_STORY_JOIN_TIMEOUT", 30)),
+            use_coordinator=_env_int("AGENTBOARD_WORKER_USE_COORDINATOR", 1) == 1,
         )
 
 

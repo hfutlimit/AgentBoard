@@ -333,6 +333,17 @@ class StoryHandler(BaseWorkHandler):
         # 默认作为 Story 处理
         story = command.context if "tasks" in command.context else {"id": command.entity_id}
         sid = command.entity_id
+        # P1 收口（2026-08-26）：throttle 检查从 handle() 迁到 execute_command()，
+        # 让 coordinator.dispatch 路径有相同的节流保护。线程安全：async 模式下
+        # _story_attempts 由 _async_lock 串行化。
+        with self._async_lock:
+            now = time.time()
+            last = self._story_attempts.get(sid, 0.0)
+            if now - last < self._story_min_interval:
+                return ExecutionResult.skipped(
+                    command.execution_id, f"throttled ({self._story_min_interval}s)",
+                )
+            self._story_attempts[sid] = now
         if not self.claim(story):
             return ExecutionResult.skipped(command.execution_id, "claim skipped")
         try:
@@ -354,9 +365,23 @@ class StoryHandler(BaseWorkHandler):
             log.warning("Story #%s Agent 调用失败：%s", sid, e)
             result = ExecutionResult.from_exception(command.execution_id, e, action="fail")
             if result.status is not ExecutionStatus.FAILED_TRANSIENT:
-                self._story_fail(sid, str(e))
-            else:
-                self._unclaim_story(sid)
+                # Permanent / unknown 错误：走 _story_fail 失败计数路径
+                outcome = self._story_fail(sid, str(e))
+                if outcome == "blocked":
+                    return ExecutionResult.failure(
+                        execution_id=command.execution_id,
+                        error=f"Story #{sid} 连续失败置 blocked",
+                        action="fail",
+                        summary=str(e),
+                    ).model_copy(update={"status": ExecutionStatus.BLOCKED})
+                return ExecutionResult.failure(
+                    execution_id=command.execution_id,
+                    error=str(e),
+                    action="fail",
+                    summary=str(e),
+                )
+            # Transient 错误：unclaim 回退，下轮重试，不发评论不计数
+            self._unclaim_story(sid)
             return result
         outcome = self.handle_decision(story, decision, context)
         if outcome == "handled":
@@ -366,6 +391,13 @@ class StoryHandler(BaseWorkHandler):
                 summary=decision.summary or f"Story #{sid} 推进完成",
                 inspected_files=decision.inspected_files,
             )
+        if outcome == "blocked":
+            return ExecutionResult.failure(
+                execution_id=command.execution_id,
+                error=f"Story #{sid} 连续失败置 blocked",
+                action=decision.action,
+                summary=decision.summary,
+            ).model_copy(update={"status": ExecutionStatus.BLOCKED})
         return ExecutionResult.failure(
             execution_id=command.execution_id,
             error=decision.error or f"Story #{sid} 执行结果: {outcome}",

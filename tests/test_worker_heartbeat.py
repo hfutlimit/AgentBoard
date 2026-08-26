@@ -195,15 +195,33 @@ def test_handle_story_fail_blocks_after_3():
 
 
 def test_handle_story_invoker_exception_comments():
+    """Permanent 异常 → _story_fail 走评论 + 失败计数。P1 收口后，transient 异常
+    走 unclaim（不评论、不计数），见 test_handle_story_transient_unclaims。"""
     client = _FakeClient(get_responses={"/api/stories/1/tasks": _tasks_response()})
     w = _worker(client=client, invoker=_StubInvoker(
-        error=worker.AgentInvocationError("cli 挂了")))
+        error=worker.PermanentAgentError("config broken")))
     w._story_min_interval = 0.0
     assert w.handle_story(_story()) == "failed"
     assert any("/comments" in p for m, p in client.calls)
 
 
-# ---------- 多实例竞争认领（2026-08-09） ----------
+def test_handle_story_transient_unclaims():
+    """P1 收口（2026-08-26）：transient 异常（如超时 / 5xx）→ unclaim 回退 confirmed
+    让下轮重试，不发评论、不累计失败计数。"""
+    from agentboard.worker import TransientAgentError
+    client = _FakeClient(get_responses={"/api/stories/1/tasks": _tasks_response()})
+    w = _worker(client=client, invoker=_StubInvoker(
+        error=TransientAgentError("5xx upstream"),
+    ))
+    w._story_min_interval = 0.0
+    assert w.handle_story(_story()) == "failed"
+    assert not any("/comments" in p for m, p in client.calls), (
+        f"transient 异常不应发评论，但 client.calls={client.calls}"
+    )
+    assert any(p.endswith("/unclaim") for m, p in client.calls), (
+        f"transient 异常应 unclaim，但 client.calls={client.calls}"
+    )
+
 
 def test_handle_story_claim_conflict_skips():
     """claim 409（已被其它 Worker 认领）→ skipped，不拉起 agent。"""
