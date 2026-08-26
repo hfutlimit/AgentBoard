@@ -211,6 +211,90 @@ class Agent(Base):
         return _ser(self) or {}
 
 
+class Worker(Base):
+    """Worker 机器身份（2026-08-26 P1 修复：多 Worker 部署隔离）。
+
+    一个 Worker 是一台物理/虚拟机器，跑一个 ``agentboard.worker`` 进程，
+    负责本机的 ``AgentInstance`` 探测与上报。``worker_id`` 是外部自报
+    唯一标识（与 ``Agent.agent_id`` 同风格；不绑 user_id —— Worker
+    跨用户共享，不属于任何单用户）。
+    """
+
+    __tablename__ = "workers"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    worker_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    hostname: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", index=True)
+    last_heartbeat: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
+
+    def to_public_dict(self) -> dict:
+        from ...core.service_helpers import _ser
+        return _ser(self) or {}
+
+
+class AgentInstance(Base):
+    """Agent 在某个 Worker 上的可执行实例（2026-08-26 P1 修复）。
+
+    ``(worker_id, agent_id)`` 唯一：同一逻辑 agent 在不同 worker 上有不同
+    CLI 模板（如 Worker A 的 ``codex --flag-a`` vs Worker B 的 ``codex --flag-b``）。
+    本机的 ``cli_command`` / ``online`` / ``probe_message`` 都挂这里，**不再**
+    放 ``Agent`` 表 —— 多 Worker 部署时各 Worker 互不影响。
+
+    ``auth_key`` 本机凭据：``to_public_dict`` 脱敏（与 ``Agent`` 一致）。
+    ``cli_command`` 在 owner 视角（按 ``worker_id`` 过滤）下保留 —— Worker
+    自调用需要本机 CLI 模板。
+    """
+
+    __tablename__ = "agent_instances"
+    __table_args__ = (
+        UniqueConstraint("worker_id", "agent_id", name="uq_agent_instance_worker_agent"),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    worker_id: Mapped[str] = mapped_column(
+        ForeignKey("workers.worker_id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    agent_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    cli_command: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    model: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    auth_key: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    online: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+    last_heartbeat: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_probe_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    probe_message: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
+
+    # Owner 视角：Worker 是 owner，需要本机 CLI 模板。
+    # 但 ``auth_key`` 仍脱敏（即使是 owner 也不在 JSON 里走明文）。
+    _OWNER_FIELDS = (
+        "id", "worker_id", "agent_id", "cli_command", "model",
+        "enabled", "online", "last_heartbeat", "last_probe_at",
+        "probe_message", "created_at", "updated_at",
+    )
+    # 跨 worker 视角：脱敏 cli_command（避免一个 Worker 看到另一个 Worker 的命令）
+    _CROSS_FIELDS = (
+        "id", "worker_id", "agent_id", "model",
+        "enabled", "online", "last_heartbeat", "last_probe_at",
+        "last_probe_at", "created_at", "updated_at",
+    )
+
+    def to_owner_dict(self) -> dict:
+        """Owner 视角 dict（Worker 调本机 /admin 视角），含 ``cli_command``，脱敏 ``auth_key``。"""
+        from ...core.service_helpers import _ser
+        full = _ser(self) or {}
+        return {k: full.get(k) for k in self._OWNER_FIELDS}
+
+    def to_public_dict(self) -> dict:
+        """跨 worker 视角 dict（agent 列表等通用接口），脱敏 ``cli_command`` / ``auth_key``。"""
+        from ...core.service_helpers import _ser
+        full = _ser(self) or {}
+        return {k: full.get(k) for k in self._CROSS_FIELDS}
+
+
 class ProjectMember(Base):
     __tablename__ = "project_members"
     __table_args__ = (CheckConstraint("role IN ('owner','member')", name="ck_members_role"),)

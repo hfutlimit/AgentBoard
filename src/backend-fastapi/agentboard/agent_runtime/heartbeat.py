@@ -3,6 +3,12 @@
 Ticket 全流程（2026-08-09）：worker 主动经 CLI 判活（``<cmd> --version``），
 成功上报 heartbeat（probe_ok=true），失败 deregister（probe_message 带原因）。
 Flake 修复（2026-08-10 review）：探测前 sleep(0.05) + 显式 stdout/stderr=PIPE。
+
+2026-08-26 P1 修复：多 Worker 部署隔离。``config.worker_id`` 非空时改走
+``/api/workers/{worker_id}/agent-instances`` 路径，**只探测本机**；
+探测结果通过 ``/api/workers/{worker_id}/agent-instances/{id}/{heartbeat,deregister}``
+上报（URL path worker_id 强校验 ownership，防 A 覆盖 B）。原 ``GET /api/agents``
+路径保留为 ``worker_id`` 留空时的旧单 Worker 兜底。
 """
 from __future__ import annotations
 
@@ -56,19 +62,108 @@ def probe_cli(config: Any, cmd: str, model: str = "") -> tuple[bool, str]:
     return ok, msg or ("OK" if ok else f"exit={proc.returncode}")
 
 
-def agent_heartbeat_once(client: httpx.Client, config: Any) -> dict:
-    """执行一轮 Agent 心跳探测：遍历 agents 表，逐 agent 跑 cli_command 判活。
+def _empty_stats(worker_id: str = "") -> dict:
+    return {
+        "checked": 0, "online": 0, "offline": 0, "skipped": 0,
+        "mode": "legacy", "worker_id": worker_id,
+    }
 
-    - 成功 → POST /api/agents/{id}/heartbeat（probe_ok=true + 版本详情）；
-    - 失败 → POST /api/agents/{id}/deregister（probe_message 带原因）；
-    - 无 cli_command / enabled=false 的 agent 跳过。
+
+def agent_heartbeat_once(client: httpx.Client, config: Any) -> dict:
+    """执行一轮 Agent 心跳探测。
+
+    **2026-08-26 P1 修复**：路由按 ``config.worker_id`` 切分：
+
+    - ``worker_id`` 非空 → 走 :func:`_heartbeat_via_instances`，只探测本机
+      AgentInstance，**绝不**触达其他 Worker；
+    - 空 → 走 :func:`_heartbeat_via_agents_legacy`，旧 ``GET /api/agents`` 路径
+      （保留给单 Worker 历史部署；该路径已知 ``/api/agents`` 不返回
+      ``cli_command`` 是预存问题，本 change 不引入新症状）。
     """
+    worker_id = (getattr(config, "worker_id", "") or "").strip()
+    if worker_id:
+        return _heartbeat_via_instances(client, config, worker_id)
+    return _heartbeat_via_agents_legacy(client, config)
+
+
+def _heartbeat_via_instances(
+    client: httpx.Client, config: Any, worker_id: str,
+) -> dict:
+    """多 Worker 部署（推荐）：Worker 只探测本机 AgentInstance。
+
+    流程：
+    1. ``GET /api/workers/{worker_id}/instances`` → 本机 instances（owner 视角含 ``cli_command``）
+    2. 逐 instance 跑 ``<cli> --version``
+    3. 成功 → ``POST /api/workers/{worker_id}/agent-instances/{id}/heartbeat``
+    4. 失败 → ``POST /api/workers/{worker_id}/agent-instances/{id}/deregister``
+
+    URL path ``worker_id`` 由 service 层强校验 ownership，caller 不能不带
+    worker_id 调通（service 必传 ``caller_worker_id``，空字符串直接 400）。
+    """
+    stats = {
+        "checked": 0, "online": 0, "offline": 0, "skipped": 0,
+        "mode": "instance", "worker_id": worker_id,
+    }
+    try:
+        resp = client.request("GET", f"/api/workers/{worker_id}/instances")
+        if resp.status_code >= 400:
+            log.warning("Worker %s 拉取 instances 失败（HTTP %s）：%s",
+                        worker_id, resp.status_code, (resp.text or "")[:200])
+            return stats
+        instances = resp.json() or []
+    except Exception as e:
+        log.warning("Worker %s 拉取 instances 异常：%s", worker_id, e)
+        return stats
+    for inst in instances or []:
+        iid = inst.get("id")
+        cmd = inst.get("cli_command") or ""
+        agent_id = inst.get("agent_id") or ""
+        if not iid or not cmd or not inst.get("enabled", True):
+            stats["skipped"] += 1
+            continue
+        stats["checked"] += 1
+        try:
+            ok, msg = probe_cli(config, cmd, model=inst.get("model") or "")
+            base = f"/api/workers/{worker_id}/agent-instances/{iid}"
+            if ok:
+                r = client.request("POST", f"{base}/heartbeat",
+                                   json={"probe_ok": True, "probe_message": msg})
+                if r.status_code in (200, 201):
+                    stats["online"] += 1
+                else:
+                    log.warning("Instance %s (agent=%s) heartbeat 上报失败 HTTP %s",
+                                iid, agent_id, r.status_code)
+            else:
+                r = client.request("POST", f"{base}/deregister",
+                                   json={"probe_message": msg})
+                if r.status_code in (200, 201):
+                    stats["offline"] += 1
+                else:
+                    log.warning("Instance %s (agent=%s) deregister 上报失败 HTTP %s",
+                                iid, agent_id, r.status_code)
+        except Exception as e:
+            log.warning("Instance %s (agent=%s) 心跳上报异常：%s", iid, agent_id, e)
+    if stats["checked"]:
+        log.info("Worker %s 实例心跳：%s", worker_id, stats)
+    return stats
+
+
+def _heartbeat_via_agents_legacy(client: httpx.Client, config: Any) -> dict:
+    """旧路径（``worker_id`` 留空）：单 Worker 历史部署兜底。
+
+    行为保持 2026-08-09 版本：``GET /api/agents`` 拉全表，逐 agent 跑
+    ``<cli> --version``，成功 heartbeat / 失败 deregister。
+
+    已知问题：``GET /api/agents`` 当前走 ``to_public_dict()`` 不返回 ``cli_command``
+    （档 A 阻断级修复 2026-08-20），所以所有 agent 都会被 ``skipped``。本 change
+    不修 —— 多 Worker 部署已走新路径；旧路径用户应升级设置 ``AGENTBOARD_WORKER_ID``。
+    """
+    stats = _empty_stats()
     try:
         agents = client.request("GET", "/api/agents").json() or []
     except Exception as e:
         log.warning("拉取 Agent 列表失败（心跳探测跳过本轮）：%s", e)
-        return {"checked": 0, "online": 0, "offline": 0, "skipped": 0}
-    stats = {"checked": 0, "online": 0, "offline": 0, "skipped": 0}
+        return stats
     for a in agents or []:
         aid = a.get("agent_id")
         cmd = a.get("cli_command") or ""
@@ -76,23 +171,22 @@ def agent_heartbeat_once(client: httpx.Client, config: Any) -> dict:
             stats["skipped"] += 1
             continue
         stats["checked"] += 1
-        ok_r = False
         try:
             ok, msg = probe_cli(config, cmd, model=a.get("model") or "")
             if ok:
                 r = client.request("POST", f"/api/agents/{aid}/heartbeat",
                                    json={"probe_ok": True, "probe_message": msg})
-                ok_r = r.status_code in (200, 201)
-                stats["online"] += 1 if ok_r else 0
+                if r.status_code in (200, 201):
+                    stats["online"] += 1
             else:
                 r = client.request("POST", f"/api/agents/{aid}/deregister",
                                    json={"probe_message": msg})
-                ok_r = r.status_code in (200, 201)
-                stats["offline"] += 1 if ok_r else 0
-            if not ok_r:
+                if r.status_code in (200, 201):
+                    stats["offline"] += 1
+            if r.status_code not in (200, 201):
                 log.warning("Agent %s probe 结果上报失败（HTTP %s）", aid, r.status_code)
         except Exception as e:
             log.warning("Agent %s 心跳上报异常：%s", aid, e)
     if stats["checked"]:
-        log.info("Agent 心跳探测：%s", stats)
+        log.info("Agent 心跳探测（旧路径）：%s", stats)
     return stats

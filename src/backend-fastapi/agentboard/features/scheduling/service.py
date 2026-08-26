@@ -24,6 +24,7 @@ log = logging.getLogger("agentboard.features.scheduling.service")
 from ...core.exceptions import (
     Conflict, InvalidValue, NotFound,
     Duplicate,
+    Forbidden,
     IllegalTransition,
     InvalidValue,
     NotFound,
@@ -53,11 +54,13 @@ from ..identity.models import (
 
 from ..projects.models import (
     Agent,
+    AgentInstance,
     Epic,
     ProjectMember,
     ReviewVote,
     Sprint,
     Story,
+    Worker,
 )
 from ..projects.service import _record_story_status_history  # noqa: F401  (跨域 helper)
 from ..projects.service import get_agent_by_agent_id  # noqa: F401  (跨域 helper)
@@ -1208,6 +1211,212 @@ def agent_heartbeat(s: Session, agent_id: str, *, user_id: int | None = None,
     if user_id is not None and agent.user_id is None:
         agent.user_id = user_id
     _commit(s); s.refresh(agent); return agent
+
+
+# ---------- Worker + AgentInstance（2026-08-26 P1：多 Worker 部署隔离） ----------
+
+WORKER_STATUSES = {"active", "inactive"}
+
+
+def _sync_agent_online(s: Session, agent_id: str) -> None:
+    """聚合 ``Agent.online = ANY(instance.online for that agent)``。
+
+    在 ``instance_heartbeat`` / ``instance_deregister`` 内调用，保证 ``Agent.online``
+    与各 instance 状态一致。任一 instance online → Agent.online = true；全 offline
+    → false。评审/调度继续读 ``Agent.online``，不破坏现有逻辑。
+
+    **独立 commit**：本函数在 ``instance_heartbeat`` 等已经 ``_commit`` 之后调用，
+    但 agent.online 同步是独立关注点，独立 commit 保证外部 ``s.refresh()`` 能读到
+    最新值（多测试 / 跨调用场景）。
+    """
+    agent = s.query(Agent).filter(Agent.agent_id == agent_id).first()
+    if not agent:
+        return
+    any_online = s.query(AgentInstance).filter(
+        AgentInstance.agent_id == agent_id,
+        AgentInstance.online == True,  # noqa: E712
+    ).first() is not None
+    if agent.online != any_online:
+        agent.online = any_online
+        _commit(s)
+
+
+def register_worker(s: Session, *, worker_id: str, hostname: str = "",
+                    status: str = "active") -> Worker:
+    """注册/更新 Worker（幂等）。Worker 启动时自报入口。"""
+    worker_id = _required(worker_id, "worker_id", 64)
+    if status not in WORKER_STATUSES:
+        raise InvalidValue(f"status must be one of {sorted(WORKER_STATUSES)}")
+    existing = s.query(Worker).filter(Worker.worker_id == worker_id).first()
+    if existing:
+        existing.hostname = (hostname or "")[:200]
+        if status != existing.status:
+            existing.status = status
+        existing.last_heartbeat = utc_now()
+        _commit(s); s.refresh(existing); return existing
+    w = Worker(
+        worker_id=worker_id,
+        hostname=(hostname or "")[:200],
+        status=status,
+        last_heartbeat=utc_now(),
+    )
+    s.add(w)
+    try:
+        _commit(s); s.refresh(w); return w
+    except Duplicate:
+        s.rollback()
+        return s.query(Worker).filter(Worker.worker_id == worker_id).first()
+
+
+def get_worker_by_id(s: Session, worker_id: str) -> Worker | None:
+    return s.query(Worker).filter(Worker.worker_id == worker_id).first()
+
+
+def list_workers(s: Session) -> list[Worker]:
+    return s.query(Worker).order_by(Worker.id.asc()).all()
+
+
+def upsert_agent_instance(
+    s: Session, *,
+    worker_id: str,
+    agent_id: str,
+    cli_command: str = "",
+    model: str = "",
+    auth_key: str = "",
+    enabled: bool = True,
+) -> AgentInstance:
+    """Worker 在本机挂载/更新一个 ``(worker_id, agent_id)`` instance（幂等）。
+
+    - ``worker_id`` 必须已存在（先调 ``register_worker``）；
+    - ``agent_id`` 必须已注册（``Agent`` 表里存在）；
+    - ``cli_command`` 走 ``validate_cli_command`` 安全校验（B-A2）。
+    """
+    worker_id = _required(worker_id, "worker_id", 64)
+    agent_id = _required(agent_id, "agent_id", 64)
+    if not get_worker_by_id(s, worker_id):
+        raise NotFound(f"worker {worker_id} not found (register it first)")
+    if not s.query(Agent).filter(Agent.agent_id == agent_id).first():
+        raise NotFound(f"agent {agent_id} not found")
+    validate_cli_command(cli_command)
+    existing = s.query(AgentInstance).filter(
+        AgentInstance.worker_id == worker_id,
+        AgentInstance.agent_id == agent_id,
+    ).first()
+    if existing:
+        existing.cli_command = (cli_command or "")[:500]
+        existing.model = (model or "")[:100]
+        existing.auth_key = (auth_key or "")[:100]
+        existing.enabled = bool(enabled)
+        _commit(s); s.refresh(existing); return existing
+    inst = AgentInstance(
+        worker_id=worker_id,
+        agent_id=agent_id,
+        cli_command=(cli_command or "")[:500],
+        model=(model or "")[:100],
+        auth_key=(auth_key or "")[:100],
+        enabled=bool(enabled),
+    )
+    s.add(inst)
+    try:
+        _commit(s); s.refresh(inst); return inst
+    except Duplicate:
+        # 并发：回查返回既有
+        s.rollback()
+        return s.query(AgentInstance).filter(
+            AgentInstance.worker_id == worker_id,
+            AgentInstance.agent_id == agent_id,
+        ).first()
+
+
+def get_agent_instance(s: Session, instance_id: int) -> AgentInstance | None:
+    return s.get(AgentInstance, instance_id)
+
+
+def list_agent_instances(
+    s: Session, *,
+    worker_id: str | None = None,
+    agent_id: str | None = None,
+) -> list[AgentInstance]:
+    """列 AgentInstance。``worker_id`` 非空时按 owner 视角返回（上层决定是否暴露
+    ``cli_command`` —— ``to_owner_dict`` 包含 CLI，``to_public_dict`` 脱敏）。"""
+    q = s.query(AgentInstance)
+    if worker_id:
+        q = q.filter(AgentInstance.worker_id == worker_id)
+    if agent_id:
+        q = q.filter(AgentInstance.agent_id == agent_id)
+    return q.order_by(AgentInstance.id.asc()).all()
+
+
+def delete_agent_instance(s: Session, instance_id: int) -> bool:
+    inst = s.get(AgentInstance, instance_id)
+    if not inst:
+        return False
+    s.delete(inst)
+    _commit(s)
+    _sync_agent_online(s, inst.agent_id)
+    return True
+
+
+def instance_heartbeat(
+    s: Session, instance_id: int, *,
+    caller_worker_id: str,
+    probe_ok: bool | None = None,
+    probe_message: str = "",
+) -> AgentInstance:
+    """Instance 心跳保活（Worker 探测成功后调用）。
+
+    **强制 ownership 校验**（2026-08-26 P1 修复）：``caller_worker_id`` 必传，
+    ``instance.worker_id != caller_worker_id`` 抛 ``Forbidden``。这是防 A 覆盖
+    B 健康 instance 的关键闸门 —— 不允许空字符串绕过（避免 caller 不带
+    worker_id 调通，从而任意改全表）。
+    """
+    if not caller_worker_id:
+        raise InvalidValue("caller_worker_id is required for instance ownership check")
+    inst = s.get(AgentInstance, instance_id)
+    if not inst:
+        raise NotFound(f"agent_instance {instance_id} not found")
+    if inst.worker_id != caller_worker_id:
+        raise Forbidden(
+            f"instance {instance_id} belongs to worker {inst.worker_id!r}, "
+            f"not {caller_worker_id!r}"
+        )
+    inst.online = True if probe_ok is None else bool(probe_ok)
+    inst.last_heartbeat = utc_now()
+    if probe_message:
+        inst.probe_message = str(probe_message)[:300]
+        inst.last_probe_at = utc_now()
+    # 同步所属 Worker 的 last_heartbeat
+    w = get_worker_by_id(s, inst.worker_id)
+    if w is not None:
+        w.last_heartbeat = utc_now()
+    _commit(s); s.refresh(inst)
+    _sync_agent_online(s, inst.agent_id)
+    return inst
+
+
+def instance_deregister(
+    s: Session, instance_id: int, *,
+    caller_worker_id: str,
+    probe_message: str = "",
+) -> AgentInstance:
+    """Instance 注销下线（Worker 探测失败后调用）。同 :func:`instance_heartbeat` 校验 ownership。"""
+    if not caller_worker_id:
+        raise InvalidValue("caller_worker_id is required for instance ownership check")
+    inst = s.get(AgentInstance, instance_id)
+    if not inst:
+        raise NotFound(f"agent_instance {instance_id} not found")
+    if inst.worker_id != caller_worker_id:
+        raise Forbidden(
+            f"instance {instance_id} belongs to worker {inst.worker_id!r}, "
+            f"not {caller_worker_id!r}"
+        )
+    inst.online = False
+    if probe_message:
+        inst.probe_message = str(probe_message)[:300]
+        inst.last_probe_at = utc_now()
+    _commit(s); s.refresh(inst)
+    _sync_agent_online(s, inst.agent_id)
+    return inst
 
 
 def list_schedules(s: Session, project_id: int, limit: int | None = None, offset: int = 0):

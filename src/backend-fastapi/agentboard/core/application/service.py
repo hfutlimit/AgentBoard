@@ -3102,6 +3102,10 @@ from ...features.scheduling.service import (  # noqa: F401,F403
     create_schedule, list_schedules, get_schedule, update_schedule, delete_schedule,
     create_run, list_runs, create_run_event, list_run_events, claim_lease, release_lease, get_run, update_run, report_run_result,
     register_agent, update_agent, agent_heartbeat, agent_deregister, list_agents,
+    # Worker + AgentInstance（2026-08-26 P1：多 Worker 部署隔离）
+    register_worker, list_workers, get_worker_by_id,
+    upsert_agent_instance, get_agent_instance, list_agent_instances,
+    delete_agent_instance, instance_heartbeat, instance_deregister,
     claim_story, submit_task_for_review,
     assign_task_reviewer, review_story, review_task,
     scan_review_timeouts, complete_story, complete_sprint,

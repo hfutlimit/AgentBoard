@@ -21,6 +21,8 @@ from ...core.infrastructure.database import get_session, SessionLocal
 from ...core.application import service
 from .schemas import (
 	AgentHeartbeatIn,
+	AgentInstanceHeartbeatIn,
+	AgentInstanceUpsertIn,
 	AgentProbeIn,
 	AgentRegisterIn,
 	AgentUpdateIn,
@@ -28,6 +30,7 @@ from .schemas import (
 	RunPatch,
 	RunReportIn,
 	SchedulePatch,
+	WorkerRegisterIn,
 )
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
 from ...api import agent_state_hub  # noqa: E402 — Agent 状态 WebSocket 广播 hub（定义于 api.py 顶层）
@@ -442,6 +445,189 @@ def list_agents(online: bool | None = Query(None), role: str | None = Query(None
         raise HTTPException(status_code=401, detail="unauthorized")
     rows = service.list_agents(s, online=online, role=role, order_by_created=True)
     return [a.to_public_dict() for a in rows]
+
+
+# ---------- Worker + AgentInstance（2026-08-26 P1：多 Worker 部署隔离） ----------
+
+@router.post("/api/workers/register", status_code=201)
+def register_worker_endpoint(body: WorkerRegisterIn,
+                              authorization: str | None = Header(None),
+                              s: Session = Depends(get_session)):
+    """Worker 启动时自报身份（幂等）。
+
+    软鉴权：dev 模式放行；生产（``AGENTBOARD_REQUIRE_AUTH=1``）要求登录。
+    Worker 不绑 user —— 跨用户部署。
+    """
+    uid, _is_admin = api_helpers._caller_uid_admin(authorization, s)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    w = service.register_worker(s, worker_id=body.worker_id,
+                                hostname=body.hostname, status=body.status)
+    return w.to_public_dict()
+
+
+@router.get("/api/workers")
+def list_workers_endpoint(authorization: str | None = Header(None),
+                           s: Session = Depends(get_session)):
+    """列出所有 Worker（admin 视图）。"""
+    uid, is_admin = api_helpers._caller_uid_admin(authorization, s)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="admin only")
+    return [w.to_public_dict() for w in service.list_workers(s)]
+
+
+@router.get("/api/workers/{worker_id}/instances")
+def list_worker_instances(worker_id: str,
+                           authorization: str | None = Header(None),
+                           s: Session = Depends(get_session)):
+    """Worker 拿本机 instances（owner 视角，含 ``cli_command``）。
+
+    软鉴权。Worker 自己的 abk_ key 即可（``AGENTBOARD_WORKER_ID`` 与 ``worker_id``
+    一致时由 Worker 端走专用路径，不需要 admin）。``cli_command`` 在 owner 视角下
+    必须返回 —— Worker 探测 CLI 要用。
+    """
+    uid, _is_admin = api_helpers._caller_uid_admin(authorization, s)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if not service.get_worker_by_id(s, worker_id):
+        raise HTTPException(status_code=404, detail=f"worker {worker_id} not found")
+    rows = service.list_agent_instances(s, worker_id=worker_id)
+    return [inst.to_owner_dict() for inst in rows]
+
+
+@router.post("/api/agents/{agent_id}/instances", status_code=201)
+def upsert_agent_instance_for_agent(agent_id: str, body: AgentInstanceUpsertIn,
+                                      authorization: str | None = Header(None),
+                                      s: Session = Depends(get_session)):
+    """Worker 给某 logical agent 挂本机 instance（POST /api/agents/{id}/instances）。
+
+    软鉴权。``body.worker_id`` 必须已注册（先 ``POST /api/workers/register``）。
+    """
+    uid, _is_admin = api_helpers._caller_uid_admin(authorization, s)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if body.worker_id != agent_id and True:  # 留 hook：未来可校验 worker 身份
+        pass
+    try:
+        inst = service.upsert_agent_instance(
+            s, worker_id=body.worker_id, agent_id=agent_id,
+            cli_command=body.cli_command, model=body.model,
+            auth_key=body.auth_key, enabled=body.enabled,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return inst.to_owner_dict()
+
+
+@router.get("/api/agent-instances")
+def list_agent_instances_endpoint(worker_id: str | None = Query(None),
+                                   agent_id: str | None = Query(None),
+                                   authorization: str | None = Header(None),
+                                   s: Session = Depends(get_session)):
+    """列 AgentInstance。
+
+    - ``worker_id`` 非空：owner 视角，含 ``cli_command``（Worker 自查或 admin）；
+    - ``agent_id`` 非空：跨 worker 视角，脱敏 ``cli_command``（聚合视图）。
+    """
+    uid, is_admin = api_helpers._caller_uid_admin(authorization, s)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    rows = service.list_agent_instances(s, worker_id=worker_id, agent_id=agent_id)
+    if worker_id and not agent_id:
+        # owner 视角：含 cli_command
+        return [inst.to_owner_dict() for inst in rows]
+    # 跨 worker 视角：脱敏
+    return [inst.to_public_dict() for inst in rows]
+
+
+@router.get("/api/agent-instances/{instance_id}")
+def get_agent_instance_endpoint(instance_id: int,
+                                 authorization: str | None = Header(None),
+                                 s: Session = Depends(get_session)):
+    """单条 AgentInstance（owner 视角，含 ``cli_command``）。"""
+    uid, is_admin = api_helpers._caller_uid_admin(authorization, s)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    inst = service.get_agent_instance(s, instance_id)
+    if not inst:
+        raise HTTPException(status_code=404, detail="instance not found")
+    return inst.to_owner_dict()
+
+
+@router.delete("/api/agent-instances/{instance_id}")
+def delete_agent_instance_endpoint(instance_id: int,
+                                    authorization: str | None = Header(None),
+                                    s: Session = Depends(get_session)):
+    """删除 AgentInstance（admin 删；Worker 主动 deregister 走
+    ``POST /api/agent-instances/{id}/deregister``，不删记录）。"""
+    uid, is_admin = api_helpers._caller_uid_admin(authorization, s)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="admin only")
+    ok = service.delete_agent_instance(s, instance_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="instance not found")
+    return {"ok": True}
+
+
+@router.post("/api/workers/{worker_id}/agent-instances/{instance_id}/heartbeat")
+def instance_heartbeat_endpoint(worker_id: str, instance_id: int,
+                                  body: AgentInstanceHeartbeatIn,
+                                  authorization: str | None = Header(None),
+                                  s: Session = Depends(get_session)):
+    """Instance 心跳（Worker 探测成功后上报）。
+
+    **强制 ownership 校验**（2026-08-26 P1 修复）：URL path 的 ``worker_id`` 必须与
+    ``instance.worker_id`` 一致，否则 403。多 Worker 部署下这是防 A 覆盖 B 健康
+    instance 的关键闸门（caller 不能不带 worker_id 调通）。
+    """
+    uid, _is_admin = api_helpers._caller_uid_admin(authorization, s)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    try:
+        inst = service.instance_heartbeat(
+            s, instance_id, caller_worker_id=worker_id,
+            probe_ok=body.probe_ok, probe_message=body.probe_message,
+        )
+    except Exception as e:
+        from ...core.exceptions import Forbidden as _F, NotFound as _N, InvalidValue as _IV
+        if isinstance(e, _F):
+            raise HTTPException(status_code=403, detail=str(e))
+        if isinstance(e, _N):
+            raise HTTPException(status_code=404, detail=str(e))
+        if isinstance(e, _IV):
+            raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+    return inst.to_owner_dict()
+
+
+@router.post("/api/workers/{worker_id}/agent-instances/{instance_id}/deregister")
+def instance_deregister_endpoint(worker_id: str, instance_id: int,
+                                   body: AgentInstanceHeartbeatIn,
+                                   authorization: str | None = Header(None),
+                                   s: Session = Depends(get_session)):
+    """Instance 注销（Worker 探测失败后上报原因）。同 heartbeat 路径，URL worker_id 强校验。"""
+    uid, _is_admin = api_helpers._caller_uid_admin(authorization, s)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    try:
+        inst = service.instance_deregister(
+            s, instance_id, caller_worker_id=worker_id,
+            probe_message=body.probe_message,
+        )
+    except Exception as e:
+        from ...core.exceptions import Forbidden as _F, NotFound as _N, InvalidValue as _IV
+        if isinstance(e, _F):
+            raise HTTPException(status_code=403, detail=str(e))
+        if isinstance(e, _N):
+            raise HTTPException(status_code=404, detail=str(e))
+        if isinstance(e, _IV):
+            raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+    return inst.to_owner_dict()
 
 
 

@@ -80,6 +80,14 @@ class WorkerConfig:
     # Agent MQ 消费身份（2026-08-09）：设置后本 Worker 以该 agent 身份消费
     # 自己的 direct queue（agent_queue）接收指定任务；留空则仅澄清/轮询。
     agent_id: str = ""
+    # Worker 机器身份（2026-08-26 P1 修复：多 Worker 部署隔离）。设置后：
+    # - ``agent_heartbeat_once`` 改走 ``/api/workers/{worker_id}/instances`` 拉
+    #   本机 instances 探测，**绝不**触达其他 Worker 的 instance；
+    # - 探测结果通过 ``/api/workers/{worker_id}/agent-instances/{id}/{heartbeat,deregister}``
+    #   上报（URL path worker_id 强校验 ownership，防 A 覆盖 B）。
+    # 留空 = 旧单 Worker 路径（``GET /api/agents`` + 失败 deregister，
+    # 与 ``/api/agents`` 不返回 cli_command 兼容不修；已知行为，单独 P 跟进）。
+    worker_id: str = ""
     # 轮询间隔（秒）
     poll_interval: float = 10.0
     # 单轮最多处理多少个提案，避免一个 Worker 长时间独占
@@ -125,6 +133,7 @@ class WorkerConfig:
             or os.getenv("AGENTBOARD_MCP_TOKEN"),
             agent=os.getenv("AGENTBOARD_WORKER_AGENT", cls.agent),
             agent_id=os.getenv("AGENTBOARD_WORKER_AGENT_ID", ""),
+            worker_id=os.getenv("AGENTBOARD_WORKER_ID", ""),
             poll_interval=float(_env_int("AGENTBOARD_WORKER_INTERVAL", 10)),
             batch_size=_env_int("AGENTBOARD_WORKER_BATCH", 5),
             lease_seconds=_env_int("AGENTBOARD_WORKER_LEASE", 1800),

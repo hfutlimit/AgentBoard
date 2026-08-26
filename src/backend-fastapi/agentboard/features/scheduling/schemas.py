@@ -91,3 +91,27 @@ class RunReportIn(BaseModel):
 	summary: str | None = None
 	log_ref: str | None = None
 
+
+# ---------- Worker + AgentInstance（2026-08-26 P1：多 Worker 部署隔离） ----------
+
+class WorkerRegisterIn(BaseModel):
+	"""Worker 启动时自报身份（POST /api/workers/register）。"""
+	worker_id: str = Field(min_length=1, max_length=64)
+	hostname: str = Field(default="", max_length=200)
+	status: str = Field(default="active", max_length=20)
+
+
+class AgentInstanceUpsertIn(BaseModel):
+	"""Worker 给某 logical agent 挂本机 instance（POST /api/agents/{agent_id}/instances）。"""
+	worker_id: str = Field(min_length=1, max_length=64)
+	cli_command: str = Field(default="", max_length=500)
+	model: str = Field(default="", max_length=100)
+	auth_key: str = Field(default="", max_length=100)
+	enabled: bool = True
+
+
+class AgentInstanceHeartbeatIn(BaseModel):
+	"""Instance 心跳上报（POST /api/agent-instances/{id}/heartbeat）。"""
+	probe_ok: bool | None = None
+	probe_message: str = Field(default="", max_length=300)
+

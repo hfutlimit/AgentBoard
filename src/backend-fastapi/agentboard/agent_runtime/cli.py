@@ -28,6 +28,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     parser.add_argument("--agent-id", default=None,
                        help="Agent 身份（MQ 模式）：消费本 agent 定向 direct queue 接收指定任务；"
                             "同时竞争 task.available 广播任务")
+    parser.add_argument("--worker-id", default=None,
+                       help="Worker 机器身份（2026-08-26 P1：多 Worker 部署隔离）。"
+                            "设置后心跳探测改走本机 instances 路径，URL 强校验防覆盖其他 Worker。")
     parser.add_argument("--mq-url", default=None, help="覆盖 AGENTBOARD_MQ_URL")
     parser.add_argument("--api-url", default=None, help="覆盖 AGENTBOARD_API_URL")
     parser.add_argument("--agent-cmd", default=None, help="覆盖无头 Agent 命令模板")
@@ -47,6 +50,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         cfg.agent_cmd = args.agent_cmd
     if args.agent_id:
         cfg.agent_id = args.agent_id
+    if args.worker_id:
+        cfg.worker_id = args.worker_id
     if args.interval is not None:
         cfg.poll_interval = args.interval
     if args.max_rounds is not None:
