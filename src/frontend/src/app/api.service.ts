@@ -1237,12 +1237,12 @@ export class ApiService {
   getProposal(id: number) {
     return this.request<ProposalItem>('GET', `/api/proposals/${id}`);
   }
-  createProposal(body: { project_id: number; title: string; content?: string }) {
+  createProposal(body: { project_id: number; title: string; content?: string; auto_create_ticket?: boolean }) {
     return this.request<ProposalItem>('POST', '/api/proposals', body).pipe(
       tap(() => apiCache.invalidatePrefix('/api/proposals'))
     );
   }
-  updateProposal(id: number, body: { title?: string; content?: string; converged_spec?: string }) {
+  updateProposal(id: number, body: { title?: string; content?: string; converged_spec?: string; auto_create_ticket?: boolean }) {
     return this.patchJson<ProposalItem>(`/api/proposals/${id}`, body).pipe(
       tap(() => apiCache.invalidatePrefix('/api/proposals'))
     );

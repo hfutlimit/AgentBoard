@@ -2195,6 +2195,9 @@
               @if (p.status === 'failed' && !isAgentFailure(p)) {
                 <button id="proposal-requeue-btn" class="heading-action-btn btn-primary-sm" (click)="advanceProposalStatus('queued')">重新派发</button>
               }
+              @if (canCancelProposal(p)) {
+                <button id="proposal-cancel-workflow-btn" class="heading-action-btn ghost-sm" (click)="cancelProposal()">取消提案</button>
+              }
             </app-workspace-heading>
 
             @if (p.error) {
@@ -2268,7 +2271,7 @@
                   <ul class="proposal-ticket-requests">
                     @for (r of proposalTicketRequests(); track r.id) {
                       <li>
-                        <span class="badge">{{ ticketTypeLabel(r.type) }}</span>
+                        <span class="badge">{{ ticketRequestTypeLabel(r) }}</span>
                         <span class="badge trstatus trstatus--{{ r.status }}">{{ ticketRequestStatusLabel(r.status) }}</span>
                         @if (r.status === 'done' && r.ticket_id) { <span class="muted">→ #{{ r.ticket_id }}</span> }
                         @if (r.status === 'failed' && r.error) { <span class="muted" title="{{ r.error }}">{{ r.error }}</span> }
@@ -2317,6 +2320,15 @@
                       <span class="info-label">已答 / 总问题</span>
                       <span class="info-value">{{ totalAnsweredCount(p) }} / {{ totalQuestionCount() }}</span>
                     </div>
+                    <div class="info-item proposal-auto-ticket-setting">
+                      <span class="info-label">收敛后自动建工单</span>
+                      <label class="proposal-auto-ticket-toggle">
+                        <input type="checkbox" [checked]="p.auto_create_ticket"
+                          [disabled]="p.status === 'converged' || p.status === 'story_created' || p.status === 'ticket_preparing' || p.status === 'ticket_created' || p.status === 'cancelled'"
+                          (change)="setProposalAutoCreateTicket($any($event.target).checked)" />
+                        <span>{{ p.auto_create_ticket ? '已开启（Agent 判断 Epic / Story / Task）' : '未开启' }}</span>
+                      </label>
+                    </div>
                   </div>
                 </div>
 
@@ -2358,8 +2370,9 @@
                       <li [class.current]="r.round_no === p.current_round">
                         <span class="proposal-timeline-round">第 {{ r.round_no }} 轮</span>
                         <span class="proposal-timeline-meta">
-                          {{ r.questions.length }} 个问题 · {{ roundAnsweredCount(r) }} 已答{{ r.agent ? ' · ' + r.agent : '' }}
+                          {{ r.questions.length }} 个问题 · {{ roundAnsweredCount(r) }} 已答
                         </span>
+                        <span class="proposal-round-agent">提问 Agent：{{ roundAgentLabel(r) }}</span>
                         @if (r.summary) { <div class="proposal-timeline-summary">{{ r.summary }}</div> }
                       </li>
                     } @empty {
@@ -2400,7 +2413,7 @@
                         <div class="qa-round-summary">{{ roundSummary(r) }}</div>
                         <div class="qa-round-meta muted">
                           {{ r.questions.length }} 个问题 · 已答 {{ roundAnsweredCount(r) }} / {{ r.questions.length }}
-                          @if (r.agent) { <span> · {{ r.agent }}</span> }
+                          <span class="proposal-round-agent"> · 提问 Agent：{{ roundAgentLabel(r) }}</span>
                         </div>
                       </li>
                     }
@@ -2918,6 +2931,7 @@
         <div>
           <span class="modal-eyebrow">ROUND DETAIL</span>
           <h3 id="rd-modal-title">第 {{ rd.round_no }} 轮 · 问答详情</h3>
+          <p class="rd-agent">提问 Agent：<strong>{{ roundAgentLabel(rd) }}</strong></p>
         </div>
         <button type="button" class="modal-close" aria-label="关闭" (click)="closeRoundDetail()">×</button>
       </header>
@@ -3015,6 +3029,15 @@
               (input)="proposalNewContent.set($any($event.target).value)"
               placeholder="尽量描述背景、目标与约束；不必完整，Agent 会通过提问帮你补齐。"></textarea>
           </div>
+          <label class="proposal-auto-ticket-option">
+            <input id="proposal-auto-create-ticket" type="checkbox"
+              [checked]="proposalNewAutoCreateTicket()"
+              (change)="proposalNewAutoCreateTicket.set($any($event.target).checked)" />
+            <span>
+              <strong>问答收敛后自动创建工单</strong>
+              <small>Agent 会读取项目与现有层级，自行判断创建 Epic、Story 或 Task。</small>
+            </span>
+          </label>
         </div>
         <footer class="modal-footer">
           <button type="button" id="proposal-cancel-btn" class="ghost-sm" (click)="closeProposalModal()">取消</button>

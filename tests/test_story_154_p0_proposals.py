@@ -151,6 +151,7 @@ def test_state_machine_table_is_closed():
     # 每个非终态都可达 failed 或 story_created，避免出现悬空状态
     assert PROPOSAL_TRANSITIONS[ProposalStatus.FAILED] == {
         ProposalStatus.QUEUED, ProposalStatus.DRAFT, ProposalStatus.PENDING,
+        ProposalStatus.CANCELLED,
     }
 
 

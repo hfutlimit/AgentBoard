@@ -31,6 +31,7 @@ from .contract import (
 from .handlers import BaseWorkHandler, build_handlers, build_work_type_registry
 from .invokers import (
     CallableAgentInvoker,
+    ComplianceEnforcingInvoker,
     RoutedSubprocessInvoker,
     SubprocessAgentInvoker,
     parse_agent_command_map,
@@ -68,7 +69,13 @@ class WorkerCoordinator:
                 以保证 attempt 跨进程一致。
         """
         self.config = config
-        self.invoker = invoker or self._default_invoker(config)
+        raw_invoker = invoker or self._default_invoker(config)
+        # Production CLI decisions are always guarded. CallableAgentInvoker is
+        # an in-process test/embedding seam and does not represent a real CLI.
+        if isinstance(raw_invoker, (SubprocessAgentInvoker, RoutedSubprocessInvoker)):
+            self.invoker = ComplianceEnforcingInvoker(raw_invoker)
+        else:
+            self.invoker = raw_invoker
         self._owns_client = client is None
         self.client = client or httpx.Client(
             base_url=config.api_url,

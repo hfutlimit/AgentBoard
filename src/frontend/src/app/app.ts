@@ -302,6 +302,7 @@ export class App implements OnInit, OnDestroy {
   readonly proposalNewTitle = signal('');
   readonly proposalNewContent = signal('');
   readonly proposalNewProjectId = signal<number | null>(null);
+  readonly proposalNewAutoCreateTicket = signal(false);
   readonly proposalStatuses = PROPOSAL_STATUSES;
   // 详情页 Tab 切换 + 轮次详情弹窗（2026-08-09 布局重构）
   readonly proposalTab = signal<'info' | 'qa'>('info');
@@ -6676,6 +6677,7 @@ export class App implements OnInit, OnDestroy {
       ticket_preparing: '工单生成中',
       ticket_created: '已生成工单',
       failed: '失败',
+      cancelled: '已取消',
     } as Record<string, string>)[s] || s;
   }
 
@@ -6725,6 +6727,17 @@ export class App implements OnInit, OnDestroy {
     return '已作答';
   }
 
+  roundAgentLabel(r: ProposalRoundItem): string {
+    const id = (r.agent || '').trim();
+    const name = (r.agent_name || '').trim();
+    if (name && id && name !== id) return `${name} (${id})`;
+    return name || id || '历史记录未记录';
+  }
+
+  canCancelProposal(p: ProposalItem): boolean {
+    return ['draft', 'pending', 'queued', 'analyzing', 'awaiting', 'answered', 'failed'].includes(p.status);
+  }
+
   /** 当前轮次（current_round）中未答的问题——Tab 1「当前正问」展示 */
   currentOpenQuestions(): ProposalQuestionItem[] {
     const rounds = this.proposalRounds();
@@ -6764,7 +6777,14 @@ export class App implements OnInit, OnDestroy {
   }
 
   ticketTypeLabel(t: string): string {
-    return ({ epic: 'Epic', story: 'Story', task: 'Task', bug: 'Bug' } as Record<string, string>)[t] || t;
+    return ({ auto: 'Agent 自动判断', epic: 'Epic', story: 'Story', task: 'Task', bug: 'Bug' } as Record<string, string>)[t] || t;
+  }
+
+  ticketRequestTypeLabel(r: TicketRequestItem): string {
+    if (r.type === 'auto' && r.resolved_type) {
+      return `Agent 自动判断 → ${this.ticketTypeLabel(r.resolved_type)}`;
+    }
+    return this.ticketTypeLabel(r.type);
   }
 
   async loadProposalTicketRequests(id: number): Promise<void> {
@@ -7063,6 +7083,7 @@ export class App implements OnInit, OnDestroy {
     }
     this.proposalNewTitle.set('');
     this.proposalNewContent.set('');
+    this.proposalNewAutoCreateTicket.set(false);
     this.proposalNewProjectId.set(project.id);
     this.proposalModalOpen.set(true);
   }
@@ -7082,7 +7103,12 @@ export class App implements OnInit, OnDestroy {
     }
     try {
       const created = await firstValueFrom(
-        this.api.createProposal({ project_id: pid, title, content: this.proposalNewContent() }),
+        this.api.createProposal({
+          project_id: pid,
+          title,
+          content: this.proposalNewContent(),
+          auto_create_ticket: this.proposalNewAutoCreateTicket(),
+        }),
       );
       this.proposalModalOpen.set(false);
       this.projectTabLoaded.update((state) => ({ ...state, proposals: false }));
@@ -7103,6 +7129,25 @@ export class App implements OnInit, OnDestroy {
       this.notify(`状态已更新为「${this.proposalStatusLabel(status)}」`, 'success');
     } catch (e) {
       this.notify(`状态更新失败：${this.message(e)}`, 'error');
+    }
+  }
+
+  async cancelProposal(): Promise<void> {
+    const p = this.proposalItem();
+    if (!p || !this.canCancelProposal(p)) return;
+    if (!confirm(`取消提案「${p.title}」？取消后不能继续问答。`)) return;
+    await this.advanceProposalStatus('cancelled');
+  }
+
+  async setProposalAutoCreateTicket(enabled: boolean): Promise<void> {
+    const p = this.proposalItem();
+    if (!p || ['converged', 'story_created', 'ticket_preparing', 'ticket_created', 'cancelled'].includes(p.status)) return;
+    try {
+      await firstValueFrom(this.api.updateProposal(p.id, { auto_create_ticket: enabled }));
+      await this.loadProposalDetail(p.id);
+      this.notify(enabled ? '已开启：收敛后由 Agent 自动创建工单' : '已关闭自动创建工单', 'success');
+    } catch (e) {
+      this.notify(`更新失败：${this.message(e)}`, 'error');
     }
   }
 

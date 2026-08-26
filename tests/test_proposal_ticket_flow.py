@@ -99,6 +99,46 @@ def test_create_proposal_initial_pending():
         assert p.status == ProposalStatus.PENDING.value
 
 
+def test_cancel_before_qa_completion_is_terminal():
+    sessions, ids = _env()
+    p1 = _ids(ids, "p1")
+    with sessions() as s:
+        p = service.create_proposal(s, project_id=p1, title="Cancel me", content="x")
+        service.set_proposal_status(s, p.id, "queued")
+        service.set_proposal_status(s, p.id, "analyzing")
+        service.add_proposal_questions(
+            s, proposal_id=p.id, questions=["still needed?"], agent="codex",
+        )
+        cancelled = service.set_proposal_status(s, p.id, "cancelled")
+        assert cancelled.status == ProposalStatus.CANCELLED.value
+        assert cancelled.claimed_by == ""
+        assert cancelled.claimed_at is None
+        try:
+            service.answer_proposal_question(
+                s, service.list_proposal_rounds(s, p.id)[0]["questions"][0]["id"],
+                answer="too late",
+            )
+            raise AssertionError("expected InvalidValue")
+        except service.InvalidValue:
+            pass
+
+
+def test_round_exposes_actual_agent_identity_and_name():
+    sessions, ids = _env()
+    p1 = _ids(ids, "p1")
+    with sessions() as s:
+        service.register_agent(s, agent_id="codex", name="Codex Worker")
+        p = service.create_proposal(s, project_id=p1, title="Who asked", content="x")
+        service.set_proposal_status(s, p.id, "queued")
+        service.set_proposal_status(s, p.id, "analyzing")
+        service.add_proposal_questions(
+            s, proposal_id=p.id, questions=["Which API?"], agent="codex",
+        )
+        round_ = service.list_proposal_rounds(s, p.id)[0]
+        assert round_["agent"] == "codex"
+        assert round_["agent_name"] == "Codex Worker"
+
+
 def test_edit_rolls_back_to_pending():
     sessions, ids = _env()
     p1 = _ids(ids, "p1")
@@ -127,6 +167,21 @@ def test_create_ticket_request_story():
         assert req.parent_epic_id == e1
         p = service.get_proposal(s, pr)
         assert p.status == ProposalStatus.TICKET_PREPARING.value
+
+
+def test_auto_ticket_request_is_resolved_by_agent_without_duplicate_request():
+    sessions, ids = _env()
+    pr, e1 = _ids(ids, "pr"), _ids(ids, "e1")
+    with sessions() as s:
+        req = service.create_ticket_request(s, pr, type="auto")
+        result = service.execute_ticket_request(
+            s, pr, request_id=req.id, type="story", epic_id=e1,
+        )
+        assert result["request"]["id"] == req.id
+        assert result["request"]["type"] == "auto"
+        assert result["request"]["resolved_type"] == "story"
+        assert result["proposal"]["ticket_type"] == "story"
+        assert len(service.list_ticket_requests(s, pr)) == 1
 
 
 def test_create_ticket_request_idempotent():

@@ -20,6 +20,7 @@ from typing import Any, Callable
 
 from .config import (
     ACTION_ASK,
+    ACTION_FAIL,
     ACTION_FINALIZE,
     AgentDecision,
     AgentInvoker,
@@ -27,6 +28,7 @@ from .config import (
     PermanentAgentError,
     TransientAgentError,
 )
+from .compliance import prepend_mandatory_preflight, validate_decision_evidence
 
 log = logging.getLogger("agentboard.worker.invokers")
 
@@ -286,7 +288,7 @@ def build_prompt(context: dict) -> str:
     2. 否则 → 走原注入的 _prompt_builder；
     3. 都没了 → 兜底 _default_build_prompt。
     """
-    return _prepared_build_prompt(context)
+    return prepend_mandatory_preflight(_prepared_build_prompt(context), context)
 
 
 class CallableAgentInvoker:
@@ -393,7 +395,14 @@ def _resolve_project_cwd(context: dict, fallback: str | None) -> str | None:
     Story 243（Epic 122 S5）：映射由本机配置台（``worker_portal.py``
     ``AGENTBOARD_LOCAL_MAPPINGS``）写入；无映射/未配置时返回 fallback。
     """
-    pid = (context or {}).get("project_id")
+    ctx = context or {}
+    pid = ctx.get("project_id")
+    if not pid:
+        for key in ("task", "story", "proposal", "project"):
+            nested = ctx.get(key)
+            if isinstance(nested, dict) and nested.get("project_id"):
+                pid = nested.get("project_id")
+                break
     if not pid:
         return fallback
     raw = os.getenv("AGENTBOARD_LOCAL_MAPPINGS")
@@ -415,6 +424,40 @@ def _resolve_project_cwd(context: dict, fallback: str | None) -> str | None:
         return fallback
     local_dir = str(proj.get("local_dir") or "").strip()
     return local_dir or fallback
+
+
+class ComplianceEnforcingInvoker:
+    """Validate real Agent evidence before handlers can persist decisions."""
+
+    def __init__(self, delegate: AgentInvoker):
+        self.delegate = delegate
+
+    def _validate(self, decision: AgentDecision, context: dict) -> AgentDecision:
+        project_dir = _resolve_project_cwd(
+            context,
+            str((context or {}).get("project_dir") or "").strip() or None,
+        )
+        validated = validate_decision_evidence(decision, project_dir=project_dir)
+        if validated.action != ACTION_FAIL:
+            log.info(
+                "Agent 合规校验通过 [work_type=%s, project_dir=%s, inspected_files=%s]",
+                (context or {}).get("work_type") or "(unknown)",
+                project_dir,
+                validated.inspected_files[:10],
+            )
+        return validated
+
+    def invoke(self, context: dict) -> AgentDecision:
+        return self._validate(self.delegate.invoke(context), context)
+
+    def invoke_with_prompt(self, prompt: str, context: dict) -> AgentDecision:
+        guarded_prompt = prepend_mandatory_preflight(prompt, context)
+        method = getattr(self.delegate, "invoke_with_prompt", None)
+        if callable(method):
+            decision = method(guarded_prompt, context)
+        else:
+            decision = self.delegate.invoke(context)
+        return self._validate(decision, context)
 
 
 class SubprocessAgentInvoker:
@@ -483,6 +526,7 @@ class SubprocessAgentInvoker:
         适用于：Coordinator / Worker 在 dispatch 前已经经过 prepare_execution 算出最终
         prompt，handler 拿到 prepared.prompt 后直接透传，省去二次 prompt 渲染。
         """
+        prompt = prepend_mandatory_preflight(prompt, context)
         cwd = _resolve_project_cwd(context, self.cwd)
         try:
             proc = subprocess.run(

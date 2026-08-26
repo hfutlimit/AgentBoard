@@ -2,9 +2,9 @@
 
 本机轻量 FastAPI 服务（默认 127.0.0.1:18240，**免登录**——仅本机绑定）：
 
-- ``GET  /api/agents``           代理服务器 Agent 池（list_agents）；
-- ``POST /api/agents``           注册/更新本机 Agent（写服务器 agents 表）；
-- ``PUT  /api/agents/{id}``      更新 Agent（CLI 类型/模型/enabled）；
+- ``GET  /api/agents``           读取当前 Worker 的 AgentInstance；
+- ``POST /api/agents``           挂载/更新当前 Worker 的 AgentInstance；
+- ``PUT  /api/agents/{id}``      更新当前 Worker 的 AgentInstance；
 - ``GET  /api/cli-presets``      CLI 预设模板 + 模型下拉数据源；
 - ``GET  /api/projects``         服务器项目列表（供项目映射选择）；
 - ``GET/PUT /api/mappings``      本机「服务器项目 → 本地目录」映射（JSON 文件）；
@@ -16,7 +16,8 @@
 - 服务器交互复用 ``AGENTBOARD_API_URL`` / ``AGENTBOARD_WORKER_TOKEN``（与 worker 同凭据）；
 - 项目映射存本机 JSON（``AGENTBOARD_LOCAL_MAPPINGS``，默认 AgentBoard 仓库 tmp 下），
   Worker 执行任务时按 ``project_id`` 解析本地 cwd（Story 243 验收 4）；
-- CLI/模型下拉为内置预设（codebuddy / minimax-cli），保存时渲染成 cli_command 模板；
+- Agent 配置按 ``AGENTBOARD_WORKER_ID`` 隔离，不读取或修改服务器全局 Agent 池；
+- CLI/模型下拉为内置预设（codex / codebuddy / minimax-cli），保存时渲染命令模板；
 - 免登录约束：uvicorn 仅绑定 127.0.0.1；生产使用须经反向代理 + 访问控制。
 """
 from __future__ import annotations
@@ -25,6 +26,8 @@ import json
 import logging
 import os
 import re
+import shutil
+import socket
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,6 +53,11 @@ DEFAULT_MAPPINGS_FILE = "tmp/project-mappings.json"
 
 # CLI 预设：key → {label, template(含 {model} 占位), models: [...]}
 CLI_PRESETS: dict[str, dict[str, Any]] = {
+    "codex": {
+        "label": "OpenAI Codex CLI",
+        "models": ["gpt-5.6-sol"],
+        "template": '"{command}" exec --model "{model}" --color never',
+    },
     "codebuddy": {
         "label": "WorkBuddy CodeBuddy CLI",
         "node": "C:/Users/jason/.workbuddy/binaries/node/versions/22.22.2/node.exe",
@@ -177,8 +185,8 @@ class AgentBoardProxy:
 
 class AgentBody(BaseModel):
     agent_id: str = Field(min_length=1, max_length=64)
-    name: str = Field(min_length=1, max_length=100)
-    cli_type: str = "codebuddy"
+    name: str = Field(default="", max_length=100)
+    cli_type: str = "codex"
     model: str = ""
     enabled: bool = True
     mcp_config: str | None = None  # 覆盖默认 mcp-prod.json
@@ -205,7 +213,11 @@ class MappingsBody(BaseModel):
 
 # ---------- 应用 ----------
 
-def create_app(api_url: str | None = None, token: str | None = None) -> FastAPI:
+def create_app(
+    api_url: str | None = None,
+    token: str | None = None,
+    worker_id: str | None = None,
+) -> FastAPI:
     # B-A1 整改：凭据必须显式提供（env 或参数），缺一即 fail-fast。
     # 不再回退到源码硬编码默认值（已移除，防 git 历史泄漏）。
     api = (api_url or _env("AGENTBOARD_API_URL", DEFAULT_API_URL)).strip()
@@ -223,6 +235,14 @@ def create_app(api_url: str | None = None, token: str | None = None) -> FastAPI:
             + "。请通过环境变量或 .env 注入（禁止源码硬编码，B-A1/Epic 145 整改）。"
         )
     proxy = AgentBoardProxy(api, tok)
+    local_worker_id = (
+        worker_id or _env("AGENTBOARD_WORKER_ID") or socket.gethostname()
+    ).strip()
+    if not local_worker_id:
+        raise SystemExit(
+            "[worker_portal] 启动失败：无法确定本机 Worker ID；"
+            "请设置 AGENTBOARD_WORKER_ID"
+        )
 
     app = FastAPI(title="AgentBoard Worker 本机配置台", version="0.1.0")
     app.add_middleware(
@@ -237,7 +257,10 @@ def create_app(api_url: str | None = None, token: str | None = None) -> FastAPI:
 
     @app.get("/api/health")
     def health() -> dict[str, Any]:
-        return {"status": "ok", "api": api, "ts": _now_iso()}
+        return {
+            "status": "ok", "api": api, "worker_id": local_worker_id,
+            "ts": _now_iso(),
+        }
 
     # ---- CLI 预设 ----
     @app.get("/api/cli-presets")
@@ -255,6 +278,10 @@ def create_app(api_url: str | None = None, token: str | None = None) -> FastAPI:
         p = CLI_PRESETS.get(cli_type)
         if not p:
             raise HTTPException(400, f"未知 CLI 类型：{cli_type}")
+        if cli_type == "codex":
+            command = _env("AGENTBOARD_CODEX_COMMAND", shutil.which("codex") or "codex")
+            selected_model = model or p["models"][0]
+            return p["template"].format(command=command, model=selected_model)
         if cli_type == "codebuddy":
             mcp = mcp_config or _env("AGENTBOARD_MCP_CONFIG")
             if not mcp:
@@ -267,57 +294,51 @@ def create_app(api_url: str | None = None, token: str | None = None) -> FastAPI:
             return p["template"].format(python=p["python"], adapter=adapter)
         return p["template"]
 
-    # ---- Agent 池 ----
+    def _ensure_worker_registered() -> Any:
+        return proxy.post("/api/workers/register", {
+            "worker_id": local_worker_id,
+            "hostname": socket.gethostname(),
+            "status": "active",
+        })
+
+    # ---- 本机 Worker AgentInstance（不读写服务器全局 Agent 池） ----
     @app.get("/api/agents")
     def list_agents() -> Any:
-        return proxy.get("/api/agents")
+        _ensure_worker_registered()
+        return proxy.get(f"/api/workers/{local_worker_id}/instances")
 
     @app.post("/api/agents", status_code=201)
     def create_agent(body: AgentBody) -> Any:
+        _ensure_worker_registered()
         cli_cmd = _render_cli_command(body.cli_type, body.model, body.mcp_config)
         payload = {
-            "agent_id": body.agent_id,
-            "name": body.name,
-            "roles": "[]",
-            "capabilities": "[]",
+            "worker_id": local_worker_id,
             "cli_command": cli_cmd,
             "model": body.model,
+            "auth_key": "",
             "enabled": body.enabled,
         }
-        try:
-            return proxy.post("/api/agents/register", payload)
-        except HTTPException as e:
-            # 已存在 → 走 PUT 更新（幂等语义）
-            if e.status_code in (409, 400):
-                upd = {k: v for k, v in {
-                    "name": body.name, "cli_command": cli_cmd,
-                    "model": body.model, "enabled": body.enabled,
-                }.items() if v is not None}
-                return proxy.put(f"/api/agents/{body.agent_id}", upd)
-            raise
+        return proxy.post(f"/api/agents/{body.agent_id}/instances", payload)
 
     @app.put("/api/agents/{agent_id}")
     def update_agent(agent_id: str, body: AgentUpdateBody) -> Any:
-        upd: dict[str, Any] = {}
-        if body.name is not None:
-            upd["name"] = body.name
-        if body.enabled is not None:
-            upd["enabled"] = body.enabled
-        if body.model is not None:
-            upd["model"] = body.model
-        if body.cli_type is not None:
-            existing = None
-            try:
-                agents = proxy.get("/api/agents") or []
-                existing = next((a for a in agents if a.get("agent_id") == agent_id), None)
-            except HTTPException:
-                pass
-            cli_cmd = _render_cli_command(body.cli_type, body.model or (existing or {}).get("model", ""),
-                                          body.mcp_config)
-            upd["cli_command"] = cli_cmd
-        if not upd:
-            raise HTTPException(400, "无更新字段")
-        return proxy.put(f"/api/agents/{agent_id}", upd)
+        _ensure_worker_registered()
+        instances = proxy.get(f"/api/workers/{local_worker_id}/instances") or []
+        existing = next((item for item in instances if item.get("agent_id") == agent_id), {})
+        selected_model = body.model if body.model is not None else existing.get("model", "")
+        cli_type = body.cli_type or (
+            "codex" if "codex" in str(existing.get("cli_command", "")).lower()
+            else "codebuddy"
+        )
+        cli_cmd = _render_cli_command(cli_type, selected_model, body.mcp_config)
+        payload = {
+            "worker_id": local_worker_id,
+            "cli_command": cli_cmd,
+            "model": selected_model,
+            "auth_key": "",
+            "enabled": body.enabled if body.enabled is not None else existing.get("enabled", True),
+        }
+        return proxy.post(f"/api/agents/{agent_id}/instances", payload)
 
     # ---- 项目列表 ----
     @app.get("/api/projects")

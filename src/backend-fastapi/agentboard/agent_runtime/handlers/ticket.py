@@ -27,6 +27,7 @@ def build_ticket_prompt(context: dict) -> str:
     parent_epic = context.get("parent_epic_id")
     parent_story = context.get("parent_story_id")
     project_dir = context.get("project_dir") or "(未知项目目录)"
+    is_auto = ttype == "auto"
     lines = [
         "你是需求落单助手。下面的提案已通过多轮澄清收敛（converged_spec 即最终需求规格）。",
         "",
@@ -35,12 +36,29 @@ def build_ticket_prompt(context: dict) -> str:
         "（read_file / glob / list_dir）确认相关代码 / 接口存在并理解上下文，",
         "在输出 JSON 里加 `inspected_files` 数组（相对路径）。**禁止**编造。",
         "",
-        f"## 任务：把提案 #{context.get('proposal_id')} 生成为「{ttype}」类型工单",
+        (f"## 任务：把提案 #{context.get('proposal_id')} 生成工单，"
+         + ("由你判断是 Epic / Story / Task" if is_auto else f"固定为「{ttype}」类型")),
         "",
+    ]
+    if is_auto:
+        lines += [
+            "先用 AgentBoard MCP 的 `list_epics(project_id)` / `list_stories(epic_id)` 检查现有层级，",
+            "再选择最小且能完整承载需求的类型：",
+            "- Epic：跨多个 Story 的大型目标，无合适现有 Epic；",
+            "- Story：一个完整用户价值，应挂到现有 Epic；",
+            "- Task：可在一个现有 Story 内独立实施的具体工作。",
+            "若选 Story 必须传 epic_id；若选 Task 必须传 epic_id + story_id。",
+            "",
+        ]
+    lines += [
         "请调用 **AgentBoard MCP 工具 `proposal_create_ticket`** 完成创建，参数：",
         f"- proposal_id: {context.get('proposal_id')}",
-        f"- type: {ttype}",
+        f"- request_id: {context.get('ticket_request_id')}",
     ]
+    if not is_auto:
+        lines.append(f"- type: {ttype}")
+    else:
+        lines.append("- type: 你选定的 epic / story / task")
     if parent_epic is not None:
         lines.append(f"- epic_id: {parent_epic}")
     if parent_story is not None:
@@ -54,7 +72,8 @@ def build_ticket_prompt(context: dict) -> str:
         '{"action":"ticket_created","inspected_files":[...]}',
         "若调用失败（工具报错），打印：",
         '{"action":"fail","error":"原因","inspected_files":[...]}',
-        "不要省略参数、不要修改 type。若你所在环境没有 AgentBoard MCP 连接，",
+        ("自动模式必须传 request_id 和选定的 type。" if is_auto
+         else "不要省略参数、不要修改 type。") + "若你所在环境没有 AgentBoard MCP 连接，",
         "直接打印 {\"action\":\"fail\",\"error\":\"缺少 AgentBoard MCP 连接\",\"inspected_files\":[]}。",
         "",
         f"## 提案 #{context.get('proposal_id')}：{context.get('title')}",
@@ -94,7 +113,7 @@ class TicketHandler(BaseWorkHandler):
         if isinstance(work_item, ExecutionCommand):
             return work_item.work_type == self.work_type
         return bool(work_item.get("ticket_request_id") or work_item.get("proposal_id")
-                    and work_item.get("type") in ("epic", "story", "task", "bug"))
+                    and work_item.get("type") in ("epic", "story", "task", "bug", "auto"))
 
     def fetch(self) -> list[dict]:
         """拉取待认领转换请求（status=pending）。"""

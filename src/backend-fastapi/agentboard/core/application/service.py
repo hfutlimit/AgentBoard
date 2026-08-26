@@ -3067,6 +3067,7 @@ from ...features.projects.service import (  # noqa: F401,F403
 from ...features.proposals.service import (  # noqa: F401,F403
     create_proposal, get_proposal, list_proposals, set_proposal_status,
     claim_proposal, create_proposal_round, add_proposal_questions,
+    update_proposal, list_proposal_rounds, answer_proposal_question,
     get_proposal_project_id, build_proposal_task_graph, convert_proposal_to_story,
     create_ticket_request, execute_ticket_request, reclaim_stale_ticket_requests,
 )

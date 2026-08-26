@@ -64,7 +64,8 @@ def build_clarify_prompt(context: dict) -> str:
         for h in history:
             mark = "（用户标记不确定）" if h.get("unsure") else ""
             ans = h.get("answer") or ("(尚未作答)" if not h.get("answered") else "(空答案)")
-            lines.append(f"- [第{h.get('round')}轮] Q: {h.get('question')}")
+            asker = h.get("agent") or "未记录 Agent"
+            lines.append(f"- [第{h.get('round')}轮 · {asker}] Q: {h.get('question')}")
             lines.append(f"  A: {ans}{mark}")
     else:
         lines += ["", "## 历史问答", "(暂无，这是第一轮澄清)"]
@@ -160,6 +161,7 @@ class ClarifyHandler(BaseWorkHandler):
                 answered = bool(q.get("answered_at"))
                 item = {
                     "round": r.get("round_no"),
+                    "agent": r.get("agent") or "",
                     "question_id": q.get("id"),
                     "seq": q.get("seq"),
                     "question": q.get("question"),
@@ -241,7 +243,8 @@ class ClarifyHandler(BaseWorkHandler):
         body: dict[str, Any] = {
             "questions": decision.questions,
             "summary": decision.summary,
-            "agent": self.config.agent,
+            # agent_id 是真正执行本轮的 Agent；agent 只是兼容旧的 Worker 服务账号。
+            "agent": self.config.agent_id or self.config.agent,
         }
         if decision.round is not None:
             body["round"] = decision.round

@@ -2,7 +2,7 @@
   <header class="topbar">
     <div class="brand">AgentBoard · Worker 本机配置台</div>
     <div class="tabs">
-      <button [class.active]="tab() === 'agents'" (click)="selectTab('agents')">🤖 Agent 配置</button>
+      <button [class.active]="tab() === 'agents'" (click)="selectTab('agents')">🤖 本机 Agent</button>
       <button [class.active]="tab() === 'mappings'" (click)="selectTab('mappings')">📁 项目映射</button>
       <button [class.active]="tab() === 'executions'" (click)="selectTab('executions')">📋 任务执行</button>
       <button [class.active]="tab() === 'records'" (click)="selectTab('records')">🧾 运行日志</button>
@@ -13,13 +13,11 @@
   @if (tab() === 'agents') {
     <section class="panel">
       <div class="card">
-        <h2>Agent 配置</h2>
+        <h2>当前 Worker 的 Agent 配置</h2>
+        <p class="hint">这里只配置当前 Worker 可用的本机 Agent 实例。</p>
         <div class="form-grid">
           <label>Agent ID
-            <input [(ngModel)]="agentId" placeholder="如 codebuddy-worker" />
-          </label>
-          <label>名称
-            <input [(ngModel)]="agentName" placeholder="如 CodeBuddy Worker" />
+            <input [(ngModel)]="agentId" placeholder="如 codex" />
           </label>
           <label>CLI 类型
             <select [(ngModel)]="cliType" (change)="onCliChange()">
@@ -40,23 +38,23 @@
           </label>
         </div>
         <div class="actions">
-          <button class="primary" (click)="saveAgent()">保存到服务器</button>
+          <button class="primary" (click)="saveAgent()">保存到当前 Worker</button>
           <button (click)="refreshAgents()">刷新列表</button>
         </div>
         <p class="msg">{{ agentMsg() }}</p>
       </div>
 
       <div class="card">
-        <h2>服务器 Agent 池（agents 表）</h2>
+        <h2>本机 Worker Agent</h2>
         <table>
           <thead>
-            <tr><th>Agent ID</th><th>名称</th><th>模型</th><th>状态</th><th>探测</th><th>操作</th></tr>
+            <tr><th>Agent ID</th><th>Worker</th><th>模型</th><th>状态</th><th>探测</th><th>操作</th></tr>
           </thead>
           <tbody>
             @for (a of agents(); track a.agent_id) {
               <tr>
                 <td>{{ a.agent_id }}</td>
-                <td>{{ a.name }}</td>
+                <td>{{ a.worker_id || '本机' }}</td>
                 <td>{{ a.model || '—' }}</td>
                 <td>
                   <span class="chip" [class.on]="a.enabled !== false">启用</span>
@@ -66,7 +64,7 @@
                 <td><button class="small" (click)="editAgent(a)">编辑</button></td>
               </tr>
             } @empty {
-              <tr><td colspan="6" class="empty">暂无 Agent，请在上方创建</td></tr>
+              <tr><td colspan="6" class="empty">当前 Worker 暂无 Agent，请在上方配置</td></tr>
             }
           </tbody>
         </table>

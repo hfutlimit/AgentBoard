@@ -37,11 +37,12 @@ log = logging.getLogger("agentboard.features.proposals.service")
 
 from .models import (
     ALL_PROPOSAL_STATUSES, ASKABLE_STATUSES, CLAIMABLE_STATUSES,
+    AUTO_RESOLVABLE_TICKET_TYPES, AUTO_TICKET_TYPE,
     DEFAULT_CLAIM_LEASE_SECONDS, Proposal, ProposalQuestion, ProposalRound,
     ProposalStatus, ProposalTicketRequest,
     TICKET_REQUEST_DONE, TICKET_REQUEST_FAILED,
     TICKET_REQUEST_PENDING, TICKET_REQUEST_PROCESSING,
-    TICKET_REQUEST_STATUSES, TICKET_TYPES,
+    TICKET_REQUEST_STATUSES, TICKET_REQUEST_TYPES, TICKET_TYPES,
 )
 
 from ...core.common.models import utc_now  # noqa: F401  (跨域常量)
@@ -100,6 +101,13 @@ def _check_ticket_type(value: str) -> None:
     if value not in TICKET_TYPES:
         raise InvalidValue(
             f"invalid ticket type '{value}'，仅允许 {sorted(TICKET_TYPES)}",
+        )
+
+
+def _check_ticket_request_type(value: str) -> None:
+    if value not in TICKET_REQUEST_TYPES:
+        raise InvalidValue(
+            f"invalid ticket request type '{value}'，仅允许 {sorted(TICKET_REQUEST_TYPES)}",
         )
 
 
@@ -360,9 +368,10 @@ def create_ticket_request(
       failed 请求重置为 pending（重新排队）；
     - 请求落库后 proposal 状态 converged → ticket_preparing（异步生成中）。
     """
-    _check_ticket_type(type)
+    _check_ticket_request_type(type)
     p = _proposal_or_404(s, proposal_id)
-    _validate_ticket_parents(s, p, type=type, epic_id=epic_id, story_id=story_id)
+    if type != AUTO_TICKET_TYPE:
+        _validate_ticket_parents(s, p, type=type, epic_id=epic_id, story_id=story_id)
 
     existing = (
         s.query(ProposalTicketRequest)
@@ -399,7 +408,7 @@ def create_ticket_request(
         )
     req = ProposalTicketRequest(
         proposal_id=proposal_id, type=type,
-        parent_epic_id=epic_id if type != "epic" else None,
+        parent_epic_id=epic_id if type not in ("epic", AUTO_TICKET_TYPE) else None,
         parent_story_id=story_id if type in ("task", "bug") else None,
         title=(title or "").strip()[:300],
         status=TICKET_REQUEST_PENDING,
@@ -447,13 +456,24 @@ def execute_ticket_request(
     """
     p = _proposal_or_404(s, proposal_id)
 
+    resolved_type = ""
     if request_id is not None:
         req = _ticket_request_or_404(s, request_id)
         if req.proposal_id != proposal_id:
             raise NotFound(
                 f"ticket request {request_id} 不属于 proposal {proposal_id}",
             )
-        type = req.type
+        if req.type == AUTO_TICKET_TYPE:
+            if type not in AUTO_RESOLVABLE_TICKET_TYPES:
+                raise InvalidValue(
+                    "auto ticket request 必须由 Agent 选择 epic / story / task",
+                )
+            _validate_ticket_parents(
+                s, p, type=type, epic_id=epic_id, story_id=story_id,
+            )
+            resolved_type = type
+        else:
+            type = req.type
     else:
         _check_ticket_type(type)
         req = _ticket_request_by_type(s, proposal_id, type)
@@ -477,6 +497,11 @@ def execute_ticket_request(
         )
     req = claimed
 
+    if req.type == AUTO_TICKET_TYPE:
+        req.resolved_type = resolved_type
+        req.parent_epic_id = epic_id if resolved_type != "epic" else None
+        req.parent_story_id = story_id if resolved_type == "task" else None
+
     if ProposalStatus(p.status) is not ProposalStatus.TICKET_PREPARING:
         # 兜底：若 proposal 未在 ticket_preparing（例如创建请求时已置位），
         # 此处校验状态机合法迁移，避免竞态下跳过中间态。
@@ -492,7 +517,7 @@ def execute_ticket_request(
             s, p, type=type,
             parent_epic_id=req.parent_epic_id,
             parent_story_id=req.parent_story_id,
-            title=title,
+            title=title or req.title or None,
         )
     except ValueError as e:
         raise InvalidValue(str(e)) from None
@@ -514,7 +539,7 @@ def execute_ticket_request(
 
 def create_proposal(
     s: Session, *, project_id: int, title: str, content: str = "",
-    author_id: int | None = None,
+    author_id: int | None = None, auto_create_ticket: bool = False,
 ) -> Proposal:
     """新建需求提案，初始状态 pending（待开始，点击「开始 grill」才入队）。"""
     if not s.get(Project, project_id):
@@ -528,6 +553,7 @@ def create_proposal(
         status=ProposalStatus.PENDING.value,
         current_round=0,
         author_id=author_id,
+        auto_create_ticket=bool(auto_create_ticket),
     )
     s.add(p); _commit(s); s.refresh(p); return p
 
@@ -593,9 +619,10 @@ def _ticket_execute_result(
     """组装 execute 返回（ticket 实体序列化 + 请求）。"""
     ticket: dict | None = None
     if req.ticket_id is not None:
-        if req.type == "epic":
+        effective_type = req.resolved_type or req.type
+        if effective_type == "epic":
             ticket = _ser(s.get(Epic, req.ticket_id)) if s.get(Epic, req.ticket_id) else None
-        elif req.type == "story":
+        elif effective_type == "story":
             ticket = _ser(s.get(Story, req.ticket_id)) if s.get(Story, req.ticket_id) else None
         else:
             ticket = _ser(s.get(Task, req.ticket_id)) if s.get(Task, req.ticket_id) else None
@@ -819,6 +846,9 @@ def answer_proposal_question(
     qs = s.get(ProposalQuestion, question_id)
     if not qs:
         raise NotFound(f"proposal question {question_id} not found")
+    proposal = _proposal_or_404(s, qs.proposal_id)
+    if ProposalStatus(proposal.status) is ProposalStatus.CANCELLED:
+        raise InvalidValue(f"proposal {proposal.id} 已取消，不能继续作答")
     answer = (answer or "").strip()
     if not answer and not unsure:
         raise InvalidValue("answer is required unless marked unsure")
@@ -875,6 +905,14 @@ def list_proposal_rounds(s: Session, proposal_id: int) -> list[dict]:
             .all()
         )
         item = _ser(r)
+        # 新记录存 agent_id；历史记录可能是 worker 服务账号或空值。
+        # 能匹配 Agent 注册表时同时返回可读名称，前端仍保留 id 便于审计。
+        from ..projects.models import Agent
+        agent_row = (
+            s.query(Agent).filter(Agent.agent_id == r.agent).first()
+            if (r.agent or "").strip() else None
+        )
+        item["agent_name"] = agent_row.name if agent_row else ""
         item["questions"] = [_ser(x) for x in qs]
         out.append(item)
     return out
@@ -1083,7 +1121,9 @@ def update_proposal(s: Session, id: int, **fields) -> Proposal | None:
     p = s.get(Proposal, id)
     if not p:
         return None
-    allowed = {"title", "content", "converged_spec", "story_id"}
+    if ProposalStatus(p.status) is ProposalStatus.CANCELLED:
+        raise InvalidValue(f"proposal {id} 已取消，不能继续修改")
+    allowed = {"title", "content", "converged_spec", "story_id", "auto_create_ticket"}
     edited_user_fields = False
     for k, v in fields.items():
         if k not in allowed or v is None:
@@ -1092,6 +1132,8 @@ def update_proposal(s: Session, id: int, **fields) -> Proposal | None:
             v = _required(v, "title", 300)
         elif k == "story_id" and not s.get(Story, v):
             raise NotFound(f"story {v} not found")
+        elif k == "auto_create_ticket":
+            v = bool(v)
         if k in ("title", "content"):
             edited_user_fields = True
         setattr(p, k, v)

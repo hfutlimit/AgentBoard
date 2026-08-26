@@ -433,12 +433,12 @@ export interface DocumentCommentItem {
 export type ProposalStatus =
   | 'draft' | 'pending' | 'queued' | 'analyzing' | 'awaiting'
   | 'answered' | 'converged' | 'story_created'
-  | 'ticket_preparing' | 'ticket_created' | 'failed';
+  | 'ticket_preparing' | 'ticket_created' | 'failed' | 'cancelled';
 
 export const PROPOSAL_STATUSES: ProposalStatus[] = [
   'draft', 'pending', 'queued', 'analyzing', 'awaiting',
   'answered', 'converged', 'story_created',
-  'ticket_preparing', 'ticket_created', 'failed',
+  'ticket_preparing', 'ticket_created', 'failed', 'cancelled',
 ];
 
 export interface ProposalItem {
@@ -452,6 +452,7 @@ export interface ProposalItem {
   story_id: number | null;
   ticket_type: string;
   ticket_id: number | null;
+  auto_create_ticket: boolean;
   author_id: number | null;
   error: string;
   created_at: string;
@@ -467,6 +468,7 @@ export interface TicketRequestItem {
   proposal_id: number;
   project_id?: number;  // v6.18 搜索端点附加（经提案反查，命令面板显示项目名）
   type: string;
+  resolved_type: string;
   parent_epic_id:  number | null;
   parent_story_id: number | null;
   title: string;
@@ -512,6 +514,7 @@ export interface ProposalRoundItem {
   round_no: number;
   summary: string;
   agent: string;
+  agent_name?: string;
   created_at: string;
   updated_at: string;
   questions: ProposalQuestionItem[];

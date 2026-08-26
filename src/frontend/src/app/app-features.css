@@ -1556,6 +1556,7 @@
 .badge.pstatus--ticket_preparing { background: #fef9c3; color: #854d0e; border-color: #fef08a; }
 .badge.pstatus--ticket_created { background: #dcfce7; color: #14532d; border-color: #bbf7d0; }
 .badge.pstatus--failed { background: #fee2e2; color: #991b1b; border-color: #fecaca; }
+.badge.pstatus--cancelled { background: #f1f5f9; color: #64748b; border-color: #cbd5e1; }
 
 .dark .badge.pstatus--draft { background: rgba(148, 163, 184, 0.16); color: #cbd5e1; border-color: rgba(148, 163, 184, 0.3); }
 .dark .badge.pstatus--pending { background: rgba(168, 85, 247, 0.18); color: #e9d5ff; border-color: rgba(168, 85, 247, 0.35); }
@@ -1568,6 +1569,7 @@
 .dark .badge.pstatus--ticket_preparing { background: rgba(250, 204, 21, 0.16); color: #fef08a; border-color: rgba(250, 204, 21, 0.35); }
 .dark .badge.pstatus--ticket_created { background: rgba(34, 197, 94, 0.18); color: #bbf7d0; border-color: rgba(34, 197, 94, 0.35); }
 .dark .badge.pstatus--failed { background: rgba(239, 68, 68, 0.18); color: #fecaca; border-color: rgba(239, 68, 68, 0.35); }
+.dark .badge.pstatus--cancelled { background: rgba(100, 116, 139, 0.2); color: #cbd5e1; border-color: rgba(148, 163, 184, 0.35); }
 
 /* ---- 文档 #59：转换请求状态 + 生成表单 ---- */
 .badge.trstatus--pending { background: #eef0f4; color: #4b5563; border-color: #dfe3ea; }
@@ -1694,6 +1696,19 @@
 .proposal-timeline-round { font-weight: 600; margin-right: 8px; }
 .proposal-timeline-meta { color: var(--muted); font-size: 12px; }
 .proposal-timeline-summary { margin-top: 4px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.proposal-round-agent { color: var(--accent, #2563eb); font-size: 12px; font-weight: 600; }
+.proposal-timeline .proposal-round-agent { display: block; margin-top: 3px; }
+.rd-agent { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.rd-agent strong { color: var(--accent, #2563eb); }
+.proposal-auto-ticket-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.proposal-auto-ticket-toggle input:disabled + span { color: var(--muted); }
+.proposal-auto-ticket-option {
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
+  background: var(--surface-2, rgba(37, 99, 235, 0.04));
+}
+.proposal-auto-ticket-option span { display: flex; flex-direction: column; gap: 3px; }
+.proposal-auto-ticket-option small { color: var(--muted); line-height: 1.45; }
 
 /* ---- 问题卡片 ---- */
 .proposal-round { margin-bottom: 18px; }

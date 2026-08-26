@@ -8,6 +8,7 @@ class ProposalIn(BaseModel):
 	title: str = Field(min_length=1, max_length=300)
 	content: str = ""
 	author_id: int | None = None
+	auto_create_ticket: bool = False
 
 
 class ProposalPatch(BaseModel):
@@ -15,6 +16,7 @@ class ProposalPatch(BaseModel):
 	content: str | None = None
 	converged_spec: str | None = None
 	story_id: int | None = None
+	auto_create_ticket: bool | None = None
 
 
 class ProposalStatusIn(BaseModel):
@@ -62,6 +64,7 @@ class TicketRequestSpec(BaseModel):
 class TicketRequestExecuteSpec(BaseModel):
 	proposal_id: int
 	type: str
+	request_id: int | None = None
 	epic_id: int | None = None
 	story_id: int | None = None
 	title: str | None = Field(default=None, min_length=1, max_length=300)

@@ -49,6 +49,7 @@ def create_proposal(body: ProposalIn, s: Session = Depends(get_session),
         p = service.create_proposal(
             s, project_id=body.project_id, title=body.title, content=body.content,
             author_id=body.author_id if body.author_id is not None else uid,
+            auto_create_ticket=body.auto_create_ticket,
         )
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -179,6 +180,17 @@ def set_proposal_status(pid: int, body: ProposalStatusIn, s: Session = Depends(g
     if p is not None and str(p.status) == "queued":
         api_helpers._dispatch_proposal(pid, getattr(p, "current_round", 0) or 0,
                            mq.REASON_QUEUED)
+    # 收敛后自动创建一条 auto 转换请求。Agent 会读项目层级后
+    # 在 epic / story / task 中选择，不由 UI 预先猜测。
+    if p is not None and str(p.status) == "converged" and p.auto_create_ticket:
+        try:
+            req = service.create_ticket_request(s, pid, type="auto")
+        except (service.NotFound, service.InvalidValue) as e:
+            raise HTTPException(status_code=422, detail=str(e))
+        mq.publish_workflow_event(
+            mq.EVENT_TICKET_REQUESTED, "proposal", pid, ref_id=req.id,
+        )
+        p = service.get_proposal(s, pid)
     return service._ser(p)
 
 
@@ -367,7 +379,7 @@ def execute_ticket_request_rpc(body: TicketRequestExecuteSpec,
     try:
         result = service.execute_ticket_request(
             s, pid, type=body.type, epic_id=body.epic_id,
-            story_id=body.story_id, title=body.title,
+            story_id=body.story_id, title=body.title, request_id=body.request_id,
         )
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))

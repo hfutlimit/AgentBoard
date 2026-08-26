@@ -185,3 +185,46 @@ def test_worker_portal_proxies_execution_filters_and_full_output(monkeypatch):
     assert detail.status_code == 200
     assert detail.json()["output"] == "full output"
     assert calls[1][0] == "/api/runs/7"
+
+
+def test_worker_portal_agents_are_scoped_to_current_worker(monkeypatch):
+    gets: list[str] = []
+    posts: list[tuple[str, dict]] = []
+
+    def fake_get(self, path: str, **kwargs):
+        gets.append(path)
+        if path == "/api/workers/worker-local/instances":
+            return [{
+                "id": 9, "worker_id": "worker-local", "agent_id": "codex",
+                "model": "gpt-5.6-sol", "enabled": True,
+            }]
+        raise AssertionError(f"unexpected GET {path}")
+
+    def fake_post(self, path: str, payload: dict, status_code: int = 201):
+        posts.append((path, payload))
+        return payload
+
+    monkeypatch.setattr(worker_portal.AgentBoardProxy, "get", fake_get)
+    monkeypatch.setattr(worker_portal.AgentBoardProxy, "post", fake_post)
+    client = TestClient(worker_portal.create_app(
+        "http://server", "test-token", worker_id="worker-local",
+    ))
+
+    listed = client.get("/api/agents")
+    assert listed.status_code == 200
+    assert listed.json()[0]["worker_id"] == "worker-local"
+    assert gets == ["/api/workers/worker-local/instances"]
+    assert not any(path == "/api/agents" for path in gets)
+    assert posts[0][0] == "/api/workers/register"
+    assert posts[0][1]["worker_id"] == "worker-local"
+
+    saved = client.post("/api/agents", json={
+        "agent_id": "codex", "cli_type": "codex",
+        "model": "gpt-5.6-sol", "enabled": True,
+    })
+    assert saved.status_code == 201
+    instance_path, instance_body = posts[-1]
+    assert instance_path == "/api/agents/codex/instances"
+    assert instance_body["worker_id"] == "worker-local"
+    assert instance_body["model"] == "gpt-5.6-sol"
+    assert "gpt-5.6-sol" in instance_body["cli_command"]

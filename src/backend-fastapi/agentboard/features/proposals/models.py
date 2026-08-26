@@ -37,6 +37,7 @@ class ProposalStatus(StrEnum):
     TICKET_PREPARING = "ticket_preparing"  # 工单生成中（异步创建 ticket 的中间态）
     TICKET_CREATED = "ticket_created"      # 已生成工单（终态，泛化 story_created）
     FAILED = "failed"              # 分析失败 / 超时（可回退重投）
+    CANCELLED = "cancelled"        # 问答完成前由用户取消（终态）
 
 
 ALL_PROPOSAL_STATUSES = [
@@ -44,7 +45,7 @@ ALL_PROPOSAL_STATUSES = [
     ProposalStatus.ANALYZING, ProposalStatus.AWAITING, ProposalStatus.ANSWERED,
     ProposalStatus.CONVERGED, ProposalStatus.STORY_CREATED,
     ProposalStatus.TICKET_PREPARING, ProposalStatus.TICKET_CREATED,
-    ProposalStatus.FAILED,
+    ProposalStatus.FAILED, ProposalStatus.CANCELLED,
 ]
 
 # SQL CHECK 约束用的字面量（与上表保持一致，供 models / migration 共用）
@@ -58,27 +59,33 @@ _STATUS_SQL_LIST = "'" + "','".join(s.value for s in ALL_PROPOSAL_STATUSES) + "'
 # 异常回路：analyzing/awaiting/answered → failed → queued（重投）
 # 编辑回退：非终态用户编辑正文 → 回 pending（已答历史保留，全量重放）
 PROPOSAL_TRANSITIONS: dict[ProposalStatus, set[ProposalStatus]] = {
-    ProposalStatus.DRAFT: {ProposalStatus.QUEUED},
-    ProposalStatus.PENDING: {ProposalStatus.QUEUED},  # 点击「开始 grill」→ 入队
+    ProposalStatus.DRAFT: {ProposalStatus.QUEUED, ProposalStatus.CANCELLED},
+    ProposalStatus.PENDING: {
+        ProposalStatus.QUEUED, ProposalStatus.CANCELLED,
+    },  # 点击「开始 grill」→ 入队
     ProposalStatus.QUEUED: {
         ProposalStatus.ANALYZING, ProposalStatus.DRAFT, ProposalStatus.FAILED,
         ProposalStatus.PENDING,  # 用户编辑 → 回待开始
+        ProposalStatus.CANCELLED,
     },
     ProposalStatus.ANALYZING: {
         ProposalStatus.AWAITING, ProposalStatus.CONVERGED,
         ProposalStatus.QUEUED,   # 超时回退，复用 DaemonScheduler
         ProposalStatus.FAILED,
         ProposalStatus.PENDING,  # 用户编辑 → 回待开始
+        ProposalStatus.CANCELLED,
     },
     ProposalStatus.AWAITING: {
         ProposalStatus.ANSWERED, ProposalStatus.CONVERGED, ProposalStatus.FAILED,
         ProposalStatus.PENDING,
+        ProposalStatus.CANCELLED,
     },
     ProposalStatus.ANSWERED: {
         ProposalStatus.ANALYZING,  # 进入下一轮澄清
         ProposalStatus.CONVERGED,  # 用户主动跳过继续澄清
         ProposalStatus.FAILED,
         ProposalStatus.PENDING,
+        ProposalStatus.CANCELLED,
     },
     ProposalStatus.CONVERGED: {
         ProposalStatus.STORY_CREATED,       # 历史路径（P3 同步直建）
@@ -93,7 +100,8 @@ PROPOSAL_TRANSITIONS: dict[ProposalStatus, set[ProposalStatus]] = {
     },
     ProposalStatus.TICKET_CREATED: set(),  # 终态
     ProposalStatus.FAILED: {ProposalStatus.QUEUED, ProposalStatus.DRAFT,
-                            ProposalStatus.PENDING},
+                            ProposalStatus.PENDING, ProposalStatus.CANCELLED},
+    ProposalStatus.CANCELLED: set(),
 }
 
 # 允许 Agent 在其中提问的状态（提问即产出一轮问题）
@@ -108,6 +116,10 @@ CLAIMABLE_STATUSES = {ProposalStatus.QUEUED, ProposalStatus.ANSWERED}
 # ---- Proposal → Ticket 异步转化（2026-08-08 确认，文档 #59）----
 # 可生成的工单类型（task/bug 复用 tasks 表，type 字段区分）
 TICKET_TYPES: frozenset[str] = frozenset({"epic", "story", "task", "bug"})
+# auto 只是转换请求的「待 Agent 决策」类型，不是最终工单类型。
+AUTO_TICKET_TYPE = "auto"
+AUTO_RESOLVABLE_TICKET_TYPES: frozenset[str] = frozenset({"epic", "story", "task"})
+TICKET_REQUEST_TYPES: frozenset[str] = TICKET_TYPES | {AUTO_TICKET_TYPE}
 
 # 转换请求状态机：pending（等待 worker）→ processing（worker 认领执行中）
 # → done（已生成，回填 ticket_id）/ failed（失败，proposal 回退 converged）
@@ -120,7 +132,7 @@ TICKET_REQUEST_STATUSES: frozenset[str] = frozenset({
     TICKET_REQUEST_DONE, TICKET_REQUEST_FAILED,
 })
 _TICKET_REQ_STATUS_SQL_LIST = "'" + "','".join(sorted(TICKET_REQUEST_STATUSES)) + "'"
-_TICKET_TYPE_SQL_LIST = "'" + "','".join(sorted(TICKET_TYPES)) + "'"
+_TICKET_TYPE_SQL_LIST = "'" + "','".join(sorted(TICKET_REQUEST_TYPES)) + "'"
 
 
 class Proposal(Base):
@@ -150,6 +162,8 @@ class Proposal(Base):
     # 统一记类型 + 实体 id。story 类 ticket 同时回填 story_id 以兼容既有查询。
     ticket_type: Mapped[str] = mapped_column(String(20), default="")
     ticket_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    # 收敛后是否自动让 Agent 选择 epic/story/task 并创建工单。
+    auto_create_ticket: Mapped[bool] = mapped_column(Boolean, default=False)
     # 提出人；Worker 通过 proposal_id 反查项目与提出人以确定身份归属
     author_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True,
@@ -242,8 +256,10 @@ class ProposalTicketRequest(Base):
     proposal_id: Mapped[int] = mapped_column(
         ForeignKey("proposals.id", ondelete="CASCADE"), nullable=False, index=True,
     )
-    # 工单类型：epic / story / task / bug（task/bug 复用 tasks 表，type 字段区分）
+    # 请求类型：epic / story / task / bug / auto。auto 由 Agent 决策最终类型。
     type: Mapped[str] = mapped_column(String(20), nullable=False)
+    # auto 请求的最终类型；手动请求保持空字符串。
+    resolved_type: Mapped[str] = mapped_column(String(20), default="")
     # 层级父级：epic 无父；story 必挂 epic；task/bug 必挂 epic + story
     parent_epic_id: Mapped[int | None] = mapped_column(
         ForeignKey("epics.id", ondelete="SET NULL"), nullable=True,

@@ -9,10 +9,15 @@ Flake 修复（2026-08-10 review）：探测前 sleep(0.05) + 显式 stdout/stde
 探测结果通过 ``/api/workers/{worker_id}/agent-instances/{id}/{heartbeat,deregister}``
 上报（URL path worker_id 强校验 ownership，防 A 覆盖 B）。原 ``GET /api/agents``
 路径保留为 ``worker_id`` 留空时的旧单 Worker 兜底。
+
+2026-08-26 23:06 修复：worker 自注册（commit 4480967 留的 P2 follow-up）。
+首次心跳前调 ``POST /api/workers/register`` 把本机 upsert 到 ``workers`` 表，
+后续才能走 ``GET /api/workers/{id}/instances`` 拿到 AgentInstance 列表。
 """
 from __future__ import annotations
 
 import logging
+import socket
 import subprocess
 import time
 from typing import Any
@@ -69,6 +74,52 @@ def _empty_stats(worker_id: str = "") -> dict:
     }
 
 
+# Hostname lazy cache：worker 进程生命周期内 hostname 不会变，避免每个心跳都调
+# socket.gethostname()（Linux 上涉及 DNS 反查，~10ms 浪费）
+_HOSTNAME_CACHE: str | None = None
+
+
+def _get_local_hostname() -> str:
+    """best-effort hostname（失败回空字符串，注册接口允许 hostname 为空）。"""
+    global _HOSTNAME_CACHE
+    if _HOSTNAME_CACHE is None:
+        try:
+            _HOSTNAME_CACHE = socket.gethostname()
+        except Exception:
+            _HOSTNAME_CACHE = ""
+    return _HOSTNAME_CACHE
+
+
+def _ensure_worker_registered(
+    client: httpx.Client, worker_id: str, status: str = "active",
+) -> bool:
+    """Worker 自注册：``POST /api/workers/register`` upsert 本机到 ``workers`` 表。
+
+    幂等：每次心跳都调（server 端 upsert）。失败不抛，降级到 legacy 心跳路径。
+
+    返回 True = 注册成功 / 已存在；False = 调用失败（worker 仍在 legacy 路径跑）。
+    """
+    try:
+        resp = client.request(
+            "POST", "/api/workers/register",
+            json={
+                "worker_id": worker_id,
+                "hostname": _get_local_hostname(),
+                "status": status,
+            },
+        )
+        if 200 <= resp.status_code < 300:
+            return True
+        log.warning(
+            "Worker %s 自注册失败（HTTP %s）：%s",
+            worker_id, resp.status_code, (resp.text or "")[:200],
+        )
+        return False
+    except Exception as e:
+        log.warning("Worker %s 自注册异常：%s", worker_id, e)
+        return False
+
+
 def agent_heartbeat_once(client: httpx.Client, config: Any) -> dict:
     """执行一轮 Agent 心跳探测。
 
@@ -92,6 +143,7 @@ def _heartbeat_via_instances(
     """多 Worker 部署（推荐）：Worker 只探测本机 AgentInstance。
 
     流程：
+    0. （2026-08-26 修复）``POST /api/workers/register`` 自注册（幂等，失败降级 legacy）
     1. ``GET /api/workers/{worker_id}/instances`` → 本机 instances（owner 视角含 ``cli_command``）
     2. 逐 instance 跑 ``<cli> --version``
     3. 成功 → ``POST /api/workers/{worker_id}/agent-instances/{id}/heartbeat``
@@ -104,6 +156,9 @@ def _heartbeat_via_instances(
         "checked": 0, "online": 0, "offline": 0, "skipped": 0,
         "mode": "instance", "worker_id": worker_id,
     }
+    # Step 0：自注册（commit 4480967 留的 P2 follow-up）
+    # 失败不阻塞：fallback 走 legacy 路径，下轮心跳重试
+    _ensure_worker_registered(client, worker_id)
     try:
         resp = client.request("GET", f"/api/workers/{worker_id}/instances")
         if resp.status_code >= 400:

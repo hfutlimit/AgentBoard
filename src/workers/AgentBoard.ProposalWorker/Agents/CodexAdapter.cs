@@ -4,10 +4,9 @@ using Microsoft.Extensions.Options;
 namespace AgentBoard.ProposalWorker.Agents;
 
 /// <summary>
-/// Sprint 4. OpenAI Codex CLI adapter. Codex uses argv-style input
-/// (<c>codex exec --prompt &lt;text&gt;</c>) instead of stdin. We pass the
-/// prompt as a single argument so the existing <c>codex</c> CLI is the only
-/// dependency; no stdin plumbing required.
+/// OpenAI Codex CLI adapter. The current Codex CLI accepts the prompt through
+/// stdin when no positional prompt argument is supplied. JSONL event output is
+/// enabled so the worker can retain a structured execution trace.
 /// </summary>
 public sealed class CodexAdapter : IAgentAdapter
 {
@@ -30,13 +29,41 @@ public sealed class CodexAdapter : IAgentAdapter
         {
             Executable = opts.Command,
             WorkingDirectory = opts.WorkingDirectory,
-            // codex expects: codex exec --prompt <text>
-            Arguments = new[] { "exec", "--prompt", prompt },
+            // Current Codex CLI: codex exec --json, prompt via stdin.
+            // There is no --prompt option in the installed CLI.
+            Arguments = new[] { "exec", "--json" },
+            StdinPayload = prompt,
+            Environment = BuildEnvironment(opts),
             Timeout = TimeSpan.FromMinutes(Math.Max(1, opts.TimeoutMinutes)),
             MaxOutputBytes = opts.MaxCapturedOutputChars,
             AgentType = AgentType,
         };
         return SharedAdapterHelpers.RunAndParseAsync(_process, spec, ct);
+    }
+
+    private static Dictionary<string, string?> BuildEnvironment(AgentOptions opts)
+    {
+        // ProcessExecutor intentionally starts from an empty environment. Keep
+        // the allow-list explicit: Codex needs the executable search path and
+        // the user/config locations used by its local login and MCP settings.
+        var env = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in new[]
+        {
+            "PATH", "USERPROFILE", "CODEX_HOME", "LOCALAPPDATA", "APPDATA",
+            "HOME", "TEMP", "TMP"
+        })
+        {
+            var value = System.Environment.GetEnvironmentVariable(name);
+            if (!string.IsNullOrWhiteSpace(value)) env[name] = value;
+        }
+
+        // API-key mode is optional; ChatGPT-login mode uses CODEX_HOME instead.
+        if (!string.IsNullOrWhiteSpace(opts.ApiKeyEnv))
+        {
+            var value = System.Environment.GetEnvironmentVariable(opts.ApiKeyEnv);
+            if (!string.IsNullOrWhiteSpace(value)) env[opts.ApiKeyEnv] = value;
+        }
+        return env;
     }
 
     private string BuildPrompt(ExecutionContext context) => $"""

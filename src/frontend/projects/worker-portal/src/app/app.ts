@@ -8,7 +8,8 @@ interface CliPreset {
 }
 interface AgentRow {
   agent_id: string;
-  name: string;
+  worker_id?: string;
+  name?: string;
   roles?: string;
   capabilities?: string;
   cli_command?: string;
@@ -77,8 +78,7 @@ export class App {
   protected readonly presets = signal<Record<string, CliPreset>>({});
   protected readonly presetKeys = computed(() => Object.keys(this.presets()));
   protected readonly agentId = signal('');
-  protected readonly agentName = signal('');
-  protected readonly cliType = signal('codebuddy');
+  protected readonly cliType = signal('codex');
   protected readonly model = signal('');
   protected readonly enabled = signal(true);
   protected readonly agentMsg = signal('');
@@ -155,20 +155,19 @@ export class App {
 
   async saveAgent() {
     this.agentMsg.set('');
-    if (!this.agentId().trim() || !this.agentName().trim()) {
-      this.agentMsg.set('请填写 Agent ID 与名称');
+    if (!this.agentId().trim()) {
+      this.agentMsg.set('请填写 Agent ID');
       return;
     }
     try {
       const body = {
         agent_id: this.agentId().trim(),
-        name: this.agentName().trim(),
         cli_type: this.cliType(),
         model: this.model(),
         enabled: this.enabled(),
       };
       await this.api<unknown>('/api/agents', { method: 'POST', body: JSON.stringify(body) });
-      this.agentMsg.set('✅ 已保存（服务器 agents 表已更新）');
+      this.agentMsg.set('✅ 已保存到当前 Worker');
       this.refreshAgents();
     } catch (e) {
       this.agentMsg.set(`保存失败：${e}`);
@@ -177,7 +176,6 @@ export class App {
 
   editAgent(a: AgentRow) {
     this.agentId.set(a.agent_id);
-    this.agentName.set(a.name);
     this.enabled.set(a.enabled !== false);
     if (a.model) this.model.set(a.model);
     // 尝试从 cli_command 识别 CLI 类型

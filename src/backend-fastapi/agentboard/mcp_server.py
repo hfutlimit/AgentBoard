@@ -1415,7 +1415,8 @@ def proposal_convert(proposal_id: int, epic_id: int, title: str | None = None) -
 def proposal_create_ticket(proposal_id: int, type: str,
                            epic_id: int | None = None,
                            story_id: int | None = None,
-                           title: str | None = None) -> dict:
+                           title: str | None = None,
+                           request_id: int | None = None) -> dict:
     """把已收敛（converged）提案异步生成为工单（2026-08-08 文档 #59）。
 
     type 四选一：epic / story / task / bug —— 层级约束：
@@ -1426,6 +1427,9 @@ def proposal_create_ticket(proposal_id: int, type: str,
     服务端事务内完成：层级校验 + 创建实体 + 回填 proposal.ticket_type/ticket_id
     + 状态推进 converged → ticket_preparing → ticket_created；幂等：重复调用
     返回既有结果（不重复创建）。调用方通常是 worker CLI 拉起的 agent。
+
+    request_id 用于「收敛后自动创建」：Agent 对 auto 请求选定最终 type
+    后必须原样传回 request_id，服务端在同一条请求上记录 resolved_type。
     """
     body: dict[str, Any] = {"proposal_id": proposal_id, "type": type}
     if epic_id is not None:
@@ -1434,6 +1438,8 @@ def proposal_create_ticket(proposal_id: int, type: str,
         body["story_id"] = story_id
     if title:
         body["title"] = title
+    if request_id is not None:
+        body["request_id"] = request_id
     return _http(
         "POST", "/api/ticket-requests:execute",
         json=body,
