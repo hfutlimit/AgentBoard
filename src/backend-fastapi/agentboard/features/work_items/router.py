@@ -171,6 +171,47 @@ def set_status(
     return service._ser(result)
 
 
+# ---------------------------------------------------------------------------
+# Review 2026-08-26 P1 #3：admin 显式 force_complete endpoint
+# ---------------------------------------------------------------------------
+
+@router.post("/api/tasks/{tid}/admin/force-complete")
+def admin_force_complete(
+    tid: int,
+    authorization: str | None = Header(None),
+    reason: str = Query("manual_override", description="强制完成原因（写 history）"),
+    s: Session = Depends(get_session),
+):
+    """Admin 强制完成 task（绕过 Review gate）。
+
+    Review 2026-08-26 P1 #3：通用 set_status(DONE) 路径不再接受从 todo /
+    in_progress 直接跳到 done；admin 显式 exceptional 场景（reviewer 全员失联、
+    紧急 hotfix 等）必须走本 endpoint。status_reason 固定写入 "manual_override"，
+    审计可见；其他角色（普通用户 / Agent）调用会被 403 拒绝。
+
+    不接 async 回调、不发 workflow event —— admin 操作属人工仲裁，event 走
+    普通 status_changed 通知即可。
+    """
+    uid, is_admin = api_helpers._caller_uid_admin(authorization)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if not is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="force-complete requires admin role",
+        )
+    try:
+        t = service.force_complete_task(
+            s, tid, admin_user_id=uid, reason=reason or "manual_override",
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        # 含 force_complete 状态不合法、admin 校验失败
+        raise HTTPException(status_code=400, detail=str(e))
+    api_helpers._invalidate_stats_cache(t.project_id)
+    return service._ser(t)
+
 
 @router.get("/api/tasks/{tid}/status-history")
 def get_task_status_history(tid: int, authorization: str | None = Header(None),

@@ -14,6 +14,7 @@ from agentboard.core.exceptions import IllegalTransition, InvalidValue
 from agentboard.core.infrastructure.database import (
     SessionLocal, engine, init_db,
 )
+from agentboard.features.identity.models import User
 from agentboard.features.projects.models import Project
 from agentboard.features.work_items.models import Task
 from agentboard.features.work_items.state_machine import (
@@ -49,6 +50,40 @@ def task(session):
     session.commit()
     session.refresh(t)
     return t
+
+
+@pytest.fixture
+def admin_user(session):
+    """P1 #3 测试用：admin 用户。"""
+    import uuid
+    suffix = uuid.uuid4().hex[:8]
+    u = User(
+        username=f"admin_{suffix}",
+        display_name="Test Admin",
+        password_hash="x",
+        is_admin=True,
+    )
+    session.add(u)
+    session.commit()
+    session.refresh(u)
+    return u
+
+
+@pytest.fixture
+def non_admin_user(session):
+    """P1 #3 测试用：普通用户。"""
+    import uuid
+    suffix = uuid.uuid4().hex[:8]
+    u = User(
+        username=f"user_{suffix}",
+        display_name="Test User",
+        password_hash="x",
+        is_admin=False,
+    )
+    session.add(u)
+    session.commit()
+    session.refresh(u)
+    return u
 
 
 @pytest.fixture(autouse=True)
@@ -224,6 +259,21 @@ def test_unblock_to_non_previous_status_writes_history(session, task):
 
 
 def test_done_can_reopen_to_in_progress(session, task):
+    # Review 2026-08-26 P1 #3：task 不能再 todo → done 直接跳。
+    # 测试场景改为：走正常路径 todo → in_progress → in_review → done，
+    # 然后验证 done 可以 re-open 到 in_progress（保留这条边的合法语义）。
+    task.status_reason = StatusReason.COMPLETED.value  # noqa
+    # 路径 1：todo → in_progress（不需要 status_reason）
+    execute_transition(session, task, Status.IN_PROGRESS.value)
+    session.commit()
+    session.refresh(task)
+    assert task.status == Status.IN_PROGRESS.value
+    # 路径 2：in_progress → in_review（仍然不需要 status_reason）
+    execute_transition(session, task, Status.IN_REVIEW.value)
+    session.commit()
+    session.refresh(task)
+    assert task.status == Status.IN_REVIEW.value
+    # 路径 3：in_review → done（必填 status_reason=completed）
     task.status_reason = StatusReason.COMPLETED.value
     session.commit()
     execute_transition(session, task, Status.DONE.value)
@@ -258,3 +308,135 @@ def test_blocked_requires_status_reason(session, task):
     session.refresh(task)
     assert task.status == Status.BLOCKED.value
     assert task.previous_status == Status.TODO.value
+
+
+# -------------------------------------------------------------
+# Review 2026-08-26 P1 #1 / P1 #3 验收测试
+# -------------------------------------------------------------
+
+def test_p1_no_todo_to_done_direct_transition(session, task):
+    """P1 #3：通用状态机不允许 {todo, in_progress} → done 直接跳。
+
+    Review 2026-08-26：自动 Agent workflow 必须走
+    todo → in_progress → in_review → done；admin 强制完成走
+    force_complete_task 显式命令（带 manual_override reason）。
+    """
+    # todo → done 必须抛 IllegalTransition
+    with pytest.raises(Exception) as exc_info:
+        execute_transition(session, task, Status.DONE.value)
+    assert "todo" in str(exc_info.value).lower() and "done" in str(exc_info.value).lower()
+
+    # in_progress → done 也必须抛 IllegalTransition
+    execute_transition(session, task, Status.IN_PROGRESS.value)
+    session.commit()
+    session.refresh(task)
+    with pytest.raises(Exception) as exc_info:
+        execute_transition(session, task, Status.DONE.value)
+    assert "in_progress" in str(exc_info.value).lower() and "done" in str(exc_info.value).lower()
+
+
+def test_p1_review_timeout_blocked_maintains_invariants_via_set_status(session, task):
+    """P1 #1：scan_review_timeouts 走 raw SQL 写 blocked 会破坏 invariant。
+
+    修复后 set_status 路径必须自动维护 status_reason + previous_status +
+    TaskStatusHistory。模拟修复后的行为，验证 invariant 真的被维护。
+    """
+    from agentboard.features.work_items.service import set_status
+    from agentboard.core.common.enums import StatusReason
+
+    # 走正常路径到 in_review
+    execute_transition(session, task, Status.IN_PROGRESS.value)
+    session.commit()
+    execute_transition(session, task, Status.IN_REVIEW.value)
+    session.commit()
+    session.refresh(task)
+    assert task.status == Status.IN_REVIEW.value
+
+    # 模拟 review_round 达到 MAX_REVIEW_ROUNDS 后 scan_review_timeouts 调 set_status
+    # （修后用 set_status 替代 raw SQL）
+    t_updated = set_status(
+        session, task.id, Status.BLOCKED.value,
+        changed_by=None,
+        reason="timeout max review rounds",
+        status_reason=StatusReason.PENDING_REQUIREMENT_CHANGE.value,
+        cas_predicate=lambda x: x.status == Status.IN_REVIEW.value,
+    )
+    session.commit()
+    session.refresh(t_updated)
+
+    # Invariant 1：status_reason 必填且合法
+    assert t_updated.status_reason == StatusReason.PENDING_REQUIREMENT_CHANGE.value
+    # Invariant 2：previous_status 自动维护
+    assert t_updated.previous_status == Status.IN_REVIEW.value
+    # Invariant 3：status 真的到 blocked
+    assert t_updated.status == Status.BLOCKED.value
+
+
+def test_p1_set_status_cas_predicate_blocks_concurrent_change(session, task):
+    """P1 #2：set_status 的 cas_predicate 保留 CAS 语义。
+
+    修复后 review_task / scan_review_timeouts 改用 set_status 时把
+    原 raw SQL 的 CAS 条件（reviewer_id=X AND status=IN_REVIEW）作为
+    cas_predicate 传入，失败时抛 InvalidValue 而非静默改状态。
+    """
+    from agentboard.features.work_items.service import set_status
+
+    # 走正常路径到 in_review
+    execute_transition(session, task, Status.IN_PROGRESS.value)
+    session.commit()
+    execute_transition(session, task, Status.IN_REVIEW.value)
+    session.commit()
+    session.refresh(task)
+
+    # CAS 失败：reviewer_id 不匹配
+    with pytest.raises(Exception) as exc_info:
+        set_status(
+            session, task.id, Status.DONE.value,
+            changed_by=999,  # 任意
+            reason="concurrent review collision",
+            status_reason="completed",
+            cas_predicate=lambda x: x.reviewer_id == 999 and x.status == Status.IN_REVIEW.value,
+        )
+    # 必须抛 InvalidValue；state 仍 in_review
+    session.refresh(task)
+    assert task.status == Status.IN_REVIEW.value
+    assert "concurrent" in str(exc_info.value).lower() or "cas" in str(exc_info.value).lower()
+
+
+def test_p1_force_complete_task_uses_manual_override_status_reason(session, task, admin_user):
+    """P1 #3：force_complete_task 是 admin 显式 exceptional path。
+
+    验证：admin_user 调 force_complete_task 必须写到 status_reason="manual_override"，
+    写 history 记录 changed_by=admin。
+    """
+    from agentboard.features.work_items.service import force_complete_task
+
+    # task 当前是 todo
+    assert task.status == Status.TODO.value
+
+    t = force_complete_task(
+        session, task.id,
+        admin_user_id=admin_user.id,
+        reason="reviewer 失联，紧急 hotfix",
+    )
+    session.refresh(t)
+    assert t.status == Status.DONE.value
+    from agentboard.core.common.enums import StatusReason
+    assert t.status_reason == StatusReason.MANUAL_OVERRIDE.value
+
+
+def test_p1_force_complete_task_rejects_non_admin(session, task, non_admin_user):
+    """P1 #3：non-admin 调 force_complete_task 必须抛 InvalidValue（403-like）。"""
+    from agentboard.features.work_items.service import force_complete_task
+
+    with pytest.raises(Exception) as exc_info:
+        force_complete_task(
+            session, task.id,
+            admin_user_id=non_admin_user.id,
+            reason="试图绕过 review",
+        )
+    # service 层断言：admin 校验失败 → InvalidValue
+    assert "admin" in str(exc_info.value).lower() or "is_admin" in str(exc_info.value).lower()
+    # 状态未变
+    session.refresh(task)
+    assert task.status == Status.TODO.value

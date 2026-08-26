@@ -43,6 +43,7 @@ from ...core.common.enums import (
     Priority,
     SprintStatus,
     Status,
+    StatusReason,
 )
 from ...core.common.models import utc_now  # noqa: F401
 
@@ -546,17 +547,25 @@ def scan_review_timeouts(s: Session, *, project_id: int | None = None,
                         result["blocked"] += 1
                 continue
         if (t.review_round or 0) >= MAX_REVIEW_ROUNDS:
-            r = s.execute(update(Task).where(
-                Task.id == t.id,
-                Task.status == Status.IN_REVIEW,
-            ).values(status=Status.BLOCKED))
-            if r.rowcount == 1:
-                _record_status_history(s, t.id, str(Status.IN_REVIEW), str(Status.BLOCKED),
-                                       reason="timeout max review rounds")
-                _commit(s)
+            # Review 2026-08-26 P1 #1 修复：原 raw SQL 写 blocked 绕过 TaskStateMachine
+            # invariant（status_reason 必填 + previous_status 自动维护 + history）。
+            # 改用 set_status 把 status transition 收口到唯一 owner。
+            try:
+                set_status(
+                    s, t.id, Status.BLOCKED.value,
+                    changed_by=None,
+                    reason="timeout max review rounds",
+                    status_reason=StatusReason.PENDING_REQUIREMENT_CHANGE.value,
+                    cas_predicate=lambda x: x.status == Status.IN_REVIEW,
+                )
                 result["blocked"] += 1
-            else:
+            except InvalidValue as e:
+                # CAS 失败（task 已被其他 worker 改状态）→ 跳过本轮
                 s.rollback()
+                log.info("scan_review_timeouts: task#%s 状态已被并发改写（%s），跳过", t.id, e)
+            except Exception:
+                s.rollback()
+                log.exception("scan_review_timeouts: task#%s 阻塞失败", t.id)
             continue
         old = t.reviewer_id
         r = s.execute(update(Task).where(
@@ -970,7 +979,10 @@ def review_task(s: Session, *, task_id: int, reviewer_user_id: int,
     - S3 M3：review_mode=majority 时改为多数决投票（_vote_majority），
       投票人资格放宽为项目在线 reviewer 候选（≠assignee），达法定票数按多数结算。
 
-    评论是评审意见唯一载体（approve/reject 必须伴随 comment），形成审计轨迹。
+    Review 2026-08-26 P1 #2 修复：原实现 raw SQL 自带 CAS 条件 + 手写
+    status_reason / previous_status / history，绕过 TaskStateMachine 的 invariant
+    校验与 side effect（特别是 schedule_judge）。本版本改用 set_status(...)
+    把所有状态迁移收口到唯一 owner。
     """
     t = s.get(Task, task_id)
     if not t:
@@ -993,55 +1005,44 @@ def review_task(s: Session, *, task_id: int, reviewer_user_id: int,
     reviewer = s.get(User, reviewer_user_id)
     reviewer_name = reviewer.display_name or reviewer.username if reviewer else f"user#{reviewer_user_id}"
 
+    # Review 2026-08-26 P1 #2：CAS 条件提到 set_status.cas_predicate
+    # （保留并发安全），状态迁移走 set_status → TaskStateMachine → schedule_judge
+    cas = lambda x: (x.reviewer_id == reviewer_user_id and x.status == Status.IN_REVIEW)
     if verdict == "approve":
-        r = s.execute(
-            update(Task).where(
-                Task.id == task_id,
-                Task.reviewer_id == reviewer_user_id,
-                Task.status == Status.IN_REVIEW,
-            ).values(status=Status.DONE, status_reason="completed")
+        set_status(
+            s, task_id, Status.DONE.value,
+            changed_by=reviewer_user_id,
+            reason="review approve",
+            status_reason=StatusReason.COMPLETED.value,
+            cas_predicate=cas,
         )
-        if r.rowcount != 1:
-            s.rollback()
-            raise InvalidValue("review conflict: task state changed concurrently")
-        _record_status_history(s, task_id, str(Status.IN_REVIEW), str(Status.DONE),
-                               changed_by=reviewer_user_id, reason="review approve")
-        _commit(s)
     else:  # reject
         new_round = (t.review_round or 0) + 1
-        target = Status.BLOCKED if new_round >= MAX_REVIEW_ROUNDS else Status.IN_PROGRESS
-        r = s.execute(
-            update(Task).where(
-                Task.id == task_id,
-                Task.reviewer_id == reviewer_user_id,
-                Task.status == Status.IN_REVIEW,
-            ).values(
-                review_round=new_round,
-                status=target,
-                status_reason=(
-                    "pending_requirement_change"
-                    if target == Status.BLOCKED else None
-                ),
-                previous_status=(
-                    str(Status.IN_REVIEW)
-                    if target == Status.BLOCKED else None
-                ),
+        # review_round 是 task 自身的字段，不属于 TaskStateMachine transition 边
+        # 单独 update；blocked / in_progress 两种 reject 路径都要 +1（不区分）
+        t.review_round = new_round
+        if new_round >= MAX_REVIEW_ROUNDS:
+            set_status(
+                s, task_id, Status.BLOCKED.value,
+                changed_by=reviewer_user_id,
+                reason=f"review reject round={new_round}",
+                status_reason=StatusReason.PENDING_REQUIREMENT_CHANGE.value,
+                cas_predicate=cas,
             )
-        )
-        if r.rowcount != 1:
-            s.rollback()
-            raise InvalidValue("review conflict: task state changed concurrently")
-        _record_status_history(s, task_id, str(Status.IN_REVIEW), str(target),
-                               changed_by=reviewer_user_id,
-                               reason=f"review reject round={new_round}")
-        _commit(s)
+        else:
+            set_status(
+                s, task_id, Status.IN_PROGRESS.value,
+                changed_by=reviewer_user_id,
+                reason=f"review reject round={new_round}",
+                cas_predicate=cas,
+            )
+
     # 评审意见落评论（唯一载体）
     create_comment(s, author=reviewer_name, content=comment, task_id=task_id)
-    _invalidate_project_stats_cache(t.project_id)
     s.refresh(t)
-    if t.status in (Status.DONE, Status.BLOCKED):
-        finalize_task_assignment(s, t)
-        _record_learning_outcome(s, t)
+    # 注：set_status 已调过 finalize_task_assignment / _record_learning_outcome /
+    # schedule_judge（终态时），这里只补一条 project stats 缓存失效用于 UI 同步。
+    _invalidate_project_stats_cache(t.project_id)
     return t
 
 

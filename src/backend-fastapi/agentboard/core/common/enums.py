@@ -28,9 +28,9 @@ class Status(StrEnum):
 
 
 class StatusReason(StrEnum):
-    """状态原因枚举（Story 265 新增）。
+    """状态原因枚举（Story 265 新增；Review 2026-08-26 加 MANUAL_OVERRIDE）。
 
-    - done 状态必填：`completed` / `withdrawn`
+    - done 状态必填：`completed` / `withdrawn` / `manual_override`（admin 显式强制完成）
     - blocked 状态必填：`blocked_by_other_ticket` / `pending_requirement_change` /
       `out_of_scope` / `duplicate` / `legacy`（仅迁移历史数据使用）
     - 其他状态可选（通常为空）。
@@ -38,6 +38,8 @@ class StatusReason(StrEnum):
     # done
     COMPLETED = "completed"
     WITHDRAWN = "withdrawn"
+    # Review 2026-08-26 P1 #3：admin 显式 force_complete_task 路径专用
+    MANUAL_OVERRIDE = "manual_override"
     # blocked
     BLOCKED_BY_OTHER_TICKET = "blocked_by_other_ticket"
     PENDING_REQUIREMENT_CHANGE = "pending_requirement_change"
@@ -49,7 +51,11 @@ class StatusReason(StrEnum):
 
 # 各状态允许的 status_reason 取值（Story 265）
 STATUS_REASONS_BY_STATUS: dict[str, set[str]] = {
-    Status.DONE: {StatusReason.COMPLETED, StatusReason.WITHDRAWN},
+    Status.DONE: {
+        StatusReason.COMPLETED,
+        StatusReason.WITHDRAWN,
+        StatusReason.MANUAL_OVERRIDE,  # Review 2026-08-26 P1 #3
+    },
     Status.BLOCKED: {
         StatusReason.BLOCKED_BY_OTHER_TICKET,
         StatusReason.PENDING_REQUIREMENT_CHANGE,

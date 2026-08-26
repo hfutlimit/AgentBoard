@@ -13,7 +13,7 @@ import logging
 import os as _os
 import re
 from datetime import datetime, timedelta
-from typing import Iterable
+from typing import Callable, Iterable
 
 from sqlalchemy import func, or_, update
 from sqlalchemy.exc import IntegrityError
@@ -218,19 +218,53 @@ def set_status(
     s: Session, id: int, new_status: str, *,
     changed_by: int | None = None, reason: str = "",
     status_reason: str | None = None,
+    cas_predicate: Callable[["Task"], bool] | None = None,
+    force: bool = False,
 ) -> Task | None:
     """任务状态变更(Story 265 收敛后,委托给 TaskStateMachine)。
 
     校验/副作用/历史/缓存失效全部由 SM 统一管理。
+
+    Review 2026-08-26 P1 #2 修复：加 ``cas_predicate`` 入口。
+    原 review_task / scan_review_timeouts 走 raw SQL 自带 CAS 条件（如
+    ``Task.reviewer_id == uid AND Task.status == IN_REVIEW``），
+    改用本入口后须在调用方传一个 predicate，校验失败抛 ``InvalidValue``
+    而非静默改状态。
+
+    Review 2026-08-26 P1 #3 修复：加 ``force`` 旁路参数。
+    仅 admin 显式 exceptional path（``force_complete_task``）使用，
+    允许 ``{todo, in_progress, blocked} → done`` 跳 Review 边。
+    仍跑 status_reason validator（仅 manual_override reason 合法）
+    + 全部 side effects（history / cache / previous_status）。
+    普通 caller 不要传 force=True。
+
+    Args:
+        s: SQLAlchemy Session
+        id: Task id
+        new_status: 目标状态
+        changed_by: 变更操作人 user_id
+        reason: 变更原因（写 history）
+        status_reason: 状态原因（done/blocked 必填；其他状态自动清空）
+        cas_predicate: 可选乐观锁断言，签名 ``(task) -> bool``；
+                       失败抛 ``InvalidValue("concurrent state change detected")``。
+        force: 旁路 transition 表（仅 admin force_complete 用）
     """
     t = s.get(Task, id)
     if not t:
         raise NotFound(f"task {id} not found")
+    # Review 2026-08-26 P1 #2：CAS predicate 必须在 execute_transition 之前跑
+    # （SM 内部会先做校验，再 set_state；CAS 失败要立即抛错而非 partial apply）
+    if cas_predicate is not None and not cas_predicate(t):
+        s.rollback()
+        raise InvalidValue(
+            f"concurrent state change detected on task {id} (cas_predicate failed); "
+            f"current status={t.status}, refusing to transition to {new_status}",
+        )
     _check_status(new_status)
     # 调用方传入的 status_reason 优先(覆盖 entity 上现有的)
     if status_reason is not None:
         t.status_reason = status_reason
-    execute_transition(s, t, new_status, changed_by=changed_by, reason=reason)
+    execute_transition(s, t, new_status, changed_by=changed_by, reason=reason, force=force)
     _commit(s)
     s.refresh(t)
     if t.status in (Status.DONE, Status.BLOCKED):
@@ -398,6 +432,71 @@ def try_assign_task(
     s.refresh(assignment)
     _invalidate_project_stats_cache(task.project_id)
     return task, assignment
+
+
+# ---------------------------------------------------------------------------
+# Review 2026-08-26 P1 #3：admin 显式 force_complete_task
+# ---------------------------------------------------------------------------
+
+def force_complete_task(
+    s: Session,
+    task_id: int,
+    *,
+    admin_user_id: int,
+    reason: str = "manual_override",
+) -> Task:
+    """Admin 强制完成 task（绕过 Review gate）。
+
+    Review 2026-08-26 P1 #3：把"todo/in_progress → done"从通用 set_status 移走后，
+    显式 exceptional path 只对 admin 开放（API 层会二次校验 caller is_admin）。
+    用途：admin 确认 task 实质已完成但 review 链异常（reviewer 全员失联、紧急 hotfix、
+    review 阶段明确发现 work 已实质完成 等场景）。其他角色 / Agent / Worker 仍必须
+    走 in_review → done 路径。
+
+    Args:
+        s: SQLAlchemy Session
+        task_id: Task ID
+        admin_user_id: 必须是 admin（API 层 ``is_admin`` 已校验；service 层再断言一次）
+        reason: 强制完成的原因（写 history + 审计日志）
+
+    Returns:
+        更新后的 Task
+
+    Raises:
+        NotFound: task 不存在
+        InvalidValue: caller 非 admin / task 状态不允许 force_complete
+    """
+    from ...core.common.enums import StatusReason
+    # 即使是 service 层也要断言 —— API 是第一道防线，但这里是 second line of defense
+    # 防 admin 权限被绕过 / admin user_id 被串改。
+    from ...features.identity.models import User
+    admin_user = s.get(User, admin_user_id)
+    if admin_user is None or not getattr(admin_user, "is_admin", False):
+        raise InvalidValue(
+            f"force_complete_task requires admin caller (user_id={admin_user_id} "
+            f"is_admin={getattr(admin_user, 'is_admin', False)})",
+        )
+    t = s.get(Task, task_id)
+    if not t:
+        raise NotFound(f"task {task_id} not found")
+    # force_complete 仅适用于尚未进入 in_review/done 的 task（已进入 in_review 走 review
+    # 流程更合适；已进入 done 是 no-op）
+    if t.status not in (Status.TODO, Status.IN_PROGRESS, Status.BLOCKED):
+        raise InvalidValue(
+            f"force_complete_task 只能从 todo/in_progress/blocked 起步，"
+            f"当前 task #{task_id} status={t.status}",
+        )
+    # 走 set_status（状态机 invariant：status_reason="manual_override" 合法）+ 自动
+    # 跑所有 side effects（finalize_task_assignment / _record_learning_outcome /
+    # schedule_judge / history / cache invalidation）。
+    # force=True：旁路 transition 表（todo/in_progress/blocked → done 不在表里）
+    return set_status(
+        s, task_id, Status.DONE.value,
+        changed_by=admin_user_id,
+        reason=f"admin force complete: {reason}",
+        status_reason=StatusReason.MANUAL_OVERRIDE.value,
+        force=True,
+    )
 
 
 def claim_development_task(

@@ -37,9 +37,15 @@ log = logging.getLogger("agentboard.features.work_items.state_machine")
 # ---------------------------------------------------------------------------
 
 # blocked 在主表外独立处理(全向可达),所以从主表去掉;其他 4 个状态互转 + 进 blocked
+#
+# Review 2026-08-26 P1 #3：删除 ``{todo, in_progress} → done`` 两条边。
+# AgentBoard workflow contract 要求：
+#   Agent 自动流程：todo → in_progress → in_review → done（必经 Review）
+#   Admin 强制完成：必须走 ``force_complete_task`` 显式命令（status_reason="manual_override"）
+# 通用 set_status(DONE) 路径不再接受从 todo / in_progress 直接跳到 done。
 _TASK_TRANSITIONS: dict[Status, set[Status]] = {
-    Status.TODO:        {Status.IN_PROGRESS, Status.DONE, Status.BLOCKED},
-    Status.IN_PROGRESS: {Status.IN_REVIEW, Status.TODO, Status.DONE, Status.BLOCKED},
+    Status.TODO:        {Status.IN_PROGRESS, Status.BLOCKED},
+    Status.IN_PROGRESS: {Status.IN_REVIEW, Status.TODO, Status.BLOCKED},
     Status.IN_REVIEW:   {Status.DONE, Status.IN_PROGRESS, Status.BLOCKED},
     Status.DONE:        {Status.IN_PROGRESS, Status.BLOCKED},
     # BLOCKED 的合法目标在 execute() 里动态计算(全向 + previous_status 特例)
@@ -224,11 +230,19 @@ def execute_transition(
     *,
     changed_by: int | None = None,
     reason: str = "",
+    force: bool = False,
 ) -> "Task":
     """执行 Task 状态迁移(对外入口)。
 
     校验失败抛 ``IllegalTransition`` / ``InvalidValue``(core.exceptions)。
     业务副作用(历史/缓存/previous_status)由 TransitionSpec 自动跑。
+
+    Review 2026-08-26 P1 #3：``force=True`` 旁路 transition 表，仅供
+    ``force_complete_task``（admin 显式 exceptional path）使用：
+    - 仍跑 status_reason validator（拒绝非法 reason）
+    - 仍跑所有 side effects（history / cache invalidation / status_reason normalize）
+    - 但跳过 transition 表查询（允许 ``todo`` / ``in_progress`` / ``blocked`` → ``done``）
+    - 通用 caller 不应使用 force=True，必须从 ``set_status`` 走（普通 path 校验更严）
 
     blocked 解除:代码层 4 目标都允许(todo/in_progress/in_review/done),
     UI 层可推荐回 previous_status(task.previous_status 字段已写入),
@@ -247,6 +261,34 @@ def execute_transition(
                          "previous_status": task.previous_status,
                          "allowed": ["todo", "in_progress", "in_review", "done"]},
             )
+    if force:
+        # force path：绕过 transition 表，但仍走完整 validator + side effects。
+        # 仅 admin 强制完成场景用（见 features/work_items/service.py::force_complete_task）。
+        # 我们手动复制 _task_sm.execute 里的 validator + side effect 链。
+        from ...core.state_machine import StateMachine as _SM
+        from ...core.exceptions import DomainError as _DE
+        # 1. validator：调 _validate_status_reason（如果 target 是 done/blocked）
+        if to in (Status.DONE.value, Status.BLOCKED.value):
+            _validate_status_reason(s, task, to)
+        # 2. side effects：force 路径不依赖 spec，自己跑全链
+        #    （record history + apply status_reason + invalidate cache + previous_status 维护）
+        if to == Status.BLOCKED.value:
+            # 进 blocked 路径：保存 previous_status
+            _save_previous_status_on_block(s, task, {})
+        # 写 history
+        _record_status_history(
+            s, task,
+            {"_to": to, "changed_by": changed_by, "reason": reason or "force_complete"},
+        )
+        # 应用 status_reason
+        _apply_status_reason(s, task, {"_to": to})
+        # 失效缓存
+        _invalidate_project_stats(s, task, {})
+        # 3. set_state（注意：status_reason 必须在 set_state 之前已写好，
+        #    因为 _apply_status_reason 是按目标状态决定的，但 done 路径会保留
+        #    status_reason 由调用方预先赋值；set_status 流程保证这点）
+        _task_sm.set_state(task, to)
+        return task
     return _task_sm.execute(
         s, task, to,
         ctx=make_status_change_ctx(to=to, changed_by=changed_by, reason=reason),
