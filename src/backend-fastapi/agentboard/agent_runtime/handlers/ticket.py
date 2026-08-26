@@ -286,6 +286,7 @@ class TicketHandler(BaseWorkHandler):
                 execution_id=command.execution_id,
                 action=decision.action,
                 summary=decision.summary or "ticket created",
+                output={"outcome": outcome},
                 inspected_files=decision.inspected_files,
             )
         if outcome == TicketOutcome.SKIPPED.value:

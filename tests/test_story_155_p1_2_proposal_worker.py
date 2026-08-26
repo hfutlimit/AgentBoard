@@ -26,6 +26,7 @@ TestClient（audit_log_middleware 会 await request.body() 造成死锁）。
 测试完全自包含，不依赖也不触碰 18001 上的 MCP 容器。
 """
 import os
+import json
 import socket
 import subprocess
 import sys
@@ -415,10 +416,10 @@ _FAKE_CLI = textwrap.dedent('''
     import sys
     prompt = sys.stdin.read()
     print("[fake-agent] 收到 prompt %d 字符" % len(prompt))
-    if "历史问答（全量重放）" in prompt:
-        print('{"action":"finalize","converged_spec":"来自子进程的最终规格"}')
+    if "子进程提出的问题" in prompt:
+        print('{"action":"finalize","converged_spec":"来自子进程的最终规格","inspected_files":["src/backend-fastapi/agentboard/agent_runtime/worker.py"]}')
     else:
-        print('{"action":"ask","questions":["子进程提出的问题"],"summary":"round1"}')
+        print('{"action":"ask","questions":["子进程提出的问题"],"summary":"round1","inspected_files":["src/backend-fastapi/agentboard/agent_runtime/worker.py"]}')
     print("[fake-agent] done")
 ''')
 
@@ -439,18 +440,31 @@ def test_subprocess_invoker_real_process_roundtrip(fake_cli):
     assert d.questions == ["子进程提出的问题"]
 
 
-def test_subprocess_invoker_drives_real_loop(stack, fake_cli):
+def test_subprocess_invoker_drives_real_loop(stack, fake_cli, tmp_path):
     """把真实子进程 Invoker 挂到 Worker 上，跑完整两轮闭环。"""
     pid = _new_queued(stack, "P1-2 子进程驱动闭环")
     cfg = W.WorkerConfig(api_url=stack["base"], token=stack["token"],
                          agent="subprocess-worker", poll_interval=0.01,
                          agent_cmd=f'"{sys.executable}" "{fake_cli}"', agent_timeout=60)
-    with W.ProposalWorker(cfg) as w:
-        assert isinstance(w.invoker, W.SubprocessAgentInvoker), "未走真实子进程适配器"
-        w.poll_once()
-        assert _status(stack, pid) == "awaiting"
-        _answer_all_open(stack, pid)
-        w.poll_once()
+    mapping = tmp_path / "project-mappings.json"
+    mapping.write_text(json.dumps({
+        "projects": {str(stack["project_id"]): {"local_dir": _ROOT}},
+    }), encoding="utf-8")
+    old_mapping = os.environ.get("AGENTBOARD_LOCAL_MAPPINGS")
+    os.environ["AGENTBOARD_LOCAL_MAPPINGS"] = str(mapping)
+    try:
+        with W.ProposalWorker(cfg) as w:
+            assert isinstance(w.invoker, W.ComplianceEnforcingInvoker), "真实 CLI 未经强制合规包装"
+            assert isinstance(w.invoker.delegate, W.SubprocessAgentInvoker), "包装内部未走真实子进程适配器"
+            w.poll_once()
+            assert _status(stack, pid) == "awaiting"
+            _answer_all_open(stack, pid)
+            w.poll_once()
+    finally:
+        if old_mapping is None:
+            os.environ.pop("AGENTBOARD_LOCAL_MAPPINGS", None)
+        else:
+            os.environ["AGENTBOARD_LOCAL_MAPPINGS"] = old_mapping
     body = stack["c"].get(f"/api/proposals/{pid}").json()
     assert body["status"] == "converged"
     assert body["converged_spec"] == "来自子进程的最终规格"

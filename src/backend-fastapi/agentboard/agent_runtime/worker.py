@@ -83,7 +83,12 @@ def _outcome_from_result(result: Any, default: str = "handled") -> str:
         return default
     name = getattr(status, "name", str(status))
     if name == "SUCCESS":
-        return "handled"
+        # 统一执行内核不应破坏 ProposalWorker 历史公开 outcome：
+        # clarify 需要 asked/converged，ticket 需要 created。
+        output = getattr(result, "output", None)
+        if isinstance(output, dict) and output.get("outcome"):
+            return str(output["outcome"])
+        return default
     if name == "SKIPPED":
         return "skipped"
     if name in ("FAILED", "FAILED_TRANSIENT", "FAILED_PERMANENT", "REJECTED"):

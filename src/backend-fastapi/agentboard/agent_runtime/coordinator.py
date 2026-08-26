@@ -396,7 +396,7 @@ class WorkerCoordinator:
             if h:
                 return h.build_prompt(context)
         elif context.get("ticket_request_id") or (
-            context.get("type") in ("epic", "story", "task", "bug") and "ticket_type" in context
+            context.get("type") in ("auto", "epic", "story", "task", "bug") and "ticket_type" in context
         ):
             h = self.registry.get(WorkType.PROPOSAL_CONVERT)
             if h:

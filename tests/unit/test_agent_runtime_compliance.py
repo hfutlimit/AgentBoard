@@ -16,6 +16,7 @@ from agentboard.agent_runtime.compliance import (
     validate_decision_evidence,
 )
 from agentboard.agent_runtime.config import AgentDecision, AgentOutputError
+from agentboard.agent_runtime.contract import ExecutionCommand, WorkType
 from agentboard.agent_runtime.invokers import (
     CallableAgentInvoker,
     ComplianceEnforcingInvoker,
@@ -148,3 +149,28 @@ def test_subprocess_prompt_contains_guide_for_nested_task_project(
     assert MANDATORY_PREFLIGHT_MARKER in str(captured["input"])
     assert MCP_GUIDE_RELATIVE_PATH in str(captured["input"])
     assert "business prompt" in str(captured["input"])
+
+
+def test_prepared_prompt_keeps_full_handler_business_context(monkeypatch: pytest.MonkeyPatch):
+    business = (
+        "## 提案 #42\nREAL_PROPOSAL_BODY\n"
+        "## 历史问答（全量重放）\n- [第1轮 · codex] Q: REAL_QUESTION\n"
+        '{"action":"ask","questions":[...],"inspected_files":[...]}'
+    )
+    monkeypatch.setattr(invokers, "_prompt_builder", lambda _ctx: business)
+    context = {"title": "Proposal 42", "content": "REAL_PROPOSAL_BODY"}
+    context["_command"] = ExecutionCommand(
+        execution_id="proposal_42",
+        work_type=WorkType.PROPOSAL_CLARIFY,
+        entity_type="proposal",
+        entity_id=42,
+        context=context,
+    )
+
+    prompt = invokers.build_prompt(context)
+
+    assert "【核心职责：需求澄清" in prompt
+    assert "【当前工作项完整业务上下文与决策协议】" in prompt
+    assert "REAL_PROPOSAL_BODY" in prompt
+    assert "REAL_QUESTION" in prompt
+    assert '"action":"ask"' in prompt

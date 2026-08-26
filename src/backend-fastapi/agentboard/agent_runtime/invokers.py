@@ -272,6 +272,18 @@ def _prepared_build_prompt(context: dict) -> str:
             prepared = prepare_execution(cmd, db=context.get("_db"))
             # 把 prepared 缓存回 context，让 invoker 拿到完整 PreparedExecution（含 prompt）
             context["_prepared"] = prepared
+            # PreparedExecution 提供平台契约 / Behavior / Learnings，但不能
+            # 覆盖 Handler 的业务 prompt。后者才包含 Proposal 正文、全量问答、
+            # ticket request_id/父级参数与精确 JSON 协议。丢掉它会让 Agent
+            # 只看到标题摘要，然后向用户追问代码里已有的事实。
+            builder = _prompt_builder
+            business_prompt = builder(context) if builder is not None else ""
+            if business_prompt and business_prompt.strip():
+                return (
+                    f"{prepared.prompt}\n\n---\n\n"
+                    f"【当前工作项完整业务上下文与决策协议】\n"
+                    f"{business_prompt.strip()}"
+                )
             return prepared.prompt
         except Exception as e:
             log.warning("prepare_execution 失败，fallback 旧 _prompt_builder：%s", e)
