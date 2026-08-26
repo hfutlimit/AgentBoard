@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 
+from agentboard.core.infrastructure import messaging as mq
 from ..config import (
     ACTION_ASK,
     ACTION_FINALIZE,
@@ -20,7 +21,7 @@ from ..config import (
     AgentOutputError,
     WorkerError,
 )
-from ..contract import ExecutionCommand, ExecutionResult, WorkType
+from ..contract import ExecutionCommand, ExecutionResult, ExecutionStatus, WorkType
 from .base import BaseWorkHandler
 
 log = logging.getLogger("agentboard.worker.clarify")
@@ -134,6 +135,8 @@ class ClarifyHandler(BaseWorkHandler):
         pid = work_item.get("id")
         r = self._request("POST", f"/api/proposals/{pid}/claim",
                           json={"agent": self.config.agent})
+        if r.status_code == 429 or r.status_code >= 500:
+            raise mq.MessageRetry(f"proposal #{pid} claim temporarily unavailable")
         if r.status_code == 200:
             return True
         if r.status_code == 409:
@@ -268,6 +271,22 @@ class ClarifyHandler(BaseWorkHandler):
                       proposal_id, r.status_code, r.text[:200])
         return "failed"
 
+    def _requeue_after_transient(self, proposal_id: int, error: str) -> None:
+        """Release an analyzing proposal before the MQ message is retried."""
+        try:
+            self.mark_failed(proposal_id, error)
+            response = self._request(
+                "PUT", f"/api/proposals/{proposal_id}/status",
+                json={"status": "queued", "error": error[:2000]},
+            )
+            if response.status_code != 200:
+                log.error(
+                    "提案 #%s 瞬时失败后回队列失败：%s %s",
+                    proposal_id, response.status_code, response.text[:200],
+                )
+        except Exception:
+            log.exception("提案 #%s 瞬时失败后无法释放认领状态", proposal_id)
+
     def execute_command(self, command: ExecutionCommand, invoker: AgentInvoker) -> ExecutionResult:
         """统一执行模型实现：构建重放上下文 -> invoke -> 决策落库 -> 返回 ExecutionResult。"""
         pid = command.entity_id
@@ -278,16 +297,26 @@ class ClarifyHandler(BaseWorkHandler):
             context = self.load_context(proposal)
         except Exception as e:
             log.exception("提案 #%s 构建上下文失败", pid)
-            self.mark_failed(pid, f"构建重放上下文失败：{e}")
-            return ExecutionResult.failure(command.execution_id, str(e), action="fail")
+            result = ExecutionResult.from_exception(
+                command.execution_id, e, action="fail", summary=f"构建重放上下文失败：{e}",
+            )
+            if result.status is not ExecutionStatus.FAILED_TRANSIENT:
+                self.mark_failed(pid, f"构建重放上下文失败：{e}")
+            else:
+                self._requeue_after_transient(pid, f"构建重放上下文失败：{e}")
+            return result
 
         current_round = int(context.get("current_round") or 0)
         try:
             decision = invoker.invoke(context)
         except Exception as e:
             log.warning("提案 #%s Agent 调用失败：%s", pid, e)
-            self.mark_failed(pid, str(e))
-            return ExecutionResult.failure(command.execution_id, str(e), action="fail")
+            result = ExecutionResult.from_exception(command.execution_id, e, action="fail")
+            if result.status is not ExecutionStatus.FAILED_TRANSIENT:
+                self.mark_failed(pid, str(e))
+            else:
+                self._requeue_after_transient(pid, str(e))
+            return result
 
         if decision.action == ACTION_ASK and current_round >= self.config.max_rounds:
             msg = (f"已达最大澄清轮次 {self.config.max_rounds}（当前第 {current_round} 轮）"
@@ -307,8 +336,14 @@ class ClarifyHandler(BaseWorkHandler):
             )
         except Exception as e:
             log.exception("提案 #%s 决策落库异常", pid)
-            self.mark_failed(pid, f"决策落库异常：{e}")
-            return ExecutionResult.failure(command.execution_id, str(e), action="fail")
+            result = ExecutionResult.from_exception(
+                command.execution_id, e, action="fail", summary=f"决策落库异常：{e}",
+            )
+            if result.status is not ExecutionStatus.FAILED_TRANSIENT:
+                self.mark_failed(pid, f"决策落库异常：{e}")
+            else:
+                self._requeue_after_transient(pid, f"决策落库异常：{e}")
+            return result
 
     # ---------- 便捷：单提案完整处理（供 Worker 主循环复用） ----------
 

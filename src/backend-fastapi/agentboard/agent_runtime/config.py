@@ -44,6 +44,14 @@ class AgentInvocationError(WorkerError):
     """无头 Agent 调用失败（进程退出码非零 / 超时 / 无法启动）。"""
 
 
+class TransientAgentError(AgentInvocationError):
+    """Agent invocation failure that is safe to retry."""
+
+
+class PermanentAgentError(AgentInvocationError):
+    """Agent invocation failure that should not be retried."""
+
+
 class AgentOutputError(WorkerError):
     """Agent 输出无法解析为合法决策。"""
 

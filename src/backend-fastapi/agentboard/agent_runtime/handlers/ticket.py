@@ -15,7 +15,7 @@ import logging
 from typing import Any
 
 from ..config import ACTION_TICKET_CREATED, AgentDecision, AgentInvoker
-from ..contract import ExecutionCommand, ExecutionResult, WorkType
+from ..contract import ExecutionCommand, ExecutionResult, ExecutionStatus, WorkType
 from .base import BaseWorkHandler
 
 log = logging.getLogger("agentboard.worker.ticket")
@@ -244,14 +244,20 @@ class TicketHandler(BaseWorkHandler):
             context = self.load_context(request)
         except Exception as e:
             log.exception("ticket 请求 #%s 构建上下文失败", rid)
-            self._fail_ticket_request(request, f"构建上下文失败：{e}")
-            return ExecutionResult.failure(command.execution_id, str(e), action="fail")
+            result = ExecutionResult.from_exception(
+                command.execution_id, e, action="fail", summary=f"构建上下文失败：{e}",
+            )
+            if result.status is not ExecutionStatus.FAILED_TRANSIENT:
+                self._fail_ticket_request(request, f"构建上下文失败：{e}")
+            return result
         try:
             decision = invoker.invoke(context)
         except Exception as e:
             log.warning("ticket 请求 #%s Agent 调用失败：%s", rid, e)
-            self._fail_ticket_request(request, str(e))
-            return ExecutionResult.failure(command.execution_id, str(e), action="fail")
+            result = ExecutionResult.from_exception(command.execution_id, e, action="fail")
+            if result.status is not ExecutionStatus.FAILED_TRANSIENT:
+                self._fail_ticket_request(request, str(e))
+            return result
         outcome = self.handle_decision(request, decision, context)
         # Review 2026-08-26 P1 #1：比对 enum value 而非字面量字符串，
         # 避免"created" 永远 != "success" 把成功路径误判为 failure

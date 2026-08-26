@@ -24,6 +24,8 @@ from .config import (  # noqa: F401
     AgentInvocationError,
     AgentInvoker,
     AgentOutputError,
+    PermanentAgentError,
+    TransientAgentError,
     WorkerConfig,
     WorkerError,
 )
@@ -64,7 +66,8 @@ __all__ = [
     "ACTION_REVIEW_REJECT", "ACTION_STORY_HANDLED",
     "ACTION_TICKET_CREATED", "CLAIMABLE_STATUSES", "VALID_ACTIONS",
     # 异常
-    "AgentInvocationError", "AgentOutputError", "WorkerError",
+    "AgentInvocationError", "TransientAgentError", "PermanentAgentError",
+    "AgentOutputError", "WorkerError",
     # 数据 / 配置
     "AgentDecision", "AgentInvoker", "WorkerConfig",
     # 调用器

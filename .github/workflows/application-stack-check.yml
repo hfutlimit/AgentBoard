@@ -61,6 +61,8 @@ jobs:
             tests/unit/test_execution_context_builder.py \
             tests/unit/test_execution_contract_review.py \
             tests/unit/test_learning_p1_fixes.py \
+            tests/test_learning_judge.py \
+            tests/test_learning_memory.py \
             tests/unit/test_learning_evaluator.py \
             tests/unit/test_learning_extractor.py \
             tests/unit/test_learning_retriever.py \
@@ -87,13 +89,15 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: src/frontend/package-lock.json
+      - name: Use pinned npm
+        run: npm install --global npm@10.9.8
       - run: npm ci
       - run: npm run build
       - name: Run frontend tests
         run: npm test -- --watch=false
 
   worker:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4

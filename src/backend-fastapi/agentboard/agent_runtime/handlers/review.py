@@ -132,6 +132,12 @@ class ReviewHandler(BaseWorkHandler):
                 )
             log.warning("task#%s reviewer submission failed: HTTP %s %s",
                         task_id, response.status_code, response.text[:200])
+            if response.status_code == 429 or response.status_code >= 500:
+                return ExecutionResult.transient_failure(
+                    command.execution_id,
+                    f"HTTP {response.status_code}: {response.text[:200]}",
+                    action="fail",
+                )
             return ExecutionResult.failure(
                 execution_id=command.execution_id,
                 error=f"HTTP {response.status_code}: {response.text[:200]}",
@@ -139,7 +145,7 @@ class ReviewHandler(BaseWorkHandler):
             )
         except Exception as exc:
             log.warning("task#%s reviewer handling failed: %s", task_id, exc)
-            return ExecutionResult.failure(command.execution_id, str(exc), action="fail")
+            return ExecutionResult.from_exception(command.execution_id, exc, action="fail")
 
     def handle_requested(self, msg: "mq.WorkflowMessage", invoker: AgentInvoker) -> bool:
         cmd = ExecutionCommand(
@@ -150,6 +156,8 @@ class ReviewHandler(BaseWorkHandler):
             context={"event": msg.event},
         )
         res = self.execute_command(cmd, invoker)
+        if res.status.value == "failed_transient":
+            raise mq.MessageRetry(res.error_message or "transient review failure")
         return res.status == "success"
 
 
@@ -241,7 +249,7 @@ class OwnerResponseHandler(BaseWorkHandler):
             )
         except Exception as exc:
             log.warning("task#%s owner follow-up failed: %s", task_id, exc)
-            return ExecutionResult.failure(command.execution_id, str(exc), action="fail")
+            return ExecutionResult.from_exception(command.execution_id, exc, action="fail")
 
     def handle_result(self, msg: "mq.WorkflowMessage", invoker: AgentInvoker) -> bool:
         cmd = ExecutionCommand(
@@ -252,6 +260,8 @@ class OwnerResponseHandler(BaseWorkHandler):
             context={"event": msg.event},
         )
         res = self.execute_command(cmd, invoker)
+        if res.status.value == "failed_transient":
+            raise mq.MessageRetry(res.error_message or "transient owner follow-up failure")
         return res.status == "success"
 
 

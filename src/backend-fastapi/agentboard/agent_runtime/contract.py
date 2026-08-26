@@ -182,6 +182,63 @@ class ExecutionResult(BaseModel):
             inspected_files=inspected_files or [],
         )
 
+    @classmethod
+    def transient_failure(
+        cls,
+        execution_id: str,
+        error: str,
+        action: str = "fail",
+        summary: str = "",
+        inspected_files: list[str] | None = None,
+    ) -> "ExecutionResult":
+        return cls(
+            execution_id=execution_id,
+            status=ExecutionStatus.FAILED_TRANSIENT,
+            action=action,
+            summary=summary or error,
+            error_message=error,
+            inspected_files=inspected_files or [],
+        )
+
+    @classmethod
+    def permanent_failure(
+        cls,
+        execution_id: str,
+        error: str,
+        action: str = "fail",
+        summary: str = "",
+        inspected_files: list[str] | None = None,
+    ) -> "ExecutionResult":
+        return cls(
+            execution_id=execution_id,
+            status=ExecutionStatus.FAILED_PERMANENT,
+            action=action,
+            summary=summary or error,
+            error_message=error,
+            inspected_files=inspected_files or [],
+        )
+
+    @classmethod
+    def from_exception(
+        cls,
+        execution_id: str,
+        error: BaseException,
+        action: str = "fail",
+        summary: str = "",
+        inspected_files: list[str] | None = None,
+    ) -> "ExecutionResult":
+        """Convert a caught exception into an explicit retry outcome."""
+        from .errors import is_transient_execution_error
+
+        factory = cls.transient_failure if is_transient_execution_error(error) else cls.permanent_failure
+        return factory(
+            execution_id=execution_id,
+            error=str(error),
+            action=action,
+            summary=summary,
+            inspected_files=inspected_files,
+        )
+
 
 # -----------------------------------------------------------------------------
 # PreparedExecution：dispatch 前的不可变执行包
@@ -200,7 +257,6 @@ class ExecutionResult(BaseModel):
 # 3. work_type 已是 canonical（legacy alias 已被 normalize）—— 业务层不再判断 alias。
 # 4. backward-compat：handler 仍可走旧协议 execute_command(command, invoker)；
 #   PreparedExecution 仅作为 opt-in 路径。
-
 class PreparedExecution(BaseModel):
     """dispatch 前完成的不可变执行包。
 

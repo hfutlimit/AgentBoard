@@ -23,7 +23,8 @@ import httpx
 
 from agentboard.core.infrastructure import messaging as mq
 from ..config import ACTION_STORY_HANDLED, AgentDecision, AgentInvoker
-from ..contract import ExecutionCommand, ExecutionResult, WorkType
+from ..contract import ExecutionCommand, ExecutionResult, ExecutionStatus, WorkType
+from ..errors import is_transient_execution_error
 from .base import BaseWorkHandler
 
 log = logging.getLogger("agentboard.worker.story")
@@ -199,9 +200,15 @@ class StoryHandler(BaseWorkHandler):
         sid = work_item.get("id")
         try:
             r = self._request("POST", f"/api/stories/{sid}/claim")
+            if r.status_code == 429 or r.status_code >= 500:
+                raise mq.MessageRetry(f"story #{sid} claim temporarily unavailable")
             return r.status_code in (200, 201)
+        except mq.MessageRetry:
+            raise
         except Exception as e:
             log.warning("Story #%s 认领异常：%s", sid, e)
+            if is_transient_execution_error(e):
+                raise mq.MessageRetry(f"story #{sid} claim temporarily unavailable") from None
             return False
 
     def load_context(self, work_item: dict) -> dict:
@@ -296,12 +303,14 @@ class StoryHandler(BaseWorkHandler):
                 context = self.build_task_context(task, work_type=command.work_type.value)
             except Exception as e:
                 log.exception("Task #%s 构建上下文失败", tid)
-                return ExecutionResult.failure(command.execution_id, f"构建上下文失败：{e}", action="fail")
+                return ExecutionResult.from_exception(
+                    command.execution_id, e, action="fail", summary=f"构建上下文失败：{e}",
+                )
             try:
                 decision = invoker.invoke(context)
             except Exception as e:
                 log.warning("Task #%s Agent 调用失败：%s", tid, e)
-                return ExecutionResult.failure(command.execution_id, str(e), action="fail")
+                return ExecutionResult.from_exception(command.execution_id, e, action="fail")
             self._log_inspected(decision, label=f"task#{tid}")
             if decision.action == ACTION_STORY_HANDLED:
                 summary = decision.summary or f"Task #{tid} 开发推进完成"
@@ -330,15 +339,25 @@ class StoryHandler(BaseWorkHandler):
             context = self.load_context(story)
         except Exception as e:
             log.exception("Story #%s 构建上下文失败", sid)
-            self._story_comment(sid, f"Worker 构建上下文失败：{e}")
-            self._story_fail(sid, f"构建上下文失败：{e}")
-            return ExecutionResult.failure(command.execution_id, str(e), action="fail")
+            result = ExecutionResult.from_exception(
+                command.execution_id, e, action="fail", summary=f"构建上下文失败：{e}",
+            )
+            if result.status is not ExecutionStatus.FAILED_TRANSIENT:
+                self._story_comment(sid, f"Worker 构建上下文失败：{e}")
+                self._story_fail(sid, f"构建上下文失败：{e}")
+            else:
+                self._unclaim_story(sid)
+            return result
         try:
             decision = invoker.invoke(context)
         except Exception as e:
             log.warning("Story #%s Agent 调用失败：%s", sid, e)
-            self._story_fail(sid, str(e))
-            return ExecutionResult.failure(command.execution_id, str(e), action="fail")
+            result = ExecutionResult.from_exception(command.execution_id, e, action="fail")
+            if result.status is not ExecutionStatus.FAILED_TRANSIENT:
+                self._story_fail(sid, str(e))
+            else:
+                self._unclaim_story(sid)
+            return result
         outcome = self.handle_decision(story, decision, context)
         if outcome == "handled":
             return ExecutionResult.success(
@@ -519,11 +538,15 @@ class StoryHandler(BaseWorkHandler):
             context = self.build_task_context(task)
         except Exception as e:
             log.exception("task#%s 构建上下文失败", task_id)
+            if is_transient_execution_error(e):
+                raise mq.MessageRetry(f"task #{task_id} context temporarily unavailable") from None
             return False
         try:
             decision = invoker.invoke(context)
         except Exception as e:
             log.warning("task#%s Agent 调用失败：%s", task_id, e)
+            if is_transient_execution_error(e):
+                raise mq.MessageRetry(f"task #{task_id} agent invocation temporarily unavailable") from None
             self._task_comment(task_id, f"Agent 自动处理失败：{e}")
             return True  # ack：失败留评论，task 停留当前态（人工/轮询兜底）
         if decision.action == ACTION_STORY_HANDLED:
@@ -539,6 +562,8 @@ class StoryHandler(BaseWorkHandler):
             task = self._get_json(f"/api/tasks/{tid}")
         except Exception as e:
             log.warning("task.available 回查 task#%s 失败：%s", tid, e)
+            if is_transient_execution_error(e):
+                raise mq.MessageRetry(f"task #{tid} lookup temporarily unavailable") from None
             return False  # 转死信（轮询兜底会再捞）
         if task.get("status") not in ("backlog", "todo"):
             return True  # 已被处理/认领
@@ -546,11 +571,15 @@ class StoryHandler(BaseWorkHandler):
             r = self._request("POST", f"/api/tasks/{tid}/claim")
         except Exception as e:
             log.warning("task#%s 认领异常：%s", tid, e)
+            if is_transient_execution_error(e):
+                raise mq.MessageRetry(f"task #{tid} claim temporarily unavailable") from None
             return False
         if r.status_code == 409:
             return True  # 竞争失败：他人已认领
         if r.status_code not in (200, 201):
             log.warning("task#%s 认领失败：%s %s", tid, r.status_code, r.text[:120])
+            if r.status_code == 429 or r.status_code >= 500:
+                raise mq.MessageRetry(f"task #{tid} claim temporarily unavailable")
             return True
         log.info("task#%s 竞争认领成功（广播轮）", tid)
         return self.process_task(tid, r.json(), invoker)
@@ -562,6 +591,8 @@ class StoryHandler(BaseWorkHandler):
             task = self._get_json(f"/api/tasks/{tid}")
         except Exception as e:
             log.warning("定向 task#%s 回查失败：%s", tid, e)
+            if is_transient_execution_error(e):
+                raise mq.MessageRetry(f"task #{tid} lookup temporarily unavailable") from None
             return False
         if task.get("status") not in ("backlog", "todo", "in_progress"):
             return True  # 已结束/不可处理

@@ -39,6 +39,8 @@ log = logging.getLogger("agentboard.worker.coordinator")
 
 __all__ = ["WorkerCoordinator"]
 
+WORKFLOW_RETRY_BACKOFF_SECONDS = (1, 2, 4, 8, 15, 30)
+
 
 class WorkerCoordinator:
     """统一 Worker 协调器：单进程统管全生命周期与异构工作项。"""
@@ -85,7 +87,7 @@ class WorkerCoordinator:
             )
 
         # 瞬时错误重试记录
-        self._msg_retries: dict[int, int] = {}
+        self._msg_retries: dict[tuple[str, str, int, int], int] = {}
         self._validate_lease_vs_timeout()
 
     def _validate_lease_vs_timeout(self) -> None:
@@ -119,10 +121,43 @@ class WorkerCoordinator:
         if self._owns_client:
             self.client.close()
 
+    def _message_consumed(
+        self,
+        result: ExecutionResult,
+        retry_key: tuple[str, str, int, int],
+    ) -> bool:
+        """Ack terminal outcomes and boundedly requeue transient failures."""
+        if result.status is not ExecutionStatus.FAILED_TRANSIENT:
+            self._msg_retries.pop(retry_key, None)
+            return True
+
+        attempt = self._msg_retries.get(retry_key, 0)
+        if attempt >= len(WORKFLOW_RETRY_BACKOFF_SECONDS):
+            self._msg_retries.pop(retry_key, None)
+            log.error(
+                "Workflow message exceeded transient retry limit; dead-lettering "
+                "event=%s entity=%s#%s attempt=%s",
+                retry_key[0], retry_key[1], retry_key[2], attempt,
+            )
+            return False
+
+        delay = WORKFLOW_RETRY_BACKOFF_SECONDS[attempt]
+        self._msg_retries[retry_key] = attempt + 1
+        if delay:
+            time.sleep(delay)
+        raise mq.MessageRetry(
+            f"transient execution failure; retry {attempt + 1}/"
+            f"{len(WORKFLOW_RETRY_BACKOFF_SECONDS)}"
+        )
+
     @staticmethod
-    def _message_consumed(result: ExecutionResult) -> bool:
-        """Ack terminal outcomes; only an explicitly transient failure retries."""
-        return result.status is not ExecutionStatus.FAILED_TRANSIENT
+    def _workflow_retry_key(msg: mq.WorkflowMessage) -> tuple[str, str, int, int]:
+        return (
+            str(getattr(msg, "event", "")),
+            str(getattr(msg, "entity_type", "")),
+            int(getattr(msg, "entity_id", 0) or 0),
+            int(getattr(msg, "ref_id", 0) or 0),
+        )
 
     def __enter__(self) -> WorkerCoordinator:
         return self
@@ -143,12 +178,12 @@ class WorkerCoordinator:
             canonical_type = WorkType.canonical_for(command.work_type)
         except UnknownWorkTypeError as exc:
             log.error("Rejecting execution with unknown work type: %s", exc)
-            return ExecutionResult.failure(
+            return ExecutionResult.permanent_failure(
                 command.execution_id, str(exc), action="fail",
             )
         handler = self.registry.get(canonical_type) or self.registry.get(command.work_type)
         if not handler:
-            return ExecutionResult.failure(
+            return ExecutionResult.permanent_failure(
                 command.execution_id,
                 f"No handler registered for work_type: {command.work_type}",
                 action="fail",
@@ -182,7 +217,7 @@ class WorkerCoordinator:
             return result
         except Exception as e:
             log.exception("命令执行抛出异常 [exec_id=%s]: %s", command.execution_id, e)
-            return ExecutionResult.failure(command.execution_id, str(e), action="fail")
+            return ExecutionResult.from_exception(command.execution_id, e, action="fail")
         finally:
             with self._inflight_lock:
                 self._inflight.discard(inflight_key)
@@ -316,7 +351,7 @@ class WorkerCoordinator:
                 context={"event": event, "work_type": work_type.value},
             )
             res = self.dispatch(cmd)
-            return self._message_consumed(res)
+            return self._message_consumed(res, self._workflow_retry_key(msg))
 
         # 2. 评审驳回 / 重新激活开发事件 (Re-activate implementation attempt)
         if event in ("task.rejected", "comment.replied"):
@@ -332,7 +367,7 @@ class WorkerCoordinator:
                 context={"event": event, "work_type": work_type.value},
             )
             res = self.dispatch(cmd)
-            return self._message_consumed(res)
+            return self._message_consumed(res, self._workflow_retry_key(msg))
 
         # 3. 任务可认领事件（DAG 解锁后广播）
         if event == "task.available":
@@ -346,6 +381,6 @@ class WorkerCoordinator:
                 context={"event": event, "work_type": work_type.value},
             )
             res = self.dispatch(cmd)
-            return self._message_consumed(res)
+            return self._message_consumed(res, self._workflow_retry_key(msg))
 
         return True

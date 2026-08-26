@@ -22,9 +22,10 @@ from .config import (
     ACTION_ASK,
     ACTION_FINALIZE,
     AgentDecision,
-    AgentInvocationError,
     AgentInvoker,
     AgentOutputError,
+    PermanentAgentError,
+    TransientAgentError,
 )
 
 log = logging.getLogger("agentboard.worker.invokers")
@@ -449,14 +450,16 @@ class SubprocessAgentInvoker:
                 encoding="utf-8", errors="replace",
             )
         except subprocess.TimeoutExpired:
-            raise AgentInvocationError(
+            raise TransientAgentError(
                 f"Agent 调用超时（>{self.timeout}s）：{self.cmd}"
             ) from None
-        except (FileNotFoundError, OSError) as e:
-            raise AgentInvocationError(f"Agent 命令无法启动：{self.cmd}（{e}）") from None
+        except FileNotFoundError as e:
+            raise PermanentAgentError(f"Agent 命令不存在：{self.cmd}（{e}）") from None
+        except OSError as e:
+            raise TransientAgentError(f"Agent 命令暂时无法启动：{self.cmd}（{e}）") from None
         if proc.returncode != 0:
             tail = (proc.stderr or proc.stdout or "").strip()[-400:]
-            raise AgentInvocationError(
+            raise TransientAgentError(
                 f"Agent 退出码 {proc.returncode}：{tail or '(无输出)'}"
             )
         return AgentDecision.from_dict(extract_decision_json(proc.stdout))
@@ -475,14 +478,16 @@ class SubprocessAgentInvoker:
                 encoding="utf-8", errors="replace",
             )
         except subprocess.TimeoutExpired:
-            raise AgentInvocationError(
+            raise TransientAgentError(
                 f"Agent 调用超时（>{self.timeout}s）：{self.cmd}"
             ) from None
-        except (FileNotFoundError, OSError) as e:
-            raise AgentInvocationError(f"Agent 命令无法启动：{self.cmd}（{e}）") from None
+        except FileNotFoundError as e:
+            raise PermanentAgentError(f"Agent 命令不存在：{self.cmd}（{e}）") from None
+        except OSError as e:
+            raise TransientAgentError(f"Agent 命令暂时无法启动：{self.cmd}（{e}）") from None
         if proc.returncode != 0:
             tail = (proc.stderr or proc.stdout or "").strip()[-400:]
-            raise AgentInvocationError(
+            raise TransientAgentError(
                 f"Agent 退出码 {proc.returncode}：{tail or '(无输出)'}"
             )
         return AgentDecision.from_dict(extract_decision_json(proc.stdout))
