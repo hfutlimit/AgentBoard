@@ -16,9 +16,12 @@ from ..config import (
     ACTION_ASK,
     ACTION_FINALIZE,
     AgentDecision,
+    AgentInvoker,
     AgentOutputError,
     WorkerError,
 )
+from ..contract import ExecutionCommand, ExecutionResult, WorkType
+from .base import BaseWorkHandler
 
 log = logging.getLogger("agentboard.worker.clarify")
 
@@ -67,9 +70,10 @@ def build_clarify_prompt(context: dict) -> str:
     return "\n".join(lines)
 
 
-class ClarifyHandler:
+class ClarifyHandler(BaseWorkHandler):
     """需求澄清 Handler：queued/answered 提案 → 澄清循环。"""
 
+    work_type = WorkType.PROPOSAL_CLARIFY
     name = "clarify"
     valid_actions = {ACTION_ASK, ACTION_FINALIZE, "fail"}
 
@@ -89,7 +93,9 @@ class ClarifyHandler:
 
     # ---------- Handler 协议 ----------
 
-    def can_handle(self, work_item: dict) -> bool:
+    def can_handle(self, work_item: dict | ExecutionCommand) -> bool:
+        if isinstance(work_item, ExecutionCommand):
+            return work_item.work_type == self.work_type
         # 提案：无 action 字段、无 ticket_request_id / story_id 标记
         return not work_item.get("action") and not work_item.get("ticket_request_id") \
             and not work_item.get("story_id")
@@ -251,41 +257,63 @@ class ClarifyHandler:
                       proposal_id, r.status_code, r.text[:200])
         return "failed"
 
-    # ---------- 便捷：单提案完整处理（供 Worker 主循环复用） ----------
-
-    def handle(self, proposal: dict, invoker) -> str:
-        """处理一个提案（认领 + 重放 + 决策 + 落库），返回结果码。
-
-        任何异常都会被收敛成 failed，绝不让提案静默卡在 analyzing。
-        """
-        pid = proposal.get("id")
+    def execute_command(self, command: ExecutionCommand, invoker: AgentInvoker) -> ExecutionResult:
+        """统一执行模型实现：构建重放上下文 -> invoke -> 决策落库 -> 返回 ExecutionResult。"""
+        pid = command.entity_id
+        proposal = command.context if "content" in command.context else {"id": pid}
         if not self.claim(proposal):
-            return "skipped"
+            return ExecutionResult.failure(command.execution_id, "claim skipped", action="skipped")
         try:
             context = self.load_context(proposal)
         except Exception as e:
             log.exception("提案 #%s 构建上下文失败", pid)
-            return self.mark_failed(pid, f"构建重放上下文失败：{e}")
+            self.mark_failed(pid, f"构建重放上下文失败：{e}")
+            return ExecutionResult.failure(command.execution_id, str(e), action="fail")
 
         current_round = int(context.get("current_round") or 0)
         try:
             decision = invoker.invoke(context)
         except Exception as e:
             log.warning("提案 #%s Agent 调用失败：%s", pid, e)
-            return self.mark_failed(pid, str(e))
+            self.mark_failed(pid, str(e))
+            return ExecutionResult.failure(command.execution_id, str(e), action="fail")
 
-        # 轮次上限护栏：达到上限还要继续提问，说明澄清不收敛，转失败等人工介入
         if decision.action == ACTION_ASK and current_round >= self.config.max_rounds:
             msg = (f"已达最大澄清轮次 {self.config.max_rounds}（当前第 {current_round} 轮）"
                    f"仍未收敛，转人工介入")
             log.warning("提案 #%s %s", pid, msg)
-            return self.mark_failed(pid, msg)
+            self.mark_failed(pid, msg)
+            return ExecutionResult.failure(command.execution_id, msg, action="fail")
 
         try:
-            return self.handle_decision(proposal, decision, context)
-        except WorkerError as e:
-            log.warning("提案 #%s 落库失败：%s", pid, e)
-            return self.mark_failed(pid, str(e))
+            outcome = self.handle_decision(proposal, decision, context)
+            return ExecutionResult.success(
+                execution_id=command.execution_id,
+                action=decision.action,
+                summary=decision.summary or (decision.converged_spec if decision.action == ACTION_FINALIZE else ""),
+                output={"outcome": outcome, "questions": decision.questions, "converged_spec": decision.converged_spec},
+                inspected_files=decision.inspected_files,
+            )
         except Exception as e:
-            log.exception("提案 #%s 落库抛出未预期异常", pid)
-            return self.mark_failed(pid, f"决策落库异常：{e}")
+            log.exception("提案 #%s 决策落库异常", pid)
+            self.mark_failed(pid, f"决策落库异常：{e}")
+            return ExecutionResult.failure(command.execution_id, str(e), action="fail")
+
+    # ---------- 便捷：单提案完整处理（供 Worker 主循环复用） ----------
+
+    def handle(self, proposal: dict, invoker: AgentInvoker) -> str:
+        """处理一个提案（认领 + 重放 + 决策 + 落库），返回结果码。"""
+        pid = proposal.get("id", 0)
+        cmd = ExecutionCommand(
+            execution_id=f"proposal_{pid}",
+            work_type=self.work_type,
+            entity_type="proposal",
+            entity_id=pid,
+            context=proposal,
+        )
+        res = self.execute_command(cmd, invoker)
+        if res.status == "success":
+            return res.output.get("outcome", res.action)
+        if res.action == "skipped":
+            return "skipped"
+        return "failed"

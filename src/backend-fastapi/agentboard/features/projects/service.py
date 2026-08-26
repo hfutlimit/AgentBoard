@@ -538,15 +538,15 @@ def delete_epic(s: Session, id: int) -> bool:
     for sid in story_ids:
         for tid in [x[0] for x in s.query(Task.id).filter(Task.story_id == sid).all()]:
             _delete_task_defensive(s, tid)
-    # 2) 清 story 级 FK：评论 + 评审投票（review_votes 终态锚点）
+    # 2) 清 story 级 FK：先将 review_votes.comment_id 置 NULL 并解绑 entity_id，再删 Comment
     if story_ids:
-        s.query(Comment).filter(Comment.story_id.in_(story_ids)).delete(synchronize_session=False)
         # review_votes 没有 story_id FK，只能按 entity_type=story 清；保留投票历史
-        # 但 entity_id 已无意义，将指向负 id 截断（避免 FK 引用悬空 story）。
+        # 先 NULL 化 vote.comment_id，防 NO ACTION FK 撞，再解绑 entity_id
         s.query(ReviewVote).filter(
             ReviewVote.entity_type == "story",
             ReviewVote.entity_id.in_(story_ids),
         ).update({ReviewVote.entity_id: -1, ReviewVote.comment_id: None}, synchronize_session=False)
+        s.query(Comment).filter(Comment.story_id.in_(story_ids)).delete(synchronize_session=False)
     s.query(Comment).filter(Comment.epic_id == id).delete(synchronize_session=False)
     # 3) 解绑 agent_schedules.epic_id（NO ACTION，置 NULL 保留 schedule）
     s.query(AgentSchedule).filter(AgentSchedule.epic_id == id).update(
@@ -886,12 +886,12 @@ def delete_story(s: Session, id: int) -> bool:
     # 1) 逐 task 走中央 delete_task
     for tid in task_ids:
         _delete_task_defensive(s, tid)
-    # 2) 清 story 级 FK：评论 + 评审投票
-    s.query(Comment).filter(Comment.story_id == id).delete(synchronize_session=False)
+    # 2) 清 story 级 FK：先将 review_votes.comment_id 置 NULL 并解绑 entity_id，再删 Comment
     s.query(ReviewVote).filter(
         ReviewVote.entity_type == "story",
         ReviewVote.entity_id == id,
     ).update({ReviewVote.entity_id: -1, ReviewVote.comment_id: None}, synchronize_session=False)
+    s.query(Comment).filter(Comment.story_id == id).delete(synchronize_session=False)
     # 3) 删 story（StoryStatusHistory 由 ondelete CASCADE 自动清）
     s.delete(st); _commit(s); return True
 

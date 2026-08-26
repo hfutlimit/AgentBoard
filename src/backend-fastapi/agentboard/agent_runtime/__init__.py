@@ -1,33 +1,13 @@
-"""AgentBoard Proposal Worker runtime.
+"""AgentBoard Worker runtime (Unified Execution Model).
 
-The implementation lives in ``agentboard.agent_runtime``.  The historical
-``agentboard.worker`` and ``agentboard.features.workers`` paths are kept as
-compatibility entry points.
-
-The worker consumes work items off the AgentBoard MQ, runs an Agent (CLI
-subprocess or in-process callable) to act on them, and reports results back
-to the REST API.
-
-Public entry points (re-exported for backward compat with the old
-``agentboard.worker`` module):
-
-- :class:`ProposalWorker` — main loop class
+The implementation lives in ``agentboard.agent_runtime``.
+The unified runtime exposes:
+- :class:`WorkerCoordinator` — unified single-process coordinator across all WorkTypes
+- :class:`WorkType` — unified execution type enum
+- :class:`ExecutionCommand` / :class:`ExecutionResult` — unified execution contracts
+- :class:`ProposalWorker` — backward-compatible main loop class
 - :class:`WorkerConfig` — runtime configuration
 - :class:`AgentDecision` / :class:`AgentInvoker` — Agent protocol types
-- :class:`CallableAgentInvoker` / :class:`SubprocessAgentInvoker` — built-in
-  Agent runners
-- :func:`main` — CLI entry point (``python -m agentboard.worker`` /
-  ``python -m agentboard.features.workers``)
-
-Internal modules:
-
-- :mod:`.config` — WorkerConfig / AgentDecision / 异常 / 协议
-- :mod:`.invokers` — SubprocessAgentInvoker / CallableAgentInvoker
-- :mod:`.maintenance` — reclaim_stale / recover_failed / sweep
-- :mod:`.heartbeat` — agent heartbeat thread
-- :mod:`.cli` — argument parser + main()
-- :mod:`.worker` — main loop
-- :mod:`.handlers` — Handler protocol + concrete handlers
 """
 from __future__ import annotations
 from .config import (  # noqa: F401
@@ -47,6 +27,12 @@ from .config import (  # noqa: F401
     WorkerConfig,
     WorkerError,
 )
+from .contract import (  # noqa: F401
+    ExecutionCommand,
+    ExecutionResult,
+    WorkType,
+)
+from .coordinator import WorkerCoordinator  # noqa: F401
 from .invokers import (  # noqa: F401
     CallableAgentInvoker,
     RoutedSubprocessInvoker,
@@ -58,7 +44,6 @@ from .invokers import (  # noqa: F401
     set_prompt_builder,
     split_command,
 )
-# 旧模块级 prompt 构建函数兼容（原 worker.py 顶层 _build_story_prompt 等）
 from .handlers.story import (  # noqa: E402, F401
     build_story_prompt as _build_story_prompt,
     build_task_prompt as _build_task_prompt,
@@ -68,6 +53,8 @@ from .cli import main  # noqa: F401
 from .worker import ProposalWorker, _parse_dt  # noqa: F401
 
 __all__ = [
+    # 统一模型
+    "WorkerCoordinator", "WorkType", "ExecutionCommand", "ExecutionResult",
     # 常量
     "ACTION_ASK", "ACTION_FAIL", "ACTION_FINALIZE", "ACTION_REVIEW_APPROVE",
     "ACTION_REVIEW_REJECT", "ACTION_STORY_HANDLED",

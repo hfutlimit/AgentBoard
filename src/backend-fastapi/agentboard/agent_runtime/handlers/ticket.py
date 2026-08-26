@@ -14,9 +14,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-import httpx
-
-from ..config import ACTION_TICKET_CREATED, AgentDecision
+from ..config import ACTION_TICKET_CREATED, AgentDecision, AgentInvoker
+from ..contract import ExecutionCommand, ExecutionResult, WorkType
+from .base import BaseWorkHandler
 
 log = logging.getLogger("agentboard.worker.ticket")
 
@@ -67,9 +67,10 @@ def build_ticket_prompt(context: dict) -> str:
     return "\n".join(lines)
 
 
-class TicketHandler:
+class TicketHandler(BaseWorkHandler):
     """Proposal → Ticket 转化 Handler（文档 #59 四类工单）。"""
 
+    work_type = WorkType.PROPOSAL_CONVERT
     name = "ticket"
     valid_actions = {ACTION_TICKET_CREATED, "fail"}
 
@@ -89,7 +90,9 @@ class TicketHandler:
 
     # ---------- Handler 协议 ----------
 
-    def can_handle(self, work_item: dict) -> bool:
+    def can_handle(self, work_item: dict | ExecutionCommand) -> bool:
+        if isinstance(work_item, ExecutionCommand):
+            return work_item.work_type == self.work_type
         return bool(work_item.get("ticket_request_id") or work_item.get("proposal_id")
                     and work_item.get("type") in ("epic", "story", "task", "bug"))
 
@@ -206,29 +209,48 @@ class TicketHandler:
             log.debug("ticket 请求 #%s 单次回查失败：%s", rid, e)
             return None
 
-    # ---------- 便捷：单请求完整处理 ----------
-
-    def handle(self, request: dict, invoker) -> str:
-        """处理一个转换请求：拉起 agent 生成 ticket → 校验结果。
-
-        2026-08-12 修复（double-claim）：不再调用 ``self.claim()`` 预认领。
-        原实现 worker 先 claim（pending→processing），再让 agent 经 MCP 调
-        ``proposal_create_ticket`` → ``POST /api/ticket-requests:execute``，
-        而 execute 端点内部 ``claim_ticket_request`` 要求请求仍为 pending——
-        此时已是 processing → 抛「正在生成中」，agent 必然 fail，ticket 永远
-        创建不了（生产 08:33 实测卡死，09:04 由 maintenance 超时回退）。
-        现在认领+创建全部收敛到 execute 端点内部 CAS（pending→processing→done），
-        worker 只负责「发现 pending 请求 → 拉起 agent → 校验结果」。
-        """
-        rid = request.get("id")
+    def execute_command(self, command: ExecutionCommand, invoker: AgentInvoker) -> ExecutionResult:
+        """统一执行模型实现：构建上下文 -> invoke -> 校验并返回 ExecutionResult。"""
+        request = command.context if "proposal_id" in command.context else {"id": command.entity_id, "proposal_id": command.entity_id}
+        rid = request.get("id", command.entity_id)
         try:
             context = self.load_context(request)
         except Exception as e:
             log.exception("ticket 请求 #%s 构建上下文失败", rid)
-            return self._fail_ticket_request(request, f"构建上下文失败：{e}")
+            self._fail_ticket_request(request, f"构建上下文失败：{e}")
+            return ExecutionResult.failure(command.execution_id, str(e), action="fail")
         try:
             decision = invoker.invoke(context)
         except Exception as e:
             log.warning("ticket 请求 #%s Agent 调用失败：%s", rid, e)
-            return self._fail_ticket_request(request, str(e))
-        return self.handle_decision(request, decision, context)
+            self._fail_ticket_request(request, str(e))
+            return ExecutionResult.failure(command.execution_id, str(e), action="fail")
+        outcome = self.handle_decision(request, decision, context)
+        if outcome == "success":
+            return ExecutionResult.success(
+                execution_id=command.execution_id,
+                action=decision.action,
+                summary=decision.summary or "ticket created",
+                inspected_files=decision.inspected_files,
+            )
+        return ExecutionResult.failure(
+            execution_id=command.execution_id,
+            error=decision.error or "ticket creation failed",
+            action=decision.action,
+            summary=decision.summary,
+        )
+
+    # ---------- 便捷：单请求完整处理 ----------
+
+    def handle(self, request: dict, invoker: AgentInvoker) -> str:
+        """处理一个转换请求：拉起 agent 生成 ticket → 校验结果。"""
+        rid = request.get("id", 0)
+        cmd = ExecutionCommand(
+            execution_id=f"ticket_{rid}",
+            work_type=self.work_type,
+            entity_type="proposal",
+            entity_id=rid,
+            context=request,
+        )
+        res = self.execute_command(cmd, invoker)
+        return "success" if res.status == "success" else "failed"

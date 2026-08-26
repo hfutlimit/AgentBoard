@@ -405,6 +405,16 @@ def review_task(tid: int, body: AgentReviewIn, authorization: str | None = Heade
                 )
         except Exception:
             pass
+        if t.story_id:
+            try:
+                story_tasks = s.query(service.Task).filter(service.Task.story_id == t.story_id).all()
+                if story_tasks and all(tk.status == Status.DONE for tk in story_tasks):
+                    from ..projects import service as projects_service
+                    projects_service.complete_story(
+                        s, t.story_id, changed_by=uid, reason="所有任务完成，Server 自动收尾"
+                    )
+            except Exception:
+                pass
     # Webhook 通道（Epic 122 切片 3）
     api_helpers._notify_webhooks(s, t.project_id, event,
                      {"id": t.id, "status": t.status, "reviewer_id": t.reviewer_id,

@@ -1,17 +1,18 @@
-"""Handler 协议（Epic 123 Step 2 · Worker 拆 Handler 类）。
+"""Handler 协议与基类（Unified Execution Model）。
 
-一个 Handler 负责一个完整业务域的 agent 协作（需求澄清 / Ticket 转化 /
-Story 编排）。Worker 主循环只做「发现 + 路由」，业务逻辑全部下沉。
+一个 Handler 负责一个具体 WorkType 的执行策略（构建 Prompt / 调用 Agent / 返回 ExecutionResult）。
+Worker 协调器只做统一调度与上报，跨实体业务编排由服务端状态机驱动。
 """
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
-from ..config import AgentDecision
+from ..config import AgentDecision, AgentInvoker
+from ..contract import ExecutionCommand, ExecutionResult, WorkType
 
 
 class Handler(Protocol):
-    """一个 Handler 负责一个完整业务域的 agent 协作。"""
+    """历史 Handler 协议（保持向后兼容）。"""
 
     name: str  # 路由 key
     valid_actions: set[str]  # 接受的 agent decision action
@@ -36,3 +37,33 @@ class Handler(Protocol):
                         context: dict) -> str:
         """落决策：根据 action 执行对应服务端调用，返回结果码。"""
         ...
+
+
+class BaseWorkHandler:
+    """统一模型下的 Handler 执行基类。"""
+
+    work_type: WorkType
+    name: str
+    valid_actions: set[str]
+
+    def can_handle(self, work_item: dict | ExecutionCommand) -> bool:
+        """判断工作项是否由本 Handler 承接。"""
+        if isinstance(work_item, ExecutionCommand):
+            return work_item.work_type == self.work_type
+        return False
+
+    def build_prompt(self, context: dict) -> str:
+        """构建 Agent Prompt。"""
+        raise NotImplementedError
+
+    def load_context(self, command: ExecutionCommand | dict) -> dict:
+        """加载执行所需上下文。"""
+        raise NotImplementedError
+
+    def execute_command(self, command: ExecutionCommand, invoker: AgentInvoker) -> ExecutionResult:
+        """纯执行接口：构建上下文 -> invoke -> 返回 ExecutionResult。"""
+        raise NotImplementedError
+
+    def handle(self, work_item: dict, invoker: AgentInvoker) -> str:
+        """历史兼容入口：处理单个工作项 dict 并返回 outcome 字符串。"""
+        raise NotImplementedError

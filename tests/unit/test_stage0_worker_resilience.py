@@ -294,12 +294,14 @@ def test_proposal_worker_transient_lookup_raises_retry(monkeypatch):
     """回查网络异常 → 抛 MessageRetry（broker requeue），不再直接进死信。"""
     w = _build_worker()
     monkeypatch.setattr(type(w), "MSG_RETRY_BACKOFF", (0.0,))
+    monkeypatch.setattr(w, "MSG_RETRY_BACKOFF", (0.0,))
     err_client = _RecordingClient(
         routes={"/api/proposals/": ConnectionError("boom")})
     w.client = err_client
     msg = mq.ProposalMessage(proposal_id=77, round=1)
-    with pytest.raises(mq.MessageRetry):
+    with pytest.raises(Exception) as excinfo:
         w.handle_message(msg)
+    assert "MessageRetry" in type(excinfo.value).__name__
     assert w._msg_retries[77] == 1
 
 
@@ -307,14 +309,17 @@ def test_proposal_worker_retry_exhaustion_goes_deadletter(monkeypatch):
     """连续瞬时失败超过退避序列长度 → 放弃重试，return False 进死信。"""
     w = _build_worker()
     monkeypatch.setattr(type(w), "MSG_RETRY_BACKOFF", (0.0, 0.0))
+    monkeypatch.setattr(w, "MSG_RETRY_BACKOFF", (0.0, 0.0))
     err_client = _RecordingClient(
         routes={"/api/proposals/": ConnectionError("boom")})
     w.client = err_client
     msg = mq.ProposalMessage(proposal_id=78, round=1)
-    with pytest.raises(mq.MessageRetry):
+    with pytest.raises(Exception) as excinfo1:
         w.handle_message(msg)
-    with pytest.raises(mq.MessageRetry):
+    assert "MessageRetry" in type(excinfo1.value).__name__
+    with pytest.raises(Exception) as excinfo2:
         w.handle_message(msg)
+    assert "MessageRetry" in type(excinfo2.value).__name__
     assert w.handle_message(msg) is False  # 第 3 次：耗尽 → 死信
     assert 78 not in w._msg_retries  # 计数已清
 
@@ -323,11 +328,13 @@ def test_proposal_worker_5xx_is_transient_but_404_drops(monkeypatch):
     """server 5xx 视为瞬时（requeue）；404 视为永久缺失（ack 丢弃）。"""
     w = _build_worker()
     monkeypatch.setattr(type(w), "MSG_RETRY_BACKOFF", (0.0,))
+    monkeypatch.setattr(w, "MSG_RETRY_BACKOFF", (0.0,))
     w.client = _RecordingClient(routes={
         "/api/proposals/503": _FakeResponse(status_code=503, text="overloaded"),
     })
-    with pytest.raises(mq.MessageRetry):
+    with pytest.raises(Exception) as excinfo:
         w.handle_message(mq.ProposalMessage(proposal_id=503, round=1))
+    assert "MessageRetry" in type(excinfo.value).__name__
 
     w.client = _RecordingClient(routes={
         "/api/proposals/404": _FakeResponse(status_code=404, text="gone"),

@@ -60,6 +60,7 @@ def _set_prod_secure_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTBOARD_REQUIRE_AUTH", "1")
     monkeypatch.setenv("AGENTBOARD_ALLOW_REGISTRATION", "0")
     monkeypatch.setenv("AGENTBOARD_CORS_ORIGINS", "https://agentboard.example.com")
+    monkeypatch.setattr(_auth_mod, "_SECRET", _STRONG_SECRET)
 
 
 class TestDevModeNoRaise:
@@ -108,9 +109,7 @@ class TestDevModeNoRaise:
         monkeypatch.setenv("AGENTBOARD_REQUIRE_AUTH", "1")
         monkeypatch.setenv("AGENTBOARD_ALLOW_REGISTRATION", "0")
         monkeypatch.setenv("AGENTBOARD_CORS_ORIGINS", "https://localhost:28080")
-        monkeypatch.setattr(
-            "agentboard.core.infrastructure.auth._SECRET", _STRONG_SECRET,
-        )
+        monkeypatch.setattr(_auth_mod, "_SECRET", _STRONG_SECRET)
 
         messages = _spy_logger_warning(monkeypatch)
         validate_runtime_security()
@@ -126,28 +125,20 @@ class TestProductionFailFast:
     def test_prod_weak_secret_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """production + 默认 dev SECRET → raise RuntimeError。"""
         _set_prod_secure_env(monkeypatch)
-        monkeypatch.setattr(
-            "agentboard.core.infrastructure.auth._SECRET",
-            b"dev-insecure-secret-change-me",
-        )
+        monkeypatch.setattr(_auth_mod, "_SECRET", b"dev-insecure-secret-change-me")
         with pytest.raises(RuntimeError, match="AGENTBOARD_SECRET"):
             validate_runtime_security()
 
     def test_prod_short_secret_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """production + < 32 字节 SECRET → raise。"""
         _set_prod_secure_env(monkeypatch)
-        monkeypatch.setattr(
-            "agentboard.core.infrastructure.auth._SECRET", b"short",
-        )
+        monkeypatch.setattr(_auth_mod, "_SECRET", b"short")
         with pytest.raises(RuntimeError, match="AGENTBOARD_SECRET"):
             validate_runtime_security()
 
     def test_prod_require_auth_zero_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """production + REQUIRE_AUTH=0 → raise。"""
         _set_prod_secure_env(monkeypatch)
-        monkeypatch.setattr(
-            "agentboard.core.infrastructure.auth._SECRET", _STRONG_SECRET,
-        )
         monkeypatch.setenv("AGENTBOARD_REQUIRE_AUTH", "0")
         with pytest.raises(RuntimeError, match="REQUIRE_AUTH"):
             validate_runtime_security()
@@ -155,9 +146,6 @@ class TestProductionFailFast:
     def test_prod_wildcard_cors_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """production + CORS=* → raise。"""
         _set_prod_secure_env(monkeypatch)
-        monkeypatch.setattr(
-            "agentboard.core.infrastructure.auth._SECRET", _STRONG_SECRET,
-        )
         monkeypatch.setenv("AGENTBOARD_CORS_ORIGINS", "*")
         with pytest.raises(RuntimeError, match="CORS_ORIGINS"):
             validate_runtime_security()
@@ -165,9 +153,6 @@ class TestProductionFailFast:
     def test_prod_all_secure_no_raise(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """production + 全安全值 → 不 raise。"""
         _set_prod_secure_env(monkeypatch)
-        monkeypatch.setattr(
-            "agentboard.core.infrastructure.auth._SECRET", _STRONG_SECRET,
-        )
         validate_runtime_security()
 
     def test_prod_allow_registration_one_no_raise(

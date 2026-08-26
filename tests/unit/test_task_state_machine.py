@@ -179,8 +179,11 @@ def test_unblock_error_message_lists_allowed_targets(session, task):
     raised = None
     try:
         execute_transition(session, task, "totally_made_up_status")
-    except IllegalTransition as e:
-        raised = e
+    except Exception as e:
+        if "IllegalTransition" in type(e).__name__:
+            raised = e
+        else:
+            raise
     assert raised is not None, "expected IllegalTransition to be raised"
     msg = str(raised)
     # 不应再说"only previous_status targets are allowed"

@@ -224,3 +224,38 @@ Story+Epic)绕过了中央 `delete_task`(:1032)的防御性级联。
 | 8 | 单元测试与回归套件验证（202 passed / 0 failed） | ✅ done | (Stage 0 commit) | 同上 |
 | 9 | 注册 dod_registry + 更新 e2e-plan.md + commit & push | ✅ done | (Stage 0 commit) | 同上 |
 
+---
+
+## 18. Worker 统一执行层 Stage 1 & 2 · 统一执行抽象与 Server 编排收缴 (2026-08-26)
+
+**目标**: 彻底解决 Proposal / Task / Review 流程与进程割裂问题。解耦业务领域模型（保留 Proposal/Task/Story 实体特性）与底层执行抽象（统一为 `WorkType` 与 `ExecutionCommand`），收敛多进程为单一常驻 `WorkerCoordinator`，并将跨实体 DAG 推演与结项判定全面收缴至 Server 状态机。
+
+**核心变化**:
+- **统一执行抽象契约 (`contract.py`)**:
+  - `WorkType`: `proposal_clarify` / `proposal_convert` / `task_implement` / `task_review` / `task_respond`；
+  - `ExecutionCommand`: 包含 `execution_id`, `work_type`, `entity_type`, `entity_id`, `attempt`, `context`, `lease_token`；
+  - `ExecutionResult`: 结构化上报 `status`, `action`, `summary`, `inspected_files`, `output`, `error_message`。
+- **单一协调器中枢 (`WorkerCoordinator`)**:
+  - 统管 `HandlerRegistry[WorkType]`，提供全局单入口 `dispatch(command)`；
+  - 线程安全 `(work_type, entity_id)` in-flight 去重，杜绝重复并发执行；
+  - 聚合全域轮询扫描（`poll_once`）与 MQ 事件流（`handle_workflow_message`）。
+- **Handler 执行策略收敛 (`handlers/`)**:
+  - 5 个 Handler (`ClarifyHandler`, `TicketHandler`, `StoryHandler`, `ReviewHandler`, `OwnerResponseHandler`) 统一继承 `BaseWorkHandler`；
+  - 移除 Handler 内部的 `complete_story` / `_story_all_tasks_done` / `_story_fail` 等硬编码，实现为纯粹的 `execute_command()` 策略类。
+- **服务端统一编排与自动收尾**:
+  - Task 评审 Approve 并进入 `DONE` 时，Server 端自动扫描所属 Story 下的所有任务：若全部已 `DONE`，Server 自动触发 `complete_story` 结项；
+  - 修复 `delete_epic` / `delete_story` 在删除评论前先解绑 `ReviewVote.comment_id`，防止 SQLite NO ACTION FK 约束报错。
+
+### 进度表
+
+| # | 阶段 | 状态 | 关联 commit | DoD 链接 |
+|---|---|---|---|---|
+| 1 | 定义统一契约 `WorkType` / `ExecutionCommand` / `ExecutionResult` (`contract.py`) | ✅ done | (Stage 1-2 commit) | `tests/e2e/dod_registry.py::stage1-2-worker-unified-execution-2026-08-26` |
+| 2 | 更新 `handlers/base.py` 引入 `BaseWorkHandler` 策略基类 | ✅ done | (Stage 1-2 commit) | 同上 |
+| 3 | 收敛 5 个 Handler (Clarify, Ticket, Story, Review, OwnerResponse) 实现 `execute_command` | ✅ done | (Stage 1-2 commit) | 同上 |
+| 4 | 实现单一进程协调器 `WorkerCoordinator` (`coordinator.py`) 与全局派发入口 | ✅ done | (Stage 1-2 commit) | 同上 |
+| 5 | Server 端实现 Task 评审通过后自动检查 Story 下全任务完成并自动结项 | ✅ done | (Stage 1-2 commit) | 同上 |
+| 6 | 修复 `delete_epic` / `delete_story` FK 删除顺序防御 | ✅ done | (Stage 1-2 commit) | 同上 |
+| 7 | 编写 `tests/unit/test_worker_coordinator.py` 并通过全量 209 单测 + 35 集成测试 | ✅ done | (Stage 1-2 commit) | 同上 |
+| 8 | 注册 DoD 记录 + 更新 e2e-plan.md + commit & push | ✅ done | (Stage 1-2 commit) | 同上 |
+

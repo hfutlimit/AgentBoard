@@ -22,7 +22,9 @@ from typing import Any
 import httpx
 
 from agentboard.core.infrastructure import messaging as mq
-from ..config import ACTION_STORY_HANDLED, AgentDecision
+from ..config import ACTION_STORY_HANDLED, AgentDecision, AgentInvoker
+from ..contract import ExecutionCommand, ExecutionResult, WorkType
+from .base import BaseWorkHandler
 
 log = logging.getLogger("agentboard.worker.story")
 
@@ -137,9 +139,10 @@ def build_task_prompt(context: dict) -> str:
     return "\n".join(lines)
 
 
-class StoryHandler:
-    """Story 执行编排 Handler（confirmed → 推进 task → done / blocked）。"""
+class StoryHandler(BaseWorkHandler):
+    """Story / Task 执行编排 Handler（confirmed → 推进 task → done / blocked）。"""
 
+    work_type = WorkType.TASK_IMPLEMENT
     name = "story"
     valid_actions = {ACTION_STORY_HANDLED, "fail"}
 
@@ -166,8 +169,11 @@ class StoryHandler:
 
     # ---------- Handler 协议 ----------
 
-    def can_handle(self, work_item: dict) -> bool:
-        return bool(work_item.get("story_id") and "tasks" in work_item)
+    def can_handle(self, work_item: dict | ExecutionCommand) -> bool:
+        if isinstance(work_item, ExecutionCommand):
+            return work_item.work_type == self.work_type
+        return bool((work_item.get("story_id") and "tasks" in work_item)
+                    or work_item.get("action") in ("process_story", "process_task"))
 
     def fetch(self) -> list[dict]:
         """拉取待处理的 Story（status=confirmed，用户已确认的人工闸门）。"""
@@ -299,8 +305,74 @@ class StoryHandler:
             ok = self._unclaim_story(sid)
             log.info("Story #%s 本轮推进完成（任务未全部完成），回退 confirmed=%s", sid, ok)
             return "handled"
-        # agent 主动放弃
         return self._story_fail(sid, decision.error or "Agent 未报告完成原因")
+
+    def execute_command(self, command: ExecutionCommand, invoker: AgentInvoker) -> ExecutionResult:
+        """统一执行模型实现：支持 Task 或 Story 的实现推进。"""
+        if command.entity_type == "task" or "task" in command.context:
+            task = command.context.get("task") or {"id": command.entity_id}
+            tid = command.entity_id
+            try:
+                context = self.build_task_context(task)
+            except Exception as e:
+                log.exception("Task #%s 构建上下文失败", tid)
+                return ExecutionResult.failure(command.execution_id, f"构建上下文失败：{e}", action="fail")
+            try:
+                decision = invoker.invoke(context)
+            except Exception as e:
+                log.warning("Task #%s Agent 调用失败：%s", tid, e)
+                return ExecutionResult.failure(command.execution_id, str(e), action="fail")
+            self._log_inspected(decision, label=f"task#{tid}")
+            if decision.action == ACTION_STORY_HANDLED:
+                summary = decision.summary or f"Task #{tid} 开发推进完成"
+                self._task_comment(tid, f"Agent 推进完成：{summary}")
+                return ExecutionResult.success(
+                    execution_id=command.execution_id,
+                    action=decision.action,
+                    summary=summary,
+                    inspected_files=decision.inspected_files,
+                )
+            error_msg = decision.error or "Agent 未报告完成原因"
+            self._task_comment(tid, f"Agent 推进异常：{error_msg}")
+            return ExecutionResult.failure(
+                execution_id=command.execution_id,
+                error=error_msg,
+                action=decision.action,
+                summary=decision.summary,
+            )
+
+        # 默认作为 Story 处理
+        story = command.context if "tasks" in command.context else {"id": command.entity_id}
+        sid = command.entity_id
+        if not self.claim(story):
+            return ExecutionResult.failure(command.execution_id, "claim skipped", action="skipped")
+        try:
+            context = self.load_context(story)
+        except Exception as e:
+            log.exception("Story #%s 构建上下文失败", sid)
+            self._story_comment(sid, f"Worker 构建上下文失败：{e}")
+            self._story_fail(sid, f"构建上下文失败：{e}")
+            return ExecutionResult.failure(command.execution_id, str(e), action="fail")
+        try:
+            decision = invoker.invoke(context)
+        except Exception as e:
+            log.warning("Story #%s Agent 调用失败：%s", sid, e)
+            self._story_fail(sid, str(e))
+            return ExecutionResult.failure(command.execution_id, str(e), action="fail")
+        outcome = self.handle_decision(story, decision, context)
+        if outcome == "handled":
+            return ExecutionResult.success(
+                execution_id=command.execution_id,
+                action=decision.action,
+                summary=decision.summary or f"Story #{sid} 推进完成",
+                inspected_files=decision.inspected_files,
+            )
+        return ExecutionResult.failure(
+            execution_id=command.execution_id,
+            error=decision.error or f"Story #{sid} 执行结果: {outcome}",
+            action=decision.action,
+            summary=decision.summary,
+        )
 
     # ---------- Story 编排细节 ----------
 
