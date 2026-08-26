@@ -100,6 +100,8 @@ def test_handle_story_does_not_block_main_loop(monkeypatch):
          mock.patch.object(worker._handlers["story"], "handle_decision", return_value="handled"), \
          mock.patch.object(worker, "reclaim_stale", return_value=[]), \
          mock.patch.object(worker, "reclaim_stale_ticket_requests", return_value=[]), \
+         mock.patch.object(worker, "reclaim_stale_stories", return_value=[]), \
+         mock.patch.object(worker, "reclaim_stale_tasks", return_value=[]), \
          mock.patch.object(worker, "recover_failed", return_value=[]):
         # We bypass the running maintenance/heartbeat keepers and just
         # call poll_once manually.
@@ -147,6 +149,8 @@ def test_close_waits_for_in_flight_story(monkeypatch):
          mock.patch.object(worker._handlers["story"], "handle_decision", return_value="handled"), \
          mock.patch.object(worker, "reclaim_stale", return_value=[]), \
          mock.patch.object(worker, "reclaim_stale_ticket_requests", return_value=[]), \
+         mock.patch.object(worker, "reclaim_stale_stories", return_value=[]), \
+         mock.patch.object(worker, "reclaim_stale_tasks", return_value=[]), \
          mock.patch.object(worker, "recover_failed", return_value=[]):
         worker.poll_once()
         # Immediate close should still wait for the 1.5s Story to finish

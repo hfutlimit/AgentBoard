@@ -27,6 +27,8 @@ from .config import (
     AgentOutputError,
 )
 
+log = logging.getLogger("agentboard.worker.invokers")
+
 
 # =============================================================================
 # Multi-agent router (2026-08-25 · 单 worker 多 agent 通道)
@@ -44,15 +46,50 @@ from .config import (
 #       alias = 通道名（minimax / codebuddy / workbuddy ...），key 顺序即为
 #       兜底优先级（first wins），值与旧的 AGENTBOARD_WORKER_AGENT_CMD 格式一致
 #   AGENTBOARD_WORKER_AGENT_ROUTING  = {"<action>": "<alias>", ...}
-#       action = Worker 已知的 handler.name（clarify / create_ticket /
-#       process_story / review / owner_response）；未列出 → 走首条
+#       action = Worker 已知的路由键（见 KNOWN_ROUTING_ACTIONS）；未列出 → 走首条
 #
 # 兼容：AGENTBOARD_WORKER_AGENT_CMD（旧单值）依然受 SubprocessAgentInvoker
 # 独立支持；只要新路由变量未设，旧用法不变。
 
-_DEFAULT_ROUTING_KEYS: tuple[str, ...] = (
-    "clarify", "create_ticket", "process_story", "review", "owner_response",
+#: Worker 实际会产生的 context["action"] 全集 —— 与 ProposalWorker.build_prompt_for
+#: 的分发逻辑一一对应（Stage 0 修正：旧白名单里的 "review" 从未出现过，
+#: 真实键是 review_task / process_task；配置错键会被静默丢弃）。
+KNOWN_ROUTING_ACTIONS: tuple[str, ...] = (
+    "clarify", "create_ticket", "process_story", "process_task",
+    "review_task", "owner_response",
 )
+
+# 历史别名归一化：2026-08-26 前文档/脚本里出现过的近似键 → 真实 action
+_ROUTING_ACTION_ALIASES: dict[str, str] = {
+    "review": "review_task",
+    "story": "process_story",
+    "task": "process_task",
+}
+
+#: 子进程环境屏蔽前缀：Worker 凭据族绝不继承给无头 agent CLI。
+#: AGENTBOARD_WORKER_TOKEN / AGENTBOARD_MCP_TOKEN 泄漏给子进程意味着子 agent
+#: 能以 worker 身份调任意管理端点；子 agent 连 AgentBoard 应走自己的 MCP 配置。
+_ENV_DENY_PREFIXES: tuple[str, ...] = ("AGENTBOARD_",)
+
+
+def sanitize_subprocess_env(base: dict | None = None) -> dict:
+    """构造子进程环境：剥离 ``AGENTBOARD_*`` 整族，再补 Python IO 编码。
+
+    无论 env 显式传入还是继承 os.environ 都过滤 —— 防意外泄漏；
+    PYTHONIOENCODING/PYTHONUTF8 在过滤后注入，保证子进程 stdout 可解析。
+    """
+    src = dict(os.environ) if base is None else dict(base)
+    out: dict[str, str] = {}
+    for k, v in src.items():
+        if any(k.upper().startswith(p) for p in _ENV_DENY_PREFIXES):
+            log.info("子进程环境已剥离敏感变量：%s", k)
+            continue
+        out[k] = v
+    # Windows 编码修复（2026-08-10 review）：强制 Python 子进程按 UTF-8 编码
+    # stdout/stderr，否则 zh-CN 系统上 extract_decision_json 拿到 replacement char。
+    out["PYTHONIOENCODING"] = "utf-8"
+    out["PYTHONUTF8"] = "1"
+    return out
 
 
 def parse_agent_command_map() -> dict[str, str]:
@@ -83,7 +120,9 @@ def parse_agent_command_map() -> dict[str, str]:
 def parse_agent_routing() -> dict[str, str]:
     """读 AGENTBOARD_WORKER_AGENT_ROUTING，返回 {action: alias}。
 
-    仅保留 action 在已知路由键集合内的条目；alias 必须是 commands map 的 key。
+    action 先经历史别名归一化，再校验是否在 KNOWN_ROUTING_ACTIONS 内；
+    未知键 **告警后忽略**（不再静默丢弃）—— 配错路由是排障噩梦。
+    alias 必须是 commands map 的 key（由 RoutedSubprocessInvoker 校验）。
     缺省返回空 dict（调用方用 commands 第一条兜底）。
     """
     raw = os.getenv("AGENTBOARD_WORKER_AGENT_ROUTING", "").strip()
@@ -100,9 +139,18 @@ def parse_agent_routing() -> dict[str, str]:
     out: dict[str, str] = {}
     for k, v in data.items():
         action = str(k).strip()
+        action = _ROUTING_ACTION_ALIASES.get(action, action)
         alias = str(v).strip() if v is not None else ""
-        if action in _DEFAULT_ROUTING_KEYS and alias:
-            out[action] = alias
+        if action not in KNOWN_ROUTING_ACTIONS:
+            log.warning(
+                "AGENTBOARD_WORKER_AGENT_ROUTING 含未知路由键 %r"
+                "（已知：%s），该条被忽略 —— 请核对 Worker 实际产生的 action",
+                k, list(KNOWN_ROUTING_ACTIONS))
+            continue
+        if not alias:
+            log.warning("AGENTBOARD_WORKER_AGENT_ROUTING 键 %r 的 alias 为空，忽略", k)
+            continue
+        out[action] = alias
     return out
 
 
@@ -169,8 +217,6 @@ class RoutedSubprocessInvoker:
 # 运行时从 handlers 惰性导入 build_prompt（避免 config 层反向依赖 prompt 实现）
 # 由 ProposalWorker 在构造时注入 prompt_builder，解耦提示词与调用器。
 _prompt_builder: Callable[[dict], str] | None = None
-
-log = logging.getLogger("agentboard.worker.invokers")
 
 
 def set_prompt_builder(fn: Callable[[dict], str]) -> None:
@@ -331,16 +377,12 @@ class SubprocessAgentInvoker:
         self.argv = split_command(self.cmd)
         self.timeout = timeout
         self.cwd = cwd
-        # Windows 编码修复（2026-08-10 review）：子进程 print() 默认走
-        # locale.getpreferredencoding()，在 zh-CN 系统上是 cp936/GBK；父进程
-        # encoding="utf-8" 读会得到一堆 replacement char（U+FFFD），导致
-        # extract_decision_json 找不到合法 JSON、决策 action 永远停在 ask。
-        # 解法：注入 PYTHONIOENCODING=utf-8 + PYTHONUTF8=1 到子进程环境，
-        # 强制 Python 子进程按 UTF-8 编码 stdout/stderr。
-        base = dict(env) if env is not None else dict(os.environ)
-        base["PYTHONIOENCODING"] = "utf-8"
-        base["PYTHONUTF8"] = "1"
-        self.env = base
+        # 环境构造（Stage 0 安全修复）：先经 sanitize_subprocess_env 剥离
+        # AGENTBOARD_* 凭据族（无论显式传入还是继承 os.environ 都过滤），
+        # 再注入 PYTHONIOENCODING/PYTHONUTF8 强制 Python 子进程按 UTF-8
+        # 编码 stdout/stderr —— 否则 zh-CN 系统（cp936/GBK）上父进程按
+        # utf-8 读会得到 replacement char，extract_decision_json 解析失败。
+        self.env = sanitize_subprocess_env(env)
 
     def invoke(self, context: dict) -> AgentDecision:
         prompt = build_prompt(context)

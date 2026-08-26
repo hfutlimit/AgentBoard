@@ -51,3 +51,8 @@ class StoryPatch(BaseModel):
 class MemberRoleIn(BaseModel):
 	role: str = Field(..., pattern=r"^(owner|member)$")
 
+
+
+class StoryClaimIn(BaseModel):
+	"""Worker 认领 Story 请求体（可省略；agent = worker 身份串，写入租约）。"""
+	agent: str = Field(default="worker", min_length=1, max_length=100)

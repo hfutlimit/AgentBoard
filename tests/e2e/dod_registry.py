@@ -185,6 +185,44 @@ REGISTRY: list[DodEntry] = [
             "回归保护：tests/test_delete_cascade_fk.py 7 个 case 覆盖全部 NO ACTION FK 洞 + 边界。"
         ),
     ),
+
+    # ── Stage 0 / 2026-08-26 / Worker 统一执行模型 Stage 0 止血收敛 ──────
+    DodEntry(
+        id="stage0-worker-resilience-2026-08-26",
+        feature="Worker 统一执行层 Stage 0 · 止血与韧性收敛（Story/Task 租约回收 + 路由修复 + 子进程隔离 + MQ 瞬时重试 + 异步执行去重）",
+        date_added="2026-08-26",
+        test_files=[
+            "tests/unit/test_stage0_worker_resilience.py",
+            "tests/unit/test_story_async_executor.py",
+            "tests/test_mq_consume_reconnect.py",
+            "tests/test_wf_mq_consume_reconnect.py",
+        ],
+        coverage_summary=(
+            "16 个 pytest 单测 + 11 个 MQ/异步回归测试覆盖："
+            "Story/Task 租约列与 reclaim 端点 / 真实 action 路由键白名单与未知键告警 / "
+            "子进程环境变量隔离屏蔽 AGENTBOARD_* 凭据 / MessageRetry 三态重投与指数退避 / "
+            "AsyncWorkExecutor per-kind 通道与 (kind, id) in-flight 去重"
+        ),
+        acceptance=[
+            "Story 与 Task 模型补齐 claimed_by / claimed_at 租约列与 status+claimed_at 复合索引",
+            "新增 POST /api/stories/reclaim-stale 与 POST /api/tasks/reclaim-stale 端点，支持超时租约安全回收",
+            "ProposalWorker 与 WorkflowConsumer 维护循环周期调用 reclaim_stale_stories / reclaim_stale_tasks",
+            "RoutedSubprocessInvoker 路由白名单对齐真实 action (review_task / process_task)，未知键警告忽略",
+            "SubprocessAgentInvoker 启动子进程剥离 AGENTBOARD_* 环境变量，注入 UTF-8 编码参数",
+            "RabbitMQ / InMemoryBroker 消费端支持 MessageRetry 三态判定，瞬时失败 requeue 避免误入死信",
+            "AsyncWorkExecutor 支持 per-kind 通道隔离与 (kind, id) in-flight 去重，防止慢任务阻塞主循环",
+        ],
+        status="done",
+        closed_date="2026-08-26",
+        notes=(
+            "Worker 统一执行模型 Stage 0 止血修复收敛：\n"
+            "1) 补齐 Story/Task 侧租约回收机制，根治 Worker 崩溃后 Story 卡 todo / Task 卡 in_progress 的问题；\n"
+            "2) 修复 RoutedSubprocessInvoker 路由键失配，将历史近似键（review/story/task）归一化，未知键警告过滤；\n"
+            "3) 强化子进程隔离：剥离 AGENTBOARD_* 凭据变量，强制 UTF-8 编码；\n"
+            "4) MQ 消费链路支持 MessageRetry 三态判定，网络抖动与 5xx 自动退避 requeue；\n"
+            "5) AsyncWorkExecutor 泛化至 clarify / ticket / story 域，支持按域隔离与去重。"
+        ),
+    ),
 ]
 
 

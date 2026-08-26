@@ -85,6 +85,13 @@ class Story(Base):
     review_round: Mapped[int] = mapped_column(Integer, default=0)
     # Epic 130：是否进入项目看板（ticket「进入 kanban」标记，标记后 worker 自动化处理）
     in_kanban: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Worker 认领租约（Epic 96 P2-0 同款，2026-08-26 补齐 Story 侧）：
+    # claim_story 成功时写入；unclaim/complete/回收时清空。
+    # 空串/NULL = 非 worker 持有（用户手工置 todo 的行不受租约回收影响）。
+    # 判定回收必须用 claimed_at —— updated_at 带 onupdate，任何无关写入都会刷新，
+    # 会把崩溃 Worker 的租约无限续期（与 proposals 迁移 i5j6k7l8m9n0 同因）。
+    claimed_by: Mapped[str | None] = mapped_column(String(100), nullable=True, server_default="")
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 

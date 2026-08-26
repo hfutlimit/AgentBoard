@@ -4,6 +4,13 @@ Phase 4 第一步:验证 features.identity.service 的用户/密码/API Key 行�
 每个测试用 uuid 后缀避免共享 DB 冲突(以后 Phase 8 用 conftest 改造)。
 """
 import os
+import sys
+from pathlib import Path
+
+BACKEND = Path(__file__).resolve().parents[2] / "src" / "backend-fastapi"
+if str(BACKEND) not in sys.path:
+    sys.path.insert(0, str(BACKEND))
+
 os.environ["AGENTBOARD_DB_URL"] = "sqlite:///./_test_identity_tmp.db"
 
 import uuid
@@ -99,10 +106,11 @@ def test_get_user_by_username(session, uname):
 def test_update_user_profile(session, uname):
     n = uname("grace")
     u = register_user(session, username=n, password="secret123")
-    update_user_profile(session, u, display_name="Grace", email="grace@x.com")
+    email = f"{n}@x.com"
+    update_user_profile(session, u, display_name="Grace", email=email)
     session.refresh(u)
     assert u.display_name == "Grace"
-    assert u.email == "grace@x.com"
+    assert u.email == email
 
 
 def test_change_user_password(session, uname):
@@ -198,7 +206,8 @@ def test_list_users(session, uname):
     n1, n2 = uname("olivia"), uname("peter")
     register_user(session, username=n1, password="secret123")
     register_user(session, username=n2, password="secret123")
-    users, total = list_users(session, limit=200)
+    _, total = list_users(session, limit=1)
+    users, _ = list_users(session, limit=200, offset=max(0, total - 200))
     usernames = {u.username for u in users}
     assert n1 in usernames
     assert n2 in usernames

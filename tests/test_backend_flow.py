@@ -168,7 +168,7 @@ def test_full_crud_flow(api_url):
         assert e["id"] > 0
 
         # story
-        st = c.post(f"/api/epics/{e['id']}/stories", json={"title": "Story 1", "needs_design": False}).json()  # 快速流
+        st = c.post(f"/api/epics/{e['id']}/stories", json={"title": "Story 1"}).json()
         assert st["id"] > 0
 
         sprint = c.post(
@@ -185,7 +185,7 @@ def test_full_crud_flow(api_url):
                          "priority": "high"}).json()
         assert t["type"] == ItemType.DEV and t["priority"] == "high"
         run = c.post(
-            f"/api/schedules/{schedule['id']}/runs", json={"task_id": t["id"]},
+            f"/api/schedules/{schedule['id']}/runs", json={},
         ).json()
 
         # bug（type=bug）

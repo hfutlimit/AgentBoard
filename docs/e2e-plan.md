@@ -184,3 +184,43 @@ Story+Epic)绕过了中央 `delete_task`(:1032)的防御性级联。
   也 NO ACTION)，待后续 follow-up。当前测试基础设施不支持跨 project 的 full test client 走通，
   风险评估为低 — 项目删除走确认页 + 二次提示，存量 dev 数据无 task_outcome 关联的 project 删除场景。
 
+---
+
+## 17. Worker 统一执行层 Stage 0 · 止血与韧性收敛 (2026-08-26)
+
+**目标**: 针对 Worker 执行层当前存在的 5 类核心韧性缺陷进行原地止血修复，不引入新的平行抽象，为后续 Stage 1-3 统一执行管线与编排上移奠定数据与通信底座。
+
+**核心变化**:
+- **Story/Task 认领租约与超期回收**:
+  - `stories` 与 `tasks` 表增加 `claimed_by` / `claimed_at` 租约列及 `(status, claimed_at)` 复合索引（迁移 `a9b8c7d6e5f4`）；
+  - `claim_story` 与 `claim_development_task` 成功认领时写入当前 Worker 身份与租约时间戳；
+  - 开放 `POST /api/stories/reclaim-stale` 与 `POST /api/tasks/reclaim-stale` 端点；
+  - `ProposalWorker` 与 `WorkflowConsumer` 在维护循环与启动期自动触发超期租约回收，根治 Worker 崩溃后任务卡死问题。
+- **多 Agent 路由键对齐与容错**:
+  - `RoutedSubprocessInvoker` 白名单对齐实际 action（`review_task` / `process_task` / `process_story` 等）；
+  - 历史近似别名（`review` → `review_task`, `story` → `process_story`, `task` → `process_task`）自动归一化；
+  - 未知路由键记录 Warning 警告并跳过，避免配置笔误导致静默失配。
+- **子进程环境安全隔离**:
+  - `SubprocessAgentInvoker` 启动子进程时主动剥离 `AGENTBOARD_*` 凭据族环境变量，防止 Worker Token 泄漏给子 Agent CLI；
+  - 强制注入 `PYTHONIOENCODING=utf-8` 与 `PYTHONUTF8=1`，解决 Windows 平台多语言与编码解析异常。
+- **MQ 瞬时异常退避与三态重投**:
+  - 引入 `MessageRetry` 异常与 `(ack, dead, retry)` 三态判定；
+  - 网络抖动与服务端 5xx 等瞬时错误触发指数退避并在 Broker 端 `requeue` 重投，达到最大重试次数后才进入死信队列。
+- **通用工作项异步执行与去重**:
+  - `AsyncWorkExecutor` 从仅支持 Story 泛化为统一管理 `clarify` / `ticket` / `story` 域；
+  - 引入 `(kind, id)` in-flight 去重，防止长任务在后台执行期间主循环重复拉取堆积。
+
+### 进度表
+
+| # | 阶段 | 状态 | 关联 commit | DoD 链接 |
+|---|---|---|---|---|
+| 1 | Story / Task 模型与 Alembic 迁移（`claimed_by` / `claimed_at`） | ✅ done | (Stage 0 commit) | `tests/e2e/dod_registry.py::stage0-worker-resilience-2026-08-26` |
+| 2 | POST /api/stories/reclaim-stale 与 POST /api/tasks/reclaim-stale 端点实现 | ✅ done | (Stage 0 commit) | 同上 |
+| 3 | Worker 维护循环接入 Story/Task 租约回收与启动期探测 | ✅ done | (Stage 0 commit) | 同上 |
+| 4 | RoutedSubprocessInvoker 路由白名单对齐与历史别名归一化 | ✅ done | (Stage 0 commit) | 同上 |
+| 5 | SubprocessAgentInvoker 子进程环境隔离与 UTF-8 注入 | ✅ done | (Stage 0 commit) | 同上 |
+| 6 | MQ 消费端 MessageRetry 三态判定与指数退避重投 | ✅ done | (Stage 0 commit) | 同上 |
+| 7 | AsyncWorkExecutor 通用化与 (kind, id) in-flight 去重 | ✅ done | (Stage 0 commit) | 同上 |
+| 8 | 单元测试与回归套件验证（202 passed / 0 failed） | ✅ done | (Stage 0 commit) | 同上 |
+| 9 | 注册 dod_registry + 更新 e2e-plan.md + commit & push | ✅ done | (Stage 0 commit) | 同上 |
+

@@ -138,13 +138,17 @@ class WorkflowConsumer:
         """Task ready_for_review → 自动指派 Task reviewer（幂等，切片 2 M2）。
 
         成功/已指派 → True；无在线 reviewer → warn + True（开发完成后开发者
-        轮询 list_tasks?reviewer_id=me 兜底）；网络异常 → False（重投语义）。
+        轮询 list_tasks?reviewer_id=me 兜底）；网络异常 → 抛 MessageRetry
+        触发 broker requeue（Stage 0 修正：此前 return False 实际进死信，
+        与「重投语义」不符）。
         """
         try:
             r = self._request("POST", f"/api/tasks/{task_id}/assign-reviewer")
         except Exception as e:
-            log.warning("task %s 指派评审请求失败（网络异常）：%s", task_id, e)
-            return False
+            log.warning("task %s 指派评审请求失败（网络异常），requeue 重投：%s",
+                        task_id, e)
+            raise mq.MessageRetry(
+                f"task #{task_id} assign-reviewer 网络异常") from None
         if r.status_code in (200, 201):
             t = r.json()
             log.info("task %s 已指派 reviewer=%s（status=%s）",
@@ -174,8 +178,10 @@ class WorkflowConsumer:
             r.raise_for_status()
             items = (r.json() or {}).get("items", []) or []
         except Exception as e:
-            log.warning("story %s 拉取任务列表失败：%s", story_id, e)
-            return False
+            # 网络抖动 / 5xx 属瞬时错误：requeue 重投而非死信（Stage 0）
+            log.warning("story %s 拉取任务列表失败，requeue 重投：%s", story_id, e)
+            raise mq.MessageRetry(
+                f"story #{story_id} 拉取任务列表失败") from None
         claimed = 0
         for t in items:
             if t.get("status") in ("backlog", "todo") and t.get("ready", True):

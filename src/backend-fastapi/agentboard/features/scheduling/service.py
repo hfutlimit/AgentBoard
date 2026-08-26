@@ -295,7 +295,7 @@ def unclaim_story(s: Session, id: int, *, changed_by: int | None = None,
         raise IllegalTransition(f"story {id} 处于 blocked，禁止回退（需人工仲裁）")
     r = s.execute(
         update(Story).where(Story.id == id, Story.status == "todo")
-        .values(status="confirmed")
+        .values(status="confirmed", claimed_by="", claimed_at=None)
     )
     if r.rowcount != 1:
         s.rollback()
@@ -708,7 +708,8 @@ def create_schedule(s: Session, *, project_id: int, title: str,
     s.add(sch); _commit(s); s.refresh(sch); return sch
 
 
-def claim_story(s: Session, id: int, *, changed_by: int | None = None) -> Story:
+def claim_story(s: Session, id: int, *, changed_by: int | None = None,
+                claimed_by: str = "worker") -> Story:
     """Worker 竞争认领 Story（Ticket 全流程多实例编排）：CAS confirmed → todo。
 
     多个 Worker 实例（不同 agent CLI）同时扫描同一 confirmed Story 时，
@@ -716,13 +717,21 @@ def claim_story(s: Session, id: int, *, changed_by: int | None = None) -> Story:
     竞争失败抛 IllegalTransition（api 层转 409）。todo 语义 = 已被某 worker
     认领处理中（其它实例扫描 confirmed 不再看到），失败/交接由
     ``unclaim_story`` 回退 confirmed 重新入池。
+
+    认领成功同时写入租约（claimed_by/claimed_at）：持有者进程崩溃后由
+    ``reclaim_stale_stories`` 按 claimed_at 过期回收 —— 这是 Story 侧唯一的
+    丢单兜底（2026-08-26 前 Story 无租约，崩溃即永久卡 todo）。
     """
     st = s.get(Story, id)
     if not st:
         raise NotFound(f"story {id} not found")
     r = s.execute(
         update(Story).where(Story.id == id, Story.status == "confirmed")
-        .values(status="todo")
+        .values(
+            status="todo",
+            claimed_by=(claimed_by or "worker")[:100],
+            claimed_at=utc_now(),
+        )
     )
     if r.rowcount != 1:
         s.rollback()
@@ -738,6 +747,145 @@ def claim_story(s: Session, id: int, *, changed_by: int | None = None) -> Story:
     if epic is not None:
         _invalidate_project_stats_cache(epic.project_id)
     return st
+
+
+# Story/Task 认领租约默认时长（与 proposals DEFAULT_CLAIM_LEASE_SECONDS 对齐）。
+# 注意：必须显著大于 worker 的 agent_timeout（默认 900s），否则长任务会被
+# 其它实例的回收循环误收。worker 启动时对两者关系做告警校验。
+DEFAULT_STORY_CLAIM_LEASE_SECONDS = 1800
+DEFAULT_TASK_CLAIM_LEASE_SECONDS = 1800
+
+
+def reclaim_stale_stories(
+    s: Session, *, lease_seconds: int = DEFAULT_STORY_CLAIM_LEASE_SECONDS,
+) -> list[int]:
+    """把租约过期的 todo Story 批量回退 confirmed，返回被回收的 id 列表。
+
+    崩溃兜底：持有 Worker 进程死亡后，其认领的 Story 卡在 todo 永远不会被
+    再次扫到（扫描只看 confirmed）。判定依据 ``claimed_at`` 而非 updated_at
+    （后者带 onupdate，任何无关写入都会给死租约续期）。
+
+    只回收 claimed_by 非空的行：用户手工置 todo 的 Story 没有 worker 租约，
+    不属于本端点管辖。也不做 updated_at 兜底 —— proposals 的 analyzing 是
+    worker 专属状态所以可以兜底，Story 的 todo 不是，误收风险大于漏收。
+    """
+    if lease_seconds < 0:
+        raise InvalidValue("lease_seconds must be >= 0")
+    cutoff = utc_now() - timedelta(seconds=lease_seconds)
+    ids = [
+        row[0]
+        for row in s.query(Story.id)
+        .filter(
+            Story.status == "todo",
+            Story.claimed_by.isnot(None),
+            Story.claimed_by != "",
+            Story.claimed_at.isnot(None),
+            Story.claimed_at < cutoff,
+        )
+        .all()
+    ]
+    if not ids:
+        return []
+    r = s.execute(
+        update(Story)
+        .where(
+            Story.id.in_(ids),
+            Story.status == "todo",
+            Story.claimed_at < cutoff,
+        )
+        .values(status="confirmed", claimed_by="", claimed_at=None)
+        .execution_options(synchronize_session=False),
+    )
+    _commit(s)
+    s.expire_all()
+    # 并发下原持有者可能恰好 unclaim 成功，按实际 CAS 结果收敛返回集合
+    reclaimed = [
+        row[0]
+        for row in s.query(Story.id)
+        .filter(Story.id.in_(ids), Story.status == "confirmed",
+                Story.claimed_by == "")
+        .all()
+    ]
+    for sid in reclaimed:
+        _record_story_status_history(s, sid, "todo", "confirmed", changed_by=None,
+                                     reason="租约到期回收（Worker 崩溃兜底）")
+    _commit(s)
+    if reclaimed:
+        log.warning("reclaim_stale_stories: 回收 %d 条过期租约 story=%s",
+                    len(reclaimed), reclaimed)
+    return reclaimed
+
+
+def reclaim_stale_tasks(
+    s: Session, *, lease_seconds: int = DEFAULT_TASK_CLAIM_LEASE_SECONDS,
+) -> list[int]:
+    """把租约过期的 in_progress Task 批量回退 todo，返回被回收的 id 列表。
+
+    与 Story 回收同源（claim_development_task 写租约），但 in_progress 是
+    **人机共享状态**，因此额外要求 ``updated_at < cutoff``：认领后若有任何
+    后续写入（评审驳回回退、人工改派等），说明工作项仍在活跃流转，一律保护。
+    只有「认领后无任何动静且超时」的行才视为持有者已死。
+
+    同样只回收 claimed_by 非空的行 —— 人工认领（assignee 直派 / apply /
+    arbitrate）不写租约列，天然不受影响。回收同时清 assignee_id 并释放。
+    """
+    if lease_seconds < 0:
+        raise InvalidValue("lease_seconds must be >= 0")
+    cutoff = utc_now() - timedelta(seconds=lease_seconds)
+    ids = [
+        row[0]
+        for row in s.query(Task.id)
+        .filter(
+            Task.status == Status.IN_PROGRESS,
+            Task.claimed_by.isnot(None),
+            Task.claimed_by != "",
+            Task.claimed_at.isnot(None),
+            Task.claimed_at < cutoff,
+            Task.updated_at < cutoff,
+        )
+        .all()
+    ]
+    if not ids:
+        return []
+    s.execute(
+        update(Task)
+        .where(
+            Task.id.in_(ids),
+            Task.status == Status.IN_PROGRESS,
+            Task.claimed_at < cutoff,
+            Task.updated_at < cutoff,
+        )
+        .values(
+            status=Status.TODO,
+            assignee_id=None,
+            status_reason=None,
+            previous_status=None,
+            claimed_by="",
+            claimed_at=None,
+        )
+        .execution_options(synchronize_session=False),
+    )
+    _commit(s)
+    s.expire_all()
+    reclaimed = [
+        row[0]
+        for row in s.query(Task.id)
+        .filter(Task.id.in_(ids), Task.status == Status.TODO,
+                Task.claimed_by == "")
+        .all()
+    ]
+    for tid in reclaimed:
+        _record_status_history(s, tid, str(Status.IN_PROGRESS), str(Status.TODO),
+                               changed_by=None, reason="租约到期回收（Worker 崩溃兜底）")
+    _commit(s)
+    for tid in reclaimed:
+        t = s.get(Task, tid)
+        if t is not None:
+            _invalidate_project_stats_cache(t.project_id)
+    if reclaimed:
+        log.warning("reclaim_stale_tasks: 回收 %d 条过期租约 task=%s",
+                    len(reclaimed), reclaimed)
+    return reclaimed
 
 
 def get_run(s: Session, id: int) -> AgentRun | None:
@@ -957,7 +1105,8 @@ def report_run_result(s: Session, id: int, *, status: str, summary: str | None =
     _commit(s); s.refresh(run); return run
 
 
-def claim_development_task(s: Session, task_id: int, *, user_id: int) -> Task:
+def claim_development_task(s: Session, task_id: int, *, user_id: int,
+                           claimed_by: str = "worker") -> Task:
     """开发任务竞争认领（Epic 122 切片 2 M1，CAS 并发安全；Story 265 后仅认领 todo）。
 
     - 条件 UPDATE ``status = todo`` → ``in_progress + assignee_id=user_id``，
@@ -966,6 +1115,10 @@ def claim_development_task(s: Session, task_id: int, *, user_id: int) -> Task:
       的任务拒绝重复认领，不创建 Run、不改状态；
     - 认领是「系统操作」，绕开 TRANSITIONS 常规校验；
     - Story 265 收敛：仅 todo 可认领（backlog 已下线，旧 backlog 数据由迁移脚本归并到 todo）。
+
+    认领成功同时写入租约（claimed_by/claimed_at）：持有者崩溃后由
+    ``reclaim_stale_tasks`` 回收。人工 set_status/apply 路径不写这两列，
+    因此回收只影响 agent 认领的行。
     """
     t = s.get(Task, task_id)
     if not t:
@@ -974,11 +1127,17 @@ def claim_development_task(s: Session, task_id: int, *, user_id: int) -> Task:
         raise InvalidValue(
             f"task {task_id} already claimed or not claimable (status={t.status})")
     old_status = t.status
+    now = utc_now()
     r = s.execute(
         update(Task).where(
             Task.id == task_id,
             Task.status == Status.TODO,
-        ).values(status=Status.IN_PROGRESS, assignee_id=user_id)
+        ).values(
+            status=Status.IN_PROGRESS,
+            assignee_id=user_id,
+            claimed_by=(claimed_by or "worker")[:100],
+            claimed_at=now,
+        )
     )
     if r.rowcount != 1:
         s.rollback()
@@ -1012,7 +1171,7 @@ def complete_story(s: Session, id: int, *, changed_by: int | None = None,
     old = st.status
     r = s.execute(
         update(Story).where(Story.id == id, Story.status == old)
-        .values(status="done")
+        .values(status="done", claimed_by="", claimed_at=None)
     )
     if r.rowcount != 1:
         s.rollback()

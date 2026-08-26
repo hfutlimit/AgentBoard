@@ -47,7 +47,7 @@ def test_consume_reconnects_after_stream_lost():
     stats = broker.consume(_ok_handler, max_messages=3, idle_timeout=0.2)
 
     assert broker._connect_calls == 2, "应重连一次"
-    assert stats == {"consumed": 3, "acked": 3, "dead": 0}
+    assert stats == {"consumed": 3, "acked": 3, "dead": 0, "retried": 0}
     assert ch1.acked == [1000, 1001]
     assert ch2.acked == [1000]
     assert ch1.qos == 1 and ch2.qos == 1
@@ -64,7 +64,7 @@ def test_consume_nack_goes_dead_across_reconnect():
 
     stats = broker.consume(_nack_handler, max_messages=3, idle_timeout=0.2)
 
-    assert stats == {"consumed": 3, "acked": 0, "dead": 3}
+    assert stats == {"consumed": 3, "acked": 0, "dead": 3, "retried": 0}
     assert len(ch1.nacked) == 2 and ch1.nacked[0][1] is False
     assert len(ch2.nacked) == 1
 
@@ -107,7 +107,7 @@ def test_consume_idle_timeout_still_works():
     stats = broker.consume(_ok_handler, idle_timeout=0.15)
     elapsed = time.monotonic() - start
 
-    assert stats == {"consumed": 0, "acked": 0, "dead": 0}
+    assert stats == {"consumed": 0, "acked": 0, "dead": 0, "retried": 0}
     assert elapsed < 3, "恢复通道空闲后应在 idle_timeout 内退出"
 
 

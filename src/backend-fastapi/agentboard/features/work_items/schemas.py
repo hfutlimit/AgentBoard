@@ -86,3 +86,8 @@ class BulkTaskDelete(BaseModel):
 			raise ValueError("task_ids must be unique")
 		return value
 
+
+
+class TaskClaimIn(BaseModel):
+	"""Worker 认领 Task 请求体（可省略；agent = worker 身份串，写入租约）。"""
+	agent: str = Field(default="worker", min_length=1, max_length=100)

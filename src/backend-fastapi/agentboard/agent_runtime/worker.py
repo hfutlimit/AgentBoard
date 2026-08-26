@@ -78,17 +78,36 @@ class ProposalWorker:
         set_prompt_builder(self.build_prompt_for)
         # 心跳节流
         self._last_heartbeat_ts: float = 0.0
-        # 后台 Story 执行器（2026-08-26 根治 process_story 阻塞 main loop）。
+        # 后台工作项执行器（2026-08-26 根治长任务阻塞 main loop）。
         # 默认不启用；config.async_story_executor=True 时 init。
-        self._story_executor: _StoryAsyncExecutor | None = None
+        # Stage 0 泛化：覆盖 clarify / ticket / story 三域（配置名沿用旧值兼容）。
+        self._work_executor: "AsyncWorkExecutor | None" = None
         if getattr(config, "async_story_executor", False):
-            from .async_story import _StoryAsyncExecutor  # 延迟导入避免循环
+            from .async_story import AsyncWorkExecutor  # 延迟导入避免循环
             max_c = max(1, int(getattr(config, "async_story_max_concurrent", 1)))
             join_to = float(getattr(config, "async_story_join_timeout", 30.0))
-            self._story_executor = _StoryAsyncExecutor(
+            self._work_executor = AsyncWorkExecutor(
                 invoker=self.invoker, handlers=self._handlers,
-                agent=self.config.agent, max_concurrent=max_c, join_timeout=join_to,
+                max_concurrent=max_c, join_timeout=join_to,
             )
+        # MQ 消费瞬时错误重试计数（proposal_id → 已重试次数），成功消费后清除
+        self._msg_retries: dict[int, int] = {}
+        self._validate_lease_vs_timeout()
+
+    def _validate_lease_vs_timeout(self) -> None:
+        """租约必须显著大于单次 agent 超时，否则长任务会在执行中被回收。
+
+        仅告警不拒绝启动 —— 运维可能临时调小 lease 观察回收行为；
+        默认 1800 vs 900 是 2× 安全边界，低于它就危险了。
+        """
+        lease = int(self.config.lease_seconds)
+        timeout = int(self.config.agent_timeout)
+        if lease <= timeout:
+            log.warning(
+                "lease_seconds(%s) ≤ agent_timeout(%s)：正在执行的 agent 任务会"
+                "在超时前被租约回收判定为崩溃。建议 lease ≥ 2×agent_timeout"
+                "（环境变量 AGENTBOARD_WORKER_LEASE / AGENTBOARD_WORKER_AGENT_TIMEOUT）",
+                lease, timeout)
 
     # ---------- 构造辅助 ----------
 
@@ -123,14 +142,14 @@ class ProposalWorker:
         return None
 
     def close(self) -> None:
-        # 后台 Story 执行器（2026-08-26）：先停接新任务，再 join in-flight。
+        # 后台工作项执行器（2026-08-26）：先停接新任务，再 join in-flight。
         # 超时由 config.async_story_join_timeout 控制（默认 30s），
-        # 超过则强制退场，Story 进程随主进程一起被 OS 回收。
-        if self._story_executor is not None:
+        # 超过则强制退场，子进程随主进程一起被 OS 回收。
+        if self._work_executor is not None:
             try:
-                self._story_executor.shutdown()
+                self._work_executor.shutdown()
             except Exception:
-                log.exception("StoryAsyncExecutor 收尾异常")
+                log.exception("AsyncWorkExecutor 收尾异常")
         if self._owns_client:
             self.client.close()
 
@@ -259,6 +278,12 @@ class ProposalWorker:
     def reclaim_stale_ticket_requests(self) -> list[int]:
         return maintenance.reclaim_stale_ticket_requests(self.client, self.config)
 
+    def reclaim_stale_stories(self) -> list[int]:
+        return maintenance.reclaim_stale_stories(self.client, self.config)
+
+    def reclaim_stale_tasks(self) -> list[int]:
+        return maintenance.reclaim_stale_tasks(self.client, self.config)
+
     def recover_failed(self) -> list[int]:
         return maintenance.recover_failed(self.client, self.config)
 
@@ -288,8 +313,9 @@ class ProposalWorker:
     def poll_once(self) -> dict:
         """执行一轮：先做崩溃恢复 + agent 失败自动重投，再消费三类工作项。
 
-        2026-08-26 起：config.async_story_executor=True 时 process_story 走后台
-        线程池，main loop 不再被 600s 长任务阻塞；close() 时等待后台收尾。
+        2026-08-26 起：config.async_story_executor=True 时三类工作项都提交
+        后台线程池（per-kind 串行化 + (kind,id) 去重），main loop 不再被
+        900s 长任务阻塞；close() 时等待后台收尾。
         """
         now_ts = time.time()
         if now_ts - self._last_heartbeat_ts >= self.config.heartbeat_interval:
@@ -300,35 +326,46 @@ class ProposalWorker:
                 log.exception("Agent 心跳探测异常（不阻断本轮）")
         reclaimed = self.reclaim_stale()
         ticket_reclaimed = self.reclaim_stale_ticket_requests()
+        story_reclaimed = self.reclaim_stale_stories()
+        task_reclaimed = self.reclaim_stale_tasks()
         recovered = self.recover_failed()
         results: dict[str, int] = {}
         handled: list[dict] = []
         for proposal in self.fetch_work():
-            outcome = self.handle(proposal)
+            if self._work_executor is not None:
+                outcome = self._work_executor.submit(
+                    "clarify", proposal, on_decision=self._on_work_decision)
+            else:
+                outcome = self.handle(proposal)
             results[outcome] = results.get(outcome, 0) + 1
             handled.append({"proposal_id": proposal.get("id"), "outcome": outcome})
         ticket_results: dict[str, int] = {}
         for req in self.fetch_ticket_requests():
-            outcome = self.handle_ticket_request(req)
+            if self._work_executor is not None:
+                outcome = self._work_executor.submit(
+                    "ticket", req, on_decision=self._on_work_decision)
+            else:
+                outcome = self.handle_ticket_request(req)
             ticket_results[outcome] = ticket_results.get(outcome, 0) + 1
             handled.append({"ticket_request_id": req.get("id"), "outcome": outcome})
         story_results: dict[str, int] = {}
         for story in self.fetch_confirmed_stories():
-            if self._story_executor is not None:
-                outcome = self._story_executor.submit(story, on_decision=self._on_story_decision)
-                story_results[outcome] = story_results.get(outcome, 0) + 1
-                handled.append({"story_id": story.get("id"), "outcome": outcome})
+            if self._work_executor is not None:
+                outcome = self._work_executor.submit(
+                    "story", story, on_decision=self._on_work_decision)
             else:
                 outcome = self.handle_story(story)
-                story_results[outcome] = story_results.get(outcome, 0) + 1
-                handled.append({"story_id": story.get("id"), "outcome": outcome})
-        # 回收本轮中已完成的后台 story（写入 metrics）
-        if self._story_executor is not None:
-            for finished in self._story_executor.drain_finished():
-                pass  # 已在 submit 时的 Future callback 计数
+            story_results[outcome] = story_results.get(outcome, 0) + 1
+            handled.append({"story_id": story.get("id"), "outcome": outcome})
+        # 回收本轮中已完成的后台任务（metrics 接入点：outcome 已在回调里记日志）
+        if self._work_executor is not None:
+            for kind, wid, outcome in self._work_executor.drain_finished():
+                log.debug("后台任务完成：%s #%s → %s", kind, wid, outcome)
         return {
             "reclaimed": reclaimed,
             "ticket_reclaimed": ticket_reclaimed,
+            "story_reclaimed": story_reclaimed,
+            "task_reclaimed": task_reclaimed,
             "recovered": recovered,
             "handled": handled,
             "counts": results,
@@ -336,12 +373,13 @@ class ProposalWorker:
             "story_counts": story_results,
         }
 
-    def _on_story_decision(self, story_id: int, outcome: str, exc: BaseException | None) -> None:
-        """后台 Story 完成回调：仅记日志，metrics 由 main loop 在下一轮 drain。"""
+    def _on_work_decision(self, kind: str, work_id: int, outcome: str,
+                          exc: BaseException | None) -> None:
+        """后台工作项完成回调：仅记日志，metrics 由 main loop 在下一轮 drain。"""
         if exc is not None:
-            log.warning("Story #%s 后台执行异常：%s", story_id, exc)
+            log.warning("%s #%s 后台执行异常：%s", kind, work_id, exc)
         else:
-            log.info("Story #%s 后台执行完成：%s", story_id, outcome)
+            log.info("%s #%s 后台执行完成：%s", kind, work_id, outcome)
 
     def run_forever(self, stop: threading.Event | None = None,
                     max_cycles: int | None = None) -> int:
@@ -367,20 +405,50 @@ class ProposalWorker:
 
     # ---------- MQ 消费（P2） ----------
 
+    #: 瞬时错误（网络抖动 / server 5xx）的退避序列；耗尽后仍失败才进死信
+    MSG_RETRY_BACKOFF: tuple[float, ...] = (1.0, 2.0, 4.0, 8.0, 15.0, 30.0)
+
+    def _transient_failure(self, pid: int, what: str,
+                           err: Exception | str) -> None:
+        """回查瞬时失败：按退避序列等待后抛 MessageRetry 让 broker requeue。
+
+        连续超过 ``len(MSG_RETRY_BACKOFF)`` 次（约 1 分钟累计）仍失败才放弃，
+        由调用方 return False 转入死信 —— server 长期宕机时不该无限空转。
+        """
+        n = self._msg_retries.get(pid, 0)
+        if n >= len(self.MSG_RETRY_BACKOFF):
+            self._msg_retries.pop(pid, None)
+            log.error("提案 #%s %s 连续 %s 次瞬时失败，放弃重试转入死信：%s",
+                      pid, what, n, err)
+            return
+        delay = self.MSG_RETRY_BACKOFF[n]
+        self._msg_retries[pid] = n + 1
+        log.warning("提案 #%s %s 瞬时失败（第 %s/%s 次）：%.0fs 后 requeue 重投（%s）",
+                    pid, what, n + 1, len(self.MSG_RETRY_BACKOFF), delay, err)
+        time.sleep(delay)
+        raise mq.MessageRetry(f"proposal #{pid} {what} 瞬时失败") from None
+
     def handle_message(self, message: "mq.ProposalMessage") -> bool:
         """处理一条派发消息。返回 False 表示拒收，消息转入死信队列。
 
         消息只是提示，数据库才是事实源：一律先回查提案再决策。
+        网络异常 / 5xx 属瞬时错误 → 抛 MessageRetry 触发 requeue（带退避）；
+        仅消息体损坏或连续重试耗尽才落死信。
         """
         pid = message.proposal_id
         try:
             r = self._request("GET", f"/api/proposals/{pid}")
         except Exception as e:
-            log.warning("提案 #%s 回查失败（%s），消息转入死信待人工重投", pid, e)
+            self._transient_failure(pid, "回查", e)
             return False
+        self._msg_retries.pop(pid, None)  # 成功回查即清计数
         if r.status_code == 404:
             log.info("提案 #%s 已不存在，丢弃消息", pid)
             return True
+        if r.status_code >= 500:
+            self._transient_failure(pid, f"回查 HTTP {r.status_code}",
+                                    r.text[:200])
+            return False
         if r.status_code != 200:
             log.warning("提案 #%s 回查异常：%s %s，消息转入死信",
                         pid, r.status_code, r.text[:200])
@@ -397,11 +465,13 @@ class ProposalWorker:
 
     def _maintenance_loop(self, publisher: "mq.ProposalPublisher",
                           stop: threading.Event) -> None:
-        """后台维护：回收超租约（提案 + 转换请求）+ 自愈重投。"""
+        """后台维护：回收超租约（提案 + 转换请求 + Story/Task）+ 自愈重投。"""
         while not stop.wait(self.config.maintenance_interval):
             try:
                 self.reclaim_stale()
                 self.reclaim_stale_ticket_requests()
+                self.reclaim_stale_stories()
+                self.reclaim_stale_tasks()
                 self.sweep(publisher)
             except Exception:
                 log.exception("维护周期异常，将在下个周期重试")
@@ -473,6 +543,9 @@ class ProposalWorker:
                  self.config.api_url, self.config.agent)
         try:
             self.reclaim_stale()
+            self.reclaim_stale_ticket_requests()
+            self.reclaim_stale_stories()
+            self.reclaim_stale_tasks()
         except Exception:
             log.exception("启动期回收超租约提案失败，继续消费")
         keepers = self._start_keepers(stop, publisher)
@@ -545,6 +618,9 @@ class ProposalWorker:
                  agent_id, wf_topology.agent_queue(agent_id))
         try:
             self.reclaim_stale()
+            self.reclaim_stale_ticket_requests()
+            self.reclaim_stale_stories()
+            self.reclaim_stale_tasks()
         except Exception:
             log.exception("启动期回收超租约提案失败，继续消费")
         keepers = self._start_keepers(stop, publisher)

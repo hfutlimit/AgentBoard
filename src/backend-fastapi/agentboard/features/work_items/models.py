@@ -61,6 +61,12 @@ class Task(Base):
     review_round: Mapped[int] = mapped_column(Integer, default=0)
     # 状态扩展（Epic 123）：进入 blocked 时记录上一个状态，解除时恢复
     previous_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # Worker 认领租约（2026-08-26）：仅 claim_development_task 写入；
+    # 人工 set_status/apply/arbitrate 路径不写 → 回收只影响 agent 认领的行。
+    # in_progress 是人机共享状态，回收额外要求 updated_at < cutoff：
+    # 认领后无任何后续写入才视为「持有者已死」，评审驳回等近期活动一律保护。
+    claimed_by: Mapped[str | None] = mapped_column(String(100), nullable=True, server_default="")
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 

@@ -13,13 +13,14 @@ from sqlalchemy.orm import Session
 
 from ...core.infrastructure.database import get_session
 from ...core.application import service
-from ...core.api.schemas import CommentIn, StatusIn
+from ...core.api.schemas import CommentIn, LeaseReclaimIn, StatusIn
 from .schemas import (
 	AgentReviewIn,
 	BulkTaskDelete,
 	BulkTaskUpdate,
 	ReassignTimeoutIn,
 	SpecAppendIn,
+	TaskClaimIn,
 	TaskPatch,
 )
 import os
@@ -35,6 +36,27 @@ from ...mq import (
 from ..scheduling.models import TaskAssignment
 
 router = APIRouter(tags=["work_items"])
+
+
+# 必须声明在 /api/tasks/{tid} 系列之前，避免 "reclaim-stale" 被当作 tid 捕获。
+
+@router.post("/api/tasks/reclaim-stale")
+def reclaim_stale_tasks(
+    body: LeaseReclaimIn | None = None, s: Session = Depends(get_session),
+):
+    """回收租约过期的 in_progress Task（持有 Worker 已崩溃），批量回退 todo。
+
+    只回收 claim_development_task 写入租约（claimed_by 非空）的行 —— 人工
+    认领/直派不受影响；且要求 updated_at < cutoff，认领后有后续流转
+    （如评审驳回回退）的行一律保护。返回被回收的 task id 列表。
+    """
+    lease = (body.lease_seconds if body and body.lease_seconds is not None
+             else service.DEFAULT_TASK_CLAIM_LEASE_SECONDS)
+    try:
+        ids = service.reclaim_stale_tasks(s, lease_seconds=lease)
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"reclaimed": ids, "count": len(ids), "lease_seconds": lease}
 
 
 @router.get("/api/tasks/search")
@@ -161,12 +183,15 @@ def get_task_status_history(tid: int, authorization: str | None = Header(None),
 
 @router.post("/api/tasks/{tid}/claim")
 def claim_task_for_development(tid: int, authorization: str | None = Header(None),
+                               body: TaskClaimIn | None = None,
                                s: Session = Depends(get_session)):
     """开发任务竞争认领（Epic 122 切片 2，CAS 并发安全）。
 
     条件 UPDATE ``status IN (todo,)``（Story 265 backlog 已下线）→ ``in_progress + assignee_id=当前用户``，
     rowcount=1 才成功；已认领/已结束返回 409 明确错误（复用 Epic 118 护栏语义）。
     项目写权限由 project_access_middleware 自动覆盖。
+    body.agent（可省略，默认 "worker"）写入认领租约 claimed_by，
+    供 /api/tasks/reclaim-stale 判定崩溃回收。
     """
     if not authorization and api_helpers._auth_is_required():
         raise HTTPException(status_code=401, detail="unauthorized")
@@ -181,6 +206,7 @@ def claim_task_for_development(tid: int, authorization: str | None = Header(None
             tid,
             user_id=actor.user_id,
             agent_registry_id=actor.agent_registry_id,
+            claimed_by=(body.agent if body else "worker"),
         )
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))

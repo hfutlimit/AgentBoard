@@ -184,7 +184,7 @@ def test_topology_publish_consume_ack(real_broker):
         lambda m: (got.append(m.proposal_id) or True),
         max_messages=1, idle_timeout=3,
     )
-    assert stats == {"consumed": 1, "acked": 1, "dead": 0}, stats
+    assert stats == {"consumed": 1, "acked": 1, "dead": 0, "retried": 0}, stats
     assert got == [11]
     assert real_broker.queue_depth() == 0
 

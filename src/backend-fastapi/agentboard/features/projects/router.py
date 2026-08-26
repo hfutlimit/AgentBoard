@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from ...core.infrastructure.database import get_session
 from ...core.application import service
-from ...core.api.schemas import CommentIn
+from ...core.api.schemas import CommentIn, LeaseReclaimIn
 from ..scheduling.schemas import ScheduleIn, SprintIn
 from ..work_items.schemas import AgentReviewIn, TaskIn
 from .schemas import (
@@ -22,6 +22,7 @@ from .schemas import (
 	MemberRoleIn,
 	ProjectIn,
 	ProjectPatchExtended,
+	StoryClaimIn,
 	StoryIn,
 	StoryPatch,
 )
@@ -411,6 +412,27 @@ def update_story(sid: int, body: StoryPatch, s: Session = Depends(get_session)):
     return service._ser(st)
 
 
+# 必须声明在 /api/stories/{sid}/* 之前，避免 "reclaim-stale" 被当作 sid 捕获。
+
+@router.post("/api/stories/reclaim-stale")
+def reclaim_stale_stories(
+    body: LeaseReclaimIn | None = None, s: Session = Depends(get_session),
+):
+    """回收租约过期的 todo Story（持有 Worker 已崩溃），批量回退 confirmed。
+
+    判定依据 claimed_at（claim 成功时写入），与 proposals reclaim-stale 同源；
+    只回收 claimed_by 非空的行 —— 用户手工置 todo 的 Story 没有 worker 租约，
+    不受影响。返回被回收的 story id 列表。这是 Story 侧唯一的丢单兜底。
+    """
+    lease = (body.lease_seconds if body and body.lease_seconds is not None
+             else service.DEFAULT_STORY_CLAIM_LEASE_SECONDS)
+    try:
+        ids = service.reclaim_stale_stories(s, lease_seconds=lease)
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    return {"reclaimed": ids, "count": len(ids), "lease_seconds": lease}
+
+
 
 @router.post("/api/stories/{sid}/confirm")
 def confirm_story(sid: int, authorization: str | None = Header(None),
@@ -471,15 +493,19 @@ def complete_story(sid: int, authorization: str | None = Header(None),
 
 @router.post("/api/stories/{sid}/claim")
 def claim_story(sid: int, authorization: str | None = Header(None),
+                body: StoryClaimIn | None = None,
                 s: Session = Depends(get_session)):
     """Worker 竞争认领 Story（Ticket 全流程多实例编排）：CAS confirmed → todo。
 
     多 Worker 实例（不同 agent CLI）竞争同一 confirmed Story 时恰一赢家；
     竞争失败返回 409（已被其它实例认领 / 状态不可认领）。
+    body.agent（可省略，默认 "worker"）写入认领租约 claimed_by，
+    供 reclaim-stale 判定崩溃回收。
     """
     uid, _is_admin = api_helpers._caller_uid_admin(authorization)
     try:
-        st = service.claim_story(s, sid, changed_by=uid)
+        st = service.claim_story(s, sid, changed_by=uid,
+                                 claimed_by=(body.agent if body else "worker"))
     except service.IllegalTransition as e:
         raise HTTPException(status_code=409, detail=str(e))
     return service._ser(st)

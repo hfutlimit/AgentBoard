@@ -407,8 +407,15 @@ def claim_development_task(
     user_id: int,
     agent_registry_id: int | None = None,
     source: str = "claim",
+    claimed_by: str = "worker",
 ) -> Task:
-    """Backward-compatible claim wrapper around the unified assignment CAS."""
+    """Backward-compatible claim wrapper around the unified assignment CAS.
+
+    认领成功后写租约列 claimed_by/claimed_at（与 stories/proposals 对齐），
+    供 reclaim_stale_tasks 判定持有 Worker 崩溃回收。注意：facade 绑定的是本
+    实现；``features.scheduling.service`` 里还有一个同名旧副本（含相同租约
+    写入），两处需同步维护 —— 历史拆分遗留，后续应收敛为单一实现。
+    """
     task, _assignment = try_assign_task(
         s,
         task_id,
@@ -416,6 +423,9 @@ def claim_development_task(
         agent_registry_id=agent_registry_id,
         source=source,
     )
+    task.claimed_by = (claimed_by or "worker")[:100]
+    task.claimed_at = utc_now()
+    _commit(s)
     return task
 
 

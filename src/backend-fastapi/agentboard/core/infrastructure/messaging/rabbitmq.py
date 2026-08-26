@@ -79,6 +79,16 @@ class MQMessageError(MQError):
     """消息载荷非法（毒消息）——必须进死信，绝不重投。"""
 
 
+class MessageRetry(MQError):
+    """瞬时错误 —— handler 要求 requeue 重投（网络抖动 / server 暂不可用）。
+
+    与死信的区别：死信假定「这条消息永远处理不了」；MessageRetry 假定
+    「稍等片刻就能成功」。消费循环收到该异常按 requeue=True 处理，
+    不进死信。handler 应自带退避与重试上限（如 ProposalWorker
+    MSG_RETRY_BACKOFF），避免 server 长期宕机时无限空转。
+    """
+
+
 class MQUnavailable(MQError):
     """broker 不可达 / 未安装驱动。调用方应降级而非崩溃。"""
 
@@ -275,7 +285,7 @@ class InMemoryBroker:
     def consume(self, handler: MessageHandler, *, max_messages: int | None = None,
                 idle_timeout: float | None = None,
                 stop: threading.Event | None = None) -> dict:
-        stats = {"consumed": 0, "acked": 0, "dead": 0}
+        stats = {"consumed": 0, "acked": 0, "dead": 0, "retried": 0}
         deadline = time.monotonic() + (idle_timeout or 0) if idle_timeout else None
         while True:
             if stop is not None and stop.is_set():
@@ -290,7 +300,13 @@ class InMemoryBroker:
                 time.sleep(0.01)
                 continue
             stats["consumed"] += 1
-            if self._dispatch(handler, body):
+            verdict = self._dispatch(handler, body)
+            if verdict == "retry":
+                # 瞬时失败：放回队头立即重投（handler 自带退避）
+                with self._lock:
+                    self._queue.insert(0, body)
+                stats["retried"] += 1
+            elif verdict == "ack":
                 stats["acked"] += 1
             else:
                 with self._lock:
@@ -298,18 +314,23 @@ class InMemoryBroker:
                 stats["dead"] += 1
         return stats
 
-    def _dispatch(self, handler: MessageHandler, body: bytes) -> bool:
+    def _dispatch(self, handler: MessageHandler, body: bytes) -> str:
+        """三态判定："ack" 成功 / "dead" 永久失败 / "retry" 瞬时失败 requeue。"""
         try:
             msg = ProposalMessage.from_bytes(body)
         except MQMessageError as e:
             log.warning("丢弃毒消息（载荷非法）：%s", e)
-            return False
+            return "dead"
         try:
-            return bool(handler(msg))
+            return "ack" if handler(msg) else "dead"
+        except MessageRetry as e:
+            log.warning("消息处理瞬时失败，requeue 重投：proposal_id=%s（%s）",
+                        msg.proposal_id, e)
+            return "retry"
         except Exception:
             log.exception("消息处理抛出未预期异常，转入死信：proposal_id=%s",
                           msg.proposal_id)
-            return False
+            return "dead"
 
     def close(self) -> None:
         return None
@@ -466,7 +487,7 @@ class PikaBroker:
         ``idle_timeout`` 语义保持不变。
         """
         pika = self._pika()
-        stats = {"consumed": 0, "acked": 0, "dead": 0}
+        stats = {"consumed": 0, "acked": 0, "dead": 0, "retried": 0}
         tick = 0.5 if idle_timeout is None else min(0.5, max(0.05, idle_timeout))
         retry_delay = 1.0  # 首次重连等待（秒），此后指数退避，封顶 30s
         max_retry_delay = 30.0
@@ -504,8 +525,13 @@ class PikaBroker:
                         continue
                     idle_started = time.monotonic()
                     stats["consumed"] += 1
-                    ok = self._dispatch(handler, body)
-                    if ok:
+                    verdict = self._dispatch(handler, body)
+                    if verdict == "retry":
+                        # 瞬时失败（网络抖动 / server 5xx）：requeue 立即重投，
+                        # handler 自带退避与次数上限，不进死信
+                        ch.basic_nack(method.delivery_tag, requeue=True)
+                        stats["retried"] += 1
+                    elif verdict == "ack":
                         ch.basic_ack(method.delivery_tag)
                         stats["acked"] += 1
                     else:
@@ -538,18 +564,23 @@ class PikaBroker:
                 retry_delay = min(retry_delay * 2, max_retry_delay)
         return _cancel_and_return()
 
-    def _dispatch(self, handler: MessageHandler, body: bytes) -> bool:
+    def _dispatch(self, handler: MessageHandler, body: bytes) -> str:
+        """三态判定："ack" 成功 / "dead" 永久失败 / "retry" 瞬时失败 requeue。"""
         try:
             msg = ProposalMessage.from_bytes(body)
         except MQMessageError as e:
             log.warning("丢弃毒消息（载荷非法），转入死信队列：%s", e)
-            return False
+            return "dead"
         try:
-            return bool(handler(msg))
+            return "ack" if handler(msg) else "dead"
+        except MessageRetry as e:
+            log.warning("消息处理瞬时失败，requeue 重投：proposal_id=%s（%s）",
+                        msg.proposal_id, e)
+            return "retry"
         except Exception:
             log.exception("消息处理抛出未预期异常，转入死信：proposal_id=%s",
                           msg.proposal_id)
-            return False
+            return "dead"
 
 
 # ===================== 工厂 =====================
@@ -996,7 +1027,7 @@ class InMemoryWorkflowBroker:
                 max_messages: int | None = None,
                 idle_timeout: float | None = None,
                 stop: threading.Event | None = None) -> dict:
-        stats = {"consumed": 0, "acked": 0, "dead": 0}
+        stats = {"consumed": 0, "acked": 0, "dead": 0, "retried": 0}
         deadline = time.monotonic() + (idle_timeout or 0) if idle_timeout else None
         while True:
             if stop is not None and stop.is_set():
@@ -1012,7 +1043,13 @@ class InMemoryWorkflowBroker:
                 time.sleep(0.01)
                 continue
             stats["consumed"] += 1
-            if self._dispatch(handler, body):
+            verdict = self._dispatch(handler, body)
+            if verdict == "retry":
+                # 瞬时失败：放回队头立即重投（handler 自带退避）
+                with self._lock:
+                    self._queues.setdefault(queue_name, []).insert(0, body)
+                stats["retried"] += 1
+            elif verdict == "ack":
                 stats["acked"] += 1
             else:
                 with self._lock:
@@ -1020,18 +1057,24 @@ class InMemoryWorkflowBroker:
                 stats["dead"] += 1
         return stats
 
-    def _dispatch(self, handler: WorkflowMessageHandler, body: bytes) -> bool:
+    def _dispatch(self, handler: WorkflowMessageHandler, body: bytes) -> str:
+        """三态判定："ack" 成功 / "dead" 永久失败 / "retry" 瞬时失败 requeue。"""
         try:
             msg = WorkflowMessage.from_bytes(body)
         except MQMessageError as e:
             log.warning("丢弃 Workflow 毒消息（载荷非法）：%s", e)
-            return False
+            return "dead"
         try:
-            return bool(handler(msg))
+            return "ack" if handler(msg) else "dead"
+        except MessageRetry as e:
+            log.warning("Workflow 消息处理瞬时失败，requeue 重投：event=%s "
+                        "entity=%s#%s（%s）", msg.event, msg.entity_type,
+                        msg.entity_id, e)
+            return "retry"
         except Exception:
             log.exception("Workflow 消息处理抛出未预期异常，转入死信：event=%s "
                           "entity=%s#%s", msg.event, msg.entity_type, msg.entity_id)
-            return False
+            return "dead"
 
     def close(self) -> None:
         return None
@@ -1206,7 +1249,7 @@ class PikaWorkflowBroker:
         一旦崩溃会同时拉死 worker 进程，所以同样要覆盖。
         """
         pika = self._pika()
-        stats = {"consumed": 0, "acked": 0, "dead": 0}
+        stats = {"consumed": 0, "acked": 0, "dead": 0, "retried": 0}
         tick = 0.5 if idle_timeout is None else min(0.5, max(0.05, idle_timeout))
         retry_delay = 1.0  # 首次重连等待（秒），此后指数退避，封顶 30s
         max_retry_delay = 30.0
@@ -1244,8 +1287,13 @@ class PikaWorkflowBroker:
                         continue
                     idle_started = time.monotonic()
                     stats["consumed"] += 1
-                    ok = self._dispatch(handler, body)
-                    if ok:
+                    verdict = self._dispatch(handler, body)
+                    if verdict == "retry":
+                        # 瞬时失败（网络抖动 / server 5xx）：requeue 立即重投，
+                        # handler 自带退避与次数上限，不进死信
+                        ch.basic_nack(method.delivery_tag, requeue=True)
+                        stats["retried"] += 1
+                    elif verdict == "ack":
                         ch.basic_ack(method.delivery_tag)
                         stats["acked"] += 1
                     else:
@@ -1277,18 +1325,23 @@ class PikaWorkflowBroker:
                 retry_delay = min(retry_delay * 2, max_retry_delay)
         return _cancel_and_return()
 
-    def _dispatch(self, handler: WorkflowMessageHandler, body: bytes) -> bool:
+    def _dispatch(self, handler: WorkflowMessageHandler, body: bytes) -> str:
+        """三态判定："ack" 成功 / "dead" 永久失败 / "retry" 瞬时失败 requeue。"""
         try:
             msg = WorkflowMessage.from_bytes(body)
         except MQMessageError as e:
             log.warning("丢弃 Workflow 毒消息（载荷非法），转入死信队列：%s", e)
-            return False
+            return "dead"
         try:
-            return bool(handler(msg))
+            return "ack" if handler(msg) else "dead"
+        except MessageRetry as e:
+            log.warning("Workflow 消息处理瞬时失败，requeue 重投：event=%s（%s）",
+                        msg.event, e)
+            return "retry"
         except Exception:
             log.exception("Workflow 消息处理抛出未预期异常，转入死信：event=%s",
                           msg.event)
-            return False
+            return "dead"
 
 
 # ===================== Workflow 发布器（API 侧） =====================

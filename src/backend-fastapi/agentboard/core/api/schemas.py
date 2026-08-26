@@ -13,3 +13,8 @@ class StatusIn(BaseModel):
 	reason: str = ""
 	status_reason: str | None = None
 
+
+class LeaseReclaimIn(BaseModel):
+	"""POST /api/{stories,tasks}/reclaim-stale 请求体（均可省略用默认租约）。"""
+	lease_seconds: int | None = Field(default=None, ge=0, le=7 * 24 * 3600)
+
