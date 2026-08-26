@@ -41,7 +41,11 @@ from .run_event_bus import (
 
 router = APIRouter(tags=["scheduling"])
 
+from .behavior_router import router as behavior_router  # noqa: E402
+router.include_router(behavior_router)
+
 log = logging.getLogger("agentboard.features.scheduling.router")
+
 
 # P1-7: the bus is now an in-process implementation behind the
 # ``IRunEventBus`` protocol. Tests and the local dev path keep using the

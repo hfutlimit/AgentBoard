@@ -1,3 +1,3 @@
-from .models import AgentRun, AgentSchedule, TaskApplication, TaskAssignment
+from .models import AgentBehaviorConfig, AgentRun, AgentSchedule, TaskApplication, TaskAssignment
 
-__all__ = ["AgentRun", "AgentSchedule", "TaskApplication", "TaskAssignment"]
+__all__ = ["AgentBehaviorConfig", "AgentRun", "AgentSchedule", "TaskApplication", "TaskAssignment"]

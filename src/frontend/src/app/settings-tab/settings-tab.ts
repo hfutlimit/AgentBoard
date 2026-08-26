@@ -3,16 +3,18 @@ import { Component, ViewEncapsulation, inject } from '@angular/core';
 import { PaginationComponent } from '../pagination/pagination';
 import { ProjectDataService } from '../services/project-data.service';
 import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
+import { AgentBehaviorConfigComponent } from '../shared/agent-behavior-config/agent-behavior-config.component';
 
 /** Full project settings route; state/actions are delegated to the workspace host. */
 @Component({
   selector: 'app-settings-tab',
   standalone: true,
-  imports: [CommonModule, PaginationComponent, WorkspaceHeadingComponent],
+  imports: [CommonModule, PaginationComponent, WorkspaceHeadingComponent, AgentBehaviorConfigComponent],
   templateUrl: './settings-tab.html',
   styleUrl: './settings-tab.css',
   encapsulation: ViewEncapsulation.None,
 })
+
 export class SettingsTabComponent {
   readonly host = inject(ProjectDataService).getWorkspaceHost<any>();
   readonly members = this.host.members;

@@ -65,7 +65,17 @@
                             <span class="settings-nav-sub">导出任务数据</span>
                           </span>
                         </button>
+                        <button class="settings-nav-item" type="button"
+                                [class.active]="settingsSubTab() === 'agent-behavior'"
+                                (click)="selectSettingsSubTab('agent-behavior')">
+                          <span class="settings-nav-icon">🤖</span>
+                          <span class="settings-nav-text">
+                            <span class="settings-nav-label">Agent 行为配置</span>
+                            <span class="settings-nav-sub">定制工作准则与纠错学习</span>
+                          </span>
+                        </button>
                       </nav>
+
                     </aside>
 
                     <!-- 右侧内容：根据 settingsSubTab 切换 -->
@@ -249,7 +259,15 @@
                           </div>
                         </div>
                       }
+
+                      <!-- 子页：Agent 行为配置与纠错学习 -->
+                      @if (settingsSubTab() === 'agent-behavior') {
+                        <div class="card" style="padding: 0; background: transparent; border: none;">
+                          <app-agent-behavior-config [projectId]="current.id"></app-agent-behavior-config>
+                        </div>
+                      }
                     </section>
+
                   </div>
                 }
               </div>
