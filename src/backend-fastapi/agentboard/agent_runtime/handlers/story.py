@@ -229,6 +229,15 @@ class StoryHandler(BaseWorkHandler):
         }
         # Epic 140 切片 3：派单前 recall 项目历史经验（失败 fallback 不带记忆，不阻断）
         ctx["recalled"] = self._recall_episodes(project_id, ctx)
+        # P1 修复（Review 2026-08-26）：注入 ExecutionCommand 激活 PreparedExecution 路径
+        from ..contract import ExecutionCommand, WorkType
+        ctx["_command"] = ExecutionCommand(
+            execution_id=f"story_{sid}",
+            work_type=WorkType.TASK_IMPLEMENT,  # Story 推进默认 IMPLEMENTATION
+            entity_type="story",
+            entity_id=int(sid or 0),
+            context=ctx,
+        )
         return ctx
 
     def _resolve_project_dir(self, project_id: Any) -> str:
@@ -508,6 +517,20 @@ class StoryHandler(BaseWorkHandler):
         }
         # Epic 140 切片 3：task 派单前同样 recall 项目经验（失败 fallback 不带记忆）
         ctx["recalled"] = self._recall_episodes(task.get("project_id"), ctx)
+        # P1 修复（Review 2026-08-26）：注入 ExecutionCommand 激活 PreparedExecution 路径
+        from ..contract import ExecutionCommand, WorkType
+        try:
+            wt_enum = WorkType(work_type)
+        except (ValueError, KeyError):
+            wt_enum = WorkType.IMPLEMENTATION
+        task_id = int(task.get("id") or 0)
+        ctx["_command"] = ExecutionCommand(
+            execution_id=f"task_{task_id}_{wt_enum.value}",
+            work_type=wt_enum,
+            entity_type="task",
+            entity_id=task_id,
+            context=ctx,
+        )
         return ctx
 
     def build_task_prompt(self, context: dict) -> str:

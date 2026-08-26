@@ -191,7 +191,16 @@ class AgentDecision:
 # ===================== 无头 Agent 调用协议 =====================
 
 class AgentInvoker(Protocol):
-    """无头 Agent 适配器。实现方只需把上下文变成一个决策。"""
+    """无头 Agent 适配器。实现方只需把上下文变成一个决策。
+
+    Review 2026-08-26 新增 ``invoke_with_prompt`` 协议：
+    Coordinator / Worker 在 dispatch 前经过 prepare_execution 算出最终 prompt，
+    handler 可以跳过 ``_prompt_builder`` 直接调 ``invoke_with_prompt`` 喂入。
+    实现类必须支持这两个方法。
+    """
 
     def invoke(self, context: dict) -> AgentDecision:  # pragma: no cover - 协议声明
+        ...
+
+    def invoke_with_prompt(self, prompt: str, context: dict) -> AgentDecision:  # pragma: no cover
         ...

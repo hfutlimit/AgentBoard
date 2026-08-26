@@ -327,3 +327,170 @@ def test_scenario_5_reviewer_judgment_reversal_learning(db_session):
     assert extracted.category == "review_judgment_reversal"
     assert "评审" in extracted.summary or "误判" in extracted.summary
     assert len(extracted.lesson) > 10
+
+
+# -------------------------------------------------------------
+# P1 修复（Review 2026-08-26）：Behavior pipeline 真的接进 production runtime
+# -------------------------------------------------------------
+# 原问题：Handler 调 invoker.invoke(context) → 走 invokers._prompt_builder 全局
+# 函数 → Coordinator.build_prompt_for 选老 handler.build_prompt 调 hardcode prompt，
+# 完全不调 BehaviorResolver / ContextBuilder / PromptBuilder。
+# 修复：每个 Handler.load_context 末尾注入 context["_command"] = ExecutionCommand，
+# 激活 invokers.build_prompt 的 PreparedExecution 路径。
+#
+# 本场景验证：production-style 调用（build_prompt 拿 context → 渲染）真的能拿到
+# Behavior 配置渲染出的 prompt（不再是 handler hardcode）。
+
+def test_scenario_6_production_path_uses_behavior_pipeline(db_session):
+    """P1 验收：Handler 调 build_prompt(context) 必须走 PreparedExecution 路径。
+
+    模拟 production 真实调用：handler 调 invokers.build_prompt(context)，
+    context 里有 ``_command: ExecutionCommand``。我们验证出来的 prompt
+    包含：
+    1. WorkType core（IMPLEMENTATION 核心职责）
+    2. Behavior 块（用户配置的 preparation/collaboration）
+    3. 不包含 Handler 的旧 hardcode 标识（防止回归）
+    """
+    from agentboard.agent_runtime._prepared import prepare_execution
+    from agentboard.agent_runtime.contract import ExecutionCommand, WorkType
+    from agentboard.agent_runtime.behavior.models import (
+        AgentBehaviorConfigPayload, PreparationBehavior, CollaborationBehavior,
+    )
+    from agentboard.agent_runtime.behavior.resolver import behavior_resolver
+    from agentboard.agent_runtime.behavior.prompt_builder import prompt_builder
+    from agentboard.features.scheduling.behavior_service import upsert_behavior_config
+    from agentboard.features.projects.models import Agent, Project
+
+    # 1. 建一个项目 + agent + 落项目级 behavior 配置（关闭 sync_code，开启 read_documents）
+    p = Project(name=f"P1_Prod_{uuid.uuid4().hex[:6]}")
+    ag = Agent(agent_id=f"ag_{uuid.uuid4().hex[:8]}", name="P1 Agent")
+    db_session.add_all([p, ag])
+    db_session.commit()
+
+    payload = AgentBehaviorConfigPayload(
+        preparation=PreparationBehavior(sync_code=False, read_documents=True, load_memory=True),
+        collaboration=CollaborationBehavior(read_comments=True, leave_summary=True),
+        additional_instructions="P1 production-path project instruction",
+    )
+    upsert_behavior_config(db_session, payload, project_id=p.id)
+    upsert_behavior_config(db_session, payload, project_id=p.id, agent_id=ag.id, work_type=None)
+
+    # 2. 模拟 handler 内部准备 context（带 _command）
+    ctx = {
+        "project_id": p.id,
+        "agent_id": ag.id,
+        "title": "Implement Order Refund Flow",
+        "description": "Process refund with database transaction",
+        "spec": "Use try/except with rollback on PaymentGatewayError",
+        "task_id": 999,
+        # 关键：handler.load_context 必须塞这个，否则走老 _prompt_builder 路径
+        "_command": ExecutionCommand(
+            execution_id="prod_task_999",
+            work_type=WorkType.IMPLEMENTATION,
+            entity_type="task",
+            entity_id=999,
+            context={},  # 由 prepare_execution 内部闭环，不需预填
+        ),
+    }
+    ctx["_command"] = ctx["_command"].model_copy(update={"context": ctx})
+
+    # 3. 调 invokers.build_prompt(context) —— 这是 production 真实入口
+    from agentboard.agent_runtime.invokers import build_prompt
+    prompt = build_prompt(ctx)
+
+    # 4. 验证 prompt 来自 PreparedExecution 路径
+    assert "核心职责：代码实现" in prompt, \
+        "prompt 必须包含 IMPLEMENTATION WorkType core（来自 PromptBuilder，不是 handler hardcode）"
+    assert "P1 production-path project instruction" in prompt, \
+        "prompt 必须包含 effective additional_instructions（来自 BehaviorResolver）"
+    # 5. 验证：用户关了 sync_code，所以不应该出现"代码同步"提示
+    assert "代码同步" not in prompt, \
+        "用户关闭 sync_code 后，prompt 不应出现 sync_code 块（行为开关必须真生效）"
+    # 6. 验证：context["_prepared"] 已经被 PreparedExecution 缓存
+    prepared = ctx.get("_prepared")
+    assert prepared is not None, "build_prompt 必须缓存 PreparedExecution 到 ctx['_prepared']"
+    assert prepared.work_type == WorkType.IMPLEMENTATION
+    assert prepared.behavior.preparation.sync_code is False  # 用户配置
+
+
+def test_scenario_7_prepared_execution_normalizes_legacy_worktype():
+    """P1 验收：PreparedExecution 必须把 legacy alias 归一化成 canonical。
+
+    Review 2026-08-26：TASK_IMPLEMENT / TASK_REVIEW 是向后兼容别名，
+    runtime 内部必须立即 normalize 成 canonical，
+    避免 prompt / context / behavior 计算走"平级兼容分支"。
+    """
+    from agentboard.agent_runtime._prepared import prepare_execution
+    from agentboard.agent_runtime.contract import ExecutionCommand, WorkType
+
+    # TASK_IMPLEMENT → IMPLEMENTATION
+    cmd = ExecutionCommand(
+        execution_id="legacy_impl_1",
+        work_type=WorkType.TASK_IMPLEMENT,
+        entity_type="task",
+        entity_id=1,
+    )
+    prepared = prepare_execution(cmd)
+    assert prepared.work_type == WorkType.IMPLEMENTATION, \
+        "TASK_IMPLEMENT alias 必须归一化成 IMPLEMENTATION"
+
+    # TASK_REVIEW → IMPLEMENTATION_REVIEW（保守默认；design/qa 区分由业务侧 work_type 字段承载）
+    cmd2 = ExecutionCommand(
+        execution_id="legacy_rev_1",
+        work_type=WorkType.TASK_REVIEW,
+        entity_type="task",
+        entity_id=2,
+    )
+    prepared2 = prepare_execution(cmd2)
+    assert prepared2.work_type == WorkType.IMPLEMENTATION_REVIEW, \
+        "TASK_REVIEW alias 必须归一化成 IMPLEMENTATION_REVIEW"
+
+    # DESIGN / DESIGN_REVIEW 等 canonical 不变
+    cmd3 = ExecutionCommand(
+        execution_id="canon_1",
+        work_type=WorkType.DESIGN_REVIEW,
+        entity_type="task",
+        entity_id=3,
+    )
+    prepared3 = prepare_execution(cmd3)
+    assert prepared3.work_type == WorkType.DESIGN_REVIEW, \
+        "DESIGN_REVIEW canonical 必须保持不变"
+
+    # TASK_RESPOND 保留（owner response 是独立 WorkType）
+    cmd4 = ExecutionCommand(
+        execution_id="resp_1",
+        work_type=WorkType.TASK_RESPOND,
+        entity_type="task",
+        entity_id=4,
+    )
+    prepared4 = prepare_execution(cmd4)
+    assert prepared4.work_type == WorkType.TASK_RESPOND, \
+        "TASK_RESPOND 是独立 WorkType，必须保留"
+
+
+def test_scenario_8_handler_load_context_injects_command():
+    """P1 验收：所有 4 个 Handler.load_context 末尾都注入 _command。
+
+    防止回归：未来重构如果漏了某个 handler 的 _command 注入，
+    production 路径会回退到老 _prompt_builder hardcode。
+    """
+    # 静态检查：handler.load_context 源码中必须含 "_command" 字段
+    from pathlib import Path
+    repo = Path(__file__).resolve().parents[2] / "src" / "backend-fastapi"
+    handlers_dir = repo / "agentboard" / "agent_runtime" / "handlers"
+
+    missing: list[str] = []
+    for py in sorted(handlers_dir.glob("*.py")):
+        if py.name in ("__init__.py", "base.py"):
+            continue
+        text = py.read_text(encoding="utf-8")
+        # 必须有 load_context 函数 + 注入 _command
+        if "def load_context" not in text:
+            continue
+        if '"_command"' not in text and "'_command'" not in text:
+            missing.append(py.name)
+
+    assert not missing, (
+        f"以下 handler 没在 load_context 注入 _command 字段，"
+        f"production 路径会绕过 PreparedExecution（P1 修复不可破坏）：{missing}"
+    )

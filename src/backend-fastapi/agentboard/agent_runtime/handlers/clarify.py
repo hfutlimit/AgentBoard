@@ -167,7 +167,7 @@ class ClarifyHandler(BaseWorkHandler):
                 history.append(item)
                 if not answered:
                     open_questions.append(item)
-        return {
+        ctx = {
             "proposal_id": proposal.get("id"),
             "project_id": proposal.get("project_id"),
             "title": proposal.get("title"),
@@ -183,6 +183,17 @@ class ClarifyHandler(BaseWorkHandler):
             "max_rounds": self.config.max_rounds,
             "project_dir": self._resolve_project_dir(proposal.get("project_id")),
         }
+        # P1 修复（Review 2026-08-26）：把 ExecutionCommand 塞进 context，让
+        # invokers.build_prompt 走 PreparedExecution 路径（Behavior + Context + Prompt pipeline）
+        from ..contract import ExecutionCommand, WorkType
+        ctx["_command"] = ExecutionCommand(
+            execution_id=f"proposal_clarify_{pid}",
+            work_type=WorkType.PROPOSAL_CLARIFY,
+            entity_type="proposal",
+            entity_id=int(pid or 0),
+            context=ctx,
+        )
+        return ctx
 
     def _resolve_project_dir(self, project_id: Any) -> str:
         """从与 SubprocessAgentInvoker 同一份本地映射文件查 project_dir。"""

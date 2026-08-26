@@ -125,7 +125,7 @@ class TicketHandler(BaseWorkHandler):
                     "unsure": bool(q.get("unsure")),
                     "answered": bool(q.get("answered_at")),
                 })
-        return {
+        ctx = {
             "action": "create_ticket",
             "proposal_id": proposal.get("id"),
             "project_id": proposal.get("project_id"),
@@ -141,6 +141,17 @@ class TicketHandler(BaseWorkHandler):
             "ticket_title": work_item.get("title") or "",
             "project_dir": self._resolve_project_dir(proposal.get("project_id")),
         }
+        # P1 修复（Review 2026-08-26）：注入 ExecutionCommand 激活 PreparedExecution 路径
+        from ..contract import ExecutionCommand, WorkType
+        rid = work_item.get("id") or 0
+        ctx["_command"] = ExecutionCommand(
+            execution_id=f"proposal_convert_{rid}",
+            work_type=WorkType.PROPOSAL_CONVERT,
+            entity_type="proposal",
+            entity_id=int(rid),
+            context=ctx,
+        )
+        return ctx
 
     def _resolve_project_dir(self, project_id: Any) -> str:
         if not project_id:

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from enum import Enum
 from typing import Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class WorkType(str, Enum):
@@ -25,7 +25,7 @@ class WorkType(str, Enum):
     QA = "qa"
     QA_REVIEW = "qa_review"
 
-    # 向后兼容别名（以兼容旧配置与历史代码）
+    # 向后兼容别名（仅 parser / adapter 接受，runtime 内部必须立即 normalize 成 canonical）
     TASK_IMPLEMENT = "task_implement"
     TASK_REVIEW = "task_review"
     TASK_RESPOND = "task_respond"
@@ -46,6 +46,36 @@ class WorkType(str, Enum):
             elif t in ("qa", "test", "testing"):
                 return cls.QA
             return cls.IMPLEMENTATION
+
+    @classmethod
+    def canonical_for(cls, work_type: "WorkType | str | None") -> "WorkType":
+        """把 legacy alias 归一化成 canonical WorkType。
+
+        Review 2026-08-26：TASK_IMPLEMENT / TASK_REVIEW 是历史兼容别名，
+        内部 runtime 一旦进入统一模型必须立即 normalize 成 canonical，
+        避免后续 prompt / context / behavior 计算走"平级兼容分支"。
+
+        映射：
+            TASK_IMPLEMENT → IMPLEMENTATION
+            TASK_REVIEW    → IMPLEMENTATION_REVIEW（保守默认；design/qa 区分已由
+                              业务侧 work_type 字段承载）
+            TASK_RESPOND   → 保留（owner response 是独立 WorkType）
+            其他           → 不变
+        """
+        if work_type is None:
+            return cls.IMPLEMENTATION  # 兜底：未指定工作类型默认 IMPLEMENTATION
+        if isinstance(work_type, cls):
+            wt = work_type
+        else:
+            try:
+                wt = cls(str(work_type).strip().lower())
+            except (ValueError, KeyError):
+                return cls.IMPLEMENTATION
+        if wt == cls.TASK_IMPLEMENT:
+            return cls.IMPLEMENTATION
+        if wt == cls.TASK_REVIEW:
+            return cls.IMPLEMENTATION_REVIEW
+        return wt
 
 
 class ExecutionCommand(BaseModel):
@@ -106,3 +136,44 @@ class ExecutionResult(BaseModel):
             error_message=error,
             inspected_files=inspected_files or [],
         )
+
+
+# -----------------------------------------------------------------------------
+# PreparedExecution：dispatch 前的不可变执行包
+# -----------------------------------------------------------------------------
+# Review 2026-08-26 P1 修复：原 Worker 主流程从
+#
+#   Handler.load_context() → invoker.invoke(context) → 全局 _prompt_builder
+#
+#   没有调用 BehaviorResolver / ContextBuilder / PromptBuilder。新模块
+#   都是 dead code。本结构把"behavior 解析 + context 装配 + prompt 渲染"
+#   集中在 dispatch 入口前完成，作为不可变包传给 handler 协议。
+#
+# 设计原则：
+# 1. 不可变（frozen model）—— handler 收到后不应再改；
+# 2. 包含最终 prompt —— handler / invoker 拿到即可用，无需再查 _prompt_builder；
+# 3. work_type 已是 canonical（legacy alias 已被 normalize）—— 业务层不再判断 alias。
+# 4. backward-compat：handler 仍可走旧协议 execute_command(command, invoker)；
+#   PreparedExecution 仅作为 opt-in 路径。
+
+class PreparedExecution(BaseModel):
+    """dispatch 前完成的不可变执行包。
+
+    字段：
+    - command: 原始 ExecutionCommand（已 normalize work_type）
+    - work_type: canonical WorkType（与 command.work_type 一致；提供便利访问）
+    - behavior: 解析后的 EffectiveBehaviorConfig
+    - execution_context: 装配后的 ExecutionContext
+    - prompt: 最终给 Agent 的 prompt
+    """
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
+
+    command: ExecutionCommand
+    work_type: WorkType
+    behavior: Any  # EffectiveBehaviorConfig（避免循环 import；运行时真实类型可被 isinstance 校验）
+    execution_context: Any  # ExecutionContext（同上）
+    prompt: str
+    # 准备阶段耗时（毫秒），便于 metrics / log
+    prepare_ms: int = 0
+

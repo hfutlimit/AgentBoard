@@ -226,6 +226,12 @@ class RoutedSubprocessInvoker:
         self.last_invoker = child
         return child.invoke(routed_ctx)
 
+    def invoke_with_prompt(self, prompt: str, context: dict) -> AgentDecision:
+        """新协议：已渲染 prompt 直接透传到子 invoker（同 invoke 路由逻辑）。"""
+        ctx = dict(context or {})
+        ctx["_rendered_prompt"] = prompt
+        return self.invoke(ctx)
+
 # 运行时从 handlers 惰性导入 build_prompt（避免 config 层反向依赖 prompt 实现）
 # 由 ProposalWorker 在构造时注入 prompt_builder，解耦提示词与调用器。
 _prompt_builder: Callable[[dict], str] | None = None
@@ -248,10 +254,38 @@ def _default_build_prompt(context: dict) -> str:
     return "\n".join(lines)
 
 
-def build_prompt(context: dict) -> str:
-    """把全量重放上下文渲染成给无头 Agent 的提示词（委派注入的实现）。"""
+def _prepared_build_prompt(context: dict) -> str:
+    """新 P1 路径（Review 2026-08-26）：如果 context 里塞了 ExecutionCommand，
+    走 BehaviorResolver + ContextBuilder + PromptBuilder 真实渲染；
+    其它走原 _prompt_builder / 兜底。
+
+    Coordinator / Worker 入口负责把 ``_command: ExecutionCommand`` 塞进 context，
+    这条路径自动激活；旧 handler 不塞 _command 仍走老路径（向后兼容）。
+    """
+    cmd = (context or {}).get("_command")
+    if cmd is not None and not isinstance(cmd, dict):
+        from ._prepared import prepare_execution
+        try:
+            prepared = prepare_execution(cmd, db=context.get("_db"))
+            # 把 prepared 缓存回 context，让 invoker 拿到完整 PreparedExecution（含 prompt）
+            context["_prepared"] = prepared
+            return prepared.prompt
+        except Exception as e:
+            log.warning("prepare_execution 失败，fallback 旧 _prompt_builder：%s", e)
+    # 兜底：走原 _prompt_builder
     builder = _prompt_builder or _default_build_prompt
     return builder(context)
+
+
+def build_prompt(context: dict) -> str:
+    """把全量重放上下文渲染成给无头 Agent 的提示词（默认走 P1 prepared 路径）。
+
+    默认实现（``_prepared_build_prompt``）会：
+    1. 如果 context 含 ``_command: ExecutionCommand`` → 走 Behavior/Context/Prompt pipeline；
+    2. 否则 → 走原注入的 _prompt_builder；
+    3. 都没了 → 兜底 _default_build_prompt。
+    """
+    return _prepared_build_prompt(context)
 
 
 class CallableAgentInvoker:
@@ -265,6 +299,14 @@ class CallableAgentInvoker:
         if isinstance(out, AgentDecision):
             return out
         return AgentDecision.from_dict(out)
+
+    def invoke_with_prompt(self, prompt: str, context: dict) -> AgentDecision:
+        """新协议（Review 2026-08-26 P1）：把已渲染的 prompt 直接注入 context，
+        供 fn 使用；老 invoke() 路径走 _prompt_builder 全局函数（向后兼容）。
+        """
+        ctx = dict(context or {})
+        ctx["_rendered_prompt"] = prompt
+        return self.invoke(ctx)
 
 
 def extract_decision_json(stdout: str) -> dict:
@@ -399,6 +441,32 @@ class SubprocessAgentInvoker:
     def invoke(self, context: dict) -> AgentDecision:
         prompt = build_prompt(context)
         # Story 243：按 project_id 解析本机工作目录（无映射回退构造时 cwd）
+        cwd = _resolve_project_cwd(context, self.cwd)
+        try:
+            proc = subprocess.run(
+                self.argv, input=prompt, capture_output=True, text=True,
+                timeout=self.timeout, cwd=cwd, env=self.env,
+                encoding="utf-8", errors="replace",
+            )
+        except subprocess.TimeoutExpired:
+            raise AgentInvocationError(
+                f"Agent 调用超时（>{self.timeout}s）：{self.cmd}"
+            ) from None
+        except (FileNotFoundError, OSError) as e:
+            raise AgentInvocationError(f"Agent 命令无法启动：{self.cmd}（{e}）") from None
+        if proc.returncode != 0:
+            tail = (proc.stderr or proc.stdout or "").strip()[-400:]
+            raise AgentInvocationError(
+                f"Agent 退出码 {proc.returncode}：{tail or '(无输出)'}"
+            )
+        return AgentDecision.from_dict(extract_decision_json(proc.stdout))
+
+    def invoke_with_prompt(self, prompt: str, context: dict) -> AgentDecision:
+        """新协议（Review 2026-08-26 P1）：跳过 _prompt_builder，直接喂入已渲染 prompt。
+
+        适用于：Coordinator / Worker 在 dispatch 前已经经过 prepare_execution 算出最终
+        prompt，handler 拿到 prepared.prompt 后直接透传，省去二次 prompt 渲染。
+        """
         cwd = _resolve_project_cwd(context, self.cwd)
         try:
             proc = subprocess.run(

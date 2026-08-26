@@ -65,12 +65,26 @@ class ReviewHandler(BaseWorkHandler):
         response = self._request("GET", f"/api/tasks/{task_id}/review-context")
         response.raise_for_status()
         context = response.json() or {}
+        # P2 修复（Review 2026-08-26）：work_type 是 authoritative；不再塞
+        # action="review_task" 抹平 DESIGN_REVIEW / IMPLEMENTATION_REVIEW / QA_REVIEW。
+        # action 字段只描述 Agent 输出 decision（approve/reject），不描述 execution type。
         context.update({
-            "action": "review_task",
             "work_type": work_type,
             "task_id": task_id,
             "review_event": event,
         })
+        # P1 修复（Review 2026-08-26）：注入 ExecutionCommand 激活 PreparedExecution 路径
+        try:
+            wt_enum = WorkType(work_type)
+        except (ValueError, KeyError):
+            wt_enum = WorkType.TASK_REVIEW
+        context["_command"] = ExecutionCommand(
+            execution_id=f"review_{task_id}",
+            work_type=wt_enum,
+            entity_type="task",
+            entity_id=task_id,
+            context=context,
+        )
         return context
 
     def build_prompt(self, context: dict) -> str:
@@ -171,11 +185,19 @@ class OwnerResponseHandler(BaseWorkHandler):
         )
         response.raise_for_status()
         context = response.json() or {}
+        # P2 修复：work_type authoritative；不再塞 action=owner_response 抹平
         context.update({
-            "action": "owner_response",
             "task_id": task_id,
             "review_event": event,
         })
+        # P1 修复：注入 ExecutionCommand 激活 PreparedExecution 路径
+        context["_command"] = ExecutionCommand(
+            execution_id=f"owner_respond_{task_id}",
+            work_type=WorkType.TASK_RESPOND,
+            entity_type="task",
+            entity_id=task_id,
+            context=context,
+        )
         return context
 
     def build_prompt(self, context: dict) -> str:

@@ -120,7 +120,12 @@ class WorkerCoordinator:
     # ---------- 统一分发与执行 ----------
 
     def dispatch(self, command: ExecutionCommand) -> ExecutionResult:
-        """核心统一调度入口：根据 command.work_type 分发到对应的 Handler 执行。"""
+        """核心统一调度入口：根据 command.work_type 分发到对应的 Handler 执行。
+
+        Review 2026-08-26 P1：dispatch 入口把 ExecutionCommand 注入 context["_command"]，
+        激活 invokers.build_prompt 的 PreparedExecution 路径——
+        BehaviorResolver + ContextBuilder + PromptBuilder 在 production 真正生效。
+        """
         handler = self.registry.get(command.work_type)
         if not handler:
             return ExecutionResult.failure(
@@ -139,6 +144,11 @@ class WorkerCoordinator:
                     action="skipped",
                 )
             self._inflight.add(inflight_key)
+
+        # P1 关键：让下游 invoker.invoke() / invoke_with_prompt() 走 PreparedExecution 路径
+        # （即真正调用 BehaviorResolver / ContextBuilder / PromptBuilder）
+        if "_command" not in command.context:
+            command.context["_command"] = command
 
         try:
             log.info("开始执行命令 [exec_id=%s, work_type=%s, entity_id=%s]",

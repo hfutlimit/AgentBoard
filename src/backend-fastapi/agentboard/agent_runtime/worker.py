@@ -9,6 +9,10 @@
 ``agentboard.worker`` 模块符号（ProposalWorker / WorkerConfig / AgentDecision /
 SubprocessAgentInvoker / CallableAgentInvoker / split_command / extract_decision_json）
 全部 re-export（见 __init__.py）。
+
+Review 2026-08-26 P1：每个 handle* 入口必须把 ExecutionCommand 塞进 context._command，
+激活 invokers.build_prompt 的 PreparedExecution 路径，让 BehaviorResolver /
+ContextBuilder / PromptBuilder 在 production 真正生效。
 """
 from __future__ import annotations
 
@@ -23,6 +27,7 @@ import httpx
 from agentboard.core.infrastructure import messaging as mq
 from . import heartbeat, maintenance
 from .config import AgentDecision, WorkerConfig, WorkerError
+from .contract import ExecutionCommand, WorkType
 from .handlers import build_handlers
 from .invokers import (
     CallableAgentInvoker,
@@ -53,6 +58,46 @@ def _parse_dt(value: Any) -> datetime | None:
         except ValueError:
             return None
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+
+
+def _stamp_command(
+    work_type: WorkType,
+    entity_type: str,
+    entity_id: int,
+    context: dict,
+    *,
+    execution_id: str | None = None,
+) -> ExecutionCommand:
+    """构造 ExecutionCommand 并塞进 context["_command"]，激活 PreparedExecution 路径。
+
+    Review 2026-08-26 P1：原 Worker 主流程完全没有调用 BehaviorResolver /
+    ContextBuilder / PromptBuilder；通过这个 helper 在每个 handle* 入口
+    把 ExecutionCommand 注入 context，下游 invoker.invoke() 自动走
+    ``invokers._prepared_build_prompt``，最终 prompt 由 Behavior pipeline
+    真正渲染（不再仅靠 handler hardcode）。
+
+    Args:
+        work_type: 已归一化的 WorkType（调用方负责 legacy alias 转换）
+        entity_type: 业务实体类型（proposal | story | task | epic）
+        entity_id: 业务实体 ID
+        context: handler 用的 context dict（会被原地写入 _command）
+        execution_id: 可选；不传则用 (kind, entity_id) 派生稳定 ID
+
+    Returns:
+        构造的 ExecutionCommand
+    """
+    if "_command" in context and isinstance(context["_command"], ExecutionCommand):
+        return context["_command"]
+    eid = execution_id or f"{work_type.value}_{entity_type}_{entity_id}"
+    cmd = ExecutionCommand(
+        execution_id=eid,
+        work_type=work_type,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        context=context,
+    )
+    context["_command"] = cmd
+    return cmd
 
 
 class ProposalWorker:
