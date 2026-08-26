@@ -31,13 +31,31 @@ class ExtractedLesson(BaseModel):
 class LearningExtractor:
     """结构化深度反思提炼器。"""
 
+    def _sanitize_context(self, text: str) -> str:
+        """Sanitize context to prevent prompt injection."""
+        text = text.strip()
+        patterns = [
+            r"ignore previous instructions",
+            r"system:",
+            r"<\|im_start\|>",
+            r"<\|im_end\|>"
+        ]
+        for p in patterns:
+            text = re.sub(p, "", text, flags=re.IGNORECASE)
+        
+        text = text[:500]
+        if text:
+            return f"=== CONTEXT START ===\n{text}\n=== CONTEXT END ==="
+        return ""
+
     def extract(
         self,
         event: LearningTriggerEvent,
         invoker: Any = None,
     ) -> ExtractedLesson:
         """从学习事件中提炼出结构化经验教训与深度反思。"""
-        ctx = event.discussion_context.strip()
+        raw_ctx = event.discussion_context.strip()
+        ctx = self._sanitize_context(raw_ctx)
         cat = event.category.value
 
         # 提取相关技术与领域标签
@@ -50,12 +68,12 @@ class LearningExtractor:
             "async", "await", "lock", "timeout", "review", "auth", "token", "permission",
             "validation", "schema", "api", "cache", "redis", "csrf", "decimal", "float",
         ]:
-            if kw in ctx.lower() or kw in event.summary_hint.lower():
+            if kw in raw_ctx.lower() or kw in event.summary_hint.lower():
                 tags.append(kw)
 
         if event.category == LearningCategory.ACCEPTED_REVIEW_FEEDBACK:
             summary = event.summary_hint or "采纳审查意见并修复缺陷"
-            what_missed = f"实现时未满足的审查项: {ctx[:200]}"
+            what_missed = f"实现时未满足的审查项: {ctx}"
             why_missed = "开发过程中未充分考虑边界条件、数据一致性或架构约束。"
             evidence_to_check = "修改代码前必须检索相关 schema 定义、调用上下文与异常处理路径。"
             lesson = (
@@ -66,7 +84,7 @@ class LearningExtractor:
             )
         elif event.category == LearningCategory.REVIEW_JUDGMENT_REVERSAL:
             summary = event.summary_hint or "评审误判经申诉后撤销改判"
-            what_missed = f"评审时遗漏了已有代码上下文证据: {ctx[:200]}"
+            what_missed = f"评审时遗漏了已有代码上下文证据: {ctx}"
             why_missed = "评审仅凭局部代码或主观假设，未全局检索代码库实际调用逻辑。"
             evidence_to_check = "在驳回前必须使用代码检索工具复核全链路实现，严禁未查实即判错。"
             lesson = (
@@ -77,7 +95,7 @@ class LearningExtractor:
             )
         elif event.category == LearningCategory.QA_DEFECT:
             summary = event.summary_hint or "QA 阶段捕获到漏测缺陷"
-            what_missed = f"开发自测遗漏的缺陷场景: {ctx[:200]}"
+            what_missed = f"开发自测遗漏的缺陷场景: {ctx}"
             why_missed = "测试用例覆盖不全，缺少针对异常输入或边界状态的验证。"
             evidence_to_check = "验收前必须编写针对性单元测试与集成测试覆盖此缺陷路径。"
             lesson = f"【质量教训】{summary}。开发阶段必须补齐自测用例：{what_missed}。"

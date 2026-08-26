@@ -64,10 +64,12 @@ class LearningEvaluator:
         # 1. 状态序列分析
         status_seq = [h.get("status") for h in hist if h.get("status")]
         has_review_rejection = False
+        has_qa_rejection = False
         for idx, s in enumerate(status_seq):
             if s == "in_review" and idx + 1 < len(status_seq) and status_seq[idx + 1] == "in_progress":
                 has_review_rejection = True
-                break
+            elif s == "qa_review" and idx + 1 < len(status_seq) and status_seq[idx + 1] == "in_progress":
+                has_qa_rejection = True
 
         # 2. 评论与决策时序分析 (按出现顺序)
         # 寻找最新的驳回、申诉与修复标记
@@ -78,6 +80,8 @@ class LearningEvaluator:
         challenge_comment = ""
         acceptance_comment = ""
         rejection_comment = ""
+        has_qa_keyword = False
+        qa_comment_context = ""
 
         for idx, c in enumerate(cmts):
             content = str(c.get("content") or "")
@@ -90,6 +94,9 @@ class LearningEvaluator:
             elif any(k in content for k in ["Reject:", "REJECT", "【驳回】", "审查不通过"]):
                 last_rejection_idx = idx
                 rejection_comment = content
+            if any(k in content for k in ["QA_DEFECT", "【QA缺陷】", "BUG", "缺陷确认"]):
+                has_qa_keyword = True
+                qa_comment_context = content
 
         # 3. 判定是否为显式 Reversal（Reviewer 改判）
         # 条件：
@@ -162,6 +169,25 @@ class LearningEvaluator:
                     discussion_context=f"任务在经历多次失败后最终完成: {task.get('title')}",
                     source_task_id=task_id,
                     confidence=0.8,
+                )
+            )
+
+        # 7. 判定 QA 发现缺陷并修复 (QA_DEFECT)
+        if (
+            (has_qa_rejection or has_qa_keyword)
+            and task.get("status") == "done"
+            and not is_explicit_reversal
+        ):
+            triggers.append(
+                LearningTriggerEvent(
+                    project_id=project_id,
+                    agent_id=owner_id,
+                    work_type=work_type,
+                    category=LearningCategory.QA_DEFECT,
+                    summary_hint=f"Task #{task_id} QA 发现缺陷并完成修复",
+                    discussion_context=qa_comment_context or f"QA 在 Task #{task_id} 中发现的缺陷已修复过审。",
+                    source_task_id=task_id,
+                    confidence=0.9,
                 )
             )
 

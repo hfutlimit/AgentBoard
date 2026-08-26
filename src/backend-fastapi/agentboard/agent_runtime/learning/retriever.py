@@ -2,11 +2,12 @@
 
 根据项目、当前任务类型、工作项标题与描述检索最相关的历史纠错教训。
 检索打分模型：
-Score = Base(1.0)
+Score = (Base(1.0)
       + 2.0 (WorkType 匹配)
       + 1.5 (Agent 专属匹配)
-      + 1.0 * Tag/Keyword 命中数
+      + 1.0 * Tag/Keyword 命中数)
       * Confidence
+      * TimeDecay (half-life 90 days, min 10%)
 """
 from __future__ import annotations
 
@@ -69,6 +70,16 @@ class LearningRetriever:
 
             # 4. 置信度乘数
             final_score = score * (rec.confidence or 1.0)
+            
+            # Time decay: half-life of 90 days
+            if rec.created_at:
+                from datetime import datetime, timezone
+                import math
+                created = rec.created_at if rec.created_at.tzinfo else rec.created_at.replace(tzinfo=timezone.utc)
+                age_days = (datetime.now(timezone.utc) - created).total_seconds() / 86400
+                decay = math.exp(-0.693 * age_days / 90)  # 0.693 = ln(2), half-life = 90 days
+                final_score *= max(decay, 0.1)  # Floor at 10% to never fully zero out
+
             scored_items.append((final_score, rec))
 
         # 按分数倒序排序

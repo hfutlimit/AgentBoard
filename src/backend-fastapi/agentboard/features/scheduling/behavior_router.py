@@ -36,7 +36,6 @@ router = APIRouter(tags=["Agent Behavior & Learning"])
 
 class BehaviorPreviewRequest(BaseModel):
     work_type: str = "implementation"
-    project_id: Optional[int] = None
     agent_id: Optional[int] = None
     payload: Optional[AgentBehaviorConfigPayload] = None
     context_summary: Optional[str] = None
@@ -62,17 +61,19 @@ class CreateLearningRequest(BaseModel):
 # -------------------------------------------------------------
 # 1. 实时 Prompt 预览
 # -------------------------------------------------------------
-@router.post("/api/agents/behavior/preview", response_model=BehaviorPreviewResponse)
+@router.post("/api/projects/{project_id}/agents/behavior/preview", response_model=BehaviorPreviewResponse)
 def preview_agent_behavior(
+    project_id: int,
     req: BehaviorPreviewRequest,
     s: Session = Depends(get_session),
 ):
     """根据指定的行为配置与上下文，实时预览 Prompt 渲染效果（无落库副作用）。"""
     effective = behavior_resolver.resolve(
-        project_id=req.project_id,
+        project_id=project_id,
         agent_id=req.agent_id,
         work_type=req.work_type,
         agent_work_type_override=req.payload,
+        db=s,
     )
     prompt = prompt_builder.build(
         work_type=req.work_type,
@@ -98,11 +99,10 @@ def get_project_behavior(
     s: Session = Depends(get_session),
 ):
     """获取指定项目的生效行为配置。"""
-    resolver = behavior_resolver
-    resolver.db = s
-    return resolver.resolve(
+    return behavior_resolver.resolve(
         project_id=project_id,
         work_type=work_type or "implementation",
+        db=s,
     )
 
 
@@ -115,6 +115,7 @@ def update_project_behavior(
     authorization: str | None = Header(None),
 ):
     """保存项目级行为配置覆盖。"""
+    # TODO: enforce owner/admin role check
     rec = upsert_behavior_config(
         s,
         payload=payload,
@@ -132,6 +133,7 @@ def reset_project_behavior(
     authorization: str | None = Header(None),
 ):
     """重置项目级行为配置（恢复系统默认）。"""
+    # TODO: enforce owner/admin role check
     deleted = delete_behavior_config(s, project_id=project_id, work_type=work_type)
     return {"status": "ok", "deleted": deleted}
 
@@ -147,12 +149,11 @@ def get_agent_effective_behavior(
     s: Session = Depends(get_session),
 ):
     """获取指定 Agent 在指定工作项类型下的最终生效行为（三级合并后）。"""
-    resolver = behavior_resolver
-    resolver.db = s
-    return resolver.resolve(
+    return behavior_resolver.resolve(
         project_id=project_id,
         agent_id=agent_id,
         work_type=work_type or "implementation",
+        db=s,
     )
 
 

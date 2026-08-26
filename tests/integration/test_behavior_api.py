@@ -62,7 +62,7 @@ def project_id():
         db.close()
 
 
-def test_preview_agent_behavior_endpoint(client):
+def test_preview_agent_behavior_endpoint(client, project_id):
     payload = {
         "work_type": "proposal_clarify",
         "payload": {
@@ -71,7 +71,7 @@ def test_preview_agent_behavior_endpoint(client):
         },
         "context_summary": "Proposal 100: Add Export to CSV."
     }
-    res = client.post("/api/agents/behavior/preview", json=payload)
+    res = client.post(f"/api/projects/{project_id}/agents/behavior/preview", json=payload)
     assert res.status_code == 200
     data = res.json()
     assert data["work_type"] == "proposal_clarify"

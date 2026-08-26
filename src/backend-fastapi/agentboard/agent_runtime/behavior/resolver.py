@@ -9,8 +9,14 @@
 from __future__ import annotations
 
 import json
+import logging
+import pydantic
 from typing import Any
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
+
+from sqlalchemy.orm import Session
 
 from .defaults import PRESET_VERSION, get_default_payload_for_work_type
 from .models import (
@@ -32,12 +38,14 @@ def _to_payload(data: Any) -> AgentBehaviorConfigPayload | None:
     if isinstance(data, str):
         try:
             data = json.loads(data)
-        except Exception:
+        except json.JSONDecodeError as e:
+            logger.warning("Failed to parse JSON string: %s", e)
             return None
     if isinstance(data, dict):
         try:
             return AgentBehaviorConfigPayload.model_validate(data)
-        except Exception:
+        except pydantic.ValidationError as e:
+            logger.warning("Failed to validate payload: %s", e)
             return None
     return None
 
@@ -131,17 +139,20 @@ class BehaviorResolver:
         project_override: AgentBehaviorConfigPayload | dict | None = None,
         agent_override: AgentBehaviorConfigPayload | dict | None = None,
         agent_work_type_override: AgentBehaviorConfigPayload | dict | None = None,
+        db: Session | None = None,
     ) -> EffectiveBehaviorConfig:
         """解析并物化 EffectiveBehaviorConfig。"""
+        effective_db = db if db is not None else self.db
+        
         # 1. 基础系统预设
         current = get_default_payload_for_work_type(work_type)
         sources_tracker = {"system": True, "project": False, "agent_work_type": False}
 
         # 2. 从 DB 查或直接使用显式传入的 project_override
         proj_ov = project_override
-        if proj_ov is None and self.db is not None and project_id is not None:
+        if proj_ov is None and effective_db is not None and project_id is not None:
             from ...features.scheduling.behavior_service import get_behavior_payload
-            proj_ov = get_behavior_payload(self.db, project_id=project_id, agent_id=None, work_type=None)
+            proj_ov = get_behavior_payload(effective_db, project_id=project_id, agent_id=None, work_type=None)
 
         if proj_ov is not None:
             current = merge_behavior_payload(current, proj_ov)
@@ -149,9 +160,9 @@ class BehaviorResolver:
 
         # 3. 从 DB 查或直接使用 agent_override（Agent 默认）
         ag_ov = agent_override
-        if ag_ov is None and self.db is not None and agent_id is not None:
+        if ag_ov is None and effective_db is not None and agent_id is not None:
             from ...features.scheduling.behavior_service import get_behavior_payload
-            ag_ov = get_behavior_payload(self.db, project_id=None, agent_id=agent_id, work_type=None)
+            ag_ov = get_behavior_payload(effective_db, project_id=None, agent_id=agent_id, work_type=None)
 
         if ag_ov is not None:
             current = merge_behavior_payload(current, ag_ov)
@@ -159,11 +170,11 @@ class BehaviorResolver:
 
         # 4. 从 DB 查或直接使用 agent_work_type_override（Agent + WorkType 专属）
         ag_wt_ov = agent_work_type_override
-        if ag_wt_ov is None and self.db is not None and agent_id is not None and work_type is not None:
+        if ag_wt_ov is None and effective_db is not None and agent_id is not None and work_type is not None:
             from ...features.scheduling.behavior_service import get_behavior_payload
-            ag_wt_ov = get_behavior_payload(self.db, project_id=None, agent_id=agent_id, work_type=str(work_type))
+            ag_wt_ov = get_behavior_payload(effective_db, project_id=None, agent_id=agent_id, work_type=str(work_type))
             if ag_wt_ov is None and project_id is not None:
-                ag_wt_ov = get_behavior_payload(self.db, project_id=project_id, agent_id=agent_id, work_type=str(work_type))
+                ag_wt_ov = get_behavior_payload(effective_db, project_id=project_id, agent_id=agent_id, work_type=str(work_type))
 
         if ag_wt_ov is not None:
             current = merge_behavior_payload(current, ag_wt_ov)

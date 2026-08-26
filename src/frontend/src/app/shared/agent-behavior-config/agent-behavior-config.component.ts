@@ -238,9 +238,9 @@ export class AgentBehaviorConfigComponent implements OnInit {
   }
 
   loadPreview(): void {
-    this.api.previewAgentBehavior({
+    if (!this.projectId) return;
+    this.api.previewAgentBehavior(this.projectId, {
       work_type: this.selectedWorkType,
-      project_id: this.projectId,
       agent_id: this.agentId,
       payload: this.payload,
     }).subscribe({
