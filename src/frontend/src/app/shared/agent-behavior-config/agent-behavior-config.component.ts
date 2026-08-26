@@ -29,10 +29,14 @@ import {
           <option value="proposal_clarify">需求澄清 (Proposal Clarify)</option>
           <option value="proposal_convert">工单转化 (Proposal Convert)</option>
           <option value="design">架构与技术设计 (Design)</option>
+          <option value="design_review">架构方案评审 (Design Review)</option>
           <option value="implementation">代码实现 (Implementation)</option>
-          <option value="qa">质量验收 (QA)</option>
-          <option value="review">交叉评审 (Review)</option>
+          <option value="implementation_review">代码提交评审 (Implementation Review)</option>
+          <option value="qa">质量验收测试 (QA)</option>
+          <option value="qa_review">验收结果评审 (QA Review)</option>
+          <option value="review">通用评审默认 (General Review)</option>
         </select>
+
         <span class="source-badge" *ngIf="effectiveConfig">
           来源: {{ effectiveConfig.sources.agent_work_type ? 'Agent覆盖' : effectiveConfig.sources.project ? '项目覆盖' : '系统默认' }}
         </span>

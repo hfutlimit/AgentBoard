@@ -283,7 +283,7 @@ def test_scenario_4_owner_accepted_correction_learning_loop(db_session):
 def test_scenario_5_reviewer_judgment_reversal_learning(db_session):
     """Scenario 5: Reviewer 误判申诉反思学习.
     - Reviewer 误判驳回，Owner 提供可验证证据申诉 (CHALLENGED)
-    - Reviewer 复核后改判通过
+    - Reviewer 复核证据后采纳申诉并改判通过 (owner_challenge_accepted)
     - Evaluator 触发 REVIEW_JUDGMENT_REVERSAL
     - 提炼反思沉淀
     """
@@ -299,21 +299,23 @@ def test_scenario_5_reviewer_judgment_reversal_learning(db_session):
         "type": "dev",
         "title": "Add CSRF Token Verification",
     }
-    history = [
-        {"status": "in_review"},
-        {"status": "in_progress"},
-        {"status": "done"},
+    review_records = [
+        {"id": 1, "decision": "reject", "reason": "CSRF header is not checked on POST routes."},
+        {"id": 2, "decision": "approve", "resolution": "owner_challenge_accepted"},
     ]
     comments = [
         {"author": "reviewer", "content": "Reject: CSRF header is not checked on POST routes."},
         {"author": "owner", "content": "CHALLENGED: CSRF verification is globally enforced in CsrfMiddleware (middleware.py:34)."},
+        {"author": "reviewer", "content": "【采纳申诉】核对 middleware.py:34 证据属实，撤销驳回并批准通过。"},
     ]
 
-    triggers = learning_evaluator.evaluate_task_outcome(task, history=history, comments=comments)
+    triggers = learning_evaluator.evaluate_task_outcome(
+        task, review_records=review_records, comments=comments
+    )
     assert len(triggers) == 1
     assert triggers[0].category == LearningCategory.REVIEW_JUDGMENT_REVERSAL
 
     extracted = learning_extractor.extract(triggers[0])
     assert extracted.category == "review_judgment_reversal"
     assert "评审" in extracted.summary or "误判" in extracted.summary
-    assert len(extracted.lesson) > 10
+    assert len(extracted.lesson) > 10

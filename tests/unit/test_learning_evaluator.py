@@ -13,7 +13,7 @@ from agentboard.agent_runtime.learning.evaluator import (
 )
 
 
-def test_evaluator_triggers_on_owner_accepted_review():
+def test_evaluator_triggers_on_owner_accepted_review_with_records():
     task = {
         "id": 101,
         "project_id": 3,
@@ -22,27 +22,19 @@ def test_evaluator_triggers_on_owner_accepted_review():
         "type": "dev",
         "title": "Add DB Index",
     }
-    history = [
-        {"status": "todo"},
-        {"status": "in_progress"},
-        {"status": "in_review"},
-        {"status": "in_progress"},  # rejected once
-        {"status": "in_review"},
-        {"status": "done"},
-    ]
-    comments = [
-        {"author": "reviewer_agent", "content": "Reject: Missing unique index on (tenant_id, slug)."},
-        {"author": "owner_agent", "content": "ACCEPTED: Added composite unique index and migration."},
+    review_records = [
+        {"id": 1, "decision": "reject", "reason": "Missing unique index"},
+        {"id": 2, "decision": "approve", "resolution": "code_fixed"},
     ]
 
-    triggers = learning_evaluator.evaluate_task_outcome(task, history=history, comments=comments)
+    triggers = learning_evaluator.evaluate_task_outcome(task, review_records=review_records)
     assert len(triggers) == 1
     assert triggers[0].category == LearningCategory.ACCEPTED_REVIEW_FEEDBACK
     assert triggers[0].agent_id == 7
     assert triggers[0].source_task_id == 101
 
 
-def test_evaluator_triggers_on_reviewer_reversed_judgment():
+def test_evaluator_triggers_on_reviewer_reversed_judgment_with_records():
     task = {
         "id": 102,
         "project_id": 3,
@@ -51,17 +43,12 @@ def test_evaluator_triggers_on_reviewer_reversed_judgment():
         "type": "dev",
         "title": "Fix Auth Cache",
     }
-    history = [
-        {"status": "in_review"},
-        {"status": "done"},
-    ]
-    comments = [
-        {"author": "reviewer_agent", "content": "Reject: Token expiry missing."},
-        {"author": "owner_agent", "content": "CHALLENGED: Token expiry is handled at lines 45-50 via redis TTL."},
-        {"author": "reviewer_agent", "content": "APPROVE: Verified lines 45-50, challenge accepted."},
+    review_records = [
+        {"id": 1, "decision": "reject", "reason": "Token expiry missing"},
+        {"id": 2, "decision": "approve", "resolution": "owner_challenge_accepted"},
     ]
 
-    triggers = learning_evaluator.evaluate_task_outcome(task, history=history, comments=comments)
+    triggers = learning_evaluator.evaluate_task_outcome(task, review_records=review_records)
     assert len(triggers) == 1
     assert triggers[0].category == LearningCategory.REVIEW_JUDGMENT_REVERSAL
     assert triggers[0].agent_id == 9
@@ -98,6 +85,25 @@ def test_evaluator_handles_owner_challenge_then_concede_and_fix():
     # 必须是 ACCEPTED_REVIEW_FEEDBACK，不能是 REVIEW_JUDGMENT_REVERSAL
     assert triggers[0].category == LearningCategory.ACCEPTED_REVIEW_FEEDBACK
     assert triggers[0].agent_id == 7
+
+
+def test_evaluator_reviewer_reversal_via_explicit_comment():
+    task = {
+        "id": 105,
+        "project_id": 3,
+        "reviewer_id": 9,
+        "status": "done",
+        "type": "dev",
+    }
+    comments = [
+        {"author": "reviewer_agent", "content": "Reject: Missing CSRF check."},
+        {"author": "owner_agent", "content": "CHALLENGED: CSRF is handled in CsrfMiddleware."},
+        {"author": "reviewer_agent", "content": "核对无误，撤销驳回，申诉证据查明属实，审批通过。"},
+    ]
+
+    triggers = learning_evaluator.evaluate_task_outcome(task, comments=comments)
+    assert len(triggers) == 1
+    assert triggers[0].category == LearningCategory.REVIEW_JUDGMENT_REVERSAL
 
 
 def test_evaluator_does_not_trigger_on_first_try_success():
