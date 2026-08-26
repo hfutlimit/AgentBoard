@@ -89,7 +89,10 @@ def build_story_prompt(context: dict) -> str:
             f"{' reviewer=' + str(t.get('reviewer_id')) if t.get('reviewer_id') else ''}"
         )
     # Epic 140 切片 3：注入项目历史经验（recall 失败则空，不影响主提示词）
-    recalled = context.get("recalled") or []
+    # Review 2026-08-26 P1 #1 修复：同时支持旧的 "recalled"（legacy handler 直接传）
+    # 和新的 "episodes"（PreparedExecution 路径注入的 Similar Past Episodes）。
+    # 优先用新字段 "episodes"，找不到再 fallback 旧字段。
+    recalled = context.get("episodes") or context.get("recalled") or []
     if recalled:
         from ...features.learning.memory import build_recall_section
         lines.append(build_recall_section(recalled))
@@ -132,7 +135,8 @@ def build_task_prompt(context: dict) -> str:
         str(task.get("description") or task.get("spec") or "(无描述)"),
     ]
     # Epic 140 切片 3：task prompt 注入项目历史经验（可选增强，recall 失败则空）
-    recalled = context.get("recalled") or []
+    # Review 2026-08-26 P1 #1 修复：优先 "episodes"（PreparedExecution 路径），fallback "recalled"
+    recalled = context.get("episodes") or context.get("recalled") or []
     if recalled:
         from ...features.learning.memory import build_recall_section
         lines.append(build_recall_section(recalled))
@@ -227,9 +231,13 @@ class StoryHandler(BaseWorkHandler):
             "tasks": (tasks or {}).get("items", []) if isinstance(tasks, dict) else (tasks or []),
             "project_dir": self._resolve_project_dir(project_id),
         }
-        # Epic 140 切片 3：派单前 recall 项目历史经验（失败 fallback 不带记忆，不阻断）
-        ctx["recalled"] = self._recall_episodes(project_id, ctx)
-        # P1 修复（Review 2026-08-26）：注入 ExecutionCommand 激活 PreparedExecution 路径
+        # Review 2026-08-26 P1 #1 修复（Learning 路径）：
+        # 不再 hardcode 调 _recall_episodes → /api/learning/recall（旧 Episode RAG）。
+        # Memory 三段（Learnings / Playbook / Episodes）全部由 PreparedExecution 路径
+        # 在 ContextBuilder._resolve_learnings / _resolve_playbook_and_episodes 拉，
+        # 并受 behavior.preparation.load_memory 统一控制。
+        # 旧 ctx["recalled"] 字段废弃，handler 不再注入。
+        # P1 修复（Review 2026-08-26 第二轮）：注入 ExecutionCommand 激活 PreparedExecution 路径
         from ..contract import ExecutionCommand, WorkType
         ctx["_command"] = ExecutionCommand(
             execution_id=f"story_{sid}",
@@ -515,9 +523,12 @@ class StoryHandler(BaseWorkHandler):
             "story_id": story_id,
             "needs_design": needs_design,
         }
-        # Epic 140 切片 3：task 派单前同样 recall 项目经验（失败 fallback 不带记忆）
-        ctx["recalled"] = self._recall_episodes(task.get("project_id"), ctx)
-        # P1 修复（Review 2026-08-26）：注入 ExecutionCommand 激活 PreparedExecution 路径
+        # Review 2026-08-26 P1 #1 修复（Learning 路径）：
+        # task 派单前不再 hardcode 调 _recall_episodes → /api/learning/recall。
+        # Memory 三段（Learnings / Playbook / Episodes）全部走 PreparedExecution
+        # 路径在 ContextBuilder 里拉，受 behavior.preparation.load_memory 控制。
+        # 旧 ctx["recalled"] 字段废弃。
+        # P1 修复（Review 2026-08-26 第二轮）：注入 ExecutionCommand 激活 PreparedExecution 路径
         from ..contract import ExecutionCommand, WorkType
         try:
             wt_enum = WorkType(work_type)

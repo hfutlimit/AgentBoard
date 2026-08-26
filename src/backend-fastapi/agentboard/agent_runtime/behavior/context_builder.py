@@ -52,7 +52,12 @@ class LearningContext(BaseModel):
 
 
 class ExecutionContext(BaseModel):
-    """结构化聚合的执行上下文。"""
+    """结构化聚合的执行上下文。
+
+    Review 2026-08-26 P1 #1 修复（Learning 路径）：
+    memory 三段 — Learnings（主）/ Playbook（次）/ Episodes（辅助）— 全部
+    受 ``behavior.preparation.load_memory`` 控制。
+    """
 
     execution_id: str
     work_type: WorkType
@@ -63,6 +68,9 @@ class ExecutionContext(BaseModel):
     documents: list[ContextDocument] = Field(default_factory=list)
     comments: list[ContextComment] = Field(default_factory=list)
     learnings: list[LearningContext] = Field(default_factory=list)
+    # Review 2026-08-26 P1 #1：新增 playbook（次 memory 源）+ episodes（辅助）
+    playbook: list[ContextDocument] = Field(default_factory=list)
+    episodes: list[ContextDocument] = Field(default_factory=list)
     raw_context_summary: str = ""
     # 标记各 section 是否真从 DB 拉过（而不是仅从 ctx 拿）
     sources_resolved: dict[str, bool] = Field(
@@ -70,9 +78,13 @@ class ExecutionContext(BaseModel):
             "documents_from_db": False,
             "comments_from_db": False,
             "learnings_from_db": False,
+            "playbook_from_db": False,
+            "episodes_from_db": False,
             "documents_from_ctx": False,
             "comments_from_ctx": False,
             "learnings_from_ctx": False,
+            "playbook_from_ctx": False,
+            "episodes_from_ctx": False,
         }
     )
 
@@ -153,8 +165,18 @@ class ExecutionContextBuilder:
             max_doc_len=max_doc_len,
         )
 
-        # ----- 4. Learnings -----
+        # ----- 4. Learnings (主 memory 源) -----
         learnings_list, learnings_sources = self._resolve_learnings(
+            entity_type=command.entity_type,
+            entity_id=command.entity_id,
+            work_item=work_item,
+            behavior=behavior,
+            raw_ctx=raw_ctx,
+            db=db,
+        )
+
+        # ----- 4b. Playbook + Episodes (次/辅助 memory 源, Review 2026-08-26 P1 #1) -----
+        playbook_list, episodes_list, memory_sources = self._resolve_playbook_and_episodes(
             entity_type=command.entity_type,
             entity_id=command.entity_id,
             work_item=work_item,
@@ -186,6 +208,16 @@ class ExecutionContextBuilder:
                 f"- [{l.category}] {l.summary}" for l in learnings_list
             )
             summary_parts.append(f"相关项目经验:\n{learn_summaries}")
+        if playbook_list:
+            playbook_summaries = "\n".join(
+                f"- [playbook] {p.title}: {p.content_snippet[:200]}..." for p in playbook_list
+            )
+            summary_parts.append(f"项目实践:\n{playbook_summaries}")
+        if episodes_list:
+            ep_summaries = "\n".join(
+                f"- [episode] {e.title}: {e.content_snippet[:200]}..." for e in episodes_list
+            )
+            summary_parts.append(f"相似历史案例:\n{ep_summaries}")
 
         raw_summary = "\n\n".join(summary_parts)
 
@@ -199,11 +231,14 @@ class ExecutionContextBuilder:
             documents=docs_list,
             comments=comments_list,
             learnings=learnings_list,
+            playbook=playbook_list,
+            episodes=episodes_list,
             raw_context_summary=raw_summary,
             sources_resolved={
                 **docs_sources,
                 **comments_sources,
                 **learnings_sources,
+                **memory_sources,
             },
         )
 
@@ -480,13 +515,29 @@ class ExecutionContextBuilder:
         raw_ctx: dict,
         db: Any,
     ) -> tuple[list[LearningContext], dict[str, bool]]:
-        """解析项目经验：按 behavior.preparation.load_memory 控制；DB 优先。"""
+        """解析项目经验：按 behavior.preparation.load_memory 控制；DB 优先。
+
+        Review 2026-08-26 P1 #1 修复（Learning 路径）：
+        此方法现在负责**单一权威**的 memory retrieval —— 旧 StoryHandler 自行
+        调 ``_recall_episodes`` /api/learning/recall 已废弃。新流程：
+
+            behavior.preparation.load_memory
+                ↓ True
+            LearningRetriever（Correction Learning）  ← 主 source
+                ↓
+            ProjectPlaybook（项目约定）              ← 次 source
+                ↓
+            Episode RAG（历史案例）                   ← 辅助 source
+
+        Handler 不再各自 hardcode memory 拉取，全部走 ContextBuilder。
+        行为开关一处定义，全 runtime 生效。
+        """
         sources = {"learnings_from_db": False, "learnings_from_ctx": False}
 
         if not behavior.preparation.load_memory:
             return [], sources
 
-        # 1. 优先用 retriever（DB 路径）
+        # 1. 优先用 retriever（DB 路径）—— 主 source：新 Correction Learning
         if self.retriever is not None and db is not None:
             try:
                 retrieved = self.retriever.retrieve(
@@ -512,7 +563,7 @@ class ExecutionContextBuilder:
             except Exception as e:
                 logger.warning("ContextBuilder: retriever 失败，将尝试 ctx 兜底: %s", e)
 
-        # 2. 兜底：ctx 里已预填
+        # 2. 兜底：ctx 里已预填（legacy / preview 场景）
         items = raw_ctx.get("learnings") or []
         if items:
             out: list[LearningContext] = []
@@ -531,6 +582,152 @@ class ExecutionContextBuilder:
                 return out, sources
 
         return [], sources
+
+    def _resolve_playbook_and_episodes(
+        self,
+        *,
+        entity_type: str,
+        entity_id: int,
+        work_item: dict,
+        behavior: EffectiveBehaviorConfig,
+        raw_ctx: dict,
+        db: Any,
+    ) -> tuple[list[ContextDocument], list[ContextDocument], dict[str, bool]]:
+        """拉取项目 Playbook + 历史 Episode 作为次/辅助 memory 源。
+
+        Review 2026-08-26 P1 #1 修复（Learning 路径）：
+        - Project Playbook → ``execution_context.playbook``（次 source）
+        - 历史 Episode  → ``execution_context.episodes`` （辅助 source，lowest priority）
+
+        都受 ``behavior.preparation.load_memory`` 控制（同一开关；不引入新开关
+        避免用户配置爆炸）。
+
+        Episode 仅在 project_id 可解析 + DB 可达时拉；其它情况返回空 list。
+        """
+        sources = {
+            "playbook_from_db": False,
+            "playbook_from_ctx": False,
+            "episodes_from_db": False,
+            "episodes_from_ctx": False,
+        }
+
+        if not behavior.preparation.load_memory:
+            return [], [], sources
+
+        playbook: list[ContextDocument] = []
+        episodes: list[ContextDocument] = []
+
+        # 1. Project Playbook（DB 拉 / 兜底 ctx）
+        playbook = self._fetch_playbook(
+            db=db,
+            work_item=work_item,
+            raw_ctx=raw_ctx,
+            sources=sources,
+        )
+        # 2. 历史 Episode（DB 拉 / 兜底 ctx）—— 复用旧的 recall_episodes 逻辑
+        episodes = self._fetch_similar_episodes(
+            db=db,
+            work_item=work_item,
+            raw_ctx=raw_ctx,
+            sources=sources,
+        )
+
+        return playbook, episodes, sources
+
+    def _fetch_playbook(
+        self, *, db: Any, work_item: dict, raw_ctx: dict, sources: dict[str, bool],
+    ) -> list[ContextDocument]:
+        """拉项目 Playbook。"""
+        # 兜底：ctx 里已预填
+        items = raw_ctx.get("playbook") or []
+        if items:
+            out: list[ContextDocument] = []
+            for it in items:
+                if isinstance(it, dict):
+                    out.append(
+                        ContextDocument(
+                            id=it.get("id"),
+                            title=str(it.get("title") or "Project Playbook"),
+                            type="playbook",
+                            content_snippet=str(it.get("summary") or it.get("content") or "")[:2000],
+                        )
+                    )
+            if out:
+                sources["playbook_from_ctx"] = True
+                return out
+
+        # DB 拉
+        project_id = work_item.get("project_id")
+        if not project_id or db is None:
+            return []
+        try:
+            from ...features.learning.memory import get_playbook
+            rows = get_playbook(db, project_id=int(project_id))
+            if rows:
+                sources["playbook_from_db"] = True
+                return [
+                    ContextDocument(
+                        id=r.get("id") if isinstance(r, dict) else None,
+                        title=str((r.get("title") if isinstance(r, dict) else r.title) or "Project Playbook"),
+                        type="playbook",
+                        content_snippet=str((r.get("summary") if isinstance(r, dict) else r.summary) or "")[:2000],
+                    )
+                    for r in rows
+                ]
+        except Exception as e:
+            logger.warning("ContextBuilder: 拉 Project Playbook 失败: %s", e)
+        return []
+
+    def _fetch_similar_episodes(
+        self, *, db: Any, work_item: dict, raw_ctx: dict, sources: dict[str, bool],
+    ) -> list[ContextDocument]:
+        """拉 Similar Past Episodes（旧 Episode RAG，作为 auxiliary memory）。"""
+        # 兜底：ctx 里已预填
+        items = raw_ctx.get("episodes") or raw_ctx.get("recalled") or []
+        if items:
+            out: list[ContextDocument] = []
+            for ep in items:
+                if isinstance(ep, dict):
+                    out.append(
+                        ContextDocument(
+                            id=ep.get("id"),
+                            title=str(ep.get("title") or "Similar Episode"),
+                            type="episode",
+                            content_snippet=str(ep.get("summary") or "")[:2000],
+                        )
+                    )
+            if out:
+                sources["episodes_from_ctx"] = True
+                return out
+
+        project_id = work_item.get("project_id")
+        if not project_id or db is None:
+            return []
+        try:
+            from ...features.learning.memory import recall_episodes
+            rows = recall_episodes(
+                db,
+                project_id=int(project_id),
+                spec=" ".join([
+                    str(work_item.get("title") or ""),
+                    str(work_item.get("description") or "")[:800],
+                ]).strip()[:2000],
+                top_k=5,
+            )
+            if rows:
+                sources["episodes_from_db"] = True
+                return [
+                    ContextDocument(
+                        id=ep.get("episode_id") or ep.get("id"),
+                        title=str(ep.get("title") or f"Task #{ep.get('task_id', '')}"),
+                        type="episode",
+                        content_snippet=str(ep.get("summary") or "")[:2000],
+                    )
+                    for ep in rows
+                ]
+        except Exception as e:
+            logger.warning("ContextBuilder: 拉 Similar Episodes 失败: %s", e)
+        return []
 
 
 execution_context_builder = ExecutionContextBuilder()

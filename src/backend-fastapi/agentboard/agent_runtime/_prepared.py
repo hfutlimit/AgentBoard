@@ -83,10 +83,20 @@ def prepare_execution(
     # 4. 渲染最终 prompt
     #    PromptBuilder 不直接接 ExecutionContext，需要从 context 读 raw_context_summary + learnings
     learnings_payload = [l.model_dump() for l in execution_context.learnings]
+    # Review 2026-08-26 P1 #1 修复（Learning 路径）：把 memory 三段也传到 prompt builder
+    # —— Learnings（主）已经在 prompt_builder 的 learnings 参数里；
+    # Playbook / Episodes 通过 context["playbook"] / context["episodes"]
+    # 走 PromptBuilder 的内部 memory 渲染（详见 prompt_blocks）。
+    # 这里为了兼容老 PromptBuilder API，把三段都塞到 context dict 里。
+    prompt_ctx = {
+        "raw_context_summary": execution_context.raw_context_summary,
+        "playbook": [p.model_dump() for p in execution_context.playbook],
+        "episodes": [e.model_dump() for e in execution_context.episodes],
+    }
     base_prompt = prompt_builder.build(
         work_type=canonical_wt,
         behavior=behavior,
-        context={"raw_context_summary": execution_context.raw_context_summary},
+        context=prompt_ctx,
         learnings=learnings_payload,
     )
 

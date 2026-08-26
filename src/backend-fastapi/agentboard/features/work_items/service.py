@@ -300,16 +300,30 @@ def set_status(
     return t
 
 
-def _record_learning_outcome(s: Session, t: Task):
-    """终态任务落 task_outcome（延迟 import 避开 features 间循环依赖；失败不阻断主流程）。
+def _record_task_outcome_and_memory(s: Session, t: Task):
+    """终态任务落 ``TaskOutcome`` + capture ``Episode`` + update ``ProjectPlaybook``。
 
     返回 ``TaskOutcome | None``：
     - 非终态 / 落库失败 → 返回 None（调用方据此跳过 judge 调度）
     - 终态落库成功 → 返回 outcome（调用方据此触发 judge 调度）
 
-    Epic 140 切片 3 扩展：同步落 episode（向量化快照）+ 追加 project playbook pattern。
-    两者均由 learning 模块内部静默降级，绝不因记忆写入失败回滚状态流转。
-    幂等由 ProjectPlaybookEpisode 复合主键保证（详见 migration e5f6a7b8c9d0）。
+    Review 2026-08-26 P2 #3（taxonomy）澄清：
+    本函数是 **三件事合一** 的事务边界（4 个 model 各自职责）：
+
+    1. **TaskOutcome**（``features.learning.service.record_outcome``） — 评价
+       "Agent 做得怎么样"（performance score / leaderboard 数据源）。
+    2. **EpisodeEmbedding**（``features.learning.memory.store_episode``） — 证据
+       "以前做过什么类似的事"（RAG/example recall 数据源）。
+    3. **ProjectPlaybookEpisode**（``features.learning.memory.update_playbook``）
+       — 约定 "这个项目认可的做事方式"（curated project guidance 数据源）。
+
+    **不**做：record 新 ``Learning``（Correction Learning 走 LearningEvaluator
+    → LearningExtractor 路径，由 set_status(DONE) 的 set_status 流程触发；
+    跟本函数不在一个调用链，避免 Concept 混淆）。
+
+    失败均静默降级（DB 级幂等 + 三段独立 try/except），绝不因记忆写入失败
+    回滚任务状态流转。幂等由 ProjectPlaybookEpisode 复合主键保证
+    （详见 migration e5f6a7b8c9d0）。
     """
     try:
         from ..learning.service import record_outcome
@@ -340,6 +354,12 @@ def _record_learning_outcome(s: Session, t: Task):
         # outcome 属增强数据，落库失败不应影响任务状态流转本身
         s.rollback()
         return None
+
+
+# Review 2026-08-26 P2 #3（taxonomy）：保留旧名 alias 避免 breaking change，
+# 内部逻辑已迁移到 _record_task_outcome_and_memory。后续 caller 应直接用
+# 新名以反映 4 个 model 的语义边界。
+_record_learning_outcome = _record_task_outcome_and_memory
 
 
 # ---- 认领 / 提交评审 ---------------------------------------------------

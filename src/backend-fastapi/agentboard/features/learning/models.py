@@ -1,16 +1,38 @@
-"""????????Epic 140 & Configurable Behavior Learning??
+"""Learning / Memory 数据模型（Epic 140 & Configurable Behavior Learning）。
 
-?? 1 task_outcome??????done/blocked/withdrawn??????????????
-- score: 0~1 ???
-- judge_json: ?????
+Review 2026-08-26 P2 #3（taxonomy）—— 4 个 model 各自职责，互不混淆：
 
-?? 3 Episode RAG + Playbook?Worker ?????Story 268??
-- episode_embedding???????? run trace ?????? task recall ?????? prompt?
-- project_playbook???? playbook ????
-- project_playbook_episode??? episode ?? entry?
+========================  ==============  =======================================
+Model                   Layer           回答的问题
+========================  ==============  =======================================
+TaskOutcome              Evaluation      Agent 做得怎么样？ score / leaderboard
+EpisodeEmbedding         Experience      以前做过什么类似的事？ RAG / example
+ProjectPlaybookEpisode   Project Guidance  项目认可的做事方式？ curated pattern
+Learning                 Correction      从错误/纠正里学到什么？ reusable lesson
+========================  ==============  =======================================
 
-Configurable Behavior Learning?
-- Learning???????????accepted_review_feedback, review_judgment_reversal, qa_defect ???
+四个 model 在 runtime 召回时的优先级（Review 2026-08-26 P1 #1 修复）：
+
+  1. Learning（最强信号） — 之前任务的具体纠错教训，可直接复用
+  2. ProjectPlaybook（项目约定） — 该项目反复验证的做事方式
+  3. Episode（历史案例） — 类似过去的成功/失败故事，作为 reference
+
+注意：四者**不是**同一张表的别名。Learning 来自
+``agent_runtime.learning`` (新 correction learning 链路)，其他三个
+来自本模块（``features.learning`` 旧 memory 链路）。两套写入入口
+不同、查询入口不同、taxonomy 不同。
+
+—— 旧 entity 保留（向后兼容） —————————————————————————————
+
+- TaskOutcome：终态任务 (done / blocked / withdrawn) 的能力评分；
+  - score: 0~1
+  - judge_json: judge LLM 输出
+- EpisodeEmbedding：run trace 向量化快照（task RAG / prompt 注入用）
+- ProjectPlaybook：项目 playbook pattern 集合
+- ProjectPlaybookEpisode：playbook 单条 entry（与 episode 复合主键）
+- Learning（Configurable Behavior Learning）：
+  - accepted_review_feedback / review_judgment_reversal / qa_defect 等分类
+  - 落库入口：``agent_runtime.learning.evaluator → extractor → features.learning.service``（或单独 service 落 Learning 表）
 """
 from datetime import datetime
 
