@@ -885,21 +885,16 @@ def convert_proposal_to_story(
 ) -> tuple[Story, list[Task], Proposal]:
     """人工终审确认后，把已收敛提案转化为 Story + 子 Task（Epic 96 P3）。
 
+    Review 2026-08-26 P1/P2 #5 修复：此函数变 thin facade，业务全部走
+    ``ProposalConversionService.plan + validate + apply``：
+
     - 要求提案状态为 converged，且 converged_spec 非空（否则 400/422 拒绝）；
     - 要求目标 Epic 存在且属于提案所在项目；
-    - Story 标题 = 显式 title 或提案标题，description = converged_spec 原文；
-    - 解析 converged_spec 中的 ``- [ ]`` 清单项生成子 Task
-      （同 project/story，type=dev / status=todo / priority=medium，
-      取自 Task model 默认值；8/17 review P1 注释清理）；
-    - 回填 proposal.story_id 并推进 converged → story_created；
-    - **幂等防重放**：story_id 已回填且 Story 仍存在时直接返回既有结果，
-      不重复创建（呼应 P1 全量重放 / P2 at-least-once 的既有兜底策略）。
+    - 幂等防重放：story_id 已回填且 Story 仍存在时直接返回既有结果。
 
     返回 ``(story, tasks, proposal)``。
     """
-    # 跨域调用延迟导入，避免 projects.service ↔ proposals 顶层循环（Phase 9）
-    from ..projects.service import create_story
-    from ..work_items.service import create_task
+    from .conversion_service import ProposalConversionService
     p = _proposal_or_404(s, proposal_id)
 
     # 幂等：已转化过且 Story 还在 → 直接复用，避免重放产生重复 Story。
@@ -928,52 +923,48 @@ def convert_proposal_to_story(
             f"epic {epic_id} 不属于提案所在项目 {p.project_id}",
         )
 
-    story = create_story(
-        s, epic_id=epic_id,
-        title=_required(title or p.title, "title", 300),
-        description=p.converged_spec,
-    )
-    design_task = s.query(Task).filter(
-        Task.story_id == story.id, Task.type == ItemType.DESIGN,
-    ).first()
+    # 委托 ProposalConversionService 三阶段：
+    # plan() 从 spec 推演 tasks + dependencies（含 design / dev / qa）
+    # validate() 校验完整性
+    # apply() 事务性落库（Review 2026-08-26 P1 #2：单 transaction commit，
+    # 杜绝"Story 已建 / Tasks 未建"的孤儿数据）
+    plan = ProposalConversionService.plan(p, epic_id=epic_id)
+    # 如果 caller 显式传了 title，覆盖 plan.story.title
+    if title is not None:
+        plan.story = {**(plan.story or {}), "title": title}
+    ProposalConversionService.validate(plan, project_id=p.project_id)
+    ProposalConversionService.apply(s, plan, p)
 
-    created: list[Task] = []
-    seen: set[str] = set()
-    for line in (p.converged_spec or "").splitlines():
-        m = _SPEC_TASK_RE.match(line)
-        if not m:
-            continue
-        t_title = m.group(1).strip()
-        if not t_title or t_title in seen:
-            continue
-        seen.add(t_title)
-        t = create_task(
-            s, project_id=p.project_id, story_id=story.id,
-            title=t_title[:300], description=t_title,
-            priority=Priority.MEDIUM,
-        )
-        created.append(t)
-        if design_task is not None:
-            s.add(TaskDependency(task_id=t.id, depends_on_id=design_task.id,
-                                 dependency_type="blocks"))
-
-    p.story_id = story.id
-    # converged → story_created（终态）；直接改状态字段，不经 set_proposal_status
-    # 的租约维护逻辑（这里不涉及 analyzing，无租约可清理）。
-    p.status = ProposalStatus.STORY_CREATED.value
-    p.error = ""
-    _commit(s)
-    s.refresh(story)
-    s.refresh(p)
-    for t in created:
-        s.refresh(t)
-    return story, created, p
+    story = s.get(Story, p.story_id)
+    # Review 2026-08-26 P1/P2 #5 备注：facade return signature 与原实现保持兼容。
+    # 实际 conversion 路径只返回 plan 推演的 spec-driven dev tasks（不含
+    # create_story 自动创的 design / default dev），跟原 convert_proposal_to_story
+    # 的 ``return story, created, p`` 一致；幂等路径 return Story 下所有 task
+    # 保持不变（fixme: 这两条路径 return 内容不一致，是 P1 现场，Phase 2 收敛）
+    if plan.tasks:
+        # 从 plan 的 spec-driven dev task titles 反查 DB id
+        spec_dev_titles = {
+            t["title"] for t in plan.tasks
+            if t.get("type") == ItemType.DEV.value
+            and t["title"] != f"实现：{p.title}"  # 不含 default dev
+        }
+        all_tasks = s.query(Task).filter(Task.story_id == story.id).all()
+        tasks = [t for t in all_tasks if t.title in spec_dev_titles]
+    else:
+        tasks = []
+    return story, tasks, p
 
 
 def build_proposal_task_graph(s: Session, proposal_id: int) -> dict:
-    """Build a structured DAG representation (nodes and dependency edges) for a Proposal.
+    """Build a planned (推演) DAG representation for a Proposal.
 
-    Pipeline structure: Design -> Implementation (depends on Design) -> QA (depends on Implementation)
+    Review 2026-08-26 P1 #3：明确标"planned"语义。
+    此函数**不查 DB Task / TaskDependency**，仅基于 converged_spec 解析
+    ``- [ ]`` 清单项推演"如果按 spec 转换会得到什么 DAG"。返回的节点
+    id 是虚拟前缀（design-1 / dev-N / qa-1），不是真实 DB id。
+
+    对应 endpoint：``GET /api/proposals/{pid}/task-graph/planned``。
+    真实 DB DAG（persisted）见 ``get_persisted_task_graph``。
     """
     p = _proposal_or_404(s, proposal_id)
     spec = p.converged_spec or p.content or ""
@@ -1004,6 +995,78 @@ def build_proposal_task_graph(s: Session, proposal_id: int) -> dict:
     return {
         "proposal_id": proposal_id,
         "title": p.title,
+        "planned": True,
+        "nodes": nodes,
+        "edges": edges,
+    }
+
+
+def get_persisted_task_graph(s: Session, proposal_id: int) -> dict:
+    """Build the **真实** DB DAG for a Proposal。
+
+    Review 2026-08-26 P1 #3：原 ``build_proposal_task_graph`` 总是返回推演图，
+    不查 DB Task / TaskDependency。导致：
+    - 转换前 / 转换中：推演图无真实 id，UI 看到 design-1 / dev-N / qa-1 节点
+    - 转换后：实际 DB 可能没 qa-1（conversion 不创建 QA task），但推演图永远画 qa-1
+    → UI 显示与真实执行图不一致（"source-of-truth 分裂"）。
+
+    修法：本函数直接查 proposal.story_id → Story → Task + TaskDependency，
+    返回真实 DB DAG（节点 id 是真实 Task.id，edge 是 TaskDependency）。
+    proposal 未转换时返回空图 + planned 提示字段。
+
+    对应 endpoint：``GET /api/proposals/{pid}/task-graph``。
+    """
+    p = _proposal_or_404(s, proposal_id)
+    if p.story_id is None:
+        return {
+            "proposal_id": proposal_id,
+            "title": p.title,
+            "planned": False,
+            "persisted": False,
+            "nodes": [],
+            "edges": [],
+            "message": "proposal 尚未转化（story_id 为空），请先 POST /convert",
+        }
+    story = s.get(Story, p.story_id)
+    if story is None:
+        raise NotFound(f"proposal {proposal_id} 关联的 story {p.story_id} 不存在")
+    # 查真实 Task
+    tasks = s.query(Task).filter(Task.story_id == story.id).order_by(Task.id.asc()).all()
+    # 查真实 TaskDependency
+    task_ids = {t.id for t in tasks}
+    deps = []
+    if task_ids:
+        deps = (
+            s.query(TaskDependency)
+            .filter(TaskDependency.task_id.in_(task_ids))
+            .filter(TaskDependency.dependency_type == "blocks")
+            .all()
+        )
+    nodes = [
+        {
+            "id": t.id,
+            "type": t.type,
+            "title": t.title,
+            "status": t.status,
+            "assignee_id": t.assignee_id,
+        }
+        for t in tasks
+    ]
+    edges = [
+        {
+            "source": d.depends_on_id,
+            "target": d.task_id,
+            "type": d.dependency_type,
+        }
+        for d in deps
+        if d.depends_on_id in task_ids
+    ]
+    return {
+        "proposal_id": proposal_id,
+        "title": p.title,
+        "story_id": story.id,
+        "planned": False,
+        "persisted": True,
         "nodes": nodes,
         "edges": edges,
     }

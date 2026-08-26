@@ -214,7 +214,9 @@ def claim_proposal(pid: int, body: ProposalClaimIn | None = None,
 
 
 @router.post("/api/proposals/{pid}/convert")
-def convert_proposal(pid: int, body: ProposalConvertIn, s: Session = Depends(get_session)):
+def convert_proposal(pid: int, body: ProposalConvertIn,
+                    authorization: str | None = Header(None),
+                    s: Session = Depends(get_session)):
     """人工终审确认：把已收敛提案转化为 Story + 子 Task（Epic 96 P3）。
 
     保留人类最后一道闸 —— 不直接由 WorkBuddy/Worker 调 create_story，必须经
@@ -224,8 +226,23 @@ def convert_proposal(pid: int, body: ProposalConvertIn, s: Session = Depends(get
 
     - 200：转化成功，返回 {proposal, story, tasks}
     - 400：提案非 converged / converged_spec 为空 / Epic 不属于提案项目
+    - 401：未登录（auth required 时）
+    - 403：非项目 owner/admin
     - 404：提案或 Epic 不存在
+
+    Review 2026-08-26 P1 #4 修复：原端点缺 authorization + project 权限校验。
+    任何已登录用户都能调 conversion → 越权创建 Story/Tasks。
+    修法：要求 caller 是项目 owner 或 admin。
     """
+    uid, is_admin = api_helpers._caller_uid_admin(authorization, s=s)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    # 必须先拿到 proposal 才能检查项目权限
+    p = service.get_proposal(s, pid)
+    if p is None:
+        raise HTTPException(status_code=404, detail="proposal not found")
+    api_helpers._enforce_owner_or_admin(s, p.project_id, uid, is_admin)
+
     try:
         story, tasks, p = service.convert_proposal_to_story(
             s, pid, epic_id=body.epic_id, title=body.title,
@@ -243,8 +260,52 @@ def convert_proposal(pid: int, body: ProposalConvertIn, s: Session = Depends(get
 
 
 @router.get("/api/proposals/{pid}/task-graph")
-def get_proposal_task_graph(pid: int, s: Session = Depends(get_session)):
-    """获取 Proposal 结构化 TaskGraph（DAG 任务图与依赖关系）。"""
+def get_proposal_task_graph(pid: int,
+                            authorization: str | None = Header(None),
+                            s: Session = Depends(get_session)):
+    """获取 Proposal 真实持久化的 TaskGraph（DB DAG）。
+
+    Review 2026-08-26 P1 #3 修复：原端点返回的是基于 converged_spec 推演的
+    "planned" 推演图，跟实际 DB 持久化的 Task / TaskDependency 不一致。
+    修法：本端点必须查 DB（proposal.story_id 关联的 Story + Task + TaskDependency）；
+    推演版另开 ``/task-graph/planned``。
+
+    权限：项目成员读权限（与 proposal 其他 read 端点一致）。
+    """
+    uid, _is_admin = api_helpers._caller_uid_admin(authorization, s=s)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    p = service.get_proposal(s, pid)
+    if p is None:
+        raise HTTPException(status_code=404, detail="proposal not found")
+    api_helpers._enforce_member_or_admin(s, p.project_id, uid, _is_admin)
+    try:
+        # 真实 DB DAG（Fix 3 修复）
+        return service.get_persisted_task_graph(s, pid)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/api/proposals/{pid}/task-graph/planned")
+def get_proposal_planned_task_graph(pid: int,
+                                     authorization: str | None = Header(None),
+                                     s: Session = Depends(get_session)):
+    """获取 Proposal 推演的 TaskGraph（基于 converged_spec 解析）。
+
+    Review 2026-08-26 P1 #3 修复：从 ``/task-graph`` 拆出来。
+    推演图（planned）≠ 持久化图（persisted）—— 前者描述"如果按 spec 转换会得到什么"，
+    后者描述"DB 实际有什么"。调用方按需选择：UI 转换前预览用 planned，转换后
+    看真实 DAG 用 ``/task-graph``。
+
+    权限：项目成员读权限。
+    """
+    uid, _is_admin = api_helpers._caller_uid_admin(authorization, s=s)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    p = service.get_proposal(s, pid)
+    if p is None:
+        raise HTTPException(status_code=404, detail="proposal not found")
+    api_helpers._enforce_member_or_admin(s, p.project_id, uid, _is_admin)
     try:
         return service.build_proposal_task_graph(s, pid)
     except service.NotFound as e:
@@ -252,7 +313,26 @@ def get_proposal_task_graph(pid: int, s: Session = Depends(get_session)):
 
 
 @router.delete("/api/proposals/{pid}")
-def delete_proposal(pid: int, s: Session = Depends(get_session)):
+def delete_proposal(pid: int,
+                    authorization: str | None = Header(None),
+                    s: Session = Depends(get_session)):
+    """删除提案。
+
+    Review 2026-08-26 P1 #4 修复：原端点无任何权限校验，任何已登录用户都能删。
+    修法：admin 或 proposal creator 才能删。
+    """
+    uid, is_admin = api_helpers._caller_uid_admin(authorization, s=s)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    p = service.get_proposal(s, pid)
+    if p is None:
+        raise HTTPException(status_code=404, detail="proposal not found")
+    # creator 优先，否则要求 admin
+    if p.created_by_user_id != uid and not is_admin:
+        raise HTTPException(
+            status_code=403,
+            detail="delete requires admin or proposal creator",
+        )
     if not service.delete_proposal(s, pid):
         raise HTTPException(status_code=404, detail="proposal not found")
     return {"ok": True}
@@ -394,8 +474,21 @@ def create_ticket_request(pid: int, body: ProposalTicketIn,
 
 
 @router.get("/api/proposals/{pid}/ticket-requests")
-def list_ticket_requests(pid: int, s: Session = Depends(get_session)):
-    """列出提案的转换请求（前端轮询生成状态：pending/processing/done/failed）。"""
+def list_ticket_requests(pid: int,
+                         authorization: str | None = Header(None),
+                         s: Session = Depends(get_session)):
+    """列出提案的转换请求（前端轮询生成状态：pending/processing/done/failed）。
+
+    Review 2026-08-26 P1 #4 修复：原端点无 authorization + 权限校验。
+    修法：项目成员可读（与 proposal 其他 read 端点一致）。
+    """
+    uid, _is_admin = api_helpers._caller_uid_admin(authorization, s=s)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    p = service.get_proposal(s, pid)
+    if p is None:
+        raise HTTPException(status_code=404, detail="proposal not found")
+    api_helpers._enforce_member_or_admin(s, p.project_id, uid, _is_admin)
     try:
         return [service._ser(r) for r in service.list_ticket_requests(s, pid)]
     except service.NotFound as e:

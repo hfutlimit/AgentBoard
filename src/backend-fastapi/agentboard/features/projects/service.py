@@ -78,14 +78,19 @@ def list_sprints(s: Session, project_id: int, limit: int | None = None, offset: 
     return _paginate(q, limit, offset).all()
 
 
-def create_epic(s: Session, *, project_id: int, title: str, description: str = "") -> Epic:
+def create_epic(s: Session, *, project_id: int, title: str, description: str = "",
+               commit: bool = True) -> Epic:
     if not s.get(Project, project_id):
         raise NotFound(f"project {project_id} not found")
     ep = Epic(project_id=project_id, title=_required(title, "title", 300), description=description or "")
-    s.add(ep); _commit(s); s.refresh(ep)
+    s.add(ep)
+    s.flush()  # 取 ep.id
     # 2026-08-09：创建 Epic 默认自动创建 1 个默认 Story（标题/描述继承 Epic），
     # Story 创建会自动带 design + 开发 Task，即「创建 Epic 默认创建 Story/Task」。
-    create_story(s, epic_id=ep.id, title=ep.title, description=ep.description)
+    # Review 2026-08-26 P1 #2：commit 透传给 Story，让 transaction 边界由 caller 控
+    create_story(s, epic_id=ep.id, title=ep.title, description=ep.description, commit=commit)
+    if commit:
+        s.refresh(ep)
     return ep
 
 
@@ -445,7 +450,7 @@ def update_story(s: Session, id: int, **fields) -> Story | None:
 
 
 def create_story(s: Session, *, epic_id: int, title: str, description: str = "",
-                 needs_design: bool = True) -> Story:
+                 needs_design: bool = True, commit: bool = True) -> Story:
     """创建 Story，并自动创建 2 个默认 Task（2026-08-09 文档 #60）：
 
     - design task（type=design）「设计：<标题>」：每个 Story 必需的设计任务，
@@ -453,6 +458,13 @@ def create_story(s: Session, *, epic_id: int, title: str, description: str = "",
     - 开发 task（type=task）「实现：<标题>」。
 
     Story 与默认 Task 同一事务提交；标题截断 300 字符。
+
+    Review 2026-08-26 P1 #2：加 ``commit: bool = True`` 参数。
+    - commit=True（默认）：维持原行为，Story + 2 Task + 1 Dependency + 缓存失效
+      同一 commit。向后兼容所有现有 caller。
+    - commit=False：仅 flush 不 commit，让 caller（通常是 ProposalConversionService
+      那种"transaction owner"）统一收尾。
+      设计原则：``Transaction belongs to use case, not entity helper``。
     """
     epic = s.get(Epic, epic_id)
     if not epic:
@@ -475,8 +487,11 @@ def create_story(s: Session, *, epic_id: int, title: str, description: str = "",
     if design_task is not None:
         s.add(TaskDependency(task_id=dev_task.id, depends_on_id=design_task.id,
                              dependency_type="blocks"))
-    _invalidate_project_stats_cache(epic.project_id)
-    _commit(s); s.refresh(st); return st
+    if commit:
+        _invalidate_project_stats_cache(epic.project_id)
+        _commit(s)
+    s.refresh(st)
+    return st
 
 
 def create_sprint(s: Session, *, project_id: int, title: str,

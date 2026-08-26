@@ -74,7 +74,15 @@ def create_task(
     estimate: float | None = None,
     needed_capabilities="[]", complexity: int | None = None,
     domain_tags="[]", assignment_mode: str = "claim",
+    commit: bool = True,
 ) -> Task:
+    """创建 Task。
+
+    Review 2026-08-26 P1 #2：加 ``commit: bool = True`` 参数。
+    - commit=True（默认）：原行为，校验+落库+缓存失效同一 commit。
+    - commit=False：仅 flush 不 commit，让 caller（transaction owner
+      如 ProposalConversionService）统一收尾。设计原则同 create_story。
+    """
     project = s.get(models.Project, project_id)
     if not project:
         raise NotFound(f"project {project_id} not found")
@@ -116,9 +124,12 @@ def create_task(
         assignment_mode=normalize_assignment_mode(assignment_mode),
     )
     s.add(t)
-    _commit(s)
+    s.flush()  # 取 t.id
+    if commit:
+        _commit(s)
     s.refresh(t)
-    _invalidate_project_stats_cache(project_id)
+    if commit:
+        _invalidate_project_stats_cache(project_id)
     return t
 
 

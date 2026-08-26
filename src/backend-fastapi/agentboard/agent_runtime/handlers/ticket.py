@@ -177,26 +177,40 @@ class TicketHandler(BaseWorkHandler):
 
     def handle_decision(self, work_item: dict, decision: AgentDecision,
                         context: dict) -> str:
-        """落决策：ticket_created 信任成功；fail 标记失败（含单条回查兜底）。"""
+        """落决策：ticket_created 信任成功；fail 标记失败（含单条回查兜底）。
+
+        Review 2026-08-26 P1 #1 修复：原代码返回 "created" / "failed" / "skipped"，
+        但 ``execute_command`` 里的成功判别是 ``if outcome == "success":``。
+        "created" != "success"，导致正常成功路径走 ``ExecutionResult.failure``
+        错误地把 ticket created 报成 failure。
+
+        修法：统一 outcome 字符串集为 ``TicketOutcome`` enum + 跟 execute_command
+        共享同一份语义。Handler 不直接返回 ExecutionResult（避免 AgentDecision
+        → string outcome → ExecutionResult 多一次不必要映射），
+        但保持返回值是字符串以便外部 caller（compat facade）继续 work。
+        """
+        from .outcome import TicketOutcome
         rid = work_item.get("id")
         self._log_inspected(decision, label="ticket")
         if decision.action == ACTION_TICKET_CREATED:
             log.info("ticket 请求 #%s agent 报告已创建（信任其 decision）", rid)
-            return "created"
+            return TicketOutcome.CREATED.value
         # agent 主动放弃（含 execute 409 竞争失败）：单条 list 回查，不盲目判失败
         # —— 若他人已完成则视为成功；仍 pending 说明 execute 未被认领（例如
         # 服务端 502 / MCP 超时），标记 failed 让前端可重试，避免无限循环拉起 agent。
         log.warning("ticket 请求 #%s agent 未创建：%s", rid, decision.error or "无原因")
         cur = self._lookup_ticket_request(work_item)
         if cur and cur.get("status") == "done":
-            return "created"
+            return TicketOutcome.CREATED.value
         if cur and cur.get("status") == "failed":
-            return "failed"
+            return TicketOutcome.FAILED.value
         if cur and cur.get("status") == "pending":
-            return self._fail_ticket_request(
+            fail_result = self._fail_ticket_request(
                 work_item, decision.error or "agent 未创建（请求仍 pending）",
             )
-        return "skipped"
+            # _fail_ticket_request 现在也返回 TicketOutcome enum value
+            return fail_result
+        return TicketOutcome.SKIPPED.value
 
     def _fail_ticket_request(self, work_item: dict, error: str) -> str:
         rid = work_item.get("id")
@@ -207,7 +221,9 @@ class TicketHandler(BaseWorkHandler):
         if r.status_code != 200:
             log.error("ticket 请求 #%s 标记 failed 失败：%s %s",
                       rid, r.status_code, r.text[:200])
-        return "failed"
+        # Review 2026-08-26 P1 #1：返回 enum value，跟 handle_decision + execute_command 对齐
+        from .outcome import TicketOutcome
+        return TicketOutcome.FAILED.value
 
     def _lookup_ticket_request(self, work_item: dict) -> dict | None:
         """单条 list 查 ticket request 当前状态（轻量级观测，不轮询）。"""
@@ -237,13 +253,18 @@ class TicketHandler(BaseWorkHandler):
             self._fail_ticket_request(request, str(e))
             return ExecutionResult.failure(command.execution_id, str(e), action="fail")
         outcome = self.handle_decision(request, decision, context)
-        if outcome == "success":
+        # Review 2026-08-26 P1 #1：比对 enum value 而非字面量字符串，
+        # 避免"created" 永远 != "success" 把成功路径误判为 failure
+        from .outcome import TicketOutcome
+        if outcome == TicketOutcome.CREATED.value:
             return ExecutionResult.success(
                 execution_id=command.execution_id,
                 action=decision.action,
                 summary=decision.summary or "ticket created",
                 inspected_files=decision.inspected_files,
             )
+        # FAILED / SKIPPED 都映射到 failure result（SKIPPED 实际上属
+        # agent 主动放弃 + 兜底回查无明确结果；按 failure 处理让前端可重试）
         return ExecutionResult.failure(
             execution_id=command.execution_id,
             error=decision.error or "ticket creation failed",
