@@ -259,6 +259,38 @@ REGISTRY: list[DodEntry] = [
             "4) 保持原有 CLI 入口与 REST 端点 100% 向后兼容。"
         ),
     ),
+
+    # ── Stage 3 / 2026-08-26 / Worker 统一执行模型 Stage 3 细粒度业务类型与驳回重试收敛 ──────
+    DodEntry(
+        id="stage3-worker-unified-granularity-2026-08-26",
+        feature="Worker 统一执行模型 Stage 3 · 细粒度正交 WorkType 与 Server Re-attempt 收敛（DESIGN / DESIGN_REVIEW / IMPLEMENTATION / QA / QA_REVIEW + 驳回回归 Re-attempt）",
+        date_added="2026-08-26",
+        test_files=[
+            "tests/unit/test_worker_coordinator.py",
+            "tests/unit/test_stage0_worker_resilience.py",
+            "tests/test_agent_mq_consumer.py",
+        ],
+        coverage_summary=(
+            "10 个 Coordinator 单测 + 全量 236 个单元及集成测试全绿："
+            "WorkType 细粒度枚举（DESIGN / DESIGN_REVIEW / IMPLEMENTATION / QA / QA_REVIEW）与 from_task() 正交映射 / "
+            "RoutedSubprocessInvoker 优先根据上下文 work_type 精准选路对应 Agent profile / "
+            "评审驳回 (task.rejected) 彻底统一为 Server 状态机触发 attempt+1 的 Re-attempt 执行指令"
+        ),
+        acceptance=[
+            "WorkType 枚举扩充一等公民正交业务执行类型：DESIGN, DESIGN_REVIEW, IMPLEMENTATION, IMPLEMENTATION_REVIEW, QA, QA_REVIEW",
+            "提供 WorkType.from_task(task_type, is_review) 工具方法，消除 Worker 二次推断 Task 内容的逻辑",
+            "RoutedSubprocessInvoker 支持显式按 work_type 选路，Agent 路由与业务类型一等公民绑定",
+            "Review 驳回不再作为特殊的 owner_response action 分支，由 Server 状态机驱动递增 attempt 后重新下发 implementation/design 指令",
+        ],
+        status="done",
+        closed_date="2026-08-26",
+        notes=(
+            "Worker 统一执行模型 Stage 3 终态全面达成：\n"
+            "1) 彻底消除了 Worker 内部针对 Task 内容解析二次推断 Agent Profile 的模糊逻辑；\n"
+            "2) 彻底消解了 owner_response 特殊 action，统一回归为 Server 状态机控制的 attempt 递增执行流；\n"
+            "3) 坚持 Domain Model（Proposal/Story/Task 表结构与业务逻辑）与 Execution Model（WorkType/Command/Result）完全解耦的架构原则。"
+        ),
+    ),
 ]
 
 

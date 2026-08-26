@@ -1,6 +1,7 @@
 """统一工作项与执行契约（Unified Execution Contract）。
 
 语言中立契约：定义 Worker 与 Server 之间传递的执行命令、工作类型与结构化结果。
+解耦业务领域模型（Proposal / Epic / Story / Task 保持独立表与领域逻辑）与底层执行管道。
 """
 from __future__ import annotations
 
@@ -10,18 +11,41 @@ from pydantic import BaseModel, Field
 
 
 class WorkType(str, Enum):
-    """统一执行工作类型枚举。"""
+    """统一执行工作类型枚举（涵盖 Proposal 全生命周期与 Task 正交业务类型）。"""
 
-    #: 需求澄清与问答（对应 Proposal analyzing / awaiting_user）
+    # Proposal 生命周期
     PROPOSAL_CLARIFY = "proposal_clarify"
-    #: 提案转换为 Story & Task DAG（对应 Proposal converting / ticket_request）
     PROPOSAL_CONVERT = "proposal_convert"
-    #: 任务执行实现（涵盖 design, dev, qa, bug，由 Task.type 区分上下文）
+
+    # Task 一等公民正交业务执行类型
+    DESIGN = "design"
+    DESIGN_REVIEW = "design_review"
+    IMPLEMENTATION = "implementation"
+    IMPLEMENTATION_REVIEW = "implementation_review"
+    QA = "qa"
+    QA_REVIEW = "qa_review"
+
+    # 向后兼容别名（以兼容旧配置与历史代码）
     TASK_IMPLEMENT = "task_implement"
-    #: 独立 Reviewer 审查与投票（approve / reject）
     TASK_REVIEW = "task_review"
-    #: Owner 针对 Review 驳回意见的修复与回应（Rework / Follow-up）
     TASK_RESPOND = "task_respond"
+
+    @classmethod
+    def from_task(cls, task_type: str | None, is_review: bool = False) -> WorkType:
+        """根据 Task 的业务类型（design / dev / qa 等）与阶段推导对应的 WorkType。"""
+        t = (task_type or "implementation").lower().strip()
+        if is_review:
+            if t == "design":
+                return cls.DESIGN_REVIEW
+            elif t in ("qa", "test", "testing"):
+                return cls.QA_REVIEW
+            return cls.IMPLEMENTATION_REVIEW
+        else:
+            if t == "design":
+                return cls.DESIGN
+            elif t in ("qa", "test", "testing"):
+                return cls.QA
+            return cls.IMPLEMENTATION
 
 
 class ExecutionCommand(BaseModel):
@@ -72,6 +96,7 @@ class ExecutionResult(BaseModel):
         error: str,
         action: str = "fail",
         summary: str = "",
+        inspected_files: list[str] | None = None,
     ) -> ExecutionResult:
         return cls(
             execution_id=execution_id,
@@ -79,4 +104,5 @@ class ExecutionResult(BaseModel):
             action=action,
             summary=summary or error,
             error_message=error,
+            inspected_files=inspected_files or [],
         )

@@ -259,3 +259,34 @@ Story+Epic)绕过了中央 `delete_task`(:1032)的防御性级联。
 | 7 | 编写 `tests/unit/test_worker_coordinator.py` 并通过全量 209 单测 + 35 集成测试 | ✅ done | (Stage 1-2 commit) | 同上 |
 | 8 | 注册 DoD 记录 + 更新 e2e-plan.md + commit & push | ✅ done | (Stage 1-2 commit) | 同上 |
 
+---
+
+## 19. Worker 统一执行模型 Stage 3 · 细粒度业务类型与驳回重试收敛 (2026-08-26)
+
+**目标**: 终结 Worker 内部对 Task 内容二次推断的模糊逻辑，消除 `owner_response` 特殊分支。确立一等公民正交业务执行类型（`DESIGN` / `DESIGN_REVIEW` / `IMPLEMENTATION` / `IMPLEMENTATION_REVIEW` / `QA` / `QA_REVIEW`），将评审驳回统一为 Server 状态机控制的 attempt 递增执行流。
+
+**核心变化**:
+- **细粒度正交 WorkType (`contract.py`)**:
+  - `WorkType.DESIGN` / `DESIGN_REVIEW`（方案设计与评审）
+  - `WorkType.IMPLEMENTATION` / `IMPLEMENTATION_REVIEW`（代码实现与评审）
+  - `WorkType.QA` / `QA_REVIEW`（测试验证与审查）
+  - 提供 `WorkType.from_task(task_type, is_review)` 工具方法，零推断直接映射。
+- **Invoker 优先按 WorkType 路由 (`invokers.py`)**:
+  - `RoutedSubprocessInvoker` 支持优先使用 `context["work_type"]` 选路，Agent Profile 与正交业务类型直接绑定，未配置时向下兼容 action 路由。
+- **消解 `owner_response` 特殊分支 (`coordinator.py`, `handlers/review.py`)**:
+  - 评审驳回事件（`EVENT_TASK_REJECTED`）不再下发特殊的 `owner_response`，由 Server 状态机控制将 Task 状态打回并递增 attempt，Worker 下发对应 Task 类型的 Re-attempt（`attempt=N`）执行指令。
+- **全量测试回归**:
+  - 全量 236 个测试（包含 10 个 Coordinator 与细粒度路由单测）全部 100% 绿灯通过。
+
+### 进度表
+
+| # | 阶段 | 状态 | 关联 commit | DoD 链接 |
+|---|---|---|---|---|
+| 1 | 细化 `WorkType` 枚举与 `from_task()` 工具方法 (`contract.py`) | ✅ done | (Stage 3 commit) | `tests/e2e/dod_registry.py::stage3-worker-unified-granularity-2026-08-26` |
+| 2 | 更新 `RoutedSubprocessInvoker` 优先按 `work_type` 路由 (`invokers.py`) | ✅ done | (Stage 3 commit) | 同上 |
+| 3 | `build_work_type_registry` 注册全部细粒度 WorkType (`handlers/__init__.py`) | ✅ done | (Stage 3 commit) | 同上 |
+| 4 | `ReviewHandler` / `StoryHandler` 支持细粒度 WorkType 传递与上下文注入 | ✅ done | (Stage 3 commit) | 同上 |
+| 5 | `WorkerCoordinator` 统一将驳回映射为 attempt 递增执行指令 (`coordinator.py`) | ✅ done | (Stage 3 commit) | 同上 |
+| 6 | 编写细粒度单测 `test_work_type_from_task_mapping` 等并通过全量 236 测试 | ✅ done | (Stage 3 commit) | 同上 |
+| 7 | 注册 DoD 记录 + 更新 e2e-plan.md + commit & push | ✅ done | (Stage 3 commit) | 同上 |
+

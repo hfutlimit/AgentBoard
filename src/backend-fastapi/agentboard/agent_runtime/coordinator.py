@@ -252,36 +252,44 @@ class WorkerCoordinator:
 
         # 1. 评审请求定向事件
         if event in ("task.review_requested", "review.requested"):
+            task_type = getattr(msg, "task_type", None) or (getattr(msg, "context", {}) or {}).get("type")
+            work_type = WorkType.from_task(task_type, is_review=True)
             cmd = ExecutionCommand(
                 execution_id=f"review_{entity_id}_{getattr(msg, 'message_id', 0)}",
-                work_type=WorkType.TASK_REVIEW,
+                work_type=work_type,
                 entity_type="task",
                 entity_id=entity_id,
-                context={"event": event},
+                context={"event": event, "work_type": work_type.value},
             )
             res = self.dispatch(cmd)
             return res.status == "success"
 
-        # 2. 评审驳回后的 Owner 回应事件
+        # 2. 评审驳回 / 重新激活开发事件 (Re-activate implementation attempt)
         if event in ("task.rejected", "comment.replied"):
+            task_type = getattr(msg, "task_type", None) or (getattr(msg, "context", {}) or {}).get("type")
+            work_type = WorkType.from_task(task_type, is_review=False)
+            attempt = int(getattr(msg, "ref_id", 0) or 1)
             cmd = ExecutionCommand(
-                execution_id=f"respond_{entity_id}_{getattr(msg, 'message_id', 0)}",
-                work_type=WorkType.TASK_RESPOND,
+                execution_id=f"rework_{entity_id}_{attempt}_{getattr(msg, 'message_id', 0)}",
+                work_type=work_type,
                 entity_type="task",
                 entity_id=entity_id,
-                context={"event": event},
+                attempt=attempt,
+                context={"event": event, "work_type": work_type.value},
             )
             res = self.dispatch(cmd)
             return res.status == "success"
 
         # 3. 任务可认领事件（DAG 解锁后广播）
         if event == "task.available":
+            task_type = getattr(msg, "task_type", None) or (getattr(msg, "context", {}) or {}).get("type")
+            work_type = WorkType.from_task(task_type, is_review=False)
             cmd = ExecutionCommand(
                 execution_id=f"task_{entity_id}_{getattr(msg, 'message_id', 0)}",
-                work_type=WorkType.TASK_IMPLEMENT,
+                work_type=work_type,
                 entity_type="task",
                 entity_id=entity_id,
-                context={"event": event},
+                context={"event": event, "work_type": work_type.value},
             )
             res = self.dispatch(cmd)
             return res.status == "success"

@@ -171,9 +171,14 @@ class StoryHandler(BaseWorkHandler):
 
     def can_handle(self, work_item: dict | ExecutionCommand) -> bool:
         if isinstance(work_item, ExecutionCommand):
-            return work_item.work_type == self.work_type
+            return work_item.work_type in (
+                WorkType.TASK_IMPLEMENT,
+                WorkType.DESIGN,
+                WorkType.IMPLEMENTATION,
+                WorkType.QA,
+            )
         return bool((work_item.get("story_id") and "tasks" in work_item)
-                    or work_item.get("action") in ("process_story", "process_task"))
+                    or work_item.get("action") in ("process_story", "process_task", "design", "implementation", "qa"))
 
     def fetch(self) -> list[dict]:
         """拉取待处理的 Story（status=confirmed，用户已确认的人工闸门）。"""
@@ -313,7 +318,7 @@ class StoryHandler(BaseWorkHandler):
             task = command.context.get("task") or {"id": command.entity_id}
             tid = command.entity_id
             try:
-                context = self.build_task_context(task)
+                context = self.build_task_context(task, work_type=command.work_type.value)
             except Exception as e:
                 log.exception("Task #%s 构建上下文失败", tid)
                 return ExecutionResult.failure(command.execution_id, f"构建上下文失败：{e}", action="fail")
@@ -484,7 +489,7 @@ class StoryHandler(BaseWorkHandler):
 
     # ---------- Task 竞争/定向处理（MQ 编排） ----------
 
-    def build_task_context(self, task: dict) -> dict:
+    def build_task_context(self, task: dict, work_type: str = "implementation") -> dict:
         """单 Task 上下文：task + 所属 Story 摘要（needs_design 决定走哪条执行流）。"""
         story_id = task.get("story_id")
         needs_design = True
@@ -496,6 +501,7 @@ class StoryHandler(BaseWorkHandler):
                 pass
         ctx = {
             "action": "process_task",
+            "work_type": work_type,
             "task": task,
             "story_id": story_id,
             "needs_design": needs_design,

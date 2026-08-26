@@ -51,19 +51,23 @@ log = logging.getLogger("agentboard.worker.invokers")
 # 兼容：AGENTBOARD_WORKER_AGENT_CMD（旧单值）依然受 SubprocessAgentInvoker
 # 独立支持；只要新路由变量未设，旧用法不变。
 
-#: Worker 实际会产生的 context["action"] 全集 —— 与 ProposalWorker.build_prompt_for
-#: 的分发逻辑一一对应（Stage 0 修正：旧白名单里的 "review" 从未出现过，
-#: 真实键是 review_task / process_task；配置错键会被静默丢弃）。
+#: Worker 实际会产生的 context["action"] 与 context["work_type"] 全集
 KNOWN_ROUTING_ACTIONS: tuple[str, ...] = (
+    # 统一业务执行类型 WorkType（一等公民）
+    "proposal_clarify", "proposal_convert",
+    "design", "design_review", "implementation", "implementation_review", "qa", "qa_review",
+    # 历史操作 Action 与通用类型（兼容旧配置）
     "clarify", "create_ticket", "process_story", "process_task",
-    "review_task", "owner_response",
+    "review_task", "owner_response", "task_implement", "task_review", "task_respond",
 )
 
-# 历史别名归一化：2026-08-26 前文档/脚本里出现过的近似键 → 真实 action
+# 历史别名归一化：将近似键归一化到标准路由键
 _ROUTING_ACTION_ALIASES: dict[str, str] = {
     "review": "review_task",
     "story": "process_story",
     "task": "process_task",
+    "dev": "implementation",
+    "test": "qa",
 }
 
 #: 子进程环境屏蔽前缀：Worker 凭据族绝不继承给无头 agent CLI。
@@ -198,18 +202,26 @@ class RoutedSubprocessInvoker:
             for alias in self.aliases
         }
 
-    def route(self, action: str) -> tuple[str, SubprocessAgentInvoker]:
-        """按 action 选 alias + 子 invoker。未命中 → 兜底第一条。"""
-        alias = self.routing.get(action) or self.fallback_alias
+    def route(self, action_or_work_type: str) -> tuple[str, SubprocessAgentInvoker]:
+        """按 work_type 或 action 选 alias + 子 invoker。未命中 → 兜底第一条。"""
+        key = str(action_or_work_type or "").strip()
+        key = _ROUTING_ACTION_ALIASES.get(key, key)
+        alias = self.routing.get(key) or self.fallback_alias
         return alias, self._children[alias]
 
     def invoke(self, context: dict) -> AgentDecision:
-        action = str((context or {}).get("action") or "")
-        alias, child = self.route(action)
+        work_type = str((context or {}).get("work_type") or "").strip()
+        action = str((context or {}).get("action") or "").strip()
+
+        # 优先使用显式 work_type 匹配，未配置时回退到 action
+        target_key = work_type if work_type and (work_type in self.routing or _ROUTING_ACTION_ALIASES.get(work_type) in self.routing) else action
+        alias, child = self.route(target_key)
+
         # 注入路由信息到子 context：让 agent / 日志看得到自己是被哪个通道调用的
         routed_ctx = dict(context or {})
         routed_ctx["_routed_alias"] = alias
-        routed_ctx["_routed_action"] = action or "(unset)"
+        routed_ctx["_routed_action"] = action or work_type or "(unset)"
+        routed_ctx["_routed_work_type"] = work_type or "(unset)"
         self.last_routed = alias
         self.last_invoker = child
         return child.invoke(routed_ctx)

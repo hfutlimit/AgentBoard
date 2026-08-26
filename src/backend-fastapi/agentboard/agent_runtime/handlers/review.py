@@ -39,8 +39,13 @@ class ReviewHandler(BaseWorkHandler):
 
     def can_handle(self, work_item: dict | ExecutionCommand) -> bool:
         if isinstance(work_item, ExecutionCommand):
-            return work_item.work_type == self.work_type
-        return work_item.get("action") == "review_task"
+            return work_item.work_type in (
+                WorkType.TASK_REVIEW,
+                WorkType.DESIGN_REVIEW,
+                WorkType.IMPLEMENTATION_REVIEW,
+                WorkType.QA_REVIEW,
+            )
+        return work_item.get("action") in ("review_task", "design_review", "implementation_review", "qa_review")
 
     def fetch(self) -> list[dict]:
         return []
@@ -52,14 +57,17 @@ class ReviewHandler(BaseWorkHandler):
         if isinstance(work_item, ExecutionCommand):
             task_id = work_item.entity_id
             event = work_item.context.get("event")
+            work_type = work_item.work_type.value
         else:
             task_id = int(work_item["task_id"])
             event = work_item.get("event")
+            work_type = work_item.get("work_type", "review_task")
         response = self._request("GET", f"/api/tasks/{task_id}/review-context")
         response.raise_for_status()
         context = response.json() or {}
         context.update({
             "action": "review_task",
+            "work_type": work_type,
             "task_id": task_id,
             "review_event": event,
         })

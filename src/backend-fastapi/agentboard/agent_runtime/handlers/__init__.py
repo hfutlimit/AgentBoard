@@ -44,11 +44,29 @@ def build_handlers(client, config):
 
 def build_work_type_registry(client, config) -> dict[WorkType, BaseWorkHandler]:
     """Construct all built-in Handlers, return ``{WorkType: handler}`` registry."""
-    handlers = [
-        ClarifyHandler(client, config),
-        TicketHandler(client, config),
-        StoryHandler(client, config),
-        ReviewHandler(client, config),
-        OwnerResponseHandler(client, config),
-    ]
-    return {h.work_type: h for h in handlers}
+    clarify_h = ClarifyHandler(client, config)
+    ticket_h = TicketHandler(client, config)
+    story_h = StoryHandler(client, config)
+    review_h = ReviewHandler(client, config)
+    owner_h = OwnerResponseHandler(client, config)
+
+    return {
+        # Proposal 域
+        WorkType.PROPOSAL_CLARIFY: clarify_h,
+        WorkType.PROPOSAL_CONVERT: ticket_h,
+
+        # Task 阶段策略（一等公民正交业务类型）
+        WorkType.DESIGN: story_h,
+        WorkType.IMPLEMENTATION: story_h,
+        WorkType.QA: story_h,
+
+        # Review 阶段策略
+        WorkType.DESIGN_REVIEW: review_h,
+        WorkType.IMPLEMENTATION_REVIEW: review_h,
+        WorkType.QA_REVIEW: review_h,
+
+        # 兼容旧别名
+        WorkType.TASK_IMPLEMENT: story_h,
+        WorkType.TASK_REVIEW: review_h,
+        WorkType.TASK_RESPOND: owner_h,
+    }

@@ -218,3 +218,78 @@ def test_coordinator_poll_once_aggregates_all_domains():
     assert stats["clarified"] >= 1
     assert "stale_stories" in stats
     assert "stale_tasks" in stats
+
+
+def test_work_type_from_task_mapping():
+    """Verify WorkType.from_task resolves granular types correctly."""
+    assert WorkType.from_task("design", is_review=False) == WorkType.DESIGN
+    assert WorkType.from_task("design", is_review=True) == WorkType.DESIGN_REVIEW
+    assert WorkType.from_task("dev", is_review=False) == WorkType.IMPLEMENTATION
+    assert WorkType.from_task("dev", is_review=True) == WorkType.IMPLEMENTATION_REVIEW
+    assert WorkType.from_task("qa", is_review=False) == WorkType.QA
+    assert WorkType.from_task("qa", is_review=True) == WorkType.QA_REVIEW
+    assert WorkType.from_task(None, is_review=False) == WorkType.IMPLEMENTATION
+
+
+def test_coordinator_dispatch_granular_types():
+    """Verify coordinator dispatches granular DESIGN and QA_REVIEW WorkTypes."""
+    invoker = CallableAgentInvoker(lambda ctx: AgentDecision(
+        action="approve" if "review" in ctx.get("work_type", "") else "story_handled",
+        summary="Processed granular",
+    ))
+    config = WorkerConfig(agent="test_agent", agent_cmd="echo test")
+    dummy = DummyClient()
+
+    coord = WorkerCoordinator(config, invoker=invoker, client=dummy)
+
+    # 1. Design implementation
+    cmd_design = ExecutionCommand(
+        execution_id="exec_design_1",
+        work_type=WorkType.DESIGN,
+        entity_type="task",
+        entity_id=1,
+        context={"task": {"id": 1, "title": "Design Arch", "status": "in_progress"}},
+    )
+    res_design = coord.dispatch(cmd_design)
+    assert res_design.status == "success"
+    assert res_design.action == "story_handled"
+
+    # 2. QA Review
+    cmd_qa_review = ExecutionCommand(
+        execution_id="exec_qa_rev_1",
+        work_type=WorkType.QA_REVIEW,
+        entity_type="task",
+        entity_id=401,
+        context={"work_type": "qa_review"},
+    )
+    res_qa_rev = coord.dispatch(cmd_qa_review)
+    assert res_qa_rev.status == "success"
+    assert res_qa_rev.action == "approve"
+
+
+def test_routed_invoker_with_work_type_priority():
+    """Verify RoutedSubprocessInvoker routes by work_type when provided."""
+    from agentboard.agent_runtime.invokers import RoutedSubprocessInvoker
+
+    inv = RoutedSubprocessInvoker(
+        commands={
+            "designer": "echo designer",
+            "coder": "echo coder",
+            "tester": "echo tester",
+        },
+        routing={
+            "design": "designer",
+            "implementation": "coder",
+            "qa": "tester",
+        },
+        timeout=5,
+    )
+
+    alias, _ = inv.route("design")
+    assert alias == "designer"
+
+    alias, _ = inv.route("qa")
+    assert alias == "tester"
+
+    alias, _ = inv.route("implementation")
+    assert alias == "coder"
