@@ -459,9 +459,22 @@ class SubprocessAgentInvoker:
             raise TransientAgentError(f"Agent 命令暂时无法启动：{self.cmd}（{e}）") from None
         if proc.returncode != 0:
             tail = (proc.stderr or proc.stdout or "").strip()[-400:]
+            # Phase 5 P1（2026-08-26 review）：非零退出码按 stderr 分类，不再
+            # "一律 retry"。识别到 permanent 关键词（auth / config / invalid
+            # / quota 之类）→ PermanentAgentError；识别到 transient 关键词
+            # （timeout / 5xx / 429）→ TransientAgentError；未识别 → 默认
+            # PermanentAgentError（保守不重试，避免无限重试无效任务）。
+            from .errors import classify_stderr, ErrorCategory
+            stderr_text = proc.stderr or proc.stdout or ""
+            category = classify_stderr(stderr_text)
+            if category is ErrorCategory.PERMANENT or category is ErrorCategory.UNKNOWN:
+                raise PermanentAgentError(
+                    f"Agent 退出码 {proc.returncode}（permanent / unknown）"
+                    f"：{tail or '(无输出)'}"
+                ) from None
             raise TransientAgentError(
-                f"Agent 退出码 {proc.returncode}：{tail or '(无输出)'}"
-            )
+                f"Agent 退出码 {proc.returncode}（transient）：{tail or '(无输出)'}"
+            ) from None
         return AgentDecision.from_dict(extract_decision_json(proc.stdout))
 
     def invoke_with_prompt(self, prompt: str, context: dict) -> AgentDecision:
@@ -487,7 +500,20 @@ class SubprocessAgentInvoker:
             raise TransientAgentError(f"Agent 命令暂时无法启动：{self.cmd}（{e}）") from None
         if proc.returncode != 0:
             tail = (proc.stderr or proc.stdout or "").strip()[-400:]
+            # Phase 5 P1（2026-08-26 review）：非零退出码按 stderr 分类，不再
+            # "一律 retry"。识别到 permanent 关键词（auth / config / invalid
+            # / quota 之类）→ PermanentAgentError；识别到 transient 关键词
+            # （timeout / 5xx / 429）→ TransientAgentError；未识别 → 默认
+            # PermanentAgentError（保守不重试，避免无限重试无效任务）。
+            from .errors import classify_stderr, ErrorCategory
+            stderr_text = proc.stderr or proc.stdout or ""
+            category = classify_stderr(stderr_text)
+            if category is ErrorCategory.PERMANENT or category is ErrorCategory.UNKNOWN:
+                raise PermanentAgentError(
+                    f"Agent 退出码 {proc.returncode}（permanent / unknown）"
+                    f"：{tail or '(无输出)'}"
+                ) from None
             raise TransientAgentError(
-                f"Agent 退出码 {proc.returncode}：{tail or '(无输出)'}"
-            )
+                f"Agent 退出码 {proc.returncode}（transient）：{tail or '(无输出)'}"
+            ) from None
         return AgentDecision.from_dict(extract_decision_json(proc.stdout))
