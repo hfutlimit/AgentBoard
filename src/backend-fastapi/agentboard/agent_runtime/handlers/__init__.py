@@ -42,13 +42,18 @@ def build_handlers(client, config):
     }
 
 
-def build_work_type_registry(client, config) -> dict[WorkType, BaseWorkHandler]:
-    """Construct all built-in Handlers, return ``{WorkType: handler}`` registry."""
-    clarify_h = ClarifyHandler(client, config)
-    ticket_h = TicketHandler(client, config)
-    story_h = StoryHandler(client, config)
-    review_h = ReviewHandler(client, config)
-    owner_h = OwnerResponseHandler(client, config)
+def build_work_type_registry(
+    client,
+    config,
+    handlers: dict[str, BaseWorkHandler] | None = None,
+) -> dict[WorkType, BaseWorkHandler]:
+    """Build a WorkType registry, reusing the canonical handler instances."""
+    handlers = handlers or build_handlers(client, config)
+    clarify_h = handlers["clarify"]
+    ticket_h = handlers["ticket"]
+    story_h = handlers["story"]
+    review_h = handlers["review"]
+    owner_h = handlers["owner_response"]
 
     return {
         # Proposal 域

@@ -13,7 +13,7 @@ REQUIRE_AUTH=1 时由全局 middleware 强制；无 token 本地开发宽容放�
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -35,7 +35,7 @@ def agent_leaderboard_api(
     s: Session = Depends(get_session),
     authorization: str | None = Header(None),
 ):
-    api_helpers._optional_user_id(authorization, s)
+    _authorize_learning(authorization, s, project_id=project_id)
     return learning_service.agent_leaderboard(
         s, project_id=project_id, task_type=task_type, limit=limit,
     )
@@ -49,7 +49,7 @@ def list_outcomes_api(
     s: Session = Depends(get_session),
     authorization: str | None = Header(None),
 ):
-    api_helpers._optional_user_id(authorization, s)
+    _authorize_learning(authorization, s, project_id=project_id, task_id=task_id)
     return learning_service.list_outcomes(
         s, project_id=project_id, task_id=task_id, limit=limit,
     )
@@ -65,7 +65,7 @@ def judge_task_api(
 
     未配置 LLM 时降级为 deterministic 启发式评分（provider=deterministic）。
     """
-    api_helpers._optional_user_id(authorization, s)
+    _authorize_learning(authorization, s, task_id=task_id, write=True)
     result = learning_judge.judge_task(s, task_id)
     if result is None:
         raise NotFound(f"task {task_id} 无终态 outcome，无法 judge")
@@ -79,6 +79,7 @@ def judge_status_api(
     authorization: str | None = Header(None),
 ):
     """judge 服务状态：provider 是否启用 / daily quota 用量（dashboard 标注用）。"""
+    # This endpoint exposes provider health and quota only, not project data.
     api_helpers._optional_user_id(authorization, s)
     return {
         "llm_enabled": learning_judge.is_judge_llm_enabled(),
@@ -103,7 +104,7 @@ def project_playbook_api(
     authorization: str | None = Header(None),
 ):
     """读取项目 Playbook（Worker prompt 注入 / 前端视图数据源）。"""
-    api_helpers._optional_user_id(authorization, s)
+    _authorize_learning(authorization, s, project_id=project_id)
     if not _project_exists(s, project_id):
         raise NotFound(f"project {project_id} not found")
     return learning_memory.get_playbook(s, project_id=project_id)
@@ -117,7 +118,7 @@ def playbook_append_api(
     authorization: str | None = Header(None),
 ):
     """手动追加 playbook pattern（幂等：同内容不重复；管理员/成员可整理）。"""
-    api_helpers._optional_user_id(authorization, s)
+    _authorize_learning(authorization, s, project_id=project_id, write=True)
     if not _project_exists(s, project_id):
         raise NotFound(f"project {project_id} not found")
     if body.outcome not in ("success", "fail"):
@@ -147,7 +148,7 @@ def recall_api(
     authorization: str | None = Header(None),
 ):
     """RAG recall 调试端点：给定 spec 返回项目内相似 episodes（成功/失败分组）。"""
-    api_helpers._optional_user_id(authorization, s)
+    _authorize_learning(authorization, s, project_id=project_id)
     if not _project_exists(s, project_id):
         raise NotFound(f"project {project_id} not found")
     hits = learning_memory.recall_episodes(
@@ -166,3 +167,41 @@ def _project_exists(s: Session, project_id: int) -> bool:
     from ..projects.models import Project
 
     return s.get(Project, project_id) is not None
+
+
+def _authorize_learning(
+    authorization: str | None,
+    s: Session,
+    *,
+    project_id: int | None = None,
+    task_id: int | None = None,
+    write: bool = False,
+) -> None:
+    """Enforce tenant scope for learning data at the route boundary.
+
+    The global middleware cannot infer ownership for judge and playbook paths,
+    so these endpoints must authorize the project explicitly themselves.
+    """
+    if not authorization and not api_helpers._auth_is_required():
+        return
+    actor = api_helpers.resolve_actor_context(
+        authorization,
+        s,
+        required_permission="api:write" if write else "api:read",
+    )
+    if actor.is_admin:
+        return
+    if task_id is not None:
+        from ..work_items.models import Task
+
+        task = s.get(Task, task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail=f"task {task_id} not found")
+        project_id = task.project_id
+    if project_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="project_id is required for non-admin learning access",
+        )
+    if not api_helpers.service.user_is_project_member(s, project_id, actor.user_id):
+        raise HTTPException(status_code=403, detail="project membership required")

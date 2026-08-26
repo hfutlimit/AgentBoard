@@ -19,7 +19,13 @@ import httpx
 from agentboard.core.infrastructure import messaging as mq
 from . import heartbeat, maintenance
 from .config import AgentDecision, AgentInvoker, WorkerConfig, WorkerError
-from .contract import ExecutionCommand, ExecutionResult, WorkType
+from .contract import (
+    ExecutionCommand,
+    ExecutionResult,
+    ExecutionStatus,
+    UnknownWorkTypeError,
+    WorkType,
+)
 from .handlers import BaseWorkHandler, build_handlers, build_work_type_registry
 from .invokers import (
     CallableAgentInvoker,
@@ -53,7 +59,9 @@ class WorkerCoordinator:
             headers=({"Authorization": f"Bearer {config.token}"} if config.token else {}),
         )
         self._handlers_by_name = build_handlers(self.client, self.config)
-        self.registry = registry or build_work_type_registry(self.client, self.config)
+        self.registry = registry or build_work_type_registry(
+            self.client, self.config, handlers=self._handlers_by_name,
+        )
 
         # 提示词委托注入
         set_prompt_builder(self.build_prompt_for)
@@ -111,6 +119,11 @@ class WorkerCoordinator:
         if self._owns_client:
             self.client.close()
 
+    @staticmethod
+    def _message_consumed(result: ExecutionResult) -> bool:
+        """Ack terminal outcomes; only an explicitly transient failure retries."""
+        return result.status is not ExecutionStatus.FAILED_TRANSIENT
+
     def __enter__(self) -> WorkerCoordinator:
         return self
 
@@ -126,7 +139,14 @@ class WorkerCoordinator:
         激活 invokers.build_prompt 的 PreparedExecution 路径——
         BehaviorResolver + ContextBuilder + PromptBuilder 在 production 真正生效。
         """
-        handler = self.registry.get(command.work_type)
+        try:
+            canonical_type = WorkType.canonical_for(command.work_type)
+        except UnknownWorkTypeError as exc:
+            log.error("Rejecting execution with unknown work type: %s", exc)
+            return ExecutionResult.failure(
+                command.execution_id, str(exc), action="fail",
+            )
+        handler = self.registry.get(canonical_type) or self.registry.get(command.work_type)
         if not handler:
             return ExecutionResult.failure(
                 command.execution_id,
@@ -134,21 +154,24 @@ class WorkerCoordinator:
                 action="fail",
             )
 
-        inflight_key = (str(command.work_type), command.entity_id)
+        inflight_key = (canonical_type.value, command.entity_id)
+        compatibility_key = (str(command.work_type), command.entity_id)
         with self._inflight_lock:
-            if inflight_key in self._inflight:
+            if inflight_key in self._inflight or compatibility_key in self._inflight:
                 log.info("工作项 %s 正在执行中，跳过重复 dispatch", inflight_key)
-                return ExecutionResult.failure(
-                    command.execution_id,
-                    "In-flight duplicate skipped",
-                    action="skipped",
+                return ExecutionResult.skipped(
+                    command.execution_id, "In-flight duplicate skipped",
                 )
             self._inflight.add(inflight_key)
 
         # P1 关键：让下游 invoker.invoke() / invoke_with_prompt() 走 PreparedExecution 路径
         # （即真正调用 BehaviorResolver / ContextBuilder / PromptBuilder）
-        if "_command" not in command.context:
-            command.context["_command"] = command
+        context = dict(command.context)
+        if "_command" not in context or command.work_type != canonical_type:
+            context["_command"] = command
+        command = command.model_copy(
+            update={"work_type": canonical_type, "context": context},
+        )
 
         try:
             log.info("开始执行命令 [exec_id=%s, work_type=%s, entity_id=%s]",
@@ -177,20 +200,17 @@ class WorkerCoordinator:
         """
         # 1. 优先按 WorkType 字符串精确路由
         wt_str = context.get("work_type")
-        if wt_str:
-            try:
-                wt = WorkType(wt_str) if not isinstance(wt_str, WorkType) else wt_str
-                h = self.registry.get(wt)
-                if h:
-                    return h.build_prompt(context)
-            except (ValueError, KeyError):
-                # 未知 WorkType 字符串，落到下一步
-                pass
+        if wt_str is not None:
+            wt = WorkType.canonical_for(wt_str)
+            h = self.registry.get(wt)
+            if h:
+                return h.build_prompt(context)
+            raise UnknownWorkTypeError(f"No handler registered for work_type: {wt_str}")
 
         # 2. 兼容路径：按 action 字符串反查（仅用于历史 invoker / 旧 MQ 消息）
         action = context.get("action")
         if action == "review_task":
-            h = self.registry.get(WorkType.TASK_REVIEW)
+            h = self.registry.get(WorkType.IMPLEMENTATION_REVIEW) or self.registry.get(WorkType.TASK_REVIEW)
             if h:
                 return h.build_prompt(context)
         elif action == "owner_response":
@@ -198,7 +218,7 @@ class WorkerCoordinator:
             if h:
                 return h.build_prompt(context)
         elif action in ("process_story", "process_task") or context.get("story_id"):
-            h = self.registry.get(WorkType.TASK_IMPLEMENT)
+            h = self.registry.get(WorkType.IMPLEMENTATION) or self.registry.get(WorkType.TASK_IMPLEMENT)
             if h:
                 return h.build_prompt(context)
         elif context.get("ticket_request_id") or (
@@ -255,12 +275,12 @@ class WorkerCoordinator:
                     stats["converted"] += 1
 
         # 3. Story 推进
-        story_h = self.registry.get(WorkType.TASK_IMPLEMENT)
+        story_h = self.registry.get(WorkType.IMPLEMENTATION)
         if story_h and hasattr(story_h, "fetch"):
             for st in story_h.fetch():
                 cmd = ExecutionCommand(
                     execution_id=f"story_{st.get('id')}",
-                    work_type=WorkType.TASK_IMPLEMENT,
+                    work_type=WorkType.IMPLEMENTATION,
                     entity_type="story",
                     entity_id=st.get("id", 0),
                     context=st,
@@ -296,7 +316,7 @@ class WorkerCoordinator:
                 context={"event": event, "work_type": work_type.value},
             )
             res = self.dispatch(cmd)
-            return res.status == "success"
+            return self._message_consumed(res)
 
         # 2. 评审驳回 / 重新激活开发事件 (Re-activate implementation attempt)
         if event in ("task.rejected", "comment.replied"):
@@ -312,7 +332,7 @@ class WorkerCoordinator:
                 context={"event": event, "work_type": work_type.value},
             )
             res = self.dispatch(cmd)
-            return res.status == "success"
+            return self._message_consumed(res)
 
         # 3. 任务可认领事件（DAG 解锁后广播）
         if event == "task.available":
@@ -326,6 +346,6 @@ class WorkerCoordinator:
                 context={"event": event, "work_type": work_type.value},
             )
             res = self.dispatch(cmd)
-            return res.status == "success"
+            return self._message_consumed(res)
 
         return True

@@ -29,7 +29,7 @@ def _comment_for(decision: AgentDecision) -> str:
 class ReviewHandler(BaseWorkHandler):
     """Run a reviewer Agent and persist its approve/reject verdict."""
 
-    work_type = WorkType.TASK_REVIEW
+    work_type = WorkType.IMPLEMENTATION_REVIEW
     name = "review"
     valid_actions = {ACTION_REVIEW_APPROVE, ACTION_REVIEW_REJECT}
 
@@ -40,7 +40,6 @@ class ReviewHandler(BaseWorkHandler):
     def can_handle(self, work_item: dict | ExecutionCommand) -> bool:
         if isinstance(work_item, ExecutionCommand):
             return work_item.work_type in (
-                WorkType.TASK_REVIEW,
                 WorkType.DESIGN_REVIEW,
                 WorkType.IMPLEMENTATION_REVIEW,
                 WorkType.QA_REVIEW,
@@ -77,7 +76,7 @@ class ReviewHandler(BaseWorkHandler):
         try:
             wt_enum = WorkType(work_type)
         except (ValueError, KeyError):
-            wt_enum = WorkType.TASK_REVIEW
+            wt_enum = WorkType.IMPLEMENTATION_REVIEW
         context["_command"] = ExecutionCommand(
             execution_id=f"review_{task_id}",
             work_type=wt_enum,

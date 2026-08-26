@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from enum import Enum
+from enum import Enum, StrEnum
 from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -29,6 +29,7 @@ class WorkType(str, Enum):
     TASK_IMPLEMENT = "task_implement"
     TASK_REVIEW = "task_review"
     TASK_RESPOND = "task_respond"
+
 
     @classmethod
     def from_task(cls, task_type: str | None, is_review: bool = False) -> WorkType:
@@ -63,19 +64,25 @@ class WorkType(str, Enum):
             其他           → 不变
         """
         if work_type is None:
-            return cls.IMPLEMENTATION  # 兜底：未指定工作类型默认 IMPLEMENTATION
+            raise UnknownWorkTypeError("work_type is required")
         if isinstance(work_type, cls):
             wt = work_type
         else:
             try:
                 wt = cls(str(work_type).strip().lower())
-            except (ValueError, KeyError):
-                return cls.IMPLEMENTATION
+            except (ValueError, KeyError) as exc:
+                raise UnknownWorkTypeError(
+                    f"unknown work_type: {work_type!r}"
+                ) from exc
         if wt == cls.TASK_IMPLEMENT:
             return cls.IMPLEMENTATION
         if wt == cls.TASK_REVIEW:
             return cls.IMPLEMENTATION_REVIEW
         return wt
+
+
+class UnknownWorkTypeError(ValueError):
+    """Raised when an execution request contains an unknown work type."""
 
 
 class ExecutionCommand(BaseModel):
@@ -90,12 +97,35 @@ class ExecutionCommand(BaseModel):
     lease_token: str | None = Field(default=None, description="租约 token，用于心跳续租与 CAS 校验")
 
 
+class ExecutionStatus(StrEnum):
+    SUCCESS = "success"
+    FAILED = "failed"
+    REJECTED = "rejected"
+    BLOCKED = "blocked"
+    SKIPPED = "skipped"
+    FAILED_TRANSIENT = "failed_transient"
+    FAILED_PERMANENT = "failed_permanent"
+
+
+class ExecutionAction(StrEnum):
+    ASK = "ask"
+    FINALIZE = "finalize"
+    FAIL = "fail"
+    TICKET_CREATED = "ticket_created"
+    STORY_HANDLED = "story_handled"
+    APPROVE = "approve"
+    REJECT = "reject"
+    SKIP = "skip"
+    SKIPPED = "skipped"
+    NOOP = "noop"
+
+
 class ExecutionResult(BaseModel):
     """Worker 执行完毕后上报的结构化结果。"""
 
     execution_id: str = Field(..., description="对应的执行标识")
-    status: str = Field(..., description="执行状态：success | failed | rejected | blocked")
-    action: str = Field(..., description="决策动作码：ask | create_ticket | story_handled | approve | reject | fail")
+    status: ExecutionStatus = Field(..., description="Execution status")
+    action: ExecutionAction = Field(..., description="Execution action")
     summary: str = Field(default="", description="执行摘要或评论内容")
     output: dict[str, Any] = Field(default_factory=dict, description="额外结构化输出（如生成的 tasks, questions 等）")
     inspected_files: list[str] = Field(default_factory=list, description="Agent 报告已读/检查过的源码文件列表")
@@ -117,6 +147,21 @@ class ExecutionResult(BaseModel):
             summary=summary,
             output=output or {},
             inspected_files=inspected_files or [],
+        )
+
+    @classmethod
+    def skipped(
+        cls,
+        execution_id: str,
+        summary: str = "",
+        *,
+        action: str = "skipped",
+    ) -> "ExecutionResult":
+        return cls(
+            execution_id=execution_id,
+            status=ExecutionStatus.SKIPPED,
+            action=ExecutionAction(action),
+            summary=summary,
         )
 
     @classmethod

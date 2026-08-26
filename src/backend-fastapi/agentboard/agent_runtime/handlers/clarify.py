@@ -273,7 +273,7 @@ class ClarifyHandler(BaseWorkHandler):
         pid = command.entity_id
         proposal = command.context if "content" in command.context else {"id": pid}
         if not self.claim(proposal):
-            return ExecutionResult.failure(command.execution_id, "claim skipped", action="skipped")
+            return ExecutionResult.skipped(command.execution_id, "claim skipped")
         try:
             context = self.load_context(proposal)
         except Exception as e:

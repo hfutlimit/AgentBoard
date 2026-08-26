@@ -54,6 +54,26 @@ jobs:
           python -m pytest tests/test_run_event_bus.py -q
           python -m pytest tests/test_proposal_realtime.py -q
           python -m pytest tests/test_api_keys.py -q
+          for test_file in \
+            tests/test_domain_boundaries.py \
+            tests/unit/test_behavior_models.py \
+            tests/unit/test_behavior_resolver.py \
+            tests/unit/test_execution_context_builder.py \
+            tests/unit/test_execution_contract_review.py \
+            tests/unit/test_learning_p1_fixes.py \
+            tests/unit/test_learning_evaluator.py \
+            tests/unit/test_learning_extractor.py \
+            tests/unit/test_learning_retriever.py \
+            tests/unit/test_prompt_blocks.py \
+            tests/unit/test_prompt_builder.py \
+            tests/unit/test_proposal_p1_fixes.py \
+            tests/unit/test_routed_subprocess_invoker.py \
+            tests/unit/test_stage0_worker_resilience.py \
+            tests/unit/test_story_async_executor.py \
+            tests/unit/test_task_state_machine.py \
+            tests/unit/test_worker_coordinator.py; do
+            python -m pytest "$test_file" -q
+          done
 
   frontend:
     runs-on: ubuntu-latest
@@ -69,6 +89,8 @@ jobs:
           cache-dependency-path: src/frontend/package-lock.json
       - run: npm ci
       - run: npm run build
+      - name: Run frontend tests
+        run: npm test -- --watch=false
 
   worker:
     runs-on: ubuntu-latest

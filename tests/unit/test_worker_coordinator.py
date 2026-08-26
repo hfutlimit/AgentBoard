@@ -177,7 +177,7 @@ def test_coordinator_inflight_deduplication():
     )
 
     result = coord.dispatch(cmd)
-    assert result.status == "failed"
+    assert result.status == "skipped"
     assert result.action == "skipped"
 
 

@@ -263,6 +263,12 @@ class TicketHandler(BaseWorkHandler):
                 summary=decision.summary or "ticket created",
                 inspected_files=decision.inspected_files,
             )
+        if outcome == TicketOutcome.SKIPPED.value:
+            return ExecutionResult.skipped(
+                execution_id=command.execution_id,
+                summary=decision.summary or "ticket creation skipped",
+                action="skip",
+            )
         # FAILED / SKIPPED 都映射到 failure result（SKIPPED 实际上属
         # agent 主动放弃 + 兜底回查无明确结果；按 failure 处理让前端可重试）
         return ExecutionResult.failure(

@@ -40,6 +40,25 @@ log = logging.getLogger("agentboard.worker.work_async")
 OnDecision = Callable[[str, int, str, BaseException | None], None]
 
 
+class _SerializedInvoker:
+    """Protect invokers whose implementations are not guaranteed thread-safe."""
+
+    def __init__(self, invoker: Any):
+        self._invoker = invoker
+        self._lock = threading.Lock()
+
+    def invoke(self, context: dict) -> Any:
+        with self._lock:
+            return self._invoker.invoke(context)
+
+    def invoke_with_prompt(self, prompt: str, context: dict) -> Any:
+        with self._lock:
+            return self._invoker.invoke_with_prompt(prompt, context)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._invoker, name)
+
+
 class AsyncWorkExecutor:
     """后台线程池执行 Handler.handle(work_item, invoker)，不阻塞 main loop。"""
 
@@ -49,7 +68,7 @@ class AsyncWorkExecutor:
     def __init__(self, invoker: Any, handlers: dict[str, Any],
                  max_concurrent: int = 1,
                  join_timeout: float = 30.0):
-        self._invoker = invoker
+        self._invoker = _SerializedInvoker(invoker)
         self._handlers = handlers
         self._join_timeout = max(0.0, join_timeout)
         # per-kind 串行化：慢域不占快域槽位（同 invoker 不假定线程安全）
@@ -68,21 +87,30 @@ class AsyncWorkExecutor:
     def submit(self, kind: str, work_item: dict,
                on_decision: OnDecision | None = None) -> str:
         """立即返回；后台线程执行对应 handler。in-flight 重复提交被拒绝。"""
-        if self._closed:
-            return "rejected_closed"
         if kind not in self.KINDS:
             return f"rejected_unknown_kind:{kind}"
         wid = work_item.get("id")
+        if wid is None:
+            return "rejected_invalid_work_item"
         key = (kind, wid)
         with self._lock:
+            if self._closed:
+                return "rejected_closed"
             if key in self._inflight:
                 return "duplicate_inflight"
+            if not self._sems[kind].acquire(blocking=False):
+                return "deferred_capacity"
             t = threading.Thread(
                 target=self._run_one, args=(kind, work_item, on_decision),
                 name=f"work-async-{kind}-{wid}", daemon=True,
             )
             self._inflight[key] = t
-        t.start()
+            try:
+                t.start()
+            except BaseException:
+                self._inflight.pop(key, None)
+                self._sems[kind].release()
+                raise
         return "submitted"
 
     def _run_one(self, kind: str, work_item: dict,
@@ -91,12 +119,11 @@ class AsyncWorkExecutor:
         outcome = ""
         exc: BaseException | None = None
         try:
-            with self._sems[kind]:
-                handler = self._handlers.get(kind)
-                if handler is None:
-                    outcome = "no_handler"
-                else:
-                    outcome = handler.handle(work_item, self._invoker)
+            handler = self._handlers.get(kind)
+            if handler is None:
+                outcome = "no_handler"
+            else:
+                outcome = str(handler.handle(work_item, self._invoker))
         except BaseException as e:  # noqa: BLE001 —— 后台必须吞掉避免线程死
             exc = e
             log.exception("%s #%s 后台执行异常", kind, wid)
@@ -104,6 +131,7 @@ class AsyncWorkExecutor:
             with self._lock:
                 self._inflight.pop((kind, wid), None)
                 self._finished.append((kind, wid, outcome))
+                self._sems[kind].release()
             if on_decision is not None:
                 try:
                     on_decision(kind, wid, outcome, exc)
@@ -124,13 +152,13 @@ class AsyncWorkExecutor:
             self._finished.clear()
         return out
 
-    def shutdown(self) -> None:
+    def shutdown(self) -> bool:
         """关闭入口：拒绝新任务，等待 in-flight 完成。"""
         with self._lock:
             self._closed = True
             threads = list(self._inflight.values())
         if not threads:
-            return
+            return True
         log.info("AsyncWorkExecutor 收尾：等 %d 个 in-flight 任务完成（≤%ss）",
                  len(threads), self._join_timeout)
         deadline = time.time() + self._join_timeout
@@ -141,6 +169,8 @@ class AsyncWorkExecutor:
                 log.warning("后台线程 %s 在 join 超时后仍存活，强制退场"
                             "（子进程随主进程回收）", t.name)
 
+
+        return not any(t.is_alive() for t in threads)
 
 # 向后兼容别名（2026-08-26 前仅有 Story 域时的类名）
 _StoryAsyncExecutor = AsyncWorkExecutor

@@ -24,9 +24,12 @@ from agentboard.features.work_items.state_machine import (
 
 @pytest.fixture(scope="module", autouse=True)
 def _init_db():
+    db_path = os.path.abspath("_test_task_sm_tmp.db")
+    if os.path.exists(db_path):
+        os.remove(db_path)
     init_db()
     yield
-    engine.dispose()
+    engine.dispose(close=True)
 
 
 @pytest.fixture

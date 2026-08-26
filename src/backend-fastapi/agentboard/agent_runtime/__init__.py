@@ -30,6 +30,9 @@ from .config import (  # noqa: F401
 from .contract import (  # noqa: F401
     ExecutionCommand,
     ExecutionResult,
+    ExecutionAction,
+    ExecutionStatus,
+    UnknownWorkTypeError,
     WorkType,
 )
 from .coordinator import WorkerCoordinator  # noqa: F401
@@ -55,6 +58,7 @@ from .worker import ProposalWorker, _parse_dt  # noqa: F401
 __all__ = [
     # 统一模型
     "WorkerCoordinator", "WorkType", "ExecutionCommand", "ExecutionResult",
+    "ExecutionAction", "ExecutionStatus", "UnknownWorkTypeError",
     # 常量
     "ACTION_ASK", "ACTION_FAIL", "ACTION_FINALIZE", "ACTION_REVIEW_APPROVE",
     "ACTION_REVIEW_REJECT", "ACTION_STORY_HANDLED",

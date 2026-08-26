@@ -132,8 +132,8 @@ class TaskStateMachine(StateMachine["Task"]):
     """Task 状态机。
 
     5 状态集(Story 265):
-        todo → in_progress, done, blocked
-        in_progress → in_review, todo, done, blocked
+        todo → in_progress, blocked
+        in_progress → in_review, todo, blocked
         in_review → done, in_progress, blocked
         done → in_progress, blocked
         blocked 全向可达(任意非终态 → blocked);

@@ -75,6 +75,7 @@ def _mk_task(s, u, p, st, spec=""):
 
 def _done(s, t, u, reason=StatusReason.COMPLETED):
     service.set_status(s, t.id, Status.IN_PROGRESS, changed_by=u.id)
+    service.set_status(s, t.id, Status.IN_REVIEW, changed_by=u.id)
     return service.set_status(s, t.id, Status.DONE, changed_by=u.id, status_reason=reason)
 
 

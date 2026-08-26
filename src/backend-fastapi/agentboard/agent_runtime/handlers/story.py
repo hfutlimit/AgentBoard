@@ -146,7 +146,7 @@ def build_task_prompt(context: dict) -> str:
 class StoryHandler(BaseWorkHandler):
     """Story / Task 执行编排 Handler（confirmed → 推进 task → done / blocked）。"""
 
-    work_type = WorkType.TASK_IMPLEMENT
+    work_type = WorkType.IMPLEMENTATION
     name = "story"
     valid_actions = {ACTION_STORY_HANDLED, "fail"}
 
@@ -176,9 +176,8 @@ class StoryHandler(BaseWorkHandler):
     def can_handle(self, work_item: dict | ExecutionCommand) -> bool:
         if isinstance(work_item, ExecutionCommand):
             return work_item.work_type in (
-                WorkType.TASK_IMPLEMENT,
-                WorkType.DESIGN,
                 WorkType.IMPLEMENTATION,
+                WorkType.DESIGN,
                 WorkType.QA,
             )
         return bool((work_item.get("story_id") and "tasks" in work_item)
@@ -241,7 +240,7 @@ class StoryHandler(BaseWorkHandler):
         from ..contract import ExecutionCommand, WorkType
         ctx["_command"] = ExecutionCommand(
             execution_id=f"story_{sid}",
-            work_type=WorkType.TASK_IMPLEMENT,  # Story 推进默认 IMPLEMENTATION
+            work_type=WorkType.IMPLEMENTATION,
             entity_type="story",
             entity_id=int(sid or 0),
             context=ctx,
@@ -256,47 +255,6 @@ class StoryHandler(BaseWorkHandler):
             return str(_resolve_project_cwd({"project_id": int(project_id)}, None) or "")
         except Exception:
             return ""
-
-    # ---------- Epic 140 切片 3：项目记忆 recall ----------
-
-    def _recall_episodes(self, project_id: int | None, ctx: dict) -> list[dict]:
-        """调用 /api/learning/recall 取项目相似 episodes（成功/失败分组）。
-
-        recall 是增强上下文：任何失败返回 []（不带记忆），绝不阻断派单链路。
-        """
-        if not project_id:
-            return []
-        try:
-            query = " ".join([
-                str(ctx.get("title") or ""),
-                str(ctx.get("description") or "")[:800],
-            ]).strip()
-            if not query:
-                return []
-            r = self._request("GET", "/api/learning/recall",
-                              params={"project_id": project_id, "spec": query[:2000], "top_k": 8})
-            if r.status_code != 200:
-                log.warning("recall project#%s 非 200（%s），fallback 不带记忆", project_id, r.status_code)
-                return []
-            return (r.json() or {}).get("hits") or []
-        except Exception as e:
-            log.warning("recall project#%s 失败（fallback 不带记忆）：%s", project_id, e)
-            return []
-
-    def _build_recall_section(self, episodes: list[dict]) -> str:
-        """把 recall hits 格式化为 prompt 注入段（长度预算内）。"""
-        if not episodes:
-            return ""
-        lines = ["", "## 项目历史经验（RAG recall，参考案例）"]
-        for ep in episodes[:8]:
-            marker = "✅ 成功" if ep.get("outcome") == "success" else "❌ 失败"
-            lines.append(
-                f"- [{marker} sim={ep.get('similarity')}] #{ep.get('episode_id')} "
-                f"({ep.get('task_type')}, score={ep.get('score')}) "
-                f"{str(ep.get('summary') or '')[:280]}"
-            )
-        section = "\n".join(lines)
-        return section[:4000]
 
     def build_prompt(self, context: dict) -> str:
         """Story 执行模式提示词（委托模块级 build_story_prompt）。"""
@@ -367,7 +325,7 @@ class StoryHandler(BaseWorkHandler):
         story = command.context if "tasks" in command.context else {"id": command.entity_id}
         sid = command.entity_id
         if not self.claim(story):
-            return ExecutionResult.failure(command.execution_id, "claim skipped", action="skipped")
+            return ExecutionResult.skipped(command.execution_id, "claim skipped")
         try:
             context = self.load_context(story)
         except Exception as e:

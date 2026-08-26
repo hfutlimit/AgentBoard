@@ -67,6 +67,7 @@ def _mk_task(s, u, p, st, title="T1", assignee=True):
 
 def _done(s, t, u, reason=StatusReason.COMPLETED):
     service.set_status(s, t.id, Status.IN_PROGRESS, changed_by=u.id)
+    service.set_status(s, t.id, Status.IN_REVIEW, changed_by=u.id)
     return service.set_status(s, t.id, Status.DONE, changed_by=u.id, status_reason=reason)
 
 
@@ -108,13 +109,15 @@ def test_build_episode_text_aggregates_context(session):
     service.set_status(session, t.id, Status.IN_PROGRESS, changed_by=u.id)
     session.add(Comment(task_id=t.id, author="agent-a", content="实现完成，含 3 个测试用例"))
     session.commit()
+    service.set_status(session, t.id, Status.IN_REVIEW, changed_by=u.id)
     service.set_status(session, t.id, Status.DONE, changed_by=u.id,
                        status_reason=StatusReason.COMPLETED)
     search_text, summary = lm.build_episode_text(session, t)
     assert "写单元测试" in search_text
     assert "为 recall 模块补充 pytest 用例" in search_text
     assert "todo->in_progress" in search_text
-    assert "in_progress->done" in search_text
+    assert "in_progress->in_review" in search_text
+    assert "in_review->done" in search_text
     assert "实现完成" in summary
     assert "done" in summary
 
@@ -708,6 +711,7 @@ def test_blocked_reopen_done_updates_playbook_entry_to_success(session):
     # blocked → in_progress（unblock 回到 previous_status）
     service.set_status(session, t.id, Status.IN_PROGRESS, changed_by=u.id)
     # in_progress → done
+    service.set_status(session, t.id, Status.IN_REVIEW, changed_by=u.id)
     service.set_status(
         session, t.id, Status.DONE, changed_by=u.id,
         status_reason=StatusReason.COMPLETED,
