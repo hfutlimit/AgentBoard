@@ -72,11 +72,10 @@ class ReviewHandler(BaseWorkHandler):
             "task_id": task_id,
             "review_event": event,
         })
-        # P1 修复（Review 2026-08-26）：注入 ExecutionCommand 激活 PreparedExecution 路径
-        try:
-            wt_enum = WorkType(work_type)
-        except (ValueError, KeyError):
-            wt_enum = WorkType.IMPLEMENTATION_REVIEW
+        # P1 fail-closed（Phase 0, 2026-08-26）：未知 work_type 不再静默回退到
+        # IMPLEMENTATION_REVIEW——让 WorkType() 抛 ValueError，execute_command 走
+        # FAIL_PERMANENT 路径落 blocked 并写 comment，避免 review 任务错走实现路径。
+        wt_enum = WorkType(work_type)
         context["_command"] = ExecutionCommand(
             execution_id=f"review_{task_id}",
             work_type=wt_enum,

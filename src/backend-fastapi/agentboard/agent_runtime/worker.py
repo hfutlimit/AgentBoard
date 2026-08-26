@@ -246,7 +246,7 @@ class ProposalWorker:
         return self._handlers["clarify"].handle(proposal, self.invoker)
 
     def mark_failed(self, proposal_id: int, error: str) -> str:
-        return self._handlers["clarify"]._mark_failed(proposal_id, error)
+        return self._handlers["clarify"].mark_failed(proposal_id, error)
 
     def fetch_ticket_requests(self) -> list[dict]:
         return self._handlers["ticket"].fetch()

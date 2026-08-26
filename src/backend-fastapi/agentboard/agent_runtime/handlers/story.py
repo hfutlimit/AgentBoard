@@ -507,10 +507,10 @@ class StoryHandler(BaseWorkHandler):
         # 旧 ctx["recalled"] 字段废弃。
         # P1 修复（Review 2026-08-26 第二轮）：注入 ExecutionCommand 激活 PreparedExecution 路径
         from ..contract import ExecutionCommand, WorkType
-        try:
-            wt_enum = WorkType(work_type)
-        except (ValueError, KeyError):
-            wt_enum = WorkType.IMPLEMENTATION
+        # P1 fail-closed（Phase 0, 2026-08-26）：未知的 work_type 不允许静默回退到
+        # IMPLEMENTATION（review 已下线 #22 后此 fallback 会让 review task 走错路径）。
+        # 让 WorkType() 抛 ValueError，由 execute_command 走 FAIL_PERMANENT 落 blocked。
+        wt_enum = WorkType(work_type)
         task_id = int(task.get("id") or 0)
         ctx["_command"] = ExecutionCommand(
             execution_id=f"task_{task_id}_{wt_enum.value}",
