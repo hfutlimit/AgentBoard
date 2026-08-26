@@ -6,6 +6,8 @@
 3. 通道隔离与 (work_type, entity_id) in-flight 去重；
 4. 统一驱动源：支持轮询拉取（poll_once）与 MQ 事件流（handle_workflow_message）；
 5. 自动化租约回收与健康检查维护。
+6. （Phase 2 P1 修复）瞬时错误重试计数持久化到 DB（message_attempts 表），
+   多 Worker / Worker restart / RabbitMQ requeue 不会让 attempt 归零。
 """
 from __future__ import annotations
 
@@ -42,6 +44,11 @@ __all__ = ["WorkerCoordinator"]
 WORKFLOW_RETRY_BACKOFF_SECONDS = (1, 2, 4, 8, 15, 30)
 
 
+def _execution_id_from_retry_key(retry_key: tuple[str, str, int, int]) -> str:
+    """从 retry_key 元组派生出稳定的 execution_id 字符串。"""
+    return f"{retry_key[0]}:{retry_key[1]}:{retry_key[2]}:{retry_key[3]}"
+
+
 class WorkerCoordinator:
     """统一 Worker 协调器：单进程统管全生命周期与异构工作项。"""
 
@@ -51,7 +58,15 @@ class WorkerCoordinator:
         invoker: AgentInvoker | None = None,
         client: httpx.Client | None = None,
         registry: dict[WorkType, BaseWorkHandler] | None = None,
+        session_factory: Callable | None = None,
     ):
+        """
+        Args:
+            session_factory: 持久化 retry 计数用的 SQLAlchemy session factory。
+                传 None 时回退到 in-memory dict（dev 模式 / 单 Worker）；
+                生产（多 Worker / 跨重启）应传 ``agentboard.core.infrastructure.database.SessionLocal``
+                以保证 attempt 跨进程一致。
+        """
         self.config = config
         self.invoker = invoker or self._default_invoker(config)
         self._owns_client = client is None
@@ -87,7 +102,9 @@ class WorkerCoordinator:
                 join_timeout=join_to,
             )
 
-        # 瞬时错误重试记录
+        # P2 P1 修复（2026-08-26）：retry 计数持久化。session_factory 为 None 时
+        # 退化到 in-memory dict（dev 模式）；生产必须传 SessionLocal。
+        self._session_factory = session_factory
         self._msg_retries: dict[tuple[str, str, int, int], int] = {}
         self._validate_lease_vs_timeout()
 
@@ -122,19 +139,128 @@ class WorkerCoordinator:
         if self._owns_client:
             self.client.close()
 
+    # ---------- Phase 2 P1：持久化 retry 计数 ----------
+
+    def _get_attempt(self, execution_id: str) -> int:
+        """读当前 attempt。session_factory=None → in-memory dict；否则 DB。"""
+        if self._session_factory is None:
+            return self._msg_retries.get(
+                self._retry_key_from_execution_id(execution_id), 0,
+            )
+        try:
+            from agentboard.features.scheduling.models import MessageAttempt
+            s = self._session_factory()
+            try:
+                row = s.query(MessageAttempt).filter(
+                    MessageAttempt.execution_id == execution_id,
+                ).first()
+                return int(row.attempt) if row else 0
+            finally:
+                s.close()
+        except Exception as e:
+            log.warning("读 message_attempt 失败（回退 in-memory）：%s", e)
+            return 0
+
+    def _set_attempt(
+        self, execution_id: str, attempt: int, *,
+        last_error: str = "",
+        status: str = "pending",
+        retry_key: tuple[str, str, int, int] | None = None,
+    ) -> None:
+        """写当前 attempt。session_factory=None → in-memory dict；否则 DB upsert。"""
+        if self._session_factory is None:
+            if retry_key is None:
+                retry_key = self._retry_key_from_execution_id(execution_id)
+            if attempt <= 0:
+                self._msg_retries.pop(retry_key, None)
+            else:
+                self._msg_retries[retry_key] = attempt
+            return
+        try:
+            from agentboard.features.scheduling.models import MessageAttempt
+            from sqlalchemy import select
+            s = self._session_factory()
+            try:
+                row = s.execute(
+                    select(MessageAttempt).where(
+                        MessageAttempt.execution_id == execution_id,
+                    )
+                ).scalar_one_or_none()
+                if row is None:
+                    row = MessageAttempt(
+                        execution_id=execution_id,
+                        attempt=attempt,
+                        last_error=last_error[:1000],
+                        status=status,
+                    )
+                    if retry_key is not None:
+                        row.last_event = str(retry_key[0])
+                        row.last_entity_type = str(retry_key[1])
+                        row.last_entity_id = int(retry_key[2])
+                        row.last_ref_id = int(retry_key[3])
+                    s.add(row)
+                else:
+                    row.attempt = attempt
+                    row.last_error = last_error[:1000]
+                    row.status = status
+                s.commit()
+            finally:
+                s.close()
+        except Exception as e:
+            log.warning("写 message_attempt 失败：%s", e)
+
+    def _delete_attempt(self, retry_key: tuple[str, str, int, int]) -> None:
+        """非 transient / dead-lettered / completed 时清掉 attempt。"""
+        if self._session_factory is None:
+            self._msg_retries.pop(retry_key, None)
+            return
+        try:
+            from agentboard.features.scheduling.models import MessageAttempt
+            from sqlalchemy import delete
+            execution_id = _execution_id_from_retry_key(retry_key)
+            s = self._session_factory()
+            try:
+                s.execute(
+                    delete(MessageAttempt).where(
+                        MessageAttempt.execution_id == execution_id,
+                    )
+                )
+                s.commit()
+            finally:
+                s.close()
+        except Exception as e:
+            log.warning("删 message_attempt 失败：%s", e)
+
+    @staticmethod
+    def _retry_key_from_execution_id(execution_id: str) -> tuple[str, str, int, int]:
+        """从 ``execution_id`` 字符串反解 retry_key 元组（仅 in-memory fallback 用）。"""
+        parts = execution_id.split(":", 3)
+        if len(parts) != 4:
+            return ("", "", 0, 0)
+        return (parts[0], parts[1], int(parts[2] or 0), int(parts[3] or 0))
+
     def _message_consumed(
         self,
         result: ExecutionResult,
         retry_key: tuple[str, str, int, int],
     ) -> bool:
-        """Ack terminal outcomes and boundedly requeue transient failures."""
+        """Ack terminal outcomes and boundedly requeue transient failures.
+
+        Phase 2 P1 修复（2026-08-26）：attempt 计数从进程内 dict 改 DB 持久化。
+        session_factory=None → 旧 in-memory dict（dev 模式）；
+        否则 → message_attempts 表，跨进程 / 跨重启一致。
+        """
+        execution_id = _execution_id_from_retry_key(retry_key)
         if result.status is not ExecutionStatus.FAILED_TRANSIENT:
-            self._msg_retries.pop(retry_key, None)
+            self._delete_attempt(retry_key)
             return True
 
-        attempt = self._msg_retries.get(retry_key, 0)
+        attempt = self._get_attempt(execution_id)
         if attempt >= len(WORKFLOW_RETRY_BACKOFF_SECONDS):
-            self._msg_retries.pop(retry_key, None)
+            self._set_attempt(
+                execution_id, attempt, last_error=result.summary or "dead-lettered",
+                status="dead_lettered", retry_key=retry_key,
+            )
             log.error(
                 "Workflow message exceeded transient retry limit; dead-lettering "
                 "event=%s entity=%s#%s attempt=%s",
@@ -143,11 +269,16 @@ class WorkerCoordinator:
             return False
 
         delay = WORKFLOW_RETRY_BACKOFF_SECONDS[attempt]
-        self._msg_retries[retry_key] = attempt + 1
+        new_attempt = attempt + 1
+        self._set_attempt(
+            execution_id, new_attempt,
+            last_error=result.summary or "transient",
+            status="pending", retry_key=retry_key,
+        )
         if delay:
             time.sleep(delay)
         raise mq.MessageRetry(
-            f"transient execution failure; retry {attempt + 1}/"
+            f"transient execution failure; retry {new_attempt}/"
             f"{len(WORKFLOW_RETRY_BACKOFF_SECONDS)}"
         )
 

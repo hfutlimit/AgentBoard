@@ -176,6 +176,45 @@ class AgentBehaviorConfig(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 
 
+class MessageAttempt(Base):
+    """Per-MQ-message 持久化 retry 计数（2026-08-26 P1 修复）。
+
+    背景：``Coordinator._msg_retries: dict = {}`` 进程内计数器在多 Worker / Worker
+    restart / RabbitMQ requeue 时全部失效（counter 归零），导致单条消息可
+    被重试任意次（极端情况无限重试）。本表把 attempt 持久化到 DB，任何 Worker
+    接手消息时先查表获取当前 attempt，跨进程/跨重启一致。
+
+    ``execution_id`` 是 retry key 字符串拼接（event/entity_type/entity_id/ref_id），
+    由 ``Coordinator._workflow_retry_key`` 派生。UNIQUE 约束保证 upsert 幂等。
+    """
+    __tablename__ = "message_attempts"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending','in_flight','completed','dead_lettered','gave_up')",
+            name="ck_message_attempts_status",
+        ),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    execution_id: Mapped[str] = mapped_column(
+        String(256), unique=True, nullable=False, index=True,
+    )
+    # 当前 attempt 次数（首次创建 = 0，每次 retry +1）
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # 上次失败原因（truncated 1000 字符）
+    last_error: Mapped[str] = mapped_column(String(1000), nullable=False, default="")
+    # 下次允许重试的时间（backoff TTL：WORKFLOW_RETRY_BACKOFF_SECONDS 索引）
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    # 状态机：pending → in_flight → (completed | dead_lettered | gave_up)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    # 调试字段：retry_key 元数据（4-tuple 拆开存）
+    last_event: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    last_entity_type: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    last_entity_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_ref_id: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
+
+
 # Review 流程常量（从原 service.py 715-720 行搬迁）
 REVIEW_MODE_SINGLE = "single"      # 1 名 reviewer，approve 即通过（默认）
 REVIEW_MODE_MAJORITY = "majority"  # N 人投票，达法定票数按多数决
