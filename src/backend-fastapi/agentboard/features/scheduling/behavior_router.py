@@ -21,6 +21,7 @@ from ...agent_runtime.behavior.models import (
 )
 from ...agent_runtime.behavior.prompt_builder import prompt_builder
 from ...agent_runtime.behavior.resolver import behavior_resolver
+from ...agent_runtime.contract import WorkType
 from ...core.common.models import utc_now
 from ..learning.models import Learning
 from .behavior_service import (
@@ -91,6 +92,52 @@ def preview_agent_behavior(
         work_type=req.work_type,
         effective_config=effective,
         rendered_prompt=prompt,
+    )
+
+
+# -------------------------------------------------------------
+# 1.5 Effective Behavior Query（Phase 4 P1，2026-08-26 review）
+# -------------------------------------------------------------
+@router.get("/api/agent-behavior/effective", response_model=EffectiveBehaviorConfig)
+def get_effective_behavior(
+    project_id: int | None = Query(None, ge=1),
+    agent_id: int | None = Query(None, ge=1),
+    work_type: str | None = Query(None, max_length=50),
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    """解析 EffectiveBehaviorConfig —— 供 Worker 进程使用（无 DB session，
+    通过 HTTP 调本端点拿 server 端已合并好的配置）。
+
+    所有参数 optional：
+    - 都 None → 拿 system default（Worker fallback）
+    - 仅 project_id → project override
+    - project_id + agent_id → project+agent default
+    - 全 3 个 → 完整解析（4 级 cascade）
+    """
+    # 软鉴权：dev 模式放行；生产要求登录
+    uid, is_admin = api_helpers._caller_uid_admin(authorization, s=s)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    # WorkType 校验
+    wt = None
+    if work_type:
+        try:
+            wt = WorkType(work_type)
+        except (ValueError, KeyError):
+            from ...agent_runtime.contract import UnknownWorkTypeError
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown work_type: {work_type}",
+            )
+    # Phase 4 P1：project_id 给定 → 必须做项目成员校验（防越权读 Agent 配置）
+    if project_id is not None and not is_admin:
+        api_helpers._enforce_member_or_admin(s, project_id, uid, is_admin)
+    return behavior_resolver.resolve(
+        project_id=project_id,
+        agent_id=agent_id,
+        work_type=wt,
+        db=s,
     )
 
 

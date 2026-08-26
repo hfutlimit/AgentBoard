@@ -47,6 +47,7 @@ def prepare_execution(
     *,
     db: Any = None,
     retriever: Any = None,
+    client: Any = None,
 ) -> PreparedExecution:
     """集中完成 behavior / context / prompt 三层装配，返回不可变 PreparedExecution。
 
@@ -66,12 +67,48 @@ def prepare_execution(
     normalized_command = command.model_copy(update={"work_type": canonical_wt})
 
     # 2. 解析 EffectiveBehaviorConfig
-    behavior = behavior_resolver.resolve(
-        project_id=normalized_command.context.get("project_id"),
-        agent_id=normalized_command.context.get("agent_id"),
-        work_type=canonical_wt,
-        db=db,
-    )
+    # Phase 4 P1（2026-08-26 review）：Worker 进程无 DB session 时，调
+    # server 端 ``GET /api/agent-behavior/effective`` 拿已合并的配置。
+    # 优先级：db > client > system-default-ctx-fallback
+    behavior = None
+    if db is not None:
+        behavior = behavior_resolver.resolve(
+            project_id=normalized_command.context.get("project_id"),
+            agent_id=normalized_command.context.get("agent_id"),
+            work_type=canonical_wt,
+            db=db,
+        )
+    elif client is not None:
+        # Worker 路径：通过 HTTP 调 server 端 effective endpoint
+        from .behavior.models import EffectiveBehaviorConfig as _EBC
+        params: dict = {}
+        pid = normalized_command.context.get("project_id")
+        aid = normalized_command.context.get("agent_id")
+        if pid is not None:
+            params["project_id"] = pid
+        if aid is not None:
+            params["agent_id"] = aid
+        if canonical_wt is not None:
+            params["work_type"] = canonical_wt.value
+        try:
+            resp = client.request("GET", "/api/agent-behavior/effective", params=params)
+            if resp.status_code in (200, 201):
+                behavior = _EBC.model_validate(resp.json())
+            else:
+                log.warning(
+                    "Worker 调 effective 端点失败（HTTP %s），退回 system default",
+                    resp.status_code,
+                )
+        except Exception as e:
+            log.warning("Worker 调 effective 端点异常，回退 system default：%s", e)
+    if behavior is None:
+        # Fallback：system default + ctx 内嵌数据（兼容没 client / endpoint 失败）
+        behavior = behavior_resolver.resolve(
+            project_id=normalized_command.context.get("project_id"),
+            agent_id=normalized_command.context.get("agent_id"),
+            work_type=canonical_wt,
+            db=None,
+        )
 
     # 3. 装配 ExecutionContext（DB 优先；无 DB 时用 ctx 兜底）
     execution_context = execution_context_builder.build(
