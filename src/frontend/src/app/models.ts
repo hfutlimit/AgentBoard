@@ -516,3 +516,73 @@ export interface ProposalRoundItem {
   updated_at: string;
   questions: ProposalQuestionItem[];
 }
+
+export interface PreparationBehavior {
+  sync_code: boolean;
+  checkout_branch: boolean;
+  read_documents: boolean;
+  load_memory: boolean;
+  inspect_code: boolean;
+}
+
+export interface CollaborationBehavior {
+  read_comments: boolean;
+  leave_summary: boolean;
+  reply_to_review: boolean;
+}
+
+export interface LearningBehavior {
+  accepted_correction: boolean;
+  judgment_reversal: boolean;
+  qa_defect: boolean;
+}
+
+export interface DocumentSourceConfig {
+  type: 'project_documents' | 'linked_documents' | 'mcp';
+  source_id?: string;
+  name?: string;
+  scope?: string;
+}
+
+export interface AgentBehaviorConfigPayload {
+  preparation?: Partial<PreparationBehavior>;
+  collaboration?: Partial<CollaborationBehavior>;
+  learning?: Partial<LearningBehavior>;
+  document_sources?: DocumentSourceConfig[];
+  additional_instructions?: string | null;
+}
+
+export interface EffectiveBehaviorConfig {
+  preset: string;
+  preset_version: number;
+  preparation: PreparationBehavior;
+  collaboration: CollaborationBehavior;
+  learning: LearningBehavior;
+  document_sources: DocumentSourceConfig[];
+  additional_instructions: string | null;
+  sources: {
+    system: boolean;
+    project: boolean;
+    agent_work_type: boolean;
+  };
+}
+
+export interface BehaviorPreviewResponse {
+  work_type: string;
+  effective_config: EffectiveBehaviorConfig;
+  rendered_prompt: string;
+}
+
+export interface ProjectLearningItem {
+  id: number;
+  project_id: number;
+  agent_id: number | null;
+  work_type: string | null;
+  category: string;
+  summary: string;
+  lesson: string;
+  tags: string[];
+  confidence: number;
+  created_at: string;
+}
+

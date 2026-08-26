@@ -1,9 +1,10 @@
-﻿import { HttpClient, HttpErrorResponse, HttpHeaders, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse, HttpHeaders, HttpParams } from '@angular/common/http';
 import { Injectable } from '@angular/core';
 import { Observable, of, throwError, timer, Subject } from 'rxjs';
 import { catchError, tap, map, switchMap, mergeMap, debounceTime, takeUntil } from 'rxjs/operators';
 
-import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, KanbanBoard, Notification, OverviewStats, PagedResult, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentRevisionItem, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, TicketRequestItem, TicketType, TicketItem, AgentRow, StoryStatusHistoryRow } from './models';
+import { ApiErrorBody, ApiKeyInfo, Attachment, AuthResult, Comment, Epic, KanbanBoard, Notification, OverviewStats, PagedResult, Project, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, Story, Task, AgentSchedule, AgentRun, TaskDependencies, AuditLog, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentRevisionItem, DocumentType, DocumentStatus, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, TicketRequestItem, TicketType, TicketItem, AgentRow, StoryStatusHistoryRow, AgentBehaviorConfigPayload, EffectiveBehaviorConfig, BehaviorPreviewResponse, ProjectLearningItem } from './models';
+
 
 export const AUTH_EXPIRED_EVENT = 'agentboard:auth-expired';
 
@@ -1279,4 +1280,103 @@ export class ApiService {
       tap(() => apiCache.invalidatePrefix('/api/proposals')),
     );
   }
+
+  /* ---------- Agent 行为配置与纠错学习 (Configurable Behavior & Learning) ---------- */
+  previewAgentBehavior(body: {
+    work_type: string;
+    project_id?: number;
+    agent_id?: number;
+    payload?: AgentBehaviorConfigPayload;
+    context_summary?: string;
+    project_instructions?: string;
+  }) {
+    return this.request<BehaviorPreviewResponse>('POST', '/api/agents/behavior/preview', body);
+  }
+
+  getProjectBehavior(projectId: number, workType?: string) {
+    const params = workType ? { work_type: workType } : undefined;
+    return this.request<EffectiveBehaviorConfig>('GET', `/api/projects/${projectId}/behavior`, undefined, { params });
+  }
+
+  updateProjectBehavior(projectId: number, payload: AgentBehaviorConfigPayload, workType?: string) {
+    const params = workType ? { work_type: workType } : undefined;
+    return this.request<{ status: string; id: number }>(
+      'PUT',
+      `/api/projects/${projectId}/behavior`,
+      payload,
+      { params },
+    );
+  }
+
+  resetProjectBehavior(projectId: number, workType?: string) {
+    const params = workType ? { work_type: workType } : undefined;
+    return this.request<{ status: string; deleted: boolean }>(
+      'DELETE',
+      `/api/projects/${projectId}/behavior`,
+      undefined,
+      { params },
+    );
+  }
+
+  getAgentBehavior(projectId: number, agentId: number, workType?: string) {
+    const params = workType ? { work_type: workType } : undefined;
+    return this.request<EffectiveBehaviorConfig>(
+      'GET',
+      `/api/projects/${projectId}/agents/${agentId}/behavior`,
+      undefined,
+      { params },
+    );
+  }
+
+  updateAgentBehavior(
+    projectId: number,
+    agentId: number,
+    payload: AgentBehaviorConfigPayload,
+    workType?: string,
+  ) {
+    const params = workType ? { work_type: workType } : undefined;
+    return this.request<{ status: string; id: number }>(
+      'PUT',
+      `/api/projects/${projectId}/agents/${agentId}/behavior`,
+      payload,
+      { params },
+    );
+  }
+
+  resetAgentBehavior(projectId: number, agentId: number, workType?: string) {
+    const params = workType ? { work_type: workType } : undefined;
+    return this.request<{ status: string; deleted: boolean }>(
+      'DELETE',
+      `/api/projects/${projectId}/agents/${agentId}/behavior`,
+      undefined,
+      { params },
+    );
+  }
+
+  getProjectLearnings(projectId: number, category?: string, workType?: string) {
+    const params: Record<string, string> = {};
+    if (category) params['category'] = category;
+    if (workType) params['work_type'] = workType;
+    return this.request<ProjectLearningItem[]>('GET', `/api/projects/${projectId}/learnings`, undefined, { params });
+  }
+
+  createProjectLearning(
+    projectId: number,
+    body: {
+      category: string;
+      summary: string;
+      lesson: string;
+      work_type?: string;
+      agent_id?: number;
+      tags?: string[];
+      confidence?: number;
+    },
+  ) {
+    return this.request<{ status: string; id: number }>(
+      'POST',
+      `/api/projects/${projectId}/learnings`,
+      body,
+    );
+  }
 }
+

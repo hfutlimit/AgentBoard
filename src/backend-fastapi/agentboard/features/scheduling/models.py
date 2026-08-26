@@ -154,6 +154,28 @@ class TaskApplication(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class AgentBehaviorConfig(Base):
+    """Agent 行为配置实体（Task 1-2：支持项目级与 Agent+WorkType 级语义配置）。"""
+
+    __tablename__ = "agent_behavior_configs"
+    __table_args__ = (
+        UniqueConstraint("project_id", "agent_id", "work_type", name="uq_agent_behavior_config"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    agent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    work_type: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    config_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    preset_version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
+
+
 # Review 流程常量（从原 service.py 715-720 行搬迁）
 REVIEW_MODE_SINGLE = "single"      # 1 名 reviewer，approve 即通过（默认）
 REVIEW_MODE_MAJORITY = "majority"  # N 人投票，达法定票数按多数决
@@ -161,3 +183,4 @@ DEFAULT_REVIEW_QUORUM = 3          # 法定票数
 MAX_REVIEW_ROUNDS = 5              # 与 Proposal max_rounds 对齐
 DEFAULT_REVIEW_TIMEOUT_MINUTES = 30  # 评审超时（30 分钟）
 DEFAULT_TIMEOUT_SCAN_BATCH = 20    # 每次扫描批大小
+
