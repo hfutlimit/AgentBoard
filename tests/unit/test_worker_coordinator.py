@@ -293,3 +293,108 @@ def test_routed_invoker_with_work_type_priority():
 
     alias, _ = inv.route("implementation")
     assert alias == "coder"
+
+
+# -------------------------------------------------------------
+# P2 修复：build_prompt_for 优先按 work_type 路由而非 action 字符串
+# -------------------------------------------------------------
+class _RoutingSpyHandler:
+    """记录 build_prompt 被调用时收到的 context 副本，便于断言路由命中。"""
+
+    def __init__(self, name: str):
+        self.name = name
+        self.last_ctx: dict | None = None
+
+    def can_handle(self, work_item):  # 兼容 handlers 接口
+        return False
+
+    def fetch(self):  # poll_once 跳过
+        return []
+
+    def build_prompt(self, context):
+        self.last_ctx = dict(context)
+        return f"[{self.name}] prompt for {context.get('work_type', '?')}"
+
+    # Coordinator.dispatch 调 handler.execute_command
+    def execute_command(self, command, invoker):
+        return ExecutionResult.success(
+            command.execution_id, action="noop", summary=f"handled by {self.name}",
+        )
+
+
+def test_build_prompt_for_routes_granular_review_work_types():
+    """P2：build_prompt_for 必须按 work_type 字符串精确路由到对应 handler。
+
+    修复前：所有 *_REVIEW 都被 action="review_task" 抹平成 TASK_REVIEW。
+    修复后：work_type="design_review" 直接命中 DESIGN_REVIEW key。
+    """
+    config = WorkerConfig(agent="test_agent", agent_cmd="echo test")
+    dummy = DummyClient()
+
+    coord = WorkerCoordinator(config, invoker=CallableAgentInvoker(lambda c: AgentDecision(action="noop")), client=dummy)
+
+    # 注入 spy handler（覆盖默认 registry）
+    design_review_spy = _RoutingSpyHandler("design_review")
+    impl_review_spy = _RoutingSpyHandler("implementation_review")
+    qa_review_spy = _RoutingSpyHandler("qa_review")
+    legacy_review_spy = _RoutingSpyHandler("task_review_legacy")
+
+    coord.registry = {
+        WorkType.DESIGN_REVIEW: design_review_spy,
+        WorkType.IMPLEMENTATION_REVIEW: impl_review_spy,
+        WorkType.QA_REVIEW: qa_review_spy,
+        WorkType.TASK_REVIEW: legacy_review_spy,  # legacy key 不应被命中
+        WorkType.PROPOSAL_CLARIFY: _RoutingSpyHandler("clarify"),
+    }
+
+    # 1. design_review 必须命中 DESIGN_REVIEW
+    p = coord.build_prompt_for({"work_type": "design_review", "task_id": 1})
+    assert p == "[design_review] prompt for design_review"
+    assert design_review_spy.last_ctx["work_type"] == "design_review"
+    assert legacy_review_spy.last_ctx is None  # 关键：legacy 不应被命中
+
+    # 2. implementation_review 命中自己的 handler
+    p = coord.build_prompt_for({"work_type": "implementation_review", "task_id": 2})
+    assert p == "[implementation_review] prompt for implementation_review"
+    assert impl_review_spy.last_ctx is not None
+    assert legacy_review_spy.last_ctx is None
+
+    # 3. qa_review 命中自己的 handler
+    p = coord.build_prompt_for({"work_type": "qa_review", "task_id": 3})
+    assert p == "[qa_review] prompt for qa_review"
+    assert qa_review_spy.last_ctx is not None
+    assert legacy_review_spy.last_ctx is None
+
+
+def test_build_prompt_for_falls_back_to_action_when_work_type_missing():
+    """兼容：work_type 缺失时仍能按 action 字符串路由（向后兼容旧 invoker / MQ 消息）。"""
+    config = WorkerConfig(agent="test_agent", agent_cmd="echo test")
+    dummy = DummyClient()
+    coord = WorkerCoordinator(config, invoker=CallableAgentInvoker(lambda c: AgentDecision(action="noop")), client=dummy)
+
+    legacy_review_spy = _RoutingSpyHandler("task_review_legacy")
+    coord.registry = {
+        WorkType.TASK_REVIEW: legacy_review_spy,
+        WorkType.PROPOSAL_CLARIFY: _RoutingSpyHandler("clarify"),
+    }
+
+    # 没 work_type，但有 action="review_task" → 走 legacy 兼容路径
+    p = coord.build_prompt_for({"action": "review_task", "task_id": 1})
+    assert "[task_review_legacy]" in p
+    assert legacy_review_spy.last_ctx is not None
+
+
+def test_build_prompt_for_handles_work_type_enum_value():
+    """work_type 传 WorkType 枚举值（非字符串）也能正确路由。"""
+    config = WorkerConfig(agent="test_agent", agent_cmd="echo test")
+    dummy = DummyClient()
+    coord = WorkerCoordinator(config, invoker=CallableAgentInvoker(lambda c: AgentDecision(action="noop")), client=dummy)
+
+    design_review_spy = _RoutingSpyHandler("design_review")
+    coord.registry = {
+        WorkType.DESIGN_REVIEW: design_review_spy,
+        WorkType.PROPOSAL_CLARIFY: _RoutingSpyHandler("clarify"),
+    }
+
+    p = coord.build_prompt_for({"work_type": WorkType.DESIGN_REVIEW, "task_id": 1})
+    assert "[design_review]" in p

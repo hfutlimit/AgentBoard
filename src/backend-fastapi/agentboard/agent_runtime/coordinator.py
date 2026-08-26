@@ -155,7 +155,29 @@ class WorkerCoordinator:
                 self._inflight.discard(inflight_key)
 
     def build_prompt_for(self, context: dict) -> str:
-        """根据上下文动作反查对应 Handler 的 Prompt 渲染器。"""
+        """根据 WorkType 路由到对应 Handler 的 Prompt 渲染器。
+
+        Review 2026-08-26 修正：原先按 ``action`` 字符串反查 WorkType，导致
+        ``DESIGN_REVIEW`` / ``IMPLEMENTATION_REVIEW`` / ``QA_REVIEW`` 全被
+        ``"review_task"`` 抹平。现在优先按 ``context["work_type"]`` 字符串
+        直接查 registry；缺失时再 fallback 到 action 字符串（保持向后兼容，
+        旧 invoker / 旧 message 仍能 work）。
+
+        长期目标：所有 caller 都传 work_type，action 字符串将在下一轮彻底删除。
+        """
+        # 1. 优先按 WorkType 字符串精确路由
+        wt_str = context.get("work_type")
+        if wt_str:
+            try:
+                wt = WorkType(wt_str) if not isinstance(wt_str, WorkType) else wt_str
+                h = self.registry.get(wt)
+                if h:
+                    return h.build_prompt(context)
+            except (ValueError, KeyError):
+                # 未知 WorkType 字符串，落到下一步
+                pass
+
+        # 2. 兼容路径：按 action 字符串反查（仅用于历史 invoker / 旧 MQ 消息）
         action = context.get("action")
         if action == "review_task":
             h = self.registry.get(WorkType.TASK_REVIEW)
@@ -169,11 +191,13 @@ class WorkerCoordinator:
             h = self.registry.get(WorkType.TASK_IMPLEMENT)
             if h:
                 return h.build_prompt(context)
-        elif context.get("ticket_request_id") or (context.get("type") in ("epic", "story", "task", "bug") and "ticket_type" in context):
+        elif context.get("ticket_request_id") or (
+            context.get("type") in ("epic", "story", "task", "bug") and "ticket_type" in context
+        ):
             h = self.registry.get(WorkType.PROPOSAL_CONVERT)
             if h:
                 return h.build_prompt(context)
-        # 默认回退澄清 Prompt
+        # 3. 终极 fallback：clarify
         clarify_h = self.registry.get(WorkType.PROPOSAL_CLARIFY)
         return clarify_h.build_prompt(context) if clarify_h else ""
 

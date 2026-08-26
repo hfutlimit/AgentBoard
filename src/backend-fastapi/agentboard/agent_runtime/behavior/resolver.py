@@ -1,7 +1,20 @@
 """Agent 行为继承解析器（Task 3：BehaviorResolver）。
 
-实现 System Default Preset -> Project Override -> Agent Default Override -> Agent + WorkType Override
-的三级级联继承与字段级（field-by-field）深度合并。
+实现如下 4 级级联继承与字段级（field-by-field）深度合并：
+
+    System Preset
+        ↓
+    Project Override              (project_id, agent_id=None,   work_type=None)
+        ↓
+    Project + Agent Default       (project_id, agent_id=agent,  work_type=None)
+        ↓
+    Project + Agent + WorkType    (project_id, agent_id=agent,  work_type=wt)
+        ↓
+    Agent + WorkType (legacy)     (project_id=None, agent_id=agent, work_type=wt)
+
+注意：``Project + Agent Default`` 是用户在项目内为某个 Agent 设定的默认值；
+``Agent + WorkType (legacy)`` 是旧的 ``project_id=None`` 形式，保留作为向后兼容兜底。
+
 支持清晰的覆盖与清空语义：
 - document_sources: None 表示继承；[] 显式清空全部文档源
 - additional_instructions: None 表示继承；"" 显式清空继承指令
@@ -141,44 +154,82 @@ class BehaviorResolver:
         agent_work_type_override: AgentBehaviorConfigPayload | dict | None = None,
         db: Session | None = None,
     ) -> EffectiveBehaviorConfig:
-        """解析并物化 EffectiveBehaviorConfig。"""
+        """解析并物化 EffectiveBehaviorConfig。
+
+        解析顺序（由浅入深，后者覆盖前者）：
+
+        1. **System Preset** —— ``get_default_payload_for_work_type(work_type)``
+        2. **Project Override** —— ``(project_id, agent_id=None, work_type=None)``
+        3. **Project + Agent Default** —— ``(project_id, agent_id, work_type=None)``
+        4. **Project + Agent + WorkType** —— ``(project_id, agent_id, work_type)``
+        5. **Agent + WorkType (legacy)** —— ``(project_id=None, agent_id, work_type)``
+           仅在步骤 4 未命中时 fallback，避免历史 ``project_id=None`` 数据被永久忽略。
+
+        任何步骤显式传入的 *_override 参数优先于 DB 查询。
+        """
         effective_db = db if db is not None else self.db
-        
+
         # 1. 基础系统预设
         current = get_default_payload_for_work_type(work_type)
-        sources_tracker = {"system": True, "project": False, "agent_work_type": False}
+        sources_tracker = {
+            "system": True,
+            "project": False,
+            "project_agent": False,
+            "project_agent_work_type": False,
+            "legacy_agent_work_type": False,
+        }
 
-        # 2. 从 DB 查或直接使用显式传入的 project_override
+        # 延迟导入避免循环
+        from ...features.scheduling.behavior_service import get_behavior_payload
+
+        # 2. Project Override
         proj_ov = project_override
         if proj_ov is None and effective_db is not None and project_id is not None:
-            from ...features.scheduling.behavior_service import get_behavior_payload
-            proj_ov = get_behavior_payload(effective_db, project_id=project_id, agent_id=None, work_type=None)
-
+            proj_ov = get_behavior_payload(
+                effective_db, project_id=project_id, agent_id=None, work_type=None
+            )
         if proj_ov is not None:
             current = merge_behavior_payload(current, proj_ov)
             sources_tracker["project"] = True
 
-        # 3. 从 DB 查或直接使用 agent_override（Agent 默认）
-        ag_ov = agent_override
-        if ag_ov is None and effective_db is not None and agent_id is not None:
-            from ...features.scheduling.behavior_service import get_behavior_payload
-            ag_ov = get_behavior_payload(effective_db, project_id=None, agent_id=agent_id, work_type=None)
+        # 3. Project + Agent Default（关键修复：原先只查 project_id=None，永远不命中项目级 Agent 默认）
+        proj_agent_ov = None
+        if agent_override is not None:
+            proj_agent_ov = agent_override
+        elif effective_db is not None and project_id is not None and agent_id is not None:
+            proj_agent_ov = get_behavior_payload(
+                effective_db, project_id=project_id, agent_id=agent_id, work_type=None
+            )
+        if proj_agent_ov is not None:
+            current = merge_behavior_payload(current, proj_agent_ov)
+            sources_tracker["project_agent"] = True
 
-        if ag_ov is not None:
-            current = merge_behavior_payload(current, ag_ov)
-            sources_tracker["agent_work_type"] = True
+        # 4. Project + Agent + WorkType
+        proj_agent_wt_ov = None
+        if agent_work_type_override is not None:
+            proj_agent_wt_ov = agent_work_type_override
+        elif effective_db is not None and project_id is not None and agent_id is not None and work_type is not None:
+            proj_agent_wt_ov = get_behavior_payload(
+                effective_db, project_id=project_id, agent_id=agent_id, work_type=str(work_type)
+            )
+        if proj_agent_wt_ov is not None:
+            current = merge_behavior_payload(current, proj_agent_wt_ov)
+            sources_tracker["project_agent_work_type"] = True
 
-        # 4. 从 DB 查或直接使用 agent_work_type_override（Agent + WorkType 专属）
-        ag_wt_ov = agent_work_type_override
-        if ag_wt_ov is None and effective_db is not None and agent_id is not None and work_type is not None:
-            from ...features.scheduling.behavior_service import get_behavior_payload
-            ag_wt_ov = get_behavior_payload(effective_db, project_id=None, agent_id=agent_id, work_type=str(work_type))
-            if ag_wt_ov is None and project_id is not None:
-                ag_wt_ov = get_behavior_payload(effective_db, project_id=project_id, agent_id=agent_id, work_type=str(work_type))
-
-        if ag_wt_ov is not None:
-            current = merge_behavior_payload(current, ag_wt_ov)
-            sources_tracker["agent_work_type"] = True
+        # 5. Agent + WorkType (legacy) — 仅在步骤 4 未命中时启用
+        if (
+            proj_agent_wt_ov is None
+            and agent_work_type_override is None
+            and effective_db is not None
+            and agent_id is not None
+            and work_type is not None
+        ):
+            legacy_ag_wt = get_behavior_payload(
+                effective_db, project_id=None, agent_id=agent_id, work_type=str(work_type)
+            )
+            if legacy_ag_wt is not None:
+                current = merge_behavior_payload(current, legacy_ag_wt)
+                sources_tracker["legacy_agent_work_type"] = True
 
         # Ensure non-None sections in materialized EffectiveBehaviorConfig
         prep_eff = (

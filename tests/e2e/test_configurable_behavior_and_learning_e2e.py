@@ -105,6 +105,11 @@ def test_scenario_2_user_configurable_preparation(db_session):
     - 项目级配置覆盖 sync_code=False
     - Agent 级配置覆盖 checkout_branch=True
     - 运行时验证：按正确顺序渲染 checkout -> inspect -> read_docs，且不包含 sync_code
+
+    Review 2026-08-26 修正：Agent 级配置必须存为 (project_id, agent_id, work_type=None)，
+    这是用户在项目上下文里为 Agent 设默认值的真实保存路径（API: PUT
+    /api/projects/{pid}/agents/{aid}/behavior）。原先用 (project_id=None, agent_id)
+    永远不会被运行时命中，是 P1 bug 的现场重现。
     """
     p = Project(name=f"Config_Test_{uuid.uuid4().hex[:6]}")
     ag = Agent(agent_id=f"ag_{uuid.uuid4().hex[:8]}", name="Scenario Agent")
@@ -118,11 +123,13 @@ def test_scenario_2_user_configurable_preparation(db_session):
     )
     upsert_behavior_config(db_session, payload=project_payload, project_id=p.id)
 
-    # 2. Agent 覆盖：开启 checkout_branch
+    # 2. Agent 在项目内的默认配置：开启 checkout_branch（必须带 project_id）
     agent_payload = AgentBehaviorConfigPayload(
         preparation=PreparationBehavior(checkout_branch=True),
     )
-    upsert_behavior_config(db_session, payload=agent_payload, agent_id=ag.id)
+    upsert_behavior_config(
+        db_session, payload=agent_payload, project_id=p.id, agent_id=ag.id, work_type=None
+    )
 
     # 3. 解析最终生效配置
     resolver = behavior_resolver
@@ -138,7 +145,8 @@ def test_scenario_2_user_configurable_preparation(db_session):
     assert effective.preparation.inspect_code is True
     assert effective.additional_instructions == "Strict compliance with project architectural boundaries."
     assert effective.sources["project"] is True
-    assert effective.sources["agent_work_type"] is True
+    # (project_id, agent_id) 解析路径现在被标记为 project_agent
+    assert effective.sources["project_agent"] is True
 
     # 4. 生成 Prompt 验证渲染结果
     prompt = prompt_builder.build(
@@ -318,4 +326,4 @@ def test_scenario_5_reviewer_judgment_reversal_learning(db_session):
     extracted = learning_extractor.extract(triggers[0])
     assert extracted.category == "review_judgment_reversal"
     assert "评审" in extracted.summary or "误判" in extracted.summary
-    assert len(extracted.lesson) > 10
+    assert len(extracted.lesson) > 10
