@@ -37,7 +37,6 @@ router = APIRouter(tags=["Agent Behavior & Learning"])
 
 class BehaviorPreviewRequest(BaseModel):
     work_type: str = "implementation"
-    project_id: Optional[int] = None
     agent_id: Optional[int] = None
     payload: Optional[AgentBehaviorConfigPayload] = None
     context_summary: Optional[str] = None
@@ -61,24 +60,21 @@ class CreateLearningRequest(BaseModel):
 
 
 # -------------------------------------------------------------
-# 1. 实时 Prompt 预览 (Preview)
+# 1. 实时 Prompt 预览 (Project-Scoped Preview Only)
 # -------------------------------------------------------------
-@router.post("/api/agents/behavior/preview", response_model=BehaviorPreviewResponse)
 @router.post("/api/projects/{project_id}/agents/behavior/preview", response_model=BehaviorPreviewResponse)
 def preview_agent_behavior(
+    project_id: int,
     req: BehaviorPreviewRequest,
-    project_id: Optional[int] = None,
     authorization: str | None = Header(None),
     s: Session = Depends(get_session),
 ):
-    """根据指定的行为配置与上下文，实时预览 Prompt 渲染效果（无落库副作用）。"""
-    target_project_id = project_id or req.project_id
-    if target_project_id is not None:
-        uid, is_admin = api_helpers._caller_uid_admin(authorization, s=s)
-        api_helpers._enforce_member_or_admin(s, target_project_id, uid, is_admin)
+    """在明确的项目上下文中实时预览 Prompt 渲染效果（必须经过目标项目成员权限校验，防止越权读取 Agent 配置）。"""
+    uid, is_admin = api_helpers._caller_uid_admin(authorization, s=s)
+    api_helpers._enforce_member_or_admin(s, project_id, uid, is_admin)
 
     effective = behavior_resolver.resolve(
-        project_id=target_project_id,
+        project_id=project_id,
         agent_id=req.agent_id,
         work_type=req.work_type,
         agent_work_type_override=req.payload,
@@ -275,7 +271,6 @@ def create_project_learning(
     """手动或通过 Agent 沉淀一条项目纠错经验（需项目成员或管理员权限）。"""
     uid, is_admin = api_helpers._caller_uid_admin(authorization, s=s)
     api_helpers._enforce_member_or_admin(s, project_id, uid, is_admin)
-
 
     rec = Learning(
         project_id=project_id,
