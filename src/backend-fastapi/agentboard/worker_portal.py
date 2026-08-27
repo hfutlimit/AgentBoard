@@ -325,14 +325,22 @@ def create_app(
     def create_agent(body: AgentBody) -> Any:
         _ensure_worker_registered()
         cli_cmd = _render_cli_command(body.cli_type, body.model, body.mcp_config)
-        payload = {
-            "worker_id": local_worker_id,
-            "cli_command": cli_cmd,
-            "model": body.model,
-            "auth_key": "",
-            "enabled": body.enabled,
-        }
-        return proxy.post(f"/api/agents/{body.agent_id}/instances", payload)
+        # Step 1: 注册/更新 logical agent（idempotent，prod AgentRegisterIn.name 必填）
+        proxy.post(
+            "/api/agents/register",
+            {"agent_id": body.agent_id, "name": body.name or body.agent_id},
+        )
+        # Step 2: 给本 worker 挂 instance（prod 校验 agent_id 必须已注册）
+        return proxy.post(
+            f"/api/agents/{body.agent_id}/instances",
+            {
+                "worker_id": local_worker_id,
+                "cli_command": cli_cmd,
+                "model": body.model,
+                "auth_key": "",
+                "enabled": body.enabled,
+            },
+        )
 
     @app.put("/api/agents/{agent_id}")
     def update_agent(agent_id: str, body: AgentUpdateBody) -> Any:
