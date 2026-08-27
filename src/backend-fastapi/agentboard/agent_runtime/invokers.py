@@ -73,14 +73,19 @@ _ROUTING_ACTION_ALIASES: dict[str, str] = {
     "test": "qa",
 }
 
-#: 子进程环境屏蔽前缀：Worker 凭据族绝不继承给无头 agent CLI。
-#: AGENTBOARD_WORKER_TOKEN / AGENTBOARD_MCP_TOKEN 泄漏给子进程意味着子 agent
-#: 能以 worker 身份调任意管理端点；子 agent 连 AgentBoard 应走自己的 MCP 配置。
+#: 子进程环境默认屏蔽整个 Worker 凭据族，只精确放行 MCP 客户端使用的 API Key。
+#:
+#: Codex 的 AgentBoard MCP 注册通过 ``bearer_token_env_var=AgentBoard_Api_Key``
+#: 读取凭据；Windows 环境变量名大小写不敏感，因此这里按大写比较。若把这个 key
+#: 一并剥离，Codex CLI 虽能启动，却看不到任何 AgentBoard MCP 工具。与此同时，
+#: ``AGENTBOARD_WORKER_TOKEN`` / ``AGENTBOARD_MCP_TOKEN`` 仍必须隔离，避免子 Agent
+#: 获得 Worker 管理端点权限。
 _ENV_DENY_PREFIXES: tuple[str, ...] = ("AGENTBOARD_",)
+_ENV_ALLOW_NAMES: frozenset[str] = frozenset({"AGENTBOARD_API_KEY"})
 
 
 def sanitize_subprocess_env(base: dict | None = None) -> dict:
-    """构造子进程环境：剥离 ``AGENTBOARD_*`` 整族，再补 Python IO 编码。
+    """构造子进程环境：仅放行 MCP API Key，剥离其余 ``AGENTBOARD_*``。
 
     无论 env 显式传入还是继承 os.environ 都过滤 —— 防意外泄漏；
     PYTHONIOENCODING/PYTHONUTF8 在过滤后注入，保证子进程 stdout 可解析。
@@ -88,7 +93,9 @@ def sanitize_subprocess_env(base: dict | None = None) -> dict:
     src = dict(os.environ) if base is None else dict(base)
     out: dict[str, str] = {}
     for k, v in src.items():
-        if any(k.upper().startswith(p) for p in _ENV_DENY_PREFIXES):
+        normalized = k.upper()
+        if (any(normalized.startswith(p) for p in _ENV_DENY_PREFIXES)
+                and normalized not in _ENV_ALLOW_NAMES):
             log.info("子进程环境已剥离敏感变量：%s", k)
             continue
         out[k] = v

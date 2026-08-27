@@ -5,6 +5,8 @@ interface CliPreset {
   label: string;
   models: string[];
   template: string;
+  supports_full_access: boolean;
+  default_full_access: boolean;
 }
 interface AgentRow {
   agent_id: string;
@@ -81,6 +83,9 @@ export class App {
   protected readonly cliType = signal('codex');
   protected readonly model = signal('');
   protected readonly enabled = signal(true);
+  protected readonly fullAccess = signal(true);
+  protected readonly developerRole = signal(true);
+  protected readonly reviewerRole = signal(true);
   protected readonly agentMsg = signal('');
 
   // ---- 项目映射 ----
@@ -162,9 +167,14 @@ export class App {
     try {
       const body = {
         agent_id: this.agentId().trim(),
+        roles: [
+          ...(this.developerRole() ? ['developer'] : []),
+          ...(this.reviewerRole() ? ['reviewer'] : []),
+        ],
         cli_type: this.cliType(),
         model: this.model(),
         enabled: this.enabled(),
+        full_access: this.fullAccess(),
       };
       await this.api<unknown>('/api/agents', { method: 'POST', body: JSON.stringify(body) });
       this.agentMsg.set('✅ 已保存到当前 Worker');
@@ -182,7 +192,34 @@ export class App {
     const cmd = a.cli_command || '';
     if (cmd.includes('codebuddy')) this.cliType.set('codebuddy');
     else if (cmd.includes('minimax')) this.cliType.set('minimax');
+    else this.cliType.set('codex');
+    const roles = this.parseRoles(a.roles);
+    this.developerRole.set(roles.includes('developer'));
+    this.reviewerRole.set(roles.includes('reviewer'));
+    this.fullAccess.set(this.agentHasFullAccess(a));
     this.tab.set('agents');
+  }
+
+  protected readonly agentHasFullAccess = (agent: AgentRow) => {
+    const cmd = agent.cli_command || '';
+    return cmd.includes('--dangerously-bypass-approvals-and-sandbox')
+      || /(^|\s)-y(\s|$)/.test(cmd)
+      || cmd.includes('minimax_adapter.py');
+  };
+
+  protected readonly agentRoleLabel = (agent: AgentRow) => {
+    const roles = this.parseRoles(agent.roles);
+    return roles.length ? roles.join(' / ') : '未配置';
+  };
+
+  private parseRoles(value?: string): string[] {
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.filter((item) => typeof item === 'string') : [];
+    } catch {
+      return [];
+    }
   }
 
   // ---------- 项目映射 ----------
@@ -315,6 +352,7 @@ export class App {
   onCliChange() {
     const models = this.modelsFor();
     if (models.length) this.model.set(models[0]);
+    this.fullAccess.set(this.presets()[this.cliType()]?.default_full_access ?? true);
   }
 
   protected readonly levelClass = (lv: string) => {

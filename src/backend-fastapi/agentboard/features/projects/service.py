@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, or_, update
@@ -17,6 +18,7 @@ from ... import models  # 顶层 facade,保持兼容
 from ...core.common.enums import (
     ALL_RUN_STATUSES, ALL_STATUSES, ItemType, SprintStatus, Status,
 )
+from ...core.common.models import utc_now
 from ..identity.models import User
 from ..work_items.models import Task
 
@@ -34,11 +36,68 @@ from ...core.service_helpers import (
 )
 
 from .models import (
-    Agent, Epic, Project, ProjectMember,
+    Agent, AgentInstance, Epic, Project, ProjectMember,
     ReviewVote, Sprint, Story, StoryStatusHistory,
     STORY_STATUSES,
     STORY_TRANSITIONS,
 )
+
+
+AGENT_HEARTBEAT_TIMEOUT_SECONDS = 300
+
+
+def expire_stale_agent_heartbeats(
+    s: Session, *, now: datetime | None = None,
+    timeout_seconds: int = AGENT_HEARTBEAT_TIMEOUT_SECONDS,
+) -> dict[str, int]:
+    """Atomically mark stale Agent/AgentInstance heartbeats offline.
+
+    ``Agent.online`` is a persisted cache used by list filters and reviewer
+    assignment. A crashed Worker cannot clear that cache, so every read path
+    that relies on it first reconciles rows older than the five-minute lease.
+    The conditional UPDATE predicates also protect a concurrent fresh
+    heartbeat from being overwritten by a stale reader.
+
+    A logical Agent remains online when either its legacy direct heartbeat is
+    fresh or at least one enabled AgentInstance has a fresh online heartbeat.
+    """
+    if timeout_seconds <= 0:
+        raise InvalidValue("timeout_seconds must be positive")
+    cutoff = (now or utc_now()) - timedelta(seconds=timeout_seconds)
+
+    instance_result = s.execute(
+        update(AgentInstance).where(
+            AgentInstance.online.is_(True),
+            or_(
+                AgentInstance.last_heartbeat.is_(None),
+                AgentInstance.last_heartbeat < cutoff,
+            ),
+        ).values(online=False)
+    )
+
+    fresh_instance_exists = s.query(AgentInstance.id).filter(
+        AgentInstance.agent_id == Agent.agent_id,
+        AgentInstance.enabled.is_(True),
+        AgentInstance.online.is_(True),
+        AgentInstance.last_heartbeat.is_not(None),
+        AgentInstance.last_heartbeat >= cutoff,
+    ).exists()
+    agent_result = s.execute(
+        update(Agent).where(
+            Agent.online.is_(True),
+            or_(Agent.last_heartbeat.is_(None), Agent.last_heartbeat < cutoff),
+            ~fresh_instance_exists,
+        ).values(online=False)
+    )
+
+    instances_offline = max(instance_result.rowcount or 0, 0)
+    agents_offline = max(agent_result.rowcount or 0, 0)
+    if instances_offline or agents_offline:
+        _commit(s)
+    return {
+        "instances_offline": instances_offline,
+        "agents_offline": agents_offline,
+    }
 
 from ..documents.models import (
     Document,
@@ -1461,6 +1520,7 @@ def search_agents(s: Session, q: str, limit: int = 20):
 
     仅返回 enabled 的 Agent（已禁用/删除的不参与命令面板搜索）。
     """
+    expire_stale_agent_heartbeats(s)
     like = f"%{q}%"
     qry = s.query(Agent).filter(
         Agent.enabled.is_(True),

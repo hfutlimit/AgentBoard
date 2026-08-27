@@ -46,6 +46,29 @@ if (-not $env:AGENTBOARD_API_URL -or -not $env:AGENTBOARD_WORKER_TOKEN) {
     throw ".env.worker 缺少 AGENTBOARD_API_URL / AGENTBOARD_WORKER_TOKEN"
 }
 
+# Codex's AgentBoard MCP entry uses this exact bearer-token variable.  Fresh
+# worker machines normally only have AGENTBOARD_WORKER_TOKEN in .env.worker;
+# bridge it for the child CLI without requiring a manual user-level env edit.
+if (-not $env:AgentBoard_Api_Key) {
+    $mcpToken = if ($env:AGENTBOARD_MCP_TOKEN) {
+        $env:AGENTBOARD_MCP_TOKEN
+    } else {
+        $env:AGENTBOARD_WORKER_TOKEN
+    }
+    if ($mcpToken) { Set-Item -Path 'Env:AgentBoard_Api_Key' -Value $mcpToken }
+}
+
+# ---- 生成本机 MCP 配置（不写入仓库，避免新 Worker 因缺少 tmp 文件而只能运行 CLI）----
+$McpConfig = Join-Path $Root 'tmp\mcp-prod.json'
+if (-not (Test-Path $McpConfig)) {
+    $mcpUrl = ($env:AGENTBOARD_MCP_URL)
+    if (-not $mcpUrl) { $mcpUrl = ($env:AGENTBOARD_API_URL.TrimEnd('/') + '/mcp') }
+    $mcp = @{ mcpServers = @{ agentboard = @{ transport = 'http'; url = $mcpUrl } } }
+    $mcp | ConvertTo-Json -Depth 5 | Set-Content -Path $McpConfig -Encoding UTF8
+    Write-Host "已生成 MCP 配置：$McpConfig -> $mcpUrl"
+}
+$env:AGENTBOARD_MCP_CONFIG = $McpConfig
+
 # ---- Python 运行环境 ----
 $env:PYTHONPATH = Join-Path $Root 'src\backend-fastapi'
 $env:PYTHONUNBUFFERED = '1'

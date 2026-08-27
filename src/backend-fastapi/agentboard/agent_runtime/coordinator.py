@@ -11,9 +11,12 @@
 """
 from __future__ import annotations
 
+import json
 import logging
+import os
 import threading
 import time
+from pathlib import Path
 from typing import Any, Callable
 
 import httpx
@@ -473,12 +476,87 @@ class WorkerCoordinator:
                     stats["stories"] += 1
 
         # 4. 租约超期回收
+        # In deployments without RabbitMQ, ``task.available`` is not
+        # delivered to workers.  Opt-in polling closes that gap while being
+        # restricted to locally mapped projects.
+        if os.getenv("AGENTBOARD_WORKER_TASK_POLL", "0").strip().lower() in {
+            "1", "true", "yes",
+        }:
+            stats["tasks"] = self._poll_available_tasks()
+
         stale_stories = maintenance.reclaim_stale_stories(self.client, self.config)
         stale_tasks = maintenance.reclaim_stale_tasks(self.client, self.config)
         stats["stale_stories"] = stale_stories
         stats["stale_tasks"] = stale_tasks
 
         return stats
+
+    def _mapped_project_ids(self) -> list[int]:
+        raw = os.getenv("AGENTBOARD_WORKER_PROJECT_IDS", "").strip()
+        if raw:
+            return [int(item) for item in raw.split(",") if item.strip().isdigit()]
+        mapping = os.getenv("AGENTBOARD_LOCAL_MAPPINGS", "").strip()
+        path = Path(mapping) if mapping else Path.cwd() / "tmp" / "project-mappings.json"
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return [int(pid) for pid in (data.get("projects") or {}).keys()]
+        except (OSError, ValueError, TypeError):
+            return []
+
+    def _poll_available_tasks(self) -> int:
+        project_ids = self._mapped_project_ids()
+        if not project_ids:
+            log.warning(
+                "AGENTBOARD_WORKER_TASK_POLL 已启用，但没有项目映射；跳过 todo Task 扫描"
+            )
+            return 0
+        handled = 0
+        for project_id in project_ids:
+            try:
+                response = self.client.get(
+                    "/api/tasks",
+                    params={
+                        "project_id": project_id,
+                        "status": "todo",
+                        "limit": max(1, self.config.batch_size),
+                    },
+                )
+                response.raise_for_status()
+                tasks = response.json() or []
+            except Exception as exc:
+                log.warning("扫描 project#%s todo Task 失败：%s", project_id, exc)
+                continue
+            items = tasks if isinstance(tasks, list) else tasks.get("items", [])
+            for task in items:
+                task_id = task.get("id")
+                if not task_id:
+                    continue
+                try:
+                    claimed = self.client.post(
+                        f"/api/tasks/{task_id}/claim",
+                        json={"agent": self.config.agent},
+                    )
+                except Exception as exc:
+                    log.warning("认领 Task #%s 失败：%s", task_id, exc)
+                    continue
+                if claimed.status_code != 200:
+                    continue
+                task_payload = claimed.json() or task
+                work_type = WorkType.from_task(task_payload.get("type"), is_review=False)
+                result = self.dispatch(ExecutionCommand(
+                    execution_id=f"task_{task_id}_{int(time.time())}",
+                    work_type=work_type,
+                    entity_type="task",
+                    entity_id=int(task_id),
+                    context={
+                        "event": "task.available",
+                        "work_type": work_type.value,
+                        "task": task_payload,
+                    },
+                ))
+                if result.status is ExecutionStatus.SUCCESS:
+                    handled += 1
+        return handled
 
     # ---------- MQ 事件流驱动 ----------
 

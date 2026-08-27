@@ -339,8 +339,8 @@ def delete_proposal(pid: int,
     p = service.get_proposal(s, pid)
     if p is None:
         raise HTTPException(status_code=404, detail="proposal not found")
-    # creator 优先，否则要求 admin
-    if p.created_by_user_id != uid and not is_admin:
+    # creator 优先（模型真实字段是 author_id），否则要求 admin
+    if p.author_id != uid and not is_admin:
         raise HTTPException(
             status_code=403,
             detail="delete requires admin or proposal creator",

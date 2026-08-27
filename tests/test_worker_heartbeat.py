@@ -113,6 +113,27 @@ def _worker(client=None, invoker=None) -> ProposalWorker:
     return w
 
 
+def test_poll_mode_keeps_heartbeat_running_during_blocked_poll(monkeypatch):
+    """轮询模式的长 Agent 调用不能阻塞独立心跳线程。"""
+    w = _worker(client=_FakeClient())
+    w.config.heartbeat_interval = 0.01
+    w.config.poll_interval = 0.0
+    heartbeat_calls = []
+
+    def fake_heartbeat():
+        heartbeat_calls.append(True)
+        return {}
+
+    def blocked_poll():
+        time.sleep(0.06)
+        return {"handled": [], "reclaimed": [], "counts": {}}
+
+    monkeypatch.setattr(w, "agent_heartbeat_once", fake_heartbeat)
+    monkeypatch.setattr(w, "poll_once", blocked_poll)
+    assert w.run_forever(max_cycles=1) == 1
+    assert heartbeat_calls
+
+
 # ===================== Story 编排 =====================
 
 def test_build_story_context_includes_tasks():
@@ -287,6 +308,35 @@ def test_heartbeat_marks_good_cli_online():
     stats = w.agent_heartbeat_once()
     assert stats["online"] == 1
     assert ("POST", "/api/agents/a3/heartbeat") in client.calls
+
+
+def test_heartbeat_treats_structured_fail_output_as_offline():
+    """Exit 0 is not healthy when an adapter reports an explicit fail decision."""
+    fail_script = "import json; print(json.dumps({'action':'fail','error':'not authenticated'}))"
+    cli = f'{sys.executable} -c "{fail_script}"'
+    client = _FakeClient(get_responses={
+        "/api/agents": [_agent("a-fail", cli)]})
+    w = _worker(client=client)
+
+    stats = w.agent_heartbeat_once()
+
+    assert stats["offline"] == 1
+    assert ("POST", "/api/agents/a-fail/deregister") in client.calls
+    assert not any(path.endswith("/heartbeat") for _method, path in client.calls)
+
+
+def test_probe_rejects_missing_mcp_config(tmp_path):
+    from agentboard.agent_runtime.heartbeat import probe_cli
+
+    cfg = type("Cfg", (), {"heartbeat_timeout": 8})()
+    missing = tmp_path / "missing.json"
+    ok, message = probe_cli(
+        cfg,
+        f'{sys.executable} -c "print(\"ok\")" --mcp-config "{missing}"',
+    )
+
+    assert ok is False
+    assert "MCP" in message
 
 
 def test_heartbeat_disabled_agent_skipped():

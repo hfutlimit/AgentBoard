@@ -51,31 +51,109 @@ DEFAULT_TOKEN = ""
 DEFAULT_PORT = 18240
 DEFAULT_MAPPINGS_FILE = "tmp/project-mappings.json"
 
+
+def _discover_codebuddy_paths() -> tuple[str, str]:
+    """Resolve the locally installed WorkBuddy Node runtime and CodeBuddy entrypoint.
+
+    The desktop application may be installed on any drive.  Keeping the old
+    ``E:/Program Files`` path in the preset made healthy CodeBuddy installs look
+    offline after the application was moved or reinstalled.
+    """
+    configured_node = os.getenv("AGENTBOARD_CODEBUDDY_NODE", "").strip()
+    configured_cli = os.getenv("AGENTBOARD_CODEBUDDY_CLI", "").strip()
+
+    node_candidates: list[Path] = []
+    versions_root = Path.home() / ".workbuddy" / "binaries" / "node" / "versions"
+    if versions_root.is_dir():
+        node_candidates.extend(
+            sorted(versions_root.glob("*/node.exe"), reverse=True)
+        )
+    node_candidates.extend(Path(p) for p in filter(None, (shutil.which("node"),)))
+
+    cli_candidates: list[Path] = []
+    if os.name == "nt":
+        try:
+            import winreg
+
+            uninstall_roots = (
+                (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+                (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+                (winreg.HKEY_CURRENT_USER, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+            )
+            for hive, root in uninstall_roots:
+                try:
+                    with winreg.OpenKey(hive, root) as parent:
+                        for index in range(winreg.QueryInfoKey(parent)[0]):
+                            with winreg.OpenKey(parent, winreg.EnumKey(parent, index)) as item:
+                                try:
+                                    name = str(winreg.QueryValueEx(item, "DisplayName")[0])
+                                except OSError:
+                                    continue
+                                if name.lower() != "workbuddy":
+                                    continue
+                                try:
+                                    icon = str(winreg.QueryValueEx(item, "DisplayIcon")[0])
+                                except OSError:
+                                    continue
+                                install_dir = Path(icon.split(",", 1)[0].strip('"')).parent
+                                cli_candidates.append(
+                                    install_dir / "resources" / "app.asar.unpacked" / "cli" / "bin" / "codebuddy"
+                                )
+                except OSError:
+                    continue
+        except ImportError:  # pragma: no cover - non-Windows runtime
+            pass
+    cli_candidates.extend(
+        Path(drive) / "Program Files" / "WorkBuddy" / "resources" /
+        "app.asar.unpacked" / "cli" / "bin" / "codebuddy"
+        for drive in ("C:/", "D:/", "E:/")
+    )
+
+    node = configured_node or next(
+        (str(path) for path in node_candidates if path.is_file()), "node"
+    )
+    cli = configured_cli or next(
+        (str(path) for path in cli_candidates if path.is_file()), "codebuddy"
+    )
+    return node, cli
+
+
+_CODEBUDDY_NODE, _CODEBUDDY_CLI = _discover_codebuddy_paths()
+
 # CLI 预设：key → {label, template(含 {model} 占位), models: [...]}
 CLI_PRESETS: dict[str, dict[str, Any]] = {
     "codex": {
         "label": "OpenAI Codex CLI",
         "models": ["gpt-5.6-sol"],
-        "template": '"{command}" exec --model "{model}" --color never',
+        "template": '"{command}" exec --model "{model}"{full_access} --color never',
+        "full_access_arg": " --dangerously-bypass-approvals-and-sandbox",
+        "supports_full_access": True,
+        "default_full_access": True,
     },
     "codebuddy": {
         "label": "WorkBuddy CodeBuddy CLI",
-        "node": "C:/Users/jason/.workbuddy/binaries/node/versions/22.22.2/node.exe",
-        "cli": "E:/Program Files/WorkBuddy/resources/app.asar.unpacked/cli/bin/codebuddy",
+        "node": _CODEBUDDY_NODE,
+        "cli": _CODEBUDDY_CLI,
         "mcp_config": None,  # 由页面/默认 mcp-prod.json 填充
         "models": [
             "hy3", "hy3-preview-agent", "deepseek-v4-flash", "deepseek-v4-pro",
             "kimi-k3-2", "kimi-k2-7", "kimi-k2-6", "glm-5.2", "glm-5.1",
             "glm-5v-turbo", "minimax-m3-pay",
         ],
-        "template": ('"{node}" "{cli}" -p -y --mcp-config "{mcp}" --output-format text'),
+        "template": ('"{node}" "{cli}" -p{full_access} --mcp-config "{mcp}" --output-format text'),
+        "full_access_arg": " -y",
+        "supports_full_access": True,
+        "default_full_access": True,
     },
     "minimax": {
         "label": "MiniMax CLI（适配器）",
         "python": sys.executable,
         "adapter": "",  # scripts/minimax_adapter.py 绝对路径
-        "models": ["MiniMax-M2", "MiniMax-M2.5", "MiniMax-M2.7"],
+        "models": ["MiniMax-M2.7-highspeed", "MiniMax-M2.7", "MiniMax-M3"],
         "template": '"{python}" "{adapter}"',
+        "full_access_arg": "",
+        "supports_full_access": False,
+        "default_full_access": False,
     },
 }
 
@@ -186,17 +264,21 @@ class AgentBoardProxy:
 class AgentBody(BaseModel):
     agent_id: str = Field(min_length=1, max_length=64)
     name: str = Field(default="", max_length=100)
+    roles: list[str] = Field(default_factory=lambda: ["developer", "reviewer"])
     cli_type: str = "codex"
     model: str = ""
     enabled: bool = True
+    full_access: bool = True
     mcp_config: str | None = None  # 覆盖默认 mcp-prod.json
 
 
 class AgentUpdateBody(BaseModel):
     name: str | None = None
+    roles: list[str] | None = None
     cli_type: str | None = None
     model: str | None = None
     enabled: bool | None = None
+    full_access: bool | None = None
     mcp_config: str | None = None
 
 
@@ -285,26 +367,43 @@ def create_app(
                 "label": p["label"],
                 "models": p["models"],
                 "template": p["template"],
+                "supports_full_access": p.get("supports_full_access", False),
+                "default_full_access": p.get("default_full_access", True),
             }
         return {"presets": presets}
 
-    def _render_cli_command(cli_type: str, model: str, mcp_config: str | None) -> str:
+    def _render_cli_command(
+        cli_type: str,
+        model: str,
+        mcp_config: str | None,
+        full_access: bool = True,
+    ) -> str:
         p = CLI_PRESETS.get(cli_type)
         if not p:
             raise HTTPException(400, f"未知 CLI 类型：{cli_type}")
+        access_arg = p.get("full_access_arg", "") if full_access else ""
         if cli_type == "codex":
             command = _env("AGENTBOARD_CODEX_COMMAND", shutil.which("codex") or "codex")
             selected_model = model or p["models"][0]
-            return p["template"].format(command=command, model=selected_model)
+            return p["template"].format(
+                command=command,
+                model=selected_model,
+                full_access=access_arg,
+            )
         if cli_type == "codebuddy":
             mcp = mcp_config or _env("AGENTBOARD_MCP_CONFIG")
             if not mcp:
                 mcp = str(_repo_root() / "tmp" / "mcp-prod.json")
             if not Path(mcp).is_absolute():
                 mcp = str(_repo_root() / mcp)
-            return p["template"].format(node=p["node"], cli=p["cli"], mcp=mcp)
+            return p["template"].format(
+                node=p["node"], cli=p["cli"], mcp=mcp,
+                full_access=access_arg,
+            )
         if cli_type == "minimax":
-            adapter = p.get("adapter") or str(_repo_root() / "scripts" / "minimax_adapter.py")
+            adapter = p.get("adapter") or str(
+                _repo_root() / "scripts" / "minimax_plan_invoker.py"
+            )
             return p["template"].format(python=p["python"], adapter=adapter)
         return p["template"]
 
@@ -319,17 +418,44 @@ def create_app(
     @app.get("/api/agents")
     def list_agents() -> Any:
         _ensure_worker_registered()
-        return proxy.get(f"/api/workers/{local_worker_id}/instances")
+        instances = proxy.get(f"/api/workers/{local_worker_id}/instances") or []
+        logical_agents = proxy.get("/api/agents") or []
+        profiles = {item.get("agent_id"): item for item in logical_agents}
+        for instance in instances:
+            profile = profiles.get(instance.get("agent_id")) or {}
+            for field in ("name", "roles", "capabilities"):
+                if field in profile:
+                    instance[field] = profile[field]
+        return instances
 
     @app.post("/api/agents", status_code=201)
     def create_agent(body: AgentBody) -> Any:
         _ensure_worker_registered()
-        cli_cmd = _render_cli_command(body.cli_type, body.model, body.mcp_config)
-        # Step 1: 注册/更新 logical agent（idempotent，prod AgentRegisterIn.name 必填）
-        proxy.post(
-            "/api/agents/register",
-            {"agent_id": body.agent_id, "name": body.name or body.agent_id},
+        cli_cmd = _render_cli_command(
+            body.cli_type, body.model, body.mcp_config, body.full_access,
         )
+        roles = json.dumps(list(dict.fromkeys(body.roles)), ensure_ascii=False)
+        logical_agents = proxy.get("/api/agents") or []
+        existing_profile = next(
+            (item for item in logical_agents if item.get("agent_id") == body.agent_id),
+            None,
+        )
+        if existing_profile is None:
+            # 首次注册绑定当前凭据用户；后续保存绝不能再次 register，否则会把
+            # 已配置的项目服务账号 user_id 覆盖成 Portal 的 admin 用户。
+            proxy.post(
+                "/api/agents/register",
+                {
+                    "agent_id": body.agent_id,
+                    "name": body.name or body.agent_id,
+                    "roles": roles,
+                },
+            )
+        else:
+            profile_update: dict[str, Any] = {"roles": roles}
+            if body.name:
+                profile_update["name"] = body.name
+            proxy.put(f"/api/agents/{body.agent_id}", profile_update)
         # Step 2: 给本 worker 挂 instance（prod 校验 agent_id 必须已注册）
         return proxy.post(
             f"/api/agents/{body.agent_id}/instances",
@@ -352,7 +478,20 @@ def create_app(
             "codex" if "codex" in str(existing.get("cli_command", "")).lower()
             else "codebuddy"
         )
-        cli_cmd = _render_cli_command(cli_type, selected_model, body.mcp_config)
+        existing_cmd = str(existing.get("cli_command", ""))
+        existing_full_access = (
+            cli_type == "minimax"
+            or "--dangerously-bypass-approvals-and-sandbox" in existing_cmd
+            or " -y " in f" {existing_cmd} "
+        )
+        full_access = (
+            body.full_access
+            if body.full_access is not None
+            else existing_full_access
+        )
+        cli_cmd = _render_cli_command(
+            cli_type, selected_model, body.mcp_config, full_access,
+        )
         payload = {
             "worker_id": local_worker_id,
             "cli_command": cli_cmd,
@@ -360,6 +499,15 @@ def create_app(
             "auth_key": "",
             "enabled": body.enabled if body.enabled is not None else existing.get("enabled", True),
         }
+        profile_update: dict[str, Any] = {}
+        if body.name is not None:
+            profile_update["name"] = body.name
+        if body.roles is not None:
+            profile_update["roles"] = json.dumps(
+                list(dict.fromkeys(body.roles)), ensure_ascii=False,
+            )
+        if profile_update:
+            proxy.put(f"/api/agents/{agent_id}", profile_update)
         return proxy.post(f"/api/agents/{agent_id}/instances", payload)
 
     # ---- 项目列表 ----

@@ -129,6 +129,16 @@ def http_post_messages(prompt: str) -> str:
 
 def main() -> int:
     if "--version" in sys.argv or "-V" in sys.argv:
+        # Heartbeat probes must not advertise a machine as usable when the
+        # local Coding Plan session has never been logged in (or its auth file
+        # was removed).  Do not make a network request here; the real model
+        # call remains the definitive readiness check.
+        try:
+            load_access_token(AUTH_FILE)
+        except Exception as exc:  # noqa: BLE001
+            sys.stdout.write(json.dumps({"action": ACTION_FAIL, "error": str(exc)}, ensure_ascii=False))
+            sys.stdout.write("\n")
+            return 0
         sys.stdout.write(f"minimax_plan_invoker {VERSION}\n")
         return 0
 

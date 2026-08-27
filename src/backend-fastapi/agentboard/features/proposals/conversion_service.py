@@ -115,7 +115,10 @@ class ProposalConversionService:
         Returns:
             ConversionPlan 不可变 dataclass（无 entity id，仅 title 引用）。
         """
-        spec = (proposal.converged_spec or proposal.content or "").strip()
+        # strip 仅用于 checklist 解析；description 保留原文（旧行为：
+        # description=p.converged_spec，不丢首尾空白，Story 389 回归修复）。
+        spec_raw = proposal.converged_spec or proposal.content or ""
+        spec = spec_raw.strip()
         tasks: list[dict[str, Any]] = []
         seen: set[str] = set()
 
@@ -187,7 +190,7 @@ class ProposalConversionService:
             epic_id=epic_id,
             story={
                 "title": proposal.title,
-                "description": spec,
+                "description": spec_raw,
             },
             tasks=tasks,
             dependencies=deps,

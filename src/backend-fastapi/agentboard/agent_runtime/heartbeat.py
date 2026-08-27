@@ -17,9 +17,11 @@ Flake 修复（2026-08-10 review）：探测前 sleep(0.05) + 显式 stdout/stde
 from __future__ import annotations
 
 import logging
+import json
 import socket
 import subprocess
 import time
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -44,6 +46,13 @@ def probe_cli(config: Any, cmd: str, model: str = "") -> tuple[bool, str]:
         argv = split_command(full) + ["--version"]
     except ValueError as e:
         return False, f"命令解析失败：{e}"
+    if "--mcp-config" in argv:
+        try:
+            mcp_path = Path(argv[argv.index("--mcp-config") + 1])
+        except (IndexError, TypeError, ValueError):
+            return False, "MCP 配置参数缺失"
+        if not mcp_path.is_file():
+            return False, f"MCP 配置不存在：{mcp_path}"
     # Flake 修复（2026-08-10 review）：探测前让出 GIL + 显式 PIPE 替代 capture_output
     time.sleep(0.05)
     try:
@@ -58,9 +67,26 @@ def probe_cli(config: Any, cmd: str, model: str = "") -> tuple[bool, str]:
         log.debug("Agent CLI 探测失败 %r：%s", cmd, e)
         return False, f"无法启动 CLI：{e}"
     ok = proc.returncode == 0
+    probe_payload: dict[str, Any] | None = None
+    # Some adapter commands deliberately encode invocation failures as a
+    # structured ``{"action":"fail", ...}`` decision while exiting with 0.
+    # Treating that protocol-level failure as a healthy version probe creates
+    # a misleading online Agent that can never accept work (notably the
+    # MiniMax stdin adapter when ``--version`` supplies no prompt).
+    stdout_text = (proc.stdout or "").strip()
+    if ok and stdout_text:
+        try:
+            probe_payload = json.loads(stdout_text)
+        except json.JSONDecodeError:
+            probe_payload = None
+        if isinstance(probe_payload, dict) and str(probe_payload.get("action", "")).lower() == "fail":
+            ok = False
     detail = ""
-    if (proc.stdout or "").strip():
-        detail = proc.stdout.strip().splitlines()[0][:80]
+    if stdout_text:
+        if isinstance(probe_payload, dict) and probe_payload.get("error"):
+            detail = str(probe_payload["error"]).strip()[:80]
+        else:
+            detail = stdout_text.splitlines()[0][:80]
     elif (proc.stderr or "").strip():
         detail = proc.stderr.strip().splitlines()[-1][:80]
     msg = (f"OK {detail}" if ok else f"exit={proc.returncode} {detail}").strip()

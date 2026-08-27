@@ -14,7 +14,11 @@
   padding: 12px 20px; border-radius: 10px; margin-bottom: 20px;
   flex-wrap: wrap;
 }
-.brand { font-weight: 700; font-size: 16px; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-logo { width: 38px; height: 38px; }
+.brand span { display: flex; flex-direction: column; line-height: 1.15; }
+.brand strong { font-size: 15px; }
+.brand small { margin-top: 4px; color: #9ba7bb; font-size: 11px; }
 
 .tabs { display: flex; gap: 8px; }
 .tabs button {
@@ -37,6 +41,10 @@
 label { display: flex; flex-direction: column; gap: 5px; font-size: 12.5px; color: #4b5563; }
 label.inline { flex-direction: row; align-items: center; gap: 8px; }
 label.wide { grid-column: span 1; }
+.permission-option { grid-column: 1 / -1; padding: 12px 14px; border: 1px solid #d8e2ff; border-radius: 8px; background: #f5f8ff; }
+.permission-title { display: flex; align-items: center; gap: 8px; font-weight: 650; }
+.permission-option small { color: #69758a; }
+.recommended { padding: 2px 7px; border-radius: 10px; background: #e2eaff; color: #315fcf; font-size: 10px; }
 input, select {
   padding: 8px 10px; border: 1px solid #d1d5db; border-radius: 6px;
   font-size: 13px; background: #fff; color: #1f2329;
@@ -70,6 +78,7 @@ td.empty, .empty { color: #9ca3af; text-align: center; padding: 18px; }
   background: #f3f4f6; color: #9ca3af; font-size: 11.5px; margin-right: 6px;
 }
 .chip.on { background: #e6f7ed; color: #16a34a; }
+.chip.access.on { background: #e8efff; color: #315fcf; }
 
 .records { max-height: 560px; overflow-y: auto; border: 1px solid #eef0f3; border-radius: 8px; }
 .rec {

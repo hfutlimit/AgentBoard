@@ -30,6 +30,7 @@ import os
 import sys
 import uuid
 import importlib
+from datetime import timedelta
 
 import pytest
 from sqlalchemy import create_engine
@@ -198,6 +199,54 @@ def test_agent_online_aggregates_any_instance_online():
                            probe_ok=True, probe_message="OK")
         s.refresh(a)
         assert a.online is True
+    finally:
+        s.close(); eng.dispose()
+        if os.path.exists(TEST_DB):
+            os.remove(TEST_DB)
+
+
+def test_stale_instance_expires_logical_agent_and_fresh_heartbeat_recovers():
+    """多 Worker instance 超时后下线；任一 instance 新心跳可恢复逻辑 Agent。"""
+    eng, s = _make_session()
+    try:
+        agent = _bootstrap_two_workers(s)
+        from agentboard.core.common.models import utc_now
+        from agentboard.features.projects.models import Agent as AgentModel
+        from agentboard.features.scheduling.service import (
+            instance_heartbeat, list_agent_instances, list_agents,
+        )
+
+        instance = next(
+            item for item in list_agent_instances(s, worker_id="worker-A")
+            if item.agent_id == "codex-agent"
+        )
+        instance_heartbeat(
+            s, instance.id, caller_worker_id="worker-A",
+            probe_ok=True, probe_message="OK",
+        )
+        instance.last_heartbeat = utc_now() - timedelta(minutes=5, seconds=1)
+        instance.online = True
+        logical = s.get(AgentModel, agent.id)
+        logical.online = True
+        s.commit()
+
+        assert "codex-agent" not in {
+            row.agent_id for row in list_agents(s, online=True)
+        }
+        s.refresh(instance)
+        s.refresh(logical)
+        assert instance.online is False
+        assert logical.online is False
+
+        instance_heartbeat(
+            s, instance.id, caller_worker_id="worker-A",
+            probe_ok=True, probe_message="OK again",
+        )
+        assert "codex-agent" in {
+            row.agent_id for row in list_agents(s, online=True)
+        }
+        s.refresh(logical)
+        assert logical.online is True
     finally:
         s.close(); eng.dispose()
         if os.path.exists(TEST_DB):

@@ -17,6 +17,7 @@ ContextBuilder / PromptBuilder 在 production 真正生效。
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from datetime import datetime, timezone
@@ -495,6 +496,16 @@ class ProposalWorker:
                 outcome = self.handle_story(story)
             story_results[outcome] = story_results.get(outcome, 0) + 1
             handled.append({"story_id": story.get("id"), "outcome": outcome})
+        task_count = 0
+        if (
+            getattr(self._coordinator, "_poll_available_tasks", None) is not None
+            and str(os.getenv("AGENTBOARD_WORKER_TASK_POLL", "0")).strip().lower()
+            in {"1", "true", "yes"}
+        ):
+            # When RabbitMQ is unavailable, Coordinator's mapped-project scan
+            # replaces the lost task.available broadcast and performs the
+            # same server-side CAS claim before invoking the Agent.
+            task_count = self._coordinator._poll_available_tasks()
         # 回收本轮中已完成的后台任务（metrics 接入点：outcome 已在回调里记日志）
         if self._work_executor is not None:
             for kind, wid, outcome in self._work_executor.drain_finished():
@@ -509,6 +520,7 @@ class ProposalWorker:
             "counts": results,
             "ticket_counts": ticket_results,
             "story_counts": story_results,
+            "task_count": task_count,
         }
 
     def _on_work_decision(self, kind: str, work_id: int, outcome: str,
@@ -524,6 +536,13 @@ class ProposalWorker:
         """常驻轮询。``stop`` 用于优雅退出，``max_cycles`` 便于测试收敛。"""
         stop = stop or threading.Event()
         cycles = 0
+        # Poll mode can block inside a long-running Agent invocation. Keep
+        # heartbeats independent of that synchronous path.
+        heartbeat_keeper = threading.Thread(
+            target=self._agent_heartbeat_loop, args=(stop,),
+            name="proposal-worker-agent-heartbeat", daemon=True,
+        )
+        heartbeat_keeper.start()
         log.info("Worker 启动：api=%s agent=%s interval=%ss lease=%ss max_rounds=%s",
                  self.config.api_url, self.config.agent, self.config.poll_interval,
                  self.config.lease_seconds, self.config.max_rounds)
@@ -539,6 +558,8 @@ class ProposalWorker:
                 break
             stop.wait(self.config.poll_interval)
         log.info("Worker 退出，共执行 %s 轮", cycles)
+        stop.set()
+        heartbeat_keeper.join(timeout=2)
         return cycles
 
     # ---------- MQ 消费（P2） ----------

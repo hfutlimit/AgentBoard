@@ -16,6 +16,7 @@ import json
 import os
 import sys
 import tempfile
+from datetime import timedelta
 
 import pytest
 
@@ -99,6 +100,27 @@ def test_list_agents_filter_online_and_role(seeded):
         assert "wb-reviewer-1" in {r.agent_id for r in rows}
         rows = service.list_agents(s, online=True, role="developer")
         assert rows == []
+
+
+def test_stale_reviewer_is_expired_before_candidate_selection(seeded):
+    """超过五分钟的 reviewer 不得继续进入任务评审候选集。"""
+    from agentboard.core.common.models import utc_now
+    from agentboard.features.scheduling.service import _online_reviewer_candidates
+
+    agent_id = "wb-stale-reviewer"
+    with SessionLocal() as s:
+        service.register_agent(
+            s, agent_id=agent_id, name="Stale Reviewer",
+            roles='["reviewer"]', user_id=seeded[1],
+        )
+        agent = service.agent_heartbeat(s, agent_id, user_id=seeded[1])
+        agent.last_heartbeat = utc_now() - timedelta(minutes=5, seconds=1)
+        s.commit()
+
+        candidates = _online_reviewer_candidates(s, seeded[0])
+        assert agent_id not in {candidate.agent_id for candidate in candidates}
+        s.refresh(agent)
+        assert agent.online is False
 
 
 def test_agent_heartbeat_and_deregister(seeded):
@@ -228,6 +250,39 @@ def test_api_agent_register_list_heartbeat_deregister(seeded):
     assert r5.status_code == 200 and r5.json()["online"] is False
     # 404
     assert client.post("/api/agents/nope/heartbeat", headers=hdr).status_code == 404
+
+
+def test_api_stale_five_minute_agent_is_offline_and_heartbeat_recovers(seeded):
+    """API 过滤与 payload 都按五分钟 heartbeat lease 返回，并可重新上线。"""
+    from agentboard.core.common.models import utc_now
+
+    agent_id = "wb-api-stale-five-minutes"
+    client = _client()
+    hdr = _token(seeded[1])
+    registered = client.post(
+        "/api/agents/register",
+        json={"agent_id": agent_id, "name": "Stale API Agent"},
+        headers=hdr,
+    )
+    assert registered.status_code == 201
+    assert client.post(f"/api/agents/{agent_id}/heartbeat", headers=hdr).status_code == 200
+
+    with SessionLocal() as s:
+        agent = service.get_agent_by_agent_id(s, agent_id)
+        agent.last_heartbeat = utc_now() - timedelta(minutes=5, seconds=1)
+        agent.online = True
+        s.commit()
+
+    online_rows = client.get("/api/agents", params={"online": "true"}).json()
+    assert agent_id not in {row["agent_id"] for row in online_rows}
+    offline_rows = client.get("/api/agents", params={"online": "false"}).json()
+    stale = next(row for row in offline_rows if row["agent_id"] == agent_id)
+    assert stale["online"] is False
+
+    heartbeat = client.post(f"/api/agents/{agent_id}/heartbeat", headers=hdr)
+    assert heartbeat.status_code == 200 and heartbeat.json()["online"] is True
+    online_rows = client.get("/api/agents", params={"online": "true"}).json()
+    assert agent_id in {row["agent_id"] for row in online_rows}
 
 
 def test_api_assign_reviewer_and_review_flow(seeded):

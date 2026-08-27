@@ -200,23 +200,30 @@ def test_parse_routing_warns_and_skips_unknown_key(monkeypatch):
 
 # ---------- 3. 子进程环境隔离 ----------
 
-def test_sanitize_env_strips_agentboard_family():
+def test_sanitize_env_preserves_mcp_api_key_but_strips_worker_credentials():
     env = inv_mod.sanitize_subprocess_env({
         "PATH": "C:/bin",
+        "AgentBoard_Api_Key": "mcp-key",
         "AGENTBOARD_WORKER_TOKEN": "secret",
         "agentboard_mcp_token": "leak",   # 小写也要拦
+        "AGENTBOARD_API_URL": "https://should-not-leak.example",
         "OTHER": "keep",
     })
     assert env["PATH"] == "C:/bin"
     assert env["OTHER"] == "keep"
-    assert not any(k.upper().startswith("AGENTBOARD_") for k in env)
+    assert env["AgentBoard_Api_Key"] == "mcp-key"
+    assert "AGENTBOARD_WORKER_TOKEN" not in env
+    assert "agentboard_mcp_token" not in env
+    assert "AGENTBOARD_API_URL" not in env
     assert env["PYTHONIOENCODING"] == "utf-8"
 
 
 def test_subprocess_invoker_env_never_inherits_credentials(monkeypatch):
     monkeypatch.setenv("AGENTBOARD_WORKER_TOKEN", "super-secret")
+    monkeypatch.setenv("AGENTBOARD_API_KEY", "mcp-key")
     inv = inv_mod.SubprocessAgentInvoker('"echo" "noop"', timeout=1)
     assert "AGENTBOARD_WORKER_TOKEN" not in inv.env
+    assert inv.env["AGENTBOARD_API_KEY"] == "mcp-key"
     assert inv.env["PYTHONUTF8"] == "1"
 
 

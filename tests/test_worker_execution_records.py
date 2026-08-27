@@ -190,6 +190,7 @@ def test_worker_portal_proxies_execution_filters_and_full_output(monkeypatch):
 def test_worker_portal_agents_are_scoped_to_current_worker(monkeypatch):
     gets: list[str] = []
     posts: list[tuple[str, dict]] = []
+    puts: list[tuple[str, dict]] = []
 
     def fake_get(self, path: str, **kwargs):
         gets.append(path)
@@ -198,14 +199,24 @@ def test_worker_portal_agents_are_scoped_to_current_worker(monkeypatch):
                 "id": 9, "worker_id": "worker-local", "agent_id": "codex",
                 "model": "gpt-5.6-sol", "enabled": True,
             }]
+        if path == "/api/agents":
+            return [{
+                "agent_id": "codex", "name": "Codex",
+                "roles": '["developer"]', "capabilities": "[]",
+            }]
         raise AssertionError(f"unexpected GET {path}")
 
     def fake_post(self, path: str, payload: dict, status_code: int = 201):
         posts.append((path, payload))
         return payload
 
+    def fake_put(self, path: str, payload: dict):
+        puts.append((path, payload))
+        return payload
+
     monkeypatch.setattr(worker_portal.AgentBoardProxy, "get", fake_get)
     monkeypatch.setattr(worker_portal.AgentBoardProxy, "post", fake_post)
+    monkeypatch.setattr(worker_portal.AgentBoardProxy, "put", fake_put)
     client = TestClient(worker_portal.create_app(
         "http://server", "test-token", worker_id="worker-local",
     ))
@@ -213,8 +224,8 @@ def test_worker_portal_agents_are_scoped_to_current_worker(monkeypatch):
     listed = client.get("/api/agents")
     assert listed.status_code == 200
     assert listed.json()[0]["worker_id"] == "worker-local"
-    assert gets == ["/api/workers/worker-local/instances"]
-    assert not any(path == "/api/agents" for path in gets)
+    assert listed.json()[0]["roles"] == '["developer"]'
+    assert gets == ["/api/workers/worker-local/instances", "/api/agents"]
     assert posts[0][0] == "/api/workers/register"
     assert posts[0][1]["worker_id"] == "worker-local"
 
@@ -228,3 +239,31 @@ def test_worker_portal_agents_are_scoped_to_current_worker(monkeypatch):
     assert instance_body["worker_id"] == "worker-local"
     assert instance_body["model"] == "gpt-5.6-sol"
     assert "gpt-5.6-sol" in instance_body["cli_command"]
+    assert "--dangerously-bypass-approvals-and-sandbox" in instance_body["cli_command"]
+    assert puts[-1] == (
+        "/api/agents/codex", {"roles": '["developer", "reviewer"]'},
+    )
+
+    restricted = client.post("/api/agents", json={
+        "agent_id": "codex-restricted", "cli_type": "codex",
+        "model": "gpt-5.6-sol", "enabled": True, "full_access": False,
+    })
+    assert restricted.status_code == 201
+    assert "--dangerously-bypass-approvals-and-sandbox" not in posts[-1][1]["cli_command"]
+
+    codebuddy = client.post("/api/agents", json={
+        "agent_id": "codebuddy-full", "cli_type": "codebuddy",
+        "model": "hy3", "enabled": True,
+    })
+    assert codebuddy.status_code == 201
+    assert " -y " in f" {posts[-1][1]['cli_command']} "
+
+
+def test_worker_portal_codebuddy_paths_allow_local_install_override(monkeypatch):
+    monkeypatch.setenv("AGENTBOARD_CODEBUDDY_NODE", "D:/tools/node.exe")
+    monkeypatch.setenv("AGENTBOARD_CODEBUDDY_CLI", "D:/apps/WorkBuddy/codebuddy")
+
+    node, cli = worker_portal._discover_codebuddy_paths()
+
+    assert node == "D:/tools/node.exe"
+    assert cli == "D:/apps/WorkBuddy/codebuddy"

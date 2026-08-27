@@ -37,7 +37,8 @@ log = logging.getLogger("agentboard.features.proposals.service")
 
 from .models import (
     ALL_PROPOSAL_STATUSES, ASKABLE_STATUSES, CLAIMABLE_STATUSES,
-    AUTO_RESOLVABLE_TICKET_TYPES, AUTO_TICKET_TYPE,
+    AUTO_RESOLVABLE_TICKET_TYPES, AUTO_TICKET_MODIFIABLE_STATUSES,
+    AUTO_TICKET_TYPE,
     DEFAULT_CLAIM_LEASE_SECONDS, Proposal, ProposalQuestion, ProposalRound,
     ProposalStatus, ProposalTicketRequest,
     TICKET_REQUEST_DONE, TICKET_REQUEST_FAILED,
@@ -1132,6 +1133,17 @@ def update_proposal(s: Session, id: int, **fields) -> Proposal | None:
         return None
     if ProposalStatus(p.status) is ProposalStatus.CANCELLED:
         raise InvalidValue(f"proposal {id} 已取消，不能继续修改")
+    # auto_create_ticket 状态边界（Story 389）：收敛及建单阶段后锁定，
+    # 服务端拒绝（422）；draft/pending/queued/analyzing/awaiting/answered/failed
+    # 均可反复修改。
+    if (
+        fields.get("auto_create_ticket") is not None
+        and ProposalStatus(p.status) not in AUTO_TICKET_MODIFIABLE_STATUSES
+    ):
+        raise InvalidValue(
+            f"proposal {id} 当前状态为 {p.status}，"
+            f"auto_create_ticket 仅在收敛前可修改",
+        )
     allowed = {"title", "content", "converged_spec", "story_id", "auto_create_ticket"}
     edited_user_fields = False
     for k, v in fields.items():

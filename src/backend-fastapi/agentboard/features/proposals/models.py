@@ -107,6 +107,14 @@ PROPOSAL_TRANSITIONS: dict[ProposalStatus, set[ProposalStatus]] = {
 # 允许 Agent 在其中提问的状态（提问即产出一轮问题）
 ASKABLE_STATUSES = {ProposalStatus.ANALYZING}
 
+# auto_create_ticket 可修改的状态集合（Story 389）：收敛及建单阶段后锁定。
+# 该集合同时是「允许取消」的状态集合（取消截止点为 grill 收敛前）。
+AUTO_TICKET_MODIFIABLE_STATUSES = {
+    ProposalStatus.DRAFT, ProposalStatus.PENDING, ProposalStatus.QUEUED,
+    ProposalStatus.ANALYZING, ProposalStatus.AWAITING, ProposalStatus.ANSWERED,
+    ProposalStatus.FAILED,
+}
+
 # 可被 Worker 原子认领进入 analyzing 的状态：
 # queued = 首轮待分析；answered = 用户已作答，需进入下一轮澄清。
 # 服务端 CAS 认领端点与 Worker 侧发现逻辑共用该集合，避免两处定义漂移。

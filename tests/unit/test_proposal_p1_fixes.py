@@ -282,9 +282,9 @@ def test_p1_endpoint_authorization_present():
          "_enforce_member_or_admin",
          ),
         # delete_proposal 走"creator 或 admin"直接比较（不是通用 enforce helper）
-        # 不在通用 enforce 列表里，单独校验
+        # 不在通用 enforce 列表里，单独校验（creator 字段是模型真实字段 author_id）
         ("delete_proposal",         # DELETE /api/proposals/{pid}
-         "p.created_by_user_id",  # 用直接比较
+         "p.author_id",  # 用直接比较
          ),
     ]
 

@@ -1,6 +1,9 @@
 <div class="shell">
   <header class="topbar">
-    <div class="brand">AgentBoard · Worker 本机配置台</div>
+    <div class="brand">
+      <img class="brand-logo" src="agentboard-worker-logo.svg" alt="" />
+      <span><strong>AgentBoard</strong><small>Worker 本机配置台</small></span>
+    </div>
     <div class="tabs">
       <button [class.active]="tab() === 'agents'" (click)="selectTab('agents')">🤖 本机 Agent</button>
       <button [class.active]="tab() === 'mappings'" (click)="selectTab('mappings')">📁 项目映射</button>
@@ -36,6 +39,28 @@
           <label class="inline">
             <input type="checkbox" [(ngModel)]="enabled" /> 启用
           </label>
+          <div class="permission-option">
+            <span class="permission-title">工作流角色</span>
+            <span>
+              <label class="inline"><input type="checkbox" [(ngModel)]="developerRole" /> Developer</label>
+              <label class="inline"><input type="checkbox" [(ngModel)]="reviewerRole" /> Reviewer</label>
+            </span>
+            <small>Reviewer 决定是否能接收设计和实现评审；它与 Full access 权限相互独立。</small>
+          </div>
+          <label class="permission-option">
+            <span class="permission-title">
+              <input type="checkbox" [(ngModel)]="fullAccess"
+                     [disabled]="presets()[cliType()]?.supports_full_access === false" />
+              Full access <span class="recommended">默认</span>
+            </span>
+            <small>
+              @if (presets()[cliType()]?.supports_full_access === false) {
+                此 CLI 直接继承本机 Worker 的系统权限。
+              } @else {
+                允许 Agent 无需人工审批访问本地文件、Git、网络和 MCP。
+              }
+            </small>
+          </label>
         </div>
         <div class="actions">
           <button class="primary" (click)="saveAgent()">保存到当前 Worker</button>
@@ -48,7 +73,7 @@
         <h2>本机 Worker Agent</h2>
         <table>
           <thead>
-            <tr><th>Agent ID</th><th>Worker</th><th>模型</th><th>状态</th><th>探测</th><th>操作</th></tr>
+            <tr><th>Agent ID</th><th>Worker</th><th>模型</th><th>角色</th><th>权限</th><th>状态</th><th>探测</th><th>操作</th></tr>
           </thead>
           <tbody>
             @for (a of agents(); track a.agent_id) {
@@ -56,6 +81,12 @@
                 <td>{{ a.agent_id }}</td>
                 <td>{{ a.worker_id || '本机' }}</td>
                 <td>{{ a.model || '—' }}</td>
+                <td>{{ agentRoleLabel(a) }}</td>
+                <td>
+                  <span class="chip access" [class.on]="agentHasFullAccess(a)">
+                    {{ agentHasFullAccess(a) ? 'Full access' : '受限' }}
+                  </span>
+                </td>
                 <td>
                   <span class="chip" [class.on]="a.enabled !== false">启用</span>
                   <span class="chip" [class.on]="a.online">在线</span>
@@ -64,7 +95,7 @@
                 <td><button class="small" (click)="editAgent(a)">编辑</button></td>
               </tr>
             } @empty {
-              <tr><td colspan="6" class="empty">当前 Worker 暂无 Agent，请在上方配置</td></tr>
+              <tr><td colspan="8" class="empty">当前 Worker 暂无 Agent，请在上方配置</td></tr>
             }
           </tbody>
         </table>

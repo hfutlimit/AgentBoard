@@ -63,7 +63,10 @@ from ..projects.models import (
     Worker,
 )
 from ..projects.service import _record_story_status_history  # noqa: F401  (跨域 helper)
-from ..projects.service import get_agent_by_agent_id  # noqa: F401  (跨域 helper)
+from ..projects.service import (  # noqa: F401  (跨域 helper)
+    expire_stale_agent_heartbeats,
+    get_agent_by_agent_id,
+)
 from ..work_items.service import (  # noqa: E402 — 跨域调用（评审/评论/状态历史走任务域）
     _record_status_history,
     _record_learning_outcome,
@@ -603,7 +606,7 @@ def review_story(s: Session, *, story_id: int, reviewer_user_id: int,
 
 
 def list_agents(s: Session, *, online: bool | None = None, role: str | None = None,
-                order_by_created: bool = False):
+                 order_by_created: bool = False):
     """列出 Agent 池（全局，与项目无关；按需过滤 online/role）。
 
     2026-08-20 Epic 151 Story 326 Task 1297：MembersTab 文案已明确
@@ -611,6 +614,7 @@ def list_agents(s: Session, *, online: bool | None = None, role: str | None = No
     project 过滤。``order_by_created=True`` 时按 ``created_at`` 倒序
     （新→旧），与前端展示时间一致。
     """
+    expire_stale_agent_heartbeats(s)
     q = s.query(Agent)
     if online is not None:
         q = q.filter(Agent.online == online)
@@ -1229,6 +1233,7 @@ def _sync_agent_online(s: Session, agent_id: str) -> None:
     但 agent.online 同步是独立关注点，独立 commit 保证外部 ``s.refresh()`` 能读到
     最新值（多测试 / 跨调用场景）。
     """
+    expire_stale_agent_heartbeats(s)
     agent = s.query(Agent).filter(Agent.agent_id == agent_id).first()
     if not agent:
         return
@@ -1339,6 +1344,7 @@ def list_agent_instances(
 ) -> list[AgentInstance]:
     """列 AgentInstance。``worker_id`` 非空时按 owner 视角返回（上层决定是否暴露
     ``cli_command`` —— ``to_owner_dict`` 包含 CLI，``to_public_dict`` 脱敏）。"""
+    expire_stale_agent_heartbeats(s)
     q = s.query(AgentInstance)
     if worker_id:
         q = q.filter(AgentInstance.worker_id == worker_id)
@@ -1682,6 +1688,7 @@ def _vote_majority(s: Session, entity, *, entity_type: str, reviewer_user_id: in
 # ---- 同步自 service.py ----
 def _online_reviewer_candidates(s: Session, project_id: int) -> list[Agent]:
     """在线 ∩ 角色含 reviewer ∩ 绑定 user 属项目成员 的 Agent 候选集。"""
+    expire_stale_agent_heartbeats(s)
     member_ids = {
         r[0] for r in s.query(ProjectMember.user_id).filter(
             ProjectMember.project_id == project_id

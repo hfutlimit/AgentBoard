@@ -208,7 +208,7 @@ REGISTRY: list[DodEntry] = [
             "新增 POST /api/stories/reclaim-stale 与 POST /api/tasks/reclaim-stale 端点，支持超时租约安全回收",
             "ProposalWorker 与 WorkflowConsumer 维护循环周期调用 reclaim_stale_stories / reclaim_stale_tasks",
             "RoutedSubprocessInvoker 路由白名单对齐真实 action (review_task / process_task)，未知键警告忽略",
-            "SubprocessAgentInvoker 启动子进程剥离 AGENTBOARD_* 环境变量，注入 UTF-8 编码参数",
+            "SubprocessAgentInvoker 启动子进程仅放行 AgentBoard MCP API Key，剥离其余 AGENTBOARD_* Worker 凭据并注入 UTF-8 编码参数",
             "RabbitMQ / InMemoryBroker 消费端支持 MessageRetry 三态判定，瞬时失败 requeue 避免误入死信",
             "AsyncWorkExecutor 支持 per-kind 通道隔离与 (kind, id) in-flight 去重，防止慢任务阻塞主循环",
         ],
