@@ -3110,6 +3110,7 @@ from ...features.scheduling.service import (  # noqa: F401,F403
     claim_story, submit_task_for_review,
     assign_task_reviewer, review_story, review_task,
     scan_review_timeouts, complete_story, complete_sprint,
+    reclaim_stale_stories, reclaim_stale_tasks,
     # 末尾补:assign_reviewer 之前在 facade 里有重复实现,显式 re-bind 让
     # 老 `service.assign_reviewer` 走 features/scheduling/service 新版。
     assign_reviewer,
