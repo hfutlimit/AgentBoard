@@ -505,13 +505,16 @@ def execute_ticket_request(
     if ProposalStatus(p.status) is not ProposalStatus.TICKET_PREPARING:
         # 兜底：若 proposal 未在 ticket_preparing（例如创建请求时已置位），
         # 此处校验状态机合法迁移，避免竞态下跳过中间态。
-        raise InvalidValue(
+        err = (
             f"proposal {proposal_id} 当前状态 {p.status}，"
-            f"仅 ticket_preparing 可执行转换",
+            f"仅 ticket_preparing 可执行转换"
         )
+        s.rollback()
+        fail_ticket_request(s, req.id, error=err)
+        raise InvalidValue(err)
 
     # ---- 创建实体（本事务内完成,杜绝部分成功;Step 3 委托 TicketRef）----
-    from ...domains.proposals.ticket_ref import TicketRef  # ../../../agentboard/domains/...
+    from .ticket_ref import TicketRef
     try:
         ref = TicketRef.create(
             s, p, type=type,
@@ -519,8 +522,14 @@ def execute_ticket_request(
             parent_story_id=req.parent_story_id,
             title=title or req.title or None,
         )
-    except ValueError as e:
+    except (ValueError, InvalidValue) as e:
+        s.rollback()
+        fail_ticket_request(s, req.id, error=str(e))
         raise InvalidValue(str(e)) from None
+    except NotFound as e:
+        s.rollback()
+        fail_ticket_request(s, req.id, error=str(e))
+        raise
     ticket_id = ref.id
 
     req.ticket_id = ticket_id

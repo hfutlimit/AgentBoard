@@ -382,3 +382,71 @@ def test_list_pending_ticket_requests():
         rows = service.list_ticket_requests(s, pr)
         assert len(rows) == 1
         assert rows[0].type == "story"
+
+
+def test_execute_ticket_request_failure_rolls_back_and_allows_retry():
+    """Regression test (2026-08-27 review):
+    pending -> claim -> TicketRef.create raises ValueError / validation error ->
+    request.status == failed -> proposal.status == converged -> can retry ticket request.
+    Verifies that execute_ticket_request does not leave TicketRequest permanently stuck in processing.
+    """
+    from unittest.mock import patch
+    from agentboard.features.proposals.ticket_ref import TicketRef
+
+    sessions, ids = _env()
+    pr, e1 = _ids(ids, "pr"), _ids(ids, "e1")
+    with sessions() as s:
+        req = service.create_ticket_request(s, pr, type="story", epic_id=e1)
+        assert req.status == TICKET_REQUEST_PENDING
+
+        # Simulate ValueError inside TicketRef.create
+        with patch.object(TicketRef, "create", side_effect=ValueError("Simulated validation failure in entity creation")):
+            try:
+                service.execute_ticket_request(s, pr, type="story", epic_id=e1, request_id=req.id)
+                raise AssertionError("Expected InvalidValue")
+            except service.InvalidValue as e:
+                assert "Simulated validation failure" in str(e)
+
+        # Verify request is failed and proposal is converged (NOT stuck in processing / ticket_preparing)
+        s.refresh(req)
+        assert req.status == TICKET_REQUEST_FAILED
+        assert "Simulated validation failure" in req.error
+        p = service.get_proposal(s, pr)
+        assert p.status == ProposalStatus.CONVERGED.value
+
+        # Retry: create_ticket_request resets failed request to pending and proposal to ticket_preparing
+        retry_req = service.create_ticket_request(s, pr, type="story", epic_id=e1)
+        assert retry_req.id == req.id
+        assert retry_req.status == TICKET_REQUEST_PENDING
+        s.refresh(p)
+        assert p.status == ProposalStatus.TICKET_PREPARING.value
+
+        # Now execute successfully
+        result = service.execute_ticket_request(s, pr, type="story", epic_id=e1, request_id=retry_req.id)
+        assert result["request"]["status"] == TICKET_REQUEST_DONE
+        s.refresh(p)
+        assert p.status == ProposalStatus.TICKET_CREATED.value
+
+
+def test_execute_ticket_request_not_found_parent_rolls_back_to_converged():
+    """Verify NotFound during TicketRef.create rolls back to converged."""
+    from agentboard.core.exceptions import NotFound
+    from agentboard.features.proposals.ticket_ref import TicketRef
+    from unittest.mock import patch
+
+    sessions, ids = _env()
+    pr, e1 = _ids(ids, "pr"), _ids(ids, "e1")
+    with sessions() as s:
+        req = service.create_ticket_request(s, pr, type="story", epic_id=e1)
+        with patch.object(TicketRef, "create", side_effect=NotFound("epic 999 not found")):
+            try:
+                service.execute_ticket_request(s, pr, type="story", epic_id=e1, request_id=req.id)
+                raise AssertionError("Expected NotFound")
+            except NotFound as e:
+                assert "epic 999 not found" in str(e)
+
+        s.refresh(req)
+        assert req.status == TICKET_REQUEST_FAILED
+        p = service.get_proposal(s, pr)
+        assert p.status == ProposalStatus.CONVERGED.value
+

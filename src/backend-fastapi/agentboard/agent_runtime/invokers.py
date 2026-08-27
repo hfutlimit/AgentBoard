@@ -178,7 +178,8 @@ class RoutedSubprocessInvoker:
                  routing: dict[str, str] | None = None,
                  fallback: SubprocessAgentInvoker | None = None,
                  timeout: int = 900, cwd: str | None = None,
-                 env: dict | None = None):
+                 env: dict | None = None,
+                 prompt_builder: Callable[[dict], str] | None = None):
         cmds = commands if commands is not None else parse_agent_command_map()
         if not cmds:
             raise ValueError(
@@ -197,11 +198,13 @@ class RoutedSubprocessInvoker:
         self.aliases: list[str] = list(cmds.keys())
         self.fallback_alias: str = self.aliases[0]
         self.routing: dict[str, str] = dict(routing)
-        # 子 invoker 池：与旧 SubprocessAgentInvoker 共享 cwd / env / timeout
+        self.prompt_builder: Callable[[dict], str] | None = prompt_builder
+        # 子 invoker 池：与旧 SubprocessAgentInvoker 共享 cwd / env / timeout / prompt_builder
         self._children: dict[str, SubprocessAgentInvoker] = {
             alias: (fallback if fallback is not None and alias == self.fallback_alias
                     else SubprocessAgentInvoker(cmd=cmds[alias], timeout=timeout,
-                                               cwd=cwd, env=env))
+                                               cwd=cwd, env=env,
+                                               prompt_builder=prompt_builder))
             for alias in self.aliases
         }
 
@@ -212,7 +215,7 @@ class RoutedSubprocessInvoker:
         alias = self.routing.get(key) or self.fallback_alias
         return alias, self._children[alias]
 
-    def invoke(self, context: dict) -> AgentDecision:
+    def _prepare_routed_execution(self, context: dict) -> tuple[str, SubprocessAgentInvoker, dict]:
         work_type = str((context or {}).get("work_type") or "").strip()
         action = str((context or {}).get("action") or "").strip()
 
@@ -227,13 +230,20 @@ class RoutedSubprocessInvoker:
         routed_ctx["_routed_work_type"] = work_type or "(unset)"
         self.last_routed = alias
         self.last_invoker = child
+        return alias, child, routed_ctx
+
+    def invoke(self, context: dict) -> AgentDecision:
+        _, child, routed_ctx = self._prepare_routed_execution(context)
         return child.invoke(routed_ctx)
 
     def invoke_with_prompt(self, prompt: str, context: dict) -> AgentDecision:
         """新协议：已渲染 prompt 直接透传到子 invoker（同 invoke 路由逻辑）。"""
-        ctx = dict(context or {})
-        ctx["_rendered_prompt"] = prompt
-        return self.invoke(ctx)
+        _, child, routed_ctx = self._prepare_routed_execution(context)
+        routed_ctx["_rendered_prompt"] = prompt
+        method = getattr(child, "invoke_with_prompt", None)
+        if callable(method):
+            return method(prompt, routed_ctx)
+        return child.invoke(routed_ctx)
 
 # 运行时从 handlers 惰性导入 build_prompt（避免 config 层反向依赖 prompt 实现）
 # 由 ProposalWorker 在构造时注入 prompt_builder，解耦提示词与调用器。
@@ -266,6 +276,7 @@ def _prepared_build_prompt(context: dict) -> str:
     这条路径自动激活；旧 handler 不塞 _command 仍走老路径（向后兼容）。
     """
     cmd = (context or {}).get("_command")
+    builder = (context or {}).get("_prompt_builder") or _prompt_builder
     if cmd is not None and not isinstance(cmd, dict):
         from ._prepared import prepare_execution
         try:
@@ -276,7 +287,6 @@ def _prepared_build_prompt(context: dict) -> str:
             # 覆盖 Handler 的业务 prompt。后者才包含 Proposal 正文、全量问答、
             # ticket request_id/父级参数与精确 JSON 协议。丢掉它会让 Agent
             # 只看到标题摘要，然后向用户追问代码里已有的事实。
-            builder = _prompt_builder
             business_prompt = builder(context) if builder is not None else ""
             if business_prompt and business_prompt.strip():
                 return (
@@ -287,9 +297,9 @@ def _prepared_build_prompt(context: dict) -> str:
             return prepared.prompt
         except Exception as e:
             log.warning("prepare_execution 失败，fallback 旧 _prompt_builder：%s", e)
-    # 兜底：走原 _prompt_builder
-    builder = _prompt_builder or _default_build_prompt
-    return builder(context)
+    # 兜底：走原 _prompt_builder / context-injected builder
+    b = builder or _default_build_prompt
+    return b(context)
 
 
 def build_prompt(context: dict) -> str:
@@ -480,7 +490,8 @@ class SubprocessAgentInvoker:
     """
 
     def __init__(self, cmd: str, timeout: int = 900, cwd: str | None = None,
-                 env: dict | None = None):
+                 env: dict | None = None,
+                 prompt_builder: Callable[[dict], str] | None = None):
         if not str(cmd).strip():
             raise ValueError("agent_cmd 不能为空")
         self.cmd = str(cmd)
@@ -493,9 +504,15 @@ class SubprocessAgentInvoker:
         # 编码 stdout/stderr —— 否则 zh-CN 系统（cp936/GBK）上父进程按
         # utf-8 读会得到 replacement char，extract_decision_json 解析失败。
         self.env = sanitize_subprocess_env(env)
+        self.prompt_builder: Callable[[dict], str] | None = prompt_builder
 
     def invoke(self, context: dict) -> AgentDecision:
-        prompt = build_prompt(context)
+        if self.prompt_builder is not None:
+            ctx = dict(context or {})
+            ctx.setdefault("_prompt_builder", self.prompt_builder)
+            prompt = build_prompt(ctx)
+        else:
+            prompt = build_prompt(context)
         # Story 243：按 project_id 解析本机工作目录（无映射回退构造时 cwd）
         cwd = _resolve_project_cwd(context, self.cwd)
         try:

@@ -3070,6 +3070,8 @@ from ...features.proposals.service import (  # noqa: F401,F403
     update_proposal, list_proposal_rounds, answer_proposal_question,
     get_proposal_project_id, build_proposal_task_graph, convert_proposal_to_story,
     create_ticket_request, execute_ticket_request, reclaim_stale_ticket_requests,
+    claim_ticket_request, fail_ticket_request, list_ticket_requests, list_pending_ticket_requests,
+    get_ticket_request,
 )
 
 # ---------------------------------------------------------------------------

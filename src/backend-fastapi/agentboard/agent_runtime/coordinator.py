@@ -53,6 +53,9 @@ def _execution_id_from_retry_key(retry_key: tuple[str, str, int, int]) -> str:
 class WorkerCoordinator:
     """统一 Worker 协调器：单进程统管全生命周期与异构工作项。"""
 
+    _session_factory: Callable | None = None
+    _msg_retries: dict[tuple[str, str, int, int], int] = {}
+
     def __init__(
         self,
         config: WorkerConfig,
@@ -69,7 +72,7 @@ class WorkerCoordinator:
                 以保证 attempt 跨进程一致。
         """
         self.config = config
-        raw_invoker = invoker or self._default_invoker(config)
+        raw_invoker = invoker or self._default_invoker(config, prompt_builder=self.build_prompt_for)
         # Production CLI decisions are always guarded. CallableAgentInvoker is
         # an in-process test/embedding seam and does not represent a real CLI.
         if isinstance(raw_invoker, (SubprocessAgentInvoker, RoutedSubprocessInvoker)):
@@ -112,7 +115,7 @@ class WorkerCoordinator:
         # P2 P1 修复（2026-08-26）：retry 计数持久化。session_factory 为 None 时
         # 退化到 in-memory dict（dev 模式）；生产必须传 SessionLocal。
         self._session_factory = session_factory
-        self._msg_retries: dict[tuple[str, str, int, int], int] = {}
+        self._msg_retries = {}
         self._validate_lease_vs_timeout()
 
     def _validate_lease_vs_timeout(self) -> None:
@@ -125,12 +128,16 @@ class WorkerCoordinator:
                 lease, timeout,
             )
 
-    @staticmethod
-    def _default_invoker(config: WorkerConfig) -> AgentInvoker:
+    @classmethod
+    def _default_invoker(
+        cls, config: WorkerConfig, prompt_builder: Callable[[dict], str] | None = None,
+    ) -> AgentInvoker:
         cmds = parse_agent_command_map()
         if cmds:
             try:
-                return RoutedSubprocessInvoker(commands=cmds, timeout=config.agent_timeout)
+                return RoutedSubprocessInvoker(
+                    commands=cmds, timeout=config.agent_timeout, prompt_builder=prompt_builder,
+                )
             except ValueError as e:
                 log.warning("RoutedSubprocessInvoker 初始化失败：%s", e)
         if not config.agent_cmd.strip():
@@ -138,7 +145,9 @@ class WorkerCoordinator:
                 "未配置 AGENTBOARD_WORKER_AGENT_COMMANDS / AGENTBOARD_WORKER_AGENT_CMD，"
                 "且未显式传入 invoker"
             )
-        return SubprocessAgentInvoker(config.agent_cmd, timeout=config.agent_timeout)
+        return SubprocessAgentInvoker(
+            config.agent_cmd, timeout=config.agent_timeout, prompt_builder=prompt_builder,
+        )
 
     def close(self) -> None:
         if self._work_executor is not None:
