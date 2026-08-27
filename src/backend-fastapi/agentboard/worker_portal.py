@@ -251,6 +251,20 @@ def create_app(
         allow_methods=["*"], allow_headers=["*"],
     )
 
+    @app.middleware("http")
+    async def _no_cache_assets(request: Request, call_next):
+        """开发模式防浏览器死 cache 老 HTML / main bundle。
+
+        Angular 改源码后 dist 重建但 URL 路径不变（index.html / main-*.js / styles-*.css），
+        浏览器默认强 cache 会让用户卡在老版本。开发期统一发 no-store 让任何
+        刷新都拿到最新 dist，prod 部署换成 nginx / CDN cache header 即可。
+        """
+        response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+        return response
+
     @app.on_event("shutdown")
     def _shutdown() -> None:  # pragma: no cover
         proxy.close()
