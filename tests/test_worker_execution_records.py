@@ -257,6 +257,7 @@ def test_worker_portal_agents_are_scoped_to_current_worker(monkeypatch):
     })
     assert codebuddy.status_code == 201
     assert " -y " in f" {posts[-1][1]['cli_command']} "
+    assert '--model "hy3"' in posts[-1][1]["cli_command"]
 
 
 def test_worker_portal_codebuddy_paths_allow_local_install_override(monkeypatch):

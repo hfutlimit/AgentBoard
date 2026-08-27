@@ -140,7 +140,8 @@ CLI_PRESETS: dict[str, dict[str, Any]] = {
             "kimi-k3-2", "kimi-k2-7", "kimi-k2-6", "glm-5.2", "glm-5.1",
             "glm-5v-turbo", "minimax-m3-pay",
         ],
-        "template": ('"{node}" "{cli}" -p{full_access} --mcp-config "{mcp}" --output-format text'),
+        "template": ('"{node}" "{cli}" -p{full_access} --model "{model}" '
+                      '--mcp-config "{mcp}" --output-format text'),
         "full_access_arg": " -y",
         "supports_full_access": True,
         "default_full_access": True,
@@ -397,7 +398,7 @@ def create_app(
             if not Path(mcp).is_absolute():
                 mcp = str(_repo_root() / mcp)
             return p["template"].format(
-                node=p["node"], cli=p["cli"], mcp=mcp,
+                node=p["node"], cli=p["cli"], model=model or p["models"][0], mcp=mcp,
                 full_access=access_arg,
             )
         if cli_type == "minimax":
