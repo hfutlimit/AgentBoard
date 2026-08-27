@@ -409,8 +409,11 @@ def review_task(tid: int, body: AgentReviewIn, authorization: str | None = Heade
             if assignment is not None and assignment.agent_registry_id is not None:
                 owner = s.get(service.Agent, assignment.agent_registry_id)
                 owner_agent_id = owner.agent_id if owner is not None else None
-        t = service.review_task(s, task_id=tid, reviewer_user_id=uid,
-                                verdict=body.verdict, comment=body.comment)
+        t = service.review_task(
+            s, task_id=tid, reviewer_user_id=uid,
+            verdict=body.verdict, comment=body.comment,
+            reviewer_agent_name=api_helpers.resolve_agent_name(authorization, s),
+        )
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
     except service.InvalidValue as e:
@@ -634,8 +637,9 @@ def create_comment(
     s: Session = Depends(get_session),
 ):
     try:
-        comment = service.create_comment(s, task_id=tid, author=body.author, content=body.content)
-        api_helpers._mention_notify(s, author=body.author, content=body.content, link=f"/task/{tid}")
+        author = api_helpers.resolve_comment_author(authorization, s, body.author)
+        comment = service.create_comment(s, task_id=tid, author=author, content=body.content)
+        api_helpers._mention_notify(s, author=author, content=body.content, link=f"/task/{tid}")
         return service._ser(comment)
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))

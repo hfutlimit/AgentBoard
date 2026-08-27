@@ -975,8 +975,30 @@ def update_schedule(s: Session, id: int, **fields) -> AgentSchedule | None:
     _commit(s); s.refresh(sch); return sch
 
 
+def _reviewer_comment_author(
+    s: Session,
+    reviewer_user_id: int,
+    *,
+    explicit_name: str | None = None,
+) -> str:
+    """Resolve the stable Agent name used for an automatic review comment."""
+    if explicit_name and explicit_name.strip():
+        return explicit_name.strip()[:100]
+    agent = (
+        s.query(Agent)
+        .filter(Agent.user_id == reviewer_user_id, Agent.enabled.is_(True))
+        .order_by(Agent.online.desc(), Agent.id.desc())
+        .first()
+    )
+    if agent is not None:
+        return (agent.name or agent.agent_id or f"user#{reviewer_user_id}").strip()[:100]
+    reviewer = s.get(User, reviewer_user_id)
+    return (reviewer.display_name or reviewer.username if reviewer else f"user#{reviewer_user_id}")[:100]
+
+
 def review_task(s: Session, *, task_id: int, reviewer_user_id: int,
-                verdict: str, comment: str) -> Task:
+                verdict: str, comment: str,
+                reviewer_agent_name: str | None = None) -> Task:
     """Task 评审投票（CAS）：仅被指派 reviewer 可操作 in_review 任务。
 
     - approve：in_review → done（评审通过，任务完成）；
@@ -1003,14 +1025,16 @@ def review_task(s: Session, *, task_id: int, reviewer_user_id: int,
     if get_review_mode() == REVIEW_MODE_MAJORITY:
         t, _settled = _vote_majority(
             s, t, entity_type="task", reviewer_user_id=reviewer_user_id,
-            verdict=verdict, comment=comment)
+            verdict=verdict, comment=comment,
+            reviewer_agent_name=reviewer_agent_name)
         return t
     if t.reviewer_id != reviewer_user_id:
         raise InvalidValue("only the assigned reviewer can review this task")
     if t.status != Status.IN_REVIEW:
         raise InvalidValue(f"task is not in_review (current status: {t.status})")
-    reviewer = s.get(User, reviewer_user_id)
-    reviewer_name = reviewer.display_name or reviewer.username if reviewer else f"user#{reviewer_user_id}"
+    reviewer_name = _reviewer_comment_author(
+        s, reviewer_user_id, explicit_name=reviewer_agent_name,
+    )
 
     # Review 2026-08-26 P1 #2：CAS 条件提到 set_status.cas_predicate
     # （保留并发安全），状态迁移走 set_status → TaskStateMachine → schedule_judge
@@ -1640,7 +1664,8 @@ def _settle_majority_rejected(s: Session, entity, entity_type: str):
 
 # ---- 同步自 service.py ----
 def _vote_majority(s: Session, entity, *, entity_type: str, reviewer_user_id: int,
-                   verdict: str, comment: str):
+                   verdict: str, comment: str,
+                   reviewer_agent_name: str | None = None):
     """多数决投票（S3 M3）：写票（一人一票 upsert）→ 达法定票数结算。
 
     - 权限：投票人须是该项目在线 reviewer 候选（与分配器同源）；
@@ -1668,8 +1693,9 @@ def _vote_majority(s: Session, entity, *, entity_type: str, reviewer_user_id: in
     if entity.status != expected_status:
         raise InvalidValue(
             f"entity is not {expected_status} (current status: {entity.status})")
-    reviewer = s.get(User, reviewer_user_id)
-    reviewer_name = reviewer.display_name or reviewer.username if reviewer else f"user#{reviewer_user_id}"
+    reviewer_name = _reviewer_comment_author(
+        s, reviewer_user_id, explicit_name=reviewer_agent_name,
+    )
     # 评审意见落评论（唯一载体，与 single 模式一致）
     comment_obj = create_comment(
         s, author=reviewer_name, content=comment,

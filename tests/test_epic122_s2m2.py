@@ -236,6 +236,7 @@ def test_review_approve_sets_done_and_comment(seeded):
         # 评审意见落评论（唯一载体）
         comments = service.list_comments(s, task_id=t.id)
         assert any("LGTM" in c.content for c in comments)
+        assert next(c for c in comments if c.content == "LGTM").author == "R1"
         s.rollback()
 
 

@@ -705,8 +705,9 @@ def create_story_comment(
     s: Session = Depends(get_session),
 ):
     try:
-        comment = service.create_comment(s, story_id=sid, author=body.author, content=body.content)
-        api_helpers._mention_notify(s, author=body.author, content=body.content, link=f"/story/{sid}")
+        author = api_helpers.resolve_comment_author(authorization, s, body.author)
+        comment = service.create_comment(s, story_id=sid, author=author, content=body.content)
+        api_helpers._mention_notify(s, author=author, content=body.content, link=f"/story/{sid}")
         # 事件源：评审往返收敛 —— 评论者非 reviewer 时定向通知 reviewer；
         # 评论者即 reviewer（评审意见）时退化为广播，作者侧消费者感知。
         st = service.get_story(s, sid)
@@ -721,7 +722,7 @@ def create_story_comment(
             _epic = s.get(service.Epic, st.epic_id)
             if _epic is not None:
                 api_helpers._notify_webhooks(s, _epic.project_id, EVENT_STORY_COMMENT_REPLIED,
-                                 {"id": sid, "comment_id": comment.id, "by": body.author})
+                                 {"id": sid, "comment_id": comment.id, "by": author})
         return service._ser(comment)
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -745,8 +746,9 @@ def create_epic_comment(
     s: Session = Depends(get_session),
 ):
     try:
-        comment = service.create_comment(s, epic_id=eid, author=body.author, content=body.content)
-        api_helpers._mention_notify(s, author=body.author, content=body.content, link=f"/epic/{eid}")
+        author = api_helpers.resolve_comment_author(authorization, s, body.author)
+        comment = service.create_comment(s, epic_id=eid, author=author, content=body.content)
+        api_helpers._mention_notify(s, author=author, content=body.content, link=f"/epic/{eid}")
         return service._ser(comment)
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))

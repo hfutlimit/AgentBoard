@@ -202,11 +202,15 @@ def delete_document(did: int, s: Session = Depends(get_session)):
 
 
 @router.post("/api/documents/{did}/comments", status_code=201)
-def create_document_comment(did: int, body: DocumentCommentIn, s: Session = Depends(get_session)):
+def create_document_comment(
+    did: int, body: DocumentCommentIn, authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
     """对文档添加评论（markdown），author 为成员或 Agent 账号名。"""
     try:
+        author = api_helpers.resolve_comment_author(authorization, s, body.author)
         c = service.create_document_comment(
-            s, document_id=did, author=body.author, content=body.content,
+            s, document_id=did, author=author, content=body.content,
             author_id=body.author_id,
         )
     except service.NotFound as e:

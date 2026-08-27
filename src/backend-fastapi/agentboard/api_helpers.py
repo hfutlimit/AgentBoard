@@ -177,6 +177,47 @@ def resolve_actor_context(
     )
 
 
+def resolve_agent_name(
+    authorization: str | None,
+    s: Session,
+    *,
+    required_permission: str | None = "api:write",
+) -> str | None:
+    """Return the registered Agent name bound to a request credential.
+
+    Agent API keys are the authoritative identity for automated writes.  A
+    caller-supplied ``author`` field is still accepted for backwards
+    compatibility, but comment routes can use this helper to replace it with
+    the registered name whenever the credential is scoped to an Agent.
+    Invalid or absent credentials intentionally return ``None`` so existing
+    development/open-CRUD behaviour and human comments are unchanged.
+    """
+    if not authorization:
+        return None
+    try:
+        actor = resolve_actor_context(
+            authorization, s, required_permission=required_permission,
+        )
+    except HTTPException:
+        return None
+    if actor.agent_registry_id is None:
+        return None
+    agent = s.get(service.Agent, actor.agent_registry_id)
+    if agent is None:
+        return None
+    name = (agent.name or agent.agent_id or "").strip()
+    return name or None
+
+
+def resolve_comment_author(
+    authorization: str | None,
+    s: Session,
+    requested_author: str,
+) -> str:
+    """Use the bound Agent name for automated comments, else keep the input."""
+    return resolve_agent_name(authorization, s) or requested_author
+
+
 def _current_user(
     authorization: str | None, s: Session, *, required_permission: str | None = None,
 ):

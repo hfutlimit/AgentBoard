@@ -864,8 +864,17 @@ def _vote_majority(s: Session, entity, *, entity_type: str, reviewer_user_id: in
     if entity.status != expected_status:
         raise InvalidValue(
             f"entity is not {expected_status} (current status: {entity.status})")
-    reviewer = s.get(User, reviewer_user_id)
-    reviewer_name = reviewer.display_name or reviewer.username if reviewer else f"user#{reviewer_user_id}"
+    reviewer_agent = (
+        s.query(Agent)
+        .filter(Agent.user_id == reviewer_user_id, Agent.enabled.is_(True))
+        .order_by(Agent.online.desc(), Agent.id.desc())
+        .first()
+    )
+    if reviewer_agent is not None:
+        reviewer_name = (reviewer_agent.name or reviewer_agent.agent_id or f"user#{reviewer_user_id}")[:100]
+    else:
+        reviewer = s.get(User, reviewer_user_id)
+        reviewer_name = (reviewer.display_name or reviewer.username if reviewer else f"user#{reviewer_user_id}")[:100]
     # 评审意见落评论（唯一载体，与 single 模式一致）
     comment_obj = create_comment(
         s, author=reviewer_name, content=comment,

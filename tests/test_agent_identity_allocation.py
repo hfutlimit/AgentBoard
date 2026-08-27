@@ -7,7 +7,7 @@ import uuid
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from agentboard import models
+from agentboard import auth, models
 from agentboard import api_helpers
 from agentboard.core.exceptions import InvalidValue
 from agentboard.features.identity.service import create_api_key, register_user
@@ -183,3 +183,24 @@ def test_agent_cannot_directly_claim_arbitrated_task(db_session_override):
 
     assert task.status == "todo"
     assert session.query(models.TaskAssignment).count() == 0
+
+
+def test_agent_bound_credentials_author_comments_with_registered_name(db_session_override):
+    session = db_session_override
+    user, _project, _task, _first, second = _seed_task_and_agents(session)
+    _item, plaintext = create_api_key(
+        session,
+        user_id=user.id,
+        name="agent-comment-key",
+        permissions=["api:write"],
+        agent_ref=second.agent_id,
+    )
+
+    assert api_helpers.resolve_comment_author(
+        f"Bearer {plaintext}", session, "spoofed-user-name",
+    ) == second.name
+    # A normal user token is not Agent-scoped and keeps the requested display
+    # name used by the human comment composer.
+    assert api_helpers.resolve_comment_author(
+        f"Bearer {auth.make_token(user.id)}", session, "human-name",
+    ) == "human-name"
