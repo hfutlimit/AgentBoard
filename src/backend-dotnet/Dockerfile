@@ -23,6 +23,7 @@ COPY src/backend-dotnet/src/AgentBoard.Application/AgentBoard.Application.csproj
 COPY src/backend-dotnet/src/AgentBoard.Domain/AgentBoard.Domain.csproj src/backend-dotnet/src/AgentBoard.Domain/AgentBoard.Domain.csproj
 COPY src/backend-dotnet/src/AgentBoard.Infrastructure/AgentBoard.Infrastructure.csproj src/backend-dotnet/src/AgentBoard.Infrastructure/AgentBoard.Infrastructure.csproj
 COPY src/backend-dotnet/tests/AgentBoard.Api.Tests/AgentBoard.Api.Tests.csproj src/backend-dotnet/tests/AgentBoard.Api.Tests/AgentBoard.Api.Tests.csproj
+COPY src/backend-dotnet/tests/AgentBoard.Application.Tests/AgentBoard.Application.Tests.csproj src/backend-dotnet/tests/AgentBoard.Application.Tests/AgentBoard.Application.Tests.csproj
 COPY src/backend-dotnet/tests/AgentBoard.Infrastructure.Tests/AgentBoard.Infrastructure.Tests.csproj src/backend-dotnet/tests/AgentBoard.Infrastructure.Tests/AgentBoard.Infrastructure.Tests.csproj
 
 RUN dotnet restore src/backend-dotnet/AgentBoard.slnx
