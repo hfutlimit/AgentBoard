@@ -52,7 +52,8 @@ public sealed class StoriesController : BaseController<IBoardProvider>
         [FromBody] StoryPatchRequest body,
         CancellationToken ct)
     {
-        var dto = await Provider.UpdateStoryAsync(id, body.Title, body.Description, body.Status, body.NeedsDesign, body.InKanban, ct);
+        var dto = await Provider.UpdateStoryAsync(
+            id, new UpdateStoryRequest(body.Title, body.Description, body.Status, body.NeedsDesign, body.InKanban), ct);
         return dto is null ? NotFound(new ApiError($"story {id} not found")) : Ok(dto);
     }
 
@@ -123,8 +124,7 @@ public sealed class StoriesController : BaseController<IBoardProvider>
         [FromBody] TaskCreateUnderStoryRequest body,
         CancellationToken ct)
     {
-        var dto = await Provider.CreateStoryTaskAsync(
-            storyId, body.Type, body.Title, body.Priority, body.AssigneeId, ct);
+        var dto = await Provider.CreateStoryTaskAsync(storyId, body, ct);
         return StatusCode(StatusCodes.Status201Created, dto);
     }
 }

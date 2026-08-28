@@ -80,12 +80,14 @@ public sealed class ProjectLifecycleService : IProjectLifecycleService
 	}
 
 	public async Task<ProjectDto> CreateAsync(
-		string? name, string? key, string? description, int? currentUserId,
+		CreateProjectRequest request, int? currentUserId,
 		CancellationToken ct = default)
 	{
-		name = (name ?? string.Empty).Trim();
+		var name = (request.Name ?? string.Empty).Trim();
 		if (name.Length == 0 || name.Length > 200)
 			throw new InvalidValueException("name must be 1-200 characters");
+		var key = request.Key;
+		var description = request.Description;
 		if (!string.IsNullOrWhiteSpace(key))
 		{
 			key = key.Trim();

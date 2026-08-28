@@ -27,14 +27,16 @@ public sealed class WebhookProvider : IWebhookProvider
         return items.Select(ToDto).ToList();
     }
 
-    public async Task<WebhookDto> CreateWebhookAsync(int? projectId, string? name, string? url, string? events, int? userId, CancellationToken ct = default)
+    public async Task<WebhookDto> CreateWebhookAsync(CreateWebhookRequest request, int? userId, CancellationToken ct = default)
     {
-        name = (name ?? string.Empty).Trim();
+        var projectId = request.ProjectId;
+        var name = (request.Name ?? string.Empty).Trim();
         if (name.Length == 0 || name.Length > 200)
             throw new InvalidValueException("name must be 1-200 characters");
-        url = (url ?? string.Empty).Trim();
+        var url = (request.Url ?? string.Empty).Trim();
         if (url.Length == 0)
             throw new InvalidValueException("url is required");
+        var events = request.Events;
 
         var webhook = new WebhookConfig
         {
@@ -53,11 +55,15 @@ public sealed class WebhookProvider : IWebhookProvider
         return ToDto(webhook);
     }
 
-    public async Task<WebhookDto?> UpdateWebhookAsync(int id, string? name, string? url, string? events, bool? enabled, CancellationToken ct = default)
+    public async Task<WebhookDto?> UpdateWebhookAsync(int id, UpdateWebhookRequest request, CancellationToken ct = default)
     {
         var webhook = await _webhooks.GetByIdAsync(id, ct);
         if (webhook is null) return null;
 
+        var name = request.Name;
+        var url = request.Url;
+        var events = request.Events;
+        var enabled = request.Enabled;
         if (name is not null) webhook.Name = name;
         if (url is not null) webhook.Url = url;
         if (events is not null) webhook.Events = events;

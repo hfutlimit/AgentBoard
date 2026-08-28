@@ -37,7 +37,8 @@ public sealed class CommentsController : BaseController<IBoardProvider>
     public async Task<ActionResult<CommentDto>> CreateTaskComment(
         int tid, [FromBody] CommentCreateRequest body, CancellationToken ct)
     {
-        var dto = await Provider.CreateCommentAsync(tid, null, null, body.Author, body.Content, ct);
+        var dto = await Provider.CreateCommentAsync(
+            new CreateCommentRequest(tid, null, null, body.Author, body.Content), ct);
         return StatusCode(StatusCodes.Status201Created, dto);
     }
 
@@ -56,7 +57,8 @@ public sealed class CommentsController : BaseController<IBoardProvider>
     public async Task<ActionResult<CommentDto>> CreateStoryComment(
         int sid, [FromBody] CommentCreateRequest body, CancellationToken ct)
     {
-        var dto = await Provider.CreateCommentAsync(null, sid, null, body.Author, body.Content, ct);
+        var dto = await Provider.CreateCommentAsync(
+            new CreateCommentRequest(null, sid, null, body.Author, body.Content), ct);
         return StatusCode(StatusCodes.Status201Created, dto);
     }
 
@@ -75,7 +77,8 @@ public sealed class CommentsController : BaseController<IBoardProvider>
     public async Task<ActionResult<CommentDto>> CreateEpicComment(
         int eid, [FromBody] CommentCreateRequest body, CancellationToken ct)
     {
-        var dto = await Provider.CreateCommentAsync(null, null, eid, body.Author, body.Content, ct);
+        var dto = await Provider.CreateCommentAsync(
+            new CreateCommentRequest(null, null, eid, body.Author, body.Content), ct);
         return StatusCode(StatusCodes.Status201Created, dto);
     }
 

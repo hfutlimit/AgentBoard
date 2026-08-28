@@ -20,18 +20,18 @@ public interface IBoardProvider : IProvider
 	// ---- P2: write operations (mirrors FastAPI projects router) ----
 
 	/// <summary>
-	/// Create a project. <paramref name="name"/> is required (1-200); <paramref name="key"/>
-	/// is optional and truncated to 20; <c>is_private</c> is forced true (FastAPI rule).
-	/// When <paramref name="currentUserId"/> is set, the creator is added as owner.
-	/// Throws <see cref="InvalidValueException"/> on bad input, <see cref="DuplicateException"/>
-	/// on a duplicate key. Returns the created project (201).
+	/// Create a project. <see cref="CreateProjectRequest.Name"/> is required (1-200);
+	/// <see cref="CreateProjectRequest.Key"/> is optional and truncated to 20; <c>is_private</c>
+	/// is forced true (FastAPI rule). When <paramref name="currentUserId"/> is set, the creator
+	/// is added as owner. Throws <see cref="InvalidValueException"/> on bad input,
+	/// <see cref="DuplicateException"/> on a duplicate key. Returns the created project (201).
 	/// </summary>
-	Task<ProjectDto> CreateProjectAsync(string? name, string? key, string? description, int? currentUserId, CancellationToken ct = default);
+	Task<ProjectDto> CreateProjectAsync(CreateProjectRequest request, int? currentUserId, CancellationToken ct = default);
 
 	/// <summary>
-	/// Patch a project (name/key/description/is_private/is_archived). Returns null when not found (404).
+	/// Patch a project. Returns null when not found (404).
 	/// </summary>
-	Task<ProjectDto?> UpdateProjectAsync(int id, string? name, string? key, string? description, bool? isPrivate, bool? isArchived, CancellationToken ct = default);
+	Task<ProjectDto?> UpdateProjectAsync(int id, UpdateProjectRequest request, CancellationToken ct = default);
 
 	/// <summary>Delete a project and its board hierarchy. Returns false when not found (404).</summary>
 	Task<bool> DeleteProjectAsync(int id, CancellationToken ct = default);
@@ -57,8 +57,7 @@ public interface IBoardProvider : IProvider
 	/// or author/content is empty, <see cref="NotFoundException"/> when the
 	/// target row does not exist. Returns the persisted comment (201).
 	/// </summary>
-	Task<CommentDto> CreateCommentAsync(
-		int? taskId, int? storyId, int? epicId, string? author, string? content, CancellationToken ct = default);
+	Task<CommentDto> CreateCommentAsync(CreateCommentRequest request, CancellationToken ct = default);
 
 	/// <summary>Delete a comment by id. Returns false when not found (404).</summary>
 	Task<bool> DeleteCommentAsync(int id, CancellationToken ct = default);
@@ -87,7 +86,7 @@ public interface IBoardProvider : IProvider
 	// ---- P3: Story writes ----
 
 	Task<StoryDto> CreateStoryAsync(int epicId, string? title, string? description, bool? needsDesign, CancellationToken ct = default);
-	Task<StoryDto?> UpdateStoryAsync(int id, string? title, string? description, string? status, bool? needsDesign, bool? inKanban, CancellationToken ct = default);
+	Task<StoryDto?> UpdateStoryAsync(int id, UpdateStoryRequest request, CancellationToken ct = default);
 	Task<bool> DeleteStoryAsync(int id, CancellationToken ct = default);
 	Task<StoryDto?> ConfirmStoryAsync(int id, CancellationToken ct = default);
 	Task<StoryDto?> CompleteStoryAsync(int id, CancellationToken ct = default);
@@ -95,11 +94,11 @@ public interface IBoardProvider : IProvider
 
 	// ---- P3: Task writes ----
 
-	Task<TaskItemDto> CreateTaskAsync(int storyId, string? type, string? title, string? priority, string? description, string? spec, int? assigneeId, CancellationToken ct = default);
-	Task<TaskItemDto?> UpdateTaskAsync(int id, string? type, string? title, string? status, string? priority, string? statusReason, string? description, string? spec, int? assigneeId, string? dueDate, string? labels, double? estimate, int? complexity, string? neededCapabilities, string? domainTags, int? sprintId, int? reviewerId, CancellationToken ct = default);
+	Task<TaskItemDto> CreateTaskAsync(int storyId, TaskCreateRequest request, CancellationToken ct = default);
+	Task<TaskItemDto?> UpdateTaskAsync(int id, TaskPatchRequest request, CancellationToken ct = default);
 	Task<bool> DeleteTaskAsync(int id, CancellationToken ct = default);
 	Task<TaskItemDto?> UpdateTaskStatusAsync(int id, string? status, string? statusReason, CancellationToken ct = default);
-	Task<IReadOnlyList<TaskItemDto>> BulkUpdateTasksAsync(List<int>? taskIds, string? status, string? priority, int? assigneeId, string? dueDate, CancellationToken ct = default);
+	Task<IReadOnlyList<TaskItemDto>> BulkUpdateTasksAsync(BulkTaskUpdateRequest request, CancellationToken ct = default);
 	Task<int> BulkDeleteTasksAsync(List<int>? taskIds, CancellationToken ct = default);
 
 	// ---- P3: Task dependencies ----
@@ -116,13 +115,13 @@ public interface IBoardProvider : IProvider
 
 	// ---- P3: Search extensions ----
 
-	Task<IReadOnlyList<TaskItemDto>> SearchTasksAsync(string? q, int? projectId, int? storyId, string? status, string? priority, string? assigneeId, int limit, CancellationToken ct = default);
+	Task<IReadOnlyList<TaskItemDto>> SearchTasksAsync(SearchTasksQuery query, CancellationToken ct = default);
 
 	// ---- P3: project extensions ----
 
 	/// <summary>Extended project list with pagination and archive filter.</summary>
 	Task<IReadOnlyList<ProjectDto>> ListProjectsExtendedAsync(
-		int limit, int offset, bool? includeArchived, int? currentUserId, CancellationToken ct = default);
+		ListProjectsExtendedQuery query, int? currentUserId, CancellationToken ct = default);
 
 	/// <summary>Archive a project (set IsArchived=true).</summary>
 	Task<ProjectDto?> ArchiveProjectAsync(int id, CancellationToken ct = default);
@@ -138,8 +137,7 @@ public interface IBoardProvider : IProvider
 
 	/// <summary>Unified ticket list for a project (Epics + Stories + Tasks).</summary>
 	Task<TicketListResult> ListProjectTicketsAsync(
-		int projectId, string statusFilter, string sort, string order,
-		int limit, int offset, CancellationToken ct = default);
+		int projectId, ListProjectTicketsQuery query, CancellationToken ct = default);
 
 	/// <summary>Projects the user is a member of.</summary>
 	Task<IReadOnlyList<ProjectDto>> ListUserProjectsAsync(int userId, string? role, CancellationToken ct = default);
@@ -148,7 +146,7 @@ public interface IBoardProvider : IProvider
 
 	/// <summary>Invite a member to a project.</summary>
 	Task<ProjectMemberDto> InviteMemberAsync(
-		int projectId, int? userId, string? username, string? role, CancellationToken ct = default);
+		int projectId, InviteMemberRequest request, CancellationToken ct = default);
 
 	/// <summary>Remove a member from a project.</summary>
 	Task<bool> RemoveMemberAsync(int projectId, int userId, CancellationToken ct = default);
@@ -172,15 +170,13 @@ public interface IBoardProvider : IProvider
 
 	/// <summary>Create a task directly under a story (skips the per-story context endpoint).</summary>
 	Task<TaskItemDto?> CreateStoryTaskAsync(
-		int storyId, string? type, string? title, string? priority,
-		int? assigneeId, CancellationToken ct = default);
+		int storyId, TaskCreateUnderStoryRequest request, CancellationToken ct = default);
 
 	// ---- P1: project center / workspace nested creation (BFF module 1, 2026-08-23) ----
 
 	/// <summary>List projects in the project center with scope filter (active | archived | all | mine | created) + sort.</summary>
 	Task<ProjectsCenterResult> ListProjectsCenterAsync(
-		int? currentUserId, bool isAdmin, string scope, string sort,
-		int limit, int offset, bool? includeArchived = null, CancellationToken ct = default);
+		ListProjectsCenterQuery query, int? currentUserId, CancellationToken ct = default);
 
 	/// <summary>List epics for a specific project. Used by workspace Epics tab.</summary>
 	Task<IReadOnlyList<EpicDto>> ListProjectEpicsAsync(int projectId, string? status, int limit, int offset, CancellationToken ct = default);
@@ -190,15 +186,14 @@ public interface IBoardProvider : IProvider
 
 	/// <summary>Create a sprint under a specific project (workspace Sprint tab).</summary>
 	Task<SprintDto?> CreateProjectSprintAsync(
-		int projectId, string? title, string? goal, DateTime? startDate, DateTime? endDate, CancellationToken ct = default);
+		int projectId, CreateProjectSprintRequest request, CancellationToken ct = default);
 
 	/// <summary>List schedules for a specific project (workspace Schedules tab).</summary>
 	Task<IReadOnlyList<AgentScheduleDto>> ListProjectSchedulesAsync(
 		int projectId, int limit, int offset, CancellationToken ct = default);
 
 	Task<AgentScheduleDto?> CreateProjectScheduleAsync(
-		int projectId, string? title, string? scheduleType, string? cronExpr,
-		int? currentUserId, CancellationToken ct = default);
+		int projectId, CreateProjectScheduleRequest request, int? currentUserId, CancellationToken ct = default);
 
 	/// <summary>Export the full project tree (project + epics + stories + tasks) for backup / migration.</summary>
 	Task<ProjectExportDto?> ExportProjectAsync(int projectId, CancellationToken ct = default);

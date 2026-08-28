@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 using AgentBoard.Application.Abstractions;
+using AgentBoard.Application.Board.Dtos;
 using AgentBoard.Domain.Entities;
 
 namespace AgentBoard.Application.Board;
@@ -8,6 +9,5 @@ namespace AgentBoard.Application.Board;
 public interface IAuditProvider : IProvider
 {
     Task<IReadOnlyList<AuditLog>> ListAuditLogsAsync(
-        string? entityType, int? entityId, int? userId, string? action,
-        int limit, int offset, CancellationToken ct = default);
+        ListAuditLogsQuery query, CancellationToken ct = default);
 }

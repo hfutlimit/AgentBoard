@@ -190,9 +190,13 @@ public sealed class BoardProvider : IBoardProvider
 	// ===================== P2: write operations =====================
 
 	/// <inheritdoc cref="IBoardProvider.CreateCommentAsync"/>
-	public async Task<CommentDto> CreateCommentAsync(
-		int? taskId, int? storyId, int? epicId, string? author, string? content, CancellationToken ct = default)
-	{
+	public async Task<CommentDto> CreateCommentAsync(CreateCommentRequest request, CancellationToken ct = default)
+{
+		var taskId = request.TaskId;
+		var storyId = request.StoryId;
+		var epicId = request.EpicId;
+		var author = request.Author;
+		var content = request.Content;
 		// Exactly one of task/story/epic must be set 鈥?mirrors FastAPI _comment_target.
 		int targetId;
 		string targetName;
@@ -264,13 +268,18 @@ public sealed class BoardProvider : IBoardProvider
 
 	/// <inheritdoc cref="IBoardProvider.CreateProjectAsync"/>
 	public async Task<ProjectDto> CreateProjectAsync(
-		string? name, string? key, string? description, int? currentUserId, CancellationToken ct = default)
-		=> await _projectLifecycle.CreateAsync(name, key, description, currentUserId, ct);
+		CreateProjectRequest request, int? currentUserId, CancellationToken ct = default)
+	=> await _projectLifecycle.CreateAsync(request, currentUserId, ct);
 
 	/// <inheritdoc cref="IBoardProvider.UpdateProjectAsync"/>
 	public async Task<ProjectDto?> UpdateProjectAsync(
-		int id, string? name, string? key, string? description, bool? isPrivate, bool? isArchived, CancellationToken ct = default)
-	{
+		int id, UpdateProjectRequest request, CancellationToken ct = default)
+{
+		var name = request.Name;
+		var key = request.Key;
+		var description = request.Description;
+		var isPrivate = request.IsPrivate;
+		var isArchived = request.IsArchived;
 		await _access.RequireProjectOwnerAsync(id, ct);
 		var p = await _projects.GetByIdAsync(id, ct);
 		if (p is null) return null;
@@ -533,8 +542,13 @@ public sealed class BoardProvider : IBoardProvider
 	}
 
 	/// <inheritdoc cref="IBoardProvider.UpdateStoryAsync"/>
-	public async Task<StoryDto?> UpdateStoryAsync(int id, string? title, string? description, string? status, bool? needsDesign, bool? inKanban, CancellationToken ct = default)
-	{
+	public async Task<StoryDto?> UpdateStoryAsync(int id, UpdateStoryRequest request, CancellationToken ct = default)
+{
+		var title = request.Title;
+		var description = request.Description;
+		var status = request.Status;
+		var needsDesign = request.NeedsDesign;
+		var inKanban = request.InKanban;
 		await _access.RequireStoryWriteAsync(id, ct);
 		var story = await _stories.GetByIdAsync(id, ct);
 		if (story is null) return null;
@@ -631,8 +645,15 @@ public sealed class BoardProvider : IBoardProvider
 	// ===================== P3: Task writes =====================
 
 	/// <inheritdoc cref="IBoardProvider.CreateTaskAsync"/>
-	public async Task<TaskItemDto> CreateTaskAsync(int storyId, string? type, string? title, string? priority, string? description, string? spec, int? assigneeId, CancellationToken ct = default)
-	{
+	public async Task<TaskItemDto> CreateTaskAsync(int storyId, TaskCreateRequest request, CancellationToken ct = default)
+{
+		// Route storyId is authoritative; body.StoryId (if any) is ignored.
+		var type = request.Type;
+		var title = request.Title;
+		var priority = request.Priority;
+		var description = request.Description;
+		var spec = request.Spec;
+		var assigneeId = request.AssigneeId;
 		await _access.RequireStoryWriteAsync(storyId, ct);
 		var story = await _stories.GetByIdAsync(storyId, ct);
 		if (story is null)
@@ -668,8 +689,24 @@ public sealed class BoardProvider : IBoardProvider
 	}
 
 	/// <inheritdoc cref="IBoardProvider.UpdateTaskAsync"/>
-	public async Task<TaskItemDto?> UpdateTaskAsync(int id, string? type, string? title, string? status, string? priority, string? statusReason, string? description, string? spec, int? assigneeId, string? dueDate, string? labels, double? estimate, int? complexity, string? neededCapabilities, string? domainTags, int? sprintId, int? reviewerId, CancellationToken ct = default)
-	{
+	public async Task<TaskItemDto?> UpdateTaskAsync(int id, TaskPatchRequest request, CancellationToken ct = default)
+{
+		var type = request.Type;
+		var title = request.Title;
+		var status = request.Status;
+		var priority = request.Priority;
+		var statusReason = request.StatusReason;
+		var description = request.Description;
+		var spec = request.Spec;
+		var assigneeId = request.AssigneeId;
+		var dueDate = request.DueDate;
+		var labels = request.Labels;
+		var estimate = request.Estimate;
+		var complexity = request.Complexity;
+		var neededCapabilities = request.NeededCapabilities;
+		var domainTags = request.DomainTags;
+		var sprintId = request.SprintId;
+		var reviewerId = request.ReviewerId;
 		await _access.RequireTaskWriteAsync(id, ct);
 		var task = await _tasks.GetByIdAsync(id, ct);
 		if (task is null) return null;
@@ -761,8 +798,13 @@ public sealed class BoardProvider : IBoardProvider
 	}
 
 	/// <inheritdoc cref="IBoardProvider.BulkUpdateTasksAsync"/>
-	public async Task<IReadOnlyList<TaskItemDto>> BulkUpdateTasksAsync(List<int>? taskIds, string? status, string? priority, int? assigneeId, string? dueDate, CancellationToken ct = default)
-	{
+	public async Task<IReadOnlyList<TaskItemDto>> BulkUpdateTasksAsync(BulkTaskUpdateRequest request, CancellationToken ct = default)
+{
+		var taskIds = request.TaskIds;
+		var status = request.Status;
+		var priority = request.Priority;
+		var assigneeId = request.AssigneeId;
+		var dueDate = request.DueDate;
 		if (taskIds is null || taskIds.Count == 0)
 			throw new InvalidValueException("task_ids is required and must not be empty");
 
@@ -907,8 +949,15 @@ public sealed class BoardProvider : IBoardProvider
 	// ===================== P3: Search =====================
 
 	/// <inheritdoc cref="IBoardProvider.SearchTasksAsync"/>
-	public async Task<IReadOnlyList<TaskItemDto>> SearchTasksAsync(string? q, int? projectId, int? storyId, string? status, string? priority, string? assigneeId, int limit, CancellationToken ct = default)
-	{
+	public async Task<IReadOnlyList<TaskItemDto>> SearchTasksAsync(SearchTasksQuery query, CancellationToken ct = default)
+{
+		var q = query.Q;
+		var projectId = query.ProjectId;
+		var storyId = query.StoryId;
+		var status = query.Status;
+		var priority = query.Priority;
+		var assigneeId = query.AssigneeId;
+		var limit = query.Limit ?? 50;
 		var accessibleIds = await _access.GetAccessibleProjectIdsAsync(ct);
 		if (projectId is { } requestedProjectId)
 			await _access.RequireProjectReadAsync(requestedProjectId, ct);
@@ -1014,8 +1063,11 @@ public sealed class BoardProvider : IBoardProvider
 
 	// ===================== P3: Project extensions =====================
 
-	public async Task<IReadOnlyList<ProjectDto>> ListProjectsExtendedAsync(int limit, int offset, bool? includeArchived, int? currentUserId, CancellationToken ct = default)
-	{
+	public async Task<IReadOnlyList<ProjectDto>> ListProjectsExtendedAsync(ListProjectsExtendedQuery query, int? currentUserId, CancellationToken ct = default)
+{
+		var limit = query.Limit ?? 50;
+		var offset = query.Offset ?? 0;
+		var includeArchived = query.IncludeArchived;
 		var all = (await _projects.ListAsync(ct: ct)).AsEnumerable();
 		if (includeArchived != true) all = all.Where(p => !p.IsArchived);
 		var accessibleIds = await _access.GetAccessibleProjectIdsAsync(ct);
@@ -1076,8 +1128,14 @@ public sealed class BoardProvider : IBoardProvider
 		return count;
 	}
 
-	public async Task<TicketListResult> ListProjectTicketsAsync(int projectId, string statusFilter, string sort, string order, int limit, int offset, CancellationToken ct = default)
-	{
+	public async Task<TicketListResult> ListProjectTicketsAsync(
+		int projectId, ListProjectTicketsQuery query, CancellationToken ct = default)
+{
+		var statusFilter = query.StatusFilter;
+		var sort = query.Sort;
+		var order = query.Order;
+		var limit = query.Limit ?? 50;
+		var offset = query.Offset ?? 0;
 		await _access.RequireProjectReadAsync(projectId, ct);
 		var epics = await _epics.ListAsync(e => e.ProjectId == projectId, ct);
 		var epicIds = epics.Select(e => e.Id).ToHashSet();
@@ -1130,8 +1188,11 @@ public sealed class BoardProvider : IBoardProvider
 
 	// ===================== P3: Member management =====================
 
-	public async Task<ProjectMemberDto> InviteMemberAsync(int projectId, int? userId, string? username, string? role, CancellationToken ct = default)
-	{
+	public async Task<ProjectMemberDto> InviteMemberAsync(int projectId, InviteMemberRequest request, CancellationToken ct = default)
+{
+		var userId = request.UserId;
+		var username = request.Username;
+		var role = request.Role;
 		if (await _projects.GetByIdAsync(projectId, ct) is null) throw new NotFoundException($"project {projectId} not found");
 		if (userId is null && !string.IsNullOrWhiteSpace(username))
 		{
@@ -1219,9 +1280,12 @@ public sealed class BoardProvider : IBoardProvider
 	}
 
 	public async Task<TaskItemDto?> CreateStoryTaskAsync(
-		int storyId, string? type, string? title, string? priority,
-		int? assigneeId, CancellationToken ct = default)
-	{
+		int storyId, TaskCreateUnderStoryRequest request, CancellationToken ct = default)
+{
+		var title = request.Title;
+		var type = request.Type;
+		var priority = request.Priority;
+		var assigneeId = request.AssigneeId;
 		await _access.RequireStoryWriteAsync(storyId, ct);
 		var story = await _stories.GetByIdAsync(storyId, ct);
 		if (story is null) return null;
@@ -1251,9 +1315,14 @@ public sealed class BoardProvider : IBoardProvider
 	// ===================== P1: project center / workspace nested (BFF module 1, 2026-08-23) =====================
 
 	public async Task<ProjectsCenterResult> ListProjectsCenterAsync(
-		int? currentUserId, bool isAdmin, string scope, string sort,
-		int limit, int offset, bool? includeArchived = null, CancellationToken ct = default)
-	{
+		ListProjectsCenterQuery query, int? currentUserId, CancellationToken ct = default)
+{
+		var isAdmin = query.IsAdmin;
+		var scope = query.Scope;
+		var sort = query.Sort;
+		var limit = query.Limit ?? 50;
+		var offset = query.Offset ?? 0;
+		var includeArchived = query.IncludeArchived;
 		var accessibleIds = await _access.GetAccessibleProjectIdsAsync(ct);
 		var projectIds = accessibleIds is null
 			? (await _projects.ListAsync(ct: ct)).Select(p => p.Id).ToList()
@@ -1268,7 +1337,7 @@ public sealed class BoardProvider : IBoardProvider
 			projectIds = projectIds.Where(memberProjectIds.Contains).ToList();
 		}
 		return await _readQueries.GetCenterAsync(
-			projectIds, accessibleIds is null || accessibleIds.Count > 0, scope, sort, limit, offset, includeArchived, ct);
+			projectIds, accessibleIds is null || accessibleIds.Count > 0, scope ?? "", sort ?? "", limit, offset, includeArchived, ct);
 	}
 
 	/// <summary>Helper: 拿 currentUserId 可见的 projects (是 member 的)。</summary>
@@ -1312,8 +1381,12 @@ public sealed class BoardProvider : IBoardProvider
 	}
 
 	public async Task<SprintDto?> CreateProjectSprintAsync(
-		int projectId, string? title, string? goal, DateTime? startDate, DateTime? endDate, CancellationToken ct = default)
-	{
+		int projectId, CreateProjectSprintRequest request, CancellationToken ct = default)
+{
+		var title = request.Title;
+		var goal = request.Goal;
+		var startDate = request.StartDate;
+		var endDate = request.EndDate;
 		await _access.RequireProjectWriteAsync(projectId, ct);
 		if (await _projects.GetByIdAsync(projectId, ct) is null) return null;
 		title = (title ?? string.Empty).Trim();
@@ -1349,9 +1422,11 @@ public sealed class BoardProvider : IBoardProvider
 	}
 
 	public async Task<AgentScheduleDto?> CreateProjectScheduleAsync(
-		int projectId, string? title, string? scheduleType, string? cronExpr,
-		int? currentUserId, CancellationToken ct = default)
-	{
+		int projectId, CreateProjectScheduleRequest request, int? currentUserId, CancellationToken ct = default)
+{
+		var title = request.Title;
+		var scheduleType = request.ScheduleType;
+		var cronExpr = request.CronExpr;
 		await _access.RequireProjectWriteAsync(projectId, ct);
 		if (await _projects.GetByIdAsync(projectId, ct) is null) return null;
 		title = (title ?? string.Empty).Trim();

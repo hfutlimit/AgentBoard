@@ -17,12 +17,10 @@ public interface IDocumentProvider : IProvider
     Task<DocumentDto?> GetDocumentAsync(int id, CancellationToken ct);
 
     Task<DocumentDto> CreateDocumentAsync(
-        int projectId, string? title, string? content, string? type,
-        int? authorId, int? epicId, int? storyId, int? folderId, CancellationToken ct);
+        CreateDocumentRequest request, int projectId, CancellationToken ct);
 
     Task<DocumentDto?> UpdateDocumentAsync(
-        int id, string? title, string? content, string? type,
-        int? folderId, int? epicId, int? storyId, CancellationToken ct);
+        int id, UpdateDocumentRequest request, CancellationToken ct);
 
     Task<bool> DeleteDocumentAsync(int id, CancellationToken ct);
 
@@ -49,10 +47,10 @@ public interface IDocumentProvider : IProvider
     Task<DocumentRevisionDto?> GetRevisionAsync(int documentId, int revisionNumber, CancellationToken ct);
 
     Task<DocumentRevisionDto> SaveRevisionAsync(
-        int documentId, string? content, string? changeNote, string? author, CancellationToken ct);
+        int documentId, SaveRevisionRequest request, CancellationToken ct);
 
     Task<DocumentRevisionDto> RestoreRevisionAsync(
-        int documentId, int revisionNumber, string? changeNote, string? author, CancellationToken ct);
+        int documentId, int revisionNumber, RestoreRevisionRequest request, CancellationToken ct);
 
     // ---- Document Folders ----
     Task<(IReadOnlyList<DocumentFolderDto> Items, int Total)> ListFoldersAsync(
@@ -62,7 +60,7 @@ public interface IDocumentProvider : IProvider
         int projectId, int? parentId, string? name, CancellationToken ct);
 
     Task<DocumentFolderDto?> UpdateFolderAsync(
-        int id, string? name, int? parentId, bool? moveToRoot, CancellationToken ct);
+        int id, UpdateFolderRequest request, CancellationToken ct);
 
     Task<bool> DeleteFolderAsync(int id, CancellationToken ct);
 }

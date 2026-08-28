@@ -29,5 +29,6 @@ public sealed class TaskSearchController : BaseController<IBoardProvider>
         [FromQuery] string? assigneeId,
         [FromQuery] int limit = 50,
         CancellationToken ct = default) =>
-        Ok(await Provider.SearchTasksAsync(q, projectId, storyId, status, priority, assigneeId, limit, ct));
+        Ok(await Provider.SearchTasksAsync(
+            new SearchTasksQuery(q, projectId, storyId, status, priority, assigneeId, limit), ct));
 }

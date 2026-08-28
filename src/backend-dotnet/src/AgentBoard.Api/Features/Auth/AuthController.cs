@@ -68,7 +68,7 @@ public sealed class AuthController : BaseController<IAuthProvider>
         if (CurrentUser.UserId is null)
             return Problem(StatusCodes.Status401Unauthorized, "authentication required");
         return Ok(await Provider.UpdateProfileAsync(
-            CurrentUser.UserId.Value, request.DisplayName, request.Email, request.AvatarUrl, ct));
+            CurrentUser.UserId.Value, request, ct));
     }
 }
 
@@ -77,6 +77,3 @@ public sealed record ChangePasswordRequest(string CurrentPassword, string NewPas
 
 /// <summary>Payload for POST /api/auth/register.</summary>
 public sealed record RegisterRequest(string? Username, string? Password);
-
-/// <summary>Payload for PATCH /api/auth/me.</summary>
-public sealed record UpdateProfileRequest(string? DisplayName, string? Email, string? AvatarUrl);

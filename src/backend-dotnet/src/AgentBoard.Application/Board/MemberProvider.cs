@@ -27,9 +27,12 @@ public sealed class MemberProvider : IMemberProvider
     }
 
     public async Task<ProjectMemberDto> InviteMemberAsync(
-        int projectId, int? userId, string? username, string? role, CancellationToken ct = default)
+        int projectId, InviteMemberRequest request, CancellationToken ct = default)
     {
         await _access.RequireMemberManagementAsync(projectId, ct);
+        var userId = request.UserId;
+        var username = request.Username;
+        var role = request.Role;
         // Resolve user by userId or username.
         Domain.Identity.User? user = null;
         if (userId is not null)

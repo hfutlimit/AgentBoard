@@ -41,7 +41,8 @@ public sealed class SprintsController : BaseController<ISprintProvider>
         [FromQuery(Name = "project_id")] int projectId,
         [FromBody] SprintCreateRequest body, CancellationToken ct)
     {
-        var dto = await Provider.CreateSprintAsync(projectId, body.Title, body.Goal, body.StartDate, body.EndDate, ct);
+        var dto = await Provider.CreateSprintAsync(
+            projectId, new CreateSprintRequest(body.Title, body.Goal, body.StartDate, body.EndDate), ct);
         return StatusCode(StatusCodes.Status201Created, dto);
     }
 
@@ -52,7 +53,8 @@ public sealed class SprintsController : BaseController<ISprintProvider>
     public async Task<ActionResult<SprintDto>> Patch(
         int id, [FromBody] SprintPatchRequest body, CancellationToken ct)
     {
-        var dto = await Provider.UpdateSprintAsync(id, body.Title, body.Goal, body.Status, body.StartDate, body.EndDate, ct);
+        var dto = await Provider.UpdateSprintAsync(
+            id, new UpdateSprintRequest(body.Title, body.Goal, body.Status, body.StartDate, body.EndDate), ct);
         return dto is null ? NotFound(new ApiError($"sprint {id} not found")) : Ok(dto);
     }
 

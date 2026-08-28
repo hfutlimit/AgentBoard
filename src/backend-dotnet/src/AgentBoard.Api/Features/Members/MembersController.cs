@@ -26,7 +26,8 @@ public sealed class MembersController : BaseController<IMemberProvider>
         [FromBody] MemberInviteRequest body,
         CancellationToken ct)
     {
-        var dto = await Provider.InviteMemberAsync(projectId, body.UserId, body.Username, body.Role, ct);
+        var dto = await Provider.InviteMemberAsync(
+            projectId, new InviteMemberRequest(body.UserId, body.Username, body.Role), ct);
         return StatusCode(StatusCodes.Status201Created, dto);
     }
 

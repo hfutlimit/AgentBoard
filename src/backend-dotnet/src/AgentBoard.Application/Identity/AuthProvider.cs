@@ -67,9 +67,9 @@ public sealed class AuthProvider : IAuthProvider
         return new AuthSessionDto(userDto.Id, userDto.Username, token);
     }
 
-    public async Task<UserDto> UpdateProfileAsync(int userId, string? displayName, string? email, string? avatarUrl, CancellationToken ct = default)
+    public async Task<UserDto> UpdateProfileAsync(int userId, UpdateProfileRequest request, CancellationToken ct = default)
     {
-        await _users.UpdateProfileAsync(userId, displayName, email, avatarUrl, ct);
+        await _users.UpdateProfileAsync(userId, request.DisplayName, request.Email, request.AvatarUrl, ct);
         return await GetCurrentAsync(userId, ct);
     }
 }

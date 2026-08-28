@@ -2,6 +2,7 @@
 using AgentBoard.Api.Api.Base;
 using AgentBoard.Application.Abstractions;
 using AgentBoard.Application.Board;
+using AgentBoard.Application.Board.Dtos;
 using AgentBoard.Domain.Entities;
 using Microsoft.AspNetCore.Mvc;
 
@@ -28,6 +29,7 @@ public sealed class AuditLogsController : BaseController<IAuditProvider>
     {
         if (!CurrentUser.IsAdmin)
             return Problem(StatusCodes.Status403Forbidden, "admin access required");
-        return Ok(await Provider.ListAuditLogsAsync(entityType, entityId, userId, action, limit, offset, ct));
+        return Ok(await Provider.ListAuditLogsAsync(
+            new ListAuditLogsQuery(entityType, entityId, userId, action, limit, offset), ct));
     }
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 using AgentBoard.Application.Abstractions;
+using AgentBoard.Application.Board.Dtos;
 using AgentBoard.Domain.Entities;
 
 namespace AgentBoard.Application.Board;
@@ -15,9 +16,14 @@ public sealed class AuditProvider : IAuditProvider
     }
 
     public async Task<IReadOnlyList<AuditLog>> ListAuditLogsAsync(
-        string? entityType, int? entityId, int? userId, string? action,
-        int limit, int offset, CancellationToken ct = default)
+        ListAuditLogsQuery query, CancellationToken ct = default)
     {
+        var entityType = query.EntityType;
+        var entityId = query.EntityId;
+        var userId = query.UserId;
+        var action = query.Action;
+        var limit = query.Limit ?? 100;
+        var offset = query.Offset ?? 0;
         var items = await _auditLogs.ListAsync(ct: ct);
 
         if (entityType is not null)

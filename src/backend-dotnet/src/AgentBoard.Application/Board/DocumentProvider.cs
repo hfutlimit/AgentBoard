@@ -53,9 +53,15 @@ public sealed class DocumentProvider : IDocumentProvider
         return d is null ? null : ToDto(d);
     }
 
-    public async Task<DocumentDto> CreateDocumentAsync(
-        int projectId, string? title, string? content, string? type, int? authorId, int? epicId, int? storyId, int? folderId, CancellationToken ct)
-    {
+    public async Task<DocumentDto> CreateDocumentAsync(CreateDocumentRequest request, int projectId, CancellationToken ct)
+{
+        var title = request.Title;
+        var content = request.Content;
+        var type = request.Type;
+        var authorId = request.AuthorId;
+        var epicId = request.EpicId;
+        var storyId = request.StoryId;
+        var folderId = request.FolderId;
         title = (title ?? string.Empty).Trim();
         if (title.Length == 0 || title.Length > 300)
             throw new InvalidValueException("title must be 1-300 characters");
@@ -90,8 +96,14 @@ public sealed class DocumentProvider : IDocumentProvider
         return ToDto(doc);
     }
 
-    public async Task<DocumentDto?> UpdateDocumentAsync(int id, string? title, string? content, string? type, int? folderId, int? epicId, int? storyId, CancellationToken ct)
-    {
+    public async Task<DocumentDto?> UpdateDocumentAsync(int id, UpdateDocumentRequest request, CancellationToken ct)
+{
+        var title = request.Title;
+        var content = request.Content;
+        var type = request.Type;
+        var folderId = request.FolderId;
+        var epicId = request.EpicId;
+        var storyId = request.StoryId;
         var doc = await _docs.GetByIdAsync(id, ct);
         if (doc is null) return null;
         if (title is not null) { title = title.Trim(); if (title.Length > 0) doc.Title = title; }
@@ -215,8 +227,11 @@ public sealed class DocumentProvider : IDocumentProvider
         return rev is null ? null : ToRevisionDto(rev);
     }
 
-    public async Task<DocumentRevisionDto> SaveRevisionAsync(int documentId, string? content, string? changeNote, string? author, CancellationToken ct)
-    {
+    public async Task<DocumentRevisionDto> SaveRevisionAsync(int documentId, SaveRevisionRequest request, CancellationToken ct)
+{
+        var content = request.Content;
+        var changeNote = request.ChangeNote;
+        var author = request.Author;
         var doc = await _docs.GetByIdAsync(documentId, ct) ?? throw new NotFoundException($"document {documentId} not found");
         content = content ?? string.Empty;
         var now = DateTime.UtcNow;
@@ -235,8 +250,10 @@ public sealed class DocumentProvider : IDocumentProvider
         return ToRevisionDto(rev);
     }
 
-    public async Task<DocumentRevisionDto> RestoreRevisionAsync(int documentId, int revisionNumber, string? changeNote, string? author, CancellationToken ct)
-    {
+    public async Task<DocumentRevisionDto> RestoreRevisionAsync(int documentId, int revisionNumber, RestoreRevisionRequest request, CancellationToken ct)
+{
+        var changeNote = request.ChangeNote;
+        var author = request.Author;
         var doc = await _docs.GetByIdAsync(documentId, ct) ?? throw new NotFoundException($"document {documentId} not found");
         var oldRev = (await _revisions.ListAsync(r => r.DocumentId == documentId && r.RevisionNumber == revisionNumber, ct)).FirstOrDefault()
             ?? throw new NotFoundException($"revision {revisionNumber} not found for document {documentId}");
@@ -278,8 +295,11 @@ public sealed class DocumentProvider : IDocumentProvider
         return ToFolderDto(folder);
     }
 
-    public async Task<DocumentFolderDto?> UpdateFolderAsync(int id, string? name, int? parentId, bool? moveToRoot, CancellationToken ct)
-    {
+    public async Task<DocumentFolderDto?> UpdateFolderAsync(int id, UpdateFolderRequest request, CancellationToken ct)
+{
+        var name = request.Name;
+        var parentId = request.ParentId;
+        var moveToRoot = request.MoveToRoot;
         var f = await _folders.GetByIdAsync(id, ct);
         if (f is null) return null;
         if (name is not null) { name = name.Trim(); if (name.Length > 0) f.Name = name; }

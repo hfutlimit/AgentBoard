@@ -43,15 +43,18 @@ public sealed class DocumentsController : ControllerBase
     {
         if (body.ProjectId is null) return BadRequest(new ApiError("project_id is required"));
         var dto = await _provider.CreateDocumentAsync(
-            body.ProjectId.Value, body.Title, body.Content, body.Type,
-            body.AuthorId ?? _current.UserId, body.EpicId, body.StoryId, body.FolderId, ct);
+            new CreateDocumentRequest(
+                body.ProjectId, body.Title, body.Content, body.Type,
+                body.AuthorId ?? _current.UserId, body.EpicId, body.StoryId, body.FolderId),
+            body.ProjectId.Value, ct);
         return StatusCode(201, dto);
     }
 
     [HttpPatch("{id:int}")]
     public async Task<ActionResult<DocumentDto>> Patch(int id, [FromBody] DocumentPatchRequest body, CancellationToken ct)
     {
-        var dto = await _provider.UpdateDocumentAsync(id, body.Title, body.Content, body.Type, body.FolderId, body.EpicId, body.StoryId, ct);
+        var dto = await _provider.UpdateDocumentAsync(
+            id, new UpdateDocumentRequest(body.Title, body.Content, body.Type, body.FolderId, body.EpicId, body.StoryId), ct);
         return dto is null ? NotFound(new ApiError($"document {id} not found")) : Ok(dto);
     }
 
@@ -111,14 +114,16 @@ public sealed class DocumentsController : ControllerBase
     [HttpPost("{documentId:int}/revisions")]
     public async Task<ActionResult<DocumentRevisionDto>> SaveRevision(int documentId, [FromBody] RevisionSaveRequest body, CancellationToken ct)
     {
-        var dto = await _provider.SaveRevisionAsync(documentId, body.Content, body.ChangeNote, body.Author, ct);
+        var dto = await _provider.SaveRevisionAsync(
+            documentId, new SaveRevisionRequest(body.Content, body.ChangeNote, body.Author), ct);
         return StatusCode(201, dto);
     }
 
     [HttpPost("{documentId:int}/revisions/restore")]
     public async Task<ActionResult<DocumentRevisionDto>> RestoreRevision(int documentId, [FromBody] RevisionRestoreRequest body, CancellationToken ct)
     {
-        var dto = await _provider.RestoreRevisionAsync(documentId, 0, body.ChangeNote, body.Author, ct);
+        var dto = await _provider.RestoreRevisionAsync(
+            documentId, 0, new RestoreRevisionRequest(body.ChangeNote, body.Author), ct);
         // Note: revision_number should come from query or body; simplified for now
         return Ok(dto);
     }

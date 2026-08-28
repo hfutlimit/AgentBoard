@@ -28,7 +28,9 @@ public sealed class WebhooksController : BaseController<IWebhookProvider>
     public async Task<ActionResult<WebhookDto>> Create(
         [FromBody] WebhookCreateRequest body, CancellationToken ct)
     {
-        var dto = await Provider.CreateWebhookAsync(body.ProjectId, body.Name, body.Url, body.Events, CurrentUser.UserId, ct);
+        var dto = await Provider.CreateWebhookAsync(
+            new CreateWebhookRequest(body.ProjectId, body.Name, body.Url, body.Events),
+            CurrentUser.UserId, ct);
         return StatusCode(StatusCodes.Status201Created, dto);
     }
 
@@ -39,7 +41,8 @@ public sealed class WebhooksController : BaseController<IWebhookProvider>
     public async Task<ActionResult<WebhookDto>> Patch(
         int id, [FromBody] WebhookPatchRequest body, CancellationToken ct)
     {
-        var dto = await Provider.UpdateWebhookAsync(id, body.Name, body.Url, body.Events, body.Enabled, ct);
+        var dto = await Provider.UpdateWebhookAsync(
+            id, new UpdateWebhookRequest(body.Name, body.Url, body.Events, body.Enabled), ct);
         return dto is null ? NotFound(new ApiError($"webhook {id} not found")) : Ok(dto);
     }
 

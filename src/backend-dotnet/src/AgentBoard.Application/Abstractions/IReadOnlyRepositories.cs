@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+﻿// SPDX-License-Identifier: MIT
 using AgentBoard.Domain.Entities;
 using AgentBoard.Application.Board.Dtos;
 
@@ -35,32 +35,32 @@ public interface ITaskStatusHistoryRepository : IRepository<TaskStatusHistory> {
 
 public interface IProjectReadRepository
 {
-	Task<ProjectMembersResult> ListMembersAsync(
-		int projectId,
-		int limit,
-		int offset,
-		CancellationToken ct = default);
+    Task<ProjectMembersResult> ListMembersAsync(
+        int projectId,
+        int limit,
+        int offset,
+        CancellationToken ct = default);
 
-	Task<NotificationsResult> ListNotificationsAsync(
-		int userId,
-		int limit,
-		int offset,
-		bool unreadOnly,
-		CancellationToken ct = default);
+    Task<NotificationsResult> ListNotificationsAsync(
+        int userId,
+        int limit,
+        int offset,
+        bool unreadOnly,
+        CancellationToken ct = default);
 
-	Task<int> CountUnreadNotificationsAsync(int userId, CancellationToken ct = default);
+    Task<int> CountUnreadNotificationsAsync(int userId, CancellationToken ct = default);
 
-	Task<OverviewDto> GetOverviewAsync(
-		IReadOnlyCollection<int> projectIds,
-		CancellationToken ct = default);
+    Task<OverviewDto> GetOverviewAsync(
+        IReadOnlyCollection<int> projectIds,
+        CancellationToken ct = default);
 
-	Task<ProjectsCenterResult> GetCenterAsync(
-		IReadOnlyCollection<int> projectIds,
-		bool includePrivate,
-		string scope,
-		string sort,
-		int limit,
-		int offset,
-		bool? includeArchived = null,
-		CancellationToken ct = default);
+    Task<ProjectsCenterResult> GetCenterAsync(
+        IReadOnlyCollection<int> projectIds,
+        bool includePrivate,
+        string scope,
+        string sort,
+        int limit,
+        int offset,
+        bool? includeArchived = null,
+        CancellationToken ct = default);
 }

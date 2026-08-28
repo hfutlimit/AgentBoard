@@ -3,6 +3,7 @@ using AgentBoard.Api.Api.Base;
 using AgentBoard.Api.Api.Common;
 using AgentBoard.Application.Abstractions;
 using AgentBoard.Application.Board;
+using AgentBoard.Application.Board.Dtos;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AgentBoard.Api.Features.Projects;
@@ -75,7 +76,8 @@ public sealed class ProjectsController : BaseController<IBoardProvider>
 		limit = Math.Clamp(limit, 1, 200);
 		offset = Math.Max(0, offset);
 		var result = await Provider.ListProjectsCenterAsync(
-			CurrentUser.UserId, CurrentUser.IsAdmin, scope, sort, limit, offset, includeArchived, ct);
+			new ListProjectsCenterQuery(CurrentUser.IsAdmin, scope, sort, limit, offset, includeArchived),
+			CurrentUser.UserId, ct);
 		return Ok(result);
 	}
 
@@ -122,7 +124,7 @@ public sealed class ProjectsController : BaseController<IBoardProvider>
 			return UnprocessableEntity(new ApiError("cron_expr is required for cron schedules"));
 
 		var dto = await Provider.CreateProjectScheduleAsync(
-			projectId, title, scheduleType, body.CronExpr, CurrentUser.UserId, ct);
+			projectId, new CreateProjectScheduleRequest(title, scheduleType, body.CronExpr), CurrentUser.UserId, ct);
 		return dto is null ? NotFound(new ApiError($"project {projectId} not found")) : StatusCode(201, dto);
 	}
 
@@ -132,7 +134,8 @@ public sealed class ProjectsController : BaseController<IBoardProvider>
 	{
 		DateTime? start = DateTime.TryParse(body.StartDate, out var startValue) ? startValue : null;
 		DateTime? end = DateTime.TryParse(body.EndDate, out var endValue) ? endValue : null;
-		var dto = await Provider.CreateProjectSprintAsync(projectId, body.Title, body.Goal, start, end, ct);
+		var dto = await Provider.CreateProjectSprintAsync(
+			projectId, new CreateProjectSprintRequest(body.Title, body.Goal, start, end), ct);
 		return dto is null ? NotFound(new ApiError($"project {projectId} not found")) : StatusCode(201, dto);
 	}
 
@@ -167,7 +170,8 @@ public sealed class ProjectsController : BaseController<IBoardProvider>
 	public async Task<ActionResult<AgentBoard.Application.Board.Dtos.ProjectDto>> Create(
 		[FromBody] AgentBoard.Application.Board.Dtos.ProjectCreateRequest body, CancellationToken ct)
 	{
-		var dto = await Provider.CreateProjectAsync(body.Name, body.Key, body.Description, CurrentUser.UserId, ct);
+		var dto = await Provider.CreateProjectAsync(
+			new CreateProjectRequest(body.Name, body.Key, body.Description), CurrentUser.UserId, ct);
 		return StatusCode(StatusCodes.Status201Created, dto);
 	}
 
@@ -179,7 +183,8 @@ public sealed class ProjectsController : BaseController<IBoardProvider>
 	public async Task<ActionResult<AgentBoard.Application.Board.Dtos.ProjectDto>> Patch(
 		int id, [FromBody] AgentBoard.Application.Board.Dtos.ProjectPatchRequest body, CancellationToken ct)
 	{
-		var dto = await Provider.UpdateProjectAsync(id, body.Name, body.Key, body.Description, body.IsPrivate, body.IsArchived, ct);
+		var dto = await Provider.UpdateProjectAsync(
+			id, new UpdateProjectRequest(body.Name, body.Key, body.Description, body.IsPrivate, body.IsArchived), ct);
 		return dto is null ? NotFound(new ApiError($"project {id} not found")) : Ok(dto);
 	}
 
@@ -201,7 +206,8 @@ public sealed class ProjectsController : BaseController<IBoardProvider>
 		[FromQuery(Name = "include_archived")] bool includeArchived = false,
 		CancellationToken ct = default)
 	{
-		return Ok(await Provider.ListProjectsExtendedAsync(limit, offset, includeArchived, CurrentUser.UserId, ct));
+		return Ok(await Provider.ListProjectsExtendedAsync(
+			new ListProjectsExtendedQuery(limit, offset, includeArchived), CurrentUser.UserId, ct));
 	}
 
 	[HttpPost("{id:int}/archive")]
@@ -258,7 +264,8 @@ public sealed class ProjectsController : BaseController<IBoardProvider>
 		[FromQuery] int offset = 0,
 		CancellationToken ct = default)
 	{
-		var result = await Provider.ListProjectTicketsAsync(id, status, sort, order, Math.Clamp(limit, 1, 500), Math.Max(0, offset), ct);
+		var result = await Provider.ListProjectTicketsAsync(
+			id, new ListProjectTicketsQuery(status, sort, order, Math.Clamp(limit, 1, 500), Math.Max(0, offset)), ct);
 		return Ok(result);
 	}
 }

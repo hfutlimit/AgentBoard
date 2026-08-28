@@ -32,8 +32,12 @@ public sealed class SprintProvider : ISprintProvider
         return s is null ? null : ToDto(s);
     }
 
-    public async Task<SprintDto> CreateSprintAsync(int projectId, string? title, string? goal, string? startDate, string? endDate, CancellationToken ct = default)
-    {
+    public async Task<SprintDto> CreateSprintAsync(int projectId, CreateSprintRequest request, CancellationToken ct = default)
+{
+        var title = request.Title;
+        var goal = request.Goal;
+        var startDate = request.StartDate;
+        var endDate = request.EndDate;
         if (await _projects.GetByIdAsync(projectId, ct) is null)
             throw new NotFoundException($"project {projectId} not found");
 
@@ -57,8 +61,13 @@ public sealed class SprintProvider : ISprintProvider
         return ToDto(sprint);
     }
 
-    public async Task<SprintDto?> UpdateSprintAsync(int id, string? title, string? goal, string? status, string? startDate, string? endDate, CancellationToken ct = default)
-    {
+    public async Task<SprintDto?> UpdateSprintAsync(int id, UpdateSprintRequest request, CancellationToken ct = default)
+{
+        var title = request.Title;
+        var goal = request.Goal;
+        var status = request.Status;
+        var startDate = request.StartDate;
+        var endDate = request.EndDate;
         var sprint = await _sprints.GetByIdAsync(id, ct);
         if (sprint is null) return null;
 
