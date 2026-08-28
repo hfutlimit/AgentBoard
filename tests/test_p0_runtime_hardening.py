@@ -1,6 +1,6 @@
 """Regression tests for the P0 runtime-hardening fixes (2026-08-28).
 
-Three bugs were found in a static + dynamic review of ``main``:
+Runtime bugs found in a static + dynamic review of ``main``:
 
 1. ``tests/test_smoke.py`` was passing ``in_progress → done`` directly,
    which became illegal after Story 265 (state machine now requires
@@ -12,14 +12,11 @@ Three bugs were found in a static + dynamic review of ``main``:
    together, the replay generator could therefore read a different database.
    Replay/live sessions now reuse the request session's database bind.
 
-3. ``core/infrastructure/auth.py::validate_runtime_security`` was
-   checking ``AGENTBOARD_SECRET`` / ``REQUIRE_AUTH`` / ``CORS_ORIGINS`` /
-   ``ALLOW_REGISTRATION`` in production mode, but not
-   ``AGENTBOARD_MCP_REQUIRE_AUTH``. With MCP defaults to 0, the MCP HTTP
-   transport on :8001 (FastMCP with ``auth=None``) exposes ~100 write
-   tools anonymously.
+3. The independent MCP process had no production startup validation.  Its
+   process boundary now requires both a strong secret and transport auth,
+   without coupling REST API startup to MCP-only configuration.
 
-This file pins all three fixes in place so they cannot silently
+This file pins the focused runtime fixes in place so they cannot silently
 regress.
 """
 from __future__ import annotations
@@ -109,11 +106,13 @@ def test_run_authorization_files_merged_run_does_not_fail():
 
 
 # ---------------------------------------------------------------------------
-# (3) validate_runtime_security() fail-fasts on MCP_REQUIRE_AUTH=0 in prod
+# (3) the independent MCP process fail-fasts on unauthenticated production
 # ---------------------------------------------------------------------------
 
-def _call_validate_with_env(monkeypatch, env: dict[str, str]) -> None:
-    """Reload validate_runtime_security under a controlled env so the
+def _call_validate_with_env(
+    monkeypatch, env: dict[str, str], validator: str = "api",
+) -> None:
+    """Reload the security module under a controlled env so the
     function reads the new env vars at call time. ``monkeypatch`` is
     used so other tests are not affected.
     """
@@ -127,10 +126,12 @@ def _call_validate_with_env(monkeypatch, env: dict[str, str]) -> None:
     # depend on a captured default.
     import agentboard.core.infrastructure.auth as auth_mod
     importlib.reload(auth_mod)
+    if validator == "mcp":
+        return auth_mod.validate_mcp_runtime_security()
     return auth_mod.validate_runtime_security()
 
 
-def test_production_fails_fast_when_mcp_auth_is_off(monkeypatch):
+def test_production_mcp_fails_fast_when_auth_is_off(monkeypatch):
     """In production, MCP_REQUIRE_AUTH=0 must raise RuntimeError.
 
     The MCP HTTP transport on :8001 with ``auth=None`` exposes ~100
@@ -142,21 +143,29 @@ def test_production_fails_fast_when_mcp_auth_is_off(monkeypatch):
             {
                 "AGENTBOARD_ENV": "production",
                 "AGENTBOARD_SECRET": "x" * 64,  # 32+ bytes, satisfies the SECRET check
-                "AGENTBOARD_REQUIRE_AUTH": "1",
-                "AGENTBOARD_CORS_ORIGINS": "https://app.example.com",
                 "AGENTBOARD_MCP_REQUIRE_AUTH": "0",
             },
+            validator="mcp",
         )
     # The error must mention MCP so an operator sees what to fix.
     assert "MCP" in str(exc_info.value)
 
 
-def test_production_passes_when_mcp_auth_is_on(monkeypatch):
-    """In production with MCP_REQUIRE_AUTH=1, validate_runtime_security
-    must not raise on the MCP check (it may still raise on other checks
-    we do not care about here, so we set every variable correctly).
-    """
+def test_production_mcp_passes_when_auth_is_on(monkeypatch):
     # Should not raise.
+    _call_validate_with_env(
+        monkeypatch,
+        {
+            "AGENTBOARD_ENV": "production",
+            "AGENTBOARD_SECRET": "x" * 64,
+            "AGENTBOARD_MCP_REQUIRE_AUTH": "1",
+        },
+        validator="mcp",
+    )
+
+
+def test_production_api_does_not_require_mcp_process_config(monkeypatch):
+    """REST API startup must not depend on a separate MCP container's flag."""
     _call_validate_with_env(
         monkeypatch,
         {
@@ -164,12 +173,36 @@ def test_production_passes_when_mcp_auth_is_on(monkeypatch):
             "AGENTBOARD_SECRET": "x" * 64,
             "AGENTBOARD_REQUIRE_AUTH": "1",
             "AGENTBOARD_CORS_ORIGINS": "https://app.example.com",
-            "AGENTBOARD_MCP_REQUIRE_AUTH": "1",
+            "AGENTBOARD_MCP_REQUIRE_AUTH": "0",
         },
     )
 
 
-def test_development_only_warns_when_mcp_auth_is_off(monkeypatch):
+def test_mcp_server_import_invokes_production_security_boundary():
+    """The validator must be wired into the real independent MCP entrypoint."""
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = os.environ.copy()
+    env.update({
+        "AGENTBOARD_ENV": "production",
+        "AGENTBOARD_SECRET": "x" * 64,
+        "AGENTBOARD_MCP_REQUIRE_AUTH": "0",
+    })
+    src = os.path.join(repo_root, "src", "backend-fastapi")
+    env["PYTHONPATH"] = src + os.pathsep + env.get("PYTHONPATH", "")
+    proc = subprocess.run(
+        [sys.executable, "-c", "import agentboard.mcp_server"],
+        cwd=repo_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    output = (proc.stdout or "") + (proc.stderr or "")
+    assert proc.returncode != 0
+    assert "AGENTBOARD_MCP_REQUIRE_AUTH=1" in output
+
+
+def test_development_mcp_only_warns_when_auth_is_off(monkeypatch):
     """In development, MCP_REQUIRE_AUTH=0 must NOT raise. The existing
     dev-mode contract is "warn, do not block".
     """
@@ -180,4 +213,5 @@ def test_development_only_warns_when_mcp_auth_is_off(monkeypatch):
             "AGENTBOARD_ENV": "development",
             "AGENTBOARD_MCP_REQUIRE_AUTH": "0",
         },
+        validator="mcp",
     )

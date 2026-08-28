@@ -109,7 +109,8 @@ may land it without the `live-drift` job going red by committing an
 // .github/contract-approved-drift.json
 {
   "added":   ["paths.$.x.new_field", "paths.$.new_resource.get"],
-  "removed": ["paths.$.old_resource.get"]
+  "removed": ["paths.$.old_resource.get"],
+  "changed": ["$.components.schemas.Example.properties.mode.default"]
 }
 ```
 

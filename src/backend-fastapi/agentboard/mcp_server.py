@@ -41,8 +41,9 @@ for _mod in (mcp_admin, mcp_auth, mcp_documents, mcp_notifications,
 del _sys, _module_self, _mod, _name, _obj
 
 API_URL = os.getenv("AGENTBOARD_API_URL", "http://127.0.0.1:58124")
-# MCP 暂时保持开放；只有显式开启时才安装传输层 TokenVerifier。
+# 本地开发默认兼容开放模式；production 由下方校验强制开启 TokenVerifier。
 MCP_REQUIRE_AUTH = os.getenv("AGENTBOARD_MCP_REQUIRE_AUTH", "0").lower() in {"1", "true", "yes"}
+agent_auth.validate_mcp_runtime_security()
 
 
 class AgentBoardTokenVerifier(TokenVerifier):

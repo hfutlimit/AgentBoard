@@ -446,6 +446,7 @@ describe('App', () => {
       current_round: 0,
       converged_spec: '',
       story_id: null,
+      auto_create_ticket: false,
       ticket_type: '',
       ticket_id: null,
       author_id: 1,

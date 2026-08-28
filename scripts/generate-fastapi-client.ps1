@@ -52,6 +52,8 @@ Write-Host "Generating $output from $snapshot ..."
     /input:$snapshot `
     /output:$output `
     /namespace:$namespace `
+    /operationGenerationMode:SingleClientFromOperationId `
+    /className:AgentBoardFastApiClient `
     /generateClientInterfaces:true `
     /generateDtoTypes:true `
     /useHttpClientCreationMethod:true `
@@ -59,6 +61,21 @@ Write-Host "Generating $output from $snapshot ..."
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "nswag failed with exit code $LASTEXITCODE."
+}
+
+# NSwag emits whitespace-only indentation on a number of generated blank
+# lines. Normalize it here so the committed artifact passes git diff --check
+# and regeneration remains deterministic across Windows and Linux runners.
+$generated = [System.IO.File]::ReadAllText($output)
+$normalized = [System.Text.RegularExpressions.Regex]::Replace(
+    $generated,
+    '[ \t]+(?=\r?$)',
+    '',
+    [System.Text.RegularExpressions.RegexOptions]::Multiline
+)
+if ($normalized -ne $generated) {
+    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+    [System.IO.File]::WriteAllText($output, $normalized, $utf8NoBom)
 }
 
 Write-Host "Wrote $output ($((Get-Item $output).Length) bytes)"

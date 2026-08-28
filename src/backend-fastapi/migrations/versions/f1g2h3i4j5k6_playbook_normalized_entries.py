@@ -51,30 +51,58 @@ def upgrade() -> None:
     is_sqlite = bind.dialect.name == "sqlite"
 
     # ---- 1) project_playbook_episode: 升级为 normalized entry 表 ----
-    # 用 batch_alter_table 兼容 SQLite（不能直接 ALTER 加 PK / drop PK）。
-    with op.batch_alter_table("project_playbook_episode") as batch_op:
-        # (a) 旧 (project_id, episode_id) 复合主键降级
-        batch_op.drop_constraint("pk_project_playbook_episode", type_="primary")
-        # (b) 加自增 id 单 PK
-        batch_op.add_column(sa.Column(
-            "id", sa.Integer(), primary_key=True, autoincrement=True,
+    # SQLite needs a batch rebuild. On MariaDB the original composite PK is
+    # also the only index supporting the project_id foreign key, so dropping
+    # it in isolation fails with errno 150. Add the replacement FK index first
+    # and swap both primary keys in one ALTER statement.
+    if is_sqlite:
+        with op.batch_alter_table("project_playbook_episode") as batch_op:
+            batch_op.drop_constraint("pk_project_playbook_episode", type_="primary")
+            batch_op.add_column(sa.Column(
+                "id", sa.Integer(), primary_key=True, autoincrement=True,
+            ))
+            batch_op.add_column(sa.Column(
+                "task_type", sa.String(length=20), nullable=False, server_default="dev",
+            ))
+            batch_op.add_column(sa.Column(
+                "outcome", sa.String(length=20), nullable=False, server_default="success",
+            ))
+            batch_op.add_column(sa.Column(
+                "summary", sa.Text(), nullable=False, server_default="",
+            ))
+            batch_op.add_column(sa.Column(
+                "weight", sa.Float(), nullable=False, server_default="1.0",
+            ))
+            batch_op.alter_column(
+                "appended_at", new_column_name="created_at",
+                existing_type=sa.DateTime(), existing_nullable=False,
+            )
+    else:
+        op.create_index(
+            "ix_project_playbook_episode_project_id",
+            "project_playbook_episode",
+            ["project_id"],
+        )
+        op.execute(sa.text(
+            "ALTER TABLE project_playbook_episode "
+            "DROP PRIMARY KEY, "
+            "ADD COLUMN id INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY"
         ))
-        # (c) 加 entry 结构化字段（设 server_default 让 NOT NULL 在 SQLite batch 里可加）
-        batch_op.add_column(sa.Column(
+        op.add_column("project_playbook_episode", sa.Column(
             "task_type", sa.String(length=20), nullable=False, server_default="dev",
         ))
-        batch_op.add_column(sa.Column(
+        op.add_column("project_playbook_episode", sa.Column(
             "outcome", sa.String(length=20), nullable=False, server_default="success",
         ))
-        batch_op.add_column(sa.Column(
+        op.add_column("project_playbook_episode", sa.Column(
             "summary", sa.Text(), nullable=False, server_default="",
         ))
-        batch_op.add_column(sa.Column(
+        op.add_column("project_playbook_episode", sa.Column(
             "weight", sa.Float(), nullable=False, server_default="1.0",
         ))
-        # (d) appended_at → created_at 重命名
-        batch_op.alter_column(
-            "appended_at", new_column_name="created_at",
+        op.alter_column(
+            "project_playbook_episode", "appended_at",
+            new_column_name="created_at",
             existing_type=sa.DateTime(), existing_nullable=False,
         )
 

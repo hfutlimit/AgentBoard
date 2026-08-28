@@ -44,9 +44,9 @@ SNAPSHOT_PATH = CONTRACTS_DIR / "openapi-v3.json"
 SHA_PATH = CONTRACTS_DIR / "openapi-v3.sha256"
 
 
-def hash_doc(text: str) -> str:
-    """SHA-256 over the raw document bytes (matches PowerShell Get-FileHash)."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+def hash_file(path: Path) -> str:
+    """SHA-256 over raw bytes (matches PowerShell Get-FileHash on Windows)."""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def fetch_live(url: str, timeout: int = 10) -> str:
@@ -56,7 +56,7 @@ def fetch_live(url: str, timeout: int = 10) -> str:
 
 
 def walk(obj, prefix="$"):
-    """Yield every dotted path in a JSON document."""
+    """Yield every dotted leaf path and value in a JSON document."""
     if isinstance(obj, dict):
         for k, v in obj.items():
             yield from walk(v, f"{prefix}.{k}")
@@ -64,17 +64,18 @@ def walk(obj, prefix="$"):
         for i, v in enumerate(obj):
             yield from walk(v, f"{prefix}[{i}]")
     else:
-        yield prefix
+        yield prefix, obj
 
 
-def load_approved(path: str | None) -> tuple[set[str], set[str]]:
-    """Return (approved_added, approved_removed) path sets from a JSON file."""
+def load_approved(path: str | None) -> tuple[set[str], set[str], set[str]]:
+    """Return approved added, removed, and changed leaf-path sets."""
     if not path:
-        return set(), set()
+        return set(), set(), set()
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     added = {str(p) for p in data.get("added", [])}
     removed = {str(p) for p in data.get("removed", [])}
-    return added, removed
+    changed = {str(p) for p in data.get("changed", [])}
+    return added, removed, changed
 
 
 def write_report(path: str | None, report: dict) -> None:
@@ -118,7 +119,7 @@ def main() -> int:
         return 2
 
     snapshot_text = SNAPSHOT_PATH.read_text(encoding="utf-8")
-    snapshot_hash = hash_doc(snapshot_text)
+    snapshot_hash = hash_file(SNAPSHOT_PATH)
     report["snapshotHash"] = snapshot_hash
 
     pinned_match = True
@@ -145,7 +146,9 @@ def main() -> int:
         return 0
 
     # --- Live drift mode ---
-    approved_added, approved_removed = load_approved(args.approved_drift)
+    approved_added, approved_removed, approved_changed = load_approved(
+        args.approved_drift
+    )
     if args.approved_drift:
         report["approvedDriftFile"] = args.approved_drift
 
@@ -162,29 +165,36 @@ def main() -> int:
         return 2
 
     report["liveReachable"] = True
-    live_hash = hash_doc(live_text)
-    if live_hash == snapshot_hash:
+    snap_obj = json.loads(snapshot_text)
+    live_obj = json.loads(live_text)
+    if live_obj == snap_obj:
         print("no drift — live FastAPI matches the committed snapshot.")
         report.update(drift=False, exitCode=0, summary="no drift (live matches snapshot)")
         write_report(args.report, report)
         return 0
 
-    snap_obj = json.loads(snapshot_text)
-    live_obj = json.loads(live_text)
-    snap_paths = {p for p in walk(snap_obj)}
-    live_paths = {p for p in walk(live_obj)}
+    snap_values = dict(walk(snap_obj))
+    live_values = dict(walk(live_obj))
+    snap_paths = set(snap_values)
+    live_paths = set(live_values)
     added = sorted(live_paths - snap_paths)
     removed = sorted(snap_paths - live_paths)
+    changed = sorted(
+        p for p in snap_paths & live_paths if snap_values[p] != live_values[p]
+    )
 
     unapproved_added = [p for p in added if p not in approved_added]
     unapproved_removed = [p for p in removed if p not in approved_removed]
+    unapproved_changed = [p for p in changed if p not in approved_changed]
 
     report.update(
         drift=True,
         added=added,
         removed=removed,
+        changed=changed,
         unapprovedAdded=unapproved_added,
         unapprovedRemoved=unapproved_removed,
+        unapprovedChanged=unapproved_changed,
     )
 
     print("drift detected:")
@@ -194,10 +204,14 @@ def main() -> int:
     for p in removed:
         tag = " [approved]" if p in approved_removed else ""
         print(f"  - {p}{tag}")
+    for p in changed:
+        tag = " [approved]" if p in approved_changed else ""
+        print(f"  ~ {p}{tag}")
 
-    if unapproved_added or unapproved_removed:
+    if unapproved_added or unapproved_removed or unapproved_changed:
         summary = (f"drift detected: {len(unapproved_added)} unapproved added, "
-                   f"{len(unapproved_removed)} unapproved removed")
+                   f"{len(unapproved_removed)} unapproved removed, "
+                   f"{len(unapproved_changed)} unapproved changed")
         print("Run scripts/sync-openapi.ps1 to refresh the snapshot, then review + commit.",
               file=sys.stderr)
         if args.approved_drift:

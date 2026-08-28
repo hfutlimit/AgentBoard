@@ -23,7 +23,10 @@ def upgrade() -> None:
         sa.Column("task_type", sa.String(10), nullable=False, server_default="dev"),
         sa.Column("score", sa.Float(), nullable=False, server_default="0"),
         sa.Column("outcome", sa.String(10), nullable=False, server_default="success"),
-        sa.Column("vector", sa.Text(), nullable=False),
+        # MariaDB 11.7+ reserves VECTOR for its native vector type.  Keep the
+        # established column name, but force identifier quoting so fresh
+        # production databases can apply this historical migration.
+        sa.Column("vector", sa.Text(), nullable=False, quote=True),
         sa.Column("summary", sa.Text(), nullable=False, server_default=""),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.Column("updated_at", sa.DateTime(), nullable=False),

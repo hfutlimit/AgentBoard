@@ -54,7 +54,7 @@ if ($response.StatusCode -ne 200) {
 
 # Parse + pretty-print with stable key order so diffs are meaningful.
 $json = $response.Content | ConvertFrom-Json
-$pretty = $json | ConvertTo-Json -Depth 50
+$pretty = ($json | ConvertTo-Json -Depth 50) -replace "`r`n", "`n"
 
 if (-not (Test-Path $ContractsDir)) {
     New-Item -ItemType Directory -Path $ContractsDir -Force | Out-Null

@@ -83,7 +83,11 @@ class EpisodeEmbedding(Base):
     task_type: Mapped[str] = mapped_column(String(10), default="dev")
     score: Mapped[float] = mapped_column(Float, default=0.0)
     outcome: Mapped[str] = mapped_column(String(10), default="success", comment="success/fail")
-    vector: Mapped[str] = mapped_column(Text, comment="JSON list[float] ?????")
+    # MariaDB 11.7+ treats VECTOR as a reserved word.  Explicit quoting keeps
+    # ORM reads/writes compatible with the historical database column name.
+    vector: Mapped[str] = mapped_column(
+        "vector", Text, quote=True, comment="JSON list[float] ?????"
+    )
     summary: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)

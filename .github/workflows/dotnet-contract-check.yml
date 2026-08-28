@@ -13,17 +13,21 @@ on:
   push:
     branches: [main]
     paths:
+      - 'src/backend-fastapi/**'
       - 'src/backend-dotnet/src/**'
       - 'src/backend-dotnet/tests/**'
       - 'src/backend-dotnet/contracts/**'
       - 'scripts/**'
+      - 'config/docker/docker-compose.yml'
       - '.github/workflows/dotnet-contract-check.yml'
   pull_request:
     paths:
+      - 'src/backend-fastapi/**'
       - 'src/backend-dotnet/src/**'
       - 'src/backend-dotnet/tests/**'
       - 'src/backend-dotnet/contracts/**'
       - 'scripts/**'
+      - 'config/docker/docker-compose.yml'
       - '.github/workflows/dotnet-contract-check.yml'
 
 jobs:
@@ -71,11 +75,20 @@ jobs:
 
       - name: Verify committed client matches regenerated client
         run: |
-          if (-not (git diff --quiet src/backend-dotnet/src/AgentBoard.Api/Clients/AgentBoardFastApiClient.cs) -or `
-              -not (git diff --quiet src/backend-dotnet/contracts/openapi-v3.json) -or `
-              -not (git diff --quiet src/backend-dotnet/contracts/openapi-v3.sha256)) {
+          $generatedPaths = @(
+            'src/backend-dotnet/src/AgentBoard.Api/Clients/AgentBoardFastApiClient.cs',
+            'src/backend-dotnet/contracts/openapi-v3.json',
+            'src/backend-dotnet/contracts/openapi-v3.sha256'
+          )
+          $changedPaths = @()
+          foreach ($path in $generatedPaths) {
+            git diff --quiet -- $path
+            if ($LASTEXITCODE -ne 0) { $changedPaths += $path }
+          }
+          if ($changedPaths.Count -gt 0) {
             Write-Host "::error::Committed client or snapshot does not match freshly-generated output."
             Write-Host "Run pwsh scripts/sync-openapi.ps1 + pwsh scripts/generate-fastapi-client.ps1 locally and commit the diff."
+            Write-Host "Changed paths: $($changedPaths -join ', ')"
             git diff --stat
             exit 1
           }
@@ -126,7 +139,16 @@ jobs:
   # `approved-drift` JSON (docs/contracts/contract-freeze.md) together with
   # a refreshed snapshot in the same PR.
   live-drift:
-    runs-on: windows-latest
+    # The compose stack uses Linux images (MariaDB + Python). GitHub's Windows
+    # runner cannot host that stack reliably; keep PowerShell steps but run
+    # them on the Linux runner with Docker preinstalled.
+    runs-on: ubuntu-latest
+    env:
+      AGENTBOARD_SECRET: ci-contract-test-secret-at-least-32-bytes
+      MARIADB_PASSWORD: ci-contract-test
+      MARIADB_ROOT_PASSWORD: ci-contract-root-test
+      AGENTBOARD_CORS_ORIGINS: http://localhost:28080
+      AGENTBOARD_WEB_API_URL: http://localhost:18000
     defaults:
       run:
         shell: pwsh
@@ -139,11 +161,7 @@ jobs:
           python-version: '3.14'
 
       - name: Start FastAPI stack
-        env:
-          AGENTBOARD_SECRET: ci-contract-test
-          MARIADB_PASSWORD: ci-contract-test
-          AGENTBOARD_CORS_ORIGINS: http://localhost:28080
-        run: docker compose up -d api
+        run: docker compose -f config/docker/docker-compose.yml up -d api
 
       - name: Wait for FastAPI /openapi.json
         run: |
@@ -156,7 +174,7 @@ jobs:
             Start-Sleep -Seconds 5
           }
           Write-Host "::error::FastAPI did not become reachable in time."
-          docker compose logs api
+          docker compose -f config/docker/docker-compose.yml logs api
           exit 1
 
       - name: Live drift check
@@ -172,4 +190,4 @@ jobs:
 
       - name: Tear down
         if: always()
-        run: docker compose down -v
+        run: docker compose -f config/docker/docker-compose.yml down -v

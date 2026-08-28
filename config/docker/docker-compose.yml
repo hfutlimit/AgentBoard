@@ -142,6 +142,7 @@ services:
       AGENTBOARD_MCP_PORT: "8001"
       AGENTBOARD_MCP_PATH: "/mcp"
       AGENTBOARD_MCP_REQUIRE_AUTH: "${AGENTBOARD_MCP_REQUIRE_AUTH:-1}"
+      AGENTBOARD_ENV: "${AGENTBOARD_ENV:-production}"
       # REQUIRE_AUTH=0 时 MCP 以此固定令牌身份访问 API（支持 abk_ API Key）；
       # 权限作用域 = 该 Key 关联用户（admin 全量 / 普通用户仅成员项目）
       AGENTBOARD_MCP_TOKEN: "${AGENTBOARD_MCP_TOKEN:-}"
