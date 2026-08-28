@@ -44,9 +44,10 @@ SNAPSHOT_PATH = CONTRACTS_DIR / "openapi-v3.json"
 SHA_PATH = CONTRACTS_DIR / "openapi-v3.sha256"
 
 
-def hash_file(path: Path) -> str:
-    """SHA-256 over raw bytes (matches PowerShell Get-FileHash on Windows)."""
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def hash_doc(text: str) -> str:
+    """SHA-256 over canonical LF text, independent of checkout line endings."""
+    canonical = text.replace("\r\n", "\n").replace("\r", "\n")
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def fetch_live(url: str, timeout: int = 10) -> str:
@@ -119,7 +120,7 @@ def main() -> int:
         return 2
 
     snapshot_text = SNAPSHOT_PATH.read_text(encoding="utf-8")
-    snapshot_hash = hash_file(SNAPSHOT_PATH)
+    snapshot_hash = hash_doc(snapshot_text)
     report["snapshotHash"] = snapshot_hash
 
     pinned_match = True
