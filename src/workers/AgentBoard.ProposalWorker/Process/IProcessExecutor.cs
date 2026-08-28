@@ -89,19 +89,56 @@ public sealed class ProcessExecutor : IProcessExecutor
             var stdoutTask = process.StandardOutput.ReadToEndAsync(timeoutToken);
             var stderrTask = process.StandardError.ReadToEndAsync(timeoutToken);
 
-            if (!string.IsNullOrEmpty(spec.StdinPayload))
-            {
-                await process.StandardInput.WriteAsync(spec.StdinPayload.AsMemory(), timeoutToken);
-                process.StandardInput.Close();
-            }
-            else
-            {
-                process.StandardInput.Close();
-            }
-
+            // stdin write + WaitForExit + post-mortem stdout read all live
+            // inside the SAME try block so the OperationCanceledException
+            // classification below applies to every step. The previous
+            // version split stdin write into the outer try, where it
+            // surfaced as a generic Exception; that meant a CLI that never
+            // drained its stdin pipe (so WriteAsync blocked until the
+            // shared timeout CTS fired) was mis-classified as a plain
+            // `Failed` instead of `TimedOut`. Fix for #5 in the 2026-08-28
+            // review: caller cancel vs. timeout CTS are still distinguished
+            // by inspecting `ct.IsCancellationRequested` first.
             try
             {
-                await process.WaitForExitAsync(timeoutToken);
+                if (!string.IsNullOrEmpty(spec.StdinPayload))
+                {
+                    await process.StandardInput.WriteAsync(spec.StdinPayload.AsMemory(), timeoutToken);
+                }
+                process.StandardInput.Close();
+
+                try
+                {
+                    await process.WaitForExitAsync(timeoutToken);
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    TryKillTree(process);
+                    return new ProcessResult
+                    {
+                        ExitCode = -1,
+                        OutputTail = "",
+                        StderrTail = "cancelled by caller",
+                        Duration = DateTimeOffset.UtcNow - startedAt,
+                        Cancelled = true,
+                        RedactedOutput = "",
+                    };
+                }
+                catch (OperationCanceledException) // timeout fired (or stdin-write timed out)
+                {
+                    TryKillTree(process);
+                    var so = await SafeReadAsync(stdoutTask);
+                    var se = await SafeReadAsync(stderrTask);
+                    return new ProcessResult
+                    {
+                        ExitCode = -1,
+                        OutputTail = Tail(so, spec.MaxOutputBytes),
+                        StderrTail = Tail(se, spec.MaxOutputBytes),
+                        Duration = DateTimeOffset.UtcNow - startedAt,
+                        TimedOut = true,
+                        RedactedOutput = Redact(Tail(so, spec.MaxOutputBytes)),
+                    };
+                }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -110,13 +147,13 @@ public sealed class ProcessExecutor : IProcessExecutor
                 {
                     ExitCode = -1,
                     OutputTail = "",
-                    StderrTail = "cancelled by caller",
+                    StderrTail = "cancelled by caller (stdin write)",
                     Duration = DateTimeOffset.UtcNow - startedAt,
                     Cancelled = true,
                     RedactedOutput = "",
                 };
             }
-            catch (OperationCanceledException) // timeout fired
+            catch (OperationCanceledException) // timeout fired during stdin write
             {
                 TryKillTree(process);
                 var so = await SafeReadAsync(stdoutTask);

@@ -23,6 +23,44 @@ public sealed class ExecutionDispatcher : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _log.LogInformation("ExecutionDispatcher started");
+
+        // Startup recovery #2 in the 2026-08-28 review: a crash between
+        // TryEnqueueAsync and Channel.Writer.WriteAsync previously left a
+        // row stuck in `pending` forever. We now drain the durable inbox
+        // here, after the dispatcher is the live consumer — the previous
+        // version did this synchronously in Program.cs before the hosted
+        // services were started, which deadlocked when the bounded
+        // channel (capacity 100) was full and there was no consumer.
+        try
+        {
+            var pending = await _inbox.ListPendingAsync(stoppingToken);
+            if (pending.Count > 0)
+            {
+                _log.LogWarning(
+                    "Recovered {Count} pending inbox rows from previous run; pushing into the dispatch channel",
+                    pending.Count);
+                foreach (var flight in pending)
+                {
+                    // TryWrite never blocks (returns false if the channel is
+                    // full); if so we keep the row in the DB as `pending` and
+                    // the next round of ListPendingAsync will pick it up after
+                    // the current batch drains. The bounded channel acts as
+                    // memory-pressure backpressure, not a hard cap.
+                    if (!_channel.Writer.TryWrite(flight))
+                    {
+                        _log.LogWarning(
+                            "Dispatch channel saturated while re-enqueuing {Key}; the row stays in DB `pending` and will be retried after the current batch completes",
+                            flight.Request.ExecutionKey);
+                        break;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "Startup recovery from pending inbox failed; continuing with empty channel");
+        }
+
         try
         {
             // Poll-and-skip-when-paused instead of an unconditional
@@ -36,6 +74,14 @@ public sealed class ExecutionDispatcher : BackgroundService
             // matters for the narrow race where Pause is set after the
             // Dispatcher has already taken a flight. Fix for #4 in the
             // 2026-08-28 review.
+            //
+            // #3 follow-up: the inner drain loop also rechecks `IsPaused()`.
+            // Without the recheck, an operator can flip Pause → false → true
+            // between the outer check and the inner drain, and the inner
+            // loop will keep claiming rows the Coordinator then reverts
+            // (dispatching → pending → re-enqueue → claim → revert …) in a
+            // tight CPU / SQLite UPDATE loop. Each iteration also pays a
+            // MarkPendingAsync + WriteAsync round-trip, so it is not free.
             while (!stoppingToken.IsCancellationRequested)
             {
                 if (_coordinator.IsPaused())
@@ -44,7 +90,9 @@ public sealed class ExecutionDispatcher : BackgroundService
                     continue;
                 }
                 if (!await _channel.Reader.WaitToReadAsync(stoppingToken)) break;
-                while (_channel.Reader.TryRead(out var flight))
+                while (!stoppingToken.IsCancellationRequested
+                       && !_coordinator.IsPaused()
+                       && _channel.Reader.TryRead(out var flight))
                 {
                     try
                     {

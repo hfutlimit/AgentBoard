@@ -65,16 +65,17 @@ services:
     environment:
       # .NET configuration convention: env vars use `__` to delimit
       # configuration sections, which IConfiguration translates to `:`.
-      # The previous release used single-underscore variants (AGENTBOARD_SECRET,
-      # AGENTBOARD_CORS_ORIGINS) which .NET did NOT bind to AgentBoard:Jwt:Secret
-      # / AgentBoard:CorsOrigins — the container would silently fall back to
-      # appsettings.json (placeholder JWT + wildcard CORS) and crash with
-      # InvalidOperationException on startup (#1 in the 2026-08-28 review).
-      #
-      # Each value below is REQUIRED in production; the ?Set suffix makes
-      # `docker compose up` fail fast with a clear error if the operator
-      # forgot to export them in their .env.
-      AgentBoard__Jwt__Secret: "${AGENTBOARD_JWT_SECRET:?Set AGENTBOARD_JWT_SECRET to a strong random value of at least 32 chars}"
+      # The previous release introduced AGENTBOARD_JWT_SECRET and
+      # AGENTBOARD_CORS_ORIGINS_0, which forced operators to set the same
+      # secret twice (#1 + #8 in the 2026-08-28 review). Now the .NET BFF
+      # reuses the FastAPI AGENTBOARD_SECRET as the single source of truth
+      # (the two stacks sign and verify the same HMAC token format), and
+      # AGENTBOARD_CORS_ORIGINS feeds both stacks' CORS allowlist.
+      AgentBoard__Jwt__Secret: "${AGENTBOARD_SECRET:?Set AGENTBOARD_SECRET to a strong random value of at least 32 chars}"
+      # Reuse the AGENTBOARD_CORS_ORIGINS_0 var that .env.production already
+      # carries (it documents the value the operator set). For multi-origin
+      # deployments, the operator adds _1, _2, ... and the compose file
+      # mirrors them as CorsOrigins__1, __2, ... entries.
       AgentBoard__CorsOrigins__0: "${AGENTBOARD_CORS_ORIGINS_0:?Set AGENTBOARD_CORS_ORIGINS_0 to the public Web origin}"
       # .NET BFF uses SQLite by default in compose. Stage 1 will add a Pomelo
       # MySql provider once the package ships 10.0.0; until then MariaDB is
@@ -88,8 +89,10 @@ services:
       # calls UseUrls() — do not also set ASPNETCORE_URLS (would conflict).
       AGENTBOARD_DOTNET_PORT: "8080"
       # Internal address the .NET BFF uses to call FastAPI for AI orchestration
-      # (Stage 1 wires this through Polly + token passthrough).
-      AgentBoard__FastApi__InternalUrl: "http://api:8000"
+      # (Stage 1 wires this through Polly + token passthrough). The .NET
+      # composition root reads AgentBoard:FastApi:InternalUrl from IConfiguration
+      # (env var `AgentBoard__FastApi__InternalUrl`).
+      AgentBoard__FastApi__InternalUrl: "${AGENTBOARD_FASTAPI__INTERNALURL:-http://api:8000}"
       AgentBoard__FastApi__InternalOnly: "0"
       AGENTBOARD_REALTIME_INTERNAL_KEY: "${AGENTBOARD_REALTIME_INTERNAL_KEY:-}"
       # P1-6: extend the default trusted-proxy allowlist (loopback +

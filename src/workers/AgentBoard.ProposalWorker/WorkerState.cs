@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using AgentBoard.ProposalWorker.Agents;
 using Microsoft.Extensions.Options;
 
 namespace AgentBoard.ProposalWorker;
@@ -23,11 +24,12 @@ public sealed class WorkerState
     private readonly ConcurrentDictionary<string, int> _runningByAgent = new();
     private readonly ConcurrentDictionary<string, long> _totalByAgent = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastUsedByAgent = new();
-    // Per-agent CLI readiness: true if the adapter can actually spawn its
-    // CLI (resolution + `--version` probe). Set once at startup by
-    // `ReadinessProbe`; the installer treats `ready != true` as a hard fail
-    // (#5 in the 2026-08-28 review). FakeAdapter is always ready=true.
-    private readonly ConcurrentDictionary<string, (bool Ready, string? Error)> _readyByAgent = new();
+    // Per-agent CLI readiness. Replaces the previous single-bool `ready`
+    // gate (fix for #6 in the 2026-08-28 review): a binary can be present
+    // while the credential is missing, and that must surface in /health
+    // and the install script. The combined `ready` flag is honored by
+    // the installer.
+    private readonly ConcurrentDictionary<string, AgentReadiness> _readinessByAgent = new();
     private readonly Dictionary<long, ActiveExecution> _active = new();
 
     public DateTimeOffset StartedAt { get; } = DateTimeOffset.UtcNow;
@@ -66,16 +68,17 @@ public sealed class WorkerState
         _totalByAgent.AddOrUpdate(agentType, 1, (_, v) => v + 1);
 
     /// <summary>
-    /// Mark an agent's CLI as ready (or not). Called by <c>ReadinessProbe</c>
-    /// at startup; replaces the previous "DI presence = ready" assumption
-    /// (#5 in the 2026-08-28 review).
+    /// Replace the readiness report for an agent. Called by
+    /// <see cref="Agents.ReadinessProbe"/> at startup; replaces the
+    /// previous single-bool `ready` field (#5 / #6 in the 2026-08-28
+    /// review).
     /// </summary>
-    public void SetAgentReady(string agentType, bool ready, string? error = null) =>
-        _readyByAgent[agentType] = (ready, error);
+    public void SetAgentReport(string agentType, AgentReadiness report) =>
+        _readinessByAgent[agentType] = report;
 
     /// <summary>True iff every registered agent reported <c>ready=true</c>.</summary>
     public bool AllAgentsReady(IReadOnlyCollection<string> registeredAgents) =>
-        registeredAgents.All(a => _readyByAgent.TryGetValue(a, out var r) && r.Ready);
+        registeredAgents.All(a => _readinessByAgent.TryGetValue(a, out var r) && r.Ready);
 
     /// <summary>Snapshot consumed by /health, /api/worker, and heartbeat payload.</summary>
     public object Snapshot(IReadOnlyCollection<string> registeredAgents, int maxConcurrency, int running, int queued)
@@ -83,12 +86,19 @@ public sealed class WorkerState
         var agents = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
         foreach (var a in registeredAgents)
         {
-            var (ready, error) = _readyByAgent.TryGetValue(a, out var r) ? r : (false, "probe not run");
+            var readiness = _readinessByAgent.TryGetValue(a, out var r)
+                ? r
+                : new AgentReadiness(false, "probe not run", false, "probe not run");
             agents[a] = new
             {
                 registered = true,
-                ready,
-                ready_error = error,
+                cli_ready = readiness.CliReady,
+                cli_error = readiness.CliError,
+                credential_ready = readiness.CredentialReady,
+                credential_error = readiness.CredentialError,
+                ready = readiness.Ready,
+                ready_error = readiness.Ready ? null
+                    : (readiness.CliReady ? readiness.CredentialError : readiness.CliError),
                 running = _runningByAgent.GetValueOrDefault(a),
                 total_executions = _totalByAgent.GetValueOrDefault(a),
                 last_used_at = _lastUsedByAgent.TryGetValue(a, out var ts) ? ts : (DateTimeOffset?)null,

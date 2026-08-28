@@ -193,6 +193,22 @@ public sealed class ExecutionStore
         return await rows.ReadAsync(ct) ? Read(rows) : null;
     }
 
+    /// <summary>
+    /// Look up an existing execution row by its stable <c>execution_key</c>.
+    /// Used by the Coordinator to resolve UNIQUE collisions during crash
+    /// recovery (fix for #4 in the 2026-08-28 review).
+    /// </summary>
+    public async Task<ExecutionRecord?> GetByKeyAsync(string executionKey, CancellationToken ct = default)
+    {
+        await using var c = new SqliteConnection(_connectionString);
+        await c.OpenAsync(ct);
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT id,workload_id,workload_type,round,reason,source,agent_type,status,started_at,finished_at,exit_code,output,error,failure_reason,error_stack,payload FROM executions WHERE execution_key=$key";
+        cmd.Parameters.AddWithValue("$key", executionKey);
+        await using var rows = await cmd.ExecuteReaderAsync(ct);
+        return await rows.ReadAsync(ct) ? Read(rows) : null;
+    }
+
     public async Task<bool> QueueRetryAsync(long id, CancellationToken ct = default)
     {
         await using var c = new SqliteConnection(_connectionString);

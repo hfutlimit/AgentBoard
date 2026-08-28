@@ -62,7 +62,15 @@ param(
     # `where.exe` probes and the eventual service share the same PATH /
     # profile / npm-global layout. Override only if you have installed the
     # agent CLIs in a system-wide location reachable by the target account.
-    [string]$ServiceAccount = ".\$env:USERNAME",
+    #
+    # IMPORTANT: this default requires a credential. If the operator runs
+    # the script without supplying -ServiceCredential, the script will
+    # *prompt* via Get-Credential instead of silently falling back to
+    # LocalSystem (which is what the previous version did). The
+    # fallback-to-LocalSystem path always produces an identity mismatch
+    # with the pre-flight probes (CLIs are in user-only paths) — fix for
+    # #7 in the 2026-08-28 review.
+    [string]$ServiceAccount,
     [System.Management.Automation.PSCredential]$ServiceCredential,
     [switch]$Uninstall
 )
@@ -89,13 +97,17 @@ $PortalBase = 'http://127.0.0.1:58240'
 $PreFlightIdentity = whoami
 
 # Service account is the target identity for the registered Windows service.
-# When `-ServiceAccount` is the default (`.\<current user>`), pre-flight and
-# the service see the same PATH / profile / npm-global directory.
-$ResolvedServiceAccount = $ServiceAccount
-if ($ResolvedServiceAccount -eq ".\$env:USERNAME" -or
-    [string]::IsNullOrWhiteSpace($ResolvedServiceAccount)) {
-    $ResolvedServiceAccount = ".\$env:USERNAME"
+# Default: the actual current user from `whoami` (handles DOMAIN\user, local
+# accounts, and builtin identities correctly; the previous `.\$env:USERNAME`
+# forced local-account formatting and broke for domain users). When the
+# operator did not pass -ServiceCredential and -ServiceAccount was not
+# overridden, prompt for one. The previous version silently fell back to
+# LocalSystem in that case, which always produced an identity mismatch with
+# the pre-flight probes (#7 in the 2026-08-28 review).
+if ([string]::IsNullOrWhiteSpace($ServiceAccount)) {
+    $ServiceAccount = $PreFlightIdentity
 }
+$ResolvedServiceAccount = $ServiceAccount
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -395,13 +407,23 @@ $scArgs = @(
 # and the service see the same PATH / profile. Credentials are passed via
 # `-ServiceCredential` (SecureString); when missing, fall back to LocalSystem
 # only if the operator has installed CLIs in a system-wide location.
-if ($ResolvedServiceAccount -ne 'LocalSystem' -and $ServiceCredential) {
+if ($ResolvedServiceAccount -ne 'LocalSystem') {
+    if (-not $ServiceCredential) {
+        Write-Host ''
+        Write-Host "  Service will run as '$ResolvedServiceAccount' (matched your current user). sc.exe requires" -ForegroundColor Cyan
+        Write-Host "  the account password to set obj=. Get-Credential will pop a Windows prompt." -ForegroundColor Cyan
+        Write-Host "  (If the account does not have a password — e.g. a managed service account — pass" -ForegroundColor Cyan
+        Write-Host "  -ServiceAccount LocalSystem instead and install the agent CLIs system-wide.)" -ForegroundColor Cyan
+        Write-Host ''
+        $ServiceCredential = Get-Credential -Message "Enter the password for $ResolvedServiceAccount (or Ctrl-C to abort)"
+        if (-not $ServiceCredential) {
+            throw "No credential supplied for $ResolvedServiceAccount; cannot create the service. Re-run with -ServiceCredential or -ServiceAccount LocalSystem."
+        }
+    }
     $scArgs += @('obj=', $ResolvedServiceAccount, 'password=', $ServiceCredential.GetNetworkCredential().Password)
-} elseif ($ResolvedServiceAccount -ne 'LocalSystem' -and -not $ServiceCredential) {
-    Write-Host ''
-    Write-Host "  Service will run as LocalSystem because no credential was supplied for $ResolvedServiceAccount." -ForegroundColor Yellow
-    Write-Host "  Make sure the agent CLIs are reachable from LocalSystem's PATH." -ForegroundColor Yellow
-    Write-Host ''
+} else {
+    Write-Host "  Service will run as LocalSystem (default). Make sure the agent CLIs are" -ForegroundColor Cyan
+    Write-Host "  reachable from LocalSystem's PATH (e.g. system-wide npm-global, system PATH)." -ForegroundColor Cyan
 }
 
 & sc.exe @scArgs | Out-Null

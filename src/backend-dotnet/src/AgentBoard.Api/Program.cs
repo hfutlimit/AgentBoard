@@ -47,7 +47,14 @@ builder.Services.AddAuthorization();
 // the same traceparent + X-Request-Id so the .NET -> FastAPI call continues
 // one distributed trace. The handler is a no-op until the client is used.
 builder.Services.AddTransient<TracePropagationDelegatingHandler>();
-var fastApiInternalUrl = Environment.GetEnvironmentVariable("AGENTBOARD_FASTAPI__INTERNALURL")
+// Read the FastAPI base URL from configuration so the env var
+// `AgentBoard__FastApi__InternalUrl` (PascalCase, `__` delimiter) actually
+// binds. The previous version read `AGENTBOARD_FASTAPI__INTERNALURL`
+// (uppercase, no case folding) directly via Environment, which silently
+// ignored the compose env var and always fell back to `http://api:8000`
+// — fine for the default case but unable to honor operator overrides. Fix
+// for the 2026-08-28 review P2.
+var fastApiInternalUrl = builder.Configuration["AgentBoard:FastApi:InternalUrl"]
 	?? "http://api:8000";
 if (Uri.TryCreate(fastApiInternalUrl, UriKind.Absolute, out var fastApiUri))
 {

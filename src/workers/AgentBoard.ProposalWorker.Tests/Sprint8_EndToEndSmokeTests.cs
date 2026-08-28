@@ -174,7 +174,12 @@ public sealed class Sprint8_EndToEndSmokeTests
 
         await probe.RunAllAsync(CancellationToken.None);
 
-        state.SetAgentReady("fake", true);
+        // ReadinessProbe.RunAllAsync already set the per-agent AgentReadiness
+        // report for "fake" via WorkerState.SetAgentReport (Ready=true via
+        // AllOk()); the old `SetAgentReady(agentType, bool)` overload no
+        // longer exists after the cli_ready / credential_ready split (#6 in
+        // the 2026-08-28 review). AllAgentsReady should now observe the
+        // probe's own report and return true.
         Assert.True(state.AllAgentsReady(registry.RegisteredAgents));
     }
 

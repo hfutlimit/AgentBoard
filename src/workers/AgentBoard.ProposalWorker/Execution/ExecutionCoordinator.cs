@@ -54,6 +54,9 @@ public sealed class ExecutionCoordinator
         ex.SqliteErrorCode == 19
         && (ex.SqliteExtendedErrorCode == 1555 || ex.SqliteExtendedErrorCode == 2067);
 
+    private static bool IsTerminal(string status) =>
+        status is "Succeeded" or "Failed" or "TimedOut" or "Cancelled";
+
     public async Task ExecuteAsync(ExecutionRequest request, long inboxId, CancellationToken ct)
     {
         if (_state.Paused)
@@ -91,10 +94,41 @@ public sealed class ExecutionCoordinator
         }
         catch (Microsoft.Data.Sqlite.SqliteException ex) when (IsUniqueViolation(ex))
         {
-            // UNIQUE(execution_key) violation is the only realistic case
-            // (double-dispatch race). Treat as already-handled, mark inbox
-            // completed so we don't loop.
-            _log.LogWarning("Execution {Key} hit UNIQUE constraint; assuming duplicate dispatch", request.ExecutionKey);
+            // UNIQUE(execution_key) violation. Two realistic causes:
+            //   (a) duplicate dispatch race — the same execution_key is
+            //       already in the executions table because a parallel
+            //       consumer (or our own previous attempt) wrote it first.
+            //   (b) crash recovery: a previous worker session inserted the
+            //       row, then crashed mid-execution. The execution is
+            //       stuck in `Running` (MarkOrphansAsync only handles rows
+            //       older than OrphanThresholdMinutes — default 30 min) and
+            //       the inbox row was reset to `pending` by our startup
+            //       recovery, so the dispatcher handed it back to us.
+            //       Without intervention, this would loop forever: every
+            //       startup re-attempts, every StartAsync hits UNIQUE, every
+            //       catch path MarkCompleted the inbox, and the running
+            //       execution sits as a ghost for up to 30 minutes.
+            //
+            //   Fix for #4 in the 2026-08-28 review: actively resolve the
+            //   existing execution so the inbox row can complete cleanly
+            //   AND the executions table does not retain a fake-Running
+            //   ghost. Mark it TimedOut (terminal) immediately, mark inbox
+            //   completed, log both so an operator can see the force-orphan
+            //   in the audit trail.
+            var existing = await _store.GetByKeyAsync(request.ExecutionKey, ct);
+            if (existing is not null && !IsTerminal(existing.Status))
+            {
+                _log.LogWarning(
+                    "Execution {Key} hit UNIQUE constraint with an existing non-terminal row id={Id} status={Status}; force-orphaning to TimedOut",
+                    request.ExecutionKey, existing.Id, existing.Status);
+                await _store.MarkTimedOutAsync(existing.Id,
+                    "orphaned by StartAsync UNIQUE collision (startup recovery)",
+                    existing.Output, ct);
+            }
+            else
+            {
+                _log.LogWarning("Execution {Key} hit UNIQUE constraint; assuming duplicate dispatch (existing={Status})", request.ExecutionKey, existing?.Status);
+            }
             await _inbox.MarkCompletedAsync(inboxId, ct);
             return;
         }

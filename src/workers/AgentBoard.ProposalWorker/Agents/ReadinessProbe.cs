@@ -7,16 +7,20 @@ using Microsoft.Extensions.Options;
 namespace AgentBoard.ProposalWorker.Agents;
 
 /// <summary>
-/// Startup CLI readiness probe. For each registered agent, resolve the CLI
-/// via <see cref="CliLocator"/> and run a short <c>--version</c> probe under
-/// the worker's own identity. The result is stored on <see cref="WorkerState"/>
-/// so /health distinguishes <c>registered=true</c> from <c>ready=true</c>.
+/// Startup CLI readiness probe. For each registered agent the probe splits
+/// the check into two distinct gates so a false "ready" is no longer
+/// possible:
 ///
-/// Fix for #5 in the 2026-08-28 review: prior versions only checked DI
-/// presence, which let a "green" installer report success even when the
-/// CLI was missing, the API key was unset, or the CLI failed to spawn.
+///   * <c>cli_ready</c>     — the CLI binary resolves and exits 0 on --version.
+///   * <c>credential_ready</c> — every required credential (e.g.
+///                              <c>ApiKeyEnv</c>) is present in the worker
+///                              process environment.
 ///
-/// FakeAdapter never spawns anything, so it is always reported ready.
+/// The combined <see cref="AgentReadiness.Ready"/> bool is what the
+/// installer / /health report honours. Fix for #5 (initial) and #6
+/// (ApiKeyEnv false positive) in the 2026-08-28 review.
+///
+/// FakeAdapter never spawns anything, so it is always <c>Ready=true</c>.
 /// </summary>
 public sealed class ReadinessProbe
 {
@@ -47,40 +51,95 @@ public sealed class ReadinessProbe
         {
             try
             {
-                var (ready, error) = await ProbeOneAsync(agentType, ct);
-                _state.SetAgentReady(agentType, ready, error);
-                if (ready)
+                var report = await ProbeOneAsync(agentType, ct);
+                _state.SetAgentReport(agentType, report);
+                if (report.Ready)
                 {
-                    _log.LogInformation("Readiness: {Agent} = ready", agentType);
+                    _log.LogInformation(
+                        "Readiness: {Agent} = ready (cli={Cli}, credential={Cred})",
+                        agentType, report.CliReady, report.CredentialReady);
                 }
                 else
                 {
-                    _log.LogWarning("Readiness: {Agent} = NOT ready ({Error})", agentType, error);
+                    _log.LogWarning(
+                        "Readiness: {Agent} = NOT ready (cli={Cli} {CliError}; credential={Cred} {CredError})",
+                        agentType, report.CliReady, report.CliError,
+                        report.CredentialReady, report.CredentialError);
                 }
             }
             catch (Exception ex)
             {
-                // Defensive: any unexpected exception must not crash startup.
-                _state.SetAgentReady(agentType, false, ex.Message);
+                _state.SetAgentReport(agentType,
+                    new AgentReadiness(CliReady: false, CliError: ex.Message,
+                                       CredentialReady: false, CredentialError: "probe threw"));
                 _log.LogError(ex, "Readiness: {Agent} probe threw", agentType);
             }
         }
     }
 
-    private async Task<(bool Ready, string? Error)> ProbeOneAsync(string agentType, CancellationToken ct)
+    private async Task<AgentReadiness> ProbeOneAsync(string agentType, CancellationToken ct)
     {
         // FakeAdapter is in-process; it never spawns a CLI.
         if (string.Equals(agentType, "fake", StringComparison.OrdinalIgnoreCase))
         {
-            return (true, null);
+            return AgentReadiness.AllOk();
         }
 
         var opts = ResolveOpts(agentType);
         if (opts is null)
         {
-            return (false, $"no AgentOptions bound for agent_type '{agentType}'");
+            return new AgentReadiness(
+                CliReady: false,
+                CliError: $"no AgentOptions bound for agent_type '{agentType}'",
+                CredentialReady: true,
+                CredentialError: null);
         }
 
+        // Credential gate — independent of the CLI invocation so a
+        // missing env var surfaces even when the CLI itself is present.
+        var cred = CheckCredential(opts);
+        if (!cred.CredentialReady)
+        {
+            // No point spawning the binary if the credential is missing;
+            // the adapter will throw at execution time. Surface it now.
+            // We still try the CLI binary so the operator gets both
+            // failure modes in the report.
+            var cliOnly = await ProbeCliAsync(agentType, opts, ct);
+            return cliOnly.WithCredential(cred.CredentialReady, cred.CredentialError);
+        }
+
+        var cli = await ProbeCliAsync(agentType, opts, ct);
+        return cli.WithCredential(cred.CredentialReady, cred.CredentialError);
+    }
+
+    private static AgentReadiness CheckCredential(AgentOptions opts)
+    {
+        // Only API-key mode is currently a hard requirement. CODEX_HOME
+        // (ChatGPT login) and other env-driven auth flows are not
+        // detectable from the worker process; the operator must verify
+        // those manually. We surface what we can.
+        if (string.IsNullOrWhiteSpace(opts.ApiKeyEnv))
+        {
+            // The adapter does not require an API key from env (e.g. it
+            // uses CODEX_HOME login, or the CLI is not used). Treat as
+            // ready.
+            return new AgentReadiness(CliReady: true, CliError: null,
+                                      CredentialReady: true, CredentialError: null);
+        }
+        var v = Environment.GetEnvironmentVariable(opts.ApiKeyEnv);
+        if (!string.IsNullOrWhiteSpace(v))
+        {
+            return new AgentReadiness(CliReady: true, CliError: null,
+                                      CredentialReady: true, CredentialError: null);
+        }
+        return new AgentReadiness(
+            CliReady: true, CliError: null,
+            CredentialReady: false,
+            CredentialError: $"env var '{opts.ApiKeyEnv}' is not set; the adapter will throw InvalidOperationException on first use");
+    }
+
+    private async Task<AgentReadiness> ProbeCliAsync(string agentType, AgentOptions opts, CancellationToken ct)
+    {
         ResolvedCli resolved;
         try
         {
@@ -94,21 +153,26 @@ public sealed class ReadinessProbe
         }
         catch (CliNotFoundException ex)
         {
-            return (false, ex.Message);
+            return new AgentReadiness(CliReady: false, CliError: ex.Message,
+                                       CredentialReady: true, CredentialError: null);
         }
 
         // Build a small probe spec: spawn the resolved CLI with `--version`
-        // and a short timeout. No stdin payload, no env (the probe verifies
-        // the binary itself, not business state).
+        // and a short timeout. No stdin payload (the probe verifies the
+        // binary itself, not business state).
         var probeArgs = new List<string>(resolved.PrefixArguments);
-        // The `--version` flag is the de-facto standard; if the CLI rejects
-        // it the probe surfaces that immediately. We do NOT pre-pend the
-        // adapter's `opts.Arguments` because some adapters (e.g. codex)
-        // already include `exec` which makes `--version` ambiguous.
         probeArgs.Add("--version");
 
         var env = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         foreach (var (k, v) in resolved.ExtraEnv) env[k] = v;
+        // Also include the API key in the probe env if set, so the CLI does
+        // not fail to start because of a missing variable that the real
+        // invocation would have.
+        if (!string.IsNullOrWhiteSpace(opts.ApiKeyEnv))
+        {
+            var apiKey = Environment.GetEnvironmentVariable(opts.ApiKeyEnv);
+            if (!string.IsNullOrWhiteSpace(apiKey)) env[opts.ApiKeyEnv] = apiKey;
+        }
 
         var spec = new ProcessSpec
         {
@@ -127,22 +191,29 @@ public sealed class ReadinessProbe
             var result = await _process.ExecuteAsync(spec, ct);
             if (result.TimedOut)
             {
-                return (false, $"timeout after {ProbeTimeout.TotalSeconds:F0}s");
+                return new AgentReadiness(CliReady: false,
+                    CliError: $"timeout after {ProbeTimeout.TotalSeconds:F0}s",
+                    CredentialReady: true, CredentialError: null);
             }
             if (result.Cancelled)
             {
-                return (false, "cancelled");
+                return new AgentReadiness(CliReady: false, CliError: "cancelled",
+                                          CredentialReady: true, CredentialError: null);
             }
             if (result.ExitCode != 0)
             {
                 var tail = string.IsNullOrEmpty(result.StderrTail) ? result.OutputTail : result.StderrTail;
-                return (false, $"exit {result.ExitCode}: {Truncate(tail, 200)}");
+                return new AgentReadiness(CliReady: false,
+                    CliError: $"exit {result.ExitCode}: {Truncate(tail, 200)}",
+                    CredentialReady: true, CredentialError: null);
             }
-            return (true, null);
+            return new AgentReadiness(CliReady: true, CliError: null,
+                                       CredentialReady: true, CredentialError: null);
         }
         catch (Exception ex)
         {
-            return (false, ex.Message);
+            return new AgentReadiness(CliReady: false, CliError: ex.Message,
+                                       CredentialReady: true, CredentialError: null);
         }
     }
 
@@ -157,4 +228,23 @@ public sealed class ReadinessProbe
 
     private static string Truncate(string s, int max) =>
         s.Length <= max ? s : s[..max] + "...";
+}
+
+/// <summary>
+/// Per-agent readiness split into <c>cli_ready</c> and
+/// <c>credential_ready</c>. The combined <see cref="Ready"/> bool is what
+/// the installer / /health report honours.
+/// </summary>
+public sealed record AgentReadiness(bool CliReady, string? CliError, bool CredentialReady, string? CredentialError)
+{
+    /// <summary>True iff both the CLI binary and the required credentials are present.</summary>
+    public bool Ready => CliReady && CredentialReady;
+
+    /// <summary>All gates pass. Used for fake / non-spawning adapters.</summary>
+    public static AgentReadiness AllOk() =>
+        new(true, null, true, null);
+
+    /// <summary>Replace the credential half of an existing readiness report.</summary>
+    public AgentReadiness WithCredential(bool ready, string? error) =>
+        new(CliReady, CliError, ready, error);
 }

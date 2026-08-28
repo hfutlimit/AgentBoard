@@ -81,7 +81,6 @@ using (var scope = app.Services.CreateScope())
 {
     var store = scope.ServiceProvider.GetRequiredService<ExecutionStore>();
     var inbox = scope.ServiceProvider.GetRequiredService<InboxStore>();
-    var channel = scope.ServiceProvider.GetRequiredService<ExecutionChannel>();
     var workerOpts = scope.ServiceProvider.GetRequiredService<IOptions<WorkerOptions>>().Value;
     var registry = scope.ServiceProvider.GetRequiredService<IAgentAdapterRegistry>();
     var log = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
@@ -89,21 +88,16 @@ using (var scope = app.Services.CreateScope())
     await store.MarkOrphansAsync(workerOpts.OrphanThresholdMinutes, CancellationToken.None);
     await inbox.ResetStuckDispatchingAsync(CancellationToken.None);
 
-    // Re-enqueue every inbox row that survived startup in `pending` state.
-    // Fix for #6 in the 2026-08-28 review: a crash between TryEnqueueAsync
-    // and Channel.Writer.WriteAsync previously left a row stuck in pending
-    // forever, because RabbitMQ redelivery hits `isNew=false` and the
-    // consumer ACK-and-drops. By repopulating the channel at startup, the
-    // dispatcher picks the work up exactly once via its existing CAS claim.
-    var pending = await inbox.ListPendingAsync(CancellationToken.None);
-    foreach (var flight in pending)
-    {
-        await channel.Writer.WriteAsync(flight, CancellationToken.None);
-    }
-    if (pending.Count > 0)
-    {
-        log.LogWarning("Re-enqueued {Count} pending inbox rows from previous run (startup recovery)", pending.Count);
-    }
+    // Pending inbox rows are NOT preloaded into the channel here on purpose.
+    // The previous version did a `foreach (flight) await channel.WriteAsync`
+    // BEFORE `app.Run()` started the ExecutionDispatcher HostedService, so
+    // the bounded channel (capacity = 100) would deadlock when the
+    // backlog exceeded 100 — the writer blocks on WriteAsync forever because
+    // the consumer is not yet running. ExecutionDispatcher now drains
+    // `pending` itself at startup via ListPendingAsync (see ExecutionDispatcher
+    // constructor / startup), and the channel is the dispatcher→coordinator
+    // hand-off only, not the durable-buffer-to-memory path (#2 in the
+    // 2026-08-28 review).
 
     await readiness.RunAllAsync(CancellationToken.None);
     log.LogInformation("AgentBoard Worker started; registered agents: [{List}]", string.Join(", ", registry.RegisteredAgents));
