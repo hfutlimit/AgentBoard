@@ -129,8 +129,14 @@ def test_rest_api():
 
         # 状态流转（合法/非法）— 5 状态集: todo/in_progress/in_review/done/blocked
         # done 状态必填 status_reason(Story 265 收敛)
+        # Review 2026-08-26 P1 #3: 通用 set_status 不再接受 {todo,in_progress} → done
+        # 跳变；必须走 todo → in_progress → in_review → done 的真实 Review 路径。
+        # 这里验证状态机合法边, 不验证 reviewer 业务校验(那是 test_run_authorization)。
         assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "in_progress"}).status_code == 200
+        assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "in_review"}).status_code == 200
         assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "done", "status_reason": "completed"}).status_code == 200
+        # 非法跳变: done → in_progress 允许(re-open), 但 done → todo 不允许
+        assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "todo"}).status_code in (400, 422)
         # 未知 status 返回 400(5 状态机校验失败)
         assert c.put(f"/api/tasks/{t['id']}/status", json={"status": "backlog"}).status_code == 400
 

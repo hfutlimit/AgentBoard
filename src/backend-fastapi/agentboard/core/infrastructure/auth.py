@@ -35,10 +35,17 @@ _TOKEN_TTL_SECONDS = int(os.getenv("AGENTBOARD_TOKEN_TTL_SECONDS", "172800"))
 # production 模式下这些项必须显式收紧,否则 validate_runtime_security() fail-fast。
 # 字段：(env var, 代码层默认值, 不安全取值集合, 描述)
 # 默认值必须与 api_helpers.py / features/auth/router.py / core/config.py 的 os.getenv 兜底一致。
+#
+# AGENTBOARD_MCP_REQUIRE_AUTH：MCP HTTP transport（默认 8001 端口）暴露约 100
+# 个写工具（create_project / delete_task / create_webhook / agent_register 等），
+# 关闭时 = 远程可触达的写权限开放面。production 必须为 1。
 _DEV_INSECURE_DEFAULTS = (
     ("AGENTBOARD_REQUIRE_AUTH", "0", {"0", "no", "false", ""}, "anonymous CRUD (REQUIRE_AUTH=0)"),
     ("AGENTBOARD_ALLOW_REGISTRATION", "1", {"1", "true", "yes"}, "open registration (ALLOW_REGISTRATION=1)"),
     ("AGENTBOARD_CORS_ORIGINS", "*", {"*"}, "wildcard CORS (CORS_ORIGINS=*)"),
+    ("AGENTBOARD_MCP_REQUIRE_AUTH", "0", {"0", "no", "false", ""},
+     "anonymous MCP HTTP transport (MCP_REQUIRE_AUTH=0) — "
+     "~100 write tools reachable without a token"),
 )
 
 
@@ -84,6 +91,16 @@ def validate_runtime_security() -> None:
         raise RuntimeError("production requires AGENTBOARD_REQUIRE_AUTH=1")
     if _has_wildcard_cors():
         raise RuntimeError("production requires an explicit AGENTBOARD_CORS_ORIGINS allowlist")
+    # MCP HTTP transport default-secure: mcp_server.py:45 默认 REQUIRE_AUTH=0,
+    # mcp_server.py:66 当 REQUIRE_AUTH=0 时 auth=None 装载 (~100 写工具对网络开放)。
+    # 历史上 validate_runtime_security 不校验这一项 → 任何「SECRET 安全 +
+    # CORS 收紧 + REQUIRE_AUTH=1」的生产实例仍可能开开放端点。现补上。
+    if os.getenv("AGENTBOARD_MCP_REQUIRE_AUTH", "0").lower() not in {"1", "true", "yes"}:
+        raise RuntimeError(
+            "production requires AGENTBOARD_MCP_REQUIRE_AUTH=1 "
+            "(the MCP HTTP transport on :8001 exposes ~100 write tools; "
+            "without auth they are reachable from the network)"
+        )
     # ALLOW_REGISTRATION=1 在 production 不 raise（维护窗口需临时注册新 Agent 账号,
     # 详见 README「生产环境部署前必读」）；仅记录 WARNING 提醒事后恢复为 0。
     if os.getenv("AGENTBOARD_ALLOW_REGISTRATION", "1").lower() in {"1", "true", "yes"}:

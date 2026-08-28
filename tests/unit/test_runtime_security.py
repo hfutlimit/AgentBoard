@@ -55,11 +55,18 @@ def _spy_logger_warning(monkeypatch: pytest.MonkeyPatch) -> List[str]:
 
 
 def _set_prod_secure_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """配置全安全的 production 环境变量。"""
+    """配置全安全的 production 环境变量。
+
+    As of 2026-08-28, ``validate_runtime_security()`` also enforces
+    ``AGENTBOARD_MCP_REQUIRE_AUTH=1`` in production (MCP HTTP transport
+    on :8001 exposes ~100 write tools). This helper now sets that
+    too, so the "all-secure" tests below do not trip the new check.
+    """
     monkeypatch.setenv("AGENTBOARD_ENV", "production")
     monkeypatch.setenv("AGENTBOARD_REQUIRE_AUTH", "1")
     monkeypatch.setenv("AGENTBOARD_ALLOW_REGISTRATION", "0")
     monkeypatch.setenv("AGENTBOARD_CORS_ORIGINS", "https://agentboard.example.com")
+    monkeypatch.setenv("AGENTBOARD_MCP_REQUIRE_AUTH", "1")
     monkeypatch.setattr(_auth_mod, "_SECRET", _STRONG_SECRET)
 
 
@@ -109,6 +116,7 @@ class TestDevModeNoRaise:
         monkeypatch.setenv("AGENTBOARD_REQUIRE_AUTH", "1")
         monkeypatch.setenv("AGENTBOARD_ALLOW_REGISTRATION", "0")
         monkeypatch.setenv("AGENTBOARD_CORS_ORIGINS", "https://localhost:28080")
+        monkeypatch.setenv("AGENTBOARD_MCP_REQUIRE_AUTH", "1")
         monkeypatch.setattr(_auth_mod, "_SECRET", _STRONG_SECRET)
 
         messages = _spy_logger_warning(monkeypatch)
