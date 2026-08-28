@@ -134,6 +134,28 @@ public sealed class InboxStore
     }
 
     /// <summary>
+    /// Atomic revert: <c>dispatching → pending</c>. Used by the Coordinator
+    /// when it sees <see cref="AgentBoard.ProposalWorker.WorkerState.Paused"/>
+    /// AFTER the Dispatcher has already moved the row to <c>dispatching</c>.
+    /// Without this revert the row sits in <c>dispatching</c> forever (the
+    /// Dispatcher won't re-claim a non-pending row, and no startup-recovery
+    /// will fire until the worker restarts). Fix for #4 in the 2026-08-28 review.
+    /// </summary>
+    public async Task MarkPendingAsync(long inboxId, CancellationToken ct)
+    {
+        await using var c = new SqliteConnection(_connectionString);
+        await c.OpenAsync(ct);
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            UPDATE worker_execution_inbox
+            SET status='pending', dispatched_at=NULL
+            WHERE id=$id AND status='dispatching'
+            """;
+        cmd.Parameters.AddWithValue("$id", inboxId);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>
     /// Startup recovery: any row stuck in <c>dispatching</c> from a previous
     /// crash gets reset to <c>pending</c> so it can be re-dispatched.
     /// </summary>

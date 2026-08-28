@@ -47,7 +47,7 @@ public sealed class Sprint8_EndToEndSmokeTests
         // Start a real dispatcher so the channel gets drained and the
         // coordinator marks the inbox row completed.
         var coordinator = new ExecutionCoordinator(
-            fx.Store, fx.Inbox, registry, state, NullLogger<ExecutionCoordinator>.Instance);
+            fx.Store, fx.Inbox, channel, registry, state, NullLogger<ExecutionCoordinator>.Instance);
         var dispatcher = new ExecutionDispatcher(
             channel, fx.Inbox, coordinator, NullLogger<ExecutionDispatcher>.Instance);
         using var dispatcherCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -131,7 +131,7 @@ public sealed class Sprint8_EndToEndSmokeTests
             newChannel,
             second.Inbox,
             new ExecutionCoordinator(
-                second.Store, second.Inbox, registry, state,
+                second.Store, second.Inbox, newChannel, registry, state,
                 NullLogger<ExecutionCoordinator>.Instance),
             NullLogger<ExecutionDispatcher>.Instance);
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -193,6 +193,77 @@ public sealed class Sprint8_EndToEndSmokeTests
         var configured = new WorkerIdentity(Options.Create(new WorkerOptions { Id = "prod-01", Version = "1.0.0" }));
         Assert.Equal("prod-01", configured.WorkerId);
         Assert.Equal("config", configured.ResolvedFrom);
+    }
+
+    [Fact]
+    public async Task Paused_coordinator_reverts_inbox_to_pending_and_reenqueues()
+    {
+        // Fix for #4 in the 2026-08-28 review: the previous Coordinator
+        // returned early when Paused, leaving the row in `dispatching`
+        // forever. It must atomically revert to `pending` AND re-enqueue
+        // the flight so the Dispatcher picks it up on Resume.
+        using var fx = new TempDbFixture();
+        var (registry, fake, channel, state) = BuildStack(fx, "fake");
+
+        var req = new ExecutionRequest(
+            ExecutionKey: "smoke-paused",
+            WorkloadType: "proposal",
+            WorkloadId: 7,
+            AgentType: "fake",
+            Round: 0,
+            Source: "smoke",
+            PayloadJson: "{\"proposal_id\":7}");
+        var (inboxId, _) = await fx.Inbox.TryEnqueueAsync(req, CancellationToken.None);
+        await fx.Inbox.TryClaimAsync(inboxId, CancellationToken.None);
+
+        // Simulate the dispatching-handoff already happened: row is
+        // dispatching. Now the operator clicks Pause just before the
+        // Coordinator runs.
+        var rowBefore = await fx.Inbox.GetAsync(inboxId);
+        Assert.Equal("dispatching", rowBefore!.Status);
+
+        // Adapter was NOT invoked while paused.
+        Assert.Equal(0, fake.CallCount);
+
+        // Run the paused branch on the Coordinator. It must:
+        //   (a) atomically revert the inbox row to `pending`, AND
+        //   (b) re-enqueue the flight into the channel.
+        state.Paused = true;
+        var coordinator = new ExecutionCoordinator(
+            fx.Store, fx.Inbox, channel, registry, state,
+            NullLogger<ExecutionCoordinator>.Instance);
+        await coordinator.ExecuteAsync(req, inboxId, CancellationToken.None);
+
+        // (a) row is back to pending — the previous version left it in
+        // dispatching and the comment was a lie.
+        var rowAfter = await fx.Inbox.GetAsync(inboxId);
+        Assert.Equal("pending", rowAfter!.Status);
+
+        // (b) channel has the re-enqueued flight. We do NOT consume it here
+        // so the Dispatcher can pick it up after Resume.
+        Assert.True(channel.Reader.TryPeek(out var peeked));
+        Assert.Equal(inboxId, peeked.InboxId);
+
+        // The Dispatcher honors Paused and does NOT drain while we hold it.
+        state.Paused = true;
+        var dispatcher = new ExecutionDispatcher(
+            channel, fx.Inbox, coordinator, NullLogger<ExecutionDispatcher>.Instance);
+        using var dispatcherCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await dispatcher.StartAsync(dispatcherCts.Token);
+        await Task.Delay(500);
+        Assert.Equal(0, fake.CallCount); // still paused → no execution
+        var rowWhilePaused = await fx.Inbox.GetAsync(inboxId);
+        Assert.Equal("pending", rowWhilePaused!.Status);
+
+        // Resume. Dispatcher drains, re-claims, runs Coordinator (not paused),
+        // adapter fires, row reaches completed.
+        state.Paused = false;
+        await WaitForInboxTerminal(fx, inboxId, TimeSpan.FromSeconds(5));
+        await dispatcher.StopAsync(CancellationToken.None);
+
+        Assert.Equal(1, fake.CallCount);
+        var finalRow = await fx.Inbox.GetAsync(inboxId);
+        Assert.Equal("completed", finalRow!.Status);
     }
 
     // -------- helpers --------

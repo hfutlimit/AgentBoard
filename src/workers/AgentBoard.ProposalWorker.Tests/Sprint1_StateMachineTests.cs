@@ -143,8 +143,9 @@ public sealed class Sprint1_StateMachineTests : IDisposable
     {
         var registry = new AgentAdapterRegistry(new[] { adapter }, NullLogger<AgentAdapterRegistry>.Instance);
         var state = new WorkerState(Options.Create(_fx.Options), new WorkerIdentity(Options.Create(_fx.Options)));
+        var channel = new ExecutionChannel(Options.Create(_fx.Options));
         return new ExecutionCoordinator(
-            _fx.Store, _fx.Inbox, registry, state,
+            _fx.Store, _fx.Inbox, channel, registry, state,
             NullLogger<ExecutionCoordinator>.Instance);
     }
 

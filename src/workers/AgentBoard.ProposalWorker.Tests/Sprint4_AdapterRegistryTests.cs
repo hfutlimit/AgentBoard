@@ -155,7 +155,8 @@ public sealed class Sprint4_AdapterRegistryTests
         var codex = FakeAgentAdapter.Success("codex");
         var registry = new AgentAdapterRegistry(new IAgentAdapter[] { workbuddy, minimax, codex }, NullLogger<AgentAdapterRegistry>.Instance);
         var state = new WorkerState(opts, new WorkerIdentity(opts));
-        var coord = new ExecutionCoordinator(store, inbox, registry, state, NullLogger<ExecutionCoordinator>.Instance);
+        var channel = new ExecutionChannel(opts);
+        var coord = new ExecutionCoordinator(store, inbox, channel, registry, state, NullLogger<ExecutionCoordinator>.Instance);
 
         foreach (var (agent, id) in new[] { ("workbuddy", 1L), ("minimax", 2L), ("codex", 3L) })
         {

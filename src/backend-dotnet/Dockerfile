@@ -45,7 +45,16 @@ FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
 # Non-root user for runtime hardening.
-RUN groupadd --system --gid 1001 agentboard \
+# Also install `curl` so the HEALTHCHECK below can hit /api/health.
+# mcr.microsoft.com/dotnet/aspnet:* is debian-slim and ships neither
+# wget nor curl out of the box; the previous version assumed wget, so
+# the container was always reported "unhealthy" by the orchestrator
+# even when the API was up and serving traffic (#2 in the 2026-08-28
+# review). curl is ~10 MB and the only runtime-deps delta we need.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd --system --gid 1001 agentboard \
     && useradd --system --uid 1001 --gid agentboard agentboard \
     && mkdir -p /app/Logs \
     && chown -R agentboard:agentboard /app
@@ -62,7 +71,13 @@ ENV ASPNETCORE_ENVIRONMENT=Production \
 
 EXPOSE 8080
 
+# Liveness probe — the BFF only needs a 2xx to be considered alive.
+# The diagnostic payload (worker id, registered adapters) lives on
+# /api/internal/realtime/proposals/questions and is intentionally not
+# used here; this check should stay independent of RabbitMQ /
+# persistence state so a downstream outage does not cause the
+# orchestrator to restart a perfectly healthy API process.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:8080/api/health || exit 1
+    CMD curl --silent --fail --max-time 3 http://127.0.0.1:8080/api/health || exit 1
 
 ENTRYPOINT ["dotnet", "AgentBoard.Api.dll"]

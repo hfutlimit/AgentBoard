@@ -77,7 +77,8 @@ public sealed class Sprint3_DecouplingTests
             FakeAgentAdapter.Success("minimax"),
         }, NullLogger<AgentAdapterRegistry>.Instance);
         var state = new WorkerState(opts, new WorkerIdentity(opts));
-        var coord = new ExecutionCoordinator(store, inbox, registry, state, NullLogger<ExecutionCoordinator>.Instance);
+        var channel = new ExecutionChannel(opts);
+        var coord = new ExecutionCoordinator(store, inbox, channel, registry, state, NullLogger<ExecutionCoordinator>.Instance);
 
         // 1) throwing execution
         var r1 = Req(agent: "workbuddy", id: 1);

@@ -25,27 +25,47 @@ public sealed class ExecutionDispatcher : BackgroundService
         _log.LogInformation("ExecutionDispatcher started");
         try
         {
-            await foreach (var flight in _channel.Reader.ReadAllAsync(stoppingToken))
+            // Poll-and-skip-when-paused instead of an unconditional
+            // `await foreach (ReadAllAsync)`. The previous version drained
+            // the channel even while paused, which races with the Coordinator
+            // (which re-enqueues a flight when it sees Paused) and produced a
+            // tight re-enqueue → re-claim → re-enqueue loop until Pause was
+            // cleared. Now the Dispatcher holds any in-flight items in the
+            // channel buffer while paused, and the Coordinator's
+            // `dispatching → pending` revert (plus its re-enqueue) only
+            // matters for the narrow race where Pause is set after the
+            // Dispatcher has already taken a flight. Fix for #4 in the
+            // 2026-08-28 review.
+            while (!stoppingToken.IsCancellationRequested)
             {
-                try
+                if (_coordinator.IsPaused())
                 {
-                    // CAS: pending → dispatching. If we lose the race the row
-                    // is already in flight from another consumer; skip.
-                    if (!await _inbox.TryClaimAsync(flight.InboxId, stoppingToken))
+                    await Task.Delay(TimeSpan.FromMilliseconds(200), stoppingToken);
+                    continue;
+                }
+                if (!await _channel.Reader.WaitToReadAsync(stoppingToken)) break;
+                while (_channel.Reader.TryRead(out var flight))
+                {
+                    try
                     {
-                        _log.LogDebug("Inbox {InboxId} already claimed; skipping", flight.InboxId);
-                        continue;
+                        // CAS: pending → dispatching. If we lose the race the row
+                        // is already in flight from another consumer; skip.
+                        if (!await _inbox.TryClaimAsync(flight.InboxId, stoppingToken))
+                        {
+                            _log.LogDebug("Inbox {InboxId} already claimed; skipping", flight.InboxId);
+                            continue;
+                        }
+                        await _coordinator.ExecuteAsync(flight.Request, flight.InboxId, stoppingToken);
                     }
-                    await _coordinator.ExecuteAsync(flight.Request, flight.InboxId, stoppingToken);
-                }
-                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    _log.LogError(ex, "Execution {Key} crashed in dispatcher", flight.Request.ExecutionKey);
-                    try { await _inbox.MarkFailedAsync(flight.InboxId, ex.Message, CancellationToken.None); } catch { /* swallow */ }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        _log.LogError(ex, "Execution {Key} crashed in dispatcher", flight.Request.ExecutionKey);
+                        try { await _inbox.MarkFailedAsync(flight.InboxId, ex.Message, CancellationToken.None); } catch { /* swallow */ }
+                    }
                 }
             }
         }

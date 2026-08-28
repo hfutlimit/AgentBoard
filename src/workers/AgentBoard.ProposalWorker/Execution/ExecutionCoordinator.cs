@@ -19,24 +19,56 @@ public sealed class ExecutionCoordinator
 {
     private readonly ExecutionStore _store;
     private readonly InboxStore _inbox;
+    private readonly ExecutionChannel _channel;
     private readonly IAgentAdapterRegistry _registry;
     private readonly WorkerState _state;
     private readonly ILogger<ExecutionCoordinator> _log;
 
-    public ExecutionCoordinator(ExecutionStore store, InboxStore inbox, IAgentAdapterRegistry registry, WorkerState state, ILogger<ExecutionCoordinator> log)
+    public ExecutionCoordinator(
+        ExecutionStore store,
+        InboxStore inbox,
+        ExecutionChannel channel,
+        IAgentAdapterRegistry registry,
+        WorkerState state,
+        ILogger<ExecutionCoordinator> log)
     {
         _store = store;
         _inbox = inbox;
+        _channel = channel;
         _registry = registry;
         _state = state;
         _log = log;
     }
 
+    public bool IsPaused() => _state.Paused;
+
+    /// <summary>
+    /// SQLite returns SqliteException with SqliteErrorCode=19 (SQLITE_CONSTRAINT)
+    /// and ExtendedCode=1555 (SQLITE_CONSTRAINT_PRIMARYKEY) or
+    /// 2067 (SQLITE_CONSTRAINT_UNIQUE) when a UNIQUE/PRIMARY KEY collision
+    /// blocks an INSERT. Anything else (locked, I/O, schema drift, …) is
+    /// a real failure and must surface — see fix for #5 in the 2026-08-28
+    /// review.
+    /// </summary>
+    private static bool IsUniqueViolation(Microsoft.Data.Sqlite.SqliteException ex) =>
+        ex.SqliteErrorCode == 19
+        && (ex.SqliteExtendedErrorCode == 1555 || ex.SqliteExtendedErrorCode == 2067);
+
     public async Task ExecuteAsync(ExecutionRequest request, long inboxId, CancellationToken ct)
     {
         if (_state.Paused)
         {
-            _log.LogInformation("Worker paused; leaving inbox row {InboxId} as pending", inboxId);
+            // Race: the Dispatcher already moved the inbox row to `dispatching`
+            // before the operator clicked Pause. The previous version returned
+            // here and left the row in `dispatching` forever, which is a
+            // permanent stall — the Dispatcher would never re-claim a
+            // non-pending row, and startup-recovery would only fire after a
+            // worker restart. Fix for #4 in the 2026-08-28 review: atomically
+            // revert the row to `pending` and re-enqueue the flight so the
+            // Dispatcher picks it up on Resume.
+            _log.LogInformation("Worker paused; reverting inbox {InboxId} dispatching → pending + re-enqueue", inboxId);
+            await _inbox.MarkPendingAsync(inboxId, ct);
+            await _channel.Writer.WriteAsync(new InFlightExecution(request, inboxId), ct);
             return;
         }
 
@@ -57,13 +89,25 @@ public sealed class ExecutionCoordinator
         {
             executionId = await _store.StartAsync(request, request.Source, ct);
         }
-        catch (Exception ex)
+        catch (Microsoft.Data.Sqlite.SqliteException ex) when (IsUniqueViolation(ex))
         {
             // UNIQUE(execution_key) violation is the only realistic case
             // (double-dispatch race). Treat as already-handled, mark inbox
             // completed so we don't loop.
-            _log.LogWarning(ex, "Could not start execution for {Key}; assuming duplicate", request.ExecutionKey);
+            _log.LogWarning("Execution {Key} hit UNIQUE constraint; assuming duplicate dispatch", request.ExecutionKey);
             await _inbox.MarkCompletedAsync(inboxId, ct);
+            return;
+        }
+        catch (Exception ex)
+        {
+            // Anything else (SQLite locked, I/O error, disk full, schema drift)
+            // is a real failure: leave the inbox row in `dispatching` and let
+            // the channel flush. The next startup recovery resets
+            // `dispatching` to `pending` so we don't permanently lose the
+            // message. Previously this catch swallowed all errors and
+            // MarkCompleted the row, which silently dropped work on the
+            // floor whenever the DB hiccupped (#5 in the 2026-08-28 review).
+            _log.LogError(ex, "StartAsync failed for {Key}; leaving inbox {InboxId} in dispatching for next-pass recovery", request.ExecutionKey, inboxId);
             return;
         }
 

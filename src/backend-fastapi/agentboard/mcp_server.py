@@ -1632,6 +1632,23 @@ def scan_review_timeouts(project_id: int | None = None,
                  params=params or None, json=body)
 
 
+@mcp.tool()
+def report_run_event(run_id: int, event_type: str, payload: dict) -> dict:
+    """Report a real-time event for an agent run (e.g., state_change, mcp_call, log)."""
+    return _run_event_create(run_id, event_type, payload)
+
+@mcp.tool()
+def get_task_review_context(task_id: int) -> dict:
+    """Retrieve full context for reviewing a Task, including its diff and the parent Proposal's Specs."""
+    return _get_task_review_context(task_id)
+
+
+# NOTE: keep `if __name__ == "__main__":` at the very END of the file.
+# Anything after mcp.run() never executes when the module is launched via
+# `python -m agentboard.mcp_server` because mcp.run() blocks; that ordering
+# was the reason two real tools (report_run_event / get_task_review_context)
+# were silently missing from the live MCP tool list despite passing
+# import-based unit tests. Fix for #6 in the 2026-08-28 review.
 if __name__ == "__main__":
     transport = os.getenv("AGENTBOARD_MCP_TRANSPORT", "stdio").lower()
     if transport in {"http", "streamable-http"}:
@@ -1648,13 +1665,3 @@ if __name__ == "__main__":
         mcp.run()
     else:
         raise RuntimeError(f"unsupported AGENTBOARD_MCP_TRANSPORT: {transport}")
-
-@mcp.tool()
-def report_run_event(run_id: int, event_type: str, payload: dict) -> dict:
-    """Report a real-time event for an agent run (e.g., state_change, mcp_call, log)."""
-    return _run_event_create(run_id, event_type, payload)
-
-@mcp.tool()
-def get_task_review_context(task_id: int) -> dict:
-    """Retrieve full context for reviewing a Task, including its diff and the parent Proposal's Specs."""
-    return _get_task_review_context(task_id)

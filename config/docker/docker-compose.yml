@@ -63,24 +63,34 @@ services:
       context: ../..
       dockerfile: src/backend-dotnet/Dockerfile
     environment:
-      # Same secret as api — the BFF re-uses the FastAPI HMAC tokens as-is.
-      AGENTBOARD_SECRET: "${AGENTBOARD_SECRET:?Set AGENTBOARD_SECRET to a strong random value}"
+      # .NET configuration convention: env vars use `__` to delimit
+      # configuration sections, which IConfiguration translates to `:`.
+      # The previous release used single-underscore variants (AGENTBOARD_SECRET,
+      # AGENTBOARD_CORS_ORIGINS) which .NET did NOT bind to AgentBoard:Jwt:Secret
+      # / AgentBoard:CorsOrigins — the container would silently fall back to
+      # appsettings.json (placeholder JWT + wildcard CORS) and crash with
+      # InvalidOperationException on startup (#1 in the 2026-08-28 review).
+      #
+      # Each value below is REQUIRED in production; the ?Set suffix makes
+      # `docker compose up` fail fast with a clear error if the operator
+      # forgot to export them in their .env.
+      AgentBoard__Jwt__Secret: "${AGENTBOARD_JWT_SECRET:?Set AGENTBOARD_JWT_SECRET to a strong random value of at least 32 chars}"
+      AgentBoard__CorsOrigins__0: "${AGENTBOARD_CORS_ORIGINS_0:?Set AGENTBOARD_CORS_ORIGINS_0 to the public Web origin}"
       # .NET BFF uses SQLite by default in compose. Stage 1 will add a Pomelo
       # MySql provider once the package ships 10.0.0; until then MariaDB is
       # only consulted by the FastAPI api service.
-      AGENTBOARD_DATABASE__PROVIDER: "sqlite"
-      AGENTBOARD_DATABASE__CONNECTIONSTRING: "Data Source=/app/data/agentboard-dotnet.db"
+      AgentBoard__Database__Provider: "sqlite"
+      AgentBoard__Database__ConnectionString: "Data Source=/app/data/agentboard-dotnet.db"
       AGENTBOARD_ENV: "${AGENTBOARD_ENV:-production}"
       AGENTBOARD_REQUIRE_AUTH: "1"
-      AGENTBOARD_CORS_ORIGINS: "${AGENTBOARD_CORS_ORIGINS:-*}"
       # Container-internal bind; host-side mapping is set via
       # AGENTBOARD_DOTNET_PORT below. Program.cs reads this env var and
       # calls UseUrls() — do not also set ASPNETCORE_URLS (would conflict).
       AGENTBOARD_DOTNET_PORT: "8080"
       # Internal address the .NET BFF uses to call FastAPI for AI orchestration
       # (Stage 1 wires this through Polly + token passthrough).
-      AGENTBOARD_FASTAPI__INTERNALURL: "http://api:8000"
-      AGENTBOARD_FASTAPI__INTERNALONLY: "0"
+      AgentBoard__FastApi__InternalUrl: "http://api:8000"
+      AgentBoard__FastApi__InternalOnly: "0"
       AGENTBOARD_REALTIME_INTERNAL_KEY: "${AGENTBOARD_REALTIME_INTERNAL_KEY:-}"
       # P1-6: extend the default trusted-proxy allowlist (loopback +
       # RFC1918) with the docker bridge network. The FastAPI api container
@@ -102,7 +112,7 @@ services:
       - agentboard_dotnet_data:/app/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/api/health || exit 1"]
+      test: ["CMD-SHELL", "curl --silent --fail --max-time 3 http://localhost:8080/api/health || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
