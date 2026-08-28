@@ -23,6 +23,11 @@ public sealed class WorkerState
     private readonly ConcurrentDictionary<string, int> _runningByAgent = new();
     private readonly ConcurrentDictionary<string, long> _totalByAgent = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastUsedByAgent = new();
+    // Per-agent CLI readiness: true if the adapter can actually spawn its
+    // CLI (resolution + `--version` probe). Set once at startup by
+    // `ReadinessProbe`; the installer treats `ready != true` as a hard fail
+    // (#5 in the 2026-08-28 review). FakeAdapter is always ready=true.
+    private readonly ConcurrentDictionary<string, (bool Ready, string? Error)> _readyByAgent = new();
     private readonly Dictionary<long, ActiveExecution> _active = new();
 
     public DateTimeOffset StartedAt { get; } = DateTimeOffset.UtcNow;
@@ -34,15 +39,14 @@ public sealed class WorkerState
     public string Version { get; }
     public string WorkerId { get; }
 
-    public WorkerState(IOptions<WorkerOptions> options)
+    public WorkerState(IOptions<WorkerOptions> options, WorkerIdentity identity)
     {
         Version = options.Value.Version;
-        // Fall back to machine name if config did not provide a stable id —
-        // matches the WorkerOptions default so we never expose an empty
-        // worker_id in /health, /api/worker, or heartbeat payloads.
-        WorkerId = string.IsNullOrWhiteSpace(options.Value.Id)
-            ? Environment.MachineName
-            : options.Value.Id;
+        // Always read the resolved worker id from the single source of truth
+        // (WorkerIdentity). No fallback here — that lives in WorkerIdentity's
+        // ctor so health, RabbitMQ, and heartbeat can never disagree (#7 in
+        // the 2026-08-28 review).
+        WorkerId = identity.WorkerId;
     }
 
     public void Begin(ActiveExecution exec)
@@ -61,15 +65,30 @@ public sealed class WorkerState
     public void IncrementAgentTotal(string agentType) =>
         _totalByAgent.AddOrUpdate(agentType, 1, (_, v) => v + 1);
 
+    /// <summary>
+    /// Mark an agent's CLI as ready (or not). Called by <c>ReadinessProbe</c>
+    /// at startup; replaces the previous "DI presence = ready" assumption
+    /// (#5 in the 2026-08-28 review).
+    /// </summary>
+    public void SetAgentReady(string agentType, bool ready, string? error = null) =>
+        _readyByAgent[agentType] = (ready, error);
+
+    /// <summary>True iff every registered agent reported <c>ready=true</c>.</summary>
+    public bool AllAgentsReady(IReadOnlyCollection<string> registeredAgents) =>
+        registeredAgents.All(a => _readyByAgent.TryGetValue(a, out var r) && r.Ready);
+
     /// <summary>Snapshot consumed by /health, /api/worker, and heartbeat payload.</summary>
     public object Snapshot(IReadOnlyCollection<string> registeredAgents, int maxConcurrency, int running, int queued)
     {
         var agents = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
         foreach (var a in registeredAgents)
         {
+            var (ready, error) = _readyByAgent.TryGetValue(a, out var r) ? r : (false, "probe not run");
             agents[a] = new
             {
                 registered = true,
+                ready,
+                ready_error = error,
                 running = _runningByAgent.GetValueOrDefault(a),
                 total_executions = _totalByAgent.GetValueOrDefault(a),
                 last_used_at = _lastUsedByAgent.TryGetValue(a, out var ts) ? ts : (DateTimeOffset?)null,

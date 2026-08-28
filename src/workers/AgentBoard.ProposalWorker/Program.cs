@@ -56,6 +56,15 @@ builder.Services.AddSingleton<ExecutionCoordinator>();
 // ---- Sprint 6: worker state (must be after Process layer for snapshot) ----
 builder.Services.AddSingleton<WorkerState>();
 
+// Single resolved worker id; all consumers (state, rabbit, heartbeat) read
+// from this one object so they cannot disagree (#7 in the 2026-08-28 review).
+builder.Services.AddSingleton<WorkerIdentity>();
+
+// Readiness probe runs once at startup, after the DI graph is built.
+// Each registered agent's CLI is resolved and `--version` is invoked under
+// the worker's own identity (#5 in the 2026-08-28 review).
+builder.Services.AddSingleton<AgentBoard.ProposalWorker.Agents.ReadinessProbe>();
+
 // ---- Hosted services -------------------------------------------------------
 builder.Services.AddHostedService<ExecutionDispatcher>();
 builder.Services.AddHostedService<RabbitMqConsumerService>();
@@ -72,11 +81,31 @@ using (var scope = app.Services.CreateScope())
 {
     var store = scope.ServiceProvider.GetRequiredService<ExecutionStore>();
     var inbox = scope.ServiceProvider.GetRequiredService<InboxStore>();
+    var channel = scope.ServiceProvider.GetRequiredService<ExecutionChannel>();
     var workerOpts = scope.ServiceProvider.GetRequiredService<IOptions<WorkerOptions>>().Value;
     var registry = scope.ServiceProvider.GetRequiredService<IAgentAdapterRegistry>();
     var log = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    var readiness = scope.ServiceProvider.GetRequiredService<AgentBoard.ProposalWorker.Agents.ReadinessProbe>();
     await store.MarkOrphansAsync(workerOpts.OrphanThresholdMinutes, CancellationToken.None);
     await inbox.ResetStuckDispatchingAsync(CancellationToken.None);
+
+    // Re-enqueue every inbox row that survived startup in `pending` state.
+    // Fix for #6 in the 2026-08-28 review: a crash between TryEnqueueAsync
+    // and Channel.Writer.WriteAsync previously left a row stuck in pending
+    // forever, because RabbitMQ redelivery hits `isNew=false` and the
+    // consumer ACK-and-drops. By repopulating the channel at startup, the
+    // dispatcher picks the work up exactly once via its existing CAS claim.
+    var pending = await inbox.ListPendingAsync(CancellationToken.None);
+    foreach (var flight in pending)
+    {
+        await channel.Writer.WriteAsync(flight, CancellationToken.None);
+    }
+    if (pending.Count > 0)
+    {
+        log.LogWarning("Re-enqueued {Count} pending inbox rows from previous run (startup recovery)", pending.Count);
+    }
+
+    await readiness.RunAllAsync(CancellationToken.None);
     log.LogInformation("AgentBoard Worker started; registered agents: [{List}]", string.Join(", ", registry.RegisteredAgents));
 }
 

@@ -90,7 +90,11 @@ public sealed class Sprint6_WorkerStateTests : IDisposable
         {
             Id = "prod-pc-01",
             Version = "1.0.0",
-        }));
+        }), new WorkerIdentity(Options.Create(new WorkerOptions
+        {
+            Id = "prod-pc-01",
+            Version = "1.0.0",
+        })));
 
         var doc = SnapshotJson(state, Array.Empty<string>());
 
@@ -106,7 +110,11 @@ public sealed class Sprint6_WorkerStateTests : IDisposable
         {
             Id = "",
             Version = "1.0.0",
-        }));
+        }), new WorkerIdentity(Options.Create(new WorkerOptions
+        {
+            Id = "",
+            Version = "1.0.0",
+        })));
 
         var doc = SnapshotJson(state, Array.Empty<string>());
 
@@ -312,7 +320,8 @@ public sealed class Sprint6_WorkerStateTests : IDisposable
     // -------------------------------------------------------------------------
 
     private WorkerState NewState() =>
-        new(Options.Create(new WorkerOptions { Id = "test-worker", Version = "1.0.0" }));
+        new(Options.Create(new WorkerOptions { Id = "test-worker", Version = "1.0.0" }),
+            new WorkerIdentity(Options.Create(new WorkerOptions { Id = "test-worker", Version = "1.0.0" })));
 
     private ActiveExecution BeginAndCount(WorkerState state, string agent, long workloadId = 0)
     {

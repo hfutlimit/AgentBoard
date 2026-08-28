@@ -17,6 +17,7 @@ public sealed class RabbitMqConsumerService : BackgroundService
 {
     private readonly RabbitMqOptions _mq;
     private readonly WorkerOptions _worker;
+    private readonly WorkerIdentity _identity;
     private readonly InboxStore _inbox;
     private readonly ProposalMessageMapper _mapper;
     private readonly ExecutionChannel _channel;
@@ -26,6 +27,7 @@ public sealed class RabbitMqConsumerService : BackgroundService
     public RabbitMqConsumerService(
         IOptions<RabbitMqOptions> mq,
         IOptions<WorkerOptions> worker,
+        WorkerIdentity identity,
         InboxStore inbox,
         ProposalMessageMapper mapper,
         ExecutionChannel channel,
@@ -34,6 +36,10 @@ public sealed class RabbitMqConsumerService : BackgroundService
     {
         _mq = mq.Value;
         _worker = worker.Value;
+        // Queue name must come from the same resolved worker id that the
+        // server uses to route messages, otherwise we listen on the wrong
+        // queue (#7 in the 2026-08-28 review).
+        _identity = identity;
         _inbox = inbox;
         _mapper = mapper;
         _channel = channel;
@@ -79,9 +85,9 @@ public sealed class RabbitMqConsumerService : BackgroundService
         channel.QueueDeclare(_mq.PublicQueue, durable: true, exclusive: false, autoDelete: false, arguments: dlqArguments);
         channel.QueueBind(_mq.PublicQueue, _mq.Namespace, _mq.PublicRoutingKey);
         channel.ExchangeDeclare(_mq.DirectExchange, ExchangeType.Direct, durable: true);
-        var directQueue = _mq.WorkerQueue(_worker.Id);
+        var directQueue = _mq.WorkerQueue(_identity.WorkerId);
         channel.QueueDeclare(directQueue, durable: true, exclusive: false, autoDelete: false, arguments: dlqArguments);
-        channel.QueueBind(directQueue, _mq.DirectExchange, _mq.WorkerRoutingKey(_worker.Id));
+        channel.QueueBind(directQueue, _mq.DirectExchange, _mq.WorkerRoutingKey(_identity.WorkerId));
         channel.BasicQos(0, Math.Max((ushort)1, _mq.Prefetch), false);
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         connection.ConnectionShutdown += (_, _) => done.TrySetResult();

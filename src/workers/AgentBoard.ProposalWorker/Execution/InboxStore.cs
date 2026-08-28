@@ -1,7 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 
-namespace AgentBoard.ProposalWorker;
+namespace AgentBoard.ProposalWorker.Execution;
 
 /// <summary>
 /// Sprint 2: durable inbox + idempotency. UNIQUE(execution_key) on the inbox
@@ -146,6 +146,47 @@ public sealed class InboxStore
         var n = await cmd.ExecuteNonQueryAsync(ct);
         if (n > 0) _log.LogWarning("Reset {Count} inbox rows from dispatching → pending (startup recovery)", n);
         return n;
+    }
+
+    /// <summary>
+    /// List every inbox row that survived startup in <c>pending</c> state. The
+    /// caller (Program.cs / ExecutionDispatcher) re-enqueues each into the
+    /// in-memory channel so the work is not lost. Fix for #6 in the
+    /// 2026-08-28 review: a process crash between <c>TryEnqueueAsync</c> and
+    /// <c>Channel.Writer.WriteAsync</c> previously left a row stuck in
+    /// <c>pending</c> forever (no consumer ever saw the message after restart
+    /// because RabbitMQ redelivery was a no-op against the duplicate row).
+    /// </summary>
+    public async Task<IReadOnlyList<InFlightExecution>> ListPendingAsync(CancellationToken ct)
+    {
+        var rows = new List<InFlightExecution>();
+        await using var c = new SqliteConnection(_connectionString);
+        await c.OpenAsync(ct);
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, execution_key, workload_type, workload_id, agent_type, round, payload_json
+            FROM worker_execution_inbox
+            WHERE status='pending'
+            ORDER BY id ASC
+            """;
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        while (await r.ReadAsync(ct))
+        {
+            // Reconstruct an ExecutionRequest so the dispatcher can re-enqueue
+            // it. Round/Payload/agent match what the consumer originally wrote;
+            // work_unit_id (the DB column) becomes WorkloadId on the request
+            // (the in-memory DTO), so round-trip is identity-preserving.
+            var req = new ExecutionRequest(
+                ExecutionKey: r.GetString(1),
+                WorkloadType: r.GetString(2),
+                WorkloadId: r.GetInt64(3),
+                AgentType: r.GetString(4),
+                Round: r.GetInt32(5),
+                PayloadJson: r.GetString(6),
+                Source: "startup-recovery");
+            rows.Add(new InFlightExecution(req, r.GetInt64(0)));
+        }
+        return rows;
     }
 
     public async Task<InboxRecord?> GetAsync(long inboxId, CancellationToken ct = default)

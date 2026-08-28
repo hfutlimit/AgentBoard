@@ -1,4 +1,5 @@
 using AgentBoard.ProposalWorker;
+using AgentBoard.ProposalWorker.Execution;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 

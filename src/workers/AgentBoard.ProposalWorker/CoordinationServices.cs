@@ -10,6 +10,7 @@ public sealed class WorkerHeartbeatService : BackgroundService
     private readonly IHttpClientFactory _http;
     private readonly WorkerState _state;
     private readonly WorkerOptions _worker;
+    private readonly WorkerIdentity _identity;
     private readonly AgentBoardOptions _agentBoard;
     private readonly IAgentAdapterRegistry _registry;
     private readonly WorkerOptions _opts;
@@ -19,6 +20,7 @@ public sealed class WorkerHeartbeatService : BackgroundService
         IHttpClientFactory http,
         WorkerState state,
         IOptions<WorkerOptions> worker,
+        WorkerIdentity identity,
         IOptions<AgentBoardOptions> agentBoard,
         IAgentAdapterRegistry registry,
         ILogger<WorkerHeartbeatService> log)
@@ -26,6 +28,11 @@ public sealed class WorkerHeartbeatService : BackgroundService
         _http = http;
         _state = state;
         _worker = worker.Value;
+        // Heartbeat must report the same resolved id that the server uses to
+        // route work. Reading the raw config value here (the previous
+        // behavior) caused the heartbeat to report "" while /health reported
+        // the machine name (#7 in the 2026-08-28 review).
+        _identity = identity;
         _agentBoard = agentBoard.Value;
         _registry = registry;
         _opts = worker.Value;
@@ -47,7 +54,7 @@ public sealed class WorkerHeartbeatService : BackgroundService
             var payload = _state.Snapshot(_registry.RegisteredAgents, _opts.MaxConcurrentExecutions, _state.ActiveCount, 0);
             var response = await _http.CreateClient().PostAsJsonAsync(_agentBoard.HeartbeatUrl, new
             {
-                workerId = _worker.Id,
+                workerId = _identity.WorkerId,
                 state = payload,
                 timestamp = _state.LastHeartbeatAttemptAt,
             }, ct);

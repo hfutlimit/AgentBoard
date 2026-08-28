@@ -70,17 +70,28 @@ public sealed class ProcessExecutor : IProcessExecutor
 
         using var process = new System.Diagnostics.Process { StartInfo = start };
         var startedAt = DateTimeOffset.UtcNow;
+
+        // Build the linked timeout CTS BEFORE starting the process so that
+        // stdin write + stdout read + WaitForExitAsync all share the same
+        // budget. The previous version created it after stdin write, which
+        // meant a CLI that never consumed its stdin pipe could block
+        // WriteAsync indefinitely even when TimeoutSeconds was set (#8 in
+        // the 2026-08-28 review).
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(spec.Timeout);
+        var timeoutToken = timeoutCts.Token;
+
         try
         {
             if (!process.Start())
                 return new ProcessResult { ExitCode = -1, OutputTail = "", StderrTail = $"could not start {spec.Executable}", Duration = TimeSpan.Zero };
 
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-            var stderrTask = process.StandardError.ReadToEndAsync(ct);
+            var stdoutTask = process.StandardOutput.ReadToEndAsync(timeoutToken);
+            var stderrTask = process.StandardError.ReadToEndAsync(timeoutToken);
 
             if (!string.IsNullOrEmpty(spec.StdinPayload))
             {
-                await process.StandardInput.WriteAsync(spec.StdinPayload.AsMemory(), ct);
+                await process.StandardInput.WriteAsync(spec.StdinPayload.AsMemory(), timeoutToken);
                 process.StandardInput.Close();
             }
             else
@@ -88,11 +99,9 @@ public sealed class ProcessExecutor : IProcessExecutor
                 process.StandardInput.Close();
             }
 
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(spec.Timeout);
             try
             {
-                await process.WaitForExitAsync(timeoutCts.Token);
+                await process.WaitForExitAsync(timeoutToken);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {

@@ -58,6 +58,12 @@ param(
     [string]$PortalApiKey = $env:AGENTBOARD_PORTAL_API_KEY,
     [string]$InstallDir = 'C:\AgentBoard\ProposalWorker',
     [string]$RepoRoot,
+    # Service identity. Defaults to the installing user so the pre-flight
+    # `where.exe` probes and the eventual service share the same PATH /
+    # profile / npm-global layout. Override only if you have installed the
+    # agent CLIs in a system-wide location reachable by the target account.
+    [string]$ServiceAccount = ".\$env:USERNAME",
+    [System.Management.Automation.PSCredential]$ServiceCredential,
     [switch]$Uninstall
 )
 
@@ -74,6 +80,22 @@ $PSNativeCommandUseErrorActionPreference = $true
 $ServiceName = 'AgentBoard Proposal Worker'
 $ServiceExe = Join-Path $InstallDir 'AgentBoard.ProposalWorker.exe'
 $PortalBase = 'http://127.0.0.1:58240'
+
+# Captured at pre-flight so we can compare against the post-install service
+# identity later. The bug this guards against (#4 in the 2026-08-28 review):
+# pre-flight `where.exe` runs as the installing user, but a default sc.exe
+# create runs the service as LocalSystem, so CLIs found at pre-flight are
+# invisible to the service.
+$PreFlightIdentity = whoami
+
+# Service account is the target identity for the registered Windows service.
+# When `-ServiceAccount` is the default (`.\<current user>`), pre-flight and
+# the service see the same PATH / profile / npm-global directory.
+$ResolvedServiceAccount = $ServiceAccount
+if ($ResolvedServiceAccount -eq ".\$env:USERNAME" -or
+    [string]::IsNullOrWhiteSpace($ResolvedServiceAccount)) {
+    $ResolvedServiceAccount = ".\$env:USERNAME"
+}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -237,6 +259,25 @@ if ($missing.Count -gt 0) {
     if ($workbuddy) { Write-Host "  workbuddy:   $workbuddy" -ForegroundColor Green }
 }
 
+# --- Service-account / pre-flight identity consistency (#4) -------------
+# If the service will run as a different identity than the installing user,
+# the CLIs found at pre-flight may be invisible at runtime. Detect this and
+# fail fast with a precise message instead of silently producing a half-broken
+# install.
+$installingUser = ".\$env:USERNAME"
+if ($ResolvedServiceAccount -ne $installingUser -and $ResolvedServiceAccount -ne 'LocalSystem') {
+    Write-Host ''
+    Write-Host "  WARNING: pre-flight identity ($PreFlightIdentity) differs from" -ForegroundColor Yellow
+    Write-Host "           service identity ($ResolvedServiceAccount)." -ForegroundColor Yellow
+    Write-Host "           CLIs found above are only reachable by $installingUser." -ForegroundColor Yellow
+    Write-Host "           Install the CLIs system-wide, or pass -ServiceAccount '$installingUser'." -ForegroundColor Yellow
+    Write-Host ''
+    $answer = Read-Host "Continue anyway? (yes/no)"
+    if ($answer -ne 'yes') {
+        throw "Aborted by operator to avoid identity mismatch."
+    }
+}
+
 # ---------------------------------------------------------------------------
 # Args validation
 # ---------------------------------------------------------------------------
@@ -349,11 +390,42 @@ $scArgs = @(
     'DisplayName=', 'AgentBoard Proposal Worker (MiniMax / Codex / WorkBuddy)'
 )
 
+# sc.exe needs `obj=` to run as anything other than LocalSystem. Default to
+# the installing user so pre-flight (which also runs as the installing user)
+# and the service see the same PATH / profile. Credentials are passed via
+# `-ServiceCredential` (SecureString); when missing, fall back to LocalSystem
+# only if the operator has installed CLIs in a system-wide location.
+if ($ResolvedServiceAccount -ne 'LocalSystem' -and $ServiceCredential) {
+    $scArgs += @('obj=', $ResolvedServiceAccount, 'password=', $ServiceCredential.GetNetworkCredential().Password)
+} elseif ($ResolvedServiceAccount -ne 'LocalSystem' -and -not $ServiceCredential) {
+    Write-Host ''
+    Write-Host "  Service will run as LocalSystem because no credential was supplied for $ResolvedServiceAccount." -ForegroundColor Yellow
+    Write-Host "  Make sure the agent CLIs are reachable from LocalSystem's PATH." -ForegroundColor Yellow
+    Write-Host ''
+}
+
 & sc.exe @scArgs | Out-Null
 if ($LASTEXITCODE -ne 0) {
     throw "sc.exe create failed with exit $LASTEXITCODE"
 }
 Write-Host "  sc create OK" -ForegroundColor Green
+
+# Verify the service will actually run under the identity we asked for.
+# `sc.exe qc` reports the configured `SERVICE_START_NAME` regardless of
+# whether the service is currently running, so this works even before
+# `sc start`.
+$qc = & sc.exe qc $ServiceName 2>&1
+$startNameLine = $qc | Where-Object { $_ -match 'SERVICE_START_NAME\s*:\s*(\S+)' } | Select-Object -First 1
+if ($startNameLine) {
+    $startName = ($startNameLine -replace '.*SERVICE_START_NAME\s*:\s*', '').Trim()
+    Write-Host "  service identity:  $startName" -ForegroundColor Green
+    if ($startName -ne $PreFlightIdentity -and
+        $startName -notmatch 'LocalSystem' -and
+        $PreFlightIdentity -notmatch 'LocalSystem') {
+        Write-Host "  WARNING: pre-flight ran as $PreFlightIdentity but service will run as $startName." -ForegroundColor Yellow
+        Write-Host "  The CLIs found above may not be reachable from the service." -ForegroundColor Yellow
+    }
+}
 
 if ($envPairs.Count -gt 0) {
     $serviceRegistryPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName"
@@ -393,8 +465,23 @@ Write-Host "  $healthJson"
 $failures = @()
 if ([string]::IsNullOrWhiteSpace($health.worker_id)) { $failures += "worker_id is empty" }
 if ($health.worker_id -ne $WorkerId) { $failures += "worker_id mismatch (config=$WorkerId, /health=$($health.worker_id))" }
-if ($health.agents -and $health.agents.codex) {
-    if (-not $health.agents.codex.registered) { $failures += "codex adapter is not registered" }
+if ($health.agents) {
+    foreach ($prop in $health.agents.PSObject.Properties) {
+        $agent = $prop.Name
+        $entry = $prop.Value
+        if (-not $entry.registered) {
+            $failures += "$agent adapter is not registered"
+            continue
+        }
+        # `ready` distinguishes "DI present" from "CLI actually executable".
+        # The worker runs a --version probe at startup; if it failed, the
+        # operator must fix the install before the worker can do real work
+        # (#5 in the 2026-08-28 review).
+        if ($entry.PSObject.Properties.Name -contains 'ready' -and -not $entry.ready) {
+            $reason = if ($entry.PSObject.Properties.Name -contains 'ready_error') { $entry.ready_error } else { 'no reason given' }
+            $failures += "$agent CLI is not ready: $reason"
+        }
+    }
 }
 
 if ($failures.Count -gt 0) {

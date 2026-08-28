@@ -76,7 +76,7 @@ public sealed class Sprint3_DecouplingTests
             FakeAgentAdapter.Throws("workbuddy", new InvalidOperationException("kaboom")),
             FakeAgentAdapter.Success("minimax"),
         }, NullLogger<AgentAdapterRegistry>.Instance);
-        var state = new WorkerState(opts);
+        var state = new WorkerState(opts, new WorkerIdentity(opts));
         var coord = new ExecutionCoordinator(store, inbox, registry, state, NullLogger<ExecutionCoordinator>.Instance);
 
         // 1) throwing execution
