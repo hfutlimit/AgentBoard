@@ -32,8 +32,18 @@ public sealed class WorkerState
 
     public bool Paused { get { lock (_gate) return _paused; } set { lock (_gate) _paused = value; } }
     public string Version { get; }
+    public string WorkerId { get; }
 
-    public WorkerState(IOptions<WorkerOptions> options) => Version = options.Value.Version;
+    public WorkerState(IOptions<WorkerOptions> options)
+    {
+        Version = options.Value.Version;
+        // Fall back to machine name if config did not provide a stable id —
+        // matches the WorkerOptions default so we never expose an empty
+        // worker_id in /health, /api/worker, or heartbeat payloads.
+        WorkerId = string.IsNullOrWhiteSpace(options.Value.Id)
+            ? Environment.MachineName
+            : options.Value.Id;
+    }
 
     public void Begin(ActiveExecution exec)
     {
@@ -70,7 +80,7 @@ public sealed class WorkerState
 
         return new
         {
-            worker_id = "",  // filled by caller (WorkerOptions.Id)
+            worker_id = WorkerId,
             version = Version,
             status = _paused ? "paused" : (running > 0 ? "busy" : "online"),
             capacity = new { max_concurrency = maxConcurrency, running, queued },

@@ -4,6 +4,21 @@ using AgentBoard.ProposalWorker.Execution;
 using AgentBoard.ProposalWorker.Process;
 using Microsoft.Extensions.Options;
 
+// Lock the content root to the directory the executable lives in. Without
+// this, a Windows service started by sc.exe runs with CWD = C:\Windows\
+// system32, so the host never finds appsettings.json / appsettings.Produc
+// tion.json beside the binary. Same protection when launched manually
+// from an unrelated directory.
+try
+{
+    var exeDir = AppContext.BaseDirectory;
+    if (!string.IsNullOrWhiteSpace(exeDir) && Directory.Exists(exeDir))
+    {
+        Directory.SetCurrentDirectory(exeDir);
+    }
+}
+catch { /* best-effort; production still boots from default location */ }
+
 var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseWindowsService(options => options.ServiceName = "AgentBoard Proposal Worker");
 builder.WebHost.UseUrls(builder.Configuration["Portal:Urls"] ?? "http://127.0.0.1:58240");

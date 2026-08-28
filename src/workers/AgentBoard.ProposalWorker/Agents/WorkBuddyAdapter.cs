@@ -1,5 +1,6 @@
 using System.Text.Json;
 using AgentBoard.ProposalWorker.Process;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace AgentBoard.ProposalWorker.Agents;
@@ -8,18 +9,25 @@ namespace AgentBoard.ProposalWorker.Agents;
 /// Sprint 4. Migrated from the original WorkBuddyRunner. stdin-driven,
 /// stdout last-line-JSON-decision. Behavior matches the previous
 /// implementation byte-for-byte so existing e2e tests stay green.
+/// Resolves the codebuddy CLI via <see cref="CliLocator"/>.
 /// </summary>
 public sealed class WorkBuddyAdapter : IAgentAdapter
 {
     private readonly IProcessExecutor _process;
     private readonly AgentsOptions _agents;
     private readonly WorkerOptions _worker;
+    private readonly ILogger<WorkBuddyAdapter> _log;
 
-    public WorkBuddyAdapter(IProcessExecutor process, IOptions<AgentsOptions> agents, IOptions<WorkerOptions> worker)
+    public WorkBuddyAdapter(
+        IProcessExecutor process,
+        IOptions<AgentsOptions> agents,
+        IOptions<WorkerOptions> worker,
+        ILogger<WorkBuddyAdapter> log)
     {
         _process = process;
         _agents = agents.Value;
         _worker = worker.Value;
+        _log = log;
     }
 
     public string AgentType => "workbuddy";
@@ -27,14 +35,18 @@ public sealed class WorkBuddyAdapter : IAgentAdapter
     public Task<AgentExecutionResult> ExecuteAsync(ExecutionContext context, CancellationToken ct)
     {
         var opts = _agents.WorkBuddy;
+        var resolved = CliLocator.LocateCodebuddy(opts, _log);
+        var env = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (k, v) in resolved.ExtraEnv) env[k] = v;
         var spec = new ProcessSpec
         {
-            Executable = opts.Command,
+            Executable = resolved.Executable,
             Arguments = opts.Arguments,
             WorkingDirectory = opts.WorkingDirectory,
             StdinPayload = BuildPrompt(context),
             Timeout = TimeSpan.FromMinutes(Math.Max(1, opts.TimeoutMinutes)),
             MaxOutputBytes = opts.MaxCapturedOutputChars,
+            Environment = env,
             AgentType = AgentType,
         };
         return ExecuteSpecAsync(context, spec, ct);

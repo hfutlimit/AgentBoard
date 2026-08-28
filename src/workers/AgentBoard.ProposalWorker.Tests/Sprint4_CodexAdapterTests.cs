@@ -1,5 +1,6 @@
 using AgentBoard.ProposalWorker.Agents;
 using AgentBoard.ProposalWorker.Process;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Xunit;
 
@@ -21,7 +22,7 @@ public sealed class Sprint4_CodexAdapterTests
                 MaxCapturedOutputChars = 12345,
             },
         };
-        var adapter = new CodexAdapter(executor, Options.Create(options));
+        var adapter = new CodexAdapter(executor, Options.Create(options), NullLogger<CodexAdapter>.Instance);
 
         var result = await adapter.ExecuteAsync(
             new ExecutionContext(1, "proposal:42:0:codex", "proposal", 42, 0,
@@ -36,6 +37,33 @@ public sealed class Sprint4_CodexAdapterTests
         Assert.Equal(12345, executor.Spec.MaxOutputBytes);
         Assert.Contains("PATH", executor.Spec.Environment.Keys,
             StringComparer.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Codex_adapter_uses_configured_arguments_when_provided()
+    {
+        // When appsettings sets Arguments (e.g. production adds --full-auto),
+        // the adapter must honor them and stop falling back to the
+        // hard-coded ["exec", "--json"] default.
+        var executor = new RecordingExecutor();
+        var options = new AgentsOptions
+        {
+            Codex = new AgentOptions
+            {
+                Command = "codex",
+                WorkingDirectory = "E:\\Projects\\AgentBoard",
+                TimeoutMinutes = 7,
+                MaxCapturedOutputChars = 12345,
+                Arguments = new[] { "exec", "--json", "--full-auto" },
+            },
+        };
+        var adapter = new CodexAdapter(executor, Options.Create(options), NullLogger<CodexAdapter>.Instance);
+
+        await adapter.ExecuteAsync(
+            new ExecutionContext(1, "proposal:42:0:codex", "proposal", 42, 0,
+                "codex", "{}", null), CancellationToken.None);
+
+        Assert.Equal(new[] { "exec", "--json", "--full-auto" }, executor.Spec!.Arguments);
     }
 
     private sealed class RecordingExecutor : IProcessExecutor

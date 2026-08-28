@@ -259,4 +259,61 @@ public sealed class Sprint5_ProcessExecutorTests
         Assert.Equal(-1, result.ExitCode);
         Assert.Contains("executable not configured", result.StderrTail);
     }
+
+    // -------------------------------------------------------------------------
+    // 8. .cmd / .bat wrapper — npm-global installs ship as .cmd wrappers;
+    // Process.Start does not resolve them directly (Win32Exception 193), so
+    // the executor transparently re-spawns through cmd.exe. The tests below
+    // prove the wrapper works and that .exe paths are NOT double-wrapped.
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Cmd_wrapper_runs_a_dot_cmd_script_via_cmd_exe()
+    {
+        // Build a one-line .cmd script on disk and execute it. The script
+        // echoes a sentinel so we can verify the wrapper path executed
+        // successfully (exit 0, sentinel present in stdout).
+        var scriptPath = Path.Combine(
+            Path.GetTempPath(),
+            $"worker-cmdwrap-{Guid.NewGuid():N}.cmd");
+        await File.WriteAllTextAsync(scriptPath, "@echo CMD_WRAPPER_OK\r\n");
+        try
+        {
+            var spec = new ProcessSpec
+            {
+                Executable = scriptPath,
+                // No /c — the wrapper should add it. This proves the
+                // executor split the .cmd out of spec.Arguments and
+                // prepended it after `cmd /c`.
+                Arguments = Array.Empty<string>(),
+                Timeout = TimeSpan.FromSeconds(5),
+            };
+            var result = await _exec.ExecuteAsync(spec, CancellationToken.None);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Contains("CMD_WRAPPER_OK", result.OutputTail);
+        }
+        finally
+        {
+            try { File.Delete(scriptPath); } catch { /* best-effort */ }
+        }
+    }
+
+    [Fact]
+    public async Task Cmd_wrapper_does_not_wrap_absolute_exe_path()
+    {
+        // C:\Windows\System32\ping.exe is an .exe, not a wrapper. The
+        // executor must NOT prepend cmd /c — otherwise ping would not
+        // understand /c as an argument and would fail to start.
+        var spec = new ProcessSpec
+        {
+            Executable = @"C:\Windows\System32\ping.exe",
+            Arguments = new[] { "-n", "1", "127.0.0.1" },
+            Timeout = TimeSpan.FromSeconds(5),
+        };
+        var result = await _exec.ExecuteAsync(spec, CancellationToken.None);
+
+        Assert.True(result.ExitCode == 0,
+            $"ping should exit 0; got exit={result.ExitCode} stderr={result.StderrTail}");
+    }
 }

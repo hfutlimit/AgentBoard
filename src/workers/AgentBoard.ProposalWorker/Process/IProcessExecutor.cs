@@ -48,7 +48,25 @@ public sealed class ProcessExecutor : IProcessExecutor
             if (v is not null) start.Environment[k] = v;
         }
 
-        foreach (var a in spec.Arguments) start.ArgumentList.Add(a);
+        // Windows: npm-global installs ship CLI wrappers as .cmd files
+        // (e.g. minimax.cmd, codex.cmd). Process.Start does not resolve
+        // .cmd/.bat directly — it raises Win32Exception 193. Wrap with
+        // cmd.exe so the OS can apply PATHEXT semantics transparently.
+        // See docs/workbuddy-cli-integration.md and
+        // docs/minimax-code-integration.md for the original analysis.
+        if (OperatingSystem.IsWindows() &&
+            NeedsCmdWrapper(spec.Executable, out var wrappedPath))
+        {
+            start.FileName = "cmd.exe";
+            start.ArgumentList.Clear();
+            start.ArgumentList.Add("/c");
+            start.ArgumentList.Add(wrappedPath);
+            foreach (var a in spec.Arguments) start.ArgumentList.Add(a);
+        }
+        else
+        {
+            foreach (var a in spec.Arguments) start.ArgumentList.Add(a);
+        }
 
         using var process = new System.Diagnostics.Process { StartInfo = start };
         var startedAt = DateTimeOffset.UtcNow;
@@ -146,5 +164,35 @@ public sealed class ProcessExecutor : IProcessExecutor
     private static void TryKillTree(System.Diagnostics.Process p)
     {
         try { if (!p.HasExited) p.Kill(entireProcessTree: true); } catch { /* best-effort */ }
+    }
+
+    /// <summary>
+    /// True when <paramref name="executable"/> points at a Windows .cmd or
+    /// .bat wrapper. Bare names (e.g. <c>codex</c>) are not wrapped here —
+    /// the caller is expected to have resolved them via <see cref="Agents.CliLocator"/>
+    /// so we know the real path. We do an extension check only; the
+    /// alternative would be a full <c>where.exe</c> probe per spawn, which
+    /// is too expensive on the hot path.
+    /// </summary>
+    private static bool NeedsCmdWrapper(string executable, out string fullPath)
+    {
+        fullPath = executable;
+        if (!OperatingSystem.IsWindows()) return false;
+        // Absolute or relative path with a .cmd / .bat extension — wrap.
+        if (executable.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase) ||
+            executable.EndsWith(".bat", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        // Bare name without an extension and without slashes — assume it is a
+        // .cmd wrapper. The CliLocator returns absolute paths for known
+        // installs; PATHEXT-driven resolution happens in the OS layer
+        // (cmd.exe honours PATHEXT) so this is the safe default.
+        if (executable.IndexOfAny(new[] { '/', '\\' }) < 0 &&
+            !Path.HasExtension(executable))
+        {
+            return true;
+        }
+        return false;
     }
 }

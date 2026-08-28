@@ -79,6 +79,43 @@ public sealed class Sprint6_WorkerStateTests : IDisposable
     }
 
     // -------------------------------------------------------------------------
+    // WorkerState.WorkerId — must surface the configured id (regression for the
+    // "worker_id always empty" bug where Snapshot hard-coded `worker_id = ""`).
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void Snapshot_includes_configured_worker_id()
+    {
+        var state = new WorkerState(Options.Create(new WorkerOptions
+        {
+            Id = "prod-pc-01",
+            Version = "1.0.0",
+        }));
+
+        var doc = SnapshotJson(state, Array.Empty<string>());
+
+        Assert.Equal("prod-pc-01", doc.GetProperty("worker_id").GetString());
+    }
+
+    [Fact]
+    public void Snapshot_falls_back_to_machine_name_when_id_unset()
+    {
+        // Empty Id is the WorkerOptions default (Environment.MachineName is
+        // only used as fallback if the operator leaves it blank in config).
+        var state = new WorkerState(Options.Create(new WorkerOptions
+        {
+            Id = "",
+            Version = "1.0.0",
+        }));
+
+        var doc = SnapshotJson(state, Array.Empty<string>());
+
+        var workerId = doc.GetProperty("worker_id").GetString();
+        Assert.False(string.IsNullOrWhiteSpace(workerId),
+            "worker_id must never be empty in /health or /api/worker");
+    }
+
+    // -------------------------------------------------------------------------
     // ActiveExecution lifecycle
     // -------------------------------------------------------------------------
 
