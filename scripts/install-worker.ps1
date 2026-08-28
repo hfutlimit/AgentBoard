@@ -142,7 +142,13 @@ function Remove-WorkerService {
         Stop-WorkerService
         Write-Host "[install] deleting service..."
         & sc.exe delete 'AgentBoard Proposal Worker' | Out-Null
-        Start-Sleep -Seconds 1
+        for ($i = 0; $i -lt 30; $i++) {
+            if (-not (Get-Service -Name 'AgentBoard Proposal Worker' -ErrorAction SilentlyContinue)) {
+                return
+            }
+            Start-Sleep -Milliseconds 500
+        }
+        throw "Service '$ServiceName' is still pending deletion after 15 seconds."
     }
 }
 
@@ -247,7 +253,7 @@ if ([string]::IsNullOrWhiteSpace($WorkerId)) {
 if ([string]::IsNullOrWhiteSpace($AmqpUri)) {
     throw "AmqpUri is required. Set -AmqpUri or AGENTBOARD_MQ_URL env var."
 }
-Write-Host "  AmqpUri:     $(if ($AmqpUri.Length -gt 40) { $AmqpUri.Substring(0,40) + '...' } else { $AmqpUri })"
+Write-Host "  AmqpUri:     (supplied)"
 
 if ([string]::IsNullOrWhiteSpace($PortalApiKey)) {
     $PortalApiKey = New-PortalApiKey
@@ -296,11 +302,14 @@ if (-not (Test-Path $template)) {
     throw "Production template not found at $template"
 }
 
-# Substitute placeholders without breaking the JSON.
+# Parse and update the template structurally so quotes, backslashes, and `$`
+# characters in operator-supplied values remain valid JSON.
 $raw = Get-Content $template -Raw -Encoding UTF8
-$raw = $raw -replace 'REPLACE-WITH-STABLE-PER-MACHINE-ID', $WorkerId
-$raw = $raw -replace 'REPLACE-WITH-AMQP-URI', $AmqpUri
-$raw = $raw -replace 'REPLACE-WITH-LONG-RANDOM-SECRET', $PortalApiKey
+$config = $raw | ConvertFrom-Json
+$config.Worker.Id = $WorkerId
+$config.RabbitMq.Uri = $AmqpUri
+$config.Portal.ApiKey = $PortalApiKey
+$raw = $config | ConvertTo-Json -Depth 20
 
 [System.IO.File]::WriteAllText($appsettingsProd, $raw, [System.Text.UTF8Encoding]::new($false))
 Write-Host "  $appsettingsProd" -ForegroundColor Green
@@ -314,35 +323,48 @@ Write-Section "Registering Windows service"
 $existing = Get-Service -Name 'AgentBoard Proposal Worker' -ErrorAction SilentlyContinue
 if ($existing) {
     Write-Host "  service already exists; reconfiguring..."
-    Stop-WorkerService
-    & sc.exe delete 'AgentBoard Proposal Worker' | Out-Null
-    Start-Sleep -Seconds 1
+    Remove-WorkerService
 }
 
-# Build the env block. We pass MINIMAX/OPENAI/AGENTBOARD_MQ_URL if set in
-# the operator's env; otherwise the worker will surface a clear startup
-# error per the MiniMaxAdapter env-var guard.
+# Preserve the installing user's CLI/login context for the LocalSystem service.
+# sc.exe has no `env=` create option; per-service environment entries belong in
+# HKLM\SYSTEM\CurrentControlSet\Services\<name>\Environment (REG_MULTI_SZ).
 $envPairs = @()
-foreach ($name in @('MINIMAX_API_KEY', 'OPENAI_API_KEY', 'AGENTBOARD_WEB_API_URL', 'AGENTBOARD_TOKEN')) {
+foreach ($name in @(
+    'MINIMAX_API_KEY', 'OPENAI_API_KEY', 'AGENTBOARD_WEB_API_URL', 'AGENTBOARD_TOKEN',
+    'PATH', 'PATHEXT', 'APPDATA', 'LOCALAPPDATA', 'USERPROFILE', 'CODEX_HOME',
+    'HOME', 'TEMP', 'TMP'
+)) {
     $value = [Environment]::GetEnvironmentVariable($name, 'Process')
     if (-not [string]::IsNullOrWhiteSpace($value)) {
         $envPairs += "$name=$value"
     }
 }
-$envBlock = ''
-if ($envPairs.Count -gt 0) {
-    $envBlock = ' ' + (($envPairs | ForEach-Object { "env=$_`"$_`"" }) -join ' ')
-}
 
 $binPath = "`"$ServiceExe`""
-$scArgs = @('create', 'AgentBoard Proposal Worker', "binPath= $binPath", 'start=', 'auto', 'DisplayName=', 'AgentBoard Proposal Worker (MiniMax / Codex / WorkBuddy)')
-if ($envBlock) { $scArgs += $envBlock }
+$scArgs = @(
+    'create', $ServiceName,
+    'binPath=', $binPath,
+    'start=', 'auto',
+    'DisplayName=', 'AgentBoard Proposal Worker (MiniMax / Codex / WorkBuddy)'
+)
 
 & sc.exe @scArgs | Out-Null
 if ($LASTEXITCODE -ne 0) {
     throw "sc.exe create failed with exit $LASTEXITCODE"
 }
 Write-Host "  sc create OK" -ForegroundColor Green
+
+if ($envPairs.Count -gt 0) {
+    $serviceRegistryPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName"
+    New-ItemProperty `
+        -LiteralPath $serviceRegistryPath `
+        -Name 'Environment' `
+        -PropertyType MultiString `
+        -Value $envPairs `
+        -Force | Out-Null
+    Write-Host "  service environment configured" -ForegroundColor Green
+}
 
 & sc.exe start 'AgentBoard Proposal Worker' | Out-Null
 if ($LASTEXITCODE -ne 0) {
@@ -386,10 +408,10 @@ Write-Host ''
 Write-Host "=== install OK ===" -ForegroundColor Green
 Write-Host "Worker.Id:     $WorkerId"
 Write-Host "Portal:        $PortalBase"
-Write-Host "Portal.Key:    $PortalApiKey"
+Write-Host "Portal.Key:    stored in appsettings.Production.json (not printed)"
 Write-Host "Install dir:   $InstallDir"
 Write-Host ""
 Write-Host "Useful commands:"
 Write-Host "  Get-Service 'AgentBoard Proposal Worker'"
 Write-Host "  sc.exe query 'AgentBoard Proposal Worker'"
-Write-Host "  Invoke-WebRequest $PortalBase/health -Headers @{ 'X-AgentBoard-Worker-Key' = '$PortalApiKey' }"
+Write-Host "  Invoke-WebRequest $PortalBase/health"

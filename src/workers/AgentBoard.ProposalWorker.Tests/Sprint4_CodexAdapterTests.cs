@@ -16,7 +16,7 @@ public sealed class Sprint4_CodexAdapterTests
         {
             Codex = new AgentOptions
             {
-                Command = "codex",
+                Command = Environment.ProcessPath!,
                 WorkingDirectory = "E:\\Projects\\AgentBoard",
                 TimeoutMinutes = 7,
                 MaxCapturedOutputChars = 12345,
@@ -30,7 +30,7 @@ public sealed class Sprint4_CodexAdapterTests
 
         Assert.True(result.Success);
         Assert.NotNull(executor.Spec);
-        Assert.Equal("codex", executor.Spec!.Executable);
+        Assert.Equal(Environment.ProcessPath, executor.Spec!.Executable);
         Assert.Equal(new[] { "exec", "--json" }, executor.Spec.Arguments);
         Assert.Contains("Handle proposal 42", executor.Spec.StdinPayload);
         Assert.Equal("E:\\Projects\\AgentBoard", executor.Spec.WorkingDirectory);
@@ -42,7 +42,7 @@ public sealed class Sprint4_CodexAdapterTests
     [Fact]
     public async Task Codex_adapter_uses_configured_arguments_when_provided()
     {
-        // When appsettings sets Arguments (e.g. production adds --full-auto),
+        // When appsettings sets Arguments (e.g. production enables unattended mode),
         // the adapter must honor them and stop falling back to the
         // hard-coded ["exec", "--json"] default.
         var executor = new RecordingExecutor();
@@ -50,11 +50,11 @@ public sealed class Sprint4_CodexAdapterTests
         {
             Codex = new AgentOptions
             {
-                Command = "codex",
+                Command = Environment.ProcessPath!,
                 WorkingDirectory = "E:\\Projects\\AgentBoard",
                 TimeoutMinutes = 7,
                 MaxCapturedOutputChars = 12345,
-                Arguments = new[] { "exec", "--json", "--full-auto" },
+                Arguments = new[] { "exec", "--json", "--dangerously-bypass-approvals-and-sandbox" },
             },
         };
         var adapter = new CodexAdapter(executor, Options.Create(options), NullLogger<CodexAdapter>.Instance);
@@ -63,7 +63,9 @@ public sealed class Sprint4_CodexAdapterTests
             new ExecutionContext(1, "proposal:42:0:codex", "proposal", 42, 0,
                 "codex", "{}", null), CancellationToken.None);
 
-        Assert.Equal(new[] { "exec", "--json", "--full-auto" }, executor.Spec!.Arguments);
+        Assert.Equal(
+            new[] { "exec", "--json", "--dangerously-bypass-approvals-and-sandbox" },
+            executor.Spec!.Arguments);
     }
 
     private sealed class RecordingExecutor : IProcessExecutor

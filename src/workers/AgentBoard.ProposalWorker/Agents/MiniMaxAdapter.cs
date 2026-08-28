@@ -33,6 +33,7 @@ public sealed class MiniMaxAdapter : IAgentAdapter
     {
         var opts = _agents.MiniMax;
         var env = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        var prompt = BuildPrompt(context).Replace("\r", "").Replace("\n", "\\n");
 
         // Locate the CLI on disk (probe known paths + where.exe). Throws
         // CliNotFoundException at startup so the operator sees a clear
@@ -64,14 +65,37 @@ public sealed class MiniMaxAdapter : IAgentAdapter
         var spec = new ProcessSpec
         {
             Executable = resolved.Executable,
+            Arguments = BuildArguments(opts.Arguments, prompt),
             WorkingDirectory = opts.WorkingDirectory,
-            StdinPayload = BuildPrompt(context),
+            // minimax-cli's -p/--print consumes the next command-line
+            // argument; it does not read the prompt from stdin.
+            StdinPayload = null,
             Timeout = TimeSpan.FromMinutes(Math.Max(1, opts.TimeoutMinutes)),
             MaxOutputBytes = opts.MaxCapturedOutputChars,
             Environment = env,
             AgentType = AgentType,
         };
         return SharedAdapterHelpers.RunAndParseAsync(_process, spec, ct);
+    }
+
+    private static string[] BuildArguments(IReadOnlyList<string> configured, string prompt)
+    {
+        var arguments = configured.Count > 0
+            ? configured.ToList()
+            : new List<string> { "-p" };
+        var promptFlag = arguments.FindIndex(
+            value => value.Equals("-p", StringComparison.OrdinalIgnoreCase) ||
+                     value.Equals("--print", StringComparison.OrdinalIgnoreCase));
+        if (promptFlag < 0)
+        {
+            arguments.Add("-p");
+            arguments.Add(prompt);
+        }
+        else
+        {
+            arguments.Insert(promptFlag + 1, prompt);
+        }
+        return arguments.ToArray();
     }
 
     private string BuildPrompt(ExecutionContext context) => $"""

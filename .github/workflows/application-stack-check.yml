@@ -51,6 +51,7 @@ jobs:
             tests/test_run_search.py \
             -q
           python -m pytest tests/test_run_read_authorization.py -q
+          python -m pytest tests/test_p0_runtime_hardening.py tests/unit/test_runtime_security.py -q
           python -m pytest tests/test_run_event_bus.py -q
           python -m pytest tests/test_proposal_realtime.py -q
           python -m pytest tests/test_api_keys.py -q
@@ -103,5 +104,18 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - name: Validate worker install assets
+        shell: pwsh
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'scripts/install-worker.ps1'),
+            [ref]$tokens,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) { throw ($errors | Out-String) }
+          Get-Content 'src/workers/AgentBoard.ProposalWorker/appsettings.Production.json' -Raw |
+            ConvertFrom-Json | Out-Null
       - name: Test ProposalWorker
         run: dotnet test src/workers/AgentBoard.ProposalWorker.Tests/AgentBoard.ProposalWorker.Tests.csproj --nologo -c Release

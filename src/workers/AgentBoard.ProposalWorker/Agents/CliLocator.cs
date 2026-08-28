@@ -5,12 +5,14 @@ namespace AgentBoard.ProposalWorker.Agents;
 /// <summary>
 /// A resolved CLI location: absolute path to the executable, the source
 /// that produced it (for diagnostics), and any extra environment variables
-/// the child process needs (PATH, USERPROFILE, CODEX_HOME, etc.).
+/// the child process needs (PATH, USERPROFILE, CODEX_HOME, etc.). Node-based
+/// entry scripts are represented as prefix arguments before configured args.
 /// </summary>
 public sealed record ResolvedCli(
     string Executable,
     string Source,
-    IReadOnlyDictionary<string, string> ExtraEnv);
+    IReadOnlyDictionary<string, string> ExtraEnv,
+    IReadOnlyList<string> PrefixArguments);
 
 /// <summary>
 /// Thrown when a CLI cannot be located. The worker surfaces this at startup
@@ -102,7 +104,8 @@ public static class CliLocator
             Path.Combine(localAppData, "Programs", "WorkBuddy", "resources", "app.asar.unpacked", "cli", "bin", "codebuddy"),
             Path.Combine(localAppData, "WorkBuddy", "resources", "app.asar.unpacked", "cli", "bin", "codebuddy"),
         };
-        return Resolve("codebuddy", opts, candidates, BaseEnv(), log);
+        return WrapNodeScriptIfNeeded(
+            Resolve("codebuddy", opts, candidates, BaseEnv(), log), log);
     }
 
     /// <summary>
@@ -189,7 +192,9 @@ public static class CliLocator
             if (Path.IsPathRooted(opts.Command) && File.Exists(opts.Command))
             {
                 log.LogInformation("CLI {Agent}: using configured path {Path}", agentType, opts.Command);
-                return new ResolvedCli(opts.Command, $"config:{opts.Command}", baseEnv);
+                return new ResolvedCli(
+                    opts.Command, $"config:{opts.Command}", baseEnv,
+                    Array.Empty<string>());
             }
 
             // Bare name — try where.exe (covers PATHEXT, user PATH, etc.)
@@ -197,7 +202,9 @@ public static class CliLocator
             if (where is not null)
             {
                 log.LogInformation("CLI {Agent}: resolved via where.exe {Path}", agentType, where);
-                return new ResolvedCli(where, $"where:{where}", baseEnv);
+                return new ResolvedCli(
+                    where, $"where:{where}", baseEnv,
+                    Array.Empty<string>());
             }
 
             // Last resort: keep the bare name; Process.Start will produce a
@@ -206,7 +213,9 @@ public static class CliLocator
             log.LogWarning("CLI {Agent}: command '{Cmd}' not found on disk or PATH; " +
                            "will attempt to spawn as-is and let the OS report the error.",
                 agentType, opts.Command);
-            return new ResolvedCli(opts.Command, $"env-as-is:{opts.Command}", baseEnv);
+            return new ResolvedCli(
+                opts.Command, $"env-as-is:{opts.Command}", baseEnv,
+                Array.Empty<string>());
         }
 
         // 2. Known install locations.
@@ -215,7 +224,9 @@ public static class CliLocator
             if (!string.IsNullOrWhiteSpace(candidate) && File.Exists(candidate))
             {
                 log.LogInformation("CLI {Agent}: found at known location {Path}", agentType, candidate);
-                return new ResolvedCli(candidate, $"known-path:{candidate}", baseEnv);
+                return new ResolvedCli(
+                    candidate, $"known-path:{candidate}", baseEnv,
+                    Array.Empty<string>());
             }
         }
 
@@ -225,10 +236,46 @@ public static class CliLocator
         {
             log.LogInformation("CLI {Agent}: resolved via default where.exe probe {Path}",
                 agentType, whereDefault);
-            return new ResolvedCli(whereDefault, $"where-default:{whereDefault}", baseEnv);
+            return new ResolvedCli(
+                whereDefault, $"where-default:{whereDefault}", baseEnv,
+                Array.Empty<string>());
         }
 
         var searched = string.Join(" | ", knownPaths.Where(p => !string.IsNullOrWhiteSpace(p)));
         throw new CliNotFoundException(agentType, opts.Command ?? "", searched);
+    }
+
+    private static ResolvedCli WrapNodeScriptIfNeeded(ResolvedCli resolved, ILogger log)
+    {
+        var executable = resolved.Executable;
+        var extension = Path.GetExtension(executable);
+        var isNodeScript = string.IsNullOrEmpty(extension) ||
+            extension.Equals(".js", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".mjs", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".cjs", StringComparison.OrdinalIgnoreCase);
+        if (!File.Exists(executable) || !isNodeScript)
+        {
+            return resolved;
+        }
+
+        // WorkBuddy bundles `codebuddy` as an extensionless Node shebang
+        // script. Process.Start cannot execute that file directly on Windows,
+        // so resolve node.exe and prepend the script as argv[0].
+        var node = WhereOnPath("node.exe") ?? WhereOnPath("node");
+        if (node is null)
+        {
+            throw new CliNotFoundException(
+                "node", "node.exe",
+                $"required to launch WorkBuddy script {executable}; current PATH");
+        }
+
+        log.LogInformation(
+            "CLI codebuddy: launching Node script {Script} via {Node}",
+            executable, node);
+        return new ResolvedCli(
+            node,
+            $"{resolved.Source};via-node:{node}",
+            resolved.ExtraEnv,
+            new[] { executable });
     }
 }

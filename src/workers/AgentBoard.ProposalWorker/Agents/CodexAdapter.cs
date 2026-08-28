@@ -34,8 +34,8 @@ public sealed class CodexAdapter : IAgentAdapter
         var prompt = BuildPrompt(context);
         // Default Codex CLI invocation: `codex exec --json` (prompt via stdin;
         // there is no --prompt option in the installed CLI). Operators can
-        // override via `Agents:Codex:Arguments` — production defaults to
-        // `["exec", "--json", "--full-auto"]` so the worker can read/write
+        // override via `Agents:Codex:Arguments` — production defaults to the
+        // current CLI's unattended bypass flag so the worker can read/write
         // the project directory without per-tool approval prompts.
         var arguments = opts.Arguments is { Length: > 0 }
             ? opts.Arguments

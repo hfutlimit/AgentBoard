@@ -15,9 +15,9 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
-from ...core.infrastructure.database import get_session, SessionLocal
+from ...core.infrastructure.database import get_session
 from ...core.application import service
 from .schemas import (
 	AgentHeartbeatIn,
@@ -201,6 +201,13 @@ async def stream_run_events(
             .first()
         )
         snapshot_max_id = snapshot_max_id[0] if snapshot_max_id else last_event_id
+        # Keep replay/live reads on the same database boundary as the request
+        # session. This matters for dependency-overridden sessions and for
+        # test modules that own isolated SQLite engines. Capturing only the
+        # bind lets us close the request session before the long-lived stream.
+        stream_session_factory = sessionmaker(
+            bind=s.get_bind(), autoflush=False, autocommit=False, future=True,
+        )
     except Exception:
         run_event_bus.unsubscribe(run_id, subscription)
         raise
@@ -211,7 +218,7 @@ async def stream_run_events(
         try:
             replay_high_watermark = last_event_id
             saw_terminal_event = False
-            with SessionLocal() as replay_session:
+            with stream_session_factory() as replay_session:
                 while replay_high_watermark < snapshot_max_id:
                     page = service.list_run_events(
                         replay_session,
@@ -267,7 +274,7 @@ async def stream_run_events(
                     if ping_count >= 15:
                         yield ": ping\n\n"
                         ping_count = 0
-                    with SessionLocal() as live_session:
+                    with stream_session_factory() as live_session:
                         live_run = service.get_run(live_session, run_id)
                         if live_run is None or str(live_run.status) in _TERMINAL_RUN_STATUSES:
                             if live_run is not None:

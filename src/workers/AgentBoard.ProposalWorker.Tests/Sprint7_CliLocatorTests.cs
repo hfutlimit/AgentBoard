@@ -1,6 +1,8 @@
 using System.Runtime.InteropServices;
 using AgentBoard.ProposalWorker.Agents;
+using AgentBoard.ProposalWorker.Process;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Xunit;
 
 namespace AgentBoard.ProposalWorker.Tests;
@@ -76,21 +78,92 @@ public sealed class Sprint7_CliLocatorTests
     }
 
     [Fact]
-    public void Locator_does_not_silently_swallow_resolution_failures_via_warning()
+    public void Configured_bare_name_is_preserved_for_os_level_diagnostics()
     {
-        // When opts.Command is empty AND the known paths probe AND the
-        // where.exe probe all fail, the locator MUST throw — fail-fast
-        // beats a silent misconfiguration that only shows up at spawn time.
-        // We force a fake-known directory by pointing opts.Command to a
-        // value the locator will treat as "configured but missing":
-        //   - non-empty Command
-        //   - the command is not on PATH (so the where.exe step fails)
-        //   - the command is a bare name with no extension (so ProcessStartInfo
-        //     would treat it as PATH-relative)
-        // In that case the locator returns a warning-wrapped ResolvedCli —
-        // it does NOT throw. We only assert that here for documentation.
+        // An explicitly configured bare command may be supplied later through
+        // the service environment. Preserve it so ProcessExecutor can return
+        // the operating system's concrete spawn error.
         var opts = new AgentOptions { Command = "absent-cli-xyz" };
         var resolved = CliLocator.LocateCodex(opts, NullLogger.Instance);
         Assert.Equal("absent-cli-xyz", resolved.Executable);
+    }
+
+    [Fact]
+    public void LocateCodebuddy_wraps_extensionless_node_script()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+        var node = FindOnPath("node.exe");
+        if (node is null) return;
+
+        var script = Path.Combine(Path.GetTempPath(), $"codebuddy-{Guid.NewGuid():N}");
+        File.WriteAllText(script, "console.log('ok');");
+        try
+        {
+            var resolved = CliLocator.LocateCodebuddy(
+                new AgentOptions { Command = script }, NullLogger.Instance);
+
+            Assert.Equal(node, resolved.Executable, ignoreCase: true);
+            Assert.Equal(new[] { script }, resolved.PrefixArguments);
+            Assert.Contains("via-node", resolved.Source);
+        }
+        finally
+        {
+            File.Delete(script);
+        }
+    }
+
+    [Fact]
+    public async Task MiniMax_adapter_forwards_configured_arguments()
+    {
+        var executor = new RecordingExecutor();
+        var options = new AgentsOptions
+        {
+            MiniMax = new AgentOptions
+            {
+                Command = Environment.ProcessPath!,
+                Arguments = new[] { "-p", "--output-format", "text" },
+                ApiKeyEnv = "",
+            },
+        };
+        var adapter = new MiniMaxAdapter(
+            executor, Options.Create(options), NullLogger<MiniMaxAdapter>.Instance);
+
+        await adapter.ExecuteAsync(
+            new AgentBoard.ProposalWorker.ExecutionContext(
+                1, "proposal:42:0:minimax", "proposal", 42, 0,
+                "minimax", "{}", null),
+            CancellationToken.None);
+
+        Assert.Equal("-p", executor.Spec!.Arguments[0]);
+        Assert.Contains("Handle proposal 42", executor.Spec.Arguments[1]);
+        Assert.Equal("--output-format", executor.Spec.Arguments[2]);
+        Assert.Equal("text", executor.Spec.Arguments[3]);
+        Assert.Null(executor.Spec.StdinPayload);
+    }
+
+    private static string? FindOnPath(string executable)
+    {
+        foreach (var directory in (Environment.GetEnvironmentVariable("PATH") ?? "")
+                     .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var candidate = Path.Combine(directory.Trim('"'), executable);
+            if (File.Exists(candidate)) return candidate;
+        }
+        return null;
+    }
+
+    private sealed class RecordingExecutor : IProcessExecutor
+    {
+        public ProcessSpec? Spec { get; private set; }
+
+        public Task<ProcessResult> ExecuteAsync(ProcessSpec spec, CancellationToken ct)
+        {
+            Spec = spec;
+            return Task.FromResult(new ProcessResult
+            {
+                ExitCode = 0,
+                RedactedOutput = "{\"action\":\"finalize\"}",
+            });
+        }
     }
 }

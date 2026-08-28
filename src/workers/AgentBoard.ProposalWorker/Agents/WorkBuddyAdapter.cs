@@ -38,10 +38,11 @@ public sealed class WorkBuddyAdapter : IAgentAdapter
         var resolved = CliLocator.LocateCodebuddy(opts, _log);
         var env = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         foreach (var (k, v) in resolved.ExtraEnv) env[k] = v;
+        var arguments = resolved.PrefixArguments.Concat(opts.Arguments).ToArray();
         var spec = new ProcessSpec
         {
             Executable = resolved.Executable,
-            Arguments = opts.Arguments,
+            Arguments = arguments,
             WorkingDirectory = opts.WorkingDirectory,
             StdinPayload = BuildPrompt(context),
             Timeout = TimeSpan.FromMinutes(Math.Max(1, opts.TimeoutMinutes)),

@@ -7,14 +7,10 @@ Three bugs were found in a static + dynamic review of ``main``:
    ``in_progress → in_review → done``). The smoke test had been silently
    failing for two days because CI does not run it.
 
-2. ``tests/test_run_authorization.py`` and
-   ``tests/test_run_read_authorization.py`` both set
-   ``AGENTBOARD_DB_URL`` and purge ``agentboard.*`` from ``sys.modules``
-   before importing. A stale engine from a previous test file in the
-   same pytest process could still leak through, so running the two
-   files together made ``test_last_event_id_replays_only_newer_events``
-   fail intermittently. ``core/infrastructure/database.py`` now exposes
-   ``reset_engine()``; both test files call it before the purge.
+2. SSE replay used the router module's global ``SessionLocal`` after closing
+   the request session. When independently isolated test modules were collected
+   together, the replay generator could therefore read a different database.
+   Replay/live sessions now reuse the request session's database bind.
 
 3. ``core/infrastructure/auth.py::validate_runtime_security`` was
    checking ``AGENTBOARD_SECRET`` / ``REQUIRE_AUTH`` / ``CORS_ORIGINS`` /
@@ -32,7 +28,6 @@ import importlib
 import os
 import subprocess
 import sys
-import tempfile
 
 import pytest
 
@@ -77,110 +72,11 @@ def test_smoke_uses_in_review_path_not_illegal_direct_done():
         )
 
 
-# ---------------------------------------------------------------------------
-# (2) reset_engine() rebuilds the engine bound to the current env URL
-# ---------------------------------------------------------------------------
-
-def test_reset_engine_disposes_old_and_binds_new():
-    """``reset_engine()`` must dispose the prior engine and bind a fresh
-    one to whatever URL is currently in ``AGENTBOARD_DB_URL``. This is
-    the contract the two flaky test files rely on.
-
-    We verify the binding by actually opening a connection through the
-    new engine and writing a row, instead of comparing path strings
-    (Windows 8dot3 short paths make string comparison brittle).
-    """
-    # Two different temp DBs so we can prove the engine switched.
-    tmp_a = tempfile.mktemp(suffix=".db")
-    os.environ["AGENTBOARD_DB_URL"] = f"sqlite:///{tmp_a}"
-
-    from agentboard.core.infrastructure import database as db
-    initial_engine = db.engine
-    initial_sessionlocal = db.SessionLocal
-
-    # The module-level engine must have been bound already (it is created
-    # at import time) and must be a live SQLAlchemy Engine.
-    assert initial_engine is not None
-    assert initial_sessionlocal is not None
-
-    # Switch to a different URL. We do NOT mktemp() again here — Windows
-    # 8dot3 short paths make string-equality checks unreliable. Instead
-    # we trust SQLAlchemy to honor the env we just set.
-    tmp_b = tempfile.mktemp(suffix=".db")
-    os.environ["AGENTBOARD_DB_URL"] = f"sqlite:///{tmp_b}"
-    new_engine = db.reset_engine()
-    new_sessionlocal = db.SessionLocal
-
-    assert new_engine is not initial_engine, (
-        "reset_engine() must return a new Engine instance, not the old one"
-    )
-    assert new_sessionlocal is not initial_sessionlocal, (
-        "reset_engine() must rebind SessionLocal to the new engine"
-    )
-
-    # Behavioral proof: open a connection on the *new* engine and write
-    # a row in a table that lives only in tmp_b. We use a dedicated
-    # table name so we can be sure we are not picking up data from
-    # tmp_a.
-    from sqlalchemy import Column, Integer, MetaData, String, Table
-    meta = MetaData()
-    marker = Table(
-        "reset_engine_marker", meta,
-        Column("id", Integer, primary_key=True),
-        Column("label", String(50)),
-    )
-    meta.create_all(new_engine)
-    with new_engine.begin() as conn:
-        conn.execute(marker.insert().values(label="bound-to-tmp_b"))
-    rows = list(new_engine.connect().execute(marker.select()))
-    assert len(rows) == 1 and rows[0][1] == "bound-to-tmp_b"
-
-    # And the public facade SessionLocal (which ``reset_engine`` reloads)
-    # must point at the same engine — a row inserted via the facade must
-    # land in the same backing store.
-    with new_sessionlocal() as s:
-        from sqlalchemy import text
-        s.execute(text("CREATE TABLE IF NOT EXISTS facade_marker (id INTEGER PRIMARY KEY, label TEXT)"))
-        s.execute(text("INSERT INTO facade_marker (label) VALUES ('facade')"))
-        s.commit()
-    rows2 = list(new_engine.connect().execute(text("SELECT label FROM facade_marker")))
-    assert any(r[0] == "facade" for r in rows2), (
-        "public SessionLocal must be the same engine as reset_engine()'s return"
-    )
-
-    # Clean up so we do not leak SQLite files. SQLite + WAL may keep a
-    # second file (e.g. ``-wal`` / ``-shm``) open; unlink can fail on
-    # Windows if the engine still holds the handle. We try twice, then
-    # ignore any remaining OSError.
-    import gc
-    gc.collect()
-    try:
-        new_engine.dispose()
-    except Exception:
-        pass
-    for f in (tmp_a, tmp_b):
-        for _ in range(3):
-            try:
-                os.unlink(f)
-                break
-            except (OSError, PermissionError):
-                import time as _t
-                _t.sleep(0.05)
-            except FileNotFoundError:
-                break
-
-
 def test_run_authorization_files_merged_run_does_not_fail():
     """Regression for the cross-file engine leak: running
     ``test_run_authorization.py`` and ``test_run_read_authorization.py``
     in the same pytest process must not fail because of a stale
     ``engine`` / ``SessionLocal`` bound to the previous test file's DB.
-
-    Concretely: this guards against the "stale engine" bug (root cause
-    identified by the 2026-08-28 review). A separate fixture-isolation
-    issue remains for ``test_last_event_id_replays_only_newer_events``
-    (see note in the diff); we tolerate that one specifically while
-    asserting the rest of the suite passes.
 
     Spawns a subprocess so it does not interfere with this test session's
     own engine state.
@@ -204,22 +100,12 @@ def test_run_authorization_files_merged_run_does_not_fail():
     )
     output = (proc.stdout or "") + (proc.stderr or "")
 
-    # The new regime: 17 of 18 pass; the 1 remaining failure is the
-    # SSE replay test that depends on per-test event ID counters and
-    # is not a stale-engine bug. We do NOT fail this regression test
-    # for that one. Any *new* failure here is a regression.
-    expected_flaky = "test_last_event_id_replays_only_newer_events"
-    if proc.returncode != 0 and expected_flaky not in output:
+    if proc.returncode != 0:
         raise AssertionError(
             "merged run of test_run_authorization.py + "
             "test_run_read_authorization.py failed for an unexpected reason:\n"
             + output[-2000:]
         )
-    # The stale-engine regression target must appear (it was the only
-    # failing test before this fix).
-    assert "test_last_event_id_replays_only_newer_events" in output, (
-        "regression target test missing from the merged run output"
-    )
 
 
 # ---------------------------------------------------------------------------
