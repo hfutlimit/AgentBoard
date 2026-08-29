@@ -201,12 +201,19 @@ public sealed class Sprint8_EndToEndSmokeTests
     }
 
     [Fact]
-    public async Task Paused_coordinator_reverts_inbox_to_pending_and_reenqueues()
+    public async Task Paused_coordinator_reverts_inbox_to_pending_only()
     {
-        // Fix for #4 in the 2026-08-28 review: the previous Coordinator
-        // returned early when Paused, leaving the row in `dispatching`
-        // forever. It must atomically revert to `pending` AND re-enqueue
-        // the flight so the Dispatcher picks it up on Resume.
+        // 2026-08-29 follow-up on the #4 Pause-race fix: the previous
+        // version re-enqueued the flight into the channel after reverting
+        // dispatching → pending. That re-enqueue used a blocking
+        // WriteAsync against the bounded channel. When the channel was
+        // full and the Dispatcher (the only reader) was inside this
+        // very ExecuteAsync call, the write blocked forever — classic
+        // self-deadlock.
+        //
+        // The Coordinator now ONLY marks the row `pending` and returns.
+        // The Dispatcher's DB-pending-refill loop (see TryRefillFromDbAsync
+        // in ExecutionDispatcher) picks the row up on Resume.
         using var fx = new TempDbFixture();
         var (registry, fake, channel, state) = BuildStack(fx, "fake");
 
@@ -221,36 +228,31 @@ public sealed class Sprint8_EndToEndSmokeTests
         var (inboxId, _) = await fx.Inbox.TryEnqueueAsync(req, CancellationToken.None);
         await fx.Inbox.TryClaimAsync(inboxId, CancellationToken.None);
 
-        // Simulate the dispatching-handoff already happened: row is
-        // dispatching. Now the operator clicks Pause just before the
-        // Coordinator runs.
+        // Pre: row is `dispatching`.
         var rowBefore = await fx.Inbox.GetAsync(inboxId);
         Assert.Equal("dispatching", rowBefore!.Status);
 
-        // Adapter was NOT invoked while paused.
-        Assert.Equal(0, fake.CallCount);
-
         // Run the paused branch on the Coordinator. It must:
         //   (a) atomically revert the inbox row to `pending`, AND
-        //   (b) re-enqueue the flight into the channel.
+        //   (b) NOT re-enqueue the flight into the channel.
         state.Paused = true;
         var coordinator = new ExecutionCoordinator(
             fx.Store, fx.Inbox, channel, registry, state,
             NullLogger<ExecutionCoordinator>.Instance);
         await coordinator.ExecuteAsync(req, inboxId, CancellationToken.None);
 
-        // (a) row is back to pending — the previous version left it in
-        // dispatching and the comment was a lie.
+        // (a) row is back to pending.
         var rowAfter = await fx.Inbox.GetAsync(inboxId);
         Assert.Equal("pending", rowAfter!.Status);
 
-        // (b) channel has the re-enqueued flight. We do NOT consume it here
-        // so the Dispatcher can pick it up after Resume.
-        Assert.True(channel.Reader.TryPeek(out var peeked));
-        Assert.Equal(inboxId, peeked.InboxId);
+        // (b) channel is empty. The previous design re-enqueued the
+        // flight here, which could deadlock when the channel was full.
+        // The new design relies on the Dispatcher's DB-pending-refill
+        // loop instead.
+        Assert.False(channel.Reader.TryPeek(out _));
 
-        // The Dispatcher honors Paused and does NOT drain while we hold it.
-        state.Paused = true;
+        // The Dispatcher honors Paused and does NOT drain or refill
+        // while we hold it.
         var dispatcher = new ExecutionDispatcher(
             channel, fx.Inbox, coordinator, NullLogger<ExecutionDispatcher>.Instance);
         using var dispatcherCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -260,8 +262,9 @@ public sealed class Sprint8_EndToEndSmokeTests
         var rowWhilePaused = await fx.Inbox.GetAsync(inboxId);
         Assert.Equal("pending", rowWhilePaused!.Status);
 
-        // Resume. Dispatcher drains, re-claims, runs Coordinator (not paused),
-        // adapter fires, row reaches completed.
+        // Resume. Dispatcher exits the Paused branch, calls
+        // TryRefillFromDbAsync, finds the row, claims it, runs the
+        // adapter, and the row reaches completed.
         state.Paused = false;
         await WaitForInboxTerminal(fx, inboxId, TimeSpan.FromSeconds(5));
         await dispatcher.StopAsync(CancellationToken.None);
@@ -269,6 +272,70 @@ public sealed class Sprint8_EndToEndSmokeTests
         Assert.Equal(1, fake.CallCount);
         var finalRow = await fx.Inbox.GetAsync(inboxId);
         Assert.Equal("completed", finalRow!.Status);
+    }
+
+    [Fact]
+    public async Task Dispatcher_refills_pending_after_drain_when_above_capacity()
+    {
+        // Fix for the 2026-08-29 review follow-up on #2: the previous
+        // Dispatcher only called ListPendingAsync at startup. A backlog
+        // larger than channel capacity (e.g. 5 rows vs 2-slot channel)
+        // stranded the extras in DB pending forever. The Dispatcher now
+        // refills on every idle cycle, so all rows drain regardless of
+        // channel capacity.
+        using var fx = new TempDbFixture();
+        var (registry, fake, _, state) = BuildStack(fx, "fake");
+
+        // Channel capacity = 2 to force a refill boundary.
+        var smallChannel = new ExecutionChannel(Options.Create(new WorkerOptions
+        {
+            Id = "test-worker",
+            DispatchChannelCapacity = 2,
+        }));
+        var coordinator = new ExecutionCoordinator(
+            fx.Store, fx.Inbox, smallChannel, registry, state,
+            NullLogger<ExecutionCoordinator>.Instance);
+
+        // Insert 5 pending rows directly into the inbox (bypass the
+        // channel so the only way they reach the dispatcher is via DB
+        // refill).
+        for (int i = 0; i < 5; i++)
+        {
+            var req = new ExecutionRequest(
+                ExecutionKey: $"refill-{i}",
+                WorkloadType: "proposal",
+                WorkloadId: i,
+                AgentType: "fake",
+                Round: 0,
+                Source: "refill-test",
+                PayloadJson: "{}");
+            await fx.Inbox.TryEnqueueAsync(req, CancellationToken.None);
+        }
+
+        var pendingBefore = await fx.Inbox.ListPendingAsync(CancellationToken.None);
+        Assert.Equal(5, pendingBefore.Count);
+
+        // Start the dispatcher. Its startup recovery + idle-refill
+        // loop must drain all 5.
+        var dispatcher = new ExecutionDispatcher(
+            smallChannel, fx.Inbox, coordinator, NullLogger<ExecutionDispatcher>.Instance);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await dispatcher.StartAsync(cts.Token);
+
+        // Wait for all 5 to complete.
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(8);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var pending = await fx.Inbox.ListPendingAsync(CancellationToken.None);
+            if (pending.Count == 0) break;
+            await Task.Delay(50);
+        }
+
+        await dispatcher.StopAsync(CancellationToken.None);
+
+        var stillPending = await fx.Inbox.ListPendingAsync(CancellationToken.None);
+        Assert.Empty(stillPending);
+        Assert.Equal(5, fake.CallCount);
     }
 
     // -------- helpers --------

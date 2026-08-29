@@ -133,7 +133,7 @@ public sealed class ProcessExecutor : IProcessExecutor
                     {
                         ExitCode = -1,
                         OutputTail = Tail(so, spec.MaxOutputBytes),
-                        StderrTail = Tail(se, spec.MaxOutputBytes),
+                        StderrTail = Redact(Tail(se, spec.MaxOutputBytes)),
                         Duration = DateTimeOffset.UtcNow - startedAt,
                         TimedOut = true,
                         RedactedOutput = Redact(Tail(so, spec.MaxOutputBytes)),
@@ -162,7 +162,7 @@ public sealed class ProcessExecutor : IProcessExecutor
                 {
                     ExitCode = -1,
                     OutputTail = Tail(so, spec.MaxOutputBytes),
-                    StderrTail = Tail(se, spec.MaxOutputBytes),
+                    StderrTail = Redact(Tail(se, spec.MaxOutputBytes)),
                     Duration = DateTimeOffset.UtcNow - startedAt,
                     TimedOut = true,
                     RedactedOutput = Redact(Tail(so, spec.MaxOutputBytes)),
@@ -176,7 +176,7 @@ public sealed class ProcessExecutor : IProcessExecutor
             {
                 ExitCode = process.ExitCode,
                 OutputTail = combined,
-                StderrTail = Tail(stderr, spec.MaxOutputBytes),
+                StderrTail = Redact(Tail(stderr, spec.MaxOutputBytes)),
                 Duration = DateTimeOffset.UtcNow - startedAt,
                 RedactedOutput = Redact(combined),
             };

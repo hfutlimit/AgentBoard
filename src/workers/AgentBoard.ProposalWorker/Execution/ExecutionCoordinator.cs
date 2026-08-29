@@ -66,12 +66,23 @@ public sealed class ExecutionCoordinator
             // here and left the row in `dispatching` forever, which is a
             // permanent stall — the Dispatcher would never re-claim a
             // non-pending row, and startup-recovery would only fire after a
-            // worker restart. Fix for #4 in the 2026-08-28 review: atomically
-            // revert the row to `pending` and re-enqueue the flight so the
-            // Dispatcher picks it up on Resume.
-            _log.LogInformation("Worker paused; reverting inbox {InboxId} dispatching → pending + re-enqueue", inboxId);
+            // worker restart.
+            //
+            // Fix for #4 in the 2026-08-28 review: atomically revert the row
+            // to `pending` and re-enqueue the flight so the Dispatcher picks
+            // it up on Resume.
+            //
+            // 2026-08-29 follow-up: the re-enqueue used a blocking
+            // `WriteAsync` against the bounded channel. When the channel
+            // happened to be full and the Dispatcher (the only reader) was
+            // inside this very ExecuteAsync call, the write blocked forever
+            // — classic self-deadlock. The Dispatcher now refills from DB
+            // pending on every idle cycle (see ExecutionDispatcher), so
+            // there is no need to push back into the channel here. Just
+            // mark the row `pending` and return; the Dispatcher's next
+            // refill loop after Resume picks the row up.
+            _log.LogInformation("Worker paused; reverting inbox {InboxId} dispatching → pending; dispatcher will refill from DB on resume", inboxId);
             await _inbox.MarkPendingAsync(inboxId, ct);
-            await _channel.Writer.WriteAsync(new InFlightExecution(request, inboxId), ct);
             return;
         }
 

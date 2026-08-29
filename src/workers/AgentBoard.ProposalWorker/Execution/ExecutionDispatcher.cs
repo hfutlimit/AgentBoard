@@ -24,37 +24,24 @@ public sealed class ExecutionDispatcher : BackgroundService
     {
         _log.LogInformation("ExecutionDispatcher started");
 
-        // Startup recovery #2 in the 2026-08-28 review: a crash between
-        // TryEnqueueAsync and Channel.Writer.WriteAsync previously left a
-        // row stuck in `pending` forever. We now drain the durable inbox
-        // here, after the dispatcher is the live consumer — the previous
-        // version did this synchronously in Program.cs before the hosted
-        // services were started, which deadlocked when the bounded
-        // channel (capacity 100) was full and there was no consumer.
+        // Startup recovery + ongoing DB-pending refill.
+        // 2026-08-28 review (#2): a crash between TryEnqueueAsync and
+        // Channel.Writer.WriteAsync previously left a row stuck in
+        // `pending` forever. The startup scan drains the durable inbox
+        // here, after the dispatcher is the live consumer.
+        // 2026-08-29 review (#2): the previous version called
+        // ListPendingAsync exactly ONCE at startup. A backlog larger
+        // than channel capacity stranded the excess in DB pending
+        // forever. We now also call TryRefillFromDbAsync on every idle
+        // cycle (see the main loop below), so the channel acts as a
+        // wakeup/acceleration mechanism and the DB inbox is the real
+        // durable queue. With the Coordinator's Paused branch also
+        // routing through DB pending (no channel re-enqueue — see
+        // ExecutionCoordinator), the refill is the single path for any
+        // row that ended up back in the inbox table.
         try
         {
-            var pending = await _inbox.ListPendingAsync(stoppingToken);
-            if (pending.Count > 0)
-            {
-                _log.LogWarning(
-                    "Recovered {Count} pending inbox rows from previous run; pushing into the dispatch channel",
-                    pending.Count);
-                foreach (var flight in pending)
-                {
-                    // TryWrite never blocks (returns false if the channel is
-                    // full); if so we keep the row in the DB as `pending` and
-                    // the next round of ListPendingAsync will pick it up after
-                    // the current batch drains. The bounded channel acts as
-                    // memory-pressure backpressure, not a hard cap.
-                    if (!_channel.Writer.TryWrite(flight))
-                    {
-                        _log.LogWarning(
-                            "Dispatch channel saturated while re-enqueuing {Key}; the row stays in DB `pending` and will be retried after the current batch completes",
-                            flight.Request.ExecutionKey);
-                        break;
-                    }
-                }
-            }
+            await TryRefillFromDbAsync(stoppingToken, "startup");
         }
         catch (Exception ex)
         {
@@ -82,6 +69,14 @@ public sealed class ExecutionDispatcher : BackgroundService
             // (dispatching → pending → re-enqueue → claim → revert …) in a
             // tight CPU / SQLite UPDATE loop. Each iteration also pays a
             // MarkPendingAsync + WriteAsync round-trip, so it is not free.
+            //
+            // 2026-08-29 follow-up: refill the channel from DB pending on
+            // every idle cycle so a backlog larger than channel capacity
+            // eventually drains. The refilled rows go through the same
+            // drain path; the dispatcher is the only reader so the only
+            // writer to the channel is the dispatcher's own refill loop
+            // (and the RabbitMQ consumer, which is not on the critical
+            // path here).
             while (!stoppingToken.IsCancellationRequested)
             {
                 if (_coordinator.IsPaused())
@@ -89,6 +84,7 @@ public sealed class ExecutionDispatcher : BackgroundService
                     await Task.Delay(TimeSpan.FromMilliseconds(200), stoppingToken);
                     continue;
                 }
+                await TryRefillFromDbAsync(stoppingToken, "idle");
                 if (!await _channel.Reader.WaitToReadAsync(stoppingToken)) break;
                 while (!stoppingToken.IsCancellationRequested
                        && !_coordinator.IsPaused()
@@ -119,5 +115,53 @@ public sealed class ExecutionDispatcher : BackgroundService
         }
         catch (OperationCanceledException) { /* shutdown */ }
         _log.LogInformation("ExecutionDispatcher stopped");
+    }
+
+    /// <summary>
+    /// Refill the bounded dispatch channel from the durable DB inbox.
+    /// Called on every idle cycle, so a backlog larger than channel
+    /// capacity eventually drains instead of being stranded at the
+    /// tail. Channel-full is non-fatal: the leftover rows stay in
+    /// <c>pending</c> and the next cycle picks them up.
+    ///
+    /// Fix for the 2026-08-29 review follow-up: the previous Dispatcher
+    /// only called ListPendingAsync at startup, so rows beyond the
+    /// startup channel-capacity window were never dispatched.
+    /// </summary>
+    private async Task TryRefillFromDbAsync(CancellationToken ct, string reason)
+    {
+        // Channel has data → nothing to do; the next drain iteration
+        // picks it up. Cheap check so we don't hammer the DB when the
+        // dispatcher is already busy.
+        if (_channel.Reader.TryPeek(out _)) return;
+        IReadOnlyList<InFlightExecution> pending;
+        try
+        {
+            pending = await _inbox.ListPendingAsync(ct);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex, "DB pending list failed during {Reason} refill; will retry next cycle", reason);
+            return;
+        }
+        if (pending.Count == 0) return;
+        int written = 0;
+        foreach (var flight in pending)
+        {
+            if (!_channel.Writer.TryWrite(flight))
+            {
+                _log.LogInformation(
+                    "Dispatch channel saturated during {Reason} refill after {Written} rows; {Remaining} DB pending will be retried in the next cycle",
+                    reason, written, pending.Count - written);
+                break;
+            }
+            written++;
+        }
+        if (written > 0)
+        {
+            _log.LogInformation(
+                "{Reason} refill: pushed {Written} pending inbox rows from DB into the channel; {Remaining} remain",
+                reason, written, pending.Count - written);
+        }
     }
 }

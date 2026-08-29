@@ -207,6 +207,125 @@ function Wait-Health {
     return $null
 }
 
+function Test-IsElevated {
+    $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $p = New-Object Security.Principal.WindowsPrincipal($id)
+    return $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+# Grant the Windows right "Log on as a service" (SeServiceLogonRight) to an
+# account. Required for any non-builtin service account: sc.exe create does
+# NOT verify the right, so a service can register fine and then fail to
+# start with error 1069 / 1053 ("service did not respond"). This is the
+# fresh-box blocker called out in the 2026-08-29 review: the previous
+# installer happily created a service identity that could not log on.
+#
+# Implementation: LsaOpenPolicy + LsaAddAccountRights via advapi32 P/Invoke.
+# Identical to the canonical LSA privilege-grant pattern; no external
+# dependency (no `ntrights.exe`, no secedit temp file).
+function Grant-ServiceLogonRight {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Account)
+
+    if (-not (Test-IsElevated)) {
+        throw "Grant-ServiceLogonRight requires an elevated PowerShell session (Run as Administrator). Re-launch the install from an elevated prompt."
+    }
+
+    $ntAccount = New-Object System.Security.Principal.NTAccount($Account)
+    $sid = $ntAccount.Translate([System.Security.Principal.SecurityIdentifier])
+
+    if (-not ('AgentBoard.Install.LsaHelpers' -as [type])) {
+        $source = @"
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace AgentBoard.Install {
+    internal static class LsaHelpers {
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct LSA_UNICODE_STRING {
+            public ushort Length;
+            public ushort MaximumLength;
+            public IntPtr Buffer;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct LSA_OBJECT_ATTRIBUTES {
+            public int Length;
+            public IntPtr RootDirectory;
+            public IntPtr ObjectName;
+            public int Attributes;
+            public IntPtr SecurityDescriptor;
+            public IntPtr SecurityQualityOfService;
+        }
+
+        internal const int POLICY_CREATE_ACCOUNT = 0x00000010;
+        internal const int POLICY_LOOKUP_NAMES   = 0x00000800;
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern uint LsaOpenPolicy(
+            IntPtr SystemName,
+            ref LSA_OBJECT_ATTRIBUTES ObjectAttributes,
+            int DesiredAccess,
+            out IntPtr PolicyHandle);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern uint LsaAddAccountRights(
+            IntPtr PolicyHandle,
+            IntPtr AccountSid,
+            LSA_UNICODE_STRING[] UserRights,
+            int CountOfRights);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern uint LsaClose(IntPtr PolicyHandle);
+
+        public static void GrantServiceLogonRight(IntPtr sidPtr) {
+            var oa = new LSA_OBJECT_ATTRIBUTES();
+            oa.Length = Marshal.SizeOf(typeof(LSA_OBJECT_ATTRIBUTES));
+            IntPtr policy;
+            uint status = LsaOpenPolicy(IntPtr.Zero, ref oa, POLICY_CREATE_ACCOUNT | POLICY_LOOKUP_NAMES, out policy);
+            if (status != 0) {
+                throw new Win32Exception((int)status, "LsaOpenPolicy failed with NTSTATUS 0x" + status.ToString("X8"));
+            }
+            try {
+                const string name = "SeServiceLogonRight";
+                var bytes = Encoding.Unicode.GetBytes(name);
+                IntPtr buffer = Marshal.AllocHGlobal(bytes.Length);
+                try {
+                    Marshal.Copy(bytes, 0, buffer, bytes.Length);
+                    var rights = new LSA_UNICODE_STRING[1];
+                    rights[0].Length = (ushort)bytes.Length;
+                    rights[0].MaximumLength = (ushort)bytes.Length;
+                    rights[0].Buffer = buffer;
+                    status = LsaAddAccountRights(policy, sidPtr, rights, 1);
+                    if (status != 0) {
+                        throw new Win32Exception((int)status, "LsaAddAccountRights failed with NTSTATUS 0x" + status.ToString("X8"));
+                    }
+                } finally {
+                    Marshal.FreeHGlobal(buffer);
+                }
+            } finally {
+                LsaClose(policy);
+            }
+        }
+    }
+}
+"@
+        Add-Type -TypeDefinition $source -Language CSharp
+    }
+
+    $sidBytes = New-Object byte[] $sid.BinaryLength
+    $sid.GetBinaryForm($sidBytes, 0)
+    $sidPtr = [System.Runtime.InteropServices.Marshal]::AllocHGlobal($sidBytes.Length)
+    try {
+        [System.Runtime.InteropServices.Marshal]::Copy($sidBytes, 0, $sidPtr, $sidBytes.Length)
+        [AgentBoard.Install.LsaHelpers]::GrantServiceLogonRight($sidPtr)
+    } finally {
+        [System.Runtime.InteropServices.Marshal]::FreeHGlobal($sidPtr)
+    }
+}
+
 # ---------------------------------------------------------------------------
 # Uninstall path
 # ---------------------------------------------------------------------------
@@ -234,6 +353,15 @@ if ($Uninstall) {
 # ---------------------------------------------------------------------------
 
 Write-Section "Pre-flight: checking toolchain"
+
+# Administrator elevation is required for sc.exe create (with obj=), the
+# SeServiceLogonRight grant, and the per-service registry write. Bail
+# immediately if the operator launched from a non-elevated shell so we
+# don't leave a half-configured service behind. 2026-08-29 review fix.
+if (-not (Test-IsElevated)) {
+    throw "This script must be run from an elevated PowerShell session (Run as Administrator). Re-launch from an elevated prompt and retry."
+}
+Write-Host "  elevated:    yes (UAC)" -ForegroundColor Green
 
 $dotnet = Test-DotnetVersion
 if (-not $dotnet) {
@@ -276,7 +404,13 @@ if ($missing.Count -gt 0) {
 # the CLIs found at pre-flight may be invisible at runtime. Detect this and
 # fail fast with a precise message instead of silently producing a half-broken
 # install.
-$installingUser = ".\$env:USERNAME"
+#
+# 2026-08-29 review fix: the previous ".\$env:USERNAME" string forced local
+# account formatting ("MACHINE\user" → ".\user") and almost never matched
+# the actual `whoami` output (e.g. "DOMAIN\jason" vs ".\jason"). Every
+# fresh install tripped a false identity-mismatch warning + Continue anyway?
+# prompt. Use the actual whoami string we already captured.
+$installingUser = $PreFlightIdentity
 if ($ResolvedServiceAccount -ne $installingUser -and $ResolvedServiceAccount -ne 'LocalSystem') {
     Write-Host ''
     Write-Host "  WARNING: pre-flight identity ($PreFlightIdentity) differs from" -ForegroundColor Yellow
@@ -420,6 +554,15 @@ if ($ResolvedServiceAccount -ne 'LocalSystem') {
             throw "No credential supplied for $ResolvedServiceAccount; cannot create the service. Re-run with -ServiceCredential or -ServiceAccount LocalSystem."
         }
     }
+    # Grant the service account the right to log on as a service.
+    # sc.exe create does NOT verify SeServiceLogonRight; without this
+    # grant, sc.exe start fails with 1053 ("service did not respond")
+    # even though the service registered fine. This is the fresh-box
+    # blocker called out in the 2026-08-29 review: the previous
+    # installer produced a service that could register but never start.
+    Write-Host "  granting SeServiceLogonRight to $ResolvedServiceAccount ..."
+    Grant-ServiceLogonRight -Account $ResolvedServiceAccount
+    Write-Host "  SeServiceLogonRight granted" -ForegroundColor Green
     $scArgs += @('obj=', $ResolvedServiceAccount, 'password=', $ServiceCredential.GetNetworkCredential().Password)
 } else {
     Write-Host "  Service will run as LocalSystem (default). Make sure the agent CLIs are" -ForegroundColor Cyan
