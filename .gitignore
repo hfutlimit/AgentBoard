@@ -59,6 +59,9 @@ coverage/
 playwright-report/
 test-results/
 .playwright/
+# xUnit/dotnet test output dir (capital T, no hyphen; xUnit default)
+**/TestResults/
+TestResults/
 # 静态分析 /  lint 缓存
 .mypy_cache/
 .ruff_cache/

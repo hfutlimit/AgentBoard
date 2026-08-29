@@ -160,6 +160,20 @@ public sealed class ExecutionCoordinator
     /// inbox was marked completed. This helper unifies the state
     /// machine: every terminal path either settles the row OR
     /// marks it Degraded, then always completes the inbox.
+    ///
+    /// 2026-08-29 review follow-up (round 8): the helper is now
+    /// fully exception-safe. If MarkDegradedAsync itself fails
+    /// (e.g. the same long-held BUSY lock that exhausted the
+    /// primary Mark* retries is still in effect when MarkDegraded
+    /// runs), or if MarkCompletedAsync on the inbox throws, the
+    /// helper logs the failure and returns normally. The agent's
+    /// business result is preserved (NOT reclassified as Failed);
+    /// the execution row may be left in non-terminal state
+    /// (Degraded write failed → row stays Running), but the inbox
+    /// is still completed (when possible) so the dispatcher does
+    /// not re-run the agent and duplicate side effects. The
+    /// operator sees a clear "degraded" log line and can
+    /// reconcile.
     /// </summary>
     private async Task PersistTerminalOrDegradeAsync(
         Func<Task<bool>> write,
@@ -169,17 +183,47 @@ public sealed class ExecutionCoordinator
         long inboxId,
         CancellationToken ct)
     {
-        var ok = await TryPersistTerminalAsync(write, description, ct);
+        var ok = false;
+        try
+        {
+            ok = await TryPersistTerminalAsync(write, description, ct);
+        }
+        catch (Exception ex)
+        {
+            // Defensive: TryPersistTerminalAsync catches
+            // SqliteException internally. Anything else is a bug.
+            _log.LogError(ex,
+                "{Description} threw unexpected exception during retry helper; treating as exhausted",
+                description);
+        }
         if (!ok)
         {
             _log.LogError(
                 "{Description} exhausted retries on transient SQLite lock contention; agent's business result was {Business}; marking Degraded",
                 description, businessResult);
-            await _store.MarkDegradedAsync(executionId,
-                $"{businessResult}; persistence retries exhausted — verify side effects before retrying",
-                ct);
+            try
+            {
+                await _store.MarkDegradedAsync(executionId,
+                    $"{businessResult}; persistence retries exhausted — verify side effects before retrying",
+                    ct);
+            }
+            catch (Exception ex)
+            {
+                _log.LogError(ex,
+                    "{Description}: MarkDegraded also failed; execution row left in non-terminal state for operator reconciliation",
+                    description);
+            }
         }
-        await _inbox.MarkCompletedAsync(inboxId, ct);
+        try
+        {
+            await _inbox.MarkCompletedAsync(inboxId, ct);
+        }
+        catch (Exception ex)
+        {
+            _log.LogError(ex,
+                "{Description}: inbox MarkCompleted failed; row stuck in dispatching for next-pass recovery",
+                description);
+        }
     }
 
     public async Task ExecuteAsync(ExecutionRequest request, long inboxId, CancellationToken ct)
@@ -402,6 +446,53 @@ public sealed class ExecutionCoordinator
         finally
         {
             _state.End(active);
+        }
+    }
+
+    /// <summary>
+    /// Test seam: drive the unified terminal-persistence path for an
+    /// already-Started execution row. Bypasses StartAsync (which would
+    /// fail-fast on a BUSY blocker) and the agent's ExecuteAsync (which
+    /// the test calls directly). Used by fault-injection tests that
+    /// pre-create the execution row, then hold a SQLite lock, then
+    /// drive only the Mark* path.
+    /// </summary>
+    public async Task MarkTerminalForTestAsync(
+        long executionId, ExecutionRequest request, long inboxId,
+        AgentExecutionResult result, CancellationToken ct)
+    {
+        _ = request; // included for symmetry with ExecuteAsync; not used here
+        if (result.Success)
+        {
+            await PersistTerminalOrDegradeAsync(
+                () => _store.MarkSucceededAsync(executionId, result.ExitCode ?? 0, result.OutputJson ?? "", CancellationToken.None),
+                $"MarkSucceeded({executionId})",
+                businessResult: "Succeeded",
+                executionId, inboxId, CancellationToken.None);
+        }
+        else if (result.Cancelled)
+        {
+            await PersistTerminalOrDegradeAsync(
+                () => _store.MarkCancelledAsync(executionId, result.ErrorMessage ?? "cancelled", CancellationToken.None),
+                $"MarkCancelled({executionId})",
+                businessResult: "Cancelled",
+                executionId, inboxId, CancellationToken.None);
+        }
+        else if (result.TimedOut)
+        {
+            await PersistTerminalOrDegradeAsync(
+                () => _store.MarkTimedOutAsync(executionId, result.ErrorMessage ?? "execution timed out", result.OutputJson ?? "", CancellationToken.None),
+                $"MarkTimedOut({executionId})",
+                businessResult: "TimedOut",
+                executionId, inboxId, CancellationToken.None);
+        }
+        else
+        {
+            await PersistTerminalOrDegradeAsync(
+                () => _store.MarkFailedAsync(executionId, result.ExitCode, result.OutputJson ?? "", result.ErrorMessage ?? "agent reported failure", null, CancellationToken.None),
+                $"MarkFailed({executionId})",
+                businessResult: "Failed",
+                executionId, inboxId, CancellationToken.None);
         }
     }
 }

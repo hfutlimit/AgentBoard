@@ -33,9 +33,25 @@ public sealed class ExecutionChannel
 
     public ExecutionChannel(IOptions<WorkerOptions> options)
     {
+        // FullMode = DropWrite (was Wait). The channel carries only a
+        // wake-signal sentinel in the round-7 DB-first architecture —
+        // dropping a wake is harmless because the Dispatcher's
+        // periodic 2 s timer and its DB poll will pick up the work
+        // anyway. The previous Wait mode would block the
+        // RabbitMQ consumer's WriteAsync (and thus the BasicAck)
+        // when the Dispatcher was busy, which applied broker-level
+        // backpressure but also meant a slow Dispatcher could
+        // stall the consumer thread for the full WriteAsync
+        // duration. With DropWrite the consumer never blocks on
+        // the channel; the bounded buffer still serves as a soft
+        // "is the dispatcher keeping up?" hint, but it is no
+        // longer in the critical path. BoundedChannelOptions
+        // still caps the in-memory queue at
+        // DispatchChannelCapacity, so a runaway producer cannot
+        // leak memory even if the Dispatcher is dead.
         _channel = Channel.CreateBounded<WakeSignal>(new BoundedChannelOptions(Math.Max(1, options.Value.DispatchChannelCapacity))
         {
-            FullMode = BoundedChannelFullMode.Wait,
+            FullMode = BoundedChannelFullMode.DropWrite,
             SingleReader = true,
             SingleWriter = false,
         });

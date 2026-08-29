@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using AgentBoard.ProposalWorker.Agents;
 using AgentBoard.ProposalWorker.Process;
 
@@ -6,6 +7,9 @@ namespace AgentBoard.ProposalWorker.Tests.Fixtures;
 /// <summary>
 /// Programmable mock adapter. Use the static factory helpers to set
 /// behavior, then read <see cref="CallCount"/> to assert routing.
+/// <see cref="CallOrder"/> records the WorkloadId of every
+/// invocation in call order so FIFO-admission tests can verify
+/// the dispatcher pulled rows in <c>id ASC</c> order.
 /// </summary>
 public sealed class FakeAgentAdapter : IAgentAdapter
 {
@@ -19,6 +23,8 @@ public sealed class FakeAgentAdapter : IAgentAdapter
 
     public int CallCount { get; private set; }
     public ExecutionContext? LastContext { get; private set; }
+    /// <summary>WorkloadIds of each invocation, in call order. Thread-safe.</summary>
+    public ConcurrentQueue<long> CallOrder { get; } = new();
 
     public string AgentType { get; }
 
@@ -26,6 +32,7 @@ public sealed class FakeAgentAdapter : IAgentAdapter
     {
         CallCount++;
         LastContext = context;
+        CallOrder.Enqueue(context.WorkloadId);
         return await _behavior(context, ct);
     }
 

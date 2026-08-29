@@ -42,6 +42,21 @@ public sealed class AgentOptions
     public int TimeoutMinutes { get; set; } = 30;
     public int MaxCapturedOutputChars { get; set; } = 20000;
     public string? ApiKeyEnv { get; set; }  // optional; injected only if set
+    /// <summary>
+    /// Optional URL the readiness probe can HTTP-GET to verify
+    /// the agent's external auth is live (e.g. WorkBuddy's MCP
+    /// server, Codex's ChatGPT login session). When set, the
+    /// probe does a short-timeout HEAD/GET and reports
+    /// <c>auth_ready</c> in the snapshot. When null/empty, the
+    /// gate is treated as "not configured" (skipped, no failure).
+    /// 2026-08-29 round-7 review follow-up: the previous design
+    /// only checked <c>ApiKeyEnv</c>, which left WorkBuddy
+    /// (ApiKeyEnv="") as a false positive — the CLI was present
+    /// but the operator had not yet logged in. The MCP URL is
+    /// the most reliable external signal we can probe from the
+    /// worker process.
+    /// </summary>
+    public string? McpUrl { get; set; }
 }
 
 public sealed class AgentsOptions

@@ -8,17 +8,29 @@ namespace AgentBoard.ProposalWorker.Agents;
 
 /// <summary>
 /// Startup CLI readiness probe. For each registered agent the probe splits
-/// the check into two distinct gates so a false "ready" is no longer
+/// the check into three distinct gates so a false "ready" is no longer
 /// possible:
 ///
 ///   * <c>cli_ready</c>     — the CLI binary resolves and exits 0 on --version.
 ///   * <c>credential_ready</c> — every required credential (e.g.
 ///                              <c>ApiKeyEnv</c>) is present in the worker
 ///                              process environment.
+///   * <c>auth_ready</c>     — optional, only when <c>McpUrl</c> is
+///                              configured: an HTTP probe of the
+///                              agent's external auth endpoint (e.g.
+///                              WorkBuddy's MCP server) returns 2xx/3xx
+///                              within a short timeout. Used to catch
+///                              "API key env present but operator has
+///                              not yet logged in" — the round-7 review
+///                              flagged this as a WorkBuddy false
+///                              positive. The CLI binary is present
+///                              and the env is set, but the MCP
+///                              server hasn't been authenticated yet.
 ///
 /// The combined <see cref="AgentReadiness.Ready"/> bool is what the
 /// installer / /health report honours. Fix for #5 (initial) and #6
-/// (ApiKeyEnv false positive) in the 2026-08-28 review.
+/// (ApiKeyEnv false positive) in the 2026-08-28 review, and the
+/// WorkBuddy round-7 follow-up.
 ///
 /// FakeAdapter never spawns anything, so it is always <c>Ready=true</c>.
 /// </summary>
@@ -29,20 +41,24 @@ public sealed class ReadinessProbe
     private readonly AgentsOptions _agents;
     private readonly WorkerState _state;
     private readonly ILogger<ReadinessProbe> _log;
+    private readonly IHttpClientFactory? _httpFactory;
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan McpProbeTimeout = TimeSpan.FromSeconds(3);
 
     public ReadinessProbe(
         IAgentAdapterRegistry registry,
         IProcessExecutor process,
         IOptions<AgentsOptions> agents,
         WorkerState state,
-        ILogger<ReadinessProbe> log)
+        ILogger<ReadinessProbe> log,
+        IHttpClientFactory? httpFactory = null)
     {
         _registry = registry;
         _process = process;
         _agents = agents.Value;
         _state = state;
         _log = log;
+        _httpFactory = httpFactory;
     }
 
     public async Task RunAllAsync(CancellationToken ct)
@@ -56,22 +72,24 @@ public sealed class ReadinessProbe
                 if (report.Ready)
                 {
                     _log.LogInformation(
-                        "Readiness: {Agent} = ready (cli={Cli}, credential={Cred})",
-                        agentType, report.CliReady, report.CredentialReady);
+                        "Readiness: {Agent} = ready (cli={Cli}, credential={Cred}, auth={Auth})",
+                        agentType, report.CliReady, report.CredentialReady, report.AuthReady);
                 }
                 else
                 {
                     _log.LogWarning(
-                        "Readiness: {Agent} = NOT ready (cli={Cli} {CliError}; credential={Cred} {CredError})",
+                        "Readiness: {Agent} = NOT ready (cli={Cli} {CliError}; credential={Cred} {CredError}; auth={Auth} {AuthError})",
                         agentType, report.CliReady, report.CliError,
-                        report.CredentialReady, report.CredentialError);
+                        report.CredentialReady, report.CredentialError,
+                        report.AuthReady, report.AuthError);
                 }
             }
             catch (Exception ex)
             {
                 _state.SetAgentReport(agentType,
                     new AgentReadiness(CliReady: false, CliError: ex.Message,
-                                       CredentialReady: false, CredentialError: "probe threw"));
+                                       CredentialReady: false, CredentialError: "probe threw",
+                                       AuthReady: false, AuthError: "probe threw"));
                 _log.LogError(ex, "Readiness: {Agent} probe threw", agentType);
             }
         }
@@ -92,7 +110,9 @@ public sealed class ReadinessProbe
                 CliReady: false,
                 CliError: $"no AgentOptions bound for agent_type '{agentType}'",
                 CredentialReady: true,
-                CredentialError: null);
+                CredentialError: null,
+                AuthReady: true,
+                AuthError: null);
         }
 
         // Credential gate — independent of the CLI invocation so a
@@ -105,11 +125,20 @@ public sealed class ReadinessProbe
             // We still try the CLI binary so the operator gets both
             // failure modes in the report.
             var cliOnly = await ProbeCliAsync(agentType, opts, ct);
-            return cliOnly.WithCredential(cred.CredentialReady, cred.CredentialError);
+            return cliOnly.WithCredential(cred.CredentialReady, cred.CredentialError)
+                          .WithAuth(true, null);
         }
 
         var cli = await ProbeCliAsync(agentType, opts, ct);
-        return cli.WithCredential(cred.CredentialReady, cred.CredentialError);
+
+        // Optional external auth probe (WorkBuddy's MCP server, Codex
+        // login session, etc.). Only runs when McpUrl is configured —
+        // operators who don't expose an external probe endpoint just
+        // leave it null and the gate is treated as "not configured"
+        // (true, no failure).
+        var auth = await CheckExternalAuthAsync(opts, ct);
+        return cli.WithCredential(cred.CredentialReady, cred.CredentialError)
+                  .WithAuth(auth.AuthReady, auth.AuthError);
     }
 
     private static AgentReadiness CheckCredential(AgentOptions opts)
@@ -124,18 +153,72 @@ public sealed class ReadinessProbe
             // uses CODEX_HOME login, or the CLI is not used). Treat as
             // ready.
             return new AgentReadiness(CliReady: true, CliError: null,
-                                      CredentialReady: true, CredentialError: null);
+                                      CredentialReady: true, CredentialError: null,
+                                      AuthReady: true, AuthError: null);
         }
         var v = Environment.GetEnvironmentVariable(opts.ApiKeyEnv);
         if (!string.IsNullOrWhiteSpace(v))
         {
             return new AgentReadiness(CliReady: true, CliError: null,
-                                      CredentialReady: true, CredentialError: null);
+                                      CredentialReady: true, CredentialError: null,
+                                      AuthReady: true, AuthError: null);
         }
         return new AgentReadiness(
             CliReady: true, CliError: null,
             CredentialReady: false,
-            CredentialError: $"env var '{opts.ApiKeyEnv}' is not set; the adapter will throw InvalidOperationException on first use");
+            CredentialError: $"env var '{opts.ApiKeyEnv}' is not set; the adapter will throw InvalidOperationException on first use",
+            AuthReady: true, AuthError: null);
+    }
+
+    private async Task<AgentReadiness> CheckExternalAuthAsync(AgentOptions opts, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(opts.McpUrl))
+        {
+            // Not configured; treat as ready. Operators without an
+            // external auth endpoint opt out of this gate.
+            return new AgentReadiness(CliReady: true, CliError: null,
+                                      CredentialReady: true, CredentialError: null,
+                                      AuthReady: true, AuthError: null);
+        }
+        if (_httpFactory is null)
+        {
+            // Probe endpoint configured but no IHttpClientFactory
+            // available in DI. The probe can't actually run; report
+            // as "not configured" (no failure, but logged so the
+            // operator notices).
+            _log.LogWarning(
+                "AgentOptions.McpUrl is set ({Url}) but no IHttpClientFactory is registered; auth probe skipped",
+                opts.McpUrl);
+            return new AgentReadiness(CliReady: true, CliError: null,
+                                      CredentialReady: true, CredentialError: null,
+                                      AuthReady: true, AuthError: null);
+        }
+        try
+        {
+            using var http = _httpFactory.CreateClient("ReadinessProbe");
+            http.Timeout = McpProbeTimeout;
+            using var req = new HttpRequestMessage(HttpMethod.Get, opts.McpUrl);
+            // Use HEAD where possible (some servers reject HEAD on
+            // auth endpoints); fall back to a tiny GET range.
+            using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
+            if ((int)resp.StatusCode >= 200 && (int)resp.StatusCode < 400)
+            {
+                return new AgentReadiness(CliReady: true, CliError: null,
+                                          CredentialReady: true, CredentialError: null,
+                                          AuthReady: true, AuthError: null);
+            }
+            return new AgentReadiness(CliReady: true, CliError: null,
+                                      CredentialReady: true, CredentialError: null,
+                                      AuthReady: false,
+                                      AuthError: $"McpUrl {opts.McpUrl} returned HTTP {(int)resp.StatusCode}");
+        }
+        catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException || ex is OperationCanceledException)
+        {
+            return new AgentReadiness(CliReady: true, CliError: null,
+                                      CredentialReady: true, CredentialError: null,
+                                      AuthReady: false,
+                                      AuthError: $"McpUrl {opts.McpUrl} unreachable: {ex.Message}");
+        }
     }
 
     private async Task<AgentReadiness> ProbeCliAsync(string agentType, AgentOptions opts, CancellationToken ct)
@@ -231,20 +314,31 @@ public sealed class ReadinessProbe
 }
 
 /// <summary>
-/// Per-agent readiness split into <c>cli_ready</c> and
-/// <c>credential_ready</c>. The combined <see cref="Ready"/> bool is what
-/// the installer / /health report honours.
+/// Per-agent readiness split into <c>cli_ready</c>,
+/// <c>credential_ready</c>, and (optional) <c>auth_ready</c>. The
+/// combined <see cref="Ready"/> bool is what the installer / /health
+/// report honours.
 /// </summary>
-public sealed record AgentReadiness(bool CliReady, string? CliError, bool CredentialReady, string? CredentialError)
+public sealed record AgentReadiness(
+    bool CliReady,
+    string? CliError,
+    bool CredentialReady,
+    string? CredentialError,
+    bool AuthReady = true,
+    string? AuthError = null)
 {
-    /// <summary>True iff both the CLI binary and the required credentials are present.</summary>
-    public bool Ready => CliReady && CredentialReady;
+    /// <summary>True iff all configured gates pass.</summary>
+    public bool Ready => CliReady && CredentialReady && AuthReady;
 
     /// <summary>All gates pass. Used for fake / non-spawning adapters.</summary>
     public static AgentReadiness AllOk() =>
-        new(true, null, true, null);
+        new(true, null, true, null, true, null);
 
     /// <summary>Replace the credential half of an existing readiness report.</summary>
     public AgentReadiness WithCredential(bool ready, string? error) =>
-        new(CliReady, CliError, ready, error);
+        new(CliReady, CliError, ready, error, AuthReady, AuthError);
+
+    /// <summary>Replace the auth half of an existing readiness report.</summary>
+    public AgentReadiness WithAuth(bool ready, string? error) =>
+        new(CliReady, CliError, CredentialReady, CredentialError, ready, error);
 }

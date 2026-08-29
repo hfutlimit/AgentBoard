@@ -15,27 +15,52 @@ public sealed class Sprint3_DecouplingTests
         new() { At = DateTimeOffset.UtcNow, Source = source };
 
     // -------------------------------------------------------------------------
-    // Bounded channel: writes block when capacity is full and no reader drains.
-    // The channel carries WakeSignal sentinels (round-7 DB-first architecture)
-    // — not the full ExecutionRequest — but the bounded-backpressure
-    // semantics are the same. RabbitMQ's BasicAck is held while WriteAsync
-    // blocks, so AMQP backpressure still applies.
+    // Bounded channel semantics: round-7 uses FullMode=DropWrite
+    // (previously Wait). The channel carries only a WakeSignal
+    // sentinel in the DB-first architecture, so dropping a wake is
+    // harmless: the Dispatcher's periodic 2 s timer + DB poll will
+    // pick up the work even if the wake is lost. The bounded
+    // capacity still caps in-memory usage; the channel just no
+    // longer blocks the producer. This keeps the RabbitMQ
+    // consumer thread never-stuck on a slow Dispatcher.
     // -------------------------------------------------------------------------
 
     [Fact]
-    public async Task Bounded_channel_blocks_writer_when_full_and_no_reader()
+    public async Task Bounded_channel_drops_writer_when_full_and_no_reader()
     {
+        // BoundedChannelFullMode.DropWrite semantics (verified against
+        // the .NET 10 docs): when the channel is full, the WRITE
+        // itself is dropped. The channel contents are unchanged —
+        // the oldest/newest item is NOT removed. The write "succeeds"
+        // (TryWrite returns true, WriteAsync returns immediately)
+        // but the new item never enters the buffer. The point is
+        // exactly that: the producer is never blocked, the
+        // bounded buffer is a soft cap that the periodic DB poll
+        // covers.
         var opts = Options.Create(new WorkerOptions { DispatchChannelCapacity = 2 });
         var channel = new ExecutionChannel(opts);
 
-        // First two writes complete immediately.
+        // First two writes fit.
         await channel.Writer.WriteAsync(Wake("w1"), CancellationToken.None);
         await channel.Writer.WriteAsync(Wake("w2"), CancellationToken.None);
 
-        // Third write must block (capacity=2, no reader).
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
-            await channel.Writer.WriteAsync(Wake("w3"), cts.Token));
+        // Third write would normally block (Wait) but with DropWrite
+        // returns immediately. TryWrite returns true (the write
+        // "succeeded" — it was dropped). Critically, the call does
+        // not block on consumer state.
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var accepted = channel.Writer.TryWrite(Wake("w3"));
+        sw.Stop();
+        Assert.True(accepted);
+        Assert.True(sw.Elapsed < TimeSpan.FromMilliseconds(100),
+            $"TryWrite took {sw.Elapsed}; should be immediate on DropWrite");
+
+        // The dropped write is NOT in the buffer; w1, w2 are still there.
+        var buf = new List<WakeSignal>();
+        while (channel.Reader.TryRead(out var s)) buf.Add(s);
+        Assert.DoesNotContain(buf, s => s.Source == "w3");  // dropped
+        Assert.Contains(buf, s => s.Source == "w1");
+        Assert.Contains(buf, s => s.Source == "w2");
     }
 
     [Fact]
@@ -47,18 +72,45 @@ public sealed class Sprint3_DecouplingTests
         // Write 1 item that fits.
         await channel.Writer.WriteAsync(Wake("w1"), CancellationToken.None);
 
-        // Start a reader that consumes immediately. We no longer
-        // assert on InboxId because the channel carries the
-        // wake-signal sentinel, not the work payload; the test
-        // just verifies that a writer blocked on capacity=1
-        // completes once the reader drains the buffer.
+        // Start a reader that consumes immediately.
         var first = await channel.Reader.ReadAsync(CancellationToken.None);
         Assert.Equal("w1", first.Source);
 
-        // Now writer can complete again because reader drained.
+        // Now writer can complete again because reader drained the
+        // single slot.
         await channel.Writer.WriteAsync(Wake("w2"), CancellationToken.None);
         var second = await channel.Reader.ReadAsync(CancellationToken.None);
         Assert.Equal("w2", second.Source);
+    }
+
+    [Fact]
+    public async Task Bounded_channel_never_blocks_writer_regardless_of_consumer_state()
+    {
+        // The old FullMode=Wait design would deadlock the consumer
+        // thread when the Dispatcher stopped reading wakes (paused
+        // / degraded / dead). The new FullMode=DropWrite is
+        // designed so WriteAsync never blocks. This test asserts
+        // that contract directly: write 1000 wakes into a
+        // capacity=1 channel with no reader. With Wait, this would
+        // stall the test runner (the assertion would never be
+        // reached). With DropWrite, every write returns
+        // immediately and the test completes in milliseconds.
+        var opts = Options.Create(new WorkerOptions { DispatchChannelCapacity = 1 });
+        var channel = new ExecutionChannel(opts);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        for (int i = 0; i < 1000; i++)
+        {
+            // WriteAsync returns ValueTask; we don't care if the
+            // oldest entry is dropped to make room — that's the
+            // whole point of DropWrite. The invariant under test is
+            // "does not block".
+            await channel.Writer.WriteAsync(Wake($"w{i}"), CancellationToken.None);
+        }
+        sw.Stop();
+
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(2),
+            $"1000 writes took {sw.Elapsed}; with Wait they would stall forever, with DropWrite should be near-instant");
     }
 
     // -------------------------------------------------------------------------

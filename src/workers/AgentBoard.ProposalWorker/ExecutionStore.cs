@@ -22,7 +22,24 @@ public sealed class ExecutionStore
     {
         var path = Path.GetFullPath(options.Value.HistoryDatabasePath);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        _connectionString = new SqliteConnectionStringBuilder { DataSource = path }.ToString();
+        // DefaultTimeout=1 (1s) → busy_timeout=1000ms. Microsoft.Data.Sqlite
+        // auto-retries BUSY at the driver level for the connection's busy_timeout
+        // window before surfacing the SqliteException. The default is 30s which
+        // would silently bypass ExecutionCoordinator's TryPersistTerminalAsync
+        // retry helper (it never sees BUSY because the driver waits it out).
+        // 1s is the smallest non-zero DefaultTimeout (the driver treats 0 as
+        // "no timeout" / wait-forever — confirmed by direct probe on
+        // Microsoft.Data.Sqlite 10.0.0). Combined with the helper's 1.6s
+        // inter-attempt delay budget, total transient-wait per terminal
+        // write is ~5.6s; a MarkSucceeded + MarkDegraded round is ~11.2s.
+        // That is the explicit "transient SQLite lock" wait policy; longer
+        // contention surfaces as Degraded (preserving the agent's business
+        // result) and the operator reconciles via the inbox completed state.
+        _connectionString = new SqliteConnectionStringBuilder
+        {
+            DataSource = path,
+            DefaultTimeout = 1,
+        }.ToString();
         _log = log;
         Initialize();
     }
