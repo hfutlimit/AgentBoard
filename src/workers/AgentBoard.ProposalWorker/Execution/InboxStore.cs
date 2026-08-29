@@ -230,13 +230,65 @@ public sealed class InboxStore
     }
 
     /// <summary>
-    /// List every inbox row that survived startup in <c>pending</c> state. The
-    /// caller (Program.cs / ExecutionDispatcher) re-enqueues each into the
-    /// in-memory channel so the work is not lost. Fix for #6 in the
-    /// 2026-08-28 review: a process crash between <c>TryEnqueueAsync</c> and
-    /// <c>Channel.Writer.WriteAsync</c> previously left a row stuck in
-    /// <c>pending</c> forever (no consumer ever saw the message after restart
-    /// because RabbitMQ redelivery was a no-op against the duplicate row).
+    /// Pull the oldest <paramref name="limit"/> pending inbox rows.
+    /// Used by the Dispatcher's DB-first main loop: every wake
+    /// (RabbitMQ signal, periodic timer, startup) the dispatcher
+    /// queries the DB directly for the next row, claims it, runs
+    /// it. The bounded channel no longer carries the work payload
+    /// — it carries only a <see cref="WakeSignal"/> sentinel.
+    ///
+    /// 2026-08-29 review follow-up (round 7): added the
+    /// <c>LIMIT @limit</c> cap. The previous version had no LIMIT,
+    /// so a 50,000-row backlog would be SELECTed into a
+    /// <c>List&lt;InFlightExecution&gt;</c> in one go. The
+    /// payload_json column can be large (full agent context);
+    /// loading 50,000 rows × ~10KB each = ~500 MB into a single
+    /// list before the dispatcher even starts processing. The
+    /// dispatcher should pull a small batch at a time, process
+    /// them, then pull the next batch. The caller (dispatcher)
+    /// controls the batch size; the default here is 100 which is
+    /// enough to keep the channel wake → DB query → execute path
+    /// tight without ballooning memory.
+    /// </summary>
+    public async Task<IReadOnlyList<InFlightExecution>> GetOldestPendingFlightsAsync(int limit, CancellationToken ct)
+    {
+        if (limit <= 0) return Array.Empty<InFlightExecution>();
+        var rows = new List<InFlightExecution>(Math.Min(limit, 64));
+        await using var c = new SqliteConnection(_connectionString);
+        await c.OpenAsync(ct);
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, execution_key, workload_type, workload_id, agent_type, round, payload_json
+            FROM worker_execution_inbox
+            WHERE status='pending'
+            ORDER BY id ASC
+            LIMIT @limit
+            """;
+        cmd.Parameters.AddWithValue("@limit", limit);
+        await using var r = await cmd.ExecuteReaderAsync(ct);
+        while (await r.ReadAsync(ct))
+        {
+            var req = new ExecutionRequest(
+                ExecutionKey: r.GetString(1),
+                WorkloadType: r.GetString(2),
+                WorkloadId: r.GetInt64(3),
+                AgentType: r.GetString(4),
+                Round: r.GetInt32(5),
+                PayloadJson: r.GetString(6),
+                Source: "db-refill");
+            rows.Add(new InFlightExecution(req, r.GetInt64(0)));
+        }
+        return rows;
+    }
+
+    /// <summary>
+    /// Kept for backward compatibility with tests that just want
+    /// a "are there any pending rows" count. The 2026-08-29 review
+    /// follow-up replaces production callers with
+    /// <see cref="GetOldestPendingFlightsAsync(int, CancellationToken)"/>
+    /// which is bounded and ordered; this method is unbounded and
+    /// exists only so the test suite can count `pending` rows
+    /// without rewriting the assertions.
     /// </summary>
     public async Task<IReadOnlyList<InFlightExecution>> ListPendingAsync(CancellationToken ct)
     {
@@ -253,10 +305,6 @@ public sealed class InboxStore
         await using var r = await cmd.ExecuteReaderAsync(ct);
         while (await r.ReadAsync(ct))
         {
-            // Reconstruct an ExecutionRequest so the dispatcher can re-enqueue
-            // it. Round/Payload/agent match what the consumer originally wrote;
-            // work_unit_id (the DB column) becomes WorkloadId on the request
-            // (the in-memory DTO), so round-trip is identity-preserving.
             var req = new ExecutionRequest(
                 ExecutionKey: r.GetString(1),
                 WorkloadType: r.GetString(2),

@@ -11,17 +11,15 @@ namespace AgentBoard.ProposalWorker.Tests;
 
 public sealed class Sprint3_DecouplingTests
 {
-    private static ExecutionRequest Req(string agent = "workbuddy", long id = 1) => new(
-        ExecutionKey: $"proposal:{id}:0:{agent}",
-        WorkloadType: "proposal",
-        WorkloadId: id,
-        AgentType: agent,
-        Round: 0,
-        Source: "test",
-        PayloadJson: "{}");
+    private static WakeSignal Wake(string source = "test") =>
+        new() { At = DateTimeOffset.UtcNow, Source = source };
 
     // -------------------------------------------------------------------------
     // Bounded channel: writes block when capacity is full and no reader drains.
+    // The channel carries WakeSignal sentinels (round-7 DB-first architecture)
+    // — not the full ExecutionRequest — but the bounded-backpressure
+    // semantics are the same. RabbitMQ's BasicAck is held while WriteAsync
+    // blocks, so AMQP backpressure still applies.
     // -------------------------------------------------------------------------
 
     [Fact]
@@ -31,13 +29,13 @@ public sealed class Sprint3_DecouplingTests
         var channel = new ExecutionChannel(opts);
 
         // First two writes complete immediately.
-        await channel.Writer.WriteAsync(new InFlightExecution(Req(id: 1), 1), CancellationToken.None);
-        await channel.Writer.WriteAsync(new InFlightExecution(Req(id: 2), 2), CancellationToken.None);
+        await channel.Writer.WriteAsync(Wake("w1"), CancellationToken.None);
+        await channel.Writer.WriteAsync(Wake("w2"), CancellationToken.None);
 
         // Third write must block (capacity=2, no reader).
         using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
-            await channel.Writer.WriteAsync(new InFlightExecution(Req(id: 3), 3), cts.Token));
+            await channel.Writer.WriteAsync(Wake("w3"), cts.Token));
     }
 
     [Fact]
@@ -47,16 +45,20 @@ public sealed class Sprint3_DecouplingTests
         var channel = new ExecutionChannel(opts);
 
         // Write 1 item that fits.
-        await channel.Writer.WriteAsync(new InFlightExecution(Req(id: 1), 1), CancellationToken.None);
+        await channel.Writer.WriteAsync(Wake("w1"), CancellationToken.None);
 
-        // Start a reader that consumes immediately.
+        // Start a reader that consumes immediately. We no longer
+        // assert on InboxId because the channel carries the
+        // wake-signal sentinel, not the work payload; the test
+        // just verifies that a writer blocked on capacity=1
+        // completes once the reader drains the buffer.
         var first = await channel.Reader.ReadAsync(CancellationToken.None);
-        Assert.Equal(1L, first.InboxId);
+        Assert.Equal("w1", first.Source);
 
         // Now writer can complete again because reader drained.
-        await channel.Writer.WriteAsync(new InFlightExecution(Req(id: 2), 2), CancellationToken.None);
+        await channel.Writer.WriteAsync(Wake("w2"), CancellationToken.None);
         var second = await channel.Reader.ReadAsync(CancellationToken.None);
-        Assert.Equal(2L, second.InboxId);
+        Assert.Equal("w2", second.Source);
     }
 
     // -------------------------------------------------------------------------
@@ -100,15 +102,34 @@ public sealed class Sprint3_DecouplingTests
     }
 
     // -------------------------------------------------------------------------
-    // InflightExecution record carries both request and inbox id
+    // InFlightExecution record still carries (request, inbox_id) — used by
+    // the Dispatcher when it pulls rows directly from the durable DB inbox
+    // (the channel only carries a wake-signal sentinel in the round-7
+    // DB-first architecture).
     // -------------------------------------------------------------------------
 
     [Fact]
     public void InFlightExecution_carries_request_and_inbox_id()
     {
-        var req = Req(id: 99);
+        var req = new ExecutionRequest(
+            ExecutionKey: "proposal:99:0:workbuddy",
+            WorkloadType: "proposal",
+            WorkloadId: 99,
+            AgentType: "workbuddy",
+            Round: 0,
+            Source: "test",
+            PayloadJson: "{}");
         var flight = new InFlightExecution(req, 42L);
         Assert.Equal("proposal:99:0:workbuddy", flight.Request.ExecutionKey);
         Assert.Equal(42L, flight.InboxId);
     }
+
+    private static ExecutionRequest Req(string agent = "workbuddy", long id = 1) => new(
+        ExecutionKey: $"proposal:{id}:0:{agent}",
+        WorkloadType: "proposal",
+        WorkloadId: id,
+        AgentType: agent,
+        Round: 0,
+        Source: "test",
+        PayloadJson: "{}");
 }

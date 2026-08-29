@@ -158,10 +158,18 @@ public sealed class RabbitMqConsumerService : BackgroundService
                     return;
                 }
 
-                // Hand off to the in-memory channel; the consumer returns
-                // immediately. The dispatcher drains the channel on a
-                // background task and is responsible for the actual run.
-                await _channel.Writer.WriteAsync(new InFlightExecution(request, inboxId), stoppingToken);
+                // Hand off a wake-signal sentinel to the dispatcher.
+                // The DB inbox already holds the (request, inboxId)
+                // pair (inserted above); the dispatcher will read it
+                // from the DB on the next wake. This is the
+                // DB-first scheduling architecture — the bounded
+                // channel carries only a sentinel, not the work
+                // payload, so a permanently busy channel can never
+                // starve DB-only pending rows. 2026-08-29 review
+                // follow-up (round 7).
+                await _channel.Writer.WriteAsync(
+                    new WakeSignal { At = DateTimeOffset.UtcNow, Source = "rabbit" },
+                    stoppingToken);
                 channel.BasicAck(eventArgs.DeliveryTag, false);
             }
             catch (InvalidDataException ex)

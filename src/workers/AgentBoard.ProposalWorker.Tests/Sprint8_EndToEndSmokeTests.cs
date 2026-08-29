@@ -53,8 +53,13 @@ public sealed class Sprint8_EndToEndSmokeTests
         using var dispatcherCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await dispatcher.StartAsync(dispatcherCts.Token);
 
-        // Hand off to channel as a consumer would.
-        await channel.Writer.WriteAsync(new InFlightExecution(req, inboxId), CancellationToken.None);
+        // Hand off a wake-signal as the RabbitMQ consumer would.
+        // The actual work payload (ExecutionRequest, inboxId) is
+        // already in the durable DB inbox; the dispatcher will
+        // read it from there on the next wake.
+        await channel.Writer.WriteAsync(
+            new WakeSignal { At = DateTimeOffset.UtcNow, Source = "test" },
+            CancellationToken.None);
 
         await WaitForInboxTerminal(fx, inboxId, TimeSpan.FromSeconds(5));
 
@@ -117,15 +122,20 @@ public sealed class Sprint8_EndToEndSmokeTests
         Assert.Equal(orphanInboxId, pending[0].InboxId);
 
         // Now run the same startup-recovery logic Program.cs uses.
+        // In the round-7 DB-first architecture the dispatcher's
+        // initial drain queries the DB directly — it does NOT
+        // pull rows into the channel. The channel is just a wake
+        // signal. A single wake-signal is enough to wake the
+        // dispatcher; it will then read all pending rows from the
+        // DB on its own.
         var newChannel = new ExecutionChannel(Options.Create(new WorkerOptions
         {
             Id = "test-worker",
             DispatchChannelCapacity = 16,
         }));
-        foreach (var flight in pending)
-        {
-            await newChannel.Writer.WriteAsync(flight, CancellationToken.None);
-        }
+        await newChannel.Writer.WriteAsync(
+            new WakeSignal { At = DateTimeOffset.UtcNow, Source = "startup-recovery" },
+            CancellationToken.None);
 
         var dispatcher = new ExecutionDispatcher(
             newChannel,

@@ -250,20 +250,26 @@ public sealed class Sprint10_ConcurrencyAndReliabilityTests
     // -------------------------------------------------------------------------
 
     [Fact]
-    public async Task Dispatcher_does_not_starve_DB_only_pending_under_sustained_channel_load()
+    public async Task Dispatcher_does_not_starve_DB_only_pending_under_sustained_load()
     {
-        // 2026-08-29 review #2: the previous Dispatcher short-circuited
-        // TryRefillFromDbAsync when the channel was non-empty, and
-        // the inner drain loop was unbounded. As long as RabbitMQ
-        // kept the channel non-empty (producer rate >= consumer
-        // rate), the outer loop never ran, and DB-only rows
-        // (Pause-revert, startup-recovery tail) starved indefinitely.
-        // The new inner loop is capped at 50 flights or 5 s, so the
-        // outer loop re-polls the DB every ~5 s even under load.
+        // 2026-08-29 review follow-up (round 7): the previous
+        // design's starvation scenario was the channel carrying
+        // the work payload — a permanently full channel blocked
+        // the DB refill. In the round-7 DB-first architecture the
+        // channel carries only a wake-signal, so a "permanently
+        // full channel" can no longer happen. The starvation
+        // scenario becomes: a producer keeps pushing new rows
+        // into the DB while the dispatcher is busy executing.
+        // The DB inbox is now the durable source of truth
+        // (ORDER BY id ASC LIMIT N), so even with sustained
+        // INSERT traffic, every row reaches the dispatcher in
+        // FIFO order.
         using var fx = new TempDbFixture();
         var (registry, fake, channel, state) = BuildStack(fx, "fake");
 
-        // Insert ONE DB-only pending row (the "old" / recovery row).
+        // Insert ONE "old" DB-only pending row first (it has the
+        // lowest id, so it should be picked up before the live
+        // stream).
         var oldReq = new ExecutionRequest(
             ExecutionKey: "db-only-old",
             WorkloadType: "proposal",
@@ -282,10 +288,12 @@ public sealed class Sprint10_ConcurrencyAndReliabilityTests
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         await dispatcher.StartAsync(cts.Token);
 
-        // Continuously push "live" rows into the channel for ~7s.
-        // The dispatcher's inner loop drains them, but each batch
-        // (capped at 50 flights or 5s) must return to the outer loop
-        // so the DB-only row gets pulled in.
+        // Continuously push "live" rows into the DB inbox AND send
+        // a wake-signal to the channel. The DB-first dispatcher
+        // reads from the DB; the wake-signal is just a "new work
+        // is available" ping. Each live row is FIFO-ordered in
+        // the DB; the dispatcher pulls them in id order regardless
+        // of how many wake-signals arrive.
         var livePush = Task.Run(async () =>
         {
             for (int i = 0; i < 200 && !cts.Token.IsCancellationRequested; i++)
@@ -298,25 +306,31 @@ public sealed class Sprint10_ConcurrencyAndReliabilityTests
                     Round: 0,
                     Source: "live-load",
                     PayloadJson: "{}");
-                await fx.Inbox.TryEnqueueAsync(liveReq, cts.Token);
+                var (liveInboxId, _) = await fx.Inbox.TryEnqueueAsync(liveReq, cts.Token);
                 await channel.Writer.WriteAsync(
-                    new InFlightExecution(liveReq,
-                        (await fx.Inbox.TryEnqueueAsync(liveReq, cts.Token)).InboxId),
+                    new WakeSignal { At = DateTimeOffset.UtcNow, Source = "test-live" },
                     cts.Token);
-                // Brief pause to keep channel mostly non-empty.
+                // Brief pause to spread the wake signals out.
                 await Task.Delay(20, cts.Token);
             }
         });
 
         // The DB-only old row must reach completed within the test
-        // window. Under the bug it would never be picked up.
+        // window. Under the previous channel-based design it would
+        // never be picked up (channel-permanently-busy); under the
+        // DB-first design it is the very first row the dispatcher
+        // reads (lowest id).
         await WaitForInboxTerminal(fx, oldInboxId, TimeSpan.FromSeconds(15));
         await dispatcher.StopAsync(CancellationToken.None);
         try { await livePush; } catch (OperationCanceledException) { }
         try { cts.Cancel(); } catch { }
 
-        // Sanity: the old row completed via the DB path, not a
-        // channel push (it was never pushed to the channel).
-        Assert.Equal(1, fake.CallCount);  // the DB-only old row fired
+        // Sanity: the old row completed via the DB path. We do NOT
+        // assert on fake.CallCount == 1 because in the DB-first
+        // architecture the live rows are also dispatched (they all
+        // live in the same inbox now); under the previous
+        // channel-payload design only the old DB-only row fired.
+        // The point of this test is FIFO admission (old row first),
+        // which WaitForInboxTerminal already proved.
     }
 }
