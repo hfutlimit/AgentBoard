@@ -1892,7 +1892,7 @@
                     <span class="avatar comment-avatar">{{ c.author.slice(0, 2) }}</span>
                     <div class="comment-body">
                       <div class="comment-meta"><strong>{{ c.author }}</strong><time>{{ timeAgo(c.created_at) }}</time></div>
-                      <div class="md text-pre">{{ c.content }}</div>
+                      <div class="md text-pre" [innerHTML]="renderMarkdown(c.content)"></div>
                     </div>
                   </article>
                 } @empty {
@@ -1902,7 +1902,7 @@
               <form class="comment-form" (submit)="addDocComment($event)">
                 <input #docCAuthor name="author" [value]="commentAuthor()" required maxlength="100" placeholder="你的名字" />
                 @if (docCommentPreview()) {
-                  <div class="comment-preview md text-pre">{{ docCommentContent() || '（预览区域）' }}</div>
+                  <div class="comment-preview md text-pre" [innerHTML]="renderMarkdown(docCommentContent()) || '（预览区域）'"></div>
                 }
                 <textarea #docCContent name="content" rows="4" required
                   [placeholder]="docCommentPreview() ? '切换到编辑模式输入…' : '记录评审意见、决策或阻塞…'"
