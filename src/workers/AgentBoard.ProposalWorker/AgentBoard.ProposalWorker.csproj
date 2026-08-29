@@ -11,4 +11,10 @@
     <PackageReference Include="RabbitMQ.Client" Version="6.8.1" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Expose internals (BoundedByteQueue, etc.) to the unit test project
+         so we can unit-test the streaming bounded buffer directly without
+         making it part of the public API. -->
+    <InternalsVisibleTo Include="AgentBoard.ProposalWorker.Tests" />
+  </ItemGroup>
 </Project>

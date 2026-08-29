@@ -316,4 +316,112 @@ public sealed class Sprint5_ProcessExecutorTests
         Assert.True(result.ExitCode == 0,
             $"ping should exit 0; got exit={result.ExitCode} stderr={result.StderrTail}");
     }
+
+    // -------------------------------------------------------------------------
+    // 9. Streaming bounded buffer — BoundedByteQueue unit tests
+    //    The previous ReadToEndAsync buffered the full stdout/stderr in
+    //    memory and only truncated post-mortem. A runaway CLI could OOM
+    //    the worker. BoundedByteQueue keeps at most MaxBytes at any time,
+    //    verified directly here.
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public void BoundedByteQueue_under_max_returns_all_data()
+    {
+        var q = new BoundedByteQueue(maxBytes: 100);
+        q.Append("hello"u8);
+        q.Append(" "u8);
+        q.Append("world"u8);
+        Assert.Equal("hello world", q.GetText());
+        Assert.Equal(11, q.TotalBytes);
+    }
+
+    [Fact]
+    public void BoundedByteQueue_over_max_keeps_only_last_max_bytes()
+    {
+        var q = new BoundedByteQueue(maxBytes: 10);
+        // 20 chunks of 5 bytes each = 100 bytes total. Only the last
+        // 10 bytes should survive.
+        for (int i = 0; i < 20; i++)
+        {
+            var chunk = new byte[5];
+            Array.Fill(chunk, (byte)('A' + (i % 26)));
+            q.Append(chunk);
+        }
+        var text = q.GetText();
+        Assert.Equal(10, text.Length);
+        Assert.Equal(10, q.TotalBytes);
+        // The kept tail is the last 10 bytes: chunk 18 ('S'*5) +
+        // chunk 19 ('T'*5). ASCII so byte count == char count.
+        Assert.Equal("SSSSSTTTTT", text);
+    }
+
+    [Fact]
+    public void BoundedByteQueue_single_chunk_larger_than_max_truncates_to_tail()
+    {
+        var q = new BoundedByteQueue(maxBytes: 4);
+        q.Append("ABCDEFGHIJ"u8);  // 10 bytes, > 4
+        Assert.Equal(4, q.TotalBytes);
+        Assert.Equal("GHIJ", q.GetText());
+    }
+
+    [Fact]
+    public void BoundedByteQueue_zero_max_acts_as_black_hole()
+    {
+        var q = new BoundedByteQueue(maxBytes: 0);
+        q.Append("anything"u8);
+        Assert.Equal(0, q.TotalBytes);
+        Assert.Equal(string.Empty, q.GetText());
+    }
+
+    [Fact]
+    public void BoundedByteQueue_negative_max_acts_as_black_hole()
+    {
+        // Defensive: callers must not pass negatives, but the constructor
+        // clamps to 0 to make misuse safe.
+        var q = new BoundedByteQueue(maxBytes: -5);
+        q.Append("anything"u8);
+        Assert.Equal(0, q.TotalBytes);
+    }
+
+    [Fact]
+    public void BoundedByteQueue_empty_append_is_noop()
+    {
+        var q = new BoundedByteQueue(maxBytes: 100);
+        q.Append(ReadOnlySpan<byte>.Empty);
+        Assert.Equal(0, q.TotalBytes);
+        Assert.Equal(string.Empty, q.GetText());
+    }
+
+    // -------------------------------------------------------------------------
+    // 10. Integration: huge output is bounded at runtime, not just at
+    //     post-mortem. The previous ReadToEndAsync would have read the
+    //     full 10 MB into RAM; the new streaming bounded buffer caps
+    //     memory at MaxOutputBytes regardless of CLI total output.
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ProcessExecutor_bounds_memory_for_huge_output()
+    {
+        // 20,000 lines * 50 chars ≈ 1 MB. With a tiny 4 KB cap, only the
+        // last 4 KB of stdout should survive, and the LAST emitted line
+        // (TAIL_MARKER_HUGE) must be present. The pre-bounded version
+        // would have buffered all 1 MB before truncating; the new
+        // streaming version drops bytes as they arrive and never holds
+        // more than 4 KB at a time.
+        var payload = new string('A', 50);
+        var spec = new ProcessSpec
+        {
+            Executable = "cmd",
+            Arguments = new[] { "/c", $"for /L %i in (1,1,20000) do @echo TAIL_MARKER_HUGE_{payload}" },
+            MaxOutputBytes = 4 * 1024,
+            Timeout = TimeSpan.FromSeconds(30),
+        };
+        var result = await _exec.ExecuteAsync(spec, CancellationToken.None);
+
+        Assert.True(result.ExitCode == 0, $"cmd exit {result.ExitCode}, stderr: {result.StderrTail}");
+        Assert.True(result.OutputTail.Length <= 4 * 1024,
+            $"OutputTail length {result.OutputTail.Length} exceeds 4 KB cap (streaming should have bounded it at runtime)");
+        Assert.Contains("TAIL_MARKER_HUGE_", result.OutputTail);
+    }
 }

@@ -86,8 +86,18 @@ public sealed class ProcessExecutor : IProcessExecutor
             if (!process.Start())
                 return new ProcessResult { ExitCode = -1, OutputTail = "", StderrTail = $"could not start {spec.Executable}", Duration = TimeSpan.Zero };
 
-            var stdoutTask = process.StandardOutput.ReadToEndAsync(timeoutToken);
-            var stderrTask = process.StandardError.ReadToEndAsync(timeoutToken);
+            // 2026-08-29 review follow-up: the previous ReadToEndAsync
+            // buffered the full stdout/stderr in memory and only
+            // truncated to MaxOutputBytes post-mortem. A runaway CLI
+            // (e.g. an agent stuck in a log-spam loop) would OOM the
+            // worker. The new design reads the underlying stream in
+            // 8 KB chunks into a BoundedByteQueue that keeps at most
+            // MaxOutputBytes at any time. Memory is bounded
+            // independently of how much the CLI actually emits.
+            var stdoutSink = new BoundedByteQueue(spec.MaxOutputBytes);
+            var stderrSink = new BoundedByteQueue(spec.MaxOutputBytes);
+            var stdoutTask = ReadStreamBoundedAsync(process.StandardOutput.BaseStream, stdoutSink, timeoutToken);
+            var stderrTask = ReadStreamBoundedAsync(process.StandardError.BaseStream, stderrSink, timeoutToken);
 
             // stdin write + WaitForExit + post-mortem stdout read all live
             // inside the SAME try block so the OperationCanceledException
@@ -127,16 +137,14 @@ public sealed class ProcessExecutor : IProcessExecutor
                 catch (OperationCanceledException) // timeout fired (or stdin-write timed out)
                 {
                     TryKillTree(process);
-                    var so = await SafeReadAsync(stdoutTask);
-                    var se = await SafeReadAsync(stderrTask);
                     return new ProcessResult
                     {
                         ExitCode = -1,
-                        OutputTail = Tail(so, spec.MaxOutputBytes),
-                        StderrTail = Redact(Tail(se, spec.MaxOutputBytes)),
+                        OutputTail = stdoutSink.GetText(),
+                        StderrTail = Redact(stderrSink.GetText()),
                         Duration = DateTimeOffset.UtcNow - startedAt,
                         TimedOut = true,
-                        RedactedOutput = Redact(Tail(so, spec.MaxOutputBytes)),
+                        RedactedOutput = Redact(stdoutSink.GetText()),
                     };
                 }
             }
@@ -156,29 +164,32 @@ public sealed class ProcessExecutor : IProcessExecutor
             catch (OperationCanceledException) // timeout fired during stdin write
             {
                 TryKillTree(process);
-                var so = await SafeReadAsync(stdoutTask);
-                var se = await SafeReadAsync(stderrTask);
                 return new ProcessResult
                 {
                     ExitCode = -1,
-                    OutputTail = Tail(so, spec.MaxOutputBytes),
-                    StderrTail = Redact(Tail(se, spec.MaxOutputBytes)),
+                    OutputTail = stdoutSink.GetText(),
+                    StderrTail = Redact(stderrSink.GetText()),
                     Duration = DateTimeOffset.UtcNow - startedAt,
                     TimedOut = true,
-                    RedactedOutput = Redact(Tail(so, spec.MaxOutputBytes)),
+                    RedactedOutput = Redact(stdoutSink.GetText()),
                 };
             }
 
-            var stdout = await SafeReadAsync(stdoutTask);
-            var stderr = await SafeReadAsync(stderrTask);
-            var combined = Tail(stdout, spec.MaxOutputBytes);
+            // Process exited normally (or wait returned without cancel).
+            // The streams are EOF'd; await the read tasks to drain
+            // whatever is still buffered in the OS pipe. If the process
+            // exited cleanly the tasks have already completed.
+            try { await stdoutTask; } catch { /* may throw on cancel */ }
+            try { await stderrTask; } catch { /* may throw on cancel */ }
+            var stdout = stdoutSink.GetText();
+            var stderr = stderrSink.GetText();
             return new ProcessResult
             {
                 ExitCode = process.ExitCode,
-                OutputTail = combined,
-                StderrTail = Redact(Tail(stderr, spec.MaxOutputBytes)),
+                OutputTail = stdout,
+                StderrTail = Redact(stderr),
                 Duration = DateTimeOffset.UtcNow - startedAt,
-                RedactedOutput = Redact(combined),
+                RedactedOutput = Redact(stdout),
             };
         }
         catch (Exception ex)
@@ -194,12 +205,31 @@ public sealed class ProcessExecutor : IProcessExecutor
         }
     }
 
-    private static async Task<string> SafeReadAsync(Task<string> t)
+    /// <summary>
+    /// Stream <paramref name="stream"/> into <paramref name="sink"/> in
+    /// 8 KB chunks. The sink enforces the byte cap; this method does
+    /// no per-chunk allocation beyond the 8 KB scratch buffer. Exits
+    /// cleanly on EOF, cancellation, or stream-closed (the latter
+    /// surfaces as <see cref="System.IO.IOException"/> when the
+    /// process is killed before it flushes).
+    /// </summary>
+    private static async Task ReadStreamBoundedAsync(
+        Stream stream, BoundedByteQueue sink, CancellationToken ct)
     {
-        try { return await t; } catch { return ""; }
+        var buffer = new byte[8192];
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                int n = await stream.ReadAsync(buffer.AsMemory(0, buffer.Length), ct);
+                if (n == 0) return;  // EOF
+                sink.Append(new ReadOnlySpan<byte>(buffer, 0, n));
+            }
+        }
+        catch (OperationCanceledException) { /* timeout or caller cancel */ }
+        catch (System.IO.IOException) { /* stream closed by process kill */ }
+        catch (System.Text.DecoderFallbackException) { /* invalid UTF-8 mid-stream — keep what we have */ }
     }
-
-    private static string Tail(string s, int max) => s.Length <= max ? s : s[^max..];
 
     private static string Redact(string s)
     {
