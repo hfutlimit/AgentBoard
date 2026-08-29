@@ -36,6 +36,18 @@ public sealed class RabbitMqConsumerService : BackgroundService
     // up a new consumer instance.
     private AsyncEventingBasicConsumer? _directConsumerInstance;
 
+    // Round-10: the direct consumer cancel-resume path used to
+    // only fire on a successful direct enqueue. That was a
+    // dead-lock: once cancelled, the consumer never sees direct
+    // deliveries, so the resume code never has a chance to
+    // run. A periodic monitor (System.Threading.Timer) checks
+    // the inbox count every DirectResumeCheckInterval and
+    // resumes the consumer once the backlog has drained below
+    // DirectResumeThreshold. The timer is started on first
+    // direct-cancel and disposed on resume / channel teardown.
+    private Timer? _directResumeTimer;
+    private static readonly TimeSpan DirectResumeCheckInterval = TimeSpan.FromSeconds(1);
+
     /// <summary>
     /// Round-9 follow-up: when the direct consumer is cancelled
     /// by the high-watermark path, the consumer must come back
@@ -124,6 +136,12 @@ public sealed class RabbitMqConsumerService : BackgroundService
         _directConsumerCancelled = false;
         using var registration = ct.Register(() => done.TrySetResult());
         await done.Task;
+        // Round-10: stop the resume monitor BEFORE we discard
+        // _directConsumerTag / _directConsumerInstance. The
+        // monitor holds a closure over the channel reference
+        // and would otherwise fire one last time on a dead
+        // channel after teardown.
+        StopDirectResumeMonitor();
         _directConsumerTag = null;
         _directConsumerInstance = null;
         try { channel.BasicCancel(publicTag); channel.BasicCancel(directTag); } catch { }
@@ -318,6 +336,15 @@ public sealed class RabbitMqConsumerService : BackgroundService
     /// code inlined this in the degraded branch; factored out
     /// so the high-watermark branch can share the same
     /// cancellation primitive without diverging.
+    ///
+    /// Round-10: also starts the resume monitor. The high-
+    /// watermark path can leave the direct consumer cancelled
+    /// even after the inbox drains; the monitor re-attaches
+    /// the consumer once pending count drops below
+    /// <see cref="DirectResumeThreshold"/>. Without the
+    /// monitor the direct queue stays dead until the worker
+    /// restarts (or a direct delivery happens to sneak in
+    /// before the cancel, which the design cannot rely on).
     /// </summary>
     private void CancelDirectConsumerAsync(IModel channel, string reason)
     {
@@ -339,6 +366,55 @@ public sealed class RabbitMqConsumerService : BackgroundService
                 "BasicCancel of direct consumer failed (reason={Reason}); will continue to NACK-requeue",
                 reason);
         }
+        StartDirectResumeMonitor(channel, reason);
+    }
+
+    /// <summary>
+    /// Start (or no-op if already running) a periodic timer
+    /// that checks the inbox count and resumes the direct
+    /// consumer once the backlog is below the hysteresis
+    /// threshold. The timer captures the channel by value;
+    /// when the channel is torn down the timer fires one
+    /// last time and bails on the next reconnect.
+    /// </summary>
+    private void StartDirectResumeMonitor(IModel channel, string reason)
+    {
+        if (_directResumeTimer is not null) return;
+        _directResumeTimer = new Timer(_ =>
+        {
+            try
+            {
+                if (!_directConsumerCancelled) return;
+                if (_directConsumerInstance is null || _directConsumerTag is null) return;
+                // Cheap indexed count; safe to run on the timer thread.
+                var pending = _inbox.CountPendingAsync(CancellationToken.None)
+                    .ConfigureAwait(false).GetAwaiter().GetResult();
+                if (pending < DirectResumeThreshold)
+                {
+                    ResumeDirectConsumerAsync(channel,
+                        $"pending {pending} < {DirectResumeThreshold} (round-10 monitor, original reason={reason})");
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.LogWarning(ex, "Direct resume monitor tick failed; will retry next interval");
+            }
+        }, state: null, dueTime: DirectResumeCheckInterval, period: DirectResumeCheckInterval);
+        _log.LogInformation("Direct resume monitor started (every {Interval}s) after cancel reason={Reason}",
+            DirectResumeCheckInterval.TotalSeconds, reason);
+    }
+
+    /// <summary>
+    /// Stop the resume monitor. Called when a successful
+    /// resume happens, on channel teardown, or on host stop.
+    /// </summary>
+    private void StopDirectResumeMonitor()
+    {
+        if (_directResumeTimer is null) return;
+        try { _directResumeTimer.Dispose(); }
+        catch { /* best-effort */ }
+        _directResumeTimer = null;
+        _log.LogDebug("Direct resume monitor stopped");
     }
 
     /// <summary>
@@ -370,15 +446,19 @@ public sealed class RabbitMqConsumerService : BackgroundService
             _log.LogInformation(
                 "Direct consumer resumed (reason={Reason}); new tag={Tag}",
                 reason, newTag);
+            // Round-10: stop the resume monitor once a successful
+            // resume lands. The monitor is only useful while the
+            // consumer is cancelled; once attached it's pure
+            // overhead.
+            StopDirectResumeMonitor();
         }
         catch (Exception resumeEx)
         {
             _log.LogError(resumeEx,
-                "Direct consumer resume failed; flag stays set so the next attempt may succeed");
-            // Do NOT reset _directConsumerCancelled here — we
-            // want to retry the resume on the next successful
-            // enqueue rather than silently leave the queue
-            // un-consumed.
+                "Direct consumer resume failed; flag stays set so the next monitor tick may succeed");
+            // Do NOT reset _directConsumerCancelled here; the
+            // timer will keep firing at DirectResumeCheckInterval
+            // and try again.
         }
     }
 }

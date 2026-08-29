@@ -284,7 +284,33 @@ public sealed class ExecutionDispatcher : BackgroundService
             }
             catch (Exception ex)
             {
-                _log.LogError(ex, "DB pending list failed during {Reason} drain; will retry on next wake", reason);
+                // 2026-08-29 review follow-up (round 10):
+                // permanent SQLite errors (NOTADB, CORRUPT, schema
+                // drift on worker_execution_inbox, disk I/O) MUST
+                // fail-closed. The previous design logged and
+                // returned Cancelled, which the outer loop treats
+                // the same as a transient cancellation and the
+                // worker keeps running — every 2 s, forever, with
+                // /health still reporting online. Fix: classify
+                // the exception via the shared helper and
+                // MarkDegraded for permanent errors so the
+                // worker is visibly down and an operator is paged.
+                var kind = InboxStore.ClassifySqliteException(ex);
+                if (kind == InboxStore.SqliteErrorKind.Permanent
+                    || kind == InboxStore.SqliteErrorKind.Unknown)
+                {
+                    _coordinator.MarkDegraded(
+                        $"DB pending list hit permanent error during {reason} drain: {ex.GetType().Name} {ex.Message}");
+                    _log.LogError(ex,
+                        "DB pending list hit permanent error during {Reason} drain; worker degraded; dispatch loop will exit",
+                        reason);
+                    return DrainExit.Cancelled;
+                }
+                // Transient — log and return Cancelled so the
+                // outer loop applies TransientBackoff.
+                _log.LogWarning(ex,
+                    "DB pending list hit transient SQLite error during {Reason} drain; will retry with backoff",
+                    reason);
                 return DrainExit.Cancelled;
             }
             if (pending.Count == 0) return DrainExit.Empty;
@@ -294,6 +320,25 @@ public sealed class ExecutionDispatcher : BackgroundService
                 if (flightsThisBatch >= MaxFlightsPerWakeBatch) break;
                 if (stoppingToken.IsCancellationRequested) return DrainExit.Cancelled;
                 if (_coordinator.IsPaused() || _coordinator.IsDegraded()) return DrainExit.Cancelled;
+                // 2026-08-29 review follow-up (round 10): the
+                // first 16 rows in this batch were ALL transient
+                // (BUSY/LOCKED) and ZERO succeeded. There is no
+                // point pulling the next 16 — they'd just hit
+                // the same lock holder. Short-circuit to
+                // TransientBackoff BEFORE the per-wake
+                // 5 s / 50-flight budget elapses. The
+                // round-9 design waited for the inner while to
+                // exit, which (with SQLITE_LOCKED returning
+                // immediately) could hot-loop within 5 s.
+                if (flightsThisBatch == 0
+                    && transientThisBatch > 0
+                    && consideredThisBatch >= DbQueryBatchSize)
+                {
+                    _log.LogWarning(
+                        "Drain {Reason} saw {Transient} transient claim failures and 0 successful flights within the first batch of {Batch}; short-circuiting to TransientBackoff (no point pulling the next batch against the same lock holder)",
+                        reason, transientThisBatch, DbQueryBatchSize);
+                    return DrainExit.TransientBackoff;
+                }
                 consideredThisBatch++;
 
                 try

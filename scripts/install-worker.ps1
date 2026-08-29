@@ -580,6 +580,18 @@ function Update-ServiceBinPath {
     Write-Host "  sc config binPath OK -> $binPath" -ForegroundColor Green
 }
 
+# 2026-08-29 review follow-up (round 10): state flags for
+# state-aware rollback. Each flag is the SINGLE source of truth
+# for "did THIS run successfully apply this destructive step?".
+# The rollback helper inverts them in reverse order so a
+# partial run never tries to undo something that didn't happen.
+# MUST be declared BEFORE the try block so they are in scope for
+# the finally.
+$serviceStopped = $false
+$backupCreated = $false
+$newLiveInstalled = $false
+$serviceCreatedThisRun = $false
+
 try {
 
 # 2026-08-29 review follow-up (round 8): the previous design
@@ -601,6 +613,7 @@ try {
 if ($existing) {
     Write-Section "Stopping existing service (releases file lock on old binary)"
     Stop-WorkerService
+    $serviceStopped = $true
     Write-Host "  service stopped" -ForegroundColor Green
 }
 
@@ -612,10 +625,12 @@ $hasDataDir = Test-Path $dataDir
 if (Test-Path $InstallDir) {
     Write-Host "  snapshotting live install to $BackupDir"
     Move-Item -Path $InstallDir -Destination $BackupDir -Force
+    $backupCreated = $true
 }
 
 Write-Host "  moving staging -> live"
 Move-Item -Path $StagingDir -Destination $InstallDir -Force
+$newLiveInstalled = $true
 
 if ($hasDataDir) {
     Write-Host "  restoring data\ from backup (preserves SQLite DB + execution logs)"
@@ -625,48 +640,105 @@ if ($hasDataDir) {
 }
 Write-Host "  swap OK" -ForegroundColor Green
 
-# Rollback helper used by every post-swap failure point. Restores
-# the snapshot directory as the live install, drops the failed
-# (current) install, and (if the service registration existed
-# before this run) restores the OLD binPath. Safe to call
-# multiple times; idempotent.
+# Rollback helper used by every post-swap failure point. Each
+# destructive step is conditionally undone based on the
+# corresponding state flag, so a partial run (e.g. service stop
+# timed out before the live->backup move ran) does not try to
+# remove the (still-untouched) live install or attempt to
+# restore a non-existent backup. State machine:
+#
+#   $serviceStopped        = we ran sc stop on the OLD service
+#   $backupCreated         = we have a snapshot of the OLD install
+#                            at $BackupDir
+#   $newLiveInstalled      = the NEW install is now at $InstallDir
+#   $serviceCreatedThisRun = we ran `sc create` in THIS run
+#                            (fresh install path only; on upgrade
+#                            we use `sc config binPath=` and the
+#                            registration predates this run)
+#
+# Rollback in REVERSE order:
+#   1. Stop the (possibly-running) failed new service (only if
+#      we either swapped or stopped an existing one — both
+#      imply there could be a service process to stop).
+#   2. Remove the failed new install (if $newLiveInstalled).
+#   3. Restore the old install from backup (if $backupCreated).
+#   4. If we created a service in this run, delete the
+#      registration — otherwise the SCM points at a directory
+#      we just removed (or never created, if we failed earlier).
+#   5. If we stopped a pre-existing service, restore its
+#      binPath to the now-restored old binary AND start it.
+#
+# Anything we did NOT do in the run has no inverse in the
+# rollback — that's the whole point of the flags. Round-10.
 function Invoke-InstallRollback {
     Write-Host ""
     Write-Host "  !!! Rolling back to previous version !!!" -ForegroundColor Red
-    # Stop whatever is running under the service name (the failed
-    # new install or the partially-restored old one). The 2-second
-    # settle is a defensive sleep for services that need a moment
-    # to release file handles after a Stop.
-    try { & sc.exe stop $ServiceName 2>$null | Out-Null } catch { }
-    Start-Sleep -Seconds 2
-    try { & sc.exe stop $ServiceName 2>$null | Out-Null } catch { }
-    # Drop the failed-swap install. The backup becomes the new live.
-    if (Test-Path $InstallDir) {
-        Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Host "  state: serviceStopped=$serviceStopped backupCreated=$backupCreated newLiveInstalled=$newLiveInstalled serviceCreatedThisRun=$serviceCreatedThisRun"
+
+    # 1. Stop whatever is running under the service name (the
+    #    failed new install or the partially-restored old one).
+    #    The 2-second settle is a defensive sleep for services
+    #    that need a moment to release file handles after a Stop.
+    if ($newLiveInstalled -or $serviceStopped) {
+        try { & sc.exe stop $ServiceName 2>$null | Out-Null } catch { }
+        Start-Sleep -Seconds 2
+        try { & sc.exe stop $ServiceName 2>$null | Out-Null } catch { }
     }
-    if (Test-Path $BackupDir) {
-        Move-Item -Path $BackupDir -Destination $InstallDir -Force
-        Write-Host "  restored from backup" -ForegroundColor Green
+
+    # 2. Drop the failed-swap install ONLY if we actually swapped.
+    #    Without this guard a stop-timeout rollback would still
+    #    try to wipe the (untouched) live install. Round-10.
+    if ($newLiveInstalled -and (Test-Path $InstallDir)) {
+        try {
+            Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
+        } catch {
+            Write-Host "  WARNING: failed to remove partial new install at $InstallDir" -ForegroundColor Yellow
+        }
     }
-    # Restore the OLD binPath on the service registration, so the
-    # SCM still points at the restored old binary. This closes the
-    # round-7 review gap where the previous rollback only restored
-    # files but not the SCM registration (sc delete had been called
-    # pre-swap and was irreversible).
-    if ($existing -and (Test-Path $ServiceExe)) {
+
+    # 3. Restore the old install from backup ONLY if we made
+    #    one. Without this guard a stop-timeout rollback would
+    #    see no $BackupDir and silently leave the operator with
+    #    no install at all. Round-10.
+    if ($backupCreated -and (Test-Path $BackupDir)) {
+        try {
+            Move-Item -Path $BackupDir -Destination $InstallDir -Force
+            Write-Host "  restored from backup" -ForegroundColor Green
+        } catch {
+            Write-Host "  WARNING: failed to restore from backup at $BackupDir" -ForegroundColor Yellow
+        }
+    }
+
+    # 4. If THIS run created a fresh service registration, the
+    #    SCM now points at a directory that we just removed (or
+    #    that was never created, if we failed earlier). Delete
+    #    the registration so the next installer doesn't see a
+    #    "ghost" service pointing at a missing exe. Round-10.
+    if ($serviceCreatedThisRun) {
+        try {
+            & sc.exe delete $ServiceName 2>$null | Out-Null
+            Write-Host "  deleted ghost service registration created in this run" -ForegroundColor Green
+        } catch {
+            Write-Host "  WARNING: failed to delete ghost service registration" -ForegroundColor Yellow
+        }
+    }
+
+    # 5. If a pre-existing service was stopped AND we restored
+    #    the old install, point its binPath back at the restored
+    #    old binary and start it. Without this step the service
+    #    registration would still point at the (now removed)
+    #    new binary path, and `sc start` would fail with
+    #    "service did not start" or similar.
+    if ($serviceStopped -and $existing -and (Test-Path $ServiceExe)) {
         try {
             Update-ServiceBinPath -NewExe $ServiceExe
         } catch {
             Write-Host "  binPath rollback failed: $_" -ForegroundColor Red
         }
+        try {
+            & sc.exe start $ServiceName 2>$null | Out-Null
+        } catch { }
     }
-    # Restart the previous (restored) service. Best-effort; if the
-    # old service binary was uninstalled cleanly (e.g. fresh
-    # install that never had a previous version) this is a no-op
-    # and the operator runs the installer again.
-    try {
-        & sc.exe start $ServiceName 2>$null | Out-Null
-    } catch { }
 }
 # ---------------------------------------------------------------------------
 
@@ -814,6 +886,13 @@ if ($existing) {
         throw "sc.exe create failed with exit $LASTEXITCODE"
     }
     Write-Host "  sc create OK" -ForegroundColor Green
+    # 2026-08-29 review follow-up (round 10): mark the
+    # rollback state flag so a later failure in this run
+    # knows to `sc delete` this registration. Without this,
+    # a fresh install that fails on appsettings / sc start /
+    # /health would leave a "ghost" SCM entry pointing at a
+    # directory we are about to remove.
+    $serviceCreatedThisRun = $true
 }
 
 # Verify the service will actually run under the identity we asked for.

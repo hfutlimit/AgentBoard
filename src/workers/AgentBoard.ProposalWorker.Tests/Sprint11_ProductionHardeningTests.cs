@@ -694,6 +694,73 @@ public sealed class Sprint11_ProductionHardeningTests
         Assert.Equal(id1, id2);
     }
 
+    // -------------------------------------------------------------------------
+    // 2e. round-10 linked invariant: capacity full + duplicate
+    //     redelivery MUST return Duplicate (not CapacityExceeded).
+    //     The round-9 design checked capacity first inside the
+    //     transaction; a normal Rabbit redelivery of an
+    //     already-admitted execution_key would be misclassified
+    //     as CapacityExceeded, the consumer would NACK-requeue,
+    //     the broker would redeliver the same message indefinitely,
+    //     and — on the direct queue — the high-watermark cancel
+    //     path would also permanently disable the direct consumer.
+    //     Round-10 fix: SELECT-by-execution_key runs BEFORE the
+    //     COUNT and short-circuits the capacity check.
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task TryEnqueueWithinCapacity_duplicate_wins_over_capacity_full()
+    {
+        // 2026-08-29 review follow-up (round 10). The round-9
+        // design had this scenario producing CapacityExceeded
+        // because the COUNT came before the duplicate check.
+        // Round-10 fix: idempotency is checked first inside the
+        // transaction; CapacityExceeded is only reachable for
+        // genuinely NEW work.
+        using var fx = new TempDbFixture();
+
+        // Fill the inbox to exactly the limit with 2 unrelated
+        // requests. task-A is NOT yet in the inbox.
+        for (int i = 0; i < 2; i++)
+        {
+            var r = new ExecutionRequest(
+                ExecutionKey: $"fill-{i}", WorkloadType: "proposal",
+                WorkloadId: i, AgentType: "fake", Round: 0,
+                Source: "fill", PayloadJson: "{}");
+            var (o, _) = await fx.Inbox.TryEnqueueWithinCapacityAsync(r, limit: 2, CancellationToken.None);
+            Assert.Equal(InboxStore.EnqueueWithinCapacityOutcome.Enqueued, o);
+        }
+
+        // The inbox is at capacity (2 pending). Now we attempt
+        // to enqueue a new task — that should be refused with
+        // CapacityExceeded (no execution_key collision, just
+        // pure capacity overflow).
+        var newReq = new ExecutionRequest(
+            ExecutionKey: "new-task", WorkloadType: "proposal",
+            WorkloadId: 99, AgentType: "fake", Round: 0,
+            Source: "new", PayloadJson: "{}");
+        var (oNew, _) = await fx.Inbox.TryEnqueueWithinCapacityAsync(newReq, limit: 2, CancellationToken.None);
+        Assert.Equal(InboxStore.EnqueueWithinCapacityOutcome.CapacityExceeded, oNew);
+
+        // Now the round-10 invariant: a Rabbit redelivery of
+        // fill-0 (already in the inbox) MUST return Duplicate,
+        // NOT CapacityExceeded. Without the fix, the COUNT
+        // would short-circuit to CapacityExceeded and the
+        // consumer would NACK a legitimate redelivery.
+        var redeliver = new ExecutionRequest(
+            ExecutionKey: "fill-0", WorkloadType: "proposal",
+            WorkloadId: 0, AgentType: "fake", Round: 0,
+            Source: "fill", PayloadJson: "{}");
+        var (oDup, idDup) = await fx.Inbox.TryEnqueueWithinCapacityAsync(redeliver, limit: 2, CancellationToken.None);
+        Assert.Equal(InboxStore.EnqueueWithinCapacityOutcome.Duplicate, oDup);
+
+        // Sanity: inbox still has 2 rows, no extra "completed"
+        // placeholder for the redelivery, no row for the
+        // CapacityExceeded attempt.
+        var allRows = await fx.Inbox.ListPendingAsync(CancellationToken.None);
+        Assert.Equal(2, allRows.Count);
+    }
+
     // -------- helpers (private to this test class) ----
 
     private static Task<AgentReadiness> InvokeCheckExternalAuthAsync(

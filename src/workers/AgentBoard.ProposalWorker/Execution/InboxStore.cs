@@ -134,6 +134,40 @@ public sealed class InboxStore
     internal static bool IsTransientSqliteLockError(Microsoft.Data.Sqlite.SqliteException ex) =>
         ex.SqliteErrorCode == 5 /* SQLITE_BUSY */ || ex.SqliteErrorCode == 6 /* SQLITE_LOCKED */;
 
+    /// <summary>
+    /// Coarse classification of a <see cref="Microsoft.Data.Sqlite.SqliteException"/>.
+    /// 2026-08-29 review follow-up (round 10): every DB seam
+    /// (SELECT pending rows, UPDATE claim, terminal persistence
+    /// write, enqueue INSERT) must share the same error
+    /// classification. The previous design only classified the
+    /// claim and terminal-write paths; a SELECT-side
+    /// <c>SqliteException</c> (e.g. schema drift, CORRUPT,
+    /// NOTADB, disk I/O) silently fell through to a generic
+    /// "log + retry on next wake" path that would loop forever
+    /// without flipping the worker to degraded. The same is
+    /// true for the enqueue path. Round-10 fix: every seam uses
+    /// this classifier and every caller checks the result.
+    /// </summary>
+    public enum SqliteErrorKind
+    {
+        /// <summary>SQLITE_BUSY (5) or SQLITE_LOCKED (6) — retry with short backoff.</summary>
+        Transient,
+        /// <summary>Anything else (NOTADB, CORRUPT, schema mismatch, disk I/O, etc.) — Worker must be marked degraded and operator must intervene.</summary>
+        Permanent,
+        /// <summary>The exception is not a <see cref="Microsoft.Data.Sqlite.SqliteException"/>; treat as Permanent (defensive).</summary>
+        Unknown,
+    }
+
+    /// <summary>
+    /// Classify a <see cref="Microsoft.Data.Sqlite.SqliteException"/> for
+    /// the dispatcher's degraded-vs-retry decision. See
+    /// <see cref="SqliteErrorKind"/> for the contract.
+    /// </summary>
+    public static SqliteErrorKind ClassifySqliteException(Exception ex) =>
+        ex is Microsoft.Data.Sqlite.SqliteException sql
+            ? IsTransientSqliteLockError(sql) ? SqliteErrorKind.Transient : SqliteErrorKind.Permanent
+            : SqliteErrorKind.Unknown;
+
     public async Task<TryClaimOutcome> TryClaimAsync(long inboxId, CancellationToken ct)
     {
         try
@@ -285,11 +319,25 @@ public sealed class InboxStore
     /// silently lost. For the direct queue (only this worker
     /// consumes) the loss is deterministic.
     ///
-    /// Fix: count + insert inside ONE transaction, and on
-    /// capacity exceeded ROLL BACK the insert so no row is
-    /// produced. The consumer then NACKs the Rabbit message
-    /// back to the broker, which is the only place it can sit
-    /// safely until the inbox drains.
+    /// 2026-08-29 round-10 follow-up: the round-9 design
+    /// checked capacity BEFORE duplicate, which produced a
+    /// different but related invariant violation. With inbox at
+    /// capacity and a legitimate Rabbit redelivery (e.g. ACK
+    /// lost in flight), the consumer would see capacity-exceeded
+    /// and NACK-requeue a duplicate — the broker would re-deliver
+    /// the same message indefinitely AND, on the direct queue,
+    /// the high-watermark path would also cancel the direct
+    /// consumer (which then could not resume, see round-10
+    /// #1). Fix: check duplicate FIRST inside the transaction.
+    /// Already-existing work MUST be treated as Duplicate
+    /// (idempotency) and never as CapacityExceeded.
+    ///
+    /// Order inside the transaction:
+    ///   1. SELECT id WHERE execution_key=? — duplicate check
+    ///   2. If hit, return Duplicate (no capacity consumed)
+    ///   3. COUNT(*) pending
+    ///   4. If at/above limit, return CapacityExceeded (no insert)
+    ///   5. INSERT
     ///
     /// <c>limit</c> = 0 disables the high-watermark (unbounded
     /// enqueue, NOT recommended). Negative limits are treated
@@ -302,15 +350,50 @@ public sealed class InboxStore
         await c.OpenAsync(ct);
 
         // BEGIN IMMEDIATE acquires a RESERVED lock at the start
-        // of the transaction so the count-then-insert pair is
-        // atomic w.r.t. other writers (the consumer thread is
-        // the only writer in practice, but a future drain that
-        // also touches the inbox would otherwise see torn state).
-        // Use a transaction even when limit <= 0 so the path is
-        // uniform; SQLite BEGIN is cheap on a single-writer DB.
+        // of the transaction so the duplicate / count / insert
+        // sequence is atomic w.r.t. other writers. The consumer
+        // thread is the only writer in practice, but a future
+        // drain that also touches the inbox would otherwise see
+        // torn state. Use a transaction even when limit <= 0 so
+        // the path is uniform; SQLite BEGIN is cheap on a
+        // single-writer DB.
         await using var tx = (SqliteTransaction)await c.BeginTransactionAsync(ct);
         try
         {
+            // 1. Duplicate check FIRST. If the execution_key is
+            //    already in the inbox (regardless of status), it
+            //    is a Rabbit redelivery and MUST be treated as a
+            //    Duplicate — never CapacityExceeded. A redelivery
+            //    cannot consume admission-control capacity because
+            //    the work is already admitted; doing so would
+            //    NACK the broker and create an infinite redelivery
+            //    loop (and, on the direct queue, cancel the only
+            //    consumer we have). Round-10 follow-up.
+            long existingId = 0;
+            await using (var sel = c.CreateCommand())
+            {
+                sel.Transaction = tx;
+                sel.CommandText = "SELECT id FROM worker_execution_inbox WHERE execution_key=$key";
+                sel.Parameters.AddWithValue("$key", request.ExecutionKey);
+                var raw = await sel.ExecuteScalarAsync(ct);
+                if (raw is not null && raw is not DBNull)
+                {
+                    existingId = Convert.ToInt64(raw);
+                }
+            }
+            if (existingId != 0)
+            {
+                // Idempotency: a redelivery / duplicate. ACK on
+                // the broker side and do NOT touch capacity.
+                // Round-10 invariant: a work item already in
+                // the system cannot be re-counted against the
+                // high-watermark.
+                await tx.CommitAsync(ct);
+                return (EnqueueWithinCapacityOutcome.Duplicate, existingId);
+            }
+
+            // 2. Capacity check. Only reached when the request is
+            //    genuinely a NEW work item.
             if (limit > 0)
             {
                 await using var count = c.CreateCommand();
@@ -330,13 +413,22 @@ public sealed class InboxStore
                 }
             }
 
+            // 3. Insert. We already verified the execution_key is
+            //    absent (step 1) and capacity is OK (step 2), so
+            //    a plain INSERT (not INSERT OR IGNORE) is correct
+            //    here — the UNIQUE index is a safety net, not the
+            //    primary contract. A UNIQUE violation at this
+            //    point would mean a concurrent writer slipped in
+            //    between BEGIN IMMEDIATE and the INSERT, which
+            //    should be impossible (BEGIN IMMEDIATE holds
+            //    RESERVED) but we let SQLite's UNIQUE catch it
+            //    just in case.
             long inboxId;
-            bool isNew;
             await using (var ins = c.CreateCommand())
             {
                 ins.Transaction = tx;
                 ins.CommandText = """
-                    INSERT OR IGNORE INTO worker_execution_inbox
+                    INSERT INTO worker_execution_inbox
                       (execution_key, workload_type, workload_id, agent_type, round, payload_json, status, received_at)
                     VALUES($key,$wtype,$wid,$agent,$round,$payload,'pending',$at)
                     """;
@@ -347,20 +439,19 @@ public sealed class InboxStore
                 ins.Parameters.AddWithValue("$round", request.Round);
                 ins.Parameters.AddWithValue("$payload", request.PayloadJson);
                 ins.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.ToString("O"));
-                var n = await ins.ExecuteNonQueryAsync(ct);
-                isNew = (n == 1);
+                await ins.ExecuteNonQueryAsync(ct);
             }
 
-            await using (var sel = c.CreateCommand())
+            await using (var sel2 = c.CreateCommand())
             {
-                sel.Transaction = tx;
-                sel.CommandText = "SELECT id FROM worker_execution_inbox WHERE execution_key=$key";
-                sel.Parameters.AddWithValue("$key", request.ExecutionKey);
-                inboxId = (long)(await sel.ExecuteScalarAsync(ct) ?? 0L);
+                sel2.Transaction = tx;
+                sel2.CommandText = "SELECT id FROM worker_execution_inbox WHERE execution_key=$key";
+                sel2.Parameters.AddWithValue("$key", request.ExecutionKey);
+                inboxId = Convert.ToInt64(await sel2.ExecuteScalarAsync(ct) ?? 0L);
             }
 
             await tx.CommitAsync(ct);
-            return (isNew ? EnqueueWithinCapacityOutcome.Enqueued : EnqueueWithinCapacityOutcome.Duplicate, inboxId);
+            return (EnqueueWithinCapacityOutcome.Enqueued, inboxId);
         }
         catch
         {
