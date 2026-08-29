@@ -198,9 +198,44 @@ public sealed class ExecutionCoordinator
         }
         if (!ok)
         {
+            // 2026-08-29 review follow-up (round 8): two distinct
+            // "degraded" concepts live in this codepath and the
+            // previous version conflated them:
+            //
+            //   1. WorkerState.MarkDegraded(reason) — flips
+            //      `_state.DegradedReason` so the Dispatcher's
+            //      outer loop sees IsDegraded=true and stops
+            //      scheduling new work. The WHOLE worker
+            //      becomes untrusted for new task assignment.
+            //   2. ExecutionStore.MarkDegradedAsync(id, note) —
+            //      marks the SINGLE execution row as
+            //      status='Degraded' in the executions table.
+            //      The worker keeps running.
+            //
+            // The previous code only did (2). Under a real
+            // persistent SQLite failure (e.g. schema drift in
+            // the executions table), every subsequent MarkX
+            // would also fail, but the inbox was on a
+            // different table that was still healthy — so the
+            // worker happily completed inbox rows while NEVER
+            // recording the agent's terminal state. Operators
+            // saw the worker as online while the executions
+            // table silently lost data. This is the
+            // "silent corruption" mode the 2026-08-29 review
+            // flagged as dangerous.
+            //
+            // Fix: do (1) FIRST. Even if the row-level write
+            // (2) also fails, the worker is now visibly
+            // degraded in /health, the dispatcher stops on
+            // the next outer-loop iteration, and an operator
+            // is paged. The execution row may stay in a
+            // non-terminal state (logged) but the next agent
+            // is not silently lost.
             _log.LogError(
-                "{Description} exhausted retries on transient SQLite lock contention; agent's business result was {Business}; marking Degraded",
+                "{Description} exhausted retries on transient SQLite lock contention; agent's business result was {Business}; marking WORKER degraded AND execution row Degraded",
                 description, businessResult);
+            MarkDegraded(
+                $"{description} exhausted retries on transient SQLite lock contention; agent's business result was {businessResult}; stopping dispatch to prevent silent corruption");
             try
             {
                 await _store.MarkDegradedAsync(executionId,
@@ -210,7 +245,7 @@ public sealed class ExecutionCoordinator
             catch (Exception ex)
             {
                 _log.LogError(ex,
-                    "{Description}: MarkDegraded also failed; execution row left in non-terminal state for operator reconciliation",
+                    "{Description}: row-level MarkDegraded also failed; execution row left in non-terminal state for operator reconciliation",
                     description);
             }
         }
@@ -334,13 +369,23 @@ public sealed class ExecutionCoordinator
             // Non-transient SQLite error: schema drift, corruption,
             // missing table, etc. Retrying in a 2-second hot loop is
             // pointless and floods the log. Mark the worker degraded and
-            // leave the inbox row in `dispatching` so the operator can
-            // inspect it after fixing the DB. The dispatcher's outer
-            // loop checks IsDegraded and stops scheduling new work.
+            // revert the inbox row from `dispatching` back to `pending`
+            // so the operator can manually clear the degraded flag and
+            // the row becomes eligible for re-dispatch (matches the
+            // transient-SQLite catch above and the 2026-08-29 review
+            // round-8 semantic). The dispatcher's outer loop checks
+            // IsDegraded and stops scheduling new work in the meantime.
             MarkDegraded($"StartAsync SQLite {ex.SqliteErrorCode} ({ex.Message})");
             _log.LogError(ex,
-                "StartAsync hit non-transient SQLite {ErrorCode} for {Key}; worker degraded",
+                "StartAsync hit non-transient SQLite {ErrorCode} for {Key}; worker degraded; reverting inbox to pending",
                 ex.SqliteErrorCode, request.ExecutionKey);
+            try { await _inbox.MarkPendingAsync(inboxId, CancellationToken.None); }
+            catch (Exception markEx)
+            {
+                _log.LogError(markEx,
+                    "Failed to revert inbox {InboxId} dispatching → pending after non-transient SQLite error; row stays dispatching until restart recovery",
+                    inboxId);
+            }
             return;
         }
         catch (Exception ex)

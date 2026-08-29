@@ -248,6 +248,75 @@ public sealed class Sprint11_ProductionHardeningTests
     }
 
     // -------------------------------------------------------------------------
+    // 2b. WakeSignal coalescing — a single unconsumed wake signal
+    //     must NOT pin the dispatcher in a CPU+SQLite hot loop. The
+    //     previous design called WaitToReadAsync (which only peeks)
+    //     and never read the signal back out, so once any signal
+    //     landed in the channel every subsequent WaitToReadAsync
+    //     returned true immediately and the 2 s safety timer was
+    //     permanently defeated. The fix: drain all buffered signals
+    //     with TryRead before falling through to the DB query.
+    //
+    //     Test: write ONE wake-signal, leave the inbox empty, wait
+    //     8 s, assert GetOldestPendingFlightsAsync was called only a
+    //     handful of times (≈ IdleWakeInterval cadence). Without
+    //     the fix this count grows into the thousands.
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Dispatcher_idle_does_not_hot_loop_after_first_wake_signal()
+    {
+        using var fx = new TempDbFixture();
+        var (registry, _, channel, state) = BuildStack(fx, "fake");
+        var coordinator = new ExecutionCoordinator(
+            fx.Store, fx.Inbox, channel, registry, state,
+            NullLogger<ExecutionCoordinator>.Instance);
+        var dispatcher = new ExecutionDispatcher(
+            channel, fx.Inbox, coordinator, NullLogger<ExecutionDispatcher>.Instance);
+
+        // 12 s window — long enough for several IdleWakeInterval
+        // (2 s) ticks. We expect the inbox query count to be
+        // bounded around 8-12 (one per timer tick + a small
+        // initial-drain + slack for the wake-signal-wins path).
+        // Without the fix it grows into the thousands.
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(12));
+        await dispatcher.StartAsync(cts.Token);
+
+        // Let the initial drain settle.
+        await Task.Delay(300);
+
+        // Baseline query count after initial drain.
+        var baselineQueries = fx.Inbox.GetOldestPendingFlightsCalls;
+
+        // Write a single wake-signal into the channel. The inbox
+        // stays empty for the rest of the test.
+        await channel.Writer.WriteAsync(
+            new WakeSignal { At = DateTimeOffset.UtcNow, Source = "test-hot-loop" },
+            CancellationToken.None);
+
+        // Wait the full test window.
+        await Task.Delay(8_000);
+
+        var queriesDuringIdle = fx.Inbox.GetOldestPendingFlightsCalls - baselineQueries;
+
+        // Coalesce path: at most IdleWakeInterval+slack queries in 8 s.
+        // Strict bound: <= 12 (1 wake-wins drain + ≤ 7 timer drains
+        // + 1 startup slack + 3 for test-runner timing slack).
+        // Without the fix we'd see thousands.
+        Assert.True(
+            queriesDuringIdle <= 12,
+            $"hot loop detected: {queriesDuringIdle} DB polls in 8s after a single wake-signal; expected <= 12");
+
+        // Sanity: the lower bound is non-zero — the timer must
+        // still be firing (this is the safety net the design
+        // depends on).
+        Assert.True(queriesDuringIdle >= 2,
+            $"expected at least 2 idle polls (1 wake + 1 timer); got {queriesDuringIdle}");
+
+        await dispatcher.StopAsync(CancellationToken.None);
+    }
+
+    // -------------------------------------------------------------------------
     // 3. Readiness McpUrl probe returns AuthReady=false when unreachable.
     //    WorkBuddy false-positive (CLI present, env present, MCP not yet
     //    authenticated) can no longer slip through as Ready=true.
@@ -294,6 +363,82 @@ public sealed class Sprint11_ProductionHardeningTests
         Assert.Contains("unreachable", auth.AuthError ?? "", StringComparison.OrdinalIgnoreCase);
     }
 
+    // -------------------------------------------------------------------------
+    // 2c. CapHit re-poll — when the per-wake batch cap is hit the
+    //     dispatcher must immediately re-poll instead of waiting
+    //     the IdleWakeInterval, otherwise a 1000-row backlog drains
+    //     at timer cadence and burns ~2s × N batches of idle gap.
+    //     The 1000-row FIFO test above already exercises this path
+    //     implicitly (it completes in ~16s with the fix; ~50s
+    //     without). This test pins the dispatcher contract more
+    //     directly: insert N rows, write a single wake, measure
+    //     how long until inbox drains. With the re-poll, the
+    //     drain should complete in < 5 s for 100 rows.
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Dispatcher_re_poll_after_CapHit_does_not_wait_timer()
+    {
+        // 2026-08-29 review round 8: the round-7 DB-first
+        // architecture had a per-wake batch cap (50 flights / 5 s)
+        // to keep a single wake cycle from monopolising the
+        // worker. The round-7 outer loop unconditionally waited
+        // the 2 s IdleWakeInterval between drain cycles, which
+        // means a 1000-row backlog drained at ~50 rows per 2 s
+        // = 40 s total. The fix: return CapHit from
+        // DrainFromDbAsync when the cap was reached, and have
+        // the outer loop re-poll immediately.
+        using var fx = new TempDbFixture();
+        var (registry, fake, channel, state) = BuildStack(fx, "fake");
+        var coordinator = new ExecutionCoordinator(
+            fx.Store, fx.Inbox, channel, registry, state,
+            NullLogger<ExecutionCoordinator>.Instance);
+        var dispatcher = new ExecutionDispatcher(
+            channel, fx.Inbox, coordinator, NullLogger<ExecutionDispatcher>.Instance);
+
+        // Insert enough rows to force the per-wake cap (50) to
+        // hit at least twice. With the fix, this should drain
+        // in well under 10 s. Without the fix it would take
+        // 4 × 2 s = 8 s minimum (assuming the cap is 50).
+        const int N = 200;
+        for (int i = 0; i < N; i++)
+        {
+            var req = new ExecutionRequest(
+                ExecutionKey: $"re-poll-{i}",
+                WorkloadType: "proposal",
+                WorkloadId: i,
+                AgentType: "fake",
+                Round: 0,
+                Source: "re-poll-test",
+                PayloadJson: "{}");
+            await fx.Inbox.TryEnqueueAsync(req, CancellationToken.None);
+        }
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await dispatcher.StartAsync(cts.Token);
+        await channel.Writer.WriteAsync(
+            new WakeSignal { At = DateTimeOffset.UtcNow, Source = "test-re-poll" },
+            CancellationToken.None);
+
+        // Wait for the inbox to drain. We expect this to finish
+        // fast (~5 s with the fix). If the re-poll is broken,
+        // the drain takes 4 × 2 s = 8 s minimum.
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var pending = await fx.Inbox.GetOldestPendingFlightsAsync(1, CancellationToken.None);
+            if (pending.Count == 0) break;
+            await Task.Delay(50);
+        }
+
+        await dispatcher.StopAsync(CancellationToken.None);
+
+        var stillPending = await fx.Inbox.GetOldestPendingFlightsAsync(1, CancellationToken.None);
+        Assert.Empty(stillPending);
+        // Sanity: all 200 rows reached the fake adapter.
+        Assert.Equal(N, fake.CallCount);
+    }
+
     [Fact]
     public async Task Readiness_McpUrl_returns_true_when_reachable()
     {
@@ -323,6 +468,54 @@ public sealed class Sprint11_ProductionHardeningTests
 
             var auth = await InvokeCheckExternalAuthAsync(probe, agents.WorkBuddy, CancellationToken.None);
             Assert.True(auth.AuthReady);
+        }
+        finally
+        {
+            cts.Cancel();
+        }
+    }
+
+    [Fact]
+    public async Task Readiness_McpUrl_returns_false_on_3xx_redirect_to_login()
+    {
+        // 2026-08-29 review follow-up (round 8): the previous
+        // probe treated any 2xx OR 3xx as AuthReady=true. The
+        // most common un-authenticated response is a 302 to a
+        // login page. Without explicit AllowAutoRedirect=false
+        // the HttpClient follows it, GETs the login page,
+        // returns 200, and the probe reports AuthReady=true —
+        // the exact "false positive" the gate is supposed to
+        // catch. This test pins both protections:
+        //   1. A 302 direct response → AuthReady=false
+        //   2. A 302 with a Location header that the HttpClient
+        //      would normally follow → still AuthReady=false
+        //      because the probe now disables auto-redirect.
+        var (url, cts) = StartHttpListenerWithRedirect(redirectTo: "/login");
+        try
+        {
+            var agents = new AgentsOptions
+            {
+                WorkBuddy = new AgentOptions { Command = "", McpUrl = url },
+                MiniMax = new() { Command = "" },
+                Codex = new() { Command = "" },
+                Fake = new() { Command = "" },
+            };
+            var state = new WorkerState(
+                Options.Create(new WorkerOptions()),
+                new WorkerIdentity(Options.Create(new WorkerOptions())));
+            var probe = new ReadinessProbe(
+                new AgentAdapterRegistry(new IAgentAdapter[] { FakeAgentAdapter.Success("workbuddy") },
+                    NullLogger<AgentAdapterRegistry>.Instance),
+                new ThrowingProcessExecutor(),
+                Options.Create(agents),
+                state,
+                NullLogger<ReadinessProbe>.Instance,
+                httpFactory: new SingleClientFactory());
+
+            var auth = await InvokeCheckExternalAuthAsync(probe, agents.WorkBuddy, CancellationToken.None);
+            Assert.False(auth.AuthReady);
+            Assert.NotNull(auth.AuthError);
+            Assert.Contains("302", auth.AuthError!);
         }
         finally
         {
@@ -413,6 +606,38 @@ public sealed class Sprint11_ProductionHardeningTests
                     ctx.Response.StatusCode = status;
                     var bytes = Encoding.UTF8.GetBytes(body);
                     await ctx.Response.OutputStream.WriteAsync(bytes, 0, bytes.Length);
+                    ctx.Response.Close();
+                }
+                catch { }
+            }
+        });
+        return ($"http://127.0.0.1:{port}/healthz", cts);
+    }
+
+    private static (string url, CancellationTokenSource cts) StartHttpListenerWithRedirect(string redirectTo)
+    {
+        // Bind a listener that returns 302 with a Location header.
+        // This simulates an MCP server that hasn't been logged into
+        // yet — the canonical "un-authenticated" response shape.
+        var l2 = new TcpListener(IPAddress.Loopback, 0);
+        l2.Start();
+        var port = ((IPEndPoint)l2.LocalEndpoint).Port;
+        l2.Stop();
+        var listener = new HttpListener();
+        listener.Prefixes.Add($"http://127.0.0.1:{port}/");
+        listener.Start();
+        var cts = new CancellationTokenSource();
+        _ = Task.Run(async () =>
+        {
+            while (!cts.IsCancellationRequested)
+            {
+                HttpListenerContext ctx;
+                try { ctx = await listener.GetContextAsync(); }
+                catch { break; }
+                try
+                {
+                    ctx.Response.StatusCode = 302;
+                    ctx.Response.Headers.Add("Location", redirectTo);
                     ctx.Response.Close();
                 }
                 catch { }

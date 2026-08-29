@@ -195,13 +195,30 @@ public sealed class ReadinessProbe
         }
         try
         {
-            using var http = _httpFactory.CreateClient("ReadinessProbe");
-            http.Timeout = McpProbeTimeout;
-            using var req = new HttpRequestMessage(HttpMethod.Get, opts.McpUrl);
-            // Use HEAD where possible (some servers reject HEAD on
-            // auth endpoints); fall back to a tiny GET range.
-            using var resp = await http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct);
-            if ((int)resp.StatusCode >= 200 && (int)resp.StatusCode < 400)
+            // 2026-08-29 review follow-up (round 8): the previous
+            // design accepted any 2xx OR 3xx as AuthReady=true.
+            // That is wrong for the auth-readiness gate: a
+            // server-side redirect to a login page is exactly the
+            // "unauthenticated" signal we want to surface, not
+            // "ready". Two distinct failure modes the old
+            // design missed:
+            //
+            //   1. 302 /login direct response. resp.StatusCode
+            //      would be 302, 302 < 400, old code returned
+            //      AuthReady=true.
+            //   2. HttpClient default AllowAutoRedirect=true.
+            //      302 /login would silently follow to GET
+            //      /login, which returns 200. resp.StatusCode
+            //      would be 200, old code returned AuthReady=true
+            //      — the "login page is up" false positive.
+            //
+            // Fix: build a one-shot HttpClient with
+            // AllowAutoRedirect=false and only accept 2xx.
+            using var handler = new HttpClientHandler { AllowAutoRedirect = false };
+            using var noRedirect = new HttpClient(handler) { Timeout = McpProbeTimeout };
+            using var resp = await noRedirect.GetAsync(opts.McpUrl, HttpCompletionOption.ResponseHeadersRead, ct);
+            var status = (int)resp.StatusCode;
+            if (status >= 200 && status < 300)
             {
                 return new AgentReadiness(CliReady: true, CliError: null,
                                           CredentialReady: true, CredentialError: null,
@@ -210,7 +227,7 @@ public sealed class ReadinessProbe
             return new AgentReadiness(CliReady: true, CliError: null,
                                       CredentialReady: true, CredentialError: null,
                                       AuthReady: false,
-                                      AuthError: $"McpUrl {opts.McpUrl} returned HTTP {(int)resp.StatusCode}");
+                                      AuthError: $"McpUrl {opts.McpUrl} returned HTTP {status} (only 2xx counts as authenticated)");
         }
         catch (Exception ex) when (ex is HttpRequestException || ex is TaskCanceledException || ex is OperationCanceledException)
         {

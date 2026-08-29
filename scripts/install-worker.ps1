@@ -551,6 +551,38 @@ Write-Host "  publish OK" -ForegroundColor Green
 # Atomic swap: live -> backup, staging -> live, preserve data\
 # ---------------------------------------------------------------------------
 
+# 2026-08-29 review follow-up (round 8): the rollback flag MUST be
+# set BEFORE the first Move-Item — if any of the destructive steps
+# below throw, we want the finally block to actually run, not just
+# silently fall through with $rollbackNeeded still $false. The
+# previous design set $rollbackNeeded = $true AFTER all the
+# Move-Items had succeeded, which meant a failure during the swap
+# would leave the install dir in an inconsistent half-state with
+# no rollback triggered.
+$rollbackNeeded = $true
+
+# 2026-08-29 review follow-up (round 8): the previous design
+# stopped+deleted the service AFTER the swap, so the file lock on
+# the old binary in $BackupDir was released by the swap itself
+# (the file no longer existed in $InstallDir) — but `sc delete` is
+# IRREVERSIBLE: if any post-swap step (sc create / sc start /
+# /health) failed, the rollback helper would restore the old
+# binaries into $InstallDir but the service REGISTRATION no longer
+# existed, so `sc start` would fail with "service does not exist".
+#
+# New flow: stop the existing service BEFORE the swap (releases
+# the file lock on the old binary so the Move-Item below is
+# unblocked), then update the registration AFTER the swap with
+# `sc config binPath=` (which preserves the service account /
+# start type / display name from the previous install). Rollback
+# just swaps the files back AND rolls binPath back; the service
+# registration itself never goes away.
+if ($existing) {
+    Write-Section "Stopping existing service (releases file lock on old binary)"
+    Stop-WorkerService
+    Write-Host "  service stopped" -ForegroundColor Green
+}
+
 Write-Section "Atomic swap: staging -> live (preserving data\)"
 
 $dataDir = Join-Path $InstallDir 'data'
@@ -573,29 +605,26 @@ if ($hasDataDir) {
 Write-Host "  swap OK" -ForegroundColor Green
 
 
-# ---------------------------------------------------------------------------
-# Stop existing service atomically. The live install was already
-# moved to $BackupDir and the staging contents now occupy $InstallDir.
-# At this point the service is still bound to the OLD binary path
-# (in $BackupDir/AgentBoard.ProposalWorker.exe). sc.exe is happy
-# to start/stop a service even when its binary path is in a
-# non-standard location, so we just stop+delete and recreate with
-# the new path. 2026-08-29 review follow-up: the service stays
-# online while we publish to staging (the previous version kept
-# running). Only NOW do we touch the live service registration.
-# ---------------------------------------------------------------------------
-Write-Section "Stopping existing service (atomic with swap)"
-if ($existing) {
-    Write-Host "  stopping + deleting existing service (bin path was backed up to $BackupDir)"
-    Remove-WorkerService
-} else {
-    Write-Host "  no prior service to stop" -ForegroundColor Green
+# 2026-08-29 review follow-up (round 8): the service registration
+# is now preserved across upgrades. If a previous service existed
+# we just update its binPath to the new location; only fresh
+# installs go through the full sc create path (which sets
+# obj= / start= / DisplayName= / etc).
+function Update-ServiceBinPath {
+    param([string]$NewExe)
+    $binPath = "`"$NewExe`""
+    & sc.exe config $ServiceName binPath= $binPath | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "sc.exe config binPath failed with exit $LASTEXITCODE"
+    }
+    Write-Host "  sc config binPath OK -> $binPath" -ForegroundColor Green
 }
 
-
 # Rollback helper used by every post-swap failure point. Restores
-# the snapshot directory as the live install and drops the failed
-# (current) install. Safe to call multiple times.
+# the snapshot directory as the live install, drops the failed
+# (current) install, and (if the service registration existed
+# before this run) restores the OLD binPath. Safe to call
+# multiple times; idempotent.
 function Invoke-InstallRollback {
     Write-Host ""
     Write-Host "  !!! Rolling back to previous version !!!" -ForegroundColor Red
@@ -614,6 +643,18 @@ function Invoke-InstallRollback {
         Move-Item -Path $BackupDir -Destination $InstallDir -Force
         Write-Host "  restored from backup" -ForegroundColor Green
     }
+    # Restore the OLD binPath on the service registration, so the
+    # SCM still points at the restored old binary. This closes the
+    # round-7 review gap where the previous rollback only restored
+    # files but not the SCM registration (sc delete had been called
+    # pre-swap and was irreversible).
+    if ($existing -and (Test-Path $ServiceExe)) {
+        try {
+            Update-ServiceBinPath -NewExe $ServiceExe
+        } catch {
+            Write-Host "  binPath rollback failed: $_" -ForegroundColor Red
+        }
+    }
     # Restart the previous (restored) service. Best-effort; if the
     # old service binary was uninstalled cleanly (e.g. fresh
     # install that never had a previous version) this is a no-op
@@ -624,13 +665,14 @@ function Invoke-InstallRollback {
 }
 # ---------------------------------------------------------------------------
 
-# Everything from the existing-service stop through /health
-# is wrapped in try/finally so any failure (sc create, appsettings
+# Everything from the swap through /health is wrapped in
+# try/finally so any failure (sc create, sc config, appsettings
 # write, sc start, /health) rolls back the swap AND restarts the
 # previous version. Note: the publish-to-staging step above
 # happens BEFORE this try block, so a publish failure does not
-# touch the live service or live binaries at all.
-$rollbackNeeded = $true
+# touch the live service or live binaries at all. $rollbackNeeded
+# is set to $true earlier (BEFORE the first Move-Item) so the
+# finally block actually runs even if the swap itself throws.
 try {
 
 Write-Section "Writing appsettings.Production.json"
@@ -659,13 +701,24 @@ Write-Host "  $appsettingsProd" -ForegroundColor Green
 
 Write-Section "Registering Windows service"
 
-# (Existing service is detected and removed BEFORE publish, see the
-#  'Checking existing service' section above. The remove step is no
-# longer duplicated here.)
+# 2026-08-29 review follow-up (round 8): the previous design
+# ALWAYS went through the full sc.exe create path. On an upgrade
+# this sc delete + sc create sequence was irreversible — if any
+# post-swap step (sc start, /health) failed, the rollback helper
+# would restore the old binaries but the service REGISTRATION
+# no longer existed, so sc start would fail with "service does
+# not exist". Fix: on upgrade, just update binPath with
+# `sc config binPath=`. The service account / start type /
+# display name from the previous install are all preserved; the
+# per-service env block is always re-applied so the operator can
+# pick up newly-required env vars (e.g. a new API key) by
+# re-running the install. Only fresh installs go through the
+# full sc create path (which sets obj= / start= / DisplayName=).
 
-# Preserve the installing user's CLI/login context for the LocalSystem service.
-# sc.exe has no `env=` create option; per-service environment entries belong in
-# HKLM\SYSTEM\CurrentControlSet\Services\<name>\Environment (REG_MULTI_SZ).
+# Always collect the env block (used for both fresh + upgrade paths).
+# sc.exe has no `env=` create option; per-service environment entries
+# belong in HKLM\SYSTEM\CurrentControlSet\Services\<name>\Environment
+# (REG_MULTI_SZ).
 $envPairs = @()
 foreach ($name in @(
     'MINIMAX_API_KEY', 'OPENAI_API_KEY', 'AGENTBOARD_WEB_API_URL', 'AGENTBOARD_TOKEN',
@@ -678,73 +731,81 @@ foreach ($name in @(
     }
 }
 
-$binPath = "`"$ServiceExe`""
-$scArgs = @(
-    'create', $ServiceName,
-    'binPath=', $binPath,
-    'start=', 'auto',
-    'DisplayName=', 'AgentBoard Proposal Worker (MiniMax / Codex / WorkBuddy)'
-)
-
-# sc.exe needs `obj=` to run as anything other than LocalSystem. Default to
-# the installing user so pre-flight (which also runs as the installing user)
-# and the service see the same PATH / profile. Credentials are passed via
-# `-ServiceCredential` (SecureString); when missing, fall back to LocalSystem
-# only if the operator has installed CLIs in a system-wide location.
-# Three paths through the sc.exe branch:
-#   1. LocalSystem  — no obj=, no password=.
-#   2. Built-in service account (LocalService / NetworkService) — obj=
-#      with an empty password (Microsoft convention for these SIDs).
-#      No user-supplied credential, no SeServiceLogonRight grant (the
-#      account already has the right by virtue of being built-in).
-#   3. Normal user / domain account — Get-Credential for password,
-#      Grant-SeServiceLogonRight, obj= + password=.
-#
-# 2026-08-29 review fix: the previous code only special-cased LocalSystem
-# and entered the credential path for every other account, including the
-# built-in LocalService / NetworkService, which broke the install for
-# those targets.
-if (Test-IsBuiltinServiceAccount -Account $ResolvedServiceAccount) {
-    if ($ResolvedServiceAccount -in @('LocalSystem', 'NT AUTHORITY\SYSTEM', '.\LocalSystem')) {
-        Write-Host "  Service will run as LocalSystem. Make sure the agent CLIs are" -ForegroundColor Cyan
-        Write-Host "  reachable from LocalSystem's PATH (e.g. system-wide npm-global, system PATH)." -ForegroundColor Cyan
-    } else {
-        # LocalService / NetworkService: sc.exe requires obj= with an
-        # empty password. Microsoft convention for these built-in SIDs.
-        Write-Host "  Service will run as the built-in $ResolvedServiceAccount account." -ForegroundColor Cyan
-        Write-Host "  obj= set with empty password (Microsoft convention); no user credential required." -ForegroundColor Cyan
-        $scArgs += @('obj=', $ResolvedServiceAccount, 'password=', '')
-    }
+if ($existing) {
+    Write-Host "  upgrade path: preserving service registration, updating binPath only" -ForegroundColor Cyan
+    Update-ServiceBinPath -NewExe $ServiceExe
 } else {
-    if (-not $ServiceCredential) {
-        Write-Host ''
-        Write-Host "  Service will run as '' (matched your current user). sc.exe requires" -ForegroundColor Cyan
-        Write-Host "  the account password to set obj=. Get-Credential will pop a Windows prompt." -ForegroundColor Cyan
-        Write-Host "  (If the account does not have a password — e.g. a managed service account — pass" -ForegroundColor Cyan
-        Write-Host "  -ServiceAccount LocalSystem instead and install the agent CLIs system-wide.)" -ForegroundColor Cyan
-        Write-Host ''
-        $ServiceCredential = Get-Credential -Message "Enter the password for $ResolvedServiceAccount (or Ctrl-C to abort)"
-        if (-not $ServiceCredential) {
-            throw "No credential supplied for $ResolvedServiceAccount; cannot create the service. Re-run with -ServiceCredential or -ServiceAccount LocalSystem."
-        }
-    }
-    # Grant the service account the right to log on as a service.
-    # sc.exe create does NOT verify SeServiceLogonRight; without this
-    # grant, sc.exe start fails with 1053 ("service did not respond")
-    # even though the service registered fine. This is the fresh-box
-    # blocker called out in the 2026-08-29 review: the previous
-    # installer produced a service that could register but never start.
-    Write-Host "  granting SeServiceLogonRight to $ResolvedServiceAccount ..."
-    Grant-ServiceLogonRight -Account $ResolvedServiceAccount
-    Write-Host "  SeServiceLogonRight granted" -ForegroundColor Green
-    $scArgs += @('obj=', $ResolvedServiceAccount, 'password=', $ServiceCredential.GetNetworkCredential().Password)
-}
+    # Fresh install — full sc create.
+    Write-Host "  fresh install: full sc create path"
 
-& sc.exe @scArgs | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    throw "sc.exe create failed with exit $LASTEXITCODE"
+    $binPath = "`"$ServiceExe`""
+    $scArgs = @(
+        'create', $ServiceName,
+        'binPath=', $binPath,
+        'start=', 'auto',
+        'DisplayName=', 'AgentBoard Proposal Worker (MiniMax / Codex / WorkBuddy)'
+    )
+
+    # sc.exe needs `obj=` to run as anything other than LocalSystem. Default to
+    # the installing user so pre-flight (which also runs as the installing user)
+    # and the service see the same PATH / profile. Credentials are passed via
+    # `-ServiceCredential` (SecureString); when missing, fall back to LocalSystem
+    # only if the operator has installed CLIs in a system-wide location.
+    # Three paths through the sc.exe branch:
+    #   1. LocalSystem  — no obj=, no password=.
+    #   2. Built-in service account (LocalService / NetworkService) — obj=
+    #      with an empty password (Microsoft convention for these SIDs).
+    #      No user-supplied credential, no SeServiceLogonRight grant (the
+    #      account already has the right by virtue of being built-in).
+    #   3. Normal user / domain account — Get-Credential for password,
+    #      Grant-SeServiceLogonRight, obj= + password=.
+    #
+    # 2026-08-29 review fix: the previous code only special-cased LocalSystem
+    # and entered the credential path for every other account, including the
+    # built-in LocalService / NetworkService, which broke the install for
+    # those targets.
+    if (Test-IsBuiltinServiceAccount -Account $ResolvedServiceAccount) {
+        if ($ResolvedServiceAccount -in @('LocalSystem', 'NT AUTHORITY\SYSTEM', '.\LocalSystem')) {
+            Write-Host "  Service will run as LocalSystem. Make sure the agent CLIs are" -ForegroundColor Cyan
+            Write-Host "  reachable from LocalSystem's PATH (e.g. system-wide npm-global, system PATH)." -ForegroundColor Cyan
+        } else {
+            # LocalService / NetworkService: sc.exe requires obj= with an
+            # empty password. Microsoft convention for these built-in SIDs.
+            Write-Host "  Service will run as the built-in $ResolvedServiceAccount account." -ForegroundColor Cyan
+            Write-Host "  obj= set with empty password (Microsoft convention); no user credential required." -ForegroundColor Cyan
+            $scArgs += @('obj=', $ResolvedServiceAccount, 'password=', '')
+        }
+    } else {
+        if (-not $ServiceCredential) {
+            Write-Host ''
+            Write-Host "  Service will run as '' (matched your current user). sc.exe requires" -ForegroundColor Cyan
+            Write-Host "  the account password to set obj=. Get-Credential will pop a Windows prompt." -ForegroundColor Cyan
+            Write-Host "  (If the account does not have a password — e.g. a managed service account — pass" -ForegroundColor Cyan
+            Write-Host "  -ServiceAccount LocalSystem instead and install the agent CLIs system-wide.)" -ForegroundColor Cyan
+            Write-Host ''
+            $ServiceCredential = Get-Credential -Message "Enter the password for $ResolvedServiceAccount (or Ctrl-C to abort)"
+            if (-not $ServiceCredential) {
+                throw "No credential supplied for $ResolvedServiceAccount; cannot create the service. Re-run with -ServiceCredential or -ServiceAccount LocalSystem."
+            }
+        }
+        # Grant the service account the right to log on as a service.
+        # sc.exe create does NOT verify SeServiceLogonRight; without this
+        # grant, sc.exe start fails with 1053 ("service did not respond")
+        # even though the service registered fine. This is the fresh-box
+        # blocker called out in the 2026-08-29 review: the previous
+        # installer produced a service that could register but never start.
+        Write-Host "  granting SeServiceLogonRight to $ResolvedServiceAccount ..."
+        Grant-ServiceLogonRight -Account $ResolvedServiceAccount
+        Write-Host "  SeServiceLogonRight granted" -ForegroundColor Green
+        $scArgs += @('obj=', $ResolvedServiceAccount, 'password=', $ServiceCredential.GetNetworkCredential().Password)
+    }
+
+    & sc.exe @scArgs | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "sc.exe create failed with exit $LASTEXITCODE"
+    }
+    Write-Host "  sc create OK" -ForegroundColor Green
 }
-Write-Host "  sc create OK" -ForegroundColor Green
 
 # Verify the service will actually run under the identity we asked for.
 # `sc.exe qc` reports the configured `SERVICE_START_NAME` regardless of
@@ -763,6 +824,9 @@ if ($startNameLine) {
     }
 }
 
+# Apply (or refresh) the per-service env block. Both fresh and
+# upgrade paths run this so newly-required env vars (e.g. a new
+# API key) are picked up on re-install.
 if ($envPairs.Count -gt 0) {
     $serviceRegistryPath = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName"
     New-ItemProperty `

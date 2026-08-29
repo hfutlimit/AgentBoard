@@ -17,6 +17,14 @@ public sealed class InboxStore
     private readonly string _connectionString;
     private readonly ILogger<InboxStore> _log;
 
+    // Test-only instrumentation counter for the dispatcher's idle
+    // wake-cycle. Tests assert this stays bounded (e.g. ~ timer
+    // cadence) when no work is pending; without coalescing the
+    // WakeSignal the counter would grow into the thousands per
+    // second.
+    private long _getOldestPendingFlightsCalls;
+    public long GetOldestPendingFlightsCalls => Interlocked.Read(ref _getOldestPendingFlightsCalls);
+
     public InboxStore(ExecutionStore store, ILogger<InboxStore> log)
     {
         _connectionString = store.ConnectionString;
@@ -230,6 +238,24 @@ public sealed class InboxStore
     }
 
     /// <summary>
+    /// Cheap pending-row count. The consumer calls this on
+    /// every successful enqueue to enforce the
+    /// <c>Worker.MaxPendingInbox</c> high-watermark; it must
+    /// not hydrate the row payloads. Uses an index on
+    /// <c>status</c> (created in <see cref="Initialize"/>).
+    /// 2026-08-29 review round-8 follow-up.
+    /// </summary>
+    public async Task<int> CountPendingAsync(CancellationToken ct)
+    {
+        await using var c = new SqliteConnection(_connectionString);
+        await c.OpenAsync(ct);
+        await using var cmd = c.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM worker_execution_inbox WHERE status='pending'";
+        var n = await cmd.ExecuteScalarAsync(ct);
+        return Convert.ToInt32(n);
+    }
+
+    /// <summary>
     /// Pull the oldest <paramref name="limit"/> pending inbox rows.
     /// Used by the Dispatcher's DB-first main loop: every wake
     /// (RabbitMQ signal, periodic timer, startup) the dispatcher
@@ -253,6 +279,14 @@ public sealed class InboxStore
     public async Task<IReadOnlyList<InFlightExecution>> GetOldestPendingFlightsAsync(int limit, CancellationToken ct)
     {
         if (limit <= 0) return Array.Empty<InFlightExecution>();
+        // Test instrumentation: count inbox-query invocations so
+        // dispatcher hot-loop tests can assert the wake-signal
+        // consumption path actually coalesces. The counter is
+        // Interlocked so a future test that drives multiple
+        // dispatchers concurrently does not lose increments. In
+        // production this is a single increment per query; the cost
+        // is negligible.
+        Interlocked.Increment(ref _getOldestPendingFlightsCalls);
         var rows = new List<InFlightExecution>(Math.Min(limit, 64));
         await using var c = new SqliteConnection(_connectionString);
         await c.OpenAsync(ct);

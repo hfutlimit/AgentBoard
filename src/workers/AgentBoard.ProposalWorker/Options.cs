@@ -12,6 +12,18 @@ public sealed class WorkerOptions
     public int MaxConcurrentExecutions { get; set; } = 1;
     public int DispatchChannelCapacity { get; set; } = 100;
     public int OrphanThresholdMinutes { get; set; } = 30;
+    /// <summary>
+    /// 2026-08-29 round-8 review follow-up: hard cap on the
+    /// local SQLite inbox row count. The RabbitMQ consumer
+    /// requeues (or, for the direct queue, BasicCancels the
+    /// consumer) when this watermark is exceeded, so a fast
+    /// inbound rate can no longer grow the local DB without
+    /// bound. Replaces the previous DropWrite-only strategy
+    /// which traded channel-level blocking for unbounded disk
+    /// growth + unfair ACK stealing in multi-worker deploys.
+    /// Default 1000. Set to 0 to disable (not recommended).
+    /// </summary>
+    public int MaxPendingInbox { get; set; } = 1000;
     public string Version { get; set; } = "1.4.0";
 }
 

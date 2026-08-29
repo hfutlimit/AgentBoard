@@ -24,6 +24,13 @@ public sealed class RabbitMqConsumerService : BackgroundService
     private readonly WorkerState _state;
     private readonly ILogger<RabbitMqConsumerService> _log;
 
+    // 2026-08-29 review follow-up (round 8): track whether we've
+    // already BasicCancel'd the direct consumer so the in-flight
+    // requeue loop doesn't re-cancel. Reset on reconnect (new
+    // ConsumeUntilDisconnected call gets a fresh tag).
+    private bool _directConsumerCancelled;
+    private string? _directConsumerTag;
+
     public RabbitMqConsumerService(
         IOptions<RabbitMqOptions> mq,
         IOptions<WorkerOptions> worker,
@@ -93,8 +100,11 @@ public sealed class RabbitMqConsumerService : BackgroundService
         connection.ConnectionShutdown += (_, _) => done.TrySetResult();
         var publicTag = Consume(channel, _mq.PublicQueue, "public", ct);
         var directTag = Consume(channel, directQueue, "direct", ct);
+        _directConsumerTag = directTag;
+        _directConsumerCancelled = false;
         using var registration = ct.Register(() => done.TrySetResult());
         await done.Task;
+        _directConsumerTag = null;
         try { channel.BasicCancel(publicTag); channel.BasicCancel(directTag); } catch { }
     }
 
@@ -125,13 +135,54 @@ public sealed class RabbitMqConsumerService : BackgroundService
                 // Requeue (not DLQ) so a healthy peer picks it up
                 // immediately. We also pause briefly to avoid a
                 // tight requeue/ACK loop in the consumer thread.
+                //
+                // 2026-08-29 review follow-up (round 8):
+                // differential handling for public vs direct queue.
+                // The public queue has healthy peers that can
+                // absorb the message, so NACK requeue is correct.
+                // The direct queue has only this worker as a
+                // consumer — NACK requeue creates a tight
+                // consume-NACK-consume loop on the same worker
+                // (CPU+log burn). For the direct queue we
+                // BasicCancel the consumer ONCE on first degraded
+                // message, so Rabbit stops delivering and the
+                // in-flight message is NACK-requeued back to
+                // the (now empty) queue where it waits for an
+                // operator to clear the degraded flag.
                 if (_state.IsDegraded)
                 {
-                    _log.LogWarning(
-                        "Worker is degraded ({Reason}); refusing to consume from {Queue}, requeuing message so a healthy peer can take it",
-                        _state.DegradedReason, queue);
-                    await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
-                    channel.BasicNack(eventArgs.DeliveryTag, false, true);
+                    if (source == "direct")
+                    {
+                        if (!_directConsumerCancelled)
+                        {
+                            _directConsumerCancelled = true;
+                            try
+                            {
+                                if (_directConsumerTag is not null)
+                                {
+                                    channel.BasicCancel(_directConsumerTag);
+                                }
+                            }
+                            catch (Exception cancelEx)
+                            {
+                                _log.LogWarning(cancelEx,
+                                    "BasicCancel of direct consumer failed; will continue to NACK-requeue");
+                            }
+                        }
+                        _log.LogWarning(
+                            "Worker is degraded ({Reason}); direct consumer cancelled; NACK-requeue in-flight message so Rabbit holds it until recovery",
+                            _state.DegradedReason);
+                        await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+                        channel.BasicNack(eventArgs.DeliveryTag, false, true);
+                    }
+                    else
+                    {
+                        _log.LogWarning(
+                            "Worker is degraded ({Reason}); refusing to consume from {Queue}, requeuing message so a healthy peer can take it",
+                            _state.DegradedReason, queue);
+                        await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+                        channel.BasicNack(eventArgs.DeliveryTag, false, true);
+                    }
                     return;
                 }
 
@@ -156,6 +207,62 @@ public sealed class RabbitMqConsumerService : BackgroundService
                     _log.LogDebug("Duplicate {Key}; ACK without dispatch", request.ExecutionKey);
                     channel.BasicAck(eventArgs.DeliveryTag, false);
                     return;
+                }
+
+                // 2026-08-29 review follow-up (round 8):
+                // Worker.MaxPendingInbox high-watermark. The
+                // previous DropWrite-only strategy traded
+                // channel-level blocking for unbounded local
+                // SQLite growth + ACK stealing in multi-worker
+                // deploys. With DropWrite the consumer never
+                // blocks, so the local inbox can grow without
+                // bound. Enforce a hard cap: if pending count
+                // exceeds MaxPendingInbox after enqueue, mark the
+                // freshly-inserted row as failed (so the
+                // dispatcher doesn't keep re-claiming it) and
+                // NACK-requeue the Rabbit message. For the
+                // direct queue, also BasicCancel the consumer so
+                // we don't burn CPU+Rabbit traffic in a hot
+                // redelivery loop until the operator intervenes.
+                if (_worker.MaxPendingInbox > 0)
+                {
+                    var pending = await _inbox.CountPendingAsync(stoppingToken);
+                    if (pending > _worker.MaxPendingInbox)
+                    {
+                        _log.LogWarning(
+                            "Pending inbox {Pending} exceeded MaxPendingInbox {Limit} after enqueue of {Key}; refusing to accept more on {Queue}",
+                            pending, _worker.MaxPendingInbox, request.ExecutionKey, queue);
+                        try
+                        {
+                            await _inbox.MarkFailedAsync(inboxId,
+                                $"pending inbox {pending} > MaxPendingInbox {_worker.MaxPendingInbox}; refused",
+                                CancellationToken.None);
+                        }
+                        catch (Exception markEx)
+                        {
+                            _log.LogError(markEx,
+                                "Failed to mark inbox {InboxId} as failed under high-watermark; row stays pending and will be re-claimed",
+                                inboxId);
+                        }
+                        if (source == "direct" && !_directConsumerCancelled)
+                        {
+                            _directConsumerCancelled = true;
+                            try
+                            {
+                                if (_directConsumerTag is not null)
+                                {
+                                    channel.BasicCancel(_directConsumerTag);
+                                }
+                            }
+                            catch (Exception cancelEx)
+                            {
+                                _log.LogWarning(cancelEx,
+                                    "BasicCancel of direct consumer under high-watermark failed");
+                            }
+                        }
+                        channel.BasicNack(eventArgs.DeliveryTag, false, true);
+                        return;
+                    }
                 }
 
                 // Hand off a wake-signal sentinel to the dispatcher.

@@ -87,8 +87,16 @@ public sealed class ExecutionDispatcher : BackgroundService
         // The channel has no buffered wakes at this point (we're
         // the first reader); the timer hasn't fired yet. Run one
         // initial drain so the worker doesn't sit idle for up
-        // to IdleWakeInterval on startup.
-        await DrainFromDbAsync("startup", stoppingToken);
+        // to IdleWakeInterval on startup. If the initial drain
+        // hits the per-wake cap, keep re-polling without the
+        // 2 s gap so a large startup backlog (e.g. 1000 rows
+        // from a previous run) drains promptly. 2026-08-29
+        // round-8 follow-up.
+        var initialExit = await DrainFromDbAsync("startup", stoppingToken);
+        while (initialExit == DrainExit.CapHit && !stoppingToken.IsCancellationRequested)
+        {
+            initialExit = await DrainFromDbAsync("startup-continue", stoppingToken);
+        }
 
         try
         {
@@ -115,6 +123,18 @@ public sealed class ExecutionDispatcher : BackgroundService
                 // registration is released — no leak of pending
                 // waiters across idle ticks. 2026-08-29 review #1
                 // (round 6) and #1 (round 7).
+                //
+                // 2026-08-29 review follow-up (round 8): a single
+                // `WaitToReadAsync` returning true is not enough —
+                // it only PEEKS, it does not consume. Without an
+                // explicit TryRead drain the very first wake
+                // signal sits in the channel forever, every
+                // subsequent WaitToReadAsync returns true
+                // immediately, and the outer loop spins in a tight
+                // CPU+SQLite hot loop that defeats the 2 s safety
+                // timer. Drain every signal we can in one go
+                // (coalesce — one wake per drain cycle, not one
+                // wake per signal).
                 using (var waitCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken))
                 {
                     var wakeTimer = Task.Delay(IdleWakeInterval, stoppingToken);
@@ -124,6 +144,13 @@ public sealed class ExecutionDispatcher : BackgroundService
                     {
                         // Wake-signal available; cancel the timer.
                         if (!await waitTask) break;  // channel closed
+                        // Coalesce: drain every signal currently
+                        // buffered. WakeSignal carries no payload,
+                        // so collapsing N signals into 1 drain is
+                        // semantically equivalent to processing each
+                        // one — the next drain call will re-query
+                        // the durable DB inbox anyway.
+                        while (_channel.Reader.TryRead(out _)) { }
                     }
                     else
                     {
@@ -137,8 +164,17 @@ public sealed class ExecutionDispatcher : BackgroundService
 
                 // Drain from the durable DB. The channel is just a
                 // wake-up signal; the actual work payload lives
-                // in the inbox.
-                await DrainFromDbAsync("wake", stoppingToken);
+                // in the inbox. If the drain hit the per-wake
+                // cap (very likely under sustained load), re-poll
+                // immediately instead of waiting the full
+                // IdleWakeInterval — otherwise a 1000-row backlog
+                // drains at timer cadence and burns ~2 s × N
+                // batches of idle gap. 2026-08-29 round-8 follow-up.
+                var exit = await DrainFromDbAsync("wake", stoppingToken);
+                while (exit == DrainExit.CapHit && !stoppingToken.IsCancellationRequested)
+                {
+                    exit = await DrainFromDbAsync("wake-continue", stoppingToken);
+                }
             }
         }
         catch (OperationCanceledException) { /* shutdown */ }
@@ -156,8 +192,24 @@ public sealed class ExecutionDispatcher : BackgroundService
     ///   3. runs the coordinator with the (request, inboxId)
     ///      pair;
     ///   4. tracks the per-wake budget (count + wall clock).
+    ///
+    /// Returns the reason the drain exited:
+    ///   <c>Empty</c>  — the DB has no more pending rows; the
+    ///                   outer loop should wait for the next
+    ///                   signal/timer before re-polling.
+    ///   <c>CapHit</c> — the per-wake flight count or wall-clock
+    ///                   cap was reached; the outer loop should
+    ///                   re-poll immediately because more rows
+    ///                   are very likely still pending (without
+    ///                   this, a 1000-row backlog drains at
+    ///                   timer cadence and adds 2 s × N batches
+    ///                   of idle gap). 2026-08-29 round-8
+    ///                   follow-up.
+    ///   <c>Cancelled</c> — stoppingToken fired mid-drain.
     /// </summary>
-    private async Task DrainFromDbAsync(string reason, CancellationToken stoppingToken)
+    private enum DrainExit { Empty, CapHit, Cancelled }
+
+    private async Task<DrainExit> DrainFromDbAsync(string reason, CancellationToken stoppingToken)
     {
         var batchStart = DateTimeOffset.UtcNow;
         int flightsThisBatch = 0;
@@ -176,15 +228,15 @@ public sealed class ExecutionDispatcher : BackgroundService
             catch (Exception ex)
             {
                 _log.LogError(ex, "DB pending list failed during {Reason} drain; will retry on next wake", reason);
-                return;
+                return DrainExit.Cancelled;
             }
-            if (pending.Count == 0) return;
+            if (pending.Count == 0) return DrainExit.Empty;
 
             foreach (var flight in pending)
             {
                 if (flightsThisBatch >= MaxFlightsPerWakeBatch) break;
-                if (stoppingToken.IsCancellationRequested) return;
-                if (_coordinator.IsPaused() || _coordinator.IsDegraded()) return;
+                if (stoppingToken.IsCancellationRequested) return DrainExit.Cancelled;
+                if (_coordinator.IsPaused() || _coordinator.IsDegraded()) return DrainExit.Cancelled;
 
                 flightsThisBatch++;
                 try
@@ -215,13 +267,13 @@ public sealed class ExecutionDispatcher : BackgroundService
                         _log.LogError(
                             "Inbox {InboxId} claim hit permanent DB failure; worker degraded; dispatch loop will exit",
                             flight.InboxId);
-                        return;
+                        return DrainExit.Cancelled;
                     }
                     await _coordinator.ExecuteAsync(flight.Request, flight.InboxId, stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
                 {
-                    return;
+                    return DrainExit.Cancelled;
                 }
                 catch (Exception ex)
                 {
@@ -235,5 +287,17 @@ public sealed class ExecutionDispatcher : BackgroundService
                 }
             }
         }
+        // If we exited the while loop, decide which way:
+        //   - cancellation / pause / degraded → treat as Cancelled
+        //   - hit the per-wake cap (count or wall clock) → CapHit
+        //     so the outer loop re-polls immediately instead of
+        //     waiting the IdleWakeInterval.
+        if (stoppingToken.IsCancellationRequested
+            || _coordinator.IsPaused()
+            || _coordinator.IsDegraded())
+        {
+            return DrainExit.Cancelled;
+        }
+        return DrainExit.CapHit;
     }
 }
