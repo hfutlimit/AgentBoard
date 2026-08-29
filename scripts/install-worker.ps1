@@ -483,13 +483,19 @@ if ([string]::IsNullOrWhiteSpace($PortalApiKey)) {
 # own binary and the publish either failed outright or left a half-
 # overwritten install dir (mixed version). Stop + remove the existing
 # service before publish so the install dir is not locked.
-Write-Section "Checking existing service"
+# 2026-08-29 review follow-up (round 7): detect the existing
+# service EARLY (so the swap knows whether to do a fresh install or
+# an upgrade) but do NOT stop it here. The live service can keep
+# running while we publish to $StagingDir (a sibling dir, not
+# touching $InstallDir). The actual stop+delete+recreate+start is
+# moved inside the swap-protected try/finally so any failure during
+# upgrade rolls back the binary + restarts the previous version.
+Write-Section "Detecting existing service"
 $existing = Get-Service -Name 'AgentBoard Proposal Worker' -ErrorAction SilentlyContinue
 if ($existing) {
-    Write-Host "  existing service found; stopping + removing before re-publish"
-    Remove-WorkerService
+    Write-Host "  existing service found: $($existing.Status) — will be stopped atomically during the swap"
 } else {
-    Write-Host "  no existing service" -ForegroundColor Green
+    Write-Host "  no existing service (fresh-box install)" -ForegroundColor Green
 }
 
 # ---------------------------------------------------------------------------
@@ -566,37 +572,64 @@ if ($hasDataDir) {
 }
 Write-Host "  swap OK" -ForegroundColor Green
 
+
+# ---------------------------------------------------------------------------
+# Stop existing service atomically. The live install was already
+# moved to $BackupDir and the staging contents now occupy $InstallDir.
+# At this point the service is still bound to the OLD binary path
+# (in $BackupDir/AgentBoard.ProposalWorker.exe). sc.exe is happy
+# to start/stop a service even when its binary path is in a
+# non-standard location, so we just stop+delete and recreate with
+# the new path. 2026-08-29 review follow-up: the service stays
+# online while we publish to staging (the previous version kept
+# running). Only NOW do we touch the live service registration.
+# ---------------------------------------------------------------------------
+Write-Section "Stopping existing service (atomic with swap)"
+if ($existing) {
+    Write-Host "  stopping + deleting existing service (bin path was backed up to $BackupDir)"
+    Remove-WorkerService
+} else {
+    Write-Host "  no prior service to stop" -ForegroundColor Green
+}
+
+
 # Rollback helper used by every post-swap failure point. Restores
 # the snapshot directory as the live install and drops the failed
 # (current) install. Safe to call multiple times.
 function Invoke-InstallRollback {
     Write-Host ""
     Write-Host "  !!! Rolling back to previous version !!!" -ForegroundColor Red
-    try {
-        & sc.exe stop $ServiceName 2>$null | Out-Null
-        Start-Sleep -Seconds 2
-        & sc.exe stop $ServiceName 2>$null | Out-Null
-    } catch { }
+    # Stop whatever is running under the service name (the failed
+    # new install or the partially-restored old one). The 2-second
+    # settle is a defensive sleep for services that need a moment
+    # to release file handles after a Stop.
+    try { & sc.exe stop $ServiceName 2>$null | Out-Null } catch { }
+    Start-Sleep -Seconds 2
+    try { & sc.exe stop $ServiceName 2>$null | Out-Null } catch { }
+    # Drop the failed-swap install. The backup becomes the new live.
     if (Test-Path $InstallDir) {
-        # The failed-swap install is now junk; drop it.
         Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
     }
     if (Test-Path $BackupDir) {
         Move-Item -Path $BackupDir -Destination $InstallDir -Force
         Write-Host "  restored from backup" -ForegroundColor Green
     }
-    # Best-effort: restart the previous (restored) service so the
-    # operator is not left offline.
+    # Restart the previous (restored) service. Best-effort; if the
+    # old service binary was uninstalled cleanly (e.g. fresh
+    # install that never had a previous version) this is a no-op
+    # and the operator runs the installer again.
     try {
         & sc.exe start $ServiceName 2>$null | Out-Null
     } catch { }
 }
 # ---------------------------------------------------------------------------
 
-# All steps after the atomic swap are wrapped in try/finally so any
-# failure (appsettings write, sc create, sc start, /health) triggers
-# Invoke-InstallRollback (defined just above) and the worker is not
-# left in a half-installed state. 2026-08-29 review follow-up.
+# Everything from the existing-service stop through /health
+# is wrapped in try/finally so any failure (sc create, appsettings
+# write, sc start, /health) rolls back the swap AND restarts the
+# previous version. Note: the publish-to-staging step above
+# happens BEFORE this try block, so a publish failure does not
+# touch the live service or live binaries at all.
 $rollbackNeeded = $true
 try {
 

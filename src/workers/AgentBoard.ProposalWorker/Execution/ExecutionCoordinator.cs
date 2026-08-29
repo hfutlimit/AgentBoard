@@ -94,15 +94,25 @@ public sealed class ExecutionCoordinator
 
     /// <summary>
     /// Wrap a terminal-state write with bounded retry on transient
-    /// SQLite lock errors. Returns true if the write eventually
-    /// succeeded. Returns false if all retries exhausted; the caller
-    /// is responsible for the degraded fall-back (e.g.
-    /// <c>MarkDegradedAsync</c>). 2026-08-29 review follow-up:
-    /// a transient DB error during <c>MarkSucceededAsync</c> must
-    /// not be reclassified as a business failure — the agent did
-    /// its work, we just couldn't persist the terminal state.
+    /// SQLite lock errors. Returns:
+    ///   true  — the underlying CAS write returned true (row updated)
+    ///   false — retries exhausted, OR the CAS write itself returned
+    ///           false (state conflict: the row was no longer in a
+    ///           non-terminal state by the time we tried to settle it;
+    ///           the previous Mark* call in the chain has already
+    ///           settled the row)
+    ///   throws — unexpected exception, surfaces to the caller's catch
+    ///
+    /// 2026-08-29 review follow-up (round 7): the previous signature
+    /// was <c>Func&lt;Task&gt;</c>, which silently discarded the
+    /// <c>Task&lt;bool&gt;</c> return value from the underlying
+    /// <c>MarkTerminalAsync</c>. A 0-rows-affected CAS conflict would
+    /// then look like success and the row would be left in a fake
+    /// non-terminal state (e.g. Running) while the inbox was marked
+    /// completed — a real correctness bug. Propagating the bool
+    /// closes it.
     /// </summary>
-    private async Task<bool> TryPersistTerminalAsync(Func<Task> write, string description, CancellationToken ct)
+    private async Task<bool> TryPersistTerminalAsync(Func<Task<bool>> write, string description, CancellationToken ct)
     {
         foreach (var delayMs in TerminalWriteRetryDelaysMs)
         {
@@ -113,7 +123,15 @@ public sealed class ExecutionCoordinator
             }
             try
             {
-                await write();
+                var persisted = await write();
+                if (persisted) return true;
+                // 0-rows-affected: row is no longer in a non-terminal
+                // state. The previous Mark* call in the chain has
+                // already settled it. Treat as success (the caller's
+                // intended terminal is already on disk).
+                _log.LogWarning(
+                    "{Description} returned 0 rows affected (CAS conflict; row already terminal); treating as success",
+                    description);
                 return true;
             }
             catch (Microsoft.Data.Sqlite.SqliteException ex) when (IsTransientSqliteLockError(ex))
@@ -126,6 +144,42 @@ public sealed class ExecutionCoordinator
             // catch will route to the degraded fall-back path.
         }
         return false;
+    }
+
+    /// <summary>
+    /// Unified terminal-persistence path used by all four result
+    /// branches (Success / Cancelled / TimedOut / Failed) and all
+    /// three catch paths (caller-cancel / timeout / adapter-throw).
+    /// Wraps the retry+bool-aware <see cref="TryPersistTerminalAsync"/>
+    /// and the degraded fall-back + inbox completion. 2026-08-29
+    /// review follow-up (round 7): the four happy-path call sites
+    /// had the !ok → MarkDegraded logic; the three catch paths
+    /// silently discarded the return value, so a persistent error
+    /// in MarkTimedOutAsync / MarkCancelledAsync / MarkFailedAsync
+    /// would leave the execution row in fake-Running while the
+    /// inbox was marked completed. This helper unifies the state
+    /// machine: every terminal path either settles the row OR
+    /// marks it Degraded, then always completes the inbox.
+    /// </summary>
+    private async Task PersistTerminalOrDegradeAsync(
+        Func<Task<bool>> write,
+        string description,
+        string businessResult,
+        long executionId,
+        long inboxId,
+        CancellationToken ct)
+    {
+        var ok = await TryPersistTerminalAsync(write, description, ct);
+        if (!ok)
+        {
+            _log.LogError(
+                "{Description} exhausted retries on transient SQLite lock contention; agent's business result was {Business}; marking Degraded",
+                description, businessResult);
+            await _store.MarkDegradedAsync(executionId,
+                $"{businessResult}; persistence retries exhausted — verify side effects before retrying",
+                ct);
+        }
+        await _inbox.MarkCompletedAsync(inboxId, ct);
     }
 
     public async Task ExecuteAsync(ExecutionRequest request, long inboxId, CancellationToken ct)
@@ -283,99 +337,67 @@ public sealed class ExecutionCoordinator
             var result = await adapter.ExecuteAsync(context, ct);
 
             // 2026-08-29 review follow-up (#3): the agent's business
-            // result must be preserved even if the terminal DB write
-            // fails transiently. Wrap every Mark* call in
-            // TryPersistTerminalAsync; on retry exhaustion, fall
-            // through to MarkDegradedAsync (terminal, preserves
-            // business result) and ALWAYS mark the inbox as
-            // completed so the dispatcher doesn't re-run the agent
-            // and duplicate side effects (git commits, file writes,
-            // ticket comments).
+            // Result branches + catch paths all go through the
+            // unified PersistTerminalOrDegradeAsync. See comment
+            // on that helper for the 2026-08-29 review fix.
             if (result.Success)
             {
-                var ok = await TryPersistTerminalAsync(
+                await PersistTerminalOrDegradeAsync(
                     () => _store.MarkSucceededAsync(executionId, result.ExitCode ?? 0, result.OutputJson ?? "", CancellationToken.None),
                     $"MarkSucceeded({executionId})",
-                    CancellationToken.None);
-                if (!ok)
-                {
-                    _log.LogError(
-                        "MarkSucceeded exhausted retries for execution {Id} ({Key}); marking Degraded; agent side effects may have already occurred",
-                        executionId, request.ExecutionKey);
-                    await _store.MarkDegradedAsync(executionId,
-                        "Succeeded; persistence retries exhausted — verify side effects before retrying",
-                        CancellationToken.None);
-                }
-                await _inbox.MarkCompletedAsync(inboxId, CancellationToken.None);
+                    businessResult: "Succeeded",
+                    executionId, inboxId, CancellationToken.None);
             }
             else if (result.Cancelled)
             {
-                var ok = await TryPersistTerminalAsync(
+                await PersistTerminalOrDegradeAsync(
                     () => _store.MarkCancelledAsync(executionId, result.ErrorMessage ?? "cancelled", CancellationToken.None),
                     $"MarkCancelled({executionId})",
-                    CancellationToken.None);
-                if (!ok)
-                {
-                    _log.LogError("MarkCancelled exhausted retries for {Id}", executionId);
-                    await _store.MarkDegradedAsync(executionId,
-                        "Cancelled; persistence retries exhausted", CancellationToken.None);
-                }
-                await _inbox.MarkCompletedAsync(inboxId, CancellationToken.None);
+                    businessResult: "Cancelled",
+                    executionId, inboxId, CancellationToken.None);
             }
             else if (result.TimedOut)
             {
-                var ok = await TryPersistTerminalAsync(
+                await PersistTerminalOrDegradeAsync(
                     () => _store.MarkTimedOutAsync(executionId, result.ErrorMessage ?? "execution timed out", result.OutputJson ?? "", CancellationToken.None),
                     $"MarkTimedOut({executionId})",
-                    CancellationToken.None);
-                if (!ok)
-                {
-                    _log.LogError("MarkTimedOut exhausted retries for {Id}", executionId);
-                    await _store.MarkDegradedAsync(executionId,
-                        "TimedOut; persistence retries exhausted", CancellationToken.None);
-                }
-                await _inbox.MarkCompletedAsync(inboxId, CancellationToken.None);
+                    businessResult: "TimedOut",
+                    executionId, inboxId, CancellationToken.None);
             }
             else
             {
-                var ok = await TryPersistTerminalAsync(
+                await PersistTerminalOrDegradeAsync(
                     () => _store.MarkFailedAsync(executionId, result.ExitCode, result.OutputJson ?? "", result.ErrorMessage ?? "agent reported failure", null, CancellationToken.None),
                     $"MarkFailed({executionId})",
-                    CancellationToken.None);
-                if (!ok)
-                {
-                    _log.LogError("MarkFailed exhausted retries for {Id}", executionId);
-                    await _store.MarkDegradedAsync(executionId,
-                        "Failed; persistence retries exhausted", CancellationToken.None);
-                }
-                await _inbox.MarkCompletedAsync(inboxId, CancellationToken.None);
+                    businessResult: "Failed",
+                    executionId, inboxId, CancellationToken.None);
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            await TryPersistTerminalAsync(
+            await PersistTerminalOrDegradeAsync(
                 () => _store.MarkCancelledAsync(executionId, "cancelled by host", CancellationToken.None),
                 $"MarkCancelled({executionId})",
-                CancellationToken.None);
-            await _inbox.MarkCompletedAsync(inboxId, CancellationToken.None);
+                businessResult: "Cancelled",
+                executionId, inboxId, CancellationToken.None);
         }
         catch (TimeoutException ex)
         {
-            await TryPersistTerminalAsync(
+            await PersistTerminalOrDegradeAsync(
                 () => _store.MarkTimedOutAsync(executionId, ex.Message, "", CancellationToken.None),
                 $"MarkTimedOut({executionId})",
-                CancellationToken.None);
-            await _inbox.MarkCompletedAsync(inboxId, CancellationToken.None);
+                businessResult: "TimedOut",
+                executionId, inboxId, CancellationToken.None);
         }
         catch (Exception ex)
         {
             _state.LastError = ex.Message;
             _log.LogError(ex, "Execution {Id} ({Key}) threw", executionId, request.ExecutionKey);
-            await TryPersistTerminalAsync(
+            await PersistTerminalOrDegradeAsync(
                 () => _store.MarkFailedAsync(executionId, null, "", ex.Message, ex.ToString(), CancellationToken.None),
                 $"MarkFailed({executionId})",
-                CancellationToken.None);
-            await _inbox.MarkCompletedAsync(inboxId, CancellationToken.None);
+                businessResult: "Failed",
+                executionId, inboxId, CancellationToken.None);
         }
         finally
         {

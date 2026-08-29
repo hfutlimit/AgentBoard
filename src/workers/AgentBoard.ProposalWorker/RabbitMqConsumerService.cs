@@ -114,6 +114,27 @@ public sealed class RabbitMqConsumerService : BackgroundService
                     return;
                 }
 
+                // 2026-08-29 review follow-up: when the worker is
+                // degraded (non-recoverable DB error already
+                // observed), the Dispatcher has stopped scheduling
+                // new work. The consumer must stop accepting new
+                // messages too — otherwise it would still pull
+                // from the public RabbitMQ queue, write rows into
+                // the local inbox, and ACK, "stealing" tasks from
+                // healthy peer workers in a multi-worker deploy.
+                // Requeue (not DLQ) so a healthy peer picks it up
+                // immediately. We also pause briefly to avoid a
+                // tight requeue/ACK loop in the consumer thread.
+                if (_state.IsDegraded)
+                {
+                    _log.LogWarning(
+                        "Worker is degraded ({Reason}); refusing to consume from {Queue}, requeuing message so a healthy peer can take it",
+                        _state.DegradedReason, queue);
+                    await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
+                    channel.BasicNack(eventArgs.DeliveryTag, false, true);
+                    return;
+                }
+
                 var message = ProposalMessage.Parse(eventArgs.Body);
                 ExecutionRequest request;
                 try
