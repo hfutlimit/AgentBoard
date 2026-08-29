@@ -137,6 +137,17 @@ public sealed class ProcessExecutor : IProcessExecutor
                 catch (OperationCanceledException) // timeout fired (or stdin-write timed out)
                 {
                     TryKillTree(process);
+                    // 2026-08-29 review follow-up: the background reader
+                    // tasks are still running when we reach this catch
+                    // (the timeout CTS may have just fired). Calling
+                    // GetText() while a reader is mid-Append can race
+                    // the Queue<T> enumeration and raise
+                    // InvalidOperationException, which would then
+                    // surface as a generic `Failed` result here. Drain
+                    // the readers first — after TryKillTree the OS
+                    // pipe EOFs and the read tasks complete quickly.
+                    try { await stdoutTask; } catch { /* may OCE on cancel */ }
+                    try { await stderrTask; } catch { /* may OCE on cancel */ }
                     return new ProcessResult
                     {
                         ExitCode = -1,
@@ -164,6 +175,11 @@ public sealed class ProcessExecutor : IProcessExecutor
             catch (OperationCanceledException) // timeout fired during stdin write
             {
                 TryKillTree(process);
+                // Same drain as the WaitForExit-timeout path above;
+                // a concurrent reader + GetText would race the
+                // BoundedByteQueue's chunk queue.
+                try { await stdoutTask; } catch { /* may OCE on cancel */ }
+                try { await stderrTask; } catch { /* may OCE on cancel */ }
                 return new ProcessResult
                 {
                     ExitCode = -1,

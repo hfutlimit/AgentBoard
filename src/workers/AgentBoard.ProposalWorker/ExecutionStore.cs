@@ -140,6 +140,21 @@ public sealed class ExecutionStore
         MarkTerminalAsync(id, ExecutionState.Cancelled, null, "", reason, "cancelled", null, ct);
 
     /// <summary>
+    /// Last-resort terminal write used when the agent's business
+    /// result is known but the normal terminal CAS writes all
+    /// exhausted their retries. The row settles to <c>Degraded</c>
+    /// with the original business result preserved in the
+    /// <c>error</c> field (e.g. "Succeeded; persistence retries
+    /// exhausted") and a <see cref="ExecutionState.Degraded"/>
+    /// status that the operator can filter on in
+    /// <c>WorkerState.Snapshot</c>. The inbox is still marked
+    /// completed by the caller so the dispatcher does not retry
+    /// the agent.
+    /// </summary>
+    public Task<bool> MarkDegradedAsync(long id, string note, CancellationToken ct) =>
+        MarkTerminalAsync(id, ExecutionState.Degraded, null, "", note, "persistence", null, ct);
+
+    /// <summary>
     /// Sprint 1 orphan detection. Runs once at startup. Any execution that is
     /// still in a non-terminal state past the threshold is a crashed worker;
     /// mark it TimedOut so it doesn't sit in Running forever.

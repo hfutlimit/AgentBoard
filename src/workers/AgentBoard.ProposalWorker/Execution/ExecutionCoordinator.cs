@@ -24,6 +24,16 @@ public sealed class ExecutionCoordinator
     private readonly WorkerState _state;
     private readonly ILogger<ExecutionCoordinator> _log;
 
+    /// <summary>
+    /// Backoff schedule for transient terminal-write failures
+    /// (SQLite BUSY / LOCKED only). Total wall clock ≤ ~1.5 s.
+    /// Anything beyond that is treated as permanent — the row is
+    /// marked <see cref="ExecutionState.Degraded"/> with the
+    /// business result preserved so the agent's side effects are
+    /// not redone.
+    /// </summary>
+    private static readonly int[] TerminalWriteRetryDelaysMs = { 0, 100, 500, 1000 };
+
     public ExecutionCoordinator(
         ExecutionStore store,
         InboxStore inbox,
@@ -41,6 +51,23 @@ public sealed class ExecutionCoordinator
     }
 
     public bool IsPaused() => _state.Paused;
+    public bool IsDegraded() => _state.IsDegraded;
+    public string? DegradedReason => _state.DegradedReason;
+
+    /// <summary>
+    /// Mark the worker as degraded. The Dispatcher observes
+    /// <see cref="IsDegraded"/> on the next outer-loop iteration and
+    /// stops scheduling new work. The current in-flight execution
+    /// (if any) finishes normally; subsequent rows stay in their
+    /// pre-execution state for the operator to reconcile. Used by
+    /// both the Coordinator (StartAsync non-transient SQLite) and
+    /// the Dispatcher (Inbox.TryClaimAsync non-transient SQLite).
+    /// </summary>
+    public void MarkDegraded(string reason)
+    {
+        _state.DegradedReason = reason;
+        _log.LogError("Worker marked degraded: {Reason}", reason);
+    }
 
     /// <summary>
     /// SQLite returns SqliteException with SqliteErrorCode=19 (SQLITE_CONSTRAINT)
@@ -54,8 +81,52 @@ public sealed class ExecutionCoordinator
         ex.SqliteErrorCode == 19
         && (ex.SqliteExtendedErrorCode == 1555 || ex.SqliteExtendedErrorCode == 2067);
 
+    /// <summary>
+    /// Re-exports <see cref="InboxStore.IsTransientSqliteLockError"/> so
+    /// the Coordinator can apply the same narrow catch to StartAsync
+    /// without leaking the helper.
+    /// </summary>
+    private static bool IsTransientSqliteLockError(Microsoft.Data.Sqlite.SqliteException ex) =>
+        InboxStore.IsTransientSqliteLockError(ex);
+
     private static bool IsTerminal(string status) =>
-        status is "Succeeded" or "Failed" or "TimedOut" or "Cancelled";
+        status is "Succeeded" or "Failed" or "TimedOut" or "Cancelled" or "Degraded";
+
+    /// <summary>
+    /// Wrap a terminal-state write with bounded retry on transient
+    /// SQLite lock errors. Returns true if the write eventually
+    /// succeeded. Returns false if all retries exhausted; the caller
+    /// is responsible for the degraded fall-back (e.g.
+    /// <c>MarkDegradedAsync</c>). 2026-08-29 review follow-up:
+    /// a transient DB error during <c>MarkSucceededAsync</c> must
+    /// not be reclassified as a business failure — the agent did
+    /// its work, we just couldn't persist the terminal state.
+    /// </summary>
+    private async Task<bool> TryPersistTerminalAsync(Func<Task> write, string description, CancellationToken ct)
+    {
+        foreach (var delayMs in TerminalWriteRetryDelaysMs)
+        {
+            if (delayMs > 0)
+            {
+                try { await Task.Delay(delayMs, ct); }
+                catch (OperationCanceledException) { return false; }
+            }
+            try
+            {
+                await write();
+                return true;
+            }
+            catch (Microsoft.Data.Sqlite.SqliteException ex) when (IsTransientSqliteLockError(ex))
+            {
+                _log.LogWarning(
+                    "{Description} hit transient SQLite {ErrorCode} after {Delay}ms delay; retrying",
+                    description, ex.SqliteErrorCode, delayMs);
+            }
+            // Non-transient SqliteException: bubble up; the caller's
+            // catch will route to the degraded fall-back path.
+        }
+        return false;
+    }
 
     public async Task ExecuteAsync(ExecutionRequest request, long inboxId, CancellationToken ct)
     {
@@ -143,20 +214,44 @@ public sealed class ExecutionCoordinator
             await _inbox.MarkCompletedAsync(inboxId, ct);
             return;
         }
+        catch (Microsoft.Data.Sqlite.SqliteException ex) when (IsTransientSqliteLockError(ex))
+        {
+            // Transient lock error (BUSY / LOCKED). The dispatcher will
+            // re-attempt on the next refill cycle. Revert dispatching →
+            // pending so the row is eligible for re-claim.
+            _log.LogWarning(ex,
+                "StartAsync hit transient SQLite {ErrorCode} for {Key}; reverting inbox {InboxId} dispatching → pending",
+                ex.SqliteErrorCode, request.ExecutionKey, inboxId);
+            try { await _inbox.MarkPendingAsync(inboxId, CancellationToken.None); }
+            catch (Exception markEx)
+            {
+                _log.LogError(markEx,
+                    "Failed to revert inbox {InboxId} dispatching → pending; row stays dispatching until restart recovery",
+                    inboxId);
+            }
+            return;
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException ex)
+        {
+            // Non-transient SQLite error: schema drift, corruption,
+            // missing table, etc. Retrying in a 2-second hot loop is
+            // pointless and floods the log. Mark the worker degraded and
+            // leave the inbox row in `dispatching` so the operator can
+            // inspect it after fixing the DB. The dispatcher's outer
+            // loop checks IsDegraded and stops scheduling new work.
+            MarkDegraded($"StartAsync SQLite {ex.SqliteErrorCode} ({ex.Message})");
+            _log.LogError(ex,
+                "StartAsync hit non-transient SQLite {ErrorCode} for {Key}; worker degraded",
+                ex.SqliteErrorCode, request.ExecutionKey);
+            return;
+        }
         catch (Exception ex)
         {
-            // Anything else (SQLite locked, I/O error, disk full, schema drift)
-            // is a real failure. Previously this catch left the inbox row
-            // in `dispatching` and relied on the next worker restart to
-            // call ResetStuckDispatchingAsync. That is not self-healing
-            // (the worker may run for days without a restart), so the row
-            // would sit dispatching forever. 2026-08-29 review fix: revert
-            // the row to `pending` and let the dispatcher's DB-pending-
-            // refill loop re-attempt. The next call to StartAsync will
-            // either succeed or hit the same transient failure and trigger
-            // the same self-healing path. A true permanent error (e.g.
-            // schema drift) is still surfaced as an error log here; the
-            // operator must intervene.
+            // Non-SQLite failure (adapter thrown, OOM, etc.). Revert to
+            // pending and let the dispatcher retry. The previous
+            // catch-all was correct for non-DB failures — it was just
+            // too broad for DB failures, which the two SqliteException
+            // branches above now handle correctly.
             _log.LogError(ex,
                 "StartAsync failed for {Key}; reverting inbox {InboxId} dispatching → pending for next-pass recovery",
                 request.ExecutionKey, inboxId);
@@ -186,42 +281,100 @@ public sealed class ExecutionCoordinator
         try
         {
             var result = await adapter.ExecuteAsync(context, ct);
+
+            // 2026-08-29 review follow-up (#3): the agent's business
+            // result must be preserved even if the terminal DB write
+            // fails transiently. Wrap every Mark* call in
+            // TryPersistTerminalAsync; on retry exhaustion, fall
+            // through to MarkDegradedAsync (terminal, preserves
+            // business result) and ALWAYS mark the inbox as
+            // completed so the dispatcher doesn't re-run the agent
+            // and duplicate side effects (git commits, file writes,
+            // ticket comments).
             if (result.Success)
             {
-                await _store.MarkSucceededAsync(executionId, result.ExitCode ?? 0, result.OutputJson ?? "", ct);
-                await _inbox.MarkCompletedAsync(inboxId, ct);
+                var ok = await TryPersistTerminalAsync(
+                    () => _store.MarkSucceededAsync(executionId, result.ExitCode ?? 0, result.OutputJson ?? "", CancellationToken.None),
+                    $"MarkSucceeded({executionId})",
+                    CancellationToken.None);
+                if (!ok)
+                {
+                    _log.LogError(
+                        "MarkSucceeded exhausted retries for execution {Id} ({Key}); marking Degraded; agent side effects may have already occurred",
+                        executionId, request.ExecutionKey);
+                    await _store.MarkDegradedAsync(executionId,
+                        "Succeeded; persistence retries exhausted — verify side effects before retrying",
+                        CancellationToken.None);
+                }
+                await _inbox.MarkCompletedAsync(inboxId, CancellationToken.None);
             }
             else if (result.Cancelled)
             {
-                await _store.MarkCancelledAsync(executionId, result.ErrorMessage ?? "cancelled", ct);
-                await _inbox.MarkCompletedAsync(inboxId, ct);
+                var ok = await TryPersistTerminalAsync(
+                    () => _store.MarkCancelledAsync(executionId, result.ErrorMessage ?? "cancelled", CancellationToken.None),
+                    $"MarkCancelled({executionId})",
+                    CancellationToken.None);
+                if (!ok)
+                {
+                    _log.LogError("MarkCancelled exhausted retries for {Id}", executionId);
+                    await _store.MarkDegradedAsync(executionId,
+                        "Cancelled; persistence retries exhausted", CancellationToken.None);
+                }
+                await _inbox.MarkCompletedAsync(inboxId, CancellationToken.None);
             }
             else if (result.TimedOut)
             {
-                await _store.MarkTimedOutAsync(executionId, result.ErrorMessage ?? "execution timed out", result.OutputJson ?? "", ct);
-                await _inbox.MarkCompletedAsync(inboxId, ct);
+                var ok = await TryPersistTerminalAsync(
+                    () => _store.MarkTimedOutAsync(executionId, result.ErrorMessage ?? "execution timed out", result.OutputJson ?? "", CancellationToken.None),
+                    $"MarkTimedOut({executionId})",
+                    CancellationToken.None);
+                if (!ok)
+                {
+                    _log.LogError("MarkTimedOut exhausted retries for {Id}", executionId);
+                    await _store.MarkDegradedAsync(executionId,
+                        "TimedOut; persistence retries exhausted", CancellationToken.None);
+                }
+                await _inbox.MarkCompletedAsync(inboxId, CancellationToken.None);
             }
             else
             {
-                await _store.MarkFailedAsync(executionId, result.ExitCode, result.OutputJson ?? "", result.ErrorMessage ?? "agent reported failure", null, ct);
-                await _inbox.MarkCompletedAsync(inboxId, ct);
+                var ok = await TryPersistTerminalAsync(
+                    () => _store.MarkFailedAsync(executionId, result.ExitCode, result.OutputJson ?? "", result.ErrorMessage ?? "agent reported failure", null, CancellationToken.None),
+                    $"MarkFailed({executionId})",
+                    CancellationToken.None);
+                if (!ok)
+                {
+                    _log.LogError("MarkFailed exhausted retries for {Id}", executionId);
+                    await _store.MarkDegradedAsync(executionId,
+                        "Failed; persistence retries exhausted", CancellationToken.None);
+                }
+                await _inbox.MarkCompletedAsync(inboxId, CancellationToken.None);
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            await _store.MarkCancelledAsync(executionId, "cancelled by host", CancellationToken.None);
+            await TryPersistTerminalAsync(
+                () => _store.MarkCancelledAsync(executionId, "cancelled by host", CancellationToken.None),
+                $"MarkCancelled({executionId})",
+                CancellationToken.None);
             await _inbox.MarkCompletedAsync(inboxId, CancellationToken.None);
         }
         catch (TimeoutException ex)
         {
-            await _store.MarkTimedOutAsync(executionId, ex.Message, "", CancellationToken.None);
+            await TryPersistTerminalAsync(
+                () => _store.MarkTimedOutAsync(executionId, ex.Message, "", CancellationToken.None),
+                $"MarkTimedOut({executionId})",
+                CancellationToken.None);
             await _inbox.MarkCompletedAsync(inboxId, CancellationToken.None);
         }
         catch (Exception ex)
         {
             _state.LastError = ex.Message;
             _log.LogError(ex, "Execution {Id} ({Key}) threw", executionId, request.ExecutionKey);
-            await _store.MarkFailedAsync(executionId, null, "", ex.Message, ex.ToString(), CancellationToken.None);
+            await TryPersistTerminalAsync(
+                () => _store.MarkFailedAsync(executionId, null, "", ex.Message, ex.ToString(), CancellationToken.None),
+                $"MarkFailed({executionId})",
+                CancellationToken.None);
             await _inbox.MarkCompletedAsync(inboxId, CancellationToken.None);
         }
         finally

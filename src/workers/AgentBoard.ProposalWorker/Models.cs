@@ -21,6 +21,16 @@ public enum ExecutionState
     Failed = 5,
     TimedOut = 6,
     Cancelled = 7,
+    /// <summary>
+    /// The agent's business result is known (Succeeded / Failed / etc.)
+    /// but the terminal write to the executions table could not be
+    /// persisted after retry. The dispatcher still marks the inbox
+    /// `completed` so the work is not redone; an operator must
+    /// reconcile the row manually. Surfaces as a clear "degraded" in
+    /// <c>WorkerState.Snapshot</c> so dashboards and the install
+    /// /health check can alert.
+    /// </summary>
+    Degraded = 8,
 }
 
 // =============================================================================

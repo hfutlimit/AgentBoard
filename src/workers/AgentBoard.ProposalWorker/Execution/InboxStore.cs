@@ -107,9 +107,24 @@ public sealed class InboxStore
         Claimed,
         /// <summary>Row is no longer `pending` (already claimed or completed). Skip.</summary>
         AlreadyClaimed,
-        /// <summary>SQLite raised a transient exception (BUSY, I/O, etc.). Row stays `pending`; retry on the next cycle.</summary>
+        /// <summary>SQLite raised a transient lock-contention error (BUSY / LOCKED). Row stays `pending`; retry on the next cycle.</summary>
         TransientFailure,
+        /// <summary>SQLite raised a non-transient error (CORRUPT, NOTADB, schema mismatch, etc.). Worker is in a degraded state and must stop scheduling; the row stays `pending` so the operator can intervene.</summary>
+        PermanentFailure,
     }
+
+    /// <summary>
+    /// True iff <paramref name="ex"/>'s error code is one we
+    /// know to recover from a single retry / short backoff. The
+    /// 2026-08-29 review call-out: previously the catch was broad
+    /// (any <see cref="Microsoft.Data.Sqlite.SqliteException"/>),
+    /// which meant schema drift, corruption, or a missing table
+    /// would enter the 2-second hot-retry loop forever and create
+    /// a log-storm. Only SQLITE_BUSY (5) and SQLITE_LOCKED (6) are
+    /// recoverable in practice; everything else is permanent.
+    /// </summary>
+    internal static bool IsTransientSqliteLockError(Microsoft.Data.Sqlite.SqliteException ex) =>
+        ex.SqliteErrorCode == 5 /* SQLITE_BUSY */ || ex.SqliteErrorCode == 6 /* SQLITE_LOCKED */;
 
     public async Task<TryClaimOutcome> TryClaimAsync(long inboxId, CancellationToken ct)
     {
@@ -128,18 +143,29 @@ public sealed class InboxStore
             var n = await cmd.ExecuteNonQueryAsync(ct);
             return n == 1 ? TryClaimOutcome.Claimed : TryClaimOutcome.AlreadyClaimed;
         }
-        catch (Microsoft.Data.Sqlite.SqliteException ex)
+        catch (Microsoft.Data.Sqlite.SqliteException ex) when (IsTransientSqliteLockError(ex))
         {
-            // SQLITE_BUSY (5), SQLITE_IOERR (10), SQLITE_FULL (13),
-            // SQLITE_CANTOPEN (14), and friends. The row stays `pending`
-            // so the dispatcher's next refill cycle re-attempts the
-            // claim. Without this tri-state the dispatcher's outer catch
-            // would call MarkFailedAsync and silently move the row to
+            // SQLITE_BUSY / SQLITE_LOCKED — row stays `pending`; the
+            // dispatcher's next refill cycle re-attempts. Without
+            // this branch the dispatcher's outer catch would call
+            // MarkFailedAsync and silently move the row to
             // `completed` without ever executing it.
             _log.LogWarning(ex,
-                "Inbox.TryClaimAsync transient DB failure for inbox {InboxId} ({ErrorCode}); row stays pending and will be retried",
+                "Inbox.TryClaimAsync transient lock failure for inbox {InboxId} ({ErrorCode}); row stays pending and will be retried",
                 inboxId, ex.SqliteErrorCode);
             return TryClaimOutcome.TransientFailure;
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException ex)
+        {
+            // Anything else from SQLite is a real problem: corrupted
+            // file, missing table, schema drift. Retrying would just
+            // produce the same error every 2 seconds and burn the
+            // log. The dispatcher sees PermanentFailure and stops
+            // scheduling new work until an operator intervenes.
+            _log.LogError(ex,
+                "Inbox.TryClaimAsync non-transient DB failure for inbox {InboxId} ({ErrorCode}); worker degraded",
+                inboxId, ex.SqliteErrorCode);
+            return TryClaimOutcome.PermanentFailure;
         }
     }
 

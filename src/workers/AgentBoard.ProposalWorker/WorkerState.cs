@@ -21,6 +21,17 @@ public sealed class WorkerState
 {
     private readonly object _gate = new();
     private bool _paused;
+    /// <summary>
+    /// Set to a non-null reason when a non-recoverable failure is
+    /// observed (e.g. SQLite schema drift, corruption, missing
+    /// table). The dispatcher stops scheduling new work; the
+    /// <see cref="Snapshot"/> exposes the reason in the worker
+    /// status so /health, the installer, and dashboards can alert.
+    /// Operator must clear the flag (e.g. after fixing the DB) via
+    /// a future /api/control/resume extension; the worker is not
+    /// designed to auto-recover from corruption.
+    /// </summary>
+    private string? _degradedReason;
     private readonly ConcurrentDictionary<string, int> _runningByAgent = new();
     private readonly ConcurrentDictionary<string, long> _totalByAgent = new();
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastUsedByAgent = new();
@@ -38,6 +49,15 @@ public sealed class WorkerState
     public string? LastError { get; set; }
 
     public bool Paused { get { lock (_gate) return _paused; } set { lock (_gate) _paused = value; } }
+    public string? DegradedReason
+    {
+        get { lock (_gate) return _degradedReason; }
+        set { lock (_gate) _degradedReason = value; }
+    }
+    public bool IsDegraded
+    {
+        get { lock (_gate) return _degradedReason is not null; }
+    }
     public string Version { get; }
     public string WorkerId { get; }
 
@@ -111,7 +131,10 @@ public sealed class WorkerState
         {
             worker_id = WorkerId,
             version = Version,
-            status = _paused ? "paused" : (running > 0 ? "busy" : "online"),
+            status = _degradedReason is not null
+                ? "degraded"
+                : (_paused ? "paused" : (running > 0 ? "busy" : "online")),
+            degraded_reason = _degradedReason,
             capacity = new { max_concurrency = maxConcurrency, running, queued },
             paused = _paused,
             agents,

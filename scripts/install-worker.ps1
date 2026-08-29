@@ -496,7 +496,26 @@ if ($existing) {
 # Publish
 # ---------------------------------------------------------------------------
 
-Write-Section "Publishing worker to $InstallDir"
+# ---------------------------------------------------------------------------
+# Publish to a STAGING directory, then atomic-swap into $InstallDir.
+# 2026-08-29 review follow-up: the previous flow deleted the service
+# before publish but the swap was a `Move-Item staging -> live` with
+# no rollback path. If sc.exe create / start / health failed after
+# the swap, the worker was permanently offline (live was clobbered
+# but the new version was not running). Fix: publish to
+# `$StagingDir`, snapshot the live install to `$BackupDir`, swap
+# staging into live, preserve the data\ subdirectory (SQLite DB +
+# execution logs) from the backup, start the service, verify
+# /health, and roll back to the backup on any post-swap failure.
+# ---------------------------------------------------------------------------
+$StagingDir = "${InstallDir}.publish"
+$BackupDir = "${InstallDir}.bak"
+
+# Clean any leftover staging/backup from a previous failed run.
+if (Test-Path $StagingDir) { Remove-Item -Path $StagingDir -Recurse -Force }
+if (Test-Path $BackupDir) { Remove-Item -Path $BackupDir -Recurse -Force }
+
+Write-Section "Publishing worker to staging ($StagingDir)"
 
 $workerProject = Join-Path $RepoRoot 'src\workers\AgentBoard.ProposalWorker\AgentBoard.ProposalWorker.csproj'
 if (-not (Test-Path $workerProject)) {
@@ -508,7 +527,7 @@ $publishArgs = @(
     '-c', 'Release'
     '-r', 'win-x64'
     '--self-contained', 'false'
-    '-o', $InstallDir
+    '-o', $StagingDir
     '--nologo'
     '-v', 'minimal'
 )
@@ -516,13 +535,70 @@ $publishArgs = @(
 Write-Host "  dotnet $($publishArgs -join ' ')"
 & dotnet @publishArgs
 if ($LASTEXITCODE -ne 0) {
-    throw "dotnet publish failed with exit $LASTEXITCODE"
+    # Publish failed; no state change. The script throws and exits
+    # without touching the live install dir.
+    throw "dotnet publish failed with exit $LASTEXITCODE (staging at $StagingDir; live install was not modified)"
 }
 Write-Host "  publish OK" -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
-# Write appsettings.Production.json
+# Atomic swap: live -> backup, staging -> live, preserve data\
 # ---------------------------------------------------------------------------
+
+Write-Section "Atomic swap: staging -> live (preserving data\)"
+
+$dataDir = Join-Path $InstallDir 'data'
+$hasDataDir = Test-Path $dataDir
+
+if (Test-Path $InstallDir) {
+    Write-Host "  snapshotting live install to $BackupDir"
+    Move-Item -Path $InstallDir -Destination $BackupDir -Force
+}
+
+Write-Host "  moving staging -> live"
+Move-Item -Path $StagingDir -Destination $InstallDir -Force
+
+if ($hasDataDir) {
+    Write-Host "  restoring data\ from backup (preserves SQLite DB + execution logs)"
+    Copy-Item -Path (Join-Path $BackupDir 'data') -Destination (Join-Path $InstallDir 'data') -Recurse -Force
+} else {
+    Write-Host "  no prior data\ directory; first-time install"
+}
+Write-Host "  swap OK" -ForegroundColor Green
+
+# Rollback helper used by every post-swap failure point. Restores
+# the snapshot directory as the live install and drops the failed
+# (current) install. Safe to call multiple times.
+function Invoke-InstallRollback {
+    Write-Host ""
+    Write-Host "  !!! Rolling back to previous version !!!" -ForegroundColor Red
+    try {
+        & sc.exe stop $ServiceName 2>$null | Out-Null
+        Start-Sleep -Seconds 2
+        & sc.exe stop $ServiceName 2>$null | Out-Null
+    } catch { }
+    if (Test-Path $InstallDir) {
+        # The failed-swap install is now junk; drop it.
+        Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    if (Test-Path $BackupDir) {
+        Move-Item -Path $BackupDir -Destination $InstallDir -Force
+        Write-Host "  restored from backup" -ForegroundColor Green
+    }
+    # Best-effort: restart the previous (restored) service so the
+    # operator is not left offline.
+    try {
+        & sc.exe start $ServiceName 2>$null | Out-Null
+    } catch { }
+}
+# ---------------------------------------------------------------------------
+
+# All steps after the atomic swap are wrapped in try/finally so any
+# failure (appsettings write, sc create, sc start, /health) triggers
+# Invoke-InstallRollback (defined just above) and the worker is not
+# left in a half-installed state. 2026-08-29 review follow-up.
+$rollbackNeeded = $true
+try {
 
 Write-Section "Writing appsettings.Production.json"
 
@@ -718,6 +794,8 @@ if ($failures.Count -gt 0) {
     throw "Worker is up but not fully configured. Inspect /health above and the install log."
 }
 
+
+$rollbackNeeded = $false
 Write-Host ''
 Write-Host "=== install OK ===" -ForegroundColor Green
 Write-Host "Worker.Id:     $WorkerId"
@@ -729,3 +807,23 @@ Write-Host "Useful commands:"
 Write-Host "  Get-Service 'AgentBoard Proposal Worker'"
 Write-Host "  sc.exe query 'AgentBoard Proposal Worker'"
 Write-Host "  Invoke-WebRequest $PortalBase/health"
+}
+
+finally {
+    if ($rollbackNeeded) {
+        Write-Host ""
+        Write-Host "  !!! Post-swap step failed; rolling back to previous version !!!" -ForegroundColor Red
+        try {
+            Invoke-InstallRollback
+        } catch {
+            Write-Host "  rollback itself threw: $_" -ForegroundColor Red
+        }
+    } else {
+        # Success path: drop the backup dir. The staging dir was
+        # already moved into the live install, so nothing to do there.
+        if (Test-Path $BackupDir) {
+            Write-Host "  cleaning up backup dir: $BackupDir"
+            Remove-Item -Path $BackupDir -Recurse -Force
+        }
+    }
+}

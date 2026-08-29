@@ -32,6 +32,21 @@ public sealed class ExecutionDispatcher : BackgroundService
     /// </summary>
     private static readonly TimeSpan IdleWakeInterval = TimeSpan.FromSeconds(2);
 
+    /// <summary>
+    /// The inner drain loop is bounded so it cannot monopolise the
+    /// dispatcher under sustained channel traffic. The 2026-08-29
+    /// review showed: as long as the channel stays non-empty
+    /// (live RabbitMQ traffic), the inner loop drained forever and
+    /// never returned to the outer loop, where
+    /// <see cref="TryRefillFromDbAsync"/> runs. DB-only rows (Pause
+    /// race revert, startup recovery tail) starved indefinitely.
+    /// 50 flights / 5 seconds keeps the channel responsive while
+    /// ensuring the outer loop re-polls the DB at least every ~5
+    /// seconds under load.
+    /// </summary>
+    private const int MaxFlightsPerInnerBatch = 50;
+    private static readonly TimeSpan MaxInnerBatchDuration = TimeSpan.FromSeconds(5);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _log.LogInformation("ExecutionDispatcher started");
@@ -103,6 +118,19 @@ public sealed class ExecutionDispatcher : BackgroundService
                     await Task.Delay(TimeSpan.FromMilliseconds(200), stoppingToken);
                     continue;
                 }
+                // 2026-08-29 review follow-up: if a non-recoverable DB
+                // error was observed (schema drift, corruption, etc.)
+                // the Coordinator / InboxStore sets WorkerState.Degraded
+                // and the dispatcher stops scheduling. The row that
+                // triggered the error stays in `dispatching` for the
+                // operator to reconcile.
+                if (_coordinator.IsDegraded())
+                {
+                    _log.LogError(
+                        "Worker is degraded ({Reason}); stopping dispatch. Operator must investigate and restart.",
+                        _coordinator.DegradedReason ?? "(no reason set)");
+                    break;
+                }
                 await TryRefillFromDbAsync(stoppingToken, "idle");
                 if (stoppingToken.IsCancellationRequested) break;
 
@@ -111,31 +139,64 @@ public sealed class ExecutionDispatcher : BackgroundService
                 // a transient DB error during the previous refill leaves
                 // the dispatcher blocked on WaitToReadAsync forever, and
                 // any DB-only row is stranded.
-                using (var wakeCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken))
+                //
+                // 2026-08-29 review follow-up: the previous version
+                // attached `wakeCts` only to the timer; the
+                // WaitToReadAsync used `stoppingToken`. When the timer
+                // won, the in-flight waitTask was left pending. In a
+                // long-idle worker this leaked one pending waiter per
+                // 2-second tick, accumulating forever. Fix: attach
+                // `waitCts` to the WAIT and cancel it on the timer
+                // branch so the loser is always observed.
+                using (var waitCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken))
                 {
-                    var wakeTimer = Task.Delay(IdleWakeInterval, wakeCts.Token);
-                    var waitTask = _channel.Reader.WaitToReadAsync(stoppingToken).AsTask();
+                    var wakeTimer = Task.Delay(IdleWakeInterval, stoppingToken);
+                    var waitTask = _channel.Reader.WaitToReadAsync(waitCts.Token).AsTask();
                     var winner = await Task.WhenAny(waitTask, wakeTimer);
                     if (winner == waitTask)
                     {
-                        // Channel has data; cancel the timer and consume.
-                        wakeCts.Cancel();
-                        if (!await waitTask) break;  // channel closed
+                        // Channel has data; cancel the timer (it
+                        // already is or will be on its own — stoppingToken
+                        // is sufficient) and consume. If waitTask
+                        // returns false the channel is closed (shutdown).
+                        if (!await waitTask) break;
                     }
-                    // else: periodic wakeup, loop back to refill.
+                    else
+                    {
+                        // Periodic wakeup. Cancel the wait so its
+                        // pending ChannelReader registration is
+                        // released; suppress the resulting OCE.
+                        waitCts.Cancel();
+                        try { await waitTask; } catch (OperationCanceledException) { }
+                    }
                 }
 
+                // Inner drain with bounded batch size. The 2026-08-29
+                // review showed that an unbounded inner loop monopolises
+                // the dispatcher under sustained channel traffic and
+                // starves DB-only rows (Pause revert, startup recovery
+                // tail). Capping at 50 flights OR 5 seconds ensures
+                // the outer loop re-runs TryRefillFromDbAsync even when
+                // the channel is permanently non-empty.
+                var batchStart = DateTimeOffset.UtcNow;
+                int flightsThisBatch = 0;
                 while (!stoppingToken.IsCancellationRequested
                        && !_coordinator.IsPaused()
+                       && !_coordinator.IsDegraded()
+                       && flightsThisBatch < MaxFlightsPerInnerBatch
+                       && (DateTimeOffset.UtcNow - batchStart) < MaxInnerBatchDuration
                        && _channel.Reader.TryRead(out var flight))
                 {
+                    flightsThisBatch++;
                     try
                     {
                         // Tri-state CAS. Transient DB failure means the
                         // row is still `pending` and should be retried
                         // on the next cycle; we must NOT mark it
                         // `completed` without ever running the agent.
-                        // Fix for the 2026-08-29 review follow-up.
+                        // Permanent DB failure (schema drift, etc.)
+                        // marks the worker degraded and stops
+                        // dispatching — see 2026-08-29 review follow-up.
                         var claim = await _inbox.TryClaimAsync(flight.InboxId, stoppingToken);
                         if (claim == InboxStore.TryClaimOutcome.AlreadyClaimed)
                         {
@@ -148,6 +209,15 @@ public sealed class ExecutionDispatcher : BackgroundService
                                 "Inbox {InboxId} claim hit transient DB failure; row stays pending and will be retried in the next cycle",
                                 flight.InboxId);
                             continue;
+                        }
+                        if (claim == InboxStore.TryClaimOutcome.PermanentFailure)
+                        {
+                            _coordinator.MarkDegraded(
+                                $"Inbox.TryClaimAsync non-transient DB failure on inbox {flight.InboxId}; stop dispatching");
+                            _log.LogError(
+                                "Inbox {InboxId} claim hit permanent DB failure; worker degraded; dispatch loop will exit",
+                                flight.InboxId);
+                            break;
                         }
                         // Claimed. From here on, a crash leaves the row
                         // in `dispatching` and the channel slot freed.
@@ -163,8 +233,11 @@ public sealed class ExecutionDispatcher : BackgroundService
                     catch (Exception ex)
                     {
                         // Claim succeeded (we already branched on
-                        // TransientFailure) and the agent crashed.
-                        // MarkFailedAsync is the right call here.
+                        // TransientFailure / PermanentFailure) and the
+                        // agent crashed. MarkFailedAsync is the right
+                        // call here. If MarkFailedAsync itself throws
+                        // transient we just swallow — the next
+                        // recovery / operator pass will reconcile.
                         _log.LogError(ex, "Execution {Key} crashed in dispatcher", flight.Request.ExecutionKey);
                         try { await _inbox.MarkFailedAsync(flight.InboxId, ex.Message, CancellationToken.None); } catch { /* swallow */ }
                     }
@@ -188,10 +261,15 @@ public sealed class ExecutionDispatcher : BackgroundService
     /// </summary>
     private async Task TryRefillFromDbAsync(CancellationToken ct, string reason)
     {
-        // Channel has data → nothing to do; the next drain iteration
-        // picks it up. Cheap check so we don't hammer the DB when the
-        // dispatcher is already busy.
-        if (_channel.Reader.TryPeek(out _)) return;
+        // 2026-08-29 review follow-up: the previous version had a
+        // `TryPeek` short-circuit here ("skip if channel non-empty").
+        // As long as the channel stayed non-empty (sustained live
+        // RabbitMQ traffic), this method was never called, and
+        // DB-only rows (Pause-race revert, startup recovery tail)
+        // starved indefinitely. Now the dispatcher ALWAYS pulls
+        // from the DB inbox here; the inner loop's batch cap
+        // (MaxFlightsPerInnerBatch + MaxInnerBatchDuration) ensures
+        // the outer loop runs at least every ~5 seconds under load.
         IReadOnlyList<InFlightExecution> pending;
         try
         {
