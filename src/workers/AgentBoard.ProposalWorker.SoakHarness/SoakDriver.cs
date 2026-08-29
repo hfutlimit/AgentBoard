@@ -255,10 +255,15 @@ public sealed class SoakDriver
 
     private void LogSample(MetricsSample s)
     {
-        var mb = s.GcTotalBytes / (1024 * 1024);
+        // Use KB instead of MB — at low steady-state heap (the
+        // dispatcher + a 50-row inbox + GC overhead is well under
+        // 1 MB), MB floors to 0 and the line looks like nothing
+        // happened. KB makes the actual delta visible at this
+        // scale, which is what leak detection needs.
+        var kb = s.GcTotalBytes / 1024.0;
         Console.WriteLine(
-            $"[soak] t={s.Elapsed:mm\\:ss} heap={mb,5}MB " +
-            $"gen0={s.GcGen0,4} gen1={s.GcGen1,3} gen2={s.GcGen2,3} " +
+            $"[soak] t={s.Elapsed:mm\\:ss} heap={kb,7:F1}KB " +
+            $"gen0={s.GcGen0,4} gen1={s.GcGen1,4} gen2={s.GcGen2,4} " +
             $"pending={s.PendingInbox,5} dispatching={s.Dispatching,3} " +
             $"produced={s.ProducedTotal,7} completed={s.CompletedTotal,7} " +
             $"failed={s.FailedTotal,4} rps={s.ThroughputRps,5:F1} " +
