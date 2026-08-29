@@ -213,6 +213,31 @@ function Test-IsElevated {
     return $p.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+# 2026-08-29 review: the previous sc.exe branch only special-cased
+# LocalSystem. If the operator passed -ServiceAccount 'NT AUTHORITY\LocalService'
+# or 'NT AUTHORITY\NetworkService', the code entered the credential path
+# and tried Get-Credential + Grant-ServiceLogonRight + password= for an
+# account that has no password and never needs a custom user right. This
+# helper centralises the canonical-form list of built-in service accounts
+# so the sc.exe branch and any future check stay in sync.
+function Test-IsBuiltinServiceAccount {
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][string]$Account)
+
+    $lc = $Account.ToLowerInvariant().Trim()
+    return $lc -in @(
+        'localsystem',
+        'nt authority\system',
+        '.\localsystem',
+        'localservice',
+        'nt authority\localservice',
+        '.\localservice',
+        'networkservice',
+        'nt authority\networkservice',
+        '.\networkservice'
+    )
+}
+
 # Grant the Windows right "Log on as a service" (SeServiceLogonRight) to an
 # account. Required for any non-builtin service account: sc.exe create does
 # NOT verify the right, so a service can register fine and then fail to
@@ -450,6 +475,24 @@ if ([string]::IsNullOrWhiteSpace($PortalApiKey)) {
 }
 
 # ---------------------------------------------------------------------------
+# Stop + remove existing service BEFORE publish
+# ---------------------------------------------------------------------------
+# 2026-08-29 review fix: the previous flow ran `dotnet publish` first and
+# only stopped+removed the existing service after. On a re-install the
+# running AgentBoard.ProposalWorker.exe holds a Windows file lock on its
+# own binary and the publish either failed outright or left a half-
+# overwritten install dir (mixed version). Stop + remove the existing
+# service before publish so the install dir is not locked.
+Write-Section "Checking existing service"
+$existing = Get-Service -Name 'AgentBoard Proposal Worker' -ErrorAction SilentlyContinue
+if ($existing) {
+    Write-Host "  existing service found; stopping + removing before re-publish"
+    Remove-WorkerService
+} else {
+    Write-Host "  no existing service" -ForegroundColor Green
+}
+
+# ---------------------------------------------------------------------------
 # Publish
 # ---------------------------------------------------------------------------
 
@@ -507,11 +550,9 @@ Write-Host "  $appsettingsProd" -ForegroundColor Green
 
 Write-Section "Registering Windows service"
 
-$existing = Get-Service -Name 'AgentBoard Proposal Worker' -ErrorAction SilentlyContinue
-if ($existing) {
-    Write-Host "  service already exists; reconfiguring..."
-    Remove-WorkerService
-}
+# (Existing service is detected and removed BEFORE publish, see the
+#  'Checking existing service' section above. The remove step is no
+# longer duplicated here.)
 
 # Preserve the installing user's CLI/login context for the LocalSystem service.
 # sc.exe has no `env=` create option; per-service environment entries belong in
@@ -541,10 +582,34 @@ $scArgs = @(
 # and the service see the same PATH / profile. Credentials are passed via
 # `-ServiceCredential` (SecureString); when missing, fall back to LocalSystem
 # only if the operator has installed CLIs in a system-wide location.
-if ($ResolvedServiceAccount -ne 'LocalSystem') {
+# Three paths through the sc.exe branch:
+#   1. LocalSystem  — no obj=, no password=.
+#   2. Built-in service account (LocalService / NetworkService) — obj=
+#      with an empty password (Microsoft convention for these SIDs).
+#      No user-supplied credential, no SeServiceLogonRight grant (the
+#      account already has the right by virtue of being built-in).
+#   3. Normal user / domain account — Get-Credential for password,
+#      Grant-SeServiceLogonRight, obj= + password=.
+#
+# 2026-08-29 review fix: the previous code only special-cased LocalSystem
+# and entered the credential path for every other account, including the
+# built-in LocalService / NetworkService, which broke the install for
+# those targets.
+if (Test-IsBuiltinServiceAccount -Account $ResolvedServiceAccount) {
+    if ($ResolvedServiceAccount -in @('LocalSystem', 'NT AUTHORITY\SYSTEM', '.\LocalSystem')) {
+        Write-Host "  Service will run as LocalSystem. Make sure the agent CLIs are" -ForegroundColor Cyan
+        Write-Host "  reachable from LocalSystem's PATH (e.g. system-wide npm-global, system PATH)." -ForegroundColor Cyan
+    } else {
+        # LocalService / NetworkService: sc.exe requires obj= with an
+        # empty password. Microsoft convention for these built-in SIDs.
+        Write-Host "  Service will run as the built-in $ResolvedServiceAccount account." -ForegroundColor Cyan
+        Write-Host "  obj= set with empty password (Microsoft convention); no user credential required." -ForegroundColor Cyan
+        $scArgs += @('obj=', $ResolvedServiceAccount, 'password=', '')
+    }
+} else {
     if (-not $ServiceCredential) {
         Write-Host ''
-        Write-Host "  Service will run as '$ResolvedServiceAccount' (matched your current user). sc.exe requires" -ForegroundColor Cyan
+        Write-Host "  Service will run as '' (matched your current user). sc.exe requires" -ForegroundColor Cyan
         Write-Host "  the account password to set obj=. Get-Credential will pop a Windows prompt." -ForegroundColor Cyan
         Write-Host "  (If the account does not have a password — e.g. a managed service account — pass" -ForegroundColor Cyan
         Write-Host "  -ServiceAccount LocalSystem instead and install the agent CLIs system-wide.)" -ForegroundColor Cyan
@@ -564,9 +629,6 @@ if ($ResolvedServiceAccount -ne 'LocalSystem') {
     Grant-ServiceLogonRight -Account $ResolvedServiceAccount
     Write-Host "  SeServiceLogonRight granted" -ForegroundColor Green
     $scArgs += @('obj=', $ResolvedServiceAccount, 'password=', $ServiceCredential.GetNetworkCredential().Password)
-} else {
-    Write-Host "  Service will run as LocalSystem (default). Make sure the agent CLIs are" -ForegroundColor Cyan
-    Write-Host "  reachable from LocalSystem's PATH (e.g. system-wide npm-global, system PATH)." -ForegroundColor Cyan
 }
 
 & sc.exe @scArgs | Out-Null

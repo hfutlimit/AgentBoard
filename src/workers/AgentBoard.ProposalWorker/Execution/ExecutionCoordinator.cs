@@ -146,13 +146,30 @@ public sealed class ExecutionCoordinator
         catch (Exception ex)
         {
             // Anything else (SQLite locked, I/O error, disk full, schema drift)
-            // is a real failure: leave the inbox row in `dispatching` and let
-            // the channel flush. The next startup recovery resets
-            // `dispatching` to `pending` so we don't permanently lose the
-            // message. Previously this catch swallowed all errors and
-            // MarkCompleted the row, which silently dropped work on the
-            // floor whenever the DB hiccupped (#5 in the 2026-08-28 review).
-            _log.LogError(ex, "StartAsync failed for {Key}; leaving inbox {InboxId} in dispatching for next-pass recovery", request.ExecutionKey, inboxId);
+            // is a real failure. Previously this catch left the inbox row
+            // in `dispatching` and relied on the next worker restart to
+            // call ResetStuckDispatchingAsync. That is not self-healing
+            // (the worker may run for days without a restart), so the row
+            // would sit dispatching forever. 2026-08-29 review fix: revert
+            // the row to `pending` and let the dispatcher's DB-pending-
+            // refill loop re-attempt. The next call to StartAsync will
+            // either succeed or hit the same transient failure and trigger
+            // the same self-healing path. A true permanent error (e.g.
+            // schema drift) is still surfaced as an error log here; the
+            // operator must intervene.
+            _log.LogError(ex,
+                "StartAsync failed for {Key}; reverting inbox {InboxId} dispatching → pending for next-pass recovery",
+                request.ExecutionKey, inboxId);
+            try
+            {
+                await _inbox.MarkPendingAsync(inboxId, CancellationToken.None);
+            }
+            catch (Exception markEx)
+            {
+                _log.LogError(markEx,
+                    "Failed to revert inbox {InboxId} dispatching → pending; row stays dispatching until restart recovery",
+                    inboxId);
+            }
             return;
         }
 

@@ -93,21 +93,54 @@ public sealed class InboxStore
     }
 
     /// <summary>
-    /// CAS: pending → dispatching. Returns true if this caller won the race.
+    /// CAS: pending → dispatching. Returns the outcome so the caller can
+    /// distinguish a real transient DB failure (the row stays `pending`
+    /// and should be retried) from a successful no-op (the row was
+    /// already claimed by another consumer). Fix for the 2026-08-29
+    /// review: a transient SQLite exception previously bubbled up to the
+    /// dispatcher's generic catch, which called MarkFailedAsync and
+    /// silently moved the row to `completed` without ever executing it.
     /// </summary>
-    public async Task<bool> TryClaimAsync(long inboxId, CancellationToken ct)
+    public enum TryClaimOutcome
     {
-        await using var c = new SqliteConnection(_connectionString);
-        await c.OpenAsync(ct);
-        await using var cmd = c.CreateCommand();
-        cmd.CommandText = """
-            UPDATE worker_execution_inbox
-            SET status='dispatching', dispatched_at=$at, attempt=attempt+1
-            WHERE id=$id AND status='pending'
-            """;
-        cmd.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.ToString("O"));
-        cmd.Parameters.AddWithValue("$id", inboxId);
-        return await cmd.ExecuteNonQueryAsync(ct) == 1;
+        /// <summary>This caller won the CAS and the row is now `dispatching`.</summary>
+        Claimed,
+        /// <summary>Row is no longer `pending` (already claimed or completed). Skip.</summary>
+        AlreadyClaimed,
+        /// <summary>SQLite raised a transient exception (BUSY, I/O, etc.). Row stays `pending`; retry on the next cycle.</summary>
+        TransientFailure,
+    }
+
+    public async Task<TryClaimOutcome> TryClaimAsync(long inboxId, CancellationToken ct)
+    {
+        try
+        {
+            await using var c = new SqliteConnection(_connectionString);
+            await c.OpenAsync(ct);
+            await using var cmd = c.CreateCommand();
+            cmd.CommandText = """
+                UPDATE worker_execution_inbox
+                SET status='dispatching', dispatched_at=$at, attempt=attempt+1
+                WHERE id=$id AND status='pending'
+                """;
+            cmd.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.ToString("O"));
+            cmd.Parameters.AddWithValue("$id", inboxId);
+            var n = await cmd.ExecuteNonQueryAsync(ct);
+            return n == 1 ? TryClaimOutcome.Claimed : TryClaimOutcome.AlreadyClaimed;
+        }
+        catch (Microsoft.Data.Sqlite.SqliteException ex)
+        {
+            // SQLITE_BUSY (5), SQLITE_IOERR (10), SQLITE_FULL (13),
+            // SQLITE_CANTOPEN (14), and friends. The row stays `pending`
+            // so the dispatcher's next refill cycle re-attempts the
+            // claim. Without this tri-state the dispatcher's outer catch
+            // would call MarkFailedAsync and silently move the row to
+            // `completed` without ever executing it.
+            _log.LogWarning(ex,
+                "Inbox.TryClaimAsync transient DB failure for inbox {InboxId} ({ErrorCode}); row stays pending and will be retried",
+                inboxId, ex.SqliteErrorCode);
+            return TryClaimOutcome.TransientFailure;
+        }
     }
 
     public async Task MarkCompletedAsync(long inboxId, CancellationToken ct)

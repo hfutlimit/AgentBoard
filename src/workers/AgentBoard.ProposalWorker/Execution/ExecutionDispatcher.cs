@@ -20,6 +20,18 @@ public sealed class ExecutionDispatcher : BackgroundService
         _log = log;
     }
 
+    /// <summary>
+    /// Periodic wakeup interval. The bounded channel is the
+    /// wakeup/acceleration path; the DB inbox is the durable queue; the
+    /// timer is the safety net. Without it, a transient DB error during
+    /// the previous refill would leave the dispatcher sleeping forever
+    /// on an empty channel — and any DB-only row (e.g. reverted from
+    /// dispatching by a Pause race, or inserted directly by an operator
+    /// for a re-run) would be lost until the next manual operator
+    /// action. 2026-08-29 review fix.
+    /// </summary>
+    private static readonly TimeSpan IdleWakeInterval = TimeSpan.FromSeconds(2);
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _log.LogInformation("ExecutionDispatcher started");
@@ -77,6 +89,13 @@ public sealed class ExecutionDispatcher : BackgroundService
             // writer to the channel is the dispatcher's own refill loop
             // (and the RabbitMQ consumer, which is not on the critical
             // path here).
+            //
+            // 2026-08-29 follow-up: race WaitToReadAsync with a periodic
+            // wakeup so a transient DB error during the previous refill
+            // does not leave the dispatcher sleeping forever on an empty
+            // channel. The bounded channel is the wakeup/acceleration
+            // path; the DB is the durable queue; the timer is the safety
+            // net.
             while (!stoppingToken.IsCancellationRequested)
             {
                 if (_coordinator.IsPaused())
@@ -85,20 +104,56 @@ public sealed class ExecutionDispatcher : BackgroundService
                     continue;
                 }
                 await TryRefillFromDbAsync(stoppingToken, "idle");
-                if (!await _channel.Reader.WaitToReadAsync(stoppingToken)) break;
+                if (stoppingToken.IsCancellationRequested) break;
+
+                // Race WaitToReadAsync with a periodic wakeup so we
+                // re-poll DB even if channel stays empty. Without this,
+                // a transient DB error during the previous refill leaves
+                // the dispatcher blocked on WaitToReadAsync forever, and
+                // any DB-only row is stranded.
+                using (var wakeCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken))
+                {
+                    var wakeTimer = Task.Delay(IdleWakeInterval, wakeCts.Token);
+                    var waitTask = _channel.Reader.WaitToReadAsync(stoppingToken).AsTask();
+                    var winner = await Task.WhenAny(waitTask, wakeTimer);
+                    if (winner == waitTask)
+                    {
+                        // Channel has data; cancel the timer and consume.
+                        wakeCts.Cancel();
+                        if (!await waitTask) break;  // channel closed
+                    }
+                    // else: periodic wakeup, loop back to refill.
+                }
+
                 while (!stoppingToken.IsCancellationRequested
                        && !_coordinator.IsPaused()
                        && _channel.Reader.TryRead(out var flight))
                 {
                     try
                     {
-                        // CAS: pending → dispatching. If we lose the race the row
-                        // is already in flight from another consumer; skip.
-                        if (!await _inbox.TryClaimAsync(flight.InboxId, stoppingToken))
+                        // Tri-state CAS. Transient DB failure means the
+                        // row is still `pending` and should be retried
+                        // on the next cycle; we must NOT mark it
+                        // `completed` without ever running the agent.
+                        // Fix for the 2026-08-29 review follow-up.
+                        var claim = await _inbox.TryClaimAsync(flight.InboxId, stoppingToken);
+                        if (claim == InboxStore.TryClaimOutcome.AlreadyClaimed)
                         {
                             _log.LogDebug("Inbox {InboxId} already claimed; skipping", flight.InboxId);
                             continue;
                         }
+                        if (claim == InboxStore.TryClaimOutcome.TransientFailure)
+                        {
+                            _log.LogWarning(
+                                "Inbox {InboxId} claim hit transient DB failure; row stays pending and will be retried in the next cycle",
+                                flight.InboxId);
+                            continue;
+                        }
+                        // Claimed. From here on, a crash leaves the row
+                        // in `dispatching` and the channel slot freed.
+                        // The MarkFailedAsync call in the catch below is
+                        // only valid for the Claimed path; that's why we
+                        // branch above before reaching this code.
                         await _coordinator.ExecuteAsync(flight.Request, flight.InboxId, stoppingToken);
                     }
                     catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -107,6 +162,9 @@ public sealed class ExecutionDispatcher : BackgroundService
                     }
                     catch (Exception ex)
                     {
+                        // Claim succeeded (we already branched on
+                        // TransientFailure) and the agent crashed.
+                        // MarkFailedAsync is the right call here.
                         _log.LogError(ex, "Execution {Key} crashed in dispatcher", flight.Request.ExecutionKey);
                         try { await _inbox.MarkFailedAsync(flight.InboxId, ex.Message, CancellationToken.None); } catch { /* swallow */ }
                     }

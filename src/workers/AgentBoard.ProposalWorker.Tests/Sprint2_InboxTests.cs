@@ -1,4 +1,5 @@
 using AgentBoard.ProposalWorker;
+using AgentBoard.ProposalWorker.Execution;
 using AgentBoard.ProposalWorker.Tests.Fixtures;
 using Xunit;
 
@@ -71,8 +72,8 @@ public sealed class Sprint2_InboxTests : IDisposable
         var t3 = _fx.Inbox.TryClaimAsync(inboxId, CancellationToken.None);
         var results = await Task.WhenAll(t1, t2, t3);
 
-        Assert.Single(results, r => r);
-        Assert.Equal(2, results.Count(r => !r));
+        Assert.Single(results, r => r == InboxStore.TryClaimOutcome.Claimed);
+        Assert.Equal(2, results.Count(r => r == InboxStore.TryClaimOutcome.AlreadyClaimed));
     }
 
     [Fact]
@@ -80,8 +81,8 @@ public sealed class Sprint2_InboxTests : IDisposable
     {
         var request = Req();
         var (inboxId, _) = await _fx.Inbox.TryEnqueueAsync(request, CancellationToken.None);
-        Assert.True(await _fx.Inbox.TryClaimAsync(inboxId, CancellationToken.None));
-        Assert.False(await _fx.Inbox.TryClaimAsync(inboxId, CancellationToken.None));
+        Assert.Equal(InboxStore.TryClaimOutcome.Claimed, await _fx.Inbox.TryClaimAsync(inboxId, CancellationToken.None));
+        Assert.Equal(InboxStore.TryClaimOutcome.AlreadyClaimed, await _fx.Inbox.TryClaimAsync(inboxId, CancellationToken.None));
     }
 
     // -------------------------------------------------------------------------
@@ -168,7 +169,7 @@ public sealed class Sprint2_InboxTests : IDisposable
         var (inboxId, isNew) = await _fx.Inbox.TryEnqueueAsync(request, CancellationToken.None);
         Assert.True(isNew);
 
-        Assert.True(await _fx.Inbox.TryClaimAsync(inboxId, CancellationToken.None));
+        Assert.Equal(InboxStore.TryClaimOutcome.Claimed, await _fx.Inbox.TryClaimAsync(inboxId, CancellationToken.None));
         Assert.Equal("dispatching", (await _fx.Inbox.GetAsync(inboxId, CancellationToken.None))!.Status);
 
         await _fx.Inbox.MarkCompletedAsync(inboxId, CancellationToken.None);
