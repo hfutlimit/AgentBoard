@@ -553,6 +553,147 @@ public sealed class Sprint11_ProductionHardeningTests
         Assert.Null(auth.AuthError);
     }
 
+    // -------------------------------------------------------------------------
+    // 2d. MaxPendingInbox round-9 invariant: capacity-exceeded
+    //     MUST NOT leave a terminal dedupe row behind, otherwise
+    //     the next Rabbit redelivery would see the existing
+    //     execution_key, return IsNew=false, and the consumer
+    //     would ACK-drop the redelivery. The task is then
+    //     silently lost. For the direct queue (only this worker
+    //     consumes) the loss is deterministic. 2026-08-29
+    //     review follow-up (round 9).
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task TryEnqueueWithinCapacity_does_not_leave_dedupe_row_on_overflow()
+    {
+        // 2026-08-29 review round 9: the round-8 path
+        // inserted the inbox row first and then
+        // MarkFailedAsync'd it. That left a "completed" dedupe
+        // record. Round-9 fix: count + insert in ONE
+        // transaction; on overflow, NO row is inserted. This
+        // test pins that contract: enqueue 3 distinct requests
+        // with MaxPendingInbox=2, the 3rd MUST return
+        // CapacityExceeded AND the inbox row count must stay
+        // at 2 (no 3rd row, no "completed" placeholder).
+        using var fx = new TempDbFixture();
+
+        var req1 = new ExecutionRequest(
+            ExecutionKey: "redeliver-1", WorkloadType: "proposal",
+            WorkloadId: 1, AgentType: "fake", Round: 0,
+            Source: "redeliver-test", PayloadJson: "{}");
+        var req2 = new ExecutionRequest(
+            ExecutionKey: "redeliver-2", WorkloadType: "proposal",
+            WorkloadId: 2, AgentType: "fake", Round: 0,
+            Source: "redeliver-test", PayloadJson: "{}");
+        var req3 = new ExecutionRequest(
+            ExecutionKey: "redeliver-3", WorkloadType: "proposal",
+            WorkloadId: 3, AgentType: "fake", Round: 0,
+            Source: "redeliver-test", PayloadJson: "{}");
+
+        var (o1, _) = await fx.Inbox.TryEnqueueWithinCapacityAsync(req1, limit: 2, CancellationToken.None);
+        var (o2, _) = await fx.Inbox.TryEnqueueWithinCapacityAsync(req2, limit: 2, CancellationToken.None);
+        var (o3, _) = await fx.Inbox.TryEnqueueWithinCapacityAsync(req3, limit: 2, CancellationToken.None);
+
+        Assert.Equal(InboxStore.EnqueueWithinCapacityOutcome.Enqueued, o1);
+        Assert.Equal(InboxStore.EnqueueWithinCapacityOutcome.Enqueued, o2);
+        Assert.Equal(InboxStore.EnqueueWithinCapacityOutcome.CapacityExceeded, o3);
+
+        // The inbox must hold EXACTLY 2 rows. No placeholder
+        // for the refused message. This is the round-9 fix:
+        // the round-8 design would have left 3 rows (the
+        // third MarkFailedAsync'd to status='completed' but
+        // still holding a UNIQUE execution_key that blocked
+        // future redeliveries).
+        var allRows = await fx.Inbox.ListPendingAsync(CancellationToken.None);
+        Assert.Equal(2, allRows.Count);
+
+        // Sanity: ALL rows in the inbox are still 'pending'
+        // (none silently converted to a terminal state by
+        // the round-8 mark-failed-on-overflow path).
+        foreach (var row in allRows)
+        {
+            Assert.Equal("pending", row.Request.PayloadJson is not null
+                ? (await fx.Inbox.GetAsync(row.InboxId, CancellationToken.None))?.Status
+                : "pending");
+        }
+    }
+
+    [Fact]
+    public async Task TryEnqueueWithinCapacity_allows_redelivery_after_drain()
+    {
+        // Round-9 invariant: after CapacityExceeded, the
+        // refused execution_key MUST still be enqueueable
+        // once the inbox drains. The round-8 design left a
+        // "completed" dedupe record that would block this
+        // re-enqueue with IsNew=false, silently losing the
+        // task. This test simulates the full Rabbit
+        // redelivery cycle:
+        //   1. NACK-requeue at the broker
+        //   2. dispatcher drains the inbox
+        //   3. Rabbit redelivers the same execution_key
+        //   4. consumer retries TryEnqueueWithinCapacityAsync
+        //   5. expected: Enqueued, NOT Duplicate
+        using var fx = new TempDbFixture();
+
+        // First, fill the inbox to capacity.
+        for (int i = 0; i < 2; i++)
+        {
+            var r = new ExecutionRequest(
+                ExecutionKey: $"redeliver-cycle-{i}", WorkloadType: "proposal",
+                WorkloadId: i, AgentType: "fake", Round: 0,
+                Source: "cycle", PayloadJson: "{}");
+            var (o, _) = await fx.Inbox.TryEnqueueWithinCapacityAsync(r, limit: 2, CancellationToken.None);
+            Assert.Equal(InboxStore.EnqueueWithinCapacityOutcome.Enqueued, o);
+        }
+
+        // Now try to enqueue a 3rd — must be CapacityExceeded.
+        var overflow = new ExecutionRequest(
+            ExecutionKey: "redeliver-cycle-overflow", WorkloadType: "proposal",
+            WorkloadId: 99, AgentType: "fake", Round: 0,
+            Source: "cycle", PayloadJson: "{}");
+        var (oOverflow, _) = await fx.Inbox.TryEnqueueWithinCapacityAsync(overflow, limit: 2, CancellationToken.None);
+        Assert.Equal(InboxStore.EnqueueWithinCapacityOutcome.CapacityExceeded, oOverflow);
+
+        // Simulate dispatcher draining: mark the 2 rows
+        // completed (as the dispatcher would after a
+        // successful agent run).
+        var pending = await fx.Inbox.ListPendingAsync(CancellationToken.None);
+        foreach (var row in pending)
+        {
+            await fx.Inbox.MarkCompletedAsync(row.InboxId, CancellationToken.None);
+        }
+
+        // Rabbit redelivers the refused message. The consumer
+        // retries. With the round-9 fix: the inbox has 0
+        // pending rows, so this is Enqueued (NOT Duplicate,
+        // which would mean a dedupe row was left behind).
+        var (oRetry, inboxId) = await fx.Inbox.TryEnqueueWithinCapacityAsync(overflow, limit: 2, CancellationToken.None);
+        Assert.Equal(InboxStore.EnqueueWithinCapacityOutcome.Enqueued, oRetry);
+        Assert.True(inboxId > 0);
+    }
+
+    [Fact]
+    public async Task TryEnqueueWithinCapacity_duplicate_returns_Duplicate()
+    {
+        // Sanity: re-enqueueing the SAME execution_key (a
+        // legitimate Rabbit redelivery) returns Duplicate
+        // (matches the round-7 idempotency contract).
+        using var fx = new TempDbFixture();
+
+        var req = new ExecutionRequest(
+            ExecutionKey: "dup", WorkloadType: "proposal",
+            WorkloadId: 1, AgentType: "fake", Round: 0,
+            Source: "dup-test", PayloadJson: "{}");
+
+        var (o1, id1) = await fx.Inbox.TryEnqueueWithinCapacityAsync(req, limit: 100, CancellationToken.None);
+        var (o2, id2) = await fx.Inbox.TryEnqueueWithinCapacityAsync(req, limit: 100, CancellationToken.None);
+
+        Assert.Equal(InboxStore.EnqueueWithinCapacityOutcome.Enqueued, o1);
+        Assert.Equal(InboxStore.EnqueueWithinCapacityOutcome.Duplicate, o2);
+        Assert.Equal(id1, id2);
+    }
+
     // -------- helpers (private to this test class) ----
 
     private static Task<AgentReadiness> InvokeCheckExternalAuthAsync(

@@ -204,4 +204,100 @@ public sealed class Sprint9_FaultInjectionTests
         Assert.Empty(stillPending);
         Assert.Equal(N, fake.CallCount);
     }
+
+    // -------------------------------------------------------------------------
+    // 2026-08-29 review follow-up (round 9): TransientBackoff. When
+    // SQLITE_BUSY / LOCKED persists across multiple drain attempts
+    // (e.g. another connection holds a long-running transaction),
+    // the round-8 design would fast-repoll the inbox and
+    // TryClaimAsync on every cycle, burning the retry budget in
+    // microseconds. This test holds a real RESERVED lock,
+    // measures the inbox query rate over a 2-second window, and
+    // asserts the rate is bounded by TransientBackoff (500 ms),
+    // NOT by the time it takes to read the inbox.
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Dispatcher_does_not_query_storm_under_sustained_BUSY()
+    {
+        // 2026-08-29 round-9: with the TransientBackoff path
+        // the dispatcher should issue < 10 inbox queries in
+        // 2 seconds while BUSY is sustained. Without the
+        // backoff the round-8 design (CapHit → fast-repoll)
+        // would issue thousands per second.
+        using var fx = new TempDbFixture();
+        var (registry, fake, channel, state) = BuildStack(fx, "fake");
+        var coordinator = new ExecutionCoordinator(
+            fx.Store, fx.Inbox, channel, registry, state,
+            NullLogger<ExecutionCoordinator>.Instance);
+        var dispatcher = new ExecutionDispatcher(
+            channel, fx.Inbox, coordinator, NullLogger<ExecutionDispatcher>.Instance);
+
+        // Insert a pending row.
+        var req = new ExecutionRequest(
+            ExecutionKey: "busy-storm",
+            WorkloadType: "proposal",
+            WorkloadId: 1,
+            AgentType: "fake",
+            Round: 0,
+            Source: "storm-test",
+            PayloadJson: "{}");
+        var (inboxId, _) = await fx.Inbox.TryEnqueueAsync(req, CancellationToken.None);
+
+        // Hold a RESERVED lock so every claim attempt hits BUSY.
+        using var blocker = new SqliteConnection(fx.Store.ConnectionString);
+        await blocker.OpenAsync();
+        await using (var begin = blocker.CreateCommand())
+        {
+            begin.CommandText = "BEGIN IMMEDIATE;";
+            await begin.ExecuteNonQueryAsync();
+        }
+
+        // Start the dispatcher. Use a longer timeout so the test
+        // has time to enter the steady-state BUSY window.
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await dispatcher.StartAsync(cts.Token);
+
+        // Let the dispatcher settle into the BUSY loop. We
+        // measure the inbox query rate over the next 2 s
+        // window. With TransientBackoff=500ms, expect ≤ 8
+        // queries (initial drain attempts + backoff retries).
+        // Without the backoff the count grows into the
+        // thousands.
+        await Task.Delay(300);
+        var baseline = fx.Inbox.GetOldestPendingFlightsCalls;
+        await Task.Delay(2_000);
+        var queriesUnderBusy = fx.Inbox.GetOldestPendingFlightsCalls - baseline;
+
+        // The exact bound depends on how many TransientBackoff
+        // retries the dispatcher does in 2 s. With 500 ms
+        // backoff that's ≤ 4 retries + a few initial attempts.
+        // 12 is a generous upper bound; the previous design
+        // would produce thousands.
+        Assert.True(queriesUnderBusy <= 12,
+            $"query storm: {queriesUnderBusy} inbox queries in 2s under sustained BUSY; expected ≤ 12");
+
+        // Sanity: the row must STILL be pending (not silently
+        // marked failed by the round-8 path).
+        var rowUnderBusy = await fx.Inbox.GetAsync(inboxId, CancellationToken.None);
+        Assert.Equal("pending", rowUnderBusy!.Status);
+        Assert.Equal(0, fake.CallCount);
+
+        // Release the lock. The next TransientBackoff retry
+        // should claim the row and run the adapter.
+        await using (var release = blocker.CreateCommand())
+        {
+            release.CommandText = "ROLLBACK;";
+            await release.ExecuteNonQueryAsync();
+        }
+
+        // Wait for the row to reach completed. With 500 ms
+        // backoff the worst-case wait is one backoff cycle
+        // (≤ 1 s) plus adapter execution. Give it 8 s of
+        // slack.
+        await WaitForInboxTerminal(fx, inboxId, TimeSpan.FromSeconds(8));
+        await dispatcher.StopAsync(CancellationToken.None);
+
+        Assert.Equal(1, fake.CallCount);
+    }
 }

@@ -256,6 +256,120 @@ public sealed class InboxStore
     }
 
     /// <summary>
+    /// Outcome of <see cref="TryEnqueueWithinCapacityAsync"/>.
+    /// 2026-08-29 round-9 review follow-up: capacity-exceeded
+    /// MUST not produce a dedupe row (otherwise the next
+    /// Rabbit redelivery would see the existing execution_key
+    /// and ACK-drop, permanently losing the task).
+    /// </summary>
+    public enum EnqueueWithinCapacityOutcome
+    {
+        /// <summary>A new pending row was inserted; the consumer should ACK the Rabbit delivery.</summary>
+        Enqueued,
+        /// <summary>execution_key already exists in the inbox (Rabbit redelivery); ACK the duplicate.</summary>
+        Duplicate,
+        /// <summary>Pending count is at or above the high-watermark. NO row was inserted. The consumer MUST NACK-requeue so a peer (or this worker after the inbox drains) can take the message.</summary>
+        CapacityExceeded,
+    }
+
+    /// <summary>
+    /// 2026-08-29 round-9 review follow-up: the round-8 design
+    /// had a fatal invariant violation — it would insert the
+    /// inbox row FIRST and only THEN check the high-watermark,
+    /// calling MarkFailedAsync to convert it to "completed" on
+    /// overflow. That left a terminal dedupe record on disk,
+    /// so when the NACK-requeued Rabbit message came back to
+    /// the same worker, <c>INSERT OR IGNORE</c> matched the
+    /// existing execution_key, returned <c>IsNew=false</c>, and
+    /// the consumer ACK-dropped the redelivery. The task was
+    /// silently lost. For the direct queue (only this worker
+    /// consumes) the loss is deterministic.
+    ///
+    /// Fix: count + insert inside ONE transaction, and on
+    /// capacity exceeded ROLL BACK the insert so no row is
+    /// produced. The consumer then NACKs the Rabbit message
+    /// back to the broker, which is the only place it can sit
+    /// safely until the inbox drains.
+    ///
+    /// <c>limit</c> = 0 disables the high-watermark (unbounded
+    /// enqueue, NOT recommended). Negative limits are treated
+    /// as 0.
+    /// </summary>
+    public async Task<(EnqueueWithinCapacityOutcome Outcome, long InboxId)> TryEnqueueWithinCapacityAsync(
+        ExecutionRequest request, int limit, CancellationToken ct)
+    {
+        await using var c = new SqliteConnection(_connectionString);
+        await c.OpenAsync(ct);
+
+        // BEGIN IMMEDIATE acquires a RESERVED lock at the start
+        // of the transaction so the count-then-insert pair is
+        // atomic w.r.t. other writers (the consumer thread is
+        // the only writer in practice, but a future drain that
+        // also touches the inbox would otherwise see torn state).
+        // Use a transaction even when limit <= 0 so the path is
+        // uniform; SQLite BEGIN is cheap on a single-writer DB.
+        await using var tx = (SqliteTransaction)await c.BeginTransactionAsync(ct);
+        try
+        {
+            if (limit > 0)
+            {
+                await using var count = c.CreateCommand();
+                count.Transaction = tx;
+                count.CommandText = "SELECT COUNT(*) FROM worker_execution_inbox WHERE status='pending'";
+                var n = Convert.ToInt32(await count.ExecuteScalarAsync(ct));
+                if (n >= limit)
+                {
+                    // Critical: NO INSERT happened. Roll back
+                    // (technically a no-op since nothing was
+                    // written, but explicit is clearer). The
+                    // consumer will NACK the Rabbit message and
+                    // it will be redelivered to a peer (or to
+                    // us after the dispatcher catches up).
+                    await tx.RollbackAsync(ct);
+                    return (EnqueueWithinCapacityOutcome.CapacityExceeded, 0L);
+                }
+            }
+
+            long inboxId;
+            bool isNew;
+            await using (var ins = c.CreateCommand())
+            {
+                ins.Transaction = tx;
+                ins.CommandText = """
+                    INSERT OR IGNORE INTO worker_execution_inbox
+                      (execution_key, workload_type, workload_id, agent_type, round, payload_json, status, received_at)
+                    VALUES($key,$wtype,$wid,$agent,$round,$payload,'pending',$at)
+                    """;
+                ins.Parameters.AddWithValue("$key", request.ExecutionKey);
+                ins.Parameters.AddWithValue("$wtype", request.WorkloadType);
+                ins.Parameters.AddWithValue("$wid", request.WorkloadId);
+                ins.Parameters.AddWithValue("$agent", request.AgentType);
+                ins.Parameters.AddWithValue("$round", request.Round);
+                ins.Parameters.AddWithValue("$payload", request.PayloadJson);
+                ins.Parameters.AddWithValue("$at", DateTimeOffset.UtcNow.ToString("O"));
+                var n = await ins.ExecuteNonQueryAsync(ct);
+                isNew = (n == 1);
+            }
+
+            await using (var sel = c.CreateCommand())
+            {
+                sel.Transaction = tx;
+                sel.CommandText = "SELECT id FROM worker_execution_inbox WHERE execution_key=$key";
+                sel.Parameters.AddWithValue("$key", request.ExecutionKey);
+                inboxId = (long)(await sel.ExecuteScalarAsync(ct) ?? 0L);
+            }
+
+            await tx.CommitAsync(ct);
+            return (isNew ? EnqueueWithinCapacityOutcome.Enqueued : EnqueueWithinCapacityOutcome.Duplicate, inboxId);
+        }
+        catch
+        {
+            try { await tx.RollbackAsync(ct); } catch { /* best-effort */ }
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Pull the oldest <paramref name="limit"/> pending inbox rows.
     /// Used by the Dispatcher's DB-first main loop: every wake
     /// (RabbitMQ signal, periodic timer, startup) the dispatcher

@@ -30,6 +30,25 @@ public sealed class RabbitMqConsumerService : BackgroundService
     // ConsumeUntilDisconnected call gets a fresh tag).
     private bool _directConsumerCancelled;
     private string? _directConsumerTag;
+    // Round-9: keep a reference to the direct AsyncEventingBasicConsumer
+    // so the resume path (after a high-watermark cancel + drain) can
+    // re-attach the same handler to the same channel without spinning
+    // up a new consumer instance.
+    private AsyncEventingBasicConsumer? _directConsumerInstance;
+
+    /// <summary>
+    /// Round-9 follow-up: when the direct consumer is cancelled
+    /// by the high-watermark path, the consumer must come back
+    /// online automatically once the inbox drains. The
+    /// high-watermark is a TRANSIENT state (load spike), not
+    /// degraded (operator action). We re-subscribe when the
+    /// pending count drops below this fraction of
+    /// <c>MaxPendingInbox</c>. Hysteresis is intentional: the
+    /// threshold is well below the cap so we resume into a
+    /// healthy range, not flap right back to cancelled.
+    /// </summary>
+    private int DirectResumeThreshold =>
+        Math.Max(1, _worker.MaxPendingInbox / 2);
 
     public RabbitMqConsumerService(
         IOptions<RabbitMqOptions> mq,
@@ -98,17 +117,19 @@ public sealed class RabbitMqConsumerService : BackgroundService
         channel.BasicQos(0, Math.Max((ushort)1, _mq.Prefetch), false);
         var done = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         connection.ConnectionShutdown += (_, _) => done.TrySetResult();
-        var publicTag = Consume(channel, _mq.PublicQueue, "public", ct);
-        var directTag = Consume(channel, directQueue, "direct", ct);
+        var (publicTag, _) = Consume(channel, _mq.PublicQueue, "public", ct);
+        var (directTag, directConsumer) = Consume(channel, directQueue, "direct", ct);
         _directConsumerTag = directTag;
+        _directConsumerInstance = directConsumer;
         _directConsumerCancelled = false;
         using var registration = ct.Register(() => done.TrySetResult());
         await done.Task;
         _directConsumerTag = null;
+        _directConsumerInstance = null;
         try { channel.BasicCancel(publicTag); channel.BasicCancel(directTag); } catch { }
     }
 
-    private string Consume(IModel channel, string queue, string source, CancellationToken stoppingToken)
+    private (string tag, AsyncEventingBasicConsumer consumer) Consume(IModel channel, string queue, string source, CancellationToken stoppingToken)
     {
         var consumer = new AsyncEventingBasicConsumer(channel);
         consumer.Received += async (_, eventArgs) =>
@@ -153,22 +174,7 @@ public sealed class RabbitMqConsumerService : BackgroundService
                 {
                     if (source == "direct")
                     {
-                        if (!_directConsumerCancelled)
-                        {
-                            _directConsumerCancelled = true;
-                            try
-                            {
-                                if (_directConsumerTag is not null)
-                                {
-                                    channel.BasicCancel(_directConsumerTag);
-                                }
-                            }
-                            catch (Exception cancelEx)
-                            {
-                                _log.LogWarning(cancelEx,
-                                    "BasicCancel of direct consumer failed; will continue to NACK-requeue");
-                            }
-                        }
+                        CancelDirectConsumerAsync(channel, "degraded");
                         _log.LogWarning(
                             "Worker is degraded ({Reason}); direct consumer cancelled; NACK-requeue in-flight message so Rabbit holds it until recovery",
                             _state.DegradedReason);
@@ -200,68 +206,79 @@ public sealed class RabbitMqConsumerService : BackgroundService
                     return;
                 }
 
-                var (inboxId, isNew) = await _inbox.TryEnqueueAsync(request, stoppingToken);
-                if (!isNew)
-                {
-                    // Sprint 2: idempotency hit. ACK and drop.
-                    _log.LogDebug("Duplicate {Key}; ACK without dispatch", request.ExecutionKey);
-                    channel.BasicAck(eventArgs.DeliveryTag, false);
-                    return;
-                }
+                // 2026-08-29 review follow-up (round 9): the
+                // round-8 high-watermark path inserted the
+                // inbox row FIRST and then marked it failed
+                // on overflow. That left a terminal dedupe
+                // record on disk, so when the NACK-requeued
+                // Rabbit message came back to the same worker
+                // INSERT OR IGNORE matched the existing
+                // execution_key, IsNew=false, and the consumer
+                // ACK-dropped the redelivery. The task was
+                // silently lost. For the direct queue (only
+                // this worker consumes) the loss is
+                // deterministic. Round-9 fix: count + insert
+                // inside ONE transaction. On overflow, NO row
+                // is produced and the Rabbit message is
+                // NACK-requeued back to the broker where it
+                // sits safely until the inbox drains.
+                var (enqueueOutcome, inboxId) = await _inbox.TryEnqueueWithinCapacityAsync(
+                    request, _worker.MaxPendingInbox, stoppingToken);
 
-                // 2026-08-29 review follow-up (round 8):
-                // Worker.MaxPendingInbox high-watermark. The
-                // previous DropWrite-only strategy traded
-                // channel-level blocking for unbounded local
-                // SQLite growth + ACK stealing in multi-worker
-                // deploys. With DropWrite the consumer never
-                // blocks, so the local inbox can grow without
-                // bound. Enforce a hard cap: if pending count
-                // exceeds MaxPendingInbox after enqueue, mark the
-                // freshly-inserted row as failed (so the
-                // dispatcher doesn't keep re-claiming it) and
-                // NACK-requeue the Rabbit message. For the
-                // direct queue, also BasicCancel the consumer so
-                // we don't burn CPU+Rabbit traffic in a hot
-                // redelivery loop until the operator intervenes.
-                if (_worker.MaxPendingInbox > 0)
+                switch (enqueueOutcome)
                 {
-                    var pending = await _inbox.CountPendingAsync(stoppingToken);
-                    if (pending > _worker.MaxPendingInbox)
-                    {
+                    case InboxStore.EnqueueWithinCapacityOutcome.Duplicate:
+                        // Sprint 2: idempotency hit. ACK and drop.
+                        _log.LogDebug("Duplicate {Key}; ACK without dispatch", request.ExecutionKey);
+                        channel.BasicAck(eventArgs.DeliveryTag, false);
+                        return;
+
+                    case InboxStore.EnqueueWithinCapacityOutcome.CapacityExceeded:
+                        // Pending inbox at/above MaxPendingInbox.
+                        // The round-9 fix: no row was inserted, so
+                        // the Rabbit message must be NACK-requeued
+                        // to a peer (or to us later) — the broker
+                        // is the only safe place to hold it. For
+                        // the direct queue, also cancel the
+                        // consumer (see ResumeDirectConsumerAsync
+                        // for the auto-resume when the inbox
+                        // drains). For the public queue, healthy
+                        // peers can take the message immediately.
                         _log.LogWarning(
-                            "Pending inbox {Pending} exceeded MaxPendingInbox {Limit} after enqueue of {Key}; refusing to accept more on {Queue}",
-                            pending, _worker.MaxPendingInbox, request.ExecutionKey, queue);
-                        try
+                            "Pending inbox at/above MaxPendingInbox {Limit}; refusing to enqueue {Key} on {Queue} (NACK-requeue, no dedupe row left behind)",
+                            _worker.MaxPendingInbox, request.ExecutionKey, queue);
+                        if (source == "direct")
                         {
-                            await _inbox.MarkFailedAsync(inboxId,
-                                $"pending inbox {pending} > MaxPendingInbox {_worker.MaxPendingInbox}; refused",
-                                CancellationToken.None);
-                        }
-                        catch (Exception markEx)
-                        {
-                            _log.LogError(markEx,
-                                "Failed to mark inbox {InboxId} as failed under high-watermark; row stays pending and will be re-claimed",
-                                inboxId);
-                        }
-                        if (source == "direct" && !_directConsumerCancelled)
-                        {
-                            _directConsumerCancelled = true;
-                            try
-                            {
-                                if (_directConsumerTag is not null)
-                                {
-                                    channel.BasicCancel(_directConsumerTag);
-                                }
-                            }
-                            catch (Exception cancelEx)
-                            {
-                                _log.LogWarning(cancelEx,
-                                    "BasicCancel of direct consumer under high-watermark failed");
-                            }
+                            CancelDirectConsumerAsync(channel,
+                                "high-watermark");
                         }
                         channel.BasicNack(eventArgs.DeliveryTag, false, true);
                         return;
+
+                    case InboxStore.EnqueueWithinCapacityOutcome.Enqueued:
+                        break;
+                }
+
+                // If the direct consumer was previously cancelled
+                // by a high-watermark event, check whether the
+                // backlog has drained enough to safely resume. This
+                // is the round-9 review follow-up: the round-8
+                // code only ever set _directConsumerCancelled =
+                // true, with no symmetric resume path. After a
+                // high-watermark cancel the direct queue stayed
+                // dead until the worker restarted, even after the
+                // inbox had drained back to a healthy level. The
+                // resume check runs on every successful enqueue
+                // (cheap single COUNT query) so backlog churn
+                // naturally brings the consumer back online.
+                if (source == "direct" && _directConsumerCancelled
+                    && _worker.MaxPendingInbox > 0)
+                {
+                    var pending = await _inbox.CountPendingAsync(stoppingToken);
+                    if (pending < DirectResumeThreshold)
+                    {
+                        ResumeDirectConsumerAsync(channel,
+                            $"pending {pending} < {DirectResumeThreshold}");
                     }
                 }
 
@@ -291,6 +308,77 @@ public sealed class RabbitMqConsumerService : BackgroundService
                 channel.BasicNack(eventArgs.DeliveryTag, false, true);
             }
         };
-        return channel.BasicConsume(queue, autoAck: false, consumer);
+        var tag = channel.BasicConsume(queue, autoAck: false, consumer);
+        return (tag, consumer);
+    }
+
+    /// <summary>
+    /// BasicCancel the direct consumer (once, idempotent) and
+    /// record the cancelled state. Round-9: the previous
+    /// code inlined this in the degraded branch; factored out
+    /// so the high-watermark branch can share the same
+    /// cancellation primitive without diverging.
+    /// </summary>
+    private void CancelDirectConsumerAsync(IModel channel, string reason)
+    {
+        if (_directConsumerCancelled) return;
+        _directConsumerCancelled = true;
+        try
+        {
+            if (_directConsumerTag is not null)
+            {
+                channel.BasicCancel(_directConsumerTag);
+                _log.LogWarning(
+                    "Direct consumer cancelled (reason={Reason}); messages stay on Rabbit until resume",
+                    reason);
+            }
+        }
+        catch (Exception cancelEx)
+        {
+            _log.LogWarning(cancelEx,
+                "BasicCancel of direct consumer failed (reason={Reason}); will continue to NACK-requeue",
+                reason);
+        }
+    }
+
+    /// <summary>
+    /// Re-subscribe the direct consumer after a high-watermark
+    /// cancel. Round-9 review follow-up: the round-8 design
+    /// had no resume path; the direct queue stayed dead until
+    /// the worker restarted. We keep the original
+    /// <see cref="IConsumer"/> instance alive across the cancel
+    /// and re-attach it to the channel here when the inbox
+    /// drains. The cancellation flag is reset only on a
+    /// successful re-attach; if the channel is already torn
+    /// down (e.g. mid-reconnect) the next
+    /// <c>ConsumeUntilDisconnected</c> will recreate the
+    /// consumer and the flag is irrelevant.
+    /// </summary>
+    private void ResumeDirectConsumerAsync(IModel channel, string reason)
+    {
+        if (!_directConsumerCancelled) return;
+        if (_directConsumerInstance is null) return;  // not yet attached
+        if (_directConsumerTag is null) return;
+        try
+        {
+            var newTag = channel.BasicConsume(
+                _mq.WorkerQueue(_identity.WorkerId),
+                autoAck: false,
+                _directConsumerInstance);
+            _directConsumerTag = newTag;
+            _directConsumerCancelled = false;
+            _log.LogInformation(
+                "Direct consumer resumed (reason={Reason}); new tag={Tag}",
+                reason, newTag);
+        }
+        catch (Exception resumeEx)
+        {
+            _log.LogError(resumeEx,
+                "Direct consumer resume failed; flag stays set so the next attempt may succeed");
+            // Do NOT reset _directConsumerCancelled here — we
+            // want to retry the resume on the next successful
+            // enqueue rather than silently leave the queue
+            // un-consumed.
+        }
     }
 }

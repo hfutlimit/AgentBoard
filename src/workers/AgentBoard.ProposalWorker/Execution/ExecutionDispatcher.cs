@@ -91,11 +91,25 @@ public sealed class ExecutionDispatcher : BackgroundService
         // hits the per-wake cap, keep re-polling without the
         // 2 s gap so a large startup backlog (e.g. 1000 rows
         // from a previous run) drains promptly. 2026-08-29
-        // round-8 follow-up.
+        // round-8 follow-up. Round-9: also handle
+        // TransientBackoff at startup.
         var initialExit = await DrainFromDbAsync("startup", stoppingToken);
-        while (initialExit == DrainExit.CapHit && !stoppingToken.IsCancellationRequested)
+        while (!stoppingToken.IsCancellationRequested)
         {
-            initialExit = await DrainFromDbAsync("startup-continue", stoppingToken);
+            if (initialExit == DrainExit.CapHit)
+            {
+                initialExit = await DrainFromDbAsync("startup-continue", stoppingToken);
+            }
+            else if (initialExit == DrainExit.TransientBackoff)
+            {
+                try { await Task.Delay(TransientBackoff, stoppingToken); }
+                catch (OperationCanceledException) { break; }
+                initialExit = await DrainFromDbAsync("startup-retry", stoppingToken);
+            }
+            else
+            {
+                break;
+            }
         }
 
         try
@@ -170,10 +184,32 @@ public sealed class ExecutionDispatcher : BackgroundService
                 // IdleWakeInterval — otherwise a 1000-row backlog
                 // drains at timer cadence and burns ~2 s × N
                 // batches of idle gap. 2026-08-29 round-8 follow-up.
+                //
+                // TransientBackoff (round-9) is the OPPOSITE
+                // signal: the drain saw BUSY/LOCKED but no
+                // successful flights. Do NOT fast-repoll; wait
+                // the backoff so we don't burn the retry budget
+                // and create a query/log storm.
                 var exit = await DrainFromDbAsync("wake", stoppingToken);
-                while (exit == DrainExit.CapHit && !stoppingToken.IsCancellationRequested)
+                while (!stoppingToken.IsCancellationRequested)
                 {
-                    exit = await DrainFromDbAsync("wake-continue", stoppingToken);
+                    if (exit == DrainExit.CapHit)
+                    {
+                        exit = await DrainFromDbAsync("wake-continue", stoppingToken);
+                    }
+                    else if (exit == DrainExit.TransientBackoff)
+                    {
+                        try
+                        {
+                            await Task.Delay(TransientBackoff, stoppingToken);
+                        }
+                        catch (OperationCanceledException) { break; }
+                        exit = await DrainFromDbAsync("wake-retry", stoppingToken);
+                    }
+                    else
+                    {
+                        break;  // Empty or Cancelled → wait for next signal/timer
+                    }
                 }
             }
         }
@@ -198,21 +234,42 @@ public sealed class ExecutionDispatcher : BackgroundService
     ///                   outer loop should wait for the next
     ///                   signal/timer before re-polling.
     ///   <c>CapHit</c> — the per-wake flight count or wall-clock
-    ///                   cap was reached; the outer loop should
-    ///                   re-poll immediately because more rows
-    ///                   are very likely still pending (without
-    ///                   this, a 1000-row backlog drains at
-    ///                   timer cadence and adds 2 s × N batches
-    ///                   of idle gap). 2026-08-29 round-8
-    ///                   follow-up.
+    ///                   cap was reached (with at least one
+    ///                   SUCCESSFUL flight); the outer loop
+    ///                   should re-poll immediately because more
+    ///                   rows are very likely still pending.
+    ///                   (2026-08-29 round-8 follow-up.)
+    ///   <c>TransientBackoff</c> — the drain exited because
+    ///                   <see cref="InboxStore.TryClaimOutcome.TransientFailure"/>
+    ///                   dominated the batch (no successful
+    ///                   flights and the cap was reached
+    ///                   counting transient attempts). The outer
+    ///                   loop MUST NOT re-poll immediately; that
+    ///                   would defeat the BUSY/LOCKED retry
+    ///                   budget and create a hot query / log
+    ///                   storm. The outer loop applies a short
+    ///                   backoff (similar to the timer) before
+    ///                   retrying. 2026-08-29 round-9 follow-up.
     ///   <c>Cancelled</c> — stoppingToken fired mid-drain.
     /// </summary>
-    private enum DrainExit { Empty, CapHit, Cancelled }
+    private enum DrainExit { Empty, CapHit, TransientBackoff, Cancelled }
+
+    /// <summary>
+    /// Backoff applied when the drain exited due to transient
+    /// SQLite lock contention. Short enough to recover quickly
+    /// once the holder releases; long enough that a sustained
+    /// BUSY/LOCKED window (e.g. a multi-second checkpoint) does
+    /// not turn into a tight retry loop. 2026-08-29 round-9
+    /// follow-up.
+    /// </summary>
+    private static readonly TimeSpan TransientBackoff = TimeSpan.FromMilliseconds(500);
 
     private async Task<DrainExit> DrainFromDbAsync(string reason, CancellationToken stoppingToken)
     {
         var batchStart = DateTimeOffset.UtcNow;
-        int flightsThisBatch = 0;
+        int flightsThisBatch = 0;        // successful claims + executes
+        int transientThisBatch = 0;      // BUSY/LOCKED claims (NOT counted in cap)
+        int consideredThisBatch = 0;     // total rows pulled from the DB
 
         while (!stoppingToken.IsCancellationRequested
                && !_coordinator.IsPaused()
@@ -237,8 +294,8 @@ public sealed class ExecutionDispatcher : BackgroundService
                 if (flightsThisBatch >= MaxFlightsPerWakeBatch) break;
                 if (stoppingToken.IsCancellationRequested) return DrainExit.Cancelled;
                 if (_coordinator.IsPaused() || _coordinator.IsDegraded()) return DrainExit.Cancelled;
+                consideredThisBatch++;
 
-                flightsThisBatch++;
                 try
                 {
                     // Tri-state CAS. Transient DB failure means the
@@ -255,7 +312,18 @@ public sealed class ExecutionDispatcher : BackgroundService
                     }
                     if (claim == InboxStore.TryClaimOutcome.TransientFailure)
                     {
-                        _log.LogWarning(
+                        // Round-9 follow-up: BUSY/LOCKED does
+                        // NOT count toward the per-wake flight
+                        // cap, and the per-row handler does
+                        // NOT block the next attempt with an
+                        // outer-loop fast-repoll. If the batch
+                        // ran out of budget without a single
+                        // successful flight, signal
+                        // TransientBackoff so the outer loop
+                        // applies a short delay instead of
+                        // spinning.
+                        transientThisBatch++;
+                        _log.LogDebug(
                             "Inbox {InboxId} claim hit transient DB failure; row stays pending and will be retried on the next wake",
                             flight.InboxId);
                         continue;
@@ -269,6 +337,17 @@ public sealed class ExecutionDispatcher : BackgroundService
                             flight.InboxId);
                         return DrainExit.Cancelled;
                     }
+                    // Only a SUCCESSFUL claim counts toward the
+                    // per-wake cap. This is the round-9 fix to
+                    // the round-8 design that incremented
+                    // flightsThisBatch before the claim — a
+                    // claim failure could not exceed the cap
+                    // on its own, but a batch of BUSY rows
+                    // could not artificially force an early
+                    // return, and (more importantly) only
+                    // counted flights are the ones that did
+                    // work.
+                    flightsThisBatch++;
                     await _coordinator.ExecuteAsync(flight.Request, flight.InboxId, stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -289,14 +368,28 @@ public sealed class ExecutionDispatcher : BackgroundService
         }
         // If we exited the while loop, decide which way:
         //   - cancellation / pause / degraded → treat as Cancelled
-        //   - hit the per-wake cap (count or wall clock) → CapHit
-        //     so the outer loop re-polls immediately instead of
-        //     waiting the IdleWakeInterval.
+        //   - hit the per-wake cap (count or wall clock) with at
+        //     least one successful flight → CapHit so the outer
+        //     loop re-polls immediately instead of waiting the
+        //     IdleWakeInterval.
+        //   - hit the per-wake budget (count OR wall clock) with
+        //     ZERO successful flights but ≥1 transient claim
+        //     failures → TransientBackoff. The outer loop MUST
+        //     NOT fast-repoll; that would defeat BUSY/LOCKED
+        //     retry and create a query/log storm. Apply a
+        //     short delay and retry.
         if (stoppingToken.IsCancellationRequested
             || _coordinator.IsPaused()
             || _coordinator.IsDegraded())
         {
             return DrainExit.Cancelled;
+        }
+        if (flightsThisBatch == 0 && transientThisBatch > 0)
+        {
+            _log.LogWarning(
+                "Drain {Reason} saw {Transient} transient claim failures and 0 successful flights; applying {Backoff} backoff before retry to avoid query storm",
+                reason, transientThisBatch, TransientBackoff);
+            return DrainExit.TransientBackoff;
         }
         return DrainExit.CapHit;
     }

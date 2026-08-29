@@ -551,15 +551,36 @@ Write-Host "  publish OK" -ForegroundColor Green
 # Atomic swap: live -> backup, staging -> live, preserve data\
 # ---------------------------------------------------------------------------
 
-# 2026-08-29 review follow-up (round 8): the rollback flag MUST be
-# set BEFORE the first Move-Item — if any of the destructive steps
-# below throw, we want the finally block to actually run, not just
-# silently fall through with $rollbackNeeded still $false. The
-# previous design set $rollbackNeeded = $true AFTER all the
-# Move-Items had succeeded, which meant a failure during the swap
-# would leave the install dir in an inconsistent half-state with
-# no rollback triggered.
+# 2026-08-29 review follow-up (round 9): the round-8 design set
+# $rollbackNeeded = $true BEFORE the first Move-Item, BUT the
+# `try { ... } finally { if ($rollbackNeeded) { rollback } }`
+# block started AFTER the swap (around line 623). A throw
+# during stop / live->backup / staging->live / data-restore
+# would exit the script BEFORE entering the try block, so the
+# finally block (and Invoke-InstallRollback) never ran. Round-9
+# fix: wrap the entire destructive section (stop + swap +
+# sc config + env block + sc start + /health) in ONE try/finally
+# so any failure inside it triggers rollback. The function
+# Invoke-InstallRollback must be defined BEFORE the try block
+# since PowerShell resolves function names at call time.
 $rollbackNeeded = $true
+
+# 2026-08-29 review follow-up (round 8): the service registration
+# is now preserved across upgrades. If a previous service existed
+# we just update its binPath to the new location; only fresh
+# installs go through the full sc create path (which sets
+# obj= / start= / DisplayName= / etc).
+function Update-ServiceBinPath {
+    param([string]$NewExe)
+    $binPath = "`"$NewExe`""
+    & sc.exe config $ServiceName binPath= $binPath | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "sc.exe config binPath failed with exit $LASTEXITCODE"
+    }
+    Write-Host "  sc config binPath OK -> $binPath" -ForegroundColor Green
+}
+
+try {
 
 # 2026-08-29 review follow-up (round 8): the previous design
 # stopped+deleted the service AFTER the swap, so the file lock on
@@ -603,22 +624,6 @@ if ($hasDataDir) {
     Write-Host "  no prior data\ directory; first-time install"
 }
 Write-Host "  swap OK" -ForegroundColor Green
-
-
-# 2026-08-29 review follow-up (round 8): the service registration
-# is now preserved across upgrades. If a previous service existed
-# we just update its binPath to the new location; only fresh
-# installs go through the full sc create path (which sets
-# obj= / start= / DisplayName= / etc).
-function Update-ServiceBinPath {
-    param([string]$NewExe)
-    $binPath = "`"$NewExe`""
-    & sc.exe config $ServiceName binPath= $binPath | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        throw "sc.exe config binPath failed with exit $LASTEXITCODE"
-    }
-    Write-Host "  sc config binPath OK -> $binPath" -ForegroundColor Green
-}
 
 # Rollback helper used by every post-swap failure point. Restores
 # the snapshot directory as the live install, drops the failed
@@ -673,8 +678,12 @@ function Invoke-InstallRollback {
 # touch the live service or live binaries at all. $rollbackNeeded
 # is set to $true earlier (BEFORE the first Move-Item) so the
 # finally block actually runs even if the swap itself throws.
-try {
-
+# Round-9 follow-up: the try block now starts BEFORE stop +
+# swap + data-restore, not after. The round-8 scope started
+# after the swap so a throw during Move-Item live->backup or
+# Move-Item staging->live would exit the script before
+# entering the try, leaving an inconsistent half-state with
+# no rollback triggered.
 Write-Section "Writing appsettings.Production.json"
 
 $appsettingsProd = Join-Path $InstallDir 'appsettings.Production.json'
