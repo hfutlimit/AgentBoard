@@ -51,6 +51,8 @@ builder.Services.AddSingleton<ExecutionChannel>();
 
 // ---- Sprint 4: single translation point (RabbitMQ message → request) ------
 builder.Services.AddSingleton<ProposalMessageMapper>();
+// ---- Sprint 12: workflow event translation (agentboard.workflow ns) ------
+builder.Services.AddSingleton<WorkflowMessageMapper>();
 builder.Services.AddSingleton<ExecutionCoordinator>();
 
 // ---- Sprint 6: worker state (must be after Process layer for snapshot) ----
@@ -68,6 +70,7 @@ builder.Services.AddSingleton<AgentBoard.ProposalWorker.Agents.ReadinessProbe>()
 // ---- Hosted services -------------------------------------------------------
 builder.Services.AddHostedService<ExecutionDispatcher>();
 builder.Services.AddHostedService<RabbitMqConsumerService>();
+builder.Services.AddHostedService<WorkflowMqConsumerService>();
 builder.Services.AddHostedService<WorkerHeartbeatService>();
 builder.Services.AddHostedService<AgentBoardWebSocketService>();
 

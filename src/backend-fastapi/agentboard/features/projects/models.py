@@ -120,7 +120,14 @@ class ReviewVote(Base):
     """评审投票（Epic 122 S3 M3 多数决）：一实体（Story/Task）多评审人各一票。
 
     - 一人一票：UNIQUE(entity_type, entity_id, reviewer_user_id)，改票走 upsert；
-    - verdict：approve | reject；评论是评审意见载体（comment_id 关联评论）；
+    - verdict：approve | reject | NULL。
+      NULL 表示「已指派尚未投票」(Sprint 12 多数决 fan-out)——多数决模式下
+      ``assign_task_reviewer`` 一次挑 N 个 reviewer，每人插一行 NULL verdict
+      的占位记录；投票时 verdict 才落 approve/reject。``_review_vote_counts``
+      用 ``group_by(verdict)`` 拿 dict，NULL 自然落到 ``None`` 键，下游
+      ``counts.get("approve", 0)`` 不会把 pending 算进票数，法定票数 gate
+      仍按已投票数判定，逻辑无破坏。
+    - comment_id：评论是评审意见载体（comment_id 关联评论）；
     - round：所属评审轮次（驳回结算后历史票清空，开新一轮）。
     """
 
@@ -137,7 +144,7 @@ class ReviewVote(Base):
     reviewer_user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"), nullable=False
     )
-    verdict: Mapped[str] = mapped_column(String(10), nullable=False)  # approve | reject
+    verdict: Mapped[str | None] = mapped_column(String(10), nullable=True)  # approve | reject | NULL=pending
     comment_id: Mapped[int | None] = mapped_column(
         ForeignKey("comments.id"), nullable=True
     )

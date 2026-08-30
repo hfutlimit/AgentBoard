@@ -634,8 +634,9 @@ DEFAULT_REVIEW_QUORUM = 3          # 法定票数（env AGENTBOARD_REVIEW_QUORUM
 
 
 def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None,
-                         is_admin: bool = False) -> Task:
-    """随机指派 Task 评审人（幂等；CAS 并发安全）。
+                         is_admin: bool = False,
+                         count: int = 1) -> Task:
+    """随机指派 Task 评审人（幂等；CAS 并发安全；支持多数决 fan-out）。
 
     与 Story 版 assign_reviewer 同构：
     - 候选 = 在线 ∩ 角色含 reviewer ∩ 绑定用户属项目成员，且 **≠ assignee**
@@ -643,38 +644,111 @@ def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None
     - CAS 条件 UPDATE ``status=in_review AND reviewer_id IS NULL`` →
       ``reviewer_id=候选``，rowcount=1 才成功；并发下另一个写者获胜时回查返回其指派结果；
     - 幂等：已指派（reviewer_id 非空）直接返回现态，不换人。
+    - **Sprint 12 多数决 fan-out**（count > 1）：首位 reviewer 仍写入
+      ``task.reviewer_id``（向后兼容旧查询 "reviewer_id IS NULL 即未指派"），
+      后续 N-1 位写入 ``review_votes`` 的 NULL verdict 占位行——投票时再
+      落 approve/reject。已有 ``(entity_type, entity_id, reviewer_user_id)``
+      唯一约束天然防重，且每次都从「排除已选」后的候选池重排，避免同一
+      reviewer 被重复指派。
     """
     t = s.get(Task, task_id)
     if not t:
         raise NotFound(f"task {task_id} not found")
-    if t.reviewer_id is not None:
-        return t  # 幂等：已指派（含 reject 退回后复用同一 reviewer）
     if t.status != Status.IN_REVIEW:
         raise InvalidValue(
             f"task {task_id} is not in_review (current status: {t.status})")
-    candidates = _online_reviewer_candidates(s, t.project_id)
-    candidates = [a for a in candidates if a.user_id != t.assignee_id]
-    if not candidates:
+    # 上限硬卡：避免误把 100 传进 fan-out 把整组 reviewer 一次耗光。
+    # 9 = AGENTBOARD_REVIEW_QUORUM 最大允许（service.py:728）。
+    if count < 1 or count > 9:
         raise InvalidValue(
-            "no online reviewer available (register an online reviewer agent first)")
+            f"assign_task_reviewer count must be in [1, 9] (got {count})")
+    # 已指派的 reviewer 一律跳过（幂等：已开 N 票就不要再扩）。
+    already_assigned = _assigned_task_reviewer_ids(s, "task", task_id)
+    if t.reviewer_id is not None and t.reviewer_id not in already_assigned:
+        # 历史遗留：reviewer_id 写过但 review_votes 还没记录
+        # （单 review 模式从未建过 votes 行）。补一行 pending 占位。
+        _insert_pending_vote(s, "task", task_id, t.reviewer_id, t.review_round or 0)
+        already_assigned.add(t.reviewer_id)
+    if len(already_assigned) >= count:
+        # 多数决已被 N 票填满；不再追加
+        s.commit()
+        return t
+    candidates = _online_reviewer_candidates(s, t.project_id)
+    candidates = [a for a in candidates if a.user_id != t.assignee_id
+                  and a.user_id not in already_assigned]
+    if not candidates:
+        if not already_assigned:
+            raise InvalidValue(
+                "no online reviewer available (register an online reviewer agent first)")
+        # 部分已指派，再无可补；不报错，让上层知道当前票数
+        s.commit()
+        return t
     ranked = rank_agents_for_task(s, t, role="reviewer", agents=candidates)
     if not ranked:
         raise InvalidValue("no reviewer satisfies the task capability requirements")
-    reviewer = ranked[0].agent
-    r = s.execute(
-        update(Task).where(
-            Task.id == task_id,
-            Task.reviewer_id.is_(None),
-            Task.status == Status.IN_REVIEW,
-        ).values(reviewer_id=reviewer.user_id)
-    )
-    if r.rowcount != 1:
-        # 并发写者已抢先指派：回查返回现态
-        s.rollback()
-        return s.get(Task, task_id)
+    # 第一位走原有 CAS 把 reviewer_id 写进 Task（兼容旧查询 + 旧事件源）
+    # 后续走 review_votes 插入 pending 行，事件由 caller 自行 fan-out。
+    to_assign: list[int] = []
+    for i, cand in enumerate(ranked):
+        if len(already_assigned) + len(to_assign) >= count:
+            break
+        to_assign.append(cand.agent.user_id)
+    if t.reviewer_id is None and to_assign:
+        first = to_assign.pop(0)
+        r = s.execute(
+            update(Task).where(
+                Task.id == task_id,
+                Task.reviewer_id.is_(None),
+                Task.status == Status.IN_REVIEW,
+            ).values(reviewer_id=first)
+        )
+        if r.rowcount == 1:
+            _insert_pending_vote(s, "task", task_id, first, t.review_round or 0)
+        # rowcount != 1：并发写者抢先，把 first 当普通 pending 插入
+        else:
+            s.rollback()
+            _insert_pending_vote(s, "task", task_id, first, t.review_round or 0)
+            already_assigned.add(first)
+    for uid in to_assign:
+        _insert_pending_vote(s, "task", task_id, uid, t.review_round or 0)
     _commit(s)
     s.refresh(t)
     return t
+
+
+def _assigned_task_reviewer_ids(s: Session, entity_type: str, entity_id: int) -> set[int]:
+    """返回该实体上所有已建 review_votes 行的 reviewer user_id（含 pending NULL）。
+
+    用于 ``assign_task_reviewer`` 的"已指派"判定——比单看
+    ``Task.reviewer_id`` 更准确：多 review 模式下 review_votes
+    是事实源（reviewer_id 仅首位）。
+    """
+    from ...features.projects.models import ReviewVote  # 局部 import 避免循环
+    rows = s.query(ReviewVote.reviewer_user_id).filter(
+        ReviewVote.entity_type == entity_type,
+        ReviewVote.entity_id == entity_id,
+    ).all()
+    return {int(r[0]) for r in rows}
+
+
+def _insert_pending_vote(s: Session, entity_type: str, entity_id: int,
+                         reviewer_user_id: int, round_: int) -> None:
+    """插入一条 pending (NULL verdict) review_votes 行。已存在则跳过（幂等）。"""
+    from ...features.projects.models import ReviewVote
+    existing = s.query(ReviewVote.id).filter(
+        ReviewVote.entity_type == entity_type,
+        ReviewVote.entity_id == entity_id,
+        ReviewVote.reviewer_user_id == reviewer_user_id,
+    ).first()
+    if existing is not None:
+        return
+    s.add(ReviewVote(
+        entity_type=entity_type,
+        entity_id=entity_id,
+        reviewer_user_id=reviewer_user_id,
+        verdict=None,
+        round=round_,
+    ))
 
 
 def agent_deregister(s: Session, agent_id: str, *, user_id: int | None = None,

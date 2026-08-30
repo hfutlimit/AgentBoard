@@ -137,13 +137,28 @@ class WorkflowConsumer:
     def _assign_task_reviewer(self, task_id: int) -> bool:
         """Task ready_for_review → 自动指派 Task reviewer（幂等，切片 2 M2）。
 
+        Sprint 12 多数决 fan-out：当 ``AGENTBOARD_REVIEW_MODE=majority`` 时
+        用 ``?count=AGENTBOARD_REVIEW_QUORUM`` 一次挑 N 个 reviewer，每人
+        收到一条 ``task.review_requested``（端点内部 fan-out 事件）。
+        ``count`` 上限由后端卡死 (1..9)，无须在此重检。
+
         成功/已指派 → True；无在线 reviewer → warn + True（开发完成后开发者
         轮询 list_tasks?reviewer_id=me 兜底）；网络异常 → 抛 MessageRetry
         触发 broker requeue（Stage 0 修正：此前 return False 实际进死信，
         与「重投语义」不符）。
         """
+        # 多数决模式才 fan-out；单 review 模式（默认 / 兼容旧部署）保持
+        # 一次一个，行为不变。
+        count = 1
         try:
-            r = self._request("POST", f"/api/tasks/{task_id}/assign-reviewer")
+            from .core.application.service import get_review_mode, get_review_quorum
+            if get_review_mode() == "majority":
+                count = get_review_quorum()
+        except Exception as e:  # pragma: no cover - 防御性 import 失败
+            log.debug("review_mode 探测失败，回退 count=1：%s", e)
+        try:
+            r = self._request("POST", f"/api/tasks/{task_id}/assign-reviewer",
+                              params={"count": count})
         except Exception as e:
             log.warning("task %s 指派评审请求失败（网络异常），requeue 重投：%s",
                         task_id, e)
@@ -151,8 +166,8 @@ class WorkflowConsumer:
                 f"task #{task_id} assign-reviewer 网络异常") from None
         if r.status_code in (200, 201):
             t = r.json()
-            log.info("task %s 已指派 reviewer=%s（status=%s）",
-                     task_id, t.get("reviewer_id"), t.get("status"))
+            log.info("task %s 已指派 reviewer=%s（status=%s, count=%s）",
+                     task_id, t.get("reviewer_id"), t.get("status"), count)
             return True
         if r.status_code == 404:
             log.info("task %s 不存在（可能已删除），忽略", task_id)

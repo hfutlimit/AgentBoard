@@ -38,6 +38,27 @@ public sealed class RabbitMqOptions
     public string PublicQueue => Namespace + ".work";
     public string WorkerQueue(string workerId) => Namespace + ".worker." + workerId;
     public string WorkerRoutingKey(string workerId) => "worker." + workerId;
+    // ---- Sprint 12: workflow event namespace -----------------------------
+    // The .NET worker subscribes to the FastAPI WorkflowTopology
+    // (agentboard.workflow topic exchange). The broadcast queue catches
+    // every workflow.broadcast.* event; the agent queue catches events
+    // addressed to this specific worker (workflow.agent.{workerId}).
+    // Mirrors src/backend-fastapi/agentboard/core/infrastructure/
+    // messaging/rabbitmq.py::WorkflowTopology.
+    public string WorkflowNamespace { get; set; } = "agentboard.workflow";
+    public string WorkflowBroadcastPattern { get; set; } = "workflow.broadcast.#";
+    public string WorkflowAgentPattern => $"workflow.agent.";
+    public string WorkflowBroadcastQueue => WorkflowNamespace + ".broadcast";
+    public string WorkflowAgentQueue(string workerId) => WorkflowNamespace + ".agent." + workerId;
+    public string WorkflowDlxExchange => WorkflowNamespace + ".dlx";
+    public string WorkflowDeadQueue => WorkflowNamespace + ".dead";
+    /// <summary>
+    /// Master switch. When false, the worker does not subscribe to
+    /// the workflow exchange at all (legacy proposal-only behavior).
+    /// Default true because Sprint 12 closed the orchestration gap and
+    /// the worker is now a Generic AgentWorker.
+    /// </summary>
+    public bool WorkflowConsumerEnabled { get; set; } = true;
 }
 
 // =============================================================================

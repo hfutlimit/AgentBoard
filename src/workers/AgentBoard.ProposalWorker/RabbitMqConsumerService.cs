@@ -19,7 +19,8 @@ public sealed class RabbitMqConsumerService : BackgroundService
     private readonly WorkerOptions _worker;
     private readonly WorkerIdentity _identity;
     private readonly InboxStore _inbox;
-    private readonly ProposalMessageMapper _mapper;
+    private readonly ProposalMessageMapper _proposalMapper;
+    private readonly WorkflowMessageMapper _workflowMapper;
     private readonly ExecutionChannel _channel;
     private readonly WorkerState _state;
     private readonly ILogger<RabbitMqConsumerService> _log;
@@ -68,6 +69,7 @@ public sealed class RabbitMqConsumerService : BackgroundService
         WorkerIdentity identity,
         InboxStore inbox,
         ProposalMessageMapper mapper,
+        WorkflowMessageMapper workflowMapper,
         ExecutionChannel channel,
         WorkerState state,
         ILogger<RabbitMqConsumerService> log)
@@ -79,7 +81,8 @@ public sealed class RabbitMqConsumerService : BackgroundService
         // queue (#7 in the 2026-08-28 review).
         _identity = identity;
         _inbox = inbox;
-        _mapper = mapper;
+        _proposalMapper = mapper;
+        _workflowMapper = workflowMapper;
         _channel = channel;
         _state = state;
         _log = log;
@@ -210,11 +213,35 @@ public sealed class RabbitMqConsumerService : BackgroundService
                     return;
                 }
 
-                var message = ProposalMessage.Parse(eventArgs.Body);
+                // Sprint 12 (Generic AgentWorker): the queue may carry both
+                // legacy proposal payloads (proposal_id field) AND workflow
+                // events (event field). The discriminator in WorkloadMessage.Parse
+                // picks the right parser. The downstream ExecutionRequest is the
+                // same shape for both; the dispatcher only cares about the
+                // WorkloadType string.
+                WorkloadMessage message;
+                try
+                {
+                    message = WorkloadMessage.Parse(eventArgs.Body);
+                }
+                catch (InvalidDataException ex)
+                {
+                    // Poison: not proposal and not workflow. DLQ instead of looping.
+                    _log.LogWarning(ex, "Poison workload message on {Queue}", queue);
+                    channel.BasicNack(eventArgs.DeliveryTag, false, false);
+                    return;
+                }
+
                 ExecutionRequest request;
                 try
                 {
-                    request = _mapper.MapToExecution(message, source);
+                    request = message switch
+                    {
+                        WorkloadMessage.Proposal p => _proposalMapper.MapToExecution(p.Inner, source),
+                        WorkloadMessage.Workflow w => _workflowMapper.MapToExecution(w.Inner, source),
+                        _ => throw new InvalidOperationException(
+                            $"unreachable workload variant: {message.GetType().Name}"),
+                    };
                 }
                 catch (InvalidAgentException ex)
                 {
@@ -314,11 +341,9 @@ public sealed class RabbitMqConsumerService : BackgroundService
                     stoppingToken);
                 channel.BasicAck(eventArgs.DeliveryTag, false);
             }
-            catch (InvalidDataException ex)
-            {
-                _log.LogWarning(ex, "Poison proposal message on {Queue}", queue);
-                channel.BasicNack(eventArgs.DeliveryTag, false, false);
-            }
+            // InvalidDataException is handled inline above (the parser
+            // path) so we no longer need a top-level catch here; the
+            // only remaining escalation path is the generic Exception.
             catch (Exception ex)
             {
                 _state.LastError = ex.Message;

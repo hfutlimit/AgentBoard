@@ -352,35 +352,49 @@ def submit_task_review(tid: int, authorization: str | None = Header(None),
 
 
 @router.post("/api/tasks/{tid}/assign-reviewer")
-def assign_task_reviewer(tid: int, authorization: str | None = Header(None),
+def assign_task_reviewer(tid: int, count: int = 1,
+                         authorization: str | None = Header(None),
                          s: Session = Depends(get_session)):
     """随机指派 Task 评审人（幂等，CAS 并发安全，Epic 122 切片 2 M2）。
 
     - 候选 = 在线 reviewer ∩ 项目成员 ∩ ≠ assignee；无候选 → 422；
     - 成功 → 定向投递 review.requested（entity_type=task）给 reviewer 绑定的
       Agent 队列（无 Agent 绑定退化为广播，开发者轮询 list_review_tasks 兜底）。
+    - **Sprint 12 多数决 fan-out**（``?count=N``）：一次指 N 个 reviewer，
+      每人收到一条 ``task.review_requested`` 事件。第一位沿用旧的
+      ``Task.reviewer_id`` CAS 写路径（向后兼容），第 2..N 位插入
+      ``review_votes`` 的 NULL verdict 占位行——投票时再落 approve/reject。
+      多数决结算逻辑（``_review_vote_counts`` + ``_settle_majority_approved``）
+      直接吃这张表，无需改动。
     项目写权限由 project_access_middleware 自动覆盖。
     """
     uid, _is_admin = api_helpers._caller_uid_admin(authorization)
     if api_helpers._auth_is_required() and uid is None:
         raise HTTPException(status_code=401, detail="unauthorized")
     try:
-        t = service.assign_task_reviewer(s, tid, user_id=uid)
+        t = service.assign_task_reviewer(s, tid, user_id=uid, count=count)
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     api_helpers._invalidate_stats_cache(t.project_id)
-    # 事件源：指派成功 → review.requested（定向 reviewer agent；无绑定退广播）
-    reviewer_agent_id = None
-    if t.reviewer_id is not None:
-        agent = s.query(service.Agent).filter(service.Agent.user_id == t.reviewer_id).first()
+    # 事件源：每位 reviewer 独立发一条 task.review_requested；定向走
+    # agent_id=其绑定 Agent 队列，无绑定退广播。这样多数决模式下 N 个
+    # reviewer 都能从自己的 agent inbox 拿到消息（也兼容 .NET Workflow
+    # Consumer 的 broadcast 订阅）。
+    from ...features.scheduling.service import _assigned_task_reviewer_ids
+    all_assigned = sorted(_assigned_task_reviewer_ids(s, "task", tid))
+    for reviewer_user_id in all_assigned:
+        reviewer_agent_id = None
+        agent = s.query(service.Agent).filter(
+            service.Agent.user_id == reviewer_user_id).first()
         if agent is not None:
             reviewer_agent_id = agent.agent_id
-    publish_workflow_event(EVENT_TASK_REVIEW_REQUESTED, "task", t.id,
-                           ref_id=t.reviewer_id, agent_id=reviewer_agent_id)
-    api_helpers._notify_webhooks(s, t.project_id, EVENT_TASK_REVIEW_REQUESTED,
-                     {"id": t.id, "reviewer_id": t.reviewer_id, "status": t.status})
+        publish_workflow_event(EVENT_TASK_REVIEW_REQUESTED, "task", t.id,
+                               ref_id=reviewer_user_id, agent_id=reviewer_agent_id)
+        api_helpers._notify_webhooks(s, t.project_id, EVENT_TASK_REVIEW_REQUESTED,
+                         {"id": t.id, "reviewer_id": reviewer_user_id,
+                          "status": t.status, "fan_out": len(all_assigned)})
     return service._ser(t)
 
 

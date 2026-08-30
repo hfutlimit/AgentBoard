@@ -70,8 +70,9 @@ public sealed record ProposalMessage(long ProposalId, int Round, string Reason, 
 }
 
 /// <summary>
-/// What the worker actually executes. Workload-agnostic; ProposalMapper is
-/// the only place that knows about Proposal-specific message format.
+/// What the worker actually executes. Workload-agnostic; the per-kind
+/// mappers (ProposalMessageMapper, WorkflowMessageMapper) are the only
+/// places that know about the specific RabbitMQ message formats.
 /// </summary>
 public sealed record ExecutionRequest(
     string ExecutionKey,
@@ -81,6 +82,109 @@ public sealed record ExecutionRequest(
     int Round,
     string Source,
     string PayloadJson);
+
+/// <summary>
+/// Canonical workload-type taxonomy shared between the mappers and the
+/// dispatcher. Adding a new value here is a deliberate change — the
+/// dispatcher's adapter-routing table is keyed on this string.
+/// </summary>
+public static class WorkloadTypes
+{
+    /// <summary>Proposal clarify/ticket/story (legacy proposal queue).</summary>
+    public const string Proposal = "proposal";
+    /// <summary>Developer runs a Task (task.available / task.assigned).</summary>
+    public const string Task = "task";
+    /// <summary>Reviewer runs a Task review (task.review_requested / task.ready_for_review).</summary>
+    public const string Review = "review";
+    /// <summary>Developer fixes a Task after a reject (task.rejected / task.review_rejected).</summary>
+    public const string Rework = "rework";
+    /// <summary>Planner materializes a proposal into Story + Task DAG (proposal.ticket_requested / proposal.ticket_created).</summary>
+    public const string Ticket = "ticket";
+}
+
+/// <summary>
+/// Sprint 12 (Generic AgentWorker). A workflow event from the
+/// <c>agentboard.workflow</c> namespace. Mirrors the FastAPI
+/// <c>WorkflowMessage</c> contract: only carries locator info
+/// (event + entity_id + optional ref_id); state is always re-read
+/// from the AgentBoard REST API by the executing agent.
+/// </summary>
+public sealed record WorkflowMessage(
+    string Event,
+    string EntityType,
+    long EntityId,
+    long? RefId,
+    string Timestamp,
+    string? AgentType = null)
+{
+    public static WorkflowMessage Parse(ReadOnlyMemory<byte> body)
+    {
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException("workflow message must be a JSON object");
+        var ev = root.TryGetProperty("event", out var e) ? e.GetString() ?? "" : "";
+        if (string.IsNullOrWhiteSpace(ev))
+            throw new InvalidDataException("workflow message requires non-empty 'event' field");
+        var et = root.TryGetProperty("entity_type", out var etp) ? etp.GetString() ?? "" : "";
+        if (string.IsNullOrWhiteSpace(et))
+            throw new InvalidDataException("workflow message requires 'entity_type' field");
+        if (!root.TryGetProperty("entity_id", out var idp) || !idp.TryGetInt64(out var entityId) || entityId <= 0)
+            throw new InvalidDataException("workflow message requires positive entity_id");
+        long? refId = null;
+        if (root.TryGetProperty("ref_id", out var rp) &&
+            (rp.ValueKind == JsonValueKind.Number && rp.TryGetInt64(out var rid) && rid > 0))
+        {
+            refId = rid;
+        }
+        var ts = root.TryGetProperty("ts", out var tsp) ? tsp.GetString() ?? "" : "";
+        var agentType = root.TryGetProperty("agent_type", out var at) ? at.GetString() : null;
+        return new WorkflowMessage(
+            ev, et, entityId, refId, ts,
+            string.IsNullOrWhiteSpace(agentType) ? null : agentType);
+    }
+
+    public string ToJson() => JsonSerializer.Serialize(new
+    {
+        @event = Event,
+        entity_type = EntityType,
+        entity_id = EntityId,
+        ref_id = RefId,
+        ts = Timestamp,
+        agent_type = AgentType
+    });
+}
+
+/// <summary>
+/// Sprint 12. Discriminated union of every wire-format the worker accepts.
+/// Lets the RabbitMQ consumer stay generic: peek at the JSON, classify,
+/// then hand the typed payload to the matching mapper.
+///
+/// The discriminator rules are deliberately minimal — they only answer
+/// "which parser?" not "is this actionable?"; mappers and the consumer's
+/// switch do the actionable-vs-drop decision downstream.
+/// </summary>
+public abstract record WorkloadMessage
+{
+    public static WorkloadMessage Parse(ReadOnlyMemory<byte> body)
+    {
+        using var doc = JsonDocument.Parse(body);
+        var root = doc.RootElement;
+        if (root.ValueKind != JsonValueKind.Object)
+            throw new InvalidDataException("workload message must be a JSON object");
+        if (root.TryGetProperty("proposal_id", out _))
+            return new Proposal(ProposalMessage.Parse(body));
+        if (root.TryGetProperty("event", out _))
+            return new Workflow(WorkflowMessage.Parse(body));
+        throw new InvalidDataException(
+            "workload message must contain either 'proposal_id' (legacy proposal) or 'event' (workflow)");
+    }
+
+    /// <summary>Legacy proposal-message payload (Sprint 1+).</summary>
+    public sealed record Proposal(ProposalMessage Inner) : WorkloadMessage;
+    /// <summary>Workflow event from <c>agentboard.workflow</c> (Sprint 12).</summary>
+    public sealed record Workflow(WorkflowMessage Inner) : WorkloadMessage;
+}
 
 /// <summary>
 /// Per-adapter execution context. Adapter is free to ignore any field but
