@@ -1385,6 +1385,81 @@ def list_workers(s: Session) -> list[Worker]:
     return s.query(Worker).order_by(Worker.id.asc()).all()
 
 
+def resolve_worker_for_agent(s: Session, agent_id: str) -> str | None:
+    """PR-5：给定逻辑 agent_id，找一个能执行它的 worker_id。
+
+    用途：FastAPI publish 路径要把 ``agent_id``（逻辑身份）翻成
+    ``worker_id``（物理身份）才能正确投递到 ``workflow.agent.{workerId}``
+    队列（.NET 端按 ``_identity.WorkerId`` 订阅，见 WorkflowMqConsumerService）。
+
+    找法（顺序）：
+      1. 任何 ``enabled=True`` + ``online=True`` 的 ``AgentInstance`` 中
+         ``agent_id`` 匹配的，取 ``worker_id``
+      2. 没匹配 → 返回 None（caller 决定 fallback；典型是 broadcast 让
+         任何在线 worker 抢）
+
+    多 worker 部署时可能返回多个候选；目前取 worker_id 升序第一个
+    （稳定可预测）。后续要加 "选最近心跳 / 选最低负载" 可在此扩展。
+    """
+    if not agent_id:
+        return None
+    row = (
+        s.query(AgentInstance.worker_id)
+        .filter(
+            AgentInstance.agent_id == agent_id,
+            AgentInstance.enabled.is_(True),
+            AgentInstance.online.is_(True),
+        )
+        .order_by(AgentInstance.worker_id.asc())
+        .first()
+    )
+    return row[0] if row else None
+
+
+def publish_workflow_event_for_agent(
+    s: Session,
+    event: str,
+    entity_type: str,
+    entity_id: int,
+    *,
+    agent_id: str | None,
+    ref_id: int | None = None,
+    **kwargs,
+) -> bool:
+    """PR-5：把 ``publish_workflow_event`` 的 agent_id 路径升级成 worker_id 优先。
+
+    流程：
+      1. 用 ``resolve_worker_for_agent`` 把 agent_id 翻成 worker_id
+      2. publish 时同时传 agent_id（body 审计用）和 worker_id（routing 用）；
+         publisher 优先用 worker_id 当 routing key
+      3. resolve 失败 → agent_id 仍照传（向后兼容老 broken 行为，
+         log warning 让运维知道没在线 worker 可发）
+
+    kwargs 透传给 ``publish_workflow_event``：``agent_type`` /
+    ``workload_type`` / ``correlation_id`` / ``route`` 等。
+    """
+    # 延迟 import 避免循环（mq 模块要 scheduling.models）
+    from ...core.infrastructure import messaging as mq
+    worker_id = resolve_worker_for_agent(s, agent_id) if agent_id else None
+    if agent_id and not worker_id:
+        # 运维可见：task / review 发出去了但没有在线 worker
+        # .NET 端走 fallback（agent_id 路由，几乎没人收；happy path
+        # 应保证 Worker 表有 AgentInstance + heartbeat 在线）
+        mq.log.warning(
+            "publish_workflow_event_for_agent: agent_id=%r 没有在线 worker（"
+            "AgentInstance.enabled+online 全空），回退 agent_id 路由（"
+            "通常 .NET 收不到，需要补 Worker / AgentInstance 配置）",
+            agent_id,
+        )
+    return mq.publish_workflow_event(
+        event, entity_type, entity_id,
+        ref_id=ref_id,
+        agent_id=agent_id,
+        worker_id=worker_id,
+        **kwargs,
+    )
+
+
 def upsert_agent_instance(
     s: Session, *,
     worker_id: str,

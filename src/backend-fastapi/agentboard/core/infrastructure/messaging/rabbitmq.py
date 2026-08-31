@@ -1452,15 +1452,19 @@ class WorkflowPublisher:
                 agent_type: str | None = None,
                 workload_type: str | None = None,
                 correlation_id: str | None = None,
-                route: str = "auto") -> bool:
+                route: str = "auto",
+                worker_id: str | None = None) -> bool:
         """发布一条工作流事件。
 
         - ``route="auto"``（默认）→
-            - ``agent_id`` 非空 → 定向投递到该 Agent 队列（review.requested 等）；
-            - ``agent_id`` 为空 → 广播（story.created / story.ready / task.* 认领型）；
+            - ``worker_id`` 非空 → 定向投递到 ``workflow.agent.{worker_id}``（PR-5
+              物理身份，.NET worker 按 ``_identity.WorkerId`` 订阅）；
+            - 否则 ``agent_id`` 非空 → 定向投递到 ``workflow.agent.{agent_id}``
+              （PR-5 之前行为，向后兼容；建议 caller 改成传 worker_id）；
+            - 都没有 → 广播（story.created / story.ready / task.* 认领型）；
         - ``route="internal"`` → 强制走 internal 路由（PR-4，Python
-          workflow_worker 专用；.NET 不订阅）；agent_id 仍生效但通常
-          不同时设（internal 不定向）。
+          workflow_worker 专用；.NET 不订阅）；agent_id/worker_id 仍生效
+          但通常不同时设（internal 不定向）。
         - ``agent_type`` / ``workload_type`` / ``correlation_id`` 全部 optional，
           缺省 ``correlation_id`` 时自动生成 UUID4 让日志能串链。其它两个
           缺省时由 consumer 端按 task_type_routing 查表回填（PR-3）。
@@ -1484,8 +1488,14 @@ class WorkflowPublisher:
         elif route == "broadcast":
             routing_key = self.topology.broadcast_routing(event)
         else:  # "auto" 或未识别
-            routing_key = (self.topology.agent_routing(agent_id)
-                           if agent_id else self.topology.broadcast_routing(event))
+            # PR-5：worker_id 优先（物理身份 = 实际 .NET 订阅的 queue），
+            # 没 worker_id 才回退 agent_id（逻辑身份 = 老路由 = 通常没人收）。
+            if worker_id:
+                routing_key = self.topology.agent_routing(worker_id)
+            elif agent_id:
+                routing_key = self.topology.agent_routing(agent_id)
+            else:
+                routing_key = self.topology.broadcast_routing(event)
         with self._lock:
             for attempt in (1, 2):
                 try:
@@ -1545,7 +1555,8 @@ def publish_workflow_event(event: str, entity_type: str, entity_id: int,
                            agent_type: str | None = None,
                            workload_type: str | None = None,
                            correlation_id: str | None = None,
-                           route: str = "auto") -> bool:
+                           route: str = "auto",
+                           worker_id: str | None = None) -> bool:
     """给 API 层用的一行式发布入口：**任何情况下都不抛异常**。
 
     PR-2 增 3 kwargs（``agent_type`` / ``workload_type`` / ``correlation_id``），
@@ -1554,12 +1565,16 @@ def publish_workflow_event(event: str, entity_type: str, entity_id: int,
 
     PR-4 增 ``route`` kwarg：``"internal"`` 走 internal 路由（Python
     workflow_worker 专用），其它值按 auto 行为。
+
+    PR-5 增 ``worker_id`` kwarg：物理身份，优先于 ``agent_id`` 决定
+    routing key（``.NET worker`` 按 ``_identity.WorkerId`` 订阅
+    ``workflow.agent.{workerId}``，不按 agent_id）。
     """
     try:
         return get_workflow_publisher().publish(
             event, entity_type, entity_id, ref_id, agent_id=agent_id,
             agent_type=agent_type, workload_type=workload_type,
-            correlation_id=correlation_id, route=route)
+            correlation_id=correlation_id, route=route, worker_id=worker_id)
     except Exception:  # pragma: no cover - 兜底，MQ 绝不影响主流程
         log.warning("发布工作流事件 %s 时出现未预期异常", event, exc_info=True)
         return False

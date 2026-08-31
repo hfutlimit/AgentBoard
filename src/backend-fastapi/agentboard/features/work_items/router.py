@@ -130,9 +130,14 @@ def update_task(
         _agent = s.query(service.Agent).filter(
             service.Agent.user_id == updated.assignee_id).first()
         if _agent is not None and _agent.agent_id:
-            publish_workflow_event(EVENT_TASK_ASSIGNED, "task", updated.id,
-                                   ref_id=updated.story_id,
-                                   agent_id=_agent.agent_id)
+            # PR-5：走 helper resolve worker_id from agent_id，routing 用
+            # worker_id（物理身份，.NET worker 按 _identity.WorkerId 订阅）
+            from ..scheduling.service import publish_workflow_event_for_agent
+            publish_workflow_event_for_agent(
+                s, EVENT_TASK_ASSIGNED, "task", updated.id,
+                agent_id=_agent.agent_id,
+                ref_id=updated.story_id,
+            )
     if updated.assignee_id is not None and updated.status != old_status:
         service.create_notification(
             s, user_id=updated.assignee_id, notif_type="status_changed",
@@ -309,12 +314,16 @@ def arbitrate_task(
         raise HTTPException(status_code=409, detail=str(exc))
     agent = s.get(service.Agent, assignment.agent_registry_id)
     if agent is not None:
-        publish_workflow_event(
+        # PR-5：走 helper resolve worker_id from agent_id，routing 用
+        # worker_id（物理身份，.NET worker 按 _identity.WorkerId 订阅）
+        from ..scheduling.service import publish_workflow_event_for_agent
+        publish_workflow_event_for_agent(
+            s,
             EVENT_TASK_ASSIGNED,
             "task",
             assigned_task.id,
-            ref_id=assigned_task.story_id,
             agent_id=agent.agent_id,
+            ref_id=assigned_task.story_id,
         )
     return {
         "task": service._ser(assigned_task),
@@ -391,7 +400,10 @@ def assign_task_reviewer(tid: int, count: int = 1,
     # agent_id=其绑定 Agent 队列，无绑定退广播。这样多数决模式下 N 个
     # reviewer 都能从自己的 agent inbox 拿到消息（也兼容 .NET Workflow
     # Consumer 的 broadcast 订阅）。
-    from ...features.scheduling.service import _assigned_task_reviewer_ids
+    from ...features.scheduling.service import (
+        _assigned_task_reviewer_ids,
+        publish_workflow_event_for_agent,  # PR-5：resolve worker_id from agent_id
+    )
     all_assigned = sorted(_assigned_task_reviewer_ids(s, "task", tid))
     for reviewer_user_id in all_assigned:
         reviewer_agent_id = None
@@ -399,8 +411,13 @@ def assign_task_reviewer(tid: int, count: int = 1,
             service.Agent.user_id == reviewer_user_id).first()
         if agent is not None:
             reviewer_agent_id = agent.agent_id
-        publish_workflow_event(EVENT_TASK_REVIEW_REQUESTED, "task", t.id,
-                               ref_id=reviewer_user_id, agent_id=reviewer_agent_id)
+        # PR-5：走 helper — body 带 agent_id，routing 用 worker_id
+        # （每个 reviewer 走自己的 worker queue，多数决 fan-out 不串）
+        publish_workflow_event_for_agent(
+            s, EVENT_TASK_REVIEW_REQUESTED, "task", t.id,
+            agent_id=reviewer_agent_id,
+            ref_id=reviewer_user_id,
+        )
         api_helpers._notify_webhooks(s, t.project_id, EVENT_TASK_REVIEW_REQUESTED,
                          {"id": t.id, "reviewer_id": reviewer_user_id,
                           "status": t.status, "fan_out": len(all_assigned)})
@@ -560,8 +577,14 @@ def reassign_timeout(project_id: int | None = None,
                     service.Agent.user_id == new_reviewer_id).first()
                 if agent is not None:
                     reviewer_agent_id = agent.agent_id
-            publish_workflow_event(review_event, entity_type, eid,
-                                   ref_id=new_reviewer_id, agent_id=reviewer_agent_id)
+            # PR-5：走 helper resolve worker_id from agent_id，routing 用
+            # worker_id（每个 reviewer 走自己的 worker queue）
+            from ..scheduling.service import publish_workflow_event_for_agent
+            publish_workflow_event_for_agent(
+                s, review_event, entity_type, eid,
+                agent_id=reviewer_agent_id,
+                ref_id=new_reviewer_id,
+            )
             if project_id is not None:
                 api_helpers._notify_webhooks(s, project_id, review_event,
                                  {"id": eid, "reviewer_id": new_reviewer_id,
