@@ -1,6 +1,16 @@
 from datetime import date, datetime
 
-from sqlalchemy import CheckConstraint, Date, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ...core.common.enums import ItemType, Priority, Status
@@ -32,6 +42,14 @@ class Task(Base):
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     status: Mapped[str] = mapped_column(String(40), default=Status.TODO)
     priority: Mapped[str] = mapped_column(String(10), default=Priority.MEDIUM)
+    # PR-6（P0-5 修复）：design task 完成后是否需要 user 确认才进 done。
+    # True → submit-review 跳过自动 reviewer 分配，state 保持 in_review
+    # 但等的是 user（POST /api/tasks/{id}/user_confirm），不是 reviewer。
+    # False（默认）→ 走原 agent review 流（向后兼容 legacy）。
+    # type='design' 的 task 创建时 service 显式置 True。
+    needs_human_confirmation: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0",
+    )
     # Story 265：状态原因枚举（done 必填 completed/withdrawn；blocked 必填 4 选 1）
     status_reason: Mapped[str | None] = mapped_column(String(40), nullable=True)
     description: Mapped[str] = mapped_column(Text, default="")

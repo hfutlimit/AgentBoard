@@ -8,6 +8,8 @@ Phase 5:从 api.py 拆出的 FastAPI 路由。179 个端点按 2nd path segment 
 """
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request, UploadFile, File, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
@@ -36,6 +38,8 @@ from ...mq import (
     publish_workflow_event,
 )
 from ..scheduling.models import TaskAssignment
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(tags=["work_items"])
 
@@ -357,14 +361,151 @@ def submit_task_review(tid: int, authorization: str | None = Header(None),
     # .NET 不再执行它 —— 它是 pre-assignment 事件没 reviewer）。
     publish_workflow_event(EVENT_TASK_READY_FOR_REVIEW, "task", t.id,
                            ref_id=t.assignee_id)
-    # PR-4：同步发 internal 事件触发 Python workflow_worker 选 reviewer。
-    # internal 路由不与 .NET 抢 broadcast，避免双 owner / 重复处理。
-    # 选完 reviewer 后 FastAPI 端 assign-reviewer API 会 publish
-    # task.review_requested 到 agent 定向队列，.NET 拿那条去真正执行 review。
-    publish_workflow_event(EVENT_TASK_REVIEW_ASSIGNMENT_NEEDED, "task", t.id,
-                           ref_id=t.assignee_id, route="internal")
+    # PR-6：design task（type='design' 且 needs_human_confirmation=True）
+    # 跳过自动 reviewer 分配，state 保持 in_review 但等的是 user，不是
+    # reviewer。user 走 POST /api/tasks/{tid}/user_confirm 确认进 done。
+    # 其它 task 走原 PR-4 路径：internal 事件触发 Python workflow_worker
+    # 选 reviewer，选完 assign-reviewer API publish task.review_requested
+    # 到 agent 定向队列，.NET 拿那条去真正执行 review。
+    if not t.needs_human_confirmation:
+        publish_workflow_event(EVENT_TASK_REVIEW_ASSIGNMENT_NEEDED, "task", t.id,
+                               ref_id=t.assignee_id, route="internal")
+    else:
+        log.info("submit-review: task %s (type=%s) needs_human_confirmation=True，"
+                 "跳过自动 reviewer 分配，等 user_confirm",
+                 t.id, t.type)
     api_helpers._notify_webhooks(s, t.project_id, EVENT_TASK_READY_FOR_REVIEW,
                      {"id": t.id, "assignee_id": t.assignee_id, "status": t.status})
+    return service._ser(t)
+
+
+# ===================== PR-6: User confirmation gate for design tasks =====================
+# design task 完成后等用户确认（POST /api/tasks/{tid}/user_confirm）才进 done，
+# 这条路径下没有 reviewer agent 介入，dependency unlock 与 reviewer 路径走
+# 完全相同的代码（service.get_unlocked_dependent_tasks → publish
+# EVENT_TASK_AVAILABLE）。status_reason 仍按 5 值状态机要求填
+# 'completed' / 'withdrawn' / 'manual_override'。
+
+@router.post("/api/tasks/{tid}/user_confirm")
+def user_confirm_task(
+    tid: int,
+    body: dict | None = None,
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    """PR-6：用户确认 design task（needs_human_confirmation=True）→ done。
+
+    校验：
+      - task 存在
+      - status == in_review（必须先经过 submit-review）
+      - needs_human_confirmation == True（不然这个端点对该 task 无意义）
+
+    动作：
+      - 状态 → done，status_reason=completed
+      - 触发 dependency unlock（同 reviewer approve 路径）
+      - 发布 EVENT_TASK_REVIEWED 让 .NET 知道
+    """
+    uid, is_admin = api_helpers._caller_uid_admin(authorization)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if uid is None:
+        raise HTTPException(status_code=422, detail="user_confirm requires login")
+    t = s.get(service.Task, tid)
+    if t is None:
+        raise HTTPException(status_code=404, detail=f"task {tid} not found")
+    if not t.needs_human_confirmation:
+        raise HTTPException(
+            status_code=409,
+            detail=f"task {tid} 不需要 user 确认（needs_human_confirmation=False）",
+        )
+    if t.status != service.Status.IN_REVIEW:
+        raise HTTPException(
+            status_code=409,
+            detail=f"task {tid} status={t.status}，user_confirm 要求 in_review",
+        )
+    comment = (body or {}).get("comment", "")
+    # set_status 走 TaskStateMachine：in_review → done，status_reason=completed
+    t = service.set_status(
+        s, tid, service.Status.DONE,
+        changed_by=uid,
+        status_reason=service.StatusReason.COMPLETED,
+    )
+    if t is None:
+        raise HTTPException(status_code=409, detail=f"task {tid} state transition refused")
+    # user 反馈写进 comment 留 trail
+    if comment:
+        try:
+            service.create_comment(
+                s, author=str(uid), content=comment, task_id=t.id,
+            )
+        except Exception as e:
+            log.warning("user_confirm: task %s 写 comment 失败：%s", t.id, e)
+    api_helpers._invalidate_stats_cache(t.project_id)
+    # 触发 dependency unlock（同 reviewer approve 路径）
+    try:
+        for succ in service.get_unlocked_dependent_tasks(s, t.id):
+            publish_workflow_event(
+                EVENT_TASK_AVAILABLE, "task", succ.id, ref_id=succ.story_id,
+            )
+    except Exception as e:
+        log.warning("user_confirm: task %s dependency unlock 失败：%s", t.id, e)
+    publish_workflow_event(EVENT_TASK_REVIEWED, "task", t.id, ref_id=uid)
+    api_helpers._notify_webhooks(s, t.project_id, EVENT_TASK_REVIEWED,
+                     {"id": t.id, "by": uid, "decision": "confirmed"})
+    return service._ser(t)
+
+
+@router.post("/api/tasks/{tid}/user_reject")
+def user_reject_task(
+    tid: int,
+    body: dict | None = None,
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    """PR-6：用户拒绝 design task → 回退 in_progress 让 assignee 改。
+
+    校验：同 user_confirm（in_review + needs_human_confirmation=True）
+
+    动作：
+      - 状态 → in_progress（status_reason 不需要，in_progress 不强制填）
+      - 写一条 comment 记录用户反馈（可选）
+      - 不发 dependency unlock（task 还没 done）
+    """
+    uid, is_admin = api_helpers._caller_uid_admin(authorization)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if uid is None:
+        raise HTTPException(status_code=422, detail="user_reject requires login")
+    t = s.get(service.Task, tid)
+    if t is None:
+        raise HTTPException(status_code=404, detail=f"task {tid} not found")
+    if not t.needs_human_confirmation:
+        raise HTTPException(
+            status_code=409,
+            detail=f"task {tid} 不需要 user 确认（needs_human_confirmation=False）",
+        )
+    if t.status != service.Status.IN_REVIEW:
+        raise HTTPException(
+            status_code=409,
+            detail=f"task {tid} status={t.status}，user_reject 要求 in_review",
+        )
+    feedback = (body or {}).get("comment", "")
+    # in_review → in_progress 状态机允许（同一 assignee 改）
+    t = service.set_status(
+        s, tid, service.Status.IN_PROGRESS,
+        changed_by=uid,
+    )
+    if t is None:
+        raise HTTPException(status_code=409, detail=f"task {tid} state transition refused")
+    # comment 留个 trail 让 assignee 看到反馈
+    if feedback:
+        try:
+            service.create_comment(
+                s, author=str(uid), content=feedback, task_id=t.id,
+            )
+        except Exception as e:
+            log.warning("user_reject: task %s 写 comment 失败：%s", t.id, e)
+    api_helpers._invalidate_stats_cache(t.project_id)
     return service._ser(t)
 
 

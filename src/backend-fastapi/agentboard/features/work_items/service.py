@@ -74,6 +74,7 @@ def create_task(
     estimate: float | None = None,
     needed_capabilities="[]", complexity: int | None = None,
     domain_tags="[]", assignment_mode: str = "claim",
+    needs_human_confirmation: bool | None = None,
     commit: bool = True,
 ) -> Task:
     """创建 Task。
@@ -82,7 +83,15 @@ def create_task(
     - commit=True（默认）：原行为，校验+落库+缓存失效同一 commit。
     - commit=False：仅 flush 不 commit，让 caller（transaction owner
       如 ProposalConversionService）统一收尾。设计原则同 create_story。
+
+    PR-6：加 ``needs_human_confirmation`` 参数。
+    - None（默认）→ type='design' 时自动 True，其它类型 False
+    - True/False → 显式指定（覆盖默认）
+    - 仅在 PR-6 之后新创建的 task 上生效；legacy task 默认 False
     """
+    # PR-6：design task 默认需要 user 确认
+    if needs_human_confirmation is None:
+        needs_human_confirmation = (type == ItemType.DESIGN)
     project = s.get(models.Project, project_id)
     if not project:
         raise NotFound(f"project {project_id} not found")
@@ -122,6 +131,7 @@ def create_task(
         complexity=normalize_complexity(complexity),
         domain_tags=json.dumps(normalize_domain_tags(domain_tags), ensure_ascii=False),
         assignment_mode=normalize_assignment_mode(assignment_mode),
+        needs_human_confirmation=needs_human_confirmation,
     )
     s.add(t)
     s.flush()  # 取 t.id
