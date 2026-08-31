@@ -549,7 +549,9 @@ def update_story(s: Session, id: int, **fields) -> Story | None:
 
 
 def create_story(s: Session, *, epic_id: int, title: str, description: str = "",
-                 needs_design: bool = True, commit: bool = True) -> Story:
+                 needs_design: bool = True, commit: bool = True,
+                 create_default_tasks: bool = True,
+                 design_needs_human_confirmation: bool = True) -> Story:
     """创建 Story，并自动创建 2 个默认 Task（2026-08-09 文档 #60）：
 
     - design task（type=design）「设计：<标题>」：每个 Story 必需的设计任务，
@@ -572,11 +574,18 @@ def create_story(s: Session, *, epic_id: int, title: str, description: str = "",
                description=description or "", needs_design=needs_design)
     s.add(st)
     s.flush()  # 取 st.id 供默认 Task 关联
+    if not create_default_tasks:
+        if commit:
+            _invalidate_project_stats_cache(epic.project_id)
+            _commit(s)
+        s.refresh(st)
+        return st
     base = st.title.strip()
     design_task = None
     if needs_design:
         design_task = Task(project_id=epic.project_id, story_id=st.id, type=ItemType.DESIGN,
-                           title=f"设计：{base}"[:300])
+                           title=f"设计：{base}"[:300],
+                           needs_human_confirmation=design_needs_human_confirmation)
         s.add(design_task)
         s.flush()
     dev_task = Task(project_id=epic.project_id, story_id=st.id, type=ItemType.DEV,

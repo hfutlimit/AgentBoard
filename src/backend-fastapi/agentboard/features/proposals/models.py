@@ -124,10 +124,14 @@ CLAIMABLE_STATUSES = {ProposalStatus.QUEUED, ProposalStatus.ANSWERED}
 # ---- Proposal → Ticket 异步转化（2026-08-08 确认，文档 #59）----
 # 可生成的工单类型（task/bug 复用 tasks 表，type 字段区分）
 TICKET_TYPES: frozenset[str] = frozenset({"epic", "story", "task", "bug"})
-# auto 只是转换请求的「待 Agent 决策」类型，不是最终工单类型。
+# auto 是兼容旧数据的「待 Agent 决策」类型；auto_story 是新的确定性
+# Proposal → Story + DAG 路径，不允许 Agent 再选择实体层级。
 AUTO_TICKET_TYPE = "auto"
+AUTO_STORY_TICKET_TYPE = "auto_story"
 AUTO_RESOLVABLE_TICKET_TYPES: frozenset[str] = frozenset({"epic", "story", "task"})
-TICKET_REQUEST_TYPES: frozenset[str] = TICKET_TYPES | {AUTO_TICKET_TYPE}
+TICKET_REQUEST_TYPES: frozenset[str] = TICKET_TYPES | {
+    AUTO_TICKET_TYPE, AUTO_STORY_TICKET_TYPE,
+}
 
 # 转换请求状态机：pending（等待 worker）→ processing（worker 认领执行中）
 # → done（已生成，回填 ticket_id）/ failed（失败，proposal 回退 converged）
@@ -165,6 +169,11 @@ class Proposal(Base):
     # 转化产出的 Story（P3 回填；ticket_type=story 时的快捷字段，兼容旧查询）
     story_id: Mapped[int | None] = mapped_column(
         ForeignKey("stories.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
+    # AUTO Proposal 的显式目标 Epic。auto_create_ticket=true 时在收敛前必填；
+    # 不允许 LLM/Agent 猜测父层级。
+    target_epic_id: Mapped[int | None] = mapped_column(
+        ForeignKey("epics.id", ondelete="SET NULL"), nullable=True, index=True,
     )
     # 通用工单回填（2026-08-08 文档 #59）：四类 ticket（epic/story/task/bug）
     # 统一记类型 + 实体 id。story 类 ticket 同时回填 story_id 以兼容既有查询。
@@ -264,7 +273,7 @@ class ProposalTicketRequest(Base):
     proposal_id: Mapped[int] = mapped_column(
         ForeignKey("proposals.id", ondelete="CASCADE"), nullable=False, index=True,
     )
-    # 请求类型：epic / story / task / bug / auto。auto 由 Agent 决策最终类型。
+    # 请求类型：epic / story / task / bug / auto(legacy) / auto_story。
     type: Mapped[str] = mapped_column(String(20), nullable=False)
     # auto 请求的最终类型；手动请求保持空字符串。
     resolved_type: Mapped[str] = mapped_column(String(20), default="")

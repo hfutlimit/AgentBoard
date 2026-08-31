@@ -106,6 +106,7 @@ class AgentInstanceUpsertIn(BaseModel):
 	worker_id: str = Field(min_length=1, max_length=64)
 	cli_command: str = Field(default="", max_length=500)
 	model: str = Field(default="", max_length=100)
+	executor_type: str | None = Field(default=None, max_length=40)
 	auth_key: str = Field(default="", max_length=100)
 	enabled: bool = True
 

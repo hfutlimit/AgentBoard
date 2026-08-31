@@ -113,7 +113,9 @@ class TicketHandler(BaseWorkHandler):
         if isinstance(work_item, ExecutionCommand):
             return work_item.work_type == self.work_type
         return bool(work_item.get("ticket_request_id") or work_item.get("proposal_id")
-                    and work_item.get("type") in ("epic", "story", "task", "bug", "auto"))
+                    and work_item.get("type") in (
+                        "epic", "story", "task", "bug", "auto", "auto_story",
+                    ))
 
     def fetch(self) -> list[dict]:
         """拉取待认领转换请求（status=pending）。"""
@@ -309,6 +311,11 @@ class TicketHandler(BaseWorkHandler):
     def handle(self, request: dict, invoker: AgentInvoker) -> str:
         """处理一个转换请求：拉起 agent 生成 ticket → 校验结果。"""
         rid = request.get("id", 0)
+        if request.get("type") == "auto_story":
+            # 新 happy path 是服务端确定性 materialization；旧轮询 Worker 即使
+            # 先看到请求，也不得再拉起 Agent 猜实体层级。
+            r = self._request("POST", f"/api/ticket-requests/{rid}/execute")
+            return "success" if r.status_code in (200, 201, 409) else "failed"
         cmd = ExecutionCommand(
             execution_id=f"ticket_{rid}",
             work_type=self.work_type,

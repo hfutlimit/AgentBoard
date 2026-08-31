@@ -207,8 +207,10 @@ def score_agent_for_task(
         + 0.10 * load_factor,
         6,
     )
-    role_name = role.strip().lower()
-    eligible = bool(agent.enabled) and role_name in _roles(agent) and not missing
+    workload_name = role.strip().lower()
+    # design/developer/reviewer/qa 是本次 workload，不是 Agent 永久身份。
+    # roles 仅保留兼容/审计，不再作为 eligibility gate。
+    eligible = bool(agent.enabled) and not missing
     components: dict[str, Any] = {
         "coverage": round(coverage, 6),
         "proficiency": round(proficiency, 6),
@@ -217,8 +219,8 @@ def score_agent_for_task(
         "active_load": int(active_load),
         "load_factor": round(load_factor, 6),
         "missing_capabilities": missing,
-        "required_role": role_name,
-        "role_present": role_name in _roles(agent),
+        "workload_type": workload_name,
+        "legacy_role_present": workload_name in _roles(agent),
         "enabled": bool(agent.enabled),
     }
     reason = json.dumps(components, ensure_ascii=False, sort_keys=True)

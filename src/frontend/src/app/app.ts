@@ -303,6 +303,7 @@ export class App implements OnInit, OnDestroy {
   readonly proposalNewContent = signal('');
   readonly proposalNewProjectId = signal<number | null>(null);
   readonly proposalNewAutoCreateTicket = signal(false);
+  readonly proposalNewTargetEpicId = signal<number | null>(null);
   readonly proposalStatuses = PROPOSAL_STATUSES;
   // 详情页 Tab 切换 + 轮次详情弹窗（2026-08-09 布局重构）
   readonly proposalTab = signal<'info' | 'qa'>('info');
@@ -7081,9 +7082,15 @@ export class App implements OnInit, OnDestroy {
       this.notify('请先进入一个项目，再创建提案', 'error');
       return;
     }
+    try {
+      this.epics.set(await firstValueFrom(this.api.listEpics(project.id)));
+    } catch (e) {
+      this.notify(`加载 Epic 列表失败：${this.message(e)}`, 'error');
+    }
     this.proposalNewTitle.set('');
     this.proposalNewContent.set('');
     this.proposalNewAutoCreateTicket.set(false);
+    this.proposalNewTargetEpicId.set(null);
     this.proposalNewProjectId.set(project.id);
     this.proposalModalOpen.set(true);
   }
@@ -7101,13 +7108,20 @@ export class App implements OnInit, OnDestroy {
       this.notify('请选择所属项目', 'error');
       return;
     }
+    const autoCreateTicket = this.proposalNewAutoCreateTicket();
+    const targetEpicId = this.proposalNewTargetEpicId();
+    if (autoCreateTicket && !targetEpicId) {
+      this.notify('开启自动创建工单时，必须选择目标 Epic', 'error');
+      return;
+    }
     try {
       const created = await firstValueFrom(
         this.api.createProposal({
           project_id: pid,
           title,
           content: this.proposalNewContent(),
-          auto_create_ticket: this.proposalNewAutoCreateTicket(),
+          auto_create_ticket: autoCreateTicket,
+          target_epic_id: targetEpicId,
         }),
       );
       this.proposalModalOpen.set(false);
@@ -7142,10 +7156,27 @@ export class App implements OnInit, OnDestroy {
   async setProposalAutoCreateTicket(enabled: boolean): Promise<void> {
     const p = this.proposalItem();
     if (!p || ['converged', 'story_created', 'ticket_preparing', 'ticket_created', 'cancelled'].includes(p.status)) return;
+    if (enabled && !p.target_epic_id) {
+      this.notify('请先为自动建单选择目标 Epic', 'error');
+      return;
+    }
     try {
       await firstValueFrom(this.api.updateProposal(p.id, { auto_create_ticket: enabled }));
       await this.loadProposalDetail(p.id);
-      this.notify(enabled ? '已开启：收敛后由 Agent 自动创建工单' : '已关闭自动创建工单', 'success');
+      this.notify(enabled ? '已开启：收敛后在目标 Epic 下确定性创建 Story 与任务 DAG' : '已关闭自动创建工单', 'success');
+    } catch (e) {
+      this.notify(`更新失败：${this.message(e)}`, 'error');
+    }
+  }
+
+  async setProposalTargetEpic(value: string): Promise<void> {
+    const p = this.proposalItem();
+    const targetEpicId = Number(value) || null;
+    if (!p || !targetEpicId || ['converged', 'story_created', 'ticket_preparing', 'ticket_created', 'cancelled'].includes(p.status)) return;
+    try {
+      await firstValueFrom(this.api.updateProposal(p.id, { target_epic_id: targetEpicId }));
+      await this.loadProposalDetail(p.id);
+      this.notify(`自动建单目标已更新为 ${this.epicTitle(targetEpicId)}`, 'success');
     } catch (e) {
       this.notify(`更新失败：${this.message(e)}`, 'error');
     }

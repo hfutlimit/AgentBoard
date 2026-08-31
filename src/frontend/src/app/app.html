@@ -2326,8 +2326,19 @@
                         <input type="checkbox" [checked]="p.auto_create_ticket"
                           [disabled]="p.status === 'converged' || p.status === 'story_created' || p.status === 'ticket_preparing' || p.status === 'ticket_created' || p.status === 'cancelled'"
                           (change)="setProposalAutoCreateTicket($any($event.target).checked)" />
-                        <span>{{ p.auto_create_ticket ? '已开启（Agent 判断 Epic / Story / Task）' : '未开启' }}</span>
+                        <span>{{ p.auto_create_ticket ? '已开启（在目标 Epic 下确定性创建 Story / Task DAG）' : '未开启' }}</span>
                       </label>
+                    </div>
+                    <div class="info-item proposal-auto-ticket-setting">
+                      <span class="info-label">自动建单目标 Epic</span>
+                      <select [value]="p.target_epic_id ?? ''"
+                        [disabled]="p.status === 'converged' || p.status === 'story_created' || p.status === 'ticket_preparing' || p.status === 'ticket_created' || p.status === 'cancelled'"
+                        (change)="setProposalTargetEpic($any($event.target).value)">
+                        <option value="">请选择目标 Epic</option>
+                        @for (epic of ticketEpics(); track epic.id) {
+                          <option [value]="epic.id">{{ epic.title }}</option>
+                        }
+                      </select>
                     </div>
                   </div>
                 </div>
@@ -3035,9 +3046,23 @@
               (change)="proposalNewAutoCreateTicket.set($any($event.target).checked)" />
             <span>
               <strong>问答收敛后自动创建工单</strong>
-              <small>Agent 会读取项目与现有层级，自行判断创建 Epic、Story 或 Task。</small>
+              <small>在指定 Epic 下确定性创建一个 Story，并生成 Design → Dev → QA 任务 DAG。</small>
             </span>
           </label>
+          @if (proposalNewAutoCreateTicket()) {
+            <div class="form-field">
+              <label for="proposal-target-epic">目标 Epic <span class="required">*</span></label>
+              <select id="proposal-target-epic"
+                [value]="proposalNewTargetEpicId() ?? ''"
+                (change)="proposalNewTargetEpicId.set(+$any($event.target).value || null)">
+                <option value="">请选择目标 Epic</option>
+                @for (epic of epics(); track epic.id) {
+                  <option [value]="epic.id">{{ epic.title }}</option>
+                }
+              </select>
+              <small class="field-hint">AUTO Proposal 不会猜测层级；目标 Epic 是确定性落点。</small>
+            </div>
+          }
         </div>
         <footer class="modal-footer">
           <button type="button" id="proposal-cancel-btn" class="ghost-sm" (click)="closeProposalModal()">取消</button>

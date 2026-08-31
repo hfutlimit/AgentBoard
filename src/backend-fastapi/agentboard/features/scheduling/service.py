@@ -13,6 +13,7 @@ import logging
 import os
 import random
 import re as _re
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from sqlalchemy import or_, and_, func, update
@@ -101,7 +102,7 @@ DEFAULT_REVIEW_QUORUM = 3
 
 # Agent 在 projects.models
 from ..projects.models import Project
-from ..work_items.models import Task
+from ..work_items.models import Task, TaskDependency
 from ..work_items.service import set_status  # noqa: E402 — 跨域调用（提交评审走任务状态机）
 from .models import AgentRun, AgentSchedule
 from .matching import normalize_capabilities, rank_agents_for_task
@@ -643,8 +644,8 @@ def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None
     """随机指派 Task 评审人（幂等；CAS 并发安全；支持多数决 fan-out）。
 
     与 Story 版 assign_reviewer 同构：
-    - 候选 = 在线 ∩ 角色含 reviewer ∩ 绑定用户属项目成员，且 **≠ assignee**
-      （评审人与作者隔离，文档 #51 要求）；
+    - 候选 = 在线可运行实例 ∩ 绑定用户属于项目成员 ∩ 能力匹配，且
+      **不是本 Task 的实现者**（评审人与作者隔离，文档 #51 要求）；
     - CAS 条件 UPDATE ``status=in_review AND reviewer_id IS NULL`` →
       ``reviewer_id=候选``，rowcount=1 才成功；并发下另一个写者获胜时回查返回其指派结果；
     - 幂等：已指派（reviewer_id 非空）直接返回现态，不换人。
@@ -678,8 +679,13 @@ def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None
         s.commit()
         return t
     candidates = _online_reviewer_candidates(s, t.project_id)
-    candidates = [a for a in candidates if a.user_id != t.assignee_id
-                  and a.user_id not in already_assigned]
+    exclusion = get_assignment_exclusion(s, t, "review")
+    candidates = [
+        a for a in candidates
+        if a.user_id != t.assignee_id
+        and a.user_id not in already_assigned
+        and a.id not in exclusion.agent_registry_ids
+    ]
     if not candidates:
         if not already_assigned:
             raise InvalidValue(
@@ -725,7 +731,7 @@ def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None
 # task.assigned（4 字段齐全）→ .NET worker 接到才执行。
 #
 # PR-10 决策（用户 review 反馈）：
-#   - 不用 routing 表，用函数 _pick_implementation_agent 推导 agent_type
+#   - 不用业务角色做 routing；workload 能力匹配后再解析物理 executor_type
 #   - 当前简单随机（后期接 Agent.scores / 反馈做加权）
 #   - "task 和 qa 不同 agent" 硬约束：从 TaskAssignment 历史查本 task
 #     之前的 assignee，候选池里排除
@@ -751,19 +757,32 @@ def _agent_type_for(task_type: str, workload_type: str) -> str | None:
     return _DISPATCH_AGENT_TYPE.get((task_type, workload_type))
 
 
-# PR-10 follow-up：Agent 模型无 agent_type 字段，executor type 从 roles
-# 数组里推（roles=['codex','reviewer'] → tool='codex'）。
+# PR-10 follow-up：物理 executor type 以 AgentInstance.executor_type 为准；
+# roles 只在旧数据迁移期用于 CLI executor 兼容推导，不参与 workload 授权。
 # .NET WorkflowMessageMapper 把 agent_type 必填，缺值 → DLQ。
 _AGENT_EXECUTOR_TOOLS = ("codex", "workbuddy", "minimax")
+EXECUTOR_TYPES = frozenset((*_AGENT_EXECUTOR_TOOLS, "fake"))
 
 
-def resolve_agent_executor_type(agent) -> str:
-    """PR-10 follow-up：从 Agent.roles 选 executor type。
+def resolve_agent_executor_type(agent, s: Session | None = None,
+                                worker_id: str | None = None) -> str:
+    """从 runnable AgentInstance 读取 executor type。
 
-    roles 形如 ``["codex", "reviewer"]`` 或 ``["workbuddy", "reviewer"]``。
-    返回 codex/workbuddy/minimax 之一（"reviewer" 不是 executor type，跳过）。
-    没匹配返空串 → caller 视情况 fallback broadcast。
+    ``roles`` 只作为旧数据兼容 fallback；新调度路径必须传 Session 并以
+    AgentInstance.executor_type 为准。
     """
+    if s is not None and agent is not None:
+        q = s.query(AgentInstance).filter(
+            AgentInstance.agent_id == agent.agent_id,
+            AgentInstance.enabled.is_(True),
+            AgentInstance.online.is_(True),
+            AgentInstance.executor_type.isnot(None),
+        )
+        if worker_id:
+            q = q.filter(AgentInstance.worker_id == worker_id)
+        inst = q.order_by(AgentInstance.worker_id.asc()).first()
+        if inst is not None and (inst.executor_type or "").strip():
+            return str(inst.executor_type).strip().lower()
     import json as _json
     try:
         roles = _json.loads(agent.roles or "[]")
@@ -789,84 +808,162 @@ def _excluded_prior_agent_ids(s: Session, task_id: int) -> set[int]:
     return {r[0] for r in rows if r[0] is not None}
 
 
-def _online_agents_for_type(s: Session, tool: str) -> list[Agent]:
-    """PR-10：在线 ∩ enabled ∩ roles 含 tool 的 Agent 候选池。
+@dataclass
+class AssignmentExclusion:
+    """一次 workload 的服务端排斥集合与可审计原因。"""
 
-    Agent 没有 agent_type 字段，用 ``roles`` JSON list 匹配。roles 如
-    ``["codex", "reviewer"]`` 表示这个 agent 装了 codex CLI 同时能
-    审稿。dispatch 时按 tool 选（"codex" / "workbuddy" / "minimax"）。
+    agent_registry_ids: set[int] = field(default_factory=set)
+    user_ids: set[int] = field(default_factory=set)
+    reasons: dict[int, list[str]] = field(default_factory=dict)
 
-    后期接 tag/score 后改成 Agent.scores ORDER BY score DESC + random tiebreak
-    实现"前期随机 + 后期加权"。现在纯 random.choice。
+
+def _assignment_rows_for_tasks(s: Session, task_ids: set[int]):
+    if not task_ids:
+        return []
+    return s.query(TaskAssignment).filter(
+        TaskAssignment.task_id.in_(task_ids),
+        TaskAssignment.status.in_(("active", "completed")),
+    ).all()
+
+
+def _upstream_task_ids(s: Session, task_id: int) -> set[int]:
+    """沿 TaskDependency.task_id → depends_on_id 取完整上游闭包。"""
+    seen: set[int] = set()
+    frontier = {task_id}
+    while frontier:
+        rows = s.query(TaskDependency.depends_on_id).filter(
+            TaskDependency.task_id.in_(frontier),
+        ).all()
+        next_ids = {int(row[0]) for row in rows if row[0] is not None} - seen
+        if not next_ids:
+            break
+        seen.update(next_ids)
+        frontier = next_ids
+    return seen
+
+
+def get_assignment_exclusion(
+    s: Session, task: Task, workload_type: str,
+) -> AssignmentExclusion:
+    """统一 review / QA 动态排斥策略。
+
+    - review：排除当前 Task 的 active/completed implementer；
+    - QA execution：排除上游依赖闭包中 Dev Task 的 implementer；
+    - Design-only Agent 不在 QA 排斥集合中。
     """
-    import json as _json
-    out: list[Agent] = []
-    for a in s.query(Agent).filter(
-        Agent.online.is_(True),
-        Agent.enabled.is_(True),
-    ).all():
-        try:
-            roles = _json.loads(a.roles or "[]")
-        except (ValueError, TypeError):
-            roles = []
-        if tool in roles:
-            out.append(a)
-    return out
+    workload = (workload_type or "task").strip().lower()
+    task_ids: set[int] = set()
+    reason_label = ""
+    if workload == "review":
+        task_ids = {task.id}
+        reason_label = f"same_task_implementer:task#{task.id}"
+    elif str(task.type) == "qa" and workload in {"task", "rework", "qa"}:
+        upstream = _upstream_task_ids(s, task.id)
+        task_ids = {
+            int(row[0])
+            for row in s.query(Task.id).filter(
+                Task.id.in_(upstream), Task.type == "dev",
+            ).all()
+        } if upstream else set()
+        reason_label = "upstream_dev_implementer"
+
+    result = AssignmentExclusion()
+    for assignment in _assignment_rows_for_tasks(s, task_ids):
+        if assignment.agent_registry_id is not None:
+            aid = int(assignment.agent_registry_id)
+            result.agent_registry_ids.add(aid)
+            result.reasons.setdefault(aid, []).append(
+                f"{reason_label}:task#{assignment.task_id}",
+            )
+        if assignment.user_id is not None:
+            result.user_ids.add(int(assignment.user_id))
+    return result
+
+
+def _runnable_instance_for_agent(s: Session, agent: Agent) -> AgentInstance | None:
+    return (
+        s.query(AgentInstance)
+        .join(Worker, Worker.worker_id == AgentInstance.worker_id)
+        .filter(
+            AgentInstance.agent_id == agent.agent_id,
+            AgentInstance.enabled.is_(True),
+            AgentInstance.online.is_(True),
+            Worker.status == "active",
+        )
+        .order_by(AgentInstance.worker_id.asc())
+        .first()
+    )
+
+
+def list_runnable_candidates(
+    s: Session, task: Task, workload_type: str,
+) -> list[tuple[Agent, AgentInstance]]:
+    """统一 runnable Agent eligibility；不读取业务静态 roles。"""
+    expire_stale_agent_heartbeats(s)
+    expire_stale_worker_heartbeats(s)
+    member_ids = {
+        int(row[0]) for row in s.query(ProjectMember.user_id).filter(
+            ProjectMember.project_id == task.project_id,
+        ).all()
+    }
+    agents = [
+        agent for agent in s.query(Agent).filter(
+            Agent.enabled.is_(True), Agent.online.is_(True),
+        ).all()
+        if agent.user_id in member_ids
+    ]
+    instances = {
+        agent.id: _runnable_instance_for_agent(s, agent) for agent in agents
+    }
+    agents = [agent for agent in agents if instances.get(agent.id) is not None]
+    ranked = rank_agents_for_task(
+        s, task, role=workload_type or "task", agents=agents,
+    )
+    return [
+        (entry.agent, instances[entry.agent.id])
+        for entry in ranked
+        if instances.get(entry.agent.id) is not None
+    ]
+
+
+def _online_agents_for_type(s: Session, tool: str) -> list[Agent]:
+    """兼容 helper：按 executor type 查询，旧实例才回退到 roles 推导。
+
+    这里的 roles fallback 只识别 Worker 使用的 CLI，不参与 workload 准入。
+    """
+    expected = (tool or "").strip().lower()
+    agents = s.query(Agent).filter(
+        Agent.online.is_(True), Agent.enabled.is_(True),
+    ).all()
+    return [
+        agent for agent in agents
+        if (inst := _runnable_instance_for_agent(s, agent)) is not None
+        and resolve_agent_executor_type(agent, s=s, worker_id=inst.worker_id) == expected
+    ]
 
 
 def _pick_implementation_agent(
     s: Session, task: Task, workload_type: str,
 ) -> tuple[Agent, AgentInstance] | None:
-    """PR-10 核心 picker。返回 (Agent, AgentInstance) 或 None（无候选）。
+    """按 workload 能力、在线实例和动态排斥规则选择实现者。
 
-    步骤：
-      1. 推导 tool（_agent_type_for）
-      2. 查候选池（_online_agents_for_type，按 roles 匹配）
-      3. 排除本 task 历史 assignee（_excluded_prior_agent_ids）
-      4. 随机选 1 个 Agent
-      5. resolve physical worker（resolve_worker_for_agent from PR-5）
-
-    失败语义：
-      - 候选空 / 全被排除 → 返回 None（caller 决定 fallback broadcast）
-      - candidate 有但没 online AgentInstance → 走 PR-5 fallback log warning
+    返回 ``(Agent, AgentInstance)``；没有可运行候选或候选全部被排斥时
+    返回 ``None``，由调用方保留 todo 并记录可观测的 deferred reason。
     """
-    tool = _agent_type_for(task.type, workload_type)
-    if not tool:
+    if workload_type not in {"task", "rework"}:
         return None
-    candidates = _online_agents_for_type(s, tool)
+    candidates = list_runnable_candidates(s, task, workload_type)
     if not candidates:
         return None
-    excluded = _excluded_prior_agent_ids(s, task.id)
-    filtered = [a for a in candidates if a.id not in excluded]
+    excluded = get_assignment_exclusion(s, task, workload_type)
+    filtered = [pair for pair in candidates if pair[0].id not in excluded.agent_registry_ids]
     if not filtered:
-        # 全被排除：兜底取原池（避免无候选导致任务永远 dispatch 不出）
-        # log 出来让运维知道"为什么 task 一直派同一个人"
         log.warning(
-            "PR-10 dispatch: task %s 候选全被历史 assignee 排除（%d 个），"
-            "兜底取原池",
-            task.id, len(excluded),
+            "dispatch: task %s 候选全被动态 exclusion 排除：%s",
+            task.id, excluded.reasons,
         )
-        filtered = candidates
-    picked_agent = random.choice(filtered)
-    # 解析 worker
-    worker_id = resolve_worker_for_agent(s, picked_agent.agent_id)
-    if not worker_id:
         return None
-    # 取这个 agent 在该 worker 上的 AgentInstance
-    inst = (
-        s.query(AgentInstance)
-        .filter(
-            AgentInstance.agent_id == picked_agent.agent_id,
-            AgentInstance.worker_id == worker_id,
-            AgentInstance.enabled.is_(True),
-            AgentInstance.online.is_(True),
-        )
-        .order_by(AgentInstance.worker_id.asc())
-        .first()
-    )
-    if not inst:
-        return None
-    return (picked_agent, inst)
+    return filtered[0]
 
 
 def dispatch_implementation_task(
@@ -898,25 +995,27 @@ def dispatch_implementation_task(
         return None
     picked = _pick_implementation_agent(s, task, workload_type)
     if picked is None:
-        log.warning(
-            "PR-10 dispatch: task %s (type=%s) 无可用 candidate，"
-            "fallback broadcast task.available（保留旧 event 兼容，"
-            "等 Worker / AgentInstance 配置就位后自动转 dispatch）",
-            task_id, task.type,
-        )
-        # PR-10 fallback：没 candidate 时仍 publish task.available
-        # broadcast，让 .NET 抢任务（如果 .NET 已启）或 workflow_worker
-        # 轮询兜底。保留旧行为，运维部署 agent 配置期间不影响 happy path。
-        # 上面 dispatch 函数体 import 的 mq 是函数级局部变量；本分支
-        # 早于那个 import 走，需要走函数级 helper
-        from ...core.infrastructure import messaging as _mq_fb
-        _mq_fb.publish_workflow_event(
-            _mq_fb.EVENT_TASK_AVAILABLE,
-            "task",
-            task_id,
-            ref_id=task.story_id,
-            workload_type=workload_type,
-        )
+        runnable = list_runnable_candidates(s, task, workload_type)
+        exclusion = get_assignment_exclusion(s, task, workload_type)
+        remaining = [
+            pair for pair in runnable
+            if pair[0].id not in exclusion.agent_registry_ids
+        ]
+        task.assignment_deferred_reason = json.dumps({
+            "code": (
+                "all_candidates_excluded"
+                if runnable and not remaining else "no_runnable_agent"
+            ),
+            "task_type": task.type,
+            "workload_type": workload_type,
+            "runnable_agent_ids": [pair[0].id for pair in runnable],
+            "excluded_agent_ids": sorted(exclusion.agent_registry_ids),
+            "exclusion_reasons": exclusion.reasons,
+        }, ensure_ascii=False, sort_keys=True)
+        task.assignment_deferred_at = utc_now()
+        _commit(s)
+        log.warning("dispatch: task %s 无合格 Agent，保持 todo：%s",
+                    task_id, task.assignment_deferred_reason)
         return None
     agent, inst = picked
     # PR-10 follow-up：复用 try_assign_task 原子写 TaskAssignment + 推
@@ -933,6 +1032,7 @@ def dispatch_implementation_task(
             user_id=agent.user_id,
             agent_registry_id=agent.id,
             source="schedule",
+            workload_type=workload_type,
             commit=True,
         )
     except Exception as e:
@@ -944,7 +1044,7 @@ def dispatch_implementation_task(
     # 注：PR-10 这里没传 agent_type —— Agent 模型无 agent_type 字段；
     # 改走 .NET 端按 agent_id 查注册的 tool（PR-12 启动注册时填到 worker 配置）
     # 本期 tool 类型（workbuddy/codex）从 _DISPATCH_AGENT_TYPE 反查
-    tool = _agent_type_for(task.type, workload_type) or ""
+    tool = resolve_agent_executor_type(agent, s=s, worker_id=inst.worker_id)
     from ...core.infrastructure import messaging as mq
     mq.publish_workflow_event(
         mq.EVENT_TASK_ASSIGNED,
@@ -1688,6 +1788,18 @@ def publish_workflow_event_for_agent(
     # 延迟 import 避免循环（mq 模块要 scheduling.models）
     from ...core.infrastructure import messaging as mq
     worker_id = resolve_worker_for_agent(s, agent_id) if agent_id else None
+    if agent_id and not (kwargs.get("agent_type") or "").strip():
+        inst = s.query(AgentInstance).filter(
+            AgentInstance.agent_id == agent_id,
+            AgentInstance.worker_id == worker_id,
+            AgentInstance.enabled.is_(True),
+            AgentInstance.online.is_(True),
+        ).first() if worker_id else None
+        if inst is not None:
+            agent = s.query(Agent).filter(Agent.agent_id == agent_id).first()
+            kwargs["agent_type"] = resolve_agent_executor_type(
+                agent, s=s, worker_id=inst.worker_id,
+            ) if agent is not None else ""
     if agent_id and not worker_id:
         # 运维可见：task / review 发出去了但没有在线 worker
         # .NET 端走 fallback（agent_id 路由，几乎没人收；happy path
@@ -1713,6 +1825,7 @@ def upsert_agent_instance(
     agent_id: str,
     cli_command: str = "",
     model: str = "",
+    executor_type: str | None = None,
     auth_key: str = "",
     enabled: bool = True,
 ) -> AgentInstance:
@@ -1729,6 +1842,15 @@ def upsert_agent_instance(
     if not s.query(Agent).filter(Agent.agent_id == agent_id).first():
         raise NotFound(f"agent {agent_id} not found")
     validate_cli_command(cli_command)
+    normalized_executor = (
+        str(executor_type).strip().lower() if executor_type is not None else None
+    )
+    if normalized_executor == "":
+        normalized_executor = None
+    if normalized_executor is not None and normalized_executor not in EXECUTOR_TYPES:
+        raise InvalidValue(
+            f"executor_type must be one of {sorted(EXECUTOR_TYPES)}",
+        )
     existing = s.query(AgentInstance).filter(
         AgentInstance.worker_id == worker_id,
         AgentInstance.agent_id == agent_id,
@@ -1736,6 +1858,10 @@ def upsert_agent_instance(
     if existing:
         existing.cli_command = (cli_command or "")[:500]
         existing.model = (model or "")[:100]
+        # Older Workers omit executor_type; an idempotent upsert must not erase
+        # a value already registered by a newer Worker.
+        if executor_type is not None:
+            existing.executor_type = normalized_executor
         existing.auth_key = (auth_key or "")[:100]
         existing.enabled = bool(enabled)
         _commit(s); s.refresh(existing); return existing
@@ -1744,6 +1870,7 @@ def upsert_agent_instance(
         agent_id=agent_id,
         cli_command=(cli_command or "")[:500],
         model=(model or "")[:100],
+        executor_type=normalized_executor,
         auth_key=(auth_key or "")[:100],
         enabled=bool(enabled),
     )
@@ -2115,19 +2242,22 @@ def _vote_majority(s: Session, entity, *, entity_type: str, reviewer_user_id: in
 
 # ---- 同步自 service.py ----
 def _online_reviewer_candidates(s: Session, project_id: int) -> list[Agent]:
-    """在线 ∩ 角色含 reviewer ∩ 绑定 user 属项目成员 的 Agent 候选集。"""
+    """在线、enabled、项目成员且有 runnable instance 的通用评审候选。"""
     expire_stale_agent_heartbeats(s)
+    expire_stale_worker_heartbeats(s)
     member_ids = {
         r[0] for r in s.query(ProjectMember.user_id).filter(
             ProjectMember.project_id == project_id
         ).all()
     }
-    online_agents = s.query(Agent).filter(Agent.online == True).all()  # noqa: E712
+    online_agents = s.query(Agent).filter(
+        Agent.online.is_(True), Agent.enabled.is_(True),
+    ).all()
     candidates = []
     for a in online_agents:
         if a.user_id not in member_ids:
             continue
-        if "reviewer" in _parse_json_list(a.roles, "roles"):
+        if _runnable_instance_for_agent(s, a) is not None:
             candidates.append(a)
     return candidates
 
@@ -2200,8 +2330,10 @@ def _reassign_task_reviewer(s: Session, task: Task,
     成功返回新 reviewer 的 user_id；候选为空 / CAS 失败 → None。
     """
     candidates = _online_reviewer_candidates(s, task.project_id)
+    exclusion = get_assignment_exclusion(s, task, "review")
     candidates = [a for a in candidates
-                  if a.user_id not in (exclude_user_id, task.assignee_id)]
+                  if a.user_id not in (exclude_user_id, task.assignee_id)
+                  and a.id not in exclusion.agent_registry_ids]
     if not candidates:
         return None
     ranked = rank_agents_for_task(s, task, role="reviewer", agents=candidates)

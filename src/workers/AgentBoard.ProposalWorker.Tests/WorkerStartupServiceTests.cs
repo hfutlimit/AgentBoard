@@ -90,6 +90,22 @@ public class WorkerStartupServiceTests
             r.Method == "POST" && r.Url.EndsWith("/api/agents/register")
             && (r.Body?.Contains("workbuddy-on-dev") == true
                 || r.Body?.Contains("codex-on-dev") == true)));
+        var registrations = stub.Requests.Where(r =>
+            r.Method == "POST" && r.Url.EndsWith("/api/agents/register")).ToList();
+        Assert.All(registrations, r =>
+        {
+            using var json = System.Text.Json.JsonDocument.Parse(r.Body);
+            Assert.Equal("[]", json.RootElement.GetProperty("roles").GetString());
+        });
+        var instances = stub.Requests.Where(r =>
+            r.Method == "POST" && r.Url.Contains("/instances")).ToList();
+        Assert.Equal(2, instances.Count);
+        Assert.Contains(instances, r =>
+            System.Text.Json.JsonDocument.Parse(r.Body).RootElement
+                .GetProperty("executor_type").GetString() == "workbuddy");
+        Assert.Contains(instances, r =>
+            System.Text.Json.JsonDocument.Parse(r.Body).RootElement
+                .GetProperty("executor_type").GetString() == "codex");
         // minimax 没注册（Command="" 跳过）
         Assert.DoesNotContain(stub.Requests, r => r.Url.Contains("minimax"));
     }

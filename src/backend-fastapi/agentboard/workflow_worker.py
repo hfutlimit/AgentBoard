@@ -50,6 +50,8 @@ from .mq import (
     WorkflowTopology,
 )
 
+EVENT_TICKET_REQUESTED = mq.EVENT_TICKET_REQUESTED
+
 log = logging.getLogger(__name__)
 
 
@@ -101,6 +103,7 @@ class WorkflowConsumer:
     #: 任何不在这里的 internal event 直接 ack 忽略（不视为未识别）
     _INTERNAL_HANDLERS = {
         EVENT_TASK_REVIEW_ASSIGNMENT_NEEDED: "_handle_task_review_assignment_needed",
+        EVENT_TICKET_REQUESTED: "_handle_auto_story_materialization",
     }
 
     def __init__(self, config: WorkflowConsumerConfig,
@@ -221,6 +224,34 @@ class WorkflowConsumer:
                  task_id, msg.ref_id)
         return self._assign_task_reviewer(task_id)
 
+    def _execute_auto_story_request(self, request_id: int) -> bool:
+        """执行确定性的 AUTO Story request；不拉起 CLI Agent 决策实体类型。"""
+        try:
+            r = self._request(
+                "POST", f"/api/ticket-requests/{request_id}/execute",
+            )
+        except Exception as e:
+            raise mq.MessageRetry(
+                f"auto_story request #{request_id} 网络异常: {e}",
+            ) from None
+        if r.status_code in (200, 201):
+            log.info("auto_story request #%s materialized", request_id)
+            return True
+        if r.status_code in (404, 409):
+            # 404=请求已删除；409=其它消费者已 claim，均可安全 ack。
+            log.info("auto_story request #%s 已被处理/不存在（HTTP %s）",
+                     request_id, r.status_code)
+            return True
+        log.warning("auto_story request #%s 执行失败 HTTP %s: %s",
+                    request_id, r.status_code, r.text[:300])
+        return True
+
+    def _handle_auto_story_materialization(self, msg: WorkflowMessage) -> bool:
+        if not msg.ref_id:
+            log.error("proposal.ticket_requested 缺 ref_id，无法定位 request")
+            return False
+        return self._execute_auto_story_request(int(msg.ref_id))
+
     # ---------- 轮询模式（无 MQ 兜底） ----------
 
     def run_poll_once(self) -> int:
@@ -229,6 +260,22 @@ class WorkflowConsumer:
         Story 级评审已下线（2026-08-09）：不再扫描 backlog Story 指派 reviewer。
         """
         assigned = 0
+        # 无 MQ 兜底：仅接管新的确定性 auto_story；手工四类 ticket 仍由原
+        # Proposal Agent worker 处理。
+        try:
+            r = self.client.get(
+                "/api/admin/ticket-requests/pending",
+                params={"limit": max(1, self.config.batch_size)},
+            )
+            r.raise_for_status()
+            rows = r.json() or []
+            for req in rows:
+                if req.get("type") != "auto_story":
+                    continue
+                if self._execute_auto_story_request(int(req["id"])):
+                    assigned += 1
+        except Exception as e:
+            log.warning("轮询执行 auto_story request 失败：%s", e)
         # 切片 2 M2 兜底：扫描 in_review 未指派 reviewer 的 Task → 自动指派
         try:
             r = self.client.get("/api/tasks", params={

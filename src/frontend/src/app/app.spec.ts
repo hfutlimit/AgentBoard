@@ -447,6 +447,7 @@ describe('App', () => {
       converged_spec: '',
       story_id: null,
       auto_create_ticket: false,
+      target_epic_id: null,
       ticket_type: '',
       ticket_id: null,
       author_id: 1,

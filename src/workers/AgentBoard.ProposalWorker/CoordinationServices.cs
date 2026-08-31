@@ -184,14 +184,9 @@ public sealed class WorkerStartupService : BackgroundService
             var agentId = string.IsNullOrWhiteSpace(opt.AgentId)
                 ? $"{_worker.Id}-{tool}"           // 默认 = "{worker_id}-{tool}"
                 : opt.AgentId;
-            // PR-12 follow-up：WorkBuddy role 数组加 "reviewer" —
-            // review scheduler（_online_reviewer_candidates）要求 roles 含
-            // "reviewer" + online + project member。光 "workbuddy" 配出来
-            // 不能被选为 reviewer，PR-13b 第一版 happy path 必卡这里。
-            // Codex 不需要 reviewer role（不审 review）。
-            var roles = tool == "workbuddy"
-                ? new[] { "workbuddy", "reviewer" }
-                : new[] { tool };
+            // workload（design/dev/review/qa）不是 Agent 永久角色；执行器类型
+            // 单独写 AgentInstance.executor_type。roles 保留空数组兼容旧字段。
+            var roles = Array.Empty<string>();
             try
             {
                 var client = _http.CreateClient();
@@ -219,6 +214,7 @@ public sealed class WorkerStartupService : BackgroundService
                     worker_id = _worker.Id,
                     cli_command = opt.Command,
                     model = "",
+                    executor_type = tool.ToLowerInvariant(),
                     auth_key = opt.ApiKeyEnv ?? "",
                     enabled = true,
                 };

@@ -118,6 +118,7 @@ def _setup_codex_agent(db_session, user_id):
         worker_id="dev-pc-01", agent_id="codex-A",
         cli_command="", model="", auth_key="",
         enabled=True, online=True, last_heartbeat=utc_now(),
+        executor_type="codex",
     )
     db_session.add(inst); db_session.commit()
     return a
@@ -198,14 +199,15 @@ def test_assign_reviewer_event_has_agent_type_and_workload_type(db_session, brok
     db_session.add(ProjectMember(project_id=project.id, user_id=reviewer_user.id, role="member"))
     db_session.commit()
     story_id = _setup_story(db_session, project.id)
-    # reviewer agent：workbuddy+reviewer
+    # roles 为空也可承担 review；executor_type 只决定物理执行器。
     a = Agent(agent_id="reviewer-wb", name="r", user_id=reviewer_user.id,
-              roles='["workbuddy","reviewer"]', cli_command="", model="",
+              roles="[]", cli_command="", model="",
               enabled=True, online=True, last_heartbeat=utc_now())
     db_session.add(a); db_session.flush()
     db_session.add(AgentInstance(worker_id="dev-pc-01",
         agent_id="reviewer-wb", cli_command="", model="", auth_key="",
-        enabled=True, online=True, last_heartbeat=utc_now()))
+        enabled=True, online=True, last_heartbeat=utc_now(),
+        executor_type="workbuddy"))
     db_session.commit()
 
     # 2. 建 dev task → in_review（绕 review 链，PR-13b 思路）

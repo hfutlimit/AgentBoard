@@ -266,6 +266,12 @@ class AgentInstance(Base):
     agent_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     cli_command: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     model: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    # 物理执行器/适配器类型；与 design/dev/review/qa workload 完全分离。
+    # 旧数据无法可靠推导时允许 NULL；迁移期仅对物理 CLI role 做兼容推导，
+    # 新注册/更新必须由 Worker 显式上报或通过 backfill 固化。
+    executor_type: Mapped[str | None] = mapped_column(
+        String(40), nullable=True, index=True,
+    )
     auth_key: Mapped[str] = mapped_column(String(100), nullable=False, default="")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     online: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
@@ -278,13 +284,13 @@ class AgentInstance(Base):
     # Owner 视角：Worker 是 owner，需要本机 CLI 模板。
     # 但 ``auth_key`` 仍脱敏（即使是 owner 也不在 JSON 里走明文）。
     _OWNER_FIELDS = (
-        "id", "worker_id", "agent_id", "cli_command", "model",
+        "id", "worker_id", "agent_id", "cli_command", "model", "executor_type",
         "enabled", "online", "last_heartbeat", "last_probe_at",
         "probe_message", "created_at", "updated_at",
     )
     # 跨 worker 视角：脱敏 cli_command（避免一个 Worker 看到另一个 Worker 的命令）
     _CROSS_FIELDS = (
-        "id", "worker_id", "agent_id", "model",
+        "id", "worker_id", "agent_id", "model", "executor_type",
         "enabled", "online", "last_heartbeat", "last_probe_at",
         "last_probe_at", "created_at", "updated_at",
     )

@@ -521,6 +521,7 @@ def upsert_agent_instance_for_agent(agent_id: str, body: AgentInstanceUpsertIn,
         inst = service.upsert_agent_instance(
             s, worker_id=body.worker_id, agent_id=agent_id,
             cli_command=body.cli_command, model=body.model,
+            executor_type=body.executor_type,
             auth_key=body.auth_key, enabled=body.enabled,
         )
     except Exception as e:

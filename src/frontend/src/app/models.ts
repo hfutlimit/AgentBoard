@@ -109,6 +109,8 @@ export interface Task {
   assignee_id: number | null;
   labels: string;  // JSON array string
   estimate: number | null;  // 预估工时（小时）
+  assignment_deferred_reason?: string | null;
+  assignment_deferred_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -453,6 +455,7 @@ export interface ProposalItem {
   ticket_type: string;
   ticket_id: number | null;
   auto_create_ticket: boolean;
+  target_epic_id: number | null;
   author_id: number | null;
   error: string;
   created_at: string;
@@ -460,7 +463,7 @@ export interface ProposalItem {
 }
 
 /* ---- Proposal → Ticket 异步转化（文档 #59）---- */
-export type TicketType = 'epic' | 'story' | 'task' | 'bug';
+export type TicketType = 'epic' | 'story' | 'task' | 'bug' | 'auto_story';
 export type TicketRequestStatus = 'pending' | 'processing' | 'done' | 'failed';
 
 export interface TicketRequestItem {

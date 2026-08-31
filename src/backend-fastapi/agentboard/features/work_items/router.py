@@ -561,7 +561,7 @@ def assign_task_reviewer(tid: int, count: int = 1,
         # 值 → InvalidDataException → DLQ，reviewer 永远收不到。
         from ..scheduling.service import resolve_agent_executor_type
         reviewer_agent_type = (
-            resolve_agent_executor_type(agent) if agent is not None else ""
+            resolve_agent_executor_type(agent, s=s) if agent is not None else ""
         )
         publish_workflow_event_for_agent(
             s, EVENT_TASK_REVIEW_REQUESTED, "task", t.id,
@@ -739,7 +739,7 @@ def reassign_timeout(project_id: int | None = None,
                 s, review_event, entity_type, eid,
                 agent_id=reviewer_agent_id,
                 ref_id=new_reviewer_id,
-                agent_type=resolve_agent_executor_type(agent) if agent is not None else "",
+                agent_type=resolve_agent_executor_type(agent, s=s) if agent is not None else "",
                 workload_type="review",
             )
             if project_id is not None:

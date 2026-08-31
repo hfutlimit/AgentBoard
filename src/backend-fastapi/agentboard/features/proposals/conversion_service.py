@@ -249,6 +249,7 @@ class ProposalConversionService:
         proposal,
         *,
         author_id: int | None = None,
+        commit: bool = True,
     ) -> ConversionResult:
         """事务性落库：Document + Epic + Story + Tasks + Dependencies + Proposal 终态。
 
@@ -271,51 +272,25 @@ class ProposalConversionService:
 
         p = _proposal_or_404(s, proposal.id)
 
-        # 1. Story
-        # Review 2026-08-26 P1/P2 #5 注意事项：create_story 内部会**自动**创建 1 个
-        # design task + 1 个 dev task + design→dev dep。所以我们 plan 里的 design
-        # task 不能重复创建 —— 复用 create_story 的默认 design task，把 plan 的
-        # design edges 重新 bind 到真实 id。
+        # 1. Story：Proposal conversion 必须精确按 plan 创建 DAG，不能复用
+        # create_story 的默认 Design/Dev，否则 spec 已含 Dev 时会多出未连 QA 的
+        # 默认 Dev，导致 QA 提前解锁。
         story = create_story(
             s,
             epic_id=plan.epic_id or (plan.epic or {}).get("id") or 0,
             title=_required((plan.story or {}).get("title") or p.title, "title", 300),
             description=(plan.story or {}).get("description") or p.converged_spec or "",
             commit=False,
+            create_default_tasks=False,
         )
-        # 查 create_story 自动创的 default design task
-        default_design = s.query(Task).filter(
-            Task.story_id == story.id, Task.type == ItemType.DESIGN.value,
-        ).first()
-        default_dev = s.query(Task).filter(
-            Task.story_id == story.id, Task.type == ItemType.DEV.value,
-        ).first()
 
-        # 2. Tasks：plan 里 type=design 的跳过（用 create_story 的 default design）
-        # plan 里 type=dev 的也跳过 default dev（但 spec checklist 创建的 dev 要创）
-        # plan 里 type=qa 的全创
+        # 2. Tasks：严格按 plan 创建。Proposal 已完成 Grill/人工答疑，自动 Design
+        # 不再要求用户二次确认，但仍走普通 Agent review。
         title_to_task: dict[str, Task] = {}
-        plan_design_title = f"设计：{proposal.title}"
-        plan_qa_title = f"QA验收：{proposal.title}"
-
-        if default_design is not None:
-            title_to_task[plan_design_title] = default_design
 
         for t in plan.tasks:
             t_title = t["title"]
             t_type = t.get("type") or ItemType.DEV.value
-            # 跳过 design（用 default）
-            if t_type == ItemType.DESIGN.value:
-                continue
-            # 如果 dev 的 title 跟 default dev 重合（"实现：<title>"），复用 default
-            if (
-                t_type == ItemType.DEV.value
-                and default_dev is not None
-                and t_title == default_dev.title
-            ):
-                title_to_task[t_title] = default_dev
-                continue
-            # qa + 其它 spec-driven dev：走 create_task
             task = create_task(
                 s,
                 project_id=p.project_id,
@@ -324,6 +299,7 @@ class ProposalConversionService:
                 type=t_type,
                 description=t.get("description") or t_title,
                 priority=t.get("priority") or Priority.MEDIUM.value,
+                needs_human_confirmation=False,
                 commit=False,
             )
             title_to_task[t_title] = task
@@ -334,13 +310,6 @@ class ProposalConversionService:
             if src_title in title_to_task and dst_title in title_to_task:
                 src_task = title_to_task[src_title]
                 dst_task = title_to_task[dst_title]
-                # 避免重复创建 design→dev dep（create_story 已自动创了一个）
-                if (
-                    src_task.id == default_design.id
-                    and default_dev is not None
-                    and dst_task.id == default_dev.id
-                ):
-                    continue
                 dep = TaskDependency(
                     task_id=dst_task.id,
                     depends_on_id=src_task.id,
@@ -355,9 +324,13 @@ class ProposalConversionService:
         p.status = ProposalStatus.STORY_CREATED.value
         p.error = ""
 
-        # 5. 事务性 commit（杜绝半成品）
+        # 5. 手工 convert 默认独立提交；AUTO request 传 commit=False，由上层
+        # 把 request/proposal/materialization 收口到同一事务。
         _invalidate_project_stats_cache(p.project_id)
-        _commit(s)
+        if commit:
+            _commit(s)
+        else:
+            s.flush()
         s.refresh(story)
         s.refresh(p)
         for t in title_to_task.values():

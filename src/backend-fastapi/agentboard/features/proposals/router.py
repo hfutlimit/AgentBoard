@@ -50,6 +50,7 @@ def create_proposal(body: ProposalIn, s: Session = Depends(get_session),
             s, project_id=body.project_id, title=body.title, content=body.content,
             author_id=body.author_id if body.author_id is not None else uid,
             auto_create_ticket=body.auto_create_ticket,
+            target_epic_id=body.target_epic_id,
         )
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -180,15 +181,18 @@ def set_proposal_status(pid: int, body: ProposalStatusIn, s: Session = Depends(g
     if p is not None and str(p.status) == "queued":
         api_helpers._dispatch_proposal(pid, getattr(p, "current_round", 0) or 0,
                            mq.REASON_QUEUED)
-    # 收敛后自动创建一条 auto 转换请求。Agent 会读项目层级后
-    # 在 epic / story / task 中选择，不由 UI 预先猜测。
+    # 收敛后创建确定性的 auto_story 转换请求。父 Epic 由用户在收敛前
+    # 明确选择；Worker 只执行服务端 materialization，不再让 Agent 猜层级。
     if p is not None and str(p.status) == "converged" and p.auto_create_ticket:
         try:
-            req = service.create_ticket_request(s, pid, type="auto")
+            req = service.create_ticket_request(
+                s, pid, type="auto_story", epic_id=p.target_epic_id,
+            )
         except (service.NotFound, service.InvalidValue) as e:
             raise HTTPException(status_code=422, detail=str(e))
         mq.publish_workflow_event(
             mq.EVENT_TICKET_REQUESTED, "proposal", pid, ref_id=req.id,
+            route="internal", workload_type="ticket",
         )
         p = service.get_proposal(s, pid)
     return service._ser(p)

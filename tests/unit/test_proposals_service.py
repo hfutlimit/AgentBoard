@@ -76,9 +76,11 @@ def test_get_proposal_not_found(session):
 
 def _converged_proposal(session, project, *, auto_create_ticket=False):
     """pending → queued → analyzing → converged 的最短合法路径。"""
+    target_epic_id = _create_epic_id(session, project.id) if auto_create_ticket else None
     p = create_proposal(
         session, project_id=project.id, title=f"ac-{uuid.uuid4().hex[:6]}",
         content="- [ ] X", auto_create_ticket=auto_create_ticket,
+        target_epic_id=target_epic_id,
     )
     set_proposal_status(session, p.id, "queued")
     claim_proposal(session, p.id, agent="t")
@@ -87,11 +89,13 @@ def _converged_proposal(session, project, *, auto_create_ticket=False):
 
 
 def test_auto_create_ticket_persisted_on_create(session, project):
+    target_epic_id = _create_epic_id(session, project.id)
     p = create_proposal(
         session, project_id=project.id, title="ac-on",
-        content="c", auto_create_ticket=True,
+        content="c", auto_create_ticket=True, target_epic_id=target_epic_id,
     )
     assert p.auto_create_ticket is True
+    assert p.target_epic_id == target_epic_id
     assert get_proposal(session, p.id).auto_create_ticket is True
     p_off = create_proposal(
         session, project_id=project.id, title="ac-off", content="c",
@@ -125,8 +129,12 @@ def test_auto_create_ticket_modifiable_before_converge(session, project, status)
                     )
             elif status == "queued":
                 set_proposal_status(session, p.id, "queued")
-    updated = update_proposal(session, p.id, auto_create_ticket=True)
+    target_epic_id = _create_epic_id(session, project.id)
+    updated = update_proposal(
+        session, p.id, auto_create_ticket=True, target_epic_id=target_epic_id,
+    )
     assert updated.auto_create_ticket is True
+    assert updated.target_epic_id == target_epic_id
     updated = update_proposal(session, p.id, auto_create_ticket=False)
     assert updated.auto_create_ticket is False
 
@@ -180,3 +188,11 @@ def _first_epic_id(session, project_id) -> int:
     e = session.query(Epic).filter(Epic.project_id == project_id).first()
     assert e is not None
     return e.id
+
+
+def _create_epic_id(session, project_id) -> int:
+    from agentboard.features.projects.models import Epic
+    epic = Epic(project_id=project_id, title=f"Target {uuid.uuid4().hex[:6]}")
+    session.add(epic)
+    session.commit()
+    return epic.id

@@ -383,6 +383,7 @@ def try_assign_task(
     source: str,
     match_score: float | None = None,
     match_reason: dict | str | None = None,
+    workload_type: str | None = None,
     commit: bool = True,
 ) -> tuple[Task, TaskAssignment]:
     """Atomically reserve a todo task and persist its exact execution owner."""
@@ -404,6 +405,18 @@ def try_assign_task(
         raise InvalidValue(f"agent registry id {agent_registry_id} not found")
     if agent is not None and user_id is not None and agent.user_id != user_id:
         raise InvalidValue(f"agent '{agent.agent_id}' belongs to another user")
+    if agent is not None:
+        # 最终 CAS 前复检动态排斥，避免旧 Worker/直接 claim 绕过 scheduler。
+        from ..scheduling.service import get_assignment_exclusion
+        exclusion = get_assignment_exclusion(
+            s, task, workload_type or "task",
+        )
+        if agent.id in exclusion.agent_registry_ids:
+            reasons = exclusion.reasons.get(agent.id, [])
+            raise InvalidValue(
+                f"agent '{agent.agent_id}' is excluded for task {task_id}: "
+                + ", ".join(reasons),
+            )
     if (
         source == "claim"
         and agent_registry_id is not None
@@ -442,6 +455,8 @@ def try_assign_task(
                 status=Status.IN_PROGRESS,
                 assignee_id=user_id,
                 current_assignment_id=assignment.id,
+                assignment_deferred_reason=None,
+                assignment_deferred_at=None,
             )
         )
         if result.rowcount != 1:

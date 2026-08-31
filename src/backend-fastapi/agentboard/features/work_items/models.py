@@ -52,6 +52,9 @@ class Task(Base):
     )
     # Story 265：状态原因枚举（done 必填 completed/withdrawn；blocked 必填 4 选 1）
     status_reason: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    # 调度暂缓原因不是终态 status_reason；成功分配时清空。
+    assignment_deferred_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    assignment_deferred_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     description: Mapped[str] = mapped_column(Text, default="")
     spec: Mapped[str] = mapped_column(Text, default="")
     source_spec_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True)

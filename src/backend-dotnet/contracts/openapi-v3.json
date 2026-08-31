@@ -4475,13 +4475,163 @@
         }
       }
     },
+    "/api/tasks/{tid}/user_confirm": {
+      "post": {
+        "tags": [
+          "work_items"
+        ],
+        "summary": "User Confirm Task",
+        "description": "PR-6：用户确认 design task（needs_human_confirmation=True）→ done。\n\n校验：\n  - task 存在\n  - status == in_review（必须先经过 submit-review）\n  - needs_human_confirmation == True（不然这个端点对该 task 无意义）\n\n动作：\n  - 状态 → done，status_reason=completed\n  - 触发 dependency unlock（同 reviewer approve 路径）\n  - 发布 EVENT_TASK_REVIEWED 让 .NET 知道",
+        "operationId": "user_confirm_task_api_tasks__tid__user_confirm_post",
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tid"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/tasks/{tid}/user_reject": {
+      "post": {
+        "tags": [
+          "work_items"
+        ],
+        "summary": "User Reject Task",
+        "description": "PR-6：用户拒绝 design task → 回退 in_progress 让 assignee 改。\n\n校验：同 user_confirm（in_review + needs_human_confirmation=True）\n\n动作：\n  - 状态 → in_progress（status_reason 不需要，in_progress 不强制填）\n  - 写一条 comment 记录用户反馈（可选）\n  - 不发 dependency unlock（task 还没 done）",
+        "operationId": "user_reject_task_api_tasks__tid__user_reject_post",
+        "parameters": [
+          {
+            "name": "tid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Tid"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/tasks/{tid}/assign-reviewer": {
       "post": {
         "tags": [
           "work_items"
         ],
         "summary": "Assign Task Reviewer",
-        "description": "随机指派 Task 评审人（幂等，CAS 并发安全，Epic 122 切片 2 M2）。\n\n- 候选 = 在线 reviewer ∩ 项目成员 ∩ ≠ assignee；无候选 → 422；\n- 成功 → 定向投递 review.requested（entity_type=task）给 reviewer 绑定的\n  Agent 队列（无 Agent 绑定退化为广播，开发者轮询 list_review_tasks 兜底）。\n项目写权限由 project_access_middleware 自动覆盖。",
+        "description": "随机指派 Task 评审人（幂等，CAS 并发安全，Epic 122 切片 2 M2）。\n\n- 候选 = 在线 reviewer ∩ 项目成员 ∩ ≠ assignee；无候选 → 422；\n- 成功 → 定向投递 review.requested（entity_type=task）给 reviewer 绑定的\n  Agent 队列（无 Agent 绑定退化为广播，开发者轮询 list_review_tasks 兜底）。\n- **Sprint 12 多数决 fan-out**（``?count=N``）：一次指 N 个 reviewer，\n  每人收到一条 ``task.review_requested`` 事件。第一位沿用旧的\n  ``Task.reviewer_id`` CAS 写路径（向后兼容），第 2..N 位插入\n  ``review_votes`` 的 NULL verdict 占位行——投票时再落 approve/reject。\n  多数决结算逻辑（``_review_vote_counts`` + ``_settle_majority_approved``）\n  直接吃这张表，无需改动。\n项目写权限由 project_access_middleware 自动覆盖。",
         "operationId": "assign_task_reviewer_api_tasks__tid__assign_reviewer_post",
         "parameters": [
           {
@@ -4491,6 +4641,16 @@
             "schema": {
               "type": "integer",
               "title": "Tid"
+            }
+          },
+          {
+            "name": "count",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "title": "Count"
             }
           },
           {
@@ -13974,6 +14134,18 @@
             "title": "Model",
             "default": ""
           },
+          "executor_type": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executor Type"
+          },
           "auth_key": {
             "type": "string",
             "maxLength": 100,
@@ -15715,6 +15887,17 @@
             "type": "boolean",
             "title": "Auto Create Ticket",
             "default": false
+          },
+          "target_epic_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Epic Id"
           }
         },
         "type": "object",
@@ -15782,6 +15965,17 @@
               }
             ],
             "title": "Auto Create Ticket"
+          },
+          "target_epic_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Epic Id"
           }
         },
         "type": "object",

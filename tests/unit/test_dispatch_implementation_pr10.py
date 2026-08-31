@@ -3,7 +3,7 @@
 覆盖：
 1. _agent_type_for 基础映射（dev→codex, design→workbuddy, ...）
 2. _excluded_prior_agent_ids：查 active/completed 的 agent_registry_id
-3. _online_agents_for_type：online+enabled+roles 匹配
+3. _online_agents_for_type：online+enabled+executor_type 匹配
 4. _pick_implementation_agent：随机选 + 排除历史
 5. dispatch_implementation_task 主路径：
    - 选 agent → 状态 in_progress → publish task.assigned
@@ -36,6 +36,7 @@ from sqlalchemy.pool import StaticPool
 
 from agentboard.core.common.enums import ItemType, Status
 from agentboard.core.common.models import Base, utc_now
+from agentboard.core.exceptions import InvalidValue
 from agentboard.core.infrastructure.messaging import rabbitmq as mq_mod
 from agentboard.features.identity.service import register_user
 from agentboard.features.projects.models import (
@@ -120,13 +121,13 @@ def _setup_worker_agent(db_session, agent_id: str, tool: str, user_id: int,
     a = Agent(
         agent_id=agent_id, name=agent_id, user_id=user_id,
         cli_command="", model="", enabled=True, online=True,
-        last_heartbeat=utc_now(), roles=f'["{tool}"]',
+        last_heartbeat=utc_now(), roles="[]",
     )
     db_session.add(a); db_session.commit()
     inst = AgentInstance(
         worker_id=worker_id, agent_id=agent_id,
         cli_command="", model="", auth_key="", enabled=True, online=True,
-        last_heartbeat=utc_now(),
+        last_heartbeat=utc_now(), executor_type=tool,
     )
     db_session.add(inst); db_session.commit()
     db_session.refresh(a); db_session.refresh(w); db_session.refresh(inst)
@@ -228,7 +229,7 @@ def test_excluded_prior_ignores_released_cancelled(db_session):
 
 # ---------- 3. _online_agents_for_type ----------
 
-def test_online_agents_filters_by_role(db_session):
+def test_online_agents_filters_by_executor_type(db_session):
     user_id, _ = _setup_user_project(db_session)
     a1, _, _ = _setup_worker_agent(
         db_session, "codex-dev-1", "codex", user_id,
@@ -276,17 +277,40 @@ def test_pick_returns_agent_and_instance_for_dev_task(db_session):
     assert instance.worker_id == w.worker_id
 
 
-def test_pick_excludes_prior_agent(db_session):
-    """PR-10 核心约束：task 和 qa 不同 agent。"""
+def test_design_role_agent_can_execute_qa_when_it_did_not_implement_upstream_dev(
+    db_session,
+):
     user_id, project_id = _setup_user_project(db_session)
     story_id = _setup_epic_story(db_session, project_id)
     task_id = _setup_task(db_session, project_id, story_id, "qa", user_id)
-    # codex-1 之前做过 task（active assignment）
+    design_agent, _, _ = _setup_worker_agent(
+        db_session, "design-agent", "workbuddy", user_id,
+    )
+    design_agent.roles = '["design"]'
+    db_session.commit()
+
+    picked = _pick_implementation_agent(
+        db_session, db_session.get(Task, task_id), "task",
+    )
+    assert picked is not None
+    assert picked[0].id == design_agent.id
+
+
+def test_pick_excludes_prior_agent(db_session):
+    """QA 不得由其上游 Dev 的实现 Agent 执行。"""
+    user_id, project_id = _setup_user_project(db_session)
+    story_id = _setup_epic_story(db_session, project_id)
+    dev_task_id = _setup_task(db_session, project_id, story_id, "dev", user_id)
+    task_id = _setup_task(db_session, project_id, story_id, "qa", user_id)
+    task_service.add_task_dependency(
+        db_session, task_id=task_id, depends_on_id=dev_task_id,
+    )
+    # codex-1 实现过 QA 的上游 Dev task。
     codex1, _, _ = _setup_worker_agent(
         db_session, "codex-1", "workbuddy", user_id, worker_id="dev-pc-01",
     )
     ta = TaskAssignment(
-        task_id=task_id, agent_registry_id=codex1.id, user_id=user_id,
+        task_id=dev_task_id, agent_registry_id=codex1.id, user_id=user_id,
         source="schedule", status="completed", active_slot=1,
     )
     db_session.add(ta); db_session.commit()
@@ -304,6 +328,39 @@ def test_pick_excludes_prior_agent(db_session):
         if picked:
             chosen.add(picked[0].agent_id)
     assert chosen == {"codex-2"}, f"应只选 codex-2，实际 {chosen}"
+
+
+def test_try_assign_task_rejects_upstream_dev_agent_for_qa(db_session):
+    user_id, project_id = _setup_user_project(db_session)
+    story_id = _setup_epic_story(db_session, project_id)
+    dev_task_id = _setup_task(db_session, project_id, story_id, "dev", user_id)
+    qa_task_id = _setup_task(db_session, project_id, story_id, "qa", user_id)
+    task_service.add_task_dependency(
+        db_session, task_id=qa_task_id, depends_on_id=dev_task_id,
+    )
+    dev_agent, _, _ = _setup_worker_agent(
+        db_session, "dev-agent", "codex", user_id,
+    )
+    db_session.add(TaskAssignment(
+        task_id=dev_task_id,
+        agent_registry_id=dev_agent.id,
+        user_id=user_id,
+        source="schedule",
+        status="completed",
+        active_slot=1,
+    ))
+    db_session.get(Task, dev_task_id).status = Status.DONE.value
+    db_session.commit()
+
+    with pytest.raises(InvalidValue, match="upstream_dev_implementer"):
+        task_service.try_assign_task(
+            db_session,
+            qa_task_id,
+            user_id=user_id,
+            agent_registry_id=dev_agent.id,
+            source="schedule",
+            workload_type="task",
+        )
 
 
 def test_pick_returns_none_when_no_candidate(db_session):
@@ -362,7 +419,7 @@ def test_dispatch_publishes_task_assigned_with_all_fields(db_session, broker):
 
 
 def test_dispatch_no_candidate_leaves_task_in_todo(db_session, broker):
-    """无候选：task 留 todo，返 None 不抛。"""
+    """无候选：task 留 todo，并持久化 deferred 原因。"""
     user_id, project_id = _setup_user_project(db_session)
     story_id = _setup_epic_story(db_session, project_id)
     task_id = _setup_task(db_session, project_id, story_id, "dev", user_id)
@@ -371,7 +428,10 @@ def test_dispatch_no_candidate_leaves_task_in_todo(db_session, broker):
     result = dispatch_implementation_task(db_session, task_id)
     assert result is None
     db_session.refresh(db_session.get(Task, task_id))
-    assert db_session.get(Task, task_id).status == Status.TODO.value
+    task = db_session.get(Task, task_id)
+    assert task.status == Status.TODO.value
+    assert '"code": "no_runnable_agent"' in task.assignment_deferred_reason
+    assert task.assignment_deferred_at is not None
 
 
 def test_dispatch_skips_when_already_in_progress(db_session, broker):

@@ -38,7 +38,7 @@ log = logging.getLogger("agentboard.features.proposals.service")
 from .models import (
     ALL_PROPOSAL_STATUSES, ASKABLE_STATUSES, CLAIMABLE_STATUSES,
     AUTO_RESOLVABLE_TICKET_TYPES, AUTO_TICKET_MODIFIABLE_STATUSES,
-    AUTO_TICKET_TYPE,
+    AUTO_STORY_TICKET_TYPE, AUTO_TICKET_TYPE,
     DEFAULT_CLAIM_LEASE_SECONDS, Proposal, ProposalQuestion, ProposalRound,
     ProposalStatus, ProposalTicketRequest,
     TICKET_REQUEST_DONE, TICKET_REQUEST_FAILED,
@@ -371,7 +371,12 @@ def create_ticket_request(
     """
     _check_ticket_request_type(type)
     p = _proposal_or_404(s, proposal_id)
-    if type != AUTO_TICKET_TYPE:
+    if type == AUTO_STORY_TICKET_TYPE:
+        epic_id = epic_id or p.target_epic_id
+        _validate_ticket_parents(
+            s, p, type="story", epic_id=epic_id, story_id=None,
+        )
+    elif type != AUTO_TICKET_TYPE:
         _validate_ticket_parents(s, p, type=type, epic_id=epic_id, story_id=story_id)
 
     existing = (
@@ -473,6 +478,10 @@ def execute_ticket_request(
                 s, p, type=type, epic_id=epic_id, story_id=story_id,
             )
             resolved_type = type
+        elif req.type == AUTO_STORY_TICKET_TYPE:
+            # 新 AUTO 路径的实体类型由服务端固定为 Story；caller 无权覆盖。
+            type = AUTO_STORY_TICKET_TYPE
+            resolved_type = "story"
         else:
             type = req.type
     else:
@@ -514,6 +523,19 @@ def execute_ticket_request(
         fail_ticket_request(s, req.id, error=err)
         raise InvalidValue(err)
 
+    if req.type == AUTO_STORY_TICKET_TYPE:
+        request_id = req.id
+        try:
+            return _execute_auto_story_request(s, p, req, title=title)
+        except (InvalidValue, NotFound) as e:
+            s.rollback()
+            fail_ticket_request(s, request_id, error=str(e))
+            raise
+        except Exception as e:
+            s.rollback()
+            fail_ticket_request(s, request_id, error=f"AUTO materialization failed: {e}")
+            raise
+
     # ---- 创建实体（本事务内完成,杜绝部分成功;Step 3 委托 TicketRef）----
     from .ticket_ref import TicketRef
     try:
@@ -547,15 +569,112 @@ def execute_ticket_request(
     return _ticket_execute_result(s, req, proposal_id)
 
 
+def _execute_auto_story_request(
+    s: Session,
+    proposal: Proposal,
+    req: ProposalTicketRequest,
+    *,
+    title: str | None = None,
+) -> dict:
+    """确定性 materialize AUTO Proposal，并激活/派发首批 ready Task。
+
+    request 已由 ``execute_ticket_request`` 用 CAS 认领为 processing。Story/DAG
+    与 Proposal 回填先在单事务提交；后续激活/派发幂等执行。若进程在两阶段之间
+    退出，reclaim 后重放会复用 ``proposal.story_id``，不会创建第二个 Story。
+    """
+    from .conversion_service import ProposalConversionService
+    from ..projects import service as project_service
+    from ..work_items import service as work_item_service
+    from ..scheduling.service import dispatch_implementation_task
+    from ...core.infrastructure import messaging as mq
+
+    epic_id = req.parent_epic_id or proposal.target_epic_id
+    _validate_ticket_parents(
+        s, proposal, type="story", epic_id=epic_id, story_id=None,
+    )
+
+    story = s.get(Story, proposal.story_id) if proposal.story_id else None
+    if story is None:
+        plan = ProposalConversionService.plan(proposal, epic_id=epic_id)
+        if title is not None:
+            plan.story = {**(plan.story or {}), "title": title}
+        ProposalConversionService.validate(plan, project_id=proposal.project_id)
+        result = ProposalConversionService.apply(
+            s, plan, proposal, commit=False,
+        )
+        story = s.get(Story, result.story_id)
+        if story is None:  # pragma: no cover - flush 后的防御性检查
+            s.rollback()
+            raise InvalidValue("AUTO materialization 未生成 Story")
+        req.ticket_id = story.id
+        req.resolved_type = "story"
+        req.error = ""
+        req.updated_at = utc_now()
+        proposal.ticket_type = "story"
+        proposal.ticket_id = story.id
+        # apply 已写 story_created；与 request 字段同一事务提交。
+        _commit(s)
+        s.refresh(story)
+        s.refresh(proposal)
+        s.refresh(req)
+    else:
+        req.ticket_id = story.id
+        req.resolved_type = "story"
+        proposal.ticket_type = "story"
+        proposal.ticket_id = story.id
+        _commit(s)
+
+    # 自动 Proposal 已完成 Grill/人工答疑，不再经过 Story 人工 confirm gate。
+    if story.status == "backlog":
+        project_service.confirm_story(s, story.id, changed_by=None)
+        mq.publish_workflow_event(
+            mq.EVENT_STORY_CONFIRMED, "story", story.id, ref_id=story.epic_id,
+        )
+        s.refresh(story)
+
+    dispatched: list[int] = []
+    deferred: list[int] = []
+    for task in work_item_service.list_tasks(s, story_id=story.id, limit=200):
+        if task.status not in ("backlog", "todo"):
+            continue
+        if not work_item_service.get_task_readiness(s, task)["ready"]:
+            continue
+        if dispatch_implementation_task(s, task.id) is None:
+            deferred.append(task.id)
+        else:
+            dispatched.append(task.id)
+
+    req.status = TICKET_REQUEST_DONE
+    req.error = ""
+    req.updated_at = utc_now()
+    _commit(s)
+    s.refresh(req)
+    result = _ticket_execute_result(s, req, proposal.id)
+    result["dispatched_task_ids"] = dispatched
+    result["deferred_task_ids"] = deferred
+    return result
+
+
 def create_proposal(
     s: Session, *, project_id: int, title: str, content: str = "",
     author_id: int | None = None, auto_create_ticket: bool = False,
+    target_epic_id: int | None = None,
 ) -> Proposal:
     """新建需求提案，初始状态 pending（待开始，点击「开始 grill」才入队）。"""
     if not s.get(Project, project_id):
         raise NotFound(f"project {project_id} not found")
     if author_id is not None and not s.get(User, author_id):
         raise InvalidValue(f"author {author_id} not found")
+    if auto_create_ticket and target_epic_id is None:
+        raise InvalidValue("auto_create_ticket=true 时必须指定 target_epic_id")
+    if target_epic_id is not None:
+        epic = s.get(Epic, target_epic_id)
+        if epic is None:
+            raise NotFound(f"epic {target_epic_id} not found")
+        if epic.project_id != project_id:
+            raise InvalidValue(
+                f"epic {target_epic_id} 不属于提案所在项目 {project_id}",
+            )
     p = Proposal(
         project_id=project_id,
         title=_required(title, "title", 300),
@@ -564,6 +683,7 @@ def create_proposal(
         current_round=0,
         author_id=author_id,
         auto_create_ticket=bool(auto_create_ticket),
+        target_epic_id=target_epic_id,
     )
     s.add(p); _commit(s); s.refresh(p); return p
 
@@ -1137,14 +1257,18 @@ def update_proposal(s: Session, id: int, **fields) -> Proposal | None:
     # 服务端拒绝（422）；draft/pending/queued/analyzing/awaiting/answered/failed
     # 均可反复修改。
     if (
-        fields.get("auto_create_ticket") is not None
+        (fields.get("auto_create_ticket") is not None
+         or fields.get("target_epic_id") is not None)
         and ProposalStatus(p.status) not in AUTO_TICKET_MODIFIABLE_STATUSES
     ):
         raise InvalidValue(
             f"proposal {id} 当前状态为 {p.status}，"
-            f"auto_create_ticket 仅在收敛前可修改",
+            f"auto_create_ticket / target_epic_id 仅在收敛前可修改",
         )
-    allowed = {"title", "content", "converged_spec", "story_id", "auto_create_ticket"}
+    allowed = {
+        "title", "content", "converged_spec", "story_id",
+        "auto_create_ticket", "target_epic_id",
+    }
     edited_user_fields = False
     for k, v in fields.items():
         if k not in allowed or v is None:
@@ -1155,9 +1279,19 @@ def update_proposal(s: Session, id: int, **fields) -> Proposal | None:
             raise NotFound(f"story {v} not found")
         elif k == "auto_create_ticket":
             v = bool(v)
+        elif k == "target_epic_id":
+            epic = s.get(Epic, v)
+            if epic is None:
+                raise NotFound(f"epic {v} not found")
+            if epic.project_id != p.project_id:
+                raise InvalidValue(
+                    f"epic {v} 不属于提案所在项目 {p.project_id}",
+                )
         if k in ("title", "content"):
             edited_user_fields = True
         setattr(p, k, v)
+    if p.auto_create_ticket and p.target_epic_id is None:
+        raise InvalidValue("auto_create_ticket=true 时必须指定 target_epic_id")
     # 编辑回退：澄清流状态 → pending（清租约，等「开始 grill」重新入队）
     # 2026-08-09 review 修复：ticket_preparing（生成中）编辑同样回退，
     # 并把该提案未完成的转换请求置 failed——防止 agent 用并发修改后的

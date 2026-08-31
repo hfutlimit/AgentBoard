@@ -9,6 +9,7 @@ class ProposalIn(BaseModel):
 	content: str = ""
 	author_id: int | None = None
 	auto_create_ticket: bool = False
+	target_epic_id: int | None = None
 
 
 class ProposalPatch(BaseModel):
@@ -17,6 +18,7 @@ class ProposalPatch(BaseModel):
 	converged_spec: str | None = None
 	story_id: int | None = None
 	auto_create_ticket: bool | None = None
+	target_epic_id: int | None = None
 
 
 class ProposalStatusIn(BaseModel):
