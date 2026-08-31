@@ -76,6 +76,13 @@ public sealed class AgentOptions
     public int MaxCapturedOutputChars { get; set; } = 20000;
     public string? ApiKeyEnv { get; set; }  // optional; injected only if set
     /// <summary>
+    /// PR-12：logical agent identity（PR-11 WorkflowMessage.agent_id）。
+    /// 多 agent 同 type 时靠这个区分（codex-dev-1 vs codex-dev-2）。
+    /// startup 时 upsert 到 FastAPI /api/agents/{agent_id} + instance。
+    /// 默认 = tools 简写（"workbuddy" / "codex" / "MiniMax"）。
+    /// </summary>
+    public string AgentId { get; set; } = "";
+    /// <summary>
     /// Optional URL the readiness probe can HTTP-GET to verify
     /// the agent's external auth is live (e.g. WorkBuddy's MCP
     /// server, Codex's ChatGPT login session). When set, the
@@ -121,6 +128,16 @@ public sealed class AgentBoardOptions
 {
     public string HeartbeatUrl { get; set; } = "";
     public string WebSocketUrl { get; set; } = "";
+    /// <summary>
+    /// PR-12：FastAPI server URL（worker 启动时 register / heartbeat 走这里）。
+    /// 默认空字符串 = 不调 FastAPI（向后兼容老部署）。
+    /// </summary>
+    public string ServerUrl { get; set; } = "";
+    /// <summary>
+    /// PR-12：可选 bearer token，PR-12 startup service 调 FastAPI 时
+    /// 带 <c>Authorization: Bearer {token}</c>。空 = 不带。
+    /// </summary>
+    public string StartupToken { get; set; } = "";
 }
 
 public sealed class PortalOptions

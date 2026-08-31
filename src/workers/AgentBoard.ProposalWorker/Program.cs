@@ -73,6 +73,7 @@ builder.Services.AddHostedService<RabbitMqConsumerService>();
 builder.Services.AddHostedService<WorkflowMqConsumerService>();
 builder.Services.AddHostedService<WorkerHeartbeatService>();
 builder.Services.AddHostedService<AgentBoardWebSocketService>();
+builder.Services.AddHostedService<WorkerStartupService>();  // PR-12
 
 // ---- HTTP ----------------------------------------------------------------
 builder.Services.AddHttpClient();
