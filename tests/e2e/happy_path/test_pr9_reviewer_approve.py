@@ -18,6 +18,7 @@ from agentboard.core.common.enums import ItemType, Status, StatusReason
 from agentboard.core.common.models import utc_now
 from agentboard.core.infrastructure.messaging import rabbitmq as mq_mod
 from agentboard.features.projects.models import Agent
+from agentboard.features.scheduling import service as scheduling_service
 from agentboard.features.work_items import service as task_service
 from agentboard.features.work_items.models import TaskDependency
 
@@ -53,14 +54,13 @@ def test_pr9_happy_path_reviewer_approve_to_done(
     db_session.add(ProjectMember(
         project_id=project_id, user_id=reviewer_user.id, role="member",
     ))
-    # 给 reviewer user 注册 online Agent（role=reviewer）
-    # assign-reviewer 端点要求 reviewer ∩ 项目成员 ∩ online
-    # 还要 last_heartbeat=now —— expire_stale_agent_heartbeats 会把 NULL
-    # heartbeat 的 agent 标 offline（PR-1 实现）
+    # roles do not authorize workloads. A live AgentInstance with an explicit
+    # executor_type makes this user runnable for review and implementation.
+    worker_id = f"reviewer-worker-{uuid.uuid4().hex[:6]}"
     reviewer_agent = Agent(
         agent_id=f"reviewer-{uuid.uuid4().hex[:6]}",
         name="workbuddy reviewer",
-        roles='["reviewer"]',
+        roles="[]",
         capabilities="[]",
         user_id=reviewer_user.id,
         online=True,
@@ -68,9 +68,21 @@ def test_pr9_happy_path_reviewer_approve_to_done(
         last_heartbeat=utc_now(),
     )
     db_session.add(reviewer_agent)
+    db_session.flush()
+    scheduling_service.register_worker(
+        db_session, worker_id=worker_id, hostname="test",
+    )
+    instance = scheduling_service.upsert_agent_instance(
+        db_session, worker_id=worker_id, agent_id=reviewer_agent.agent_id,
+        executor_type="fake",
+    )
+    scheduling_service.instance_heartbeat(
+        db_session, instance.id, caller_worker_id=worker_id, probe_ok=True,
+    )
     db_session.commit()
     reviewer_token = login_token(client, db_session, reviewer_user.id)
     reviewer_H = auth_headers(reviewer_token)
+    broker.declare_agent_queue(worker_id)
 
     # 建 dev task + successor task
     dev_id = task_service.create_task(
@@ -119,13 +131,13 @@ def test_pr9_happy_path_reviewer_approve_to_done(
     assert body["status"] == Status.DONE.value
     assert body["status_reason"] == StatusReason.COMPLETED.value
 
-    # 3. 验 successor 被 unlock
+    # 3. The server immediately dispatches the newly-unlocked successor.
     db_session.expire_all()
-    unlocked = task_service.get_unlocked_dependent_tasks(db_session, dev_id)
-    assert any(t.id == successor_id for t in unlocked), \
-        f"successor {successor_id} 没在 unlocked 列表 {[t.id for t in unlocked]}"
+    successor = db_session.get(task_service.Task, successor_id)
+    assert successor.status == Status.IN_PROGRESS.value
+    assert successor.assignee_id == reviewer_user.id
 
-    # 4. 验事件：broadcast 至少 task.reviewed；successor 应收到 task.available
+    # 4. Audit remains broadcast; executable successor work is targeted.
     time.sleep(0.3)
     broadcast_msgs = drain_broker_events(
         broker, "agentboard.workflow.broadcast",
@@ -133,8 +145,11 @@ def test_pr9_happy_path_reviewer_approve_to_done(
     broadcast_events = [mq_mod.WorkflowMessage.from_bytes(b).event for b in broadcast_msgs]
     assert "task.reviewed" in broadcast_events, \
         f"reviewer approve 应发 task.reviewed（broadcast 审计），实际 {broadcast_events}"
-    assert "task.available" in broadcast_events, \
-        f"successor unlock 应发 task.available，实际 {broadcast_events}"
+    targeted_msgs = drain_broker_events(
+        broker, mq_mod.WorkflowTopology().agent_queue(worker_id),
+    )
+    targeted_events = [mq_mod.WorkflowMessage.from_bytes(b).event for b in targeted_msgs]
+    assert "task.assigned" in targeted_events
 
     # 5. 验：internal_queue 没新增（PR-9 不走 Python worker 编排）
     time.sleep(0.2)

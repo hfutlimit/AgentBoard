@@ -357,6 +357,8 @@ def submit_task_review(tid: int, authorization: str | None = Header(None),
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     api_helpers._invalidate_stats_cache(t.project_id)
+    # Persist in_review before the internal coordinator can consume the event.
+    s.commit()
     # 事件源：任务进入评审态 → 广播 task.ready_for_review（审计 / 通知用，
     # .NET 不再执行它 —— 它是 pre-assignment 事件没 reviewer）。
     publish_workflow_event(EVENT_TASK_READY_FOR_REVIEW, "task", t.id,
@@ -539,6 +541,9 @@ def assign_task_reviewer(tid: int, count: int = 1,
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     api_helpers._invalidate_stats_cache(t.project_id)
+    # The reviewer assignment must be durable before executable review work
+    # is delivered to the target Worker.
+    s.commit()
     # 事件源：每位 reviewer 独立发一条 task.review_requested；定向走
     # agent_id=其绑定 Agent 队列，无绑定退广播。这样多数决模式下 N 个
     # reviewer 都能从自己的 agent inbox 拿到消息（也兼容 .NET Workflow
@@ -611,6 +616,9 @@ def review_task(tid: int, body: AgentReviewIn, authorization: str | None = Heade
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     api_helpers._invalidate_stats_cache(t.project_id)
+    # Persist the verdict before emitting events or dispatching dependencies
+    # that were unlocked by it.
+    s.commit()
     # 事件源：结算判定（语义同 Story 版）——
     # done → task.reviewed；blocked / round 增加 → task.rejected；
     # 其余（majority 投票未达法定票数）→ review.vote_cast。

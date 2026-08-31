@@ -35,3 +35,12 @@ def test_ticket_requested_internal_event_executes_auto_story_without_cli_agent()
 
     assert consumer.handle_message(message) is True
     assert client.calls == [("POST", "/api/ticket-requests/73/execute")]
+
+
+def test_workflow_publisher_honors_namespace_env(monkeypatch):
+    namespace = "agentboard.workflow.golden.env"
+    monkeypatch.setenv("AGENTBOARD_WORKFLOW_NAMESPACE", namespace)
+
+    publisher = mq.WorkflowPublisher()
+
+    assert publisher.topology.exchange == namespace

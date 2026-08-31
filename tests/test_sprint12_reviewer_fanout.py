@@ -60,9 +60,18 @@ def _seed(n_reviewers: int = 3):
             service.add_project_member(s, project_id=p.id, user_id=uid, role="member")
         for i, r in enumerate(reviewers):
             aid = f"s12-a{i}-{n}"
+            worker_id = f"s12-worker-{i}-{n}"
             service.register_agent(s, agent_id=aid, name=f"R{i}",
-                                   roles='["reviewer"]', user_id=r.id)
+                                   roles="[]", user_id=r.id)
             service.agent_heartbeat(s, aid, user_id=r.id)
+            service.register_worker(s, worker_id=worker_id, hostname="test")
+            instance = service.upsert_agent_instance(
+                s, worker_id=worker_id, agent_id=aid,
+                executor_type="fake",
+            )
+            service.instance_heartbeat(
+                s, instance.id, caller_worker_id=worker_id, probe_ok=True,
+            )
         epic = service.create_epic(s, project_id=p.id, title=f"S12 Epic{n}")
         s.commit()
         return p.id, dev.id, [r.id for r in reviewers], epic.id

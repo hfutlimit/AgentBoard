@@ -97,8 +97,9 @@ public sealed class ReadinessProbe
 
     private async Task<AgentReadiness> ProbeOneAsync(string agentType, CancellationToken ct)
     {
-        // FakeAdapter is in-process; it never spawns a CLI.
-        if (string.Equals(agentType, "fake", StringComparison.OrdinalIgnoreCase))
+        // In-process adapters never spawn a CLI.
+        if (string.Equals(agentType, "fake", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(agentType, "scenario", StringComparison.OrdinalIgnoreCase))
         {
             return AgentReadiness.AllOk();
         }

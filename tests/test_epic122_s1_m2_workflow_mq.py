@@ -23,8 +23,8 @@ from agentboard.mq import (
     WorkflowMessage,
     WorkflowPublisher,
     WorkflowTopology,
-    _topic_match,
 )
+from agentboard.core.infrastructure.messaging.rabbitmq import _topic_match
 
 
 # ===================== WorkflowMessage 校验 =====================

@@ -761,7 +761,7 @@ def _agent_type_for(task_type: str, workload_type: str) -> str | None:
 # roles 只在旧数据迁移期用于 CLI executor 兼容推导，不参与 workload 授权。
 # .NET WorkflowMessageMapper 把 agent_type 必填，缺值 → DLQ。
 _AGENT_EXECUTOR_TOOLS = ("codex", "workbuddy", "minimax")
-EXECUTOR_TYPES = frozenset((*_AGENT_EXECUTOR_TOOLS, "fake"))
+EXECUTOR_TYPES = frozenset((*_AGENT_EXECUTOR_TOOLS, "fake", "scenario"))
 
 
 def resolve_agent_executor_type(agent, s: Session | None = None,
@@ -1044,6 +1044,9 @@ def dispatch_implementation_task(
     # 注：PR-10 这里没传 agent_type —— Agent 模型无 agent_type 字段；
     # 改走 .NET 端按 agent_id 查注册的 tool（PR-12 启动注册时填到 worker 配置）
     # 本期 tool 类型（workbuddy/codex）从 _DISPATCH_AGENT_TYPE 反查
+    # A targeted Worker can consume task.assigned before the request-level
+    # transaction exits. Commit assignment/state before publishing work.
+    s.commit()
     tool = resolve_agent_executor_type(agent, s=s, worker_id=inst.worker_id)
     from ...core.infrastructure import messaging as mq
     mq.publish_workflow_event(

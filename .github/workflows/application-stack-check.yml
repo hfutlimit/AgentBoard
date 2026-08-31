@@ -119,3 +119,53 @@ jobs:
             ConvertFrom-Json | Out-Null
       - name: Test ProposalWorker
         run: dotnet test src/workers/AgentBoard.ProposalWorker.Tests/AgentBoard.ProposalWorker.Tests.csproj --nologo -c Release
+
+  golden-cross-stack:
+    name: Proposal to Story Done golden gate
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_DATABASE: agentboard
+          MARIADB_USER: agentboard
+          MARIADB_PASSWORD: golden_pass
+          MARIADB_ROOT_PASSWORD: golden_root_pass
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      rabbitmq:
+        image: rabbitmq:3.13-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: agentboard
+          RABBITMQ_DEFAULT_PASS: agentboard_dev_pass
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install backend dependencies
+        run: python -m pip install -r src/backend-fastapi/requirements.txt
+      - name: Build ProposalWorker
+        run: dotnet build src/workers/AgentBoard.ProposalWorker/AgentBoard.ProposalWorker.csproj --nologo -c Release
+      - name: Run real Proposal to Story Done gate
+        env:
+          AGENTBOARD_RUN_GOLDEN_CROSS_STACK: '1'
+          AGENTBOARD_GOLDEN_DB_URL: mysql+pymysql://agentboard:golden_pass@127.0.0.1:3306/agentboard
+          AGENTBOARD_MQ_URL_TEST: amqp://agentboard:agentboard_dev_pass@127.0.0.1:5672/%2F
+          PYTHONPATH: src/backend-fastapi
+        run: python -m pytest tests/e2e/cross_stack/test_proposal_full_happy_path.py -q -s

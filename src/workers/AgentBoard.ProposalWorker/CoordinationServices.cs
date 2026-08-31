@@ -166,16 +166,28 @@ public sealed class WorkerStartupService : BackgroundService
 
     private async Task UpsertAgentInstancesAsync(CancellationToken ct)
     {
-        // 遍历 4 个 agent slot：WorkBuddy / Codex / MiniMax / Fake
-        // Fake 跳过（in-process 适配器，不需要 instance）
+        // 遍历显式可注册的 agent slot。Scenario 是 Golden gate 专用的
+        // in-process HTTP adapter；只有 Command=enabled 时才注册，不会进入生产。
         var slots = new (string Tool, AgentOptions Opt)[]
         {
             ("workbuddy", _agents.WorkBuddy),
             ("codex",     _agents.Codex),
             ("MiniMax",   _agents.MiniMax),
+            ("scenario",  _agents.Scenario),
         };
         foreach (var (tool, opt) in slots)
         {
+            if (string.Equals(tool, "scenario", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(
+                    opt.Command, "enabled", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!string.IsNullOrWhiteSpace(opt.Command))
+                {
+                    _log.LogWarning(
+                        "PR-12: skip scenario (Command must equal 'enabled')");
+                }
+                continue;
+            }
             if (string.IsNullOrWhiteSpace(opt.Command))
             {
                 _log.LogInformation("PR-12: skip {Tool} (Command 空)", tool);
@@ -184,6 +196,10 @@ public sealed class WorkerStartupService : BackgroundService
             var agentId = string.IsNullOrWhiteSpace(opt.AgentId)
                 ? $"{_worker.Id}-{tool}"           // 默认 = "{worker_id}-{tool}"
                 : opt.AgentId;
+            var reportedCommand = string.Equals(
+                tool, "scenario", StringComparison.OrdinalIgnoreCase)
+                ? ""
+                : opt.Command;
             // workload（design/dev/review/qa）不是 Agent 永久角色；执行器类型
             // 单独写 AgentInstance.executor_type。roles 保留空数组兼容旧字段。
             var roles = Array.Empty<string>();
@@ -200,7 +216,7 @@ public sealed class WorkerStartupService : BackgroundService
                     agent_id = agentId,
                     name = $"{tool} on {_worker.Id}",
                     roles = System.Text.Json.JsonSerializer.Serialize(roles),
-                    cli_command = opt.Command,
+                    cli_command = reportedCommand,
                     // model 字段 .NET AgentOptions 没有；保持空字符串
                     // (FastAPI AgentRegisterIn.model default = "")
                 };
@@ -212,7 +228,7 @@ public sealed class WorkerStartupService : BackgroundService
                 var instPayload = new
                 {
                     worker_id = _worker.Id,
-                    cli_command = opt.Command,
+                    cli_command = reportedCommand,
                     model = "",
                     executor_type = tool.ToLowerInvariant(),
                     auth_key = opt.ApiKeyEnv ?? "",

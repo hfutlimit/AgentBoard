@@ -74,6 +74,12 @@ public sealed class AgentOptions
     public string WorkingDirectory { get; set; } = "";
     public int TimeoutMinutes { get; set; } = 30;
     public int MaxCapturedOutputChars { get; set; } = 20000;
+    /// <summary>
+    /// Optional deterministic delay used only by the in-process scenario
+    /// adapter to make cross-worker orchestration checkpoints observable.
+    /// Real CLI adapters ignore this value.
+    /// </summary>
+    public int DelayMilliseconds { get; set; }
     public string? ApiKeyEnv { get; set; }  // optional; injected only if set
     /// <summary>
     /// PR-12：logical agent identity（PR-11 WorkflowMessage.agent_id）。
@@ -111,6 +117,11 @@ public sealed class AgentsOptions
     /// never reads this object.
     /// </summary>
     public AgentOptions Fake { get; set; } = new() { Command = "" };
+    /// <summary>
+    /// Explicitly enabled deterministic HTTP adapter for the cross-stack
+    /// Golden Happy Path. Disabled by default and never invokes a model.
+    /// </summary>
+    public AgentOptions Scenario { get; set; } = new() { Command = "" };
 }
 
 // =============================================================================

@@ -1434,9 +1434,12 @@ class WorkflowPublisher:
 
     def __init__(self, config: MQConfig | None = None,
                  broker: Any | None = None,
-                 namespace: str = WORKFLOW_DEFAULT_NAMESPACE):
+                 namespace: str | None = None):
         self.config = config or MQConfig.from_env()
-        self._namespace = namespace
+        self._namespace = (
+            namespace
+            or os.getenv(WORKFLOW_ENV_NAMESPACE, WORKFLOW_DEFAULT_NAMESPACE)
+        )
         self._lock = threading.Lock()
         self._broker = broker
         self._injected = broker is not None

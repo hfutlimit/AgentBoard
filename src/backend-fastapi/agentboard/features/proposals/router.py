@@ -190,6 +190,9 @@ def set_proposal_status(pid: int, body: ProposalStatusIn, s: Session = Depends(g
             )
         except (service.NotFound, service.InvalidValue) as e:
             raise HTTPException(status_code=422, detail=str(e))
+        # The broker may deliver immediately on another process. Make the
+        # request durable before publishing its identifier.
+        s.commit()
         mq.publish_workflow_event(
             mq.EVENT_TICKET_REQUESTED, "proposal", pid, ref_id=req.id,
             route="internal", workload_type="ticket",
@@ -483,6 +486,8 @@ def create_ticket_request(pid: int, body: ProposalTicketIn,
         raise HTTPException(status_code=404, detail=str(e))
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
+    # RabbitMQ delivery can beat the request dependency's final commit.
+    s.commit()
     mq.publish_workflow_event(mq.EVENT_TICKET_REQUESTED, "proposal", pid,
                               ref_id=req.id)
     return service._ser(req)

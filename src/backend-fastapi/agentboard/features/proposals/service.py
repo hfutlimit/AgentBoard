@@ -627,6 +627,9 @@ def _execute_auto_story_request(
     # 自动 Proposal 已完成 Grill/人工答疑，不再经过 Story 人工 confirm gate。
     if story.status == "backlog":
         project_service.confirm_story(s, story.id, changed_by=None)
+        # Persist the Story/DAG before their identifiers become externally
+        # visible through RabbitMQ.
+        s.commit()
         mq.publish_workflow_event(
             mq.EVENT_STORY_CONFIRMED, "story", story.id, ref_id=story.epic_id,
         )

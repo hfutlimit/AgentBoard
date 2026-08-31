@@ -44,7 +44,8 @@ from agentboard.models import Task  # noqa: E402
 from agentboard.features.work_items.models import TaskDependency  # noqa: E402
 from agentboard.mq import (  # noqa: E402
     EVENT_TASK_AVAILABLE, EVENT_TASK_READY_FOR_REVIEW, EVENT_TASK_REVIEWED,
-    EVENT_TASK_REJECTED, EVENT_TASK_REVIEW_REQUESTED, WorkflowMessage,
+    EVENT_TASK_REJECTED, EVENT_TASK_REVIEW_REQUESTED,
+    EVENT_TASK_REVIEW_ASSIGNMENT_NEEDED, WorkflowMessage,
 )
 
 init_db()
@@ -78,13 +79,24 @@ def _seed():
         outsider = service.register_user(s, username=f"s2m2-out{n}", password="password123")
         for uid in (dev.id, rev1.id, rev2.id, outsider.id):
             service.add_project_member(s, project_id=p.id, user_id=uid, role="member")
-        # 两个在线 reviewer Agent（角色 reviewer，绑定 rev1/rev2）
-        service.register_agent(s, agent_id=f"s2m2-r1-{n}", name="R1",
-                               roles='["reviewer"]', user_id=rev1.id)
-        service.agent_heartbeat(s, f"s2m2-r1-{n}", user_id=rev1.id)
-        service.register_agent(s, agent_id=f"s2m2-r2-{n}", name="R2",
-                               roles='["reviewer"]', user_id=rev2.id)
-        service.agent_heartbeat(s, f"s2m2-r2-{n}", user_id=rev2.id)
+        # Runnable capacity comes from online AgentInstances. roles=[] proves
+        # business roles do not authorize or restrict review workloads.
+        for suffix, user in (("r1", rev1), ("r2", rev2)):
+            agent_id = f"s2m2-{suffix}-{n}"
+            worker_id = f"s2m2-worker-{suffix}-{n}"
+            service.register_agent(
+                s, agent_id=agent_id, name=suffix.upper(), roles="[]",
+                user_id=user.id,
+            )
+            service.agent_heartbeat(s, agent_id, user_id=user.id)
+            service.register_worker(s, worker_id=worker_id, hostname="test")
+            instance = service.upsert_agent_instance(
+                s, worker_id=worker_id, agent_id=agent_id,
+                executor_type="fake",
+            )
+            service.instance_heartbeat(
+                s, instance.id, caller_worker_id=worker_id, probe_ok=True,
+            )
         epic = service.create_epic(s, project_id=p.id, title=f"S2M2 Epic{n}")
         st = service.create_story(s, epic_id=epic.id, title=f"S2M2 Story{n}")
         s.commit()
@@ -381,14 +393,19 @@ def test_api_assign_and_review_full_flow(seeded):
     dev_h = {"Authorization": f"Bearer {auth.make_token(dev)}"}
     rev_h = {"Authorization": f"Bearer {auth.make_token(rev1)}"}
     c = _client()
-    with mock.patch.object(wi_router, "publish_workflow_event") as pub:
+    with (
+        mock.patch.object(wi_router, "publish_workflow_event") as pub,
+        mock.patch(
+            "agentboard.core.infrastructure.messaging.publish_workflow_event",
+        ) as directed_pub,
+    ):
         # assign-reviewer（幂等，再指派仍 200）
         r = c.post(f"/api/tasks/{tid}/assign-reviewer", headers=dev_h)
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["reviewer_id"] is not None
-        pub.assert_called()
-        event, etype, eid = pub.call_args.args[:3]
+        directed_pub.assert_called()
+        event, etype, eid = directed_pub.call_args.args[:3]
         assert event == EVENT_TASK_REVIEW_REQUESTED and etype == "task" and eid == tid
         # review approve → done + task.reviewed 广播
         pub.reset_mock()
@@ -536,13 +553,13 @@ def _cfg():
         api_url="http://test", token="t", mq=mq.MQConfig())
 
 
-def test_task_ready_for_review_triggers_assign(seeded):
-    """task.ready_for_review → POST assign-reviewer（M2 闭环入口）。"""
+def test_task_review_assignment_needed_triggers_assign(seeded):
+    """The internal ownership event, not the audit broadcast, assigns review."""
     client = _FakeClient(_FakeResponse(
         200, {"id": 21, "reviewer_id": 9, "status": "in_review"}))
     w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
     assert w.handle_message(
-        WorkflowMessage(event=EVENT_TASK_READY_FOR_REVIEW, entity_type="task",
+        WorkflowMessage(event=EVENT_TASK_REVIEW_ASSIGNMENT_NEEDED, entity_type="task",
                         entity_id=21, ref_id=4)) is True
     assert ("POST", "/api/tasks/21/assign-reviewer") in client.calls
 
@@ -565,7 +582,7 @@ def test_task_ready_for_review_http_error_acks(seeded):
                         entity_id=23, ref_id=4)) is True
 
 
-def test_confirm_broadcast_skips_tasks_blocked_by_dependencies(seeded):
+def test_legacy_story_broadcast_helper_is_a_noop(seeded):
     client = _FakeClient(_FakeResponse(200, {"items": [
         {"id": 41, "status": "todo", "ready": False},
         {"id": 42, "status": "todo", "ready": True},
@@ -574,7 +591,8 @@ def test_confirm_broadcast_skips_tasks_blocked_by_dependencies(seeded):
     with mock.patch.object(workflow_worker.mq, "publish_workflow_event") as pub:
         assert w._broadcast_available_tasks(4) is True
 
-    assert [call.args[2] for call in pub.call_args_list] == [42]
+    assert pub.call_args_list == []
+    assert client.calls == []
 
 
 class _RouteClient:
@@ -696,8 +714,8 @@ def test_proposal_convert_creates_structured_dag_task_graph(seeded):
         s.rollback()
 
 
-def test_review_approval_automatically_unlocks_and_broadcasts_successor_tasks(seeded):
-    pid, dev, rev1, _, _, sid = seeded
+def test_review_approval_automatically_unlocks_and_dispatches_successor_tasks(seeded):
+    pid, _dev, rev1, rev2, _outsider, sid = seeded
     with SessionLocal() as s:
         t_design = _make_task(s, sid, pid, title="T-Design", type="design")
         t_impl = _make_task(s, sid, pid, title="T-Impl", type="dev")
@@ -716,24 +734,18 @@ def test_review_approval_automatically_unlocks_and_broadcasts_successor_tasks(se
         impl_tid = t_impl.id
 
     c = _client()
-    with mock.patch.object(wi_router, "publish_workflow_event") as pub:
-        r = c.post(
-            f"/api/tasks/{design_tid}/review",
-            headers={"Authorization": f"Bearer {auth.make_token(rev1)}"},
-            json={"verdict": "approve", "comment": "Design approved"},
-        )
-        assert r.status_code == 200, r.text
+    r = c.post(
+        f"/api/tasks/{design_tid}/review",
+        headers={"Authorization": f"Bearer {auth.make_token(rev1)}"},
+        json={"verdict": "approve", "comment": "Design approved"},
+    )
+    assert r.status_code == 200, r.text
 
-        # 验证广播了 EVENT_TASK_AVAILABLE 给 t_impl
-        available_calls = [
-            call for call in pub.call_args_list
-            if call.args[0] == EVENT_TASK_AVAILABLE and call.args[2] == impl_tid
-        ]
-        assert len(available_calls) >= 1
-
-    # 验证 t_impl 现在变为 ready: True，且可以正常 claim
+    # Server-owned dispatch claims the newly-ready successor and targets a
+    # runnable instance; the old task.available broadcast is no longer used.
     with SessionLocal() as s:
         assert service.get_task_readiness(s, impl_tid)["ready"] is True
-        t_assigned = service.claim_development_task(s, impl_tid, user_id=dev)
+        t_assigned = s.get(Task, impl_tid)
         assert t_assigned.status == "in_progress"
+        assert t_assigned.assignee_id in (rev1, rev2)
         s.rollback()

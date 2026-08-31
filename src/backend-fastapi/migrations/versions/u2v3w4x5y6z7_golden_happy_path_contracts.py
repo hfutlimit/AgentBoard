@@ -85,7 +85,20 @@ def downgrade() -> None:
     with op.batch_alter_table("agent_instances") as batch:
         batch.drop_index("ix_agent_instances_executor_type")
         batch.drop_column("executor_type")
-    with op.batch_alter_table("proposals") as batch:
-        batch.drop_index("ix_proposals_target_epic_id")
-        batch.drop_constraint("fk_proposals_target_epic", type_="foreignkey")
-        batch.drop_column("target_epic_id")
+    if _is_sqlite():
+        with op.batch_alter_table("proposals") as batch:
+            batch.drop_constraint(
+                "fk_proposals_target_epic", type_="foreignkey",
+            )
+            batch.drop_index("ix_proposals_target_epic_id")
+            batch.drop_column("target_epic_id")
+    else:
+        # MariaDB uses the target_epic index to enforce the FK.  Batch mode
+        # may flush drop_index before drop_constraint regardless of call
+        # order, producing error 1553.  Issue explicit DDL in dependency
+        # order for the real production dialect.
+        op.drop_constraint(
+            "fk_proposals_target_epic", "proposals", type_="foreignkey",
+        )
+        op.drop_index("ix_proposals_target_epic_id", table_name="proposals")
+        op.drop_column("proposals", "target_epic_id")
