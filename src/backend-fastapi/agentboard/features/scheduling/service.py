@@ -751,6 +751,30 @@ def _agent_type_for(task_type: str, workload_type: str) -> str | None:
     return _DISPATCH_AGENT_TYPE.get((task_type, workload_type))
 
 
+# PR-10 follow-up：Agent 模型无 agent_type 字段，executor type 从 roles
+# 数组里推（roles=['codex','reviewer'] → tool='codex'）。
+# .NET WorkflowMessageMapper 把 agent_type 必填，缺值 → DLQ。
+_AGENT_EXECUTOR_TOOLS = ("codex", "workbuddy", "minimax")
+
+
+def resolve_agent_executor_type(agent) -> str:
+    """PR-10 follow-up：从 Agent.roles 选 executor type。
+
+    roles 形如 ``["codex", "reviewer"]`` 或 ``["workbuddy", "reviewer"]``。
+    返回 codex/workbuddy/minimax 之一（"reviewer" 不是 executor type，跳过）。
+    没匹配返空串 → caller 视情况 fallback broadcast。
+    """
+    import json as _json
+    try:
+        roles = _json.loads(agent.roles or "[]")
+    except (ValueError, TypeError):
+        roles = []
+    for tool in _AGENT_EXECUTOR_TOOLS:
+        if tool in roles:
+            return tool
+    return ""
+
+
 def _excluded_prior_agent_ids(s: Session, task_id: int) -> set[int]:
     """PR-10："task 和 qa 不同 agent" 约束。
 
@@ -895,43 +919,27 @@ def dispatch_implementation_task(
         )
         return None
     agent, inst = picked
-    # TaskAssignment：active_slot 暂时按 (task_id, 1) 占位
-    # 旧 slot（如已存在）会被 unique constraint 拒绝 → 失败 skip
-    # 注：active_slot 唯一约束是 (task_id, active_slot)，先用 slot=1
-    existing_assignment = (
-        s.query(TaskAssignment)
-        .filter(
-            TaskAssignment.task_id == task_id,
-            TaskAssignment.active_slot == 1,
+    # PR-10 follow-up：复用 try_assign_task 原子写 TaskAssignment + 推
+    # status=in_progress + 设 assignee_id + current_assignment_id。
+    # 之前手写的 4 步（add ta / flush / set current_assignment_id /
+    # set_status）漏了 set task.assignee_id，导致 submit-review 校验挂
+    # （"only the assignee can submit"），workbuddy/codex 干完活提交不进
+    # in_review。try_assign_task 是单一 source of truth。
+    from ..work_items.service import try_assign_task
+    try:
+        task, ta = try_assign_task(
+            s,
+            task_id,
+            user_id=agent.user_id,
+            agent_registry_id=agent.id,
+            source="schedule",
+            commit=True,
         )
-        .first()
-    )
-    if existing_assignment is not None:
-        log.info(
-            "PR-10 dispatch: task %s 已有 active TaskAssignment id=%s，跳过",
-            task_id, existing_assignment.id,
-        )
+    except Exception as e:
+        # CAS 失败（被别的 emulator 抢先 claim）→ skip
+        log.info("PR-10 dispatch: task %s try_assign_task 失败：%s，跳过",
+                 task_id, e)
         return None
-    ta = TaskAssignment(
-        task_id=task_id,
-        agent_registry_id=agent.id,
-        user_id=agent.user_id,
-        source="schedule",
-        status="active",
-        active_slot=1,
-    )
-    s.add(ta)
-    s.flush()  # 取 ta.id
-    # 关联到 task（current_assignment_id 是 5 状态机外的快指针）
-    db_task_for_ca = s.get(Task, task_id)
-    db_task_for_ca.current_assignment_id = ta.id
-    s.flush()
-    # 状态机推 in_progress
-    set_status(
-        s, task_id, TaskStatus.IN_PROGRESS,
-        changed_by=agent.user_id,
-    )
-    s.refresh(task)
     # publish 4 字段齐全的 task.assigned（PR-5 helper 自动 resolve worker）
     # 注：PR-10 这里没传 agent_type —— Agent 模型无 agent_type 字段；
     # 改走 .NET 端按 agent_id 查注册的 tool（PR-12 启动注册时填到 worker 配置）

@@ -184,22 +184,32 @@ public sealed class WorkerStartupService : BackgroundService
             var agentId = string.IsNullOrWhiteSpace(opt.AgentId)
                 ? $"{_worker.Id}-{tool}"           // 默认 = "{worker_id}-{tool}"
                 : opt.AgentId;
+            // PR-12 follow-up：WorkBuddy role 数组加 "reviewer" —
+            // review scheduler（_online_reviewer_candidates）要求 roles 含
+            // "reviewer" + online + project member。光 "workbuddy" 配出来
+            // 不能被选为 reviewer，PR-13b 第一版 happy path 必卡这里。
+            // Codex 不需要 reviewer role（不审 review）。
+            var roles = tool == "workbuddy"
+                ? new[] { "workbuddy", "reviewer" }
+                : new[] { tool };
             try
             {
                 var client = _http.CreateClient();
                 ApplyAuth(client);
-                // 1) upsert agent 本身（idempotent）
-                var agentUrl = _agentboard.ServerUrl.TrimEnd('/') +
-                    $"/api/agents/{Uri.EscapeDataString(agentId)}";
+                // 1) upsert agent 本身（idempotent）— PR-12 follow-up 改
+                // POST /api/agents/register（之前 PUT /api/agents/{id} 在
+                // fresh DB 上 404，因为 PUT 是 update-only）。
+                var agentUrl = _agentboard.ServerUrl.TrimEnd('/') + "/api/agents/register";
                 var agentPayload = new
                 {
+                    agent_id = agentId,
                     name = $"{tool} on {_worker.Id}",
-                    roles = System.Text.Json.JsonSerializer.Serialize(new[] { tool }),
+                    roles = System.Text.Json.JsonSerializer.Serialize(roles),
                     cli_command = opt.Command,
                     // model 字段 .NET AgentOptions 没有；保持空字符串
                     // (FastAPI AgentRegisterIn.model default = "")
                 };
-                var agentResp = await client.PutAsJsonAsync(agentUrl, agentPayload, ct);
+                var agentResp = await client.PostAsJsonAsync(agentUrl, agentPayload, ct);
                 agentResp.EnsureSuccessStatusCode();
                 // 2) upsert AgentInstance
                 var instUrl = _agentboard.ServerUrl.TrimEnd('/') +

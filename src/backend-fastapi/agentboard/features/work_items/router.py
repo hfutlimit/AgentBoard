@@ -556,10 +556,19 @@ def assign_task_reviewer(tid: int, count: int = 1,
             reviewer_agent_id = agent.agent_id
         # PR-5：走 helper — body 带 agent_id，routing 用 worker_id
         # （每个 reviewer 走自己的 worker queue，多数决 fan-out 不串）
+        # PR-10 follow-up：补 agent_type + workload_type="review"。
+        # 之前只传 agent_id → .NET WorkflowMessageMapper 看到 agent_type 缺
+        # 值 → InvalidDataException → DLQ，reviewer 永远收不到。
+        from ..scheduling.service import resolve_agent_executor_type
+        reviewer_agent_type = (
+            resolve_agent_executor_type(agent) if agent is not None else ""
+        )
         publish_workflow_event_for_agent(
             s, EVENT_TASK_REVIEW_REQUESTED, "task", t.id,
             agent_id=reviewer_agent_id,
             ref_id=reviewer_user_id,
+            agent_type=reviewer_agent_type,
+            workload_type="review",
         )
         api_helpers._notify_webhooks(s, t.project_id, EVENT_TASK_REVIEW_REQUESTED,
                          {"id": t.id, "reviewer_id": reviewer_user_id,
@@ -722,11 +731,16 @@ def reassign_timeout(project_id: int | None = None,
                     reviewer_agent_id = agent.agent_id
             # PR-5：走 helper resolve worker_id from agent_id，routing 用
             # worker_id（每个 reviewer 走自己的 worker queue）
-            from ..scheduling.service import publish_workflow_event_for_agent
+            # PR-10 follow-up：补 agent_type + workload_type
+            from ..scheduling.service import (
+                publish_workflow_event_for_agent, resolve_agent_executor_type,
+            )
             publish_workflow_event_for_agent(
                 s, review_event, entity_type, eid,
                 agent_id=reviewer_agent_id,
                 ref_id=new_reviewer_id,
+                agent_type=resolve_agent_executor_type(agent) if agent is not None else "",
+                workload_type="review",
             )
             if project_id is not None:
                 api_helpers._notify_webhooks(s, project_id, review_event,

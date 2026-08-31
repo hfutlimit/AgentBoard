@@ -83,11 +83,13 @@ public class WorkerStartupServiceTests
 
         // 期望至少：
         //   1 x POST /api/workers/register
-        //   2 x PUT  /api/agents/{id}        (workbuddy + codex, minimax 跳过)
+        //   2 x POST /api/agents/register   (workbuddy + codex, minimax 跳过)
         //   2 x POST /api/agents/{id}/instances
         Assert.Contains(stub.Requests, r => r.Method == "POST" && r.Url.Contains("/api/workers/register"));
         Assert.Equal(2, stub.Requests.Count(r =>
-            r.Method == "PUT" && r.Url.Contains("/api/agents/") && r.Url.EndsWith("/workbuddy-on-dev") || r.Url.EndsWith("/codex-on-dev")));
+            r.Method == "POST" && r.Url.EndsWith("/api/agents/register")
+            && (r.Body?.Contains("workbuddy-on-dev") == true
+                || r.Body?.Contains("codex-on-dev") == true)));
         // minimax 没注册（Command="" 跳过）
         Assert.DoesNotContain(stub.Requests, r => r.Url.Contains("minimax"));
     }
