@@ -118,6 +118,13 @@ public static class WorkloadTypes
 /// - <c>correlation_id</c> threads through the whole chain
 ///   (proposal → story → tasks → review) so logs and the state
 ///   machine can trace "which chain broke where".
+///
+/// PR-11: <c>agent_id</c> is the logical agent identity (e.g.
+/// <c>codex-dev-1</c> vs <c>codex-dev-2</c>). Combined with
+/// <c>agent_type</c> it lets consumers distinguish multiple agents
+/// of the same CLI family for MCP API key, audit trail, and
+/// agent-specific model. Routing key still uses <c>worker_id</c>
+/// (PR-5); <c>agent_id</c> is body-only.
 /// </summary>
 public sealed record WorkflowMessage(
     string Event,
@@ -127,7 +134,8 @@ public sealed record WorkflowMessage(
     string Timestamp,
     string? AgentType = null,
     string? WorkloadType = null,
-    string CorrelationId = "")
+    string CorrelationId = "",
+    string? AgentId = null)
 {
     public static WorkflowMessage Parse(ReadOnlyMemory<byte> body)
     {
@@ -153,11 +161,14 @@ public sealed record WorkflowMessage(
         var agentType = root.TryGetProperty("agent_type", out var at) ? at.GetString() : null;
         var workloadType = root.TryGetProperty("workload_type", out var wt) ? wt.GetString() : null;
         var correlationId = root.TryGetProperty("correlation_id", out var ct) ? ct.GetString() ?? "" : "";
+        // PR-11：logical agent_id（区分同 type 多 agent）
+        var agentId = root.TryGetProperty("agent_id", out var aid) ? aid.GetString() : null;
         return new WorkflowMessage(
             ev, et, entityId, refId, ts,
             string.IsNullOrWhiteSpace(agentType) ? null : agentType,
             string.IsNullOrWhiteSpace(workloadType) ? null : workloadType,
-            correlationId);
+            correlationId,
+            string.IsNullOrWhiteSpace(agentId) ? null : agentId);
     }
 
     public string ToJson() => JsonSerializer.Serialize(new
@@ -169,7 +180,9 @@ public sealed record WorkflowMessage(
         ts = Timestamp,
         agent_type = AgentType,
         workload_type = WorkloadType,
-        correlation_id = CorrelationId
+        correlation_id = CorrelationId,
+        // PR-11：logical agent_id（区分同 type 多 agent）
+        agent_id = AgentId
     });
 }
 

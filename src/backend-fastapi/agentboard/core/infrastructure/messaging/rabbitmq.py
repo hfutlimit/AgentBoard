@@ -911,6 +911,11 @@ class WorkflowMessage:
     agent_type: str | None = None
     workload_type: str | None = None
     correlation_id: str = ""
+    # PR-11：logical agent_id（同 type 多 agent 区分用，例如 codex-dev-1 vs codex-dev-2
+    # 都是 agent_type=codex；body 留 agent_id 让 .NET / Python consumer 知道具体
+    # 是哪个 logical agent 跑，配合 audit 链 / MCP API key / agent-specific model。
+    # routing key 仍只用 worker_id（PR-5），agent_id 只在 body。
+    agent_id: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -922,6 +927,7 @@ class WorkflowMessage:
             "agent_type": self.agent_type,
             "workload_type": self.workload_type,
             "correlation_id": self.correlation_id,
+            "agent_id": self.agent_id,
         }
 
     def to_bytes(self) -> bytes:
@@ -976,6 +982,7 @@ class WorkflowMessage:
             agent_type=_opt_str(data.get("agent_type")),
             workload_type=_opt_str(data.get("workload_type")),
             correlation_id=cid_raw,
+            agent_id=_opt_str(data.get("agent_id")),
         )
 
     @classmethod
@@ -1482,6 +1489,9 @@ class WorkflowPublisher:
             agent_type=(agent_type or None),
             workload_type=(workload_type or None),
             correlation_id=(correlation_id or str(uuid.uuid4())),
+            # PR-11：logical agent_id 进 body，跟 agent_type 区分
+            # codex-dev-1 vs codex-dev-2（都是 agent_type=codex）
+            agent_id=agent_id,
         )
         if route == "internal":
             routing_key = self.topology.internal_routing(event)
