@@ -108,6 +108,16 @@ public static class WorkloadTypes
 /// <c>WorkflowMessage</c> contract: only carries locator info
 /// (event + entity_id + optional ref_id); state is always re-read
 /// from the AgentBoard REST API by the executing agent.
+///
+/// PR-2 shape alignment with FastAPI:
+/// - <c>agent_type</c> was already present; defaulting to null is
+///   backward-compatible.
+/// - <c>workload_type</c> tells the dispatcher which adapter family
+///   to use (task / review / rework / ticket). PR-3 will use this
+///   instead of inferring from event name.
+/// - <c>correlation_id</c> threads through the whole chain
+///   (proposal → story → tasks → review) so logs and the state
+///   machine can trace "which chain broke where".
 /// </summary>
 public sealed record WorkflowMessage(
     string Event,
@@ -115,7 +125,9 @@ public sealed record WorkflowMessage(
     long EntityId,
     long? RefId,
     string Timestamp,
-    string? AgentType = null)
+    string? AgentType = null,
+    string? WorkloadType = null,
+    string CorrelationId = "")
 {
     public static WorkflowMessage Parse(ReadOnlyMemory<byte> body)
     {
@@ -139,9 +151,13 @@ public sealed record WorkflowMessage(
         }
         var ts = root.TryGetProperty("ts", out var tsp) ? tsp.GetString() ?? "" : "";
         var agentType = root.TryGetProperty("agent_type", out var at) ? at.GetString() : null;
+        var workloadType = root.TryGetProperty("workload_type", out var wt) ? wt.GetString() : null;
+        var correlationId = root.TryGetProperty("correlation_id", out var ct) ? ct.GetString() ?? "" : "";
         return new WorkflowMessage(
             ev, et, entityId, refId, ts,
-            string.IsNullOrWhiteSpace(agentType) ? null : agentType);
+            string.IsNullOrWhiteSpace(agentType) ? null : agentType,
+            string.IsNullOrWhiteSpace(workloadType) ? null : workloadType,
+            correlationId);
     }
 
     public string ToJson() => JsonSerializer.Serialize(new
@@ -151,7 +167,9 @@ public sealed record WorkflowMessage(
         entity_id = EntityId,
         ref_id = RefId,
         ts = Timestamp,
-        agent_type = AgentType
+        agent_type = AgentType,
+        workload_type = WorkloadType,
+        correlation_id = CorrelationId
     });
 }
 

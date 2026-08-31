@@ -861,13 +861,28 @@ class WorkflowTopology:
 
 @dataclass(frozen=True)
 class WorkflowMessage:
-    """通用工作流事件消息。刻意只带定位信息，不带业务状态——状态一律回查数据库。"""
+    """通用工作流事件消息。刻意只带定位信息，不带业务状态——状态一律回查数据库。
+
+    PR-2 加 3 字段（dispatch 决策 + 审计最小依赖）：
+
+    - ``agent_type``：希望执行该事件的 CLI 类型（``workbuddy`` / ``codex`` /
+      ``minimax``）。缺省时 consumer 按 task_type_routing 查表回填（PR-3）。
+    - ``workload_type``：工作类别（``task`` / ``review`` / ``rework`` /
+      ``ticket``），与 .NET 端 ``WorkloadTypes`` 对齐。consumer 用来选
+      正确的 adapter（PR-3）。
+    - ``correlation_id``：trace 链 id。publish 时缺省自动生成 UUID4；
+      caller 可以在 proposal/story 创建时显式传一个，整条链复用。
+      状态机和日志用它来串事件，定位"哪条链在哪里断"。
+    """
 
     event: str
     entity_type: str
     entity_id: int
     ref_id: int | None = None
     ts: str = ""
+    agent_type: str | None = None
+    workload_type: str | None = None
+    correlation_id: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -876,6 +891,9 @@ class WorkflowMessage:
             "entity_id": int(self.entity_id),
             "ref_id": None if self.ref_id is None else int(self.ref_id),
             "ts": self.ts or datetime.now(timezone.utc).isoformat(),
+            "agent_type": self.agent_type,
+            "workload_type": self.workload_type,
+            "correlation_id": self.correlation_id,
         }
 
     def to_bytes(self) -> bytes:
@@ -908,12 +926,28 @@ class WorkflowMessage:
                 ref = int(ref)
             except (TypeError, ValueError):
                 ref = None
+        # 新字段都是 optional 字符串；非 str 视为 None（容忍老 publisher 漏字段）
+        def _opt_str(v: Any) -> str | None:
+            if v is None:
+                return None
+            if not isinstance(v, str):
+                return None
+            v = v.strip()
+            return v or None
+        # correlation_id：缺省/非 str 一律空串；publisher 那边 publish 时会
+        # 兜底生成 UUID4，consumer 端可以信任"非空即来自 publisher 自动生成"
+        cid_raw = data.get("correlation_id")
+        if not isinstance(cid_raw, str):
+            cid_raw = ""
         return cls(
             event=event,
             entity_type=et,
             entity_id=eid,
             ref_id=None if ref is None else max(0, ref),
             ts=str(data.get("ts") or ""),
+            agent_type=_opt_str(data.get("agent_type")),
+            workload_type=_opt_str(data.get("workload_type")),
+            correlation_id=cid_raw,
         )
 
     @classmethod
@@ -1378,11 +1412,17 @@ class WorkflowPublisher:
         return self._broker
 
     def publish(self, event: str, entity_type: str, entity_id: int,
-                ref_id: int | None = None, *, agent_id: str | None = None) -> bool:
+                ref_id: int | None = None, *, agent_id: str | None = None,
+                agent_type: str | None = None,
+                workload_type: str | None = None,
+                correlation_id: str | None = None) -> bool:
         """发布一条工作流事件。
 
         - ``agent_id`` 非空 → 定向投递到该 Agent 队列（review.requested 等）；
         - ``agent_id`` 为空 → 广播（story.created / story.ready / task.* 认领型）；
+        - ``agent_type`` / ``workload_type`` / ``correlation_id`` 全部 optional，
+          缺省 ``correlation_id`` 时自动生成 UUID4 让日志能串链。其它两个
+          缺省时由 consumer 端按 task_type_routing 查表回填（PR-3）。
         - 返回是否投递成功；失败仅告警，不抛异常。
         """
         if not self.enabled:
@@ -1394,6 +1434,9 @@ class WorkflowPublisher:
             event=event, entity_type=entity_type, entity_id=int(entity_id),
             ref_id=None if ref_id is None else int(ref_id),
             ts=datetime.now(timezone.utc).isoformat(),
+            agent_type=(agent_type or None),
+            workload_type=(workload_type or None),
+            correlation_id=(correlation_id or str(uuid.uuid4())),
         )
         routing_key = (self.topology.agent_routing(agent_id)
                        if agent_id else self.topology.broadcast_routing(event))
@@ -1452,11 +1495,21 @@ def set_workflow_publisher(publisher: WorkflowPublisher | None) -> None:
 
 def publish_workflow_event(event: str, entity_type: str, entity_id: int,
                            ref_id: int | None = None, *,
-                           agent_id: str | None = None) -> bool:
-    """给 API 层用的一行式发布入口：**任何情况下都不抛异常**。"""
+                           agent_id: str | None = None,
+                           agent_type: str | None = None,
+                           workload_type: str | None = None,
+                           correlation_id: str | None = None) -> bool:
+    """给 API 层用的一行式发布入口：**任何情况下都不抛异常**。
+
+    PR-2 增 3 kwargs（``agent_type`` / ``workload_type`` / ``correlation_id``），
+    旧 caller 不传也能用——它们都是 optional，``correlation_id`` 缺省
+    自动生成 UUID4。
+    """
     try:
         return get_workflow_publisher().publish(
-            event, entity_type, entity_id, ref_id, agent_id=agent_id)
+            event, entity_type, entity_id, ref_id, agent_id=agent_id,
+            agent_type=agent_type, workload_type=workload_type,
+            correlation_id=correlation_id)
     except Exception:  # pragma: no cover - 兜底，MQ 绝不影响主流程
         log.warning("发布工作流事件 %s 时出现未预期异常", event, exc_info=True)
         return False
