@@ -441,14 +441,16 @@ def user_confirm_task(
         except Exception as e:
             log.warning("user_confirm: task %s 写 comment 失败：%s", t.id, e)
     api_helpers._invalidate_stats_cache(t.project_id)
-    # 触发 dependency unlock（同 reviewer approve 路径）
+    # 触发 dependency unlock + PR-10 dispatch implementation task
+    # 之前是 publish task.available 让 worker 抢；PR-10 改成 server 直接派：
+    # 选 agent → 推 in_progress → publish task.assigned（4 字段齐全）
     try:
+        from ..scheduling.service import dispatch_implementation_task
         for succ in service.get_unlocked_dependent_tasks(s, t.id):
-            publish_workflow_event(
-                EVENT_TASK_AVAILABLE, "task", succ.id, ref_id=succ.story_id,
-            )
+            dispatch_implementation_task(s, succ.id)
     except Exception as e:
-        log.warning("user_confirm: task %s dependency unlock 失败：%s", t.id, e)
+        log.warning("user_confirm: task %s dependency unlock dispatch 失败：%s",
+                    t.id, e)
     publish_workflow_event(EVENT_TASK_REVIEWED, "task", t.id, ref_id=uid)
     api_helpers._notify_webhooks(s, t.project_id, EVENT_TASK_REVIEWED,
                      {"id": t.id, "by": uid, "decision": "confirmed"})
@@ -620,16 +622,16 @@ def review_task(tid: int, body: AgentReviewIn, authorization: str | None = Heade
         event_kwargs["agent_id"] = owner_agent_id
     publish_workflow_event(event, "task", t.id, **event_kwargs)
     if event == EVENT_TASK_REVIEWED:
+        # PR-10：reviewer approve 走 dispatch_implementation_task，server
+        # 选 agent + 推 in_progress + publish task.assigned（4 字段齐全）
+        # 不再 publish task.available（那是 broadcast 抢任务的旧模式，
+        # .NET mapper 看到没 agent_type 会 DLQ）
         try:
+            from ..scheduling.service import dispatch_implementation_task
             for successor in service.get_unlocked_dependent_tasks(s, t.id):
-                publish_workflow_event(
-                    EVENT_TASK_AVAILABLE,
-                    "task",
-                    successor.id,
-                    ref_id=successor.story_id,
-                )
+                dispatch_implementation_task(s, successor.id)
         except Exception:
-            pass
+            log.exception("reviewer approve: dispatch successor 失败")
         if t.story_id:
             try:
                 story_tasks = s.query(service.Task).filter(service.Task.story_id == t.story_id).all()

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import re as _re
 from datetime import datetime, timedelta
 
@@ -76,6 +77,7 @@ from ..work_items.service import (  # noqa: E402 — 跨域调用（评审/评�
     set_status,
     try_assign_task,
 )
+from ...core.common.enums import Status as TaskStatus  # noqa: E402 — 跨域状态枚举
 from ..work_items.models import Comment  # noqa: E402 — 评审意见评论实体
 from ..projects.models import STORY_REVIEW_STATUSES  # noqa: E402 — Story 级评审态（恒空占位）
 
@@ -86,6 +88,7 @@ from .models import (
     MAX_REVIEW_ROUNDS,
     REVIEW_MODE_MAJORITY,
     REVIEW_MODE_SINGLE,
+    TaskAssignment,
 )
 
 
@@ -715,6 +718,242 @@ def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None
     _commit(s)
     s.refresh(t)
     return t
+
+
+# ===================== PR-10: Implementation Task Dispatch =====================
+# 替代 task.available 广播：Server 主动选 agent、状态机推 in_progress、publish
+# task.assigned（4 字段齐全）→ .NET worker 接到才执行。
+#
+# PR-10 决策（用户 review 反馈）：
+#   - 不用 routing 表，用函数 _pick_implementation_agent 推导 agent_type
+#   - 当前简单随机（后期接 Agent.scores / 反馈做加权）
+#   - "task 和 qa 不同 agent" 硬约束：从 TaskAssignment 历史查本 task
+#     之前的 assignee，候选池里排除
+
+# task_type + workload_type → agent_type（workbuddy/codex/minimax）
+# PR-10 简单映射；后期接 tag/score 后这块改成 Agent.scores 查询
+_DISPATCH_AGENT_TYPE = {
+    ("design", "task"): "workbuddy",
+    ("dev",    "task"): "codex",
+    ("bug",    "task"): "codex",
+    ("qa",     "task"): "workbuddy",
+    # review 不走 dispatch（已有 assign_task_reviewer）
+    # rework 跟 task 同 agent_type（修复用同一工具）
+    ("dev",    "rework"): "codex",
+    ("bug",    "rework"): "codex",
+    ("design", "rework"): "workbuddy",
+    ("qa",     "rework"): "workbuddy",
+}
+
+
+def _agent_type_for(task_type: str, workload_type: str) -> str | None:
+    """PR-10：查 (task_type, workload_type) → agent_type。无映射返 None。"""
+    return _DISPATCH_AGENT_TYPE.get((task_type, workload_type))
+
+
+def _excluded_prior_agent_ids(s: Session, task_id: int) -> set[int]:
+    """PR-10："task 和 qa 不同 agent" 约束。
+
+    查本 task 历史上所有 active/completed TaskAssignment 的 agent_registry_id
+    （Agent.id int），dispatch 时从候选池排除。
+    """
+    rows = s.query(TaskAssignment.agent_registry_id).filter(
+        TaskAssignment.task_id == task_id,
+        TaskAssignment.status.in_(("active", "completed")),
+        TaskAssignment.agent_registry_id.isnot(None),
+    ).all()
+    return {r[0] for r in rows if r[0] is not None}
+
+
+def _online_agents_for_type(s: Session, tool: str) -> list[Agent]:
+    """PR-10：在线 ∩ enabled ∩ roles 含 tool 的 Agent 候选池。
+
+    Agent 没有 agent_type 字段，用 ``roles`` JSON list 匹配。roles 如
+    ``["codex", "reviewer"]`` 表示这个 agent 装了 codex CLI 同时能
+    审稿。dispatch 时按 tool 选（"codex" / "workbuddy" / "minimax"）。
+
+    后期接 tag/score 后改成 Agent.scores ORDER BY score DESC + random tiebreak
+    实现"前期随机 + 后期加权"。现在纯 random.choice。
+    """
+    import json as _json
+    out: list[Agent] = []
+    for a in s.query(Agent).filter(
+        Agent.online.is_(True),
+        Agent.enabled.is_(True),
+    ).all():
+        try:
+            roles = _json.loads(a.roles or "[]")
+        except (ValueError, TypeError):
+            roles = []
+        if tool in roles:
+            out.append(a)
+    return out
+
+
+def _pick_implementation_agent(
+    s: Session, task: Task, workload_type: str,
+) -> tuple[Agent, AgentInstance] | None:
+    """PR-10 核心 picker。返回 (Agent, AgentInstance) 或 None（无候选）。
+
+    步骤：
+      1. 推导 tool（_agent_type_for）
+      2. 查候选池（_online_agents_for_type，按 roles 匹配）
+      3. 排除本 task 历史 assignee（_excluded_prior_agent_ids）
+      4. 随机选 1 个 Agent
+      5. resolve physical worker（resolve_worker_for_agent from PR-5）
+
+    失败语义：
+      - 候选空 / 全被排除 → 返回 None（caller 决定 fallback broadcast）
+      - candidate 有但没 online AgentInstance → 走 PR-5 fallback log warning
+    """
+    tool = _agent_type_for(task.type, workload_type)
+    if not tool:
+        return None
+    candidates = _online_agents_for_type(s, tool)
+    if not candidates:
+        return None
+    excluded = _excluded_prior_agent_ids(s, task.id)
+    filtered = [a for a in candidates if a.id not in excluded]
+    if not filtered:
+        # 全被排除：兜底取原池（避免无候选导致任务永远 dispatch 不出）
+        # log 出来让运维知道"为什么 task 一直派同一个人"
+        log.warning(
+            "PR-10 dispatch: task %s 候选全被历史 assignee 排除（%d 个），"
+            "兜底取原池",
+            task.id, len(excluded),
+        )
+        filtered = candidates
+    picked_agent = random.choice(filtered)
+    # 解析 worker
+    worker_id = resolve_worker_for_agent(s, picked_agent.agent_id)
+    if not worker_id:
+        return None
+    # 取这个 agent 在该 worker 上的 AgentInstance
+    inst = (
+        s.query(AgentInstance)
+        .filter(
+            AgentInstance.agent_id == picked_agent.agent_id,
+            AgentInstance.worker_id == worker_id,
+            AgentInstance.enabled.is_(True),
+            AgentInstance.online.is_(True),
+        )
+        .order_by(AgentInstance.worker_id.asc())
+        .first()
+    )
+    if not inst:
+        return None
+    return (picked_agent, inst)
+
+
+def dispatch_implementation_task(
+    s: Session, task_id: int, *, workload_type: str = "task",
+) -> tuple[Task, AgentInstance] | None:
+    """PR-10：实现任务派发主入口。
+
+    完整流程：
+      1. 加载 task，验 status=todo（不能重复派发）
+      2. 选 agent + worker（_pick_implementation_agent）
+      3. 写 TaskAssignment（active_slot 唯一，PR-10 用 slot=1 占位）
+      4. 状态机推 in_progress（用 set_status 走 TaskStateMachine）
+      5. publish_workflow_event_for_agent(...)
+         - agent_id=picked_agent.agent_id（logical）
+         - worker_id=inst.worker_id（PR-5 resolve）
+         - agent_type=picked_agent.agent_type（避免 .NET mapper 缺值 DLQ）
+         - workload_type（PR-2 已支持）
+
+    返 (task, instance) 或 None（无候选不阻塞，task 留 todo 等下次重试）。
+    """
+    task = s.get(Task, task_id)
+    if task is None:
+        raise NotFound(f"task {task_id} not found")
+    if task.status != TaskStatus.TODO:
+        log.info(
+            "PR-10 dispatch: task %s status=%s，跳过（已派过）",
+            task_id, task.status,
+        )
+        return None
+    picked = _pick_implementation_agent(s, task, workload_type)
+    if picked is None:
+        log.warning(
+            "PR-10 dispatch: task %s (type=%s) 无可用 candidate，"
+            "fallback broadcast task.available（保留旧 event 兼容，"
+            "等 Worker / AgentInstance 配置就位后自动转 dispatch）",
+            task_id, task.type,
+        )
+        # PR-10 fallback：没 candidate 时仍 publish task.available
+        # broadcast，让 .NET 抢任务（如果 .NET 已启）或 workflow_worker
+        # 轮询兜底。保留旧行为，运维部署 agent 配置期间不影响 happy path。
+        # 上面 dispatch 函数体 import 的 mq 是函数级局部变量；本分支
+        # 早于那个 import 走，需要走函数级 helper
+        from ...core.infrastructure import messaging as _mq_fb
+        _mq_fb.publish_workflow_event(
+            _mq_fb.EVENT_TASK_AVAILABLE,
+            "task",
+            task_id,
+            ref_id=task.story_id,
+            workload_type=workload_type,
+        )
+        return None
+    agent, inst = picked
+    # TaskAssignment：active_slot 暂时按 (task_id, 1) 占位
+    # 旧 slot（如已存在）会被 unique constraint 拒绝 → 失败 skip
+    # 注：active_slot 唯一约束是 (task_id, active_slot)，先用 slot=1
+    existing_assignment = (
+        s.query(TaskAssignment)
+        .filter(
+            TaskAssignment.task_id == task_id,
+            TaskAssignment.active_slot == 1,
+        )
+        .first()
+    )
+    if existing_assignment is not None:
+        log.info(
+            "PR-10 dispatch: task %s 已有 active TaskAssignment id=%s，跳过",
+            task_id, existing_assignment.id,
+        )
+        return None
+    ta = TaskAssignment(
+        task_id=task_id,
+        agent_registry_id=agent.id,
+        user_id=agent.user_id,
+        source="schedule",
+        status="active",
+        active_slot=1,
+    )
+    s.add(ta)
+    s.flush()  # 取 ta.id
+    # 关联到 task（current_assignment_id 是 5 状态机外的快指针）
+    db_task_for_ca = s.get(Task, task_id)
+    db_task_for_ca.current_assignment_id = ta.id
+    s.flush()
+    # 状态机推 in_progress
+    set_status(
+        s, task_id, TaskStatus.IN_PROGRESS,
+        changed_by=agent.user_id,
+    )
+    s.refresh(task)
+    # publish 4 字段齐全的 task.assigned（PR-5 helper 自动 resolve worker）
+    # 注：PR-10 这里没传 agent_type —— Agent 模型无 agent_type 字段；
+    # 改走 .NET 端按 agent_id 查注册的 tool（PR-12 启动注册时填到 worker 配置）
+    # 本期 tool 类型（workbuddy/codex）从 _DISPATCH_AGENT_TYPE 反查
+    tool = _agent_type_for(task.type, workload_type) or ""
+    from ...core.infrastructure import messaging as mq
+    mq.publish_workflow_event(
+        mq.EVENT_TASK_ASSIGNED,
+        "task",
+        task_id,
+        ref_id=task.story_id,
+        agent_id=agent.agent_id,  # 逻辑身份（body 留 trace）
+        worker_id=inst.worker_id,  # PR-5：物理身份 → routing key
+        agent_type=tool,  # 关键：.NET mapper 必填，缺值 → DLQ
+        workload_type=workload_type,
+    )
+    log.info(
+        "PR-10 dispatch: task %s → agent_id=%s agent_type=%s worker_id=%s "
+        "(%s)",
+        task_id, agent.agent_id, tool, inst.worker_id, workload_type,
+    )
+    return (task, inst)
 
 
 def _assigned_task_reviewer_ids(s: Session, entity_type: str, entity_id: int) -> set[int]:

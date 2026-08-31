@@ -403,12 +403,14 @@ def update_story(sid: int, body: StoryPatch, s: Session = Depends(get_session)):
                 st = service.get_story(s, st.id) or st
                 publish_workflow_event(EVENT_STORY_CONFIRMED, "story", st.id,
                                        ref_id=st.epic_id)
+            # PR-10：每个 ready task 走 dispatch_implementation_task
+            # server 选 agent + 推 in_progress + publish task.assigned
             for t in service.list_tasks(s, story_id=sid, limit=200):
                 if t.status in ("backlog", "todo") and service.get_task_readiness(s, t)["ready"]:
-                    publish_workflow_event(EVENT_TASK_AVAILABLE, "task", t.id,
-                                           ref_id=sid)
+                    from ..scheduling.service import dispatch_implementation_task
+                    dispatch_implementation_task(s, t.id)
         except Exception:
-            log.exception("看板标记后广播任务失败（不影响标记本身）")
+            log.exception("看板标记后 dispatch 失败（不影响标记本身）")
     return service._ser(st)
 
 
@@ -445,16 +447,16 @@ def confirm_story(sid: int, authorization: str | None = Header(None),
     uid, _is_admin = api_helpers._caller_uid_admin(authorization)
     st = service.confirm_story(s, sid, changed_by=uid)
     publish_workflow_event(EVENT_STORY_CONFIRMED, "story", st.id, ref_id=st.epic_id)
-    # Agent MQ 编排（2026-08-09）：广播其下 backlog/todo 任务 → 各 agent worker
-    # 竞争认领（task.available + 服务端 claim CAS）。MQ 未配置时 no-op，
-    # 由 worker 的 story 扫描轮询兜底（handle_story 竞争认领）。
+    # PR-10：每个 ready task 走 dispatch_implementation_task
+    # server 选 agent + 推 in_progress + publish task.assigned
+    # （替代旧 task.available 抢任务模式，.NET mapper 必填 agent_type）
     try:
+        from ..scheduling.service import dispatch_implementation_task
         for t in service.list_tasks(s, story_id=sid, limit=200):
             if t.status in ("backlog", "todo") and service.get_task_readiness(s, t)["ready"]:
-                publish_workflow_event(EVENT_TASK_AVAILABLE, "task", t.id,
-                                       ref_id=sid)
+                dispatch_implementation_task(s, t.id)
     except Exception:
-        log.exception("confirm 广播 task.available 失败（不影响主流程）")
+        log.exception("confirm dispatch 失败（不影响主流程）")
     _epic = s.get(service.Epic, st.epic_id)
     if _epic is not None:
         api_helpers._notify_webhooks(s, _epic.project_id, EVENT_STORY_CONFIRMED,
