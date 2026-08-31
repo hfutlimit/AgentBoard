@@ -107,7 +107,12 @@ public sealed class WorkflowMessageMapper
     {
         "task.available"          => (WorkloadTypes.Task, "task.available"),
         "task.assigned"           => (WorkloadTypes.Task, "task.assigned"),
-        "task.ready_for_review"   => (WorkloadTypes.Review, "task.review"),
+        // PR-4: task.ready_for_review 故意不在这里 —— 它是 pre-assignment 事件
+        // （任务进入 in_review，但还没选 reviewer），由 FastAPI 端 Python
+        // workflow_worker 独占 internal_queue 选 reviewer，选完后再
+        // 发 task.review_requested 到 agent 定向队列，.NET 才接管。
+        // 如果 .NET 误收到 task.ready_for_review（broadcast queue 残留），
+        // 会进 InvalidDataException → DLQ，运维能立刻看到 routing 错配。
         "task.review_requested"   => (WorkloadTypes.Review, "task.review"),
         "task.rejected"           => (WorkloadTypes.Rework, "task.rework"),
         "task.review_rejected"    => (WorkloadTypes.Rework, "task.rework"),

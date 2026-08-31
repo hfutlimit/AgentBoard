@@ -1,24 +1,32 @@
-"""AgentBoard Workflow 分配器 Worker（Epic 122 S1 M3）。
+"""AgentBoard Workflow 分配器 Worker（Epic 122 S1 M3 + PR-4）。
 
-消费 M2 泛化的 Workflow 事件总线（``agentboard.workflow`` 命名空间）：
+PR-4 之前本 Worker 与 .NET ``WorkflowMqConsumerService`` 抢同一个
+``agentboard.workflow.broadcast`` 队列：同一个 event 谁拿到谁处理，导致
+``task.ready_for_review`` 既被 Python 拿去做 reviewer 分配、又被 .NET 拿
+去执行 review，两个不同 action 在并发下互踩。happy path 偶发性失败 / 流程
+错乱都源于此。
 
-- ``story.confirmed``（广播）→ 仅确认 ack：Story 确认后的 agent 自动处理编排
-  由 Proposal Worker（``agentboard.worker``）轮询兜底执行（Ticket 全流程，
-  2026-08-09，Story 级评审已下线）；
-- ``task.ready_for_review``（广播）→ 自动指派 Task reviewer（``POST /api/tasks/{tid}/assign-reviewer``，
-  随机选择 + CAS 幂等 + 排除 assignee；切片 2 M2 评审闭环入口）；
-- ``review.rejected`` / ``comment.replied`` → 日志记录（评审往返收敛主要由
-  Reviewer/作者 Agent 各自订阅**定向队列**感知，本 Worker 不介入业务决策）。
+PR-4 拆分事件 ownership：
 
-设计原则（与 Proposal Worker 一致）：**消息只做通知、状态一律回查数据库。**
-本 Worker 收到事件后不携带任何状态，而是回查 REST 再触发分配，
-因此消息重投 / 丢失都不会产生重复轮次或漏单。
+-  ``task.ready_for_review``（broadcast）→ 改由 .NET 独占，但 **.NET 也不再
+    对它执行**（这是 pre-assignment 事件，没 reviewer）；FastAPI 在同一
+    状态转换里 **额外** publish ``task.review_assignment_needed`` 到 internal
+    路由（PR-4 新增），Python 独占 internal_queue 听这个事件。
+-  Python 选完 reviewer 后 publish ``task.review_requested`` 到 agent 定向
+    队列（route="agent"），.NET 拿这条去真正执行 review。
+-  老的 ``EVENT_TASK_REVIEW_REQUESTED`` 等定向/agent 事件 Python 不再关心
+    （不订阅 internal_queue）。review 闭环主体逻辑在 .NET + FastAPI REST
+    endpoint，Python 只做"分配"这一步。
+
+设计原则不变：**消息只做通知、状态一律回查数据库。**
+本 Worker 收到 internal event 后不携带任何状态，而是回查 REST 再触发
+分配，因此消息重投 / 丢失都不会产生重复轮次或漏单。
 
 MQ 未配置（``AGENTBOARD_MQ_URL`` 为空）时回退 **DB 轮询**：定期扫描
 ``in_review`` 未指派 reviewer 的 Task 触发指派，正确性不变。
 
 运行：
-    python -m agentboard.workflow_worker --mq     # MQ 消费模式（未配置自动回退轮询）
+    python -m agentboard.workflow_worker --mq     # MQ 消费 internal 模式
     python -m agentboard.workflow_worker --loop   # 轮询常驻
     python -m agentboard.workflow_worker --once   # 只跑一轮
 """
@@ -35,22 +43,8 @@ import httpx
 
 from .core.infrastructure import messaging as mq
 from .mq import (
-    EVENT_COMMENT_REPLIED,
-    EVENT_REVIEW_REJECTED,
-    EVENT_REVIEW_VOTE_CAST,
-    EVENT_STORY_CONFIRMED,
-    EVENT_STORY_CREATED,
-    # Step 4 P1-1（2026-08-10 review）：按 entity 分流的 review/comment 事件
-    EVENT_STORY_REVIEW_REQUESTED, EVENT_STORY_REVIEW_REJECTED,
-    EVENT_STORY_REVIEW_VOTE_CAST, EVENT_STORY_COMMENT_REPLIED,
-    EVENT_TASK_REVIEW_REQUESTED, EVENT_TASK_REVIEW_REJECTED,
-    EVENT_TASK_REVIEW_VOTE_CAST, EVENT_TASK_COMMENT_REPLIED,
-    EVENT_TASK_AVAILABLE,
-    EVENT_TASK_READY_FOR_REVIEW,
-    EVENT_TASK_REVIEWED,
-    EVENT_TASK_REJECTED,
-    EVENT_TICKET_CREATED,
-    EVENT_TICKET_REQUESTED,
+    # PR-4：internal 路由事件白名单（Python 唯一关心的）
+    EVENT_TASK_REVIEW_ASSIGNMENT_NEEDED,
     WORKFLOW_DEFAULT_NAMESPACE,
     WorkflowMessage,
     WorkflowTopology,
@@ -101,11 +95,12 @@ class WorkflowConsumerConfig:
 
 
 class WorkflowConsumer:
-    """Workflow 事件消费者：分配评审 + 预留开发任务分配入口。"""
+    """Workflow 事件消费者：分配评审（PR-4 拆 internal_queue）。"""
 
-    #: 本 Worker 关心的广播事件 → 处理函数（未列出的事件直接 ack 忽略）
-    _HANDLERS = {
-        EVENT_STORY_CONFIRMED: "story.confirmed",
+    #: PR-4：本 Worker 关心的 internal 事件白名单
+    #: 任何不在这里的 internal event 直接 ack 忽略（不视为未识别）
+    _INTERNAL_HANDLERS = {
+        EVENT_TASK_REVIEW_ASSIGNMENT_NEEDED: "_handle_task_review_assignment_needed",
     }
 
     def __init__(self, config: WorkflowConsumerConfig,
@@ -178,88 +173,53 @@ class WorkflowConsumer:
         return True
 
     def _broadcast_available_tasks(self, story_id: int) -> bool:
-        """Story confirmed → 回查 Story 下 backlog/todo 任务 → 逐个广播 ``task.available``。
+        """PR-4：此方法已废弃（之前负责 story.confirmed → task.available 广播）。
 
-        消息只带定位信息（task_id + story_id），开发者收到后经 ``claim_development_task``
-        竞争认领（CAS，恰一赢家）。MQ 未配置时 ``publish_workflow_event`` 为 no-op，
-        开发者靠轮询（list_tasks?status=backlog）兜底，正确性不变。
-
-        注意（2026-08-09）：Story confirmed 的 agent 自动编排由 Proposal Worker
-        轮询执行，本方法仅作通知辅助，Worker 主流程不再依赖它。
+        保留以兼容旧 reference（defense），但 no-op 行为：当前 internal_queue
+        收不到 story.confirmed 事件，story 自动编排由 Proposal Worker
+        轮询兜底执行（fetch confirmed stories → 拉起 agent），不再依赖
+        本 Worker 协助通知。Story 级评审已下线（2026-08-09）。
         """
-        try:
-            r = self._request("GET", f"/api/stories/{story_id}/tasks",
-                              params={"limit": 200})
-            r.raise_for_status()
-            items = (r.json() or {}).get("items", []) or []
-        except Exception as e:
-            # 网络抖动 / 5xx 属瞬时错误：requeue 重投而非死信（Stage 0）
-            log.warning("story %s 拉取任务列表失败，requeue 重投：%s", story_id, e)
-            raise mq.MessageRetry(
-                f"story #{story_id} 拉取任务列表失败") from None
-        claimed = 0
-        for t in items:
-            if t.get("status") in ("backlog", "todo") and t.get("ready", True):
-                mq.publish_workflow_event(EVENT_TASK_AVAILABLE, "task", t["id"],
-                                          ref_id=story_id)
-                claimed += 1
-        log.info("story %s 已确认（confirmed），广播 %s 个可认领任务",
-                 story_id, claimed)
+        log.debug("_broadcast_available_tasks(story_id=%s) 已废弃（PR-4）", story_id)
         return True
 
     def handle_message(self, msg: WorkflowMessage) -> bool:
-        """处理一条 Workflow 消息。返回 False → broker 转死信（重投语义留给轮询兜底）。"""
+        """PR-4：处理一条 internal 编排消息。
+
+        只关心 internal 事件白名单内的事件；不在白名单的 internal event
+        直接 ack 忽略。返回 False → broker 转死信（重投语义留给轮询兜底）。
+        """
         event = msg.event
-        if event == EVENT_STORY_CONFIRMED:
-            # Ticket 全流程：用户已确认 Story（backlog→confirmed），agent 自动处理
-            # 编排由 Proposal Worker（agentboard.worker）轮询兜底执行（fetch confirmed
-            # stories → 拉起 agent），本 Worker 仅确认 ack 避免死信（2026-08-09）。
-            log.info("事件 story.confirmed（story=%s epic=%s）：Agent 自动处理由 Proposal Worker 轮询兜底",
-                     msg.entity_id, msg.ref_id)
+        handler = self._INTERNAL_HANDLERS.get(event)
+        if handler is None:
+            log.info("事件 %s（entity=%s#%s）不在 internal 白名单，直接 ack 忽略",
+                     event, msg.entity_type, msg.entity_id)
             return True
-        if event == EVENT_STORY_CREATED:
-            # Story 创建不再自动指派 reviewer（Story 级评审已下线，2026-08-09）：
-            # 设计评审由 design task 的 in_design 流承担，实现评审由 Task in_review 承担。
-            log.info("事件 story.created（story=%s）：Story 级评审已下线，跳过指派", msg.entity_id)
-            return True
-        if event == EVENT_TASK_AVAILABLE:
-            log.info("事件 task.available（task=%s story=%s）：由在线 developer 竞争认领", event, msg.entity_id)
-            return True
-        if event in (EVENT_REVIEW_REJECTED, EVENT_COMMENT_REPLIED,
-                     EVENT_STORY_REVIEW_REJECTED, EVENT_STORY_COMMENT_REPLIED,
-                     EVENT_TASK_REVIEW_REJECTED, EVENT_TASK_COMMENT_REPLIED):
-            # Step 4 P1-1：旧 review.* 仍兼容（log 走"story"默认标注），
-            # 新 story/task.* 分别标注 entity，让运维能从日志一眼区分。
-            entity = "task" if event.startswith("task.") else "story"
-            log.info("事件 %s（%s=%s）：评审往返收敛，由 Agent 定向订阅处理",
-                     event, entity, msg.entity_id)
-            return True
-        if event == EVENT_TASK_READY_FOR_REVIEW:
-            # Task 提交评审 → 自动指派 Task reviewer（切片 2 M2 闭环）
-            log.info("事件 %s（task=%s assignee=%s）：自动指派 Task reviewer",
-                     event, msg.entity_id, msg.ref_id)
-            return self._assign_task_reviewer(msg.entity_id)
-        if event in (EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED):
-            log.info("事件 %s（task=%s）：Task 评审完成，assignee/reviewer 经定向队列感知",
-                     event, msg.entity_id)
-            return True
-        if event in (EVENT_REVIEW_VOTE_CAST, EVENT_STORY_REVIEW_VOTE_CAST,
-                     EVENT_TASK_REVIEW_VOTE_CAST):
-            # 切片 3 M3：多数决投票已记录（未达法定票数），等待更多评审人投票/超时兜底
-            entity = "task" if event.startswith("task.") else "story"
-            log.info("事件 %s（%s=%s 投票人=%s）：多数决进行中，达法定票数自动结算",
-                     event, entity, msg.entity_id, msg.ref_id)
-            return True
-        if event in (EVENT_TICKET_REQUESTED, EVENT_TICKET_CREATED):
-            # Proposal → Ticket 转化事件：由 Proposal Worker 轮询兜底消费
-            # （fetch_ticket_requests + handle_ticket_request），本 Worker 仅确认
-            # ack 避免死信；事件留作审计/通知总线（2026-08-09 review 备注）。
-            log.info("事件 %s（proposal=%s req=%s）：Proposal Worker 轮询兜底处理",
-                     event, msg.entity_id, msg.ref_id)
-            return True
-        log.warning("收到未识别事件 %s（entity=%s#%s），直接 ack 忽略",
-                    event, msg.entity_type, msg.entity_id)
-        return True
+        log.info("事件 %s（entity=%s#%s ref_id=%s correlation_id=%s）：路由到 %s",
+                 event, msg.entity_type, msg.entity_id, msg.ref_id, msg.correlation_id,
+                 handler)
+        method = getattr(self, handler, None)
+        if method is None:
+            log.error("internal handler %s 未找到对应方法（白名单错配）", handler)
+            return False
+        return method(msg)
+
+    def _handle_task_review_assignment_needed(self, msg: WorkflowMessage) -> bool:
+        """Task 进入 in_review（PR-4 内部事件）→ 选 reviewer。
+
+        流程：
+          1. 调 ``POST /api/tasks/{tid}/assign-reviewer``（CAS 并发安全，幂等）
+          2. 服务端 assign-reviewer API 选完 reviewer 后会 publish
+             ``task.review_requested`` 到 agent 定向队列（route=agent），
+             .NET 真正执行 review。
+
+        之前 ``task.ready_for_review`` broadcast 的"指派 reviewer"职责
+        完全迁到这里，避免与 .NET 抢同一个 queue 重复处理。
+        """
+        task_id = msg.entity_id
+        log.info("事件 task.review_assignment_needed（task=%s assignee=%s）：自动指派 Task reviewer",
+                 task_id, msg.ref_id)
+        return self._assign_task_reviewer(task_id)
 
     # ---------- 轮询模式（无 MQ 兜底） ----------
 
@@ -319,7 +279,14 @@ class WorkflowConsumer:
                        max_messages: int | None = None,
                        idle_timeout: float | None = None,
                        broker: Any | None = None) -> dict:
-        """MQ 消费模式：订阅广播队列（story.created 等）。
+        """PR-4：MQ 消费 internal_queue（不抢 .NET 的 broadcast_queue）。
+
+        之前版本订阅 ``topology.broadcast_queue``，与 .NET
+        ``WorkflowMqConsumerService`` 抢同一个 queue。P0-1 的根因。
+
+        修法：本 Worker 只听 ``internal_queue``（PR-4 新增的编排事件路由），
+        .NET 继续听 ``broadcast_queue`` + 每 Agent 定向队列。两者完全
+        解耦，event ownership 单一。
 
         未配置 MQ 时自动回退轮询模式，部署未就绪不影响功能。
         """
@@ -332,11 +299,11 @@ class WorkflowConsumer:
         broker = broker or mq.PikaWorkflowBroker(self.config.mq, self.config.namespace)
         topology = WorkflowTopology(self.config.namespace)
         broker.declare_topology()
-        log.info("Workflow 分配器以 MQ 模式启动：ns=%s api=%s",
-                 self.config.namespace, self.config.api_url)
+        log.info("Workflow 分配器以 MQ 模式启动：ns=%s queue=%s api=%s",
+                 self.config.namespace, topology.internal_queue, self.config.api_url)
         try:
             stats = broker.consume(
-                topology.broadcast_queue, self.handle_message,
+                topology.internal_queue, self.handle_message,
                 max_messages=max_messages, idle_timeout=idle_timeout, stop=stop,
             )
         finally:

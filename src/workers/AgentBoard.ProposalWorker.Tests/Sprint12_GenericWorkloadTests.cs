@@ -125,7 +125,9 @@ public sealed class Sprint12_GenericWorkloadTests
     {
         new object[] { "task.available",          WorkloadTypes.Task },
         new object[] { "task.assigned",           WorkloadTypes.Task },
-        new object[] { "task.ready_for_review",   WorkloadTypes.Review },
+        // PR-4: task.ready_for_review 是 pre-assignment 事件，由 Python
+        // workflow_worker 独占 internal_queue 选 reviewer；.NET 不再
+        // 路由它（落到 DLQ 暴露 routing 错配）。从 actionable 表移除。
         new object[] { "task.review_requested",   WorkloadTypes.Review },
         new object[] { "task.rejected",           WorkloadTypes.Rework },
         new object[] { "task.review_rejected",    WorkloadTypes.Rework },
@@ -155,6 +157,19 @@ public sealed class Sprint12_GenericWorkloadTests
         var ex = Assert.Throws<InvalidDataException>(
             () => mapper.MapToExecution(msg, "broadcast"));
         Assert.Contains("story.created", ex.Message);
+    }
+
+    [Fact]
+    public void WorkflowMessageMapper_rejects_pre_assignment_event()
+    {
+        // PR-4: task.ready_for_review 是 pre-assignment 事件（任务进入
+        // in_review 还没 reviewer），由 Python workflow_worker 独占
+        // internal_queue 处理。.NET 收到应拒（→ DLQ）暴露 routing 错配。
+        var mapper = new WorkflowMessageMapper(ThreeAgentRegistry());
+        var msg = MakeWorkflow("task.ready_for_review", entityId: 1, agent: "workbuddy");
+        var ex = Assert.Throws<InvalidDataException>(
+            () => mapper.MapToExecution(msg, "broadcast"));
+        Assert.Contains("task.ready_for_review", ex.Message);
     }
 
     [Fact]

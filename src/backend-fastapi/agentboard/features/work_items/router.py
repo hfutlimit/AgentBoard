@@ -31,6 +31,8 @@ from ...mq import (
     EVENT_TASK_AVAILABLE, EVENT_TASK_ASSIGNED, EVENT_TASK_READY_FOR_REVIEW,
     EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED, EVENT_TASK_REVIEW_REQUESTED,
     EVENT_TASK_REVIEW_VOTE_CAST, EVENT_STORY_REVIEW_REQUESTED,
+    # PR-4：internal 编排事件（Python workflow_worker 专属，触发 reviewer 分配）
+    EVENT_TASK_REVIEW_ASSIGNMENT_NEEDED,
     publish_workflow_event,
 )
 from ..scheduling.models import TaskAssignment
@@ -342,9 +344,16 @@ def submit_task_review(tid: int, authorization: str | None = Header(None),
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     api_helpers._invalidate_stats_cache(t.project_id)
-    # 事件源：任务进入评审态 → 广播（消息只带定位信息，状态回查 DB）
+    # 事件源：任务进入评审态 → 广播 task.ready_for_review（审计 / 通知用，
+    # .NET 不再执行它 —— 它是 pre-assignment 事件没 reviewer）。
     publish_workflow_event(EVENT_TASK_READY_FOR_REVIEW, "task", t.id,
                            ref_id=t.assignee_id)
+    # PR-4：同步发 internal 事件触发 Python workflow_worker 选 reviewer。
+    # internal 路由不与 .NET 抢 broadcast，避免双 owner / 重复处理。
+    # 选完 reviewer 后 FastAPI 端 assign-reviewer API 会 publish
+    # task.review_requested 到 agent 定向队列，.NET 拿那条去真正执行 review。
+    publish_workflow_event(EVENT_TASK_REVIEW_ASSIGNMENT_NEEDED, "task", t.id,
+                           ref_id=t.assignee_id, route="internal")
     api_helpers._notify_webhooks(s, t.project_id, EVENT_TASK_READY_FOR_REVIEW,
                      {"id": t.id, "assignee_id": t.assignee_id, "status": t.status})
     return service._ser(t)

@@ -729,6 +729,10 @@ WORKFLOW_ENV_NAMESPACE = "AGENTBOARD_WORKFLOW_NAMESPACE"
 # routing key 前缀（RabbitMQ topic 交换机的绑定模式）
 ROUTING_WORKFLOW_BROADCAST = "workflow.broadcast"
 ROUTING_WORKFLOW_AGENT = "workflow.agent"
+# PR-4：内部编排事件路由（Python workflow_worker 专用，不进 .NET 消费）
+# 用途：FastAPI 状态转换时发 internal 事件，Python 选 reviewer / unlock
+# successor 等；.NET 只听 broadcast + agent 路由，不抢 internal
+ROUTING_WORKFLOW_INTERNAL = "workflow.internal"
 
 # ---- 事件常量（切片 1：Story 评审闭环；task.* 预留切片 2）----
 EVENT_STORY_CREATED = "story.created"
@@ -772,6 +776,13 @@ EVENT_TASK_REVIEW_REQUESTED = "task.review_requested"
 EVENT_TASK_REVIEW_REJECTED = "task.review_rejected"
 EVENT_TASK_REVIEW_VOTE_CAST = "task.review_vote_cast"
 EVENT_TASK_COMMENT_REPLIED = "task.comment_replied"
+# PR-4：内部编排事件（Python workflow_worker 专属，不进 .NET 消费）。
+# 任务进入 in_review 时 FastAPI 发布此事件，Python 选 reviewer
+# 然后 publish_event(EVENT_TASK_REVIEW_REQUESTED, route='agent')
+# 定向通知 .NET 真正执行 review。把"分配 reviewer"和"执行 review"
+# 两个不同 step 拆到不同事件 / 不同 queue 上，避免与 .NET 抢
+# task.ready_for_review 广播导致双执行。
+EVENT_TASK_REVIEW_ASSIGNMENT_NEEDED = "task.review_assignment_needed"
 
 # 兼容旧 import（pre-existing 客户端可能仍引用 review.* 模糊名）
 # 1 release 后下架——届时新代码全部用 entity.action 形式。
@@ -801,6 +812,7 @@ WORKFLOW_EVENTS: frozenset[str] = frozenset({
     EVENT_TASK_REVIEW_REJECTED,
     EVENT_TASK_REVIEW_VOTE_CAST,
     EVENT_TASK_COMMENT_REPLIED,
+    EVENT_TASK_REVIEW_ASSIGNMENT_NEEDED,
     EVENT_TICKET_REQUESTED,
     EVENT_TICKET_CREATED,
 })
@@ -852,11 +864,27 @@ class WorkflowTopology:
         """定向事件 routing key：workflow.agent.{agent_id}（事件类型在消息体）"""
         return f"{ROUTING_WORKFLOW_AGENT}.{agent_id}"
 
+    def internal_routing(self, event: str) -> str:
+        """PR-4：内部编排事件 routing key（Python workflow_worker 专用）。
+
+        区别于 broadcast：broadcast 是 "N 个 event 谁拿到谁干"，internal
+        是 "Python 专属的编排事件"，.NET 不订阅 internal_queue。
+        """
+        return f"{ROUTING_WORKFLOW_INTERNAL}.{event}"
+
     def broadcast_pattern(self) -> str:
         return f"{ROUTING_WORKFLOW_BROADCAST}.#"
 
     def agent_pattern(self, agent_id: str) -> str:
         return f"{ROUTING_WORKFLOW_AGENT}.{agent_id}"
+
+    def internal_pattern(self) -> str:
+        return f"{ROUTING_WORKFLOW_INTERNAL}.#"
+
+    @property
+    def internal_queue(self) -> str:
+        """PR-4：内部编排队列（Python workflow_worker 订阅）。"""
+        return f"{self.namespace}.internal"
 
 
 @dataclass(frozen=True)
@@ -1013,6 +1041,10 @@ class InMemoryWorkflowBroker:
         if not self._default_topology_declared:
             self._declare_queue(self.topology.broadcast_queue,
                                 self.topology.broadcast_pattern())
+            # PR-4：internal 队列（Python workflow_worker 专属）。.NET
+            # 不订阅这个 queue；声明仅保证 topology 完整。
+            self._declare_queue(self.topology.internal_queue,
+                                self.topology.internal_pattern())
             self._declare_queue(self.topology.dead_queue, None)
             self._default_topology_declared = True
 
@@ -1198,6 +1230,10 @@ class PikaWorkflowBroker:
         ch.queue_declare(t.broadcast_queue, durable=True, arguments=t.queue_arguments)
         ch.queue_bind(t.broadcast_queue, t.exchange,
                       routing_key=t.broadcast_pattern())
+        # PR-4：internal 队列（Python workflow_worker 专属）。
+        ch.queue_declare(t.internal_queue, durable=True, arguments=t.queue_arguments)
+        ch.queue_bind(t.internal_queue, t.exchange,
+                      routing_key=t.internal_pattern())
         self._declared = True
 
     def declare_agent_queue(self, agent_id: str) -> None:
@@ -1415,11 +1451,16 @@ class WorkflowPublisher:
                 ref_id: int | None = None, *, agent_id: str | None = None,
                 agent_type: str | None = None,
                 workload_type: str | None = None,
-                correlation_id: str | None = None) -> bool:
+                correlation_id: str | None = None,
+                route: str = "auto") -> bool:
         """发布一条工作流事件。
 
-        - ``agent_id`` 非空 → 定向投递到该 Agent 队列（review.requested 等）；
-        - ``agent_id`` 为空 → 广播（story.created / story.ready / task.* 认领型）；
+        - ``route="auto"``（默认）→
+            - ``agent_id`` 非空 → 定向投递到该 Agent 队列（review.requested 等）；
+            - ``agent_id`` 为空 → 广播（story.created / story.ready / task.* 认领型）；
+        - ``route="internal"`` → 强制走 internal 路由（PR-4，Python
+          workflow_worker 专用；.NET 不订阅）；agent_id 仍生效但通常
+          不同时设（internal 不定向）。
         - ``agent_type`` / ``workload_type`` / ``correlation_id`` 全部 optional，
           缺省 ``correlation_id`` 时自动生成 UUID4 让日志能串链。其它两个
           缺省时由 consumer 端按 task_type_routing 查表回填（PR-3）。
@@ -1438,8 +1479,13 @@ class WorkflowPublisher:
             workload_type=(workload_type or None),
             correlation_id=(correlation_id or str(uuid.uuid4())),
         )
-        routing_key = (self.topology.agent_routing(agent_id)
-                       if agent_id else self.topology.broadcast_routing(event))
+        if route == "internal":
+            routing_key = self.topology.internal_routing(event)
+        elif route == "broadcast":
+            routing_key = self.topology.broadcast_routing(event)
+        else:  # "auto" 或未识别
+            routing_key = (self.topology.agent_routing(agent_id)
+                           if agent_id else self.topology.broadcast_routing(event))
         with self._lock:
             for attempt in (1, 2):
                 try:
@@ -1498,18 +1544,22 @@ def publish_workflow_event(event: str, entity_type: str, entity_id: int,
                            agent_id: str | None = None,
                            agent_type: str | None = None,
                            workload_type: str | None = None,
-                           correlation_id: str | None = None) -> bool:
+                           correlation_id: str | None = None,
+                           route: str = "auto") -> bool:
     """给 API 层用的一行式发布入口：**任何情况下都不抛异常**。
 
     PR-2 增 3 kwargs（``agent_type`` / ``workload_type`` / ``correlation_id``），
     旧 caller 不传也能用——它们都是 optional，``correlation_id`` 缺省
     自动生成 UUID4。
+
+    PR-4 增 ``route`` kwarg：``"internal"`` 走 internal 路由（Python
+    workflow_worker 专用），其它值按 auto 行为。
     """
     try:
         return get_workflow_publisher().publish(
             event, entity_type, entity_id, ref_id, agent_id=agent_id,
             agent_type=agent_type, workload_type=workload_type,
-            correlation_id=correlation_id)
+            correlation_id=correlation_id, route=route)
     except Exception:  # pragma: no cover - 兜底，MQ 绝不影响主流程
         log.warning("发布工作流事件 %s 时出现未预期异常", event, exc_info=True)
         return False
