@@ -37,13 +37,53 @@ from ...core.service_helpers import (
 
 from .models import (
     Agent, AgentInstance, Epic, Project, ProjectMember,
-    ReviewVote, Sprint, Story, StoryStatusHistory,
+    ReviewVote, Sprint, Story, StoryStatusHistory, Worker,
     STORY_STATUSES,
     STORY_TRANSITIONS,
 )
 
 
 AGENT_HEARTBEAT_TIMEOUT_SECONDS = 300
+# Worker 进程崩溃 / 关机时不会主动调 deregister。read path 在返回 Worker
+# 列表前先 reconcile last_heartbeat 超时的行（与 Agent/AgentInstance 同模式）。
+# 默认 5 min 与 agent 对齐 —— 已有 ``heartbeat.probe_cli`` 8s 超时 + 30s
+# 调度间隔，5 min 留 10× buffer，crash 后 5 min 内被识别。
+WORKER_HEARTBEAT_TIMEOUT_SECONDS = 300
+
+
+def expire_stale_worker_heartbeats(
+    s: Session, *, now: datetime | None = None,
+    timeout_seconds: int = WORKER_HEARTBEAT_TIMEOUT_SECONDS,
+) -> dict[str, int]:
+    """Atomically mark stale Worker heartbeats as ``inactive``.
+
+    Worker 进程崩溃 / OOM / 主动关机时不会调 deregister。``Worker.status``
+    是 routing 决策的输入（PR-1 review：FastAPI 需要知道 ``agent_id`` 实际
+    活在哪个 ``worker_id`` 上），stale 行必须被自动降级。
+
+    条件 UPDATE 谓词保护并发 fresh heartbeat 不被 stale reader 覆盖
+    （与 ``expire_stale_agent_heartbeats`` 同模式）。
+    """
+    if timeout_seconds <= 0:
+        raise InvalidValue("timeout_seconds must be positive")
+    cutoff = (now or utc_now()) - timedelta(seconds=timeout_seconds)
+    result = s.execute(
+        update(Worker).where(
+            Worker.status == "active",
+            or_(
+                Worker.last_heartbeat.is_(None),
+                Worker.last_heartbeat < cutoff,
+            ),
+        ).values(status="inactive")
+    )
+    workers_offline = max(result.rowcount or 0, 0)
+    if workers_offline:
+        _commit(s)
+        log.warning(
+            "expire_stale_worker_heartbeats: %d 个 worker 因心跳超时被置 inactive",
+            workers_offline,
+        )
+    return {"workers_offline": workers_offline}
 
 
 def expire_stale_agent_heartbeats(

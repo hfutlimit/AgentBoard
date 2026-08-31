@@ -65,6 +65,7 @@ from ..projects.models import (
 from ..projects.service import _record_story_status_history  # noqa: F401  (跨域 helper)
 from ..projects.service import (  # noqa: F401  (跨域 helper)
     expire_stale_agent_heartbeats,
+    expire_stale_worker_heartbeats,
     get_agent_by_agent_id,
 )
 from ..work_items.service import (  # noqa: E402 — 跨域调用（评审/评论/状态历史走任务域）
@@ -1372,10 +1373,15 @@ def register_worker(s: Session, *, worker_id: str, hostname: str = "",
 
 
 def get_worker_by_id(s: Session, worker_id: str) -> Worker | None:
+    # 读前先 reconcile stale worker（PR-1 review 收尾：happy path 之前
+    # 必须保证 Worker.status 反映当前真实存活情况）
+    expire_stale_worker_heartbeats(s)
     return s.query(Worker).filter(Worker.worker_id == worker_id).first()
 
 
 def list_workers(s: Session) -> list[Worker]:
+    # 同 get_worker_by_id
+    expire_stale_worker_heartbeats(s)
     return s.query(Worker).order_by(Worker.id.asc()).all()
 
 
