@@ -42,15 +42,48 @@ public sealed class WorkflowMessageMapper
 {
     private readonly IAgentAdapterRegistry _registry;
 
-    public WorkflowMessageMapper(IAgentAdapterRegistry registry) => _registry = registry;
+    /// <summary>
+    /// Optional fallback when a <see cref="WorkflowMessage"/> arrives without
+    /// <c>agent_type</c>. Default <c>null</c> (PR-3): missing agent_type is
+    /// a publisher bug → throw to DLQ rather than silently routing to
+    /// "workbuddy" (which masked PR-2 review P0-4).
+    ///
+    /// Operators can still set a non-null default for dev/integration where
+    /// the publisher isn't yet fully wired (PR-5 will set agent_type at
+    /// publish time from the task_type_routing table). Each fallback use
+    /// is logged at WARN so missing config is visible.
+    /// </summary>
+    private readonly string? _defaultAgent;
 
-    public ExecutionRequest MapToExecution(WorkflowMessage msg, string source, string defaultAgent = "workbuddy")
+    public WorkflowMessageMapper(IAgentAdapterRegistry registry, string? defaultAgent = null)
     {
-        // Backward compat: workflow messages without agent_type fall back to
-        // the worker default. Production deployment overrides per-project
-        // routing via the project's "default agent" setting; the
-        // proposal.clarify path already does the same fall-back.
-        var agentType = string.IsNullOrWhiteSpace(msg.AgentType) ? defaultAgent : msg.AgentType;
+        _registry = registry;
+        _defaultAgent = string.IsNullOrWhiteSpace(defaultAgent) ? null : defaultAgent;
+    }
+
+    public ExecutionRequest MapToExecution(WorkflowMessage msg, string source)
+    {
+        // PR-3: 缺 agent_type → 优先用配置 default；都没有则抛 DLQ。
+        // 之前版本是隐式 default="workbuddy" 把所有 task / review 路由到
+        // WorkBuddy（错），是 P0-4 的根因。
+        string? agentType = null;
+        if (!string.IsNullOrWhiteSpace(msg.AgentType))
+        {
+            agentType = msg.AgentType;
+        }
+        else if (_defaultAgent is not null)
+        {
+            // 仅用于 dev / integration 兜底；PR-5 完成后这条分支应不触发。
+            // 实际场景下应该 WARN 一行（这里不能直接 log；让 caller 决定）
+            agentType = _defaultAgent;
+        }
+        if (string.IsNullOrWhiteSpace(agentType))
+        {
+            throw new InvalidDataException(
+                $"workflow message missing 'agent_type' (event={msg.Event} " +
+                $"entity={msg.EntityType}:{msg.EntityId}); " +
+                "publisher must set agent_type — see PR-5 task_type_routing");
+        }
         if (!_registry.IsRegistered(agentType))
             throw new InvalidAgentException(agentType);
 

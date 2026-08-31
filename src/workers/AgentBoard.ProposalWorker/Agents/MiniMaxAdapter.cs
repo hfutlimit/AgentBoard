@@ -33,7 +33,10 @@ public sealed class MiniMaxAdapter : IAgentAdapter
     {
         var opts = _agents.MiniMax;
         var env = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
-        var prompt = BuildPrompt(context).Replace("\r", "").Replace("\n", "\\n");
+        // PR-3: workload-aware prompt（不再是硬编码 "Handle proposal"）。
+        var prompt = SharedAdapterHelpers.BuildWorkloadPrompt(
+            agentName: "the MiniMax CLI",
+            context: context).Replace("\r", "").Replace("\n", "\\n");
 
         // Locate the CLI on disk (probe known paths + where.exe). Throws
         // CliNotFoundException at startup so the operator sees a clear
@@ -97,12 +100,4 @@ public sealed class MiniMaxAdapter : IAgentAdapter
         }
         return arguments.ToArray();
     }
-
-    private string BuildPrompt(ExecutionContext context) => $"""
-        You are the AgentBoard worker running on the MiniMax CLI. Use your configured AgentBoard MCP only.
-        Handle proposal {context.WorkloadId} (round {context.Round}) on worker '{context.ExecutionKey}'.
-        Reconstruct the proposal's complete question-answer history through MCP, then decide the next action.
-        If you need clarification, write concrete open questions through MCP. If converged, write the converged proposal. If appropriate, record failure.
-        Unattended mode: do not make destructive local changes unless the proposal explicitly asks and MCP confirms scope.
-        """;
 }

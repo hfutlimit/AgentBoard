@@ -166,6 +166,32 @@ public sealed class Sprint12_GenericWorkloadTests
     }
 
     [Fact]
+    public void WorkflowMessageMapper_throws_when_agent_type_missing_and_no_default()
+    {
+        // PR-3: 缺 agent_type 且没显式 default → 抛 InvalidDataException
+        // 进 DLQ（之前版本静默 default "workbuddy" 把所有 task / review
+        // 路由到 WorkBuddy，是 P0-4 根因）。
+        var mapper = new WorkflowMessageMapper(ThreeAgentRegistry());
+        var msg = MakeWorkflow("task.available", entityId: 1, agent: null);
+        var ex = Assert.Throws<InvalidDataException>(
+            () => mapper.MapToExecution(msg, "broadcast"));
+        Assert.Contains("missing 'agent_type'", ex.Message);
+        Assert.Contains("task.available", ex.Message);
+    }
+
+    [Fact]
+    public void WorkflowMessageMapper_uses_configured_default_when_agent_type_missing()
+    {
+        // PR-3: operator 显式配置 default（dev / integration 兜底）→ 用 default
+        // 并保留原行为。生产应配 null 让缺 agent_type 抛 DLQ。
+        var mapper = new WorkflowMessageMapper(ThreeAgentRegistry(), defaultAgent: "workbuddy");
+        var msg = MakeWorkflow("task.available", entityId: 1, agent: null);
+        var req = mapper.MapToExecution(msg, "broadcast");
+        Assert.Equal("workbuddy", req.AgentType);
+        Assert.Equal(WorkloadTypes.Task, req.WorkloadType);
+    }
+
+    [Fact]
     public void WorkflowMessageMapper_execution_key_distinguishes_ref_rounds_for_rework()
     {
         // Same task, same event, different review round → distinct keys.
@@ -354,7 +380,7 @@ public sealed class Sprint12_GenericWorkloadTests
         NullLogger<AgentAdapterRegistry>.Instance);
 
     private static WorkflowMessage MakeWorkflow(
-        string eventName, long entityId, long? refId = null, string? agent = null) =>
+        string eventName, long entityId, long? refId = null, string? agent = "workbuddy") =>
         new(eventName, "task", entityId, refId, "ts", agent);
 
     private static async Task<bool> WaitForInboxTerminal(

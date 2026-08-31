@@ -31,7 +31,11 @@ public sealed class CodexAdapter : IAgentAdapter
     public Task<AgentExecutionResult> ExecuteAsync(ExecutionContext context, CancellationToken ct)
     {
         var opts = _agents.Codex;
-        var prompt = BuildPrompt(context);
+        // PR-3: workload-aware prompt（不再是硬编码 "Handle proposal"）。
+        // 透传 correlation_id（PR-2 字段）让 Codex 在 MCP 调用里能串 trace。
+        var prompt = SharedAdapterHelpers.BuildWorkloadPrompt(
+            agentName: "OpenAI Codex CLI",
+            context: context);
         // Default Codex CLI invocation: `codex exec --json` (prompt via stdin;
         // there is no --prompt option in the installed CLI). Operators can
         // override via `Agents:Codex:Arguments` — production defaults to the
@@ -82,12 +86,4 @@ public sealed class CodexAdapter : IAgentAdapter
         }
         return env;
     }
-
-    private string BuildPrompt(ExecutionContext context) => $"""
-        You are the AgentBoard worker running on OpenAI Codex CLI. Use your configured AgentBoard MCP only.
-        Handle proposal {context.WorkloadId} (round {context.Round}) on worker '{context.ExecutionKey}'.
-        Reconstruct the proposal's complete question-answer history through MCP, then decide the next action.
-        If you need clarification, write concrete open questions through MCP. If converged, write the converged proposal. If appropriate, record failure.
-        Unattended mode: do not make destructive local changes unless the proposal explicitly asks and MCP confirms scope.
-        """;
 }

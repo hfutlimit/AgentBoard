@@ -15,18 +15,15 @@ public sealed class WorkBuddyAdapter : IAgentAdapter
 {
     private readonly IProcessExecutor _process;
     private readonly AgentsOptions _agents;
-    private readonly WorkerOptions _worker;
     private readonly ILogger<WorkBuddyAdapter> _log;
 
     public WorkBuddyAdapter(
         IProcessExecutor process,
         IOptions<AgentsOptions> agents,
-        IOptions<WorkerOptions> worker,
         ILogger<WorkBuddyAdapter> log)
     {
         _process = process;
         _agents = agents.Value;
-        _worker = worker.Value;
         _log = log;
     }
 
@@ -38,13 +35,16 @@ public sealed class WorkBuddyAdapter : IAgentAdapter
         var resolved = CliLocator.LocateCodebuddy(opts, _log);
         var env = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         foreach (var (k, v) in resolved.ExtraEnv) env[k] = v;
+        // PR-3: workload-aware prompt（不再是硬编码 "Handle proposal"）。
         var arguments = resolved.PrefixArguments.Concat(opts.Arguments).ToArray();
         var spec = new ProcessSpec
         {
             Executable = resolved.Executable,
             Arguments = arguments,
             WorkingDirectory = opts.WorkingDirectory,
-            StdinPayload = BuildPrompt(context),
+            StdinPayload = SharedAdapterHelpers.BuildWorkloadPrompt(
+                agentName: "the WorkBuddy CLI (codebuddy)",
+                context: context),
             Timeout = TimeSpan.FromMinutes(Math.Max(1, opts.TimeoutMinutes)),
             MaxOutputBytes = opts.MaxCapturedOutputChars,
             Environment = env,
@@ -68,14 +68,6 @@ public sealed class WorkBuddyAdapter : IAgentAdapter
             TimedOut: result.TimedOut,
             Cancelled: result.Cancelled);
     }
-
-    private string BuildPrompt(ExecutionContext context) => $"""
-        You are the AgentBoard proposal worker. Use your already configured AgentBoard MCP only; do not access AgentBoard databases directly.
-        Handle proposal {context.WorkloadId}, round {context.Round}, on worker '{_worker.Id}'.
-        Claim/read the proposal through MCP, reconstruct its complete question-answer history, and determine the next action.
-        If clarification is needed, write concrete open questions through MCP. If it is converged, write the converged proposal through MCP. Record failures through MCP when appropriate.
-        This is an unattended worker: make no destructive local changes unless the proposal explicitly asks for them and MCP confirms the project scope.
-        """;
 
     private static string? TryExtractLastJson(string text)
     {
