@@ -37,6 +37,7 @@ class TaskPatch(BaseModel):
 	domain_tags: str | list[str] | None = None
 	assignment_mode: str | None = Field(None, pattern=r"^(claim|arbitrated)$")
 	status_reason: str | None = None
+	created_by_user_id: int | None = None  # 人工补 owner（决策 c）
 
 
 class SpecAppendIn(BaseModel):

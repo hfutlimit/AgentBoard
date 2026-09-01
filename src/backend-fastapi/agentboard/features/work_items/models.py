@@ -60,6 +60,16 @@ class Task(Base):
     source_spec_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True)
     # Epic 17: 任务管理增强
     assignee_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    # 归属收敛（2026-09-01）：task 的 owner（创建者 user）+ 创建方 agent。
+    # 处理（执行/评审/认领/派发）只允许 processing Agent.user_id ==
+    # created_by_user_id；created_by_user_id 为 NULL（存量）时 fail closed，
+    # 需人工补 owner 才能被处理。见 docs/design/agent-ownership-scoping-plan.md。
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    created_by_agent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     labels: Mapped[str] = mapped_column(Text, default="[]")  # JSON array string
     # Epic 32 Story 49.3: 看板卡片显示预估时间（工时，单位小时）

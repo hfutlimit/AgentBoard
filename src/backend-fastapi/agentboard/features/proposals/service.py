@@ -189,7 +189,8 @@ def set_proposal_status(
 # ---- Step 3：状态迁移副作用注册（委托 StateMachine 前的业务行为） ----
 
 
-def claim_proposal(s: Session, id: int, *, agent: str = "") -> Proposal | None:
+def claim_proposal(s: Session, id: int, *, agent: str = "",
+                   user_id: int | None = None) -> Proposal | None:
     """**原子**认领提案：queued/answered → analyzing。
 
     返回 Proposal 表示认领成功；返回 ``None`` 表示竞争失败（已被他人持有或状态
@@ -214,9 +215,14 @@ def claim_proposal(s: Session, id: int, *, agent: str = "") -> Proposal | None:
     """
     now = utc_now()
     claimable = sorted(st.value for st in CLAIMABLE_STATUSES)
+    conditions = [Proposal.id == id, Proposal.status.in_(claimable)]
+    if user_id is not None:
+        # 归属收敛：只有提案 author（owner）能认领；author 为空的历史提案
+        # 匹配不到 → 保持不可认领（fail-closed），需人工补 owner。
+        conditions.append(Proposal.author_id == user_id)
     res = s.execute(
         update(Proposal)
-        .where(Proposal.id == id, Proposal.status.in_(claimable))
+        .where(*conditions)
         .values(
             status=ProposalStatus.ANALYZING.value,
             claimed_by=(agent or "").strip()[:100],

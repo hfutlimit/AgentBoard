@@ -271,6 +271,8 @@ class ProposalConversionService:
         from .models import ProposalStatus
 
         p = _proposal_or_404(s, proposal.id)
+        # 归属收敛：转换出的 task owner 继承 proposal 的 author（显式传参优先）。
+        _owner_user_id = author_id if author_id is not None else getattr(p, "author_id", None)
 
         # 1. Story：Proposal conversion 必须精确按 plan 创建 DAG，不能复用
         # create_story 的默认 Design/Dev，否则 spec 已含 Dev 时会多出未连 QA 的
@@ -300,6 +302,7 @@ class ProposalConversionService:
                 description=t.get("description") or t_title,
                 priority=t.get("priority") or Priority.MEDIUM.value,
                 needs_human_confirmation=False,
+                created_by_user_id=_owner_user_id,
                 commit=False,
             )
             title_to_task[t_title] = task

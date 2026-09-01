@@ -370,10 +370,17 @@ def list_stories(eid: int, s: Session = Depends(get_session), limit: int = Query
 
 
 @router.post("/api/epics/{eid}/stories", status_code=201)
-def create_story(eid: int, body: StoryIn, s: Session = Depends(get_session)):
+def create_story(eid: int, body: StoryIn, authorization: str | None = Header(None),
+                 s: Session = Depends(get_session)):
     epic = api_helpers._need(service.get_epic(s, eid), "epic")
+    _owner_user_id: int | None = None
+    try:
+        _owner_user_id = api_helpers.resolve_actor_context(authorization, s).user_id
+    except HTTPException:
+        pass
     st = service.create_story(s, epic_id=eid, title=body.title,
-                              description=body.description, needs_design=body.needs_design)
+                              description=body.description, needs_design=body.needs_design,
+                              created_by_user_id=_owner_user_id)
     # 事件源：Story 创建广播（分配器 worker 消费后自动指派 reviewer）
     publish_workflow_event(EVENT_STORY_CREATED, "story", st.id, ref_id=eid)
     # Webhook 通道（Epic 122 切片 3）：面向外部系统/常驻 Runner
@@ -666,6 +673,16 @@ def create_task(
     s: Session = Depends(get_session),
 ):
     story = api_helpers._need(service.get_story(s, sid), "story")
+    # 归属收敛：能解析出调用方就写 owner（user + 创建方 agent）；解析不出
+    # （无/非法凭证的既有调用）则留 NULL，此类 task 处理时 fail-closed 待补 owner。
+    owner_user_id: int | None = None
+    owner_agent_id: int | None = None
+    try:
+        _actor = api_helpers.resolve_actor_context(authorization, s)
+        owner_user_id = _actor.user_id
+        owner_agent_id = _actor.agent_registry_id
+    except HTTPException:
+        pass
     try:
         t = service.create_task(s, project_id=body.project_id, story_id=story.id,
                                 title=body.title, type=body.type,
@@ -678,7 +695,9 @@ def create_task(
                                 needed_capabilities=body.needed_capabilities,
                                 complexity=body.complexity,
                                 domain_tags=body.domain_tags,
-                                assignment_mode=body.assignment_mode)
+                                assignment_mode=body.assignment_mode,
+                                created_by_user_id=owner_user_id,
+                                created_by_agent_id=owner_agent_id)
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     api_helpers._invalidate_stats_cache(body.project_id)

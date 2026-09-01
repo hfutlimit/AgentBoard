@@ -151,6 +151,7 @@ def test_claim_development_task(session, project):
     t = create_task(
         session, project_id=project.id, story_id=None, title="to-claim",
         type=ItemType.DEV.value, priority=Priority.MEDIUM.value,
+        created_by_user_id=u.id,
     )
     claimed = claim_development_task(session, t.id, user_id=u.id)
     assert claimed.status == Status.IN_PROGRESS.value
@@ -163,6 +164,7 @@ def test_claim_twice_raises(session, project):
     t = create_task(
         session, project_id=project.id, story_id=None, title="race",
         type=ItemType.DEV.value, priority=Priority.MEDIUM.value,
+        created_by_user_id=u1.id,
     )
     claim_development_task(session, t.id, user_id=u1.id)
     with pytest.raises(InvalidValue):
@@ -174,6 +176,7 @@ def test_submit_for_review(session, project):
     t = create_task(
         session, project_id=project.id, story_id=None, title="submit",
         type=ItemType.DEV.value, priority=Priority.MEDIUM.value,
+        created_by_user_id=u.id,
     )
     claim_development_task(session, t.id, user_id=u.id)
     submitted = submit_task_for_review(session, t.id, user_id=u.id)
@@ -186,6 +189,7 @@ def test_submit_by_other_user_denied(session, project):
     t = create_task(
         session, project_id=project.id, story_id=None, title="deny",
         type=ItemType.DEV.value, priority=Priority.MEDIUM.value,
+        created_by_user_id=u1.id,
     )
     claim_development_task(session, t.id, user_id=u1.id)
     with pytest.raises(InvalidValue):
@@ -197,6 +201,7 @@ def test_submit_by_admin_allowed(session, project):
     t = create_task(
         session, project_id=project.id, story_id=None, title="admin-sub",
         type=ItemType.DEV.value, priority=Priority.MEDIUM.value,
+        created_by_user_id=u.id,
     )
     claim_development_task(session, t.id, user_id=u.id)
     # 任意其他用户只要 is_admin=True 也能 submit

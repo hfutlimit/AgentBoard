@@ -135,11 +135,16 @@ def _setup_worker_agent(db_session, agent_id: str, tool: str, user_id: int,
 
 
 def _setup_task(db_session, project_id: int, story_id: int, type_: str,
-                assignee_id: int | None = None) -> int:
+                assignee_id: int | None = None,
+                created_by_user_id: int | None = None) -> int:
+    # 归属收敛后，owner-only 候选/认领要求 task 有 owner；默认用 assignee 作 owner
+    # （这些用例里候选 agent 的 user 与 assignee 同一人）。
+    owner = created_by_user_id if created_by_user_id is not None else assignee_id
     t = task_service.create_task(
         db_session, project_id=project_id, story_id=story_id,
         title=f"PR-10 {type_} task", type=type_,
         assignee_id=assignee_id,
+        created_by_user_id=owner,
     )
     return t.id
 

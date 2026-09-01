@@ -204,6 +204,7 @@ def set_proposal_status(pid: int, body: ProposalStatusIn, s: Session = Depends(g
 
 @router.post("/api/proposals/{pid}/claim")
 def claim_proposal(pid: int, body: ProposalClaimIn | None = None,
+                   authorization: str | None = Header(None),
                    s: Session = Depends(get_session)):
     """**原子**认领提案：queued/answered → analyzing，供 Worker 竞争消费。
 
@@ -215,13 +216,22 @@ def claim_proposal(pid: int, body: ProposalClaimIn | None = None,
     - 409：已被他人持有或当前状态不可认领（与 400 非法迁移语义区分）
     - 404：提案不存在
     """
+    # 归属收敛：只有提案 author（owner）的 agent 能认领；无鉴权时按 auth 开关拦截。
+    uid, _is_admin = api_helpers._caller_uid_admin(authorization, s=s)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
     agent = body.agent if body else ""
     try:
-        p = service.claim_proposal(s, pid, agent=agent)
+        p = service.claim_proposal(s, pid, agent=agent, user_id=uid)
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
     if p is None:
         current = service.get_proposal(s, pid)
+        if current is not None and uid is not None and current.author_id != uid:
+            raise HTTPException(
+                status_code=403,
+                detail=f"only the proposal owner may claim proposal {pid}",
+            )
         raise HTTPException(
             status_code=409,
             detail=(f"proposal {pid} 无法认领：当前状态为 "

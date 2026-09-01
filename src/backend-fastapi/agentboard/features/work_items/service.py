@@ -75,6 +75,8 @@ def create_task(
     needed_capabilities="[]", complexity: int | None = None,
     domain_tags="[]", assignment_mode: str = "claim",
     needs_human_confirmation: bool | None = None,
+    created_by_user_id: int | None = None,
+    created_by_agent_id: int | None = None,
     commit: bool = True,
 ) -> Task:
     """创建 Task。
@@ -132,6 +134,8 @@ def create_task(
         domain_tags=json.dumps(normalize_domain_tags(domain_tags), ensure_ascii=False),
         assignment_mode=normalize_assignment_mode(assignment_mode),
         needs_human_confirmation=needs_human_confirmation,
+        created_by_user_id=created_by_user_id,
+        created_by_agent_id=created_by_agent_id,
     )
     s.add(t)
     s.flush()  # 取 t.id
@@ -405,6 +409,19 @@ def try_assign_task(
         raise InvalidValue(f"agent registry id {agent_registry_id} not found")
     if agent is not None and user_id is not None and agent.user_id != user_id:
         raise InvalidValue(f"agent '{agent.agent_id}' belongs to another user")
+    # 归属收敛（2026-09-01）：认领方必须就是 task 的 owner。owner 为空的
+    # 存量/未标注 task fail-closed，需人工补 owner 后才能被认领。
+    claiming_user_id = agent.user_id if agent is not None else user_id
+    if task.created_by_user_id is None:
+        raise InvalidValue(
+            f"task {task_id} has no owner (created_by_user_id is NULL); "
+            "assign an owner before it can be claimed"
+        )
+    if claiming_user_id is not None and claiming_user_id != task.created_by_user_id:
+        raise InvalidValue(
+            f"only the task owner's agent may claim task {task_id} "
+            f"(owner={task.created_by_user_id}, requester={claiming_user_id})"
+        )
     if agent is not None:
         # 最终 CAS 前复检动态排斥，避免旧 Worker/直接 claim 绕过 scheduler。
         from ..scheduling.service import get_assignment_exclusion
@@ -623,6 +640,16 @@ def apply_for_task(
         raise InvalidValue(f"agent registry id {agent_registry_id} not found")
     if agent.user_id != user_id:
         raise InvalidValue(f"agent '{agent.agent_id}' belongs to another user")
+    # 归属收敛：只有 task owner 能申请/被仲裁；owner 为空的 task fail-closed。
+    if task.created_by_user_id is None:
+        raise InvalidValue(
+            f"task {task_id} has no owner; assign an owner before applying"
+        )
+    if user_id != task.created_by_user_id:
+        raise InvalidValue(
+            f"only the task owner may apply for task {task_id} "
+            f"(owner={task.created_by_user_id}, requester={user_id})"
+        )
 
     result = score_agent_for_task(s, agent, task, role="developer")
     if not result.eligible:
@@ -1173,7 +1200,9 @@ def generate_tasks_from_spec(s: Session, task_id: int) -> list:
             continue
         t = Task(project_id=src.project_id, story_id=src.story_id,
                  type=ItemType.DEV, title=title[:300], description=title,
-                 source_spec_id=task_id)
+                 source_spec_id=task_id,
+                 created_by_user_id=src.created_by_user_id,
+                 created_by_agent_id=src.created_by_agent_id)
         s.add(t)
         created.append(t)
         existing_titles.add(title)

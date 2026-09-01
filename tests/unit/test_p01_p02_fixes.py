@@ -138,6 +138,7 @@ def test_dispatch_sets_assignee_id_for_submit_review(db_session, broker):
         db_session, project_id=project.id, story_id=story_id,
         title="dev", type=ItemType.DEV.value,
         assignee_id=user.id, needs_human_confirmation=False,
+        created_by_user_id=user.id,
     )
 
     # dispatch

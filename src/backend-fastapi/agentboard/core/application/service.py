@@ -940,8 +940,10 @@ def update_task(s: Session, id: int, **fields) -> Task | None:
         return None
     allowed = {"title", "description", "spec", "type", "status", "priority", "sprint_id",
                "assignee_id", "due_date", "labels", "estimate", "needed_capabilities",
-               "complexity", "domain_tags", "assignment_mode"}  # Epic 17 / Epic 32
-    nullable_fields = {"due_date", "sprint_id", "assignee_id", "estimate", "complexity"}  # fields that can be set to None
+               "complexity", "domain_tags", "assignment_mode",
+               "created_by_user_id"}  # Epic 17 / Epic 32；created_by_user_id 供人工补 owner（决策 c）
+    nullable_fields = {"due_date", "sprint_id", "assignee_id", "estimate", "complexity",
+                       "created_by_user_id"}  # fields that can be set to None
     # 抽出 status/status_reason：状态变更必须走状态机（execute_transition 包装），
     # 在事务末与其它字段一起 commit。
     new_status = fields.pop("status", None)

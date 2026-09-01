@@ -906,9 +906,19 @@ def list_runnable_candidates(
             ProjectMember.project_id == task.project_id,
         ).all()
     }
+    # 归属收敛（2026-09-01）：只有 task owner（创建者 user）的 agent 才能入选，
+    # 不再允许「任意项目成员的 agent」抢占别人的 task。owner 为空（存量/未标注）
+    # 时 fail closed：返回空候选 → 派发保留 todo，等人工补 owner。
+    if task.created_by_user_id is None:
+        log.warning(
+            "dispatch: task %s 无 owner（created_by_user_id=NULL），fail-closed 不派发",
+            task.id,
+        )
+        return []
     agents = [
         agent for agent in s.query(Agent).filter(
             Agent.enabled.is_(True), Agent.online.is_(True),
+            Agent.user_id == task.created_by_user_id,
         ).all()
         if agent.user_id in member_ids
     ]
