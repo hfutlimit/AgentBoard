@@ -133,6 +133,24 @@ public sealed class AgentsOptions
     /// Golden Happy Path. Disabled by default and never invokes a model.
     /// </summary>
     public AgentOptions Scenario { get; set; } = new() { Command = "" };
+    /// <summary>
+    /// 2026-09-01 (post-deploy review): fallback agent type when a
+    /// workflow message arrives without <c>agent_type</c> in its body.
+    /// The FastAPI publisher is *supposed* to set it (PR-5 task_type_routing),
+    /// but in practice the publisher emits <c>agent_type: null</c> for many
+    /// events (story.created / story.confirmed / story.comment_replied /
+    /// task.available / task.ready_for_review) and expects the .NET consumer
+    /// to backfill via the PR-3 routing table — which the .NET consumer
+    /// does NOT implement yet. Without this fallback, every such event is
+    /// dropped to the DLQ and the dispatch loop is starved.
+    ///
+    /// Set to a registered agent name (e.g. <c>"codex"</c>) to keep the
+    /// worker productive while the PR-3 backfill is implemented upstream.
+    /// When <c>null</c> (default), the legacy behavior holds: missing
+    /// agent_type raises <c>InvalidDataException</c> and the message is
+    /// DLQ'd (matches the original PR-5 strict-publisher contract).
+    /// </summary>
+    public string? DefaultAgent { get; set; }
 }
 
 // =============================================================================

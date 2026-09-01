@@ -53,7 +53,15 @@ builder.Services.AddSingleton<ExecutionChannel>();
 // ---- Sprint 4: single translation point (RabbitMQ message → request) ------
 builder.Services.AddSingleton<ProposalMessageMapper>();
 // ---- Sprint 12: workflow event translation (agentboard.workflow ns) ------
-builder.Services.AddSingleton<WorkflowMessageMapper>();
+// 2026-09-01: forward the configured Agents:DefaultAgent to the mapper so
+// workflow messages with agent_type=null (publisher PR-5 fix is in but
+// still emits null) can fall back to a known-registered agent instead of
+// being DLQ'd. Operators who want strict PR-5 enforcement can leave
+// DefaultAgent unset (null).
+builder.Services.AddSingleton<WorkflowMessageMapper>(sp =>
+    new WorkflowMessageMapper(
+        sp.GetRequiredService<IAgentAdapterRegistry>(),
+        sp.GetRequiredService<IOptions<AgentsOptions>>().Value.DefaultAgent));
 builder.Services.AddSingleton<ExecutionCoordinator>();
 
 // ---- Sprint 6: worker state (must be after Process layer for snapshot) ----
