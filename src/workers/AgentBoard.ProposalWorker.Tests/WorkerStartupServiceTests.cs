@@ -174,6 +174,166 @@ public class WorkerStartupServiceTests
         Assert.All(stub.Requests, r =>
             Assert.False(r.Headers.Contains("Authorization")));
     }
+
+    // ---------- P0-1 (2026-09-01)：per-agent identity ----------
+
+    [Fact]
+    public async Task Uses_per_agent_token_for_agent_registration_and_shared_token_for_worker()
+    {
+        var stub = new StubHandler();
+        var http = new HttpClient(stub);
+        var (wo, ab, agents) = BuildOpts();
+        ab.StartupToken = "global-token";
+        agents.WorkBuddy.AgentBoardToken = "wb-token";
+        agents.Codex.AgentBoardToken = "codex-token";
+        var svc = new WorkerStartupService(
+            new FixedHttpFactory(http),
+            Options.Create(wo), Options.Create(ab), Options.Create(agents),
+            ThreeAgentRegistry(), NullLogger<WorkerStartupService>.Instance);
+
+        await svc.StartAsync(CancellationToken.None);
+        await Task.Delay(500);
+        await svc.StopAsync(CancellationToken.None);
+
+        // worker 注册用全局 StartupToken
+        var workerReg = Assert.Single(stub.Requests,
+            r => r.Method == "POST" && r.Url.Contains("/api/workers/register"));
+        Assert.Equal("Bearer global-token",
+            workerReg.Headers.GetValues("Authorization").First());
+
+        // agent 注册/instance 用各自 token —— reviewer isolation 依赖
+        // 同一 worker 上的不同 agent 有不同 user_id
+        var wbReg = stub.Requests.Single(r =>
+            r.Url.EndsWith("/api/agents/register")
+            && r.Body.Contains("workbuddy-on-dev"));
+        Assert.Equal("Bearer wb-token",
+            wbReg.Headers.GetValues("Authorization").First());
+        var codexReg = stub.Requests.Single(r =>
+            r.Url.EndsWith("/api/agents/register")
+            && r.Body.Contains("codex-on-dev"));
+        Assert.Equal("Bearer codex-token",
+            codexReg.Headers.GetValues("Authorization").First());
+
+        var instances = stub.Requests.Where(r => r.Url.Contains("/instances")).ToList();
+        Assert.Equal(2, instances.Count);
+        var wbInst = instances.Single(r =>
+            System.Text.Json.JsonDocument.Parse(r.Body).RootElement
+                .GetProperty("executor_type").GetString() == "workbuddy");
+        Assert.Equal("Bearer wb-token",
+            wbInst.Headers.GetValues("Authorization").First());
+        var codexInst = instances.Single(r =>
+            System.Text.Json.JsonDocument.Parse(r.Body).RootElement
+                .GetProperty("executor_type").GetString() == "codex");
+        Assert.Equal("Bearer codex-token",
+            codexInst.Headers.GetValues("Authorization").First());
+    }
+
+    [Fact]
+    public async Task Per_agent_token_empty_falls_back_to_shared_startup_token()
+    {
+        var stub = new StubHandler();
+        var http = new HttpClient(stub);
+        var (wo, ab, agents) = BuildOpts();
+        ab.StartupToken = "global-token";
+        // 两个 agent 都不配 AgentBoardToken → 回退全局（向后兼容）
+        var svc = new WorkerStartupService(
+            new FixedHttpFactory(http),
+            Options.Create(wo), Options.Create(ab), Options.Create(agents),
+            ThreeAgentRegistry(), NullLogger<WorkerStartupService>.Instance);
+
+        await svc.StartAsync(CancellationToken.None);
+        await Task.Delay(500);
+        await svc.StopAsync(CancellationToken.None);
+
+        Assert.NotEmpty(stub.Requests);
+        Assert.All(stub.Requests, r =>
+            Assert.Equal("Bearer global-token",
+                r.Headers.GetValues("Authorization").FirstOrDefault()));
+    }
+
+    // ---------- P0-3 (2026-09-01)：RequireRegistration fail-fast ----------
+    // 断言面：svc.StartupFailure（.NET 10 BackgroundService.StartAsync 吞掉
+    // 异常且可能延后调度 ExecuteAsync；生产由 Generic Host StopHost 兑现
+    // fail-fast）。单测轮询等待 StartupFailure 落定，不依赖调度时机。
+
+    private static async Task<Exception?> WaitForStartupFailureAsync(
+        WorkerStartupService svc, int timeoutMs = 5000)
+    {
+        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        while (svc.StartupFailure is null && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(20);
+        }
+        return svc.StartupFailure;
+    }
+
+    [Fact]
+    public async Task Require_registration_fails_fast_when_server_url_empty()
+    {
+        var stub = new StubHandler();
+        var http = new HttpClient(stub);
+        var (wo, ab, agents) = BuildOpts(serverUrl: "");
+        ab.RequireRegistration = true;
+        var svc = new WorkerStartupService(
+            new FixedHttpFactory(http),
+            Options.Create(wo), Options.Create(ab), Options.Create(agents),
+            ThreeAgentRegistry(), NullLogger<WorkerStartupService>.Instance);
+
+        // 不再静默跳过：直接抛错，让 first-run 配置错误在启动时暴露
+        await svc.StartAsync(CancellationToken.None);
+        var ex = await WaitForStartupFailureAsync(svc);
+        Assert.IsType<InvalidOperationException>(ex);
+        Assert.Contains("ServerUrl", ex!.Message);
+        Assert.Empty(stub.Requests);
+    }
+
+    [Fact]
+    public async Task Require_registration_fails_fast_when_rabbitmq_uri_empty()
+    {
+        var stub = new StubHandler();
+        var http = new HttpClient(stub);
+        var (wo, ab, agents) = BuildOpts();
+        ab.RequireRegistration = true;
+        var svc = new WorkerStartupService(
+            new FixedHttpFactory(http),
+            Options.Create(wo), Options.Create(ab), Options.Create(agents),
+            ThreeAgentRegistry(), NullLogger<WorkerStartupService>.Instance,
+            Options.Create(new RabbitMqOptions { Uri = "" }));
+
+        await svc.StartAsync(CancellationToken.None);
+        var ex = await WaitForStartupFailureAsync(svc);
+        Assert.IsType<InvalidOperationException>(ex);
+        Assert.Contains("RabbitMq:Uri", ex!.Message);
+        Assert.Empty(stub.Requests);
+    }
+
+    [Fact]
+    public async Task Require_registration_fails_fast_when_no_workbuddy_or_codex_registered()
+    {
+        var stub = new StubHandler();
+        var http = new HttpClient(stub);
+        var (wo, ab, agents) = BuildOpts();
+        ab.RequireRegistration = true;
+        // 典型踩法：Command 留空指望 CliLocator 自动发现 —— scheduling 层
+        // 根本看不到 agent，Story 永远 todo。现在启动时直接报错。
+        agents.WorkBuddy.Command = "";
+        agents.Codex.Command = "";
+        var svc = new WorkerStartupService(
+            new FixedHttpFactory(http),
+            Options.Create(wo), Options.Create(ab), Options.Create(agents),
+            ThreeAgentRegistry(), NullLogger<WorkerStartupService>.Instance,
+            // broker 正常配置，把 RabbitMQ 检查和 agent 注册检查解耦
+            Options.Create(new RabbitMqOptions { Uri = "amqp://test" }));
+
+        await svc.StartAsync(CancellationToken.None);
+        var ex = await WaitForStartupFailureAsync(svc);
+        Assert.IsType<InvalidOperationException>(ex);
+        Assert.Contains("no WorkBuddy/Codex agent was registered", ex!.Message);
+        Assert.Contains("Agents:WorkBuddy:Command is empty", ex.Message);
+        // worker 本身注册了，但没有任何 agent
+        Assert.Contains(stub.Requests, r => r.Url.Contains("/api/workers/register"));
+        Assert.DoesNotContain(stub.Requests, r => r.Url.EndsWith("/api/agents/register"));
+    }
 }
 
 /// <summary>Stub HttpMessageHandler：捕所有请求（method/url/body/headers），回 200。</summary>

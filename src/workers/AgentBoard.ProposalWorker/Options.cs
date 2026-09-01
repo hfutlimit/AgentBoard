@@ -89,6 +89,17 @@ public sealed class AgentOptions
     /// </summary>
     public string AgentId { get; set; } = "";
     /// <summary>
+    /// P0-1 (2026-09-01)：per-agent FastAPI bearer token。设置后本 agent 的
+    /// register / instance / heartbeat 都以这个身份调用，使同一台 worker 上的
+    /// 多个 agent 拿到不同的 user_id —— reviewer isolation
+    /// （assign_task_reviewer 排除 a.user_id == task.assignee_id）依赖这一点，
+    /// 否则单机 WorkBuddy + Codex 会因为同 user 互相当不了 reviewer，happy path
+    /// 卡死在第一次 Design review。
+    /// 空 = 回退 AgentBoardOptions.StartupToken（旧行为：所有 agent 共用一个
+    /// 服务账号，多 agent 协作时评审隔离会失效）。
+    /// </summary>
+    public string AgentBoardToken { get; set; } = "";
+    /// <summary>
     /// Optional URL the readiness probe can HTTP-GET to verify
     /// the agent's external auth is live (e.g. WorkBuddy's MCP
     /// server, Codex's ChatGPT login session). When set, the
@@ -149,6 +160,17 @@ public sealed class AgentBoardOptions
     /// 带 <c>Authorization: Bearer {token}</c>。空 = 不带。
     /// </summary>
     public string StartupToken { get; set; } = "";
+    /// <summary>
+    /// P0-3 (2026-09-01)：fail-fast 开关。true 时启动注册路径视为必需：
+    ///   - AgentBoard:ServerUrl 为空 → 直接抛错停机（不再静默跳过）；
+    ///   - RabbitMq:Uri 为空 → 直接抛错停机（workflow 消费没有 broker 必然失聪）；
+    ///   - upsert 循环结束后没有任何 WorkBuddy/Codex agent 注册成功
+    ///     （典型原因：Agents:*.Command 留空）→ 直接抛错停机。
+    /// 默认 false = 旧行为（log 后继续，向后兼容本地 dev / 无 server 部署）。
+    /// 生产 first-run 应设 true，把配置错误从「scheduler 看不到 agent」
+    /// 变成「worker 启动即报错」。
+    /// </summary>
+    public bool RequireRegistration { get; set; } = false;
 }
 
 public sealed class PortalOptions

@@ -89,11 +89,21 @@ public sealed class WorkerStartupService : BackgroundService
     private readonly WorkerOptions _worker;
     private readonly AgentBoardOptions _agentboard;
     private readonly AgentsOptions _agents;
+    private readonly RabbitMqOptions? _rabbit;
     private readonly ILogger<WorkerStartupService> _log;
     private readonly IAgentAdapterRegistry _registry;
 
-    // 本地缓存：tool name -> AgentInstance id（heartbeat 用）
-    private readonly Dictionary<string, long> _instanceIds = new();
+    // 本地缓存：tool name -> AgentInstance id + 该 agent 的 bearer token
+    // （P0-1：instance heartbeat 必须用注册时同一个身份，否则 401/403）
+    private readonly Dictionary<string, (long InstanceId, string Token)> _instances = new();
+
+    /// <summary>
+    /// P0-3 fail-fast 的可观察面：ExecuteAsync 抛出的致命配置错误会先记录到
+    /// 这里再 rethrow。生产上 Generic Host 默认 StopHost（进程退出即 fail
+    /// fast）；.NET 10 的 BackgroundService.StartAsync 会吞掉同步异常，单测
+    /// 用这个属性断言，不依赖 Host 管道。
+    /// </summary>
+    internal Exception? StartupFailure { get; private set; }
 
     public WorkerStartupService(
         IHttpClientFactory http,
@@ -101,30 +111,83 @@ public sealed class WorkerStartupService : BackgroundService
         IOptions<AgentBoardOptions> agentboard,
         IOptions<AgentsOptions> agents,
         IAgentAdapterRegistry registry,
-        ILogger<WorkerStartupService> log)
+        ILogger<WorkerStartupService> log,
+        IOptions<RabbitMqOptions>? rabbit = null)
     {
         _http = http;
         _worker = worker.Value;
         _agentboard = agentboard.Value;
         _agents = agents.Value;
+        _rabbit = rabbit?.Value;
         _registry = registry;
         _log = log;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        try
+        {
+            await RunStartupAsync(stoppingToken);
+        }
+        catch (OperationCanceledException) { /* 正常退出 */ }
+        catch (Exception ex)
+        {
+            StartupFailure = ex;
+            throw;  // Generic Host 默认 StopHost → 进程退出 = fail fast
+        }
+    }
+
+    private async Task RunStartupAsync(CancellationToken stoppingToken)
+    {
         if (string.IsNullOrWhiteSpace(_agentboard.ServerUrl))
         {
+            if (_agentboard.RequireRegistration)
+            {
+                // P0-3 fail-fast：生产要求注册但没给 ServerUrl，静默跳过只会让
+                // scheduler 看不到任何 agent（用户侧表现为 Story 永远 todo）。
+                throw new InvalidOperationException(
+                    "AgentBoard:RequireRegistration=true but AgentBoard:ServerUrl is empty. " +
+                    "Set AgentBoard:ServerUrl (e.g. http://<server>:58124) in appsettings.Production.json.");
+            }
             _log.LogInformation(
                 "PR-12 WorkerStartupService: AgentBoardOptions.ServerUrl 空，跳过 startup 注册（向后兼容）");
             return;
+        }
+        if (_agentboard.RequireRegistration && string.IsNullOrWhiteSpace(_rabbit?.Uri))
+        {
+            throw new InvalidOperationException(
+                "AgentBoard:RequireRegistration=true but RabbitMq:Uri is empty. " +
+                "The workflow consumer cannot receive task.assigned without a broker.");
         }
         // 1. register Worker（fastapi 端 upsert）
         await RegisterWorkerAsync(stoppingToken);
         // 2. 给每个启用的 agent upsert instance
         await UpsertAgentInstancesAsync(stoppingToken);
-        // 3. 周期性 heartbeat（用 agent heartbeat 端点）
-        if (_instanceIds.Count > 0)
+        // 3. P0-3 fail-fast：生产模式下至少要有 WorkBuddy 或 Codex 注册成功，
+        //    否则 dispatch 永远选不到执行者（最常见的踩法是 Command 留空指望
+        //    CliLocator 自动发现——scheduling 层根本看不到这个 agent）。
+        if (_agentboard.RequireRegistration)
+        {
+            var registeredTools = _instances.Keys
+                .Where(t => t is "workbuddy" or "codex" or "MiniMax")
+                .ToList();
+            if (registeredTools.Count == 0)
+            {
+                var detail = _agents.WorkBuddy.Command is null or ""
+                    ? " Agents:WorkBuddy:Command is empty"
+                    : "";
+                detail += _agents.Codex.Command is null or ""
+                    ? " Agents:Codex:Command is empty"
+                    : "";
+                throw new InvalidOperationException(
+                    "AgentBoard:RequireRegistration=true but no WorkBuddy/Codex agent was registered." +
+                    detail +
+                    " Set Agents:WorkBuddy:Command (e.g. codebuddy) / Agents:Codex:Command (e.g. codex)" +
+                    " and AgentBoard:ServerUrl + AgentBoard:StartupToken.");
+            }
+        }
+        // 4. 周期性 heartbeat（用 agent heartbeat 端点）
+        if (_instances.Count > 0)
         {
             using var timer = new PeriodicTimer(TimeSpan.FromSeconds(
                 Math.Max(5, _worker.HeartbeatSeconds)));
@@ -144,7 +207,7 @@ public sealed class WorkerStartupService : BackgroundService
         try
         {
             var client = _http.CreateClient();
-            ApplyAuth(client);
+            ApplyAuth(client, _agentboard.StartupToken);
             var url = _agentboard.ServerUrl.TrimEnd('/') + "/api/workers/register";
             var payload = new
             {
@@ -196,6 +259,13 @@ public sealed class WorkerStartupService : BackgroundService
             var agentId = string.IsNullOrWhiteSpace(opt.AgentId)
                 ? $"{_worker.Id}-{tool}"           // 默认 = "{worker_id}-{tool}"
                 : opt.AgentId;
+            // P0-1：per-agent 身份。AgentBoardToken 优先，空则回退全局
+            // StartupToken（旧行为）。Reviewer isolation 要求同一 worker 上的
+            // 不同 agent 有不同 user_id，因此多 agent 部署必须给每个 agent
+            // 配独立 token（各自 register 出来的服务账号）。
+            var agentToken = string.IsNullOrWhiteSpace(opt.AgentBoardToken)
+                ? _agentboard.StartupToken
+                : opt.AgentBoardToken;
             var reportedCommand = string.Equals(
                 tool, "scenario", StringComparison.OrdinalIgnoreCase)
                 ? ""
@@ -206,7 +276,7 @@ public sealed class WorkerStartupService : BackgroundService
             try
             {
                 var client = _http.CreateClient();
-                ApplyAuth(client);
+                ApplyAuth(client, agentToken);
                 // 1) upsert agent 本身（idempotent）— PR-12 follow-up 改
                 // POST /api/agents/register（之前 PUT /api/agents/{id} 在
                 // fresh DB 上 404，因为 PUT 是 update-only）。
@@ -246,10 +316,11 @@ public sealed class WorkerStartupService : BackgroundService
                 if (instData != null && instData.TryGetValue("id", out var idObj) &&
                     long.TryParse(idObj?.ToString(), out var idVal))
                 {
-                    _instanceIds[tool] = idVal;
+                    _instances[tool] = (idVal, agentToken);
                     _log.LogInformation(
-                        "PR-12: agent {Agent} (tool={Tool}) instance {Id} registered",
-                        agentId, tool, idVal);
+                        "PR-12: agent {Agent} (tool={Tool}) instance {Id} registered (identity={Identity})",
+                        agentId, tool, idVal,
+                        string.IsNullOrWhiteSpace(opt.AgentBoardToken) ? "shared-startup-token" : "per-agent-token");
                 }
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
@@ -261,22 +332,23 @@ public sealed class WorkerStartupService : BackgroundService
 
     private async Task HeartbeatAllAsync(CancellationToken ct)
     {
-        if (_instanceIds.Count == 0) return;
+        if (_instances.Count == 0) return;
         try
         {
-            var client = _http.CreateClient();
-            ApplyAuth(client);
-            foreach (var (tool, instId) in _instanceIds)
+            foreach (var (tool, entry) in _instances)
             {
+                var client = _http.CreateClient();
+                // P0-1：heartbeat 用注册时的同一身份，服务端按 user 校验
+                ApplyAuth(client, entry.Token);
                 var url = _agentboard.ServerUrl.TrimEnd('/') +
                     $"/api/workers/{Uri.EscapeDataString(_worker.Id)}" +
-                    $"/agent-instances/{instId}/heartbeat";
+                    $"/agent-instances/{entry.InstanceId}/heartbeat";
                 var resp = await client.PostAsJsonAsync(url,
                     new { probe_ok = true, probe_message = "PR-12 startup heartbeat" }, ct);
                 if (!resp.IsSuccessStatusCode)
                 {
                     _log.LogDebug("PR-12: heartbeat instance {Id} HTTP {Status}",
-                                   instId, resp.StatusCode);
+                                   entry.InstanceId, resp.StatusCode);
                 }
             }
         }
@@ -286,15 +358,15 @@ public sealed class WorkerStartupService : BackgroundService
         }
     }
 
-    private void ApplyAuth(HttpClient client)
+    private void ApplyAuth(HttpClient client, string token)
     {
         // 清空旧 header 再设，避免重试累积
         client.DefaultRequestHeaders.Remove("Authorization");
-        if (!string.IsNullOrWhiteSpace(_agentboard.StartupToken))
+        if (!string.IsNullOrWhiteSpace(token))
         {
             client.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue(
-                    "Bearer", _agentboard.StartupToken);
+                    "Bearer", token);
         }
     }
 }
