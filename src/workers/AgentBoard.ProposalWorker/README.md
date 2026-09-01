@@ -8,7 +8,24 @@ Copy `appsettings.json` beside the executable (or use `appsettings.Production.js
 
 - `Worker:Id`: stable unique ID, such as `dev-pc-01`.
 - `RabbitMq:Uri`: the worker-accessible broker URI.
-- `WorkBuddy:Command` and `WorkBuddy:WorkingDirectory`.
+- `AgentBoard:ServerUrl` + `AgentBoard:StartupToken`: the FastAPI base URL and a
+  service-account token for the WORKER identity. With
+  `AgentBoard:RequireRegistration=true` the worker fails fast at startup when
+  `ServerUrl` / `RabbitMq:Uri` is missing or no WorkBuddy/Codex agent could be
+  registered (e.g. `Agents:*:Command` left empty) — instead of silently
+  starting and leaving every Story stuck in todo.
+- `Agents:WorkBuddy:Command` / `Agents:Codex:Command`: explicit command
+  (`codebuddy` / `codex` or a full path). An empty `Command` disables that
+  agent entirely — CLI auto-discovery (`CliLocator`) only affects execution,
+  NOT registration: an agent with an empty Command is invisible to the
+  scheduler.
+- `Agents:*:AgentBoardToken`: per-agent FastAPI service-user token. Reviewer
+  isolation (the server excludes candidates whose `user_id` equals the task
+  assignee) REQUIRES distinct identities per logical agent: register one
+  FastAPI user per agent (e.g. `service-user-wb` / `service-user-codex`), add
+  both to the project as members, and paste their tokens here. Empty = falls
+  back to the shared `AgentBoard:StartupToken`, which breaks multi-agent
+  review on a single worker.
 - `Portal:ApiKey`: a long random secret; the portal requires it in `X-AgentBoard-Worker-Key`.
 
 `AgentBoard:HeartbeatUrl` and `AgentBoard:WebSocketUrl` intentionally default to empty. Set them only after the server-side worker-coordination endpoints are implemented.

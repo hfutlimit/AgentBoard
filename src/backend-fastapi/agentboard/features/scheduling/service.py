@@ -942,6 +942,15 @@ def _online_agents_for_type(s: Session, tool: str) -> list[Agent]:
     ]
 
 
+def _instance_executor_type(agent: Agent, inst: AgentInstance, s: Session) -> str:
+    """取 (Agent, AgentInstance) 的物理 executor type；instance 缺值时回退
+    ``resolve_agent_executor_type``（roles 旧数据兼容）。"""
+    et = (getattr(inst, "executor_type", "") or "").strip().lower()
+    if et:
+        return et
+    return resolve_agent_executor_type(agent, s=s, worker_id=inst.worker_id)
+
+
 def _pick_implementation_agent(
     s: Session, task: Task, workload_type: str,
 ) -> tuple[Agent, AgentInstance] | None:
@@ -949,6 +958,13 @@ def _pick_implementation_agent(
 
     返回 ``(Agent, AgentInstance)``；没有可运行候选或候选全部被排斥时
     返回 ``None``，由调用方保留 todo 并记录可观测的 deferred reason。
+
+    P0-2 (2026-09-01)：在能力合格候选池内优先选择 ``_DISPATCH_AGENT_TYPE``
+    映射的 preferred executor（design/qa→workbuddy、dev/bug→codex）。
+    此前只按 capability score 排序 —— 任务没声明 needed_capabilities 时
+    所有 agent coverage 都是 1.0，最终按 load/id 随机落位，Design 可能派给
+    codex、Dev 可能派给 workbuddy。preferred 池为空时回退通用合格池
+    （executor 离线时由其他 capable agent 兜底，不做硬性角色授权）。
     """
     if workload_type not in {"task", "rework"}:
         return None
@@ -963,6 +979,19 @@ def _pick_implementation_agent(
             task.id, excluded.reasons,
         )
         return None
+    preferred = _agent_type_for(str(task.type), workload_type)
+    if preferred:
+        preferred_pool = [
+            pair for pair in filtered
+            if _instance_executor_type(pair[0], pair[1], s) == preferred
+        ]
+        if preferred_pool:
+            return preferred_pool[0]
+        log.info(
+            "dispatch: task %s (%s/%s) 无 executor_type=%s 的合格候选，回退通用池 %s",
+            task.id, task.type, workload_type, preferred,
+            [pair[0].agent_id for pair in filtered],
+        )
     return filtered[0]
 
 

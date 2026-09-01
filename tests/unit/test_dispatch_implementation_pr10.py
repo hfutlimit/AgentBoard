@@ -40,7 +40,7 @@ from agentboard.core.exceptions import InvalidValue
 from agentboard.core.infrastructure.messaging import rabbitmq as mq_mod
 from agentboard.features.identity.service import register_user
 from agentboard.features.projects.models import (
-    Agent, AgentInstance, Project, ProjectMember, Worker,
+    Agent, AgentInstance, Epic, Project, ProjectMember, Story, Worker,
 )
 from agentboard.features.scheduling.models import TaskAssignment
 from agentboard.features.scheduling.service import (
@@ -146,9 +146,10 @@ def _setup_task(db_session, project_id: int, story_id: int, type_: str,
 
 def _setup_epic_story(db_session, project_id: int) -> int:
     """建 epic + story 链，返回 story_id。"""
-    from agentboard.features.projects.service import create_story, create_epic
-    e = create_epic(db_session, project_id=project_id, title="e", description="")
-    s = create_story(db_session, epic_id=e.id, title="s", description="")
+    e = Epic(project_id=project_id, title="PR-10 epic", description="")
+    db_session.add(e); db_session.commit(); db_session.refresh(e)
+    s = Story(epic_id=e.id, title="PR-10 story", description="")
+    db_session.add(s); db_session.commit(); db_session.refresh(s)
     return s.id
 
 
@@ -467,3 +468,91 @@ def test_dispatch_writes_task_assignment_record(db_session, broker):
     assert ta.source == "schedule"
     assert ta.agent_registry_id == codex.id
     assert ta.user_id == user_id
+
+
+# ---------- 8. P0-2 preferred executor (2026-09-01) ----------
+
+def test_pick_prefers_workbuddy_for_design(db_session):
+    """Design 任务在 workbuddy/codex 都在线时优先选 workbuddy。
+
+    回归背景：preferred 过滤之前 _pick_implementation_agent 只按 capability
+    score 排序（无 needed_capabilities 时 coverage 全是 1.0），最后按
+    load/id 落位 —— Design 可能派给 codex。
+    """
+    user_id, project_id = _setup_user_project(db_session)
+    story_id = _setup_epic_story(db_session, project_id)
+    task_id = _setup_task(db_session, project_id, story_id, "design", user_id)
+    wb, _, _ = _setup_worker_agent(
+        db_session, "wb-main", "workbuddy", user_id, worker_id="dev-pc-01")
+    _setup_worker_agent(
+        db_session, "codex-main", "codex", user_id, worker_id="dev-pc-02")
+
+    picked = _pick_implementation_agent(
+        db_session, db_session.get(Task, task_id), "task")
+    assert picked is not None
+    assert picked[0].id == wb.id
+
+
+def test_pick_prefers_codex_for_dev(db_session):
+    """Dev 任务在 workbuddy/codex 都在线时优先选 codex。"""
+    user_id, project_id = _setup_user_project(db_session)
+    story_id = _setup_epic_story(db_session, project_id)
+    task_id = _setup_task(db_session, project_id, story_id, "dev", user_id)
+    _setup_worker_agent(
+        db_session, "wb-main", "workbuddy", user_id, worker_id="dev-pc-01")
+    codex, _, _ = _setup_worker_agent(
+        db_session, "codex-main", "codex", user_id, worker_id="dev-pc-02")
+
+    picked = _pick_implementation_agent(
+        db_session, db_session.get(Task, task_id), "task")
+    assert picked is not None
+    assert picked[0].id == codex.id
+
+
+def test_pick_prefers_workbuddy_for_qa(db_session):
+    user_id, project_id = _setup_user_project(db_session)
+    story_id = _setup_epic_story(db_session, project_id)
+    task_id = _setup_task(db_session, project_id, story_id, "qa", user_id)
+    wb, _, _ = _setup_worker_agent(
+        db_session, "wb-main", "workbuddy", user_id, worker_id="dev-pc-01")
+    _setup_worker_agent(
+        db_session, "codex-main", "codex", user_id, worker_id="dev-pc-02")
+
+    picked = _pick_implementation_agent(
+        db_session, db_session.get(Task, task_id), "task")
+    assert picked is not None
+    assert picked[0].id == wb.id
+
+
+def test_pick_falls_back_to_generic_pool_when_preferred_offline(db_session):
+    """preferred executor 离线时回退其他 capable agent，不做硬性角色授权。"""
+    user_id, project_id = _setup_user_project(db_session)
+    story_id = _setup_epic_story(db_session, project_id)
+    task_id = _setup_task(db_session, project_id, story_id, "design", user_id)
+    # workbuddy 离线（enabled=False → list_runnable_candidates 不收）
+    _setup_worker_agent(
+        db_session, "wb-main", "workbuddy", user_id, worker_id="dev-pc-01")
+    codex, _, _ = _setup_worker_agent(
+        db_session, "codex-main", "codex", user_id, worker_id="dev-pc-02")
+    wb = db_session.query(Agent).filter(Agent.agent_id == "wb-main").one()
+    wb.enabled = False
+    db_session.commit()
+
+    picked = _pick_implementation_agent(
+        db_session, db_session.get(Task, task_id), "task")
+    assert picked is not None
+    assert picked[0].id == codex.id
+
+
+def test_pick_scenario_executor_not_preferred_but_fallback_allowed(db_session):
+    """executor_type=scenario（golden gate）不匹配 preferred，回退通用池。"""
+    user_id, project_id = _setup_user_project(db_session)
+    story_id = _setup_epic_story(db_session, project_id)
+    task_id = _setup_task(db_session, project_id, story_id, "dev", user_id)
+    scenario, _, _ = _setup_worker_agent(
+        db_session, "scenario-main", "scenario", user_id, worker_id="dev-pc-01")
+
+    picked = _pick_implementation_agent(
+        db_session, db_session.get(Task, task_id), "task")
+    assert picked is not None
+    assert picked[0].id == scenario.id
