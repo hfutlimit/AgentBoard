@@ -760,7 +760,7 @@ def _agent_type_for(task_type: str, workload_type: str) -> str | None:
 # PR-10 follow-up：物理 executor type 以 AgentInstance.executor_type 为准；
 # roles 只在旧数据迁移期用于 CLI executor 兼容推导，不参与 workload 授权。
 # .NET WorkflowMessageMapper 把 agent_type 必填，缺值 → DLQ。
-_AGENT_EXECUTOR_TOOLS = ("codex", "workbuddy", "minimax")
+_AGENT_EXECUTOR_TOOLS = ("codex", "workbuddy", "minimax", "qwen")
 EXECUTOR_TYPES = frozenset((*_AGENT_EXECUTOR_TOOLS, "fake", "scenario"))
 
 
