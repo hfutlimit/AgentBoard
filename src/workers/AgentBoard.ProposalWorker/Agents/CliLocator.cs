@@ -109,6 +109,16 @@ public static class CliLocator
     }
 
     /// <summary>
+    /// Generic resolution for an agent that has no well-known install
+    /// locations on disk — e.g. the 千问办公 (qwen) agent, whose Command points
+    /// directly at a Python invoker (<c>python.exe scripts/qwen_invoker.py</c>).
+    /// Resolution relies solely on <c>opts.Command</c> (absolute path used as-is,
+    /// bare name via where.exe). No Node-script wrapping.
+    /// </summary>
+    public static ResolvedCli LocateGeneric(string agentType, AgentOptions opts, ILogger log)
+        => Resolve(agentType, opts, Array.Empty<string>(), BaseEnv(), log);
+
+    /// <summary>
     /// Returns the user-level npm global bin directory (e.g.
     /// <c>%APPDATA%\npm</c>). Falls back to <c>%LOCALAPPDATA%\npm</c> if
     /// the user-level dir does not exist. Returns an empty string if

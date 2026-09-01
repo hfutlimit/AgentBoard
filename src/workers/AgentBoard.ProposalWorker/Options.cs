@@ -122,6 +122,16 @@ public sealed class AgentsOptions
     public AgentOptions MiniMax { get; set; } = new() { Command = "MiniMax" };
     public AgentOptions Codex { get; set; } = new() { Command = "codex" };
     /// <summary>
+    /// 千问办公 (Qwen) agent slot. Disabled by default (Command=""). Wire
+    /// <c>Agents:Qwen:Command</c> to the <c>scripts/qwen_invoker.py</c>
+    /// (python.exe + script, mirroring how WorkBuddy/Codex are pointed at the
+    /// Python invoker in <c>appsettings.Local.json</c>) and set
+    /// <c>QWEN_MODEL=qwen3.8-flash</c> + <c>QWEN_API_KEY</c> in the worker env.
+    /// The invoker is a single-shot decision agent with no interactive approval
+    /// gate → "完全访问" (unattended) is inherent to the pattern.
+    /// </summary>
+    public AgentOptions Qwen { get; set; } = new() { Command = "" };
+    /// <summary>
     /// In-process stand-in adapter. Always returns a synthetic success
     /// decision without spawning any external CLI. Useful for local dev /
     /// smoke when no real CLI is installed; <see cref="Agents.FakeAdapter"/>

@@ -12,48 +12,61 @@ Tokens are NEVER echoed; they are written only to the on-disk appsettings.Local.
 worker exe after `dotnet build`).
 #>
 $ErrorActionPreference = 'Stop'
-$Root = 'D:\AI\Projects\AgentBoard'
+# Auto-detect repo root from the script's own location (scripts/..) so the
+# deploy works on any drive/checkout path — previously hardcoded to
+# 'D:\AI\Projects\AgentBoard', which broke on other machines. $PSScriptRoot is
+# the directory containing this .ps1.
+$Root = if ($PSScriptRoot) { Split-Path -Parent $PSScriptRoot } else { 'D:\AI\Projects\AgentBoard' }
 $WorkerRoot = Join-Path $Root 'src\workers\AgentBoard.ProposalWorker'
 $BinDir = Join-Path $WorkerRoot 'bin\Debug\net10.0'
 $SettingsPath = Join-Path $WorkerRoot 'appsettings.Local.json'
 $SecretsPath = Join-Path $Root 'tmp\remote_service_users.json'
 $LogDir = Join-Path $Root 'logs'
 
-if (-not (Test-Path $SecretsPath)) {
-    throw "Missing $SecretsPath. Run: .venv\Scripts\python.exe tmp\seed_remote_service_users.py"
+if (-not (Test-Path $SettingsPath)) {
+    $TemplatePath = Join-Path $WorkerRoot 'appsettings.Local.template.json'
+    if (Test-Path $TemplatePath) {
+        Copy-Item -Path $TemplatePath -Destination $SettingsPath -Force
+        Write-Host "[deploy] bootstrapped $SettingsPath from template (git-ignored local secret file)"
+    } else {
+        throw "Missing $SettingsPath and no template at $TemplatePath — nothing to deploy onto."
+    }
 }
-$secrets = Get-Content $SecretsPath -Raw | ConvertFrom-Json
-$startupToken = $secrets.admin_token
-$wbToken = $secrets.users.wb_main.api_key
-$codexToken = $secrets.users.codex_main.api_key
-$portalApiKey = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
-
-Write-Host "[deploy] loading template -> $SettingsPath"
 $template = Get-Content $SettingsPath -Raw
-# PowerShell `-replace` 全局替换 + [regex]::Replace count 参数被 host 端吞 + String.Split 把
-# string 当 char array — 三种"只换第一个"的路都坏了。直接 IndexOf + Substring 4 次内联。
-# 不抽 function：PowerShell 5.1 函数体里所有未赋值表达式都进 output stream，污染 return。
-# settings 模板里 4 个 PLACEHOLDER 出现顺序：WorkBuddy → Codex → StartupToken → Portal.ApiKey
-# 4 次 inline replace 必须按这个顺序给对应 token，否则会错位。
 $deploy_ph = 'PLACEHOLDER_REPLACED_BY_DEPLOY_SCRIPT'
-$idx = $template.IndexOf($deploy_ph)
-Write-Host "[deploy] template_len=$($template.Length) ph_len=$($deploy_ph.Length)"
-$template = $template.Substring(0, $idx) + $wbToken + $template.Substring($idx + $deploy_ph.Length)
-$idx = $template.IndexOf($deploy_ph)
-$template = $template.Substring(0, $idx) + $codexToken + $template.Substring($idx + $deploy_ph.Length)
-$idx = $template.IndexOf($deploy_ph)
-$template = $template.Substring(0, $idx) + $startupToken + $template.Substring($idx + $deploy_ph.Length)
-$idx = $template.IndexOf($deploy_ph)
-$template = $template.Substring(0, $idx) + $portalApiKey + $template.Substring($idx + $deploy_ph.Length)
-[System.IO.File]::WriteAllText($SettingsPath, $template, (New-Object System.Text.UTF8Encoding $false))
+if (-not $template.Contains($deploy_ph)) {
+    Write-Host "[deploy] $SettingsPath has no placeholders (already filled); skipping token injection"
+} else {
+    if (-not (Test-Path $SecretsPath)) {
+        throw "Missing $SecretsPath. Run: .venv\Scripts\python.exe tmp\seed_remote_service_users.py"
+    }
+    $secrets = Get-Content $SecretsPath -Raw | ConvertFrom-Json
+    $startupToken = $secrets.admin_token
+    $wbToken = $secrets.users.wb_main.api_key
+    $codexToken = $secrets.users.codex_main.api_key
+    $portalApiKey = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
 
-# 兜底确认
-$final = Get-Content $SettingsPath -Raw
-$placeholderCount = ([regex]::Matches($final, 'PLACEHOLDER_REPLACED_BY_DEPLOY_SCRIPT')).Count
-if ($placeholderCount -ne 0) {
-    throw "Still $placeholderCount PLACEHOLDER left in $SettingsPath"
+    Write-Host "[deploy] loading template -> $SettingsPath"
+    # settings 模板里 4 个 PLACEHOLDER 出现顺序：WorkBuddy → Codex → StartupToken → Portal.ApiKey
+    # 4 次 inline replace 必须按这个顺序给对应 token，否则会错位。
+    $idx = $template.IndexOf($deploy_ph)
+    $template = $template.Substring(0, $idx) + $wbToken + $template.Substring($idx + $deploy_ph.Length)
+    $idx = $template.IndexOf($deploy_ph)
+    $template = $template.Substring(0, $idx) + $codexToken + $template.Substring($idx + $deploy_ph.Length)
+    $idx = $template.IndexOf($deploy_ph)
+    $template = $template.Substring(0, $idx) + $startupToken + $template.Substring($idx + $deploy_ph.Length)
+    $idx = $template.IndexOf($deploy_ph)
+    $template = $template.Substring(0, $idx) + $portalApiKey + $template.Substring($idx + $deploy_ph.Length)
+    [System.IO.File]::WriteAllText($SettingsPath, $template, (New-Object System.Text.UTF8Encoding $false))
+
+    # 兜底确认
+    $final = Get-Content $SettingsPath -Raw
+    $placeholderCount = ([regex]::Matches($final, [regex]::Escape($deploy_ph))).Count
+    if ($placeholderCount -ne 0) {
+        throw "Still $placeholderCount PLACEHOLDER left in $SettingsPath"
+    }
+    Write-Host "[deploy] tokens injected into $SettingsPath (placeholders left: 0)"
 }
-Write-Host "[deploy] tokens injected into $SettingsPath (placeholders left: 0)"
 
 # 旧的 worker 进程要停掉（先停再 build，否则 apphost.exe 被锁无法 copy）
 # PowerShell 5.1 + dotnet apphost 在某些 host 下 [System.Diagnostics.Process]::GetProcessesByName

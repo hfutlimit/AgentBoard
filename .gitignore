@@ -133,3 +133,6 @@ scripts/_trash_*.png
 styles-orig.css
 
 commit_msg.txt
+
+# Worker local secret slot — never commit live tokens (was leaked @65e6460; template is tracked instead)
+src/workers/AgentBoard.ProposalWorker/appsettings.Local.json
