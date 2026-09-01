@@ -1,11 +1,12 @@
-"""Sprint 12 (Generic AgentWorker) — Task 评审多数决 fan-out。
+"""Sprint 12 (Generic AgentWorker) — Task 评审多数决 fan-out（归属收敛版）。
 
-覆盖：
-1. ``assign_task_reviewer(count=N)`` 一次挑 N 个 reviewer：第 1 位写入
-   ``Task.reviewer_id``（兼容旧查询），第 2..N 位插入 ``review_votes`` 的
-   NULL verdict 占位行——投票时再落 approve/reject。
-2. 同一 (entity, reviewer) 唯一约束防重：重复调用 count 不累积。
-3. 单 review 模式行为不变（count=1 走原有路径）。
+归属收敛（2026-09-01）：评审人必须与 task 同 owner，一人一票。
+同 owner 的 N 个 agent 请求 count=N fan-out 会收敛为 1 票：
+1. ``assign_task_reviewer(count=N)``：owner 名下 agent 指派为 reviewer，
+   写 ``Task.reviewer_id`` + ``reviewer_agent_id``，``review_votes`` 一行
+   NULL verdict 占位。
+2. 重复调用 count 不累积（幂等）。
+3. 单 review 模式（count=1）行为一致。
 4. workflow_worker 在 majority 模式时把 count 透传给后端 API。
 5. _review_vote_counts 不会把 pending (NULL verdict) 算进 approve/reject
    票数（这是多数决 quorum 判定的契约，不能破坏）。
@@ -58,12 +59,13 @@ def _seed(n_reviewers: int = 3):
             reviewers.append(r)
         for uid in [dev.id] + [r.id for r in reviewers]:
             service.add_project_member(s, project_id=p.id, user_id=uid, role="member")
-        for i, r in enumerate(reviewers):
+        # 归属收敛：N 个评审 agent 全部挂 owner(dev) 名下
+        for i in range(n_reviewers):
             aid = f"s12-a{i}-{n}"
             worker_id = f"s12-worker-{i}-{n}"
             service.register_agent(s, agent_id=aid, name=f"R{i}",
-                                   roles="[]", user_id=r.id)
-            service.agent_heartbeat(s, aid, user_id=r.id)
+                                   roles="[]", user_id=dev.id)
+            service.agent_heartbeat(s, aid, user_id=dev.id)
             service.register_worker(s, worker_id=worker_id, hostname="test")
             instance = service.upsert_agent_instance(
                 s, worker_id=worker_id, agent_id=aid,
@@ -82,10 +84,12 @@ def seeded():
     return _seed()
 
 
-def _inreview_task(s, project_id, *, assignee_id):
+def _inreview_task(s, project_id, *, assignee_id, owner_id=None):
     from agentboard.models import Task
+    # 归属收敛：owner 默认 = assignee（本文件里 owner 即 dev）
     t = Task(project_id=project_id, title="S12 task", type="dev",
-             status="in_review", assignee_id=assignee_id)
+             status="in_review", assignee_id=assignee_id,
+             created_by_user_id=owner_id if owner_id is not None else assignee_id)
     s.add(t)
     s.flush()
     return t
@@ -103,40 +107,39 @@ def _pending_assignments(s, entity_type, entity_id):
 
 # ---------- 1. assign_task_reviewer count=N 一次挑 N 个 ----------
 
-def test_assign_task_reviewer_count_3_seeds_three_pending_votes(seeded, monkeypatch):
+def test_assign_task_reviewer_count_3_collapses_to_one_vote(seeded, monkeypatch):
+    """归属收敛：owner 名下 3 个 agent 请求 count=3 → 一人一票收敛为 1 票。"""
     pid, dev_id, [r1, r2, r3], _ = seeded
     with SessionLocal() as s:
         t = _inreview_task(s, pid, assignee_id=dev_id)
         s.commit()
         t_id = t.id
 
-        # 一次 count=3：3 个 reviewer 全部塞进 review_votes（NULL verdict）
         t = service.assign_task_reviewer(s, t_id, count=3)
         s.commit()
 
-        # 第一位沿用 Task.reviewer_id（向后兼容），其余 2 位走 review_votes
-        assert t.reviewer_id in (r1, r2, r3)
+        # reviewer = owner 本人；reviewer_agent_id 记录具体评审 agent
+        assert t.reviewer_id == dev_id
+        assert t.reviewer_agent_id is not None
         rows = _pending_assignments(s, "task", t_id)
-        assert len(rows) == 3
-        assigned_user_ids = {uid for uid, _ in rows}
-        # 三个 reviewer 全部在场；都还没投票
-        assert assigned_user_ids == {r1, r2, r3}
-        assert all(verdict is None for _, verdict in rows)
+        # 一人一票：3 个同 owner agent 收敛为 1 行 pending
+        assert len(rows) == 1
+        assert rows[0][0] == dev_id
+        assert rows[0][1] is None
 
 
-def test_assign_task_reviewer_count_2_idempotent_when_already_three(seeded):
-    """已分配 3 票后再调 count=2：no-op，不重复塞。"""
+def test_assign_task_reviewer_count_2_idempotent_when_already_assigned(seeded):
+    """已指派后再调 count=2：no-op，不重复塞（一人一票）。"""
     pid, dev_id, [r1, r2, r3], _ = seeded
     with SessionLocal() as s:
         t = _inreview_task(s, pid, assignee_id=dev_id)
         s.commit()
         service.assign_task_reviewer(s, t.id, count=3)
         s.commit()
-        # 第二次 count=2 应该不动（已 >= 2）
         service.assign_task_reviewer(s, t.id, count=2)
         s.commit()
         rows = _pending_assignments(s, "task", t.id)
-        assert len(rows) == 3
+        assert len(rows) == 1
 
 
 def test_assign_task_reviewer_count_1_keeps_legacy_path(seeded):
@@ -148,7 +151,8 @@ def test_assign_task_reviewer_count_1_keeps_legacy_path(seeded):
         service.assign_task_reviewer(s, t.id, count=1)
         s.commit()
         t = s.query(type(t)).get(t.id)
-        assert t.reviewer_id in (r1, r2, r3)
+        assert t.reviewer_id == dev_id  # 同 owner
+        assert t.reviewer_agent_id is not None
         rows = _pending_assignments(s, "task", t.id)
         # 一行 pending 占位（旧版 review_votes 模式下只有这一行）
         assert len(rows) == 1
@@ -167,9 +171,9 @@ def test_assign_task_reviewer_count_out_of_range_rejected(seeded):
 # ---------- 2. _review_vote_counts 不把 pending 算进票数 ----------
 
 def test_review_vote_counts_ignores_pending_null_verdict(seeded, monkeypatch):
-    """多数决 fan-out 留下的 NULL verdict 行不参与票数计算。"""
+    """多数决：pending NULL 不算票；跨 owner 不能投票；owner 达 quorum 结算。"""
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
-    monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "3")
+    monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "1")
     pid, dev_id, [r1, r2, r3], _ = seeded
     with SessionLocal() as s:
         t = _inreview_task(s, pid, assignee_id=dev_id)
@@ -177,26 +181,18 @@ def test_review_vote_counts_ignores_pending_null_verdict(seeded, monkeypatch):
         service.assign_task_reviewer(s, t.id, count=3)
         s.commit()
 
-        # 3 票全部 pending → approve+reject=0，远低于 quorum=3
+        # pending 票不算数：approve+reject=0 < quorum=1
         approve, reject = service._review_vote_counts(s, "task", t.id)
         assert (approve, reject) == (0, 0)
 
-        # r1 投 approve → approve=1，仍低于 quorum
-        service.review_task(s, task_id=t.id, reviewer_user_id=r1,
-                             verdict="approve", comment="ok1")
-        approve, reject = service._review_vote_counts(s, "task", t.id)
-        assert (approve, reject) == (1, 0)
+        # 跨 owner 用户（r1）投票 → 拒绝（归属收敛）
+        with pytest.raises(service.InvalidValue):
+            service.review_task(s, task_id=t.id, reviewer_user_id=r1,
+                                verdict="approve", comment="x")
 
-        # r2 投 reject → approve=1, reject=1；1+1=2 < 3
-        service.review_task(s, task_id=t.id, reviewer_user_id=r2,
-                             verdict="reject", comment="no1")
-        approve, reject = service._review_vote_counts(s, "task", t.id)
-        assert (approve, reject) == (1, 1)
-
-        # r3 投 approve → approve=2, reject=1；2+1=3 == quorum，结算
-        t_final = service.review_task(s, task_id=t.id, reviewer_user_id=r3,
-                                       verdict="approve", comment="ok3")
-        # approve > reject → 多数通过
+        # owner(dev) 投 approve → approve=1 == quorum=1 → 多数通过结算
+        t_final = service.review_task(s, task_id=t.id, reviewer_user_id=dev_id,
+                                      verdict="approve", comment="ok")
         assert t_final.status == "done"
         # 结算后清票
         rows = _pending_assignments(s, "task", t.id)

@@ -238,7 +238,7 @@ def _client():
 def test_api_create_story_notifies(seeded):
     pid, _, _, eid, _ = seeded
     c = _client()
-    with mock.patch.object(api, "_notify_webhooks") as nw:
+    with mock.patch("agentboard.api_helpers._notify_webhooks") as nw:
         r = c.post(f"/api/epics/{eid}/stories",
                    json={"title": "S3M1 webhook story", "description": ""})
         assert r.status_code == 201, r.text
@@ -254,14 +254,14 @@ def test_api_review_story_deprecated_422(seeded):
     """Story 评审已下线（2026-08-09）：approve/reject 端点均返回 422 且不通知 webhook。"""
     pid, dev, rev, _, sid = seeded
     c = _client()
-    with mock.patch.object(api, "_notify_webhooks") as nw:
+    with mock.patch("agentboard.api_helpers._notify_webhooks") as nw:
         r = c.post(f"/api/stories/{sid}/review",
                    headers={"Authorization": f"Bearer {auth.make_token(rev)}"},
                    json={"verdict": "approve", "comment": "S3M1 ok"})
         assert r.status_code == 422, r.text
         assert "评审已下线" in r.json().get("detail", "")
         nw.assert_not_called()
-    with mock.patch.object(api, "_notify_webhooks") as nw:
+    with mock.patch("agentboard.api_helpers._notify_webhooks") as nw:
         r = c.post(f"/api/stories/{sid}/review",
                    headers={"Authorization": f"Bearer {auth.make_token(rev)}"},
                    json={"verdict": "reject", "comment": "需补充"})
@@ -274,14 +274,15 @@ def test_api_submit_review_notifies(seeded):
     """submit-review → task.ready_for_review webhook。"""
     pid, dev, _, _, sid = seeded
     with SessionLocal() as s:
-        t = Task(project_id=pid, story_id=sid, title="T-submit", status="todo")
+        t = Task(project_id=pid, story_id=sid, title="T-submit", status="todo",
+                 created_by_user_id=dev)
         s.add(t)
         s.flush()
         service.claim_development_task(s, t.id, user_id=dev)
         tid = t.id
         s.commit()
     c = _client()
-    with mock.patch.object(api, "_notify_webhooks") as nw:
+    with mock.patch("agentboard.api_helpers._notify_webhooks") as nw:
         r = c.post(f"/api/tasks/{tid}/submit-review",
                    headers={"Authorization": f"Bearer {auth.make_token(dev)}"})
         assert r.status_code == 200, r.text
@@ -297,7 +298,8 @@ def test_api_review_task_approve_notifies(seeded):
     """review approve → task.reviewed webhook。"""
     pid, dev, rev, _, sid = seeded
     with SessionLocal() as s:
-        t = Task(project_id=pid, story_id=sid, title="T-approve", status="todo")
+        t = Task(project_id=pid, story_id=sid, title="T-approve", status="todo",
+                 created_by_user_id=dev)
         s.add(t)
         s.flush()
         service.claim_development_task(s, t.id, user_id=dev)
@@ -308,7 +310,7 @@ def test_api_review_task_approve_notifies(seeded):
         tid = t.id
         s.commit()
     c = _client()
-    with mock.patch.object(api, "_notify_webhooks") as nw:
+    with mock.patch("agentboard.api_helpers._notify_webhooks") as nw:
         r = c.post(f"/api/tasks/{tid}/review",
                    headers={"Authorization": f"Bearer {auth.make_token(rev)}"},
                    json={"verdict": "approve", "comment": "S3M1 LGTM"})
@@ -324,7 +326,8 @@ def test_api_review_task_approve_notifies(seeded):
 def test_api_review_task_reject_notifies(seeded):
     pid, dev, rev, _, sid = seeded
     with SessionLocal() as s:
-        t = Task(project_id=pid, story_id=sid, title="T-reject", status="todo")
+        t = Task(project_id=pid, story_id=sid, title="T-reject", status="todo",
+                 created_by_user_id=dev)
         s.add(t)
         s.flush()
         service.claim_development_task(s, t.id, user_id=dev)
@@ -335,7 +338,7 @@ def test_api_review_task_reject_notifies(seeded):
         tid = t.id
         s.commit()
     c = _client()
-    with mock.patch.object(api, "_notify_webhooks") as nw:
+    with mock.patch("agentboard.api_helpers._notify_webhooks") as nw:
         r = c.post(f"/api/tasks/{tid}/review",
                    headers={"Authorization": f"Bearer {auth.make_token(rev)}"},
                    json={"verdict": "reject", "comment": "有 bug"})

@@ -133,3 +133,54 @@ def test_dispatch_only_owner_agent_selected(db_session):
     owner_ids = {c[0].user_id for c in cands}
     assert owner_ids == {u1.id}, f"候选应仅 owner u1 的 agent，实得 {owner_ids}"
     assert a1.id in {c[0].id for c in cands}
+
+
+# ---------- 评审侧（reviewer-by-agent，决策 b） ----------
+
+def _inreview(s, project_id, owner_id):
+    t = Task(project_id=project_id, story_id=None, title="review scope",
+             type=ItemType.DEV, status="in_review",
+             assignee_id=owner_id, created_by_user_id=owner_id)
+    s.add(t); s.flush()
+    return t
+
+
+def test_review_implementer_agent_excluded_same_owner(db_session):
+    """同 owner 两个 agent：实现方 agent 被指派过实现（TaskAssignment）后，
+    评审必须落到另一个 agent（reviewer_agent_id != 实现方）。"""
+    from agentboard.features.scheduling.models import TaskAssignment
+    from agentboard.features.scheduling.service import assign_task_reviewer
+    p = _project(db_session)
+    u = register_user(db_session, username=f"g-{uuid.uuid4().hex[:6]}", password="password1234")
+    _member(db_session, p, u)
+    a_impl = _online_agent(db_session, "impl-1", "codex", u.id, "pc-impl")
+    a_rev = _online_agent(db_session, "rev-1", "workbuddy", u.id, "pc-rev")
+    t = _inreview(db_session, p.id, u.id)
+    # 实现方 assignment（active）
+    db_session.add(TaskAssignment(
+        task_id=t.id, agent_registry_id=a_impl.id, user_id=u.id,
+        source="claim", status="active", active_slot="active"))
+    db_session.commit()
+    t2 = assign_task_reviewer(db_session, t.id)
+    assert t2.reviewer_id == u.id            # 同 owner
+    assert t2.reviewer_agent_id == a_rev.id  # 非实现方 agent
+
+
+def test_review_single_agent_implementer_keeps_pending(db_session):
+    """决策 b：owner 只有实现方一个 agent → 无第二个同 owner agent →
+    评审保持待处理（不指派、不自审、不报错）。"""
+    from agentboard.features.scheduling.models import TaskAssignment
+    from agentboard.features.scheduling.service import assign_task_reviewer
+    p = _project(db_session)
+    u = register_user(db_session, username=f"h-{uuid.uuid4().hex[:6]}", password="password1234")
+    _member(db_session, p, u)
+    a_impl = _online_agent(db_session, "only-impl", "codex", u.id, "pc-only")
+    t = _inreview(db_session, p.id, u.id)
+    db_session.add(TaskAssignment(
+        task_id=t.id, agent_registry_id=a_impl.id, user_id=u.id,
+        source="claim", status="active", active_slot="active"))
+    db_session.commit()
+    t2 = assign_task_reviewer(db_session, t.id)
+    assert t2.reviewer_id is None            # 保持待处理
+    assert t2.reviewer_agent_id is None
+    assert t2.status == "in_review"

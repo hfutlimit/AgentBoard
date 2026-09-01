@@ -678,49 +678,80 @@ def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None
         # 多数决已被 N 票填满；不再追加
         s.commit()
         return t
+    # 归属收敛（2026-09-01，决策 a/b）：评审也限 owner 名下的 agent。
+    # - 候选池 = 在线可运行 ∩ Agent.user_id == task.created_by_user_id；
+    # - 排除实现方 agent（get_assignment_exclusion("review") =
+    #   same_task_implementer 的 agent_registry_ids）——替代旧的跨用户
+    #   `user_id != assignee_id` 隔离（退休 reviewer isolation）；
+    # - owner 为空 / 无第二个（非实现方）同 owner agent → **保持待处理**
+    #   （in_review + reviewer 未指派，不 raise，决策 b），等 owner 再上线
+    #   一个 agent；scan_review_timeouts 不会误扫 reviewer_id IS NULL 的行。
+    if t.created_by_user_id is None:
+        log.info(
+            "assign_task_reviewer: task %s 无 owner（created_by_user_id=NULL），"
+            "保持待处理（需人工补 owner）", task_id)
+        s.commit()
+        return t
     candidates = _online_reviewer_candidates(s, t.project_id)
     exclusion = get_assignment_exclusion(s, t, "review")
     candidates = [
         a for a in candidates
-        if a.user_id != t.assignee_id
+        if a.user_id == t.created_by_user_id
         and a.user_id not in already_assigned
         and a.id not in exclusion.agent_registry_ids
     ]
     if not candidates:
         if not already_assigned:
-            raise InvalidValue(
-                "no online reviewer available (register an online reviewer agent first)")
-        # 部分已指派，再无可补；不报错，让上层知道当前票数
+            log.info(
+                "assign_task_reviewer: task %s owner=%s 无非实现方在线 agent，"
+                "保持待处理（决策 b）", task_id, t.created_by_user_id)
+        # 全无候选 / 部分已指派再无可补：不报错，保持当前状态。
         s.commit()
         return t
     ranked = rank_agents_for_task(s, t, role="reviewer", agents=candidates)
     if not ranked:
-        raise InvalidValue("no reviewer satisfies the task capability requirements")
-    # 第一位走原有 CAS 把 reviewer_id 写进 Task（兼容旧查询 + 旧事件源）
+        log.info(
+            "assign_task_reviewer: task %s owner=%s 候选均不满足能力要求，"
+            "保持待处理", task_id, t.created_by_user_id)
+        s.commit()
+        return t
+    # 第一位走原有 CAS 把 reviewer_id 写进 Task（兼容旧查询 + 旧事件源），
+    # 同时写 reviewer_agent_id（同 owner 多 agent 时路由 review 工作用）。
     # 后续走 review_votes 插入 pending 行，事件由 caller 自行 fan-out。
-    to_assign: list[int] = []
+    # to_assign 元素 = (user_id, agent_registry_id)。
+    # 一人一票（归属收敛）：同一 owner 名下多个 agent 不叠票，首个 agent
+    # 拿到票即止（后续 agent 因同 user 被 seen_users 去重跳过）。
+    to_assign: list[tuple[int, int]] = []
+    seen_users: set[int] = set(already_assigned)
     for i, cand in enumerate(ranked):
+        uid = cand.agent.user_id
+        if uid in seen_users:
+            continue
         if len(already_assigned) + len(to_assign) >= count:
             break
-        to_assign.append(cand.agent.user_id)
+        to_assign.append((uid, cand.agent.id))
+        seen_users.add(uid)
     if t.reviewer_id is None and to_assign:
-        first = to_assign.pop(0)
+        first, first_agent = to_assign.pop(0)
         r = s.execute(
             update(Task).where(
                 Task.id == task_id,
                 Task.reviewer_id.is_(None),
                 Task.status == Status.IN_REVIEW,
-            ).values(reviewer_id=first)
+            ).values(reviewer_id=first, reviewer_agent_id=first_agent)
         )
         if r.rowcount == 1:
-            _insert_pending_vote(s, "task", task_id, first, t.review_round or 0)
+            _insert_pending_vote(s, "task", task_id, first, t.review_round or 0,
+                                 reviewer_agent_id=first_agent)
         # rowcount != 1：并发写者抢先，把 first 当普通 pending 插入
         else:
             s.rollback()
-            _insert_pending_vote(s, "task", task_id, first, t.review_round or 0)
+            _insert_pending_vote(s, "task", task_id, first, t.review_round or 0,
+                                 reviewer_agent_id=first_agent)
             already_assigned.add(first)
-    for uid in to_assign:
-        _insert_pending_vote(s, "task", task_id, uid, t.review_round or 0)
+    for uid, aid in to_assign:
+        _insert_pending_vote(s, "task", task_id, uid, t.review_round or 0,
+                             reviewer_agent_id=aid)
     _commit(s)
     s.refresh(t)
     return t
@@ -1125,8 +1156,13 @@ def _assigned_task_reviewer_ids(s: Session, entity_type: str, entity_id: int) ->
 
 
 def _insert_pending_vote(s: Session, entity_type: str, entity_id: int,
-                         reviewer_user_id: int, round_: int) -> None:
-    """插入一条 pending (NULL verdict) review_votes 行。已存在则跳过（幂等）。"""
+                         reviewer_user_id: int, round_: int,
+                         reviewer_agent_id: int | None = None) -> None:
+    """插入一条 pending (NULL verdict) review_votes 行。已存在则跳过（幂等）。
+
+    reviewer_agent_id（归属收敛）：记录被指派评审的具体 Agent，供
+    task.review_requested 定向路由与审计；空则不写（旧数据兼容）。
+    """
     from ...features.projects.models import ReviewVote
     existing = s.query(ReviewVote.id).filter(
         ReviewVote.entity_type == entity_type,
@@ -1139,6 +1175,7 @@ def _insert_pending_vote(s: Session, entity_type: str, entity_id: int,
         entity_type=entity_type,
         entity_id=entity_id,
         reviewer_user_id=reviewer_user_id,
+        reviewer_agent_id=reviewer_agent_id,
         verdict=None,
         round=round_,
     ))
@@ -2101,13 +2138,18 @@ def get_review_mode() -> str:
 
 # ---- 同步自 service.py ----
 def get_review_quorum() -> int:
-    """法定票数：AGENTBOARD_REVIEW_QUORUM（2..9），非法/缺省回退 3。"""
+    """法定票数：AGENTBOARD_REVIEW_QUORUM（1..9），非法/缺省回退 3。
+
+    归属收敛（2026-09-01）后一人一票（同 owner 多 agent 不叠票），
+    单 owner 部署 majority 模式需 quorum=1 才能由 owner 单票结算，
+    故下限从 2 放宽到 1。
+    """
     raw = os.environ.get("AGENTBOARD_REVIEW_QUORUM", "").strip()
     try:
         q = int(raw)
     except (TypeError, ValueError):
         return DEFAULT_REVIEW_QUORUM
-    return q if 2 <= q <= 9 else DEFAULT_REVIEW_QUORUM
+    return q if 1 <= q <= 9 else DEFAULT_REVIEW_QUORUM
 
 # ---- 同步自 service.py ----
 def _is_reviewer_candidate(s: Session, project_id: int, user_id: int,
@@ -2259,7 +2301,16 @@ def _vote_majority(s: Session, entity, *, entity_type: str, reviewer_user_id: in
     else:
         project_id = entity.project_id
         expected_status = Status.IN_REVIEW
-        exclude = entity.assignee_id
+        # 归属收敛（2026-09-01）：Task 投票人必须是 owner（created_by_user_id）
+        # 本人——替代旧的「排除 assignee user」跨用户隔离（reviewer 与实现方
+        # 同 owner 后，assignee 排除会误杀唯一合法投票人）。实现方 agent 的
+        # 排除在指派侧（assign_task_reviewer 的 exclusion 过滤）已保证；
+        # 此处按 user 一人一票，无法也无需按 agent 再分。
+        exclude = None
+        if entity.created_by_user_id is not None:
+            if reviewer_user_id != entity.created_by_user_id:
+                raise InvalidValue(
+                    "only the task owner's agent can vote on this task (majority mode)")
     if not _is_reviewer_candidate(s, project_id, reviewer_user_id,
                                   exclude_user_id=exclude):
         raise InvalidValue(
@@ -2370,14 +2421,20 @@ def _reassign_story_reviewer(s: Session, story: Story,
 # ---- 同步自 service.py ----
 def _reassign_task_reviewer(s: Session, task: Task,
                             exclude_user_id: int | None = None) -> int | None:
-    """Task 超时重派：候选排除旧 reviewer 与 assignee（评审人/作者隔离），CAS。
+    """Task 超时重派（归属收敛版，与 core facade 副本同步）：
+    候选 = owner 名下在线 agent，排除旧评审 agent（reviewer_agent_id）
+    与实现方 agent（assignment exclusion / current_assignment），CAS 写
+    reviewer_id + reviewer_agent_id。无候选 → None（保持待处理，决策 b）。
 
-    成功返回新 reviewer 的 user_id；候选为空 / CAS 失败 → None。
+    旧的「排除 assignee user」跨用户隔离已退休（同 owner 评审）。
     """
+    if task.created_by_user_id is None:
+        return None  # owner 为空 fail-closed，保持待处理
     candidates = _online_reviewer_candidates(s, task.project_id)
     exclusion = get_assignment_exclusion(s, task, "review")
     candidates = [a for a in candidates
-                  if a.user_id not in (exclude_user_id, task.assignee_id)
+                  if a.user_id == task.created_by_user_id
+                  and a.id != task.reviewer_agent_id
                   and a.id not in exclusion.agent_registry_ids]
     if not candidates:
         return None
@@ -2390,7 +2447,7 @@ def _reassign_task_reviewer(s: Session, task: Task,
             Task.id == task.id,
             Task.reviewer_id.is_(None),
             Task.status == Status.IN_REVIEW,
-        ).values(reviewer_id=reviewer.user_id)
+        ).values(reviewer_id=reviewer.user_id, reviewer_agent_id=reviewer.id)
     )
     if r.rowcount != 1:
         s.rollback()

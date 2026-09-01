@@ -724,13 +724,17 @@ def get_review_mode() -> str:
     return mode if mode in (REVIEW_MODE_SINGLE, REVIEW_MODE_MAJORITY) else REVIEW_MODE_SINGLE
 
 def get_review_quorum() -> int:
-    """法定票数：AGENTBOARD_REVIEW_QUORUM（2..9），非法/缺省回退 3。"""
+    """法定票数：AGENTBOARD_REVIEW_QUORUM（1..9），非法/缺省回退 3。
+
+    归属收敛（2026-09-01）：一人一票后单 owner 部署需 quorum=1 才能结算，
+    下限从 2 放宽到 1（与 features/scheduling/service.py 同步）。
+    """
     raw = os.environ.get("AGENTBOARD_REVIEW_QUORUM", "").strip()
     try:
         q = int(raw)
     except (TypeError, ValueError):
         return DEFAULT_REVIEW_QUORUM
-    return q if 2 <= q <= 9 else DEFAULT_REVIEW_QUORUM
+    return q if 1 <= q <= 9 else DEFAULT_REVIEW_QUORUM
 
 def _is_reviewer_candidate(s: Session, project_id: int, user_id: int,
                            exclude_user_id: int | None = None) -> bool:
@@ -1228,13 +1232,29 @@ def _reassign_story_reviewer(s: Session, story: Story,
 
 def _reassign_task_reviewer(s: Session, task: Task,
                             exclude_user_id: int | None = None) -> int | None:
-    """Task 超时重派：候选排除旧 reviewer 与 assignee（评审人/作者隔离），CAS。
+    """Task 超时重派（归属收敛版）：候选 = owner 名下在线 agent，
+    排除旧评审 agent（task.reviewer_agent_id）与实现方 agent
+    （current_assignment 的 agent_registry_id），CAS 写 reviewer_id +
+    reviewer_agent_id。无合格候选 → None（保持待处理，决策 b）。
 
+    旧的「排除 assignee user」跨用户隔离已退休（同 owner 评审）。
     成功返回新 reviewer 的 user_id；候选为空 / CAS 失败 → None。
     """
+    if task.created_by_user_id is None:
+        return None  # owner 为空 fail-closed，保持待处理
+    # 实现方 agent（同 task 不可自审）
+    implementer_agent_id: int | None = None
+    if task.current_assignment_id is not None:
+        from ...features.scheduling.models import TaskAssignment
+        _as = s.get(TaskAssignment, task.current_assignment_id)
+        implementer_agent_id = getattr(_as, "agent_registry_id", None)
     candidates = _online_reviewer_candidates(s, task.project_id)
-    candidates = [a for a in candidates
-                  if a.user_id not in (exclude_user_id, task.assignee_id)]
+    candidates = [
+        a for a in candidates
+        if a.user_id == task.created_by_user_id
+        and a.id != task.reviewer_agent_id      # 旧评审 agent 不复用（超时换人）
+        and a.id != implementer_agent_id        # 实现方 agent 不自审
+    ]
     if not candidates:
         return None
     reviewer = random.choice(candidates)
@@ -1243,7 +1263,7 @@ def _reassign_task_reviewer(s: Session, task: Task,
             Task.id == task.id,
             Task.reviewer_id.is_(None),
             Task.status == Status.IN_REVIEW,
-        ).values(reviewer_id=reviewer.user_id)
+        ).values(reviewer_id=reviewer.user_id, reviewer_agent_id=reviewer.id)
     )
     if r.rowcount != 1:
         s.rollback()

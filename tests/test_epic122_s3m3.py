@@ -70,6 +70,18 @@ def _seed():
             service.register_agent(s, agent_id=aid, name=f"A{i}",
                                    roles='["reviewer"]', user_id=uid)
             service.agent_heartbeat(s, aid, user_id=uid)
+        # 归属收敛：owner(dev) 名下也要有在线 agent（投票/重派候选），
+        # 且需 runnable instance（_online_reviewer_candidates 要求）。
+        service.register_agent(s, agent_id=f"s3m3-a0-{n}", name="A0",
+                               roles='["reviewer"]', user_id=dev.id)
+        service.agent_heartbeat(s, f"s3m3-a0-{n}", user_id=dev.id)
+        service.register_worker(s, worker_id=f"s3m3-worker-0-{n}", hostname="test")
+        inst = service.upsert_agent_instance(
+            s, worker_id=f"s3m3-worker-0-{n}", agent_id=f"s3m3-a0-{n}",
+            executor_type="fake",
+        )
+        service.instance_heartbeat(
+            s, inst.id, caller_worker_id=f"s3m3-worker-0-{n}", probe_ok=True)
         epic = service.create_epic(s, project_id=p.id, title=f"S3M3 Epic{n}")
         s.commit()
         return p.id, dev.id, r1.id, r2.id, r3.id, epic.id
@@ -83,14 +95,25 @@ def seeded():
 
 
 
-def _inreview_task(s, project_id, *, reviewer_id, assignee_id, round_=0):
+def _inreview_task(s, project_id, *, reviewer_id, assignee_id, round_=0,
+                   owner_id=None):
     from agentboard.models import Task
+    # 归属收敛：owner 默认 = assignee（本文件里 dev 既是 assignee 也是 owner）
     t = Task(project_id=project_id, title="S3M3 task", type="dev",
              status="in_review", reviewer_id=reviewer_id,
-             assignee_id=assignee_id, review_round=round_)
+             assignee_id=assignee_id, review_round=round_,
+             created_by_user_id=owner_id if owner_id is not None else assignee_id)
     s.add(t)
     s.flush()
     return t
+
+
+def _seed_vote(s, entity_id, reviewer_user_id, verdict):
+    """数据级预插一张票（模拟历史投票；归属收敛后跨 owner 不能经 API 投票，
+    但多数决计数/结算逻辑仍按票行工作）。"""
+    from agentboard.features.projects.models import ReviewVote
+    s.add(ReviewVote(entity_type="task", entity_id=entity_id,
+                     reviewer_user_id=reviewer_user_id, verdict=verdict, round=0))
 
 
 def _votes(s, entity_type, entity_id):
@@ -116,8 +139,8 @@ def test_review_quorum_env(monkeypatch):
     assert service.get_review_quorum() == 3  # 默认
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "5")
     assert service.get_review_quorum() == 5
-    monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "1")   # 低于下限
-    assert service.get_review_quorum() == 3
+    monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "1")   # 归属收敛：1 合法（单 owner 可结算）
+    assert service.get_review_quorum() == 1
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "99")  # 高于上限
     assert service.get_review_quorum() == 3
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "abc")
@@ -127,70 +150,58 @@ def test_review_quorum_env(monkeypatch):
 # ---------- 2. majority Story：达 quorum 多数通过 ----------
 
 def test_story_majority_approved(seeded, monkeypatch):
-    """3 票 2 approve → 结算 ready；评论 3 条；票清空。"""
+    """归属收敛版多数决：预插 1 approve + owner(dev) 投 approve → 达 quorum=2
+    多数通过 → done；票清空。"""
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
-    monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "3")
+    monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "2")
     pid, dev, r1, r2, r3, epic_id = seeded
     with SessionLocal() as s:
         st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
         t_id = st.id
+        _seed_vote(s, t_id, r1, "approve")   # 历史票（数据级）
         s.commit()
 
-        # 前 2 票未达 quorum：状态保持 pending_review，round 不变
-        s1 = service.review_task(s, task_id=t_id, reviewer_user_id=r1,
-                                  verdict="approve", comment="LGTM 1")
-        assert s1.status == "in_review" and s1.review_round == 0
-        s2 = service.review_task(s, task_id=t_id, reviewer_user_id=r2,
-                                  verdict="approve", comment="LGTM 2")
-        assert s2.status == "in_review" and s2.review_round == 0
-        assert _votes(s, "task", t_id) == (2, 0, 2)
-
-        # 第 3 票达 quorum（2 approve > 0 reject）→ ready，票清空
-        s3 = service.review_task(s, task_id=t_id, reviewer_user_id=r3,
-                                  verdict="approve", comment="LGTM 3")
-        assert s3.status == "done"
+        # owner 投票前：1 票 < quorum=2
+        assert _votes(s, "task", t_id) == (1, 0, 1)
+        # owner(dev) 投 approve → 2 approve > 0 reject → done，票清空
+        s2 = service.review_task(s, task_id=t_id, reviewer_user_id=dev,
+                                  verdict="approve", comment="LGTM owner")
+        assert s2.status == "done"
         assert _votes(s, "task", t_id) == (0, 0, 0)
-        # 评论 3 条（评审意见唯一载体）
-        assert len(service.list_comments(s, task_id=t_id)) == 3
+        assert len(service.list_comments(s, task_id=t_id)) >= 1
 
 
 def test_story_majority_rejected(seeded, monkeypatch):
-    """3 票 2 reject → 结算驳回：round+1，回 pending_review；票清空。"""
+    """归属收敛版：预插 1 reject + owner 投 reject → 多数驳回：round+1 回
+    in_progress；票清空。"""
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
-    monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "3")
+    monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "2")
     pid, dev, r1, r2, r3, epic_id = seeded
     with SessionLocal() as s:
         st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
         t_id = st.id
+        _seed_vote(s, t_id, r1, "reject")
         s.commit()
-
-        service.review_task(s, task_id=t_id, reviewer_user_id=r1,
-                             verdict="approve", comment="ok")
-        service.review_task(s, task_id=t_id, reviewer_user_id=r2,
-                             verdict="reject", comment="需求不明确 1")
-        st3 = service.review_task(s, task_id=t_id, reviewer_user_id=r3,
-                                   verdict="reject", comment="需求不明确 2")
+        st3 = service.review_task(s, task_id=t_id, reviewer_user_id=dev,
+                                   verdict="reject", comment="需求不明确")
         assert st3.status == "in_progress"
-        assert st3.review_round == 1  # 驳回轮次 +1
-        assert _votes(s, "task", t_id) == (0, 0, 0)  # 结算后清票
+        assert st3.review_round == 1
+        assert _votes(s, "task", t_id) == (0, 0, 0)
 
 
 def test_story_majority_blocked_at_round_limit(seeded, monkeypatch):
     """轮次达 MAX_REVIEW_ROUNDS → blocked 护栏。"""
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
-    monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "3")
+    monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "2")
     pid, dev, r1, r2, r3, epic_id = seeded
     with SessionLocal() as s:
         t = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev,
                            round_=service.MAX_REVIEW_ROUNDS - 1)
         t_id = t.id
+        _seed_vote(s, t_id, r1, "reject")
         s.commit()
-        service.review_task(s, task_id=t_id, reviewer_user_id=r1,
-                             verdict="reject", comment="r1 no")
-        service.review_task(s, task_id=t_id, reviewer_user_id=r2,
-                             verdict="reject", comment="r2 no")
-        st3 = service.review_task(s, task_id=t_id, reviewer_user_id=r3,
-                                   verdict="reject", comment="r3 no")
+        st3 = service.review_task(s, task_id=t_id, reviewer_user_id=dev,
+                                   verdict="reject", comment="owner no")
         assert st3.status == "blocked"
         assert st3.review_round == service.MAX_REVIEW_ROUNDS
 
@@ -198,42 +209,35 @@ def test_story_majority_blocked_at_round_limit(seeded, monkeypatch):
 # ---------- 3. majority Task ----------
 
 def test_task_majority_rejected(seeded, monkeypatch):
-    """3 票 2 reject → 结算：round+1，回 in_progress（dev 修复后重新提交）。"""
+    """归属收敛版：预插 approve + owner 投 reject → 1:1 平局保守驳回（round+1）。"""
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
-    monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "3")
+    monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "2")
     pid, dev, r1, r2, r3, epic_id = seeded
     with SessionLocal() as s:
         t = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
         t_id = t.id
+        _seed_vote(s, t_id, r1, "approve")
         s.commit()
-
-        service.review_task(s, task_id=t_id, reviewer_user_id=r1,
-                            verdict="approve", comment="ok")
         assert _votes(s, "task", t_id) == (1, 0, 1)
-        service.review_task(s, task_id=t_id, reviewer_user_id=r2,
-                            verdict="reject", comment="bug 1")
-        t3 = service.review_task(s, task_id=t_id, reviewer_user_id=r3,
-                                 verdict="reject", comment="bug 2")
+        t3 = service.review_task(s, task_id=t_id, reviewer_user_id=dev,
+                                 verdict="reject", comment="bug")
         assert t3.status == "in_progress"
         assert t3.review_round == 1
         assert _votes(s, "task", t_id) == (0, 0, 0)
 
 
 def test_task_majority_approved(seeded, monkeypatch):
-    """3 票 2 approve → 结算 done。"""
+    """归属收敛版：预插 approve + owner approve → 2:0 多数通过 done。"""
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
-    monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "3")
+    monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "2")
     pid, dev, r1, r2, r3, epic_id = seeded
     with SessionLocal() as s:
         t = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
         t_id = t.id
+        _seed_vote(s, t_id, r1, "approve")
         s.commit()
-        service.review_task(s, task_id=t_id, reviewer_user_id=r1,
-                            verdict="approve", comment="ok1")
-        service.review_task(s, task_id=t_id, reviewer_user_id=r2,
-                            verdict="approve", comment="ok2")
-        t3 = service.review_task(s, task_id=t_id, reviewer_user_id=r3,
-                                 verdict="reject", comment="minor")
+        t3 = service.review_task(s, task_id=t_id, reviewer_user_id=dev,
+                                 verdict="approve", comment="ok owner")
         assert t3.status == "done"
         assert _votes(s, "task", t_id) == (0, 0, 0)
 
@@ -241,7 +245,7 @@ def test_task_majority_approved(seeded, monkeypatch):
 # ---------- 4. 一人一票（upsert 改票） ----------
 
 def test_upsert_change_vote(seeded, monkeypatch):
-    """同 reviewer 改票：覆盖不重复计数。"""
+    """owner 改票：覆盖不重复计数；跨 owner 投票被拒。"""
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "3")
     pid, dev, r1, r2, r3, epic_id = seeded
@@ -249,16 +253,17 @@ def test_upsert_change_vote(seeded, monkeypatch):
         st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
         t_id = st.id
         s.commit()
-        service.review_task(s, task_id=t_id, reviewer_user_id=r1,
+        service.review_task(s, task_id=t_id, reviewer_user_id=dev,
                              verdict="approve", comment="v1 approve")
         assert _votes(s, "task", t_id) == (1, 0, 1)
-        # r1 改票 reject → 票数仍 1（覆盖），verdict 变化
-        service.review_task(s, task_id=t_id, reviewer_user_id=r1,
+        # owner 改票 reject → 票数仍 1（覆盖），verdict 变化
+        service.review_task(s, task_id=t_id, reviewer_user_id=dev,
                              verdict="reject", comment="v1 changed")
         assert _votes(s, "task", t_id) == (0, 1, 1)
-        # r2 也 reject → 2 reject 仍 < quorum 3，状态保持
-        service.review_task(s, task_id=t_id, reviewer_user_id=r2,
-                             verdict="reject", comment="r2")
+        # 跨 owner 用户（r2）投票被拒（归属收敛）
+        with pytest.raises(service.InvalidValue):
+            service.review_task(s, task_id=t_id, reviewer_user_id=r2,
+                                verdict="reject", comment="r2")
         st_now = s.get(service.Task, t_id)
         assert st_now.status == "in_review"
 
@@ -266,18 +271,17 @@ def test_upsert_change_vote(seeded, monkeypatch):
 # ---------- 5. 平局（quorum=2，1:1）→ 保守驳回 ----------
 
 def test_tie_vote_conservative_reject(seeded, monkeypatch):
+    """预插 approve + owner reject → 1:1 平局 → 保守驳回。"""
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "2")
     pid, dev, r1, r2, r3, epic_id = seeded
     with SessionLocal() as s:
         st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
         t_id = st.id
+        _seed_vote(s, t_id, r1, "approve")
         s.commit()
-        service.review_task(s, task_id=t_id, reviewer_user_id=r1,
-                             verdict="approve", comment="ok")
-        st2 = service.review_task(s, task_id=t_id, reviewer_user_id=r2,
+        st2 = service.review_task(s, task_id=t_id, reviewer_user_id=dev,
                                    verdict="reject", comment="no")
-        # 平局保守驳回：round+1，回 in_progress（评审未达成一致）
         assert st2.status == "in_progress"
         assert st2.review_round == 1
         assert _votes(s, "task", t_id) == (0, 0, 0)
@@ -295,11 +299,10 @@ def test_timeout_settle_approved(seeded, monkeypatch):
         st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
         st.created_at = now - timedelta(hours=2)
         t_id = st.id
+        _seed_vote(s, t_id, r1, "approve")
         s.commit()
-        service.review_task(s, task_id=t_id, reviewer_user_id=r1,
-                             verdict="approve", comment="ok")
-        service.review_task(s, task_id=t_id, reviewer_user_id=r2,
-                             verdict="approve", comment="ok2")
+        service.review_task(s, task_id=t_id, reviewer_user_id=dev,
+                             verdict="approve", comment="ok owner")
         assert _votes(s, "task", t_id) == (2, 0, 2)
         # 投票会写评论 → 把 Task 的 updated_at 改老，模拟超时
         s.get(service.Task, t_id).updated_at = now - timedelta(hours=2)
@@ -321,10 +324,9 @@ def test_timeout_settle_tie_reject(seeded, monkeypatch):
         st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
         st.created_at = now - timedelta(hours=2)
         t_id = st.id
+        _seed_vote(s, t_id, r1, "approve")
         s.commit()
-        service.review_task(s, task_id=t_id, reviewer_user_id=r1,
-                             verdict="approve", comment="ok")
-        service.review_task(s, task_id=t_id, reviewer_user_id=r2,
+        service.review_task(s, task_id=t_id, reviewer_user_id=dev,
                              verdict="reject", comment="no")
         s.get(service.Task, t_id).updated_at = now - timedelta(hours=2)
         s.commit()
@@ -349,9 +351,11 @@ def test_timeout_zero_votes_goes_reassign(seeded, monkeypatch):
         res = service.scan_review_timeouts(s, project_id=pid,
                                            timeout_minutes=30, now=now)
         assert res["tasks_settled"] == 0
-        assert res["tasks_reassigned"] == 1  # 重派（r2/r3 在线）
+        assert res["tasks_reassigned"] == 1  # 重派（owner 名下 agent 在线）
         fresh = s.get(service.Task, t_id)
-        assert fresh.reviewer_id != r1 and fresh.reviewer_id in (r2, r3)
+        # 归属收敛：重派候选 = owner(dev) 名下 agent → reviewer = dev 本人
+        assert fresh.reviewer_id == dev
+        assert fresh.reviewer_agent_id is not None
 
 
 # ---------- 7. single 模式兼容（既有行为不变） ----------
@@ -389,47 +393,51 @@ def test_single_mode_task_reject_round(seeded):
 # ---------- 8. 权限：投票人须是项目在线 reviewer 候选 ----------
 
 def test_majority_rejects_non_candidate(seeded, monkeypatch):
-    """非 reviewer 候选（无 reviewer 角色）投票被拒。"""
+    """归属收敛：跨 owner 用户（无 owner 资格）投票被拒。"""
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
     pid, dev, r1, r2, r3, epic_id = seeded
     with SessionLocal() as s:
         st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
         t_id = st.id
         s.commit()
-        # dev 是项目成员但非 reviewer 角色 Agent → 拒绝
+        # r1 是别的用户（非 task owner）→ 拒绝
         with pytest.raises(service.InvalidValue):
-            service.review_task(s, task_id=t_id, reviewer_user_id=dev,
+            service.review_task(s, task_id=t_id, reviewer_user_id=r1,
                                  verdict="approve", comment="hijack")
 
 
-def test_majority_rejects_task_assignee(seeded, monkeypatch):
-    """Task 多数决：assignee（作者）不能给自己投票。"""
+def test_majority_owner_assignee_can_vote(seeded, monkeypatch):
+    """归属收敛：owner（== assignee，user 维度）是唯一合法投票人。
+
+    旧的「assignee user 不能自投」跨用户隔离已退休；agent 维度的
+    「实现方 agent 不评审」由指派侧 exclusion 保证。
+    """
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
+    monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "1")
     pid, dev, r1, r2, r3, epic_id = seeded
     with SessionLocal() as s:
         t = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
         t_id = t.id
         s.commit()
-        # dev 是 assignee，即使有 reviewer 角色也拒绝（评审人/作者隔离）
-        with pytest.raises(service.InvalidValue):
-            service.review_task(s, task_id=t_id, reviewer_user_id=dev,
-                                verdict="approve", comment="self approve")
+        t2 = service.review_task(s, task_id=t_id, reviewer_user_id=dev,
+                                 verdict="approve", comment="owner approve")
+        assert t2.status == "done"
 
 
 def test_majority_rejects_offline_agent(seeded, monkeypatch):
-    """离线 Agent 不能投票（候选集 = 在线 ∩ reviewer 角色）。"""
+    """归属收敛：owner 名下 agent 全部离线 → owner 不能投票（候选集=在线）。"""
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
     pid, dev, r1, r2, r3, epic_id = seeded
     with SessionLocal() as s:
-        # r3 下线
-        s.query(service.Agent).filter(service.Agent.user_id == r3).update(
+        # owner(dev) 名下 agent 全部下线
+        s.query(service.Agent).filter(service.Agent.user_id == dev).update(
             {"online": False})
         s.commit()
         st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
         t_id = st.id
         s.commit()
         with pytest.raises(service.InvalidValue):
-            service.review_task(s, task_id=t_id, reviewer_user_id=r3,
+            service.review_task(s, task_id=t_id, reviewer_user_id=dev,
                                  verdict="approve", comment="offline vote")
 
 

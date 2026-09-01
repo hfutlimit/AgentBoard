@@ -65,7 +65,10 @@ _S2M2_TOOLS = {
 
 
 def _seed():
-    """1 项目 + dev(作者) + rev1/rev2(在线 reviewer Agent) + outsider。
+    """1 项目 + dev(owner：作者 + 名下两个在线评审 Agent r1/r2) + rev1/rev2/outsider。
+
+    归属收敛（2026-09-01）：评审 agent 必须与 task 同 owner（dev），
+    rev1/rev2 保留为「其他用户」做跨 owner 反向鉴权用例。
 
     function-scope：每次重建独立实体 + 重新心跳置在线（避免测试间 agent
     online 状态相互污染，如「全部下线」用例）。
@@ -81,14 +84,15 @@ def _seed():
             service.add_project_member(s, project_id=p.id, user_id=uid, role="member")
         # Runnable capacity comes from online AgentInstances. roles=[] proves
         # business roles do not authorize or restrict review workloads.
-        for suffix, user in (("r1", rev1), ("r2", rev2)):
+        # 两个评审 Agent 都挂在 owner(dev) 名下（同 owner 评审）。
+        for suffix in ("r1", "r2"):
             agent_id = f"s2m2-{suffix}-{n}"
             worker_id = f"s2m2-worker-{suffix}-{n}"
             service.register_agent(
                 s, agent_id=agent_id, name=suffix.upper(), roles="[]",
-                user_id=user.id,
+                user_id=dev.id,
             )
-            service.agent_heartbeat(s, agent_id, user_id=user.id)
+            service.agent_heartbeat(s, agent_id, user_id=dev.id)
             service.register_worker(s, worker_id=worker_id, hostname="test")
             instance = service.upsert_agent_instance(
                 s, worker_id=worker_id, agent_id=agent_id,
@@ -109,17 +113,24 @@ def seeded():
 
 
 def _make_task(s, story_id, project_id, title="T", status="todo",
-               assignee_id=None, reviewer_id=None, review_round=0, type="dev"):
+               assignee_id=None, reviewer_id=None, review_round=0, type="dev",
+               created_by=None):
     t = Task(project_id=project_id, story_id=story_id, title=title,
              status=status, assignee_id=assignee_id,
-             reviewer_id=reviewer_id, review_round=review_round, type=type)
+             reviewer_id=reviewer_id, review_round=review_round, type=type,
+             created_by_user_id=created_by)
     s.add(t)
     s.flush()
     return t
 
 
 def _claim_and_submit(s, t, dev):
-    """走真实链路：backlog → claim(dev) → submit-review → in_review。"""
+    """走真实链路：backlog → claim(dev) → submit-review → in_review。
+
+    归属收敛：dev 是 task owner（其 agent 创建），claim 门槛要求
+    claiming user == created_by_user_id。
+    """
+    t.created_by_user_id = dev
     service.claim_development_task(s, t.id, user_id=dev)
     service.submit_task_for_review(s, t.id, user_id=dev)
 
@@ -132,8 +143,9 @@ def test_assign_reviewer_in_review_task(seeded):
         t = _make_task(s, sid, pid, title="T-assign")
         _claim_and_submit(s, t, dev)
         t2 = service.assign_task_reviewer(s, t.id)
-        assert t2.reviewer_id in (rev1, rev2)
-        assert t2.reviewer_id != dev  # 排除作者
+        # 归属收敛：评审人与作者同 owner（dev），具体 agent 落 reviewer_agent_id
+        assert t2.reviewer_id == dev
+        assert t2.reviewer_agent_id is not None
         assert t2.status == "in_review"
         s.rollback()
 
@@ -143,14 +155,18 @@ def test_reviewer_assignment_uses_matching_not_random_choice(seeded):
     with SessionLocal() as s:
         t = _make_task(s, sid, pid, title="T-ranked")
         _claim_and_submit(s, t, dev)
-        worse = s.query(service.Agent).filter(service.Agent.user_id == rev2).one()
+        # 候选 = owner(dev) 名下的两个 agent（r1/r2）
+        worse = s.query(service.Agent).filter(
+            service.Agent.user_id == dev).order_by(
+            service.Agent.id.desc()).first()
         with mock.patch(
             "agentboard.features.scheduling.service.random", create=True,
         ) as random_module:
             random_module.choice.return_value = worse
             assigned = service.assign_task_reviewer(s, t.id)
             random_module.choice.assert_not_called()
-        assert assigned.reviewer_id == rev1
+        assert assigned.reviewer_id == dev  # 同 owner
+        assert assigned.reviewer_agent_id is not None
         s.rollback()
 
 
@@ -175,10 +191,10 @@ def test_assign_reviewer_idempotent(seeded):
         t = _make_task(s, sid, pid, title="T-idem")
         _claim_and_submit(s, t, dev)
         service.assign_task_reviewer(s, t.id)
-        t.reviewer_id = rev1
+        t.reviewer_id = dev  # 同 owner：已指派即 owner 本人
         s.flush()
         t2 = service.assign_task_reviewer(s, t.id)
-        assert t2.reviewer_id == rev1  # 已指派不换人
+        assert t2.reviewer_id == dev  # 已指派不换人
         s.rollback()
 
 
@@ -192,19 +208,21 @@ def test_assign_reviewer_not_in_review_rejected(seeded):
         s.rollback()
 
 
-def test_assign_reviewer_no_online_reviewer_rejected(seeded):
-    """无在线 reviewer Agent（或在线但非项目成员）→ 明确错误。"""
+def test_assign_reviewer_no_online_reviewer_keeps_pending(seeded):
+    """归属收敛（决策 b）：无在线同 owner reviewer Agent → 不报错，
+    task 保持 in_review + reviewer 未指派（待处理）。"""
     pid, dev, _, _, _, sid = seeded
     with SessionLocal() as s:
         t = _make_task(s, sid, pid, title="T-noonline")
         _claim_and_submit(s, t, dev)
-        # 两个 reviewer 全部下线
+        # owner 名下的两个评审 agent 全部下线
         for a in service.list_agents(s, online=True):
-            service.agent_deregister(s, a.agent_id)
+            if a.user_id == dev:
+                service.agent_deregister(s, a.agent_id)
         s.commit()
-        with pytest.raises(service.InvalidValue) as ei:
-            service.assign_task_reviewer(s, t.id)
-        assert "no online reviewer" in str(ei.value)
+        t2 = service.assign_task_reviewer(s, t.id)
+        assert t2.reviewer_id is None      # 保持待处理
+        assert t2.status == "in_review"
         s.rollback()
 
 
@@ -220,7 +238,7 @@ def test_assign_reviewer_cas_single_winner(seeded):
         t_a = service.assign_task_reviewer(s1, tid)
         s1.commit()
         winner = t_a.reviewer_id
-        assert winner in (rev1, rev2)
+        assert winner == dev  # 归属收敛：评审人 = owner 本人
         # 写者 B（另一 session）并发后到 → 幂等回查，winner 不变
         with SessionLocal() as s2:
             t_b = service.assign_task_reviewer(s2, tid)
@@ -237,10 +255,8 @@ def test_review_approve_sets_done_and_comment(seeded):
     with SessionLocal() as s:
         t = _make_task(s, sid, pid, title="T-ok")
         _claim_and_submit(s, t, dev)
-        service.assign_task_reviewer(s, t.id)
-        t.reviewer_id = rev1
-        s.flush()
-        t2 = service.review_task(s, task_id=t.id, reviewer_user_id=rev1,
+        service.assign_task_reviewer(s, t.id)  # 同 owner：reviewer 自动 = dev
+        t2 = service.review_task(s, task_id=t.id, reviewer_user_id=dev,
                                  verdict="approve", comment="LGTM")
         assert t2.status == "done"
         assert t2.status_reason == "completed"
@@ -248,7 +264,7 @@ def test_review_approve_sets_done_and_comment(seeded):
         # 评审意见落评论（唯一载体）
         comments = service.list_comments(s, task_id=t.id)
         assert any("LGTM" in c.content for c in comments)
-        assert next(c for c in comments if c.content == "LGTM").author == "R1"
+        assert next(c for c in comments if c.content == "LGTM").author in ("R1", "R2")
         s.rollback()
 
 
@@ -257,14 +273,12 @@ def test_review_reject_returns_in_progress_and_increments_round(seeded):
     with SessionLocal() as s:
         t = _make_task(s, sid, pid, title="T-rej")
         _claim_and_submit(s, t, dev)
-        service.assign_task_reviewer(s, t.id)
-        t.reviewer_id = rev1
-        s.flush()
-        t2 = service.review_task(s, task_id=t.id, reviewer_user_id=rev1,
+        service.assign_task_reviewer(s, t.id)  # 同 owner：reviewer 自动 = dev
+        t2 = service.review_task(s, task_id=t.id, reviewer_user_id=dev,
                                  verdict="reject", comment="需要修复")
         assert t2.status == "in_progress"  # 退回开发
         assert t2.review_round == 1
-        assert t2.reviewer_id == rev1  # 评审人保留
+        assert t2.reviewer_id == dev  # 评审人保留（同 owner）
         comments = service.list_comments(s, task_id=t.id)
         assert any("需要修复" in c.content for c in comments)
         s.rollback()
@@ -276,10 +290,8 @@ def test_review_reject_round_limit_blocks(seeded):
         t = _make_task(s, sid, pid, title="T-block",
                        review_round=service.MAX_REVIEW_ROUNDS - 1)
         _claim_and_submit(s, t, dev)
-        service.assign_task_reviewer(s, t.id)
-        t.reviewer_id = rev1
-        s.flush()
-        t2 = service.review_task(s, task_id=t.id, reviewer_user_id=rev1,
+        service.assign_task_reviewer(s, t.id)  # 同 owner：reviewer 自动 = dev
+        t2 = service.review_task(s, task_id=t.id, reviewer_user_id=dev,
                                  verdict="reject", comment="第5轮仍未收敛")
         assert t2.status == "blocked"  # 护栏
         assert t2.review_round == service.MAX_REVIEW_ROUNDS
@@ -293,9 +305,8 @@ def test_review_only_assigned_reviewer(seeded):
     with SessionLocal() as s:
         t = _make_task(s, sid, pid, title="T-wrongrev")
         _claim_and_submit(s, t, dev)
-        service.assign_task_reviewer(s, t.id)
-        t.reviewer_id = rev1
-        s.flush()
+        service.assign_task_reviewer(s, t.id)  # 同 owner：reviewer = dev
+        # 跨 owner 用户（rev2）不能评审
         with pytest.raises(service.InvalidValue) as ei:
             service.review_task(s, task_id=t.id, reviewer_user_id=rev2,
                                 verdict="approve", comment="x")
@@ -307,10 +318,10 @@ def test_review_not_in_review_rejected(seeded):
     pid, dev, rev1, _, _, sid = seeded
     with SessionLocal() as s:
         t = _make_task(s, sid, pid, title="T-wrongstate",
-                       status="done", reviewer_id=rev1)
+                       status="done", reviewer_id=dev)
         s.flush()
         with pytest.raises(service.InvalidValue) as ei:
-            service.review_task(s, task_id=t.id, reviewer_user_id=rev1,
+            service.review_task(s, task_id=t.id, reviewer_user_id=dev,
                                 verdict="approve", comment="x")
         assert "not in_review" in str(ei.value)
         s.rollback()
@@ -321,11 +332,9 @@ def test_review_comment_required(seeded):
     with SessionLocal() as s:
         t = _make_task(s, sid, pid, title="T-nocomment")
         _claim_and_submit(s, t, dev)
-        service.assign_task_reviewer(s, t.id)
-        t.reviewer_id = rev1
-        s.flush()
+        service.assign_task_reviewer(s, t.id)  # 同 owner：reviewer 自动 = dev
         with pytest.raises(service.InvalidValue) as ei:
-            service.review_task(s, task_id=t.id, reviewer_user_id=rev1,
+            service.review_task(s, task_id=t.id, reviewer_user_id=dev,
                                 verdict="approve", comment="  ")
         assert "comment is required" in str(ei.value)
         s.rollback()
@@ -336,11 +345,9 @@ def test_review_invalid_verdict_rejected(seeded):
     with SessionLocal() as s:
         t = _make_task(s, sid, pid, title="T-badverdict")
         _claim_and_submit(s, t, dev)
-        service.assign_task_reviewer(s, t.id)
-        t.reviewer_id = rev1
-        s.flush()
+        service.assign_task_reviewer(s, t.id)  # 同 owner：reviewer 自动 = dev
         with pytest.raises(service.InvalidValue):
-            service.review_task(s, task_id=t.id, reviewer_user_id=rev1,
+            service.review_task(s, task_id=t.id, reviewer_user_id=dev,
                                 verdict="maybe", comment="x")
         s.rollback()
 
@@ -352,15 +359,12 @@ def test_list_task_review_tasks_filters_by_reviewer(seeded):
     with SessionLocal() as s:
         t1 = _make_task(s, sid, pid, title="T-mine")
         _claim_and_submit(s, t1, dev)
-        service.assign_task_reviewer(s, t1.id)
-        t1.reviewer_id = rev1
-        s.flush()
+        service.assign_task_reviewer(s, t1.id)  # reviewer = dev
         t2 = _make_task(s, sid, pid, title="T-notmine")
         _claim_and_submit(s, t2, dev)
-        service.assign_task_reviewer(s, t2.id)
-        t2.reviewer_id = rev2
+        t2.reviewer_id = rev2  # 数据级人工指定（列表纯查询，验证过滤）
         s.flush()
-        mine = service.list_task_review_tasks(s, rev1)
+        mine = service.list_task_review_tasks(s, dev)
         assert [t.id for t in mine] == [t1.id]
         # status 过滤
         t3 = _make_task(s, sid, pid, title="T-done", status="done", reviewer_id=rev1)
@@ -385,13 +389,11 @@ def test_api_assign_and_review_full_flow(seeded):
         _claim_and_submit(s, t, dev)
         tid = t.id
         s.commit()
-        # 固定 reviewer 为 rev1（避免随机）
+        # 同 owner：assign 自动指派 dev 为 reviewer
         service.assign_task_reviewer(s, tid)
-        t2 = service.get_task(s, tid)
-        t2.reviewer_id = rev1  # 覆盖随机指派（seed 有两个在线 reviewer）
         s.commit()
     dev_h = {"Authorization": f"Bearer {auth.make_token(dev)}"}
-    rev_h = {"Authorization": f"Bearer {auth.make_token(rev1)}"}
+    rev_h = {"Authorization": f"Bearer {auth.make_token(dev)}"}
     c = _client()
     with (
         mock.patch.object(wi_router, "publish_workflow_event") as pub,
@@ -413,7 +415,7 @@ def test_api_assign_and_review_full_flow(seeded):
                     json={"verdict": "approve", "comment": "API ok"})
         assert r2.status_code == 200, r2.text
         assert r2.json()["status"] == "done"
-        pub.assert_called_once_with(EVENT_TASK_REVIEWED, "task", tid, ref_id=rev1)
+        pub.assert_called_once_with(EVENT_TASK_REVIEWED, "task", tid, ref_id=dev)
 
 
 def test_api_review_targets_the_exact_owner_agent(seeded):
@@ -426,27 +428,27 @@ def test_api_review_targets_the_exact_owner_agent(seeded):
         owner_agent_id = owner.agent_id
         service.agent_heartbeat(s, owner.agent_id, user_id=dev)
         t = _make_task(s, sid, pid, title="T-owner-route")
+        t.created_by_user_id = dev  # 归属收敛：owner 门槛
         service.claim_development_task(
             s, t.id, user_id=dev, agent_registry_id=owner.id,
         )
         service.submit_task_for_review(s, t.id, user_id=dev)
         service.assign_task_reviewer(s, t.id)
         t = service.get_task(s, t.id)
-        t.reviewer_id = rev1
         tid = t.id
         s.commit()
 
     c = _client()
     context = c.get(
         f"/api/tasks/{tid}/review-context",
-        headers={"Authorization": f"Bearer {auth.make_token(rev1)}"},
+        headers={"Authorization": f"Bearer {auth.make_token(dev)}"},
     )
     assert context.status_code == 200, context.text
     assert context.json()["owner_agent_id"] == owner_agent_id
     with mock.patch.object(wi_router, "publish_workflow_event") as pub:
         r = c.post(
             f"/api/tasks/{tid}/review",
-            headers={"Authorization": f"Bearer {auth.make_token(rev1)}"},
+            headers={"Authorization": f"Bearer {auth.make_token(dev)}"},
             json={"verdict": "approve", "comment": "owner route"},
         )
         assert r.status_code == 200, r.text
@@ -458,15 +460,13 @@ def test_api_review_reject_broadcasts_task_rejected(seeded):
     with SessionLocal() as s:
         t = _make_task(s, sid, pid, title="T-api-rej")
         _claim_and_submit(s, t, dev)
-        service.assign_task_reviewer(s, t.id)
-        t.reviewer_id = rev1  # 固定评审人（assign 为随机，断言依赖 rev1）
-        s.flush()
+        service.assign_task_reviewer(s, t.id)  # 同 owner：reviewer 自动 = dev
         tid = t.id
         s.commit()
     c = _client()
     with mock.patch.object(wi_router, "publish_workflow_event") as pub:
         r = c.post(f"/api/tasks/{tid}/review",
-                   headers={"Authorization": f"Bearer {auth.make_token(rev1)}"},
+                   headers={"Authorization": f"Bearer {auth.make_token(dev)}"},
                    json={"verdict": "reject", "comment": "退回"})
         assert r.status_code == 200, r.text
         assert r.json()["status"] == "in_progress"
@@ -481,8 +481,7 @@ def test_api_review_non_reviewer_422(seeded):
     with SessionLocal() as s:
         t = _make_task(s, sid, pid, title="T-api-nonrev")
         _claim_and_submit(s, t, dev)
-        service.assign_task_reviewer(s, t.id)
-        t.reviewer_id = rev1  # 固定为 rev1，rev2 非指派 → 422
+        service.assign_task_reviewer(s, t.id)  # reviewer = dev
         s.flush()
         tid = t.id
         s.commit()
@@ -498,20 +497,18 @@ def test_api_list_task_review_tasks_me(seeded):
     with SessionLocal() as s:
         t = _make_task(s, sid, pid, title="T-api-me")
         _claim_and_submit(s, t, dev)
-        service.assign_task_reviewer(s, t.id)
-        t.reviewer_id = rev1
-        s.flush()
+        service.assign_task_reviewer(s, t.id)  # 同 owner：reviewer 自动 = dev
         tid = t.id
         s.commit()
     c = _client()
     r = c.get("/api/tasks", params={"reviewer_id": "me"},
-              headers={"Authorization": f"Bearer {auth.make_token(rev1)}"})
+              headers={"Authorization": f"Bearer {auth.make_token(dev)}"})
     assert r.status_code == 200, r.text
     ids = [x["id"] for x in r.json()]
     assert tid in ids
     # status 过滤
     r2 = c.get("/api/tasks", params={"reviewer_id": "me", "status": "in_review"},
-               headers={"Authorization": f"Bearer {auth.make_token(rev1)}"})
+               headers={"Authorization": f"Bearer {auth.make_token(dev)}"})
     assert r2.status_code == 200, r2.text
     assert all(x["status"] == "in_review" for x in r2.json())
 
@@ -715,10 +712,13 @@ def test_proposal_convert_creates_structured_dag_task_graph(seeded):
 
 
 def test_review_approval_automatically_unlocks_and_dispatches_successor_tasks(seeded):
-    pid, _dev, rev1, rev2, _outsider, sid = seeded
+    pid, dev, rev1, rev2, _outsider, sid = seeded
     with SessionLocal() as s:
-        t_design = _make_task(s, sid, pid, title="T-Design", type="design")
-        t_impl = _make_task(s, sid, pid, title="T-Impl", type="dev")
+        # 归属收敛：两个 task 都属于 owner(dev)，后续派发只在 dev 名下 agent 里选
+        t_design = _make_task(s, sid, pid, title="T-Design", type="design",
+                              created_by=dev)
+        t_impl = _make_task(s, sid, pid, title="T-Impl", type="dev",
+                            created_by=dev)
         s.add(TaskDependency(task_id=t_impl.id, depends_on_id=t_design.id,
                              dependency_type="blocks"))
         s.commit()
@@ -726,9 +726,9 @@ def test_review_approval_automatically_unlocks_and_dispatches_successor_tasks(se
         # 初始状态：t_impl 因依赖未完成不可 claim
         assert service.get_task_readiness(s, t_impl)["ready"] is False
 
-        # 将 t_design 推进到 in_review
+        # 将 t_design 推进到 in_review（reviewer = owner dev）
         t_design.status = "in_review"
-        t_design.reviewer_id = rev1
+        t_design.reviewer_id = dev
         s.commit()
         design_tid = t_design.id
         impl_tid = t_impl.id
@@ -736,16 +736,17 @@ def test_review_approval_automatically_unlocks_and_dispatches_successor_tasks(se
     c = _client()
     r = c.post(
         f"/api/tasks/{design_tid}/review",
-        headers={"Authorization": f"Bearer {auth.make_token(rev1)}"},
+        headers={"Authorization": f"Bearer {auth.make_token(dev)}"},
         json={"verdict": "approve", "comment": "Design approved"},
     )
     assert r.status_code == 200, r.text
 
     # Server-owned dispatch claims the newly-ready successor and targets a
     # runnable instance; the old task.available broadcast is no longer used.
+    # 归属收敛：successor 只派给 owner(dev) 名下 agent → assignee = dev
     with SessionLocal() as s:
         assert service.get_task_readiness(s, impl_tid)["ready"] is True
         t_assigned = s.get(Task, impl_tid)
         assert t_assigned.status == "in_progress"
-        assert t_assigned.assignee_id in (rev1, rev2)
+        assert t_assigned.assignee_id == dev
         s.rollback()

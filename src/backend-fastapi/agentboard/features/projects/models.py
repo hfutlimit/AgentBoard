@@ -144,6 +144,12 @@ class ReviewVote(Base):
     reviewer_user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"), nullable=False
     )
+    # 归属收敛（2026-09-01）：投票的具体评审 Agent（owner 名下、非实现方）。
+    # 一人一票约束仍按 reviewer_user_id（同一 owner 多 agent 只有一票）；
+    # agent 列用于路由 review 工作到正确 worker 与审计。
+    reviewer_agent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
+    )
     verdict: Mapped[str | None] = mapped_column(String(10), nullable=True)  # approve | reject | NULL=pending
     comment_id: Mapped[int | None] = mapped_column(
         ForeignKey("comments.id"), nullable=True

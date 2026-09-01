@@ -77,13 +77,21 @@ def seeded():
     return _seed()
 
 
-def _make_task(s, story_id, project_id, title="T", status="todo", assignee_id=None):
+def _make_task(s, story_id, project_id, title="T", status="todo", assignee_id=None,
+               created_by=None):
     # 直接构造 Task 对象以覆盖任意初始状态（create_task 不暴露 status）
+    # 归属收敛：claim 门槛要求 owner；默认由调用处显式传 created_by。
     t = Task(project_id=project_id, story_id=story_id, title=title,
-             status=status, assignee_id=assignee_id)
+             status=status, assignee_id=assignee_id,
+             created_by_user_id=created_by)
     s.add(t)
     s.flush()
     return t
+
+
+def _owned_task(s, story_id, project_id, dev, **kw):
+    """归属收敛便捷构造：owner=dev 的 task（claim 门槛要求同 owner）。"""
+    return _make_task(s, story_id, project_id, created_by=dev, **kw)
 
 
 # ---------- 1. service.claim_development_task ----------
@@ -91,7 +99,7 @@ def _make_task(s, story_id, project_id, title="T", status="todo", assignee_id=No
 def test_claim_backlog_task(seeded):
     _, dev, _, _, sid = seeded
     with SessionLocal() as s:
-        t = _make_task(s, sid, seeded[0])
+        t = _owned_task(s, sid, seeded[0], dev)
         t2 = service.claim_development_task(s, t.id, user_id=dev)
         assert t2.status == "in_progress"
         assert t2.assignee_id == dev
@@ -101,7 +109,7 @@ def test_claim_backlog_task(seeded):
 def test_claim_todo_task(seeded):
     _, dev, _, _, sid = seeded
     with SessionLocal() as s:
-        t = _make_task(s, sid, seeded[0], title="T-todo", status="todo")
+        t = _owned_task(s, sid, seeded[0], dev, title="T-todo", status="todo")
         t2 = service.claim_development_task(s, t.id, user_id=dev)
         assert t2.status == "in_progress"
         assert t2.assignee_id == dev
@@ -113,7 +121,7 @@ def test_claim_todo_task(seeded):
 def test_claim_not_claimable_rejected(seeded, status):
     _, dev, _, _, sid = seeded
     with SessionLocal() as s:
-        t = _make_task(s, sid, seeded[0], title=f"T-{status}", status=status)
+        t = _owned_task(s, sid, seeded[0], dev, title=f"T-{status}", status=status)
         with pytest.raises(service.InvalidValue) as ei:
             service.claim_development_task(s, t.id, user_id=dev)
         assert "already claimed or not claimable" in str(ei.value)
@@ -130,7 +138,7 @@ def test_claim_cas_single_winner(seeded):
     """CAS 并发：先手成功，后手明确错误（恰一赢家）。"""
     _, dev, _, _, sid = seeded
     with SessionLocal() as s1:
-        t = _make_task(s1, sid, seeded[0], title="T-cas")
+        t = _owned_task(s1, sid, seeded[0], dev, title="T-cas")
         tid = t.id
         s1.commit()
         # 写者 A 认领成功
@@ -143,7 +151,8 @@ def test_claim_cas_single_winner(seeded):
                 service.claim_development_task(s2, tid, user_id=seeded[2])
             msg = str(ei.value)
             assert ("claim conflict" in msg
-                    or "already claimed or not claimable" in msg), msg
+                    or "already claimed or not claimable" in msg
+                    or "only the task owner" in msg), msg  # 归属收敛：跨 owner 也被拒
             # 回查状态未被破坏
             cur = service.get_task(s2, tid)
             assert cur.status == "in_progress"
@@ -156,7 +165,7 @@ def test_claim_cas_single_winner(seeded):
 def test_submit_review_by_assignee(seeded):
     _, dev, _, _, sid = seeded
     with SessionLocal() as s:
-        t = _make_task(s, sid, seeded[0], title="T-submit")
+        t = _owned_task(s, sid, seeded[0], dev, title="T-submit")
         service.claim_development_task(s, t.id, user_id=dev)
         t2 = service.submit_task_for_review(s, t.id, user_id=dev)
         assert t2.status == "in_review"
@@ -167,7 +176,7 @@ def test_submit_review_by_assignee(seeded):
 def test_submit_review_non_assignee_rejected(seeded):
     _, dev, other, _, sid = seeded
     with SessionLocal() as s:
-        t = _make_task(s, sid, seeded[0], title="T-submit-other")
+        t = _owned_task(s, sid, seeded[0], dev, title="T-submit-other")
         service.claim_development_task(s, t.id, user_id=dev)
         with pytest.raises(service.InvalidValue) as ei:
             service.submit_task_for_review(s, t.id, user_id=other)
@@ -178,7 +187,7 @@ def test_submit_review_non_assignee_rejected(seeded):
 def test_submit_review_admin_bypass(seeded):
     _, dev, _, _, sid = seeded
     with SessionLocal() as s:
-        t = _make_task(s, sid, seeded[0], title="T-submit-admin")
+        t = _owned_task(s, sid, seeded[0], dev, title="T-submit-admin")
         service.claim_development_task(s, t.id, user_id=dev)
         # admin 即使非 assignee 也允许提交
         t2 = service.submit_task_for_review(s, t.id, user_id=seeded[3], is_admin=True)
@@ -189,7 +198,7 @@ def test_submit_review_admin_bypass(seeded):
 def test_submit_review_wrong_state_rejected(seeded):
     _, dev, _, _, sid = seeded
     with SessionLocal() as s:
-        t = _make_task(s, sid, seeded[0], title="T-submit-backlog", status="todo")
+        t = _owned_task(s, sid, seeded[0], dev, title="T-submit-backlog", status="todo")
         with pytest.raises(service.InvalidValue) as ei:
             service.submit_task_for_review(s, t.id, user_id=dev)
         assert "not in_progress" in str(ei.value)
@@ -207,7 +216,7 @@ def test_api_claim_and_submit_review_full_flow(seeded):
     """claim → submit-review 全链路 + 事件广播断言。"""
     pid, dev, _, _, sid = seeded
     with SessionLocal() as s:
-        t = _make_task(s, sid, pid, title="T-api-flow")
+        t = _owned_task(s, sid, pid, dev, title="T-api-flow")
         tid = t.id
         s.commit()
     headers = {"Authorization": f"Bearer {auth.make_token(dev)}"}
@@ -234,7 +243,7 @@ def test_api_claim_and_submit_review_full_flow(seeded):
 def test_api_submit_review_non_assignee_422(seeded):
     pid, dev, other, _, sid = seeded
     with SessionLocal() as s:
-        t = _make_task(s, sid, pid, title="T-api-nonassign")
+        t = _owned_task(s, sid, pid, dev, title="T-api-nonassign")
         service.claim_development_task(s, t.id, user_id=dev)
         s.commit()
         tid = t.id
@@ -247,7 +256,7 @@ def test_api_submit_review_non_assignee_422(seeded):
 def test_api_claim_requires_login(seeded):
     pid, _, _, _, sid = seeded
     with SessionLocal() as s:
-        t = _make_task(s, sid, pid, title="T-api-nologin")
+        t = _make_task(s, sid, pid, title="T-api-nologin")  # 无登录先被拒，无需 owner
         tid = t.id
         s.commit()
     c = _client()

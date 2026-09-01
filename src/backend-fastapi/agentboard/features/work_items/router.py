@@ -552,17 +552,32 @@ def assign_task_reviewer(tid: int, count: int = 1,
     # agent_id=其绑定 Agent 队列，无绑定退广播。这样多数决模式下 N 个
     # reviewer 都能从自己的 agent inbox 拿到消息（也兼容 .NET Workflow
     # Consumer 的 broadcast 订阅）。
+    # 归属收敛（2026-09-01）：优先用 ReviewVote.reviewer_agent_id 精确定位
+    # 被指派的评审 Agent（同 owner 多 agent 时按 user 反查首个会路由错人，
+    # 可能路由给实现方自己）；旧数据无 agent 列时回退按 user 反查。
     from ...features.scheduling.service import (
         _assigned_task_reviewer_ids,
         publish_workflow_event_for_agent,  # PR-5：resolve worker_id from agent_id
     )
+    from ...features.projects.models import ReviewVote
+    vote_rows = s.query(ReviewVote).filter(
+        ReviewVote.entity_type == "task",
+        ReviewVote.entity_id == tid,
+    ).all()
+    agent_by_user: dict[int, object | None] = {
+        v.reviewer_user_id: (
+            s.get(service.Agent, v.reviewer_agent_id)
+            if v.reviewer_agent_id is not None else None
+        )
+        for v in vote_rows
+    }
     all_assigned = sorted(_assigned_task_reviewer_ids(s, "task", tid))
     for reviewer_user_id in all_assigned:
-        reviewer_agent_id = None
-        agent = s.query(service.Agent).filter(
-            service.Agent.user_id == reviewer_user_id).first()
-        if agent is not None:
-            reviewer_agent_id = agent.agent_id
+        agent = agent_by_user.get(reviewer_user_id)
+        if agent is None:
+            agent = s.query(service.Agent).filter(
+                service.Agent.user_id == reviewer_user_id).first()
+        reviewer_agent_id = agent.agent_id if agent is not None else None
         # PR-5：走 helper — body 带 agent_id，routing 用 worker_id
         # （每个 reviewer 走自己的 worker queue，多数决 fan-out 不串）
         # PR-10 follow-up：补 agent_type + workload_type="review"。

@@ -89,6 +89,13 @@ class Task(Base):
     reviewer_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True
     )
+    # 归属收敛（2026-09-01）：评审也限 owner 的 agent。reviewer_id 仍是
+    # users.id（一人一票/鉴权兼容），reviewer_agent_id 记录被指派的
+    # 具体评审 Agent（≠ 实现方 agent），用于把 review 工作路由到正确的
+    # worker 队列（同 owner 多 agent 时按 user 反查会路由错人）。
+    reviewer_agent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     review_round: Mapped[int] = mapped_column(Integer, default=0)
     # 状态扩展（Epic 123）：进入 blocked 时记录上一个状态，解除时恢复
     previous_status: Mapped[str | None] = mapped_column(String(40), nullable=True)

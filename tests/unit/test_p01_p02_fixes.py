@@ -201,7 +201,8 @@ def test_assign_reviewer_event_has_agent_type_and_workload_type(db_session, brok
     db_session.commit()
     story_id = _setup_story(db_session, project.id)
     # roles 为空也可承担 review；executor_type 只决定物理执行器。
-    a = Agent(agent_id="reviewer-wb", name="r", user_id=reviewer_user.id,
+    # 归属收敛：评审 agent 挂 owner 名下（与 task 同 owner）。
+    a = Agent(agent_id="reviewer-wb", name="r", user_id=owner.id,
               roles="[]", cli_command="", model="",
               enabled=True, online=True, last_heartbeat=utc_now())
     db_session.add(a); db_session.flush()
@@ -216,6 +217,7 @@ def test_assign_reviewer_event_has_agent_type_and_workload_type(db_session, brok
         db_session, project_id=project.id, story_id=story_id,
         title="dev", type=ItemType.DEV.value,
         assignee_id=owner.id, needs_human_confirmation=False,
+        created_by_user_id=owner.id,
     )
     from agentboard.features.work_items.service import set_status
     set_status(db_session, dev_task.id, Status.IN_PROGRESS, changed_by=owner.id)
