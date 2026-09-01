@@ -15,15 +15,18 @@ public sealed class MiniMaxAdapter : IAgentAdapter
 {
     private readonly IProcessExecutor _process;
     private readonly AgentsOptions _agents;
+    private readonly AgentBoardOptions _agentboard;
     private readonly ILogger<MiniMaxAdapter> _log;
 
     public MiniMaxAdapter(
         IProcessExecutor process,
         IOptions<AgentsOptions> agents,
+        IOptions<AgentBoardOptions> agentboard,
         ILogger<MiniMaxAdapter> log)
     {
         _process = process;
         _agents = agents.Value;
+        _agentboard = agentboard.Value;
         _log = log;
     }
 
@@ -43,6 +46,10 @@ public sealed class MiniMaxAdapter : IAgentAdapter
         // error rather than a generic Win32Exception from Process.Start.
         var resolved = CliLocator.LocateMinimax(opts, _log);
         foreach (var (k, v) in resolved.ExtraEnv) env[k] = v;
+
+        // P0-1（2026-09-01 review）：与 Codex/WorkBuddy 同样的身份注入。
+        SharedAdapterHelpers.ApplyAgentBoardIdentity(
+            env, opts.AgentBoardToken, _agentboard.StartupToken, _agentboard.ServerUrl);
 
         if (!string.IsNullOrWhiteSpace(opts.ApiKeyEnv))
         {

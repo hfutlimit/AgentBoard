@@ -419,7 +419,9 @@ public sealed class ExecutionCoordinator
 
         var context = new ExecutionContext(
             executionId, request.ExecutionKey, request.WorkloadType, request.WorkloadId,
-            request.Round, request.AgentType, request.PayloadJson, Prompt: null);
+            request.Round, request.AgentType, request.PayloadJson, Prompt: null,
+            // P0-2：task type 透传给 prompt builder（design/dev/qa 分语义）
+            TaskType: request.TaskType);
 
         try
         {

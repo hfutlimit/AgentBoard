@@ -417,6 +417,8 @@ def test_dispatch_publishes_task_assigned_with_all_fields(db_session, broker):
     # PR-10 publish 时虽然传了 agent_id kwarg，但 Python WorkflowMessage
     # dataclass 还没这个字段。PR-11 加字段后再验 body.agent_id。
     assert m.workload_type == "task"
+    # P0-2（2026-09-01 review）：task_type 进 body（.NET prompt 分语义）
+    assert m.task_type == "dev"
 
 
 def test_dispatch_no_candidate_leaves_task_in_todo(db_session, broker):

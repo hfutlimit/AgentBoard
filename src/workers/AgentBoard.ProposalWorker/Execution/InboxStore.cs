@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Options;
 
@@ -514,7 +515,9 @@ public sealed class InboxStore
                 AgentType: r.GetString(4),
                 Round: r.GetInt32(5),
                 PayloadJson: r.GetString(6),
-                Source: "db-refill");
+                Source: "db-refill",
+                // P0-2：inbox 表没有 task_type 列；从 payload_json 恢复
+                TaskType: TryGetTaskType(r.GetString(6)));
             rows.Add(new InFlightExecution(req, r.GetInt64(0)));
         }
         return rows;
@@ -551,10 +554,34 @@ public sealed class InboxStore
                 AgentType: r.GetString(4),
                 Round: r.GetInt32(5),
                 PayloadJson: r.GetString(6),
-                Source: "startup-recovery");
+                Source: "startup-recovery",
+                // P0-2：inbox 表没有 task_type 列；从 payload_json 恢复
+                TaskType: TryGetTaskType(r.GetString(6)));
             rows.Add(new InFlightExecution(req, r.GetInt64(0)));
         }
         return rows;
+    }
+
+    /// <summary>
+    /// P0-2（2026-09-01 review）：inbox 表没有 task_type 列，但 payload_json
+    /// 里序列化了完整 WorkflowMessage（含 task_type）。refill 路径从 payload
+    /// 恢复它；解析失败（legacy payload / 非 workflow 行）返回 null，prompt
+    /// 退回 implementation 语义。
+    /// </summary>
+    private static string? TryGetTaskType(string payloadJson)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(payloadJson);
+            return doc.RootElement.TryGetProperty("task_type", out var t) &&
+                   t.ValueKind == JsonValueKind.String
+                ? t.GetString()
+                : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     public async Task<InboxRecord?> GetAsync(long inboxId, CancellationToken ct = default)

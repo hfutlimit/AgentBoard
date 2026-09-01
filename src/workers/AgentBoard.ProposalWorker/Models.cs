@@ -81,7 +81,10 @@ public sealed record ExecutionRequest(
     string AgentType,
     int Round,
     string Source,
-    string PayloadJson);
+    string PayloadJson,
+    // P0-2（2026-09-01 review）：task.assigned 消息里的 task.type（design/dev/qa/bug）。
+    // 可空：legacy 消息没有该字段 → prompt 退回 implementation 语义。
+    string? TaskType = null);
 
 /// <summary>
 /// Canonical workload-type taxonomy shared between the mappers and the
@@ -125,6 +128,12 @@ public static class WorkloadTypes
 /// of the same CLI family for MCP API key, audit trail, and
 /// agent-specific model. Routing key still uses <c>worker_id</c>
 /// (PR-5); <c>agent_id</c> is body-only.
+///
+/// P0-2（2026-09-01 review）： <c>task_type</c> carries the Task's
+/// type (design / dev / qa / bug) on <c>task.assigned</c> so the
+/// prompt builder can specialize execution semantics per type.
+/// Optional and body-only; legacy messages without it fall back
+/// to the implementation prompt.
 /// </summary>
 public sealed record WorkflowMessage(
     string Event,
@@ -135,7 +144,8 @@ public sealed record WorkflowMessage(
     string? AgentType = null,
     string? WorkloadType = null,
     string CorrelationId = "",
-    string? AgentId = null)
+    string? AgentId = null,
+    string? TaskType = null)
 {
     public static WorkflowMessage Parse(ReadOnlyMemory<byte> body)
     {
@@ -163,12 +173,15 @@ public sealed record WorkflowMessage(
         var correlationId = root.TryGetProperty("correlation_id", out var ct) ? ct.GetString() ?? "" : "";
         // PR-11：logical agent_id（区分同 type 多 agent）
         var agentId = root.TryGetProperty("agent_id", out var aid) ? aid.GetString() : null;
+        // P0-2：task type（design/dev/qa/bug），仅 task.assigned 携带
+        var taskType = root.TryGetProperty("task_type", out var tt) ? tt.GetString() : null;
         return new WorkflowMessage(
             ev, et, entityId, refId, ts,
             string.IsNullOrWhiteSpace(agentType) ? null : agentType,
             string.IsNullOrWhiteSpace(workloadType) ? null : workloadType,
             correlationId,
-            string.IsNullOrWhiteSpace(agentId) ? null : agentId);
+            string.IsNullOrWhiteSpace(agentId) ? null : agentId,
+            string.IsNullOrWhiteSpace(taskType) ? null : taskType);
     }
 
     public string ToJson() => JsonSerializer.Serialize(new
@@ -182,7 +195,9 @@ public sealed record WorkflowMessage(
         workload_type = WorkloadType,
         correlation_id = CorrelationId,
         // PR-11：logical agent_id（区分同 type 多 agent）
-        agent_id = AgentId
+        agent_id = AgentId,
+        // P0-2：task type（design/dev/qa/bug）
+        task_type = TaskType
     });
 }
 
@@ -229,7 +244,10 @@ public sealed record ExecutionContext(
     int Round,
     string AgentType,
     string PayloadJson,
-    string? Prompt);
+    string? Prompt,
+    // P0-2（2026-09-01 review）：Task 的类型（design/dev/qa/bug）。
+    // prompt builder 按 type 分执行语义；null → implementation 语义。
+    string? TaskType = null);
 
 public sealed record AgentExecutionResult(
     bool Success,

@@ -126,7 +126,8 @@ public sealed class Sprint7_CliLocatorTests
             },
         };
         var adapter = new MiniMaxAdapter(
-            executor, Options.Create(options), NullLogger<MiniMaxAdapter>.Instance);
+            executor, Options.Create(options), Options.Create(new AgentBoardOptions()),
+            NullLogger<MiniMaxAdapter>.Instance);
 
         await adapter.ExecuteAsync(
             new AgentBoard.ProposalWorker.ExecutionContext(

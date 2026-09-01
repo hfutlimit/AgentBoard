@@ -141,6 +141,8 @@ def update_task(
                 s, EVENT_TASK_ASSIGNED, "task", updated.id,
                 agent_id=_agent.agent_id,
                 ref_id=updated.story_id,
+                # P0-2：task type 进 body（.NET prompt 分语义）
+                task_type=str(updated.type or "") or None,
             )
     if updated.assignee_id is not None and updated.status != old_status:
         service.create_notification(
@@ -328,6 +330,8 @@ def arbitrate_task(
             assigned_task.id,
             agent_id=agent.agent_id,
             ref_id=assigned_task.story_id,
+            # P0-2：task type 进 body（.NET prompt 分语义）
+            task_type=str(assigned_task.type or "") or None,
         )
     return {
         "task": service._ser(assigned_task),

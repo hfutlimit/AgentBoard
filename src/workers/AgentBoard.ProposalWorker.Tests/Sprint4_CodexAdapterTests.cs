@@ -22,7 +22,9 @@ public sealed class Sprint4_CodexAdapterTests
                 MaxCapturedOutputChars = 12345,
             },
         };
-        var adapter = new CodexAdapter(executor, Options.Create(options), NullLogger<CodexAdapter>.Instance);
+        var adapter = new CodexAdapter(
+            executor, Options.Create(options), Options.Create(new AgentBoardOptions()),
+            NullLogger<CodexAdapter>.Instance);
 
         var result = await adapter.ExecuteAsync(
             new ExecutionContext(1, "proposal:42:0:codex", "proposal", 42, 0,
@@ -57,7 +59,9 @@ public sealed class Sprint4_CodexAdapterTests
                 Arguments = new[] { "exec", "--json", "--dangerously-bypass-approvals-and-sandbox" },
             },
         };
-        var adapter = new CodexAdapter(executor, Options.Create(options), NullLogger<CodexAdapter>.Instance);
+        var adapter = new CodexAdapter(
+            executor, Options.Create(options), Options.Create(new AgentBoardOptions()),
+            NullLogger<CodexAdapter>.Instance);
 
         await adapter.ExecuteAsync(
             new ExecutionContext(1, "proposal:42:0:codex", "proposal", 42, 0,

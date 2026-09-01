@@ -916,6 +916,13 @@ class WorkflowMessage:
     # 是哪个 logical agent 跑，配合 audit 链 / MCP API key / agent-specific model。
     # routing key 仍只用 worker_id（PR-5），agent_id 只在 body。
     agent_id: str | None = None
+    # P0-2（2026-09-01 review）：task.assigned 携带 task 的类型（design/dev/qa/bug）。
+    # routing 已按 type 特化（design→workbuddy / dev,bug→codex / qa→workbuddy），
+    # 该字段让 .NET prompt builder 按 type 分执行语义（design 只设计、qa 只验证、
+    # dev/bug 才实现+commit）。legacy 消息缺该字段 → None → implementation 语义。
+    # Python coordinator 的 handle_workflow_message 早已防御性 getattr(msg,
+    # "task_type")，字段补上后自动接住。
+    task_type: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -928,6 +935,7 @@ class WorkflowMessage:
             "workload_type": self.workload_type,
             "correlation_id": self.correlation_id,
             "agent_id": self.agent_id,
+            "task_type": self.task_type,
         }
 
     def to_bytes(self) -> bytes:
@@ -983,6 +991,8 @@ class WorkflowMessage:
             workload_type=_opt_str(data.get("workload_type")),
             correlation_id=cid_raw,
             agent_id=_opt_str(data.get("agent_id")),
+            # P0-2：task type（design/dev/qa/bug），仅 task.assigned 携带
+            task_type=_opt_str(data.get("task_type")),
         )
 
     @classmethod
@@ -1462,6 +1472,7 @@ class WorkflowPublisher:
                 agent_type: str | None = None,
                 workload_type: str | None = None,
                 correlation_id: str | None = None,
+                task_type: str | None = None,
                 route: str = "auto",
                 worker_id: str | None = None) -> bool:
         """发布一条工作流事件。
@@ -1478,6 +1489,8 @@ class WorkflowPublisher:
         - ``agent_type`` / ``workload_type`` / ``correlation_id`` 全部 optional，
           缺省 ``correlation_id`` 时自动生成 UUID4 让日志能串链。其它两个
           缺省时由 consumer 端按 task_type_routing 查表回填（PR-3）。
+        - ``task_type``（P0-2）：task.assigned 时携带 design/dev/qa/bug，
+          .NET prompt builder 按它分执行语义；其它事件忽略。
         - 返回是否投递成功；失败仅告警，不抛异常。
         """
         if not self.enabled:
@@ -1495,6 +1508,8 @@ class WorkflowPublisher:
             # PR-11：logical agent_id 进 body，跟 agent_type 区分
             # codex-dev-1 vs codex-dev-2（都是 agent_type=codex）
             agent_id=agent_id,
+            # P0-2：task type（design/dev/qa/bug）进 body
+            task_type=(task_type or None),
         )
         if route == "internal":
             routing_key = self.topology.internal_routing(event)
@@ -1568,6 +1583,7 @@ def publish_workflow_event(event: str, entity_type: str, entity_id: int,
                            agent_type: str | None = None,
                            workload_type: str | None = None,
                            correlation_id: str | None = None,
+                           task_type: str | None = None,
                            route: str = "auto",
                            worker_id: str | None = None) -> bool:
     """给 API 层用的一行式发布入口：**任何情况下都不抛异常**。
@@ -1582,12 +1598,16 @@ def publish_workflow_event(event: str, entity_type: str, entity_id: int,
     PR-5 增 ``worker_id`` kwarg：物理身份，优先于 ``agent_id`` 决定
     routing key（``.NET worker`` 按 ``_identity.WorkerId`` 订阅
     ``workflow.agent.{workerId}``，不按 agent_id）。
+
+    P0-2（2026-09-01 review）增 ``task_type`` kwarg：task.assigned 时携带
+    design/dev/qa/bug，.NET prompt builder 按它分执行语义。
     """
     try:
         return get_workflow_publisher().publish(
             event, entity_type, entity_id, ref_id, agent_id=agent_id,
             agent_type=agent_type, workload_type=workload_type,
-            correlation_id=correlation_id, route=route, worker_id=worker_id)
+            correlation_id=correlation_id, task_type=task_type,
+            route=route, worker_id=worker_id)
     except Exception:  # pragma: no cover - 兜底，MQ 绝不影响主流程
         log.warning("发布工作流事件 %s 时出现未预期异常", event, exc_info=True)
         return False

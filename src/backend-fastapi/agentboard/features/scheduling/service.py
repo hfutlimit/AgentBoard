@@ -1087,6 +1087,9 @@ def dispatch_implementation_task(
         worker_id=inst.worker_id,  # PR-5：物理身份 → routing key
         agent_type=tool,  # 关键：.NET mapper 必填，缺值 → DLQ
         workload_type=workload_type,
+        # P0-2（2026-09-01 review）：task type 进 body，
+        # .NET prompt builder 按 design/dev/qa 分执行语义
+        task_type=str(task.type or "") or None,
     )
     log.info(
         "PR-10 dispatch: task %s → agent_id=%s agent_type=%s worker_id=%s "

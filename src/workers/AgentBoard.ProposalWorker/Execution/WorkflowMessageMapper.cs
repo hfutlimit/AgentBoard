@@ -100,7 +100,9 @@ public sealed class WorkflowMessageMapper
             AgentType: agentType,
             Round: msg.RefId.HasValue ? (int)msg.RefId.Value : 0,
             Source: source,
-            PayloadJson: msg.ToJson());
+            PayloadJson: msg.ToJson(),
+            // P0-2：task type 透传，prompt 按 design/dev/qa 分执行语义
+            TaskType: msg.TaskType);
     }
 
     private static (string WorkloadType, string KeySuffix) Classify(string eventName) => eventName switch

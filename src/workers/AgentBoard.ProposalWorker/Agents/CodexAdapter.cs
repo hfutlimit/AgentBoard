@@ -14,15 +14,18 @@ public sealed class CodexAdapter : IAgentAdapter
 {
     private readonly IProcessExecutor _process;
     private readonly AgentsOptions _agents;
+    private readonly AgentBoardOptions _agentboard;
     private readonly ILogger<CodexAdapter> _log;
 
     public CodexAdapter(
         IProcessExecutor process,
         IOptions<AgentsOptions> agents,
+        IOptions<AgentBoardOptions> agentboard,
         ILogger<CodexAdapter> log)
     {
         _process = process;
         _agents = agents.Value;
+        _agentboard = agentboard.Value;
         _log = log;
     }
 
@@ -45,13 +48,20 @@ public sealed class CodexAdapter : IAgentAdapter
             ? opts.Arguments
             : new[] { "exec", "--json" };
         var resolved = CliLocator.LocateCodex(opts, _log);
+        var env = BuildEnvironment(opts, resolved.ExtraEnv);
+        // P0-1（2026-09-01 review）：CLI 子进程里 MCP server 读
+        // AGENTBOARD_MCP_TOKEN / AGENTBOARD_API_URL；不注入的话
+        // 注册身份（user B）≠ MCP API 身份，submit-review 会被
+        // task.assignee_id 校验拒绝。
+        SharedAdapterHelpers.ApplyAgentBoardIdentity(
+            env, opts.AgentBoardToken, _agentboard.StartupToken, _agentboard.ServerUrl);
         var spec = new ProcessSpec
         {
             Executable = resolved.Executable,
             WorkingDirectory = opts.WorkingDirectory,
             Arguments = arguments,
             StdinPayload = prompt,
-            Environment = BuildEnvironment(opts, resolved.ExtraEnv),
+            Environment = env,
             Timeout = TimeSpan.FromMinutes(Math.Max(1, opts.TimeoutMinutes)),
             MaxOutputBytes = opts.MaxCapturedOutputChars,
             AgentType = AgentType,

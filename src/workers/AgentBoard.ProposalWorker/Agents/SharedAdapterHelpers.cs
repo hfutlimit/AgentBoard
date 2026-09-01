@@ -70,20 +70,17 @@ internal static class SharedAdapterHelpers
             : $" Trace id: {correlationId}. When calling MCP, echo this trace id so the chain is auditable.";
 
         // workload 主体 + MCP 指引按 workload_type 分支（核心 P0-4 修复）：
-        //   task    → 实现（dev/bug），MCP 拉 task context，完成后 submit_for_review
+        //   task    → 按 task_type 分语义（P0-2，2026-09-01 review）：
+        //              design → 只产出设计不改代码；qa → 只验证不改实现；
+        //              dev/bug/legacy → 实现 + 测试 + commit
         //   review  → 评审，看 task + 评论，approve / reject
         //   rework  → 修 review 反馈，拉 review comment，修复后重 submit
         //   ticket  → 把 converged proposal 拆成 Story + Task DAG
         //   other   → 走 proposal 兼容路径（proposal.clarify 等老事件）
+        var reworkScopeNote = ReworkScopeNote(context.TaskType);
         var workloadBlock = context.WorkloadType switch
         {
-            WorkloadTypes.Task => $"""
-                You are handling a Task implementation (workload_type=task).
-                1. Read the task {context.WorkloadId} through MCP: title, description, spec, dependencies, parent story.
-                2. Implement the task: read code, make changes, run relevant tests, commit.
-                3. When complete, submit the task for review through MCP (status: in_review).
-                Do NOT treat this as a proposal — this is a Task. There is no Q&A history to reconstruct.
-                """,
+            WorkloadTypes.Task => BuildTaskPrompt(context),
             WorkloadTypes.Review => $"""
                 You are handling a Task review (workload_type=review).
                 1. Read the task {context.WorkloadId} and the implementation commit/diff through MCP.
@@ -96,6 +93,7 @@ internal static class SharedAdapterHelpers
                 1. Read the task {context.WorkloadId} and the most recent review comment (which rejected the prior round) through MCP.
                 2. Address the feedback concretely. Re-run tests. Commit.
                 3. Re-submit for review through MCP.
+                {reworkScopeNote}
                 Do NOT treat this as a proposal — this is a rework loop. The review comment is your source of truth, not Q&A history.
                 """,
             WorkloadTypes.Ticket => $"""
@@ -120,5 +118,80 @@ internal static class SharedAdapterHelpers
             Unattended mode: do not make destructive local changes unless the workload explicitly asks and MCP confirms scope.
             {trace}
             """;
+    }
+
+    /// <summary>
+    /// P0-2（2026-09-01 review）：Task 分支按 task_type 分执行语义。
+    /// routing 已经特化（design→workbuddy / dev,bug→codex / qa→workbuddy），
+    /// 但 prompt 不分语义会让 Design 阶段的 agent 直接开始改代码。
+    /// task_type 为空（legacy 消息）→ 默认 implementation 语义。
+    /// </summary>
+    private static string BuildTaskPrompt(ExecutionContext context)
+    {
+        var taskType = (context.TaskType ?? "").Trim().ToLowerInvariant();
+        return taskType switch
+        {
+            "design" => $"""
+                You are handling a Design task (workload_type=task, task_type=design).
+                1. Read the task {context.WorkloadId} through MCP: title, description, spec, dependencies, parent story.
+                2. Analyze the requirements and inspect the relevant parts of the codebase (read-only).
+                3. Produce the implementation design: approach, affected files/modules, edge cases, and a test plan. Persist the design on the task through MCP (update the spec/description or post a comment).
+                4. When the design is complete, submit the task for review through MCP (status: in_review).
+                Do NOT write implementation code and do NOT commit code changes — this is a design-only task. There is no Q&A history to reconstruct.
+                """,
+            "qa" => $"""
+                You are handling a QA task (workload_type=task, task_type=qa).
+                1. Read the task {context.WorkloadId} through MCP: title, description, spec, acceptance criteria, dependencies, parent story.
+                2. Verify the implementation: run the relevant tests, inspect the acceptance criteria against the actual behavior and the change diff.
+                3. Record the QA verdict with evidence (pass/fail per criterion) on the task through MCP (comment or spec update).
+                4. When verification is complete, submit the QA result for review through MCP (status: in_review).
+                Do NOT modify the implementation and do NOT commit fixes unless the task explicitly requires it — this is a verification-only task. There is no Q&A history to reconstruct.
+                """,
+            _ => $"""
+                You are handling a Task implementation (workload_type=task, task_type={(taskType is "" ? "dev" : taskType)}).
+                1. Read the task {context.WorkloadId} through MCP: title, description, spec, dependencies, parent story.
+                2. Implement the task: read code, make changes, run relevant tests, commit.
+                3. When complete, submit the task for review through MCP (status: in_review).
+                Do NOT treat this as a proposal — this is a Task. There is no Q&A history to reconstruct.
+                """,
+        };
+    }
+
+    /// <summary>
+    /// P0-2：rework 时同 task_type 的边界提醒（design 返工只改设计，
+    /// qa 返工只改验证结论），防止 rework prompt 的 "Commit" 一刀切。
+    /// </summary>
+    private static string ReworkScopeNote(string? taskType) =>
+        (taskType ?? "").Trim().ToLowerInvariant() switch
+        {
+            "design" => "This is a design rework: refine the design/spec only; do NOT write implementation code.",
+            "qa" => "This is a QA rework: re-verify and correct the QA report; do NOT modify the implementation.",
+            _ => "",
+        };
+
+    /// <summary>
+    /// P0-1（2026-09-01 review）：把 Worker 的 AgentBoard 身份注入 CLI
+    /// 子进程环境，保证「注册身份 == 执行身份 == MCP API 身份」。
+    /// ProcessExecutor 会清空父进程环境（Sprint 5 隔离），AgentBoard MCP
+    /// server 实际读取的环境变量是：
+    ///   AGENTBOARD_MCP_TOKEN —— FastAPI Bearer token。per-agent token
+    ///       优先；为空时回退 StartupToken（与 Worker startup
+    ///       registration 的 fallback 语义一致）。
+    ///   AGENTBOARD_API_URL   —— FastAPI 地址（MCP 默认
+    ///       http://127.0.0.1:58124）。
+    /// CLI（codex/workbuddy/minimax）spawn MCP server 子进程时继承这
+    /// 两个变量；两个都拿不到才不注入（dev 环境无鉴权可跑）。
+    /// </summary>
+    public static void ApplyAgentBoardIdentity(
+        Dictionary<string, string?> env,
+        string? perAgentToken,
+        string? startupToken,
+        string? serverUrl)
+    {
+        var token = string.IsNullOrWhiteSpace(perAgentToken) ? startupToken : perAgentToken;
+        if (!string.IsNullOrWhiteSpace(token))
+            env["AGENTBOARD_MCP_TOKEN"] = token;
+        if (!string.IsNullOrWhiteSpace(serverUrl))
+            env["AGENTBOARD_API_URL"] = serverUrl;
     }
 }

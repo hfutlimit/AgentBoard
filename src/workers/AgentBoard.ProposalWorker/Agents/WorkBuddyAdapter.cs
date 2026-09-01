@@ -15,15 +15,18 @@ public sealed class WorkBuddyAdapter : IAgentAdapter
 {
     private readonly IProcessExecutor _process;
     private readonly AgentsOptions _agents;
+    private readonly AgentBoardOptions _agentboard;
     private readonly ILogger<WorkBuddyAdapter> _log;
 
     public WorkBuddyAdapter(
         IProcessExecutor process,
         IOptions<AgentsOptions> agents,
+        IOptions<AgentBoardOptions> agentboard,
         ILogger<WorkBuddyAdapter> log)
     {
         _process = process;
         _agents = agents.Value;
+        _agentboard = agentboard.Value;
         _log = log;
     }
 
@@ -35,6 +38,12 @@ public sealed class WorkBuddyAdapter : IAgentAdapter
         var resolved = CliLocator.LocateCodebuddy(opts, _log);
         var env = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         foreach (var (k, v) in resolved.ExtraEnv) env[k] = v;
+        // P0-1（2026-09-01 review）：CLI 子进程里 MCP server 读
+        // AGENTBOARD_MCP_TOKEN / AGENTBOARD_API_URL；不注入的话
+        // 注册身份 ≠ MCP API 身份，submit-review 会被
+        // task.assignee_id 校验拒绝。
+        SharedAdapterHelpers.ApplyAgentBoardIdentity(
+            env, opts.AgentBoardToken, _agentboard.StartupToken, _agentboard.ServerUrl);
         // PR-3: workload-aware prompt（不再是硬编码 "Handle proposal"）。
         var arguments = resolved.PrefixArguments.Concat(opts.Arguments).ToArray();
         var spec = new ProcessSpec
