@@ -587,6 +587,82 @@ def delete_agent_instance_endpoint(
             "agent_id": agent_id}
 
 
+# ---------- Ephemeral agent cache dispatch (Phase 2, agent-ephemeral-2026-09) ----------
+
+@router.post("/api/agent-cache/pick")
+def pick_agent_from_cache(pinned: str | None = Query(
+        None, max_length=64,
+        description="Optional agent_id to pin. If provided, returns this agent "
+                    "if it is in the cache and online; otherwise 503."),
+        authorization: str | None = Header(None)):
+    """Pick a live agent for the next dispatch. Returns ``{worker_id,
+    agent_id}`` or 503 ``Retry-After: 30`` if the cache has no eligible
+    agent.
+
+    Flag-gated: when ``AGENTBOARD_EPHEMERAL_AGENTS=1``, reads from the
+    in-memory ``AgentRegistryCache``. Otherwise returns 503 with a
+    pointer to the old DB path (the legacy dispatch reads from
+    ``agent_instances``; we don't replace it here because service-layer
+    dispatch is integrated with worker assignment, claim gates, and
+    audit-trail writes that are out of P2 scope).
+
+    P3 will wire workers to push HELLO/DELTA/PING frames into this
+    cache; until then the cache is empty by construction and this
+    endpoint will return 503 unless the operator manually injects
+    rows via ``AgentRegistryCache.apply_hello`` (test/admin use).
+    """
+    uid, _ = api_helpers._caller_uid_admin(authorization, s=None)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if not ephemeral_agents_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "AGENTBOARD_EPHEMERAL_AGENTS=1 is not enabled; legacy "
+                "dispatch still reads agent_instances directly."
+            ),
+            headers={"Retry-After": "30"},
+        )
+    cache = get_default_cache()
+    picked = cache.pick_eligible(pinned=pinned)
+    if picked is None:
+        # Cache miss — fail fast (decision E in proposal). Operators see
+        # this when the FastAPI process is fresh and workers haven't
+        # re-registered their WebSocket yet (a few seconds at boot,
+        # or 30s after a network blip). Workers will reconnect with
+        # HELLO on their own schedule; clients should retry.
+        raise HTTPException(
+            status_code=503,
+            detail="no agent available in cache; workers may be reconnecting",
+            headers={"Retry-After": "30"},
+        )
+    worker_id, agent_id = picked
+    return {"worker_id": worker_id, "agent_id": agent_id,
+            "pinned": pinned is not None}
+
+
+@router.get("/api/agent-cache/snapshot")
+def snapshot_agent_cache(authorization: str | None = Header(None)):
+    """Read-only admin / debug view of the current cache contents.
+
+    Flag-gated same as ``/api/agent-cache/pick`` (returns 503 when the
+    flag is off, since the cache is meaningless in that mode). Use
+    ``GET /api/agents`` for the legacy DB-backed view.
+    """
+    uid, _ = api_helpers._caller_uid_admin(authorization, s=None)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if not ephemeral_agents_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="AGENTBOARD_EPHEMERAL_AGENTS=1 is not enabled",
+            headers={"Retry-After": "30"},
+        )
+    cache = get_default_cache()
+    cache.sweep_stale()
+    return {"count": len(cache), "agents": cache.snapshot()}
+
+
 @router.get("/api/agent-instances")
 def list_agent_instances_endpoint(worker_id: str | None = Query(None),
                                    agent_id: str | None = Query(None),
