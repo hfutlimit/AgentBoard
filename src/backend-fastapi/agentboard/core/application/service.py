@@ -2800,6 +2800,9 @@ from ...features.projects.service import (  # noqa: F401,F403
     # T2.0：owner 选取规则。T2.2「移除成员 → 移交 project owner」的接收方解析
     # 必须经它，不能各自再写一份「谁是 owner」的判断。
     project_owners, resolve_project_owner, resolve_project_owner_excluding,
+    # T6.3：Worker ↔ Project 授权映射
+    map_worker_to_project, unmap_worker_from_project,
+    list_project_workers, worker_in_project,
     # T2.3 移交 / T2.2 移除移交
     transfer_story,
     get_epic_project_id, get_story_project_id, get_sprint_project_id,
