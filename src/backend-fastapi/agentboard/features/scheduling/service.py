@@ -489,20 +489,10 @@ def scan_review_timeouts(s: Session, *, project_id: int | None = None,
         if now - _story_last_activity(s, st) > timeout
     ]
     for st in overdue_stories:
-        # S3 M3：majority 模式超时按现有票兜底结算（approve>reject → 通过；
-        # reject>=approve → 驳回；平局保守驳回防死锁）。零票走既有重派逻辑。
-        if get_review_mode() == REVIEW_MODE_MAJORITY:
-            approve_n, reject_n = _review_vote_counts(s, "story", st.id)
-            if approve_n + reject_n > 0:
-                if approve_n > reject_n:
-                    _settle_majority_approved(s, st, "story")
-                    result["stories_settled"] += 1
-                else:
-                    settled = _settle_majority_rejected(s, st, "story")
-                    result["stories_settled"] += 1
-                    if settled.status == "blocked":
-                        result["blocked"] += 1
-                continue
+        # Story 级 majority 兜底结算已移除（2026-09-02 T0.1c）：Story 评审自
+        # 2026-08-09 起下线，Story 不会再进入 pending_review + 已指派 reviewer
+        # 的组合，该段为死路径（且 _settle_* 已不再支持 entity_type="story"）。
+        # result["stories_settled"] 字段保留以兼容 API 响应，恒为 0。
         if (st.review_round or 0) >= MAX_REVIEW_ROUNDS:
             r = s.execute(update(Story).where(
                 Story.id == st.id,
@@ -2130,13 +2120,13 @@ def pick_eligible_task(s: Session, schedule: AgentSchedule):
     )
     return q.order_by(rank_case.desc(), Task.id.asc()).first()
 
-# ---- 同步自 service.py ----
+# ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def get_review_mode() -> str:
     """评审模式：环境变量 AGENTBOARD_REVIEW_MODE（single|majority），非法回退 single。"""
     mode = os.environ.get("AGENTBOARD_REVIEW_MODE", "").strip().lower()
     return mode if mode in (REVIEW_MODE_SINGLE, REVIEW_MODE_MAJORITY) else REVIEW_MODE_SINGLE
 
-# ---- 同步自 service.py ----
+# ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def get_review_quorum() -> int:
     """法定票数：AGENTBOARD_REVIEW_QUORUM（1..9），非法/缺省回退 3。
 
@@ -2151,7 +2141,7 @@ def get_review_quorum() -> int:
         return DEFAULT_REVIEW_QUORUM
     return q if 1 <= q <= 9 else DEFAULT_REVIEW_QUORUM
 
-# ---- 同步自 service.py ----
+# ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def _is_reviewer_candidate(s: Session, project_id: int, user_id: int,
                            exclude_user_id: int | None = None) -> bool:
     """投票人校验（majority 模式）：在线 ∩ reviewer 角色 ∩ 项目成员 ∩ ≠exclude。
@@ -2166,7 +2156,7 @@ def _is_reviewer_candidate(s: Session, project_id: int, user_id: int,
             return True
     return False
 
-# ---- 同步自 service.py ----
+# ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def _upsert_review_vote(s: Session, *, entity_type: str, entity_id: int,
                         reviewer_user_id: int, verdict: str,
                         comment_id: int | None, round: int) -> None:
@@ -2190,7 +2180,7 @@ def _upsert_review_vote(s: Session, *, entity_type: str, entity_id: int,
                      comment_id=comment_id, round=round))
     _commit(s)
 
-# ---- 同步自 service.py ----
+# ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def _review_vote_counts(s: Session, entity_type: str, entity_id: int) -> tuple[int, int]:
     """返回 (approve, reject) 票数。"""
     rows = s.query(ReviewVote.verdict, func.count(ReviewVote.id)).filter(
@@ -2200,7 +2190,7 @@ def _review_vote_counts(s: Session, entity_type: str, entity_id: int) -> tuple[i
     counts = dict(rows)
     return int(counts.get("approve", 0)), int(counts.get("reject", 0))
 
-# ---- 同步自 service.py ----
+# ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def _clear_review_votes(s: Session, entity_type: str, entity_id: int) -> None:
     """结算后清票（终态 / 驳回后开新一轮，MVP 简化：历史票不跨轮保留）。"""
     s.query(ReviewVote).filter(
@@ -2209,19 +2199,23 @@ def _clear_review_votes(s: Session, entity_type: str, entity_id: int) -> None:
     ).delete(synchronize_session=False)
     _commit(s)
 
-# ---- 同步自 service.py ----
+# ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def _settle_majority_approved(s: Session, entity, entity_type: str):
-    """多数通过（CAS）：Story pending_review→ready / Task in_review→done，结算后清票。"""
-    if entity_type == "story":
-        r = s.execute(update(Story).where(
-            Story.id == entity.id,
-            Story.status == "pending_review",
-        ).values(status="ready"))
-    else:
-        r = s.execute(update(Task).where(
-            Task.id == entity.id,
-            Task.status == Status.IN_REVIEW,
-        ).values(status=Status.DONE, status_reason="completed"))
+    """多数通过（CAS）：Task in_review→done，结算后清票。
+
+    Story 分支已移除（2026-09-02 T0.1c）：Story 级评审自 2026-08-09 起下线
+    （``assign_reviewer`` 直接抛 ``InvalidValue``），Story 不会再进入
+    ``pending_review`` + 已指派 reviewer 的组合，故该分支为死路径。
+    """
+    if entity_type != "task":
+        raise InvalidValue(
+            f"majority settle: unsupported entity_type '{entity_type}' "
+            "(Story review has been retired; only 'task' is supported)"
+        )
+    r = s.execute(update(Task).where(
+        Task.id == entity.id,
+        Task.status == Status.IN_REVIEW,
+    ).values(status=Status.DONE, status_reason="completed"))
     if r.rowcount != 1:
         s.rollback()
         raise InvalidValue("review conflict: entity state changed concurrently")
@@ -2236,34 +2230,34 @@ def _settle_majority_approved(s: Session, entity, entity_type: str):
         _record_learning_outcome(s, settled)
     return settled
 
-# ---- 同步自 service.py ----
+# ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def _settle_majority_rejected(s: Session, entity, entity_type: str):
-    """多数驳回：review_round+1，Story 回 pending_review / Task 回 in_progress；
+    """多数驳回：review_round+1，Task 回 in_progress；
     达 MAX_REVIEW_ROUNDS → blocked 护栏；结算后清票（下一轮重新投票）。
+
+    Story 分支已移除（2026-09-02 T0.1c）：Story 级评审已下线，该分支为死路径。
     """
+    if entity_type != "task":
+        raise InvalidValue(
+            f"majority settle: unsupported entity_type '{entity_type}' "
+            "(Story review has been retired; only 'task' is supported)"
+        )
     new_round = (entity.review_round or 0) + 1
-    if entity_type == "story":
-        target = "blocked" if new_round >= MAX_REVIEW_ROUNDS else "pending_review"
-        r = s.execute(update(Story).where(
-            Story.id == entity.id,
-            Story.status == "pending_review",
-        ).values(review_round=new_round, status=target))
-    else:
-        target = Status.BLOCKED if new_round >= MAX_REVIEW_ROUNDS else Status.IN_PROGRESS
-        r = s.execute(update(Task).where(
-            Task.id == entity.id,
-            Task.status == Status.IN_REVIEW,
-        ).values(
-            review_round=new_round,
-            status=target,
-            status_reason=(
-                "pending_requirement_change"
-                if target == Status.BLOCKED else None
-            ),
-            previous_status=(
-                str(Status.IN_REVIEW) if target == Status.BLOCKED else None
-            ),
-        ))
+    target = Status.BLOCKED if new_round >= MAX_REVIEW_ROUNDS else Status.IN_PROGRESS
+    r = s.execute(update(Task).where(
+        Task.id == entity.id,
+        Task.status == Status.IN_REVIEW,
+    ).values(
+        review_round=new_round,
+        status=target,
+        status_reason=(
+            "pending_requirement_change"
+            if target == Status.BLOCKED else None
+        ),
+        previous_status=(
+            str(Status.IN_REVIEW) if target == Status.BLOCKED else None
+        ),
+    ))
     if r.rowcount != 1:
         s.rollback()
         raise InvalidValue("review conflict: entity state changed concurrently")
@@ -2278,7 +2272,7 @@ def _settle_majority_rejected(s: Session, entity, entity_type: str):
         _record_learning_outcome(s, settled)
     return settled
 
-# ---- 同步自 service.py ----
+# ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def _vote_majority(s: Session, entity, *, entity_type: str, reviewer_user_id: int,
                    verdict: str, comment: str,
                    reviewer_agent_name: str | None = None):
@@ -2336,7 +2330,7 @@ def _vote_majority(s: Session, entity, *, entity_type: str, reviewer_user_id: in
         return _settle_majority_approved(s, entity, entity_type), True
     return _settle_majority_rejected(s, entity, entity_type), True
 
-# ---- 同步自 service.py ----
+# ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def _online_reviewer_candidates(s: Session, project_id: int) -> list[Agent]:
     """在线、enabled、项目成员且有 runnable instance 的通用评审候选。"""
     expire_stale_agent_heartbeats(s)
@@ -2357,7 +2351,7 @@ def _online_reviewer_candidates(s: Session, project_id: int) -> list[Agent]:
             candidates.append(a)
     return candidates
 
-# ---- 同步自 service.py ----
+# ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def assign_reviewer(s: Session, story_id: int, *, user_id: int | None = None,
                     is_admin: bool = False) -> Story:
     """Story 级评审已下线（Ticket 全流程，2026-08-09）。
@@ -2367,7 +2361,7 @@ def assign_reviewer(s: Session, story_id: int, *, user_id: int | None = None,
     """
     raise InvalidValue("Story 评审已下线：评审在 Task 层进行（design 评审 / 实现评审）")
 
-# ---- 同步自 service.py ----
+# ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def list_review_tasks(s: Session, user_id: int, *, status: str | None = None):
     """拉取指派给当前用户的评审任务（Story，按 pending_review 优先排序）。"""
     q = s.query(Story).filter(Story.reviewer_id == user_id)
@@ -2378,7 +2372,7 @@ def list_review_tasks(s: Session, user_id: int, *, status: str | None = None):
     q = q.order_by(Story.status.desc(), Story.id.desc())
     return q.all()
 
-# ---- 同步自 service.py ----
+# ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def list_task_review_tasks(s: Session, user_id: int, *, status: str | None = None):
     """拉取指派给当前用户的 Task 评审任务（按 in_review 优先排序）。"""
     q = s.query(Task).filter(Task.reviewer_id == user_id)
@@ -2389,7 +2383,7 @@ def list_task_review_tasks(s: Session, user_id: int, *, status: str | None = Non
     q = q.order_by(Task.status.desc(), Task.id.desc())
     return q.all()
 
-# ---- 同步自 service.py ----
+# ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def _reassign_story_reviewer(s: Session, story: Story,
                              exclude_user_id: int | None = None) -> int | None:
     """Story 超时重派：候选排除旧 reviewer，CAS（pending_review AND reviewer_id IS NULL）。
@@ -2418,7 +2412,7 @@ def _reassign_story_reviewer(s: Session, story: Story,
     _commit(s)
     return reviewer.user_id
 
-# ---- 同步自 service.py ----
+# ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def _reassign_task_reviewer(s: Session, task: Task,
                             exclude_user_id: int | None = None) -> int | None:
     """Task 超时重派（归属收敛版，与 core facade 副本同步）：
@@ -2455,7 +2449,7 @@ def _reassign_task_reviewer(s: Session, task: Task,
     _commit(s)
     return reviewer.user_id
 
-# ---- 同步自 service.py ----
+# ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def _story_last_activity(s: Session, story: Story) -> datetime:
     """Story 最后活动 = max(created_at, 最新评论时间)；无评论回退 created_at。
 

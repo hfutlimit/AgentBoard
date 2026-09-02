@@ -711,213 +711,11 @@ def delete_agent(s: Session, agent_id: str) -> Agent | None:
     return agent
 
 # ---------- Story 评审闭环（Epic 122 S1） ----------
+# 多数决评审的常量与私有函数（REVIEW_MODE_* / DEFAULT_REVIEW_QUORUM /
+# get_review_* / _vote_majority / _settle_* / _online_reviewer_candidates /
+# _reassign_*_reviewer）真源已迁至 features/scheduling/service.py，
+# 本模块末尾统一转发 —— 详见文件末尾「评审真源统一」注释块。
 MAX_REVIEW_ROUNDS = 5  # 与 Proposal max_rounds 对齐；超限置 blocked 护栏
-
-# ---------- 多数决评审（Epic 122 S3 M3） ----------
-REVIEW_MODE_SINGLE = "single"      # 1 名 reviewer，approve 即通过（默认，兼容 S1/S2）
-REVIEW_MODE_MAJORITY = "majority"  # N 人投票，达法定票数按多数决结算（文档 #50 §7 决策 #7）
-DEFAULT_REVIEW_QUORUM = 3          # 法定票数（env AGENTBOARD_REVIEW_QUORUM 覆盖，2..9）
-
-def get_review_mode() -> str:
-    """评审模式：环境变量 AGENTBOARD_REVIEW_MODE（single|majority），非法回退 single。"""
-    mode = os.environ.get("AGENTBOARD_REVIEW_MODE", "").strip().lower()
-    return mode if mode in (REVIEW_MODE_SINGLE, REVIEW_MODE_MAJORITY) else REVIEW_MODE_SINGLE
-
-def get_review_quorum() -> int:
-    """法定票数：AGENTBOARD_REVIEW_QUORUM（1..9），非法/缺省回退 3。
-
-    归属收敛（2026-09-01）：一人一票后单 owner 部署需 quorum=1 才能结算，
-    下限从 2 放宽到 1（与 features/scheduling/service.py 同步）。
-    """
-    raw = os.environ.get("AGENTBOARD_REVIEW_QUORUM", "").strip()
-    try:
-        q = int(raw)
-    except (TypeError, ValueError):
-        return DEFAULT_REVIEW_QUORUM
-    return q if 1 <= q <= 9 else DEFAULT_REVIEW_QUORUM
-
-def _is_reviewer_candidate(s: Session, project_id: int, user_id: int,
-                           exclude_user_id: int | None = None) -> bool:
-    """投票人校验（majority 模式）：在线 ∩ reviewer 角色 ∩ 项目成员 ∩ ≠exclude。
-
-    与分配器候选集同源（_online_reviewer_candidates），保证只有能被指派为
-    reviewer 的 Agent 才能参与多数决投票（评审强度升级，但参与者资格不变）。
-    """
-    if exclude_user_id is not None and user_id == exclude_user_id:
-        return False
-    for a in _online_reviewer_candidates(s, project_id):
-        if a.user_id == user_id:
-            return True
-    return False
-
-def _upsert_review_vote(s: Session, *, entity_type: str, entity_id: int,
-                        reviewer_user_id: int, verdict: str,
-                        comment_id: int | None, round: int) -> None:
-    """一人一票 upsert：存在则更新 verdict/comment（改票），否则插入。
-
-    双后端兼容：先查后写（量级小，避免方言差异的 ON CONFLICT 语法）。
-    """
-    existing = s.query(ReviewVote).filter(
-        ReviewVote.entity_type == entity_type,
-        ReviewVote.entity_id == entity_id,
-        ReviewVote.reviewer_user_id == reviewer_user_id,
-    ).first()
-    if existing is not None:
-        existing.verdict = verdict
-        existing.comment_id = comment_id
-        existing.round = round
-        _commit(s)
-        return
-    s.add(ReviewVote(entity_type=entity_type, entity_id=entity_id,
-                     reviewer_user_id=reviewer_user_id, verdict=verdict,
-                     comment_id=comment_id, round=round))
-    _commit(s)
-
-def _review_vote_counts(s: Session, entity_type: str, entity_id: int) -> tuple[int, int]:
-    """返回 (approve, reject) 票数。"""
-    rows = s.query(ReviewVote.verdict, func.count(ReviewVote.id)).filter(
-        ReviewVote.entity_type == entity_type,
-        ReviewVote.entity_id == entity_id,
-    ).group_by(ReviewVote.verdict).all()
-    counts = dict(rows)
-    return int(counts.get("approve", 0)), int(counts.get("reject", 0))
-
-def _clear_review_votes(s: Session, entity_type: str, entity_id: int) -> None:
-    """结算后清票（终态 / 驳回后开新一轮，MVP 简化：历史票不跨轮保留）。"""
-    s.query(ReviewVote).filter(
-        ReviewVote.entity_type == entity_type,
-        ReviewVote.entity_id == entity_id,
-    ).delete(synchronize_session=False)
-    _commit(s)
-
-def _settle_majority_approved(s: Session, entity, entity_type: str):
-    """多数通过（CAS）：Story pending_review→ready / Task in_review→done，结算后清票。"""
-    if entity_type == "story":
-        r = s.execute(update(Story).where(
-            Story.id == entity.id,
-            Story.status == "pending_review",
-        ).values(status="ready"))
-    else:
-        r = s.execute(update(Task).where(
-            Task.id == entity.id,
-            Task.status == Status.IN_REVIEW,
-        ).values(status=Status.DONE))
-    if r.rowcount != 1:
-        s.rollback()
-        raise InvalidValue("review conflict: entity state changed concurrently")
-    if entity_type == "task":
-        _record_status_history(s, entity.id, str(Status.IN_REVIEW), str(Status.DONE),
-                               reason="majority approve")
-    _commit(s)
-    _clear_review_votes(s, entity_type, entity.id)
-    return s.get(type(entity), entity.id)
-
-def _settle_majority_rejected(s: Session, entity, entity_type: str):
-    """多数驳回：review_round+1，Story 回 pending_review / Task 回 in_progress；
-    达 MAX_REVIEW_ROUNDS → blocked 护栏；结算后清票（下一轮重新投票）。
-    """
-    new_round = (entity.review_round or 0) + 1
-    if entity_type == "story":
-        target = "blocked" if new_round >= MAX_REVIEW_ROUNDS else "pending_review"
-        r = s.execute(update(Story).where(
-            Story.id == entity.id,
-            Story.status == "pending_review",
-        ).values(review_round=new_round, status=target))
-    else:
-        target = Status.BLOCKED if new_round >= MAX_REVIEW_ROUNDS else Status.IN_PROGRESS
-        r = s.execute(update(Task).where(
-            Task.id == entity.id,
-            Task.status == Status.IN_REVIEW,
-        ).values(review_round=new_round, status=target))
-    if r.rowcount != 1:
-        s.rollback()
-        raise InvalidValue("review conflict: entity state changed concurrently")
-    if entity_type == "task":
-        _record_status_history(s, entity.id, str(Status.IN_REVIEW), str(target),
-                               reason=f"majority reject round={new_round}")
-    _commit(s)
-    _clear_review_votes(s, entity_type, entity.id)
-    return s.get(type(entity), entity.id)
-
-def _vote_majority(s: Session, entity, *, entity_type: str, reviewer_user_id: int,
-                   verdict: str, comment: str):
-    """多数决投票（S3 M3）：写票（一人一票 upsert）→ 达法定票数结算。
-
-    - 权限：投票人须是该项目在线 reviewer 候选（与分配器同源）；
-      Task 版额外排除 assignee（评审人与作者隔离）；
-    - 未达 quorum：状态保持（pending_review / in_review），评论照记，
-      返回 (entity, settled=False)；
-    - 达 quorum：approve > reject → 通过；reject >= approve（含平局保守驳回）
-      → 驳回（round+1，回原评审流/开发流）；返回 (entity, settled=True)。
-    """
-    if entity_type == "story":
-        epic = s.get(Epic, entity.epic_id)
-        if epic is None:
-            raise NotFound(f"epic {entity.epic_id} not found")
-        project_id = epic.project_id
-        expected_status = "pending_review"
-        exclude = None
-    else:
-        project_id = entity.project_id
-        expected_status = Status.IN_REVIEW
-        exclude = entity.assignee_id
-    if not _is_reviewer_candidate(s, project_id, reviewer_user_id,
-                                  exclude_user_id=exclude):
-        raise InvalidValue(
-            "only an online reviewer agent of this project can vote (majority mode)")
-    if entity.status != expected_status:
-        raise InvalidValue(
-            f"entity is not {expected_status} (current status: {entity.status})")
-    reviewer_agent = (
-        s.query(Agent)
-        .filter(Agent.user_id == reviewer_user_id, Agent.enabled.is_(True))
-        .order_by(Agent.online.desc(), Agent.id.desc())
-        .first()
-    )
-    if reviewer_agent is not None:
-        reviewer_name = (reviewer_agent.name or reviewer_agent.agent_id or f"user#{reviewer_user_id}")[:100]
-    else:
-        reviewer = s.get(User, reviewer_user_id)
-        reviewer_name = (reviewer.display_name or reviewer.username if reviewer else f"user#{reviewer_user_id}")[:100]
-    # 评审意见落评论（唯一载体，与 single 模式一致）
-    comment_obj = create_comment(
-        s, author=reviewer_name, content=comment,
-        **({f"{entity_type}_id": entity.id}))
-    _upsert_review_vote(s, entity_type=entity_type, entity_id=entity.id,
-                        reviewer_user_id=reviewer_user_id, verdict=verdict,
-                        comment_id=comment_obj.id, round=entity.review_round or 0)
-    approve_n, reject_n = _review_vote_counts(s, entity_type, entity.id)
-    if approve_n + reject_n < get_review_quorum():
-        s.refresh(entity)
-        return entity, False
-    if approve_n > reject_n:
-        return _settle_majority_approved(s, entity, entity_type), True
-    return _settle_majority_rejected(s, entity, entity_type), True
-
-def _online_reviewer_candidates(s: Session, project_id: int) -> list[Agent]:
-    """在线 ∩ 角色含 reviewer ∩ 绑定 user 属项目成员 的 Agent 候选集。"""
-    member_ids = {
-        r[0] for r in s.query(ProjectMember.user_id).filter(
-            ProjectMember.project_id == project_id
-        ).all()
-    }
-    online_agents = s.query(Agent).filter(Agent.online == True).all()  # noqa: E712
-    candidates = []
-    for a in online_agents:
-        if a.user_id not in member_ids:
-            continue
-        if "reviewer" in _parse_json_list(a.roles, "roles"):
-            candidates.append(a)
-    return candidates
-
-def assign_reviewer(s: Session, story_id: int, *, user_id: int | None = None,
-                    is_admin: bool = False) -> Story:
-    """Story 级评审已下线（Ticket 全流程，2026-08-09）。
-
-    评审职责整体下沉 Task 层（design task 的 in_design 评审流 / 实现 task 的
-    in_review 评审）。调用方应改用 Task 的 ``assign_task_reviewer``。
-    """
-    raise InvalidValue("Story 评审已下线：评审在 Task 层进行（design 评审 / 实现评审）")
 
 def list_review_tasks(s: Session, user_id: int, *, status: str | None = None):
     """拉取指派给当前用户的评审任务（Story，按 pending_review 优先排序）。"""
@@ -1201,75 +999,6 @@ def _story_last_activity(s: Session, story: Story) -> datetime:
     if last_comment is not None and last_comment > story.created_at:
         return last_comment
     return story.created_at
-
-def _reassign_story_reviewer(s: Session, story: Story,
-                             exclude_user_id: int | None = None) -> int | None:
-    """Story 超时重派：候选排除旧 reviewer，CAS（pending_review AND reviewer_id IS NULL）。
-
-    调用前 reviewer 必须已解绑（CAS 由调用方仲裁）；候选为空 → None（保持解绑，
-    由下轮轮询补派，评审流不因重派失败而卡死）。成功返回新 reviewer 的 user_id。
-    """
-    epic = s.get(Epic, story.epic_id)
-    if epic is None:
-        return None
-    candidates = _online_reviewer_candidates(s, epic.project_id)
-    candidates = [a for a in candidates if a.user_id != exclude_user_id]
-    if not candidates:
-        return None
-    reviewer = random.choice(candidates)
-    r = s.execute(
-        update(Story).where(
-            Story.id == story.id,
-            Story.reviewer_id.is_(None),
-            Story.status == "pending_review",
-        ).values(reviewer_id=reviewer.user_id)
-    )
-    if r.rowcount != 1:
-        s.rollback()
-        return None
-    _commit(s)
-    return reviewer.user_id
-
-def _reassign_task_reviewer(s: Session, task: Task,
-                            exclude_user_id: int | None = None) -> int | None:
-    """Task 超时重派（归属收敛版）：候选 = owner 名下在线 agent，
-    排除旧评审 agent（task.reviewer_agent_id）与实现方 agent
-    （current_assignment 的 agent_registry_id），CAS 写 reviewer_id +
-    reviewer_agent_id。无合格候选 → None（保持待处理，决策 b）。
-
-    旧的「排除 assignee user」跨用户隔离已退休（同 owner 评审）。
-    成功返回新 reviewer 的 user_id；候选为空 / CAS 失败 → None。
-    """
-    if task.created_by_user_id is None:
-        return None  # owner 为空 fail-closed，保持待处理
-    # 实现方 agent（同 task 不可自审）
-    implementer_agent_id: int | None = None
-    if task.current_assignment_id is not None:
-        from ...features.scheduling.models import TaskAssignment
-        _as = s.get(TaskAssignment, task.current_assignment_id)
-        implementer_agent_id = getattr(_as, "agent_registry_id", None)
-    candidates = _online_reviewer_candidates(s, task.project_id)
-    candidates = [
-        a for a in candidates
-        if a.user_id == task.created_by_user_id
-        and a.id != task.reviewer_agent_id      # 旧评审 agent 不复用（超时换人）
-        and a.id != implementer_agent_id        # 实现方 agent 不自审
-    ]
-    if not candidates:
-        return None
-    reviewer = random.choice(candidates)
-    r = s.execute(
-        update(Task).where(
-            Task.id == task.id,
-            Task.reviewer_id.is_(None),
-            Task.status == Status.IN_REVIEW,
-        ).values(reviewer_id=reviewer.user_id, reviewer_agent_id=reviewer.id)
-    )
-    if r.rowcount != 1:
-        s.rollback()
-        return None
-    _commit(s)
-    return reviewer.user_id
 
 def get_review_stats(s: Session, *, project_id: int, days: int = 7,
                      user_id: int | None = None) -> dict:
@@ -3147,6 +2876,27 @@ from ...features.scheduling.service import (  # noqa: F401,F403
     # 末尾补:assign_reviewer 之前在 facade 里有重复实现,显式 re-bind 让
     # 老 `service.assign_reviewer` 走 features/scheduling/service 新版。
     assign_reviewer,
+)
+
+# ---------------------------------------------------------------------------
+# 评审真源统一（Implementation Plan T0.1a/T0.1b，2026-09-02）
+#
+# core 此前保留了一整簇评审私有函数的**重复定义**，且与 features 版分叉；
+# 可达性分析 + 运行时验证确认：公开入口（review_task / assign_task_reviewer /
+# scan_review_timeouts / assign_reviewer / submit_task_for_review）全部已
+# re-export 自 features，core 侧那一簇是**死代码**，features 版才是唯一真源。
+#
+# 因此这里反向收敛：core 删除本地死定义，统一转发到 features。
+# 保留转发（而非直接删除符号）是为了不破坏 `service.X` 的既有引用与
+# getattr 动态调用。
+# ---------------------------------------------------------------------------
+from ...features.scheduling.service import (  # noqa: F401,F403
+    REVIEW_MODE_SINGLE, REVIEW_MODE_MAJORITY, DEFAULT_REVIEW_QUORUM,
+    get_review_mode, get_review_quorum,
+    _is_reviewer_candidate, _upsert_review_vote, _review_vote_counts,
+    _clear_review_votes, _settle_majority_approved, _settle_majority_rejected,
+    _vote_majority, _online_reviewer_candidates,
+    _reassign_story_reviewer, _reassign_task_reviewer,
 )
 
 # ----------------------------------------------------------------------
