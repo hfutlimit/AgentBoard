@@ -34,7 +34,12 @@ from .schemas import (
 )
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
 from ...api import agent_state_hub  # noqa: E402 — Agent 状态 WebSocket 广播 hub（定义于 api.py 顶层）
-from .models import AgentRun, RunEvent, AgentInstance  # noqa: E402 — P1-4 SSE watermark snapshot; AgentInstance for DELETE /api/agents/{id}/instances (2026-09-02)
+from .models import AgentRun, RunEvent  # noqa: E402 — P1-4 SSE watermark snapshot
+from ..projects.models import AgentInstance  # noqa: E402 — DELETE /api/agents/{id}/instances (2026-09-02); agent-ephemeral cache reads
+from ...agent_registry_cache import (  # noqa: E402 — Phase 1 (agent-ephemeral-2026-09)
+    ephemeral_agents_enabled,
+    get_default_cache,
+)
 from .run_event_bus import (
     IRunEventBus,
     InProcessRunEventBus,
@@ -494,12 +499,23 @@ def list_worker_instances(worker_id: str,
     软鉴权。Worker 自己的 abk_ key 即可（``AGENTBOARD_WORKER_ID`` 与 ``worker_id``
     一致时由 Worker 端走专用路径，不需要 admin）。``cli_command`` 在 owner 视角下
     必须返回 —— Worker 探测 CLI 要用。
+
+    Flag-gated (agent-ephemeral-2026-09 P1): when
+    ``AGENTBOARD_EPHEMERAL_AGENTS=1``, reads from the in-memory
+    cache (built by WebSocket heartbeats from workers) instead of
+    the ``agent_instances`` table. Worker must be registered for
+    cache rows to be returned; otherwise an empty list is returned
+    and the consumer should re-send a HELLO frame.
     """
     uid, _is_admin = api_helpers._caller_uid_admin(authorization, s)
     if api_helpers._auth_is_required() and uid is None:
         raise HTTPException(status_code=401, detail="unauthorized")
     if not service.get_worker_by_id(s, worker_id):
         raise HTTPException(status_code=404, detail=f"worker {worker_id} not found")
+    if ephemeral_agents_enabled():
+        cache = get_default_cache()
+        cache.sweep_stale()
+        return [e.to_owner_dict() for e in cache.by_worker(worker_id)]
     rows = service.list_agent_instances(s, worker_id=worker_id)
     return [inst.to_owner_dict() for inst in rows]
 
