@@ -228,6 +228,90 @@ async def _handle_frame(
             "error": f"unknown frame type: {kind}"}
 
 
+# ---------- HTTP fallback (P3.1, hotfix for deployments without
+# WebSocket support in the reverse proxy) ----------
+#
+# Some production deployments have nginx / IIS ARR / Cloudflare
+# in front of FastAPI that don't proxy the WebSocket upgrade
+# (missing `proxy_set_header Upgrade $http_upgrade; proxy_set_header
+# Connection "upgrade";` on nginx; or the IIS ARR WebSocket
+# feature is not enabled). The WSS endpoint above is the primary
+# transport, but we expose a parallel HTTP endpoint that accepts
+# the same JSON frames in the body so workers can fall back when
+# their WSS connect fails.
+#
+# This is **not** a permanent alternative transport — the WSS path
+# is preferred because it keeps a persistent connection and
+# supports server-pushed retries. The HTTP fallback is for
+# "WebSocket upgrade is being eaten by my proxy and I can't
+# reconfigure it right now" situations.
+
+from fastapi import Body  # noqa: E402 — placed after the WS router
+from .api_helpers import request_session  # noqa: E402
+
+
+@router.post("/api/agent-cache/sync")
+def sync_agent_cache_http(
+    body: dict[str, Any] = Body(...,
+        example={"type": "HELLO", "worker_id": "W1",
+                 "agents": [{"agent_id": "a", "model": "m",
+                            "cli_command": "codebuddy -p --model m",
+                            "enabled": True}]}),
+    authorization: str | None = Header(None),
+):
+    """HTTP fallback for the WebSocket frame protocol. Same shape,
+    one frame per request. Workers should call this on a timer
+    (every 15s or on local change) if the WSS connect keeps
+    failing. The server treats each call as if the corresponding
+    frame arrived on the WSS connection.
+
+    PING semantics: we do NOT call ``record_ping`` here — the
+    HTTP call itself is the proof of liveness. The cache's
+    staleness sweep (60s) treats this as a fresh heartbeat.
+
+    NOT intended for high-frequency call sites. Use WSS when
+    available.
+    """
+    uid, _ = _caller_uid_admin(authorization, s=None)
+    if _auth_is_required() and not uid:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if not ephemeral_agents_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="AGENTBOARD_EPHEMERAL_AGENTS=1 is not enabled",
+        )
+    kind = body.get("type")
+    if kind not in ("HELLO", "DELTA", "PING", "BYE"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"unsupported frame type: {kind}",
+        )
+    cache = get_default_cache()
+    # PING via HTTP is its own semantics: refresh all of this
+    # worker's known entries. We still go through _handle_frame
+    # for HELLO / DELTA / BYE so the logic is identical to the
+    # WSS path.
+    if kind == "PING":
+        wid = body.get("worker_id")
+        if not wid:
+            raise HTTPException(
+                status_code=400, detail="PING requires worker_id",
+            )
+        # Touch every entry the cache has for this worker.
+        ids = [e.agent_id for e in cache.by_worker(wid)]
+        touched = cache.record_ping(wid, ids)
+        return {"ok": True, "type": "ACK", "for": "PING", "touched": touched}
+    # For HELLO / DELTA / BYE we re-use the dispatcher. It's
+    # async so we drive it via asyncio.run.
+    import asyncio as _asyncio
+    # We need a worker_id binding for the dispatcher. For HELLO
+    # it comes from the frame; for DELTA / BYE we accept it as
+    # a sibling field on the body.
+    wid = body.get("worker_id")
+    ack = _asyncio.run(_handle_frame(kind, body, cache, worker_id=wid))
+    return {"ok": ack.get("type") == "ACK", **ack}
+
+
 def _require_str(frame: dict[str, Any], key: str) -> str | None:
     val = frame.get(key)
     if isinstance(val, str) and val.strip():

@@ -460,7 +460,10 @@ def create_app(
     )
     if wss_client is not None:
         wss_client.start()
-        wss_client.enqueue_hello()  # prime the server cache
+        # Try to prime the server cache. If the WSS push fails
+        # immediately (or later) the cache will catch up the next
+        # time _push_delta_or_log is called.
+        wss_client.enqueue_hello()
 
     def _local_agent_to_dict(a) -> dict[str, Any]:
         """Render a LocalAgent in the shape the existing UI expects
@@ -486,13 +489,91 @@ def create_app(
             "name": a.agent_id,
         }
 
-    def _push_delta_or_log(*, add=None, remove=None) -> None:
-        if wss_client is None:
-            return
+    def _push_hello_or_log() -> None:
+        """Send a HELLO frame to the server so the cache reflects
+        this worker's full state. Same WSS-first / HTTP-fallback
+        strategy as ``_push_delta_or_log``."""
+        if wss_client is not None:
+            try:
+                wss_client.enqueue_hello()
+                return
+            except Exception as e:  # pragma: no cover
+                log.warning("worker_portal: wss hello push failed: %s; "
+                            "falling back to HTTP sync", e)
+        # HTTP fallback
         try:
-            wss_client.enqueue_delta(add_or_update=add or [], remove=remove or [])
+            agents = [a.to_frame() for a in local_registry.list_agents()]
+            proxy.post(
+                "/api/agent-cache/sync",
+                {"type": "HELLO",
+                 "worker_id": local_worker_id,
+                 "agents": agents},
+            )
         except Exception as e:  # pragma: no cover
-            log.warning("worker_portal: wss delta push failed: %s", e)
+            log.warning("worker_portal: http sync hello failed: %s", e)
+
+    # Fire a HELLO via the HTTP fallback path immediately, so a
+    # deployment whose WSS is being eaten by a proxy still gets
+    # the cache populated. The WSS thread will keep retrying
+    # and eventually take over once the proxy is fixed.
+    _push_hello_or_log()
+
+    def _push_delta_or_log(*, add=None, remove=None) -> None:
+        """Push a frame to the server so the cache reflects this
+        worker's state. Tries WSS first; falls back to an HTTP
+        sync endpoint on the server when WSS connect keeps
+        failing (common when an nginx / IIS ARR in front of the
+        server doesn't proxy the WebSocket upgrade). Falls back
+        silently — the local SQLite is the source of truth, so
+        a missed push only means the cache is stale until the
+        next successful frame.
+        """
+        adds = list(add or [])
+        rems = list(remove or [])
+        if not adds and not rems:
+            return
+        if wss_client is not None:
+            try:
+                wss_client.enqueue_delta(add_or_update=adds, remove=rems)
+                return
+            except Exception as e:  # pragma: no cover
+                log.warning("worker_portal: wss delta push failed: %s; "
+                            "falling back to HTTP sync", e)
+        # HTTP fallback — POST to /api/agent-cache/sync with the
+        # same body shape the WSS handler accepts. This works
+        # through any plain HTTP proxy.
+        try:
+            proxy.post(
+                "/api/agent-cache/sync",
+                {"type": "DELTA",
+                 "worker_id": local_worker_id,
+                 "add_or_update": adds, "remove": rems},
+            )
+        except Exception as e:  # pragma: no cover
+            log.warning("worker_portal: http sync fallback failed: %s", e)
+
+    def _push_hello_or_log() -> None:
+        """Send a HELLO frame to the server so the cache reflects
+        this worker's full state. Same WSS-first / HTTP-fallback
+        strategy as ``_push_delta_or_log``."""
+        if wss_client is not None:
+            try:
+                wss_client.enqueue_hello()
+                return
+            except Exception as e:  # pragma: no cover
+                log.warning("worker_portal: wss hello push failed: %s; "
+                            "falling back to HTTP sync", e)
+        # HTTP fallback
+        try:
+            agents = [a.to_frame() for a in local_registry.list_agents()]
+            proxy.post(
+                "/api/agent-cache/sync",
+                {"type": "HELLO",
+                 "worker_id": local_worker_id,
+                 "agents": agents},
+            )
+        except Exception as e:  # pragma: no cover
+            log.warning("worker_portal: http sync hello failed: %s", e)
 
     @app.get("/api/agents")
     def list_agents() -> Any:
