@@ -783,11 +783,49 @@ public sealed class Sprint11_ProductionHardeningTests
         // immediately close. The port is then "closed" for the
         // duration of the test (until the OS reuses it, which is
         // unlikely in a fast unit test).
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
-        listener.Stop();
-        return port;
+        //
+        // 2026-09-02 CI hardening: a just-freed ephemeral port is NOT
+        // reliably dead. Two real failure modes observed:
+        //   1. xUnit runs test classes in parallel; a sibling test's
+        //      HttpListener can bind the freed port before our probe
+        //      runs (Windows hands out ephemeral ports round-robin,
+        //      so reuse is near-immediate).
+        //   2. Machines with a system proxy / TUN interceptor answer
+        //      loopback connects for closed ports with an HTTP error.
+        // So: walk candidates until one actively REFUSES a direct
+        // TcpClient connect — the same state the McpUrl probe will
+        // observe (the probe runs with UseProxy=false).
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            listener.Stop();
+
+            using var canary = new TcpClient();
+            try
+            {
+                var connect = canary.ConnectAsync(IPAddress.Loopback, port);
+                if (!connect.Wait(500))
+                {
+                    // Timed out — no RST observed; treat as dead.
+                    return port;
+                }
+                if (!canary.Connected)
+                {
+                    return port;
+                }
+                // Connected → something IS listening (proxy interceptor
+                // or a parallel test's listener). Try another port.
+            }
+            catch
+            {
+                // Connect failed (refused/unreachable) → dead port.
+                return port;
+            }
+        }
+        throw new InvalidOperationException(
+            "Could not find a loopback port that refuses connections.");
     }
 
     private static (string url, CancellationTokenSource cts) StartHttpListener(int status, string body)

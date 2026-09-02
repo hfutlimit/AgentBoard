@@ -215,7 +215,14 @@ public sealed class ReadinessProbe
             //
             // Fix: build a one-shot HttpClient with
             // AllowAutoRedirect=false and only accept 2xx.
-            using var handler = new HttpClientHandler { AllowAutoRedirect = false };
+            // UseProxy=false (2026-09-02 CI fix): McpUrl is the agent's
+            // LOCAL MCP endpoint — routing the probe through a system
+            // proxy (Clash TUN etc.) makes the proxy answer for the
+            // dead endpoint (e.g. 502), which both misclassifies
+            // "unreachable" as "returned HTTP 502" and can never see
+            // the real listen state. Loopback probes must connect
+            // directly.
+            using var handler = new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false };
             using var noRedirect = new HttpClient(handler) { Timeout = McpProbeTimeout };
             using var resp = await noRedirect.GetAsync(opts.McpUrl, HttpCompletionOption.ResponseHeadersRead, ct);
             var status = (int)resp.StatusCode;
