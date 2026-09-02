@@ -184,7 +184,7 @@ class ServerWebSocketClient:
         # deployment (the worker_portal only needs it when
         # AGENTBOARD_EPHEMERAL_AGENTS=1).
         try:
-            import websockets  # type: ignore
+            from websockets.sync.client import connect as _ws_connect
         except ImportError as e:
             raise RuntimeError(
                 "ServerWebSocketClient needs the 'websockets' package; "
@@ -196,7 +196,7 @@ class ServerWebSocketClient:
         # upgrade. We open with a short ping_interval so dead
         # connections are detected fast.
         log.info("ws_client: connecting to %s", self._server_url)
-        ws = websockets.sync.client.connect(
+        ws = _ws_connect(
             url, ping_interval=20, ping_timeout=20, close_timeout=5,
         )
         try:
