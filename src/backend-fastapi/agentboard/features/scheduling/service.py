@@ -96,9 +96,9 @@ from .models import (
 # 评审超时(30 分钟,任务超过这个时间还没人评审就重新指派)
 DEFAULT_REVIEW_TIMEOUT_MINUTES = 30
 DEFAULT_TIMEOUT_SCAN_BATCH = 20
-MAX_REVIEW_ROUNDS = 5
-# 注：DEFAULT_REVIEW_QUORUM / REVIEW_MODE_* 不再在此重复定义，真源见
-# scheduling/models.py（本文件顶部已 import）。2026-09-02 T1.2 收敛。
+# 注：DEFAULT_REVIEW_QUORUM / REVIEW_MODE_* / MAX_REVIEW_ROUNDS 不再在此重复
+# 定义，真源见 scheduling/models.py（本文件顶部已 import）。
+# 2026-09-02 收敛（T1.2 + Plan §六-4 R6）：改这些常量只需改 models.py 一处。
 
 
 # Agent 在 projects.models
@@ -621,7 +621,8 @@ def list_agents(s: Session, *, online: bool | None = None, role: str | None = No
 
 
 # ---------- Story 评审闭环（Epic 122 S1） ----------
-MAX_REVIEW_ROUNDS = 5  # 与 Proposal max_rounds 对齐；超限置 blocked 护栏
+# MAX_REVIEW_ROUNDS 真源也在 scheduling/models.py（原在此处第二份定义，
+# 2026-09-02 按 Plan §六-4 收敛）。
 
 # ---------- 多数决评审（Epic 122 S3 M3） ----------
 # REVIEW_MODE_* / DEFAULT_REVIEW_QUORUM 真源在 scheduling/models.py

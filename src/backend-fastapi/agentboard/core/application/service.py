@@ -715,7 +715,8 @@ def delete_agent(s: Session, agent_id: str) -> Agent | None:
 # get_review_* / _vote_majority / _settle_* / _online_reviewer_candidates /
 # _reassign_*_reviewer）真源已迁至 features/scheduling/service.py，
 # 本模块末尾统一转发 —— 详见文件末尾「评审真源统一」注释块。
-MAX_REVIEW_ROUNDS = 5  # 与 Proposal max_rounds 对齐；超限置 blocked 护栏
+# MAX_REVIEW_ROUNDS 同样转发（原在此处第三份定义，2026-09-02 按 Plan §六-4
+# 收敛到 scheduling/models.py 一处）。
 
 def list_review_tasks(s: Session, user_id: int, *, status: str | None = None):
     """拉取指派给当前用户的评审任务（Story，按 pending_review 优先排序）。"""
@@ -2892,6 +2893,7 @@ from ...features.scheduling.service import (  # noqa: F401,F403
 # ---------------------------------------------------------------------------
 from ...features.scheduling.service import (  # noqa: F401,F403
     REVIEW_MODE_SINGLE, REVIEW_MODE_MAJORITY, DEFAULT_REVIEW_QUORUM,
+    MAX_REVIEW_ROUNDS,
     get_review_mode, get_review_quorum,
     _is_reviewer_candidate, _upsert_review_vote, _review_vote_counts,
     _clear_review_votes, _settle_majority_approved, _settle_majority_rejected,

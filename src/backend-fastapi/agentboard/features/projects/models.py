@@ -92,6 +92,17 @@ class Story(Base):
     # 会把崩溃 Worker 的租约无限续期（与 proposals 迁移 i5j6k7l8m9n0 同因）。
     claimed_by: Mapped[str | None] = mapped_column(String(100), nullable=True, server_default="")
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # ---- 归属（Implementation Plan T1.3，2026-09-02）----
+    # 与 Task 同构：created_by_user_id 是**不可变**的创建者（审计语义），
+    # owner_user_id 是**可变**的当前归属（移交=改 owner，免确认，见 T2.3）。
+    # 两者都 nullable：存量 Story 由 T1.4 的 backfill 回填（历史数据一律
+    # 归 admin），NULL owner 的执行门由 T1.5 fail closed。
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
+    owner_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 

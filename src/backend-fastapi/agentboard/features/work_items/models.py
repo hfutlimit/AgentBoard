@@ -60,15 +60,20 @@ class Task(Base):
     source_spec_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True)
     # Epic 17: 任务管理增强
     assignee_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
-    # 归属收敛（2026-09-01）：task 的 owner（创建者 user）+ 创建方 agent。
-    # 处理（执行/评审/认领/派发）只允许 processing Agent.user_id ==
-    # created_by_user_id；created_by_user_id 为 NULL（存量）时 fail closed，
-    # 需人工补 owner 才能被处理。见 docs/design/agent-ownership-scoping-plan.md。
+    # ---- 归属（见 docs/design/agent-ownership-scoping-plan.md）----
+    # created_by_user_id / created_by_agent_id：**不可变**的创建者（审计语义）。
+    # owner_user_id：**可变**的当前归属（T1.3）——移交只改它，created_by_* 保
+    # 持原值，这样「谁建的」和「现在归谁」都能查。
+    # 执行门（T1.5）判 owner_user_id；NULL 时 fail closed，不自动放行。
+    # 存量行由 T1.4 的 backfill 从 created_by_user_id 回填。
     created_by_user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id"), nullable=True, index=True
     )
     created_by_agent_id: Mapped[int | None] = mapped_column(
         ForeignKey("agents.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    owner_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
     )
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     labels: Mapped[str] = mapped_column(Text, default="[]")  # JSON array string
