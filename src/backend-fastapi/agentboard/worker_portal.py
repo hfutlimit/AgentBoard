@@ -136,9 +136,11 @@ CLI_PRESETS: dict[str, dict[str, Any]] = {
         "cli": _CODEBUDDY_CLI,
         "mcp_config": None,  # 由页面/默认 mcp-prod.json 填充
         "models": [
-            "hy3", "hy3-preview-agent", "deepseek-v4-flash", "deepseek-v4-pro",
-            "kimi-k3-2", "kimi-k2-7", "kimi-k2-6", "glm-5.2", "glm-5.1",
-            "glm-5v-turbo", "minimax-m3-pay",
+            "hy3", "hy3-preview-agent", "hy4-preview",
+            "deepseek-v4-flash", "deepseek-v4-pro",
+            "kimi-k3-2", "kimi-k2-7", "kimi-k2-6",
+            "glm-5.2", "glm-5.1", "glm-5v-turbo", "glm-5.3-flash",
+            "minimax-m3-pay", "minimax-m2.7",
         ],
         "template": ('"{node}" "{cli}" -p{full_access} --model "{model}" '
                       '--mcp-config "{mcp}" --output-format text'),
