@@ -779,27 +779,33 @@ public sealed class Sprint11_ProductionHardeningTests
 
     private static int GetClosedLocalPort()
     {
-        // Bind a TcpListener to port 0 (let OS pick), read the port,
-        // immediately close. The port is then "closed" for the
-        // duration of the test (until the OS reuses it, which is
-        // unlikely in a fast unit test).
+        // The port must stay closed for the duration of the test. Two
+        // 2026-09-02 hardening notes (CI red on windows-latest):
         //
-        // 2026-09-02 CI hardening: a just-freed ephemeral port is NOT
-        // reliably dead. Two real failure modes observed:
-        //   1. xUnit runs test classes in parallel; a sibling test's
-        //      HttpListener can bind the freed port before our probe
-        //      runs (Windows hands out ephemeral ports round-robin,
-        //      so reuse is near-immediate).
-        //   2. Machines with a system proxy / TUN interceptor answer
-        //      loopback connects for closed ports with an HTTP error.
-        // So: walk candidates until one actively REFUSES a direct
-        // TcpClient connect — the same state the McpUrl probe will
-        // observe (the probe runs with UseProxy=false).
-        for (var attempt = 0; attempt < 8; attempt++)
+        // 1. Pick OUTSIDE the OS dynamic/ephemeral range. Windows hands
+        //    port-0 binds out of 49152+ and reuses just-freed ports almost
+        //    immediately — a sibling test class binding a listener in
+        //    parallel could take our freed port between the canary check
+        //    and the probe, answering HTTP and turning "unreachable" into
+        //    "returned HTTP 404". A port below 49152 is never allocated by
+        //    port-0 binds, so nothing can race us for it.
+        // 2. Still verify the port actively REFUSES a direct TcpClient
+        //    connect before using it — machines with a TUN/system proxy
+        //    (Clash etc.) answer loopback connects for closed ports with
+        //    an HTTP error, which is exactly the state we must avoid (the
+        //    probe runs with UseProxy=false).
+        for (var port = 47999; port >= 40000; port--)
         {
-            var listener = new TcpListener(IPAddress.Loopback, 0);
-            listener.Start();
-            var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            var listener = new TcpListener(IPAddress.Loopback, port);
+            try
+            {
+                listener.Start();
+            }
+            catch
+            {
+                // Port occupied or in an excluded range — try the next.
+                continue;
+            }
             listener.Stop();
 
             using var canary = new TcpClient();
@@ -815,8 +821,8 @@ public sealed class Sprint11_ProductionHardeningTests
                 {
                     return port;
                 }
-                // Connected → something IS listening (proxy interceptor
-                // or a parallel test's listener). Try another port.
+                // Connected → something IS listening (proxy interceptor).
+                // Try another port.
             }
             catch
             {
