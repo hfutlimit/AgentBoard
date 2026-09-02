@@ -366,6 +366,31 @@ def remove_project_member(
         t.owner_user_id = receiver
     for st in owned_stories:
         st.owner_user_id = receiver
+    # T5.2：逐 item 写历史；T5.1 通知合并成一条发给接收方（N 个 item 发 N 条
+    # 通知是轰炸，不是提醒）
+    for t in owned_tasks:
+        record_owner_transfer(
+            s, entity_type="task", entity_id=t.id, project_id=project_id,
+            from_owner_user_id=user_id, to_owner_user_id=receiver,
+            changed_by_user_id=None, reason="member_removed",
+            notify=False, entity_title=t.title)
+    for st in owned_stories:
+        record_owner_transfer(
+            s, entity_type="story", entity_id=st.id, project_id=project_id,
+            from_owner_user_id=user_id, to_owner_user_id=receiver,
+            changed_by_user_id=None, reason="member_removed",
+            notify=False, entity_title=st.title)
+    if receiver and (owned_tasks or owned_stories):
+        from ..notifications.service import create_notification
+        create_notification(
+            s,
+            user_id=receiver,
+            notif_type="owner_transferred",
+            title=(f"成员移除：{len(owned_tasks)} 个 task / "
+                   f"{len(owned_stories)} 个 story 移交给你"),
+            content=(f"user {user_id} 被移出 project {project_id}，"
+                     "其名下任务已按项目 owner 规则移交给你。"),
+        )
     _commit(s)
     if owned_tasks or owned_stories:
         log.info(
@@ -527,6 +552,48 @@ def resolve_project_owner_excluding(
     return int(owners[0].user_id)
 
 
+# ---- T5.1/T5.2 移交历史 + 通知 -------------------------------------------------
+
+def record_owner_transfer(
+    s: Session, *, entity_type: str, entity_id: int, project_id: int,
+    from_owner_user_id: int | None, to_owner_user_id: int,
+    changed_by_user_id: int | None = None, reason: str = "",
+    entity_title: str = "", notify: bool = True,
+) -> None:
+    """写一条 owner 移交历史，并给**新 owner** 发 owner_transferred 通知。
+
+    真源在 projects（OwnerTransferHistory 模型同处）；work_items 的
+    transfer_task 惰性引用本函数（保持 work_items 不顶层依赖 projects.service）。
+    ``notify=False`` 供批量场景（移除成员可能一次移交 N 个 item）由调用方
+    合并发通知。
+    """
+    from ..notifications.service import create_notification
+    from .models import OwnerTransferHistory
+
+    s.add(OwnerTransferHistory(
+        entity_type=entity_type, entity_id=entity_id, project_id=project_id,
+        from_owner_user_id=from_owner_user_id,
+        to_owner_user_id=to_owner_user_id,
+        changed_by_user_id=changed_by_user_id, reason=reason[:300],
+    ))
+    if notify and to_owner_user_id:
+        label = f"{entity_type} #{entity_id}"
+        if entity_title:
+            label = f"{entity_type}「{entity_title}」(#{entity_id})"
+        create_notification(
+            s,
+            user_id=to_owner_user_id,
+            notif_type="owner_transferred",
+            title=f"有新的 {label} 移交给你",
+            content=(
+                f"{label} 的归属已由 user {from_owner_user_id} 移交给你"
+                + (f"（操作人 user {changed_by_user_id}）" if changed_by_user_id else "")
+                + "。"
+            ),
+            link=None,
+        )
+
+
 # ---- T2.3 Story 移交 ----------------------------------------------------------
 
 def transfer_story(
@@ -550,6 +617,13 @@ def transfer_story(
         )
     previous = st.owner_user_id
     st.owner_user_id = new_owner_user_id
+    record_owner_transfer(
+        s, entity_type="story", entity_id=story_id,
+        project_id=_story_project_id(s, story_id) or 0,
+        from_owner_user_id=previous, to_owner_user_id=new_owner_user_id,
+        changed_by_user_id=changed_by_user_id, reason="transfer_story",
+        entity_title=st.title,
+    )
     _commit(s)
     log.info(
         "transfer_story: story %s owner %s -> %s (changed_by=%s)",

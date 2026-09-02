@@ -200,6 +200,14 @@ def transfer_task(
         )
     previous = work_item_owner_user_id(task)
     task.owner_user_id = new_owner_user_id
+    from ..projects.service import record_owner_transfer
+    record_owner_transfer(
+        s, entity_type="task", entity_id=task_id,
+        project_id=task.project_id,
+        from_owner_user_id=previous, to_owner_user_id=new_owner_user_id,
+        changed_by_user_id=changed_by_user_id, reason="transfer_task",
+        entity_title=task.title,
+    )
     _commit(s)
     log.info(
         "transfer_task: task %s owner %s -> %s (changed_by=%s, project=%s)；"

@@ -47,6 +47,7 @@ def create_notification(
         raise NotFound(f"user {user_id} not found")
     valid_types = {
         "project_invite", "join_request", "task_assigned", "status_changed", "mentioned",
+        "owner_transferred",
     }
     if notif_type not in valid_types:
         raise InvalidValue(f"notification type must be one of: {valid_types}")

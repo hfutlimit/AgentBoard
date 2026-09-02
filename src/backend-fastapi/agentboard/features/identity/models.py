@@ -48,7 +48,8 @@ class ApiKey(Base):
 class Notification(Base):
     __tablename__ = "notifications"
     __table_args__ = (CheckConstraint(
-        "type IN ('project_invite','join_request','task_assigned','status_changed','mentioned')",
+        "type IN ('project_invite','join_request','task_assigned','status_changed',"
+        "'mentioned','owner_transferred')",
         name="ck_notifications_type",
     ),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

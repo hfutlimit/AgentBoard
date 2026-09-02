@@ -355,6 +355,32 @@ class ProjectMember(Base):
     joined_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
+class OwnerTransferHistory(Base):
+    """owner 移交历史（T5.2）。
+
+    为什么不复用 task_status_history / story_status_history：移交**不伴随**
+    状态变更，那两张表只记 from_status/to_status，根本装不下「谁在何时把
+    什么从谁手里给了谁」。Plan T5.2 明确要求独立成表，不复用。
+
+    entity_type 取 'task' / 'story'（与 review_votes 的口径一致）。
+    changed_by 是发起移交的人（owner / project owner / admin / 系统）。
+    """
+    __tablename__ = "owner_transfer_history"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    entity_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    entity_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id"), nullable=False, index=True)
+    from_owner_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True)
+    to_owner_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), nullable=False)
+    changed_by_user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True)
+    reason: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
 class Sprint(Base):
     __tablename__ = "sprints"
     __table_args__ = (CheckConstraint(
