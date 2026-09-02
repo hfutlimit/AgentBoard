@@ -26,7 +26,12 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$repoRoot   = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+# $PSScriptRoot is empty in some hosting contexts (PS 5.1 -File quirks);
+# resolve the repo root defensively so the documented local flow works.
+$scriptRoot = $PSScriptRoot
+if (-not $scriptRoot) { $scriptRoot = Split-Path $PSCommandPath -Parent }
+if (-not $scriptRoot) { $scriptRoot = Split-Path $MyInvocation.MyCommand.Path -Parent }
+$repoRoot   = (Resolve-Path (Join-Path $scriptRoot '..')).Path
 $snapshot   = Join-Path $repoRoot 'src/backend-dotnet/contracts/openapi-v3.json'
 $output     = Join-Path $repoRoot 'src/backend-dotnet/src/AgentBoard.Api/Clients/AgentBoardFastApiClient.cs'
 $namespace  = 'AgentBoard.Api.Clients'

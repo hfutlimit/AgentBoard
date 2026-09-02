@@ -30,30 +30,58 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$FastApiUrl = $env:AGENTBOARD_FASTAPI_URL ?? 'http://127.0.0.1:18000',
-    [string]$ContractsDir = (Join-Path $PSScriptRoot '..' 'src' 'backend-dotnet' 'contracts')
+    [string]$FastApiUrl = '',
+    [string]$ContractsDir = ''
 )
 
 $ErrorActionPreference = 'Stop'
+
+# PS 5.1 compat: the ?? operator is PowerShell 7 only and made this script
+# fail to parse on stock Windows PowerShell (the documented local flow).
+if (-not $FastApiUrl) {
+    $FastApiUrl = if ($env:AGENTBOARD_FASTAPI_URL) { $env:AGENTBOARD_FASTAPI_URL } else { 'http://127.0.0.1:18000' }
+}
+
+# $PSScriptRoot is empty in some hosting contexts (param defaults evaluated
+# before the script context exists); resolve the repo root defensively.
+if (-not $ContractsDir) {
+    $scriptRoot = $PSScriptRoot
+    if (-not $scriptRoot) { $scriptRoot = Split-Path $PSCommandPath -Parent }
+    if (-not $scriptRoot) { $scriptRoot = Split-Path $MyInvocation.MyCommand.Path -Parent }
+    $ContractsDir = Join-Path $scriptRoot '..' | Join-Path -ChildPath 'src' | Join-Path -ChildPath 'backend-dotnet' | Join-Path -ChildPath 'contracts'
+    $ContractsDir = [System.IO.Path]::GetFullPath($ContractsDir)
+}
 
 $openApiPath = "$FastApiUrl/openapi.json"
 Write-Host "Fetching $openApiPath ..."
 
 try {
-    $response = Invoke-WebRequest -Uri $openApiPath -Method GET -UseBasicParsing -TimeoutSec 10
+    # Bypass the system proxy explicitly: with a TUN-mode proxy (Clash etc.)
+    # running, Invoke-WebRequest would route the loopback request through it
+    # and fetch a 502 instead of the live document.
+    # PS 5.1 does not load System.Net.Http by default.
+    Add-Type -AssemblyName System.Net.Http
+    $handler = New-Object System.Net.Http.HttpClientHandler
+    $handler.UseProxy = $false
+    $httpClient = New-Object System.Net.Http.HttpClient($handler)
+    $httpClient.Timeout = [TimeSpan]::FromSeconds(10)
+    $response = $httpClient.GetAsync("$openApiPath").GetAwaiter().GetResult()
+    $content = $response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+    $statusCode = [int]$response.StatusCode
+    $httpClient.Dispose()
 }
 catch {
     Write-Error "Failed to fetch $openApiPath. Is FastAPI running? Start it with 'docker compose -f config/docker/docker-compose.yml up -d api' or 'uvicorn agentboard.api:app --port 8000'."
     exit 1
 }
 
-if ($response.StatusCode -ne 200) {
-    Write-Error "FastAPI returned HTTP $($response.StatusCode)."
+if ($statusCode -ne 200) {
+    Write-Error "FastAPI returned HTTP $statusCode."
     exit 1
 }
 
 # Parse + pretty-print with stable key order so diffs are meaningful.
-$json = $response.Content | ConvertFrom-Json
+$json = $content | ConvertFrom-Json
 $pretty = ($json | ConvertTo-Json -Depth 50) -replace "`r`n", "`n"
 
 if (-not (Test-Path $ContractsDir)) {
