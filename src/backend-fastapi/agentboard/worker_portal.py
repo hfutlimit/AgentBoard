@@ -37,6 +37,8 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+
+from .agent_registry_cache import ephemeral_agents_enabled  # agent-ephemeral-2026-09 P4
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -430,8 +432,74 @@ def create_app(
         })
 
     # ---- 本机 Worker AgentInstance（不读写服务器全局 Agent 池） ----
+
+    # Phase 4 (agent-ephemeral-2026-09): local SQLite registry.
+    # When the feature flag is on, the portal reads/writes the local
+    # SQLite (worker is the source of truth) and pushes DELTA
+    # frames to the server via WebSocket. When the flag is off, the
+    # portal falls back to the original server proxy path (P5
+    # graceful rollback story).
+    from .worker.local_registry import LocalAgentRegistry  # noqa: E402
+    from .worker.ws_client import ServerWebSocketClient  # noqa: E402
+    # Test seam: tests can pre-set AGENTBOARD_LOCAL_AGENT_DB to a
+    # temp file before import, so the test runs against a fresh DB
+    # instead of the operator's real ~/.codebuddy/agents.db.
+    _db_path = _env("AGENTBOARD_LOCAL_AGENT_DB", "") or None
+    local_registry = LocalAgentRegistry(db_path=_db_path) if _db_path else LocalAgentRegistry()
+    # WSS server URL is the same as the HTTP API URL with scheme swap.
+    wss_url = (api or "").replace("http://", "ws://").replace("https://", "wss://")
+    wss_client = (
+        ServerWebSocketClient(
+            server_url=wss_url,
+            token=tok,
+            worker_id=local_worker_id,
+            registry=local_registry,
+        )
+        if ephemeral_agents_enabled() and wss_url
+        else None
+    )
+    if wss_client is not None:
+        wss_client.start()
+        wss_client.enqueue_hello()  # prime the server cache
+
+    def _local_agent_to_dict(a) -> dict[str, Any]:
+        """Render a LocalAgent in the shape the existing UI expects
+        (so the Angular side needs no change)."""
+        return {
+            "agent_id": a.agent_id,
+            "worker_id": local_worker_id,
+            "cli_command": a.cli_command,
+            "model": a.model,
+            "enabled": bool(a.enabled),
+            "online": True,
+            "roles": json.dumps(list(a.roles), ensure_ascii=False),
+            "last_heartbeat": 0.0,
+            "last_probe_at": None,
+            "probe_message": "",
+            "executor_type": None,
+            "id": None,
+            "created_at": a.updated_at,
+            "updated_at": a.updated_at,
+            # Legacy logical-agent fields the UI may look at; absent
+            # on the local path so the UI treats each row as its own
+            # primary entity. ``name`` falls back to agent_id.
+            "name": a.agent_id,
+        }
+
+    def _push_delta_or_log(*, add=None, remove=None) -> None:
+        if wss_client is None:
+            return
+        try:
+            wss_client.enqueue_delta(add_or_update=add or [], remove=remove or [])
+        except Exception as e:  # pragma: no cover
+            log.warning("worker_portal: wss delta push failed: %s", e)
+
     @app.get("/api/agents")
     def list_agents() -> Any:
+        if local_registry is not None:
+            # Local path: read the SQLite, no server roundtrip.
+            return [_local_agent_to_dict(a) for a in local_registry.list_agents()]
+        # Legacy path (flag off): roundtrip to the server.
         _ensure_worker_registered()
         instances = proxy.get(f"/api/workers/{local_worker_id}/instances") or []
         logical_agents = proxy.get("/api/agents") or []
@@ -445,6 +513,20 @@ def create_app(
 
     @app.post("/api/agents", status_code=201)
     def create_agent(body: AgentBody) -> Any:
+        if local_registry is not None:
+            cli_cmd = _render_cli_command(
+                body.cli_type, body.model, body.mcp_config, body.full_access,
+            )
+            saved = local_registry.upsert(
+                agent_id=body.agent_id.strip(),
+                cli_command=cli_cmd,
+                model=(body.model or "").strip(),
+                enabled=bool(body.enabled),
+                roles=body.roles or ["developer", "reviewer"],
+            )
+            _push_delta_or_log(add=[saved.to_frame()])
+            return _local_agent_to_dict(saved)
+        # Legacy path (flag off).
         _ensure_worker_registered()
         cli_cmd = _render_cli_command(
             body.cli_type, body.model, body.mcp_config, body.full_access,
@@ -485,6 +567,41 @@ def create_app(
 
     @app.put("/api/agents/{agent_id}")
     def update_agent(agent_id: str, body: AgentUpdateBody) -> Any:
+        if local_registry is not None:
+            # Local path: read existing, apply patches, write back.
+            existing = local_registry.get(agent_id)
+            if existing is None:
+                raise HTTPException(404, f"agent {agent_id} not found in local registry")
+            new_model = body.model if body.model is not None else existing.model
+            new_enabled = body.enabled if body.enabled is not None else existing.enabled
+            new_roles = body.roles if body.roles is not None else list(existing.roles)
+            if body.cli_type is not None or body.model is not None or body.full_access is not None:
+                # Re-render cli_command if any of these changed
+                cli_type = body.cli_type or (
+                    "codex" if "codex" in existing.cli_command.lower()
+                    else "codebuddy"
+                )
+                full_access = (
+                    body.full_access
+                    if body.full_access is not None
+                    else ("--dangerously-bypass-approvals-and-sandbox" in existing.cli_command
+                          or " -y " in f" {existing.cli_command} ")
+                )
+                new_cli = _render_cli_command(
+                    cli_type, new_model, body.mcp_config, full_access,
+                )
+            else:
+                new_cli = existing.cli_command
+            saved = local_registry.upsert(
+                agent_id=agent_id,
+                cli_command=new_cli,
+                model=new_model,
+                enabled=new_enabled,
+                roles=new_roles,
+            )
+            _push_delta_or_log(add=[saved.to_frame()])
+            return _local_agent_to_dict(saved)
+        # Legacy path (flag off).
         _ensure_worker_registered()
         instances = proxy.get(f"/api/workers/{local_worker_id}/instances") or []
         existing = next((item for item in instances if item.get("agent_id") == agent_id), {})
@@ -527,12 +644,22 @@ def create_app(
 
     @app.delete("/api/agents/{agent_id}")
     def delete_agent(agent_id: str) -> Any:
-        """删除本 Worker 上某 agent 的 instance（per-worker 解绑）。
+        """删除本 Worker 上某 agent。
 
-        转给 server 端 ``DELETE /api/agents/{agent_id}/instances?worker_id=...``。
-        instance 不存在时返回 404（不幂等）—— 配合 UI 让 operator 看到
-        "早就被删了" vs "刚被我删了" 的差别。
+        Phase 4 path (flag on): delete from the local SQLite and
+        emit a DELTA to the server. Phase 3 path (flag off):
+        forward to the server's DELETE /api/agents/{id}/instances
+        endpoint (unchanged).
         """
+        if local_registry is not None:
+            if not local_registry.delete(agent_id):
+                raise HTTPException(
+                    404, f"agent {agent_id} not found in local registry"
+                )
+            _push_delta_or_log(remove=[agent_id])
+            return {"ok": True, "deleted_id": agent_id,
+                    "worker_id": local_worker_id}
+        # Legacy path (flag off).
         _ensure_worker_registered()
         return proxy.delete(
             f"/api/agents/{agent_id}/instances?worker_id={local_worker_id}"
