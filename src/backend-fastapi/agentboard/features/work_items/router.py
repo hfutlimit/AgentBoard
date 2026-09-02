@@ -555,29 +555,20 @@ def assign_task_reviewer(tid: int, count: int = 1,
     # 归属收敛（2026-09-01）：优先用 ReviewVote.reviewer_agent_id 精确定位
     # 被指派的评审 Agent（同 owner 多 agent 时按 user 反查首个会路由错人，
     # 可能路由给实现方自己）；旧数据无 agent 列时回退按 user 反查。
+    # T1.1：已指派集合直接按 agent 维度取（review_votes.reviewer_agent_id
+    # 是计票事实源），不再「按 user 反查首个 agent」——那会把 fan-out 的
+    # 多条消息全路由到同一个 agent（甚至实现方自己）。
     from ...features.scheduling.service import (
-        _assigned_task_reviewer_ids,
+        _assigned_task_reviewer_agent_ids,
         publish_workflow_event_for_agent,  # PR-5：resolve worker_id from agent_id
     )
-    from ...features.projects.models import ReviewVote
-    vote_rows = s.query(ReviewVote).filter(
-        ReviewVote.entity_type == "task",
-        ReviewVote.entity_id == tid,
-    ).all()
-    agent_by_user: dict[int, object | None] = {
-        v.reviewer_user_id: (
-            s.get(service.Agent, v.reviewer_agent_id)
-            if v.reviewer_agent_id is not None else None
-        )
-        for v in vote_rows
-    }
-    all_assigned = sorted(_assigned_task_reviewer_ids(s, "task", tid))
-    for reviewer_user_id in all_assigned:
-        agent = agent_by_user.get(reviewer_user_id)
+    all_assigned = sorted(_assigned_task_reviewer_agent_ids(s, "task", tid))
+    for reviewer_registry_id in all_assigned:
+        agent = s.get(service.Agent, reviewer_registry_id)
         if agent is None:
-            agent = s.query(service.Agent).filter(
-                service.Agent.user_id == reviewer_user_id).first()
-        reviewer_agent_id = agent.agent_id if agent is not None else None
+            continue
+        reviewer_agent_id = agent.agent_id
+        reviewer_user_id = agent.user_id
         # PR-5：走 helper — body 带 agent_id，routing 用 worker_id
         # （每个 reviewer 走自己的 worker queue，多数决 fan-out 不串）
         # PR-10 follow-up：补 agent_type + workload_type="review"。
@@ -625,9 +616,19 @@ def review_task(tid: int, body: AgentReviewIn, authorization: str | None = Heade
             if assignment is not None and assignment.agent_registry_id is not None:
                 owner = s.get(service.Agent, assignment.agent_registry_id)
                 owner_agent_id = owner.agent_id if owner is not None else None
+        # T1.1：计票身份下沉到 agent。API key 绑定的 Agent 是权威来源；
+        # 拿不到（人类登录 / 旧 key）时由服务层「该 user 唯一 enabled agent」
+        # 兜底，仍取不到则 majority 分支 fail closed 拒绝（single 模式不受影响）。
+        reviewer_agent_id = None
+        try:
+            actor = api_helpers.resolve_actor_context(authorization, s)
+            reviewer_agent_id = actor.agent_registry_id
+        except HTTPException:
+            reviewer_agent_id = None
         t = service.review_task(
             s, task_id=tid, reviewer_user_id=uid,
             verdict=body.verdict, comment=body.comment,
+            reviewer_agent_id=reviewer_agent_id,
             reviewer_agent_name=api_helpers.resolve_agent_name(authorization, s),
         )
     except service.NotFound as e:

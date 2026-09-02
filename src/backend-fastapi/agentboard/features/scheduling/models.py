@@ -216,9 +216,15 @@ class MessageAttempt(Base):
 
 
 # Review 流程常量（从原 service.py 715-720 行搬迁）
+# 唯一真源：scheduling/service.py 从此处 import，不要再在 service 里重复定义
+# （历史上 service.py 有两份副本，改一处漏两处；2026-09-02 T1.2 收敛）。
 REVIEW_MODE_SINGLE = "single"      # 1 名 reviewer，approve 即通过（默认）
 REVIEW_MODE_MAJORITY = "majority"  # N 人投票，达法定票数按多数决
-DEFAULT_REVIEW_QUORUM = 3          # 法定票数
+# 法定票数。归属收敛后计票单位是人/agent 而非「跨 owner 的 reviewer 人数」：
+# 单成员部署下能投票的实体本就很少，quorum=3 会让 majority 模式永远凑不满票、
+# 任务卡在 in_review 直到超时。默认放回 1（等价于「首票即结算」），
+# 需要更严格评审时用 AGENTBOARD_REVIEW_QUORUM 上调。
+DEFAULT_REVIEW_QUORUM = 1
 MAX_REVIEW_ROUNDS = 5              # 与 Proposal max_rounds 对齐
 DEFAULT_REVIEW_TIMEOUT_MINUTES = 30  # 评审超时（30 分钟）
 DEFAULT_TIMEOUT_SCAN_BATCH = 20    # 每次扫描批大小

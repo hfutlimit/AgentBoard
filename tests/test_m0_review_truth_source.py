@@ -206,7 +206,11 @@ def test_roles_is_not_a_reviewer_gate(roles):
 
 def test_settle_majority_rejects_story_entity():
     """Story 评审已下线，majority 结算只接受 task 实体。"""
-    from agentboard.core.exceptions import InvalidValue
+    # 从 feat_service 自身的命名空间取异常类：本仓库多个测试文件会在 import 期
+    # 清掉 sys.modules["agentboard*"] 再重导入，跨文件批量跑时
+    # ``from agentboard.core.exceptions import InvalidValue`` 拿到的可能是
+    # **另一个模块对象**里的同名类，pytest.raises 反而抓不到（顺序依赖失败）。
+    InvalidValue = service.InvalidValue
 
     pid, _uid, _aid = _seed_agent("settle")
     with SessionLocal() as s:

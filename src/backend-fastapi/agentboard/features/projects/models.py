@@ -117,12 +117,18 @@ class StoryStatusHistory(Base):
 
 
 class ReviewVote(Base):
-    """评审投票（Epic 122 S3 M3 多数决）：一实体（Story/Task）多评审人各一票。
+    """评审投票（Epic 122 S3 M3 多数决）：一实体（Story/Task）多评审 Agent 各一票。
 
-    - 一人一票：UNIQUE(entity_type, entity_id, reviewer_user_id)，改票走 upsert；
+    - **一 agent 一票**：UNIQUE(entity_type, entity_id, reviewer_agent_id)，
+      改票走 upsert。计票身份是 **Agent 而非 user**——单成员多 worker 部署下
+      owner 名下多个 agent 共享同一 user，若按 user 计票则同 owner 再多 agent
+      也只能投出一票，majority 模式永远凑不满 quorum（这正是本次重构要解决的
+      闭环阻塞点）。
+    - ``reviewer_user_id`` 保留为**归属与审计**字段（票属于哪个 owner），
+      不参与唯一性判定。
     - verdict：approve | reject | NULL。
       NULL 表示「已指派尚未投票」(Sprint 12 多数决 fan-out)——多数决模式下
-      ``assign_task_reviewer`` 一次挑 N 个 reviewer，每人插一行 NULL verdict
+      ``assign_task_reviewer`` 一次挑 N 个 reviewer，每个插一行 NULL verdict
       的占位记录；投票时 verdict 才落 approve/reject。``_review_vote_counts``
       用 ``group_by(verdict)`` 拿 dict，NULL 自然落到 ``None`` 键，下游
       ``counts.get("approve", 0)`` 不会把 pending 算进票数，法定票数 gate
@@ -134,8 +140,8 @@ class ReviewVote(Base):
     __tablename__ = "review_votes"
     __table_args__ = (
         UniqueConstraint(
-            "entity_type", "entity_id", "reviewer_user_id",
-            name="uq_review_votes_entity_reviewer",
+            "entity_type", "entity_id", "reviewer_agent_id",
+            name="uq_review_votes_entity_reviewer_agent",
         ),
     )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -144,11 +150,12 @@ class ReviewVote(Base):
     reviewer_user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id"), nullable=False
     )
-    # 归属收敛（2026-09-01）：投票的具体评审 Agent（owner 名下、非实现方）。
-    # 一人一票约束仍按 reviewer_user_id（同一 owner 多 agent 只有一票）；
-    # agent 列用于路由 review 工作到正确 worker 与审计。
-    reviewer_agent_id: Mapped[int | None] = mapped_column(
-        ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
+    # 计票身份（per-agent）：NOT NULL 是硬要求 —— UNIQUE 约束若含 nullable 列，
+    # 多行 NULL 互不冲突，不写 agent 的票可无限插入，per-agent 计票会被绕过
+    # （等于问题换个形式复现）。ondelete 用 CASCADE：agent 注销则票一并回收，
+    # 不留「无主票」参与计数。
+    reviewer_agent_id: Mapped[int] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
     )
     verdict: Mapped[str | None] = mapped_column(String(10), nullable=True)  # approve | reject | NULL=pending
     comment_id: Mapped[int | None] = mapped_column(

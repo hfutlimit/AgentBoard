@@ -50,8 +50,9 @@ from agentboard.database import SessionLocal, init_db  # noqa: E402
 
 init_db()
 
-_MCP_SOURCE = Path(_ROOT) / "agentboard" / "mcp_server.py"
+_MCP_SOURCE = Path(_ROOT) / "src" / "backend-fastapi" / "agentboard" / "mcp_server.py"
 _SEQ = itertools.count(1)
+_ASEQ = itertools.count(1)   # 追加 agent 的唯一后缀（跨 project seed 也唯一）
 
 
 def _seed():
@@ -110,16 +111,57 @@ def _inreview_task(s, project_id, *, reviewer_id, assignee_id, round_=0,
 
 def _seed_vote(s, entity_id, reviewer_user_id, verdict):
     """数据级预插一张票（模拟历史投票；归属收敛后跨 owner 不能经 API 投票，
-    但多数决计数/结算逻辑仍按票行工作）。"""
+    但多数决计数/结算逻辑仍按票行工作）。
+
+    T1.1：reviewer_agent_id 是 NOT NULL 且是唯一性键的一部分，预插票必须
+    带上 agent 身份（取该 user 名下第一个 agent，没有就现注册一个）。
+    """
     from agentboard.features.projects.models import ReviewVote
+    agent = (s.query(service.Agent)
+             .filter(service.Agent.user_id == reviewer_user_id)
+             .first())
+    if agent is None:
+        agent = service.register_agent(
+            s, agent_id=f"s3m3-seed-{reviewer_user_id}-{entity_id}",
+            name="seed", roles='["reviewer"]', user_id=reviewer_user_id)
+        s.flush()
     s.add(ReviewVote(entity_type="task", entity_id=entity_id,
-                     reviewer_user_id=reviewer_user_id, verdict=verdict, round=0))
+                     reviewer_user_id=reviewer_user_id,
+                     reviewer_agent_id=agent.id,
+                     verdict=verdict, round=0))
 
 
 def _votes(s, entity_type, entity_id):
     """返回该实体当前票数（approve, reject）与总票数。"""
     approve, reject = service._review_vote_counts(s, entity_type, entity_id)
     return approve, reject, approve + reject
+
+
+def _add_owner_agent(s, user_id, label):
+    """给 owner 再注册一个**可投票**的 agent（含 worker + runnable instance）。
+
+    T1.1 后计票单位是 agent：同一 owner 名下挂 N 个 agent 才能投出 N 票。
+    ``_online_reviewer_candidates`` 要求在线 + enabled + 项目成员 +
+    有 runnable instance，四样缺一不可，所以这里连 worker/instance 一起建。
+    """
+    from agentboard.features.identity.service import create_api_key
+    n = next(_ASEQ)
+    aid = f"s3m3-{label}-{n}"
+    service.register_agent(s, agent_id=aid, name=label,
+                           roles='["reviewer"]', user_id=user_id)
+    service.agent_heartbeat(s, aid, user_id=user_id)
+    wid = f"s3m3-w-{label}-{n}"
+    service.register_worker(s, worker_id=wid, hostname="test")
+    inst = service.upsert_agent_instance(s, worker_id=wid, agent_id=aid,
+                                         executor_type="fake")
+    service.instance_heartbeat(s, inst.id, caller_worker_id=wid, probe_ok=True)
+    agent = s.query(service.Agent).filter(service.Agent.agent_id == aid).first()
+    s.commit()
+    # 绑定 agent 的 API key —— Router 靠它拿到权威 reviewer_agent_id
+    _item, plaintext = create_api_key(
+        s, user_id=user_id, name=f"key-{label}",
+        permissions=["api:read", "api:write"], agent_ref=aid)
+    return agent, plaintext
 
 
 # ---------- 1. 配置读取 ----------
@@ -136,15 +178,17 @@ def test_review_mode_env(monkeypatch):
 
 
 def test_review_quorum_env(monkeypatch):
-    assert service.get_review_quorum() == 3  # 默认
+    # T1.2（2026-09-02）：默认 3 → 1。归属收敛后能投票的实体基数很小，
+    # quorum=3 会让 majority 模式永远凑不满票、任务卡到超时才被扫走。
+    assert service.get_review_quorum() == 1  # 默认
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "5")
     assert service.get_review_quorum() == 5
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "1")   # 归属收敛：1 合法（单 owner 可结算）
     assert service.get_review_quorum() == 1
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "99")  # 高于上限
-    assert service.get_review_quorum() == 3
+    assert service.get_review_quorum() == 1
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "abc")
-    assert service.get_review_quorum() == 3
+    assert service.get_review_quorum() == 1
 
 
 # ---------- 2. majority Story：达 quorum 多数通过 ----------
@@ -452,77 +496,101 @@ def _call_api_review_task(tid, reviewer, verdict, comment, token):
         return r
 
 
-def test_api_vote_cast_then_ready_event(seeded, monkeypatch):
-    """API 事件判定：前 2 票 → vote_cast；第 3 票结算 → story.ready。
+# 事件断言的 mock 目标必须是 **router 模块**里的名字：router 在 import 期就把
+# ``publish_workflow_event`` 从 mq 绑进自己的命名空间，patch
+# ``api.publish_workflow_event`` 拦不到（原测试正是因此收集不到事件）。
+from agentboard import api_helpers as _api_helpers  # noqa: E402
+from agentboard.features.work_items import router as _wi_router  # noqa: E402
 
-    MQ + Webhook 双通道断言：vote_cast 与 story.ready 均须派发（CI 护栏）。
+
+def _patch_events(mq_events, wh_events):
+    return (mock.patch.object(_wi_router, "publish_workflow_event",
+                              side_effect=lambda *a, **k: mq_events.append((a, k))),
+            mock.patch.object(_api_helpers, "_notify_webhooks",
+                              side_effect=lambda *a, **k: wh_events.append((a, k))))
+
+
+def test_api_vote_cast_then_ready_event(seeded, monkeypatch):
+    """API 事件判定：前 2 票 → vote_cast；第 3 票结算 → task.reviewed。
+
+    MQ + Webhook 双通道断言：vote_cast 与 task.reviewed 均须派发（CI 护栏）。
+
+    T1.1 改写：计票单位是 agent。归属收敛后只有 task owner 名下的 agent 能
+    投票，所以三票来自 dev 名下三个不同 agent（各持一个绑定该 agent 的 API
+    key）——这正是 per-agent 计票要打通的场景：按 user 计票时这里只能投出
+    1 票，永远凑不满 quorum=3。
     """
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "3")
     pid, dev, r1, r2, r3, epic_id = seeded
-    from agentboard import auth as _auth
-    tokens = {u: _auth.make_token(u, ttl_seconds=3600) for u in (r1, r2, r3)}
     with SessionLocal() as s:
+        # dev 名下已有 a0，再补两个可投票 agent
+        _a1, k1 = _add_owner_agent(s, dev, "dx")
+        _a2, k2 = _add_owner_agent(s, dev, "dy")
+        a0 = (s.query(service.Agent)
+              .filter(service.Agent.user_id == dev).first())
+        from agentboard.features.identity.service import create_api_key
+        _i0, k0 = create_api_key(s, user_id=dev, name="key-a0",
+                                 permissions=["api:read", "api:write"],
+                                 agent_ref=a0.agent_id)
         st = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
         t_id = st.id
         s.commit()
     mq_events, wh_events = [], []
-    with mock.patch.object(api, "publish_workflow_event",
-                           side_effect=lambda *a, **k: mq_events.append((a, k))), \
-         mock.patch.object(api, "_notify_webhooks",
-                           side_effect=lambda *a, **k: wh_events.append((a, k))):
-        _call_api_review_task(t_id, r1, "approve", "ok1", tokens[r1])
-        _call_api_review_task(t_id, r2, "approve", "ok2", tokens[r2])
-        _call_api_review_task(t_id, r3, "approve", "ok3", tokens[r3])
+    p1, p2 = _patch_events(mq_events, wh_events)
+    with p1, p2:
+        for key in (k0, k1, k2):
+            _call_api_review_task(t_id, dev, "approve", "ok", key)
     names = [e[0][0] for e in mq_events]
     # Step 4 P1-1（2026-08-10 review）：task 评审用 entity.action 形式
     assert names == [mq.EVENT_TASK_REVIEW_VOTE_CAST, mq.EVENT_TASK_REVIEW_VOTE_CAST,
-                     mq.EVENT_TASK_REVIEWED]
-    # vote_cast / task.reviewed 的 ref_id（kwargs）都是投票人
-    assert mq_events[0][1]["ref_id"] == r1
-    assert mq_events[1][1]["ref_id"] == r2
+                     mq.EVENT_TASK_REVIEWED], names
+    # 三票都落库（per-agent 一票，未被 user 维度去重）
+    with SessionLocal() as s:
+        assert _votes(s, "task", t_id) == (0, 0, 0)   # 结算后清票
+        assert s.get(service.Task, t_id).status == "done"
     # Webhook 通道与 MQ 事件同构（_notify_webhooks(s, project_id, event, payload)）
     wh_names = [e[0][2] for e in wh_events]
     assert wh_names == [mq.EVENT_TASK_REVIEW_VOTE_CAST, mq.EVENT_TASK_REVIEW_VOTE_CAST,
                         mq.EVENT_TASK_REVIEWED]
-    with SessionLocal() as s:
-        assert s.get(service.Task, t_id).status == "done"
 
 
 def test_api_task_rejected_event(seeded, monkeypatch):
-    """Task 结算 reject → task.rejected（MQ + Webhook 双通道断言）。"""
+    """Task 结算 reject → task.rejected（MQ + Webhook 双通道断言）。
+
+    T1.1 改写：三票来自 owner 名下三个 agent（1 approve : 2 reject → 多数驳回）。
+    """
     monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", "majority")
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "3")
     pid, dev, r1, r2, r3, epic_id = seeded
-    from agentboard import auth as _auth
-    tokens = {u: _auth.make_token(u, ttl_seconds=3600) for u in (r1, r2, r3)}
     with SessionLocal() as s:
+        _a1, k1 = _add_owner_agent(s, dev, "rx")
+        _a2, k2 = _add_owner_agent(s, dev, "ry")
+        a0 = (s.query(service.Agent)
+              .filter(service.Agent.user_id == dev).first())
+        from agentboard.features.identity.service import create_api_key
+        _i0, k0 = create_api_key(s, user_id=dev, name="key-r0",
+                                 permissions=["api:read", "api:write"],
+                                 agent_ref=a0.agent_id)
         t = _inreview_task(s, pid, reviewer_id=r1, assignee_id=dev)
         t_id = t.id
         s.commit()
     mq_events, wh_events = [], []
-    with mock.patch.object(api, "publish_workflow_event",
-                           side_effect=lambda *a, **k: mq_events.append((a, k))), \
-         mock.patch.object(api, "_notify_webhooks",
-                           side_effect=lambda *a, **k: wh_events.append((a, k))):
-        from fastapi.testclient import TestClient
-        with TestClient(api.app) as c:
-            c.post(f"/api/tasks/{t_id}/review",
-                   json={"verdict": "approve", "comment": "ok"},
-                   headers={"Authorization": f"Bearer {tokens[r1]}"})
-            c.post(f"/api/tasks/{t_id}/review",
-                   json={"verdict": "reject", "comment": "bug"},
-                   headers={"Authorization": f"Bearer {tokens[r2]}"})
-            c.post(f"/api/tasks/{t_id}/review",
-                   json={"verdict": "reject", "comment": "bug2"},
-                   headers={"Authorization": f"Bearer {tokens[r3]}"})
+    p1, p2 = _patch_events(mq_events, wh_events)
+    with p1, p2:
+        for key, verdict in ((k0, "approve"), (k1, "reject"), (k2, "reject")):
+            _call_api_review_task(t_id, dev, verdict, "c", key)
     names = [e[0][0] for e in mq_events]
     # Step 4 P1-1（2026-08-10 review）：task 评审用 entity.action 形式
     assert names == [mq.EVENT_TASK_REVIEW_VOTE_CAST, mq.EVENT_TASK_REVIEW_VOTE_CAST,
-                     mq.EVENT_TASK_REJECTED]
+                     mq.EVENT_TASK_REJECTED], names
     wh_names = [e[0][2] for e in wh_events]
     assert wh_names == [mq.EVENT_TASK_REVIEW_VOTE_CAST, mq.EVENT_TASK_REVIEW_VOTE_CAST,
                         mq.EVENT_TASK_REJECTED]
+    with SessionLocal() as s:
+        t2 = s.get(service.Task, t_id)
+        assert t2.status == "in_progress"
+        assert t2.review_round == 1
 
 
 # ---------- 10. Epic 97 AST 护栏：mcp_server.py 零 _api( 残留 ----------

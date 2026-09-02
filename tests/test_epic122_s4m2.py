@@ -100,14 +100,15 @@ def test_review_mode_env(monkeypatch):
 
 
 def test_review_quorum_default_and_env(monkeypatch):
+    # T1.2（2026-09-02）：默认 3 → 1，见 scheduling/models.py 的说明
     monkeypatch.delenv("AGENTBOARD_REVIEW_QUORUM", raising=False)
-    assert service.get_review_quorum() == 3
+    assert service.get_review_quorum() == 1
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "5")
     assert service.get_review_quorum() == 5
-    monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "99")  # 超范围 → 回退 3
-    assert service.get_review_quorum() == 3
+    monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "99")  # 超范围 → 回退默认
+    assert service.get_review_quorum() == 1
     monkeypatch.setenv("AGENTBOARD_REVIEW_QUORUM", "abc")
-    assert service.get_review_quorum() == 3
+    assert service.get_review_quorum() == 1
 
 
 # ---------- 2. majority 模式 votes 结构 ----------
@@ -165,9 +166,23 @@ def test_stats_majority_votes_counts(seeded, monkeypatch):
 
 
 def _vote(s, entity_type, entity_id, reviewer_user_id, verdict):
-    """直插 ReviewVote（复用 service 私有 upsert，模拟真实投票）。"""
+    """直插 ReviewVote（复用 service 私有 upsert，模拟真实投票）。
+
+    T1.1：计票身份是 agent，``reviewer_agent_id`` 必填。取该 user 名下第一个
+    agent（seed 里 r1/r2/r3 各有一个），没有则现注册一个。
+    """
+    agent = (s.query(service.Agent)
+             .filter(service.Agent.user_id == reviewer_user_id)
+             .first())
+    if agent is None:
+        agent = service.register_agent(
+            s, agent_id=f"s4m2-seed-{reviewer_user_id}-{entity_id}",
+            name="seed", roles='["reviewer"]', user_id=reviewer_user_id)
+        s.flush()
     service._upsert_review_vote(s, entity_type=entity_type, entity_id=entity_id,
-                                reviewer_user_id=reviewer_user_id, verdict=verdict,
+                                reviewer_user_id=reviewer_user_id,
+                                reviewer_agent_id=agent.id,
+                                verdict=verdict,
                                 comment_id=None, round=0)
     s.commit()
 
@@ -184,7 +199,7 @@ def test_stats_single_mode_votes_empty(seeded):
     with SessionLocal() as s:
         stats = service.get_review_stats(s, project_id=pid)
         assert stats["review_mode"] == "single"
-        assert stats["review_quorum"] == 3
+        assert stats["review_quorum"] == 1   # T1.2：默认 quorum 3 → 1
         assert stats["votes"] == []
 
 

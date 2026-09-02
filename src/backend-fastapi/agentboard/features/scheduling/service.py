@@ -97,7 +97,8 @@ from .models import (
 DEFAULT_REVIEW_TIMEOUT_MINUTES = 30
 DEFAULT_TIMEOUT_SCAN_BATCH = 20
 MAX_REVIEW_ROUNDS = 5
-DEFAULT_REVIEW_QUORUM = 3
+# 注：DEFAULT_REVIEW_QUORUM / REVIEW_MODE_* 不再在此重复定义，真源见
+# scheduling/models.py（本文件顶部已 import）。2026-09-02 T1.2 收敛。
 
 
 # Agent 在 projects.models
@@ -623,9 +624,8 @@ def list_agents(s: Session, *, online: bool | None = None, role: str | None = No
 MAX_REVIEW_ROUNDS = 5  # 与 Proposal max_rounds 对齐；超限置 blocked 护栏
 
 # ---------- 多数决评审（Epic 122 S3 M3） ----------
-REVIEW_MODE_SINGLE = "single"      # 1 名 reviewer，approve 即通过（默认，兼容 S1/S2）
-REVIEW_MODE_MAJORITY = "majority"  # N 人投票，达法定票数按多数决结算（文档 #50 §7 决策 #7）
-DEFAULT_REVIEW_QUORUM = 3          # 法定票数（env AGENTBOARD_REVIEW_QUORUM 覆盖，2..9）
+# REVIEW_MODE_* / DEFAULT_REVIEW_QUORUM 真源在 scheduling/models.py
+# （本文件顶部 from .models import ...），此处不再重复定义。
 
 
 def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None,
@@ -642,9 +642,9 @@ def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None
     - **Sprint 12 多数决 fan-out**（count > 1）：首位 reviewer 仍写入
       ``task.reviewer_id``（向后兼容旧查询 "reviewer_id IS NULL 即未指派"），
       后续 N-1 位写入 ``review_votes`` 的 NULL verdict 占位行——投票时再
-      落 approve/reject。已有 ``(entity_type, entity_id, reviewer_user_id)``
-      唯一约束天然防重，且每次都从「排除已选」后的候选池重排，避免同一
-      reviewer 被重复指派。
+      落 approve/reject。已有 ``(entity_type, entity_id, reviewer_agent_id)``
+      唯一约束天然防重（per-agent 一票），且每次都从「排除已选」后的候选池
+      重排，避免同一 reviewer agent 被重复指派。
     """
     t = s.get(Task, task_id)
     if not t:
@@ -653,17 +653,21 @@ def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None
         raise InvalidValue(
             f"task {task_id} is not in_review (current status: {t.status})")
     # 上限硬卡：避免误把 100 传进 fan-out 把整组 reviewer 一次耗光。
-    # 9 = AGENTBOARD_REVIEW_QUORUM 最大允许（service.py:728）。
+    # 9 = AGENTBOARD_REVIEW_QUORUM 最大允许（get_review_quorum 的上界）。
     if count < 1 or count > 9:
         raise InvalidValue(
             f"assign_task_reviewer count must be in [1, 9] (got {count})")
     # 已指派的 reviewer 一律跳过（幂等：已开 N 票就不要再扩）。
-    already_assigned = _assigned_task_reviewer_ids(s, "task", task_id)
-    if t.reviewer_id is not None and t.reviewer_id not in already_assigned:
+    already_assigned = _assigned_task_reviewer_agent_ids(s, "task", task_id)
+    if t.reviewer_id is not None and t.reviewer_agent_id is not None \
+            and t.reviewer_agent_id not in already_assigned:
         # 历史遗留：reviewer_id 写过但 review_votes 还没记录
         # （单 review 模式从未建过 votes 行）。补一行 pending 占位。
-        _insert_pending_vote(s, "task", task_id, t.reviewer_id, t.review_round or 0)
-        already_assigned.add(t.reviewer_id)
+        # 无 reviewer_agent_id 的旧行无法补票（计票身份缺失），跳过——
+        # 这种 task 会继续走 single 模式的 reviewer_id 路径，不受影响。
+        _insert_pending_vote(s, "task", task_id, t.reviewer_id, t.review_round or 0,
+                             reviewer_agent_id=t.reviewer_agent_id)
+        already_assigned.add(t.reviewer_agent_id)
     if len(already_assigned) >= count:
         # 多数决已被 N 票填满；不再追加
         s.commit()
@@ -687,7 +691,7 @@ def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None
     candidates = [
         a for a in candidates
         if a.user_id == t.created_by_user_id
-        and a.user_id not in already_assigned
+        and a.id not in already_assigned
         and a.id not in exclusion.agent_registry_ids
     ]
     if not candidates:
@@ -709,18 +713,19 @@ def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None
     # 同时写 reviewer_agent_id（同 owner 多 agent 时路由 review 工作用）。
     # 后续走 review_votes 插入 pending 行，事件由 caller 自行 fan-out。
     # to_assign 元素 = (user_id, agent_registry_id)。
-    # 一人一票（归属收敛）：同一 owner 名下多个 agent 不叠票，首个 agent
-    # 拿到票即止（后续 agent 因同 user 被 seen_users 去重跳过）。
+    # **一 agent 一票**（per-agent 计票，T1.1）：去重键是 Agent 而非 user。
+    # 同一 owner 名下的多个 agent 各得一票，majority 模式才可能凑满 quorum；
+    # 按 user 去重时同 owner 再多 agent 也只有 1 票，solo 部署永远过不了审。
     to_assign: list[tuple[int, int]] = []
-    seen_users: set[int] = set(already_assigned)
-    for i, cand in enumerate(ranked):
-        uid = cand.agent.user_id
-        if uid in seen_users:
+    seen_agents: set[int] = set(already_assigned)
+    for cand in ranked:
+        aid = cand.agent.id
+        if aid in seen_agents:
             continue
         if len(already_assigned) + len(to_assign) >= count:
             break
-        to_assign.append((uid, cand.agent.id))
-        seen_users.add(uid)
+        to_assign.append((cand.agent.user_id, aid))
+        seen_agents.add(aid)
     if t.reviewer_id is None and to_assign:
         first, first_agent = to_assign.pop(0)
         r = s.execute(
@@ -738,7 +743,7 @@ def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None
             s.rollback()
             _insert_pending_vote(s, "task", task_id, first, t.review_round or 0,
                                  reviewer_agent_id=first_agent)
-            already_assigned.add(first)
+            already_assigned.add(first_agent)
     for uid, aid in to_assign:
         _insert_pending_vote(s, "task", task_id, uid, t.review_round or 0,
                              reviewer_agent_id=aid)
@@ -1130,34 +1135,38 @@ def dispatch_implementation_task(
     return (task, inst)
 
 
-def _assigned_task_reviewer_ids(s: Session, entity_type: str, entity_id: int) -> set[int]:
-    """返回该实体上所有已建 review_votes 行的 reviewer user_id（含 pending NULL）。
+def _assigned_task_reviewer_agent_ids(s: Session, entity_type: str,
+                                      entity_id: int) -> set[int]:
+    """返回该实体上所有已建 review_votes 行的 reviewer agent_id（含 pending NULL）。
 
-    用于 ``assign_task_reviewer`` 的"已指派"判定——比单看
-    ``Task.reviewer_id`` 更准确：多 review 模式下 review_votes
+    计票身份是 Agent（per-agent 一票），因此"已指派"判定也必须按 agent 维度——
+    按 user 判定会让同 owner 的第二个 agent 被视为已投过票而拿不到票，
+    正是 solo 多 agent 永远凑不满 quorum 的根因。
+
+    比单看 ``Task.reviewer_id`` 更准确：多 review 模式下 review_votes
     是事实源（reviewer_id 仅首位）。
     """
     from ...features.projects.models import ReviewVote  # 局部 import 避免循环
-    rows = s.query(ReviewVote.reviewer_user_id).filter(
+    rows = s.query(ReviewVote.reviewer_agent_id).filter(
         ReviewVote.entity_type == entity_type,
         ReviewVote.entity_id == entity_id,
     ).all()
-    return {int(r[0]) for r in rows}
+    return {int(r[0]) for r in rows if r[0] is not None}
 
 
 def _insert_pending_vote(s: Session, entity_type: str, entity_id: int,
                          reviewer_user_id: int, round_: int,
-                         reviewer_agent_id: int | None = None) -> None:
+                         reviewer_agent_id: int) -> None:
     """插入一条 pending (NULL verdict) review_votes 行。已存在则跳过（幂等）。
 
-    reviewer_agent_id（归属收敛）：记录被指派评审的具体 Agent，供
-    task.review_requested 定向路由与审计；空则不写（旧数据兼容）。
+    ``reviewer_agent_id`` 必填：它是唯一性判定的一部分（UNIQUE 含该列），
+    留空会让待投票变成"无主票"，既无法路由也无法计票。
     """
     from ...features.projects.models import ReviewVote
     existing = s.query(ReviewVote.id).filter(
         ReviewVote.entity_type == entity_type,
         ReviewVote.entity_id == entity_id,
-        ReviewVote.reviewer_user_id == reviewer_user_id,
+        ReviewVote.reviewer_agent_id == reviewer_agent_id,
     ).first()
     if existing is not None:
         return
@@ -1474,10 +1483,20 @@ def _reviewer_comment_author(
     reviewer_user_id: int,
     *,
     explicit_name: str | None = None,
+    reviewer_agent_id: int | None = None,
 ) -> str:
-    """Resolve the stable Agent name used for an automatic review comment."""
+    """Resolve the stable Agent name used for an automatic review comment.
+
+    计票身份下沉到 agent 后（T1.1），无名回退路径也要按 **投票 agent** 定名，
+    不能按 user 反查首个 agent —— 同 owner 多 agent 时那会把票记到别人名下。
+    """
     if explicit_name and explicit_name.strip():
         return explicit_name.strip()[:100]
+    if reviewer_agent_id is not None:
+        voting = s.get(Agent, reviewer_agent_id)
+        if voting is not None:
+            return (voting.name or voting.agent_id
+                    or f"user#{reviewer_user_id}").strip()[:100]
     agent = (
         s.query(Agent)
         .filter(Agent.user_id == reviewer_user_id, Agent.enabled.is_(True))
@@ -1492,6 +1511,7 @@ def _reviewer_comment_author(
 
 def review_task(s: Session, *, task_id: int, reviewer_user_id: int,
                 verdict: str, comment: str,
+                reviewer_agent_id: int | None = None,
                 reviewer_agent_name: str | None = None) -> Task:
     """Task 评审投票（CAS）：仅被指派 reviewer 可操作 in_review 任务。
 
@@ -1519,6 +1539,7 @@ def review_task(s: Session, *, task_id: int, reviewer_user_id: int,
     if get_review_mode() == REVIEW_MODE_MAJORITY:
         t, _settled = _vote_majority(
             s, t, entity_type="task", reviewer_user_id=reviewer_user_id,
+            reviewer_agent_id=reviewer_agent_id,
             verdict=verdict, comment=comment,
             reviewer_agent_name=reviewer_agent_name)
         return t
@@ -2128,11 +2149,15 @@ def get_review_mode() -> str:
 
 # ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def get_review_quorum() -> int:
-    """法定票数：AGENTBOARD_REVIEW_QUORUM（1..9），非法/缺省回退 3。
+    """法定票数：AGENTBOARD_REVIEW_QUORUM（1..9），非法/缺省回退 DEFAULT_REVIEW_QUORUM。
 
-    归属收敛（2026-09-01）后一人一票（同 owner 多 agent 不叠票），
-    单 owner 部署 majority 模式需 quorum=1 才能由 owner 单票结算，
-    故下限从 2 放宽到 1。
+    T1.2（2026-09-02）：默认值 3 → 1。归属收敛后计票实体是「能投票的
+    agent」，单成员部署下这个基数很小，quorum=3 会让 majority 模式永远
+    凑不满票、任务卡在 in_review 直到超时被扫走。默认 1 = 首票即结算，
+    需要更强评审时用环境变量上调。
+
+    ⚠ 常量真源在 scheduling/models.py，本文件不再重复定义。生产环境如果
+    显式设了 AGENTBOARD_REVIEW_QUORUM，改常量**不会**生效，必须同步改 env。
     """
     raw = os.environ.get("AGENTBOARD_REVIEW_QUORUM", "").strip()
     try:
@@ -2142,32 +2167,46 @@ def get_review_quorum() -> int:
     return q if 1 <= q <= 9 else DEFAULT_REVIEW_QUORUM
 
 # ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
-def _is_reviewer_candidate(s: Session, project_id: int, user_id: int,
-                           exclude_user_id: int | None = None) -> bool:
-    """投票人校验（majority 模式）：在线 ∩ reviewer 角色 ∩ 项目成员 ∩ ≠exclude。
+def _is_reviewer_candidate(s: Session, project_id: int, agent_id: int,
+                           exclude_agent_ids: set[int] | None = None) -> bool:
+    """投票 Agent 校验（majority 模式）：在线可运行 ∩ 项目成员 ∩ ∉exclude。
 
-    与分配器候选集同源（_online_reviewer_candidates），保证只有能被指派为
+    **计票身份是 Agent**（per-agent 一票，T1.1）：参数由旧的 ``user_id`` 改为
+    ``agent_id``。单成员多 worker 下同一 user 挂多个 agent，按 user 校验无法
+    区分「谁投的票」，也无法阻止同一 agent 重复投票。
+
+    与分配器候选集同源（``_online_reviewer_candidates``），保证只有能被指派为
     reviewer 的 Agent 才能参与多数决投票（评审强度升级，但参与者资格不变）。
+
+    注：角色（``roles``）不参与准入判定 —— 见 ``_online_reviewer_candidates``
+    与 workload 准入相关注释（roles 仅用于旧数据 CLI executor 推导）。
     """
-    if exclude_user_id is not None and user_id == exclude_user_id:
+    if agent_id is None:
+        return False
+    if exclude_agent_ids and agent_id in exclude_agent_ids:
         return False
     for a in _online_reviewer_candidates(s, project_id):
-        if a.user_id == user_id:
+        if a.id == agent_id:
             return True
     return False
 
 # ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def _upsert_review_vote(s: Session, *, entity_type: str, entity_id: int,
-                        reviewer_user_id: int, verdict: str,
+                        reviewer_user_id: int, reviewer_agent_id: int,
+                        verdict: str,
                         comment_id: int | None, round: int) -> None:
-    """一人一票 upsert：存在则更新 verdict/comment（改票），否则插入。
+    """一 agent 一票 upsert：存在则更新 verdict/comment（改票），否则插入。
+
+    唯一性键是 ``reviewer_agent_id``（per-agent 计票）——同一 owner 名下不同
+    agent 各持一票，同一 agent 重复投票只改最后一票。
+    ``reviewer_user_id`` 只作归属/审计记录，不参与查重。
 
     双后端兼容：先查后写（量级小，避免方言差异的 ON CONFLICT 语法）。
     """
     existing = s.query(ReviewVote).filter(
         ReviewVote.entity_type == entity_type,
         ReviewVote.entity_id == entity_id,
-        ReviewVote.reviewer_user_id == reviewer_user_id,
+        ReviewVote.reviewer_agent_id == reviewer_agent_id,
     ).first()
     if existing is not None:
         existing.verdict = verdict
@@ -2176,7 +2215,9 @@ def _upsert_review_vote(s: Session, *, entity_type: str, entity_id: int,
         _commit(s)
         return
     s.add(ReviewVote(entity_type=entity_type, entity_id=entity_id,
-                     reviewer_user_id=reviewer_user_id, verdict=verdict,
+                     reviewer_user_id=reviewer_user_id,
+                     reviewer_agent_id=reviewer_agent_id,
+                     verdict=verdict,
                      comment_id=comment_id, round=round))
     _commit(s)
 
@@ -2273,13 +2314,44 @@ def _settle_majority_rejected(s: Session, entity, entity_type: str):
     return settled
 
 # ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
+def resolve_reviewer_agent_id(s: Session, reviewer_user_id: int,
+                              explicit_agent_id: int | None = None) -> int | None:
+    """解析投票人（计票身份）的 agent id：显式优先，唯一 agent 兜底，歧义 None。
+
+    T1.1 后计票单位是 agent 而非 user，但调用链上并非每层都拿得到 agent
+    身份：
+
+    - **Router 层**（有 Authorization）：``resolve_actor_context`` 能从 API key
+      拿到权威 ``agent_registry_id``，必须显式传入；
+    - **服务层直调**（人类登录 / 旧 key / 内部脚本）：拿不到就只能从
+      ``user_id`` 反推，且**仅当该 user 名下恰好一个 enabled agent** 才可推断。
+
+    多 agent（含 0 个）时返回 ``None`` 让调用方 fail closed —— 「谁投的票」
+    不可判定时猜一个，比拒绝更糟：它会把票记到别人名下，审计全错。
+    """
+    if explicit_agent_id is not None:
+        return int(explicit_agent_id)
+    owned = s.query(Agent.id).filter(
+        Agent.user_id == reviewer_user_id,
+        Agent.enabled.is_(True),
+    ).all()
+    if len(owned) == 1:
+        return int(owned[0].id)
+    return None
+
+
+# ---- 真源（2026-09-02 收敛：core 侧重复实现已删除，core 末尾统一转发自此）----
 def _vote_majority(s: Session, entity, *, entity_type: str, reviewer_user_id: int,
+                   reviewer_agent_id: int | None,
                    verdict: str, comment: str,
                    reviewer_agent_name: str | None = None):
-    """多数决投票（S3 M3）：写票（一人一票 upsert）→ 达法定票数结算。
+    """多数决投票（S3 M3）：写票（一 agent 一票 upsert）→ 达法定票数结算。
 
-    - 权限：投票人须是该项目在线 reviewer 候选（与分配器同源）；
-      Task 版额外排除 assignee（评审人与作者隔离）；
+    - **计票身份是 Agent**（per-agent 一票，T1.1）：``reviewer_agent_id`` 是必填
+      项，缺失直接 ``InvalidValue``（fail closed）——没有 agent 身份就写票，等于
+      退回「同 owner 多 agent 只有 1 票、solo 部署永远过不了审」的老问题；
+    - 权限：投票 Agent 须是该项目在线 reviewer 候选（与分配器同源）；
+      Task 版排除**实现方 agent**（评审人与作者隔离，agent 粒度）；
     - 未达 quorum：状态保持（pending_review / in_review），评论照记，
       返回 (entity, settled=False)；
     - 达 quorum：approve > reject → 通过；reject >= approve（含平局保守驳回）
@@ -2291,22 +2363,38 @@ def _vote_majority(s: Session, entity, *, entity_type: str, reviewer_user_id: in
             raise NotFound(f"epic {entity.epic_id} not found")
         project_id = epic.project_id
         expected_status = "pending_review"
-        exclude = None
+        exclude: set[int] = set()
     else:
         project_id = entity.project_id
         expected_status = Status.IN_REVIEW
         # 归属收敛（2026-09-01）：Task 投票人必须是 owner（created_by_user_id）
         # 本人——替代旧的「排除 assignee user」跨用户隔离（reviewer 与实现方
-        # 同 owner 后，assignee 排除会误杀唯一合法投票人）。实现方 agent 的
-        # 排除在指派侧（assign_task_reviewer 的 exclusion 过滤）已保证；
-        # 此处按 user 一人一票，无法也无需按 agent 再分。
-        exclude = None
+        # 同 owner 后，按 user 排除会误杀唯一合法投票人）。
         if entity.created_by_user_id is not None:
             if reviewer_user_id != entity.created_by_user_id:
                 raise InvalidValue(
                     "only the task owner's agent can vote on this task (majority mode)")
-    if not _is_reviewer_candidate(s, project_id, reviewer_user_id,
-                                  exclude_user_id=exclude):
+        # 实现方隔离下沉到 agent 粒度（T1.1）：与指派侧
+        # （assign_task_reviewer → get_assignment_exclusion("review")）同源，
+        # 两个来源取并集——
+        #   1. TaskAssignment 里 active/completed 的实现 agent（可能被改派过，
+        #      比 created_by_agent_id 更能反映真实实现方）；
+        #   2. task.created_by_agent_id（任务创建者，无 assignment 时的兜底）。
+        # 只有按 agent 排除才能真正做到「不能评审自己的实现」。
+        exclude = set(
+            get_assignment_exclusion(s, entity, "review").agent_registry_ids)
+        if entity.created_by_agent_id is not None:
+            exclude.add(int(entity.created_by_agent_id))
+    reviewer_agent_id = resolve_reviewer_agent_id(
+        s, reviewer_user_id, explicit_agent_id=reviewer_agent_id)
+    if reviewer_agent_id is None:
+        raise InvalidValue(
+            "reviewer_agent_id is required (majority mode votes per agent); "
+            f"user#{reviewer_user_id} has no unambiguous enabled agent")
+    if reviewer_agent_id in exclude:
+        raise InvalidValue(
+            "the implementing agent cannot review its own task (majority mode)")
+    if not _is_reviewer_candidate(s, project_id, reviewer_agent_id, exclude):
         raise InvalidValue(
             "only an online reviewer agent of this project can vote (majority mode)")
     if entity.status != expected_status:
@@ -2314,13 +2402,16 @@ def _vote_majority(s: Session, entity, *, entity_type: str, reviewer_user_id: in
             f"entity is not {expected_status} (current status: {entity.status})")
     reviewer_name = _reviewer_comment_author(
         s, reviewer_user_id, explicit_name=reviewer_agent_name,
+        reviewer_agent_id=reviewer_agent_id,
     )
     # 评审意见落评论（唯一载体，与 single 模式一致）
     comment_obj = create_comment(
         s, author=reviewer_name, content=comment,
         **({f"{entity_type}_id": entity.id}))
     _upsert_review_vote(s, entity_type=entity_type, entity_id=entity.id,
-                        reviewer_user_id=reviewer_user_id, verdict=verdict,
+                        reviewer_user_id=reviewer_user_id,
+                        reviewer_agent_id=reviewer_agent_id,
+                        verdict=verdict,
                         comment_id=comment_obj.id, round=entity.review_round or 0)
     approve_n, reject_n = _review_vote_counts(s, entity_type, entity.id)
     if approve_n + reject_n < get_review_quorum():
