@@ -52,6 +52,11 @@ class MemberRoleIn(BaseModel):
 	role: str = Field(..., pattern=r"^(owner|member)$")
 
 
+class StoryTransferIn(BaseModel):
+	"""T2.3 移交 story 归属：免确认、即生效。"""
+	new_owner_user_id: int = Field(..., gt=0)
+
+
 
 class StoryClaimIn(BaseModel):
 	"""Worker 认领 Story 请求体（可省略；agent = worker 身份串，写入租约）。"""

@@ -24,7 +24,9 @@ from ...core.exceptions import (  # noqa: F401 — Forbidden 供路由 `except s
     Conflict, Duplicate, Forbidden, InvalidValue, NotFound,
 )
 from .models import ATTACHMENT_DIR, Comment, Task, TaskDependency, TaskStatusHistory
-from .ownership import assert_agent_can_handle_work_item
+from .ownership import (  # noqa: F401 — transfer_task 也用 work_item_owner_user_id
+    assert_agent_can_handle_work_item, work_item_owner_user_id,
+)
 from .state_machine import execute_transition
 
 log = logging.getLogger("agentboard.features.work_items.service")
@@ -161,6 +163,61 @@ def create_task(
 
 def get_task(s: Session, id: int) -> Task | None:
     return s.get(Task, id)
+
+
+# ---- T2.3 owner 移交 ----------------------------------------------------------
+
+def transfer_task(
+    s: Session, task_id: int, new_owner_user_id: int, *,
+    changed_by_user_id: int | None = None,
+) -> tuple[Task, int | None]:
+    """移交 task 归属（T2.3）：**免确认、即生效**（Jason 2026-09-02 拍板）。
+
+    规则：
+    - 新 owner 必须是该 task 所属 project 的**成员**（不变量：owner ∈
+      ProjectMember，T1.4/T2.0 维护的那条）；
+    - 只改可变的 ``owner_user_id``，**不动** ``created_by_user_id``（审计列），
+      也不动 assignee / current_assignment —— 在途 run 跑完再算，
+      移交只影响**后续**步骤（认领、派发、评审都走执行门判 owner）；
+    - 校验在服务层做（新 owner 必须是成员），**调用权限**在 router 层
+      （当前 owner / project owner / admin）。
+
+    返回 ``(task, previous_owner_user_id)``。previous_owner 供 T5.1（通知）
+    与 T5.2（owner_transfer_history）使用 —— 那两个是 P2，尚未接入；
+    接入点就在本函数 commit 之后。
+    """
+    task = s.get(Task, task_id)
+    if not task:
+        raise NotFound(f"task {task_id} not found")
+    # 惰性 import：projects.service 在模块顶层不依赖本模块，但为了保持
+    # 「work_items 不顶层依赖 projects.service」的现状（避免将来反向引用成环），
+    # 统一在函数内取。
+    from ..projects.service import user_is_project_member
+    if not user_is_project_member(s, task.project_id, new_owner_user_id):
+        raise InvalidValue(
+            f"new owner user {new_owner_user_id} is not a member of "
+            f"project {task.project_id}; transfer aborted"
+        )
+    previous = work_item_owner_user_id(task)
+    task.owner_user_id = new_owner_user_id
+    _commit(s)
+    log.info(
+        "transfer_task: task %s owner %s -> %s (changed_by=%s, project=%s)；"
+        "在途 run 不中断，后续步骤按新归属走",
+        task_id, previous, new_owner_user_id, changed_by_user_id, task.project_id,
+    )
+    return task, previous
+
+
+def work_items_owned_by(s: Session, project_id: int, user_id: int) -> dict:
+    """项目内某 user 名下持有的 task / story id 列表（T2.2 移除成员时用）。"""
+    task_ids = [
+        r[0] for r in s.query(Task.id).filter(
+            Task.project_id == project_id,
+            Task.owner_user_id == user_id,
+        ).all()
+    ]
+    return {"task_ids": task_ids}
 
 
 def list_tasks(

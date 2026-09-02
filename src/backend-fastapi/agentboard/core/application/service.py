@@ -2770,6 +2770,8 @@ from ...features.work_items.service import (  # noqa: F401,F403
     try_assign_task, claim_development_task, finalize_task_assignment,
     apply_for_task, arbitrate_task,
     submit_task_for_review,
+    # T2.3 移交
+    transfer_task,
     # 末尾补:以下函数原来在 facade 里有重复实现,此处显式 re-bind 让老
     # `service.batch_update_task_status` / `service.export_project_data` 调
     # 用方自动走 features/*/service 新版(后者可能带 status_reason 校验、
@@ -2797,7 +2799,9 @@ from ...features.projects.service import (  # noqa: F401,F403
     user_can_read_project, readable_project_ids,
     # T2.0：owner 选取规则。T2.2「移除成员 → 移交 project owner」的接收方解析
     # 必须经它，不能各自再写一份「谁是 owner」的判断。
-    project_owners, resolve_project_owner,
+    project_owners, resolve_project_owner, resolve_project_owner_excluding,
+    # T2.3 移交 / T2.2 移除移交
+    transfer_story,
     get_epic_project_id, get_story_project_id, get_sprint_project_id,
     get_run_project_id,
     get_project_stats,

@@ -25,6 +25,7 @@ from .schemas import (
 	StoryClaimIn,
 	StoryIn,
 	StoryPatch,
+	StoryTransferIn,
 )
 from ...features.projects.models import ProjectMember, Epic, Story  # bulk-archive 非 admin 分支权限校验
 from ...features.work_items.models import Task
@@ -958,12 +959,52 @@ def remove_member(
         if not (u and u.is_admin):
             raise HTTPException(status_code=403, detail="only owner or admin can remove members")
     try:
-        if not service.remove_project_member(s, pid, uid):
-            raise HTTPException(status_code=404, detail="member not found")
+        # T2.2：移除即触发 owned task/story 移交 project owner，返回移交明细
+        result = service.remove_project_member(s, pid, uid)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
-    return {"ok": True}
+    return {"ok": True, **result}
 
+
+
+@router.post("/api/stories/{sid}/transfer")
+def transfer_story(sid: int, body: StoryTransferIn,
+                   authorization: str | None = Header(None),
+                   s: Session = Depends(get_session)):
+    """移交 story 归属（T2.3）：免确认、即生效。
+
+    权限与 task 移交一致：当前 owner / project owner / admin。
+    """
+    actor = api_helpers._current_user(
+        authorization, s, required_permission="api:write")
+    st = service.get_story(s, sid)
+    if st is None:
+        raise HTTPException(status_code=404, detail="story not found")
+    uid = actor.id
+    u = service.get_user(s, uid)
+    is_admin = bool(u and u.is_admin)
+    if not is_admin:
+        epic = service.get_epic(s, st.epic_id)
+        is_current_owner = service.work_item_owner_user_id(st) == uid
+        if not is_current_owner and not (
+                epic and service.user_is_project_owner(s, epic.project_id, uid)):
+            raise HTTPException(
+                status_code=403,
+                detail="story owner, project owner or admin required",
+            )
+    try:
+        st, previous = service.transfer_story(
+            s, sid, body.new_owner_user_id, changed_by_user_id=uid)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    # T5.1/T5.2（P2）挂点：发 owner_transferred 通知 + 写 owner_transfer_history
+    out = service._ser(st)
+    out["previous_owner_user_id"] = previous
+    return out
 
 
 @router.patch("/api/projects/{pid}/members/{uid}")

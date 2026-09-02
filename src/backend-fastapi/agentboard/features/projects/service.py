@@ -310,24 +310,75 @@ def complete_sprint(s: Session, id: int) -> Sprint:
     _commit(s); s.refresh(sp); return sp
 
 
-def remove_project_member(s: Session, project_id: int, user_id: int) -> bool:
+def remove_project_member(
+    s: Session, project_id: int, user_id: int,
+) -> dict:
+    """移除项目成员（T2.2）：不能删最后一个 owner；其 owned item 随移除移交。
+
+    移交规则（Plan T2.2，接收方按 T2.0 规则解析）：
+    - 接收方 = 除被移除者之外、joined_at 最早的 owner（``resolve_project_owner_excluding``）；
+    - 接收方必须存在 —— **不存在则拒绝移除**，而不是删完留一堆 owner 指向
+      非成员的孤儿 task（违反 T1.4 起维护的「owner ∈ ProjectMember」不变量，
+      且执行门对这种情况不会拦：它只判 owner 相等，不判成员关系）。
+      报错信息直接告诉管理员先补一个 owner；
+    - 在途 run 不中断，移交只影响后续步骤（同 T2.3）。
+
+    返回 ``{"removed": True, "transferred_tasks": n, "transferred_stories": m,
+    "receiver": uid}``，数量供 T5.1/T5.2（通知/历史）复用。
+    """
     pm = (
         s.query(ProjectMember)
         .filter(ProjectMember.project_id == project_id, ProjectMember.user_id == user_id)
         .first()
     )
     if not pm:
-        return False
+        raise NotFound(f"user {user_id} is not a member of project {project_id}")
+
     if pm.role == "owner":
-        # 检查是否还有其他人是 owner
+        # 检查是否还有其他人是 owner（最后 owner 不可删，保留原护栏）
         owner_count = (
             s.query(ProjectMember)
-            .filter(ProjectMember.project_id == project_id, ProjectMember.role == "owner")
+            .filter(ProjectMember.project_id == project_id,
+                    ProjectMember.role == "owner")
             .count()
         )
         if owner_count <= 1:
             raise InvalidValue("cannot remove the last owner from a project")
-    s.delete(pm); _commit(s); return True
+
+    receiver = resolve_project_owner_excluding(s, project_id, user_id)
+    # 只有当被移除者名下**确实有** item 时，接收方缺失才是问题；否则纯移除即可
+    owned_tasks = s.query(Task).filter(
+        Task.project_id == project_id, Task.owner_user_id == user_id).all()
+    owned_stories = s.query(Story).filter(
+        Story.owner_user_id == user_id).all()
+    owned_stories = [st for st in owned_stories
+                     if _story_project_id(s, st.id) == project_id]
+    if (owned_tasks or owned_stories) and receiver is None:
+        raise InvalidValue(
+            f"cannot remove user {user_id}: they own "
+            f"{len(owned_tasks)} task(s) / {len(owned_stories)} story(s) in "
+            f"project {project_id}, but the project has no other owner to "
+            "receive them. Assign an owner first."
+        )
+
+    s.delete(pm)
+    for t in owned_tasks:
+        t.owner_user_id = receiver
+    for st in owned_stories:
+        st.owner_user_id = receiver
+    _commit(s)
+    if owned_tasks or owned_stories:
+        log.info(
+            "remove_project_member: user %s 移出 project %s，其 %s 个 task /"
+            " %s 个 story 移交给 project owner %s（在途 run 不中断）",
+            user_id, project_id, len(owned_tasks), len(owned_stories), receiver,
+        )
+    return {
+        "removed": True,
+        "transferred_tasks": len(owned_tasks),
+        "transferred_stories": len(owned_stories),
+        "receiver": receiver,
+    }
 
 
 def list_projects(s: Session, limit: int | None = None, offset: int = 0):
@@ -456,6 +507,61 @@ def resolve_project_owner(s: Session, project_id: int) -> int | None:
             owners[0].user_id,
         )
     return int(owners[0].user_id)
+
+
+def resolve_project_owner_excluding(
+    s: Session, project_id: int, exclude_user_id: int,
+) -> int | None:
+    """同上，但把 ``exclude_user_id`` 排除在候选之外。
+
+    T2.2 移除成员时用：被移除的人如果自己也是 owner（且不是最后一个），
+    他名下的 task/story 要移交给**其余** owner —— 不能移交给他自己，
+    否则刚删掉的人马上又变成接收方，移交等于没发生。
+    """
+    owners = [
+        pm for pm in project_owners(s, project_id)
+        if pm.user_id != exclude_user_id
+    ]
+    if not owners:
+        return None
+    return int(owners[0].user_id)
+
+
+# ---- T2.3 Story 移交 ----------------------------------------------------------
+
+def transfer_story(
+    s: Session, story_id: int, new_owner_user_id: int, *,
+    changed_by_user_id: int | None = None,
+) -> tuple[Story, int | None]:
+    """移交 story 归属（T2.3）：免确认、即生效。
+
+    规则与 ``features/work_items/service.py::transfer_task`` 完全一致
+    （新 owner 必须是项目成员；只改 owner_user_id 不动 created_by）。
+    Story 没有 assignee / 在途 run 概念，移交即对后续一切生效。
+    """
+    st = s.get(Story, story_id)
+    if not st:
+        raise NotFound(f"story {story_id} not found")
+    if not user_is_project_member(s, _story_project_id(s, story_id),
+                                 new_owner_user_id):
+        raise InvalidValue(
+            f"new owner user {new_owner_user_id} is not a member of the "
+            f"story's project; transfer aborted"
+        )
+    previous = st.owner_user_id
+    st.owner_user_id = new_owner_user_id
+    _commit(s)
+    log.info(
+        "transfer_story: story %s owner %s -> %s (changed_by=%s)",
+        story_id, previous, new_owner_user_id, changed_by_user_id,
+    )
+    return st, previous
+
+
+def _story_project_id(s: Session, story_id: int) -> int | None:
+    epic = s.query(Epic.id, Epic.project_id).join(
+        Story, Story.epic_id == Epic.id).filter(Story.id == story_id).first()
+    return int(epic[1]) if epic else None
 
 
 def update_epic(s: Session, id: int, **fields) -> Epic | None:

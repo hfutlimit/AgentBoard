@@ -92,3 +92,8 @@ class BulkTaskDelete(BaseModel):
 class TaskClaimIn(BaseModel):
 	"""Worker 认领 Task 请求体（可省略；agent = worker 身份串，写入租约）。"""
 	agent: str = Field(default="worker", min_length=1, max_length=100)
+
+
+class TaskTransferIn(BaseModel):
+	"""T2.3 移交 task 归属：免确认、即生效。"""
+	new_owner_user_id: int = Field(..., gt=0)

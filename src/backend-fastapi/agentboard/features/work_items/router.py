@@ -23,6 +23,7 @@ from .schemas import (
 	ReassignTimeoutIn,
 	SpecAppendIn,
 	TaskClaimIn,
+	TaskTransferIn,
 	TaskPatch,
 )
 import os
@@ -272,6 +273,49 @@ def claim_task_for_development(tid: int, authorization: str | None = Header(None
         raise HTTPException(status_code=409, detail=str(e))
     api_helpers._invalidate_stats_cache(t.project_id)
     return service._ser(t)
+
+
+@router.post("/api/tasks/{tid}/transfer")
+def transfer_task(tid: int, body: TaskTransferIn,
+                  authorization: str | None = Header(None),
+                  s: Session = Depends(get_session)):
+    """移交 task 归属（T2.3）：免确认、即生效（Jason 2026-09-02 拍板）。
+
+    权限：当前 owner / project owner / admin 三者之一。
+    在途 run 不中断，移交只影响后续步骤（认领/派发/评审走执行门判 owner）。
+    """
+    if api_helpers._auth_is_required() or authorization:
+        actor = api_helpers._current_user(
+            authorization, s, required_permission="api:write")
+    else:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    task = service.get_task(s, tid)
+    if task is None:
+        raise HTTPException(status_code=404, detail="task not found")
+    uid = actor.id
+    u = service.get_user(s, uid)
+    is_admin = bool(u and u.is_admin)
+    if not is_admin:
+        is_current_owner = service.work_item_owner_user_id(task) == uid
+        if not is_current_owner and not service.user_is_project_owner(
+                s, task.project_id, uid):
+            raise HTTPException(
+                status_code=403,
+                detail="task owner, project owner or admin required",
+            )
+    try:
+        task, previous = service.transfer_task(
+            s, tid, body.new_owner_user_id, changed_by_user_id=uid)
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except service.InvalidValue as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    api_helpers._invalidate_stats_cache(task.project_id)
+    # T5.1/T5.2（P2）挂点：在此处发 owner_transferred 通知 + 写
+    # owner_transfer_history（previous / new / changed_by 已齐备）。
+    body_dict = service._ser(task)
+    body_dict["previous_owner_user_id"] = previous
+    return body_dict
 
 
 @router.post("/api/tasks/{tid}/apply")
