@@ -92,7 +92,10 @@
                   <span class="chip" [class.on]="a.online">在线</span>
                 </td>
                 <td class="probe">{{ a.probe_message || '—' }}</td>
-                <td><button class="small" (click)="editAgent(a)">编辑</button></td>
+                <td>
+                  <button class="small" (click)="editAgent(a)">编辑</button>
+                  <button class="small danger" (click)="deleteAgent(a)">删除</button>
+                </td>
               </tr>
             } @empty {
               <tr><td colspan="8" class="empty">当前 Worker 暂无 Agent，请在上方配置</td></tr>

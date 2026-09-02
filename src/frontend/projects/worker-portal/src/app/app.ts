@@ -200,6 +200,24 @@ export class App {
     this.tab.set('agents');
   }
 
+  async deleteAgent(a: AgentRow) {
+    const ok = window.confirm(
+      `确认删除本 Worker 上的 agent「${a.agent_id}」？\n` +
+      `该操作仅解绑本机 instance（per-worker），不影响其他 Worker，也不删除 logical Agent。`,
+    );
+    if (!ok) return;
+    this.agentMsg.set('');
+    try {
+      await this.api<unknown>(`/api/agents/${encodeURIComponent(a.agent_id)}`, {
+        method: 'DELETE',
+      });
+      this.agentMsg.set(`✅ 已删除 ${a.agent_id}`);
+      this.refreshAgents();
+    } catch (e) {
+      this.agentMsg.set(`删除失败：${e}`);
+    }
+  }
+
   protected readonly agentHasFullAccess = (agent: AgentRow) => {
     const cmd = agent.cli_command || '';
     return cmd.includes('--dangerously-bypass-approvals-and-sandbox')

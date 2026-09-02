@@ -258,6 +258,18 @@ class AgentBoardProxy:
             raise HTTPException(r.status_code, f"服务器 {path} 返回 {r.status_code}: {r.text[:300]}")
         return r.json() if r.content else {"status": r.status_code}
 
+    def delete(self, path: str) -> Any:
+        try:
+            r = self._client.delete(f"{self.api_url}{path}", headers=self._headers())
+        except httpx.HTTPError as e:
+            raise HTTPException(502, f"服务器不可达：{e}") from e
+        if r.status_code == 404:
+            # 不幂等：UI 期望明确信号确认"没这个 instance"
+            raise HTTPException(404, f"服务器 {path}: instance not found")
+        if r.status_code >= 400:
+            raise HTTPException(r.status_code, f"服务器 {path} 返回 {r.status_code}: {r.text[:300]}")
+        return r.json() if r.content else {"status": r.status_code}
+
     def close(self) -> None:
         self._client.close()
 
@@ -512,6 +524,19 @@ def create_app(
         if profile_update:
             proxy.put(f"/api/agents/{agent_id}", profile_update)
         return proxy.post(f"/api/agents/{agent_id}/instances", payload)
+
+    @app.delete("/api/agents/{agent_id}")
+    def delete_agent(agent_id: str) -> Any:
+        """删除本 Worker 上某 agent 的 instance（per-worker 解绑）。
+
+        转给 server 端 ``DELETE /api/agents/{agent_id}/instances?worker_id=...``。
+        instance 不存在时返回 404（不幂等）—— 配合 UI 让 operator 看到
+        "早就被删了" vs "刚被我删了" 的差别。
+        """
+        _ensure_worker_registered()
+        return proxy.delete(
+            f"/api/agents/{agent_id}/instances?worker_id={local_worker_id}"
+        )
 
     # ---- 项目列表 ----
     @app.get("/api/projects")

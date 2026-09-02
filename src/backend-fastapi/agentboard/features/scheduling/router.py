@@ -34,7 +34,7 @@ from .schemas import (
 )
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
 from ...api import agent_state_hub  # noqa: E402 — Agent 状态 WebSocket 广播 hub（定义于 api.py 顶层）
-from .models import AgentRun, RunEvent  # noqa: E402 — P1-4 SSE watermark snapshot
+from .models import AgentRun, RunEvent, AgentInstance  # noqa: E402 — P1-4 SSE watermark snapshot; AgentInstance for DELETE /api/agents/{id}/instances (2026-09-02)
 from .run_event_bus import (
     IRunEventBus,
     InProcessRunEventBus,
@@ -527,6 +527,48 @@ def upsert_agent_instance_for_agent(agent_id: str, body: AgentInstanceUpsertIn,
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
     return inst.to_owner_dict()
+
+
+@router.delete("/api/agents/{agent_id}/instances", status_code=200)
+def delete_agent_instance_endpoint(
+    agent_id: str,
+    worker_id: str = Query(..., min_length=1, max_length=64),
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    """删除本 Worker 上某 logical agent 的可执行 instance（per-worker）。
+
+    软鉴权（与 upsert 对齐）。``worker_id`` 必须已注册。返回被删 instance
+    的 id，便于客户端日志。Instance 不存在时返回 404，**不**幂等删除 ——
+    调用方（worker portal 删旧 agent）需要明确信号确认"没这个 instance"。
+
+    物理删除：``service.delete_agent_instance``；会触发
+    ``_sync_agent_online`` 把 logical ``Agent.online`` 状态重算。
+    """
+    uid, _is_admin = api_helpers._caller_uid_admin(authorization, s)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if not service.get_worker_by_id(s, worker_id):
+        raise HTTPException(
+            status_code=404, detail=f"worker {worker_id} not registered"
+        )
+    inst = (
+        s.query(AgentInstance)
+        .filter(AgentInstance.worker_id == worker_id,
+                AgentInstance.agent_id == agent_id)
+        .first()
+    )
+    if inst is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"no instance of agent {agent_id} on worker {worker_id}",
+        )
+    deleted_id = inst.id
+    ok = service.delete_agent_instance(s, inst.id)
+    if not ok:
+        raise HTTPException(status_code=500, detail="delete failed")
+    return {"ok": True, "deleted_id": deleted_id, "worker_id": worker_id,
+            "agent_id": agent_id}
 
 
 @router.get("/api/agent-instances")
