@@ -518,6 +518,66 @@ def create_app(
     # and eventually take over once the proxy is fixed.
     _push_hello_or_log()
 
+    # Periodic HTTP PING loop (P3.1 hardening).
+    #
+    # The WSS client (worker/ws_client.py) sends PING every 15s to
+    # keep the server-side cache fresh. But when the reverse proxy
+    # in front of the server does not forward the WebSocket upgrade
+    # (IIS ARR without WebSocket passthrough, nginx missing
+    # `proxy_set_header Upgrade $http_upgrade`, Cloudflare Free, etc.)
+    # the WSS client never reaches the ``while True: recv`` loop, so
+    # no PING is delivered. The HTTP fallback path (P3.1) fires
+    # HELLO at portal startup and DELTA on every edit — but does not
+    # self-refresh. Between edits the cache's 60s staleness sweep
+    # marks entries offline, and ``/api/agent-cache/pick`` starts
+    # returning 503 for the ephemeral dispatch path.
+    #
+    # This loop closes that gap: it POSTs a ``{"type":"PING"}`` frame
+    # to the same sync endpoint every ``interval`` seconds so the
+    # server keeps this worker's cache entries fresh regardless of
+    # WSS health. When WSS *is* working, PINGs arrive twice as often
+    # as needed — harmless (server just bumps last_heartbeat).
+    #
+    # Env knobs:
+    #   AGENTBOARD_HTTP_PING_INTERVAL (float seconds, default 20;
+    #                                 <= 0 disables the loop)
+    def _http_ping_loop() -> None:  # pragma: no cover — background thread
+        try:
+            interval = float(os.environ.get(
+                "AGENTBOARD_HTTP_PING_INTERVAL", "20",
+            ).strip() or "20")
+        except ValueError:
+            interval = 20.0
+        if interval <= 0:
+            log.info("worker_portal: HTTP PING loop disabled "
+                     "(AGENTBOARD_HTTP_PING_INTERVAL<=0)")
+            return
+        # Give WSS a chance to establish first so we don't double-ping
+        # on healthy deployments during the initial connect window.
+        _stop_event.wait(timeout=min(interval, 10.0))
+        log.info("worker_portal: HTTP PING loop starting (interval=%.1fs)",
+                 interval)
+        while not _stop_event.wait(timeout=interval):
+            try:
+                proxy.post("/api/agent-cache/sync",
+                           {"type": "PING", "worker_id": local_worker_id})
+            except Exception as e:  # noqa: BLE001 — never crash the loop
+                log.warning("worker_portal: http ping failed: %s", e)
+
+    import threading as _threading
+    _stop_event = _threading.Event()
+    _http_ping_thread = _threading.Thread(
+        target=_http_ping_loop,
+        name=f"worker-portal-http-ping[{local_worker_id}]",
+        daemon=True,
+    )
+    if ephemeral_agents_enabled():
+        _http_ping_thread.start()
+
+    @app.on_event("shutdown")
+    def _stop_http_ping() -> None:  # pragma: no cover
+        _stop_event.set()
+
     def _push_delta_or_log(*, add=None, remove=None) -> None:
         """Push a frame to the server so the cache reflects this
         worker's state. Tries WSS first; falls back to an HTTP
@@ -551,29 +611,6 @@ def create_app(
             )
         except Exception as e:  # pragma: no cover
             log.warning("worker_portal: http sync fallback failed: %s", e)
-
-    def _push_hello_or_log() -> None:
-        """Send a HELLO frame to the server so the cache reflects
-        this worker's full state. Same WSS-first / HTTP-fallback
-        strategy as ``_push_delta_or_log``."""
-        if wss_client is not None:
-            try:
-                wss_client.enqueue_hello()
-                return
-            except Exception as e:  # pragma: no cover
-                log.warning("worker_portal: wss hello push failed: %s; "
-                            "falling back to HTTP sync", e)
-        # HTTP fallback
-        try:
-            agents = [a.to_frame() for a in local_registry.list_agents()]
-            proxy.post(
-                "/api/agent-cache/sync",
-                {"type": "HELLO",
-                 "worker_id": local_worker_id,
-                 "agents": agents},
-            )
-        except Exception as e:  # pragma: no cover
-            log.warning("worker_portal: http sync hello failed: %s", e)
 
     @app.get("/api/agents")
     def list_agents() -> Any:

@@ -45,8 +45,38 @@ log = logging.getLogger("agentboard.agent_registry_cache")
 
 # Defaults — overridable via env to allow ops to tighten or loosen
 # without a code change.
+#
+# AGENTBOARD_EPHEMERAL_STALENESS_SECONDS — how long (in seconds) the
+# cache will keep an entry marked `online` after the last HELLO/DELTA/
+# PING touched it. The WSS client sends PING every 15s so 60s is
+# comfortable. The HTTP fallback path (P3.1) only fires when the
+# worker has an explicit change, so ops running a WSS-blocked
+# deployment (IIS ARR not forwarding WebSocket upgrade, nginx without
+# `proxy_set_header Upgrade`, etc.) should raise this to e.g. 300s
+# to avoid the cache going empty between restarts.
 STALENESS_SECONDS_DEFAULT = 60.0
 SWEEP_INTERVAL_SECONDS_DEFAULT = 10.0
+
+
+def _env_staleness_seconds() -> float:
+    """Read `AGENTBOARD_EPHEMERAL_STALENESS_SECONDS` from the process
+    env. Falls back to `STALENESS_SECONDS_DEFAULT` if unset or
+    malformed. Non-positive values disable the sweep entirely (entries
+    never go stale — useful for a fixed set of long-lived workers
+    whose PING cadence cannot be tightened)."""
+    raw = os.environ.get("AGENTBOARD_EPHEMERAL_STALENESS_SECONDS", "").strip()
+    if not raw:
+        return STALENESS_SECONDS_DEFAULT
+    try:
+        val = float(raw)
+    except ValueError:
+        log.warning(
+            "agent_registry_cache: invalid AGENTBOARD_EPHEMERAL_STALENESS_SECONDS=%r "
+            "— falling back to %.0fs",
+            raw, STALENESS_SECONDS_DEFAULT,
+        )
+        return STALENESS_SECONDS_DEFAULT
+    return val
 
 
 def ephemeral_agents_enabled() -> bool:
@@ -132,7 +162,7 @@ class AgentRegistryCache:
     def __init__(
         self,
         *,
-        staleness_seconds: float = STALENESS_SECONDS_DEFAULT,
+        staleness_seconds: float | None = None,
         sweep_interval_seconds: float = SWEEP_INTERVAL_SECONDS_DEFAULT,
     ):
         self._lock = threading.RLock()
@@ -140,7 +170,13 @@ class AgentRegistryCache:
         # keyed by an explicit tuple because we want O(1) add / remove
         # without a tuple-hash decode on every snapshot.
         self._by_pair: dict[tuple[str, str], AgentCacheEntry] = {}
-        self._staleness_seconds = float(staleness_seconds)
+        # None ⇒ read from env (AGENTBOARD_EPHEMERAL_STALENESS_SECONDS)
+        # so ops can tune the window without a code change. Tests
+        # pass an explicit float to pin the value.
+        self._staleness_seconds = float(
+            staleness_seconds if staleness_seconds is not None
+            else _env_staleness_seconds()
+        )
         self._sweep_interval_seconds = float(sweep_interval_seconds)
         self._last_sweep_at: float = time.time()
 
@@ -268,8 +304,15 @@ class AgentRegistryCache:
         throttles this call to `sweep_interval_seconds` so callers
         can invoke it on every admin read without worrying about
         hot-loop cost.
+
+        If `staleness_seconds <= 0` the sweep is skipped entirely and
+        all entries are treated as permanently fresh. This is the
+        escape hatch for HTTP-only-fallback workers behind a
+        WSS-hostile proxy whose cache should not age out.
         """
         now = now if now is not None else time.time()
+        if self._staleness_seconds <= 0:
+            return 0
         with self._lock:
             if (now - self._last_sweep_at) < self._sweep_interval_seconds:
                 return 0
