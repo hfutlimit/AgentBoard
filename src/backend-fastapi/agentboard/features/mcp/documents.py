@@ -100,5 +100,14 @@ def _folder_update(folder_id, fields):
 def _folder_delete(folder_id):
     return _http("DELETE", f"/api/document-folders/{folder_id}")
 
+# 记忆文档 title 约定（分层零 DB 变更，title 前缀隔离）：
+#   - 项目级：title = "项目记忆" —— 团队规范 / 约定 / 踩坑，所有 Agent 共享；
+#   - Agent 级：title = "Agent 记忆 · {agent}" —— 某 Agent 个性 / 擅长领域，按 agent 隔离。
+# 这两个常量的唯一真源在这里（_memory_title 的消费方）；mcp_server.py 里的同名
+# 名字只是别名引用。2026-09-02 修复：Phase 6b 把 _memory_title 拆进来时常量
+# 留在了 mcp_server.py，导致 append/get 记忆时 NameError。
+_MEMORY_PROJECT_TITLE = "项目记忆"
+_MEMORY_AGENT_PREFIX = "Agent 记忆 · "
+
 def _memory_title(agent: str | None) -> str:
     return f"{_MEMORY_AGENT_PREFIX}{agent}" if agent else _MEMORY_PROJECT_TITLE

@@ -1230,8 +1230,10 @@ def search_documents(project_id: int | None = None, q: str | None = None,
 #   - 项目级：title = "项目记忆" —— 团队规范 / 约定 / 踩坑，所有 Agent 共享；
 #   - Agent 级：title = "Agent 记忆 · {agent}" —— 某 Agent 个性 / 擅长领域，按 agent 隔离。
 
-_MEMORY_PROJECT_TITLE = "项目记忆"
-_MEMORY_AGENT_PREFIX = "Agent 记忆 · "
+# 常量唯一真源在 features/mcp/documents.py（_memory_title 的消费方）；
+# 这里仅别名引用，避免两处定义漂移。2026-09-02 修复 Phase 6b 拆分遗漏的 NameError。
+_MEMORY_PROJECT_TITLE = mcp_documents._MEMORY_PROJECT_TITLE
+_MEMORY_AGENT_PREFIX = mcp_documents._MEMORY_AGENT_PREFIX
 
 
 
