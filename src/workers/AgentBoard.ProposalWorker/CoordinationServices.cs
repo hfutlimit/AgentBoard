@@ -229,6 +229,10 @@ public sealed class WorkerStartupService : BackgroundService
 
     private async Task UpsertAgentInstancesAsync(CancellationToken ct)
     {
+        _log.LogInformation(
+            "PR-12 UpsertAgentInstances: ServerUrl='{Url}' StartupToken-len={Len}",
+            _agentboard.ServerUrl ?? "(null)",
+            _agentboard.StartupToken?.Length ?? 0);
         // 遍历显式可注册的 agent slot。Scenario 是 Golden gate 专用的
         // in-process HTTP adapter；只有 Command=enabled 时才注册，不会进入生产。
         var slots = new (string Tool, AgentOptions Opt)[]

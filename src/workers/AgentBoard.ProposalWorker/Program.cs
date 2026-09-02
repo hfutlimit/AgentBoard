@@ -52,7 +52,15 @@ builder.Services.AddSingleton<InboxStore>();
 builder.Services.AddSingleton<ExecutionChannel>();
 
 // ---- Sprint 4: single translation point (RabbitMQ message → request) ------
-builder.Services.AddSingleton<ProposalMessageMapper>();
+// 2026-09-02: same DefaultAgent injection as the WorkflowMessageMapper below,
+// so proposal messages without server-set agent_type fall back to the
+// operator-configured agent (Agents:DefaultAgent) instead of a hard-coded
+// slot name that may not exist in the C# registry (Glm53F bug).
+builder.Services.AddSingleton<ProposalMessageMapper>(sp =>
+    new ProposalMessageMapper(
+        sp.GetRequiredService<IAgentAdapterRegistry>(),
+        sp.GetRequiredService<ILogger<ProposalMessageMapper>>(),
+        sp.GetRequiredService<IOptions<AgentsOptions>>().Value.DefaultAgent));
 // ---- Sprint 12: workflow event translation (agentboard.workflow ns) ------
 // 2026-09-01: forward the configured Agents:DefaultAgent to the mapper so
 // workflow messages with agent_type=null (publisher PR-5 fix is in but

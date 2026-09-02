@@ -92,6 +92,30 @@ public sealed class Sprint4_AdapterRegistryTests
     }
 
     [Fact]
+    public void Mapper_uses_injected_default_agent_over_workbuddy_fallback()
+    {
+        // 2026-09-02 Glm53F bug regression: the injected Agents:DefaultAgent
+        // must win over the "workbuddy" fallback (and must NOT be a hard-coded
+        // slot name the C# registry never modeled).
+        var mapper = new ProposalMessageMapper(ThreeAgentRegistry(), defaultAgent: "minimax");
+        var msg = new ProposalMessage(ProposalId: 9, Round: 0, Reason: "r", Timestamp: "t", AgentType: null);
+        var req = mapper.MapToExecution(msg, "test");
+
+        Assert.Equal("minimax", req.AgentType);
+        Assert.Equal("proposal:9:0:minimax", req.ExecutionKey);
+    }
+
+    [Fact]
+    public void Mapper_server_agent_type_beats_injected_default()
+    {
+        var mapper = new ProposalMessageMapper(ThreeAgentRegistry(), defaultAgent: "minimax");
+        var msg = new ProposalMessage(ProposalId: 10, Round: 0, Reason: "r", Timestamp: "t", AgentType: "codex");
+        var req = mapper.MapToExecution(msg, "test");
+
+        Assert.Equal("codex", req.AgentType);
+    }
+
+    [Fact]
     public void Mapper_uses_explicit_agent_type_when_present()
     {
         var mapper = new ProposalMessageMapper(ThreeAgentRegistry());
