@@ -31,6 +31,33 @@ from .invokers import split_command
 log = logging.getLogger("agentboard.worker.heartbeat")
 
 
+def _resolve_cmd_local(agent_id: str, executor_type: str, model: str,
+                       fallback_cmd: str, fallback_model: str,
+                       stats: dict, source_key: str = "cli_source",
+                       ) -> tuple[str, str]:
+    """T4.2/T6.2：CLI 命令**本地优先**。
+
+    Worker 本地存储（cli_storage，含 path/model/args_extra/secret_ref）是
+    执行面配置的真源；server 下发的 ``cli_command`` 降级为兜底 —— 兼容
+    尚未写本地存储的存量部署，同时让「worker 本机配置即可用」成立。
+    返回 (cmd, model)；解析失败（本地无记录且 server 也空）两者为空，
+    调用方按未配置 skip。
+    """
+    from .cli_storage import resolve_cli
+    try:
+        install = resolve_cli(agent_id=agent_id, executor_type=executor_type)
+    except Exception as e:  # 存储读取异常不阻断心跳
+        log.warning("cli_storage 解析异常（agent=%s）：%s", agent_id, e)
+        install = None
+    if install is not None:
+        cmd = install.command_for(model)
+        if cmd.strip():
+            stats[source_key] = "local"
+            return cmd, (model or install.model or "")
+    stats[source_key] = "server"
+    return fallback_cmd, (model or fallback_model)
+
+
 def probe_cli(config: Any, cmd: str, model: str = "") -> tuple[bool, str]:
     """CLI 可用性探测：``<cmd> --version``（8s 超时）。
 
@@ -197,14 +224,18 @@ def _heartbeat_via_instances(
         return stats
     for inst in instances or []:
         iid = inst.get("id")
-        cmd = inst.get("cli_command") or ""
         agent_id = inst.get("agent_id") or ""
+        cmd, model_v = _resolve_cmd_local(
+            agent_id, str(inst.get("executor_type") or ""),
+            str(inst.get("model") or ""),
+            str(inst.get("cli_command") or ""), "",
+            stats)
         if not iid or not cmd or not inst.get("enabled", True):
             stats["skipped"] += 1
             continue
         stats["checked"] += 1
         try:
-            ok, msg = probe_cli(config, cmd, model=inst.get("model") or "")
+            ok, msg = probe_cli(config, cmd, model=model_v)
             base = f"/api/workers/{worker_id}/agent-instances/{iid}"
             if ok:
                 r = client.request("POST", f"{base}/heartbeat",
@@ -247,13 +278,15 @@ def _heartbeat_via_agents_legacy(client: httpx.Client, config: Any) -> dict:
         return stats
     for a in agents or []:
         aid = a.get("agent_id")
-        cmd = a.get("cli_command") or ""
+        cmd, model_v = _resolve_cmd_local(
+            str(aid or ""), "", str(a.get("model") or ""),
+            str(a.get("cli_command") or ""), "", stats)
         if not aid or not cmd or not a.get("enabled", True):
             stats["skipped"] += 1
             continue
         stats["checked"] += 1
         try:
-            ok, msg = probe_cli(config, cmd, model=a.get("model") or "")
+            ok, msg = probe_cli(config, cmd, model=model_v)
             if ok:
                 r = client.request("POST", f"/api/agents/{aid}/heartbeat",
                                    json={"probe_ok": True, "probe_message": msg})

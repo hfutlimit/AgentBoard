@@ -85,8 +85,10 @@ class WorkerConfig:
     #   本机 instances 探测，**绝不**触达其他 Worker 的 instance；
     # - 探测结果通过 ``/api/workers/{worker_id}/agent-instances/{id}/{heartbeat,deregister}``
     #   上报（URL path worker_id 强校验 ownership，防 A 覆盖 B）。
-    # 留空 = 旧单 Worker 路径（``GET /api/agents`` + 失败 deregister，
-    # 与 ``/api/agents`` 不返回 cli_command 兼容不修；已知行为，单独 P 跟进）。
+    # 留空 = 旧单 Worker 路径（``GET /api/agents`` + 失败 deregister）。
+    # T4.2/T6.2 后两条路径的 CLI 都本地优先（cli_storage），server 不再是
+    # 配置真源 —— 原先「/api/agents 不返回 cli_command 导致 legacy 全 skip」
+    # 的已知问题在本机写了本地 CLI 存储后自然消解。
     worker_id: str = ""
     # 轮询间隔（秒）
     poll_interval: float = 10.0
