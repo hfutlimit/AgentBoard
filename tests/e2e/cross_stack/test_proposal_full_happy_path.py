@@ -165,7 +165,7 @@ def test_proposal_full_happy_path(tmp_path: Path):
     namespace = f"agentboard.golden.{run_id}"
     api_port = _free_port()
     api_url = f"http://127.0.0.1:{api_port}"
-    portal_ports = [_free_port() for _ in range(3)]
+    portal_ports = [_free_port() for _ in range(2)]
     processes: list[tuple[subprocess.Popen | None, object]] = []
     logs: dict[str, Path] = {}
 
@@ -247,11 +247,18 @@ def test_proposal_full_happy_path(tmp_path: Path):
             headers=owner_headers,
         ), 201)
 
-        worker_ids = [f"golden-worker-{run_id}-{n}" for n in (1, 2, 3)]
-        agent_ids = [f"golden-agent-{run_id}-{n}" for n in (1, 2, 3)]
+        # 2026-09-01 决策 a/b（docs/design/agent-ownership-scoping-plan.md）：
+        # 执行和评审都收敛到 owner 名下 agent —— 评审候选要求同 owner 且
+        # 排除实现方 agent（agent 维度去重），无第二个同 owner agent 时评审
+        # 保持待处理。因此 Golden 场景改为：owner 注册两个 agent，agent-1
+        # 实现（design/dev/qa 执行中的实现方），agent-2 评审 design/dev 并
+        # 执行 qa（qa 评审回到 agent-1，天然满足互斥）。
+        # second/third 仍注册为项目成员，覆盖协作成员的读路径。
+        worker_ids = [f"golden-worker-{run_id}-{n}" for n in (1, 2)]
+        agent_ids = [f"golden-agent-{run_id}-{n}" for n in (1, 2)]
         instance_ids = []
-        for worker_id, agent_id, user in zip(worker_ids, agent_ids, users):
-            headers = _headers(user["token"])
+        for worker_id, agent_id in zip(worker_ids, agent_ids):
+            headers = owner_headers
             _must(client.post(
                 "/api/workers/register",
                 json={
@@ -297,14 +304,14 @@ def test_proposal_full_happy_path(tmp_path: Path):
             workflow_env,
         )
 
-        worker_processes: list[subprocess.Popen | None] = [None, None, None]
+        worker_processes: list[subprocess.Popen | None] = [None, None]
 
         def start_worker(index: int, *, delay_ms: int = 0):
             env = _worker_env(
                 base_env,
                 worker_id=worker_ids[index],
                 agent_id=agent_ids[index],
-                token=users[index]["token"],
+                token=owner["token"],
                 api_url=api_url,
                 namespace=namespace,
                 portal_port=portal_ports[index],
@@ -324,7 +331,7 @@ def test_proposal_full_happy_path(tmp_path: Path):
                 timeout=30,
                 description=f".NET worker {index + 1} health",
             )
-            headers = _headers(users[index]["token"])
+            headers = owner_headers
             _must(client.post(
                 f"/api/agents/{agent_ids[index]}/heartbeat",
                 json={"probe_ok": True, "probe_message": "golden e2e"},
@@ -337,11 +344,11 @@ def test_proposal_full_happy_path(tmp_path: Path):
                 headers=headers,
             ), 200)
 
-        # Agent 2 is intentionally registered but offline at first. Agent 3
-        # therefore performs the Design review. Agent 2 comes online while
-        # Dev is executing and then performs Dev review + QA execution.
+        # agent-1（实现方）带 4s 执行延迟，agent-2（评审方）即时在线：
+        # design 由 agent-1 执行完进 in_review 后，agent-2 立刻可被自动
+        # 指派为 reviewer（同 owner、非实现方 agent）。
         start_worker(0, delay_ms=4000)
-        start_worker(2)
+        start_worker(1)
 
         proposal = _must(client.post(
             "/api/proposals",
@@ -429,9 +436,9 @@ def test_proposal_full_happy_path(tmp_path: Path):
             description="Design reviewed and Dev assigned",
         )
         assert checkpoint["design"]["assignee_id"] == owner["id"]
-        assert checkpoint["design"]["reviewer_id"] == third["id"]
-
-        start_worker(1)
+        # 决策 a/b：reviewer 与实现方同 owner（user 维度相同，agent 维度互斥，
+        # 由路由断言兜底验证）。
+        assert checkpoint["design"]["reviewer_id"] == owner["id"]
 
         final_story = _wait_until(
             lambda: (
@@ -449,13 +456,14 @@ def test_proposal_full_happy_path(tmp_path: Path):
         dev = final_tasks["dev"]
         qa = final_tasks["qa"]
         assert final_story["status"] == "done"
+        # 决策 a/b：执行与评审都收敛在 owner 名下 —— user 维度全是 owner，
+        # agent 维度的实现方/评审方互斥由下方 routed_workloads 精确断言。
         assert design["assignee_id"] == owner["id"]
-        assert design["reviewer_id"] == third["id"]
+        assert design["reviewer_id"] == owner["id"]
         assert dev["assignee_id"] == owner["id"]
-        assert dev["reviewer_id"] == second["id"]
-        assert qa["assignee_id"] == second["id"]
+        assert dev["reviewer_id"] == owner["id"]
+        assert qa["assignee_id"] == owner["id"]
         assert qa["reviewer_id"] == owner["id"]
-        assert qa["assignee_id"] != dev["assignee_id"]
         assert all(row["status"] == "done" for row in final_tasks.values())
 
         dependency_count = 0
@@ -490,16 +498,20 @@ def test_proposal_full_happy_path(tmp_path: Path):
             for rows in worker_executions
         ]
         assert routed_workloads == [
+            # agent-1（实现方）：design/dev 执行 + qa 评审（qa 执行方是
+            # agent-2，评审回到 agent-1，实现方/评审方在 agent 维度互斥）。
             {
                 ("task", design["id"]),
                 ("task", dev["id"]),
                 ("review", qa["id"]),
             },
+            # agent-2（评审方）：design/dev 评审 + qa 执行（上游 dev 实现
+            # 方 agent-1 被动态排斥，不能自己做 QA）。
             {
+                ("review", design["id"]),
                 ("review", dev["id"]),
                 ("task", qa["id"]),
             },
-            {("review", design["id"])},
         ]
 
         proposal_final = _must(client.get(
@@ -532,7 +544,7 @@ def test_proposal_full_happy_path(tmp_path: Path):
             try:
                 diagnostics.append(
                     f"\n--- {name} ---\n"
-                    f"{path.read_text(encoding='utf-8', errors='replace')[-8000:]}"
+                    f"{path.read_text(encoding='utf-8', errors='replace')[-120000:]}"
                 )
             except OSError:
                 pass

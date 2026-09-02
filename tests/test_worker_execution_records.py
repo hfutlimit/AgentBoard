@@ -10,7 +10,8 @@ from agentboard.domains.common.models import Base
 from agentboard.domains.projects.models import Agent, Project
 from agentboard.domains.scheduling.models import AgentRun, AgentSchedule
 from agentboard.features.scheduling import service as scheduling_service
-from agentboard.domains.work_items.models import Task
+from agentboard.features.identity.models import User
+from agentboard.features.work_items.models import Task
 from agentboard import worker_portal
 
 
@@ -22,17 +23,28 @@ def _seed_session() -> tuple[Session, int, int]:
     project = Project(name="Worker Records", key="WRK", description="")
     session.add(project)
     session.flush()
+    # T1.5 执行门要求写路径必须填 owner（fail-closed：owner 为 NULL 的 task
+    # 任何 agent 都不能碰）。这里经 create_run → try_assign_task 走认领路径，
+    # 造数必须同时给 Agent 绑 user、给 Task 绑 owner_user_id。
+    owner_a = User(username="wrk-owner-a", password_hash="x")
+    owner_b = User(username="wrk-owner-b", password_hash="x")
+    session.add_all([owner_a, owner_b])
+    session.flush()
     session.add_all([
-        Agent(agent_id="codex", name="Codex Worker", model="gpt-5.6"),
-        Agent(agent_id="minimax", name="MiniMax Worker", model="MiniMax-M2.7"),
+        Agent(agent_id="codex", name="Codex Worker", model="gpt-5.6",
+              user_id=owner_a.id),
+        Agent(agent_id="minimax", name="MiniMax Worker", model="MiniMax-M2.7",
+              user_id=owner_b.id),
     ])
     task_a = Task(
         project_id=project.id, title="Review worker output",
         description="Inspect the generated patch and report findings.", spec="",
+        owner_user_id=owner_a.id,
     )
     task_b = Task(
         project_id=project.id, title="Fallback spec task",
         description="", spec="Use the task spec when description is empty.",
+        owner_user_id=owner_b.id,
     )
     session.add_all([task_a, task_b])
     session.flush()
