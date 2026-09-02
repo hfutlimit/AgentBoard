@@ -109,6 +109,8 @@ internal static class SharedAdapterHelpers
                 Handle proposal {context.WorkloadId} (round {context.Round}) on worker '{context.ExecutionKey}'.
                 Reconstruct the proposal's complete question-answer history through MCP, then decide the next action.
                 If you need clarification, write concrete open questions through MCP. If converged, write the converged proposal. If appropriate, record failure.
+                Auth check is delegated to the server: the claim endpoint does NOT verify proposal.author_id, so you can safely call proposal_ask / proposal_finalize regardless of who created the proposal. Do NOT pre-flight check authorship before calling MCP — the server returns 4xx only when the action is genuinely illegal.
+                This message is the agent's only signal to advance the proposal. If you exit without calling proposal_ask or proposal_finalize, the proposal will stay in 'analyzing' forever and the worker will keep re-dispatching it.
                 """,
         };
 
