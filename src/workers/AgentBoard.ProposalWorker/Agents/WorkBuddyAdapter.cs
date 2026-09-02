@@ -59,6 +59,16 @@ public sealed class WorkBuddyAdapter : IAgentAdapter
             Environment = env,
             AgentType = AgentType,
         };
+        // 2026-09-02 (operator verify): log the exact command we are
+        // about to spawn so post-mortem on 124 can confirm whether
+        // the new template (codebuddy CLI) or the old misrouted
+        // (python scripts/minimax_invoker.py) is actually in effect.
+        _log.LogInformation(
+            "WorkBuddyAdapter.Execute: workload={Workload} id={Id} " +
+            "cmd='{Cmd}' args=[{Args}] model-hint={Model}",
+            context.WorkloadType, context.WorkloadId,
+            spec.Executable, string.Join(" ", spec.Arguments),
+            opts.Arguments.Length > 0 ? opts.Arguments[^1] : "(none)");
         return ExecuteSpecAsync(context, spec, ct);
     }
 
@@ -66,6 +76,18 @@ public sealed class WorkBuddyAdapter : IAgentAdapter
     {
         var result = await _process.ExecuteAsync(spec, ct);
         var output = result.RedactedOutput ?? "";
+        // 2026-09-02: tail the last 400 chars of stdout so a reviewer
+        // can see what codebuddy actually returned (the 'ask' decision
+        // body is normally the last line of stdout). When a run
+        // fails the failure reason + stderr tail are also logged.
+        var tail = output.Length > 400 ? "…" + output[^400..] : output;
+        _log.LogInformation(
+            "WorkBuddyAdapter.Execute: workload={Workload} id={Id} exit={Exit} " +
+            "duration={Dur}ms timed-out={To} cancelled={Can} success={Ok} stdout-tail={Tail}",
+            context.WorkloadType, context.WorkloadId, result.ExitCode,
+            (long)result.Duration.TotalMilliseconds, result.TimedOut,
+            result.Cancelled, result.ExitCode == 0 && !result.TimedOut && !result.Cancelled,
+            tail);
         return new AgentExecutionResult(
             Success: result.ExitCode == 0 && !result.TimedOut && !result.Cancelled,
             OutputJson: TryExtractLastJson(output),

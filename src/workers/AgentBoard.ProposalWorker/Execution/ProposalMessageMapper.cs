@@ -11,8 +11,14 @@ namespace AgentBoard.ProposalWorker.Execution;
 public sealed class ProposalMessageMapper
 {
     private readonly IAgentAdapterRegistry _registry;
+    private readonly ILogger<ProposalMessageMapper> _log;
 
-    public ProposalMessageMapper(IAgentAdapterRegistry registry) => _registry = registry;
+    public ProposalMessageMapper(IAgentAdapterRegistry registry,
+                                ILogger<ProposalMessageMapper> log)
+    {
+        _registry = registry;
+        _log = log;
+    }
 
     public ExecutionRequest MapToExecution(ProposalMessage msg, string source, string defaultAgent = "Glm53F")
     {
@@ -23,6 +29,17 @@ public sealed class ProposalMessageMapper
         // specific agent is desired).  Backward compat: when the
         // server sends no agent_type we still get a sensible default.
         var agentType = string.IsNullOrWhiteSpace(msg.AgentType) ? defaultAgent : msg.AgentType;
+        // 2026-09-02 (operator verify): emit one log line per proposal
+        // dispatch so a reviewer can confirm which agent (and the
+        // route) the worker actually picked. Includes the proposal id,
+        // the agent_type that won, and whether it came from the
+        // server-set msg.AgentType (preferred) or the local default.
+        _log.LogInformation(
+            "ProposalMessageMapper: proposal={Pid} round={Round} source={Src} " +
+            "msg.AgentType={MsgAT} defaultAgent={Def} picked={Picked}",
+            msg.ProposalId, msg.Round, source,
+            string.IsNullOrWhiteSpace(msg.AgentType) ? "(null)" : msg.AgentType,
+            defaultAgent, agentType);
         // Fail fast on unknown agent so the dispatcher doesn't burn a slot.
         if (!_registry.IsRegistered(agentType))
             throw new InvalidAgentException(agentType);
