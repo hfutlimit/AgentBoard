@@ -87,9 +87,11 @@ def seeded():
 def _inreview_task(s, project_id, *, assignee_id, owner_id=None):
     from agentboard.models import Task
     # 归属收敛：owner 默认 = assignee（本文件里 owner 即 dev）
+    # T1.5：执行门判 **owner_user_id**，两列都要写（只写 created_by 会 fail-closed）
+    _owner = owner_id if owner_id is not None else assignee_id
     t = Task(project_id=project_id, title="S12 task", type="dev",
              status="in_review", assignee_id=assignee_id,
-             created_by_user_id=owner_id if owner_id is not None else assignee_id)
+             created_by_user_id=_owner, owner_user_id=_owner)
     s.add(t)
     s.flush()
     return t
@@ -105,10 +107,30 @@ def _pending_assignments(s, entity_type, entity_id):
     return [(int(uid), v) for uid, v in rows]
 
 
+def _pending_agent_ids(s, entity_type, entity_id):
+    """返回该实体当前 pending 票的 reviewer_agent_id 列表。
+
+    T1.1 起唯一键是 (entity, reviewer_agent_id)，计票按 **agent** 而非 user：
+    同 owner 的 3 个 agent 应当各持一票，否则 solo 部署永远凑不满 quorum。
+    """
+    from agentboard.features.projects.models import ReviewVote
+    rows = s.query(ReviewVote.reviewer_agent_id).filter(
+        ReviewVote.entity_type == entity_type,
+        ReviewVote.entity_id == entity_id,
+    ).all()
+    return sorted(int(a) for (a,) in rows if a is not None)
+
+
 # ---------- 1. assign_task_reviewer count=N 一次挑 N 个 ----------
 
-def test_assign_task_reviewer_count_3_collapses_to_one_vote(seeded, monkeypatch):
-    """归属收敛：owner 名下 3 个 agent 请求 count=3 → 一人一票收敛为 1 票。"""
+def test_assign_task_reviewer_count_3_fans_out_one_vote_per_agent(seeded, monkeypatch):
+    """归属收敛 + per-agent 计票（T1.1）：owner 名下 3 个 agent，count=3 → 3 票。
+
+    这里断言的是 **T1.1 改过之后的**语义。T1.1 之前唯一键是
+    (entity, reviewer_user_id)，同 owner 的 3 个 agent 会被去重成 1 票 ——
+    那样 solo 部署（一个 user 名下多个 agent）永远凑不满 quorum，多数决评审
+    形同虚设。所以现在一人一票，本测试也随之改名并改断言。
+    """
     pid, dev_id, [r1, r2, r3], _ = seeded
     with SessionLocal() as s:
         t = _inreview_task(s, pid, assignee_id=dev_id)
@@ -122,24 +144,29 @@ def test_assign_task_reviewer_count_3_collapses_to_one_vote(seeded, monkeypatch)
         assert t.reviewer_id == dev_id
         assert t.reviewer_agent_id is not None
         rows = _pending_assignments(s, "task", t_id)
-        # 一人一票：3 个同 owner agent 收敛为 1 行 pending
-        assert len(rows) == 1
-        assert rows[0][0] == dev_id
-        assert rows[0][1] is None
+        # 3 个同 owner agent → 3 行 pending，user 都是 dev，agent 各不相同
+        assert len(rows) == 3
+        assert {uid for uid, _ in rows} == {dev_id}
+        assert all(v is None for _, v in rows)
+        agent_ids = _pending_agent_ids(s, "task", t_id)
+        assert len(set(agent_ids)) == 3, "per-agent 计票：票必须落在不同 agent 上"
 
 
 def test_assign_task_reviewer_count_2_idempotent_when_already_assigned(seeded):
-    """已指派后再调 count=2：no-op，不重复塞（一人一票）。"""
+    """已指派 3 票后再调 count=2：no-op，不重复塞，也不回删。"""
     pid, dev_id, [r1, r2, r3], _ = seeded
     with SessionLocal() as s:
         t = _inreview_task(s, pid, assignee_id=dev_id)
         s.commit()
         service.assign_task_reviewer(s, t.id, count=3)
         s.commit()
+        before = _pending_agent_ids(s, "task", t.id)
         service.assign_task_reviewer(s, t.id, count=2)
         s.commit()
         rows = _pending_assignments(s, "task", t.id)
-        assert len(rows) == 1
+        assert len(rows) == 3
+        # 幂等：agent 集合不变，没被重复插入也没被换掉
+        assert _pending_agent_ids(s, "task", t.id) == before
 
 
 def test_assign_task_reviewer_count_1_keeps_legacy_path(seeded):
@@ -190,8 +217,17 @@ def test_review_vote_counts_ignores_pending_null_verdict(seeded, monkeypatch):
             service.review_task(s, task_id=t.id, reviewer_user_id=r1,
                                 verdict="approve", comment="x")
 
-        # owner(dev) 投 approve → approve=1 == quorum=1 → 多数通过结算
+        # owner(dev) 名下有 3 个 agent，只给 user_id 无法确定是哪一票 →
+        # fail-closed（T1.1）。真实链路是 agent 持自己的 API key 来投票，
+        # reviewer_agent_id 从凭证解析，不存在歧义。
+        with pytest.raises(service.InvalidValue, match="reviewer_agent_id is required"):
+            service.review_task(s, task_id=t.id, reviewer_user_id=dev_id,
+                                verdict="approve", comment="ambiguous")
+
+        # 指定 agent 投 approve → approve=1 == quorum=1 → 多数通过结算
+        voter_agent_id = _pending_agent_ids(s, "task", t.id)[0]
         t_final = service.review_task(s, task_id=t.id, reviewer_user_id=dev_id,
+                                      reviewer_agent_id=voter_agent_id,
                                       verdict="approve", comment="ok")
         assert t_final.status == "done"
         # 结算后清票

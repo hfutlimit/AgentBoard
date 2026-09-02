@@ -81,9 +81,11 @@ def _make_task(s, story_id, project_id, title="T", status="todo", assignee_id=No
                created_by=None):
     # 直接构造 Task 对象以覆盖任意初始状态（create_task 不暴露 status）
     # 归属收敛：claim 门槛要求 owner；默认由调用处显式传 created_by。
+    # T1.5：执行门判 **owner_user_id**，这里必须一并写 —— 只写 created_by 的
+    # 话 owner 是 NULL，claim / 派发 / 评审全链路 fail-closed。
     t = Task(project_id=project_id, story_id=story_id, title=title,
              status=status, assignee_id=assignee_id,
-             created_by_user_id=created_by)
+             created_by_user_id=created_by, owner_user_id=created_by)
     s.add(t)
     s.flush()
     return t

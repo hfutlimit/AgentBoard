@@ -264,6 +264,10 @@ def claim_task_for_development(tid: int, authorization: str | None = Header(None
         )
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
+    except service.Forbidden as e:
+        # T1.5 验收①：agent 主动认领别人的 task → 403（不是 409）。
+        # 409 表示「慢了一步」，403 表示「不该你干」——语义不同，前端提示也不同。
+        raise HTTPException(status_code=403, detail=str(e))
     except service.InvalidValue as e:
         raise HTTPException(status_code=409, detail=str(e))
     api_helpers._invalidate_stats_cache(t.project_id)
@@ -293,6 +297,9 @@ def apply_for_task(
         )
     except service.NotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+    except service.Forbidden as exc:
+        # T1.5：非 owner agent 申请 → 403（与 claim 同口径）
+        raise HTTPException(status_code=403, detail=str(exc))
     except service.InvalidValue as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     return service._ser(application)

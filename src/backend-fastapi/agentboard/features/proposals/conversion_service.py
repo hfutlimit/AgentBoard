@@ -284,6 +284,8 @@ class ProposalConversionService:
             description=(plan.story or {}).get("description") or p.converged_spec or "",
             commit=False,
             create_default_tasks=False,
+            # T1.5：Story 也要带 owner，否则 owner 为 NULL，执行门 fail-closed
+            created_by_user_id=_owner_user_id,
         )
 
         # 2. Tasks：严格按 plan 创建。Proposal 已完成 Grill/人工答疑，自动 Design

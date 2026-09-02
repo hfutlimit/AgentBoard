@@ -100,10 +100,14 @@ def _inreview_task(s, project_id, *, reviewer_id, assignee_id, round_=0,
                    owner_id=None):
     from agentboard.models import Task
     # 归属收敛：owner 默认 = assignee（本文件里 dev 既是 assignee 也是 owner）
+    # T1.5：执行门判的是 **owner_user_id**（可变归属），不是 created_by_user_id
+    # （不可变审计列）。这里直接构造 ORM 对象，两个列都得写 —— 只写 created_by
+    # 的话 owner 是 NULL，重派/派发一律 fail-closed。
+    _owner = owner_id if owner_id is not None else assignee_id
     t = Task(project_id=project_id, title="S3M3 task", type="dev",
              status="in_review", reviewer_id=reviewer_id,
              assignee_id=assignee_id, review_round=round_,
-             created_by_user_id=owner_id if owner_id is not None else assignee_id)
+             created_by_user_id=_owner, owner_user_id=_owner)
     s.add(t)
     s.flush()
     return t

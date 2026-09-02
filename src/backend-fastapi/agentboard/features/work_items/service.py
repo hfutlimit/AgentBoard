@@ -20,8 +20,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ... import models  # 顶层 facade,保持兼容
-from ...core.exceptions import Conflict, Duplicate, InvalidValue, NotFound
+from ...core.exceptions import (  # noqa: F401 — Forbidden 供路由 `except service.Forbidden` 用
+    Conflict, Duplicate, Forbidden, InvalidValue, NotFound,
+)
 from .models import ATTACHMENT_DIR, Comment, Task, TaskDependency, TaskStatusHistory
+from .ownership import assert_agent_can_handle_work_item
 from .state_machine import execute_transition
 
 log = logging.getLogger("agentboard.features.work_items.service")
@@ -77,9 +80,15 @@ def create_task(
     needs_human_confirmation: bool | None = None,
     created_by_user_id: int | None = None,
     created_by_agent_id: int | None = None,
+    owner_user_id: int | None = None,
     commit: bool = True,
 ) -> Task:
     """创建 Task。
+
+    T1.5：``owner_user_id`` 默认取 ``created_by_user_id`` —— 创建者即初始归属。
+    不填的话新建 task 的 owner 是 NULL，T1.5 的执行门会 fail-closed 把它卡死。
+    显式传 owner_user_id 用于「代别人建单」（如 admin 代办），移交走 T2.3，
+    不走这里。
 
     Review 2026-08-26 P1 #2：加 ``commit: bool = True`` 参数。
     - commit=True（默认）：原行为，校验+落库+缓存失效同一 commit。
@@ -136,6 +145,9 @@ def create_task(
         needs_human_confirmation=needs_human_confirmation,
         created_by_user_id=created_by_user_id,
         created_by_agent_id=created_by_agent_id,
+        owner_user_id=(
+            owner_user_id if owner_user_id is not None else created_by_user_id
+        ),
     )
     s.add(t)
     s.flush()  # 取 t.id
@@ -409,19 +421,13 @@ def try_assign_task(
         raise InvalidValue(f"agent registry id {agent_registry_id} not found")
     if agent is not None and user_id is not None and agent.user_id != user_id:
         raise InvalidValue(f"agent '{agent.agent_id}' belongs to another user")
-    # 归属收敛（2026-09-01）：认领方必须就是 task 的 owner。owner 为空的
-    # 存量/未标注 task fail-closed，需人工补 owner 后才能被认领。
-    claiming_user_id = agent.user_id if agent is not None else user_id
-    if task.created_by_user_id is None:
-        raise InvalidValue(
-            f"task {task_id} has no owner (created_by_user_id is NULL); "
-            "assign an owner before it can be claimed"
-        )
-    if claiming_user_id is not None and claiming_user_id != task.created_by_user_id:
-        raise InvalidValue(
-            f"only the task owner's agent may claim task {task_id} "
-            f"(owner={task.created_by_user_id}, requester={claiming_user_id})"
-        )
+    # 归属门（T1.5）：认领方必须是 task owner 名下的 agent。走统一执行门，
+    # 判据是**可变**的 owner_user_id —— 此前判的是不可变的 created_by_user_id，
+    # 移交（T2.3）之后两者分叉，老判据会把已移交的 task 判给旧 owner。
+    # 主动认领越权 → 403（不是 409/400，那是「冲突/参数错」，这是「不该你干」）。
+    # fallback_user_id：API key 可能只绑 user 不绑 agent（人工认领），此时用
+    # user 本身判归属。
+    assert_agent_can_handle_work_item(agent, task, fallback_user_id=user_id)
     if agent is not None:
         # 最终 CAS 前复检动态排斥，避免旧 Worker/直接 claim 绕过 scheduler。
         from ..scheduling.service import get_assignment_exclusion
@@ -640,16 +646,9 @@ def apply_for_task(
         raise InvalidValue(f"agent registry id {agent_registry_id} not found")
     if agent.user_id != user_id:
         raise InvalidValue(f"agent '{agent.agent_id}' belongs to another user")
-    # 归属收敛：只有 task owner 能申请/被仲裁；owner 为空的 task fail-closed。
-    if task.created_by_user_id is None:
-        raise InvalidValue(
-            f"task {task_id} has no owner; assign an owner before applying"
-        )
-    if user_id != task.created_by_user_id:
-        raise InvalidValue(
-            f"only the task owner may apply for task {task_id} "
-            f"(owner={task.created_by_user_id}, requester={user_id})"
-        )
+    # 归属门（T1.5）：与 claim 同一条判据，走统一执行门。申请也是主动动作，
+    # 非 owner 申请 → 403。
+    assert_agent_can_handle_work_item(agent, task)
 
     result = score_agent_for_task(s, agent, task, role="developer")
     if not result.eligible:
@@ -1202,7 +1201,10 @@ def generate_tasks_from_spec(s: Session, task_id: int) -> list:
                  type=ItemType.DEV, title=title[:300], description=title,
                  source_spec_id=task_id,
                  created_by_user_id=src.created_by_user_id,
-                 created_by_agent_id=src.created_by_agent_id)
+                 created_by_agent_id=src.created_by_agent_id,
+                 # T1.5：子任务继承父任务归属，否则执行门一律 fail-closed。
+                 # 优先跟 owner（移交过的父任务以 owner 为准），没有再退 created_by。
+                 owner_user_id=src.owner_user_id or src.created_by_user_id)
         s.add(t)
         created.append(t)
         existing_titles.add(title)

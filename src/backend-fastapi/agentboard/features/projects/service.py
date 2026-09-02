@@ -571,8 +571,13 @@ def create_story(s: Session, *, epic_id: int, title: str, description: str = "",
     epic = s.get(Epic, epic_id)
     if not epic:
         raise NotFound(f"epic {epic_id} not found")
+    # T1.5：Story 与默认 Task 都要带上 owner。
+    # created_by_user_id 是不可变审计列、owner_user_id 是可变归属列（T2.3 移交
+    # 只改后者），两者在创建时同值，之后可能分叉 —— 所以两个列都要写，不能只写一个。
     st = Story(epic_id=epic_id, title=_required(title, "title", 300),
-               description=description or "", needs_design=needs_design)
+               description=description or "", needs_design=needs_design,
+               created_by_user_id=created_by_user_id,
+               owner_user_id=created_by_user_id)
     s.add(st)
     s.flush()  # 取 st.id 供默认 Task 关联
     if not create_default_tasks:
@@ -587,12 +592,14 @@ def create_story(s: Session, *, epic_id: int, title: str, description: str = "",
         design_task = Task(project_id=epic.project_id, story_id=st.id, type=ItemType.DESIGN,
                            title=f"设计：{base}"[:300],
                            needs_human_confirmation=design_needs_human_confirmation,
-                           created_by_user_id=created_by_user_id)
+                           created_by_user_id=created_by_user_id,
+                           owner_user_id=created_by_user_id)
         s.add(design_task)
         s.flush()
     dev_task = Task(project_id=epic.project_id, story_id=st.id, type=ItemType.DEV,
                     title=f"实现：{base}"[:300],
-                    created_by_user_id=created_by_user_id)
+                    created_by_user_id=created_by_user_id,
+                    owner_user_id=created_by_user_id)
     s.add(dev_task)
     s.flush()
     if design_task is not None:

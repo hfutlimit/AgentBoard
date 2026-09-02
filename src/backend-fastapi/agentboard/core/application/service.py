@@ -108,6 +108,9 @@ from ...domains.proposals.state_machine import (
 from ...domains.common.models import utc_now
 from ..exceptions import (  # noqa: E402
     DomainError, NotFound, IllegalTransition, Duplicate, InvalidValue,
+    # T1.5：执行门 403。路由 `except service.Forbidden` 需要从 facade 拿得到，
+    # 否则 ImportError/AttributeError 会在**运行时**才炸。
+    Forbidden,
 )
 from ..service_helpers import _parse_json_list, validate_cli_command  # noqa: E402,F401
 
@@ -1180,49 +1183,15 @@ def _invalidate_project_stats_cache(project_id: int) -> None:
         pass  # 缓存失败不影响主流程
 
 # ---------- Spec -> 子任务（OpenSpec / Superpowers 风格） ----------
-def generate_tasks_from_spec(s: Session, task_id: int) -> list:
-    """解析任务 spec 中的清单项（- [ ] 标题），生成同级子任务。
-
-    生成的子任务：同 project / story，type=dev（ItemType.DEV），
-    status=todo（Status.TODO，Task model 默认值），priority=medium
-    （Priority.MEDIUM），并通过 source_spec_id 反向关联到源任务；
-    同时在源 spec 末尾回写链接。
-    8/17 review P1：注释里的旧 "type=task / status=backlog" 表述已下线
-    （Story 265 收敛），以实际 model 默认值/代码为准。
-    """
-    src = s.get(Task, task_id)
-    if not src:
-        raise NotFound(f"task {task_id} not found")
-    existing_titles = {
-        title for (title,) in s.query(Task.title).filter(Task.source_spec_id == task_id).all()
-    }
-    created = []
-    for line in (src.spec or "").splitlines():
-        m = re.match(r"\s*[-*]\s*\[\s*[ xX]\s*\]\s*(.*)", line)
-        if not m:
-            continue
-        title = m.group(1).strip()
-        if not title:
-            continue
-        title = title[:300]
-        if title in existing_titles:
-            continue
-        t = Task(project_id=src.project_id, story_id=src.story_id,
-                 type=ItemType.DEV, title=title[:300], description=title,
-                 source_spec_id=task_id)
-        s.add(t)
-        created.append(t)
-        existing_titles.add(title)
-    if created:
-        s.flush()
-        links = "\n".join(f"- 子任务 #{t.id}: {t.title}" for t in created)
-        src.spec = (src.spec or "") + f"\n\n## 生成的子任务\n{links}\n"
-    _commit(s)
-    for t in created:
-        s.refresh(t)
-    if created:
-        s.refresh(src)
-    return created
+#
+# T1.5：本文件此前有一份 generate_tasks_from_spec 的重复实现，且与
+# features/work_items/service.py 的版本**分叉**（那版会继承 created_by_*，
+# 这版不继承）。可达性分析：router 走 `core.application.service` facade，
+# 命中的是 core 这份 —— 也就是说线上跑的一直是功能更少的那版。
+#
+# 按 T0.1a 同款做法收敛：删掉 core 本地定义，统一转发到 features（真源）。
+# 转发发生在文件末尾的重绑定区，晚于本位置，因此对外符号不变。
+# ---------------------------------------------------------------------------
 
 # ---------- Search ----------
 def search_tasks(s: Session, *, project_id=None, epic_id=None, story_id=None,
@@ -2796,6 +2765,9 @@ from ...features.work_items.service import (  # noqa: F401,F403
     # 状态机收紧、retry 清理等后续增强)。
     batch_update_task_status,
     export_project_data,
+    # T1.5：收敛 generate_tasks_from_spec 的分叉副本（core 版不继承 created_by_*），
+    # 统一走 features 真源。放在末尾以确保覆盖上面已删除的本地定义。
+    generate_tasks_from_spec,
 )
 
 # ---------------------------------------------------------------------------
@@ -2899,6 +2871,16 @@ from ...features.scheduling.service import (  # noqa: F401,F403
     _clear_review_votes, _settle_majority_approved, _settle_majority_rejected,
     _vote_majority, _online_reviewer_candidates,
     _reassign_story_reviewer, _reassign_task_reviewer,
+)
+
+# ---------------------------------------------------------------------------
+# T1.5 统一执行门：真源在 features/work_items/ownership.py。
+# 与上面同一套理由 —— 收敛成一处，别再散出第二份判据。
+# ---------------------------------------------------------------------------
+from ...features.work_items.ownership import (  # noqa: F401,F403
+    CODE_EXCLUDED, CODE_NO_OWNER, CODE_NOT_OWNER, CODE_OK,
+    GateDecision, agent_can_handle_work_item,
+    assert_agent_can_handle_work_item, work_item_owner_user_id,
 )
 
 # ----------------------------------------------------------------------

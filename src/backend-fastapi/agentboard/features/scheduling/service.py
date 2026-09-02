@@ -104,6 +104,9 @@ DEFAULT_TIMEOUT_SCAN_BATCH = 20
 # Agent 在 projects.models
 from ..projects.models import Project
 from ..work_items.models import Task, TaskDependency
+from ..work_items.ownership import (  # noqa: E402 — T1.5 统一执行门（只依赖 model 层，不成环）
+    CODE_NO_OWNER, agent_can_handle_work_item, work_item_owner_user_id,
+)
 from ..work_items.service import set_status  # noqa: E402 — 跨域调用（提交评审走任务状态机）
 from .models import AgentRun, AgentSchedule
 from .matching import normalize_capabilities, rank_agents_for_task
@@ -681,25 +684,26 @@ def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None
     # - owner 为空 / 无第二个（非实现方）同 owner agent → **保持待处理**
     #   （in_review + reviewer 未指派，不 raise，决策 b），等 owner 再上线
     #   一个 agent；scan_review_timeouts 不会误扫 reviewer_id IS NULL 的行。
-    if t.created_by_user_id is None:
+    owner_user_id = work_item_owner_user_id(t)
+    if owner_user_id is None:
         log.info(
-            "assign_task_reviewer: task %s 无 owner（created_by_user_id=NULL），"
+            "assign_task_reviewer: task %s 无 owner（owner_user_id=NULL），"
             "保持待处理（需人工补 owner）", task_id)
         s.commit()
         return t
+    # T1.5：归属 + 自审排除走统一执行门。排除集 = 已派过票的 ∪ 动态排斥
+    # （实现方 agent 不能评自己的活）。
     candidates = _online_reviewer_candidates(s, t.project_id)
     exclusion = get_assignment_exclusion(s, t, "review")
+    exclude = set(already_assigned) | exclusion.agent_registry_ids
     candidates = [
-        a for a in candidates
-        if a.user_id == t.created_by_user_id
-        and a.id not in already_assigned
-        and a.id not in exclusion.agent_registry_ids
+        a for a in candidates if agent_can_handle_work_item(a, t, exclude_agent_ids=exclude)
     ]
     if not candidates:
         if not already_assigned:
             log.info(
                 "assign_task_reviewer: task %s owner=%s 无非实现方在线 agent，"
-                "保持待处理（决策 b）", task_id, t.created_by_user_id)
+                "保持待处理（决策 b）", task_id, owner_user_id)
         # 全无候选 / 部分已指派再无可补：不报错，保持当前状态。
         s.commit()
         return t
@@ -707,7 +711,7 @@ def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None
     if not ranked:
         log.info(
             "assign_task_reviewer: task %s owner=%s 候选均不满足能力要求，"
-            "保持待处理", task_id, t.created_by_user_id)
+            "保持待处理", task_id, owner_user_id)
         s.commit()
         return t
     # 第一位走原有 CAS 把 reviewer_id 写进 Task（兼容旧查询 + 旧事件源），
@@ -925,30 +929,43 @@ def _runnable_instance_for_agent(s: Session, agent: Agent) -> AgentInstance | No
 def list_runnable_candidates(
     s: Session, task: Task, workload_type: str,
 ) -> list[tuple[Agent, AgentInstance]]:
-    """统一 runnable Agent eligibility；不读取业务静态 roles。"""
+    """统一 runnable Agent eligibility；不读取业务静态 roles。
+
+    T1.5：归属判据走统一执行门 ``agent_can_handle_work_item`` —— 只看
+    ``task.owner_user_id``，**不查 ProjectMember**。
+    """
     expire_stale_agent_heartbeats(s)
     expire_stale_worker_heartbeats(s)
-    member_ids = {
-        int(row[0]) for row in s.query(ProjectMember.user_id).filter(
-            ProjectMember.project_id == task.project_id,
-        ).all()
-    }
-    # 归属收敛（2026-09-01）：只有 task owner（创建者 user）的 agent 才能入选，
+    owner_user_id = work_item_owner_user_id(task)
+    # 归属收敛（2026-09-01，T1.5 收编）：只有 task owner 的 agent 才能入选，
     # 不再允许「任意项目成员的 agent」抢占别人的 task。owner 为空（存量/未标注）
     # 时 fail closed：返回空候选 → 派发保留 todo，等人工补 owner。
-    if task.created_by_user_id is None:
+    if owner_user_id is None:
         log.warning(
-            "dispatch: task %s 无 owner（created_by_user_id=NULL），fail-closed 不派发",
+            "dispatch: task %s 无 owner（owner_user_id=NULL），fail-closed 不派发",
             task.id,
         )
         return []
-    agents = [
-        agent for agent in s.query(Agent).filter(
-            Agent.enabled.is_(True), Agent.online.is_(True),
-            Agent.user_id == task.created_by_user_id,
-        ).all()
-        if agent.user_id in member_ids
-    ]
+    online = s.query(Agent).filter(
+        Agent.enabled.is_(True), Agent.online.is_(True),
+    ).all()
+    agents = [a for a in online if agent_can_handle_work_item(a, task)]
+    # 不变量「owner ∈ ProjectMember」由**写侧**保证（T1.4 回填 / T2.2 成员管理 /
+    # 建项目时创建者自动入 owner）。这里只告警不再拦截：一旦写侧漏了，旧行为是
+    # 静默返回空候选 → 整个项目派发停摆且无任何信号，排查成本极高；现在至少
+    # 能在日志里看见是谁漏的。
+    if agents:
+        member_ids = {
+            int(row[0]) for row in s.query(ProjectMember.user_id).filter(
+                ProjectMember.project_id == task.project_id,
+            ).all()
+        }
+        if owner_user_id not in member_ids:
+            log.warning(
+                "dispatch: task %s 的 owner user=%s 不是 project %s 的成员"
+                "（写侧漏补 ProjectMember），派发仍继续",
+                task.id, owner_user_id, task.project_id,
+            )
     instances = {
         agent.id: _runnable_instance_for_agent(s, agent) for agent in agents
     }
@@ -1067,11 +1084,22 @@ def dispatch_implementation_task(
             pair for pair in runnable
             if pair[0].id not in exclusion.agent_registry_ids
         ]
+        # T1.5 验收②：scheduler 自动派发**不抛异常**（那是 agent 主动认领该得的
+        # 403），保持 todo + 写 deferred reason。原因码要能区分三种情况，否则
+        # 看板上「没人能干」和「没人认领」长得一样，排障全靠猜：
+        #   no_owner              → 人工补 owner（T1.4 回填不了的那批）
+        #   no_runnable_agent     → owner 名下无在线可运行 agent（等上线，M3 会转 blocked）
+        #   all_candidates_excluded → 有 agent 但被动态排斥（自审/并发槽位）
+        owner_user_id = work_item_owner_user_id(task)
+        if owner_user_id is None:
+            code = CODE_NO_OWNER
+        elif runnable and not remaining:
+            code = "all_candidates_excluded"
+        else:
+            code = "no_runnable_agent"
         task.assignment_deferred_reason = json.dumps({
-            "code": (
-                "all_candidates_excluded"
-                if runnable and not remaining else "no_runnable_agent"
-            ),
+            "code": code,
+            "owner_user_id": owner_user_id,
             "task_type": task.type,
             "workload_type": workload_type,
             "runnable_agent_ids": [pair[0].id for pair in runnable],
@@ -2482,12 +2510,22 @@ def _reassign_story_reviewer(s: Session, story: Story,
 
     调用前 reviewer 必须已解绑（CAS 由调用方仲裁）；候选为空 → None（保持解绑，
     由下轮轮询补派，评审流不因重派失败而卡死）。成功返回新 reviewer 的 user_id。
+
+    T1.5：补 owner 门 —— 这里是全链路**唯一**没有归属过滤的重派入口，别的
+    agent 可以评到别人 Story 上。判据改走统一执行门（owner_user_id）。
+    旧的 `a.user_id != exclude_user_id` 只是「别再派给刚超时的那个 user」，
+    跟归属无关，保留。
     """
     epic = s.get(Epic, story.epic_id)
     if epic is None:
         return None
+    if work_item_owner_user_id(story) is None:
+        return None  # owner 为空 fail-closed
     candidates = _online_reviewer_candidates(s, epic.project_id)
-    candidates = [a for a in candidates if a.user_id != exclude_user_id]
+    candidates = [
+        a for a in candidates
+        if a.user_id != exclude_user_id and agent_can_handle_work_item(a, story)
+    ]
     if not candidates:
         return None
     reviewer = sorted(candidates, key=lambda candidate: candidate.id)[0]
@@ -2514,14 +2552,16 @@ def _reassign_task_reviewer(s: Session, task: Task,
 
     旧的「排除 assignee user」跨用户隔离已退休（同 owner 评审）。
     """
-    if task.created_by_user_id is None:
+    # T1.5：归属 + 自审排除走统一执行门（判 owner_user_id，不是 created_by）。
+    if work_item_owner_user_id(task) is None:
         return None  # owner 为空 fail-closed，保持待处理
     candidates = _online_reviewer_candidates(s, task.project_id)
     exclusion = get_assignment_exclusion(s, task, "review")
-    candidates = [a for a in candidates
-                  if a.user_id == task.created_by_user_id
-                  and a.id != task.reviewer_agent_id
-                  and a.id not in exclusion.agent_registry_ids]
+    exclude = exclusion.agent_registry_ids | {task.reviewer_agent_id}
+    candidates = [
+        a for a in candidates
+        if agent_can_handle_work_item(a, task, exclude_agent_ids=exclude)
+    ]
     if not candidates:
         return None
     ranked = rank_agents_for_task(s, task, role="reviewer", agents=candidates)

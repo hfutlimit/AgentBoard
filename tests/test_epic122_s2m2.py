@@ -118,7 +118,8 @@ def _make_task(s, story_id, project_id, title="T", status="todo",
     t = Task(project_id=project_id, story_id=story_id, title=title,
              status=status, assignee_id=assignee_id,
              reviewer_id=reviewer_id, review_round=review_round, type=type,
-             created_by_user_id=created_by)
+             # T1.5：执行门判 owner_user_id，与 created_by 一起写
+             created_by_user_id=created_by, owner_user_id=created_by)
     s.add(t)
     s.flush()
     return t
@@ -128,9 +129,13 @@ def _claim_and_submit(s, t, dev):
     """走真实链路：backlog → claim(dev) → submit-review → in_review。
 
     归属收敛：dev 是 task owner（其 agent 创建），claim 门槛要求
-    claiming user == created_by_user_id。
+    claiming user == 归属列。
+
+    T1.5：执行门改判 **owner_user_id**（可变归属），不再是 created_by_user_id
+    （不可变审计列）—— 两个列都要设，只设 created_by 会 fail-closed。
     """
     t.created_by_user_id = dev
+    t.owner_user_id = dev
     service.claim_development_task(s, t.id, user_id=dev)
     service.submit_task_for_review(s, t.id, user_id=dev)
 
@@ -428,7 +433,9 @@ def test_api_review_targets_the_exact_owner_agent(seeded):
         owner_agent_id = owner.agent_id
         service.agent_heartbeat(s, owner.agent_id, user_id=dev)
         t = _make_task(s, sid, pid, title="T-owner-route")
-        t.created_by_user_id = dev  # 归属收敛：owner 门槛
+        # 归属收敛：owner 门槛（T1.5 起执行门判 owner_user_id）
+        t.created_by_user_id = dev
+        t.owner_user_id = dev
         service.claim_development_task(
             s, t.id, user_id=dev, agent_registry_id=owner.id,
         )
