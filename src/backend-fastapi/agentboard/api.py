@@ -431,6 +431,7 @@ from .features.search.router import router as search_router
 from .features.admin.router import router as admin_router
 from .features.learning.router import router as learning_router
 from .features.scheduling.behavior_router import router as behavior_router
+from .agent_registry_ws import router as agent_registry_ws_router  # agent-ephemeral-2026-09 P3
 
 app.include_router(auth_router)
 app.include_router(projects_router)
@@ -444,4 +445,5 @@ app.include_router(search_router)
 app.include_router(admin_router)
 app.include_router(learning_router)
 app.include_router(behavior_router)
+app.include_router(agent_registry_ws_router)
 
