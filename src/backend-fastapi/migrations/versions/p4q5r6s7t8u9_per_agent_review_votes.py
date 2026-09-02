@@ -58,8 +58,23 @@ def upgrade() -> None:
         )
 
     # ---- 4) DDL：唯一键 / NOT NULL / FK CASCADE ----
+    # 顺序注意（2026-09-02 CI 修复，golden gate 报 MySQL 1830）：
+    # SQLite 的 batch 模式是整表重建、顺序无关；MySQL/MariaDB 是原地按序
+    # 执行 ALTER。SET NULL 外键还挂着就把列改成 NOT NULL 会直接报
+    #   1830: Column 'reviewer_agent_id' cannot be NOT NULL:
+    #         needed in a foreign key constraint ... SET NULL
+    # 所以必须先 drop 旧 FK，再改 NOT NULL，最后建 CASCADE 新 FK。
     with op.batch_alter_table("review_votes", schema=None) as batch:
         batch.drop_constraint("uq_review_votes_entity_reviewer", type_="unique")
+        # SQLite 不持久化 FK 名，反射回来的是 SQLAlchemy 默认命名；
+        # 原迁移用的自定义名在 SQLite 上已经不存在，两个都试一遍。
+        for fk_name in ("fk_review_votes_reviewer_agent",
+                        "fk_review_votes_reviewer_agent_id_agents"):
+            try:
+                batch.drop_constraint(fk_name, type_="foreignkey")
+                break
+            except Exception:  # noqa: BLE001 — 名字不存在即下一个
+                continue
         batch.alter_column(
             "reviewer_agent_id",
             existing_type=sa.Integer(),
@@ -70,15 +85,6 @@ def upgrade() -> None:
             "uq_review_votes_entity_reviewer_agent",
             ["entity_type", "entity_id", "reviewer_agent_id"],
         )
-        # SQLite 不持久化 FK 名，反射回来的是 SQLAlchemy 默认命名；
-        # 原迁移用的自定义名在 SQLite 上已经不存在，两个都试一遍。
-        for fk_name in ("fk_review_votes_reviewer_agent",
-                        "fk_review_votes_reviewer_agent_id_agents"):
-            try:
-                batch.drop_constraint(fk_name, type_="foreignkey")
-                break
-            except Exception:  # noqa: BLE001 — 名字不存在即下一个
-                continue
         batch.create_foreign_key(
             "fk_review_votes_reviewer_agent", "agents",
             ["reviewer_agent_id"], ["id"], ondelete="CASCADE",
@@ -86,6 +92,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # 与 upgrade 同理（MySQL 原地执行）：先 drop FK，再放回 nullable，
+    # 然后建 SET NULL FK —— 在 NOT NULL 列上直接建 SET NULL FK 同样会被
+    # MySQL 拒绝。
     with op.batch_alter_table("review_votes", schema=None) as batch:
         batch.drop_constraint(
             "uq_review_votes_entity_reviewer_agent", type_="unique")
@@ -96,15 +105,15 @@ def downgrade() -> None:
                 break
             except Exception:  # noqa: BLE001
                 continue
-        batch.create_foreign_key(
-            "fk_review_votes_reviewer_agent", "agents",
-            ["reviewer_agent_id"], ["id"], ondelete="SET NULL",
-        )
         batch.alter_column(
             "reviewer_agent_id",
             existing_type=sa.Integer(),
             existing_nullable=False,
             nullable=True,
+        )
+        batch.create_foreign_key(
+            "fk_review_votes_reviewer_agent", "agents",
+            ["reviewer_agent_id"], ["id"], ondelete="SET NULL",
         )
         batch.create_unique_constraint(
             "uq_review_votes_entity_reviewer",
