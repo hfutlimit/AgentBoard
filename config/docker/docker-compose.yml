@@ -76,7 +76,10 @@ services:
       # carries (it documents the value the operator set). For multi-origin
       # deployments, the operator adds _1, _2, ... and the compose file
       # mirrors them as CorsOrigins__1, __2, ... entries.
-      AgentBoard__CorsOrigins__0: "${AGENTBOARD_CORS_ORIGINS_0:?Set AGENTBOARD_CORS_ORIGINS_0 to the public Web origin}"
+      # 未显式设置 _0 时回退到 AGENTBOARD_CORS_ORIGINS（2026-09-02 CI 修复：
+      # live-drift 卡口只设置后者，`:?` 硬必填让 compose 解析阶段直接失败；
+      # 对运维也少一个必填面 —— 与 SECRET 复用是同一条 review 整改原则）。
+      AgentBoard__CorsOrigins__0: "${AGENTBOARD_CORS_ORIGINS_0:-${AGENTBOARD_CORS_ORIGINS:?Set AGENTBOARD_CORS_ORIGINS to the public Web origin}}"
       # .NET BFF uses SQLite by default in compose. Stage 1 will add a Pomelo
       # MySql provider once the package ships 10.0.0; until then MariaDB is
       # only consulted by the FastAPI api service.

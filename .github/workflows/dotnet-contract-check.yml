@@ -148,6 +148,9 @@ jobs:
       MARIADB_PASSWORD: ci-contract-test
       MARIADB_ROOT_PASSWORD: ci-contract-root-test
       AGENTBOARD_CORS_ORIGINS: http://localhost:28080
+      # compose 的 api-dotnet 服务用 _0 组装 CorsOrigins__0（可回退到
+      # AGENTBOARD_CORS_ORIGINS，这里显式给出保持与生产 .env 对齐）。
+      AGENTBOARD_CORS_ORIGINS_0: http://localhost:28080
       AGENTBOARD_WEB_API_URL: http://localhost:18000
     defaults:
       run:
