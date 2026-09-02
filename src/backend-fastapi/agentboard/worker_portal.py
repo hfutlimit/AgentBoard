@@ -444,8 +444,13 @@ def create_app(
     # Test seam: tests can pre-set AGENTBOARD_LOCAL_AGENT_DB to a
     # temp file before import, so the test runs against a fresh DB
     # instead of the operator's real ~/.codebuddy/agents.db.
+    # T6.2 回归修复：local registry 必须跟着 ephemeral flag 走。无条件初始化
+    # 会让 flag 关闭的部署也走本地 SQLite 路径 —— legacy proxy 路径（P5
+    # 优雅回滚通道，见上方注释）变成死代码，GET /api/agents 永远返回空列表。
     _db_path = _env("AGENTBOARD_LOCAL_AGENT_DB", "") or None
-    local_registry = LocalAgentRegistry(db_path=_db_path) if _db_path else LocalAgentRegistry()
+    local_registry = (
+        LocalAgentRegistry(db_path=_db_path) if _db_path else LocalAgentRegistry()
+    ) if ephemeral_agents_enabled() else None
     # WSS server URL is the same as the HTTP API URL with scheme swap.
     wss_url = (api or "").replace("http://", "ws://").replace("https://", "wss://")
     wss_client = (
@@ -493,6 +498,10 @@ def create_app(
         """Send a HELLO frame to the server so the cache reflects
         this worker's full state. Same WSS-first / HTTP-fallback
         strategy as ``_push_delta_or_log``."""
+        if local_registry is None:
+            # ephemeral flag off: this deployment is not a cache
+            # participant (legacy proxy path below).
+            return
         if wss_client is not None:
             try:
                 wss_client.enqueue_hello()
