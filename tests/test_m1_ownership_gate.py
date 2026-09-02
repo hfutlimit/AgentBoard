@@ -316,11 +316,13 @@ def _deferred_reason(s, task_id):
     return json.loads(raw) if raw else None
 
 
-def test_dispatch_no_owner_agent_keeps_todo_and_records_reason():
-    """Plan 验收②：无合格 owner agent → 保持 todo + 写 assignment_deferred_reason。
+def test_dispatch_no_owner_agent_blocks_with_reason():
+    """Plan 验收② + T3.1：无合格 owner agent → 不抛异常，转 blocked。
 
-    关键在「不抛异常」：调度是后台轮询，抛异常会污染整轮扫描，且看板上看不出
-    这个 task 到底为什么没派出去。
+    T3.1 之前这里断言「保持 todo」；T3.1 落地后无候选转 blocked
+    （status_reason=insufficient_agents，previous_status=todo），
+    解锁钩子在 agent 上线时按 previous_status 恢复。deferred reason
+    继续保留 —— 它是排障细节，blocked 是看板状态，两者不冲突。
     """
     pid, owner, sid = _fresh_owner_project("nodev")
     with SessionLocal() as s:
@@ -335,7 +337,8 @@ def test_dispatch_no_owner_agent_keeps_todo_and_records_reason():
         # 不抛异常，返回 None
         assert dispatch_implementation_task(s, tid) is None
         fresh = s.get(service.Task, tid)
-        assert fresh.status == "todo"
+        assert fresh.status == "blocked"
+        assert fresh.previous_status == "todo"
         reason = _deferred_reason(s, tid)
         assert reason, "fail-closed 必须留下原因，否则看板无法区分「没人能干」"
         assert reason["code"] == "no_runnable_agent"

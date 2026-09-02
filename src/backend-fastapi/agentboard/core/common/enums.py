@@ -45,6 +45,10 @@ class StatusReason(StrEnum):
     PENDING_REQUIREMENT_CHANGE = "pending_requirement_change"
     OUT_OF_SCOPE = "out_of_scope"
     DUPLICATE = "duplicate"
+    # T3.1：调度候选不足（owner 名下无在线可执行 agent）。与「人工判定」类
+    # blocked 原因不同，这个原因会被 T3.2 解锁钩子**自动恢复**（agent 上线
+    # → 按 previous_status 回到原状态），所以它必须能跟人工 blocked 区分开。
+    INSUFFICIENT_AGENTS = "insufficient_agents"
     # 迁移专用：历史 blocked 数据无明确原因，标记为遗留（Story 265 migration backfill）
     LEGACY = "legacy"
 
@@ -61,6 +65,7 @@ STATUS_REASONS_BY_STATUS: dict[str, set[str]] = {
         StatusReason.PENDING_REQUIREMENT_CHANGE,
         StatusReason.OUT_OF_SCOPE,
         StatusReason.DUPLICATE,
+        StatusReason.INSUFFICIENT_AGENTS,  # T3.1：调度候选不足（可自动解锁）
         StatusReason.LEGACY,  # 迁移遗留数据专用
     },
 }

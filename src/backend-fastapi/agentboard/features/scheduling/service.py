@@ -1085,11 +1085,11 @@ def dispatch_implementation_task(
             if pair[0].id not in exclusion.agent_registry_ids
         ]
         # T1.5 验收②：scheduler 自动派发**不抛异常**（那是 agent 主动认领该得的
-        # 403），保持 todo + 写 deferred reason。原因码要能区分三种情况，否则
-        # 看板上「没人能干」和「没人认领」长得一样，排障全靠猜：
-        #   no_owner              → 人工补 owner（T1.4 回填不了的那批）
-        #   no_runnable_agent     → owner 名下无在线可运行 agent（等上线，M3 会转 blocked）
-        #   all_candidates_excluded → 有 agent 但被动态排斥（自审/并发槽位）
+        # 403）。原因码要能区分三种情况，否则看板上「没人能干」和「没人认领」
+        # 长得一样，排障全靠猜：
+        #   no_owner              → 人工补 owner（T1.4 回填不了的那批）→ 保持 todo
+        #   no_runnable_agent     → owner 名下无在线可运行 agent → blocked（T3.1）
+        #   all_candidates_excluded → 有 agent 但被动态排斥（自审/并发槽位）→ blocked
         owner_user_id = work_item_owner_user_id(task)
         if owner_user_id is None:
             code = CODE_NO_OWNER
@@ -1108,8 +1108,22 @@ def dispatch_implementation_task(
         }, ensure_ascii=False, sort_keys=True)
         task.assignment_deferred_at = utc_now()
         _commit(s)
-        log.warning("dispatch: task %s 无合格 Agent，保持 todo：%s",
+        log.warning("dispatch: task %s 无合格 Agent：%s",
                     task_id, task.assignment_deferred_reason)
+        # T3.1：owner 存在但名下无可用 agent → 走状态机 todo→blocked，
+        # 看板上能跟「排队中」区分开。no_owner 除外 —— 那是人工补 owner 的
+        # 事，转 blocked 之后没有任何自动恢复路径（解锁钩子按 owner 找
+        # agent），反而把待办藏起来。状态机 entry side-effect 会记
+        # previous_status，T3.2 解锁按它恢复，不自定恢复目标（R10）。
+        if code != CODE_NO_OWNER:
+            set_status(
+                s, task_id, str(TaskStatus.BLOCKED),
+                reason=f"dispatch: {code}",
+                status_reason=StatusReason.INSUFFICIENT_AGENTS.value,
+            )
+            log.warning(
+                "dispatch: task %s 候选不足 → blocked（insufficient_agents）",
+                task_id)
         return None
     agent, inst = picked
     # PR-10 follow-up：复用 try_assign_task 原子写 TaskAssignment + 推
@@ -1769,12 +1783,17 @@ def agent_heartbeat(s: Session, agent_id: str, *, user_id: int | None = None,
 
     Worker probe 路径传 probe_ok/probe_message 落 probe 详情（前端展示）；
     Agent 自报心跳路径（MCP）不带，仅刷新 last_heartbeat。
+
+    T3.2：agent 从 offline → online 的那次心跳会触发解锁钩子，重扫该 owner
+    名下 blocked(insufficient_agents) 的队列。只在翻转时触发——心跳是高频
+    调用，每次都扫全队列是纯浪费。
     """
     agent = s.query(Agent).filter(Agent.agent_id == agent_id).first()
     if not agent:
         return None
     if user_id is not None and agent.user_id not in (None, user_id):
         raise InvalidValue("heartbeat rejected: agent belongs to another user")
+    was_online = bool(agent.online)
     agent.online = True if probe_ok is None else probe_ok
     agent.last_heartbeat = utc_now()
     if probe_message:
@@ -1782,7 +1801,82 @@ def agent_heartbeat(s: Session, agent_id: str, *, user_id: int | None = None,
         agent.last_probe_at = utc_now()
     if user_id is not None and agent.user_id is None:
         agent.user_id = user_id
-    _commit(s); s.refresh(agent); return agent
+    _commit(s); s.refresh(agent)
+    # T3.2 解锁钩子：独立 session 上下文之外最好别做重活，这里在翻转时才扫，
+    # 且 unblock 内部自限（无候选就不动）。user_id 缺失时退回 agent.user_id。
+    if not was_online and agent.online:
+        owner = agent.user_id or user_id
+        if owner is not None:
+            try:
+                unblocked = unblock_insufficient_agent_tasks(s, owner)
+                if unblocked:
+                    log.info("agent_heartbeat: agent %s 上线，解锁 %s 个 "
+                             "insufficient_agents 任务", agent_id, unblocked)
+            except Exception:  # 解锁失败不阻断心跳保活
+                log.exception("agent_heartbeat: 解锁钩子失败（agent=%s）",
+                              agent_id)
+    return agent
+
+
+# ---- T3.2 解锁钩子 ------------------------------------------------------------
+
+def unblock_insufficient_agent_tasks(s: Session, owner_user_id: int) -> int:
+    """重扫某 owner 名下 blocked(insufficient_agents) 的队列，能跑的解锁。
+
+    T3.2：agent 上线/心跳恢复时调用。解锁目标**不自定**（R10）—— 按状态机
+    进入 blocked 时记录的 ``previous_status`` 恢复（todo/in_progress/in_review/
+    done 四个迁移都已注册）；previous_status 为空的存量数据退回 todo。
+
+    「能不能跑」复用派发逻辑 ``_pick_implementation_agent`` 判定 —— 它包含
+    在线/enabled/runnable instance/capability/动态排斥全套，与派发口径一致；
+    单独再写一套「agent 是否可用」判断必然漂移。
+
+    只恢复状态、清 deferred reason；派发由调度器下一轮正常进行
+    （dispatch 成功会写 assignment 并清 deferred reason）。
+    返回解锁数量。
+    """
+    from ..work_items.models import Task as TaskModel
+    from ..work_items.state_machine import TaskStateMachine
+
+    blocked_tasks = (
+        s.query(TaskModel)
+        .filter(
+            TaskModel.status == Status.BLOCKED,
+            TaskModel.status_reason == StatusReason.INSUFFICIENT_AGENTS.value,
+            TaskModel.owner_user_id == owner_user_id,
+        )
+        .order_by(TaskModel.id.asc())
+        .all()
+    )
+    if not blocked_tasks:
+        return 0
+    sm = TaskStateMachine()
+    unblocked = 0
+    for task in blocked_tasks:
+        # 与派发同一把尺子：有合格候选才解锁，不为凑数放行
+        if _pick_implementation_agent(s, task, "task") is None:
+            continue
+        target = task.previous_status or TaskStatus.TODO
+        try:
+            sm.execute(s, task, str(target),
+                       ctx={"reason": "unblock: agent online"})
+        except Exception:
+            # previous_status 可能指向已不合法的迁移（脏数据）——退回 todo 再试
+            log.warning("unblock: task %s 恢复 %s 失败，退回 todo",
+                        task.id, target, exc_info=True)
+            try:
+                sm.execute(s, task, str(TaskStatus.TODO),
+                           ctx={"reason": "unblock: agent online (fallback)"})
+            except Exception:
+                log.exception("unblock: task %s 恢复 todo 也失败，跳过", task.id)
+                continue
+        task.assignment_deferred_reason = None
+        task.assignment_deferred_at = None
+        unblocked += 1
+    if unblocked:
+        _commit(s)
+        log.info("unblock: owner=%s 解锁 %s 个任务", owner_user_id, unblocked)
+    return unblocked
 
 
 # ---------- Worker + AgentInstance（2026-08-26 P1：多 Worker 部署隔离） ----------
@@ -1812,6 +1906,15 @@ def _sync_agent_online(s: Session, agent_id: str) -> None:
     if agent.online != any_online:
         agent.online = any_online
         _commit(s)
+        # T3.2 解锁钩子：实例心跳让 agent 恢复在线时同样触发
+        # （这是 Worker 场景下 agent「上线」的真实路径，agent_heartbeat 只覆盖
+        #  自报心跳）。失败不阻断在线聚合。
+        if agent.online and agent.user_id is not None:
+            try:
+                unblock_insufficient_agent_tasks(s, agent.user_id)
+            except Exception:
+                log.exception("_sync_agent_online: 解锁钩子失败（agent=%s）",
+                              agent_id)
 
 
 def register_worker(s: Session, *, worker_id: str, hostname: str = "",
