@@ -580,6 +580,17 @@ def list_stories_global(status: str | None = Query(None), reviewer_id: str | Non
         q = q.join(service.Epic, service.Story.epic_id == service.Epic.id).filter(
             service.Epic.project_id == project_id
         )
+    elif api_helpers._auth_is_required():
+        # T2.1 读门：不带 project_id 的全局列表必须收敛到「可读项目」，
+        # 否则任何登录用户能拉到全库 story（实测泄漏点）。
+        readable = service.readable_project_ids(s, uid, is_admin=_is_admin)
+        if readable is not None:
+            if readable:
+                q = q.join(
+                    service.Epic, service.Story.epic_id == service.Epic.id
+                ).filter(service.Epic.project_id.in_(readable))
+            else:
+                q = q.filter(False)
     total = q.count()
     items = [service._ser(x) for x in q.order_by(service.Story.id.desc()).limit(limit).offset(offset).all()]
     return {"items": items, "total": total}

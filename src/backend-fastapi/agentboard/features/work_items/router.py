@@ -928,6 +928,20 @@ def search_tasks(project_id: int | None = None, epic_id: int | None = None,
             except (TypeError, ValueError):
                 raise HTTPException(status_code=422, detail="invalid reviewer_id")
     try:
+        # T2.1 读门：不带 project_id 的全局搜索必须收敛到「可读项目」，
+        # 否则任何登录用户能拉到全库 task（实测泄漏点）。
+        # project_id 给定时由 project_access_middleware 校验成员身份，
+        # 这里不再叠加 —— 两层各管一段。
+        uid, is_admin = api_helpers._caller_uid_admin(authorization)
+        if project_id is None and api_helpers._auth_is_required():
+            readable = service.readable_project_ids(s, uid, is_admin=is_admin)
+            if readable is not None:
+                return [service._ser(t) for t in service.search_tasks(
+                    s, project_id=project_id, epic_id=epic_id,
+                    story_id=story_id, sprint_id=sprint_id,
+                    type=type, status=status,
+                    priority=priority, q=q, reviewer_id=rid,
+                    limit=limit, offset=offset, project_ids=readable)]
         rows = service.search_tasks(s, project_id=project_id, epic_id=epic_id,
                                     story_id=story_id, sprint_id=sprint_id,
                                     type=type, status=status,

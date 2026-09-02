@@ -1097,6 +1097,52 @@ def user_is_project_member(s: Session, project_id: int, user_id: int | None) -> 
         is not None
     )
 
+
+# ---- T2.1 读门 ----------------------------------------------------------------
+#
+# 为什么不直接用 user_is_project_member：读门是**语义**（这个人能不能看见这个
+# 项目的内容），成员判定是**实现**（表里有没有那行）。语义层要吸收两件事：
+# admin 全通、未登录全拒 —— 把这两条收进谓词，调用方就不用各自写一遍
+# `if is_admin or user_is_project_member(...)`，写漏一处就是一次越权泄漏
+# （GET /api/tasks 和 /api/stories 不带 project_id 时正是这么漏的）。
+
+def user_can_read_project(
+    s: Session, user_id: int | None, project_id: int, *, is_admin: bool = False,
+) -> bool:
+    """读门：``user_id`` 能否读取 ``project_id`` 下的内容（文档 / task / story）。
+
+    与执行门（``features/work_items/ownership.py``）职责正交：读门答「能不能
+    看见」，执行门答「能不能干」。项目成员应当能读到项目里所有内容（共享读
+    是本次重构目标之一），但不因此获得执行权。
+    """
+    if is_admin:
+        return True
+    if user_id is None:
+        return False
+    return user_is_project_member(s, project_id, user_id)
+
+
+def readable_project_ids(
+    s: Session, user_id: int | None, *, is_admin: bool = False,
+) -> list[int] | None:
+    """读门的集合形式：该用户可读的 project id 列表。
+
+    返回 ``None`` 表示**不受限**（admin）—— 用 None 而不是返回全表 id，因为
+    调用方的过滤写法是 ``.in_(pids)``，None 意味着「跳过这层过滤」，空列表
+    意味着「一行都看不见」。两种语义必须分开，admin 和「无成员项目的新用户」
+    不是一回事。
+    """
+    if is_admin:
+        return None
+    if user_id is None:
+        return []
+    return [
+        r[0]
+        for r in s.query(ProjectMember.project_id)
+        .filter(ProjectMember.user_id == user_id)
+        .all()
+    ]
+
 # ---- 同步自 service.py ----
 def user_is_project_owner(s: Session, project_id: int, user_id: int | None) -> bool:
     if user_id is None:

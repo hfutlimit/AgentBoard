@@ -1197,10 +1197,21 @@ def _invalidate_project_stats_cache(project_id: int) -> None:
 def search_tasks(s: Session, *, project_id=None, epic_id=None, story_id=None,
                  sprint_id=None, type=None, status=None, priority=None, q=None,
                  reviewer_id: int | None = None,
-                 limit: int | None = None, offset: int = 0):
+                 limit: int | None = None, offset: int = 0,
+                 project_ids: list[int] | None = None):
+    """跨项目任务搜索。
+
+    ``project_ids``（T2.1 读门）：只返回这些 project 的 task；``None`` 表示
+    不加这层过滤（admin / 内部调用）。与 ``project_id``（单项目精确查询）
+    是两个维度 —— 前者是**权限边界**，后者是**查询条件**，不要混用。
+    """
     qry = s.query(Task)
     if project_id is not None:
         qry = qry.filter(Task.project_id == project_id)
+    if project_ids is not None:
+        # 空列表 = 该用户一个项目都读不了 → 显式返回空，不能漏掉这层过滤
+        qry = qry.filter(Task.project_id.in_(project_ids)) if project_ids \
+            else qry.filter(False)
     if story_id is not None:
         qry = qry.filter(Task.story_id == story_id)
     if sprint_id is not None:
@@ -2781,6 +2792,9 @@ from ...features.projects.service import (  # noqa: F401,F403
     activate_sprint, complete_sprint, get_sprint_burndown,
     add_project_member, list_project_members, remove_project_member,
     update_project_member_role, get_project_member,
+    # T2.1 读门：文档/task/story 列表统一从这里取「可读项目集合」，
+    # 不要再各自内联一份 member_pids 查询（会漂移）。
+    user_can_read_project, readable_project_ids,
     # T2.0：owner 选取规则。T2.2「移除成员 → 移交 project owner」的接收方解析
     # 必须经它，不能各自再写一份「谁是 owner」的判断。
     project_owners, resolve_project_owner,

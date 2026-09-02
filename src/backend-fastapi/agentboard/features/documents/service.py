@@ -45,6 +45,7 @@ from ..projects.models import (
     ProjectMember,
     Story,
 )
+from ..projects.service import readable_project_ids  # noqa: E402 — T2.1 统一读门
 
 from ..work_items.models import (
     ATTACHMENT_ALLOWED_TYPES,
@@ -224,18 +225,14 @@ def list_documents(
         qry = qry.filter(Document.project_id == project_id)
     elif user_id is not None:
         # 未指定 project_id 但有用户身份：仅返回该用户有权限的项目文档
+        # （T2.1：改走统一读门 readable_project_ids —— 原先这里内联了一份
+        #  member_pids 查询，判据散第二份就会漂移）
         user = s.get(User, user_id)
-        if user and not user.is_admin:
-            member_pids = [
-                r[0]
-                for r in s.query(ProjectMember.project_id)
-                .filter(ProjectMember.user_id == user_id)
-                .all()
-            ]
-            if member_pids:
-                qry = qry.filter(Document.project_id.in_(member_pids))
-            else:
-                qry = qry.filter(False)  # 非 admin 无成员项目 → 空
+        readable = readable_project_ids(
+            s, user_id, is_admin=bool(user and user.is_admin))
+        if readable is not None:
+            qry = qry.filter(Document.project_id.in_(readable)) if readable \
+                else qry.filter(False)  # 非 admin 无成员项目 → 空
     if type is not None:
         _check_document_type(type)
         qry = qry.filter(Document.type == type)
@@ -513,18 +510,13 @@ def list_document_folders(
     if project_id is not None:
         qry = qry.filter(DocumentFolder.project_id == project_id)
     elif user_id is not None:
+        # 同 list_documents：T2.1 统一读门（原先这里也内联了一份 member_pids）
         user = s.get(User, user_id)
-        if user and not user.is_admin:
-            member_pids = [
-                r[0]
-                for r in s.query(ProjectMember.project_id)
-                .filter(ProjectMember.user_id == user_id)
-                .all()
-            ]
-            if member_pids:
-                qry = qry.filter(DocumentFolder.project_id.in_(member_pids))
-            else:
-                qry = qry.filter(False)
+        readable = readable_project_ids(
+            s, user_id, is_admin=bool(user and user.is_admin))
+        if readable is not None:
+            qry = qry.filter(DocumentFolder.project_id.in_(readable)) if readable \
+                else qry.filter(False)
     return qry.order_by(DocumentFolder.name, DocumentFolder.id).all()
 
 
