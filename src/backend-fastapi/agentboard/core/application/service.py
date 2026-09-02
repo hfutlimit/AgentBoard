@@ -2781,6 +2781,9 @@ from ...features.projects.service import (  # noqa: F401,F403
     activate_sprint, complete_sprint, get_sprint_burndown,
     add_project_member, list_project_members, remove_project_member,
     update_project_member_role, get_project_member,
+    # T2.0：owner 选取规则。T2.2「移除成员 → 移交 project owner」的接收方解析
+    # 必须经它，不能各自再写一份「谁是 owner」的判断。
+    project_owners, resolve_project_owner,
     get_epic_project_id, get_story_project_id, get_sprint_project_id,
     get_run_project_id,
     get_project_stats,

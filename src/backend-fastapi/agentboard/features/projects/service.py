@@ -415,6 +415,49 @@ def list_project_members(s: Session, project_id: int, limit: int | None = None, 
     return _paginate(q.order_by(ProjectMember.joined_at.desc()), limit, offset).all(), total
 
 
+def project_owners(s: Session, project_id: int) -> list[ProjectMember]:
+    """该项目的所有 owner 成员行，按「入伙时间早 → id 小」排序。
+
+    T2.0 之后 (project_id,user_id) 唯一，**同一个人不可能有两行**，所以返回
+    长度 >1 只可能是「多个人都挂着 owner」—— 那是数据异常，不是常态。
+    """
+    return (
+        s.query(ProjectMember)
+        .filter(ProjectMember.project_id == project_id,
+                ProjectMember.role == "owner")
+        .order_by(ProjectMember.joined_at.asc(), ProjectMember.id.asc())
+        .all()
+    )
+
+
+def resolve_project_owner(s: Session, project_id: int) -> int | None:
+    """确定 project 的 owner user_id（T2.0 选取规则）。
+
+    规则：取 ``joined_at`` 最早的 owner 行（并列时取 id 小的）—— 结果确定，
+    同样的输入永远得到同样的输出。
+
+    **多个 owner 属数据异常，会打 WARNING 报冲突**。之所以不直接抛异常：
+    本函数是 T2.2「移除成员 → 移交 project owner」的接收方解析入口，抛异常
+    会让「移除成员」这个本来能成功的操作连带失败，把一处数据脏污放大成功能
+    不可用。报出来让人修，比停下来好。
+
+    返回 None = 该项目一个 owner 都没有（T1.4 回填会补 admin 兜底）。
+    """
+    owners = project_owners(s, project_id)
+    if not owners:
+        log.warning(
+            "resolve_project_owner: project %s 没有 role='owner' 的成员", project_id)
+        return None
+    if len(owners) > 1:
+        log.warning(
+            "resolve_project_owner: project %s 有 %s 个 owner（%s），"
+            "属数据异常，需人工收敛成一个；本次按 joined_at 最早者 %s 处理",
+            project_id, len(owners), [pm.user_id for pm in owners],
+            owners[0].user_id,
+        )
+    return int(owners[0].user_id)
+
+
 def update_epic(s: Session, id: int, **fields) -> Epic | None:
     ep = s.get(Epic, id)
     if not ep:

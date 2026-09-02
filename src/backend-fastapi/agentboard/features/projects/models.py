@@ -334,7 +334,20 @@ class AgentInstance(Base):
 
 class ProjectMember(Base):
     __tablename__ = "project_members"
-    __table_args__ = (CheckConstraint("role IN ('owner','member')", name="ck_members_role"),)
+    # T2.0：一个 project 里一个 user 只能有一行。
+    # 注意：这条唯一性在**数据库里早就存在**（1a2b3c4d5e6f 建过唯一索引
+    # ix_project_members_unique），只是模型一直没声明 —— 模型与库不一致，
+    # 任何走 create_all 的路径建出的表都没有它。此处按规范名声明
+    # uq_project_members_project_user，迁移 s7t8u9v0w1x2 做同名收敛
+    # （建新约束 + 删旧索引），让模型与库重新对齐。
+    #
+    # 该约束保证「一个人一行」，**防不住**多个不同 user 都挂 role='owner'
+    # —— 那种情况用 resolve_project_owner 按 joined_at 最早者收敛并告警。
+    __table_args__ = (
+        CheckConstraint("role IN ('owner','member')", name="ck_members_role"),
+        UniqueConstraint("project_id", "user_id",
+                         name="uq_project_members_project_user"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)

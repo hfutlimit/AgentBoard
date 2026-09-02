@@ -11,7 +11,14 @@ config = context.config
 config.set_main_option("sqlalchemy.url", URL)
 if config.config_file_name and os.path.exists(config.config_file_name):
     try:
-        fileConfig(config.config_file_name)
+        # disable_existing_loggers=False 必须显式给：fileConfig 的默认值是
+        # True，会把「fileConfig 执行前就已创建」的所有 logger 全部置
+        # disabled=True —— 而 init_db() 在服务启动路径上跑，先于它创建的
+        # 业务 logger（features/*/service 的模块级 log）从此一条日志都
+        # 不再输出，且无任何报错。这是静默吞日志的坑，实测确认过：
+        #   before init_db disabled=False → after init_db disabled=True
+        # alembic 官方文档同样建议按需关闭该选项。
+        fileConfig(config.config_file_name, disable_existing_loggers=False)
     except Exception:
         pass
 
