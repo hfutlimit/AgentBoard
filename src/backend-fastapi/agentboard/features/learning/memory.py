@@ -23,6 +23,7 @@ import re
 from typing import Protocol
 
 from sqlalchemy import select
+from sqlalchemy import delete as sa_delete
 from sqlalchemy.exc import IntegrityError
 
 from .models import EpisodeEmbedding, ProjectPlaybook, ProjectPlaybookEpisode
@@ -118,6 +119,19 @@ class HashVectorStore:
             if score > 0:
                 scored.append((score, row))
         scored.sort(key=lambda x: x[0], reverse=True)
+        # T6.6：episode 标 source owner —— episode 本身没有 owner 列，
+        # 通过 episode_id(=task_id) join tasks.owner_user_id 溯源。注入到
+        # prompt 的记忆段必须能回答「这条经验是谁干出来的」，跨 owner 共享
+        # 记忆才可审计（但注入的只是文本上下文，不携带任何权限语义）。
+        from ..work_items.models import Task as _Task
+        task_ids = [row.episode_id for _, row in scored[:top_k]]
+        owner_map: dict[int, int | None] = {}
+        if task_ids:
+            for tid, oid in self._s.execute(
+                select(_Task.id, _Task.owner_user_id)
+                .where(_Task.id.in_(task_ids))
+            ).all():
+                owner_map[tid] = oid
         return [
             {
                 "episode_id": row.episode_id,
@@ -127,6 +141,7 @@ class HashVectorStore:
                 "outcome": row.outcome,
                 "similarity": round(score, 4),
                 "summary": (row.summary or "")[:1000],
+                "source_owner_user_id": owner_map.get(row.episode_id),
             }
             for score, row in scored[:top_k]
         ]
@@ -188,6 +203,10 @@ def store_episode(s, task, *, score: float = 0.0, outcome: str = "success") -> E
     任何异常静默降级（日志 warning），绝不阻断状态流转。
     """
     try:
+        # 先 flush：SessionLocal 是 autoflush=False，同一事务里第二次调用
+        # 的存在性检查看不见第一次 add 的 pending 行 → 重复 INSERT 撞
+        # UNIQUE（实测踩过）。显式 flush 让幂等 upsert 在任何调用模式下成立。
+        s.flush()
         search_text, summary = build_episode_text(s, task)
         vector = embed_text(search_text)
         existing = s.execute(
@@ -213,6 +232,77 @@ def store_episode(s, task, *, score: float = 0.0, outcome: str = "success") -> E
     except Exception:  # noqa: BLE001 —— 记忆是增强数据，失败不影响主流程
         logger.warning("store_episode task#%s failed（静默降级）", getattr(task, "id", "?"), exc_info=True)
         return None
+    finally:
+        # T6.6 容量护栏：单项目 episode 上限，超出删最旧（同分近似随 id）。
+        # 记忆的价值密度随时间衰减，旧低分 episode 留着只会推高召回噪声。
+        try:
+            _prune_project_episodes(s, task.project_id)
+        except Exception:  # noqa: BLE001
+            logger.warning("prune_project_episodes project#%s failed",
+                           getattr(task, "project_id", "?"), exc_info=True)
+
+
+#: 单项目 episode 容量上限（T6.6「记忆不爆炸」）。project 内任务完成数
+#: 长期超过此值时，recall 的向量扫描成本与噪声都会线性变差。
+MAX_PROJECT_EPISODES = 500
+
+
+def _prune_project_episodes(s, project_id: int, cap: int | None = None) -> int:
+    """裁剪单项目 episode 到 cap：保留最新（id 大）优先，超出的删最旧。
+
+    ``cap=None`` 时读模块常量 ``MAX_PROJECT_EPISODES`` —— 运行时读而不是
+    默认参数绑定，测试/运维 monkeypatch 常量才能生效。
+    """
+    cap = cap or MAX_PROJECT_EPISODES
+    # flush 让本事务刚 add 的 pending 行进入计数（SessionLocal 是
+    # autoflush=False，select 看不见 pending），否则裁剪慢一拍、稳态多留 1 行。
+    s.flush()
+    ids = [
+        r[0] for r in s.execute(
+            select(EpisodeEmbedding.id)
+            .where(EpisodeEmbedding.project_id == project_id)
+            .order_by(EpisodeEmbedding.id.desc())
+        ).all()
+    ]
+    excess = ids[cap:]
+    if not excess:
+        return 0
+    s.execute(
+        sa_delete(EpisodeEmbedding).where(EpisodeEmbedding.id.in_(excess))
+    )
+    logger.info("prune: project#%s 裁剪 %s 条最旧 episode（cap=%s）",
+                project_id, len(excess), cap)
+    return len(excess)
+
+
+def build_dispatch_memory_section(s, task) -> dict:
+    """T6.6 派发记忆注入段：dispatch/prompt 组装方一次调用即得。
+
+    返回 ``{"section": str, "sources": [...], "count": int}``：
+    - ``section`` 可直接拼进 prompt（空字符串 = 项目暂无可注入记忆）；
+    - ``sources`` 每条记忆的 source owner 标注（谁干出来的，可审计）；
+    - 记忆是**只读上下文**：不携带任何权限/策略字段，执行门与 Action Policy
+      不受注入内容影响 —— 「跨 owner 记忆不能提权」的结构保证。
+    失败静默降级为空段（记忆是增强数据，不是关键路径）。
+    """
+    try:
+        hits = recall_episodes(
+            s, project_id=task.project_id,
+            task_spec=(task.spec or task.description or ""),
+        )
+        return {
+            "section": build_recall_section(hits),
+            "sources": [
+                {"episode_id": h["episode_id"],
+                 "source_owner_user_id": h.get("source_owner_user_id")}
+                for h in hits
+            ],
+            "count": len(hits),
+        }
+    except Exception:  # noqa: BLE001
+        logger.warning("build_dispatch_memory_section task#%s failed",
+                       getattr(task, "id", "?"), exc_info=True)
+        return {"section": "", "sources": [], "count": 0}
 
 
 # ---------------------------------------------------------------------------

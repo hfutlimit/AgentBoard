@@ -355,6 +355,32 @@ class ProjectMember(Base):
     joined_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 
+class WorkerProjectMapping(Base):
+    """Worker ↔ Project 授权映射（T6.3，一级实体）。
+
+    为什么独立成表而不是挂在 Worker/Agent 上：
+    - 授权维度是「哪台机器可以参与哪个项目」，与「机器是谁的」（Worker 不绑
+      user_id，跨用户共享）和「agent 有什么能力」都正交 —— 塞进任何一边都会
+      复用出第三种语义；
+    - **不含 user_id**（T6.3 明确去冗余）：归属随 agent 走（执行门判
+      agent.user_id），映射只回答「这台机器在不在该项目的工作面里」；
+    - **真实路径不上云**：机器上 workspace/CLI 的具体路径留在 worker 本地
+      （local_registry / cli 安装记录），server 这张表只记授权关系本身。
+    """
+    __tablename__ = "worker_project_mappings"
+    __table_args__ = (
+        UniqueConstraint("worker_id", "project_id",
+                         name="uq_worker_project_mappings_worker_project"),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    worker_id: Mapped[str] = mapped_column(
+        ForeignKey("workers.worker_id"), nullable=False, index=True)
+    project_id: Mapped[int] = mapped_column(
+        ForeignKey("projects.id"), nullable=False, index=True)
+    enabled: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
 class OwnerTransferHistory(Base):
     """owner 移交历史（T5.2）。
 

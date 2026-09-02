@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import json
+import os
 import socket
 import subprocess
 import time
@@ -43,17 +44,27 @@ def _resolve_cmd_local(agent_id: str, executor_type: str, model: str,
     返回 (cmd, model)；解析失败（本地无记录且 server 也空）两者为空，
     调用方按未配置 skip。
     """
-    from .cli_storage import resolve_cli
+    # 真源是 worker 本地注册表（worker/local_registry.py，portal 写入的
+    # 同一份 ~/.codebuddy/agents.db）—— 不是再造一套 JSON 存储。
+    # 解析优先级：agent_id 精确 > 本机第一个 enabled 且配置了命令的 agent
+    # （本机默认兜底）；两者皆无 → 回落 server 下发（存量兼容）。
+    from ..worker.local_registry import LocalAgentRegistry
+    db_path = os.environ.get("AGENTBOARD_LOCAL_AGENT_DB", "").strip() or None
     try:
-        install = resolve_cli(agent_id=agent_id, executor_type=executor_type)
+        registry = (LocalAgentRegistry(db_path=db_path) if db_path
+                    else LocalAgentRegistry())
+        la = registry.get(agent_id) if agent_id else None
+        if la is None or not (la.cli_command or "").strip():
+            for cand in registry.list_agents():
+                if cand.enabled and (cand.cli_command or "").strip():
+                    la = cand
+                    break
     except Exception as e:  # 存储读取异常不阻断心跳
-        log.warning("cli_storage 解析异常（agent=%s）：%s", agent_id, e)
-        install = None
-    if install is not None:
-        cmd = install.command_for(model)
-        if cmd.strip():
-            stats[source_key] = "local"
-            return cmd, (model or install.model or "")
+        log.warning("本地 CLI 注册表读取异常（agent=%s）：%s", agent_id, e)
+        la = None
+    if la is not None and (la.cli_command or "").strip():
+        stats[source_key] = "local"
+        return la.cli_command, (model or la.model or "")
     stats[source_key] = "server"
     return fallback_cmd, (model or fallback_model)
 

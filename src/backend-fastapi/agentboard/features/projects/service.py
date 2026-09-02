@@ -552,6 +552,84 @@ def resolve_project_owner_excluding(
     return int(owners[0].user_id)
 
 
+# ---- T6.3 Worker ↔ Project 授权映射 --------------------------------------------
+
+def map_worker_to_project(
+    s: Session, *, worker_id: str, project_id: int, enabled: bool = True,
+) -> "WorkerProjectMapping":
+    """授权一台 worker 参与一个项目（幂等：重复映射返回现有行）。
+
+    worker_id / project_id 不存在都 404 —— 静默建一条悬空映射只会把
+    「为什么派发不到这台机器」变成猜谜。
+    """
+    from .models import WorkerProjectMapping
+
+    # Worker 主键是自增 id，worker_id 是唯一字符串列 —— s.get 会按主键查，
+    # 传字符串永远查不到（或错查到别的行），必须按列查。
+    if not s.query(Worker).filter(Worker.worker_id == worker_id).first():
+        raise NotFound(f"worker {worker_id} not found")
+    if not s.get(Project, project_id):
+        raise NotFound(f"project {project_id} not found")
+    existing = (
+        s.query(WorkerProjectMapping)
+        .filter(WorkerProjectMapping.worker_id == worker_id,
+                WorkerProjectMapping.project_id == project_id)
+        .first()
+    )
+    if existing:
+        if existing.enabled != enabled:
+            existing.enabled = enabled
+            _commit(s); s.refresh(existing)
+        return existing
+    m = WorkerProjectMapping(worker_id=worker_id, project_id=project_id,
+                             enabled=enabled)
+    s.add(m); _commit(s); s.refresh(m)
+    return m
+
+
+def unmap_worker_from_project(s: Session, *, worker_id: str,
+                              project_id: int) -> bool:
+    """解除映射。不存在返回 False（幂等删除语义）。"""
+    from .models import WorkerProjectMapping
+
+    m = (
+        s.query(WorkerProjectMapping)
+        .filter(WorkerProjectMapping.worker_id == worker_id,
+                WorkerProjectMapping.project_id == project_id)
+        .first()
+    )
+    if not m:
+        return False
+    s.delete(m); _commit(s)
+    return True
+
+
+def list_project_workers(s: Session, project_id: int, *,
+                         enabled_only: bool = True) -> list[str]:
+    """项目可用的 worker_id 列表（T6.3 的主要消费口径）。"""
+    from .models import WorkerProjectMapping
+
+    q = s.query(WorkerProjectMapping.worker_id).filter(
+        WorkerProjectMapping.project_id == project_id)
+    if enabled_only:
+        q = q.filter(WorkerProjectMapping.enabled.is_(True))
+    return [r[0] for r in q.all()]
+
+
+def worker_in_project(s: Session, worker_id: str, project_id: int) -> bool:
+    """该 worker 是否被授权参与该项目（enabled 才算）。"""
+    from .models import WorkerProjectMapping
+
+    return (
+        s.query(WorkerProjectMapping)
+        .filter(WorkerProjectMapping.worker_id == worker_id,
+                WorkerProjectMapping.project_id == project_id,
+                WorkerProjectMapping.enabled.is_(True))
+        .first()
+        is not None
+    )
+
+
 # ---- T5.1/T5.2 移交历史 + 通知 -------------------------------------------------
 
 def record_owner_transfer(
