@@ -12,6 +12,17 @@ namespace AgentBoard.ProposalWorker.Execution;
 /// On startup, all rows stuck in <c>dispatching</c> (i.e. last shutdown
 /// happened after dispatch but before the execution finished) are reset to
 /// <c>pending</c> for re-dispatch.
+///
+/// 2026-09-02 P0-3 round-11 review: the UNIQUE index on the inbox is a
+/// PARTIAL index — only rows in non-terminal states (pending / dispatching
+/// / dispatched) participate. Terminal rows (completed / failed / cancelled)
+/// are NOT in the index, so a re-dispatched message with the same
+/// execution_key after a previous attempt finished is allowed to enqueue a
+/// fresh attempt row instead of being silently dropped as a duplicate.
+/// Without the partial index, a one-shot failure (e.g. adapter throws
+/// before the work item could advance) would permanently block the
+/// execution_key from ever being re-dispatched, leaving the upstream
+/// proposal stuck.
 /// </summary>
 public sealed class InboxStore
 {
@@ -54,10 +65,40 @@ public sealed class InboxStore
               attempt INTEGER NOT NULL DEFAULT 1,
               error_message TEXT NULL
             );
-            CREATE UNIQUE INDEX IF NOT EXISTS ux_inbox_execution_key ON worker_execution_inbox(execution_key);
-            CREATE INDEX IF NOT EXISTS ix_inbox_status ON worker_execution_inbox(status);
             """;
         cmd.ExecuteNonQuery();
+        // P0-3 (2026-09-02): idempotency must allow re-dispatch after a
+        // terminal row exists. The old full-column UNIQUE index permanently
+        // blocked retry of any execution_key that had ever reached a
+        // terminal state, so a single failed attempt (e.g. adapter crash
+        // before the proposal could be advanced) stranded the proposal
+        // forever. Migrate by dropping the legacy index if it exists and
+        // creating a partial index that only constrains non-terminal rows.
+        EnsurePartialUniqueIndex(c);
+    }
+
+    /// <summary>
+    /// Drop the legacy full-column UNIQUE index (if present) and create
+    /// the partial UNIQUE index that only covers non-terminal rows.
+    /// Idempotent — safe to call on every startup.
+    /// </summary>
+    private void EnsurePartialUniqueIndex(SqliteConnection c)
+    {
+        using var drop = c.CreateCommand();
+        drop.CommandText = "DROP INDEX IF EXISTS ux_inbox_execution_key";
+        drop.ExecuteNonQuery();
+
+        using var partial = c.CreateCommand();
+        partial.CommandText = """
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_inbox_active_execution_key
+              ON worker_execution_inbox(execution_key)
+              WHERE status NOT IN ('completed', 'failed', 'cancelled')
+            """;
+        partial.ExecuteNonQuery();
+
+        using var status = c.CreateCommand();
+        status.CommandText = "CREATE INDEX IF NOT EXISTS ix_inbox_status ON worker_execution_inbox(status)";
+        status.ExecuteNonQuery();
     }
 
     /// <summary>
@@ -66,9 +107,16 @@ public sealed class InboxStore
     ///
     /// SQLite-specific note: <c>last_insert_rowid()</c> does NOT change when
     /// <c>INSERT OR IGNORE</c> is ignored due to a UNIQUE constraint on a
-    /// non-rowid column (which is our case: <c>UNIQUE(execution_key)</c>).
-    /// So we MUST distinguish new vs. existing via <c>ExecuteNonQuery</c>'s
-    /// rowcount, then look up the id separately.
+    /// non-rowid column. The dedupe index is now a partial UNIQUE that
+    /// only covers non-terminal rows, so a re-dispatch after a terminal
+    /// (completed / failed / cancelled) row always inserts a fresh row.
+    /// We still distinguish new vs. existing via <c>ExecuteNonQuery</c>'s
+    /// rowcount, then look up the id separately. P0-3 (2026-09-02): we
+    /// must pick the most recent row, not the oldest — after a
+    /// completed attempt is in the table alongside the new pending
+    /// attempt, <c>SELECT id WHERE execution_key=?</c> without ORDER BY
+    /// is free to return the stale completed id and confuse the caller
+    /// (the dispatcher would race the legacy row).
     /// </summary>
     public async Task<(long InboxId, bool IsNew)> TryEnqueueAsync(ExecutionRequest request, CancellationToken ct)
     {
@@ -94,8 +142,10 @@ public sealed class InboxStore
             isNew = (n == 1);
         }
 
+        // Pick the most recent row by id (latest attempt wins), not the
+        // earliest — see P0-3 note above.
         await using var sel = c.CreateCommand();
-        sel.CommandText = "SELECT id FROM worker_execution_inbox WHERE execution_key=$key";
+        sel.CommandText = "SELECT id FROM worker_execution_inbox WHERE execution_key=$key ORDER BY id DESC LIMIT 1";
         sel.Parameters.AddWithValue("$key", request.ExecutionKey);
         var id = (long)(await sel.ExecuteScalarAsync(ct) ?? 0L);
         return (id, isNew);

@@ -186,4 +186,97 @@ public sealed class Sprint2_InboxTests : IDisposable
         await _fx.Inbox.TryClaimAsync(inboxId, CancellationToken.None);
         Assert.Equal(2, (await _fx.Inbox.GetAsync(inboxId, CancellationToken.None))!.Attempt);
     }
+
+    // -------------------------------------------------------------------------
+    // 2026-09-02 P0-3 round-11: partial UNIQUE index lets a re-dispatched
+    // execution_key re-enter the inbox once the previous attempt reached a
+    // terminal state. Before this change the legacy full-column UNIQUE
+    // index permanently blocked retry of any execution_key that had ever
+    // reached 'completed' / 'failed' / 'cancelled', so a one-shot failure
+    // (e.g. adapter crash before the proposal advanced) stranded the
+    // proposal forever. See InboxStore.cs for the index migration.
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task TryEnqueueAsync_allows_new_attempt_after_completed()
+    {
+        var request = Req();
+        var (firstId, isNew) = await _fx.Inbox.TryEnqueueAsync(request, CancellationToken.None);
+        Assert.True(isNew);
+        await _fx.Inbox.TryClaimAsync(firstId, CancellationToken.None);
+        await _fx.Inbox.MarkCompletedAsync(firstId, CancellationToken.None);
+
+        // Same execution_key after the prior attempt completed must produce
+        // a brand-new pending row, not be silently dropped as a duplicate.
+        var (secondId, secondIsNew) = await _fx.Inbox.TryEnqueueAsync(request, CancellationToken.None);
+        Assert.True(secondIsNew);
+        Assert.NotEqual(firstId, secondId);
+        Assert.Equal("pending", (await _fx.Inbox.GetAsync(secondId, CancellationToken.None))!.Status);
+    }
+
+    [Fact]
+    public async Task TryEnqueueAsync_allows_new_attempt_after_failed()
+    {
+        var request = Req();
+        var (firstId, _) = await _fx.Inbox.TryEnqueueAsync(request, CancellationToken.None);
+        await _fx.Inbox.TryClaimAsync(firstId, CancellationToken.None);
+        await _fx.Inbox.MarkFailedAsync(firstId, "boom", CancellationToken.None);
+
+        var (secondId, secondIsNew) = await _fx.Inbox.TryEnqueueAsync(request, CancellationToken.None);
+        Assert.True(secondIsNew);
+        Assert.NotEqual(firstId, secondId);
+        Assert.Equal("pending", (await _fx.Inbox.GetAsync(secondId, CancellationToken.None))!.Status);
+    }
+
+    [Fact]
+    public async Task TryEnqueueAsync_still_dedupes_while_pending()
+    {
+        // The partial index keeps idempotency for the common case: a
+        // Rabbit redelivery of the same message before the worker has
+        // finished the first attempt must still be a no-op.
+        var request = Req();
+        var (firstId, isNew) = await _fx.Inbox.TryEnqueueAsync(request, CancellationToken.None);
+        Assert.True(isNew);
+        var (secondId, secondIsNew) = await _fx.Inbox.TryEnqueueAsync(request, CancellationToken.None);
+        Assert.False(secondIsNew);
+        Assert.Equal(firstId, secondId);
+    }
+
+    [Fact]
+    public async Task TryEnqueueAsync_still_dedupes_while_dispatching()
+    {
+        // In-flight attempts also must not double-enqueue, otherwise two
+        // dispatchers could race the same execution. This protects the
+        // CAS guarantee that TryClaimAsync relies on.
+        var request = Req();
+        var (firstId, _) = await _fx.Inbox.TryEnqueueAsync(request, CancellationToken.None);
+        await _fx.Inbox.TryClaimAsync(firstId, CancellationToken.None);
+
+        var (secondId, secondIsNew) = await _fx.Inbox.TryEnqueueAsync(request, CancellationToken.None);
+        Assert.False(secondIsNew);
+        Assert.Equal(firstId, secondId);
+    }
+
+    [Fact]
+    public async Task TryEnqueueAsync_keeps_history_but_does_not_block_pending_dispatch()
+    {
+        // After a failed attempt the dispatcher (which picks
+        // status='pending' ORDER BY id ASC) must be able to run the new
+        // attempt even though the legacy failed row is still in the
+        // table. Verify by claiming the new row and confirming we can
+        // also list it via ListPendingAsync.
+        var request = Req();
+        var (firstId, _) = await _fx.Inbox.TryEnqueueAsync(request, CancellationToken.None);
+        await _fx.Inbox.TryClaimAsync(firstId, CancellationToken.None);
+        await _fx.Inbox.MarkFailedAsync(firstId, "boom", CancellationToken.None);
+
+        var (secondId, secondIsNew) = await _fx.Inbox.TryEnqueueAsync(request, CancellationToken.None);
+        Assert.True(secondIsNew);
+
+        // Dispatcher picks pending rows. The legacy failed row must not
+        // shadow the new pending row.
+        var pending = await _fx.Inbox.ListPendingAsync(CancellationToken.None);
+        Assert.Contains(pending, r => r.InboxId == secondId);
+        Assert.DoesNotContain(pending, r => r.InboxId == firstId);
+    }
 }
