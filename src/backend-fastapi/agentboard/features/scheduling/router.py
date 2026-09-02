@@ -624,7 +624,8 @@ def pick_agent_from_cache(pinned: str | None = Query(
             headers={"Retry-After": "30"},
         )
     cache = get_default_cache()
-    picked = cache.pick_eligible(pinned=pinned)
+    # T4.1：pick 按 owner 过滤 —— ephemeral 派发候选源必须与 DB 执行门口径一致
+    picked = cache.pick_eligible(pinned=pinned, user_id=uid)
     if picked is None:
         # Cache miss — fail fast (decision E in proposal). Operators see
         # this when the FastAPI process is fresh and workers haven't

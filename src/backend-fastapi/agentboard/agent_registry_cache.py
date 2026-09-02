@@ -91,14 +91,18 @@ def ephemeral_agents_enabled() -> bool:
 class AgentCacheEntry:
     """One row in the live agent set, indexed by (worker_id, agent_id).
 
-    Fields mirror the public shape the admin UI / worker portal expect
-    (cli_command is per-worker; model + enabled are the operator's
-    intent and come from the worker).
+    T4.1：**presence-only** —— 缓存只放在线状态（online/enabled/心跳）与
+    归属（``user_id``），**不放 ``cli_command``**。CLI 命令是执行面配置，
+    按 143 的 Control/Execution Plane 分离，它属于 Worker 本地存储（T6.2），
+    server 缓存只该回答「这个 agent 现在能不能接活」。
+    ``user_id`` 来自 **server 侧鉴权**（WS 连接的 token），不是 worker
+    自报的 —— 归属判定不能信客户端。
+    ``model`` 保留：它是展示用的模型名，不是凭据。
     """
     worker_id: str
     agent_id: str
-    cli_command: str = ""
     model: str = ""
+    user_id: int | None = None
     enabled: bool = True
     online: bool = True
     roles: list[str] = field(default_factory=lambda: ["developer", "reviewer"])
@@ -111,8 +115,8 @@ class AgentCacheEntry:
         return {
             "agent_id": self.agent_id,
             "worker_id": self.worker_id,
-            "cli_command": self.cli_command,
             "model": self.model,
+            "user_id": self.user_id,
             "enabled": self.enabled,
             "online": self.online,
             "roles": ",".join(self.roles),
@@ -183,7 +187,8 @@ class AgentRegistryCache:
     # ---------- mutation ----------
 
     def apply_hello(
-        self, worker_id: str, agents: Iterable[dict[str, Any]]
+        self, worker_id: str, agents: Iterable[dict[str, Any]],
+        *, user_id: int | None = None,
     ) -> int:
         """Full replace of all agents for one worker. Returns the
         number of entries applied.
@@ -199,7 +204,8 @@ class AgentRegistryCache:
             # HELLO is authoritative.
             self._drop_worker(worker_id, _locked=True)
             for raw in agents:
-                entry = self._entry_from_frame(worker_id, raw, now=now)
+                entry = self._entry_from_frame(worker_id, raw, now=now,
+                                               user_id=user_id)
                 if entry is None:
                     continue
                 self._by_pair[(worker_id, entry.agent_id)] = entry
@@ -212,6 +218,7 @@ class AgentRegistryCache:
         *,
         add_or_update: Iterable[dict[str, Any]] = (),
         remove: Iterable[str] = (),
+        user_id: int | None = None,
     ) -> tuple[int, int]:
         """Incremental update. Returns (added_or_updated, removed).
 
@@ -226,7 +233,8 @@ class AgentRegistryCache:
                 if self._by_pair.pop((worker_id, agent_id), None) is not None:
                     removed += 1
             for raw in add_or_update:
-                entry = self._entry_from_frame(worker_id, raw, now=now)
+                entry = self._entry_from_frame(worker_id, raw, now=now,
+                                               user_id=user_id)
                 if entry is None:
                     continue
                 self._by_pair[(worker_id, entry.agent_id)] = entry
@@ -273,7 +281,8 @@ class AgentRegistryCache:
 
     @staticmethod
     def _entry_from_frame(
-        worker_id: str, raw: dict[str, Any], *, now: float
+        worker_id: str, raw: dict[str, Any], *, now: float,
+        user_id: int | None = None,
     ) -> AgentCacheEntry | None:
         agent_id = str(raw.get("agent_id", "")).strip()
         if not agent_id:
@@ -285,8 +294,8 @@ class AgentRegistryCache:
         return AgentCacheEntry(
             worker_id=worker_id,
             agent_id=agent_id,
-            cli_command=str(raw.get("cli_command", "")),
             model=str(raw.get("model", "")),
+            user_id=user_id,
             enabled=bool(raw.get("enabled", True)),
             online=bool(raw.get("online", True)),
             roles=list(raw.get("roles") or ["developer", "reviewer"]),
@@ -359,12 +368,18 @@ class AgentRegistryCache:
         *,
         pinned: str | None = None,
         only_online: bool = True,
+        user_id: int | None = None,
     ) -> tuple[str, str] | None:
         """Return ``(worker_id, agent_id)`` or ``None``.
 
         If ``pinned`` is provided AND a matching entry exists (and
         optionally online), return it directly. Otherwise pick a
         random eligible entry from the cache.
+
+        T4.1：``user_id`` 给定时只在该 owner 名下的 agent 里挑 —— 归属过滤
+        是执行门的一部分（owner-scoped 执行），缓存作为派发候选源必须跟
+        DB 口径一致，否则 ephemeral 模式会绕过归属。
+        ``user_id=None`` 表示调用方是内部路径（无用户上下文），不过滤。
 
         Random selection is the default per decision D in the
         proposal. Capability-aware matching is an open question
@@ -379,17 +394,37 @@ class AgentRegistryCache:
                 for (w, a), entry in self._by_pair.items():
                     if a == pinned and entry.enabled and (
                         not only_online or entry.online
-                    ):
+                    ) and (user_id is None or entry.user_id == user_id):
                         return (w, a)
                 return None
             eligible = [
                 (w, a)
                 for (w, a), entry in self._by_pair.items()
                 if entry.enabled and (not only_online or entry.online)
+                and (user_id is None or entry.user_id == user_id)
             ]
         if not eligible:
             return None
         return random.choice(eligible)
+
+    def has_online_agent(
+        self, agent_id: str, *, user_id: int | None = None,
+    ) -> bool:
+        """T4.1：真实派发（DB 路径）的 presence 探针。
+
+        ephemeral 模式下 ``list_runnable_candidates`` 用它把 DB 候选与缓存
+        在线状态求交 —— DB 继续供 capability/roles 等静态属性，缓存供
+        presence，两边各司其职。``user_id`` 给定时同时校验归属。
+        """
+        self.sweep_stale()
+        with self._lock:
+            for (_w, a), entry in self._by_pair.items():
+                if a != agent_id or not entry.online or not entry.enabled:
+                    continue
+                if user_id is not None and entry.user_id != user_id:
+                    continue
+                return True
+        return False
 
     def get(self, worker_id: str, agent_id: str) -> AgentCacheEntry | None:
         with self._lock:

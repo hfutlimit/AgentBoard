@@ -107,6 +107,9 @@ from ..work_items.models import Task, TaskDependency
 from ..work_items.ownership import (  # noqa: E402 — T1.5 统一执行门（只依赖 model 层，不成环）
     CODE_NO_OWNER, agent_can_handle_work_item, work_item_owner_user_id,
 )
+from ...agent_registry_cache import (  # noqa: E402 — T4.1 ephemeral presence 求交
+    ephemeral_agents_enabled, get_default_cache,
+)
 from ..work_items.service import set_status  # noqa: E402 — 跨域调用（提交评审走任务状态机）
 from .models import AgentRun, AgentSchedule
 from .matching import normalize_capabilities, rank_agents_for_task
@@ -950,6 +953,16 @@ def list_runnable_candidates(
         Agent.enabled.is_(True), Agent.online.is_(True),
     ).all()
     agents = [a for a in online if agent_can_handle_work_item(a, task)]
+    # T4.1：ephemeral 模式下 DB 的 online 字段不再是唯一 presence 真源 ——
+    # 与缓存在线状态求交（缓存由 WSS/HTTP HELLO/DELTA/PING 实时维护）。
+    # DB 继续供 capability/roles 等静态属性；归属已在上面执行门判过，
+    # 这里再对一次缓存的 user_id，双保险成本是一次内存遍历。
+    if ephemeral_agents_enabled():
+        cache = get_default_cache()
+        agents = [
+            a for a in agents
+            if cache.has_online_agent(a.agent_id, user_id=owner_user_id)
+        ]
     # 不变量「owner ∈ ProjectMember」由**写侧**保证（T1.4 回填 / T2.2 成员管理 /
     # 建项目时创建者自动入 owner）。这里只告警不再拦截：一旦写侧漏了，旧行为是
     # 静默返回空候选 → 整个项目派发停摆且无任何信号，排查成本极高；现在至少

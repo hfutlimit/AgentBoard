@@ -146,7 +146,7 @@ async def agent_registry_websocket(
                 })
                 continue
             kind = frame.get("type")
-            ack = await _handle_frame(kind, frame, cache, worker_id)
+            ack = await _handle_frame(kind, frame, cache, worker_id, uid)
             if "worker_id" in ack and ack.get("type") == "ACK" and kind == "HELLO":
                 worker_id = ack["worker_id"]
             await websocket.send_json(ack)
@@ -169,6 +169,7 @@ async def _handle_frame(
     frame: dict[str, Any],
     cache,
     worker_id: str | None,
+    uid: int | None = None,
 ) -> dict[str, Any]:
     """Dispatch one frame to the cache. Returns the ack/nack payload
     that the caller sends back to the worker. Pure function
@@ -185,7 +186,8 @@ async def _handle_frame(
         if not isinstance(agents, list):
             return {"type": "NACK", "for": "HELLO",
                     "error": "'agents' must be a list"}
-        applied = cache.apply_hello(wid, agents)
+        # T4.1：归属以 server 鉴权结果为准，不信 worker 自报
+        applied = cache.apply_hello(wid, agents, user_id=uid)
         return {"type": "ACK", "for": "HELLO", "applied": applied,
                 "worker_id": wid}
 
@@ -202,7 +204,7 @@ async def _handle_frame(
             return {"type": "NACK", "for": "DELTA",
                     "error": "'remove' must be a list"}
         added, removed = cache.apply_delta(
-            worker_id, add_or_update=adds, remove=removes,
+            worker_id, add_or_update=adds, remove=removes, user_id=uid,
         )
         return {"type": "ACK", "for": "DELTA",
                 "added": added, "removed": removed}
@@ -308,7 +310,7 @@ def sync_agent_cache_http(
     # it comes from the frame; for DELTA / BYE we accept it as
     # a sibling field on the body.
     wid = body.get("worker_id")
-    ack = _asyncio.run(_handle_frame(kind, body, cache, worker_id=wid))
+    ack = _asyncio.run(_handle_frame(kind, body, cache, worker_id=wid, uid=uid))
     return {"ok": ack.get("type") == "ACK", **ack}
 
 
