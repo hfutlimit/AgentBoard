@@ -30,10 +30,10 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
 BACKEND = ROOT / "src" / "backend-fastapi"
-WORKER_DLL = (
+NODE_DLL = (
     ROOT
     / "src"
-    / "workers"
+    / "nodes"
     / "AgentBoard.Node"
     / "bin"
     / "Release"
@@ -156,8 +156,8 @@ def _worker_env(
 
 
 def test_proposal_full_happy_path(tmp_path: Path):
-    assert WORKER_DLL.exists(), (
-        "build the worker first: dotnet build "
+    assert NODE_DLL.exists(), (
+        "build the node first: dotnet build "
         "src/nodes/AgentBoard.Node/AgentBoard.Node.csproj "
         "-c Release"
     )
@@ -320,7 +320,7 @@ def test_proposal_full_happy_path(tmp_path: Path):
             )
             worker_processes[index] = start(
                 f"dotnet-worker-{index + 1}",
-                ["dotnet", str(WORKER_DLL)],
+                ["dotnet", str(NODE_DLL)],
                 env,
             )
             _wait_until(

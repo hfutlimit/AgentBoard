@@ -12,20 +12,34 @@ namespace AgentBoard.Node;
 public sealed class NodeOptions
 {
     /// <summary>
-    /// P7b: bind a configuration section over an existing options instance,
-    /// skipping keys whose value is null / empty / whitespace.
+    /// P7b: layer a configuration section over an options instance that has
+    /// already been bound to the legacy section.
     ///
-    /// Needed because appsettings.json ships both a ``Node`` and a ``Worker``
-    /// section. A plain second ``Bind()`` would let the shipped (empty) ``Node``
-    /// placeholders blank out the values an operator configured under
-    /// ``Worker`` in appsettings.Local.json - which is exactly the
-    /// "worker_id stays empty, registration + /health break" failure mode.
-    /// Layering non-empty values only keeps ``Node`` authoritative while
-    /// leaving untouched legacy values intact.
+    /// Only keys that are ACTUALLY PRESENT in <paramref name="section"/> are
+    /// copied, and empty/whitespace strings are skipped. Both guards matter:
+    ///
+    /// - "present" matters because the scratch object carries constructor
+    ///   defaults. Without it, a ``Node`` section that simply does not mention
+    ///   ``HeartbeatSeconds`` would still push the default 15 over an operator's
+    ///   ``Worker:HeartbeatSeconds=5``.
+    /// - "non-empty" matters because a shipped placeholder such as
+    ///   ``Node:Id=""`` must not blank out a real ``Worker:Id``.
+    ///
+    /// Together they keep ``Node`` authoritative for whatever an operator
+    /// explicitly configured under it, while every other key falls through to
+    /// the legacy ``Worker`` section.
     /// </summary>
     public static void BindNonEmpty(IConfigurationSection section, object target)
     {
         if (!section.Exists())
+        {
+            return;
+        }
+
+        var present = new HashSet<string>(
+            section.GetChildren().Select(child => child.Key),
+            StringComparer.OrdinalIgnoreCase);
+        if (present.Count == 0)
         {
             return;
         }
@@ -44,6 +58,10 @@ public sealed class NodeOptions
                 continue;
             }
             if (property.GetIndexParameters().Length > 0)
+            {
+                continue;
+            }
+            if (!present.Contains(property.Name))
             {
                 continue;
             }

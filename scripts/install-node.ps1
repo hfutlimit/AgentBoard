@@ -768,15 +768,22 @@ if (-not (Test-Path $template)) {
 # characters in operator-supplied values remain valid JSON.
 $raw = Get-Content $template -Raw -Encoding UTF8
 $config = $raw | ConvertFrom-Json
-# P7b: ``Node`` is the section the current binary reads; ``Worker`` is the
-# legacy alias kept for one release (and for a rollback to the previous binary,
-# which only understands ``Worker``). Write both so either build boots with the
-# right worker id - writing only ``Worker`` would leave ``Node.Id`` at the
-# shipped placeholder and break registration + /health.
+# P7b: ``Node`` is the canonical section the current binary reads.
 $config.Node.Id = $WorkerId
-$config.Worker.Id = $WorkerId
 $config.RabbitMq.Uri = $AmqpUri
 $config.Portal.ApiKey = $PortalApiKey
+
+# Mirror the resolved ``Node`` section into ``Worker`` so a rollback to the
+# previous binary - which only understands ``Worker`` - reads the exact same
+# configuration instead of silently falling back to the shipped defaults.
+# Done here rather than keeping a hand-maintained ``Worker`` block in the
+# template so the two sections can never drift apart.
+$workerMirror = ($config.Node | ConvertTo-Json -Depth 20 | ConvertFrom-Json)
+if ($config.PSObject.Properties.Name -contains 'Worker') {
+    $config.Worker = $workerMirror
+} else {
+    $config | Add-Member -MemberType NoteProperty -Name 'Worker' -Value $workerMirror
+}
 $raw = $config | ConvertTo-Json -Depth 20
 
 [System.IO.File]::WriteAllText($appsettingsProd, $raw, [System.Text.UTF8Encoding]::new($false))

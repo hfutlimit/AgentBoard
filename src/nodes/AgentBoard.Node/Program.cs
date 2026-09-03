@@ -26,14 +26,21 @@ builder.WebHost.UseUrls(builder.Configuration["Portal:Urls"] ?? "http://127.0.0.
 // ---- Options ---------------------------------------------------------------
 // P7b: ``Node`` is the canonical configuration section, ``Worker`` is the
 // legacy alias kept for one release. BOTH are bound - ``Worker`` first as the
-// baseline, then ``Node`` overriding only the keys that are actually present
-// and non-empty.
+// baseline, then ``Node`` overriding only the keys that are actually PRESENT
+// in the Node section and non-empty.
 //
-// A section-level ``Exists()`` fallback is NOT sufficient here: appsettings.json
-// always ships a ``Node`` section, so ``if (!node.Exists()) use worker`` is dead
-// code and an operator-configured ``Worker`` section (the only one an
-// already-deployed appsettings.Local.json has) would be silently ignored,
-// leaving Id at its empty placeholder and breaking registration + /health.
+// Two earlier attempts were wrong and are worth recording:
+//   1. ``if (!node.Exists()) use worker`` - appsettings.json ships defaults,
+//      so a section-level fallback is dead code and the legacy section is
+//      ignored entirely (worker_id stays empty, registration + /health break).
+//   2. "copy every non-empty property of a Node-bound scratch object" - the
+//      scratch object carries constructor defaults, so a Node section that
+//      merely omits a key would push the default (HeartbeatSeconds 15, the
+//      shipped db path, concurrency 1) over an operator's legacy values.
+// What works is per-key presence: only keys the Node section really contains
+// may win. That is also why appsettings.json deliberately ships ONLY the
+// ``Worker`` section - a ``Node`` section there would list every default key
+// and, under the "present wins" rule, drown out the legacy values.
 builder.Services.Configure<NodeOptions>(options =>
 {
     builder.Configuration.GetSection("Worker").Bind(options);
