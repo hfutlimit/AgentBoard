@@ -30,6 +30,7 @@ import os
 from ...models import Status
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
 from ...core.infrastructure import messaging as mq  # publish_workflow_event + EVENT_* constants
+from ...core.infrastructure.outbox import OutboxRepository
 from ...mq import (
     EVENT_TASK_AVAILABLE, EVENT_TASK_ASSIGNED, EVENT_TASK_READY_FOR_REVIEW,
     EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED, EVENT_TASK_REVIEW_REQUESTED,
@@ -687,9 +688,6 @@ def review_task(tid: int, body: AgentReviewIn, authorization: str | None = Heade
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
     api_helpers._invalidate_stats_cache(t.project_id)
-    # Persist the verdict before emitting events or dispatching dependencies
-    # that were unlocked by it.
-    s.commit()
     # 事件源：结算判定（语义同 Story 版）——
     # done → task.reviewed；blocked / round 增加 → task.rejected；
     # 其余（majority 投票未达法定票数）→ review.vote_cast。
@@ -705,10 +703,18 @@ def review_task(tid: int, body: AgentReviewIn, authorization: str | None = Heade
         ref_id = uid
     else:
         ref_id = t.review_round
+    # Workflow Outbox (2026-08-28, openspec/changes/workflow-outbox-2026-08):
+    # the verdict event is now written to ``workflow_outbox`` in the same
+    # DB commit that lands this router's response, and the
+    # ``OutboxPublisher`` background loop drains it to the broker. This
+    # closes the DB+MQ silent-loss gap that GPT P1-1 called out.
     event_kwargs = {"ref_id": ref_id}
     if owner_agent_id and event in (EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED):
         event_kwargs["agent_id"] = owner_agent_id
-    publish_workflow_event(event, "task", t.id, **event_kwargs)
+    OutboxRepository().add(s, event, "task", t.id, **event_kwargs)
+    # Persist the verdict before dispatching dependencies that were
+    # unlocked by it.
+    s.commit()
     if event == EVENT_TASK_REVIEWED:
         # PR-10：reviewer approve 走 dispatch_implementation_task，server
         # 选 agent + 推 in_progress + publish task.assigned（4 字段齐全）

@@ -46,12 +46,30 @@ from .cos_client import client as _cos_client, CosError
 from .models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES, Status
 from .cache import get_cache, API_CACHE_TTL
 from .schemas import *  # Phase 5: extracted BaseModel classes (used by router type hints)
+from .core.infrastructure.outbox_publisher import OutboxPublisher
+
+# Process-wide OutboxPublisher handle. Started in ``lifespan`` and
+# stopped on shutdown. Single-process for now; multi-process scaling
+# needs a per-process claim window (see OutboxPublisher docstring).
+_outbox_publisher: OutboxPublisher | None = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     auth.validate_runtime_security()
     init_db()
-    yield
+    global _outbox_publisher
+    _outbox_publisher = OutboxPublisher()
+    _outbox_publisher.start(asyncio.get_running_loop())
+    try:
+        yield
+    finally:
+        if _outbox_publisher is not None:
+            try:
+                await _outbox_publisher.stop()
+            except Exception:
+                pass
+            _outbox_publisher = None
 
 app = FastAPI(title="AgentBoard API", version="0.2", lifespan=lifespan)
 

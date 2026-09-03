@@ -47,6 +47,31 @@ def init_db() -> None:
     _run_alembic()
 
 
+def reset_engine() -> None:
+    """Re-bind ``engine`` and ``SessionLocal`` to a fresh engine.
+
+    Reads ``AGENTBOARD_DB_URL`` (or the default) at call time and
+    rebuilds the module-level ``engine`` and ``SessionLocal`` against
+    it. Used by test fixtures that toggle the env var to point at a
+    per-test temp file and need the next ``get_session()`` /
+    ``SessionLocal()`` to follow. Production code never calls this
+    — the engine is built once at module import time and is stable
+    for the lifetime of the FastAPI process.
+
+    The Alembic connection held by ``_run_alembic`` is not refreshed
+    here; if a test that toggles the URL also wants migrations to
+    run against the new engine, call ``init_db()`` after
+    ``reset_engine()``.
+    """
+    global engine, SessionLocal
+    url = os.getenv("AGENTBOARD_DB_URL", DEFAULT_URL)
+    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
+    engine = create_engine(url, connect_args=connect_args, future=True)
+    SessionLocal = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, future=True,
+    )
+
+
 def _run_alembic() -> None:
     from alembic import command
     from alembic.config import Config

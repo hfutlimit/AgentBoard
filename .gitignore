@@ -128,6 +128,10 @@ scripts/_check_*.png
 # 2026-08-21 review follow-up：诊断脚本完成后退场（move-to-trash pattern）
 scripts/_trash_*.py
 scripts/_trash_*.png
+# 2026-09-03：本机一次性 mojibake 修复 + 本地 appsettings.Local.json 重生成。
+# 都是 hardcoded 路径 + 读 tmp/remote_service_users.json（secrets），不入仓。
+scripts/_fix_ph.py
+scripts/_gen_local_settings.py
 
 
 styles-orig.css
