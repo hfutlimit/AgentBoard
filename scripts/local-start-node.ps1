@@ -1,4 +1,4 @@
-# Local dev: start AgentBoard Proposal Worker (.NET 10) on portal port 58240
+# Local dev: start AgentBoard Node (.NET 10) on portal port 58240
 $ErrorActionPreference = 'Stop'
 $Root = 'D:\AI\Projects\AgentBoard'
 $WorkerRoot = Join-Path $Root 'src\nodes\AgentBoard.Node'

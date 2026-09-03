@@ -6,7 +6,7 @@ public static class PortalPage
     public const string Html = """
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AgentBoard Worker</title>
 <style>body{font:14px system-ui;margin:2rem;max-width:1200px;color:#172033}button,input{padding:.45rem;margin:.2rem}table{border-collapse:collapse;width:100%;margin-top:1rem}td,th{border-bottom:1px solid #d9dfeb;padding:.55rem;text-align:left}pre{white-space:pre-wrap;background:#101827;color:#e6edf6;padding:1rem;max-height:26rem;overflow:auto}.hidden{display:none}.bad{color:#a11}</style></head>
-<body><h1>AgentBoard Proposal Worker</h1><p>Enter the local portal key. It is kept only in this browser session.</p><input id="key" type="password" placeholder="Portal API key"><button onclick="connect()">Connect</button><span id="error" class="bad"></span>
+<body><h1>AgentBoard Node</h1><p>Enter the local portal key. It is kept only in this browser session.</p><input id="key" type="password" placeholder="Portal API key"><button onclick="connect()">Connect</button><span id="error" class="bad"></span>
 <section id="main" class="hidden"><h2>Worker</h2><pre id="status"></pre><button onclick="post('/api/control/pause')">Pause consumption</button><button onclick="post('/api/control/resume')">Resume consumption</button>
 <h2>Execution history</h2><table><thead><tr><th>ID</th><th>Workload</th><th>Round</th><th>Source</th><th>Status</th><th>Started</th><th></th></tr></thead><tbody id="rows"></tbody></table>
 <h2>Execution detail</h2><pre id="detail">Select an execution.</pre></section>

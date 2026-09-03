@@ -1,19 +1,19 @@
 # SPDX-License-Identifier: MIT
 <#
 .SYNOPSIS
-    One-shot install for the AgentBoard Proposal Worker on a fresh Windows box.
+    One-shot install for the AgentBoard Node on a fresh Windows box.
 
 .DESCRIPTION
-    Sprint 7 install path for the .NET 10 Worker. The script:
+    Sprint 7 install path for the .NET 10 Node. The script:
 
       1. Verifies .NET 10 SDK / runtime, Node.js, and the agent CLIs
          (codex / minimax / codebuddy) are present. Fail-fast with a
          clear actionable error if anything is missing.
-      2. Publishes the worker with `dotnet publish -c Release -r win-x64`.
+      2. Publishes the node with `dotnet publish -c Release -r win-x64`.
       3. Writes appsettings.Production.json (from a baked-in template) and
-         substitutes the per-machine Worker.Id, Portal.ApiKey, and the
+         substitutes the per-machine Node.Id, Portal.ApiKey, and the
          RabbitMQ URI the operator supplies.
-      4. Registers a Windows service "AgentBoard Proposal Worker" with
+      4. Registers a Windows service "AgentBoard Node" with
          `sc.exe create` and `sc.exe start`.
       5. Verifies /health on http://127.0.0.1:58240 and asserts that
          worker_id, registered agents, and CLI resolution are all good.
@@ -23,7 +23,7 @@
     remove the service cleanly.
 
 .PARAMETER WorkerId
-    Stable identifier for this worker (e.g. "prod-pc-01"). Surfaces in
+    Stable identifier for this node (e.g. "prod-pc-01"). Surfaces in
     /health and is used by the server to route follow-up work.
 
 .PARAMETER AmqpUri
@@ -34,7 +34,7 @@
     a 48-byte hex value if not supplied.
 
 .PARAMETER InstallDir
-    Where to publish the worker. Defaults to C:\AgentBoard\ProposalProcessor.
+    Where to publish the node. Defaults to C:\AgentBoard\Node.
 
 .PARAMETER RepoRoot
     Path to the AgentBoard repository (this script's parent by default).
@@ -56,7 +56,7 @@ param(
     [string]$WorkerId = $env:AGENTBOARD_WORKER_ID,
     [string]$AmqpUri = $env:AGENTBOARD_MQ_URL,
     [string]$PortalApiKey = $env:AGENTBOARD_PORTAL_API_KEY,
-    [string]$InstallDir = 'C:\AgentBoard\ProposalProcessor',
+    [string]$InstallDir = 'C:\AgentBoard\Node',
     [string]$RepoRoot,
     # Service identity. Defaults to the installing user so the pre-flight
     # `where.exe` probes and the eventual service share the same PATH /
@@ -85,7 +85,7 @@ if ([string]::IsNullOrWhiteSpace($RepoRoot)) {
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 
-$ServiceName = 'AgentBoard Proposal Worker'
+$ServiceName = 'AgentBoard Node'
 $ServiceExe = Join-Path $InstallDir 'AgentBoard.Node.exe'
 $PortalBase = 'http://127.0.0.1:58240'
 
@@ -162,22 +162,22 @@ function Test-AgentCli {
 }
 
 function Stop-WorkerService {
-    $svc = Get-Service -Name 'AgentBoard Proposal Worker' -ErrorAction SilentlyContinue
+    $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if ($svc -and $svc.Status -eq 'Running') {
         Write-Host "[install] stopping running service..."
-        & sc.exe stop 'AgentBoard Proposal Worker' | Out-Null
+        & sc.exe stop $ServiceName | Out-Null
         $svc.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(15))
     }
 }
 
 function Remove-WorkerService {
-    $svc = Get-Service -Name 'AgentBoard Proposal Worker' -ErrorAction SilentlyContinue
+    $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if ($svc) {
         Stop-WorkerService
         Write-Host "[install] deleting service..."
-        & sc.exe delete 'AgentBoard Proposal Worker' | Out-Null
+        & sc.exe delete $ServiceName | Out-Null
         for ($i = 0; $i -lt 30; $i++) {
-            if (-not (Get-Service -Name 'AgentBoard Proposal Worker' -ErrorAction SilentlyContinue)) {
+            if (-not (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)) {
                 return
             }
             Start-Sleep -Milliseconds 500
@@ -357,7 +357,7 @@ namespace AgentBoard.Install {
 
 if ($Uninstall) {
     Write-Section "Uninstalling $ServiceName"
-    $svc = Get-Service -Name 'AgentBoard Proposal Worker' -ErrorAction SilentlyContinue
+    $svc = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if (-not $svc -and -not (Test-Path $InstallDir)) {
         Write-Host "[install] nothing to do (service not registered, install dir absent)."
         exit 0
@@ -491,7 +491,7 @@ if ([string]::IsNullOrWhiteSpace($PortalApiKey)) {
 # moved inside the swap-protected try/finally so any failure during
 # upgrade rolls back the binary + restarts the previous version.
 Write-Section "Detecting existing service"
-$existing = Get-Service -Name 'AgentBoard Proposal Worker' -ErrorAction SilentlyContinue
+$existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($existing) {
     Write-Host "  existing service found: $($existing.Status) — will be stopped atomically during the swap"
 } else {
@@ -759,34 +759,25 @@ function Invoke-InstallRollback {
 Write-Section "Writing appsettings.Production.json"
 
 $appsettingsProd = Join-Path $InstallDir 'appsettings.Production.json'
-$template = Join-Path $RepoRoot 'src\nodes\AgentBoard.Node\appsettings.Production.json'
-if (-not (Test-Path $template)) {
-    throw "Production template not found at $template"
+
+# Generated by scripts/new-node-appsettings.ps1 so the fully automated path and
+# the manual `dotnet publish` + `sc.exe create` path in the Node README produce
+# byte-identical config - including the Node -> Worker mirroring that makes a
+# rollback to the previous binary safe. Do not inline this logic here; the
+# manual path would silently lose it.
+$configScript = Join-Path $RepoRoot 'scripts\new-node-appsettings.ps1'
+if (-not (Test-Path $configScript)) {
+    throw "Config generator not found at $configScript"
 }
-
-# Parse and update the template structurally so quotes, backslashes, and `$`
-# characters in operator-supplied values remain valid JSON.
-$raw = Get-Content $template -Raw -Encoding UTF8
-$config = $raw | ConvertFrom-Json
-# P7b: ``Node`` is the canonical section the current binary reads.
-$config.Node.Id = $WorkerId
-$config.RabbitMq.Uri = $AmqpUri
-$config.Portal.ApiKey = $PortalApiKey
-
-# Mirror the resolved ``Node`` section into ``Worker`` so a rollback to the
-# previous binary - which only understands ``Worker`` - reads the exact same
-# configuration instead of silently falling back to the shipped defaults.
-# Done here rather than keeping a hand-maintained ``Worker`` block in the
-# template so the two sections can never drift apart.
-$workerMirror = ($config.Node | ConvertTo-Json -Depth 20 | ConvertFrom-Json)
-if ($config.PSObject.Properties.Name -contains 'Worker') {
-    $config.Worker = $workerMirror
-} else {
-    $config | Add-Member -MemberType NoteProperty -Name 'Worker' -Value $workerMirror
+& $configScript `
+    -WorkerId $WorkerId `
+    -AmqpUri $AmqpUri `
+    -PortalApiKey $PortalApiKey `
+    -RepoRoot $RepoRoot `
+    -OutFile $appsettingsProd
+if ($LASTEXITCODE -ne 0) {
+    throw "new-node-appsettings.ps1 failed with exit code $LASTEXITCODE"
 }
-$raw = $config | ConvertTo-Json -Depth 20
-
-[System.IO.File]::WriteAllText($appsettingsProd, $raw, [System.Text.UTF8Encoding]::new($false))
 Write-Host "  $appsettingsProd" -ForegroundColor Green
 
 # ---------------------------------------------------------------------------
@@ -837,7 +828,7 @@ if ($existing) {
         'create', $ServiceName,
         'binPath=', $binPath,
         'start=', 'auto',
-        'DisplayName=', 'AgentBoard Proposal Worker (MiniMax / Codex / WorkBuddy)'
+        'DisplayName=', 'AgentBoard Node (MiniMax / Codex / WorkBuddy)'
     )
 
     # sc.exe needs `obj=` to run as anything other than LocalSystem. Default to
@@ -939,7 +930,7 @@ if ($envPairs.Count -gt 0) {
     Write-Host "  service environment configured" -ForegroundColor Green
 }
 
-& sc.exe start 'AgentBoard Proposal Worker' | Out-Null
+& sc.exe start $ServiceName | Out-Null
 if ($LASTEXITCODE -ne 0) {
     throw "sc.exe start failed with exit $LASTEXITCODE"
 }
@@ -954,7 +945,7 @@ Write-Section "Verifying /health"
 $health = Wait-Health
 if (-not $health) {
     Write-Host "  /health did not return 200 within 30s. Check:" -ForegroundColor Red
-    Write-Host "    Get-EventLog -LogName Application -Source 'AgentBoard Proposal Worker' -Newest 20" -ForegroundColor Red
+    Write-Host "    Get-EventLog -LogName Application -Source $ServiceName -Newest 20" -ForegroundColor Red
     Write-Host "    $InstallDir\logs\worker.err.log" -ForegroundColor Red
     throw "Worker failed to become healthy."
 }
@@ -1002,8 +993,8 @@ Write-Host "Portal.Key:    stored in appsettings.Production.json (not printed)"
 Write-Host "Install dir:   $InstallDir"
 Write-Host ""
 Write-Host "Useful commands:"
-Write-Host "  Get-Service 'AgentBoard Proposal Worker'"
-Write-Host "  sc.exe query 'AgentBoard Proposal Worker'"
+Write-Host "  Get-Service $ServiceName"
+Write-Host "  sc.exe query $ServiceName"
 Write-Host "  Invoke-WebRequest $PortalBase/health"
 }
 

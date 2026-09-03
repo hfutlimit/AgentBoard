@@ -20,7 +20,7 @@ try
 catch { /* best-effort; production still boots from default location */ }
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Host.UseWindowsService(options => options.ServiceName = "AgentBoard Proposal Worker");
+builder.Host.UseWindowsService(options => options.ServiceName = "AgentBoard Node");
 builder.WebHost.UseUrls(builder.Configuration["Portal:Urls"] ?? "http://127.0.0.1:58240");
 
 // ---- Options ---------------------------------------------------------------
