@@ -335,9 +335,26 @@ def list_project_kanban(pid: int, include_all: bool = Query(False),
 
 
 @router.post("/api/projects/{pid}/epics", status_code=201)
-def create_epic(pid: int, body: EpicIn, s: Session = Depends(get_session)):
+def create_epic(pid: int, body: EpicIn, authorization: str | None = Header(None),
+                s: Session = Depends(get_session)):
+    """创建 Epic，自动派生 1 个 Story + 2 个默认 Task（design + dev）。
+
+    跟 ``create_story`` 一致：best-effort 解析调用方 user 并透传到
+    service 作为 ``created_by_user_id``；解析失败（无 token / 非法
+    token）则留 None，下游 task 会进入 scheduler fail-closed 待人工
+    补 owner 的状态。T1.5 归属收敛（2026-09-01）之后，匿名创建的
+    Epic 链上所有 task 都不可派发；这是与 Story 一致的预期行为。
+    """
     api_helpers._need(service.get_project(s, pid), "project")
-    return service._ser(service.create_epic(s, project_id=pid, title=body.title, description=body.description))
+    _owner_user_id: int | None = None
+    try:
+        _owner_user_id = api_helpers.resolve_actor_context(authorization, s).user_id
+    except HTTPException:
+        pass
+    return service._ser(service.create_epic(
+        s, project_id=pid, title=body.title, description=body.description,
+        created_by_user_id=_owner_user_id,
+    ))
 
 
 

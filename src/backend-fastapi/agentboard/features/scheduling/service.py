@@ -151,19 +151,23 @@ def create_run(s: Session, *, schedule_id: int, task_id: int | None = None,
     agent_id = schedule.agent or os.environ.get("AGENTBOARD_DEFAULT_AGENT", "codex")
     agent_config = get_agent_by_agent_id(s, agent_id)
     if agent_config is None:
-        agent_config = Agent(
-            agent_id=agent_id,
-            name=agent_id.replace("-", " ").title(),
-            roles='["developer"]',
-            capabilities="[]",
-            cli_command="",
-            model="",
-            auth_key="",
-            enabled=True,
-            online=False,
+        # P0 (workflow-outbox-2026-08 follow-up): the previous code path
+        # synthesized a fake Agent row here (cli_command="", auth_key="",
+        # online=False) so the assignment would "succeed" and the task
+        # would advance to in_progress. That left the worker side with
+        # no real CLI / OAuth state and the task deadlocked forever.
+        # The new boundary is: the worker is the source of truth for
+        # agent configuration; the server only ever references agents
+        # that already exist. ``agent-ephemeral-2026-09`` decision G
+        # makes ``agents`` / ``agent_instances`` read-only on the
+        # server side. Refuse to mint a row and let the caller fail
+        # loud so an operator registers the agent first.
+        raise NotFound(
+            f"agent '{agent_id}' is not registered; "
+            "create_run refuses to mint a synthetic Agent. "
+            "Register the agent via POST /api/agents first "
+            "(or wait for the worker's WSS HELLO to publish it)."
         )
-        s.add(agent_config)
-        s.flush()
     assignment = None
     if task_id is not None:
         _task, assignment = try_assign_task(

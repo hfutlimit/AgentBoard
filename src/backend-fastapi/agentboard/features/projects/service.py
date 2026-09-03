@@ -178,7 +178,17 @@ def list_sprints(s: Session, project_id: int, limit: int | None = None, offset: 
 
 
 def create_epic(s: Session, *, project_id: int, title: str, description: str = "",
+               created_by_user_id: int | None = None,
                commit: bool = True) -> Epic:
+    """创建 Epic，自动派生 1 个默认 Story（继承 Epic 标题/描述）。
+
+    ``created_by_user_id`` 透传到下层 ``create_story``，让 Story 与
+    其下 design/dev Task 的 ``created_by_user_id`` 全部对齐 ——
+    scheduler 在 ``list_runnable_candidates`` 里 fail-closed 任何
+    ``owner_user_id`` 为 NULL 的 task（2026-09-01 决策 a/c），所以
+    路由层解析不到调用方时显式传 None 是合法的"待人工补 owner"
+    状态，不应当作硬错。
+    """
     if not s.get(Project, project_id):
         raise NotFound(f"project {project_id} not found")
     ep = Epic(project_id=project_id, title=_required(title, "title", 300), description=description or "")
@@ -187,7 +197,10 @@ def create_epic(s: Session, *, project_id: int, title: str, description: str = "
     # 2026-08-09：创建 Epic 默认自动创建 1 个默认 Story（标题/描述继承 Epic），
     # Story 创建会自动带 design + 开发 Task，即「创建 Epic 默认创建 Story/Task」。
     # Review 2026-08-26 P1 #2：commit 透传给 Story，让 transaction 边界由 caller 控
-    create_story(s, epic_id=ep.id, title=ep.title, description=ep.description, commit=commit)
+    create_story(
+        s, epic_id=ep.id, title=ep.title, description=ep.description,
+        created_by_user_id=created_by_user_id, commit=commit,
+    )
     if commit:
         s.refresh(ep)
     return ep
