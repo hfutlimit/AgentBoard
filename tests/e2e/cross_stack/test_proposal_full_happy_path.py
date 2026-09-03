@@ -1,7 +1,7 @@
 """Real cross-stack Golden Happy Path.
 
 This opt-in gate launches a real FastAPI process, the Python workflow
-allocator, three .NET ProposalWorker processes and uses a real RabbitMQ and
+allocator, three .NET ProposalProcessor processes and uses a real RabbitMQ and
 MariaDB supplied by the test environment.  The test body never calls Task
 submit/review endpoints and never writes workflow state directly; the
 DeterministicScenarioAdapter performs those actions after consuming the same
@@ -34,11 +34,11 @@ WORKER_DLL = (
     ROOT
     / "src"
     / "workers"
-    / "AgentBoard.ProposalWorker"
+    / "AgentBoard.ProposalProcessor"
     / "bin"
     / "Release"
     / "net10.0"
-    / "AgentBoard.ProposalWorker.dll"
+    / "AgentBoard.ProposalProcessor.dll"
 )
 RUN_REAL = os.getenv("AGENTBOARD_RUN_GOLDEN_CROSS_STACK") == "1"
 DB_URL = os.getenv("AGENTBOARD_GOLDEN_DB_URL", "")
@@ -158,7 +158,7 @@ def _worker_env(
 def test_proposal_full_happy_path(tmp_path: Path):
     assert WORKER_DLL.exists(), (
         "build the worker first: dotnet build "
-        "src/workers/AgentBoard.ProposalWorker/AgentBoard.ProposalWorker.csproj "
+        "src/nodes/AgentBoard.ProposalProcessor/AgentBoard.ProposalProcessor.csproj "
         "-c Release"
     )
     run_id = uuid.uuid4().hex[:10]
@@ -300,7 +300,7 @@ def test_proposal_full_happy_path(tmp_path: Path):
         })
         start(
             "workflow-worker",
-            [sys.executable, "-m", "agentboard.workflow_worker", "--mq"],
+            [sys.executable, "-m", "agentboard.workflow_processor", "--mq"],
             workflow_env,
         )
 

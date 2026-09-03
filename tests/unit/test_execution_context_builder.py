@@ -16,19 +16,19 @@ from agentboard.features.projects.models import Agent, Project, Story, Epic
 from agentboard.features.work_items.models import Task, Comment
 from agentboard.features.documents.models import Document, DocumentType, DocumentStatus
 from agentboard.features.learning.models import Learning
-from agentboard.agent_runtime.behavior.context_builder import (
+from agentboard.processors.behavior.context_builder import (
     ExecutionContextBuilder,
     execution_context_builder,
 )
-from agentboard.agent_runtime.behavior.models import (
+from agentboard.processors.behavior.models import (
     EffectiveBehaviorConfig,
     PreparationBehavior,
     CollaborationBehavior,
     LearningBehavior,
     DocumentSourceConfig,
 )
-from agentboard.agent_runtime.learning.retriever import learning_retriever
-from agentboard.agent_runtime.contract import ExecutionCommand, WorkType
+from agentboard.processors.learning.retriever import learning_retriever
+from agentboard.processors.contract import ExecutionCommand, WorkType
 
 
 @pytest.fixture(scope="module", autouse=True)

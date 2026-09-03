@@ -115,7 +115,7 @@ def workflow_worker_thread(broker):
 
     模拟生产部署的 Python workflow_worker。
     """
-    from agentboard.workflow_worker import WorkflowConsumer, WorkflowConsumerConfig
+    from agentboard.workflow_processor import WorkflowConsumer, WorkflowConsumerConfig
     cfg = WorkflowConsumerConfig(
         api_url="http://test-internal",  # 不会真用，测试直接调端点
         token=None,

@@ -27,9 +27,9 @@ import pytest
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _ROOT)
 
-from agentboard import worker  # noqa: E402
-from agentboard.worker import (  # noqa: E402
-    AgentDecision, ProposalWorker, WorkerConfig,
+from agentboard import processors  # noqa: E402
+from agentboard.processors import (  # noqa: E402
+    AgentDecision, ProposalProcessor, ProcessorConfig,
 )
 
 
@@ -75,8 +75,8 @@ class _FakeClient:
         return _FakeResponse(200, resp if resp is not None else {})
 
 
-def _cfg() -> WorkerConfig:
-    return WorkerConfig(api_url="http://x", token="t", agent_cmd="x",
+def _cfg() -> ProcessorConfig:
+    return ProcessorConfig(api_url="http://x", token="t", agent_cmd="x",
                         agent_timeout=5)
 
 
@@ -107,8 +107,8 @@ class _StubInvoker:
         return self.decision or AgentDecision(action="story_handled", summary="ok")
 
 
-def _worker(client=None, invoker=None) -> ProposalWorker:
-    w = ProposalWorker(_cfg(), invoker=invoker or _StubInvoker(), client=client)
+def _worker(client=None, invoker=None) -> ProposalProcessor:
+    w = ProposalProcessor(_cfg(), invoker=invoker or _StubInvoker(), client=client)
     w._story_min_interval = 0.0
     return w
 
@@ -148,7 +148,7 @@ def test_build_story_context_includes_tasks():
 def test_build_story_prompt_renders_rules():
     client = _FakeClient(get_responses={"/api/stories/1/tasks": _tasks_response()})
     w = _worker(client=client)
-    prompt = worker._build_story_prompt(w.build_story_context(_story()))
+    prompt = processors._build_story_prompt(w.build_story_context(_story()))
     assert "story_handled" in prompt and '"fail"' in prompt
     # Story 265 收敛：5 状态流，design 评审段已下线（prompt 不应再出现 in_design）
     assert "design" in prompt and "in_design" not in prompt
@@ -220,7 +220,7 @@ def test_handle_story_invoker_exception_comments():
     走 unclaim（不评论、不计数），见 test_handle_story_transient_unclaims。"""
     client = _FakeClient(get_responses={"/api/stories/1/tasks": _tasks_response()})
     w = _worker(client=client, invoker=_StubInvoker(
-        error=worker.PermanentAgentError("config broken")))
+        error=processors.PermanentAgentError("config broken")))
     w._story_min_interval = 0.0
     assert w.handle_story(_story()) == "failed"
     assert any("/comments" in p for m, p in client.calls)
@@ -229,7 +229,7 @@ def test_handle_story_invoker_exception_comments():
 def test_handle_story_transient_unclaims():
     """P1 收口（2026-08-26）：transient 异常（如超时 / 5xx）→ unclaim 回退 confirmed
     让下轮重试，不发评论、不累计失败计数。"""
-    from agentboard.worker import TransientAgentError
+    from agentboard.processors import TransientAgentError
     client = _FakeClient(get_responses={"/api/stories/1/tasks": _tasks_response()})
     w = _worker(client=client, invoker=_StubInvoker(
         error=TransientAgentError("5xx upstream"),
@@ -326,7 +326,7 @@ def test_heartbeat_treats_structured_fail_output_as_offline():
 
 
 def test_probe_rejects_missing_mcp_config(tmp_path):
-    from agentboard.agent_runtime.heartbeat import probe_cli
+    from agentboard.processors.heartbeat import probe_cli
 
     cfg = type("Cfg", (), {"heartbeat_timeout": 8})()
     missing = tmp_path / "missing.json"

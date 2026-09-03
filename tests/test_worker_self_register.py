@@ -19,7 +19,7 @@ sys.path.insert(0, _ROOT)
 
 import pytest
 
-from agentboard.agent_runtime.heartbeat import (
+from agentboard.processors.heartbeat import (
     _ensure_worker_registered,
     _heartbeat_via_instances,
     _heartbeat_via_agents_legacy,

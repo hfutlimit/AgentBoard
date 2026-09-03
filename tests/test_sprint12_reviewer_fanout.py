@@ -239,7 +239,7 @@ def test_review_vote_counts_ignores_pending_null_verdict(seeded, monkeypatch):
 
 def _build_consumer_with_fake_request(fake_response):
     """构造一个 WorkflowConsumer，其 _request 走 fake；其余字段齐全。"""
-    from agentboard.workflow_worker import WorkflowConsumer, WorkflowConsumerConfig
+    from agentboard.workflow_processor import WorkflowConsumer, WorkflowConsumerConfig
     cfg = WorkflowConsumerConfig(api_url="http://127.0.0.1:1", token="t",
                                  poll_interval=10.0, batch_size=20,
                                  http_timeout=5.0, mq=mock.Mock(enabled=False))

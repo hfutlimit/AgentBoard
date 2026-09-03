@@ -18,7 +18,7 @@ Learning                 Correction      从错误/纠正里学到什么？ reus
   3. Episode（历史案例） — 类似过去的成功/失败故事，作为 reference
 
 注意：四者**不是**同一张表的别名。Learning 来自
-``agent_runtime.learning`` (新 correction learning 链路)，其他三个
+``processors.learning`` (新 correction learning 链路)，其他三个
 来自本模块（``features.learning`` 旧 memory 链路）。两套写入入口
 不同、查询入口不同、taxonomy 不同。
 
@@ -32,7 +32,7 @@ Learning                 Correction      从错误/纠正里学到什么？ reus
 - ProjectPlaybookEpisode：playbook 单条 entry（与 episode 复合主键）
 - Learning（Configurable Behavior Learning）：
   - accepted_review_feedback / review_judgment_reversal / qa_defect 等分类
-  - 落库入口：``agent_runtime.learning.evaluator → extractor → features.learning.service``（或单独 service 落 Learning 表）
+  - 落库入口：``processors.learning.evaluator → extractor → features.learning.service``（或单独 service 落 Learning 表）
 """
 from datetime import datetime
 

@@ -6,7 +6,7 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 import pytest
-from agentboard.agent_runtime.learning.evaluator import (
+from agentboard.processors.learning.evaluator import (
     LearningCategory,
     LearningEvaluator,
     learning_evaluator,

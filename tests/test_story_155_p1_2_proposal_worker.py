@@ -14,7 +14,7 @@ P1-1（Task 931）交付了 6 个 ``proposal_*`` MCP 工具，但没有常驻消
    queued → claim → ask → 用户作答 → answered → 下一轮 → finalize → converged。
 3. **鲁棒层**：并发认领竞争、租约超时崩溃恢复、Agent 异常/超时/输出非 JSON、
    轮次上限护栏。
-4. **真实子进程层**：用一个 fake CLI 脚本自证 ``SubprocessAgentInvoker``
+4. **真实子进程层**：用一个 fake CLI 脚本自证 ``SubprocessProcessorInvoker``
    的 stdin/stdout 协议真的可用（不只是 stub 好使）。
 
 运行::
@@ -48,7 +48,7 @@ for _m in list(sys.modules):
     if _m == "agentboard" or _m.startswith("agentboard."):
         del sys.modules[_m]
 
-from agentboard import worker as W  # noqa: E402
+from agentboard import processors as W  # noqa: E402
 from agentboard.database import init_db  # noqa: E402
 
 init_db()
@@ -165,12 +165,12 @@ def stack():
             proc.kill()
 
 
-def _make_worker(stack, invoker, **overrides) -> W.ProposalWorker:
-    cfg = W.WorkerConfig(
+def _make_worker(stack, invoker, **overrides) -> W.ProposalProcessor:
+    cfg = W.ProcessorConfig(
         api_url=stack["base"], token=stack["token"], agent="pytest-worker",
         poll_interval=0.01, **overrides,
     )
-    return W.ProposalWorker(cfg, invoker=W.CallableAgentInvoker(invoker))
+    return W.ProposalProcessor(cfg, invoker=W.CallableProcessorInvoker(invoker))
 
 
 def _new_queued(stack, title: str) -> int:
@@ -417,9 +417,9 @@ _FAKE_CLI = textwrap.dedent('''
     prompt = sys.stdin.read()
     print("[fake-agent] 收到 prompt %d 字符" % len(prompt))
     if "子进程提出的问题" in prompt:
-        print('{"action":"finalize","converged_spec":"来自子进程的最终规格","inspected_files":["src/backend-fastapi/agentboard/agent_runtime/worker.py"]}')
+        print('{"action":"finalize","converged_spec":"来自子进程的最终规格","inspected_files":["src/backend-fastapi/agentboard/processors/worker.py"]}')
     else:
-        print('{"action":"ask","questions":["子进程提出的问题"],"summary":"round1","inspected_files":["src/backend-fastapi/agentboard/agent_runtime/worker.py"]}')
+        print('{"action":"ask","questions":["子进程提出的问题"],"summary":"round1","inspected_files":["src/backend-fastapi/agentboard/processors/worker.py"]}')
     print("[fake-agent] done")
 ''')
 
@@ -433,7 +433,7 @@ def fake_cli(tmp_path_factory):
 
 def test_subprocess_invoker_real_process_roundtrip(fake_cli):
     """自证 stdin/stdout 协议：真起一个子进程，不是只测 stub。"""
-    inv = W.SubprocessAgentInvoker(f'"{sys.executable}" "{fake_cli}"', timeout=60)
+    inv = W.SubprocessProcessorInvoker(f'"{sys.executable}" "{fake_cli}"', timeout=60)
     d = inv.invoke({"proposal_id": 1, "title": "T", "content": "C",
                     "current_round": 0, "history": []})
     assert d.action == "ask"
@@ -443,7 +443,7 @@ def test_subprocess_invoker_real_process_roundtrip(fake_cli):
 def test_subprocess_invoker_drives_real_loop(stack, fake_cli, tmp_path):
     """把真实子进程 Invoker 挂到 Worker 上，跑完整两轮闭环。"""
     pid = _new_queued(stack, "P1-2 子进程驱动闭环")
-    cfg = W.WorkerConfig(api_url=stack["base"], token=stack["token"],
+    cfg = W.ProcessorConfig(api_url=stack["base"], token=stack["token"],
                          agent="subprocess-worker", poll_interval=0.01,
                          agent_cmd=f'"{sys.executable}" "{fake_cli}"', agent_timeout=60)
     mapping = tmp_path / "project-mappings.json"
@@ -453,9 +453,9 @@ def test_subprocess_invoker_drives_real_loop(stack, fake_cli, tmp_path):
     old_mapping = os.environ.get("AGENTBOARD_LOCAL_MAPPINGS")
     os.environ["AGENTBOARD_LOCAL_MAPPINGS"] = str(mapping)
     try:
-        with W.ProposalWorker(cfg) as w:
+        with W.ProposalProcessor(cfg) as w:
             assert isinstance(w.invoker, W.ComplianceEnforcingInvoker), "真实 CLI 未经强制合规包装"
-            assert isinstance(w.invoker.delegate, W.SubprocessAgentInvoker), "包装内部未走真实子进程适配器"
+            assert isinstance(w.invoker.delegate, W.SubprocessProcessorInvoker), "包装内部未走真实子进程适配器"
             w.poll_once()
             assert _status(stack, pid) == "awaiting"
             _answer_all_open(stack, pid)
@@ -473,7 +473,7 @@ def test_subprocess_invoker_drives_real_loop(stack, fake_cli, tmp_path):
 def test_subprocess_invoker_timeout_is_reported(tmp_path):
     slow = tmp_path / "slow_agent.py"
     slow.write_text("import time,sys\nsys.stdin.read()\ntime.sleep(30)\n", encoding="utf-8")
-    inv = W.SubprocessAgentInvoker(f'"{sys.executable}" "{slow}"', timeout=1)
+    inv = W.SubprocessProcessorInvoker(f'"{sys.executable}" "{slow}"', timeout=1)
     with pytest.raises(W.AgentInvocationError) as e:
         inv.invoke({"proposal_id": 1, "title": "T", "content": "C",
                     "current_round": 0, "history": []})
@@ -484,7 +484,7 @@ def test_subprocess_invoker_nonzero_exit_is_reported(tmp_path):
     bad = tmp_path / "bad_agent.py"
     bad.write_text("import sys\nsys.stdin.read()\nprint('boom', file=sys.stderr)\n"
                    "sys.exit(3)\n", encoding="utf-8")
-    inv = W.SubprocessAgentInvoker(f'"{sys.executable}" "{bad}"', timeout=60)
+    inv = W.SubprocessProcessorInvoker(f'"{sys.executable}" "{bad}"', timeout=60)
     with pytest.raises(W.AgentInvocationError) as e:
         inv.invoke({"proposal_id": 1, "title": "T", "content": "C",
                     "current_round": 0, "history": []})
@@ -494,7 +494,7 @@ def test_subprocess_invoker_nonzero_exit_is_reported(tmp_path):
 def test_missing_agent_cmd_fails_fast():
     """没配命令模板又没传 invoker，必须在构造期就报错，不能跑起来后静默空转。"""
     with pytest.raises(ValueError):
-        W.ProposalWorker(W.WorkerConfig(api_url="http://127.0.0.1:1", agent_cmd=""))
+        W.ProposalProcessor(W.ProcessorConfig(api_url="http://127.0.0.1:1", agent_cmd=""))
 
 
 def test_prompt_contains_protocol_and_history():

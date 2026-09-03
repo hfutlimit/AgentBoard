@@ -34,7 +34,7 @@ from agentboard.core.common.enums import Status, StatusReason
 # 预导入 learning 模块（批量跑时避免 del sys.modules 重载导致延迟导入失败）
 from agentboard.features.learning import memory as lm
 from agentboard.features.learning.models import EpisodeEmbedding, ProjectPlaybook
-from agentboard.features.workers.handlers.story import build_story_prompt
+from agentboard.processors.handlers.story import build_story_prompt
 
 
 @pytest.fixture

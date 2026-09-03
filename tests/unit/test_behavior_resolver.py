@@ -13,15 +13,15 @@ os.environ["AGENTBOARD_DB_URL"] = f"sqlite:///./{DB_PATH}"
 import pytest
 from agentboard.core.infrastructure.database import SessionLocal, engine, init_db
 from agentboard.features.projects.models import Agent, Project
-from agentboard.agent_runtime.behavior.models import (
+from agentboard.processors.behavior.models import (
     AgentBehaviorConfigPayload,
     CollaborationBehavior,
     DocumentSourceConfig,
     LearningBehavior,
     PreparationBehavior,
 )
-from agentboard.agent_runtime.behavior.resolver import BehaviorResolver, merge_behavior_payload
-from agentboard.agent_runtime.contract import WorkType
+from agentboard.processors.behavior.resolver import BehaviorResolver, merge_behavior_payload
+from agentboard.processors.contract import WorkType
 from agentboard.features.scheduling.behavior_service import upsert_behavior_config
 
 

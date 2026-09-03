@@ -79,12 +79,12 @@ git mv alembic.ini src/backend-fastapi/alembic.ini
 ### Task 5: Move Worker projects
 
 **Files:**
-- Move `workers/AgentBoard.ProposalWorker/` to `src/workers/AgentBoard.ProposalWorker/`.
-- Move `workers/AgentBoard.ProposalWorker.Tests/` to `src/workers/AgentBoard.ProposalWorker.Tests/`.
+- Move `workers/AgentBoard.ProposalProcessor/` to `src/workers/AgentBoard.ProposalProcessor/`.
+- Move `workers/AgentBoard.ProposalProcessor.Tests/` to `src/workers/AgentBoard.ProposalProcessor.Tests/`.
 
 - [x] Execute both `git mv` operations.
 - [x] Search `src/workers` and `src/backend-dotnet` for stale worker paths and update project references, scripts, and README commands.
-- [x] Run `dotnet test src/workers/AgentBoard.ProposalWorker.Tests/AgentBoard.ProposalWorker.Tests.csproj --no-restore`.
+- [x] Run `dotnet test src/workers/AgentBoard.ProposalProcessor.Tests/AgentBoard.ProposalProcessor.Tests.csproj --no-restore`.
 
 ### Task 6: Move cross-application Docker and deployment configuration
 

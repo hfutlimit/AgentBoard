@@ -20,13 +20,13 @@ import pytest
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _ROOT)
 
-from agentboard import mq, worker  # noqa: E402
+from agentboard import mq  # noqa: E402
 from agentboard.mq import (  # noqa: E402
     EVENT_TASK_ASSIGNED, EVENT_TASK_AVAILABLE, EVENT_TASK_REJECTED,
     EVENT_TASK_REVIEW_REQUESTED, WorkflowMessage,
 )
-from agentboard.worker import (  # noqa: E402
-    AgentDecision, ProposalWorker, WorkerConfig,
+from agentboard.processors import (  # noqa: E402
+    AgentDecision, ProposalProcessor, ProcessorConfig,
 )
 
 
@@ -70,8 +70,8 @@ class _FakeClient:
         return _FakeResponse(200, resp if resp is not None else {})
 
 
-def _cfg() -> WorkerConfig:
-    return WorkerConfig(api_url="http://x", token="t", agent_id="agent-a", agent_cmd="x",
+def _cfg() -> ProcessorConfig:
+    return ProcessorConfig(api_url="http://x", token="t", agent_id="agent-a", agent_cmd="x",
                         agent_timeout=5)
 
 
@@ -92,8 +92,8 @@ class _StubInvoker:
         return self.decision or AgentDecision(action="story_handled", summary="ok")
 
 
-def _worker(client=None, invoker=None) -> ProposalWorker:
-    w = ProposalWorker(_cfg(), invoker=invoker or _StubInvoker(), client=client)
+def _worker(client=None, invoker=None) -> ProposalProcessor:
+    w = ProposalProcessor(_cfg(), invoker=invoker or _StubInvoker(), client=client)
     return w
 
 
@@ -218,7 +218,7 @@ def test_review_result_invokes_owner_handler():
 
 def test_run_agent_mq_forever_broadcast_and_direct():
     """InMemory broker：广播 task.available 竞争 + 定向 task.assigned 双线程消费。"""
-    wf_broker = mq.InMemoryWorkflowBroker()  # namespace 默认（与 worker 一致）
+    wf_broker = mq.InMemoryWorkflowBroker()  # namespace 默认（与 processor 一致）
     wf_broker.declare_topology()
     wf_broker.declare_agent_queue("agent-a")
 

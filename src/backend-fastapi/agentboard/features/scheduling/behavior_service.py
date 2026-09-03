@@ -12,8 +12,8 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from .models import AgentBehaviorConfig
-from ...agent_runtime.behavior.models import AgentBehaviorConfigPayload
-from ...agent_runtime.behavior.defaults import PRESET_VERSION
+from ...processors.behavior.models import AgentBehaviorConfigPayload
+from ...processors.behavior.defaults import PRESET_VERSION
 from ...core.common.models import utc_now
 
 

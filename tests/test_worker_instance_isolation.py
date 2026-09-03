@@ -288,10 +288,10 @@ class _RecordingClient:
 
 def test_heartbeat_once_uses_new_path_when_worker_id_set():
     """config.worker_id 非空 → 调 ``/api/workers/.../instances`` 路径。"""
-    from agentboard.worker import WorkerConfig
-    from agentboard.agent_runtime.heartbeat import agent_heartbeat_once
+    from agentboard.processors import ProcessorConfig
+    from agentboard.processors.heartbeat import agent_heartbeat_once
 
-    cfg = WorkerConfig(api_url="http://x", token="t", worker_id="worker-A",
+    cfg = ProcessorConfig(api_url="http://x", token="t", worker_id="worker-A",
                        heartbeat_timeout=2.0, heartbeat_interval=1.0)
     client = _RecordingClient()
     stats = agent_heartbeat_once(client, cfg)
@@ -312,11 +312,11 @@ def test_heartbeat_once_uses_new_path_when_worker_id_set():
 
 def test_heartbeat_once_falls_back_to_legacy_when_worker_id_empty():
     """config.worker_id 空 → 走旧 ``/api/agents`` 路径。"""
-    from agentboard.worker import WorkerConfig
-    from agentboard.agent_runtime.heartbeat import agent_heartbeat_once
+    from agentboard.processors import ProcessorConfig
+    from agentboard.processors.heartbeat import agent_heartbeat_once
     from tests.test_worker_heartbeat import _FakeClient
 
-    cfg = WorkerConfig(api_url="http://x", token="t", worker_id="",
+    cfg = ProcessorConfig(api_url="http://x", token="t", worker_id="",
                        heartbeat_timeout=2.0)
     client = _FakeClient(get_responses={"/api/agents": []})
     stats = agent_heartbeat_once(client, cfg)
@@ -326,10 +326,10 @@ def test_heartbeat_once_falls_back_to_legacy_when_worker_id_empty():
 
 def test_heartbeat_once_worker_a_does_not_touch_worker_b():
     """核心场景：Worker A 探测只调 A 的 instance，**绝不**调 B 的 instance。"""
-    from agentboard.worker import WorkerConfig
-    from agentboard.agent_runtime.heartbeat import agent_heartbeat_once
+    from agentboard.processors import ProcessorConfig
+    from agentboard.processors.heartbeat import agent_heartbeat_once
 
-    cfg = WorkerConfig(api_url="http://x", token="t", worker_id="worker-A",
+    cfg = ProcessorConfig(api_url="http://x", token="t", worker_id="worker-A",
                        heartbeat_timeout=2.0)
     # A 看到本机只有 A 的 instance（不返回 B 的）
     client = _RecordingClient(responses={

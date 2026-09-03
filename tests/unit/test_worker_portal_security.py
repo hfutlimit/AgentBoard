@@ -1,7 +1,7 @@
-"""worker_portal 凭据安全回归测试（P0 整改 B-A1 / Story 291 / Epic 145）。
+"""processor_portal 凭据安全回归测试（P0 整改 B-A1 / Story 291 / Epic 145）。
 
 背景：
-    ``agentboard/worker_portal.py`` 历史版本在源码中硬编码生产 API key
+    ``agentboard/processor_portal.py`` 历史版本在源码中硬编码生产 API key
     （``DEFAULT_TOKEN = "abk_Lv493r01Pi4ue5gZo7RAS7vyciEmqzeOVLR7LNPmAHg"``），
     已提交进 git 历史。任何 clone 仓库者持有该 key 即可调任意 API。
 
@@ -38,7 +38,7 @@ class TestCreateAppFailFast:
         monkeypatch.delenv("AGENTBOARD_API_URL", raising=False)
         monkeypatch.delenv("AGENTBOARD_WORKER_TOKEN", raising=False)
 
-        from agentboard.worker_portal import create_app
+        from agentboard.processor_portal import create_app
 
         with pytest.raises(SystemExit) as exc_info:
             create_app()
@@ -54,7 +54,7 @@ class TestCreateAppFailFast:
         monkeypatch.delenv("AGENTBOARD_API_URL", raising=False)
         monkeypatch.delenv("AGENTBOARD_WORKER_TOKEN", raising=False)
 
-        from agentboard.worker_portal import create_app
+        from agentboard.processor_portal import create_app
 
         with pytest.raises(SystemExit) as exc_info:
             create_app(api_url="http://example.com", token=None)
@@ -69,7 +69,7 @@ class TestCreateAppFailFast:
         monkeypatch.delenv("AGENTBOARD_API_URL", raising=False)
         monkeypatch.delenv("AGENTBOARD_WORKER_TOKEN", raising=False)
 
-        from agentboard.worker_portal import create_app
+        from agentboard.processor_portal import create_app
 
         with pytest.raises(SystemExit) as exc_info:
             create_app(api_url=None, token="abk_test_token")
@@ -84,7 +84,7 @@ class TestCreateAppFailFast:
         monkeypatch.delenv("AGENTBOARD_API_URL", raising=False)
         monkeypatch.delenv("AGENTBOARD_WORKER_TOKEN", raising=False)
 
-        from agentboard.worker_portal import create_app
+        from agentboard.processor_portal import create_app
 
         app = create_app(api_url="http://example.com", token="abk_test_token")
         assert isinstance(app, FastAPI)
@@ -102,7 +102,7 @@ class TestCreateAppFailFast:
         monkeypatch.setenv("AGENTBOARD_API_URL", "http://env.example.com")
         monkeypatch.setenv("AGENTBOARD_WORKER_TOKEN", "abk_env_token")
 
-        from agentboard.worker_portal import create_app
+        from agentboard.processor_portal import create_app
 
         app = create_app()
         assert isinstance(app, FastAPI)
@@ -112,7 +112,7 @@ class TestCreateAppFailFast:
         monkeypatch.delenv("AGENTBOARD_API_URL", raising=False)
         monkeypatch.delenv("AGENTBOARD_WORKER_TOKEN", raising=False)
 
-        from agentboard.worker_portal import create_app
+        from agentboard.processor_portal import create_app
 
         app = create_app(api_url="  http://example.com  ", token="  abk_test_token  ")
         assert isinstance(app, FastAPI)
@@ -146,11 +146,11 @@ class TestNoHardcodedKeyInSource:
             (r'DEFAULT_API_URL\s*=\s*"http://\d+\.\d+\.\d+\.\d+"', "DEFAULT_API_URL 不得硬编码 IP 地址"),
         ],
     )
-    def test_no_hardcoded_defaults_in_worker_portal(self, pattern: str, description: str) -> None:
-        """worker_portal.py 的 DEFAULT_* 常量不得回退到硬编码生产值。"""
+    def test_no_hardcoded_defaults_in_processor_portal(self, pattern: str, description: str) -> None:
+        """processor_portal.py 的 DEFAULT_* 常量不得回退到硬编码生产值。"""
         import re
 
-        wp_file = AGENTBOARD_PKG / "worker_portal.py"
+        wp_file = AGENTBOARD_PKG / "processor_portal.py"
         text = wp_file.read_text(encoding="utf-8")
         matches = re.findall(pattern, text)
         assert not matches, (
@@ -159,7 +159,7 @@ class TestNoHardcodedKeyInSource:
 
     def test_default_constants_are_empty(self) -> None:
         """DEFAULT_API_URL / DEFAULT_TOKEN 必须为空字符串（无回退值）。"""
-        from agentboard.worker_portal import DEFAULT_API_URL, DEFAULT_TOKEN
+        from agentboard.processor_portal import DEFAULT_API_URL, DEFAULT_TOKEN
 
         assert DEFAULT_API_URL == "", (
             f"DEFAULT_API_URL 必须为空字符串（B-A1），实际: {DEFAULT_API_URL!r}"
@@ -173,17 +173,17 @@ class TestModuleLevelAppSafeImport:
     """B-A1: 模块级 app 在缺凭据时为 None，import 不崩溃。"""
 
     def test_module_importable_without_credentials(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """无 env 变量时 import worker_portal 不应抛异常。"""
+        """无 env 变量时 import processor_portal 不应抛异常。"""
         monkeypatch.delenv("AGENTBOARD_API_URL", raising=False)
         monkeypatch.delenv("AGENTBOARD_WORKER_TOKEN", raising=False)
 
         # 清除可能已加载的模块（强制重新 import）
-        mods_to_clear = [k for k in sys.modules if k.startswith("agentboard.worker_portal")]
+        mods_to_clear = [k for k in sys.modules if k.startswith("agentboard.processor_portal")]
         for k in mods_to_clear:
             del sys.modules[k]
 
         # import 应成功（不抛 SystemExit）
-        import agentboard.worker_portal as wp
+        import agentboard.processor_portal as wp
 
         # 模块级 app 应为 None（缺凭据）
         assert wp.app is None, (
@@ -196,11 +196,11 @@ class TestModuleLevelAppSafeImport:
         monkeypatch.setenv("AGENTBOARD_WORKER_TOKEN", "abk_env_token")
 
         # 清除可能已加载的模块
-        mods_to_clear = [k for k in sys.modules if k.startswith("agentboard.worker_portal")]
+        mods_to_clear = [k for k in sys.modules if k.startswith("agentboard.processor_portal")]
         for k in mods_to_clear:
             del sys.modules[k]
 
-        import agentboard.worker_portal as wp
+        import agentboard.processor_portal as wp
 
         assert isinstance(wp.app, FastAPI), (
             "env 变量齐全时模块级 app 应为 FastAPI 实例"

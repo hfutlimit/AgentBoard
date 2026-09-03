@@ -24,14 +24,14 @@ from sqlalchemy.orm import sessionmaker
 # 重要：time.sleep 是 module-level import，coordinator.py 调的是
 # `time.sleep(delay)`（不是 `coordinator.time.sleep`）。
 # 用 pytest fixture monkeypatch 局部屏蔽，全局屏蔽会破坏其他测试的 sleep 行为。
-from agentboard.agent_runtime.config import WorkerConfig
-from agentboard.agent_runtime.coordinator import (
-    WorkerCoordinator, WORKFLOW_RETRY_BACKOFF_SECONDS, _execution_id_from_retry_key,
+from agentboard.processors.config import ProcessorConfig
+from agentboard.processors.coordinator import (
+    ProcessorCoordinator, WORKFLOW_RETRY_BACKOFF_SECONDS, _execution_id_from_retry_key,
 )
-from agentboard.agent_runtime.contract import (
+from agentboard.processors.contract import (
     ExecutionResult, ExecutionStatus, ExecutionAction,
 )
-from agentboard.agent_runtime.config import TransientAgentError
+from agentboard.processors.config import TransientAgentError
 
 
 @pytest.fixture
@@ -79,13 +79,13 @@ def _cleanup(eng, db):
 
 
 def _build_coordinator(*, session_factory=None, invoker=None, client=None):
-    """构造 coordinator，跳过 ProposalWorker（只测 coordinator 自身逻辑）。"""
-    cfg = WorkerConfig(
+    """构造 coordinator，跳过 ProposalProcessor（只测 coordinator 自身逻辑）。"""
+    cfg = ProcessorConfig(
         api_url="http://127.0.0.1:9", token="t",
         agent_cmd='"echo" "noop"',
         use_coordinator=True, async_story_executor=False,
     )
-    return WorkerCoordinator(
+    return ProcessorCoordinator(
         config=cfg, invoker=invoker, client=client,
         session_factory=session_factory,
     )
@@ -313,5 +313,5 @@ def test_execution_id_from_retry_key_format():
     eid = _execution_id_from_retry_key(k)
     assert eid == "task.review_requested:task:100:5"
     # 反解
-    recovered = WorkerCoordinator._retry_key_from_execution_id(eid)
+    recovered = ProcessorCoordinator._retry_key_from_execution_id(eid)
     assert recovered == k

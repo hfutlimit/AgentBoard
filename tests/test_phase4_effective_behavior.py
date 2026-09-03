@@ -18,9 +18,9 @@ sys.path.insert(0, _ROOT)
 import pytest
 from fastapi.testclient import TestClient
 
-from agentboard.agent_runtime.contract import ExecutionCommand, WorkType
-from agentboard.agent_runtime._prepared import prepare_execution
-from agentboard.agent_runtime.behavior.models import (
+from agentboard.processors.contract import ExecutionCommand, WorkType
+from agentboard.processors._prepared import prepare_execution
+from agentboard.processors.behavior.models import (
     EffectiveBehaviorConfig, PreparationBehavior, CollaborationBehavior,
     LearningBehavior,
 )
@@ -140,7 +140,7 @@ def test_prepare_execution_no_db_no_client_falls_back_to_system_default():
     )
     result = prepare_execution(cmd)  # 全 None
     # system default preset_version 应是 PRESET_VERSION
-    from agentboard.agent_runtime.behavior.defaults import PRESET_VERSION
+    from agentboard.processors.behavior.defaults import PRESET_VERSION
     assert result.behavior.preset_version == PRESET_VERSION
 
 
@@ -157,7 +157,7 @@ def test_prepare_execution_client_failure_falls_back_to_system_default():
     # 不应抛
     result = prepare_execution(cmd, client=client)
     # 退到 system default
-    from agentboard.agent_runtime.behavior.defaults import PRESET_VERSION
+    from agentboard.processors.behavior.defaults import PRESET_VERSION
     assert result.behavior.preset_version == PRESET_VERSION
 
 

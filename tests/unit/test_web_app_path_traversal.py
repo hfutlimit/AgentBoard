@@ -7,7 +7,7 @@
     攻击者可构造::
 
         GET /..%2F..%2F.env            → 读项目根 .env（含密钥）
-        GET /..%2F..%2Fagentboard%2Fworker_portal.py → 读源码
+        GET /..%2F..%2Fagentboard%2Fprocessor_portal.py → 读源码
 
     B-A4 修复：先 ``resolve()`` 再 ``is_relative_to(STATIC_DIR_RESOLVED)``，
     任何逃逸出静态根的路径统一 404。
@@ -42,7 +42,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 def isolated_web_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """构造一个隔离的 STATIC_DIR，并在其中放典型 Angular 资源文件。
 
-    在 STATIC_DIR 之外（tmp_path 根）放 ``.env`` 与 ``worker_portal.py``
+    在 STATIC_DIR 之外（tmp_path 根）放 ``.env`` 与 ``processor_portal.py``
     模拟项目根的敏感文件 —— 若路径穿越未收口，这些文件会被读出。
     """
     static_dir = tmp_path / "static"
@@ -67,7 +67,7 @@ def isolated_web_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     )
     fake_pkg = tmp_path / "agentboard"
     fake_pkg.mkdir()
-    (fake_pkg / "worker_portal.py").write_text(
+    (fake_pkg / "processor_portal.py").write_text(
         'DEFAULT_TOKEN = "abk_LEAKED_FROM_TRAVERSAL"\n', encoding="utf-8"
     )
 
@@ -96,7 +96,7 @@ class TestPathTraversalBlocked:
             # 多层嵌套（编码）
             "/..%2F..%2F..%2F..%2F..%2Fetc%2Fpasswd",
             # 混合：编码 + 不编码
-            "/..%2F../agentboard/worker_portal.py",
+            "/..%2F../agentboard/processor_portal.py",
             # 反斜杠变体（Windows 路径分隔符，%5C 解码后进入 {path:path}）
             "/..%5C..%5C.env",
         ],
@@ -161,7 +161,7 @@ class TestPathTraversalBlocked:
             f"{normalized_url!r} 响应体含 .env 密钥（穿越成功）"
         )
         assert "abk_LEAKED" not in body, (
-            f"{normalized_url!r} 响应体含 worker_portal token"
+            f"{normalized_url!r} 响应体含 processor_portal token"
         )
         assert "sk-LEAKED" not in body, (
             f"{normalized_url!r} 响应体含泄露的 API key"
@@ -175,10 +175,10 @@ class TestPathTraversalBlocked:
         assert "MINIMAX_API_KEY" not in r.text
 
     def test_source_code_not_readable(self, isolated_web_app) -> None:
-        """``GET /..%2Fagentboard%2Fworker_portal.py`` 必须读不到源码。"""
+        """``GET /..%2Fagentboard%2Fprocessor_portal.py`` 必须读不到源码。"""
         with TestClient(isolated_web_app.app) as client:
             r = client.get(
-                "/..%2Fagentboard%2Fworker_portal.py", follow_redirects=False
+                "/..%2Fagentboard%2Fprocessor_portal.py", follow_redirects=False
             )
         assert r.status_code == 404
         assert "DEFAULT_TOKEN" not in r.text

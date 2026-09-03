@@ -23,10 +23,10 @@ from unittest import mock
 import httpx
 import pytest
 
-from agentboard.agent_runtime.config import (
+from agentboard.processors.config import (
     AgentInvocationError, PermanentAgentError, TransientAgentError,
 )
-from agentboard.agent_runtime.errors import (
+from agentboard.processors.errors import (
     ErrorCategory,
     classify_error, classify_stderr,
     is_permanent_execution_error, is_transient_execution_error,
@@ -153,9 +153,9 @@ def test_is_permanent_execution_error():
 def test_invoker_classifies_non_zero_exit_via_stderr_keywords():
     """Phase 5 P1 关键场景：invoker 收到非零退出码 + 含 permanent 关键词的 stderr
     → 抛 PermanentAgentError（不再"非零 = 一律 retry"）。"""
-    from agentboard.agent_runtime.invokers import SubprocessAgentInvoker
+    from agentboard.processors.invokers import SubprocessProcessorInvoker
 
-    inv = SubprocessAgentInvoker(cmd="dummy", timeout=5)
+    inv = SubprocessProcessorInvoker(cmd="dummy", timeout=5)
     fake_proc = mock.MagicMock()
     fake_proc.returncode = 1
     fake_proc.stdout = ""
@@ -169,9 +169,9 @@ def test_invoker_classifies_non_zero_exit_via_stderr_keywords():
 
 def test_invoker_classifies_5xx_stderr_as_transient():
     """stderr 含 5xx 关键词 → TransientAgentError（仍可重试）。"""
-    from agentboard.agent_runtime.invokers import SubprocessAgentInvoker
+    from agentboard.processors.invokers import SubprocessProcessorInvoker
 
-    inv = SubprocessAgentInvoker(cmd="dummy", timeout=5)
+    inv = SubprocessProcessorInvoker(cmd="dummy", timeout=5)
     fake_proc = mock.MagicMock()
     fake_proc.returncode = 1
     fake_proc.stdout = ""
@@ -184,9 +184,9 @@ def test_invoker_classifies_5xx_stderr_as_transient():
 
 def test_invoker_classifies_unknown_stderr_as_permanent():
     """stderr 没匹配任何关键词 → 默认 PermanentAgentError（保守不重试）。"""
-    from agentboard.agent_runtime.invokers import SubprocessAgentInvoker
+    from agentboard.processors.invokers import SubprocessProcessorInvoker
 
-    inv = SubprocessAgentInvoker(cmd="dummy", timeout=5)
+    inv = SubprocessProcessorInvoker(cmd="dummy", timeout=5)
     fake_proc = mock.MagicMock()
     fake_proc.returncode = 1
     fake_proc.stdout = ""
@@ -200,9 +200,9 @@ def test_invoker_classifies_unknown_stderr_as_permanent():
 
 def test_invoker_classifies_empty_stderr_as_permanent():
     """stderr 空 → UNKNOWN → PermanentAgentError。"""
-    from agentboard.agent_runtime.invokers import SubprocessAgentInvoker
+    from agentboard.processors.invokers import SubprocessProcessorInvoker
 
-    inv = SubprocessAgentInvoker(cmd="dummy", timeout=5)
+    inv = SubprocessProcessorInvoker(cmd="dummy", timeout=5)
     fake_proc = mock.MagicMock()
     fake_proc.returncode = 1
     fake_proc.stdout = ""
@@ -217,7 +217,7 @@ def test_invoker_classifies_empty_stderr_as_permanent():
 
 def test_real_subprocess_nonzero_exit_classified_correctly():
     """真实 subprocess 跑一个非零退出 + stderr 关键词的脚本，验证分类。"""
-    from agentboard.agent_runtime.invokers import SubprocessAgentInvoker
+    from agentboard.processors.invokers import SubprocessProcessorInvoker
 
     # 用一个简单的 Python 脚本作为 "agent"：输出 stderr 含 "invalid" + exit 1
     script = (
@@ -225,7 +225,7 @@ def test_real_subprocess_nonzero_exit_classified_correctly():
         'sys.stderr.write("API key invalid"); '
         'sys.exit(1)'
     )
-    inv = SubprocessAgentInvoker(
+    inv = SubprocessProcessorInvoker(
         cmd=f'python -c "{script}"', timeout=5,
     )
     with pytest.raises(PermanentAgentError):
@@ -235,7 +235,7 @@ def test_real_subprocess_nonzero_exit_classified_correctly():
 def test_real_subprocess_zero_exit_returns_decision():
     """真实 subprocess 跑零退出 → 返回 AgentDecision。"""
     import tempfile
-    from agentboard.agent_runtime.invokers import SubprocessAgentInvoker
+    from agentboard.processors.invokers import SubprocessProcessorInvoker
 
     # 写到临时文件避免 shell 转义问题
     with tempfile.NamedTemporaryFile(
@@ -247,7 +247,7 @@ def test_real_subprocess_zero_exit_returns_decision():
         )
         script_path = f.name
     try:
-        inv = SubprocessAgentInvoker(
+        inv = SubprocessProcessorInvoker(
             cmd=f'python "{script_path}"', timeout=5,
         )
         decision = inv.invoke({"prompt": "test", "project_id": 1})

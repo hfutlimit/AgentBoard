@@ -10,11 +10,11 @@ worker 端两层架构都有接缝，**多数 Agent 已在仓库里有代码**�
 
 ### 1.1 Python Worker 层（`src/backend-fastapi/agentboard/agent_runtime/`）
 
-- `SubprocessAgentInvoker`（`invokers.py`）：通用 stdin→prompt / stdout→JSON 协议，任何 headless CLI 可接
+- `SubprocessProcessorInvoker`（`invokers.py`）：通用 stdin→prompt / stdout→JSON 协议，任何 headless CLI 可接
 - `AgentConfig Center`（`docs/agent-config-center.md`）：同 CLI 多 Agent + `{model}` 占位符，Worker 周期 `--version` 探活
 - `minimax_invoker.py` / `minimax_invoker.py`：MiniMax 直打 API 桥接
 
-### 1.2 C# ProposalWorker 层（`src/workers/AgentBoard.ProposalWorker/`）
+### 1.2 C# ProposalProcessor 层（`src/workers/AgentBoard.ProposalProcessor/`）
 
 - `WorkBuddyRunner.cs`：拉起 `workbuddy`（实际是 codebuddy CLI，subprocess + stdin），生产正在跑
 - `appsettings.json` 里 `WorkBuddy:Command/WorkingDirectory/TimeoutMinutes` 是配置项
@@ -31,7 +31,7 @@ worker 端两层架构都有接缝，**多数 Agent 已在仓库里有代码**�
 
 | Agent | 仓库现状 | 完成度 | 验证日期 | 验证路径 |
 |---|---|---|---|---|
-| **WorkBuddy (codebuddy CLI)** | C# `WorkBuddyRunner.cs` + Python `SubprocessAgentInvoker` 都有 | ✅ 端到端（生产） | 2026-08-08 | `docs/workbuddy-cli-integration.md` 验证记录 |
+| **WorkBuddy (codebuddy CLI)** | C# `WorkBuddyRunner.cs` + Python `SubprocessProcessorInvoker` 都有 | ✅ 端到端（生产） | 2026-08-08 | `docs/workbuddy-cli-integration.md` 验证记录 |
 | **Codex (OpenAI `codex exec`)** | `CodexLauncher` + 单元测试 13 个 | ✅ 端到端（fake CLI 模拟真实协议） | **2026-08-13** | `tests/test_codex_e2e.py` 8 passed |
 | **MiniMax (直打 API)** | `minimax_invoker.py` + `MiniMaxLauncher` | ✅ 端到端（fake API server） | **2026-08-13** | `tests/test_minimax_e2e.py` 5 passed + `tests/test_minimax_invoker_unit.py` 15 passed |
 | **MiniMax (minimax-cli)** | `minimax_adapter.py` 桥 minimax-cli | ⚠️ 框架就位 / minimax-cli v1.0.1 MCP HTTP 缺陷未解，验证受阻 | 2026-08-09 | `docs/minimax-code-integration.md` |
@@ -49,7 +49,7 @@ worker 端两层架构都有接缝，**多数 Agent 已在仓库里有代码**�
 ### 3.1 改动清单
 
 - `agentboard/executor.py`：
-  - `CliLauncher.launch()` 注入 `PYTHONIOENCODING=utf-8` + `PYTHONUTF8=1` 到子进程 env，**修 Windows zh-CN 默认 cp936 编码下 Python 子进程写 stdout 父进程按 UTF-8 解码拿到 replacement char 的 bug**（与 `SubprocessAgentInvoker` 行为一致）
+  - `CliLauncher.launch()` 注入 `PYTHONIOENCODING=utf-8` + `PYTHONUTF8=1` 到子进程 env，**修 Windows zh-CN 默认 cp936 编码下 Python 子进程写 stdout 父进程按 UTF-8 解码拿到 replacement char 的 bug**（与 `SubprocessProcessorInvoker` 行为一致）
   - 新增 `MiniMaxLauncher(CliLauncher)`，注册名 `minimax`
   - 新增 `import sys, pathlib.Path`
 - `tests/_fake_codex.py`：fake codex CLI，按 `codex exec --json` 真实协议（stderr progress chatter + stdout 决策 JSON + 退出码可控）
@@ -69,7 +69,7 @@ worker 端两层架构都有接缝，**多数 Agent 已在仓库里有代码**�
 
 ### 3.3 踩坑记录（值得记一笔）
 
-1. **CliLauncher 子进程 UTF-8 编码 bug**：`Popen(encoding="utf-8", errors="replace")` 只在**父进程**层面按 UTF-8 解码，但**子进程**默认按系统 locale（中文 Windows 是 cp936）写 stdout → 子进程写 cp936 字节 → 父进程 UTF-8 解码 → 输出含 `\ufffd` replacement char。解法是 `subprocess.Popen` 的 `env` 注入 `PYTHONIOENCODING=utf-8` + `PYTHONUTF8=1`，强制子进程按 UTF-8 写。`SubprocessAgentInvoker` 早就有这个修复（`invokers.py:189-197` 注释），`CliLauncher` 漏了。
+1. **CliLauncher 子进程 UTF-8 编码 bug**：`Popen(encoding="utf-8", errors="replace")` 只在**父进程**层面按 UTF-8 解码，但**子进程**默认按系统 locale（中文 Windows 是 cp936）写 stdout → 子进程写 cp936 字节 → 父进程 UTF-8 解码 → 输出含 `\ufffd` replacement char。解法是 `subprocess.Popen` 的 `env` 注入 `PYTHONIOENCODING=utf-8` + `PYTHONUTF8=1`，强制子进程按 UTF-8 写。`SubprocessProcessorInvoker` 早就有这个修复（`invokers.py:189-197` 注释），`CliLauncher` 漏了。
 2. **monkeypatch.setattr 不支持 side_effect**：mock 时要把 side_effect 包在 `mock.Mock(side_effect=...)` 里再传。
 3. **minimax_invoker.py 的模块常量在 import 时从 os.environ 读**：测试要 `setattr` 必须在 import 之前 patch env，否则模块级常量已是旧值。
 4. **Python 3.14 移除 `urllib.server`**：本地 HTTP server 用 `http.server`，别用 `urllib.server`。

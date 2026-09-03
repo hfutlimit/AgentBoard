@@ -6,16 +6,16 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 import pytest
-from agentboard.agent_runtime.behavior.defaults import get_default_payload_for_work_type
-from agentboard.agent_runtime.behavior.models import (
+from agentboard.processors.behavior.defaults import get_default_payload_for_work_type
+from agentboard.processors.behavior.models import (
     AgentBehaviorConfigPayload,
     DocumentSourceConfig,
     EffectiveBehaviorConfig,
     PreparationBehavior,
 )
-from agentboard.agent_runtime.behavior.prompt_builder import PromptBuilder, prompt_builder
-from agentboard.agent_runtime.behavior.resolver import behavior_resolver
-from agentboard.agent_runtime.contract import WorkType
+from agentboard.processors.behavior.prompt_builder import PromptBuilder, prompt_builder
+from agentboard.processors.behavior.resolver import behavior_resolver
+from agentboard.processors.contract import WorkType
 
 
 def test_proposal_clarify_prompt_composition():

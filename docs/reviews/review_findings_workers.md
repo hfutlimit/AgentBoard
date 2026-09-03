@@ -40,9 +40,9 @@
 ## B. 职责 / 重复问题
 
 - **HTTP 辅助四处复制**：`_request`/`_get_json` 在 worker.py:113-119、clarify.py:73-79、story.py:142-148、ticket.py:76-82 各写一份，应提为共享 mixin/基类。
-- **ProposalWorker 兼容转发层过厚**：worker.py:136-213 约 80 行转发到 handlers，连 `_apply_ask`/`_story_fail` 这类私有成员都要转发，旧 API 与私有符号长期共存，拆分不彻底且漂移风险高（改 handler 签名必须同步改转发层）。
+- **ProposalProcessor 兼容转发层过厚**：worker.py:136-213 约 80 行转发到 handlers，连 `_apply_ask`/`_story_fail` 这类私有成员都要转发，旧 API 与私有符号长期共存，拆分不彻底且漂移风险高（改 handler 签名必须同步改转发层）。
 - **claim 客户端包装三份且语义不一致**：clarify.py:117-131 区分 409/404；story.py:166-174 只认 200/201 其它全吞；story.py:433-442（task 版）又一种写法。服务端 `claim_story`/`claim_development_task` 更在 scheduling/service.py:526 与 projects/service.py:1271、work_items/service.py:230 重复实现（「同步自 service.py」复制粘贴模式），修 bug 需多处同步。
-- **租约默认值双源**：`WorkerConfig.lease_seconds=1800`（config.py:77）与 `DEFAULT_CLAIM_LEASE_SECONDS=1800`（proposals/service.py:58 重绑定）各一份。
+- **租约默认值双源**：`ProcessorConfig.lease_seconds=1800`（config.py:77）与 `DEFAULT_CLAIM_LEASE_SECONDS=1800`（proposals/service.py:58 重绑定）各一份。
 - **`recover_failed` 硬编码 `window_seconds=120, max_retries=5`**（maintenance.py:68），与 router 默认值（proposals/router.py:111-113）重复，改一处漏一处。
 - **与 scheduling 的职责边界**：workers 完全不触碰 `AgentRun`，边界干净但**无联动**——worker 拉起的 agent 执行结果（成败/耗时）不写入 Run，调度侧观测不到 worker 任务质量；若设计意图是「worker 执行也走 Run 状态机」，则联动缺失。
 - **观察（超范围但影响信任模型）**：`/api/proposals/claim`、`reclaim-stale`、`recover-failed` 等端点无任何鉴权参数（proposals/router.py:78-123, 169-179），worker token 是可选配置——系统可能完全裸奔，任何可达 API 者都能强制回退/认领提案。
@@ -90,7 +90,7 @@
 
 16. `[轻微] heartbeat.py:27-31, 87-91` **`{model}` 占位符先替换后 split**：model 含空格/引号会改变 argv 结构（无 shell 注入但可追加参数）；且探测失败立即 deregister——CLI 冷启动 >8s 时 agent 每 60s 抖动下线。→ 先 split 后按占位注入；deregister 前加连续失败 N 次判定。
 
-17. `[轻微] invokers.py:31-37 + worker.py:78` **全局 `_prompt_builder` 进程级单例**：同进程构造第二个 ProposalWorker（测试/多租户）会互相覆盖 prompt 构建器。→ 改为实例级注入。
+17. `[轻微] invokers.py:31-37 + worker.py:78` **全局 `_prompt_builder` 进程级单例**：同进程构造第二个 ProposalProcessor（测试/多租户）会互相覆盖 prompt 构建器。→ 改为实例级注入。
 
 18. `[轻微] clarify.py:42-46 + story.py:68-80, 110-116 + ticket.py:54-60` **提示词输入无长度上限**：proposal content/title、story/task description 直接内插，超长正文 → 巨型 prompt → agent 输入溢出/超时；仅 recall 段有截断（story.py:244）。→ 统一截断（如 4000–8000 字符）+ 超长告警。
 

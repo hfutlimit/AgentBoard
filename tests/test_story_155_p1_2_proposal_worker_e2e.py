@@ -1,7 +1,7 @@
 """Epic 96 P1-2 · Worker 驱动的澄清回路 — 真实浏览器 E2E。
 
 与 P0-2 的 E2E 区别：那一版由测试代码手工调 REST「扮演 Agent」，只证明了
-前端能渲染。本测试**真的跑一个 `ProposalWorker`**（含真实子进程 Agent CLI），
+前端能渲染。本测试**真的跑一个 `ProposalProcessor`**（含真实子进程 Agent CLI），
 证明整条自动化链路在浏览器可见层面成立：
 
 1. 用户在 Web 端建提案 → 点「派发给 Agent」推进 queued；
@@ -45,7 +45,7 @@ pytestmark = pytest.mark.skipif(not _RUN, reason="需要 uvicorn + playwright")
 
 
 # 无头 Agent 桩：读 stdin 的 prompt，按「有无历史问答」决定提问还是收敛。
-# 走真实子进程，自证 SubprocessAgentInvoker 的 stdin/stdout 协议。
+# 走真实子进程，自证 SubprocessProcessorInvoker 的 stdin/stdout 协议。
 _FAKE_AGENT = textwrap.dedent('''
     import sys
     prompt = sys.stdin.read()
@@ -177,7 +177,7 @@ def _ui_login(page, base: str, username: str, password: str):
 def test_worker_driven_clarification_visible_in_web(page, servers, fake_agent):
     """Worker 自动推动的澄清回路，在浏览器里一步步可见。"""
     import httpx
-    from agentboard.worker import ProposalWorker, SubprocessAgentInvoker, WorkerConfig
+    from agentboard.processors import ProposalProcessor, SubprocessProcessorInvoker, ProcessorConfig
 
     api_base, web_base = servers
     ts = str(int(time.time()))
@@ -220,12 +220,12 @@ def test_worker_driven_clarification_visible_in_web(page, servers, fake_agent):
     )
 
     # ---- 2) 真实 Worker + 真实 Agent 子进程：第一轮提问 ----
-    cfg = WorkerConfig(
+    cfg = ProcessorConfig(
         api_url=api_base, token=token, agent="e2e-worker", poll_interval=0.01,
         agent_cmd=f'"{sys.executable}" "{fake_agent}"', agent_timeout=120,
     )
-    with ProposalWorker(cfg) as worker:
-        assert isinstance(worker.invoker, SubprocessAgentInvoker), "应走真实子进程适配器"
+    with ProposalProcessor(cfg) as worker:
+        assert isinstance(worker.invoker, SubprocessProcessorInvoker), "应走真实子进程适配器"
         summary = worker.poll_once()
         assert {"proposal_id": prop_id, "outcome": "asked"} in summary["handled"], \
             f"Worker 应认领并提问，实际: {summary}"

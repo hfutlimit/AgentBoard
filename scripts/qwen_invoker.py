@@ -1,6 +1,6 @@
 r"""千问办公 (Qwen) API direct invoker — mirrors scripts/minimax_invoker.py.
 
-桥接 .NET Worker 的 SubprocessAgentInvoker 协议 -> OpenAI 兼容的 Qwen chat
+桥接 .NET Worker 的 SubprocessProcessorInvoker 协议 -> OpenAI 兼容的 Qwen chat
 completion API（默认 阿里云百炼 / DashScope compatible-mode）。与 minimax_invoker
 同协议：Worker 从 stdin 注入 prompt，本脚本从 stdout 吐一个决策 JSON。
 

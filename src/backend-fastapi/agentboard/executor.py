@@ -432,7 +432,7 @@ class CliLauncher(LauncherAdapter):
         # 2026-08-13 review: 注入 PYTHONIOENCODING=utf-8 + PYTHONUTF8=1 到
         # 子进程 env,避免 Windows(zh-CN 默认 cp936/GBK)下 Python 子进程
         # 按系统 locale 写 stdout 导致父进程 UTF-8 解码拿到 replacement
-        # char。与 agentboard.worker.invokers.SubprocessAgentInvoker 行为一致。
+        # char。与 agentboard.processors.invokers.SubprocessProcessorInvoker 行为一致。
         sub_env = dict(os.environ)
         sub_env["PYTHONIOENCODING"] = "utf-8"
         sub_env["PYTHONUTF8"] = "1"

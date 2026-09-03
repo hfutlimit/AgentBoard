@@ -84,7 +84,7 @@ class MessageRetry(MQError):
 
     与死信的区别：死信假定「这条消息永远处理不了」；MessageRetry 假定
     「稍等片刻就能成功」。消费循环收到该异常按 requeue=True 处理，
-    不进死信。handler 应自带退避与重试上限（如 ProposalWorker
+    不进死信。handler 应自带退避与重试上限（如 ProposalProcessor
     MSG_RETRY_BACKOFF），避免 server 长期宕机时无限空转。
     """
 
@@ -729,7 +729,7 @@ WORKFLOW_ENV_NAMESPACE = "AGENTBOARD_WORKFLOW_NAMESPACE"
 # routing key 前缀（RabbitMQ topic 交换机的绑定模式）
 ROUTING_WORKFLOW_BROADCAST = "workflow.broadcast"
 ROUTING_WORKFLOW_AGENT = "workflow.agent"
-# PR-4：内部编排事件路由（Python workflow_worker 专用，不进 .NET 消费）
+# PR-4：内部编排事件路由（Python workflow_processor 专用，不进 .NET 消费）
 # 用途：FastAPI 状态转换时发 internal 事件，Python 选 reviewer / unlock
 # successor 等；.NET 只听 broadcast + agent 路由，不抢 internal
 ROUTING_WORKFLOW_INTERNAL = "workflow.internal"
@@ -749,7 +749,7 @@ EVENT_TASK_REVIEWED = "task.reviewed"
 EVENT_TASK_REJECTED = "task.rejected"
 # Proposal → Ticket 异步转化（2026-08-08 文档 #59）：
 # ticket_requested —— 转换请求已创建（worker 消费，拉起 agent 生成 ticket）；
-# ticket_created   —— ticket 生成成功（通知接力，供 workflow_worker / 定向队列感知）
+# ticket_created   —— ticket 生成成功（通知接力，供 workflow_processor / 定向队列感知）
 EVENT_TICKET_REQUESTED = "proposal.ticket_requested"
 EVENT_TICKET_CREATED = "proposal.ticket_created"
 # Ticket 全流程（2026-08-09）：用户确认 Story 开始（人工闸门）→ 触发 agent 自动处理
@@ -776,7 +776,7 @@ EVENT_TASK_REVIEW_REQUESTED = "task.review_requested"
 EVENT_TASK_REVIEW_REJECTED = "task.review_rejected"
 EVENT_TASK_REVIEW_VOTE_CAST = "task.review_vote_cast"
 EVENT_TASK_COMMENT_REPLIED = "task.comment_replied"
-# PR-4：内部编排事件（Python workflow_worker 专属，不进 .NET 消费）。
+# PR-4：内部编排事件（Python workflow_processor 专属，不进 .NET 消费）。
 # 任务进入 in_review 时 FastAPI 发布此事件，Python 选 reviewer
 # 然后 publish_event(EVENT_TASK_REVIEW_REQUESTED, route='agent')
 # 定向通知 .NET 真正执行 review。把"分配 reviewer"和"执行 review"
@@ -865,7 +865,7 @@ class WorkflowTopology:
         return f"{ROUTING_WORKFLOW_AGENT}.{agent_id}"
 
     def internal_routing(self, event: str) -> str:
-        """PR-4：内部编排事件 routing key（Python workflow_worker 专用）。
+        """PR-4：内部编排事件 routing key（Python workflow_processor 专用）。
 
         区别于 broadcast：broadcast 是 "N 个 event 谁拿到谁干"，internal
         是 "Python 专属的编排事件"，.NET 不订阅 internal_queue。
@@ -883,7 +883,7 @@ class WorkflowTopology:
 
     @property
     def internal_queue(self) -> str:
-        """PR-4：内部编排队列（Python workflow_worker 订阅）。"""
+        """PR-4：内部编排队列（Python workflow_processor 订阅）。"""
         return f"{self.namespace}.internal"
 
 
@@ -1058,7 +1058,7 @@ class InMemoryWorkflowBroker:
         if not self._default_topology_declared:
             self._declare_queue(self.topology.broadcast_queue,
                                 self.topology.broadcast_pattern())
-            # PR-4：internal 队列（Python workflow_worker 专属）。.NET
+            # PR-4：internal 队列（Python workflow_processor 专属）。.NET
             # 不订阅这个 queue；声明仅保证 topology 完整。
             self._declare_queue(self.topology.internal_queue,
                                 self.topology.internal_pattern())
@@ -1247,7 +1247,7 @@ class PikaWorkflowBroker:
         ch.queue_declare(t.broadcast_queue, durable=True, arguments=t.queue_arguments)
         ch.queue_bind(t.broadcast_queue, t.exchange,
                       routing_key=t.broadcast_pattern())
-        # PR-4：internal 队列（Python workflow_worker 专属）。
+        # PR-4：internal 队列（Python workflow_processor 专属）。
         ch.queue_declare(t.internal_queue, durable=True, arguments=t.queue_arguments)
         ch.queue_bind(t.internal_queue, t.exchange,
                       routing_key=t.internal_pattern())
@@ -1484,7 +1484,7 @@ class WorkflowPublisher:
               （PR-5 之前行为，向后兼容；建议 caller 改成传 worker_id）；
             - 都没有 → 广播（story.created / story.ready / task.* 认领型）；
         - ``route="internal"`` → 强制走 internal 路由（PR-4，Python
-          workflow_worker 专用；.NET 不订阅）；agent_id/worker_id 仍生效
+          workflow_processor 专用；.NET 不订阅）；agent_id/worker_id 仍生效
           但通常不同时设（internal 不定向）。
         - ``agent_type`` / ``workload_type`` / ``correlation_id`` 全部 optional，
           缺省 ``correlation_id`` 时自动生成 UUID4 让日志能串链。其它两个
@@ -1593,7 +1593,7 @@ def publish_workflow_event(event: str, entity_type: str, entity_id: int,
     自动生成 UUID4。
 
     PR-4 增 ``route`` kwarg：``"internal"`` 走 internal 路由（Python
-    workflow_worker 专用），其它值按 auto 行为。
+    workflow_processor 专用），其它值按 auto 行为。
 
     PR-5 增 ``worker_id`` kwarg：物理身份，优先于 ``agent_id`` 决定
     routing key（``.NET worker`` 按 ``_identity.WorkerId`` 订阅

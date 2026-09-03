@@ -32,7 +32,7 @@ or existing Python import compatibility.
 All independently deployed worker processes remain under `src/workers/`.
 The Python proposal/agent execution implementation moves to
 `src/backend-fastapi/agentboard/agent_runtime/`. The old
-`agentboard.features.workers` and `agentboard.worker` import paths remain
+`agentboard.features.workers` and `agentboard.processors` import paths remain
 compatibility shims only and must not contain new implementation logic.
 
 ### Schemas
@@ -65,7 +65,7 @@ paths are corrected in active documentation.
 
 ## Compatibility and safety constraints
 
-- Preserve `from agentboard.worker import ...`,
+- Preserve `from agentboard.processors import ...`,
   `from agentboard.features.workers...`, `from agentboard import mq`, and
   `from agentboard import schemas` during the migration.
 - Preserve all existing environment variable names, API routes, Pydantic

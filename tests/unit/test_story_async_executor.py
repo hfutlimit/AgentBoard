@@ -1,4 +1,4 @@
-"""Tests for ProposalWorker Story async background executor (2026-08-26 根治).
+"""Tests for ProposalProcessor Story async background executor (2026-08-26 根治).
 
 Before this change: process_story runs synchronously inside main loop; a slow
 codebuddy (e.g. real development Story with 600s timeout) blocks the entire
@@ -13,7 +13,7 @@ These tests cover:
 - concurrent story submissions do not double-execute the same story
   (the StoryHandler's lease/min-interval already serializes per-story;
   this test verifies the executor respects it)
-- handle_story is async path is opt-in via WorkerConfig; default off for
+- handle_story is async path is opt-in via ProcessorConfig; default off for
   backward compat
 """
 from __future__ import annotations
@@ -31,12 +31,12 @@ if str(BACKEND) not in sys.path:
 
 import httpx  # noqa: E402
 
-from agentboard.agent_runtime.config import WorkerConfig  # noqa: E402
-from agentboard.agent_runtime.worker import ProposalWorker  # noqa: E402
+from agentboard.processors.config import ProcessorConfig  # noqa: E402
+from agentboard.processors.worker import ProposalProcessor  # noqa: E402
 
 
 class _SleepyInvoker:
-    """Stand-in for SubprocessAgentInvoker: sleeps 3s then returns a decision."""
+    """Stand-in for SubprocessProcessorInvoker: sleeps 3s then returns a decision."""
     def __init__(self, sleep_s: float = 3.0, action: str = "story_handled"):
         self.sleep_s = sleep_s
         self.action = action
@@ -44,15 +44,15 @@ class _SleepyInvoker:
         self._lock = threading.Lock()
 
     def invoke(self, context):
-        from agentboard.agent_runtime.config import AgentDecision
+        from agentboard.processors.config import AgentDecision
         with self._lock:
             self.calls.append(context)
         time.sleep(self.sleep_s)
         return AgentDecision(action=self.action, summary="handled")
 
 
-def _build_worker(*, agent_timeout: int = 5) -> ProposalWorker:
-    cfg = WorkerConfig(
+def _build_worker(*, agent_timeout: int = 5) -> ProposalProcessor:
+    cfg = ProcessorConfig(
         api_url="http://127.0.0.1:9",  # never actually called
         token="test-token",
         poll_interval=0.05,
@@ -61,23 +61,23 @@ def _build_worker(*, agent_timeout: int = 5) -> ProposalWorker:
     )
     invoker = _SleepyInvoker(sleep_s=2.0)
     client = httpx.Client(timeout=1.0, headers={"Authorization": "Bearer test"})
-    return ProposalWorker(cfg, invoker=invoker, client=client)
+    return ProposalProcessor(cfg, invoker=invoker, client=client)
 
 
 def test_handle_story_does_not_block_main_loop(monkeypatch):
     """Main loop must be free to call fetch_confirmed_stories even while a
     Story is being processed in the background."""
-    cfg = WorkerConfig(
+    cfg = ProcessorConfig(
         api_url="http://127.0.0.1:9",
         token="t",
         poll_interval=0.05,
         agent_cmd='"echo" "noop"',
         agent_timeout=5,
-        async_story_executor=True,  # 必须在 ProposalWorker 构造前设
+        async_story_executor=True,  # 必须在 ProposalProcessor 构造前设
     )
     invoker = _SleepyInvoker(sleep_s=2.0)
     client = httpx.Client(timeout=1.0, headers={"Authorization": "Bearer t"})
-    worker = ProposalWorker(cfg, invoker=invoker, client=client)
+    worker = ProposalProcessor(cfg, invoker=invoker, client=client)
 
     # Pretend the worker's story handler returned 1 confirmed story.
     fake_story = {
@@ -121,7 +121,7 @@ def test_handle_story_does_not_block_main_loop(monkeypatch):
 def test_close_waits_for_in_flight_story(monkeypatch):
     """On close(), the worker must wait for in-flight Story tasks so the
     claim lease isn't orphaned."""
-    cfg = WorkerConfig(
+    cfg = ProcessorConfig(
         api_url="http://127.0.0.1:9",
         token="t",
         poll_interval=0.05,
@@ -131,7 +131,7 @@ def test_close_waits_for_in_flight_story(monkeypatch):
     )
     invoker = _SleepyInvoker(sleep_s=1.5)
     client = httpx.Client(timeout=1.0, headers={"Authorization": "Bearer t"})
-    worker = ProposalWorker(cfg, invoker=invoker, client=client)
+    worker = ProposalProcessor(cfg, invoker=invoker, client=client)
 
     fake_story = {
         "id": 9002, "story_id": 9002, "title": "demo2", "epic_id": 1,
@@ -163,7 +163,7 @@ def test_close_waits_for_in_flight_story(monkeypatch):
 
 def test_default_async_story_executor_disabled():
     """Backward compat: default off; opt-in via config.async_story_executor=True."""
-    cfg = WorkerConfig(
+    cfg = ProcessorConfig(
         api_url="http://127.0.0.1:9",
         token="t",
         agent_cmd='"echo" "noop"',

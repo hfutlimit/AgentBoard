@@ -6,7 +6,7 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 import pytest
-from agentboard.agent_runtime.behavior.models import (
+from agentboard.processors.behavior.models import (
     PreparationBehavior,
     CollaborationBehavior,
     LearningBehavior,
@@ -14,11 +14,11 @@ from agentboard.agent_runtime.behavior.models import (
     AgentBehaviorConfigPayload,
     EffectiveBehaviorConfig,
 )
-from agentboard.agent_runtime.behavior.defaults import (
+from agentboard.processors.behavior.defaults import (
     PRESET_VERSION,
     get_default_payload_for_work_type,
 )
-from agentboard.agent_runtime.contract import WorkType
+from agentboard.processors.contract import WorkType
 
 
 def test_behavior_models_defaults():

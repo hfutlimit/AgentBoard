@@ -5,7 +5,7 @@
 2. 路由键白名单对齐真实 action（review_task / process_task），未知键告警忽略、历史别名归一化；
 3. 子进程环境隔离：AGENTBOARD_* 凭据族不继承给子 agent CLI；
 4. Story/Task 租约回收端点接入（maintenance.reclaim_stale_stories/tasks）；
-5. MQ 瞬时错误 requeue：MessageRetry 三态判定 + ProposalWorker 回查退避重试。
+5. MQ 瞬时错误 requeue：MessageRetry 三态判定 + ProposalProcessor 回查退避重试。
 
 运行：
     PYTHONPATH=. python -m pytest tests/unit/test_stage0_worker_resilience.py -q
@@ -25,9 +25,9 @@ if str(BACKEND) not in sys.path:
 import httpx  # noqa: E402
 import pytest  # noqa: E402
 
-from agentboard.agent_runtime.config import AgentDecision, WorkerConfig  # noqa: E402
-from agentboard.agent_runtime import invokers as inv_mod  # noqa: E402
-from agentboard.agent_runtime import maintenance as maint  # noqa: E402
+from agentboard.processors.config import AgentDecision, ProcessorConfig  # noqa: E402
+from agentboard.processors import invokers as inv_mod  # noqa: E402
+from agentboard.processors import maintenance as maint  # noqa: E402
 from agentboard.core.infrastructure import messaging as mq  # noqa: E402
 from agentboard.core.infrastructure.messaging.rabbitmq import InMemoryBroker  # noqa: E402
 
@@ -80,8 +80,8 @@ class _RecordingClient:
 
 
 def _build_worker(invoker=None, client=None) -> "object":
-    from agentboard.agent_runtime.worker import ProposalWorker
-    cfg = WorkerConfig(
+    from agentboard.processors.worker import ProposalProcessor
+    cfg = ProcessorConfig(
         api_url="http://127.0.0.1:9",
         token="t",
         poll_interval=0.05,
@@ -89,7 +89,7 @@ def _build_worker(invoker=None, client=None) -> "object":
         agent_timeout=5,
         async_story_executor=True,
     )
-    return ProposalWorker(
+    return ProposalProcessor(
         cfg,
         invoker=invoker or _StubInvoker(),
         client=client or httpx.Client(timeout=1.0),
@@ -120,7 +120,7 @@ def test_executor_dedups_inflight_same_story():
 
 
 def _build_executor():
-    from agentboard.agent_runtime.async_story import AsyncWorkExecutor
+    from agentboard.processors.async_story import AsyncWorkExecutor
     handlers = {}
     for k in AsyncWorkExecutor.KINDS:
         h = mock.MagicMock()
@@ -221,7 +221,7 @@ def test_sanitize_env_preserves_mcp_api_key_but_strips_worker_credentials():
 def test_subprocess_invoker_env_never_inherits_credentials(monkeypatch):
     monkeypatch.setenv("AGENTBOARD_WORKER_TOKEN", "super-secret")
     monkeypatch.setenv("AGENTBOARD_API_KEY", "mcp-key")
-    inv = inv_mod.SubprocessAgentInvoker('"echo" "noop"', timeout=1)
+    inv = inv_mod.SubprocessProcessorInvoker('"echo" "noop"', timeout=1)
     assert "AGENTBOARD_WORKER_TOKEN" not in inv.env
     assert inv.env["AGENTBOARD_API_KEY"] == "mcp-key"
     assert inv.env["PYTHONUTF8"] == "1"

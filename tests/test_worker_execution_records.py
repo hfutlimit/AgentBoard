@@ -12,7 +12,7 @@ from agentboard.domains.scheduling.models import AgentRun, AgentSchedule
 from agentboard.features.scheduling import service as scheduling_service
 from agentboard.features.identity.models import User
 from agentboard.features.work_items.models import Task
-from agentboard import worker_portal
+from agentboard import processor_portal
 
 
 def _seed_session() -> tuple[Session, int, int]:
@@ -172,7 +172,7 @@ def test_create_run_snapshots_agent_and_model():
         session.close()
 
 
-def test_worker_portal_proxies_execution_filters_and_full_output(monkeypatch):
+def test_processor_portal_proxies_execution_filters_and_full_output(monkeypatch):
     calls: list[tuple[str, dict]] = []
 
     def fake_get(self, path: str, **kwargs):
@@ -181,8 +181,8 @@ def test_worker_portal_proxies_execution_filters_and_full_output(monkeypatch):
             return {"id": 7, "status": "success", "output": "full output"}
         return {"items": [], "total": 0}
 
-    monkeypatch.setattr(worker_portal.AgentBoardProxy, "get", fake_get)
-    client = TestClient(worker_portal.create_app("http://server", "test-token"))
+    monkeypatch.setattr(processor_portal.AgentBoardProxy, "get", fake_get)
+    client = TestClient(processor_portal.create_app("http://server", "test-token"))
 
     response = client.get(
         "/api/executions?agent=codex&status=success&q=review&limit=25&offset=5"
@@ -199,7 +199,7 @@ def test_worker_portal_proxies_execution_filters_and_full_output(monkeypatch):
     assert calls[1][0] == "/api/runs/7"
 
 
-def test_worker_portal_agents_are_scoped_to_current_worker(monkeypatch):
+def test_processor_portal_agents_are_scoped_to_current_worker(monkeypatch):
     gets: list[str] = []
     posts: list[tuple[str, dict]] = []
     puts: list[tuple[str, dict]] = []
@@ -226,10 +226,10 @@ def test_worker_portal_agents_are_scoped_to_current_worker(monkeypatch):
         puts.append((path, payload))
         return payload
 
-    monkeypatch.setattr(worker_portal.AgentBoardProxy, "get", fake_get)
-    monkeypatch.setattr(worker_portal.AgentBoardProxy, "post", fake_post)
-    monkeypatch.setattr(worker_portal.AgentBoardProxy, "put", fake_put)
-    client = TestClient(worker_portal.create_app(
+    monkeypatch.setattr(processor_portal.AgentBoardProxy, "get", fake_get)
+    monkeypatch.setattr(processor_portal.AgentBoardProxy, "post", fake_post)
+    monkeypatch.setattr(processor_portal.AgentBoardProxy, "put", fake_put)
+    client = TestClient(processor_portal.create_app(
         "http://server", "test-token", worker_id="worker-local",
     ))
 
@@ -272,11 +272,11 @@ def test_worker_portal_agents_are_scoped_to_current_worker(monkeypatch):
     assert '--model "hy3"' in posts[-1][1]["cli_command"]
 
 
-def test_worker_portal_codebuddy_paths_allow_local_install_override(monkeypatch):
+def test_processor_portal_codebuddy_paths_allow_local_install_override(monkeypatch):
     monkeypatch.setenv("AGENTBOARD_CODEBUDDY_NODE", "D:/tools/node.exe")
     monkeypatch.setenv("AGENTBOARD_CODEBUDDY_CLI", "D:/apps/WorkBuddy/codebuddy")
 
-    node, cli = worker_portal._discover_codebuddy_paths()
+    node, cli = processor_portal._discover_codebuddy_paths()
 
     assert node == "D:/tools/node.exe"
     assert cli == "D:/apps/WorkBuddy/codebuddy"

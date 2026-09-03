@@ -43,8 +43,8 @@
 - [x] Move the implementation modules and `handlers/` from `features/workers` to `agent_runtime` using rename semantics.
 - [x] Update relative imports and internal documentation to use `agent_runtime`.
 - [x] Replace `features/workers` implementation files with small compatibility re-exports for direct legacy imports.
-- [x] Point `agentboard.worker` at `agent_runtime` and preserve all existing exported names and CLI entry points.
-- [x] Add a test that imports the modern package and both legacy paths and asserts they expose the same `ProposalWorker` class.
+- [x] Point `agentboard.processors` at `agent_runtime` and preserve all existing exported names and CLI entry points.
+- [x] Add a test that imports the modern package and both legacy paths and asserts they expose the same `ProposalProcessor` class.
 - [x] Run worker-focused Python tests and the architecture boundary tests.
 
 ### Task 3: Split feature schemas and retain the facade
@@ -87,7 +87,7 @@
 - [x] Document identity ownership as users, credentials, API keys, and identity services.
 - [x] Document auth ownership as HTTP login/registration/me/API-key route adapters.
 - [x] Remove stale claims that a `src/backend-dotnet/src/AgentBoard.WorkerService` project exists; describe it as future design only where historical context is required.
-- [x] Update active worker commands to `src/workers/AgentBoard.ProposalWorker`.
+- [x] Update active worker commands to `src/workers/AgentBoard.ProposalProcessor`.
 - [x] Run stale-path scans over active source, scripts, CI, and documentation.
 
 ### Task 6: Verify and hand off

@@ -5,7 +5,7 @@ Revises: a9b8c7d6e5f3
 Create Date: 2026-08-26
 
 背景（2026-08-26 P1 review 指出）：
-- 原 ``WorkerCoordinator._msg_retries`` 是进程内 dict，多 Worker / Worker restart
+- 原 ``ProcessorCoordinator._msg_retries`` 是进程内 dict，多 Worker / Worker restart
   / RabbitMQ requeue 时全部失效 → 单条消息可被重试任意次（极端无限重试）。
 - 修复 = 把 attempt 计数持久化到 DB。表结构：``message_attempts``，
   UNIQUE(execution_id) 保证 upsert 幂等；status 状态机

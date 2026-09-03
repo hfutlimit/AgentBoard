@@ -195,13 +195,13 @@ Story+Epic)绕过了中央 `delete_task`(:1032)的防御性级联。
   - `stories` 与 `tasks` 表增加 `claimed_by` / `claimed_at` 租约列及 `(status, claimed_at)` 复合索引（迁移 `a9b8c7d6e5f4`）；
   - `claim_story` 与 `claim_development_task` 成功认领时写入当前 Worker 身份与租约时间戳；
   - 开放 `POST /api/stories/reclaim-stale` 与 `POST /api/tasks/reclaim-stale` 端点；
-  - `ProposalWorker` 与 `WorkflowConsumer` 在维护循环与启动期自动触发超期租约回收，根治 Worker 崩溃后任务卡死问题。
+  - `ProposalProcessor` 与 `WorkflowConsumer` 在维护循环与启动期自动触发超期租约回收，根治 Worker 崩溃后任务卡死问题。
 - **多 Agent 路由键对齐与容错**:
   - `RoutedSubprocessInvoker` 白名单对齐实际 action（`review_task` / `process_task` / `process_story` 等）；
   - 历史近似别名（`review` → `review_task`, `story` → `process_story`, `task` → `process_task`）自动归一化；
   - 未知路由键记录 Warning 警告并跳过，避免配置笔误导致静默失配。
 - **子进程环境安全隔离**:
-  - `SubprocessAgentInvoker` 启动子进程时主动剥离 `AGENTBOARD_*` 凭据族环境变量，防止 Worker Token 泄漏给子 Agent CLI；
+  - `SubprocessProcessorInvoker` 启动子进程时主动剥离 `AGENTBOARD_*` 凭据族环境变量，防止 Worker Token 泄漏给子 Agent CLI；
   - 强制注入 `PYTHONIOENCODING=utf-8` 与 `PYTHONUTF8=1`，解决 Windows 平台多语言与编码解析异常。
 - **MQ 瞬时异常退避与三态重投**:
   - 引入 `MessageRetry` 异常与 `(ack, dead, retry)` 三态判定；
@@ -218,7 +218,7 @@ Story+Epic)绕过了中央 `delete_task`(:1032)的防御性级联。
 | 2 | POST /api/stories/reclaim-stale 与 POST /api/tasks/reclaim-stale 端点实现 | ✅ done | (Stage 0 commit) | 同上 |
 | 3 | Worker 维护循环接入 Story/Task 租约回收与启动期探测 | ✅ done | (Stage 0 commit) | 同上 |
 | 4 | RoutedSubprocessInvoker 路由白名单对齐与历史别名归一化 | ✅ done | (Stage 0 commit) | 同上 |
-| 5 | SubprocessAgentInvoker 子进程环境隔离与 UTF-8 注入 | ✅ done | (Stage 0 commit) | 同上 |
+| 5 | SubprocessProcessorInvoker 子进程环境隔离与 UTF-8 注入 | ✅ done | (Stage 0 commit) | 同上 |
 | 6 | MQ 消费端 MessageRetry 三态判定与指数退避重投 | ✅ done | (Stage 0 commit) | 同上 |
 | 7 | AsyncWorkExecutor 通用化与 (kind, id) in-flight 去重 | ✅ done | (Stage 0 commit) | 同上 |
 | 8 | 单元测试与回归套件验证（202 passed / 0 failed） | ✅ done | (Stage 0 commit) | 同上 |
@@ -228,14 +228,14 @@ Story+Epic)绕过了中央 `delete_task`(:1032)的防御性级联。
 
 ## 18. Worker 统一执行层 Stage 1 & 2 · 统一执行抽象与 Server 编排收缴 (2026-08-26)
 
-**目标**: 彻底解决 Proposal / Task / Review 流程与进程割裂问题。解耦业务领域模型（保留 Proposal/Task/Story 实体特性）与底层执行抽象（统一为 `WorkType` 与 `ExecutionCommand`），收敛多进程为单一常驻 `WorkerCoordinator`，并将跨实体 DAG 推演与结项判定全面收缴至 Server 状态机。
+**目标**: 彻底解决 Proposal / Task / Review 流程与进程割裂问题。解耦业务领域模型（保留 Proposal/Task/Story 实体特性）与底层执行抽象（统一为 `WorkType` 与 `ExecutionCommand`），收敛多进程为单一常驻 `ProcessorCoordinator`，并将跨实体 DAG 推演与结项判定全面收缴至 Server 状态机。
 
 **核心变化**:
 - **统一执行抽象契约 (`contract.py`)**:
   - `WorkType`: `proposal_clarify` / `proposal_convert` / `task_implement` / `task_review` / `task_respond`；
   - `ExecutionCommand`: 包含 `execution_id`, `work_type`, `entity_type`, `entity_id`, `attempt`, `context`, `lease_token`；
   - `ExecutionResult`: 结构化上报 `status`, `action`, `summary`, `inspected_files`, `output`, `error_message`。
-- **单一协调器中枢 (`WorkerCoordinator`)**:
+- **单一协调器中枢 (`ProcessorCoordinator`)**:
   - 统管 `HandlerRegistry[WorkType]`，提供全局单入口 `dispatch(command)`；
   - 线程安全 `(work_type, entity_id)` in-flight 去重，杜绝重复并发执行；
   - 聚合全域轮询扫描（`poll_once`）与 MQ 事件流（`handle_workflow_message`）。
@@ -253,7 +253,7 @@ Story+Epic)绕过了中央 `delete_task`(:1032)的防御性级联。
 | 1 | 定义统一契约 `WorkType` / `ExecutionCommand` / `ExecutionResult` (`contract.py`) | ✅ done | (Stage 1-2 commit) | `tests/e2e/dod_registry.py::stage1-2-worker-unified-execution-2026-08-26` |
 | 2 | 更新 `handlers/base.py` 引入 `BaseWorkHandler` 策略基类 | ✅ done | (Stage 1-2 commit) | 同上 |
 | 3 | 收敛 5 个 Handler (Clarify, Ticket, Story, Review, OwnerResponse) 实现 `execute_command` | ✅ done | (Stage 1-2 commit) | 同上 |
-| 4 | 实现单一进程协调器 `WorkerCoordinator` (`coordinator.py`) 与全局派发入口 | ✅ done | (Stage 1-2 commit) | 同上 |
+| 4 | 实现单一进程协调器 `ProcessorCoordinator` (`coordinator.py`) 与全局派发入口 | ✅ done | (Stage 1-2 commit) | 同上 |
 | 5 | Server 端实现 Task 评审通过后自动检查 Story 下全任务完成并自动结项 | ✅ done | (Stage 1-2 commit) | 同上 |
 | 6 | 修复 `delete_epic` / `delete_story` FK 删除顺序防御 | ✅ done | (Stage 1-2 commit) | 同上 |
 | 7 | 编写 `tests/unit/test_worker_coordinator.py` 并通过全量 209 单测 + 35 集成测试 | ✅ done | (Stage 1-2 commit) | 同上 |
@@ -286,7 +286,7 @@ Story+Epic)绕过了中央 `delete_task`(:1032)的防御性级联。
 | 2 | 更新 `RoutedSubprocessInvoker` 优先按 `work_type` 路由 (`invokers.py`) | ✅ done | (Stage 3 commit) | 同上 |
 | 3 | `build_work_type_registry` 注册全部细粒度 WorkType (`handlers/__init__.py`) | ✅ done | (Stage 3 commit) | 同上 |
 | 4 | `ReviewHandler` / `StoryHandler` 支持细粒度 WorkType 传递与上下文注入 | ✅ done | (Stage 3 commit) | 同上 |
-| 5 | `WorkerCoordinator` 统一将驳回映射为 attempt 递增执行指令 (`coordinator.py`) | ✅ done | (Stage 3 commit) | 同上 |
+| 5 | `ProcessorCoordinator` 统一将驳回映射为 attempt 递增执行指令 (`coordinator.py`) | ✅ done | (Stage 3 commit) | 同上 |
 | 6 | 编写细粒度单测 `test_work_type_from_task_mapping` 等并通过全量 236 测试 | ✅ done | (Stage 3 commit) | 同上 |
 | 7 | 注册 DoD 记录 + 更新 e2e-plan.md + commit & push | ✅ done | (Stage 3 commit) | 同上 |
 

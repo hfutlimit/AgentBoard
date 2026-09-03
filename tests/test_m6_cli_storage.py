@@ -20,8 +20,8 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _BACKEND = os.path.join(_ROOT, "src", "backend-fastapi")
 sys.path.insert(0, _BACKEND)
 
-from agentboard.agent_runtime.heartbeat import _resolve_cmd_local  # noqa: E402
-from agentboard.worker.local_registry import LocalAgentRegistry  # noqa: E402
+from agentboard.processors.heartbeat import _resolve_cmd_local  # noqa: E402
+from agentboard.processors.local_registry import LocalAgentRegistry  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

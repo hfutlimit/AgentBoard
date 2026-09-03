@@ -14,7 +14,7 @@ import pytest
 from agentboard.core.infrastructure.database import SessionLocal, engine, init_db
 from agentboard.features.projects.models import Project
 from agentboard.features.learning.models import Learning
-from agentboard.agent_runtime.learning.retriever import LearningRetriever, learning_retriever
+from agentboard.processors.learning.retriever import LearningRetriever, learning_retriever
 
 
 @pytest.fixture(scope="module", autouse=True)

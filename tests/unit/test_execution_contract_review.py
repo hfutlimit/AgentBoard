@@ -5,21 +5,21 @@ import pytest
 import httpx
 from pydantic import ValidationError
 
-from agentboard.agent_runtime.config import (
+from agentboard.processors.config import (
     AgentDecision,
     PermanentAgentError,
     TransientAgentError,
-    WorkerConfig,
+    ProcessorConfig,
 )
-from agentboard.agent_runtime.contract import (
+from agentboard.processors.contract import (
     ExecutionResult,
     ExecutionStatus,
     UnknownWorkTypeError,
     WorkType,
 )
-from agentboard.agent_runtime.coordinator import WorkerCoordinator
-from agentboard.agent_runtime.invokers import CallableAgentInvoker
-from agentboard.agent_runtime.errors import is_transient_execution_error
+from agentboard.processors.coordinator import ProcessorCoordinator
+from agentboard.processors.invokers import CallableProcessorInvoker
+from agentboard.processors.errors import is_transient_execution_error
 from agentboard.core.infrastructure.messaging import MessageRetry
 
 
@@ -73,9 +73,9 @@ def test_execution_error_classifier_distinguishes_http_and_agent_failures():
 
 
 def test_coordinator_requeues_transient_messages_with_a_bound(monkeypatch):
-    import agentboard.agent_runtime.coordinator as coordinator_module
+    import agentboard.processors.coordinator as coordinator_module
 
-    coordinator = WorkerCoordinator.__new__(WorkerCoordinator)
+    coordinator = ProcessorCoordinator.__new__(ProcessorCoordinator)
     coordinator._msg_retries = {}
     monkeypatch.setattr(coordinator_module, "WORKFLOW_RETRY_BACKOFF_SECONDS", (0,))
     key = ("task.available", "task", 12, 0)
@@ -88,10 +88,10 @@ def test_coordinator_requeues_transient_messages_with_a_bound(monkeypatch):
 
 
 def test_coordinator_reuses_handler_instances_for_both_registries():
-    config = WorkerConfig(agent="test", agent_cmd="echo test")
-    coordinator = WorkerCoordinator(
+    config = ProcessorConfig(agent="test", agent_cmd="echo test")
+    coordinator = ProcessorCoordinator(
         config,
-        invoker=CallableAgentInvoker(lambda _: AgentDecision(action="noop")),
+        invoker=CallableProcessorInvoker(lambda _: AgentDecision(action="noop")),
         client=_Client(),
     )
     assert coordinator.registry[WorkType.IMPLEMENTATION] is coordinator._handlers_by_name["story"]

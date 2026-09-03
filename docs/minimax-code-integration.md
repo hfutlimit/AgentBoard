@@ -62,7 +62,7 @@ AGENTBOARD_WORKER_AGENT_CMD="\"C:/Users/<user>/.workbuddy/binaries/python/envs/d
 MINIMAX_CLI_PATH="\"C:/Users/<user>/.workbuddy/binaries/node/versions/22.22.2/minimax.cmd\"" \
 MINIMAX_MODEL="MiniMax-M2" \
 AGENTBOARD_WORKER_AGENT_TIMEOUT=300 \
-python -m agentboard.worker --loop
+python -m agentboard.processors --loop
 ```
 
 适配器环境变量：`MINIMAX_CLI_PATH`（可多段）、`MINIMAX_MODEL`（**国内平台必须

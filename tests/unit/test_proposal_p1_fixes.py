@@ -104,14 +104,14 @@ def test_p1_ticket_handler_outcome_enum_aligns_with_execute_command():
     "created" != "success" → 正常成功路径被误判为 failure。
     修法：handler 走 ``.outcome.TicketOutcome`` enum，execute_command 比对 enum value。
     """
-    from agentboard.agent_runtime.handlers.outcome import TicketOutcome
+    from agentboard.processors.handlers.outcome import TicketOutcome
 
     # enum 存在且值正确
     assert TicketOutcome.CREATED.value == "created"
     assert TicketOutcome.FAILED.value == "failed"
     assert TicketOutcome.SKIPPED.value == "skipped"
     # execute_command 比对路径（间接验证：通过源码 grep，注意是 class method）
-    from agentboard.agent_runtime.handlers import ticket as ticket_handler
+    from agentboard.processors.handlers import ticket as ticket_handler
     import inspect
     src = inspect.getsource(ticket_handler.TicketHandler.execute_command)
     # 关键：execute_command 不能再硬编码 "outcome == 'success'" 字面量比对

@@ -237,7 +237,7 @@ def test_old_cross_proposal_404_kept(ctx):
 def _worker_package_src() -> str:
     """拼接现代 Python worker 包的全部源码。"""
     import os
-    from agentboard import agent_runtime as w
+    from agentboard import processors as w
     pkg_dir = os.path.dirname(w.__file__)
     parts: list[str] = []
     for root, _dirs, files in os.walk(pkg_dir):

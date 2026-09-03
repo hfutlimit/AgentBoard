@@ -38,19 +38,26 @@ from sqlalchemy.orm import sessionmaker
 # IMPORTANT: run AFTER conftest / DB setup so we have a real engine.
 # This is a regular pytest test (not test_smoke.py / test_unit/) so it
 # uses the standard conftest session-scope engine.
+#
+# NOTE ON IMPORTS: every ``agentboard.*`` import in this file is done
+# *at use time* (inside fixtures / tests / helper functions), never at
+# module scope. The suite contains other test modules that rebuild the
+# whole ``agentboard`` module graph at collection time (they
+# ``del sys.modules[...]`` and re-import with their own
+# ``AGENTBOARD_DB_URL``, e.g. ``test_m2_project_member_unique.py``).
+# A module-scope binding here would survive that rebuild as a stale
+# object whose ``engine`` never sees the fixture's ``reset_engine()``,
+# so e.g. ``drain_once_blocking`` would query a different database than
+# the one the test just wrote to (symptom: ``{"drained": 0}``). Use-time
+# imports always resolve the *current* module graph, keeping the spy,
+# the seeded rows and the drain on one database.
 
-from agentboard import mq as mq_module
-from agentboard import auth, service
-from agentboard.core.common.models import Base
-from agentboard.core.infrastructure import database as _db_mod
-from agentboard.core.infrastructure import messaging as messaging_module
-from agentboard.core.infrastructure.database import init_db
-from agentboard.core.infrastructure.outbox import OutboxRepository, WorkflowOutbox
-from agentboard.core.infrastructure.outbox_publisher import drain_once_blocking
-from agentboard.features.identity.models import User
-from agentboard.features.projects.models import Agent, Project, ProjectMember
-from agentboard.features.scheduling.models import AgentRun, AgentSchedule
-from agentboard.mq import EVENT_TASK_AVAILABLE, EVENT_TASK_REVIEWED
+import importlib
+
+
+def _agentboard(name: str):
+    """Resolve an ``agentboard`` submodule against the *current* module graph."""
+    return importlib.import_module(name)
 
 
 def SessionLocal() -> "Session":  # type: ignore[no-redef]
@@ -58,7 +65,23 @@ def SessionLocal() -> "Session":  # type: ignore[no-redef]
     so the factory is the one that ``reset_engine()`` most recently
     built — the project-wide fix for stale engine bindings.
     """
-    return _db_mod.SessionLocal()
+    return _agentboard("agentboard.core.infrastructure.database").SessionLocal()
+
+
+def _mq_modules() -> tuple[Any, Any]:
+    """Live-lookup ``(agentboard.mq, agentboard.core.infrastructure.messaging)``.
+
+    Both must come from the same current module graph so the spy below
+    patches the exact ``publish_workflow_event`` the publisher calls.
+    """
+    return (
+        _agentboard("agentboard.mq"),
+        _agentboard("agentboard.core.infrastructure.messaging"),
+    )
+
+
+def _outbox_event(name: str) -> str:
+    return getattr(_agentboard("agentboard.mq"), name)
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +127,10 @@ class SpyPublisher:
         # ``core.infrastructure.messaging``; ``agentboard.mq`` is a
         # thin re-export facade. Replace the underlying function on
         # BOTH names so a stale reference on either side still
-        # observes the spy.
+        # observes the spy. Both modules are resolved at *use time*
+        # so we patch the module objects the current module graph
+        # actually calls (see the import note at the top of this file).
+        mq_module, messaging_module = _mq_modules()
         self._original_mq = mq_module.publish_workflow_event
         self._original_msg = messaging_module.publish_workflow_event
         mq_module.publish_workflow_event = self
@@ -112,6 +138,7 @@ class SpyPublisher:
 
     def uninstall(self) -> None:
         if getattr(self, "_original_mq", None) is not None:
+            mq_module, messaging_module = _mq_modules()
             mq_module.publish_workflow_event = self._original_mq
             messaging_module.publish_workflow_event = self._original_msg
             self._original_mq = None
@@ -136,8 +163,6 @@ def fresh_db():
     that P0 fixed in the project-wide test suite, and reusing it
     here would just reintroduce the same problem.
     """
-    from agentboard.core.infrastructure import database as _db
-
     _DB = tempfile.mktemp(suffix=".db")
     prev = os.environ.get("AGENTBOARD_DB_URL")
     os.environ["AGENTBOARD_DB_URL"] = f"sqlite:///{_DB}"
@@ -147,6 +172,9 @@ def fresh_db():
     for _m in list(__import__("sys").modules):
         if _m == "agentboard" or _m.startswith("agentboard."):
             del __import__("sys").modules[_m]
+    # Resolve the database module AFTER the wipe so ``_db`` is the
+    # freshly-imported object the rest of the test graph will also see.
+    from agentboard.core.infrastructure import database as _db
     _db.reset_engine()
     # Import ``init_db`` AFTER reset_engine so the function's module
     # attribute lookup of ``engine`` (line 149 of database.py) resolves
@@ -158,6 +186,7 @@ def fresh_db():
     # Sanity check: the new DB must be empty. 1017 user rows means
     # something wrote to it before our reset — the symptom of a
     # stale ``agentboard.database.SessionLocal`` reference. Bail loudly.
+    from agentboard.features.identity.models import User
     with _db.SessionLocal() as s:
         existing = s.query(User).count()
     assert existing == 0, (
@@ -192,6 +221,10 @@ def seeded_review_path(fresh_db):
     stale-binding bug P0 fixed project-wide.
     """
     from agentboard.core.infrastructure import database as _db
+    from agentboard import auth
+    from agentboard.features.identity.models import User
+    from agentboard.features.projects.models import Agent as ProjAgent
+    from agentboard.features.projects.models import Project, ProjectMember
 
     s = _db.SessionLocal()
     try:
@@ -207,7 +240,6 @@ def seeded_review_path(fresh_db):
         from agentboard.features.projects.models import Epic, Story
         from agentboard.features.work_items.models import Task, TaskDependency
         from agentboard.features.scheduling.models import TaskAssignment
-        from agentboard.features.projects.models import Agent as ProjAgent
         epic = Epic(project_id=project.id, title="E1")
         s.add(epic)
         s.flush()
@@ -284,6 +316,7 @@ def test_review_with_mq_down_writes_outbox_rows_and_does_not_lose_events(
     """
     fixture = seeded_review_path
     from agentboard.core.infrastructure import database as _db
+    from agentboard import service
     from agentboard.features.scheduling.service import review_task
     from agentboard.core.infrastructure.outbox import OutboxRepository
     spy = SpyPublisher()
@@ -305,15 +338,16 @@ def test_review_with_mq_down_writes_outbox_rows_and_does_not_lose_events(
             # Simulate the router's post-service outbox.add block.
             outbox = OutboxRepository()
             for successor in service.get_unlocked_dependent_tasks(s, t.id):
-                outbox.add(s, EVENT_TASK_AVAILABLE, "task", successor.id,
-                            ref_id=successor.story_id)
+                outbox.add(s, _outbox_event("EVENT_TASK_AVAILABLE"), "task",
+                           successor.id, ref_id=successor.story_id)
             s.commit()
 
             assert t.status == "done"
         # Simulate the router's task.reviewed outbox row.
         with _db.SessionLocal() as s:
             OutboxRepository().add(
-                s, EVENT_TASK_REVIEWED, "task", fixture["design_id"],
+                s, _outbox_event("EVENT_TASK_REVIEWED"), "task",
+                fixture["design_id"],
                 ref_id=fixture["reviewer_id"],
                 agent_id="outbox-reviewer-agent",
             )
@@ -335,13 +369,20 @@ def test_review_with_mq_down_writes_outbox_rows_and_does_not_lose_events(
     spy.broker_down = False
     spy.install()
     try:
+        # Use-time import: this resolves the drain helper (and its
+        # ``_db`` binding) from the current module graph — the same
+        # graph that owns the session the outbox rows were written to.
+        from agentboard.core.infrastructure.outbox_publisher import (
+            drain_once_blocking,
+        )
         result = drain_once_blocking()
     finally:
         spy.uninstall()
 
     assert result["drained"] >= 2, result
     assert result["failed"] == 0, result
-    assert {"task.reviewed", "task.available"} <= {c["event"] for c in spy.calls}
+    assert {_outbox_event("EVENT_TASK_REVIEWED"),
+            _outbox_event("EVENT_TASK_AVAILABLE")} <= {c["event"] for c in spy.calls}
 
     # The outbox is drained.
     with _db.SessionLocal() as s:
@@ -388,6 +429,7 @@ def test_publisher_marks_dead_after_max_attempts(monkeypatch):
     from agentboard.core.infrastructure.outbox import OutboxRepository, WorkflowOutbox
     from agentboard.core.infrastructure.outbox_publisher import OutboxPublisher
     from agentboard.core.infrastructure import database as _db
+    from agentboard.core.common.models import Base as RealBase
 
     # Force a fresh in-memory DB so we do not depend on the seeded
     # project fixture (which is irrelevant for this contract test).
@@ -402,7 +444,7 @@ def test_publisher_marks_dead_after_max_attempts(monkeypatch):
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    Base.metadata.create_all(in_memory)
+    RealBase.metadata.create_all(in_memory)
     InMemorySession = sessionmaker(bind=in_memory)
     s = InMemorySession()
     repo = OutboxRepository(max_attempts=2)
@@ -414,10 +456,11 @@ def test_publisher_marks_dead_after_max_attempts(monkeypatch):
     # test in the same file and silently turn every drain into a
     # permanent failure (messaging_module and mq_module are the same
     # module under the hood, so the second assignment is a no-op).
-    original = mq_module.publish_workflow_event
-    original_msg = messaging_module.publish_workflow_event
-    monkeypatch.setattr(mq_module, "publish_workflow_event", lambda *a, **kw: False)
-    monkeypatch.setattr(messaging_module, "publish_workflow_event", lambda *a, **kw: False)
+    original_mq_mod, original_msg_mod = _mq_modules()
+    original = original_mq_mod.publish_workflow_event
+    original_msg = original_msg_mod.publish_workflow_event
+    monkeypatch.setattr(original_mq_mod, "publish_workflow_event", lambda *a, **kw: False)
+    monkeypatch.setattr(original_msg_mod, "publish_workflow_event", lambda *a, **kw: False)
     try:
         s.add(WorkflowOutbox(
             event="task.reviewed", entity_type="task", entity_id=1, ref_id=2,
@@ -454,7 +497,8 @@ def test_publisher_marks_dead_after_max_attempts(monkeypatch):
         dead = repo.fetch_dead(s, limit=10)
         assert any(r.id == target_id for r in dead)
     finally:
-        mq_module.publish_workflow_event = original
-        messaging_module.publish_workflow_event = original_msg
+        mq_mod, msg_mod = _mq_modules()
+        mq_mod.publish_workflow_event = original
+        msg_mod.publish_workflow_event = original_msg
         s.close()
         in_memory.dispose()

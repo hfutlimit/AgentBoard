@@ -14,14 +14,14 @@ from sqlalchemy.orm import Session
 
 from ... import api_helpers
 from ...core.infrastructure.database import get_session
-from ...agent_runtime.behavior.defaults import PRESET_VERSION, get_default_payload_for_work_type
-from ...agent_runtime.behavior.models import (
+from ...processors.behavior.defaults import PRESET_VERSION, get_default_payload_for_work_type
+from ...processors.behavior.models import (
     AgentBehaviorConfigPayload,
     EffectiveBehaviorConfig,
 )
-from ...agent_runtime.behavior.prompt_builder import prompt_builder
-from ...agent_runtime.behavior.resolver import behavior_resolver
-from ...agent_runtime.contract import WorkType
+from ...processors.behavior.prompt_builder import prompt_builder
+from ...processors.behavior.resolver import behavior_resolver
+from ...processors.contract import WorkType
 from ...core.common.models import utc_now
 from ..learning.models import Learning
 from .behavior_service import (
@@ -125,7 +125,7 @@ def get_effective_behavior(
         try:
             wt = WorkType(work_type)
         except (ValueError, KeyError):
-            from ...agent_runtime.contract import UnknownWorkTypeError
+            from ...processors.contract import UnknownWorkTypeError
             raise HTTPException(
                 status_code=400,
                 detail=f"unknown work_type: {work_type}",

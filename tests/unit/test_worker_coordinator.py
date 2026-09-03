@@ -1,18 +1,18 @@
-"""Tests for WorkerCoordinator and Unified Execution Model (Stage 1 & Stage 2)."""
+"""Tests for ProcessorCoordinator and Unified Execution Model (Stage 1 & Stage 2)."""
 from __future__ import annotations
 
 import httpx
 import pytest
 
-from agentboard.agent_runtime.config import AgentDecision, WorkerConfig
-from agentboard.agent_runtime.contract import (
+from agentboard.processors.config import AgentDecision, ProcessorConfig
+from agentboard.processors.contract import (
     ExecutionCommand,
     ExecutionResult,
     WorkType,
 )
-from agentboard.agent_runtime.coordinator import WorkerCoordinator
-from agentboard.agent_runtime.handlers import build_work_type_registry
-from agentboard.agent_runtime.invokers import CallableAgentInvoker
+from agentboard.processors.coordinator import ProcessorCoordinator
+from agentboard.processors.handlers import build_work_type_registry
+from agentboard.processors.invokers import CallableProcessorInvoker
 
 
 class DummyClient:
@@ -68,8 +68,8 @@ class DummyClient:
 
 
 def test_coordinator_registry_covers_all_work_types():
-    """Verify WorkerCoordinator registry covers all WorkType enum variants."""
-    config = WorkerConfig(agent="test_agent", agent_cmd="echo test")
+    """Verify ProcessorCoordinator registry covers all WorkType enum variants."""
+    config = ProcessorConfig(agent="test_agent", agent_cmd="echo test")
     dummy = DummyClient()
     registry = build_work_type_registry(dummy, config)
 
@@ -82,16 +82,16 @@ def test_coordinator_registry_covers_all_work_types():
 
 def test_coordinator_dispatch_proposal_clarify():
     """Verify dispatching PROPOSAL_CLARIFY command."""
-    invoker = CallableAgentInvoker(lambda ctx: AgentDecision(
+    invoker = CallableProcessorInvoker(lambda ctx: AgentDecision(
         action="ask",
         questions=["Question 1?"],
         summary="Need clarification",
         inspected_files=["src/main.py"],
     ))
-    config = WorkerConfig(agent="test_agent", agent_cmd="echo test")
+    config = ProcessorConfig(agent="test_agent", agent_cmd="echo test")
     dummy = DummyClient()
 
-    coord = WorkerCoordinator(config, invoker=invoker, client=dummy)
+    coord = ProcessorCoordinator(config, invoker=invoker, client=dummy)
     cmd = ExecutionCommand(
         execution_id="exec_prop_1",
         work_type=WorkType.PROPOSAL_CLARIFY,
@@ -108,15 +108,15 @@ def test_coordinator_dispatch_proposal_clarify():
 
 def test_coordinator_dispatch_task_review():
     """Verify dispatching TASK_REVIEW command."""
-    invoker = CallableAgentInvoker(lambda ctx: AgentDecision(
+    invoker = CallableProcessorInvoker(lambda ctx: AgentDecision(
         action="approve",
         comment="LGTM",
         inspected_files=["src/feature.py"],
     ))
-    config = WorkerConfig(agent="test_agent", agent_cmd="echo test")
+    config = ProcessorConfig(agent="test_agent", agent_cmd="echo test")
     dummy = DummyClient()
 
-    coord = WorkerCoordinator(config, invoker=invoker, client=dummy)
+    coord = ProcessorCoordinator(config, invoker=invoker, client=dummy)
     cmd = ExecutionCommand(
         execution_id="exec_review_401",
         work_type=WorkType.TASK_REVIEW,
@@ -136,15 +136,15 @@ def test_coordinator_dispatch_task_review():
 
 def test_coordinator_dispatch_task_implement():
     """Verify dispatching TASK_IMPLEMENT command for a single task."""
-    invoker = CallableAgentInvoker(lambda ctx: AgentDecision(
+    invoker = CallableProcessorInvoker(lambda ctx: AgentDecision(
         action="story_handled",
         summary="Implemented feature and passed tests",
         inspected_files=["src/calc.py", "tests/test_calc.py"],
     ))
-    config = WorkerConfig(agent="test_agent", agent_cmd="echo test")
+    config = ProcessorConfig(agent="test_agent", agent_cmd="echo test")
     dummy = DummyClient()
 
-    coord = WorkerCoordinator(config, invoker=invoker, client=dummy)
+    coord = ProcessorCoordinator(config, invoker=invoker, client=dummy)
     cmd = ExecutionCommand(
         execution_id="exec_task_impl_501",
         work_type=WorkType.TASK_IMPLEMENT,
@@ -162,10 +162,10 @@ def test_coordinator_dispatch_task_implement():
 
 def test_coordinator_inflight_deduplication():
     """Verify that duplicate in-flight dispatch of the same work item is skipped."""
-    config = WorkerConfig(agent="test_agent", agent_cmd="echo test")
+    config = ProcessorConfig(agent="test_agent", agent_cmd="echo test")
     dummy = DummyClient()
 
-    coord = WorkerCoordinator(config, invoker=CallableAgentInvoker(lambda ctx: AgentDecision(action="story_handled")), client=dummy)
+    coord = ProcessorCoordinator(config, invoker=CallableProcessorInvoker(lambda ctx: AgentDecision(action="story_handled")), client=dummy)
     # Manually mark as in-flight
     coord._inflight.add((str(WorkType.TASK_IMPLEMENT), 999))
 
@@ -183,14 +183,14 @@ def test_coordinator_inflight_deduplication():
 
 def test_coordinator_handle_workflow_message():
     """Verify coordinator translates WorkflowMessage events into appropriate commands."""
-    invoker = CallableAgentInvoker(lambda ctx: AgentDecision(
+    invoker = CallableProcessorInvoker(lambda ctx: AgentDecision(
         action="approve",
         comment="Auto-approved by reviewer",
     ))
-    config = WorkerConfig(agent="test_agent", agent_cmd="echo test")
+    config = ProcessorConfig(agent="test_agent", agent_cmd="echo test")
     dummy = DummyClient()
 
-    coord = WorkerCoordinator(config, invoker=invoker, client=dummy)
+    coord = ProcessorCoordinator(config, invoker=invoker, client=dummy)
 
     from agentboard.core.infrastructure.messaging import WorkflowMessage
     msg = WorkflowMessage(
@@ -205,14 +205,14 @@ def test_coordinator_handle_workflow_message():
 
 def test_coordinator_poll_once_aggregates_all_domains():
     """Verify coordinator poll_once aggregates work across all domains."""
-    invoker = CallableAgentInvoker(lambda ctx: AgentDecision(
+    invoker = CallableProcessorInvoker(lambda ctx: AgentDecision(
         action="ask" if "proposal_id" in ctx or "content" in ctx else "story_handled",
         summary="Processed",
     ))
-    config = WorkerConfig(agent="test_agent", agent_cmd="echo test")
+    config = ProcessorConfig(agent="test_agent", agent_cmd="echo test")
     dummy = DummyClient()
 
-    coord = WorkerCoordinator(config, invoker=invoker, client=dummy)
+    coord = ProcessorCoordinator(config, invoker=invoker, client=dummy)
     stats = coord.poll_once()
 
     assert stats["clarified"] >= 1
@@ -233,14 +233,14 @@ def test_work_type_from_task_mapping():
 
 def test_coordinator_dispatch_granular_types():
     """Verify coordinator dispatches granular DESIGN and QA_REVIEW WorkTypes."""
-    invoker = CallableAgentInvoker(lambda ctx: AgentDecision(
+    invoker = CallableProcessorInvoker(lambda ctx: AgentDecision(
         action="approve" if "review" in ctx.get("work_type", "") else "story_handled",
         summary="Processed granular",
     ))
-    config = WorkerConfig(agent="test_agent", agent_cmd="echo test")
+    config = ProcessorConfig(agent="test_agent", agent_cmd="echo test")
     dummy = DummyClient()
 
-    coord = WorkerCoordinator(config, invoker=invoker, client=dummy)
+    coord = ProcessorCoordinator(config, invoker=invoker, client=dummy)
 
     # 1. Design implementation
     cmd_design = ExecutionCommand(
@@ -269,7 +269,7 @@ def test_coordinator_dispatch_granular_types():
 
 def test_routed_invoker_with_work_type_priority():
     """Verify RoutedSubprocessInvoker routes by work_type when provided."""
-    from agentboard.agent_runtime.invokers import RoutedSubprocessInvoker
+    from agentboard.processors.invokers import RoutedSubprocessInvoker
 
     inv = RoutedSubprocessInvoker(
         commands={
@@ -328,10 +328,10 @@ def test_build_prompt_for_routes_granular_review_work_types():
     修复前：所有 *_REVIEW 都被 action="review_task" 抹平成 TASK_REVIEW。
     修复后：work_type="design_review" 直接命中 DESIGN_REVIEW key。
     """
-    config = WorkerConfig(agent="test_agent", agent_cmd="echo test")
+    config = ProcessorConfig(agent="test_agent", agent_cmd="echo test")
     dummy = DummyClient()
 
-    coord = WorkerCoordinator(config, invoker=CallableAgentInvoker(lambda c: AgentDecision(action="noop")), client=dummy)
+    coord = ProcessorCoordinator(config, invoker=CallableProcessorInvoker(lambda c: AgentDecision(action="noop")), client=dummy)
 
     # 注入 spy handler（覆盖默认 registry）
     design_review_spy = _RoutingSpyHandler("design_review")
@@ -368,9 +368,9 @@ def test_build_prompt_for_routes_granular_review_work_types():
 
 def test_build_prompt_for_falls_back_to_action_when_work_type_missing():
     """兼容：work_type 缺失时仍能按 action 字符串路由（向后兼容旧 invoker / MQ 消息）。"""
-    config = WorkerConfig(agent="test_agent", agent_cmd="echo test")
+    config = ProcessorConfig(agent="test_agent", agent_cmd="echo test")
     dummy = DummyClient()
-    coord = WorkerCoordinator(config, invoker=CallableAgentInvoker(lambda c: AgentDecision(action="noop")), client=dummy)
+    coord = ProcessorCoordinator(config, invoker=CallableProcessorInvoker(lambda c: AgentDecision(action="noop")), client=dummy)
 
     legacy_review_spy = _RoutingSpyHandler("task_review_legacy")
     coord.registry = {
@@ -386,9 +386,9 @@ def test_build_prompt_for_falls_back_to_action_when_work_type_missing():
 
 def test_build_prompt_for_handles_work_type_enum_value():
     """work_type 传 WorkType 枚举值（非字符串）也能正确路由。"""
-    config = WorkerConfig(agent="test_agent", agent_cmd="echo test")
+    config = ProcessorConfig(agent="test_agent", agent_cmd="echo test")
     dummy = DummyClient()
-    coord = WorkerCoordinator(config, invoker=CallableAgentInvoker(lambda c: AgentDecision(action="noop")), client=dummy)
+    coord = ProcessorCoordinator(config, invoker=CallableProcessorInvoker(lambda c: AgentDecision(action="noop")), client=dummy)
 
     design_review_spy = _RoutingSpyHandler("design_review")
     coord.registry = {

@@ -48,7 +48,7 @@ AGENTBOARD_API_URL=<api_url> \
 AGENTBOARD_WORKER_TOKEN=<abk_ key 或登录 token> \
 AGENTBOARD_WORKER_AGENT_CMD="\"C:/Users/<user>/.workbuddy/binaries/node/versions/<ver>/node.exe\" \"E:/Program Files/WorkBuddy/resources/app.asar.unpacked/cli/bin/codebuddy\" -p -y --mcp-config \"<abs>/mcp.json\" --output-format text" \
 AGENTBOARD_WORKER_AGENT_TIMEOUT=300 \
-python -m agentboard.worker --loop
+python -m agentboard.processors --loop
 ```
 
 ## 4. 踩坑记录（重要）

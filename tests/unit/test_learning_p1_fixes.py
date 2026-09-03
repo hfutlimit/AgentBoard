@@ -53,7 +53,7 @@ def test_p1_story_handler_no_longer_hardcodes_old_episode_recall():
     修法：移除两处 hardcode _recall_episodes 调用，memory retrieval 全部走
     ContextBuilder._resolve_learnings / _resolve_playbook_and_episodes。
     """
-    from agentboard.agent_runtime.handlers import story as story_handler
+    from agentboard.processors.handlers import story as story_handler
     src = inspect.getsource(story_handler)
 
     # 1. 关键：load_context 内不再调 _recall_episodes
@@ -87,7 +87,7 @@ def test_p1_context_builder_has_three_layer_memory_retrieval():
 
     全部受 behavior.preparation.load_memory 统一控制。
     """
-    from agentboard.agent_runtime.behavior.context_builder import (
+    from agentboard.processors.behavior.context_builder import (
         ExecutionContextBuilder, ExecutionContext,
     )
     src = inspect.getsource(ExecutionContextBuilder)
@@ -123,7 +123,7 @@ def test_p1_load_memory_false_disables_all_three_layers():
     验证：ContextBuilder._resolve_learnings / _resolve_playbook_and_episodes
     都在 load_memory=False 时 early return。
     """
-    from agentboard.agent_runtime.behavior.context_builder import ExecutionContextBuilder
+    from agentboard.processors.behavior.context_builder import ExecutionContextBuilder
     src = inspect.getsource(ExecutionContextBuilder)
 
     # _resolve_learnings 早期返回检查
@@ -150,7 +150,7 @@ def test_p1p2_learning_extractor_actually_uses_invoker():
     修法：分两条路径 —— reflection_agent 路径（preferred）调 invoker.invoke_with_prompt；
     heuristic 路径（fallback）保留原 hardcode 模板。
     """
-    from agentboard.agent_runtime.learning import extractor as ext_module
+    from agentboard.processors.learning import extractor as ext_module
     src = inspect.getsource(ext_module)
 
     # 关键：必须实现 _extract_via_reflection_agent
@@ -177,14 +177,14 @@ def test_p1p2_learning_extractor_reflection_with_invoker_uses_real_output():
     验证：给定一个返回合法 JSON 的 invoker，ExtractedLesson.source == "reflection_agent"，
     且 lesson 字段含 invoker 输出内容。
     """
-    from agentboard.agent_runtime.learning.evaluator import (
+    from agentboard.processors.learning.evaluator import (
         LearningCategory, LearningTriggerEvent,
     )
-    from agentboard.agent_runtime.learning.extractor import (
+    from agentboard.processors.learning.extractor import (
         LearningExtractor, learning_extractor,
     )
-    from agentboard.agent_runtime.config import AgentDecision
-    from agentboard.agent_runtime.invokers import CallableAgentInvoker
+    from agentboard.processors.config import AgentDecision
+    from agentboard.processors.invokers import CallableProcessorInvoker
 
     # 模拟一个真反思的 agent：返回结构化 JSON
     real_reflection_json = {
@@ -205,7 +205,7 @@ def test_p1p2_learning_extractor_reflection_with_invoker_uses_real_output():
             comment="",
         )
 
-    invoker = CallableAgentInvoker(lambda c: AgentDecision(action="noop"))
+    invoker = CallableProcessorInvoker(lambda c: AgentDecision(action="noop"))
     # 替换 invoke_with_prompt
     invoker.invoke_with_prompt = fake_agent_invoke_with_prompt  # type: ignore[assignment]
 
@@ -236,12 +236,12 @@ def test_p1p2_learning_extractor_falls_back_to_heuristic_on_invoker_failure():
 
     验证：source 标记是 heuristic，且 lesson 字段是 hardcode 模板。
     """
-    from agentboard.agent_runtime.learning.evaluator import (
+    from agentboard.processors.learning.evaluator import (
         LearningCategory, LearningTriggerEvent,
     )
-    from agentboard.agent_runtime.learning.extractor import learning_extractor
-    from agentboard.agent_runtime.config import AgentDecision
-    from agentboard.agent_runtime.invokers import CallableAgentInvoker
+    from agentboard.processors.learning.extractor import learning_extractor
+    from agentboard.processors.config import AgentDecision
+    from agentboard.processors.invokers import CallableProcessorInvoker
 
     # 模拟 invoker 输出非 JSON（reflection 失败）
     def fake_invoke_with_prompt(prompt, context):
@@ -251,7 +251,7 @@ def test_p1p2_learning_extractor_falls_back_to_heuristic_on_invoker_failure():
             comment="",
         )
 
-    invoker = CallableAgentInvoker(lambda c: AgentDecision(action="noop"))
+    invoker = CallableProcessorInvoker(lambda c: AgentDecision(action="noop"))
     invoker.invoke_with_prompt = fake_invoke_with_prompt  # type: ignore[assignment]
 
     event = LearningTriggerEvent(

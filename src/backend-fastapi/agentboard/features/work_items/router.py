@@ -35,7 +35,7 @@ from ...mq import (
     EVENT_TASK_AVAILABLE, EVENT_TASK_ASSIGNED, EVENT_TASK_READY_FOR_REVIEW,
     EVENT_TASK_REVIEWED, EVENT_TASK_REJECTED, EVENT_TASK_REVIEW_REQUESTED,
     EVENT_TASK_REVIEW_VOTE_CAST, EVENT_STORY_REVIEW_REQUESTED,
-    # PR-4：internal 编排事件（Python workflow_worker 专属，触发 reviewer 分配）
+    # PR-4：internal 编排事件（Python workflow_processor 专属，触发 reviewer 分配）
     EVENT_TASK_REVIEW_ASSIGNMENT_NEEDED,
     publish_workflow_event,
 )
@@ -422,7 +422,7 @@ def submit_task_review(tid: int, authorization: str | None = Header(None),
     # PR-6：design task（type='design' 且 needs_human_confirmation=True）
     # 跳过自动 reviewer 分配，state 保持 in_review 但等的是 user，不是
     # reviewer。user 走 POST /api/tasks/{tid}/user_confirm 确认进 done。
-    # 其它 task 走原 PR-4 路径：internal 事件触发 Python workflow_worker
+    # 其它 task 走原 PR-4 路径：internal 事件触发 Python workflow_processor
     # 选 reviewer，选完 assign-reviewer API publish task.review_requested
     # 到 agent 定向队列，.NET 拿那条去真正执行 review。
     if not t.needs_human_confirmation:

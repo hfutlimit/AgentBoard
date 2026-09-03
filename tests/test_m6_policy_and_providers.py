@@ -37,7 +37,7 @@ for _p in (_ROOT, _BACKEND):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from agentboard.agent_runtime.workspace import (  # noqa: E402
+from agentboard.processors.workspace import (  # noqa: E402
     CleanupPlan,
     DockerRuntimeProvider,
     HostRuntimeProvider,

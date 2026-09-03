@@ -87,7 +87,7 @@ flowchart LR
 | Notifications | ✅ | 计划中 | Stage 2 |
 | **SignalR /hubs/agents** | ❌ | ✅ | **Stage 2 全新**（.NET 优势） |
 | MCP (stdio + http) | ✅ | ❌ | FastAPI 持续维护 |
-| Background Workers | ✅ | 计划中 | Stage 3 共存，最终全 .NET |
+| Background Processors | ✅ | 计划中 | Stage 3 共存，最终全 .NET |
 | AI subsystems (Llm / Proposal / etc.) | ✅ | ❌ | 永远 FastAPI |
 
 ## 4. 数据访问边界

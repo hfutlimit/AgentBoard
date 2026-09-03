@@ -11,7 +11,7 @@
 | `agentboard/service.py` | **5367** | **254 顶层函数** | 纯过程式,无 service class,raw `s: Session` 满天飞,Task 状态机内联,缓存失效靠人工纪律 |
 | `agentboard/api.py` | **4007** | 179 `@app.X()` + 58 Pydantic | 0 个 `APIRouter`,所有端点直挂 app,schema 与路由耦合 |
 | `agentboard/mcp_server.py` | **1984** | **90+ `_xxx_yyy`** | 12 个资源 × 5 个动作全手写,纯复制 |
-| `agentboard/worker.py` | 1808 → 510 | `ProposalWorker` | 已经分得不错,主参考样板 |
+| `agentboard/worker.py` | 1808 → 510 | `ProposalProcessor` | 已经分得不错,主参考样板 |
 | 测试 | 201 文件,**0 conftest** | | 全部外部 httpx 调跑服务,无单元测试基础 |
 
 ---

@@ -21,13 +21,13 @@ BACKEND = Path(__file__).resolve().parents[2] / "src" / "backend-fastapi"
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
-from agentboard.agent_runtime.invokers import (  # noqa: E402
+from agentboard.processors.invokers import (  # noqa: E402
     RoutedSubprocessInvoker, parse_agent_command_map, parse_agent_routing,
 )
 
 
 class _FakeChild:
-    """Stand-in for SubprocessAgentInvoker: records call, returns canned decision."""
+    """Stand-in for SubprocessProcessorInvoker: records call, returns canned decision."""
     def __init__(self, alias: str, cmd: str):
         self.alias = alias
         self.cmd = cmd
@@ -35,7 +35,7 @@ class _FakeChild:
 
     def invoke(self, context: dict):
         self.invocations.append(context)
-        from agentboard.agent_runtime.config import AgentDecision
+        from agentboard.processors.config import AgentDecision
         return AgentDecision(action="ask", questions=["q"])
 
 
@@ -123,10 +123,10 @@ def test_prompt_header_includes_route(monkeypatch):
         cmd = '"python" "x.py"'
         def invoke(self, context):
             captured["ctx"] = context
-            from agentboard.agent_runtime.config import AgentDecision
+            from agentboard.processors.config import AgentDecision
             return AgentDecision(action="ask", questions=["q"])
 
-    invoker._children = {"codebuddy": FakeChild()}  # bypass real SubprocessAgentInvoker
+    invoker._children = {"codebuddy": FakeChild()}  # bypass real SubprocessProcessorInvoker
 
     invoker.invoke({"action": "clarify", "title": "demo"})
     assert captured["ctx"]["_routed_alias"] == "codebuddy"
@@ -135,11 +135,11 @@ def test_prompt_header_includes_route(monkeypatch):
 
 def test_invoke_with_prompt_passes_exact_sentinel_to_routed_subprocess(tmp_path: Path, monkeypatch):
     """Regression test (2026-08-27 review):
-    SENTINEL_RENDERED_PROMPT -> ComplianceEnforcingInvoker -> RoutedSubprocessInvoker -> SubprocessAgentInvoker -> subprocess stdin.
+    SENTINEL_RENDERED_PROMPT -> ComplianceEnforcingInvoker -> RoutedSubprocessInvoker -> SubprocessProcessorInvoker -> subprocess stdin.
     Verifies that invoke_with_prompt does not drop the prepared prompt on routed invocation.
     """
-    from agentboard.agent_runtime.compliance import MANDATORY_PREFLIGHT_MARKER
-    from agentboard.agent_runtime.invokers import ComplianceEnforcingInvoker
+    from agentboard.processors.compliance import MANDATORY_PREFLIGHT_MARKER
+    from agentboard.processors.invokers import ComplianceEnforcingInvoker
 
     # Create dummy project directory with a real file so compliance validation passes
     proj_dir = tmp_path / "project"

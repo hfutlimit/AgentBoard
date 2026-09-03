@@ -51,10 +51,10 @@ existing .NET project-layer boundaries.
 │  │  ├─ tsconfig*.json
 │  │  └─ vitest.config.ts
 │  └─ workers/
-│     └─ AgentBoard.ProposalWorker/
+│     └─ AgentBoard.ProposalProcessor/
 │        ├─ src/
 │        ├─ appsettings.json
-│        ├─ AgentBoard.ProposalWorker.csproj
+│        ├─ AgentBoard.ProposalProcessor.csproj
 │        └─ README.md
 ├─ tests/
 │  ├─ conftest.py

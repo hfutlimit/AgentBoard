@@ -23,8 +23,8 @@ from sqlalchemy.pool import StaticPool
 
 from agentboard import mq, service
 from agentboard.models import Base
-from agentboard.worker import (
-    AgentDecision, CallableAgentInvoker, ProposalWorker, WorkerConfig,
+from agentboard.processors import (
+    AgentDecision, CallableProcessorInvoker, ProposalProcessor, ProcessorConfig,
 )
 
 
@@ -108,12 +108,12 @@ class _FakeClient:
 def test_mq_mode_processes_ticket_requests():
     sessions, proposal, request = _env()
     client = _FakeClient(proposal, request)
-    invoker = CallableAgentInvoker(
+    invoker = CallableProcessorInvoker(
         lambda ctx: AgentDecision(action="ticket_created"),
     )
-    cfg = WorkerConfig(api_url="http://mq-test", token="t", agent="mq-worker",
+    cfg = ProcessorConfig(api_url="http://mq-test", token="t", agent="mq-worker",
                        poll_interval=0.2, maintenance_interval=0.5)
-    w = ProposalWorker(cfg, invoker=invoker, client=client)
+    w = ProposalProcessor(cfg, invoker=invoker, client=client)
     broker = mq.InMemoryBroker()
 
     stop = threading.Event()
@@ -146,8 +146,8 @@ def test_mq_mode_processes_ticket_requests():
     )
     # 流水线完整走通：处理一次返回 created
     client2 = _FakeClient(proposal, request)
-    w2 = ProposalWorker(
-        cfg, invoker=CallableAgentInvoker(
+    w2 = ProposalProcessor(
+        cfg, invoker=CallableProcessorInvoker(
             lambda ctx: AgentDecision(action="ticket_created"),
         ), client=client2,
     )
@@ -159,10 +159,10 @@ def test_poll_once_reclaims_stale_ticket_requests():
     """轮询模式 poll_once 同样自动回收超时转换请求（2026-08-09 review）。"""
     sessions, proposal, request = _env()
     client = _FakeClient(proposal, request)
-    w = ProposalWorker(
-        WorkerConfig(api_url="http://mq-test", token="t", agent="poll-worker",
+    w = ProposalProcessor(
+        ProcessorConfig(api_url="http://mq-test", token="t", agent="poll-worker",
                      poll_interval=0.2, maintenance_interval=100),
-        invoker=CallableAgentInvoker(
+        invoker=CallableProcessorInvoker(
             lambda ctx: AgentDecision(action="ticket_created"),
         ), client=client,
     )
@@ -226,9 +226,9 @@ def test_handle_does_not_preclaim_ticket_request():
     """
     sessions, proposal, request = _env()
     client = _NoClaimClient(proposal, request)
-    w = ProposalWorker(
-        WorkerConfig(api_url="http://mq-test", token="t", agent="poll-worker"),
-        invoker=CallableAgentInvoker(
+    w = ProposalProcessor(
+        ProcessorConfig(api_url="http://mq-test", token="t", agent="poll-worker"),
+        invoker=CallableProcessorInvoker(
             lambda ctx: AgentDecision(action="ticket_created"),
         ), client=client,
     )
@@ -249,9 +249,9 @@ def test_handle_fail_with_pending_marks_failed():
     """
     sessions, proposal, request = _env()
     client = _NoClaimClient(proposal, request)
-    w = ProposalWorker(
-        WorkerConfig(api_url="http://mq-test", token="t", agent="poll-worker"),
-        invoker=CallableAgentInvoker(
+    w = ProposalProcessor(
+        ProcessorConfig(api_url="http://mq-test", token="t", agent="poll-worker"),
+        invoker=CallableProcessorInvoker(
             lambda ctx: AgentDecision(action="fail", error="MCP 超时"),
         ), client=client,
     )

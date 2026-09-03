@@ -1,17 +1,17 @@
 """Phase 1 P1 架构收口验证（2026-08-26 review）。
 
-P1 修复目标：WorkerCoordinator 是 Worker 唯一执行入口。所有 work 路径
+P1 修复目标：ProcessorCoordinator 是 Worker 唯一执行入口。所有 work 路径
 （polling / MQ / async）走 ``coordinator.dispatch(ExecutionCommand)``，不再
 直接调 ``handler.handle()`` / ``handler.handle_requested()`` 等老入口。
 
 验证：
-1. ProposalWorker 持有一个 WorkerCoordinator（不再是空字典 _handlers 直调）
+1. ProposalProcessor 持有一个 ProcessorCoordinator（不再是空字典 _handlers 直调）
 2. polling 路径 → handle / handle_ticket_request / handle_story 全部
    经 coordinator.dispatch() → handler.execute_command()，**不**走老 handle()
 3. MQ 路径 → handle_workflow_message / handle_direct_task / handle_task_available
    委派到 coordinator.handle_workflow_message()（内部包 ExecutionCommand）
 4. async 路径 → AsyncWorkExecutor 通过 coordinator 而非 handlers dict 注入
-5. 旧 handler.handle() 仍然可工作（向后兼容），但 ProposalWorker 默认不再调用
+5. 旧 handler.handle() 仍然可工作（向后兼容），但 ProposalProcessor 默认不再调用
 6. 同一次出错：polling/MQ/async 三个路径返回相同 status（unified taxonomy）
 """
 from __future__ import annotations
@@ -25,11 +25,11 @@ sys.path.insert(0, _ROOT)
 import pytest
 from unittest import mock
 
-from agentboard.agent_runtime.config import (
+from agentboard.processors.config import (
     AgentDecision, AgentInvocationError, PermanentAgentError,
-    TransientAgentError, WorkerConfig,
+    TransientAgentError, ProcessorConfig,
 )
-from agentboard.agent_runtime.worker import ProposalWorker
+from agentboard.processors.worker import ProposalProcessor
 
 
 class _RecorderInvoker:
@@ -61,7 +61,7 @@ class _StubHandler:
         self.result_action = result_action
         self.result_status = result_status
         self.execute_command_calls: list = []
-        # 老入口的计数器，验证 ProposalWorker 不再调它
+        # 老入口的计数器，验证 ProposalProcessor 不再调它
         self.handle_calls = 0
         self.handle_requested_calls = 0
         self.handle_direct_task_calls = 0
@@ -69,7 +69,7 @@ class _StubHandler:
         self.handle_workflow_message_calls = 0
 
     def execute_command(self, command, invoker):
-        from agentboard.agent_runtime.contract import (
+        from agentboard.processors.contract import (
             ExecutionCommand, ExecutionResult, ExecutionStatus, ExecutionAction,
         )
         self.execute_command_calls.append(command)
@@ -82,8 +82,8 @@ class _StubHandler:
             # 模拟 StoryHandler.execute_command 对 permanent 走 _story_fail
             # → 返回 FAILED；对 transient 走 unclaim → 也返 FAILED
             # （最终 _outcome_from_result 映射到 "failed"）
-            from agentboard.agent_runtime.contract import ExecutionStatus
-            from agentboard.agent_runtime.errors import is_transient_execution_error
+            from agentboard.processors.contract import ExecutionStatus
+            from agentboard.processors.errors import is_transient_execution_error
             if is_transient_execution_error(self.error):
                 # transient → unclaim 路径 → outcome 仍 "failed"
                 return ExecutionResult.from_exception(
@@ -110,7 +110,7 @@ class _StubHandler:
             summary="ok",
         )
 
-    # 老入口（必须存在向后兼容，但 ProposalWorker 不应再调）
+    # 老入口（必须存在向后兼容，但 ProposalProcessor 不应再调）
     def handle(self, work_item, invoker):
         self.handle_calls += 1
         return "handled"
@@ -146,19 +146,19 @@ class _StubHandler:
 
 def _build_worker(*, action: str = "story_handled",
                   error: Exception | None = None,
-                  use_coordinator: bool = True) -> ProposalWorker:
-    """构造一个 ProposalWorker，所有 handler 替换成 _StubHandler，强制走新路径。"""
-    cfg = WorkerConfig(
+                  use_coordinator: bool = True) -> ProposalProcessor:
+    """构造一个 ProposalProcessor，所有 handler 替换成 _StubHandler，强制走新路径。"""
+    cfg = ProcessorConfig(
         api_url="http://127.0.0.1:9",
         token="t", agent_cmd='"echo" "noop"',
         use_coordinator=use_coordinator,
         async_story_executor=False,
     )
     inv = _RecorderInvoker(action=action, error=None)  # invoker 不再 raise
-    w = ProposalWorker(cfg, invoker=inv)
+    w = ProposalProcessor(cfg, invoker=inv)
     # 用 stub 替换所有 handler（error 也传给 stub，让 execute_command 模拟
     # 真实 handler 的失败路径）
-    from agentboard.agent_runtime.contract import WorkType
+    from agentboard.processors.contract import WorkType
     stub = _StubHandler(error=error)
     for wt in WorkType:
         w._coordinator.registry[wt] = stub
@@ -176,10 +176,10 @@ def _build_worker(*, action: str = "story_handled",
 # =============== 1. Worker 结构验证 ===============
 
 def test_proposal_worker_has_coordinator():
-    """ProposalWorker 必须持有 WorkerCoordinator 实例（不再是 _handlers 直调）。"""
+    """ProposalProcessor 必须持有 ProcessorCoordinator 实例（不再是 _handlers 直调）。"""
     w, _ = _build_worker()
-    from agentboard.agent_runtime.coordinator import WorkerCoordinator
-    assert isinstance(w._coordinator, WorkerCoordinator)
+    from agentboard.processors.coordinator import ProcessorCoordinator
+    assert isinstance(w._coordinator, ProcessorCoordinator)
     # backward-compat: _handlers 仍暴露（直读测试用）
     assert w._handlers is w._coordinator._handlers_by_name
 
@@ -196,7 +196,7 @@ def test_polling_handle_proposal_routes_through_coordinator():
     cmd = stub.execute_command_calls[0]
     assert cmd.entity_id == 42
     assert cmd.work_type.value == "proposal_clarify"
-    # 验证：老入口 handle() 没被 ProposalWorker 调用
+    # 验证：老入口 handle() 没被 ProposalProcessor 调用
     assert stub.handle_calls == 0
     # 验证：返回 SUCCESS → "handled"
     assert out == "handled"
@@ -235,7 +235,7 @@ def test_mq_handle_workflow_message_delegates_to_coordinator():
     # coordinator 被调
     assert w._coordinator.handle_workflow_message.called
     assert out is True
-    # 老 review.handle_requested 没被 ProposalWorker 调
+    # 老 review.handle_requested 没被 ProposalProcessor 调
     assert stub.handle_requested_calls == 0
 
 
@@ -261,12 +261,12 @@ def test_mq_handle_task_available_delegates_to_coordinator():
 
 def test_async_executor_uses_coordinator_not_handlers():
     """AsyncWorkExecutor 必须用 coordinator= 注入（不接 handlers 字典）。"""
-    from agentboard.agent_runtime.async_story import AsyncWorkExecutor
-    cfg = WorkerConfig(
+    from agentboard.processors.async_story import AsyncWorkExecutor
+    cfg = ProcessorConfig(
         api_url="http://127.0.0.1:9", token="t",
         agent_cmd='"echo" "noop"', async_story_executor=True,
     )
-    w = ProposalWorker(cfg, invoker=_RecorderInvoker())
+    w = ProposalProcessor(cfg, invoker=_RecorderInvoker())
     assert w._work_executor is not None
     assert w._work_executor._coordinator is w._coordinator
     # 必须没有 _handlers 字典（说明走的是 coordinator-based 新路径）
@@ -278,14 +278,14 @@ def test_async_executor_uses_coordinator_not_handlers():
 def test_async_executor_submit_routes_through_dispatch():
     """AsyncWorkExecutor.submit(kind, work_item) → 后台线程 coordinator.dispatch。"""
     import time
-    from agentboard.agent_runtime.async_story import AsyncWorkExecutor
-    cfg = WorkerConfig(
+    from agentboard.processors.async_story import AsyncWorkExecutor
+    cfg = ProcessorConfig(
         api_url="http://127.0.0.1:9", token="t",
         agent_cmd='"echo" "noop"', async_story_executor=True,
     )
-    w = ProposalWorker(cfg, invoker=_RecorderInvoker())
+    w = ProposalProcessor(cfg, invoker=_RecorderInvoker())
     # 替换 stub
-    from agentboard.agent_runtime.contract import WorkType
+    from agentboard.processors.contract import WorkType
     stub = _StubHandler()
     for wt in WorkType:
         w._coordinator.registry[wt] = stub
@@ -307,7 +307,7 @@ def test_async_executor_submit_routes_through_dispatch():
 def test_old_handle_method_still_works_directly():
     """_handlers["clarify"].handle() 直接调用仍然工作（向后兼容给旧测试）。"""
     w, stub = _build_worker(use_coordinator=False)
-    # 旧路径：use_coordinator=False → ProposalWorker.handle 走 _handlers 字典
+    # 旧路径：use_coordinator=False → ProposalProcessor.handle 走 _handlers 字典
     out = w.handle({"id": 1})
     assert stub.handle_calls == 1
     # 新路径（coordinator-based）execute_command 没被调

@@ -58,7 +58,7 @@ Agent 通过 MCP 主动注册身份，系统维护一张注册表：
 | `name` | 显示名（如 `dev-frontend` / `reviewer-1`） |
 | `role` | `requester`（需求提出）/ `reviewer`（评审）/ `developer`（开发）——可多选 |
 | `capabilities` | 结构化能力（name/level/confidence）；兼容旧字符串标签 |
-| `cli_command` | 该 Agent 的 CLI 拉起命令模板（复用 Worker 的 `SubprocessAgentInvoker`） |
+| `cli_command` | 该 Agent 的 CLI 拉起命令模板（复用 Worker 的 `SubprocessProcessorInvoker`） |
 | `online` / `last_heartbeat` | 在线状态，由 `heartbeat` 维护 |
 | API Key 绑定 | `api_keys.agent_registry_id` 可选绑定 Agent，所有动作从凭据派生归属 |
 

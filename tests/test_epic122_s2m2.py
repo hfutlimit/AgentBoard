@@ -37,7 +37,7 @@ for _m in list(sys.modules):
         del sys.modules[_m]
 
 
-from agentboard import api, auth, mq, service, workflow_worker  # noqa: E402
+from agentboard import api, auth, mq, service, workflow_processor  # noqa: E402
 from agentboard.features.work_items import router as wi_router  # noqa: E402
 from agentboard.database import SessionLocal, init_db  # noqa: E402
 from agentboard.models import Task  # noqa: E402
@@ -553,7 +553,7 @@ class _FakeClient:
 
 
 def _cfg():
-    return workflow_worker.WorkflowConsumerConfig(
+    return workflow_processor.WorkflowConsumerConfig(
         api_url="http://test", token="t", mq=mq.MQConfig())
 
 
@@ -561,7 +561,7 @@ def test_task_review_assignment_needed_triggers_assign(seeded):
     """The internal ownership event, not the audit broadcast, assigns review."""
     client = _FakeClient(_FakeResponse(
         200, {"id": 21, "reviewer_id": 9, "status": "in_review"}))
-    w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
+    w = workflow_processor.WorkflowConsumer(_cfg(), client=client)
     assert w.handle_message(
         WorkflowMessage(event=EVENT_TASK_REVIEW_ASSIGNMENT_NEEDED, entity_type="task",
                         entity_id=21, ref_id=4)) is True
@@ -571,7 +571,7 @@ def test_task_review_assignment_needed_triggers_assign(seeded):
 def test_task_ready_for_review_no_reviewer_ok(seeded):
     """无在线 reviewer（422）→ ack True，轮询兜底。"""
     client = _FakeClient(_FakeResponse(422, text="no online reviewer"))
-    w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
+    w = workflow_processor.WorkflowConsumer(_cfg(), client=client)
     assert w.handle_message(
         WorkflowMessage(event=EVENT_TASK_READY_FOR_REVIEW, entity_type="task",
                         entity_id=22, ref_id=4)) is True
@@ -580,7 +580,7 @@ def test_task_ready_for_review_no_reviewer_ok(seeded):
 def test_task_ready_for_review_http_error_acks(seeded):
     """HTTP 500 → ack True（暂时性条件，轮询兜底重试）。"""
     client = _FakeClient(_FakeResponse(500, text="boom"))
-    w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
+    w = workflow_processor.WorkflowConsumer(_cfg(), client=client)
     assert w.handle_message(
         WorkflowMessage(event=EVENT_TASK_READY_FOR_REVIEW, entity_type="task",
                         entity_id=23, ref_id=4)) is True
@@ -591,8 +591,8 @@ def test_legacy_story_broadcast_helper_is_a_noop(seeded):
         {"id": 41, "status": "todo", "ready": False},
         {"id": 42, "status": "todo", "ready": True},
     ]}))
-    w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
-    with mock.patch.object(workflow_worker.mq, "publish_workflow_event") as pub:
+    w = workflow_processor.WorkflowConsumer(_cfg(), client=client)
+    with mock.patch.object(workflow_processor.mq, "publish_workflow_event") as pub:
         assert w._broadcast_available_tasks(4) is True
 
     assert pub.call_args_list == []
@@ -624,7 +624,7 @@ class _RouteClient:
 def test_poll_once_assigns_in_review_tasks(seeded):
     """轮询兜底：in_review 未指派 Task → 自动指派。"""
     client = _RouteClient()
-    w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
+    w = workflow_processor.WorkflowConsumer(_cfg(), client=client)
     assert w.run_poll_once() == 1  # 仅 31 未指派被处理
     assert ("POST", "/api/tasks/31/assign-reviewer") in client.calls
     assert ("POST", "/api/tasks/32/assign-reviewer") not in client.calls

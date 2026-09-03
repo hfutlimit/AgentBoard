@@ -20,8 +20,8 @@ sys.path.insert(0, _ROOT)
 # =============== 1. mark_failed 委派正确 ===============
 
 def test_worker_mark_failed_dispatches_to_clarify_mark_failed():
-    """``ProposalWorker.mark_failed`` 委派给 ``clarify.mark_failed``（无下划线）。"""
-    from agentboard.agent_runtime import worker as worker_mod
+    """``ProposalProcessor.mark_failed`` 委派给 ``clarify.mark_failed``（无下划线）。"""
+    from agentboard.processors import worker as worker_mod
 
     class _FakeWorker:
         def __init__(self):
@@ -40,15 +40,15 @@ def test_worker_mark_failed_dispatches_to_clarify_mark_failed():
 
     w = _FakeWorker()
     w._handlers = {"clarify": _FakeClarify()}
-    # 调 ProposalWorker.mark_failed 的实际方法体（line 248-249）
-    out = worker_mod.ProposalWorker.mark_failed(w, 42, "boom")
+    # 调 ProposalProcessor.mark_failed 的实际方法体（line 248-249）
+    out = worker_mod.ProposalProcessor.mark_failed(w, 42, "boom")
     assert out == "failed"
     assert captured == {"pid": 42, "err": "boom"}
 
 
 def test_worker_mark_failed_does_not_call_underscore_version():
     """验证没有下划线的旧方法名 _mark_failed —— 它不存在所以应 AttributeError。"""
-    from agentboard.agent_runtime import handlers
+    from agentboard.processors import handlers
 
     clarify = handlers.ClarifyHandler
     # 旧错方法 _mark_failed 应该不存在
@@ -64,8 +64,8 @@ def test_worker_mark_failed_does_not_call_underscore_version():
 def test_story_build_task_context_invalid_work_type_raises():
     """``StoryHandler.build_task_context`` 对未知 work_type 抛 ValueError，不再静默
     回退到 IMPLEMENTATION。"""
-    from agentboard.agent_runtime.handlers.story import StoryHandler
-    from agentboard.agent_runtime.contract import WorkType
+    from agentboard.processors.handlers.story import StoryHandler
+    from agentboard.processors.contract import WorkType
 
     handler = StoryHandler.__new__(StoryHandler)  # 绕过 __init__（不需要 client）
     # _command attribute 由 build_task_context 设置，先确认起始无
@@ -81,8 +81,8 @@ def test_review_load_context_invalid_work_type_raises():
     """``ReviewHandler.load_context`` 对未知 work_type 抛 ValueError，不再静默
     回退到 IMPLEMENTATION_REVIEW。绕开 pydantic 用 dict 路径（DB 来的脏数据
     进入 dispatch 时会走这条路径，pydantic 不会先校验）。"""
-    from agentboard.agent_runtime.handlers.review import ReviewHandler
-    from agentboard.agent_runtime.contract import WorkType
+    from agentboard.processors.handlers.review import ReviewHandler
+    from agentboard.processors.contract import WorkType
 
     handler = ReviewHandler.__new__(ReviewHandler)
 
@@ -105,8 +105,8 @@ def test_review_load_context_invalid_work_type_raises():
 
 def test_story_build_task_context_valid_work_type_passes():
     """合法 work_type（"implementation" / "design" / "qa"）不应抛错。"""
-    from agentboard.agent_runtime.handlers.story import StoryHandler
-    from agentboard.agent_runtime.contract import WorkType
+    from agentboard.processors.handlers.story import StoryHandler
+    from agentboard.processors.contract import WorkType
 
     handler = StoryHandler.__new__(StoryHandler)
     handler._get_json = lambda *a, **k: {"id": 1, "project_id": 99, "title": "T"}
@@ -124,7 +124,7 @@ def test_story_build_task_context_valid_work_type_passes():
 
 def test_worktype_unknown_value_raises():
     """``WorkType("garbage")`` 必须抛 ValueError，不允许静默回退。"""
-    from agentboard.agent_runtime.contract import WorkType
+    from agentboard.processors.contract import WorkType
 
     with pytest.raises(ValueError):
         WorkType("garbage_value_xyz")

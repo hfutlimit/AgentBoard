@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from agentboard.core.infrastructure.messaging import rabbitmq as mq
-from agentboard.workflow_worker import WorkflowConsumer, WorkflowConsumerConfig
+from agentboard.workflow_processor import WorkflowConsumer, WorkflowConsumerConfig
 
 
 class _Response:

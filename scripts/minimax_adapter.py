@@ -1,6 +1,6 @@
 """minimax-cli 无头适配器（MiniMax Code 生态 CLI → Worker 无头协议）。
 
-Worker 的 SubprocessAgentInvoker 协议：
+Worker 的 SubprocessProcessorInvoker 协议：
     stdin 喂 prompt → stdout 回读决策 JSON（{"action": ...}）
 
 minimax-cli（npm/bun 安装，AGPL-3.0）提供无头模式 ``minimax -p "<prompt>"``，

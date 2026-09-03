@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from agentboard.agent_runtime import invokers
-from agentboard.agent_runtime.compliance import (
+from agentboard.processors import invokers
+from agentboard.processors.compliance import (
     MANDATORY_PREFLIGHT_MARKER,
     MCP_GUIDE_RELATIVE_PATH,
     MCP_GUIDE_VERSION,
@@ -15,12 +15,12 @@ from agentboard.agent_runtime.compliance import (
     prepend_mandatory_preflight,
     validate_decision_evidence,
 )
-from agentboard.agent_runtime.config import AgentDecision, AgentOutputError
-from agentboard.agent_runtime.contract import ExecutionCommand, WorkType
-from agentboard.agent_runtime.invokers import (
-    CallableAgentInvoker,
+from agentboard.processors.config import AgentDecision, AgentOutputError
+from agentboard.processors.contract import ExecutionCommand, WorkType
+from agentboard.processors.invokers import (
+    CallableProcessorInvoker,
     ComplianceEnforcingInvoker,
-    SubprocessAgentInvoker,
+    SubprocessProcessorInvoker,
 )
 
 
@@ -106,7 +106,7 @@ def test_honest_fail_does_not_require_fabricated_evidence():
 
 def test_compliance_wrapper_blocks_decision_before_caller_can_persist(tmp_path: Path):
     root = _project(tmp_path)
-    delegate = CallableAgentInvoker(
+    delegate = CallableProcessorInvoker(
         lambda _ctx: AgentDecision(action="approve", comment="LGTM")
     )
     guarded = ComplianceEnforcingInvoker(delegate)
@@ -140,7 +140,7 @@ def test_subprocess_prompt_contains_guide_for_nested_task_project(
         )
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    decision = SubprocessAgentInvoker("fake-agent").invoke(
+    decision = SubprocessProcessorInvoker("fake-agent").invoke(
         {"task": {"id": 9, "project_id": 7}, "work_type": "implementation_review"}
     )
 

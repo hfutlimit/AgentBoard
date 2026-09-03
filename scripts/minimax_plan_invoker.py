@@ -8,7 +8,7 @@ r"""MiniMax Coding Plan 直连 invoker（Anthropic /messages 协议）。
     本脚本与 scripts/minimax_invoker.py 同协议（stdin→prompt，stdout→决策 JSON），
     仅把传输层换成 Anthropic messages + 登录态 Bearer。
 
-协议（与 Worker 的 SubprocessAgentInvoker 对齐）：
+协议（与 Worker 的 SubprocessProcessorInvoker 对齐）：
     stdin  → prompt（Worker 注入）
     stdout → {"action":"ask","questions":[...],"summary":"..."}
             | {"action":"finalize","converged_spec":"..."}

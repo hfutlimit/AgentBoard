@@ -33,7 +33,7 @@ def _imports(path: Path) -> set[str]:
 
 
 def test_runtime_and_messaging_implementation_boundaries_exist() -> None:
-	assert (PYTHON_ROOT / "agent_runtime").is_dir()
+	assert (PYTHON_ROOT / "processors").is_dir()
 	assert (PYTHON_ROOT / "core" / "infrastructure" / "messaging").is_dir()
 	assert (PYTHON_ROOT / "core" / "api" / "schemas.py").is_file()
 
@@ -75,10 +75,27 @@ def test_runtime_modules_do_not_import_legacy_mq_or_schema_facades() -> None:
 	assert violations == [], f"legacy facade imports: {violations}"
 
 
-def test_legacy_worker_and_modern_runtime_share_the_same_class() -> None:
-	from agentboard.agent_runtime import ProposalWorker as modern_worker
-	from agentboard.features.workers import ProposalWorker as feature_worker
-	from agentboard.worker import ProposalWorker as legacy_worker
+def test_processors_is_the_single_runtime_home() -> None:
+	# P7b: ``agentboard.processors`` is the only runtime home. The old
+	# ``agentboard.agent_runtime`` package and the two compat facades
+	# (``agentboard.worker`` / ``agentboard.features.workers``) were
+	# removed, so the legacy import paths must now fail.
+	import importlib
 
-	assert feature_worker is modern_worker
-	assert legacy_worker is modern_worker
+	import pytest
+
+	from agentboard.processors import ProposalProcessor  # noqa: F401
+
+	for legacy in (
+		"agentboard.agent_runtime",
+		"agentboard.worker",
+		"agentboard.features.workers",
+	):
+		try:
+			importlib.import_module(legacy)
+		except ImportError:
+			pass
+		else:
+			raise AssertionError(
+				f"legacy runtime path must be removed after P7b: {legacy}"
+			)

@@ -206,9 +206,9 @@ REGISTRY: list[DodEntry] = [
         acceptance=[
             "Story 与 Task 模型补齐 claimed_by / claimed_at 租约列与 status+claimed_at 复合索引",
             "新增 POST /api/stories/reclaim-stale 与 POST /api/tasks/reclaim-stale 端点，支持超时租约安全回收",
-            "ProposalWorker 与 WorkflowConsumer 维护循环周期调用 reclaim_stale_stories / reclaim_stale_tasks",
+            "ProposalProcessor 与 WorkflowConsumer 维护循环周期调用 reclaim_stale_stories / reclaim_stale_tasks",
             "RoutedSubprocessInvoker 路由白名单对齐真实 action (review_task / process_task)，未知键警告忽略",
-            "SubprocessAgentInvoker 启动子进程仅放行 AgentBoard MCP API Key，剥离其余 AGENTBOARD_* Worker 凭据并注入 UTF-8 编码参数",
+            "SubprocessProcessorInvoker 启动子进程仅放行 AgentBoard MCP API Key，剥离其余 AGENTBOARD_* Worker 凭据并注入 UTF-8 编码参数",
             "RabbitMQ / InMemoryBroker 消费端支持 MessageRetry 三态判定，瞬时失败 requeue 避免误入死信",
             "AsyncWorkExecutor 支持 per-kind 通道隔离与 (kind, id) in-flight 去重，防止慢任务阻塞主循环",
         ],
@@ -227,7 +227,7 @@ REGISTRY: list[DodEntry] = [
     # ── Stage 1-2 / 2026-08-26 / Worker 统一执行模型与 Server 编排收缴 ──────
     DodEntry(
         id="stage1-2-worker-unified-execution-2026-08-26",
-        feature="Worker 统一执行模型 Stage 1 & 2 · 统一执行抽象与 Server DAG 编排收缴（WorkerCoordinator + WorkType + ExecutionCommand/Result + Server 自动结项）",
+        feature="Worker 统一执行模型 Stage 1 & 2 · 统一执行抽象与 Server DAG 编排收缴（ProcessorCoordinator + WorkType + ExecutionCommand/Result + Server 自动结项）",
         date_added="2026-08-26",
         test_files=[
             "tests/unit/test_worker_coordinator.py",
@@ -238,13 +238,13 @@ REGISTRY: list[DodEntry] = [
         coverage_summary=(
             "7 个 Coordinator 单测 + 全量 209 个单元测试 + 35 个端到端集成测试全绿："
             "ExecutionCommand / WorkType / ExecutionResult 契约定义 / "
-            "WorkerCoordinator 单一进程调度中枢与 HandlerRegistry[WorkType] 分发 / "
+            "ProcessorCoordinator 单一进程调度中枢与 HandlerRegistry[WorkType] 分发 / "
             "Proposal/Task/Review 5 类 Handler 策略类收敛与 execute_command 实现 / "
             "Server 评审 Approve 后自动检查 Story 下所有任务全完成并自动结项 (complete_story)"
         ),
         acceptance=[
             "引入统一执行契约 ExecutionCommand、ExecutionResult 与 WorkType 枚举",
-            "实现单一常驻 WorkerCoordinator 类，提供统一 dispatch(command) 与 HandlerRegistry",
+            "实现单一常驻 ProcessorCoordinator 类，提供统一 dispatch(command) 与 HandlerRegistry",
             "5 个 Handler (Clarify, Ticket, Story, Review, OwnerResponse) 继承 BaseWorkHandler 并实现 execute_command",
             "Server 端在 review_task approve 判定时自动检索 DAG 依赖并解锁后继任务；若 Story 下所有任务均已 DONE 则自动触发 Story complete 收尾",
             "修复 delete_epic / delete_story 删除 Comment 前先解绑 ReviewVote.comment_id 避免 NO ACTION FK 约束冲突",
@@ -254,7 +254,7 @@ REGISTRY: list[DodEntry] = [
         notes=(
             "Worker 统一执行模型 Stage 1 & 2 终态落地：\n"
             "1) 业务领域实体（Proposal, Story, Task）与执行单元（ExecutionCommand/WorkType）彻底解耦；\n"
-            "2) 废除多进程分散轮询与割裂执行循环，收敛为 WorkerCoordinator 统一进程分发；\n"
+            "2) 废除多进程分散轮询与割裂执行循环，收敛为 ProcessorCoordinator 统一进程分发；\n"
             "3) Worker 只负责纯执行与结果上报，跨实体的 DAG 推进、后继任务解锁与 Story 自动结项全部由 Server 状态机集中调度；\n"
             "4) 保持原有 CLI 入口与 REST 端点 100% 向后兼容。"
         ),

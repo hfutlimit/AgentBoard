@@ -11,7 +11,7 @@ import tempfile
 
 import pytest
 
-from agentboard.worker.local_registry import (
+from agentboard.processors.local_registry import (
     DEFAULT_DB_PATH,
     LocalAgent,
     LocalAgentRegistry,
@@ -120,7 +120,7 @@ class TestLocalAgentRegistry:
         share state — this is the property the worker portal relies
         on when the portal and the WSS client live in different
         processes (e.g. portal as standalone uvicorn + WSS client
-        thread inside the agentboard.worker)."""
+        thread inside the agentboard.processors)."""
         _, path = tmp_registry
         a = LocalAgentRegistry(db_path=path)
         a.upsert("a", cli_command="c", model="m",

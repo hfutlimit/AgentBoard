@@ -22,21 +22,21 @@ DB_PATH = "_test_behavior_e2e_tmp.db"
 os.environ["AGENTBOARD_DB_URL"] = f"sqlite:///./{DB_PATH}"
 
 import pytest
-from agentboard.agent_runtime.behavior.defaults import get_default_payload_for_work_type
-from agentboard.agent_runtime.behavior.models import (
+from agentboard.processors.behavior.defaults import get_default_payload_for_work_type
+from agentboard.processors.behavior.models import (
     AgentBehaviorConfigPayload,
     EffectiveBehaviorConfig,
     PreparationBehavior,
     CollaborationBehavior,
     LearningBehavior,
 )
-from agentboard.agent_runtime.behavior.prompt_builder import prompt_builder
-from agentboard.agent_runtime.behavior.resolver import behavior_resolver
-from agentboard.agent_runtime.behavior.context_builder import execution_context_builder
-from agentboard.agent_runtime.learning.evaluator import LearningCategory, learning_evaluator
-from agentboard.agent_runtime.learning.extractor import learning_extractor
-from agentboard.agent_runtime.learning.retriever import learning_retriever
-from agentboard.agent_runtime.contract import ExecutionCommand, WorkType
+from agentboard.processors.behavior.prompt_builder import prompt_builder
+from agentboard.processors.behavior.resolver import behavior_resolver
+from agentboard.processors.behavior.context_builder import execution_context_builder
+from agentboard.processors.learning.evaluator import LearningCategory, learning_evaluator
+from agentboard.processors.learning.extractor import learning_extractor
+from agentboard.processors.learning.retriever import learning_retriever
+from agentboard.processors.contract import ExecutionCommand, WorkType
 from agentboard.core.infrastructure.database import SessionLocal, engine, init_db
 from agentboard.features.learning.models import Learning
 from agentboard.features.projects.models import Agent, Project
@@ -351,13 +351,13 @@ def test_scenario_6_production_path_uses_behavior_pipeline(db_session):
     2. Behavior 块（用户配置的 preparation/collaboration）
     3. 不包含 Handler 的旧 hardcode 标识（防止回归）
     """
-    from agentboard.agent_runtime._prepared import prepare_execution
-    from agentboard.agent_runtime.contract import ExecutionCommand, WorkType
-    from agentboard.agent_runtime.behavior.models import (
+    from agentboard.processors._prepared import prepare_execution
+    from agentboard.processors.contract import ExecutionCommand, WorkType
+    from agentboard.processors.behavior.models import (
         AgentBehaviorConfigPayload, PreparationBehavior, CollaborationBehavior,
     )
-    from agentboard.agent_runtime.behavior.resolver import behavior_resolver
-    from agentboard.agent_runtime.behavior.prompt_builder import prompt_builder
+    from agentboard.processors.behavior.resolver import behavior_resolver
+    from agentboard.processors.behavior.prompt_builder import prompt_builder
     from agentboard.features.scheduling.behavior_service import upsert_behavior_config
     from agentboard.features.projects.models import Agent, Project
 
@@ -395,7 +395,7 @@ def test_scenario_6_production_path_uses_behavior_pipeline(db_session):
     ctx["_command"] = ctx["_command"].model_copy(update={"context": ctx})
 
     # 3. 调 invokers.build_prompt(context) —— 这是 production 真实入口
-    from agentboard.agent_runtime.invokers import build_prompt
+    from agentboard.processors.invokers import build_prompt
     prompt = build_prompt(ctx)
 
     # 4. 验证 prompt 来自 PreparedExecution 路径
@@ -420,8 +420,8 @@ def test_scenario_7_prepared_execution_normalizes_legacy_worktype():
     runtime 内部必须立即 normalize 成 canonical，
     避免 prompt / context / behavior 计算走"平级兼容分支"。
     """
-    from agentboard.agent_runtime._prepared import prepare_execution
-    from agentboard.agent_runtime.contract import ExecutionCommand, WorkType
+    from agentboard.processors._prepared import prepare_execution
+    from agentboard.processors.contract import ExecutionCommand, WorkType
 
     # TASK_IMPLEMENT → IMPLEMENTATION
     cmd = ExecutionCommand(
@@ -477,7 +477,7 @@ def test_scenario_8_handler_load_context_injects_command():
     # 静态检查：handler.load_context 源码中必须含 "_command" 字段
     from pathlib import Path
     repo = Path(__file__).resolve().parents[2] / "src" / "backend-fastapi"
-    handlers_dir = repo / "agentboard" / "agent_runtime" / "handlers"
+    handlers_dir = repo / "agentboard" / "processors" / "handlers"
 
     missing: list[str] = []
     for py in sorted(handlers_dir.glob("*.py")):

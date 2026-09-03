@@ -16,7 +16,7 @@ BACKEND = Path(__file__).resolve().parents[2] / "src" / "backend-fastapi"
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
-from agentboard.agent_runtime.config import AgentDecision  # noqa: E402
+from agentboard.processors.config import AgentDecision  # noqa: E402
 
 
 def test_from_dict_parses_inspected_files_list():
@@ -53,7 +53,7 @@ def test_from_dict_strips_empty_strings():
 
 
 def test_clarify_prompt_includes_iron_law_and_project_dir():
-    from agentboard.agent_runtime.handlers.clarify import build_clarify_prompt
+    from agentboard.processors.handlers.clarify import build_clarify_prompt
     prompt = build_clarify_prompt({
         "proposal_id": 7, "title": "demo", "content": "x",
         "current_round": 1, "history": [],
@@ -66,7 +66,7 @@ def test_clarify_prompt_includes_iron_law_and_project_dir():
 
 
 def test_ticket_prompt_includes_iron_law_and_project_dir():
-    from agentboard.agent_runtime.handlers.ticket import build_ticket_prompt
+    from agentboard.processors.handlers.ticket import build_ticket_prompt
     prompt = build_ticket_prompt({
         "proposal_id": 7, "title": "demo", "content": "x",
         "ticket_type": "story", "project_dir": "E:\\Projects\\AgentBoard",
@@ -77,7 +77,7 @@ def test_ticket_prompt_includes_iron_law_and_project_dir():
 
 
 def test_story_prompt_includes_iron_law_and_project_dir():
-    from agentboard.agent_runtime.handlers.story import build_story_prompt
+    from agentboard.processors.handlers.story import build_story_prompt
     prompt = build_story_prompt({
         "story_id": 381, "title": "demo", "description": "x",
         "tasks": [], "needs_design": False, "project_dir": "E:\\Projects\\AgentBoard",
@@ -88,7 +88,7 @@ def test_story_prompt_includes_iron_law_and_project_dir():
 
 
 def test_task_prompt_includes_iron_law_and_project_dir():
-    from agentboard.agent_runtime.handlers.story import build_task_prompt
+    from agentboard.processors.handlers.story import build_task_prompt
     prompt = build_task_prompt({
         "task": {"id": 1096, "title": "t", "type": "dev", "status": "in_progress"},
         "story_id": 381, "needs_design": False, "assignee_id": None,
@@ -102,7 +102,7 @@ def test_task_prompt_includes_iron_law_and_project_dir():
 def test_clarify_handler_log_inspected_does_not_raise_on_empty(caplog):
     """Empty list is allowed; just emits an info line saying '未报'."""
     import logging
-    from agentboard.agent_runtime.handlers.clarify import ClarifyHandler
+    from agentboard.processors.handlers.clarify import ClarifyHandler
     # 仅构造 handler 调 _log_inspected；不接 client 也行
     class _Stub:
         def __init__(self): self.client = None; self.config = None
@@ -114,7 +114,7 @@ def test_clarify_handler_log_inspected_does_not_raise_on_empty(caplog):
 
 
 def test_clarify_handler_log_inspected_does_not_raise_on_files(caplog):
-    from agentboard.agent_runtime.handlers.clarify import ClarifyHandler
+    from agentboard.processors.handlers.clarify import ClarifyHandler
     h = ClarifyHandler.__new__(ClarifyHandler)
     h._log_inspected(
         AgentDecision(action="ask", questions=["q"],

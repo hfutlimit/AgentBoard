@@ -672,7 +672,7 @@ def _probe_cli_sync(cmd: str, *, model: str = "", timeout: int = 8) -> tuple[boo
     CLI 真的存在/可用）；``ok=False`` 表示未配置 / 含危险字符 / 解析失败。
     ``timeout`` 入参保留向后兼容（dry-run 不耗时，忽略）。
     """
-    from .worker import split_command
+    from .processors import split_command
     from .core.service_helpers import validate_cli_command
     full = (cmd or "").strip()
     if not full:

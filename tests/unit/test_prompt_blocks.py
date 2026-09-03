@@ -6,7 +6,7 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 import pytest
-from agentboard.agent_runtime.behavior.prompt_blocks import (
+from agentboard.processors.behavior.prompt_blocks import (
     PROMPT_BLOCK_REGISTRY,
     block_checkout_branch,
     block_inspect_code,

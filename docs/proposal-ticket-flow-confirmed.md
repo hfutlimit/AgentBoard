@@ -2,7 +2,7 @@
 
 > 状态：需求已确认（2026-08-08，基于 Epic 96 Proposal 澄清回路扩展）
 > 前置文档：`docs/agent-collaboration-requirements.md`（Epic 122，文档 #50）
-> 关联实现：`agentboard/worker.py`（ProposalWorker + SubprocessAgentInvoker）、
+> 关联实现：`agentboard/worker.py`（ProposalProcessor + SubprocessProcessorInvoker）、
 > `agentboard/mq.py`（workflow 事件总线）、`agentboard/service.py`（convert_proposal_to_story）
 > AgentBoard 同步（2026-08-08，经 MCP）：已创建文档 #59（design，Epic 96）承载本需求确认；
 > Story 157（P3 定稿→Story/Task 自动生成）与 Story 154（P0 状态机）描述已追加需求扩展段落。
@@ -31,7 +31,7 @@ Epic 96 已交付 Proposal 澄清闭环：用户创建 proposal → Worker（CLI
 [1] 用户创建 proposal（REST + 前端工作台）                     【已有】
 [2] 系统生成 MQ 消息，worker 消费（未配置 MQ 回退 DB 轮询）    【已有】
 [3] worker 通过 CLI 拉起本机 agent（WorkBuddy/Claude Code/Codex，
-    SubprocessAgentInvoker，prompt 走 stdin）                 【已有】
+    SubprocessProcessorInvoker，prompt 走 stdin）                 【已有】
 [4] agent 执行时经 MCP 提供 open question（proposal_ask 工具）  【已有】
 [5] 用户回复 → answered → 重新进入下一轮（worker 重新消费）     【已有】
 [6] 反复 grill 直至无 open question → converged               【已有】
@@ -110,7 +110,7 @@ agent**」。闸门在 [7] 的点击动作上，不再在 [8]-[10] 的执行链�
 
 ### 4.3 worker 与 agent 交互
 
-- **复用 `SubprocessAgentInvoker`**（worker.py 已有，WorkBuddy/Claude Code/Codex，
+- **复用 `SubprocessProcessorInvoker`**（worker.py 已有，WorkBuddy/Claude Code/Codex，
   stdin 喂 prompt、stdout 解析决策 JSON）；
 - agent 侧必须有 AgentBoard MCP 连接（外部环境依赖，同 Epic 96 澄清轮次前提）；
 - **新增专用 MCP 工具 `proposal_create_ticket`**（参数：proposal_id、type、

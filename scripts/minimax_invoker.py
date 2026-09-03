@@ -1,6 +1,6 @@
 r"""MiniMax API direct invoker (方案 E · 2026-08-11).
 
-桥接 Worker 的 SubprocessAgentInvoker 协议 → MiniMax chat completion API。
+桥接 Worker 的 SubprocessProcessorInvoker 协议 → MiniMax chat completion API。
 绕过 minimax-cli(网络装不上) 和 桌面端(没暴露 LLM 协议)。
 
 协议:

@@ -245,7 +245,7 @@ class Agent(Base):
 class Worker(Base):
     """Worker 机器身份（2026-08-26 P1 修复：多 Worker 部署隔离）。
 
-    一个 Worker 是一台物理/虚拟机器，跑一个 ``agentboard.worker`` 进程，
+    一个 Worker 是一台物理/虚拟机器，跑一个 ``agentboard.processors`` 进程，
     负责本机的 ``AgentInstance`` 探测与上报。``worker_id`` 是外部自报
     唯一标识（与 ``Agent.agent_id`` 同风格；不绑 user_id —— Worker
     跨用户共享，不属于任何单用户）。

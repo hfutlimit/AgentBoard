@@ -34,7 +34,7 @@ for _m in list(sys.modules):
     if _m == "agentboard" or _m.startswith("agentboard."):
         del sys.modules[_m]
 
-from agentboard import mq, workflow_worker  # noqa: E402
+from agentboard import mq, workflow_processor  # noqa: E402
 from agentboard.mq import (  # noqa: E402
     EVENT_REVIEW_REJECTED, EVENT_STORY_CONFIRMED, EVENT_STORY_CREATED,
     EVENT_STORY_READY, WorkflowMessage, WorkflowTopology,
@@ -95,15 +95,15 @@ class _FakeClient:
         return _FakeResponse(200, {})
 
 
-def _cfg() -> workflow_worker.WorkflowConsumerConfig:
-    return workflow_worker.WorkflowConsumerConfig(
+def _cfg() -> workflow_processor.WorkflowConsumerConfig:
+    return workflow_processor.WorkflowConsumerConfig(
         api_url="http://test", token="t", mq=mq.MQConfig())
 
 
 def test_handle_story_created_acks_without_assign():
     """2026-08-09：Story 级评审已下线，story.created 仅 ack，不再指派 reviewer。"""
     client = _FakeClient(_FakeResponse(200, {"id": 7, "status": "backlog"}))
-    w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
+    w = workflow_processor.WorkflowConsumer(_cfg(), client=client)
     assert w.handle_message(_msg(EVENT_STORY_CREATED, 7)) is True
     assert not any("assign-reviewer" in p for m, p in client.calls)
 
@@ -111,7 +111,7 @@ def test_handle_story_created_acks_without_assign():
 def test_handle_story_confirmed_acks():
     """story.confirmed 由 Proposal Worker 轮询兜底执行，本 Worker 仅 ack。"""
     client = _FakeClient(_FakeResponse(200, {}))
-    w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
+    w = workflow_processor.WorkflowConsumer(_cfg(), client=client)
     assert w.handle_message(_msg(EVENT_STORY_CONFIRMED, 7)) is True
     assert not client.calls
 
@@ -122,14 +122,14 @@ def test_handle_story_created_network_error_still_acks():
         def request(self, method, path, **kw):
             raise ConnectionError("boom")
 
-    w = workflow_worker.WorkflowConsumer(_cfg(), client=_ErrClient())
+    w = workflow_processor.WorkflowConsumer(_cfg(), client=_ErrClient())
     assert w.handle_message(_msg(EVENT_STORY_CREATED, 9)) is True
 
 
 def test_handle_story_ready_unknown_event_acks():
     """story.ready 已随 Story 评审下线，作为未识别事件直接 ack（不触发 HTTP）。"""
     client = _FakeClient(_FakeResponse(200, {"items": []}))
-    w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
+    w = workflow_processor.WorkflowConsumer(_cfg(), client=client)
     assert w.handle_message(_msg(EVENT_STORY_READY, 1)) is True
     assert not client.calls
     before = len(client.calls)
@@ -138,7 +138,7 @@ def test_handle_story_ready_unknown_event_acks():
 
 
 def test_handle_unknown_event_acks():
-    w = workflow_worker.WorkflowConsumer(_cfg(), client=_FakeClient())
+    w = workflow_processor.WorkflowConsumer(_cfg(), client=_FakeClient())
     assert w.handle_message(_msg("bogus.event", 1)) is True
 
 
@@ -158,7 +158,7 @@ def test_run_poll_once_assigns_in_review_tasks():
         return orig_get(path, **kw)
 
     client.get = _get
-    w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
+    w = workflow_processor.WorkflowConsumer(_cfg(), client=client)
     n = w.run_poll_once()
     assert n == 1
     assert ("POST", "/api/tasks/2/assign-reviewer") in client.calls
@@ -171,7 +171,7 @@ def test_run_poll_once_assigns_in_review_tasks():
 
 def test_run_mq_forever_falls_back_to_poll_when_mq_disabled():
     stop = threading.Event()
-    w = workflow_worker.WorkflowConsumer(_cfg(), client=_FakeClient())
+    w = workflow_processor.WorkflowConsumer(_cfg(), client=_FakeClient())
     stop.set()  # 立即退出轮询
     stats = w.run_mq_forever(stop=stop)
     assert stats["mode"] == "poll"

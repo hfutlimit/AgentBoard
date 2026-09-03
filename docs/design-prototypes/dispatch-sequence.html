@@ -401,7 +401,7 @@ sequenceDiagram
     DW->>API: POST /api/tasks/{tid}/claim
     alt 竞争成功 (rowcount=1)
         API-->>DW: 200 task (status=in_progress)
-        DW->>DA: invoke(context)<br/>(SubprocessAgentInvoker)
+        DW->>DA: invoke(context)<br/>(SubprocessProcessorInvoker)
         DA->>API: 推进 task (MCP: update_task/comment)
         DA->>API: POST /api/tasks/{tid}/submit-review
         API->>DB: UPDATE status=in_review (CAS)

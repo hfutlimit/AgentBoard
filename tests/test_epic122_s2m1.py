@@ -34,7 +34,7 @@ for _m in list(sys.modules):
     if _m == "agentboard" or _m.startswith("agentboard."):
         del sys.modules[_m]
 
-from agentboard import api, auth, mq, service, workflow_worker  # noqa: E402
+from agentboard import api, auth, mq, service, workflow_processor  # noqa: E402
 from agentboard.database import SessionLocal, init_db  # noqa: E402
 from agentboard.models import Task  # noqa: E402
 from agentboard.mq import (
@@ -299,7 +299,7 @@ class _FakeClient:
 
 
 def _cfg():
-    return workflow_worker.WorkflowConsumerConfig(
+    return workflow_processor.WorkflowConsumerConfig(
         api_url="http://test", token="t", mq=mq.MQConfig())
 
 
@@ -312,7 +312,7 @@ def test_story_ready_broadcasts_available_tasks(seeded):
         {"id": 13, "status": "in_progress"},
         {"id": 14, "status": "done"},
     ]}))
-    w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
+    w = workflow_processor.WorkflowConsumer(_cfg(), client=client)
     with mock.patch.object(mq, "publish_workflow_event") as pub:
         assert w._broadcast_available_tasks(5) is True
     assert ("GET", "/api/stories/5/tasks") in client.calls
@@ -326,7 +326,7 @@ def test_story_ready_no_claimable_tasks_no_broadcast(seeded):
     client = _FakeClient(_FakeResponse(200, {"items": [
         {"id": 13, "status": "in_progress"},
     ]}))
-    w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
+    w = workflow_processor.WorkflowConsumer(_cfg(), client=client)
     with mock.patch.object(mq, "publish_workflow_event") as pub:
         assert w._broadcast_available_tasks(6) is True
     pub.assert_not_called()
@@ -336,7 +336,7 @@ def test_story_confirmed_acks_and_http_error_tolerated(seeded):
     """story.confirmed 由 Proposal Worker 轮询兜底执行：本 Worker 恒 ack；
     网络异常也 ack（不触发 HTTP，无重投语义）。"""
     client = _FakeClient(_FakeResponse(500, text="boom"))
-    w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
+    w = workflow_processor.WorkflowConsumer(_cfg(), client=client)
     assert w.handle_message(
         WorkflowMessage(event=EVENT_STORY_CONFIRMED, entity_type="story",
                         entity_id=7, ref_id=3)) is True
@@ -347,7 +347,7 @@ def test_task_ready_for_review_triggers_assign(seeded):
     """task.ready_for_review → 自动指派 Task reviewer（切片 2 M2 闭环入口）。"""
     client = _FakeClient(_FakeResponse(
         200, {"id": 21, "reviewer_id": 9, "status": "in_review"}))
-    w = workflow_worker.WorkflowConsumer(_cfg(), client=client)
+    w = workflow_processor.WorkflowConsumer(_cfg(), client=client)
     assert w.handle_message(
         WorkflowMessage(event=EVENT_TASK_READY_FOR_REVIEW, entity_type="task",
                         entity_id=21, ref_id=4)) is True

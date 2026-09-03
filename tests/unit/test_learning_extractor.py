@@ -6,8 +6,8 @@ if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
 import pytest
-from agentboard.agent_runtime.learning.evaluator import LearningCategory, LearningTriggerEvent
-from agentboard.agent_runtime.learning.extractor import LearningExtractor, learning_extractor
+from agentboard.processors.learning.evaluator import LearningCategory, LearningTriggerEvent
+from agentboard.processors.learning.extractor import LearningExtractor, learning_extractor
 
 
 def test_learning_extractor_produces_structured_lesson():

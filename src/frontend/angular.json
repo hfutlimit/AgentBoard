@@ -153,7 +153,7 @@
         }
       }
     },
-    "worker-portal": {
+    "processor-portal": {
       "projectType": "application",
       "schematics": {
         "@schematics/angular:class": {
@@ -181,22 +181,22 @@
           "skipTests": true
         }
       },
-      "root": "projects/worker-portal",
-      "sourceRoot": "projects/worker-portal/src",
+      "root": "projects/processor-portal",
+      "sourceRoot": "projects/processor-portal/src",
       "prefix": "app",
       "architect": {
         "build": {
           "builder": "@angular/build:application",
           "options": {
-            "browser": "projects/worker-portal/src/main.ts",
-            "tsConfig": "projects/worker-portal/tsconfig.app.json",
+            "browser": "projects/processor-portal/src/main.ts",
+            "tsConfig": "projects/processor-portal/tsconfig.app.json",
             "assets": [
               {
                 "glob": "**/*",
-                "input": "projects/worker-portal/public"
+                "input": "projects/processor-portal/public"
               }
             ],
-            "styles": ["projects/worker-portal/src/styles.css"]
+            "styles": ["projects/processor-portal/src/styles.css"]
           },
           "configurations": {
             "production": {
@@ -226,10 +226,10 @@
           "builder": "@angular/build:dev-server",
           "configurations": {
             "production": {
-              "buildTarget": "worker-portal:build:production"
+              "buildTarget": "processor-portal:build:production"
             },
             "development": {
-              "buildTarget": "worker-portal:build:development"
+              "buildTarget": "processor-portal:build:development"
             }
           },
           "defaultConfiguration": "development"
