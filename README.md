@@ -131,7 +131,7 @@ src/backend-fastapi/agentboard/
 src/backend-fastapi/   # FastAPI、MCP、Alembic、Python 依赖配置
 src/backend-dotnet/    # .NET BFF 源码、测试、合同和 SDK 配置
 src/frontend/          # Angular 21 源码、路由、类型化 API 服务
-src/nodes/           # ProposalWorker 异步执行器
+src/nodes/           # AgentBoard.Node 异步执行器（.NET 执行节点）
 tests/
   conftest.py           # 共享 pytest 工厂 fixture(uname/make_user/auth_headers/...)
   test_domain_boundaries.py  # Phase 2 架构边界护栏

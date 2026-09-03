@@ -96,11 +96,11 @@ function Start-PyWorker([string]$Name, [string[]]$ArgList) {
 Start-PyWorker 'proposal' @('-m', 'agentboard.processors', '--loop')
 
 # ---- 进程 2：Workflow 分配器 Worker（评审指派，与 agent 通道无关）----
-Start-PyWorker 'workflow' @('-m', 'agentboard.workflow_worker', '--loop')
+Start-PyWorker 'workflow' @('-m', 'agentboard.workflow_processor', '--loop')
 
 # ---- 进程 3：本机配置台（项目 cwd / Agent 池配置 SPA，127.0.0.1 免登录）----
 $PortalPort = if ($env:AGENTBOARD_PORTAL_PORT) { $env:AGENTBOARD_PORTAL_PORT } else { '18240' }
-Start-PyWorker 'portal' @('-m', 'agentboard.processors_portal', '--host', '127.0.0.1', '--port', $PortalPort)
+Start-PyWorker 'portal' @('-m', 'agentboard.processor_portal', '--host', '127.0.0.1', '--port', $PortalPort)
 
 Set-Content -Path $PidFile -Value $pids -Encoding UTF8
 Write-Host "`npid 文件：$PidFile"

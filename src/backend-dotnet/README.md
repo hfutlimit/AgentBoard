@@ -13,7 +13,7 @@
 | `src/AgentBoard.Application` | Application | `IProvider` / `IService` / `IRepository<T>` / DTO / 业务编排（无 EF Core 引用） |
 | `src/AgentBoard.Domain` | Domain | 纯 C# 领域模型（Entity / ValueObject / DomainEvent / Enum） |
 | `src/AgentBoard.Infrastructure` | Infrastructure | EF Core `AppDbContext` + 3 SaveChanges Interceptors + `Repository<T>` 实现 |
-| `../workers/AgentBoard.ProposalWorker` | Worker | 独立部署的 .NET Proposal Worker（不属于当前 BFF solution） |
+| `../nodes/AgentBoard.Node` | Worker | 独立部署的 .NET Proposal Worker（不属于当前 BFF solution） |
 | `tests/AgentBoard.Api.Tests` | Tests | xUnit 单元 / 集成 / 契约测试 |
 | `tests/AgentBoard.Infrastructure.Tests` | Tests | 仓储 CRUD + 拦截器 + NetArchTest 架构护栏 |
 

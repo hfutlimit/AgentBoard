@@ -4,7 +4,7 @@ Local .NET Worker deploy for KnowledgeVault E2E (id=8).
 Pipeline:
   1. Load tokens from tmp/remote_service_users.json (wb_main + codex_main + admin).
   2. Inject tokens into appsettings.Local.json (StartToken / per-agent AgentBoardToken / Portal.ApiKey).
-  3. dotnet build src/nodes/AgentBoard.ProposalProcessor
+  3. dotnet build src/nodes/AgentBoard.Node
   4. Set env (MINIMAX_API_KEY, DOTNET_ENVIRONMENT=Local).
   5. Start the worker in background, capture pid + out/err log paths.
 
@@ -17,7 +17,7 @@ $ErrorActionPreference = 'Stop'
 # 'D:\AI\Projects\AgentBoard', which broke on other machines. $PSScriptRoot is
 # the directory containing this .ps1.
 $Root = if ($PSScriptRoot) { Split-Path -Parent $PSScriptRoot } else { 'D:\AI\Projects\AgentBoard' }
-$WorkerRoot = Join-Path $Root 'src\nodes\AgentBoard.ProposalProcessor'
+$WorkerRoot = Join-Path $Root 'src\nodes\AgentBoard.Node'
 $BinDir = Join-Path $WorkerRoot 'bin\Debug\net10.0'
 $SettingsPath = Join-Path $WorkerRoot 'appsettings.Local.json'
 $SecretsPath = Join-Path $Root 'tmp\remote_service_users.json'
@@ -71,12 +71,12 @@ if (-not $template.Contains($deploy_ph)) {
 # 旧的 worker 进程要停掉（先停再 build，否则 apphost.exe 被锁无法 copy）
 # PowerShell 5.1 + dotnet apphost 在某些 host 下 [System.Diagnostics.Process]::GetProcessesByName
 # 返回 $null（找不到时），跟直接 dotnet 调 .NET API 行为不一致；用 taskkill 绕过。
-Write-Host "[deploy] killing any running AgentBoard.ProposalProcessor via taskkill..."
+Write-Host "[deploy] killing any running AgentBoard.Node via taskkill..."
 # taskkill 找不到进程时 exit 128 并写 stderr；ErrorActionPreference='Stop' 会让 throw
 # 所以用 | Out-String 一次拿全 stdout+stderr，再 reset 偏好容忍非零退出
 $prevPref = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
-$tk = & taskkill /F /IM 'AgentBoard.ProposalProcessor.exe' 2>&1 | Out-String
+$tk = & taskkill /F /IM 'AgentBoard.Node.exe' 2>&1 | Out-String
 $ErrorActionPreference = $prevPref
 Write-Host ("[deploy] taskkill output: {0}" -f $tk.Trim())
 Start-Sleep -Seconds 2
@@ -114,7 +114,7 @@ $err = Join-Path $LogDir 'worker.err.log'
 
 Write-Host "[deploy] starting worker -> logs/worker.{out,err}.log"
 Set-Location $BinDir
-$exe = Join-Path $BinDir 'AgentBoard.ProposalProcessor.exe'
+$exe = Join-Path $BinDir 'AgentBoard.Node.exe'
 $proc = Start-Process -FilePath $exe -WorkingDirectory $BinDir `
     -RedirectStandardOutput $out -RedirectStandardError $err `
     -WindowStyle Hidden -PassThru

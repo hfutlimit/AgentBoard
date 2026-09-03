@@ -34,11 +34,11 @@ WORKER_DLL = (
     ROOT
     / "src"
     / "workers"
-    / "AgentBoard.ProposalProcessor"
+    / "AgentBoard.Node"
     / "bin"
     / "Release"
     / "net10.0"
-    / "AgentBoard.ProposalProcessor.dll"
+    / "AgentBoard.Node.dll"
 )
 RUN_REAL = os.getenv("AGENTBOARD_RUN_GOLDEN_CROSS_STACK") == "1"
 DB_URL = os.getenv("AGENTBOARD_GOLDEN_DB_URL", "")
@@ -158,7 +158,7 @@ def _worker_env(
 def test_proposal_full_happy_path(tmp_path: Path):
     assert WORKER_DLL.exists(), (
         "build the worker first: dotnet build "
-        "src/nodes/AgentBoard.ProposalProcessor/AgentBoard.ProposalProcessor.csproj "
+        "src/nodes/AgentBoard.Node/AgentBoard.Node.csproj "
         "-c Release"
     )
     run_id = uuid.uuid4().hex[:10]

@@ -188,16 +188,16 @@ def _repo_root() -> Path:
 
 
 def _web_dist() -> Path:
-    """Angular build output directory (src/frontend/dist/worker-portal/browser)."""
+    """Angular build output directory (src/frontend/dist/processor-portal/browser)."""
     root = _repo_root()
     candidates = (
-        root / "src" / "frontend" / "dist" / "worker-portal" / "browser",
-        root / "frontend" / "dist" / "worker-portal" / "browser",
+        root / "src" / "frontend" / "dist" / "processor-portal" / "browser",
+        root / "frontend" / "dist" / "processor-portal" / "browser",
     )
     p = next((candidate for candidate in candidates if candidate.exists()), candidates[0])
     if not p.exists():
         # Direct deployments may drop dist next to this module.
-        p = _repo_root() / "worker-portal-dist"
+        p = _repo_root() / "processor-portal-dist"
     return p
 
 
@@ -592,7 +592,7 @@ def create_app(
     _stop_event = _threading.Event()
     _http_ping_thread = _threading.Thread(
         target=_http_ping_loop,
-        name=f"worker-portal-http-ping[{local_worker_id}]",
+        name=f"processor-portal-http-ping[{local_worker_id}]",
         daemon=True,
     )
     if ephemeral_agents_enabled():

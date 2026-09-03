@@ -106,7 +106,7 @@ def run_via_testclient():
 
     # ---------- 2. start Python workflow_worker thread (PR-4 internal_queue) ----------
     banner("Step 2: start Python workflow_worker thread")
-    from agentboard.workflow_worker import WorkflowConsumer, WorkflowConsumerConfig
+    from agentboard.workflow_processor import WorkflowConsumer, WorkflowConsumerConfig
     cfg = WorkflowConsumerConfig(
         api_url="http://test-internal",  # 不真用（直接调 API 也行）
         token=None,

@@ -13,7 +13,7 @@ namespace AgentBoard.Node.Execution;
 /// from the inbox row to route to the right adapter.
 ///
 /// Routing rules (2026-08-30 review follow-up — close the orchestration
-/// gap so ProposalWorker can stop being proposal-only):
+/// gap so AgentBoard.Node can stop being proposal-only):
 /// <list type="bullet">
 ///   <item><c>task.available</c> / <c>task.assigned</c> → developer claims
 ///         a Task and runs the implementation CLI.</item>

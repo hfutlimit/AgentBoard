@@ -74,7 +74,7 @@ public sealed record SoakOptions
     private static void PrintHelp()
     {
         Console.WriteLine("""
-            Soak harness for AgentBoard ProposalWorker.
+            Soak harness for AgentBoard Node.
             Drives a fake producer against the in-process ExecutionDispatcher +
             Channel + InboxStore stack and samples metrics for the configured
             duration. Default 1h at 50 req/s.

@@ -24,16 +24,21 @@ builder.Host.UseWindowsService(options => options.ServiceName = "AgentBoard Prop
 builder.WebHost.UseUrls(builder.Configuration["Portal:Urls"] ?? "http://127.0.0.1:58240");
 
 // ---- Options ---------------------------------------------------------------
-// P7b: ``Node`` is the canonical configuration section. The legacy ``Worker``
-// section is still honoured for one release so an already-deployed
-// appsettings.Local.json keeps booting after the rename, and so a rollback
-// (dropping the ``Node`` section again) does not strand a live install.
-var nodeSection = builder.Configuration.GetSection("Node");
-if (!nodeSection.Exists())
+// P7b: ``Node`` is the canonical configuration section, ``Worker`` is the
+// legacy alias kept for one release. BOTH are bound - ``Worker`` first as the
+// baseline, then ``Node`` overriding only the keys that are actually present
+// and non-empty.
+//
+// A section-level ``Exists()`` fallback is NOT sufficient here: appsettings.json
+// always ships a ``Node`` section, so ``if (!node.Exists()) use worker`` is dead
+// code and an operator-configured ``Worker`` section (the only one an
+// already-deployed appsettings.Local.json has) would be silently ignored,
+// leaving Id at its empty placeholder and breaking registration + /health.
+builder.Services.Configure<NodeOptions>(options =>
 {
-    nodeSection = builder.Configuration.GetSection("Worker");
-}
-builder.Services.Configure<NodeOptions>(nodeSection);
+    builder.Configuration.GetSection("Worker").Bind(options);
+    NodeOptions.BindNonEmpty(builder.Configuration.GetSection("Node"), options);
+});
 builder.Services.Configure<RabbitMqOptions>(builder.Configuration.GetSection("RabbitMq"));
 builder.Services.Configure<AgentsOptions>(builder.Configuration.GetSection("Agents"));
 builder.Services.Configure<AgentBoardOptions>(builder.Configuration.GetSection("AgentBoard"));

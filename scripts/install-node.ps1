@@ -86,7 +86,7 @@ $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $true
 
 $ServiceName = 'AgentBoard Proposal Worker'
-$ServiceExe = Join-Path $InstallDir 'AgentBoard.ProposalProcessor.exe'
+$ServiceExe = Join-Path $InstallDir 'AgentBoard.Node.exe'
 $PortalBase = 'http://127.0.0.1:58240'
 
 # Captured at pre-flight so we can compare against the post-install service
@@ -479,7 +479,7 @@ if ([string]::IsNullOrWhiteSpace($PortalApiKey)) {
 # ---------------------------------------------------------------------------
 # 2026-08-29 review fix: the previous flow ran `dotnet publish` first and
 # only stopped+removed the existing service after. On a re-install the
-# running AgentBoard.ProposalProcessor.exe holds a Windows file lock on its
+# running AgentBoard.Node.exe holds a Windows file lock on its
 # own binary and the publish either failed outright or left a half-
 # overwritten install dir (mixed version). Stop + remove the existing
 # service before publish so the install dir is not locked.
@@ -523,7 +523,7 @@ if (Test-Path $BackupDir) { Remove-Item -Path $BackupDir -Recurse -Force }
 
 Write-Section "Publishing worker to staging ($StagingDir)"
 
-$workerProject = Join-Path $RepoRoot 'src\nodes\AgentBoard.ProposalProcessor\AgentBoard.ProposalProcessor.csproj'
+$workerProject = Join-Path $RepoRoot 'src\nodes\AgentBoard.Node\AgentBoard.Node.csproj'
 if (-not (Test-Path $workerProject)) {
     throw "Worker project not found at $workerProject"
 }
@@ -759,7 +759,7 @@ function Invoke-InstallRollback {
 Write-Section "Writing appsettings.Production.json"
 
 $appsettingsProd = Join-Path $InstallDir 'appsettings.Production.json'
-$template = Join-Path $RepoRoot 'src\nodes\AgentBoard.ProposalProcessor\appsettings.Production.json'
+$template = Join-Path $RepoRoot 'src\nodes\AgentBoard.Node\appsettings.Production.json'
 if (-not (Test-Path $template)) {
     throw "Production template not found at $template"
 }
@@ -768,6 +768,12 @@ if (-not (Test-Path $template)) {
 # characters in operator-supplied values remain valid JSON.
 $raw = Get-Content $template -Raw -Encoding UTF8
 $config = $raw | ConvertFrom-Json
+# P7b: ``Node`` is the section the current binary reads; ``Worker`` is the
+# legacy alias kept for one release (and for a rollback to the previous binary,
+# which only understands ``Worker``). Write both so either build boots with the
+# right worker id - writing only ``Worker`` would leave ``Node.Id`` at the
+# shipped placeholder and break registration + /health.
+$config.Node.Id = $WorkerId
 $config.Worker.Id = $WorkerId
 $config.RabbitMq.Uri = $AmqpUri
 $config.Portal.ApiKey = $PortalApiKey

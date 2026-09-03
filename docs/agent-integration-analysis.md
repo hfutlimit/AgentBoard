@@ -14,7 +14,7 @@ worker 端两层架构都有接缝，**多数 Agent 已在仓库里有代码**�
 - `AgentConfig Center`（`docs/agent-config-center.md`）：同 CLI 多 Agent + `{model}` 占位符，Worker 周期 `--version` 探活
 - `minimax_invoker.py` / `minimax_invoker.py`：MiniMax 直打 API 桥接
 
-### 1.2 C# ProposalProcessor 层（`src/workers/AgentBoard.ProposalProcessor/`）
+### 1.2 C# Node 层（`src/nodes/AgentBoard.Node/`）
 
 - `WorkBuddyRunner.cs`：拉起 `workbuddy`（实际是 codebuddy CLI，subprocess + stdin），生产正在跑
 - `appsettings.json` 里 `WorkBuddy:Command/WorkingDirectory/TimeoutMinutes` 是配置项

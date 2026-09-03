@@ -78,7 +78,7 @@
 | 类别 | 旧 | 新 | 备注 |
 |---|---|---|---|
 | **真实现目录** | `agentboard/agent_runtime/` (36 .py) | `agentboard/processors/` | 36 .py 全部 `git mv` + import 改 |
-| **真实现类名** | `class ProposalProcessor`<br>`class ProcessorConfig`<br>`class ProcessorCoordinator`<br>`class ProcessorInvoker` / `SubprocessProcessorInvoker` / `CallableProcessorInvoker` | `class ProposalProcessor`<br>`class ProcessorConfig`<br>`class ProcessorCoordinator`<br>`class ProcessorInvoker` / `SubprocessProcessorInvoker` / `CallableProcessorInvoker` | 类名同步改 |
+| **真实现类名** | `class ProposalWorker`<br>`class WorkerConfig`<br>`class WorkerCoordinator`<br>`class AgentInvoker` / `SubprocessAgentInvoker` / `CallableAgentInvoker` | `class ProposalProcessor`<br>`class ProcessorConfig`<br>`class ProcessorCoordinator`<br>`class ProcessorInvoker` / `SubprocessProcessorInvoker` / `CallableProcessorInvoker` | 类名同步改（不只是方法 rename） |
 | **compat facade #1** | `agentboard/worker/__init__.py` (24 行 re-export) | 删除整目录 | facade 没人 import |
 | **compat facade #2** | `agentboard/features/workers/` (worker.py 3 行 + __init__.py 10 行 re-export + config.py + __main__.py) | 删除整目录 | |
 | **Workflow 分配器** | `agentboard/workflow_worker.py` (在用：`local-start-node-py.ps1:99` + `happy_path_inprocess.py:109`) | `agentboard/workflow_processor.py` | 类名 / module 名同步 |
@@ -96,11 +96,11 @@
 
 | 旧 | 新 | 备注 |
 |---|---|---|
-| `src/nodes/AgentBoard.ProposalProcessor/` (C#) | `src/nodes/AgentBoard.Node/` | client 端统一命名 |
-| `AgentBoard.ProposalProcessor.sln` / `.slnx` | `AgentBoard.Node.sln` / `.slnx` | solution 改名 |
-| `AgentBoard.ProposalProcessor.csproj` (×N) | `AgentBoard.Node.csproj` (×N) | csproj 改名 |
-| `namespace AgentBoard.ProposalProcessor;` | `namespace AgentBoard.Node;` | 全 .cs 文件 namespace 改 |
-| `AgentBoard.ProposalProcessor.Tests/` | `AgentBoard.Node.Tests/` | 测试 project 改名（38 个测试 namespace 迁移） |
+| `src/workers/AgentBoard.ProposalWorker/` (C#) | `src/nodes/AgentBoard.Node/` | client 端统一命名 |
+| `AgentBoard.ProposalWorker.sln` / `.slnx` | `AgentBoard.Node.sln` / `.slnx` | solution 改名 |
+| `AgentBoard.ProposalWorker.csproj` (×N) | `AgentBoard.Node.csproj` (×N) | csproj 改名 |
+| `namespace AgentBoard.ProposalWorker;` | `namespace AgentBoard.Node;` | 全 .cs 文件 namespace 改 |
+| `AgentBoard.ProposalWorker.Tests/` | `AgentBoard.Node.Tests/` | 测试 project 改名（38 个测试 namespace 迁移） |
 | `WorkerOptions` 类（`Options.cs:7`，**不是 `AgentBoardWorkerOptions`**） | `NodeOptions` 类 | .NET 配置类；**双读 `Worker:` / `Node:` 段 1 release** 兼容期 |
 | 6 个 adapter：`WorkBuddyAdapter` / `CodexAdapter` / `QwenAdapter` / `MiniMaxAdapter` / `FakeAdapter` / `DeterministicScenarioAdapter` | 不动（已经是 `*Adapter`，**不是 Runner**） | 命名已正确 |
 | `IAgentAdapterRegistry` / `AgentAdapterRegistry` | 不动 | |
@@ -418,11 +418,11 @@ Service 已经选 single-owner 语义（`resolve_project_owner` 多 owner 时按
 
 见 §2。**这是 P7 commit 的第一优先级**。
 
-### 7.7 两套 Worker Agent 配置（Python worker.py + .NET ProposalProcessor） → P7 + 后续合并
+### 7.7 两套 Worker Agent 配置（Python processors/worker.py + .NET AgentBoard.Node） → P7 + 后续合并
 
 **当前状态**（v3 修正版）：
 - Python 真实现 `agentboard/agent_runtime/`（P7b 改名为 `agentboard/processors/`）通过 local SQLite 读 Agent config
-- .NET `src/nodes/AgentBoard.ProposalProcessor/`（P7b 改名为 `src/nodes/AgentBoard.Node/`）`appsettings.Local.template.json` 硬编码 **10 个** agent 槽（不是 6 个）：WorkBuddy / MiniMax / Codex / Qwen / Fake / Scenario / M3 / M27 / Hy4 / Glm53F
+- .NET `src/nodes/AgentBoard.Node/`（P7b 从 `src/workers/AgentBoard.ProposalWorker/` 改名）`appsettings.Local.template.json` 硬编码 **10 个** agent 槽（不是 6 个）：WorkBuddy / MiniMax / Codex / Qwen / Fake / Scenario / M3 / M27 / Hy4 / Glm53F
 
 **P7 阶段修法**：
 - 命名规范：C# 项目重命名 `AgentBoard.Node`
@@ -470,7 +470,7 @@ Service 已经选 single-owner 语义（`resolve_project_owner` 多 owner 时按
 ### 7.11 Agent ≠ Adapter 严格化（AgentsOptions 硬编码）
 
 **当前状态**：
-- `src/nodes/AgentBoard.ProposalProcessor/AgentsOptions.cs` 硬编码 6 个 slot
+- `src/nodes/AgentBoard.Node/Options.cs` 硬编码 6 个 slot
 - 改 Agent = 改代码 + 重新部署
 
 **P7 修法**：
@@ -514,9 +514,9 @@ Service 已经选 single-owner 语义（`resolve_project_owner` 多 owner 时按
 | Task | 文件 | 改动量 |
 |---|---|---|
 | Python: rename `features/workers/` → `features/processors/` | 多文件 | 中（import / 路径） |
-| Python: rename `agentboard.processors` module → `agentboard.processors` | 多文件 | 中 |
-| .NET: rename `src/nodes/AgentBoard.ProposalProcessor/` → `src/nodes/AgentBoard.Node/` | 1 project | 大 |
-| .NET: rename `AgentBoard.ProposalProcessor.exe` → `AgentBoard.Node.exe` | csproj | 小 |
+| Python: rename `agentboard.agent_runtime` module → `agentboard.processors` | 多文件 | 中 |
+| .NET: rename `src/workers/AgentBoard.ProposalWorker/` → `src/nodes/AgentBoard.Node/` | 1 project | 大 |
+| .NET: rename `AgentBoard.ProposalWorker.exe` → `AgentBoard.Node.exe` | csproj | 小 |
 | .NET: `AgentsOptions` 删 → `AgentBoardNodeOptions` | cs | 中 |
 | 更新所有 doc / OpenSpec / architecture-v2 / mcp-agent-guide 引用 | 多 | 中 |
 | 更新 deploy 脚本路径 | deploy scripts | 中 |
@@ -572,8 +572,8 @@ Service 已经选 single-owner 语义（`resolve_project_owner` 多 owner 时按
 ### Phase 0 完成
 
 - [ ] `features/workers/` 路径全 codebase 0 命中
-- [ ] `agentboard.processors` import 全 codebase 0 命中
-- [ ] `src/nodes/AgentBoard.ProposalProcessor/` 路径 0 命中
+- [ ] `agentboard.agent_runtime` import 全 codebase 0 命中
+- [ ] `src/workers/AgentBoard.ProposalWorker/` 路径 0 命中
 - [ ] `AgentsOptions` 类 0 命中
 - [ ] 所有 docs / OpenSpec / 注释 / 测试名 用 `Node` 不用 `Worker`（指 client 端执行节点）
 - [ ] `pytest -m e2e` 跑通 + .NET 174/174 绿

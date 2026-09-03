@@ -5,12 +5,63 @@ namespace AgentBoard.Node;
 //
 // P7b (2026-09-03): this type used to be ``WorkerOptions`` and was bound to
 // the ``Worker`` configuration section. ``Node`` is now canonical; Program.cs
-// falls back to ``Worker`` when no ``Node`` section is present so existing
-// deployments keep working for one release.
+// binds ``Worker`` first (legacy baseline) and then layers ``Node`` on top with
+// BindNonEmpty so existing deployments keep working for one release.
 // =============================================================================
 
 public sealed class NodeOptions
 {
+    /// <summary>
+    /// P7b: bind a configuration section over an existing options instance,
+    /// skipping keys whose value is null / empty / whitespace.
+    ///
+    /// Needed because appsettings.json ships both a ``Node`` and a ``Worker``
+    /// section. A plain second ``Bind()`` would let the shipped (empty) ``Node``
+    /// placeholders blank out the values an operator configured under
+    /// ``Worker`` in appsettings.Local.json - which is exactly the
+    /// "worker_id stays empty, registration + /health break" failure mode.
+    /// Layering non-empty values only keeps ``Node`` authoritative while
+    /// leaving untouched legacy values intact.
+    /// </summary>
+    public static void BindNonEmpty(IConfigurationSection section, object target)
+    {
+        if (!section.Exists())
+        {
+            return;
+        }
+
+        var scratch = Activator.CreateInstance(target.GetType());
+        if (scratch is null)
+        {
+            return;
+        }
+
+        section.Bind(scratch);
+        foreach (var property in target.GetType().GetProperties())
+        {
+            if (!property.CanRead || !property.CanWrite)
+            {
+                continue;
+            }
+            if (property.GetIndexParameters().Length > 0)
+            {
+                continue;
+            }
+
+            var value = property.GetValue(scratch);
+            if (value is null)
+            {
+                continue;
+            }
+            if (value is string text && string.IsNullOrWhiteSpace(text))
+            {
+                continue;
+            }
+
+            property.SetValue(target, value);
+        }
+    }
+
     public string Id { get; set; } = Environment.MachineName;
     public int HeartbeatSeconds { get; set; } = 15;
     public string HistoryDatabasePath { get; set; } = "data\\proposal-worker.db";
