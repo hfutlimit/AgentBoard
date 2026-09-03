@@ -107,6 +107,49 @@ def test_get_story_project_id(session, project):
     assert get_story_project_id(session, s.id) == project.id
 
 
+def test_create_story_default_design_auto_review(session, project):
+    """create_story 默认 design_needs_human_confirmation=False。
+
+    2026-09-03 (Mavis)：多 AI 互相审核达成一致的产品策略下，design 完成后
+    应自动进 agent review 流而不是等 user_confirm。低层 create_task(type=design)
+    的默认仍是 True（向后兼容历史 caller），create_story 是用户/提案的主入口，
+    这里把默认改成 False，让 create_epic / create_story / proposal 转化 三条
+    高层路径都直接走自动 review。
+    """
+    from agentboard.features.work_items.service import list_tasks
+    from agentboard.features.work_items.models import ItemType
+    e = create_epic(session, project_id=project.id, title="e", description="")
+    s = create_story(session, epic_id=e.id, title="S-default", description="")
+    tasks = list_tasks(session, story_id=s.id, limit=10)
+    design = [t for t in tasks if t.type == ItemType.DESIGN.value]
+    assert len(design) == 1, f"应该自动创建一个 design task，实际 {len(design)} 个"
+    assert design[0].needs_human_confirmation is False, (
+        "create_story 默认 design task 应直接进 agent review，"
+        "而不是等 user_confirm。如果要走 HITL，调用方需要显式传 "
+        "design_needs_human_confirmation=True。"
+    )
+
+
+def test_create_story_explicit_human_confirmation_true(session, project):
+    """create_story 显式传 design_needs_human_confirmation=True 仍走 HITL。
+
+    回归测试：显式覆盖不应该被新默认静默吞掉。
+    """
+    from agentboard.features.work_items.service import list_tasks
+    from agentboard.features.work_items.models import ItemType
+    e = create_epic(session, project_id=project.id, title="e", description="")
+    s = create_story(
+        session, epic_id=e.id, title="S-hitl", description="",
+        design_needs_human_confirmation=True,
+    )
+    tasks = list_tasks(session, story_id=s.id, limit=10)
+    design = [t for t in tasks if t.type == ItemType.DESIGN.value]
+    assert len(design) == 1
+    assert design[0].needs_human_confirmation is True, (
+        "显式 design_needs_human_confirmation=True 必须穿透默认"
+    )
+
+
 # ---- Sprint -------------------------------------------------------------
 
 def test_create_and_list_sprint(session, project):

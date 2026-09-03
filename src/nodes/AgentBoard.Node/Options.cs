@@ -163,14 +163,20 @@ public sealed class AgentOptions
     /// </summary>
     public string AgentId { get; set; } = "";
     /// <summary>
-    /// P0-1 (2026-09-01)：per-agent FastAPI bearer token。设置后本 agent 的
-    /// register / instance / heartbeat 都以这个身份调用，使同一台 worker 上的
-    /// 多个 agent 拿到不同的 user_id —— reviewer isolation
-    /// （assign_task_reviewer 排除 a.user_id == task.assignee_id）依赖这一点，
-    /// 否则单机 WorkBuddy + Codex 会因为同 user 互相当不了 reviewer，happy path
-    /// 卡死在第一次 Design review。
-    /// 空 = 回退 AgentBoardOptions.StartupToken（旧行为：所有 agent 共用一个
-    /// 服务账号，多 agent 协作时评审隔离会失效）。
+    /// Per-agent FastAPI bearer token (optional). When set, this agent's
+    /// register / instance / heartbeat calls use the given token (binding
+    /// the agent to its own FastAPI user identity); when empty, the agent
+    /// falls back to the shared <see cref="AgentBoardOptions.StartupToken"/>.
+    ///
+    /// Reviewer isolation is enforced at the **Agent** level (not the user
+    /// level): the server excludes the implementation Agent from reviewer
+    /// candidates, but does NOT exclude the implementation user. Multiple
+    /// Agents of the same owner can therefore review each other's work
+    /// because they are distinct Agent identities, even when they share a
+    /// FastAPI user. On a single machine running WorkBuddy + Codex, the
+    /// default happy-path is to register both under the same user; the
+    /// previous "one FastAPI user per agent" guidance has been retired
+    /// (2026-09-03, P7b / multi-AI isolation redesign).
     /// </summary>
     public string AgentBoardToken { get; set; } = "";
     /// <summary>

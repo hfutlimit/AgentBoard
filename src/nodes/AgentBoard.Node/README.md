@@ -27,13 +27,19 @@ then replace at least:
   agent entirely — CLI auto-discovery (`CliLocator`) only affects execution,
   NOT registration: an agent with an empty Command is invisible to the
   scheduler.
-- `Agents:*:AgentBoardToken`: per-agent FastAPI service-user token. Reviewer
-  isolation (the server excludes candidates whose `user_id` equals the task
-  assignee) REQUIRES distinct identities per logical agent: register one
-  FastAPI user per agent (e.g. `service-user-wb` / `service-user-codex`), add
-  both to the project as members, and paste their tokens here. Empty = falls
-  back to the shared `AgentBoard:StartupToken`, which breaks multi-agent
-  review on a single machine.
+- `Agents:*:AgentBoardToken`: per-agent FastAPI bearer token (optional).
+  When set, this agent's register / instance / heartbeat calls use the
+  given token (binding the agent to its own FastAPI user identity); when
+  empty, the agent falls back to the shared `AgentBoard:StartupToken`.
+
+  Reviewer isolation is enforced at the **Agent** level (not the user
+  level): the server excludes the implementation *Agent* from reviewer
+  candidates, but does **not** exclude the implementation user. Multiple
+  Agents under the same owner can still review each other's work because
+  they are distinct Agent identities, even when they share a FastAPI
+  user. On a single machine with WorkBuddy + Codex, the default
+  happy-path configuration is to register both under the same FastAPI
+  user — there is no need to create one service-user per agent.
 - `Portal:ApiKey`: a long random secret; the portal requires it in
   `X-AgentBoard-Worker-Key` (the header name is part of the existing portal
   contract and is deliberately unchanged).

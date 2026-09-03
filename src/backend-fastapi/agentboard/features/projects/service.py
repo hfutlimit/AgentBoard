@@ -865,7 +865,10 @@ def update_story(s: Session, id: int, **fields) -> Story | None:
 def create_story(s: Session, *, epic_id: int, title: str, description: str = "",
                  needs_design: bool = True, commit: bool = True,
                  create_default_tasks: bool = True,
-                 design_needs_human_confirmation: bool = True,
+                 # 2026-09-03 (Mavis): 默认 False —— design 完成自动进 agent review 流，
+                 # 与多 AI 互相审核达成一致的产品策略对齐；user_confirm 端点仍保留，
+                 # 调用方可以显式传 True 走 HITL 流程。
+                 design_needs_human_confirmation: bool = False,
                  created_by_user_id: int | None = None) -> Story:
     """创建 Story，并自动创建 2 个默认 Task（2026-08-09 文档 #60）：
 
