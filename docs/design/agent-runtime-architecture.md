@@ -1,12 +1,21 @@
 # AgentBoard Agent / Worker / Runtime Architecture
 
-> **Status**: in design (2026-09-03)
+> **Status**: in design (2026-09-03) · **v3 修正版**（基于 hy4 综合复审）
 > **Author**: Mavis (Mavis@MiniMax.local) + operator
 > **Replaces**: `docs/agent-config-center.md` (2026-08-09) and `docs/agent-integration-analysis.md` (2026-08-13)
 > **Supersedes / extends**: `openspec/changes/agent-ephemeral-2026-09` (draft, P0–P4 done, P5+ below)
+> **Goal mode** (2026-09-03 起): 与 #149 R1 实施计划 + MCP Epic `P7b 命名规范化（彻底改）` 联动
 > **Goal**: 重新定义 **Server Control Plane** vs **Workstation Execution Plane** 的边界，
 > 让 happy path 上每个流程 block（"X 不存在"、dispatch 失败、owner 缺失、worker 越权、ghost agent、
 > 命名冲突）有且仅有一个 clear resolution path。
+
+**v3 修正清单**（基于 hy4 综合复审 v2 + user 决策 = P7b 选 A 彻底改）：
+
+- **§2.1 真实现路径更正**：`agentboard/agent_runtime/` (36 .py) → 改 `agentboard/processors/` 真改名（不是 facade），同时删 2 层 compat facade（`agentboard/worker/` + `agentboard/features/workers/`）+ 改 4 个类名（`ProposalWorker` → `ProposalProcessor` 等）
+- **§2.2 .NET 端类名更正**：`AgentBoardWorkerOptions` 类实际**不存在**（实际是 `Options.cs:7` 的 `WorkerOptions`）；6 个 adapter（不是 Runner）；**`appsettings.Local.template.json` 实际有 10 个 Agent 槽**（WorkBuddy/MiniMax/Codex/Qwen/Fake/Scenario/M3/M27/Hy4/Glm53F），不是 6
+- **§2.2 `Worker:` → `Node:` 兼容读**：保留 `Worker:` 段（appsettings 部署实例已带）+ 同时支持 `Node:` 段（1 release 兼容期）
+- **§6 关联路径更正**：`core/infrastructure/agent_registry_cache.py` 实际在 `agentboard/agent_registry_cache.py`（包顶层）
+- **§7.7 appsettings 槽位数更正**：6 → 10
 
 ---
 
@@ -62,31 +71,42 @@
 
 ## 2. 术语规范化（必须先做，否则 PR 描述全混乱）
 
-### 2.1 Server 端（Python + .NET BFF）
+### 2.1 Server 端（Python + .NET BFF）— 选 A 彻底改
 
-旧名字（main 上现在叫 Worker）→ 新名字：
+旧名字（main 上现在叫 Worker）→ 新名字（真改名 + 删 facade）：
 
-| 旧 | 新 | 职责 |
-|---|---|---|
-| `features/workers/worker.py` (ProposalWorker) | `features/processors/proposal_processor.py` | 后台业务 processor |
-| `features/workers/invokers.py` | `features/processors/invokers.py` | processor 调用的 invocation helper |
-| `features/workers/heartbeat.py` | `features/processors/heartbeat.py` | processor 周期任务 |
-| `features/workers/cli.py` | `features/processors/cli.py` | processor CLI 入口 |
-| `features/workers/handlers/*.py` | `features/processors/handlers/*.py` | processor 业务 handler |
-| `agentboard.worker` (module) | `agentboard.processors` (module) | 顶层包名 |
+| 类别 | 旧 | 新 | 备注 |
+|---|---|---|---|
+| **真实现目录** | `agentboard/agent_runtime/` (36 .py) | `agentboard/processors/` | 36 .py 全部 `git mv` + import 改 |
+| **真实现类名** | `class ProposalWorker`<br>`class WorkerConfig`<br>`class WorkerCoordinator`<br>`class AgentInvoker` / `SubprocessAgentInvoker` / `CallableAgentInvoker` | `class ProposalProcessor`<br>`class ProcessorConfig`<br>`class ProcessorCoordinator`<br>`class ProcessorInvoker` / `SubprocessProcessorInvoker` / `CallableProcessorInvoker` | 类名同步改 |
+| **compat facade #1** | `agentboard/worker/__init__.py` (24 行 re-export) | 删除整目录 | facade 没人 import |
+| **compat facade #2** | `agentboard/features/workers/` (worker.py 3 行 + __init__.py 10 行 re-export + config.py + __main__.py) | 删除整目录 | |
+| **Workflow 分配器** | `agentboard/workflow_worker.py` (在用：`local-start-worker-py.ps1:99` + `happy_path_inprocess.py:109`) | `agentboard/workflow_processor.py` | 类名 / module 名同步 |
+| **Worker Portal** | `agentboard/worker_portal.py` + 前端 `src/frontend/projects/worker-portal` | `agentboard/processor_portal.py` + 前端 `projects/processor-portal` | 同步 |
+| **顶层包名** | `agentboard.agent_runtime` (module) | `agentboard.processors` (module) | |
+
+**改 docstring 的 grep pattern 限定**（避免误伤合法引用）：
+- ✅ 替换：`Worker 后台程序` / `WorkerProcess` / `Worker coordinator` 等**指"server 后台程序"含义**的描述
+- ❌ **不**替换：`worker_id` / `Worker host` / `Worker SQLAlchemy model` / `Worker Node`（指 .NET 执行节点或 DB 表的合法引用）
 
 **核心**：服务端 `Worker` 一词不再表示"执行节点"，仅保留在 `Worker` SQLAlchemy model 里
 （指工作站身份，由 `WorkerProjectMapping` 关联 Project）。
 
-### 2.2 Client 端（执行节点）
+### 2.2 Client 端（执行节点）— 选 A 彻底改
 
 | 旧 | 新 | 备注 |
 |---|---|---|
 | `src/workers/AgentBoard.ProposalWorker/` (C#) | `src/nodes/AgentBoard.Node/` | client 端统一命名 |
-| `AgentBoard.ProposalWorker.exe` | `AgentBoard.Node.exe` | 主进程 |
-| `appsettings.Local.json` 里 `Worker:` section | `appsettings.Local.json` 里 `Node:` section | config 路径 |
-| `AgentBoardWorkerOptions` 类 | `AgentBoardNodeOptions` 类 | .NET 配置类 |
-| `WorkBuddyRunner.cs` / `CodexRunner.cs` / ... | `ExecutorFactory.cs` + `CodexExecutor.cs` / `CodebuddyExecutor.cs` / ... | 按 `Agent.executor_type` dispatch |
+| `AgentBoard.ProposalWorker.sln` / `.slnx` | `AgentBoard.Node.sln` / `.slnx` | solution 改名 |
+| `AgentBoard.ProposalWorker.csproj` (×N) | `AgentBoard.Node.csproj` (×N) | csproj 改名 |
+| `namespace AgentBoard.ProposalWorker;` | `namespace AgentBoard.Node;` | 全 .cs 文件 namespace 改 |
+| `AgentBoard.ProposalWorker.Tests/` | `AgentBoard.Node.Tests/` | 测试 project 改名（38 个测试 namespace 迁移） |
+| `WorkerOptions` 类（`Options.cs:7`，**不是 `AgentBoardWorkerOptions`**） | `NodeOptions` 类 | .NET 配置类；**双读 `Worker:` / `Node:` 段 1 release** 兼容期 |
+| 6 个 adapter：`WorkBuddyAdapter` / `CodexAdapter` / `QwenAdapter` / `MiniMaxAdapter` / `FakeAdapter` / `DeterministicScenarioAdapter` | 不动（已经是 `*Adapter`，**不是 Runner**） | 命名已正确 |
+| `IAgentAdapterRegistry` / `AgentAdapterRegistry` | 不动 | |
+| `appsettings.json` 里 `Worker:` section | **保留** + **新增** `Node:` section | 双读 1 release |
+| `appsettings.Local.template.json` 顶部注释 "WorkBuddy -> Codex -> StartupToken -> Portal.ApiKey order." | 改 "Node: -> Codex -> StartupToken -> Portal.ApiKey order." | 同步改名 |
+| `appsettings.Local.template.json` 实际 10 个 Agent 槽 | **10 个**（WorkBuddy / MiniMax / Codex / Qwen / Fake / Scenario / M3 / M27 / Hy4 / Glm53F） | 实际不是 6 个 |
 
 **理由**：client 端叫 `Node`（节点）最贴"工作站身份"语义。`Runner` 也是备选，但
 `Node` 在分布式系统术语里更标准。
@@ -386,6 +406,7 @@ Service 已经选 single-owner 语义（`resolve_project_owner` 多 owner 时按
 **P5 阶段修法**（合并到 RuntimeEligibilityService 重构）：
 - §6.1 第 4 步 `worker_in_project(s, entry.worker_id, project_id)` 已写入 eligibility chain
 - 旧 `_runnable_instance_for_agent` 保留作为"agent 物理可运行" 的子检查，但 project 授权走 eligibility 链路
+- **注**：cache 模块在包**顶层** `agentboard/agent_registry_cache.py`（不是 `core/infrastructure/...`）
 
 ### 7.5 P0 Design #4 — Worker identity composite key → 推迟
 
@@ -399,9 +420,9 @@ Service 已经选 single-owner 语义（`resolve_project_owner` 多 owner 时按
 
 ### 7.7 两套 Worker Agent 配置（Python worker.py + .NET ProposalWorker） → P7 + 后续合并
 
-**当前状态**：
-- Python `agentboard/worker.py` 通过 local SQLite 读 Agent config
-- .NET `src/workers/AgentBoard.ProposalWorker/appsettings.Local.json` 硬编码 6 个 adapter slot（WorkBuddy / MiniMax / Codex / Qwen / Fake / Scenario）
+**当前状态**（v3 修正版）：
+- Python 真实现 `agentboard/agent_runtime/`（P7b 改名为 `agentboard/processors/`）通过 local SQLite 读 Agent config
+- .NET `src/workers/AgentBoard.ProposalWorker/`（P7b 改名为 `src/nodes/AgentBoard.Node/`）`appsettings.Local.template.json` 硬编码 **10 个** agent 槽（不是 6 个）：WorkBuddy / MiniMax / Codex / Qwen / Fake / Scenario / M3 / M27 / Hy4 / Glm53F
 
 **P7 阶段修法**：
 - 命名规范：C# 项目重命名 `AgentBoard.Node`
