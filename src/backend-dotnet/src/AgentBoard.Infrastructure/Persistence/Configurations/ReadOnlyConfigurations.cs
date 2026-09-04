@@ -161,6 +161,9 @@ public sealed class TaskItemConfiguration : ReadOnlyConfiguration<TaskItem>
 		b.Property(e => e.Description).HasColumnName("description");
 		b.Property(e => e.Spec).HasColumnName("spec");
 		b.Property(e => e.AssigneeId).HasColumnName("assignee_id");
+		b.Property(e => e.CreatedByUserId).HasColumnName("created_by_user_id");
+		b.Property(e => e.CreatedByAgentId).HasColumnName("created_by_agent_id");
+		b.Property(e => e.OwnerUserId).HasColumnName("owner_user_id");
 		b.Property(e => e.DueDate).HasColumnName("due_date");
 		b.Property(e => e.Labels).HasColumnName("labels");
 		b.Property(e => e.Estimate).HasColumnName("estimate");
@@ -168,6 +171,7 @@ public sealed class TaskItemConfiguration : ReadOnlyConfiguration<TaskItem>
 		b.Property(e => e.Complexity).HasColumnName("complexity");
 		b.Property(e => e.DomainTags).HasColumnName("domain_tags");
 		b.Property(e => e.AssignmentMode).HasColumnName("assignment_mode").HasMaxLength(20).HasDefaultValue("claim");
+		b.Property(e => e.CurrentAssignmentId).HasColumnName("current_assignment_id");
 		b.Property(e => e.ReviewerId).HasColumnName("reviewer_id");
 		b.Property(e => e.ReviewRound).HasColumnName("review_round").HasDefaultValue(0);
 		b.Property(e => e.PreviousStatus).HasColumnName("previous_status").HasMaxLength(40);
@@ -177,6 +181,7 @@ public sealed class TaskItemConfiguration : ReadOnlyConfiguration<TaskItem>
 		b.HasIndex(e => e.StoryId);
 		b.HasIndex(e => e.SprintId);
 		b.HasIndex(e => e.AssigneeId);
+		b.HasIndex(e => e.OwnerUserId);
 	}
 }
 

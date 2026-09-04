@@ -87,13 +87,12 @@ public class RegistryTests
     public void Illegal_stage_transition_leaves_state_untouched()
     {
         var fixture = new PlaneFixture();
-        fixture.Plane.Registry.AddStage("run-1", "stg-x", StageType.Review, 1, null);
 
         // Pending -> Succeeded is not a legal move (must pass Assigned/Running).
         Assert.Throws<IllegalTransitionException>(() =>
-            fixture.Plane.Registry.MoveStage("stg-x", StageRunState.Succeeded, PlaneFixture.Ctx("skip ahead")));
+            fixture.Plane.Registry.MoveStage(fixture.StageId, StageRunState.Succeeded, PlaneFixture.Ctx("skip ahead")));
 
-        Assert.Equal(StageRunState.Pending, fixture.Plane.Registry.RequireStage("stg-x").Current.State);
+        Assert.Equal(StageRunState.Pending, fixture.Plane.Registry.RequireStage(fixture.StageId).Current.State);
     }
 
     [Fact]

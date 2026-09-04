@@ -69,6 +69,49 @@ public sealed class A0WorkflowSchemaTests
     }
 
     [Fact]
+    public void Duplicate_stage_types_are_rejected_even_with_distinct_node_ids()
+    {
+        var version = ValidVersion();
+        version = version with
+        {
+            Nodes = version.Nodes.Append(
+                version.Nodes[0] with { NodeId = "second-design" }).ToList(),
+        };
+
+        Assert.False(WorkflowValidator.IsValid(version));
+    }
+
+    [Fact]
+    public void A_stage_cannot_have_two_normal_successors()
+    {
+        var version = ValidVersion();
+        version = version with
+        {
+            Nodes = version.Nodes.Select(node => node.StageType == StageType.Design
+                    ? node with { AllowedTransitions = new[] { StageType.Development, StageType.Qa } }
+                    : node)
+                .ToList(),
+        };
+
+        Assert.False(WorkflowValidator.IsValid(version));
+    }
+
+    [Fact]
+    public void Disconnected_stages_are_rejected()
+    {
+        var version = ValidVersion();
+        version = version with
+        {
+            Nodes = version.Nodes.Append(new WorkflowNode(
+                "proposal", StageType.Proposal, "proposal", "{}", "{}",
+                new[] { StageType.Proposal }, "retry-standard", "policy-requirements",
+                new StageBudget(300, 60), true)).ToList(),
+        };
+
+        Assert.False(WorkflowValidator.IsValid(version));
+    }
+
+    [Fact]
     public void Content_hash_preserves_field_boundaries()
     {
         var original = ValidVersion().Nodes[0];

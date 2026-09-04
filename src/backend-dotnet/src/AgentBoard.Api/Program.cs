@@ -88,6 +88,7 @@ builder.Services.AddApplication();
 // (memory / sqlite / mysql) based on configuration.
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.Configure<DurableWorkflowOptions>(builder.Configuration.GetSection("DurableWorkflow"));
+builder.Services.AddScoped<DurableWorkflowGateFilter>();
 builder.Services.AddSingleton<DurableServerRuntime>();
 builder.Services.AddHostedService<DurableServerOutboxService>();
 builder.Services.AddHostedService<DurableServerResultConsumerService>();

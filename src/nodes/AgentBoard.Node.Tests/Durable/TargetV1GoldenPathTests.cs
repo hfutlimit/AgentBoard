@@ -21,20 +21,19 @@ public sealed class TargetV1GoldenPathTests
     {
         var policy = CompiledPolicy.Compile(PolicyPresets.Developer,
             new Dictionary<string, PolicyDecision>());
-        var server = new DurableServerPlane(() => _now, () => (++_id).ToString("D4"));
+        var selector = new ScenarioSelector();
+        var server = new DurableServerPlane(
+            () => _now, () => (++_id).ToString("D4"), agentSelector: selector);
         var nodes = new[]
         {
-            Node(StageType.Development, StageType.Review),
-            Node(StageType.Review, StageType.Development, StageType.Qa),
-            Node(StageType.Qa),
+            Node(policy.RevisionId, StageType.Development, StageType.Review),
+            Node(policy.RevisionId, StageType.Review, StageType.Development, StageType.Qa),
+            Node(policy.RevisionId, StageType.Qa),
         };
         var version = new WorkflowVersion(
             "version-1", "definition-1", 1, "workflow.v1", nodes,
             WorkflowGraph.ComputeContentHash(nodes));
         server.Registry.PublishVersion(version);
-        server.Registry.CreateRun("run-1", version.VersionId);
-        server.Registry.MoveRun("run-1", WorkflowRunState.Queued, Ctx("queued"));
-        server.Registry.MoveRun("run-1", WorkflowRunState.Running, Ctx("started"));
 
         var adapter = new ScriptedAdapter(new[]
         {
@@ -52,39 +51,24 @@ public sealed class TargetV1GoldenPathTests
             new AgentAdapterRegistry(new IAgentAdapter[] { adapter }, NullLogger<AgentAdapterRegistry>.Instance),
             policy, new WorkspaceReference("project", "workspace", "commit-0"), () => _now);
 
-        server.Registry.AddStage("run-1", "stage-dev-1", StageType.Development, 1, null);
-        await RunStage(server, runner, resultOutbox, resultTransport, "stage-dev-1", "exec-dev-1",
-            StageType.Development, policy.RevisionId, task: "implement feature");
-        var devHandoff = server.IssueHandoff("stage-dev-1", "exec-dev-1", StageType.Review,
-            new[] { "review" }, new WorkspaceReference("project", "workspace", "commit-1"),
-            "review commit-1");
+        var started = server.Orchestrator.Start(
+            "run-1",
+            version.VersionId,
+            new WorkflowWorkContext(
+                3,
+                "task",
+                42,
+                7,
+                new WorkspaceReference("3", "workspace", "commit-0"),
+                "implement feature",
+                Array.Empty<AgentCapabilityRequirement>()));
+        Assert.NotNull(started.Assignment);
 
-        server.Registry.AddStage("run-1", "stage-review-1", StageType.Review, 1, null);
-        await RunStage(server, runner, resultOutbox, resultTransport, "stage-review-1", "exec-review-1",
-            StageType.Review, policy.RevisionId, devHandoff.HandoffId);
-        var iteration = Assert.IsType<StageRun>(resultTransport.LastVerdict!.CreatedIteration);
-        Assert.Equal(StageRunReasons.ChangesRequested, iteration.Reason);
-        var reviewHandoff = server.IssueHandoff("stage-review-1", "exec-review-1", StageType.Development,
-            new[] { "development" }, new WorkspaceReference("project", "workspace", "commit-1"),
-            "apply review findings");
-
-        await RunStage(server, runner, resultOutbox, resultTransport, iteration.StageRunId, "exec-dev-2",
-            StageType.Development, policy.RevisionId, reviewHandoff.HandoffId);
-        var reworkHandoff = server.IssueHandoff(iteration.StageRunId, "exec-dev-2", StageType.Review,
-            new[] { "review" }, new WorkspaceReference("project", "workspace", "commit-2"),
-            "review commit-2");
-
-        server.Registry.AddStage("run-1", "stage-review-2", StageType.Review, 2, null);
-        await RunStage(server, runner, resultOutbox, resultTransport, "stage-review-2", "exec-review-2",
-            StageType.Review, policy.RevisionId, reworkHandoff.HandoffId);
-        var qaHandoff = server.IssueHandoff("stage-review-2", "exec-review-2", StageType.Qa,
-            new[] { "qa" }, new WorkspaceReference("project", "workspace", "commit-2"),
-            "verify commit-2");
-
-        server.Registry.AddStage("run-1", "stage-qa-1", StageType.Qa, 1, null);
-        await RunStage(server, runner, resultOutbox, resultTransport, "stage-qa-1", "exec-qa-1",
-            StageType.Qa, policy.RevisionId, qaHandoff.HandoffId);
-        server.Registry.MoveRun("run-1", WorkflowRunState.Succeeded, Ctx("qa outcome accepted"));
+        var processed = new HashSet<string>(StringComparer.Ordinal);
+        for (var step = 0; step < 5; step++)
+        {
+            await RunNext(server, runner, resultOutbox, resultTransport, processed);
+        }
 
         var snapshot = server.Registry.Snapshot("run-1")!;
         Assert.Equal(WorkflowRunState.Succeeded, snapshot.Run.State);
@@ -94,30 +78,28 @@ public sealed class TargetV1GoldenPathTests
         Assert.Equal(4, server.Handoffs.Handoffs.Count);
         Assert.Empty(journal.Pending());
         Assert.Equal(5, adapter.Contexts.Count);
-        Assert.Equal("review commit-1", adapter.Contexts[1].Prompt);
-        Assert.Equal("apply review findings", adapter.Contexts[2].Prompt);
+        Assert.All(adapter.Contexts, context => Assert.Equal("implement feature", context.Prompt));
         Assert.All(resultTransport.Results, result =>
             Assert.False(string.IsNullOrWhiteSpace(result.CausationId)));
+        Assert.All(
+            selector.Requests.Where(request => request.StageType == StageType.Review),
+            request => Assert.Contains("agent.development", request.ExcludedAgentIds));
+        var qaRequest = selector.Requests.Single(request => request.StageType == StageType.Qa);
+        Assert.Contains("agent.development", qaRequest.ExcludedAgentIds);
+        Assert.Contains("agent.review", qaRequest.ExcludedAgentIds);
     }
 
-    private async Task RunStage(
+    private async Task RunNext(
         DurableServerPlane server,
         DurableAssignmentRunner runner,
         LocalResultOutbox outbox,
         LoopbackResultTransport resultTransport,
-        string stageId,
-        string executionId,
-        StageType stage,
-        string policyRevision,
-        string? handoffId = null,
-        string task = "{}")
+        ISet<string> processed)
     {
-        server.Registry.AddExecution(stageId, executionId);
-        var assignment = server.Dispatcher.Dispatch(
-            executionId, Worker, $"agent.{stage.ToString().ToLowerInvariant()}",
-            new[] { stage.ToString().ToLowerInvariant() }, policyRevision,
-            TimeSpan.FromMinutes(10), handoffId, task, providerId: "scenario");
-        Assert.True(server.Sent.TryGet(assignment.AssignmentId, out var command));
+        var command = Assert.Single(
+            server.Sent.Commands,
+            candidate => !processed.Contains(candidate.MessageId));
+        processed.Add(command.MessageId);
         var acceptance = runner.Accept(command);
         Assert.Equal(AcceptanceKind.Accepted, acceptance.Kind);
         await runner.ExecuteAcceptedAsync(command, CancellationToken.None);
@@ -126,12 +108,9 @@ public sealed class TargetV1GoldenPathTests
         _now = _now.AddSeconds(1);
     }
 
-    private static WorkflowNode Node(StageType stage, params StageType[] transitions) => new(
+    private static WorkflowNode Node(string policyRevision, StageType stage, params StageType[] transitions) => new(
         stage.ToString().ToLowerInvariant(), stage, stage.ToString().ToLowerInvariant(),
-        "{}", "{}", transitions, "retry-standard", "policy", new StageBudget(3600, 600), true);
-
-    private static TransitionContext Ctx(string reason) =>
-        new("golden-test", reason, SchemaVersions.Registry);
+        "{}", "{}", transitions, "retry-standard", policyRevision, new StageBudget(3600, 600), true);
 
     private static string Output(
         string status,
@@ -158,6 +137,22 @@ public sealed class TargetV1GoldenPathTests
             Contexts.Add(context);
             return Task.FromResult(new AgentExecutionResult(
                 true, _outputs.Dequeue(), null, 0, TimeSpan.FromMilliseconds(1)));
+        }
+    }
+
+    private sealed class ScenarioSelector : IAgentSelector
+    {
+        public List<AgentSelectionRequest> Requests { get; } = new();
+
+        public AgentSelection? Select(AgentSelectionRequest request)
+        {
+            Requests.Add(request);
+            var capability = request.StageType.ToString().ToLowerInvariant();
+            return new AgentSelection(
+                Worker,
+                $"agent.{capability}",
+                new[] { capability },
+                "scenario");
         }
     }
 

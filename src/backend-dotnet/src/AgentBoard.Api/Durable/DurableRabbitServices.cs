@@ -38,12 +38,27 @@ public sealed class DurableServerOutboxService : BackgroundService
         {
             try
             {
-                runtime.Mutate(plane =>
+                var attempts = runtime.PrepareOutboxDispatches();
+                foreach (var attempted in attempts)
                 {
-                    plane.ExpireApprovals();
-                    return new OutboxDispatcher(plane.Outbox, transport, plane.Planner,
-                        plane.DeadLetters, () => DateTimeOffset.UtcNow).DispatchDue();
-                });
+                    PublishResult result;
+                    string? error = null;
+                    try
+                    {
+                        // Network I/O is deliberately outside DurableServerRuntime's
+                        // global mutation lock. The claim above and completion below
+                        // are separate durable commits, with a recovery deadline on
+                        // the Published row for crash ambiguity.
+                        result = transport.Publish(attempted);
+                    }
+                    catch (Exception publishError)
+                    {
+                        result = PublishResult.Failed;
+                        error = $"publish threw {publishError.GetType().Name}";
+                    }
+
+                    runtime.CompleteOutboxDispatch(attempted, result, error);
+                }
             }
             catch (Exception error) when (!stoppingToken.IsCancellationRequested)
             {

@@ -84,6 +84,8 @@ public sealed class CommandDispatcher
         var execution = _registry.RequireExecution(executionId);
         var stage = _registry.RequireStage(execution.Current.StageRunId);
         var run = _registry.RequireRun(stage.Current.RunId);
+        var node = WorkflowGraphNavigator.NodeFor(
+            _registry.RequireVersion(run.VersionId), stage.Current.StageType);
 
         if (RunTransitions.IsTerminal(stage.Current.State))
         {
@@ -126,6 +128,32 @@ public sealed class CommandDispatcher
             {
                 throw new InvalidValueException($"handoff '{handoffId}' contains an expired artifact");
             }
+
+            var source = _registry.RequireStage(handoff.SourceStageRunId);
+            if (!string.Equals(source.Current.RunId, run.Current.RunId, StringComparison.Ordinal))
+            {
+                throw new InvalidValueException($"handoff '{handoffId}' belongs to a different workflow run");
+            }
+            var expected = source.Current.State == StageRunState.ChangesRequested
+                ? WorkflowGraphNavigator.FeedbackSuccessor(
+                    _registry.RequireVersion(run.VersionId), source.Current.StageType)
+                : source.Current.State == StageRunState.Succeeded
+                    ? WorkflowGraphNavigator.Successor(
+                        _registry.RequireVersion(run.VersionId), source.Current.StageType)
+                    : null;
+            if (expected?.StageType != stage.Current.StageType)
+            {
+                throw new InvalidValueException(
+                    $"handoff '{handoffId}' does not prove a legal graph transition " +
+                    $"{source.Current.StageType} -> {stage.Current.StageType}");
+            }
+        }
+
+        else if (node.HandoffRequired
+                 && !string.Equals(run.Stages[0].Current.StageRunId, stage.Current.StageRunId, StringComparison.Ordinal))
+        {
+            throw new InvalidValueException(
+                $"stage '{stage.Current.StageRunId}' requires a verified handoff from its predecessor");
         }
 
         var mustAssignStage = stage.Machine.Current == StageRunState.Pending;
@@ -265,6 +293,7 @@ public sealed class ServerResultProcessor
     private readonly SentCommandLog _sent;
     private readonly PendingRetryQueue _retries;
     private readonly AttemptEvidenceLog? _evidence;
+    private readonly WorkflowOrchestrator? _orchestrator;
 
     public ServerResultProcessor(
         WorkflowRegistry registry,
@@ -277,7 +306,8 @@ public sealed class ServerResultProcessor
         Func<string> nextId,
         SentCommandLog sent,
         PendingRetryQueue retries,
-        AttemptEvidenceLog? evidence = null)
+        AttemptEvidenceLog? evidence = null,
+        WorkflowOrchestrator? orchestrator = null)
     {
         _registry = registry;
         _leases = leases;
@@ -290,6 +320,7 @@ public sealed class ServerResultProcessor
         _sent = sent;
         _retries = retries;
         _evidence = evidence;
+        _orchestrator = orchestrator;
     }
 
     public ResultVerdict Process(ResultEnvelope result)
@@ -470,8 +501,18 @@ public sealed class ServerResultProcessor
                     _registry.MoveStage(stage.Current.StageRunId, StageRunState.Succeeded, ctx);
                 }
 
+                var successor = _orchestrator?.Manages(stage.Current.RunId) == true
+                    ? _orchestrator.Succeed(stage.Current.StageRunId, executionId)
+                    : null;
+
                 audit.Append("server", "result.accepted", result.AttemptId, "outcome accepted", result.CorrelationId);
-                return new ResultVerdict(ResultOutcomeKind.Accepted, "outcome accepted", executionId);
+                return new ResultVerdict(
+                    ResultOutcomeKind.Accepted,
+                    successor?.Stage is { } next
+                        ? $"outcome accepted; {next.StageType} iteration {next.Iteration} created"
+                        : "outcome accepted",
+                    executionId,
+                    CreatedIteration: successor?.Stage);
 
             case AttemptResultStatus.ChangesRequested:
                 // The review's execution resolves with an accepted outcome —
@@ -484,17 +525,27 @@ public sealed class ServerResultProcessor
                     AcceptedAt: _clock());
                 _registry.AcceptOutcome(executionId, reviewOutcome);
 
-                var created = _registry.RequestChangesIteration(
-                    stage.Current.StageRunId, $"stg-{_nextId()}", ctx);
+                var created = _orchestrator?.Manages(stage.Current.RunId) != true
+                    ? new WorkflowAdvanceResult(
+                        _registry.RequestChangesIteration(
+                            stage.Current.StageRunId, $"stg-{_nextId()}", ctx),
+                        null,
+                        null)
+                    : _orchestrator.RequestChanges(stage.Current.StageRunId, executionId, ctx);
                 audit.Append("server", "result.accepted", result.AttemptId,
-                    $"changes requested; development iteration {created.Iteration} created", result.CorrelationId);
+                    $"changes requested; development iteration {created.Stage!.Iteration} created", result.CorrelationId);
                 return new ResultVerdict(
-                    ResultOutcomeKind.Accepted, "changes requested", executionId, CreatedIteration: created);
+                    ResultOutcomeKind.Accepted, "changes requested", executionId, CreatedIteration: created.Stage);
 
             case AttemptResultStatus.Cancelled:
                 if (stage.Machine.Current is StageRunState.Running or StageRunState.Assigned)
                 {
                     _registry.MoveStage(stage.Current.StageRunId, StageRunState.Cancelled, ctx);
+                }
+
+                if (_orchestrator?.Manages(stage.Current.RunId) == true)
+                {
+                    _orchestrator.Cancel(stage.Current.StageRunId, "stage cancellation acknowledged");
                 }
 
                 audit.Append("server", "result.accepted", result.AttemptId,
@@ -553,6 +604,10 @@ public sealed class ServerResultProcessor
         if (stage.Machine.Current is StageRunState.Running or StageRunState.Assigned)
         {
             _registry.MoveStage(stage.Current.StageRunId, StageRunState.Failed, ctx);
+        }
+        if (_orchestrator?.Manages(stage.Current.RunId) == true)
+        {
+            _orchestrator.Fail(stage.Current.StageRunId, $"terminal {result.FailureCategory} failure");
         }
 
         var entry = _deadLetters.Enqueue(new DeadLetterEntry(

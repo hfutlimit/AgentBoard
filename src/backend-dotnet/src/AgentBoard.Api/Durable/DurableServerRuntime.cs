@@ -20,16 +20,17 @@ public sealed class DurableServerRuntime : IDisposable
     private readonly SqlitePlaneStore _store;
     private readonly DurableServerPlane _plane;
 
-    public DurableServerRuntime(IOptions<DurableWorkflowOptions> options)
+    public DurableServerRuntime(IOptions<DurableWorkflowOptions> options, IAgentSelector agentSelector)
     {
         var path = Path.GetFullPath(options.Value.DatabasePath);
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         _store = new SqlitePlaneStore(path);
         var state = _store.Load();
         _plane = state is null
-            ? new DurableServerPlane(() => DateTimeOffset.UtcNow, () => Guid.NewGuid().ToString("N"))
+            ? new DurableServerPlane(
+                () => DateTimeOffset.UtcNow, () => Guid.NewGuid().ToString("N"), agentSelector: agentSelector)
             : DurableServerPlane.Restore(
-                () => DateTimeOffset.UtcNow, () => Guid.NewGuid().ToString("N"), state);
+                () => DateTimeOffset.UtcNow, () => Guid.NewGuid().ToString("N"), state, agentSelector);
     }
 
     public T Mutate<T>(Func<DurableServerPlane, T> work)
@@ -49,6 +50,33 @@ public sealed class DurableServerRuntime : IDisposable
     {
         lock (_gate) { return read(_plane); }
     }
+
+    /// <summary>
+    /// Claims due outbox rows and commits that claim. RabbitMQ publication is
+    /// intentionally performed by the caller after this method releases the
+    /// global mutation lock.
+    /// </summary>
+    public IReadOnlyList<OutboxMessage> PrepareOutboxDispatches(int maximum = 32) =>
+        Mutate(plane =>
+        {
+            plane.ExpireApprovals();
+            plane.ProcessDueRetries();
+            plane.Orchestrator.ResumePendingAssignments();
+            return plane.Outbox.BeginDueDispatches(
+                DateTimeOffset.UtcNow, maximum, TimeSpan.FromMinutes(1));
+        });
+
+    public OutboxState CompleteOutboxDispatch(
+        OutboxMessage attempted,
+        PublishResult outcome,
+        string? publishError = null) =>
+        Mutate(plane => plane.Outbox.CompleteDispatch(
+            attempted,
+            outcome,
+            DateTimeOffset.UtcNow,
+            plane.Planner,
+            plane.DeadLetters,
+            publishError));
 
     public void Dispose() => _store.Dispose();
 }

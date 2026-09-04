@@ -227,7 +227,8 @@ public sealed partial class WorkflowRegistry
             throw new InvalidValueException("stage iterations start at 1");
         }
 
-        if (iteration == 1 && RequireVersion(run.VersionId).Nodes.All(n => n.StageType != stageType))
+        var version = RequireVersion(run.VersionId);
+        if (iteration == 1 && version.Nodes.All(n => n.StageType != stageType))
         {
             throw new InvalidValueException(
                 $"stage type '{stageType}' is not declared by workflow version '{run.VersionId}'");
@@ -237,6 +238,33 @@ public sealed partial class WorkflowRegistry
         {
             throw new DuplicateException(
                 $"run '{runId}' already has a {stageType} stage at iteration {iteration}");
+        }
+
+        if (run.Stages.Count == 0)
+        {
+            var entry = WorkflowGraphNavigator.EntryNode(version);
+            if (entry.StageType != stageType)
+            {
+                throw new InvalidValueException(
+                    $"stage '{stageType}' is not the entry node '{entry.StageType}' for workflow version '{version.VersionId}'");
+            }
+        }
+        else
+        {
+            var previous = run.Stages[^1].Current;
+            if (previous.State != StageRunState.Succeeded)
+            {
+                throw new InvalidValueException(
+                    $"stage '{stageType}' cannot follow '{previous.StageType}' in state {previous.State}; " +
+                    "only the workflow orchestrator may create feedback iterations");
+            }
+
+            var expected = WorkflowGraphNavigator.Successor(version, previous.StageType);
+            if (expected?.StageType != stageType)
+            {
+                throw new InvalidValueException(
+                    $"illegal graph transition {previous.StageType} -> {stageType} for workflow version '{version.VersionId}'");
+            }
         }
 
         var stage = new StageRun(stageId, runId, stageType, iteration, reason, StageRunState.Pending);

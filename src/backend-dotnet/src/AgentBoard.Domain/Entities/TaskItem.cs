@@ -20,6 +20,9 @@ public sealed class TaskItem : Entity
     public string Description { get; set; } = string.Empty;
     public string Spec { get; set; } = string.Empty;
     public int? AssigneeId { get; set; }
+    public int? CreatedByUserId { get; set; }
+    public int? CreatedByAgentId { get; set; }
+    public int? OwnerUserId { get; set; }
     public DateTime? DueDate { get; set; }
     public string Labels { get; set; } = "[]";
     public double? Estimate { get; set; }
@@ -27,6 +30,7 @@ public sealed class TaskItem : Entity
     public int? Complexity { get; set; }
     public string DomainTags { get; set; } = "[]";
     public string AssignmentMode { get; set; } = "claim";
+    public int? CurrentAssignmentId { get; set; }
     public int? ReviewerId { get; set; }
     public int ReviewRound { get; set; }
     public string? PreviousStatus { get; set; }

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+using AgentBoard.Api.Durable;
 using AgentBoard.Infrastructure.Persistence;
 using AgentBoard.Infrastructure.Persistence.Interceptors;
 using Microsoft.AspNetCore.Hosting;
@@ -8,6 +9,7 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 
 namespace AgentBoard.Api.Tests.Infrastructure;
 
@@ -17,12 +19,20 @@ namespace AgentBoard.Api.Tests.Infrastructure;
 /// </summary>
 public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
 {
+    private readonly bool _durableEnabled;
     private readonly string _databasePath = Path.Combine(
         Path.GetTempPath(),
         $"agentboard-api-tests-{Guid.NewGuid():N}.db");
     private readonly string _durableDatabasePath = Path.Combine(
         Path.GetTempPath(),
         $"agentboard-durable-api-tests-{Guid.NewGuid():N}.db");
+
+    public ApiWebApplicationFactory() : this(false) { }
+
+    private ApiWebApplicationFactory(bool durableEnabled) =>
+        _durableEnabled = durableEnabled;
+
+    public static ApiWebApplicationFactory CreateDurable() => new(true);
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -33,12 +43,24 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
         builder.ConfigureAppConfiguration((_, configuration) =>
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["DurableWorkflow:Enabled"] = "false",
+                ["DurableWorkflow:Enabled"] = _durableEnabled.ToString(),
                 ["DurableWorkflow:DatabasePath"] = _durableDatabasePath,
+                ["DurableWorkflow:RabbitMqUri"] = "amqp://guest:guest@localhost:5672/",
             }));
 
         builder.ConfigureServices(services =>
         {
+            if (_durableEnabled)
+            {
+                var durableWorkers = services
+                    .Where(descriptor => descriptor.ServiceType == typeof(IHostedService)
+                        && descriptor.ImplementationType is not null
+                        && (descriptor.ImplementationType == typeof(DurableServerOutboxService)
+                            || descriptor.ImplementationType == typeof(DurableServerResultConsumerService)))
+                    .ToList();
+                foreach (var descriptor in durableWorkers) services.Remove(descriptor);
+            }
+
             services.RemoveAll<DbContextOptions<AppDbContext>>();
             services.RemoveAll<IDbContextOptionsConfiguration<AppDbContext>>();
             services.AddDbContext<AppDbContext>((serviceProvider, options) =>

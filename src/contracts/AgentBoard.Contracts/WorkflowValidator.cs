@@ -70,7 +70,30 @@ public static class WorkflowValidator
                     $"{nameof(version.Nodes)}[].Budget", "LeaseSeconds must be positive"));
             }
 
-            declaredStages.Add(node.StageType);
+            if (!declaredStages.Add(node.StageType))
+            {
+                errors.Add(new EnvelopeError(
+                    $"{nameof(version.Nodes)}[].StageType",
+                    $"'{node.StageType}' is declared more than once; runtime navigation must be deterministic"));
+            }
+
+            if (node.AllowedTransitions.Count != node.AllowedTransitions.Distinct().Count())
+            {
+                errors.Add(new EnvelopeError(
+                    $"{nameof(version.Nodes)}[].AllowedTransitions",
+                    $"node '{node.NodeId}' declares a transition more than once"));
+            }
+
+            var successTransitions = node.AllowedTransitions
+                .Where(target => !WorkflowGraphNavigator.IsFeedbackEdge(node.StageType, target))
+                .Distinct()
+                .Count();
+            if (successTransitions > 1)
+            {
+                errors.Add(new EnvelopeError(
+                    $"{nameof(version.Nodes)}[].AllowedTransitions",
+                    $"node '{node.NodeId}' has {successTransitions} success transitions; exactly zero or one is supported"));
+            }
         }
 
         // The graph must be closed: a transition to a stage the graph does not
@@ -84,6 +107,43 @@ public static class WorkflowValidator
                     errors.Add(new EnvelopeError(
                         $"{nameof(version.Nodes)}[].AllowedTransitions",
                         $"node '{node.NodeId}' transitions to '{target}', which the graph does not declare"));
+                }
+            }
+        }
+
+        if (errors.Count == 0)
+        {
+            var normalInbound = version.Nodes
+                .SelectMany(source => source.AllowedTransitions
+                    .Where(target => !WorkflowGraphNavigator.IsFeedbackEdge(source.StageType, target)))
+                .ToHashSet();
+            var entries = version.Nodes.Where(node => !normalInbound.Contains(node.StageType)).ToList();
+            if (entries.Count != 1)
+            {
+                errors.Add(new EnvelopeError(
+                    nameof(version.Nodes),
+                    $"must define exactly one entry node after excluding the Review->Development feedback edge; found {entries.Count}"));
+            }
+            else
+            {
+                var reachable = new HashSet<StageType>();
+                var pending = new Queue<StageType>();
+                pending.Enqueue(entries[0].StageType);
+                while (pending.TryDequeue(out var stage))
+                {
+                    if (!reachable.Add(stage)) continue;
+                    foreach (var target in version.Nodes.Single(node => node.StageType == stage).AllowedTransitions)
+                    {
+                        pending.Enqueue(target);
+                    }
+                }
+
+                var disconnected = declaredStages.Where(stage => !reachable.Contains(stage)).ToList();
+                if (disconnected.Count > 0)
+                {
+                    errors.Add(new EnvelopeError(
+                        nameof(version.Nodes),
+                        $"contains unreachable stages: {string.Join(", ", disconnected)}"));
                 }
             }
         }

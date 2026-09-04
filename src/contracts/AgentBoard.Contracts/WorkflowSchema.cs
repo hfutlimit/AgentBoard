@@ -146,6 +146,64 @@ public static class WorkflowGraph
 }
 
 /// <summary>
+/// Deterministic runtime navigation for the constrained workflow graph.
+/// Review -&gt; Development is the one feedback edge: it is taken only for a
+/// <c>changes_requested</c> outcome and therefore is not part of the normal
+/// success path or entry-node calculation.
+/// </summary>
+public static class WorkflowGraphNavigator
+{
+    public static bool IsFeedbackEdge(StageType source, StageType target) =>
+        source == StageType.Review && target == StageType.Development;
+
+    public static WorkflowNode NodeFor(WorkflowVersion version, StageType stageType) =>
+        version.Nodes.SingleOrDefault(node => node.StageType == stageType)
+        ?? throw new InvalidOperationException(
+            $"workflow version '{version.VersionId}' does not declare stage '{stageType}'");
+
+    public static WorkflowNode EntryNode(WorkflowVersion version)
+    {
+        var normalInbound = version.Nodes
+            .SelectMany(source => source.AllowedTransitions
+                .Where(target => !IsFeedbackEdge(source.StageType, target)))
+            .ToHashSet();
+        var entries = version.Nodes.Where(node => !normalInbound.Contains(node.StageType)).ToList();
+        return entries.Count == 1
+            ? entries[0]
+            : throw new InvalidOperationException(
+                $"workflow version '{version.VersionId}' must have exactly one entry node; found {entries.Count}");
+    }
+
+    public static WorkflowNode? Successor(WorkflowVersion version, StageType current)
+    {
+        var node = NodeFor(version, current);
+        var targets = node.AllowedTransitions
+            .Where(target => !IsFeedbackEdge(current, target))
+            .Distinct()
+            .ToList();
+        return targets.Count switch
+        {
+            0 => null,
+            1 => NodeFor(version, targets[0]),
+            _ => throw new InvalidOperationException(
+                $"stage '{current}' has {targets.Count} success transitions; the runtime requires zero or one"),
+        };
+    }
+
+    public static WorkflowNode FeedbackSuccessor(WorkflowVersion version, StageType current)
+    {
+        var node = NodeFor(version, current);
+        if (!node.AllowedTransitions.Any(target => IsFeedbackEdge(current, target)))
+        {
+            throw new InvalidOperationException(
+                $"stage '{current}' does not declare a changes-requested feedback transition");
+        }
+
+        return NodeFor(version, StageType.Development);
+    }
+}
+
+/// <summary>
 /// Why a stage run exists beyond the first iteration (doc 151 §4.2).
 /// </summary>
 public static class StageRunReasons

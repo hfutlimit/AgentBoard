@@ -133,11 +133,20 @@ internal sealed class PlaneFixture
     /// <summary>Dispatches a review stage/execution and assigns it.</summary>
     public Assignment DispatchReview(string reviewStageId = "stg-rev-1")
     {
+        var sourceStageId = StageId;
+        var sourceExecutionId = ExecutionId;
+        var handoff = Plane.IssueHandoff(
+            sourceStageId,
+            sourceExecutionId,
+            StageType.Review,
+            new[] { "review" },
+            new WorkspaceReference("p", "w", "v"));
         Plane.Registry.AddStage("run-1", reviewStageId, StageType.Review, 1, null);
         var execId = $"exec-{reviewStageId}";
         Plane.Registry.AddExecution(reviewStageId, execId);
         var assignment = Plane.Dispatcher.Dispatch(
-            execId, "worker-2", "agent.rev", new[] { "review" }, "policy-rev-1", TimeSpan.FromMinutes(10));
+            execId, "worker-2", "agent.rev", new[] { "review" }, "policy-rev-1",
+            TimeSpan.FromMinutes(10), handoff.HandoffId);
         CurrentAssignment = assignment;
         StageId = reviewStageId;
         ExecutionId = execId;

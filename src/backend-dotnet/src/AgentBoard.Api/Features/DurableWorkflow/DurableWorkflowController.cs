@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 using AgentBoard.Api.Durable;
+using AgentBoard.Application.Abstractions;
 using AgentBoard.Contracts;
 using AgentBoard.Domain.Workflow;
 using AgentBoard.Domain.Workflow.Durable;
@@ -9,42 +10,53 @@ namespace AgentBoard.Api.Features.DurableWorkflow;
 
 [ApiController]
 [Route("api/durable-workflows")]
+[ServiceFilter(typeof(DurableWorkflowGateFilter))]
 public sealed class DurableWorkflowController : ControllerBase
 {
     private readonly DurableServerRuntime _runtime;
+    private readonly IWorkflowWorkContextResolver _workContexts;
 
-    public DurableWorkflowController(DurableServerRuntime runtime) => _runtime = runtime;
+    public DurableWorkflowController(
+        DurableServerRuntime runtime,
+        IWorkflowWorkContextResolver workContexts)
+    {
+        _runtime = runtime;
+        _workContexts = workContexts;
+    }
 
     [HttpPost("versions")]
     public ActionResult<WorkflowVersion> PublishVersion([FromBody] WorkflowVersion version) =>
         Ok(_runtime.Mutate(plane => plane.Registry.PublishVersion(version)));
 
     [HttpPost("runs")]
-    public ActionResult<WorkflowRun> StartRun([FromBody] StartRunRequest request) => Ok(
-        _runtime.Mutate(plane =>
+    public async Task<ActionResult<WorkflowStartResult>> StartRun(
+        [FromBody] StartRunRequest request,
+        CancellationToken cancellationToken)
+    {
+        var resolution = await _workContexts.ResolveTaskAsync(
+            request.TaskId,
+            request.WorkspaceId,
+            request.BaseVersion,
+            request.TaskContext,
+            cancellationToken);
+        if (resolution.Status == WorkflowWorkResolutionStatus.NotFound) return NotFound();
+        if (resolution.Status == WorkflowWorkResolutionStatus.MissingOwner)
         {
-            var run = plane.Registry.CreateRun(request.WorkflowRunId, request.WorkflowVersionId);
-            plane.Registry.MoveRun(run.RunId, WorkflowRunState.Queued,
-                Context("run queued"));
-            return plane.Registry.MoveRun(run.RunId, WorkflowRunState.Running,
-                Context("run started"));
-        }));
+            return UnprocessableEntity(new ProblemDetails
+            {
+                Status = StatusCodes.Status422UnprocessableEntity,
+                Title = "Task owner is required",
+                Detail = $"Task {request.TaskId} has no owner_user_id; durable assignment fails closed.",
+            });
+        }
 
-    [HttpPost("runs/{runId}/stages")]
-    public ActionResult<StageRun> AddStage(string runId, [FromBody] AddStageRequest request) => Ok(
-        _runtime.Mutate(plane => plane.Registry.AddStage(
-            runId, request.StageRunId, request.StageType, request.Iteration, request.Reason)));
-
-    [HttpPost("stages/{stageRunId}/executions")]
-    public ActionResult<Execution> AddExecution(string stageRunId, [FromBody] AddExecutionRequest request) =>
-        Ok(_runtime.Mutate(plane => plane.Registry.AddExecution(stageRunId, request.ExecutionId)));
-
-    [HttpPost("executions/{executionId}/assign")]
-    public ActionResult<Assignment> Assign(string executionId, [FromBody] DispatchRequest request) => Ok(
-        _runtime.Mutate(plane => plane.Dispatcher.Dispatch(
-            executionId, request.WorkerId, request.AgentId, request.RequiredCapabilities,
-            request.PolicyRevisionId, TimeSpan.FromSeconds(request.LeaseSeconds),
-            request.HandoffId, request.TaskContext, request.ProviderId)));
+        var started = _runtime.Mutate(plane =>
+            plane.Orchestrator.Start(
+                request.WorkflowRunId,
+                request.WorkflowVersionId,
+                resolution.Context!));
+        return started.Assignment is null ? Accepted(started) : Ok(started);
+    }
 
     [HttpPost("executions/{executionId}/cancel")]
     public IActionResult Cancel(string executionId, [FromBody] CancelRequest request)
@@ -52,12 +64,6 @@ public sealed class DurableWorkflowController : ControllerBase
         _runtime.Mutate(plane => plane.Dispatcher.DispatchCancel(executionId, request.Reason));
         return Accepted();
     }
-
-    [HttpPost("handoffs")]
-    public ActionResult<HandoffContext> IssueHandoff([FromBody] IssueHandoffRequest request) => Ok(
-        _runtime.Mutate(plane => plane.IssueHandoff(
-            request.SourceStageRunId, request.ExecutionId, request.TargetStageType,
-            request.RequiredCapabilities, request.Workspace, request.TaskContext)));
 
     [HttpGet("runs/{runId}")]
     public ActionResult<object> GetRun(string runId) =>
@@ -104,22 +110,15 @@ public sealed class DurableWorkflowController : ControllerBase
         audit = plane.Registry.Audit.Records.ToArray(),
     }));
 
-    private static TransitionContext Context(string reason) =>
-        new("durable-api", reason, SchemaVersions.Registry);
 }
 
-public sealed record StartRunRequest(string WorkflowRunId, string WorkflowVersionId);
-public sealed record AddStageRequest(string StageRunId, StageType StageType, int Iteration, string? Reason);
-public sealed record AddExecutionRequest(string ExecutionId);
-public sealed record DispatchRequest(
-    string WorkerId,
-    string AgentId,
-    IReadOnlyList<string> RequiredCapabilities,
-    string PolicyRevisionId,
-    int LeaseSeconds,
-    string? HandoffId = null,
-    string TaskContext = "{}",
-    string? ProviderId = null);
+public sealed record StartRunRequest(
+    string WorkflowRunId,
+    string WorkflowVersionId,
+    int TaskId,
+    string WorkspaceId,
+    string BaseVersion,
+    string TaskContext = "{}");
 public sealed record CancelRequest(string Reason);
 public sealed record RequestApprovalRequest(
     string StageRunId,
@@ -127,10 +126,3 @@ public sealed record RequestApprovalRequest(
     PolicyDecisionRequest Decision,
     int WindowSeconds);
 public sealed record DecideApprovalRequest(bool Granted, string Actor, string Reason);
-public sealed record IssueHandoffRequest(
-    string SourceStageRunId,
-    string ExecutionId,
-    StageType TargetStageType,
-    IReadOnlyList<string> RequiredCapabilities,
-    WorkspaceReference Workspace,
-    string TaskContext = "{}");

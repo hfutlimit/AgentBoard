@@ -49,6 +49,37 @@ public class ProtocolTests
     }
 
     [Fact]
+    public void Stale_broker_completion_cannot_confirm_a_recovered_outbox_attempt()
+    {
+        var fixture = new PlaneFixture();
+        fixture.DispatchDev();
+        var message = Assert.Single(fixture.Plane.Outbox.Messages);
+        var first = fixture.Plane.Outbox.BeginDispatch(
+            message.MessageId, fixture.Now, TimeSpan.FromSeconds(1));
+
+        fixture.Advance(1);
+        var recovered = fixture.Plane.Outbox.BeginDispatch(
+            message.MessageId, fixture.Now, TimeSpan.FromSeconds(1));
+
+        var stale = fixture.Plane.Outbox.CompleteDispatch(
+            first,
+            PublishResult.Confirmed,
+            fixture.Now,
+            fixture.Plane.Planner,
+            fixture.Plane.DeadLetters);
+        Assert.Equal(OutboxState.Published, stale);
+        Assert.Equal(recovered.AttemptCount, fixture.Plane.Outbox.Require(message.MessageId).AttemptCount);
+
+        var current = fixture.Plane.Outbox.CompleteDispatch(
+            recovered,
+            PublishResult.Confirmed,
+            fixture.Now,
+            fixture.Plane.Planner,
+            fixture.Plane.DeadLetters);
+        Assert.Equal(OutboxState.Confirmed, current);
+    }
+
+    [Fact]
     public void Publish_confirm_timeout_backs_off_then_dead_letters()
     {
         var fixture = new PlaneFixture();
@@ -215,11 +246,11 @@ public class ProtocolTests
         // A second execution+assignment recorded directly in the lease store
         // (as restored or partially committed state might present) has no
         // issued command behind it. The result must be refused, not trusted.
-        fixture.Plane.Registry.AddStage("run-1", "stg-dev-2", StageType.Development, 2, null);
-        fixture.Plane.Registry.AddExecution("stg-dev-2", "exec-2");
+        fixture.Plane.Registry.AddStage("run-1", "stg-rev-unproven", StageType.Review, 1, null);
+        fixture.Plane.Registry.AddExecution("stg-rev-unproven", "exec-2");
         var assignment = new Assignment(
-            "asg-unproven", "run-1", "stg-dev-2", "exec-2", "att-unproven", "worker-1", "agent.dev",
-            "lease-x", 1, new[] { "development" }, fixture.Now, fixture.Now + TimeSpan.FromMinutes(10),
+            "asg-unproven", "run-1", "stg-rev-unproven", "exec-2", "att-unproven", "worker-1", "agent.rev",
+            "lease-x", 1, new[] { "review" }, fixture.Now, fixture.Now + TimeSpan.FromMinutes(10),
             "policy-rev-1");
         fixture.Plane.Leases.Grant(assignment);
         fixture.Plane.Registry.AddAttempt("exec-2", "att-unproven", 1);
@@ -233,12 +264,12 @@ public class ProtocolTests
             CausationId = "cmd-never-issued",
             IdempotencyKey = "asg-unproven:att-unproven",
             WorkflowRunId = "run-1",
-            StageRunId = "stg-dev-2",
+            StageRunId = "stg-rev-unproven",
             ExecutionId = "exec-2",
             AttemptId = "att-unproven",
             AssignmentId = "asg-unproven",
             WorkerId = "worker-1",
-            AgentId = "agent.dev",
+            AgentId = "agent.rev",
             LeaseEpoch = 1,
             ResultStatus = AttemptResultStatus.Succeeded,
             Traceparent = PlaneFixture.Trace,
@@ -570,11 +601,14 @@ public class ProtocolTests
         Assert.Throws<NotSupportedException>(() =>
             ((IList<string>)handoff.RequiredCapabilities)[0] = "qa");
 
-        fixture.Plane.Registry.AddStage("run-1", "stg-qa-1", StageType.Qa, 1, null);
-        fixture.Plane.Registry.AddExecution("stg-qa-1", "exec-qa");
+        var wrongHandoff = fixture.Plane.IssueHandoff(
+            "stg-dev-1", fixture.ExecutionId, StageType.Qa,
+            new[] { "qa" }, new WorkspaceReference("p", "w", "v"));
+        fixture.Plane.Registry.AddStage("run-1", "stg-review-1", StageType.Review, 1, null);
+        fixture.Plane.Registry.AddExecution("stg-review-1", "exec-review");
         Assert.Throws<AgentBoard.Domain.Common.InvalidValueException>(() =>
-            fixture.Plane.Dispatcher.Dispatch("exec-qa", "worker-2", "agent.qa", new[] { "review" },
-                "policy-rev-1", TimeSpan.FromMinutes(10), handoff.HandoffId));
+            fixture.Plane.Dispatcher.Dispatch("exec-review", "worker-2", "agent.qa", new[] { "qa" },
+                "policy-rev-1", TimeSpan.FromMinutes(10), wrongHandoff.HandoffId));
     }
 
     // ------------------------------------------------------------------

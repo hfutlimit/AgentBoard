@@ -3,6 +3,8 @@ using AgentBoard.Application.Abstractions;
 using AgentBoard.Application.Board;
 using AgentBoard.Application.Events;
 using AgentBoard.Domain.Identity;
+using AgentBoard.Domain.Workflow.Durable;
+using AgentBoard.Infrastructure.Scheduling;
 using AgentBoard.Infrastructure.Persistence;
 using AgentBoard.Infrastructure.Persistence.Interceptors;
 using AgentBoard.Infrastructure.Persistence.Repositories;
@@ -113,6 +115,8 @@ public static class DependencyInjection
 		services.AddScoped<ITaskStatusHistoryRepository, TaskStatusHistoryRepository>();
 		services.AddScoped<IAgentScheduleRepository, AgentScheduleRepository>();
 		services.AddScoped<IAgentRunRepository, AgentRunRepository>();
+		services.AddScoped<IAgentRepository, AgentRepository>();
+		services.AddScoped<IWorkflowWorkContextResolver, WorkflowWorkContextResolver>();
 		services.AddScoped<IProjectReadRepository, ProjectReadRepository>();
 		services.AddScoped<IProjectLifecycleService, ProjectLifecycleService>();
 		services.AddScoped<IApplicationEventPublisher, ApplicationEventPublisher>();
@@ -121,6 +125,7 @@ public static class DependencyInjection
 		services.AddScoped<AuditFieldsInterceptor>();
 		services.AddScoped<SoftDeleteInterceptor>();
 		services.AddScoped<DomainEventDispatcherInterceptor>();
+		services.AddSingleton<IAgentSelector, DatabaseAgentSelector>();
 
 		return services;
 	}

@@ -117,6 +117,99 @@ public sealed partial class ServerOutbox
 
     public IReadOnlyList<OutboxMessage> DueMessages(DateTimeOffset now) =>
         _messages.Values.Where(m => m.IsDue(now)).OrderBy(m => m.CreatedAt).ToList();
+
+    /// <summary>
+    /// Durably claims a due row before network I/O. The recovery deadline makes
+    /// a Server crash after the claim safe: the Published row becomes due again
+    /// and at-least-once delivery plus Node inbox dedup closes the ambiguity.
+    /// </summary>
+    public OutboxMessage BeginDispatch(
+        string messageId,
+        DateTimeOffset now,
+        TimeSpan? recoveryWindow = null)
+    {
+        var message = Require(messageId);
+        if (!message.IsDue(now))
+        {
+            throw new InvalidValueException($"outbox message '{messageId}' is not due");
+        }
+
+        var attempted = message with
+        {
+            State = OutboxState.Published,
+            AttemptCount = message.AttemptCount + 1,
+            NextAttemptAt = now + (recoveryWindow ?? TimeSpan.FromMinutes(1)),
+        };
+        Replace(attempted);
+        return attempted;
+    }
+
+    public IReadOnlyList<OutboxMessage> BeginDueDispatches(
+        DateTimeOffset now,
+        int maximum = int.MaxValue,
+        TimeSpan? recoveryWindow = null) =>
+        DueMessages(now)
+            .Take(Math.Max(0, maximum))
+            .Select(message => BeginDispatch(message.MessageId, now, recoveryWindow))
+            .ToList();
+
+    /// <summary>Applies the broker result only to the exact claimed attempt.</summary>
+    public OutboxState CompleteDispatch(
+        OutboxMessage attempted,
+        PublishResult outcome,
+        DateTimeOffset now,
+        RetryPlanner planner,
+        DeadLetterQueue deadLetters,
+        string? publishError = null)
+    {
+        var current = Require(attempted.MessageId);
+        if (current.State != OutboxState.Published || current.AttemptCount != attempted.AttemptCount)
+        {
+            return current.State;
+        }
+
+        if (outcome == PublishResult.Confirmed)
+        {
+            var done = current with
+            {
+                State = OutboxState.Confirmed,
+                NextAttemptAt = null,
+                ConfirmedAt = now,
+                LastError = null,
+            };
+            Replace(done);
+            return done.State;
+        }
+
+        var decision = planner.Decide(FailureCategory.TransportFailure, current.AttemptCount);
+        if (decision.IsRetry)
+        {
+            var retry = current with
+            {
+                State = OutboxState.Pending,
+                NextAttemptAt = now + decision.Delay!.Value,
+                LastError = publishError ?? "publish not confirmed",
+            };
+            Replace(retry);
+            return retry.State;
+        }
+
+        var dead = current with
+        {
+            State = OutboxState.DeadLettered,
+            NextAttemptAt = null,
+            LastError = $"{publishError ?? "publish not confirmed"}; retry budget exhausted",
+        };
+        Replace(dead);
+        deadLetters.Enqueue(new DeadLetterEntry(
+            Id: $"dlq-{dead.MessageId}",
+            MessageId: dead.MessageId,
+            ExecutionId: null,
+            Category: FailureCategory.TransportFailure,
+            Reason: dead.LastError,
+            EnqueuedAt: now));
+        return dead.State;
+    }
 }
 
 /// <summary>Broker seam for the outbox dispatcher.</summary>
@@ -190,12 +283,7 @@ public sealed class OutboxDispatcher
 
     public OutboxState TryDispatchOne(OutboxMessage message, DateTimeOffset now)
     {
-        var attempted = message with
-        {
-            State = OutboxState.Published,
-            AttemptCount = message.AttemptCount + 1,
-            NextAttemptAt = null,
-        };
+        var attempted = _outbox.BeginDispatch(message.MessageId, now);
 
         PublishResult outcome;
         string? publishError = null;
@@ -209,41 +297,7 @@ public sealed class OutboxDispatcher
             publishError = $"publish threw {error.GetType().Name}";
         }
 
-        if (outcome == PublishResult.Confirmed)
-        {
-            var done = attempted with { State = OutboxState.Confirmed, ConfirmedAt = now };
-            _outbox.Replace(done);
-            return done.State;
-        }
-
-        var failureNumber = attempted.AttemptCount;
-        var decision = _planner.Decide(FailureCategory.TransportFailure, failureNumber);
-
-        if (decision.IsRetry)
-        {
-            var retry = attempted with
-            {
-                State = OutboxState.Pending,
-                NextAttemptAt = now + decision.Delay!.Value,
-                LastError = publishError ?? "publish not confirmed",
-            };
-            _outbox.Replace(retry);
-            return retry.State;
-        }
-
-        var dead = attempted with
-        {
-            State = OutboxState.DeadLettered,
-            LastError = $"{publishError ?? "publish not confirmed"}; retry budget exhausted",
-        };
-        _outbox.Replace(dead);
-        _deadLetters.Enqueue(new DeadLetterEntry(
-            Id: $"dlq-{dead.MessageId}",
-            MessageId: dead.MessageId,
-            ExecutionId: null,
-            Category: FailureCategory.TransportFailure,
-            Reason: dead.LastError,
-            EnqueuedAt: now));
-        return dead.State;
+        return _outbox.CompleteDispatch(
+            attempted, outcome, now, _planner, _deadLetters, publishError);
     }
 }

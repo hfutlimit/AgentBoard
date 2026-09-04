@@ -132,6 +132,47 @@ public sealed class PlaneStoreTests : IDisposable
     }
 
     [Fact]
+    public void Deferred_orchestration_context_survives_restart_and_can_resume_assignment()
+    {
+        var clock = new TestClock();
+        var plane = new DurableServerPlane(
+            clock.Now, NewId, agentSelector: new FixedSelector(null));
+        var nodes = new[] { Node(StageType.Development) };
+        var version = new WorkflowVersion(
+            "version-managed", "definition-managed", 1, "workflow.v1",
+            nodes, WorkflowGraph.ComputeContentHash(nodes));
+        plane.Registry.PublishVersion(version);
+        var started = plane.Orchestrator.Start(
+            "run-managed",
+            version.VersionId,
+            new WorkflowWorkContext(
+                3,
+                "task",
+                42,
+                7,
+                new WorkspaceReference("3", "workspace", "commit-0"),
+                "implement",
+                Array.Empty<AgentCapabilityRequirement>()));
+        Assert.Null(started.Assignment);
+
+        using var store = new SqlitePlaneStore(_dbPath);
+        store.Commit(plane);
+        var revived = DurableServerPlane.Restore(
+            clock.Now,
+            NewId,
+            store.Load()!,
+            new FixedSelector(new AgentSelection(
+                "worker-1", "agent.dev", new[] { "development" }, "scenario")));
+
+        Assert.True(revived.Orchestrator.Manages("run-managed"));
+        Assert.Equal(1, revived.Orchestrator.ResumePendingAssignments());
+        Assert.Single(revived.Outbox.Messages);
+        Assert.Equal(
+            WorkflowRunState.Running,
+            revived.Registry.RequireRun("run-managed").Current.State);
+    }
+
+    [Fact]
     public void Lease_fencing_survives_the_restart()
     {
         var clock = new TestClock();
@@ -230,6 +271,15 @@ public sealed class PlaneStoreTests : IDisposable
         }
     }
 
+    private sealed class FixedSelector : IAgentSelector
+    {
+        private readonly AgentSelection? _selection;
+
+        public FixedSelector(AgentSelection? selection) => _selection = selection;
+
+        public AgentSelection? Select(AgentSelectionRequest request) => _selection;
+    }
+
     private sealed class Setup
     {
         public string ExecutionId { get; } = "exec-dev-1";
@@ -308,12 +358,12 @@ public sealed class PlaneStoreTests : IDisposable
             return ResultRaw(plane, assignment, status, summary: summary);
         }
 
-        private static WorkflowNode Node(StageType stage, params StageType[] transitions) => new(
-            stage.ToString().ToLowerInvariant(), stage, stage.ToString().ToLowerInvariant(),
-            "{}", "{}", transitions, "retry-standard", "policy-golden",
-            new StageBudget(3600, 600), true);
-
         private static TransitionContext Ctx(string reason) =>
             new("test-harness", reason, SchemaVersions.Registry);
     }
+
+    private static WorkflowNode Node(StageType stage, params StageType[] transitions) => new(
+        stage.ToString().ToLowerInvariant(), stage, stage.ToString().ToLowerInvariant(),
+        "{}", "{}", transitions, "retry-standard", "policy-golden",
+        new StageBudget(3600, 600), true);
 }

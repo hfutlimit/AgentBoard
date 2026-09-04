@@ -42,7 +42,8 @@ public sealed record PlaneState(
     IReadOnlyList<CommandEnvelope> SentCommands,
     IReadOnlyList<PendingRetry> PendingRetries,
     IReadOnlyList<HandoffContext> Handoffs,
-    IReadOnlyList<AttemptEvidence> Evidence);
+    IReadOnlyList<AttemptEvidence> Evidence,
+    WorkflowOrchestrationState Orchestration);
 
 /// <summary>
 /// What an accepted result contributed for later stages: the bounded evidence
@@ -360,7 +361,11 @@ public interface IPlaneCommitter
 /// </summary>
 public sealed class DurableServerPlane
 {
-    public DurableServerPlane(Func<DateTimeOffset> clock, Func<string> nextId, RetryPlanner? planner = null)
+    public DurableServerPlane(
+        Func<DateTimeOffset> clock,
+        Func<string> nextId,
+        RetryPlanner? planner = null,
+        IAgentSelector? agentSelector = null)
     {
         Clock = clock;
         NextId = nextId;
@@ -374,8 +379,12 @@ public sealed class DurableServerPlane
         Retries = new PendingRetryQueue(clock);
         Planner = planner ?? new RetryPlanner();
         Dispatcher = new CommandDispatcher(Registry, Leases, Outbox, clock, nextId, Sent, Handoffs);
+        HandoffIssuer = new HandoffIssuer(Registry, Handoffs, Evidence, nextId);
+        Orchestrator = new WorkflowOrchestrator(
+            Registry, Orchestration, Leases, Dispatcher, HandoffIssuer, nextId, agentSelector);
         Results = new ServerResultProcessor(
-            Registry, Leases, Inbox, Planner, DeadLetters, Dispatcher, clock, nextId, Sent, Retries, Evidence);
+            Registry, Leases, Inbox, Planner, DeadLetters, Dispatcher, clock, nextId,
+            Sent, Retries, Evidence, Orchestrator);
     }
 
     /// <summary>
@@ -436,7 +445,7 @@ public sealed class DurableServerPlane
         var request = Approvals.Decide(approvalId, granted, actor, reason);
         var approved = request.State == ApprovalState.Granted;
 
-        return Registry.MoveStage(
+        var stage = Registry.MoveStage(
             request.StageRunId,
             approved ? StageRunState.Running : StageRunState.Failed,
             new TransitionContext(actor,
@@ -444,6 +453,11 @@ public sealed class DurableServerPlane
                     ? "approval expired"
                     : approved ? "approval granted" : "approval denied",
                 SchemaVersions.Registry));
+        if (!approved && Orchestrator.Manages(stage.RunId))
+        {
+            Orchestrator.Fail(stage.StageRunId, "approval denied or expired");
+        }
+        return stage;
     }
 
     /// <summary>Expires unattended approvals and closes their parked stages.</summary>
@@ -457,6 +471,10 @@ public sealed class DurableServerPlane
             {
                 Registry.MoveStage(request.StageRunId, StageRunState.Failed,
                     new TransitionContext("server", "approval window elapsed", SchemaVersions.Registry));
+                if (Orchestrator.Manages(stage.Current.RunId))
+                {
+                    Orchestrator.Fail(stage.Current.StageRunId, "approval window elapsed");
+                }
             }
         }
 
@@ -507,6 +525,8 @@ public sealed class DurableServerPlane
         Handoffs.Restore(prior.Handoffs);
         Evidence.Clear();
         Evidence.Restore(prior.Evidence);
+        Orchestration.Clear();
+        Orchestration.Restore(prior.Orchestration);
     }
 
     /// <summary>
@@ -523,49 +543,9 @@ public sealed class DurableServerPlane
         WorkspaceReference workspace,
         string taskContext = "{}")
     {
-        var execution = Registry.RequireExecution(executionId);
-        if (execution.Outcome is not { } outcome)
-        {
-            throw new Common.InvalidValueException(
-                $"execution '{executionId}' has no accepted outcome; a handoff must carry one (doc 151 §7)");
-        }
-
-        if (!string.Equals(execution.Current.StageRunId, sourceStageRunId, StringComparison.Ordinal))
-        {
-            throw new Common.InvalidValueException(
-                $"execution '{executionId}' belongs to stage '{execution.Current.StageRunId}', " +
-                $"not claimed source stage '{sourceStageRunId}'");
-        }
-
-        var evidence = Evidence.For(outcome.AcceptedAttemptId);
-        if (!string.IsNullOrWhiteSpace(evidence?.CommitOrVersion)
-            && !string.Equals(evidence.CommitOrVersion, workspace.BaseVersion, StringComparison.Ordinal))
-        {
-            throw new Common.InvalidValueException(
-                $"workspace base version '{workspace.BaseVersion}' does not match accepted evidence " +
-                $"version '{evidence.CommitOrVersion}'");
-        }
-
-        var handoff = new HandoffContext
-        {
-            HandoffId = $"hnd-{NextId()}",
-            SourceStageRunId = sourceStageRunId,
-            SourceOutcomeId = outcome.OutcomeId,
-            TargetStageType = targetStageType,
-            TaskContext = taskContext,
-            ArtifactReferences = evidence?.ArtifactReferences ?? Array.Empty<ArtifactReference>(),
-            Workspace = workspace,
-            CommitOrVersion = evidence?.CommitOrVersion,
-            TestEvidence = evidence?.TestEvidence ?? Array.Empty<string>(),
-            ReviewFindings = evidence?.ReviewFindings ?? Array.Empty<string>(),
-            ContextVersion = "handoff.v1",
-            RequiredCapabilities = requiredCapabilities,
-        };
-
-        var stored = Handoffs.Add(handoff);
-        Registry.Audit.Append("server", "handoff.issued", stored.HandoffId,
-            $"{execution.Current.StageRunId} -> {targetStageType} over outcome '{outcome.OutcomeId}'");
-        return stored;
+        return HandoffIssuer.Issue(
+            sourceStageRunId, executionId, targetStageType,
+            requiredCapabilities, workspace, taskContext);
     }
 
     internal Func<DateTimeOffset> Clock { get; }
@@ -581,8 +561,11 @@ public sealed class DurableServerPlane
     public PendingRetryQueue Retries { get; }
     public HandoffRegistry Handoffs { get; } = new();
     public AttemptEvidenceLog Evidence { get; } = new();
+    public WorkflowOrchestrationRegistry Orchestration { get; } = new();
     public RetryPlanner Planner { get; }
     public CommandDispatcher Dispatcher { get; }
+    public HandoffIssuer HandoffIssuer { get; }
+    public WorkflowOrchestrator Orchestrator { get; }
     public ServerResultProcessor Results { get; }
 
     public PlaneState Capture() => new(
@@ -595,11 +578,16 @@ public sealed class DurableServerPlane
         Sent.Capture(),
         Retries.Capture(),
         Handoffs.Capture(),
-        Evidence.Capture());
+        Evidence.Capture(),
+        Orchestration.Capture());
 
-    public static DurableServerPlane Restore(Func<DateTimeOffset> clock, Func<string> nextId, PlaneState state)
+    public static DurableServerPlane Restore(
+        Func<DateTimeOffset> clock,
+        Func<string> nextId,
+        PlaneState state,
+        IAgentSelector? agentSelector = null)
     {
-        var plane = new DurableServerPlane(clock, nextId);
+        var plane = new DurableServerPlane(clock, nextId, agentSelector: agentSelector);
         plane.Registry.Load(state.Registry);
         plane.Outbox.Restore(state.Outbox);
         plane.Inbox.Restore(state.Inbox);
@@ -610,6 +598,7 @@ public sealed class DurableServerPlane
         plane.Retries.Restore(state.PendingRetries);
         plane.Handoffs.Restore(state.Handoffs);
         plane.Evidence.Restore(state.Evidence);
+        plane.Orchestration.Restore(state.Orchestration);
         return plane;
     }
 }
