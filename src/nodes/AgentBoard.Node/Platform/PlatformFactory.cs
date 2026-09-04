@@ -40,6 +40,14 @@ public static class PlatformFactory
         throw Unsupported();
     }
 
+    public static IProcessRunner CreateProcessRunner()
+    {
+        if (OperatingSystem.IsWindows()) return new WindowsProcessRunner();
+        if (OperatingSystem.IsMacOS()) return new UnixProcessRunner();
+
+        throw Unsupported();
+    }
+
     private static PlatformNotSupportedException Unsupported()
     {
         // RuntimeInformation is the descriptive source; OperatingSystem is the

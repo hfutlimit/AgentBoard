@@ -61,6 +61,9 @@ builder.Services.Configure<ProcessExecutorOptions>(builder.Configuration.GetSect
 builder.Services.AddSingleton<IUserIdentity>(_ => PlatformFactory.CreateUserIdentity());
 builder.Services.AddSingleton<IPlatformInfo>(sp =>
     PlatformFactory.CreatePlatformInfo(sp.GetRequiredService<IUserIdentity>()));
+// Session-shaped process control (M3.4 ProviderSession, M5 ACP). The batch
+// path (IProcessExecutor) stays registered below for the one-shot CLI adapters.
+builder.Services.AddSingleton<IProcessRunner>(_ => PlatformFactory.CreateProcessRunner());
 
 // ---- Sprint 5: shared process layer ---------------------------------------
 builder.Services.AddSingleton<IProcessExecutor, ProcessExecutor>();
