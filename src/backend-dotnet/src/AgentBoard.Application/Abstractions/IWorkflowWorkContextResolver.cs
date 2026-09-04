@@ -8,11 +8,14 @@ public enum WorkflowWorkResolutionStatus
     Found,
     NotFound,
     MissingOwner,
+    DependenciesNotReady,
 }
 
 public sealed record WorkflowWorkResolution(
     WorkflowWorkResolutionStatus Status,
-    WorkflowWorkContext? Context);
+    WorkflowWorkContext? Context,
+    string? CurrentStatus = null,
+    IReadOnlyList<int>? BlockingTaskIds = null);
 
 /// <summary>
 /// Resolves a business work item into the immutable execution context used by

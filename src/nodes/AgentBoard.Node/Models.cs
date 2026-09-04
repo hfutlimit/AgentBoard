@@ -247,7 +247,9 @@ public sealed record ExecutionContext(
     string? Prompt,
     // P0-2（2026-09-01 review）：Task 的类型（design/dev/qa/bug）。
     // prompt builder 按 type 分执行语义；null → implementation 语义。
-    string? TaskType = null);
+    string? TaskType = null,
+    string? WorkingDirectory = null,
+    bool DurableExecution = false);
 
 public sealed record AgentExecutionResult(
     bool Success,

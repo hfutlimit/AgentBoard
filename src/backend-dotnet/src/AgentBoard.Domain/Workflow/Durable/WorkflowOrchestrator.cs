@@ -19,7 +19,8 @@ public sealed record WorkflowWorkContext(
     int OwnerUserId,
     WorkspaceReference Workspace,
     string TaskContext,
-    IReadOnlyList<AgentCapabilityRequirement> RequiredCapabilities);
+    IReadOnlyList<AgentCapabilityRequirement> RequiredCapabilities,
+    string? TaskType = null);
 
 public sealed record AgentSelectionRequest(
     string WorkflowRunId,
@@ -69,6 +70,13 @@ public sealed class WorkflowOrchestrationRegistry
     public IReadOnlyCollection<WorkflowStagePlan> StagePlans => _plans.Values;
 
     public bool ContainsRun(string runId) => _runs.ContainsKey(runId);
+
+    public IReadOnlyList<string> RunIdsForWorkItem(string workItemType, int workItemId) => _runs
+        .Where(entry =>
+            string.Equals(entry.Value.WorkItemType, workItemType, StringComparison.OrdinalIgnoreCase)
+            && entry.Value.WorkItemId == workItemId)
+        .Select(entry => entry.Key)
+        .ToArray();
 
     public void AddRun(string runId, WorkflowWorkContext context)
     {
@@ -148,6 +156,7 @@ public sealed class WorkflowOrchestrator
     private readonly LeaseRegistry _leases;
     private readonly CommandDispatcher _dispatcher;
     private readonly HandoffIssuer _handoffs;
+    private readonly TaskStatusProjectionOutbox _taskProjections;
     private readonly IAgentSelector _selector;
     private readonly Func<string> _nextId;
 
@@ -157,6 +166,7 @@ public sealed class WorkflowOrchestrator
         LeaseRegistry leases,
         CommandDispatcher dispatcher,
         HandoffIssuer handoffs,
+        TaskStatusProjectionOutbox taskProjections,
         Func<string> nextId,
         IAgentSelector? selector = null)
     {
@@ -165,6 +175,7 @@ public sealed class WorkflowOrchestrator
         _leases = leases;
         _dispatcher = dispatcher;
         _handoffs = handoffs;
+        _taskProjections = taskProjections;
         _nextId = nextId;
         _selector = selector ?? NoAgentSelector.Instance;
     }
@@ -172,12 +183,23 @@ public sealed class WorkflowOrchestrator
     public WorkflowStartResult Start(string runId, string versionId, WorkflowWorkContext context)
     {
         Validate(context);
+        var conflictingRun = _state.RunIdsForWorkItem(context.WorkItemType, context.WorkItemId)
+            .Select(_registry.RequireRun)
+            .FirstOrDefault(existing => existing.Current.State is not (
+                WorkflowRunState.Failed or WorkflowRunState.Cancelled));
+        if (conflictingRun is not null)
+        {
+            throw new DuplicateException(
+                $"work item '{context.WorkItemType}:{context.WorkItemId}' already has durable workflow run " +
+                $"'{conflictingRun.Current.RunId}' in state '{conflictingRun.Current.State}'");
+        }
         var version = _registry.RequireVersion(versionId);
         var entry = WorkflowGraphNavigator.EntryNode(version);
         var run = _registry.CreateRun(runId, versionId);
         _state.AddRun(runId, context);
         _registry.MoveRun(runId, WorkflowRunState.Queued, Context("workflow queued"));
         run = _registry.MoveRun(runId, WorkflowRunState.Running, Context("workflow started"));
+        EnqueueTaskStatus(runId, context, "in_progress", null, "durable workflow started");
 
         var stage = _registry.AddStage(runId, $"stg-{_nextId()}", entry.StageType, 1, null);
         var execution = _registry.AddExecution(stage.StageRunId, $"exec-{_nextId()}");
@@ -205,8 +227,21 @@ public sealed class WorkflowOrchestrator
         {
             _registry.MoveRun(run.Current.RunId, WorkflowRunState.Succeeded,
                 Context($"terminal {stage.Current.StageType} outcome accepted"));
+            EnqueueTaskStatus(
+                run.Current.RunId,
+                _state.RequireRun(run.Current.RunId),
+                "done",
+                "completed",
+                $"durable workflow succeeded at terminal {stage.Current.StageType} stage");
             return WorkflowAdvanceResult.Completed;
         }
+
+        EnqueueTaskStatus(
+            run.Current.RunId,
+            _state.RequireRun(run.Current.RunId),
+            next.StageType is StageType.Review or StageType.Qa ? "in_review" : "in_progress",
+            null,
+            $"durable workflow entered {next.StageType} stage");
 
         return CreateSuccessor(stage, executionId, next, reason: null);
     }
@@ -220,6 +255,12 @@ public sealed class WorkflowOrchestrator
         var next = WorkflowGraphNavigator.FeedbackSuccessor(version, review.Current.StageType);
         var stage = _registry.RequestChangesIteration(
             reviewStageRunId, $"stg-{_nextId()}", context);
+        EnqueueTaskStatus(
+            run.Current.RunId,
+            _state.RequireRun(run.Current.RunId),
+            "in_progress",
+            null,
+            "durable review requested changes");
         return CreatePlannedStage(review, executionId, next, stage);
     }
 
@@ -229,6 +270,12 @@ public sealed class WorkflowOrchestrator
         if (run.Current.State == WorkflowRunState.Running)
         {
             _registry.MoveRun(run.Current.RunId, WorkflowRunState.Failed, Context(reason));
+            EnqueueTaskStatus(
+                run.Current.RunId,
+                _state.RequireRun(run.Current.RunId),
+                "blocked",
+                "workflow_failed",
+                $"durable workflow failed: {reason}");
         }
     }
 
@@ -238,6 +285,12 @@ public sealed class WorkflowOrchestrator
         if (run.Current.State == WorkflowRunState.Running)
         {
             _registry.MoveRun(run.Current.RunId, WorkflowRunState.Cancelled, Context(reason));
+            EnqueueTaskStatus(
+                run.Current.RunId,
+                _state.RequireRun(run.Current.RunId),
+                "blocked",
+                "workflow_cancelled",
+                $"durable workflow cancelled: {reason}");
         }
     }
 
@@ -362,7 +415,11 @@ public sealed class WorkflowOrchestrator
             node.Budget.Lease,
             plan.HandoffId,
             work.TaskContext,
-            selected.ProviderId);
+            selected.ProviderId,
+            work.Workspace,
+            work.WorkItemType,
+            work.WorkItemId,
+            work.TaskType);
         _registry.Audit.Append("server", "stage.agent.selected", stage.Current.StageRunId,
             $"selected agent '{selected.AgentId}' on worker '{selected.WorkerId}'");
         return assignment;
@@ -414,6 +471,18 @@ public sealed class WorkflowOrchestrator
         {
             throw new InvalidValueException("workspace project identity does not match the work item project");
         }
+    }
+
+    private void EnqueueTaskStatus(
+        string runId,
+        WorkflowWorkContext context,
+        string status,
+        string? statusReason,
+        string reason)
+    {
+        if (!string.Equals(context.WorkItemType, "task", StringComparison.OrdinalIgnoreCase)) return;
+        _taskProjections.Enqueue(
+            $"tsp-{_nextId()}", runId, context.WorkItemId, status, statusReason, reason);
     }
 
     private static TransitionContext Context(string reason) =>

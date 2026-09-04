@@ -385,7 +385,7 @@ def delete_schedule(s: Session, id: int) -> bool:
 
 
 def register_agent(s: Session, *, agent_id: str, name: str, roles: str = "[]",
-                   capabilities="[]", cli_command: str = "",
+                   capabilities=None, cli_command: str = "",
                    model: str = "", auth_key: str = "", user_id: int | None = None) -> Agent:
     """注册/更新 Agent（幂等：agent_id 已存在则更新字段）。
 
@@ -396,7 +396,7 @@ def register_agent(s: Session, *, agent_id: str, name: str, roles: str = "[]",
     agent_id = _required(agent_id, "agent_id", 64)
     name = _required(name, "name", 100)
     roles_list = _parse_json_list(roles, "roles")
-    caps_list = normalize_capabilities(capabilities)
+    caps_list = normalize_capabilities(capabilities) if capabilities is not None else None
     # B-A2: cli_command 安全校验（防 shell 注入，与 probe dry-run 配合）
     validate_cli_command(cli_command)
     if user_id is not None and not s.get(User, user_id):
@@ -405,7 +405,12 @@ def register_agent(s: Session, *, agent_id: str, name: str, roles: str = "[]",
     if existing:
         existing.name = name
         existing.roles = json.dumps(roles_list, ensure_ascii=False)
-        existing.capabilities = json.dumps(caps_list, ensure_ascii=False)
+        # Agent startup registration is also used as a presence/instance
+        # bootstrap.  Do not erase an operator-managed capability profile just
+        # because an older Worker omitted this optional field.  Explicit []
+        # remains a deliberate clear operation.
+        if caps_list is not None:
+            existing.capabilities = json.dumps(caps_list, ensure_ascii=False)
         existing.cli_command = (cli_command or "")[:500]
         existing.model = (model or "")[:100]
         existing.auth_key = (auth_key or "")[:100]
@@ -416,7 +421,7 @@ def register_agent(s: Session, *, agent_id: str, name: str, roles: str = "[]",
         agent_id=agent_id,
         name=name,
         roles=json.dumps(roles_list, ensure_ascii=False),
-        capabilities=json.dumps(caps_list, ensure_ascii=False),
+        capabilities=json.dumps(caps_list or [], ensure_ascii=False),
         cli_command=(cli_command or "")[:500],
         model=(model or "")[:100],
         auth_key=(auth_key or "")[:100],

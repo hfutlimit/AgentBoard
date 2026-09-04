@@ -90,8 +90,10 @@ builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.Configure<DurableWorkflowOptions>(builder.Configuration.GetSection("DurableWorkflow"));
 builder.Services.AddScoped<DurableWorkflowGateFilter>();
 builder.Services.AddSingleton<DurableServerRuntime>();
+builder.Services.AddSingleton<FastApiTaskProjectionClient>();
 builder.Services.AddHostedService<DurableServerOutboxService>();
 builder.Services.AddHostedService<DurableServerResultConsumerService>();
+builder.Services.AddHostedService<DurableTaskProjectionService>();
 
 // Auth: PBKDF2 password hashing + stateless HMAC bearer token. Both mirror
 // the FastAPI formats so the .NET BFF authenticates against the same users

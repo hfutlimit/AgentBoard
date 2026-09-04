@@ -154,7 +154,7 @@ public class ProtocolTests
         // A second assignment supersedes the first lease (epoch 2 current).
         var retry = fixture.Plane.Dispatcher.Dispatch(
             fixture.ExecutionId, "worker-9", "agent.dev", new[] { "development" }, "policy-rev-1",
-            TimeSpan.FromMinutes(10));
+            TimeSpan.FromMinutes(10), workspace: new WorkspaceReference("p", "w", "v"));
         Assert.Equal(2, retry.LeaseEpoch);
 
         var stale = fixture.Plane.Results.Process(
@@ -441,7 +441,7 @@ public class ProtocolTests
         tight.Registry.AddStage("run-1", "stg-dev-1", StageType.Development, 1, null);
         tight.Registry.AddExecution("stg-dev-1", "exec-dev-1");
         tight.Dispatcher.Dispatch("exec-dev-1", "worker-1", "agent.dev", new[] { "development" }, "policy-rev-1",
-            TimeSpan.FromMinutes(10));
+            TimeSpan.FromMinutes(10), workspace: new WorkspaceReference("p", "w", "v"));
 
         for (var i = 0; i < 3; i++)
         {

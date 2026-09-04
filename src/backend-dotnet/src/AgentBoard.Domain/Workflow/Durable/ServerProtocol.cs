@@ -79,7 +79,11 @@ public sealed class CommandDispatcher
         TimeSpan leaseBudget,
         string? handoffId = null,
         string taskContext = "{}",
-        string? providerId = null)
+        string? providerId = null,
+        WorkspaceReference? workspace = null,
+        string? workItemType = null,
+        int? workItemId = null,
+        string? taskType = null)
     {
         var execution = _registry.RequireExecution(executionId);
         var stage = _registry.RequireStage(execution.Current.StageRunId);
@@ -156,6 +160,9 @@ public sealed class CommandDispatcher
                 $"stage '{stage.Current.StageRunId}' requires a verified handoff from its predecessor");
         }
 
+        var commandWorkspace = handoff?.Workspace ?? workspace
+            ?? throw new InvalidValueException(
+                $"stage '{stage.Current.StageRunId}' dispatch requires an explicit workspace");
         var mustAssignStage = stage.Machine.Current == StageRunState.Pending;
 
         var now = _clock();
@@ -205,7 +212,10 @@ public sealed class CommandDispatcher
             ExpiresAt = assignment.ExpiresAt,
             Traceparent = NewTraceparent(commandId),
             Payload = System.Text.Json.JsonSerializer.Serialize(
-                new AssignCommandPayload(assignment, handoffId, handoff, taskContext, providerId)),
+                new AssignCommandPayload(
+                    assignment, handoffId, handoff, taskContext, providerId,
+                    stage.Current.StageType, node.NodeId, commandWorkspace,
+                    workItemType, workItemId, taskType)),
             PolicyRevisionId = policyRevisionId,
         };
 
@@ -592,7 +602,11 @@ public sealed class ServerResultProcessor
                 current.ExpiresAt - current.IssuedAt,
                 priorPayload?.HandoffId,
                 priorPayload?.TaskContext ?? "{}",
-                priorPayload?.ProviderId));
+                priorPayload?.ProviderId,
+                priorPayload?.Workspace,
+                priorPayload?.WorkItemType,
+                priorPayload?.WorkItemId,
+                priorPayload?.TaskType));
 
             audit.Append("server", "result.retry_scheduled", executionId,
                 $"{result.FailureCategory} failure {failureNumber}; retry due {due:O} ({decision.Reason})",

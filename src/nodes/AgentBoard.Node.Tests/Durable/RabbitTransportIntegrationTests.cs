@@ -43,7 +43,8 @@ public sealed class RabbitTransportIntegrationTests
         var assignment = server.Dispatcher.Dispatch(
             "execution-rabbit", worker, "agent.dev", new[] { "development" },
             policy.RevisionId, TimeSpan.FromMinutes(5), taskContext: "rabbit end-to-end",
-            providerId: "scenario");
+            providerId: "scenario",
+            workspace: new WorkspaceReference("project", "workspace", "base"));
         var commandTransport = new DurableRabbitCommandTransport(uri);
         Assert.Equal(1, new OutboxDispatcher(
             server.Outbox, commandTransport, server.Planner, server.DeadLetters, () => now)
@@ -68,7 +69,10 @@ public sealed class RabbitTransportIntegrationTests
             worker, journal, new AssignmentTracker(), new LocalEventStore(), resultOutbox,
             new AgentAdapterRegistry(new IAgentAdapter[] { adapter },
                 NullLogger<AgentAdapterRegistry>.Instance),
-            policy, new WorkspaceReference("project", "workspace", "base"), () => now);
+            policy,
+            new SingleLocalWorkspaceResolver(
+                new WorkspaceReference("project", "workspace", "base"), Directory.GetCurrentDirectory()),
+            () => now);
 
         Assert.Equal(AcceptanceKind.Accepted, runner.Accept(command).Kind);
         await runner.ExecuteAcceptedAsync(command, CancellationToken.None);

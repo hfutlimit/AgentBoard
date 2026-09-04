@@ -16,7 +16,7 @@ internal static class SharedAdapterHelpers
         var output = result.RedactedOutput ?? "";
         return new AgentExecutionResult(
             Success: result.ExitCode == 0 && !result.TimedOut && !result.Cancelled,
-            OutputJson: TryExtractLastJson(output),
+            OutputJson: TryExtractProviderJson(output),
             ErrorMessage: result.Cancelled ? "cancelled"
                 : result.TimedOut ? "timeout"
                 : result.ExitCode == 0 ? null : $"exit {result.ExitCode}: {result.StderrTail}",
@@ -24,6 +24,38 @@ internal static class SharedAdapterHelpers
             Duration: result.Duration,
             TimedOut: result.TimedOut,
             Cancelled: result.Cancelled);
+    }
+
+    private static string? TryExtractProviderJson(string text)
+    {
+        // Codex --json emits JSONL event envelopes. The business result is the
+        // text of the last completed agent_message, not the final
+        // turn.completed usage event.
+        string? agentMessage = null;
+        foreach (var line in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(line.Trim());
+                var root = document.RootElement;
+                if (root.TryGetProperty("type", out var type)
+                    && type.GetString() == "item.completed"
+                    && root.TryGetProperty("item", out var item)
+                    && item.TryGetProperty("type", out var itemType)
+                    && itemType.GetString() == "agent_message"
+                    && item.TryGetProperty("text", out var message))
+                {
+                    agentMessage = message.GetString();
+                }
+            }
+            catch (JsonException)
+            {
+                // Provider warnings and ordinary stdout may surround JSONL.
+            }
+        }
+        return !string.IsNullOrWhiteSpace(agentMessage)
+            ? TryExtractLastJson(agentMessage)
+            : TryExtractLastJson(text);
     }
 
     private static string? TryExtractLastJson(string text)
@@ -63,6 +95,10 @@ internal static class SharedAdapterHelpers
     public static string BuildWorkloadPrompt(
         string agentName, ExecutionContext context, string? correlationId = null)
     {
+        if (context.DurableExecution)
+        {
+            return BuildDurablePrompt(agentName, context, correlationId);
+        }
         // correlation_id is the trace chain id (PR-2 字段). Optional
         // —— 老 dispatcher 不传时为空，前向兼容。
         var trace = string.IsNullOrWhiteSpace(correlationId)
@@ -119,6 +155,35 @@ internal static class SharedAdapterHelpers
             {workloadBlock}
             Unattended mode: do not make destructive local changes unless the workload explicitly asks and MCP confirms scope.
             {trace}
+            """;
+    }
+
+    private static string BuildDurablePrompt(
+        string agentName, ExecutionContext context, string? correlationId)
+    {
+        var trace = string.IsNullOrWhiteSpace(correlationId) ? "" : $" Trace id: {correlationId}.";
+        var taskType = string.IsNullOrWhiteSpace(context.TaskType) ? "dev" : context.TaskType;
+        var stage = context.WorkloadType == WorkloadTypes.Review ? "review" : "execution";
+        var instructions = context.WorkloadType == WorkloadTypes.Review
+            ? "Inspect the task, the current workspace diff/commit, and the acceptance criteria. Return succeeded when it is acceptable; return changes_requested only for concrete actionable defects. Do not modify files."
+            : taskType switch
+            {
+                "design" => "Produce a concise implementation design in the workspace and verify it is internally consistent. Do not implement product code.",
+                "qa" => "Run the relevant verification and record a concise QA report in the workspace. Do not modify the implementation.",
+                _ => "Implement the requested change in the workspace and run the smallest relevant verification.",
+            };
+        const string outputContract =
+            "{\"result_status\":\"succeeded|changes_requested|failed\",\"summary\":\"concise outcome\",\"commit_or_version\":\"git revision or null\",\"test_evidence\":[\"evidence\"],\"review_findings\":[\"finding\"],\"artifact_references\":[]}";
+
+        return $"""
+            You are the AgentBoard durable worker running on {agentName}.
+            Durable {stage} stage for business task {context.WorkloadId} (task_type={taskType}).
+            Task context: {context.PayloadJson}
+            {instructions}
+            The Server owns Task and Workflow state. Do not call MCP methods that claim, submit, review, or change Task/Story status.
+            Finish with exactly one JSON object and no markdown:
+            {outputContract}
+            For a non-review stage, do not use changes_requested. For a successful review with no findings, use succeeded.{trace}
             """;
     }
 

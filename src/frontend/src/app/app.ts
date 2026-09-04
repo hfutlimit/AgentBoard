@@ -5047,6 +5047,8 @@ export class App implements OnInit, OnDestroy {
     blocked: [
       { value: 'blocked_by_other_ticket', label: 'Blocked by other ticket（被其它工单阻塞）' },
       { value: 'pending_requirement_change', label: 'Pending requirement change（需求待变更）' },
+      { value: 'workflow_failed', label: 'Workflow failed（自动流程失败）' },
+      { value: 'workflow_cancelled', label: 'Workflow cancelled（自动流程已取消）' },
       { value: 'out_of_scope', label: 'Out of scope（超出范围）' },
       { value: 'duplicate', label: 'Duplicate（重复）' },
     ],

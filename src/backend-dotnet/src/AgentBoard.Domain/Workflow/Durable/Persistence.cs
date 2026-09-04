@@ -43,7 +43,8 @@ public sealed record PlaneState(
     IReadOnlyList<PendingRetry> PendingRetries,
     IReadOnlyList<HandoffContext> Handoffs,
     IReadOnlyList<AttemptEvidence> Evidence,
-    WorkflowOrchestrationState Orchestration);
+    WorkflowOrchestrationState Orchestration,
+    IReadOnlyList<TaskStatusProjection>? TaskStatusProjections = null);
 
 /// <summary>
 /// What an accepted result contributed for later stages: the bounded evidence
@@ -377,11 +378,13 @@ public sealed class DurableServerPlane
         Approvals = new ApprovalInbox(Registry.Audit, clock);
         Sent = new SentCommandLog();
         Retries = new PendingRetryQueue(clock);
+        TaskProjections = new TaskStatusProjectionOutbox(clock);
         Planner = planner ?? new RetryPlanner();
         Dispatcher = new CommandDispatcher(Registry, Leases, Outbox, clock, nextId, Sent, Handoffs);
         HandoffIssuer = new HandoffIssuer(Registry, Handoffs, Evidence, nextId);
         Orchestrator = new WorkflowOrchestrator(
-            Registry, Orchestration, Leases, Dispatcher, HandoffIssuer, nextId, agentSelector);
+            Registry, Orchestration, Leases, Dispatcher, HandoffIssuer,
+            TaskProjections, nextId, agentSelector);
         Results = new ServerResultProcessor(
             Registry, Leases, Inbox, Planner, DeadLetters, Dispatcher, clock, nextId,
             Sent, Retries, Evidence, Orchestrator);
@@ -495,7 +498,8 @@ public sealed class DurableServerPlane
             Dispatcher.Dispatch(
                 retry.ExecutionId, retry.WorkerId, retry.AgentId,
                 retry.Capabilities, retry.PolicyRevisionId, retry.LeaseBudget,
-                retry.HandoffId, retry.TaskContext, retry.ProviderId);
+                retry.HandoffId, retry.TaskContext, retry.ProviderId, retry.Workspace,
+                retry.WorkItemType, retry.WorkItemId, retry.TaskType);
             Retries.Complete(retry);
             dispatched++;
         }
@@ -527,6 +531,8 @@ public sealed class DurableServerPlane
         Evidence.Restore(prior.Evidence);
         Orchestration.Clear();
         Orchestration.Restore(prior.Orchestration);
+        TaskProjections.Clear();
+        TaskProjections.Restore(prior.TaskStatusProjections ?? Array.Empty<TaskStatusProjection>());
     }
 
     /// <summary>
@@ -562,6 +568,7 @@ public sealed class DurableServerPlane
     public HandoffRegistry Handoffs { get; } = new();
     public AttemptEvidenceLog Evidence { get; } = new();
     public WorkflowOrchestrationRegistry Orchestration { get; } = new();
+    public TaskStatusProjectionOutbox TaskProjections { get; }
     public RetryPlanner Planner { get; }
     public CommandDispatcher Dispatcher { get; }
     public HandoffIssuer HandoffIssuer { get; }
@@ -579,7 +586,8 @@ public sealed class DurableServerPlane
         Retries.Capture(),
         Handoffs.Capture(),
         Evidence.Capture(),
-        Orchestration.Capture());
+        Orchestration.Capture(),
+        TaskProjections.Capture());
 
     public static DurableServerPlane Restore(
         Func<DateTimeOffset> clock,
@@ -599,6 +607,7 @@ public sealed class DurableServerPlane
         plane.Handoffs.Restore(state.Handoffs);
         plane.Evidence.Restore(state.Evidence);
         plane.Orchestration.Restore(state.Orchestration);
+        plane.TaskProjections.Restore(state.TaskStatusProjections ?? Array.Empty<TaskStatusProjection>());
         return plane;
     }
 }
@@ -662,7 +671,11 @@ public sealed record PendingRetry(
     TimeSpan LeaseBudget,
     string? HandoffId = null,
     string TaskContext = "{}",
-    string? ProviderId = null);
+    string? ProviderId = null,
+    WorkspaceReference? Workspace = null,
+    string? WorkItemType = null,
+    int? WorkItemId = null,
+    string? TaskType = null);
 
 public sealed class PendingRetryQueue
 {

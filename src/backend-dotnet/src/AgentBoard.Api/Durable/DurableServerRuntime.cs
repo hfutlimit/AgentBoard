@@ -78,5 +78,14 @@ public sealed class DurableServerRuntime : IDisposable
             plane.DeadLetters,
             publishError));
 
+    public TaskStatusProjection? PrepareTaskProjection() =>
+        Mutate(plane => plane.TaskProjections.BeginNext(TimeSpan.FromMinutes(1)));
+
+    public TaskStatusProjection CompleteTaskProjection(string projectionId) =>
+        Mutate(plane => plane.TaskProjections.Complete(projectionId));
+
+    public TaskStatusProjection RetryTaskProjection(string projectionId, string error, TimeSpan delay) =>
+        Mutate(plane => plane.TaskProjections.Retry(projectionId, error, delay));
+
     public void Dispose() => _store.Dispose();
 }

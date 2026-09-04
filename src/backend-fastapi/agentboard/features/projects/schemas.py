@@ -52,6 +52,10 @@ class MemberRoleIn(BaseModel):
 	role: str = Field(..., pattern=r"^(owner|member)$")
 
 
+class WorkerProjectMappingIn(BaseModel):
+	enabled: bool = True
+
+
 class StoryTransferIn(BaseModel):
 	"""T2.3 移交 story 归属：免确认、即生效。"""
 	new_owner_user_id: int = Field(..., gt=0)

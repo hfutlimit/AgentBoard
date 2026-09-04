@@ -50,7 +50,8 @@ public sealed class WorkBuddyAdapter : IAgentAdapter
         {
             Executable = resolved.Executable,
             Arguments = arguments,
-            WorkingDirectory = opts.WorkingDirectory,
+            WorkingDirectory = string.IsNullOrWhiteSpace(context.WorkingDirectory)
+                ? opts.WorkingDirectory : context.WorkingDirectory,
             StdinPayload = SharedAdapterHelpers.BuildWorkloadPrompt(
                 agentName: "the WorkBuddy CLI (codebuddy)",
                 context: context),

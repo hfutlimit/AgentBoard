@@ -71,7 +71,8 @@ internal sealed class PlaneFixture
     public Assignment DispatchDev(string worker = "worker-1", string agent = "agent.dev")
     {
         var assignment = Plane.Dispatcher.Dispatch(
-            ExecutionId, worker, agent, new[] { "development" }, "policy-rev-1", TimeSpan.FromMinutes(10));
+            ExecutionId, worker, agent, new[] { "development" }, "policy-rev-1", TimeSpan.FromMinutes(10),
+            workspace: new WorkspaceReference("p", "w", "v"));
         CurrentAssignment = assignment;
         StageId = Plane.Registry.RequireExecution(ExecutionId).Current.StageRunId;
         return assignment;

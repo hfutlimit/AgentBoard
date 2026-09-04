@@ -96,6 +96,7 @@ public class WorkerStartupServiceTests
         {
             using var json = System.Text.Json.JsonDocument.Parse(r.Body);
             Assert.Equal("[]", json.RootElement.GetProperty("roles").GetString());
+            Assert.False(json.RootElement.TryGetProperty("capabilities", out _));
         });
         var instances = stub.Requests.Where(r =>
             r.Method == "POST" && r.Url.Contains("/instances")).ToList();
@@ -108,6 +109,45 @@ public class WorkerStartupServiceTests
                 .GetProperty("executor_type").GetString() == "codex");
         // minimax 没注册（Command="" 跳过）
         Assert.DoesNotContain(stub.Requests, r => r.Url.Contains("minimax"));
+    }
+
+    [Fact]
+    public async Task Explicit_capabilities_and_model_are_reported_without_overwriting_omitted_profiles()
+    {
+        var stub = new StubHandler();
+        var http = new HttpClient(stub);
+        var (wo, ab, agents) = BuildOpts();
+        agents.Codex.Capabilities = new Dictionary<string, double>
+        {
+            ["development"] = 5,
+            ["review"] = 3,
+        };
+        agents.Codex.Model = "gpt-5.6-terra";
+        var svc = new WorkerStartupService(
+            new FixedHttpFactory(http),
+            Options.Create(wo), Options.Create(ab), Options.Create(agents),
+            ThreeAgentRegistry(), NullLogger<WorkerStartupService>.Instance);
+
+        await svc.StartAsync(CancellationToken.None);
+        await Task.Delay(500);
+        await svc.StopAsync(CancellationToken.None);
+
+        var registration = stub.Requests.Single(request =>
+            request.Url.EndsWith("/api/agents/register")
+            && request.Body.Contains("codex-on-dev"));
+        using (var json = JsonDocument.Parse(registration.Body))
+        {
+            Assert.Equal("gpt-5.6-terra", json.RootElement.GetProperty("model").GetString());
+            var capabilities = json.RootElement.GetProperty("capabilities").EnumerateArray().ToArray();
+            Assert.Equal("development", capabilities[0].GetProperty("name").GetString());
+            Assert.Equal(5, capabilities[0].GetProperty("level").GetDouble());
+            Assert.Equal("review", capabilities[1].GetProperty("name").GetString());
+            Assert.Equal(3, capabilities[1].GetProperty("level").GetDouble());
+        }
+        var instance = stub.Requests.Single(request =>
+            request.Url.Contains("codex-on-dev/instances"));
+        using var instanceJson = JsonDocument.Parse(instance.Body);
+        Assert.Equal("gpt-5.6-terra", instanceJson.RootElement.GetProperty("model").GetString());
     }
 
     [Fact]

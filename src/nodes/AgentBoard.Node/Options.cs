@@ -144,7 +144,19 @@ public sealed class DurableExecutionOptions
     public string ProjectId { get; set; } = "local-project";
     public string WorkspaceId { get; set; } = "local-workspace";
     public string WorkspaceBaseVersion { get; set; } = "working-tree";
+    /// <summary>
+    /// Node-local workspace bindings.  The Server sends only project/workspace
+    /// identity; absolute repository paths never cross the trust boundary.
+    /// </summary>
+    public LocalWorkspaceMappingOptions[] Workspaces { get; set; } = Array.Empty<LocalWorkspaceMappingOptions>();
     public ushort Prefetch { get; set; } = 4;
+}
+
+public sealed class LocalWorkspaceMappingOptions
+{
+    public string ProjectId { get; set; } = "";
+    public string WorkspaceId { get; set; } = "";
+    public string LocalPath { get; set; } = "";
 }
 
 // =============================================================================
@@ -191,6 +203,13 @@ public sealed class AgentOptions
     /// (2026-09-03, P7b / multi-AI isolation redesign).
     /// </summary>
     public string AgentBoardToken { get; set; } = "";
+    /// <summary>Provider model reported to AgentBoard and passed to CLIs that support it.</summary>
+    public string Model { get; set; } = "";
+    /// <summary>
+    /// Optional operator-managed capability profile. Null means preserve the
+    /// Server profile; an explicit empty array clears it.
+    /// </summary>
+    public Dictionary<string, double>? Capabilities { get; set; }
     /// <summary>
     /// Optional URL the readiness probe can HTTP-GET to verify
     /// the agent's external auth is live (e.g. WorkBuddy's MCP

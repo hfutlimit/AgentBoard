@@ -26,6 +26,7 @@ from .schemas import (
 	StoryIn,
 	StoryPatch,
 	StoryTransferIn,
+	WorkerProjectMappingIn,
 )
 from ...features.projects.models import ProjectMember, Epic, Story  # bulk-archive 非 admin 分支权限校验
 from ...features.work_items.models import Task
@@ -45,6 +46,48 @@ from ...mq import (
 )
 
 router = APIRouter(tags=["projects"])
+
+
+@router.post("/api/projects/{pid}/workers/{worker_id}", status_code=201)
+def map_worker_to_project(
+    pid: int,
+    worker_id: str,
+    body: WorkerProjectMappingIn | None = None,
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    """Authorize a registered Worker for a Project; local paths stay Node-side."""
+    api_helpers._require_project_owner(s, pid, authorization)
+    try:
+        mapping = service.map_worker_to_project(
+            s, worker_id=worker_id, project_id=pid,
+            enabled=True if body is None else body.enabled,
+        )
+    except service.NotFound as error:
+        raise HTTPException(status_code=404, detail=str(error))
+    return service._ser(mapping)
+
+
+@router.get("/api/projects/{pid}/workers")
+def list_project_workers(
+    pid: int,
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    api_helpers._require_project_owner(s, pid, authorization)
+    return {"items": service.list_project_workers(s, pid, enabled_only=False)}
+
+
+@router.delete("/api/projects/{pid}/workers/{worker_id}", status_code=204)
+def unmap_worker_from_project(
+    pid: int,
+    worker_id: str,
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    api_helpers._require_project_owner(s, pid, authorization)
+    if not service.unmap_worker_from_project(s, worker_id=worker_id, project_id=pid):
+        raise HTTPException(status_code=404, detail="worker project mapping not found")
 
 
 @router.get("/api/projects")

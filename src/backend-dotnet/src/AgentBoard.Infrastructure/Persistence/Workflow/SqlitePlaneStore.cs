@@ -104,6 +104,8 @@ public sealed class SqlitePlaneStore : IDisposable, IPlaneCommitter
             Write(connection, transaction, "handoffs", state.Handoffs);
             Write(connection, transaction, "evidence", state.Evidence);
             Write(connection, transaction, "orchestration", state.Orchestration);
+            Write(connection, transaction, "task_status_projections",
+                state.TaskStatusProjections ?? Array.Empty<TaskStatusProjection>());
             transaction.Commit();
         }
         catch
@@ -149,7 +151,9 @@ public sealed class SqlitePlaneStore : IDisposable, IPlaneCommitter
             Read<IReadOnlyList<AttemptEvidence>>(connection, "evidence") ?? Array.Empty<AttemptEvidence>(),
             Read<WorkflowOrchestrationState>(connection, "orchestration")
                 ?? new WorkflowOrchestrationState(
-                    Array.Empty<WorkflowRunContextState>(), Array.Empty<WorkflowStagePlan>()));
+                    Array.Empty<WorkflowRunContextState>(), Array.Empty<WorkflowStagePlan>()),
+            Read<IReadOnlyList<TaskStatusProjection>>(connection, "task_status_projections")
+                ?? Array.Empty<TaskStatusProjection>());
 
         // Contracts records need no converter beyond string enums for the
         // status/category members.

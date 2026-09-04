@@ -65,6 +65,12 @@ public sealed class Sprint7_CliLocatorTests
 
         Assert.True(resolved.ExtraEnv.ContainsKey("PATH"),
             "Locator must surface PATH so codex/minimax/codebuddy can resolve node etc.");
+        if (OperatingSystem.IsWindows()
+            && !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("SYSTEMDRIVE")))
+        {
+            Assert.True(resolved.ExtraEnv.ContainsKey("SYSTEMDRIVE"),
+                "Windows CLIs must not expand %SystemDrive% as a literal relative directory");
+        }
     }
 
     [Fact]

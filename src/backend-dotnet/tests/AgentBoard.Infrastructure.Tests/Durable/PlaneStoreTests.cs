@@ -173,6 +173,50 @@ public sealed class PlaneStoreTests : IDisposable
     }
 
     [Fact]
+    public void Pending_task_status_projection_survives_restart()
+    {
+        var clock = new TestClock();
+        var plane = new DurableServerPlane(clock.Now, NewId);
+        plane.TaskProjections.Enqueue(
+            "projection-1", "run-1", 42, "in_progress", null, "workflow started");
+
+        using var store = new SqlitePlaneStore(_dbPath);
+        store.Commit(plane);
+        var revived = DurableServerPlane.Restore(clock.Now, NewId, store.Load()!);
+
+        var projection = Assert.IsType<TaskStatusProjection>(
+            revived.TaskProjections.BeginNext(TimeSpan.FromMinutes(1)));
+        Assert.Equal("projection-1", projection.ProjectionId);
+        Assert.Equal(42, projection.TaskId);
+        Assert.Equal("in_progress", projection.TargetStatus);
+    }
+
+    [Fact]
+    public void Failed_or_cancelled_run_does_not_permanently_lock_the_work_item()
+    {
+        var clock = new TestClock();
+        var plane = new DurableServerPlane(clock.Now, NewId, agentSelector: new FixedSelector(null));
+        var nodes = new[] { Node(StageType.Development) };
+        var version = new WorkflowVersion(
+            "version-rerun", "definition-rerun", 1, "workflow.v1",
+            nodes, WorkflowGraph.ComputeContentHash(nodes));
+        plane.Registry.PublishVersion(version);
+        var context = new WorkflowWorkContext(
+            3, "task", 42, 7,
+            new WorkspaceReference("3", "workspace", "commit-0"),
+            "implement", Array.Empty<AgentCapabilityRequirement>());
+
+        var failed = plane.Orchestrator.Start("run-failed", version.VersionId, context);
+        Assert.Throws<AgentBoard.Domain.Common.DuplicateException>(() =>
+            plane.Orchestrator.Start("run-concurrent", version.VersionId, context));
+        plane.Orchestrator.Fail(failed.Stage.StageRunId, "provider failed");
+
+        var restarted = plane.Orchestrator.Start("run-retry", version.VersionId, context);
+
+        Assert.Equal(WorkflowRunState.Running, restarted.Run.State);
+    }
+
+    [Fact]
     public void Lease_fencing_survives_the_restart()
     {
         var clock = new TestClock();
@@ -183,7 +227,7 @@ public sealed class PlaneStoreTests : IDisposable
         // Supersede with epoch 2 before "crashing".
         var second = plane.Dispatcher.Dispatch(
             fixture.ExecutionId, "worker-2", "agent.dev", new[] { "development" }, "policy-rev-1",
-            TimeSpan.FromMinutes(10));
+            TimeSpan.FromMinutes(10), workspace: new WorkspaceReference("p", "w", "v"));
         using (var store = new SqlitePlaneStore(_dbPath))
         {
             store.Commit(plane);
@@ -307,7 +351,7 @@ public sealed class PlaneStoreTests : IDisposable
 
         public Assignment DispatchDev(DurableServerPlane plane) => plane.Dispatcher.Dispatch(
             ExecutionId, "worker-1", "agent.dev", new[] { "development" }, "policy-rev-1",
-            TimeSpan.FromMinutes(10));
+            TimeSpan.FromMinutes(10), workspace: new WorkspaceReference("p", "w", "v"));
 
         public void Develop(TestClock clock, DurableServerPlane plane, out ResultEnvelope result)
         {

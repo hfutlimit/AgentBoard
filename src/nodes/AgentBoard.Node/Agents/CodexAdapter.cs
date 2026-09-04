@@ -44,9 +44,16 @@ public sealed class CodexAdapter : IAgentAdapter
         // override via `Agents:Codex:Arguments` — production defaults to the
         // current CLI's unattended bypass flag so the worker can read/write
         // the project directory without per-tool approval prompts.
-        var arguments = opts.Arguments is { Length: > 0 }
+        var arguments = (opts.Arguments is { Length: > 0 }
             ? opts.Arguments
-            : new[] { "exec", "--json" };
+            : new[] { "exec", "--json" }).ToList();
+        if (!string.IsNullOrWhiteSpace(opts.Model)
+            && !arguments.Any(argument => argument is "--model" or "-m"
+                || argument.StartsWith("--model=", StringComparison.Ordinal)))
+        {
+            arguments.Add("--model");
+            arguments.Add(opts.Model);
+        }
         var resolved = CliLocator.LocateCodex(opts, _log);
         var env = BuildEnvironment(opts, resolved.ExtraEnv);
         // P0-1（2026-09-01 review）：CLI 子进程里 MCP server 读
@@ -58,8 +65,9 @@ public sealed class CodexAdapter : IAgentAdapter
         var spec = new ProcessSpec
         {
             Executable = resolved.Executable,
-            WorkingDirectory = opts.WorkingDirectory,
-            Arguments = arguments,
+            WorkingDirectory = string.IsNullOrWhiteSpace(context.WorkingDirectory)
+                ? opts.WorkingDirectory : context.WorkingDirectory,
+            Arguments = arguments.ToArray(),
             StdinPayload = prompt,
             Environment = env,
             Timeout = TimeSpan.FromMinutes(Math.Max(1, opts.TimeoutMinutes)),

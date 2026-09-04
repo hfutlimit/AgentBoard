@@ -49,7 +49,10 @@ public sealed class TargetV1GoldenPathTests
         var runner = new DurableAssignmentRunner(
             Worker, journal, new AssignmentTracker(), new LocalEventStore(), resultOutbox,
             new AgentAdapterRegistry(new IAgentAdapter[] { adapter }, NullLogger<AgentAdapterRegistry>.Instance),
-            policy, new WorkspaceReference("project", "workspace", "commit-0"), () => _now);
+            policy,
+            new SingleLocalWorkspaceResolver(
+                new WorkspaceReference("3", "workspace", "commit-0"), Directory.GetCurrentDirectory()),
+            () => _now);
 
         var started = server.Orchestrator.Start(
             "run-1",
@@ -87,6 +90,19 @@ public sealed class TargetV1GoldenPathTests
         var qaRequest = selector.Requests.Single(request => request.StageType == StageType.Qa);
         Assert.Contains("agent.development", qaRequest.ExcludedAgentIds);
         Assert.Contains("agent.review", qaRequest.ExcludedAgentIds);
+        Assert.Equal(
+            new[] { "in_progress", "in_review", "in_progress", "in_review", "in_review", "done" },
+            server.TaskProjections.Entries
+                .OrderBy(entry => entry.AvailableAt)
+                .ThenBy(entry => entry.ProjectionId, StringComparer.Ordinal)
+                .Select(entry => entry.TargetStatus));
+        Assert.All(server.Sent.Commands, command =>
+        {
+            var payload = AssignmentTracker.ParseAssignPayload(command);
+            Assert.NotNull(payload.StageType);
+            Assert.False(string.IsNullOrWhiteSpace(payload.NodeId));
+            Assert.NotNull(payload.Workspace);
+        });
     }
 
     private async Task RunNext(

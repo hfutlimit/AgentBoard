@@ -179,8 +179,8 @@ public static class CliLocator
     private static IReadOnlyDictionary<string, string> BaseEnv()
     {
         var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var name in new[] { "PATH", "USERPROFILE", "SYSTEMROOT", "HOMEDRIVE", "HOMEPATH",
-                                     "LOCALAPPDATA", "APPDATA", "TEMP", "TMP", "PATHEXT" })
+        foreach (var name in new[] { "PATH", "USERPROFILE", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC",
+                                     "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA", "APPDATA", "TEMP", "TMP", "PATHEXT" })
         {
             var v = Environment.GetEnvironmentVariable(name);
             if (!string.IsNullOrWhiteSpace(v)) dict[name] = v;

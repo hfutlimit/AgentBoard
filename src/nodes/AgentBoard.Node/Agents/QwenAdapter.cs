@@ -82,7 +82,8 @@ public sealed class QwenAdapter : IAgentAdapter
         var spec = new ProcessSpec
         {
             Executable = resolved.Executable,
-            WorkingDirectory = opts.WorkingDirectory,
+            WorkingDirectory = string.IsNullOrWhiteSpace(context.WorkingDirectory)
+                ? opts.WorkingDirectory : context.WorkingDirectory,
             Arguments = arguments,
             StdinPayload = prompt,
             Environment = env,

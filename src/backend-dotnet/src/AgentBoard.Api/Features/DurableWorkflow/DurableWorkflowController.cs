@@ -49,6 +49,24 @@ public sealed class DurableWorkflowController : ControllerBase
                 Detail = $"Task {request.TaskId} has no owner_user_id; durable assignment fails closed.",
             });
         }
+        if (resolution.Status == WorkflowWorkResolutionStatus.DependenciesNotReady)
+        {
+            return Conflict(new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Task dependencies are not ready",
+                Detail = $"Task {request.TaskId} is blocked by tasks: {string.Join(", ", resolution.BlockingTaskIds ?? Array.Empty<int>())}.",
+            });
+        }
+        if (!string.Equals(resolution.CurrentStatus, "todo", StringComparison.OrdinalIgnoreCase))
+        {
+            return Conflict(new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "Task is not eligible for durable execution",
+                Detail = $"Task {request.TaskId} is '{resolution.CurrentStatus}'; only todo tasks can start a durable workflow.",
+            });
+        }
 
         var started = _runtime.Mutate(plane =>
             plane.Orchestrator.Start(
@@ -107,6 +125,7 @@ public sealed class DurableWorkflowController : ControllerBase
         outbox = plane.Outbox.Messages.ToArray(),
         dead_letters = plane.DeadLetters.Entries.ToArray(),
         approvals = plane.Approvals.Requests.ToArray(),
+        task_status_projections = plane.TaskProjections.Entries.ToArray(),
         audit = plane.Registry.Audit.Records.ToArray(),
     }));
 

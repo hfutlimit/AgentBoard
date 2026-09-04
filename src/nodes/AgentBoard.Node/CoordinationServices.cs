@@ -269,8 +269,9 @@ public sealed class WorkerStartupService : BackgroundService
             // 不同 agent 有不同 user_id，因此多 agent 部署必须给每个 agent
             // 配独立 token（各自 register 出来的服务账号）。
             var agentToken = string.IsNullOrWhiteSpace(opt.AgentBoardToken)
-                ? _agentboard.StartupToken
+                ? _agentboard.StartupToken ?? string.Empty
                 : opt.AgentBoardToken;
+            var serverUrl = _agentboard.ServerUrl ?? string.Empty;
             var reportedCommand = string.Equals(
                 tool, "scenario", StringComparison.OrdinalIgnoreCase)
                 ? ""
@@ -285,26 +286,34 @@ public sealed class WorkerStartupService : BackgroundService
                 // 1) upsert agent 本身（idempotent）— PR-12 follow-up 改
                 // POST /api/agents/register（之前 PUT /api/agents/{id} 在
                 // fresh DB 上 404，因为 PUT 是 update-only）。
-                var agentUrl = _agentboard.ServerUrl.TrimEnd('/') + "/api/agents/register";
-                var agentPayload = new
+                var agentUrl = serverUrl.TrimEnd('/') + "/api/agents/register";
+                var agentPayload = new Dictionary<string, object?>
                 {
-                    agent_id = agentId,
-                    name = $"{tool} on {_worker.Id}",
-                    roles = System.Text.Json.JsonSerializer.Serialize(roles),
-                    cli_command = reportedCommand,
+                    ["agent_id"] = agentId,
+                    ["name"] = $"{tool} on {_worker.Id}",
+                    ["roles"] = System.Text.Json.JsonSerializer.Serialize(roles),
+                    ["cli_command"] = reportedCommand,
                     // model 字段 .NET AgentOptions 没有；保持空字符串
                     // (FastAPI AgentRegisterIn.model default = "")
                 };
+                agentPayload["model"] = opt.Model;
+                // Omission preserves a Server-managed profile; explicit [] clears it.
+                if (opt.Capabilities is not null)
+                {
+                    agentPayload["capabilities"] = opt.Capabilities
+                        .Select(pair => new { name = pair.Key, level = pair.Value })
+                        .ToArray();
+                }
                 var agentResp = await client.PostAsJsonAsync(agentUrl, agentPayload, ct);
                 agentResp.EnsureSuccessStatusCode();
                 // 2) upsert AgentInstance
-                var instUrl = _agentboard.ServerUrl.TrimEnd('/') +
+                var instUrl = serverUrl.TrimEnd('/') +
                     $"/api/agents/{Uri.EscapeDataString(agentId)}/instances";
                 var instPayload = new
                 {
                     worker_id = _worker.Id,
                     cli_command = reportedCommand,
-                    model = "",
+                    model = opt.Model,
                     executor_type = tool.ToLowerInvariant(),
                     auth_key = opt.ApiKeyEnv ?? "",
                     enabled = true,

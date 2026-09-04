@@ -20,6 +20,7 @@ public sealed class Sprint4_CodexAdapterTests
                 WorkingDirectory = "E:\\Projects\\AgentBoard",
                 TimeoutMinutes = 7,
                 MaxCapturedOutputChars = 12345,
+                Model = "gpt-5.6-terra",
             },
         };
         var adapter = new CodexAdapter(
@@ -28,14 +29,14 @@ public sealed class Sprint4_CodexAdapterTests
 
         var result = await adapter.ExecuteAsync(
             new ExecutionContext(1, "proposal:42:0:codex", "proposal", 42, 0,
-                "codex", "{}", null), CancellationToken.None);
+                "codex", "{}", null, WorkingDirectory: "E:\\Projects\\MappedWorkspace"), CancellationToken.None);
 
         Assert.True(result.Success);
         Assert.NotNull(executor.Spec);
         Assert.Equal(Environment.ProcessPath, executor.Spec!.Executable);
-        Assert.Equal(new[] { "exec", "--json" }, executor.Spec.Arguments);
+        Assert.Equal(new[] { "exec", "--json", "--model", "gpt-5.6-terra" }, executor.Spec.Arguments);
         Assert.Contains("Handle proposal 42", executor.Spec.StdinPayload);
-        Assert.Equal("E:\\Projects\\AgentBoard", executor.Spec.WorkingDirectory);
+        Assert.Equal("E:\\Projects\\MappedWorkspace", executor.Spec.WorkingDirectory);
         Assert.Equal(12345, executor.Spec.MaxOutputBytes);
         Assert.Contains("PATH", executor.Spec.Environment.Keys,
             StringComparer.OrdinalIgnoreCase);
@@ -72,8 +73,62 @@ public sealed class Sprint4_CodexAdapterTests
             executor.Spec!.Arguments);
     }
 
+    [Fact]
+    public async Task Codex_adapter_extracts_business_json_from_last_agent_message_event()
+    {
+        var executor = new RecordingExecutor("""
+            {"type":"thread.started","thread_id":"t-1"}
+            {"type":"item.completed","item":{"id":"i-1","type":"agent_message","text":"{\"result_status\":\"succeeded\",\"summary\":\"implemented\"}"}}
+            {"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}
+            """);
+        var options = new AgentsOptions
+        {
+            Codex = new AgentOptions { Command = Environment.ProcessPath! },
+        };
+        var adapter = new CodexAdapter(
+            executor, Options.Create(options), Options.Create(new AgentBoardOptions()),
+            NullLogger<CodexAdapter>.Instance);
+
+        var result = await adapter.ExecuteAsync(
+            new ExecutionContext(1, "execution-1", WorkloadTypes.Task, 42, 1,
+                "codex", "{}", "dev", DurableExecution: true), CancellationToken.None);
+
+        Assert.Equal(
+            "{\"result_status\":\"succeeded\",\"summary\":\"implemented\"}",
+            result.OutputJson);
+    }
+
+    [Fact]
+    public async Task Durable_prompt_uses_real_task_identity_and_leaves_state_to_server()
+    {
+        var executor = new RecordingExecutor();
+        var options = new AgentsOptions
+        {
+            Codex = new AgentOptions { Command = Environment.ProcessPath! },
+        };
+        var adapter = new CodexAdapter(
+            executor, Options.Create(options), Options.Create(new AgentBoardOptions()),
+            NullLogger<CodexAdapter>.Instance);
+
+        await adapter.ExecuteAsync(
+            new ExecutionContext(1, "execution-1", WorkloadTypes.Task, 731, 1,
+                "codex", "{\"title\":\"durable E2E\"}", "dev",
+                WorkingDirectory: "E:\\Projects\\MappedWorkspace",
+                DurableExecution: true), CancellationToken.None);
+
+        Assert.Contains("business task 731", executor.Spec!.StdinPayload);
+        Assert.Contains("task_type=dev", executor.Spec.StdinPayload);
+        Assert.Contains("The Server owns Task and Workflow state", executor.Spec.StdinPayload);
+        Assert.Contains("\"result_status\"", executor.Spec.StdinPayload);
+        Assert.DoesNotContain("submit the task for review through MCP", executor.Spec.StdinPayload);
+    }
+
     private sealed class RecordingExecutor : IProcessExecutor
     {
+        private readonly string _output;
+
+        public RecordingExecutor(string output = "{\"action\":\"finalize\"}") => _output = output;
+
         public ProcessSpec? Spec { get; private set; }
 
         public Task<ProcessResult> ExecuteAsync(ProcessSpec spec, CancellationToken ct)
@@ -82,7 +137,7 @@ public sealed class Sprint4_CodexAdapterTests
             return Task.FromResult(new ProcessResult
             {
                 ExitCode = 0,
-                RedactedOutput = "{\"action\":\"finalize\"}",
+                RedactedOutput = _output,
             });
         }
     }

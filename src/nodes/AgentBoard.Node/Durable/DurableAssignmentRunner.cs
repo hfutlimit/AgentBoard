@@ -21,7 +21,7 @@ public sealed class DurableAssignmentRunner
     private readonly LocalResultOutbox _outbox;
     private readonly IAgentAdapterRegistry _adapters;
     private readonly CompiledPolicy _policy;
-    private readonly WorkspaceReference _defaultWorkspace;
+    private readonly ILocalWorkspaceResolver _workspaces;
     private readonly Func<DateTimeOffset> _clock;
     private readonly Dictionary<string, CancellationTokenSource> _active = new(StringComparer.Ordinal);
     private readonly Dictionary<string, CommandEnvelope> _cancelByAssignment = new(StringComparer.Ordinal);
@@ -35,7 +35,7 @@ public sealed class DurableAssignmentRunner
         LocalResultOutbox outbox,
         IAgentAdapterRegistry adapters,
         CompiledPolicy policy,
-        WorkspaceReference defaultWorkspace,
+        ILocalWorkspaceResolver workspaces,
         Func<DateTimeOffset>? clock = null,
         IApprovalAuthority? approvalAuthority = null)
     {
@@ -45,7 +45,7 @@ public sealed class DurableAssignmentRunner
         _outbox = outbox;
         _adapters = adapters;
         _policy = policy;
-        _defaultWorkspace = defaultWorkspace;
+        _workspaces = workspaces ?? throw new ArgumentNullException(nameof(workspaces));
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
         _receiver = new NodeCommandReceiver(workerId, journal, tracker, _clock);
         ApprovalAuthority = approvalAuthority;
@@ -111,43 +111,51 @@ public sealed class DurableAssignmentRunner
         try
         {
             AppendEvent(assignment, command, "agentboard.execution.accepted", "assignment durably accepted");
-            var workspace = payload.Handoff?.Workspace ?? _defaultWorkspace;
-            var stage = payload.Handoff?.TargetStageType ?? InferStage(assignment.RequiredCapabilities);
-            var providerId = payload.ProviderId ?? assignment.AgentId;
-            var request = new PolicyDecisionRequest(
-                new PolicyAction(PolicyActionKinds.SpawnProviderProcess, $"provider:{providerId}"),
-                assignment.AgentId,
-                assignment.RequiredCapabilities,
-                stage,
-                assignment.WorkflowRunId,
-                workspace,
-                assignment.PolicyRevisionId,
-                ApprovalGranted: false);
-
-            var pep = new PolicyEnforcementPoint(
-                new PolicyDecisionPoint(_policy, ApprovalAuthority, _clock),
-                line => AppendEvent(assignment, command, "agentboard.execution.policy_decision",
-                    $"{line.Kind}:{line.Decision}:{line.Failure}"));
-
             ResultEnvelope result;
             try
             {
+                var workspace = payload.Workspace ?? payload.Handoff?.Workspace
+                    ?? throw new InvalidDataException("assignment payload is missing Workspace");
+                var stage = payload.StageType ?? payload.Handoff?.TargetStageType
+                    ?? throw new InvalidDataException("assignment payload is missing StageType");
+                var workingDirectory = _workspaces.Resolve(workspace);
+                var providerId = payload.ProviderId ?? assignment.AgentId;
+                var request = new PolicyDecisionRequest(
+                    new PolicyAction(PolicyActionKinds.SpawnProviderProcess, $"provider:{providerId}"),
+                    assignment.AgentId,
+                    assignment.RequiredCapabilities,
+                    stage,
+                    assignment.WorkflowRunId,
+                    workspace,
+                    assignment.PolicyRevisionId,
+                    ApprovalGranted: false);
+
+                var pep = new PolicyEnforcementPoint(
+                    new PolicyDecisionPoint(_policy, ApprovalAuthority, _clock),
+                    line => AppendEvent(assignment, command, "agentboard.execution.policy_decision",
+                        $"{line.Kind}:{line.Decision}:{line.Failure}"));
+
                 var execution = await pep.ExecuteAsync(
                     request,
                     async ct =>
                     {
                         var adapter = _adapters.Get(providerId);
                         AppendEvent(assignment, command, "agentboard.execution.provider_started", adapter.AgentType);
+                        var workloadType = stage == StageType.Review
+                            ? WorkloadTypes.Review
+                            : WorkloadTypes.Task;
                         return await adapter.ExecuteAsync(new ExecutionContext(
                             StableLong(assignment.ExecutionId),
                             assignment.ExecutionId,
-                            stage.ToString().ToLowerInvariant(),
-                            StableLong(assignment.StageRunId),
+                            workloadType,
+                            payload.WorkItemId ?? StableLong(assignment.StageRunId),
                             checked((int)Math.Clamp(assignment.LeaseEpoch, 1, int.MaxValue)),
                             adapter.AgentType,
                             payload.Handoff?.TaskContext ?? payload.TaskContext,
                             payload.Handoff?.TaskContext ?? payload.TaskContext,
-                            stage.ToString().ToLowerInvariant()), ct);
+                            payload.TaskType,
+                            workingDirectory,
+                            DurableExecution: true), ct);
                     },
                     linked.Token);
 
@@ -200,6 +208,16 @@ public sealed class DurableAssignmentRunner
                     result = Expired(command);
                     _tracker.Release(assignment);
                 }
+            }
+            catch (InvalidDataException error)
+            {
+                result = Failure(command, FailureCategory.SchemaRejection,
+                    $"assignment contract rejected ({error.GetType().Name})");
+            }
+            catch (LocalWorkspaceResolutionException error)
+            {
+                result = Failure(command, FailureCategory.SchemaRejection,
+                    $"workspace mapping unavailable ({error.GetType().Name})");
             }
             catch (Exception error)
             {
@@ -354,19 +372,6 @@ public sealed class DurableAssignmentRunner
         _events.TryAppend(LocalEvents.For(
             assignment.WorkerId, assignment.AttemptId, kind,
             assignment.WorkflowRunId, data, _clock(), command.MessageId), out _, out _);
-
-    private static StageType InferStage(IReadOnlyList<string> capabilities)
-    {
-        foreach (var capability in capabilities)
-        {
-            if (Enum.TryParse<StageType>(capability, ignoreCase: true, out var stage))
-            {
-                return stage;
-            }
-        }
-
-        return StageType.Development;
-    }
 
     private static IReadOnlyList<string> ReadStrings(System.Text.Json.JsonElement element) =>
         element.ValueKind == System.Text.Json.JsonValueKind.Array

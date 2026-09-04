@@ -76,7 +76,8 @@ public sealed class MiniMaxAdapter : IAgentAdapter
         {
             Executable = resolved.Executable,
             Arguments = BuildArguments(opts.Arguments, prompt),
-            WorkingDirectory = opts.WorkingDirectory,
+            WorkingDirectory = string.IsNullOrWhiteSpace(context.WorkingDirectory)
+                ? opts.WorkingDirectory : context.WorkingDirectory,
             // minimax-cli's -p/--print consumes the next command-line
             // argument; it does not read the prompt from stdin.
             StdinPayload = null,

@@ -129,6 +129,54 @@ public sealed class DurableAssignmentRunnerTests
     }
 
     [Fact]
+    public async Task Missing_explicit_stage_and_workspace_is_a_non_retryable_schema_rejection()
+    {
+        var policy = CompiledPolicy.Compile(PolicyPresets.Developer,
+            new Dictionary<string, PolicyDecision>());
+        var adapter = FakeAgentAdapter.Success("scenario");
+        var journal = new InMemoryNodeCommandJournal();
+        var outbox = new LocalResultOutbox(new HoldingTransport(), () => _now);
+        var runner = Runner(journal, outbox, adapter, policy);
+        var command = Assign(policy.RevisionId);
+        var payload = AssignmentTracker.ParseAssignPayload(command);
+        command = command with
+        {
+            Payload = System.Text.Json.JsonSerializer.Serialize(
+                new AssignCommandPayload(payload.Assignment, ProviderId: "scenario")),
+        };
+        Assert.True(runner.Accept(command).ShouldAckBroker);
+
+        await runner.ExecuteAcceptedAsync(command, CancellationToken.None);
+
+        var result = Assert.Single(outbox.Records).Result;
+        Assert.Equal(AttemptResultStatus.Failed, result.ResultStatus);
+        Assert.Equal(FailureCategory.SchemaRejection, result.FailureCategory);
+        Assert.Equal(0, adapter.CallCount);
+    }
+
+    [Fact]
+    public async Task Missing_node_local_workspace_mapping_fails_closed_before_provider_spawn()
+    {
+        var policy = CompiledPolicy.Compile(PolicyPresets.Developer,
+            new Dictionary<string, PolicyDecision>());
+        var adapter = FakeAgentAdapter.Success("scenario");
+        var journal = new InMemoryNodeCommandJournal();
+        var outbox = new LocalResultOutbox(new HoldingTransport(), () => _now);
+        var runner = Runner(
+            journal, outbox, adapter, policy,
+            new SingleLocalWorkspaceResolver(
+                new WorkspaceReference("other-project", "workspace", "base"), Directory.GetCurrentDirectory()));
+        var command = Assign(policy.RevisionId);
+        Assert.True(runner.Accept(command).ShouldAckBroker);
+
+        await runner.ExecuteAcceptedAsync(command, CancellationToken.None);
+
+        var result = Assert.Single(outbox.Records).Result;
+        Assert.Equal(FailureCategory.SchemaRejection, result.FailureCategory);
+        Assert.Equal(0, adapter.CallCount);
+    }
+
+    [Fact]
     public async Task Host_shutdown_leaves_the_accepted_command_pending_for_restart()
     {
         var policy = CompiledPolicy.Compile(PolicyPresets.Developer,
@@ -200,7 +248,8 @@ public sealed class DurableAssignmentRunnerTests
         INodeCommandJournal journal,
         LocalResultOutbox outbox,
         IAgentAdapter adapter,
-        CompiledPolicy policy) => new(
+        CompiledPolicy policy,
+        ILocalWorkspaceResolver? workspaces = null) => new(
         Worker,
         journal,
         new AssignmentTracker(),
@@ -208,7 +257,8 @@ public sealed class DurableAssignmentRunnerTests
         outbox,
         new AgentAdapterRegistry(new[] { adapter }, NullLogger<AgentAdapterRegistry>.Instance),
         policy,
-        new WorkspaceReference("project", "workspace", "base"),
+        workspaces ?? new SingleLocalWorkspaceResolver(
+            new WorkspaceReference("project", "workspace", "base"), Directory.GetCurrentDirectory()),
         () => _now);
 
     private CommandEnvelope Assign(string policyRevision, string taskContext = "{}")
@@ -236,7 +286,13 @@ public sealed class DurableAssignmentRunnerTests
             ExpiresAt = assignment.ExpiresAt,
             Traceparent = Trace,
             Payload = System.Text.Json.JsonSerializer.Serialize(
-                new AssignCommandPayload(assignment, TaskContext: taskContext, ProviderId: "scenario")),
+                new AssignCommandPayload(
+                    assignment,
+                    TaskContext: taskContext,
+                    ProviderId: "scenario",
+                    StageType: StageType.Development,
+                    NodeId: "development",
+                    Workspace: new WorkspaceReference("project", "workspace", "base"))),
             PolicyRevisionId = policyRevision,
         };
     }

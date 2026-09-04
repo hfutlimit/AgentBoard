@@ -127,7 +127,13 @@ public sealed record AssignCommandPayload(
     string? HandoffId = null,
     HandoffContext? Handoff = null,
     string TaskContext = "{}",
-    string? ProviderId = null);
+    string? ProviderId = null,
+    StageType? StageType = null,
+    string? NodeId = null,
+    WorkspaceReference? Workspace = null,
+    string? WorkItemType = null,
+    int? WorkItemId = null,
+    string? TaskType = null);
 
 /// <summary>
 /// The workspace a stage runs against (doc 151 §7).

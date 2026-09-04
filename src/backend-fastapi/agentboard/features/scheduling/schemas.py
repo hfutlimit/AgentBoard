@@ -7,7 +7,9 @@ class AgentRegisterIn(BaseModel):
 	agent_id: str = Field(min_length=1, max_length=64)
 	name: str = Field(min_length=1, max_length=100)
 	roles: str = "[]"
-	capabilities: str | list[str | dict] = "[]"
+	# Registration is an upsert.  Omitting capabilities must preserve an
+	# operator-managed AgentProfile; an explicit [] is the only way to clear it.
+	capabilities: str | list[str | dict] | None = None
 	cli_command: str = ""
 	model: str = ""
 	auth_key: str = ""

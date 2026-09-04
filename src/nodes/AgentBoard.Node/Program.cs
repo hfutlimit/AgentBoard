@@ -54,6 +54,7 @@ builder.Services.Configure<AgentBoardOptions>(builder.Configuration.GetSection("
 builder.Services.Configure<PortalOptions>(builder.Configuration.GetSection("Portal"));
 builder.Services.Configure<ProcessExecutorOptions>(builder.Configuration.GetSection("ProcessExecutor"));
 builder.Services.Configure<DurableExecutionOptions>(builder.Configuration.GetSection("DurableExecution"));
+builder.Services.AddSingleton<ILocalWorkspaceResolver, ConfiguredLocalWorkspaceResolver>();
 
 // ---- M0.1 (v4.3): cross-platform abstractions -----------------------------
 // Resolved once through PlatformFactory so consumers (M0.4 IPC transport,
@@ -139,7 +140,6 @@ builder.Services.AddSingleton(sp =>
     new LocalApprovalLedger(sp.GetRequiredService<IApprovalGrantStore>()));
 builder.Services.AddSingleton<DurableAssignmentRunner>(sp =>
 {
-    var options = sp.GetRequiredService<IOptions<DurableExecutionOptions>>().Value;
     return new DurableAssignmentRunner(
         sp.GetRequiredService<WorkerIdentity>().WorkerId,
         sp.GetRequiredService<INodeCommandJournal>(),
@@ -148,8 +148,7 @@ builder.Services.AddSingleton<DurableAssignmentRunner>(sp =>
         sp.GetRequiredService<LocalResultOutbox>(),
         sp.GetRequiredService<IAgentAdapterRegistry>(),
         sp.GetRequiredService<CompiledPolicy>(),
-        new AgentBoard.Contracts.WorkspaceReference(
-            options.ProjectId, options.WorkspaceId, options.WorkspaceBaseVersion),
+        sp.GetRequiredService<ILocalWorkspaceResolver>(),
         approvalAuthority: sp.GetRequiredService<LocalApprovalLedger>());
 });
 
