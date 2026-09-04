@@ -278,7 +278,10 @@ public static class WorkflowValidator
                 nameof(attempt.State), "must be terminal before its result can be accepted"));
         }
 
-        if (result.Status != AttemptResultStatus.Succeeded
+        // ChangesRequested is exempt (see EnvelopeValidator): a review asking
+        // for an iteration is a business result, not a failure, so the
+        // accepted outcome legitimately carries no failure category.
+        if (result.Status is not (AttemptResultStatus.Succeeded or AttemptResultStatus.ChangesRequested)
             && result.FailureCategory == FailureCategory.None)
         {
             errors.Add(new EnvelopeError(

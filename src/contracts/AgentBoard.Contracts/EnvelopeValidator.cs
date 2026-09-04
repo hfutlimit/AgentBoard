@@ -81,7 +81,10 @@ public static class EnvelopeValidator
 
         // A failure without a category is unactionable: doc 150 PR-011 requires
         // the reason to be readable from a field, never parsed from prose.
-        if (result.ResultStatus != AttemptResultStatus.Succeeded
+        // ChangesRequested is exempt in both directions — it is a business
+        // outcome of review (doc 151 §4.2 invariant 2), not a failure, and
+        // therefore carries no category at all.
+        if (result.ResultStatus is not (AttemptResultStatus.Succeeded or AttemptResultStatus.ChangesRequested)
             && result.FailureCategory == FailureCategory.None)
         {
             errors.Add(new EnvelopeError(
@@ -89,11 +92,11 @@ public static class EnvelopeValidator
                 "is required when ResultStatus is not Succeeded"));
         }
 
-        if (result.ResultStatus == AttemptResultStatus.Succeeded
+        if (result.ResultStatus is AttemptResultStatus.Succeeded or AttemptResultStatus.ChangesRequested
             && result.FailureCategory != FailureCategory.None)
         {
             errors.Add(new EnvelopeError(
-                nameof(result.FailureCategory), "must be None when ResultStatus is Succeeded"));
+                nameof(result.FailureCategory), "must be None when ResultStatus is not a failure"));
         }
 
         var summaryBytes = PayloadLimits.ByteLength(result.OutcomeSummary);
