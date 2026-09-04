@@ -10,12 +10,30 @@ namespace AgentBoard.Node.Durable;
 /// means "not accepted", forcing redelivery (doc 151 §6.1: inbox/dedup
 /// durable accept precedes broker ACK).
 /// </summary>
+/// <summary>What an atomic journal attempt ended as.</summary>
+public enum JournalAttempt { Accepted, Duplicate }
+
+/// <summary>
+/// Local durable home for received commands. The receiver ACKs the broker
+/// message only after this journal holds the command — an append that throws
+/// means "not accepted", forcing redelivery (doc 151 §6.1: inbox/dedup durable
+/// accept precedes broker ACK).
+/// </summary>
+/// <remarks>
+/// <see cref="TryAccept"/> takes both dedup keys in ONE call on purpose: the
+/// message-key and business-key rows must appear together or not at all. A
+/// two-step append could die between the halves, and redelivery would then be
+/// answered "duplicate" (and ACKed) while the assignment side of the accept
+/// never persisted — the command would vanish durably. Implementations that
+/// span a store must wrap the pair in one transaction.
+/// </remarks>
 public interface INodeCommandJournal
 {
-    bool Contains(string dedupKey);
-
-    /// <summary>Appends durably. Any exception aborts the broker ACK.</summary>
-    void Append(CommandEnvelope command, string dedupKey);
+    /// <summary>
+    /// Durably records the command under both keys, atomically. Throws on
+    /// storage failure — throwing is how "not accepted" reaches the consumer.
+    /// </summary>
+    JournalAttempt TryAccept(CommandEnvelope command, string messageKey, string businessKey);
 
     IReadOnlyList<CommandEnvelope> All();
 }
@@ -23,12 +41,31 @@ public interface INodeCommandJournal
 public sealed class InMemoryNodeCommandJournal : INodeCommandJournal
 {
     private readonly Dictionary<string, CommandEnvelope> _byKey = new(StringComparer.Ordinal);
+    private readonly object _gate = new();
 
-    public bool Contains(string dedupKey) => _byKey.ContainsKey(dedupKey);
+    public JournalAttempt TryAccept(CommandEnvelope command, string messageKey, string businessKey)
+    {
+        lock (_gate)
+        {
+            if (_byKey.ContainsKey(messageKey) || _byKey.ContainsKey(businessKey))
+            {
+                return JournalAttempt.Duplicate;
+            }
 
-    public void Append(CommandEnvelope command, string dedupKey) => _byKey[dedupKey] = command;
+            // Both keys written before the lock releases: one visible unit.
+            _byKey[messageKey] = command;
+            _byKey[businessKey] = command;
+            return JournalAttempt.Accepted;
+        }
+    }
 
-    public IReadOnlyList<CommandEnvelope> All() => _byKey.Values.ToList();
+    public IReadOnlyList<CommandEnvelope> All()
+    {
+        lock (_gate)
+        {
+            return _byKey.Values.ToList();
+        }
+    }
 }
 
 public enum AcceptanceKind
@@ -181,8 +218,12 @@ public sealed class NodeCommandReceiver
             }
         }
 
-        var messageKey = MessageKey(command.MessageId);
-        if (_journal.Contains(messageKey) || _journal.Contains(BusinessKey(command.IdempotencyKey)))
+        // One atomic call for both dedup keys; a storage exception escapes and
+        // the broker redelivers, so there is no window where the message looks
+        // accepted locally but is not.
+        var outcome = _journal.TryAccept(command, MessageKey(command.MessageId), BusinessKey(command.IdempotencyKey));
+
+        if (outcome == JournalAttempt.Duplicate)
         {
             // Duplicate: the durable record already exists, so the broker may
             // discard its copy — but nothing re-runs (doc 150 PR-007).
@@ -190,8 +231,6 @@ public sealed class NodeCommandReceiver
                 "command already durably accepted", ShouldAckBroker: true, command);
         }
 
-        _journal.Append(command, messageKey);
-        _journal.Append(command, BusinessKey(command.IdempotencyKey));
         _tracker.Apply(command);
         return new CommandAcceptance(AcceptanceKind.Accepted,
             $"accepted under lease epoch {command.LeaseEpoch} at {_clock():O}",

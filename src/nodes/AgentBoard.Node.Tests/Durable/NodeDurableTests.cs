@@ -100,6 +100,27 @@ public class NodeDurableTests
     }
 
     [Fact]
+    public void Half_written_journal_cannot_swallow_a_command()
+    {
+        // With the old two-append design, a crash between the message-key and
+        // the business-key writes left the redelivery looking like a duplicate
+        // (and got ACKed) while the assignment never persisted. The single
+        // atomic call makes that split unrepresentable: both keys or neither.
+        var journal = new InMemoryNodeCommandJournal();
+        var tracker = new AssignmentTracker();
+        var receiver = new NodeCommandReceiver(Worker, journal, tracker, () => _now);
+
+        var first = receiver.TryAccept(Assign());
+        Assert.Equal(AcceptanceKind.Accepted, first.Kind);
+        Assert.NotNull(tracker.CurrentFor("exec-1"));
+
+        var redelivery = receiver.TryAccept(Assign());
+        Assert.Equal(AcceptanceKind.Duplicate, redelivery.Kind);
+        Assert.True(redelivery.ShouldAckBroker);
+        Assert.NotNull(tracker.CurrentFor("exec-1")); // still held, not lost
+    }
+
+    [Fact]
     public void Duplicate_is_acked_but_never_reapplied()
     {
         var journal = new InMemoryNodeCommandJournal();
@@ -309,6 +330,27 @@ public class NodeDurableTests
     }
 
     [Fact]
+    public void Open_approval_channel_parks_the_action_instead_of_denying_it()
+    {
+        var revision = CompiledPolicy.Compile(PolicyPresets.Developer, new Dictionary<string, PolicyDecision>());
+        var pdp = new PolicyDecisionPoint(revision);
+
+        // doc 150 PR-005: REQUIRE_APPROVAL waits for the designated operator
+        // when a channel exists. Denying here would make the waiting state and
+        // the Server's WaitingApproval stage unreachable dead code.
+        var request = Request(revision, PolicyActionKinds.GitCommit) with { ApprovalChannelOpen = true };
+        var (decision, failure) = pdp.Decide(request);
+        Assert.Equal(PolicyDecision.RequireApproval, decision);
+        Assert.Equal(FailureCategory.None, failure);
+
+        var ran = false;
+        var pep = new PolicyEnforcementPoint(pdp);
+        var outcome = pep.Execute(request, () => { ran = true; return 1; });
+        Assert.False(ran);
+        Assert.Equal(EnforcementOutcome.ApprovalRequired, outcome.Outcome);
+    }
+
+    [Fact]
     public void Granted_approval_lets_the_enforcement_point_run_the_action()
     {
         var revision = CompiledPolicy.Compile(PolicyPresets.Developer, new Dictionary<string, PolicyDecision>());
@@ -351,9 +393,7 @@ public class NodeDurableTests
 
     private sealed class ThrowingJournal : INodeCommandJournal
     {
-        public bool Contains(string dedupKey) => false;
-
-        public void Append(CommandEnvelope command, string dedupKey) =>
+        public JournalAttempt TryAccept(CommandEnvelope command, string messageKey, string businessKey) =>
             throw new IOException("simulated store crash before durable accept");
 
         public IReadOnlyList<CommandEnvelope> All() => Array.Empty<CommandEnvelope>();
