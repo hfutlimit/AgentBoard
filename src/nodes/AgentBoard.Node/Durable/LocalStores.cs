@@ -72,17 +72,74 @@ public enum EventAppendKind { Stored, Duplicate, RejectedSchema }
 /// stay here; only permitted summaries or references cross to the Server.
 /// Dedup is on source + event_id, as the frozen contract requires.
 /// </summary>
-public sealed class LocalEventStore
+/// <summary>
+/// Storage seam for detail events. The A2 exit criteria say local detail
+/// must SURVIVE a Node restart; keeping the dictionary as the only home made
+/// the store an in-memory demo. The SQLite implementation in
+/// <see cref="SqliteEventSink"/> is the production shape; in-memory stays for
+/// tests and ephemeral development runs.
+/// </summary>
+public interface IEventSink
+{
+    bool TryInsert(EventEnvelope envelope);
+
+    EventEnvelope? Find(string dedupKey);
+
+    IReadOnlyList<EventEnvelope> All();
+
+    int Count();
+}
+
+public sealed class InMemoryEventSink : IEventSink
 {
     private readonly Dictionary<string, EventEnvelope> _byDedupKey = new(StringComparer.Ordinal);
-    private readonly IRedactionPolicy _redaction;
+    private readonly object _gate = new();
 
-    public LocalEventStore(IRedactionPolicy? redaction = null)
+    public bool TryInsert(EventEnvelope envelope)
     {
-        _redaction = redaction ?? new SecretRedaction();
+        lock (_gate)
+        {
+            return _byDedupKey.TryAdd(envelope.DedupKey, envelope);
+        }
     }
 
-    public int Count => _byDedupKey.Count;
+    public EventEnvelope? Find(string dedupKey)
+    {
+        lock (_gate)
+        {
+            return _byDedupKey.TryGetValue(dedupKey, out var e) ? e : null;
+        }
+    }
+
+    public IReadOnlyList<EventEnvelope> All()
+    {
+        lock (_gate)
+        {
+            return _byDedupKey.Values.ToList();
+        }
+    }
+
+    public int Count()
+    {
+        lock (_gate)
+        {
+            return _byDedupKey.Count;
+        }
+    }
+}
+
+public sealed class LocalEventStore
+{
+    private readonly IEventSink _sink;
+    private readonly IRedactionPolicy _redaction;
+
+    public LocalEventStore(IRedactionPolicy? redaction = null, IEventSink? sink = null)
+    {
+        _redaction = redaction ?? new SecretRedaction();
+        _sink = sink ?? new InMemoryEventSink();
+    }
+
+    public int Count => _sink.Count();
 
     public EventAppendKind TryAppend(EventEnvelope envelope, out EventEnvelope stored, out string reason)
     {
@@ -94,21 +151,23 @@ public sealed class LocalEventStore
             return EventAppendKind.RejectedSchema;
         }
 
-        if (_byDedupKey.ContainsKey(envelope.DedupKey))
+        // Redaction happens BEFORE any write: the persisted form must never
+        // contain the secret even briefly (doc 150 PR-015).
+        stored = envelope with { Data = _redaction.Redact(envelope.Data) };
+
+        if (!_sink.TryInsert(stored))
         {
-            stored = _byDedupKey[envelope.DedupKey];
+            stored = _sink.Find(stored.DedupKey) ?? stored;
             reason = "duplicate event id for this source";
             return EventAppendKind.Duplicate;
         }
 
-        stored = envelope with { Data = _redaction.Redact(envelope.Data) };
-        _byDedupKey[envelope.DedupKey] = stored;
         reason = "stored";
         return EventAppendKind.Stored;
     }
 
     public IReadOnlyList<EventEnvelope> ForAttempt(string attemptId) =>
-        _byDedupKey.Values
+        _sink.All()
             .Where(e => string.Equals(e.Subject, attemptId, StringComparison.Ordinal))
             .OrderBy(e => e.Time)
             .ToList();
@@ -144,6 +203,16 @@ public interface IResultTransport
 /// written here before any broker publish, so a Node crash after completing
 /// work never loses the result, and a redelivery is deduped at the Server.
 /// </summary>
+/// <summary>Durable home for the result outbox; the SQLite implementation
+/// is what makes "the Node completed work but crashed" recoverable
+/// (doc 151 §6.2: attempt results land locally BEFORE any publish).</summary>
+public interface IResultOutboxLog
+{
+    void Save(LocalOutboxRecord record);
+
+    IReadOnlyList<LocalOutboxRecord> LoadAll();
+}
+
 public sealed class LocalResultOutbox
 {
     private readonly Dictionary<string, LocalOutboxRecord> _records = new(StringComparer.Ordinal);
@@ -152,22 +221,43 @@ public sealed class LocalResultOutbox
     private readonly int _maxAttempts;
     private readonly TimeSpan _baseDelay;
     private readonly TimeSpan _maxDelay;
+    private readonly IResultOutboxLog? _log;
 
     public LocalResultOutbox(
         IResultTransport transport,
         Func<DateTimeOffset> clock,
         int maxAttempts = 8,
         TimeSpan? baseDelay = null,
-        TimeSpan? maxDelay = null)
+        TimeSpan? maxDelay = null,
+        IResultOutboxLog? log = null)
     {
         _transport = transport;
         _clock = clock;
         _maxAttempts = maxAttempts;
         _baseDelay = baseDelay ?? TimeSpan.FromSeconds(2);
         _maxDelay = maxDelay ?? TimeSpan.FromMinutes(5);
+        _log = log;
+
+        // A restart re-adopts everything the log still owes: confirmed rows
+        // stay terminal, pending/published rows go back through the transport
+        // under their ORIGINAL message and idempotency keys (doc 150 PR-007).
+        if (_log is not null)
+        {
+            foreach (var record in _log.LoadAll())
+            {
+                _records[record.MessageId] = record;
+            }
+        }
     }
 
     public IReadOnlyCollection<LocalOutboxRecord> Records => _records.Values;
+
+    /// <summary>Every state change is a write-through; the dictionary is a cache.</summary>
+    private void Put(LocalOutboxRecord record)
+    {
+        _records[record.MessageId] = record;
+        _log?.Save(record);
+    }
 
     /// <summary>The durable-accept point for a completed attempt.</summary>
     public LocalOutboxRecord Enqueue(ResultEnvelope result)
@@ -183,12 +273,13 @@ public sealed class LocalResultOutbox
             result.MessageId, result.IdempotencyKey, result,
             LocalOutboxState.Pending, 0, _clock(), _clock(), null, null);
 
-        if (!_records.TryAdd(record.MessageId, record))
+        if (_records.TryGetValue(record.MessageId, out var held))
         {
             // Same message id: already durably held; the repeat is a no-op.
-            return _records[record.MessageId];
+            return held;
         }
 
+        Put(record);
         return record;
     }
 
@@ -209,37 +300,37 @@ public sealed class LocalResultOutbox
                 AttemptCount = record.AttemptCount + 1,
                 NextAttemptAt = null,
             };
-            _records[attempt.MessageId] = attempt;
+            Put(attempt);
 
             if (_transport.Publish(attempt) == BrokerConfirm.Confirmed)
             {
-                _records[attempt.MessageId] = attempt with
+                Put(attempt with
                 {
                     State = LocalOutboxState.Confirmed,
                     ConfirmedAt = now,
-                };
+                });
                 confirmed++;
                 continue;
             }
 
             if (attempt.AttemptCount >= _maxAttempts)
             {
-                _records[attempt.MessageId] = attempt with
+                Put(attempt with
                 {
                     State = LocalOutboxState.DeadLettered,
                     LastError = "publish not confirmed; retry budget exhausted",
-                };
+                });
                 continue;
             }
 
             var exponent = Math.Min(attempt.AttemptCount - 1, 20);
             var delay = TimeSpan.FromTicks(Math.Min(_baseDelay.Ticks * (1L << exponent), _maxDelay.Ticks));
-            _records[attempt.MessageId] = attempt with
+            Put(attempt with
             {
                 State = LocalOutboxState.Pending,
                 NextAttemptAt = now + delay,
                 LastError = "publish not confirmed",
-            };
+            });
         }
 
         return confirmed;

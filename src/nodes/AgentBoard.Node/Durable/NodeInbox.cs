@@ -127,9 +127,26 @@ public sealed class AssignmentTracker
         _byId[assignment.AssignmentId] = assignment;
     }
 
-    public static Assignment ParseAssignment(CommandEnvelope command) =>
-        JsonSerializer.Deserialize<Assignment>(command.Payload)
-        ?? throw new InvalidOperationException("assign command payload did not carry an assignment");
+    /// <summary>
+    /// Reads the assignment from an assign command. Server dispatches wrap it
+    /// in <see cref="AssignCommandPayload"/> (which may carry a handoff id);
+    /// an older bare-assignment payload still parses, so a mixed-version
+    /// broker conversation degrades by parse order, not by guessing
+    /// (doc 151 §11 minor-compatibility rule).
+    /// </summary>
+    public static Assignment ParseAssignment(CommandEnvelope command)
+    {
+        var wrapped = JsonSerializer.Deserialize<AssignCommandPayload>(
+            command.Payload, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        if (wrapped?.Assignment is { } assignment && AssignmentValidator.IsValid(assignment))
+        {
+            return assignment;
+        }
+
+        return JsonSerializer.Deserialize<Assignment>(command.Payload)
+            ?? throw new InvalidOperationException("assign command payload did not carry an assignment");
+    }
 
     /// <summary>
     /// True when the Node still holds the right to submit results for this
@@ -188,6 +205,9 @@ public sealed class NodeCommandReceiver
 
     public static string MessageKey(string messageId) => $"msg:{messageId}";
     public static string BusinessKey(string idempotencyKey) => $"idem:{idempotencyKey}";
+
+    /// <summary>Handoff reference carried by the last accepted assign command.</summary>
+    public string? LastHandoffId { get; private set; }
 
     public CommandAcceptance TryAccept(CommandEnvelope command)
     {
@@ -273,11 +293,34 @@ public sealed class NodeCommandReceiver
         if (parsedAssignment is not null)
         {
             _tracker.Apply(parsedAssignment);
+            LastHandoffId = TryReadHandoffId(command);
+        }
+        else
+        {
+            LastHandoffId = null;
         }
 
         return new CommandAcceptance(AcceptanceKind.Accepted,
             $"accepted under lease epoch {command.LeaseEpoch} at {_clock():O}",
             ShouldAckBroker: true, command);
+    }
+
+    /// <summary>
+    /// Best-effort read of the wrapper's handoff id; a bare payload carries none.
+    /// </summary>
+    private static string? TryReadHandoffId(CommandEnvelope command)
+    {
+        try
+        {
+            return System.Text.Json.JsonSerializer
+                .Deserialize<AssignCommandPayload>(
+                    command.Payload, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))
+                ?.HandoffId;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>

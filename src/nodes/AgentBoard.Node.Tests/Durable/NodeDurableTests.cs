@@ -125,6 +125,39 @@ public class NodeDurableTests
     }
 
     [Fact]
+    public void Wrapped_server_payload_parses_like_a_bare_one()
+    {
+        var tracker = new AssignmentTracker();
+        var receiver = new NodeCommandReceiver(Worker, new InMemoryNodeCommandJournal(), tracker, () => _now);
+
+        // The Server now dispatches AssignCommandPayload (assignment + handoff
+        // id). A Node must read it identically, while still tolerating the old
+        // bare-assignment payload from a mixed-version broker (doc 151 §11).
+        var assignment = new Assignment(
+            "asg-1-att-1", "run-1", "stg-1", "exec-1", "att-1", Worker, "agent.dev",
+            "lease-1-att-1", 1, new[] { "development" },
+            new DateTimeOffset(2026, 9, 4, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2026, 9, 4, 0, 10, 0, TimeSpan.Zero), "policy-rev-1");
+
+        var wrapped = Assign(messageId: "cmd-wrapped", idempotency: "idem-wrapped") with
+        {
+            Payload = System.Text.Json.JsonSerializer.Serialize(
+                new AssignCommandPayload(assignment, "hnd-1")),
+        };
+
+        var acceptance = receiver.TryAccept(wrapped);
+        Assert.Equal(AcceptanceKind.Accepted, acceptance.Kind);
+        Assert.Equal("hnd-1", receiver.LastHandoffId);
+        Assert.NotNull(tracker.CurrentFor("exec-1"));
+
+        // Bare payload still parses (fallback path).
+        var bare = Assign(messageId: "cmd-bare", idempotency: "idem-bare", attempt: "att-b", epoch: 2,
+            execution: "exec-b");
+        Assert.Equal(AcceptanceKind.Accepted, receiver.TryAccept(bare).Kind);
+        Assert.Null(receiver.LastHandoffId);
+    }
+
+    [Fact]
     public void Half_written_journal_cannot_swallow_a_command()
     {
         // With the old two-append design, a crash between the message-key and
