@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: MIT
+using System.Runtime.InteropServices;
+
 namespace AgentBoard.Node.Platform;
 
 /// <summary>
@@ -33,4 +35,22 @@ public enum ServiceManagerKind
 {
     Sc,
     Launchd,
+}
+
+/// <summary>
+/// Maps the running host onto <see cref="NodeArch"/>. Shared by both platform
+/// implementations so the "what counts as a supported host" rule lives in
+/// exactly one place — a Windows-only copy of this switch is how the two
+/// implementations would drift apart on the arm64 / x64 split.
+/// </summary>
+internal static class NodeArchDetector
+{
+    internal static NodeArch Detect() => RuntimeInformation.OSArchitecture switch
+    {
+        Architecture.X64 => NodeArch.X64,
+        Architecture.Arm64 => NodeArch.Arm64,
+        var other => throw new PlatformNotSupportedException(
+            $"v4.3 supports x64 and arm64 only; this host reports {other}. " +
+            "Widening the matrix is an architecture change, not a local fix."),
+    };
 }

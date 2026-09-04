@@ -9,15 +9,15 @@ namespace AgentBoard.Node.Platform;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The factory exists so M0.2 (macOS implementations) is a two-line change here
-/// plus the new files — no DI wiring in <c>Program.cs</c> and no
-/// <c>OperatingSystem.Is*</c> branches scattered across consumers.
+/// The factory is the single host-to-implementation mapping, so consumers never
+/// carry an <c>OperatingSystem.Is*</c> branch and <c>Program.cs</c> needs no
+/// platform wiring.
 /// </para>
 /// <para>
-/// Until M0.2 lands, a macOS host throws instead of silently falling back to the
-/// Windows implementations. Reporting a Windows data root or <c>sc</c> service
-/// manager on macOS would corrupt the very paths M1.2 and M1.1 depend on; a
-/// startup failure with a clear message is strictly better.
+/// A host outside the v4.3 matrix throws instead of falling back. Reporting a
+/// Windows data root or the <c>sc</c> service manager on macOS would corrupt the
+/// very paths M1.1 and M1.2 depend on; a startup failure that names the host is
+/// strictly better than a Node that boots and then writes to the wrong place.
 /// </para>
 /// </remarks>
 public static class PlatformFactory
@@ -25,6 +25,7 @@ public static class PlatformFactory
     public static IUserIdentity CreateUserIdentity()
     {
         if (OperatingSystem.IsWindows()) return new WindowsUserIdentity();
+        if (OperatingSystem.IsMacOS()) return new MacOsUserIdentity();
 
         throw Unsupported();
     }
@@ -34,6 +35,7 @@ public static class PlatformFactory
         ArgumentNullException.ThrowIfNull(identity);
 
         if (OperatingSystem.IsWindows()) return new WindowsPlatformInfo(identity);
+        if (OperatingSystem.IsMacOS()) return new MacOsPlatformInfo(identity);
 
         throw Unsupported();
     }
@@ -45,6 +47,6 @@ public static class PlatformFactory
         var description = RuntimeInformation.OSDescription;
         return new PlatformNotSupportedException(
             $"AgentBoard.Node has no platform implementation for this host ({description}). " +
-            "v4.3 M0 covers Windows (M0.1) and macOS (M0.2).");
+            "v4.3 supports Windows (M0.1) and macOS (M0.2) only.");
     }
 }

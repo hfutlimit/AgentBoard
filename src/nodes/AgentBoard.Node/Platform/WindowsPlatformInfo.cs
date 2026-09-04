@@ -1,7 +1,4 @@
 // SPDX-License-Identifier: MIT
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-
 namespace AgentBoard.Node.Platform;
 
 /// <summary>
@@ -32,14 +29,7 @@ public sealed class WindowsPlatformInfo : IPlatformInfo
     /// a Node that believes it is x64 while running on arm32 would resolve the
     /// wrong Provider binaries and fail much later, at execution time.
     /// </summary>
-    public NodeArch Arch => RuntimeInformation.OSArchitecture switch
-    {
-        Architecture.X64 => NodeArch.X64,
-        Architecture.Arm64 => NodeArch.Arm64,
-        var other => throw new PlatformNotSupportedException(
-            $"v4.3 supports Windows x64 and arm64 only; this host reports {other}. " +
-            "Widening the matrix is an architecture change, not a local fix."),
-    };
+    public NodeArch Arch => NodeArchDetector.Detect();
 
     public string UserHome =>
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
