@@ -8,6 +8,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/AgentBoard.Api.Tests/AgentBoard.Api.Tests.csproj" />
     <Project Path="tests/AgentBoard.Application.Tests/AgentBoard.Application.Tests.csproj" />
+    <Project Path="tests/AgentBoard.Domain.Tests/AgentBoard.Domain.Tests.csproj" />
     <Project Path="tests/AgentBoard.Infrastructure.Tests/AgentBoard.Infrastructure.Tests.csproj" />
   </Folder>
 </Solution>

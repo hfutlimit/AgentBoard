@@ -6,4 +6,13 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- The cross-boundary contracts live in their own assembly so the Server
+         (this stack) and the Node (src/nodes/AgentBoard.Node) can both
+         reference them without either depending on the other's domain model.
+         This is an internal project reference, not a package: the contracts are
+         versioned with the repository, not with NuGet. -->
+    <ProjectReference Include="..\..\..\contracts\AgentBoard.Contracts\AgentBoard.Contracts.csproj" />
+  </ItemGroup>
+
 </Project>
