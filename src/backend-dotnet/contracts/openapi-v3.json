@@ -613,6 +613,207 @@
                                                                            }
                                                          }
                                              },
+                  "/api/projects/{pid}/workers/{worker_id}":  {
+                                                                  "post":  {
+                                                                               "tags":  [
+                                                                                            "projects"
+                                                                                        ],
+                                                                               "summary":  "Map Worker To Project",
+                                                                               "description":  "Authorize a registered Worker for a Project; local paths stay Node-side.",
+                                                                               "operationId":  "map_worker_to_project_api_projects__pid__workers__worker_id__post",
+                                                                               "parameters":  [
+                                                                                                  {
+                                                                                                      "name":  "pid",
+                                                                                                      "in":  "path",
+                                                                                                      "required":  true,
+                                                                                                      "schema":  {
+                                                                                                                     "type":  "integer",
+                                                                                                                     "title":  "Pid"
+                                                                                                                 }
+                                                                                                  },
+                                                                                                  {
+                                                                                                      "name":  "worker_id",
+                                                                                                      "in":  "path",
+                                                                                                      "required":  true,
+                                                                                                      "schema":  {
+                                                                                                                     "type":  "string",
+                                                                                                                     "title":  "Worker Id"
+                                                                                                                 }
+                                                                                                  },
+                                                                                                  {
+                                                                                                      "name":  "authorization",
+                                                                                                      "in":  "header",
+                                                                                                      "required":  false,
+                                                                                                      "schema":  {
+                                                                                                                     "anyOf":  [
+                                                                                                                                   {
+                                                                                                                                       "type":  "string"
+                                                                                                                                   },
+                                                                                                                                   {
+                                                                                                                                       "type":  "null"
+                                                                                                                                   }
+                                                                                                                               ],
+                                                                                                                     "title":  "Authorization"
+                                                                                                                 }
+                                                                                                  }
+                                                                                              ],
+                                                                               "requestBody":  {
+                                                                                                   "content":  {
+                                                                                                                   "application/json":  {
+                                                                                                                                            "schema":  {
+                                                                                                                                                           "anyOf":  [
+                                                                                                                                                                         {
+                                                                                                                                                                             "$ref":  "#/components/schemas/WorkerProjectMappingIn"
+                                                                                                                                                                         },
+                                                                                                                                                                         {
+                                                                                                                                                                             "type":  "null"
+                                                                                                                                                                         }
+                                                                                                                                                                     ],
+                                                                                                                                                           "title":  "Body"
+                                                                                                                                                       }
+                                                                                                                                        }
+                                                                                                               }
+                                                                                               },
+                                                                               "responses":  {
+                                                                                                 "201":  {
+                                                                                                             "description":  "Successful Response",
+                                                                                                             "content":  {
+                                                                                                                             "application/json":  {
+                                                                                                                                                      "schema":  {
+
+                                                                                                                                                                 }
+                                                                                                                                                  }
+                                                                                                                         }
+                                                                                                         },
+                                                                                                 "422":  {
+                                                                                                             "description":  "Validation Error",
+                                                                                                             "content":  {
+                                                                                                                             "application/json":  {
+                                                                                                                                                      "schema":  {
+                                                                                                                                                                     "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                                 }
+                                                                                                                                                  }
+                                                                                                                         }
+                                                                                                         }
+                                                                                             }
+                                                                           },
+                                                                  "delete":  {
+                                                                                 "tags":  [
+                                                                                              "projects"
+                                                                                          ],
+                                                                                 "summary":  "Unmap Worker From Project",
+                                                                                 "operationId":  "unmap_worker_from_project_api_projects__pid__workers__worker_id__delete",
+                                                                                 "parameters":  [
+                                                                                                    {
+                                                                                                        "name":  "pid",
+                                                                                                        "in":  "path",
+                                                                                                        "required":  true,
+                                                                                                        "schema":  {
+                                                                                                                       "type":  "integer",
+                                                                                                                       "title":  "Pid"
+                                                                                                                   }
+                                                                                                    },
+                                                                                                    {
+                                                                                                        "name":  "worker_id",
+                                                                                                        "in":  "path",
+                                                                                                        "required":  true,
+                                                                                                        "schema":  {
+                                                                                                                       "type":  "string",
+                                                                                                                       "title":  "Worker Id"
+                                                                                                                   }
+                                                                                                    },
+                                                                                                    {
+                                                                                                        "name":  "authorization",
+                                                                                                        "in":  "header",
+                                                                                                        "required":  false,
+                                                                                                        "schema":  {
+                                                                                                                       "anyOf":  [
+                                                                                                                                     {
+                                                                                                                                         "type":  "string"
+                                                                                                                                     },
+                                                                                                                                     {
+                                                                                                                                         "type":  "null"
+                                                                                                                                     }
+                                                                                                                                 ],
+                                                                                                                       "title":  "Authorization"
+                                                                                                                   }
+                                                                                                    }
+                                                                                                ],
+                                                                                 "responses":  {
+                                                                                                   "204":  {
+                                                                                                               "description":  "Successful Response"
+                                                                                                           },
+                                                                                                   "422":  {
+                                                                                                               "description":  "Validation Error",
+                                                                                                               "content":  {
+                                                                                                                               "application/json":  {
+                                                                                                                                                        "schema":  {
+                                                                                                                                                                       "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                                   }
+                                                                                                                                                    }
+                                                                                                                           }
+                                                                                                           }
+                                                                                               }
+                                                                             }
+                                                              },
+                  "/api/projects/{pid}/workers":  {
+                                                      "get":  {
+                                                                  "tags":  [
+                                                                               "projects"
+                                                                           ],
+                                                                  "summary":  "List Project Workers",
+                                                                  "operationId":  "list_project_workers_api_projects__pid__workers_get",
+                                                                  "parameters":  [
+                                                                                     {
+                                                                                         "name":  "pid",
+                                                                                         "in":  "path",
+                                                                                         "required":  true,
+                                                                                         "schema":  {
+                                                                                                        "type":  "integer",
+                                                                                                        "title":  "Pid"
+                                                                                                    }
+                                                                                     },
+                                                                                     {
+                                                                                         "name":  "authorization",
+                                                                                         "in":  "header",
+                                                                                         "required":  false,
+                                                                                         "schema":  {
+                                                                                                        "anyOf":  [
+                                                                                                                      {
+                                                                                                                          "type":  "string"
+                                                                                                                      },
+                                                                                                                      {
+                                                                                                                          "type":  "null"
+                                                                                                                      }
+                                                                                                                  ],
+                                                                                                        "title":  "Authorization"
+                                                                                                    }
+                                                                                     }
+                                                                                 ],
+                                                                  "responses":  {
+                                                                                    "200":  {
+                                                                                                "description":  "Successful Response",
+                                                                                                "content":  {
+                                                                                                                "application/json":  {
+                                                                                                                                         "schema":  {
+
+                                                                                                                                                    }
+                                                                                                                                     }
+                                                                                                            }
+                                                                                            },
+                                                                                    "422":  {
+                                                                                                "description":  "Validation Error",
+                                                                                                "content":  {
+                                                                                                                "application/json":  {
+                                                                                                                                         "schema":  {
+                                                                                                                                                        "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                    }
+                                                                                                                                     }
+                                                                                                            }
+                                                                                            }
+                                                                                }
+                                                              }
+                                                  },
                   "/api/projects":  {
                                         "get":  {
                                                     "tags":  [
@@ -15100,10 +15301,12 @@
                                                                                                                                                  ]
                                                                                                                                    },
                                                                                                                          "type":  "array"
+                                                                                                                     },
+                                                                                                                     {
+                                                                                                                         "type":  "null"
                                                                                                                      }
                                                                                                                  ],
-                                                                                                       "title":  "Capabilities",
-                                                                                                       "default":  "[]"
+                                                                                                       "title":  "Capabilities"
                                                                                                    },
                                                                                   "cli_command":  {
                                                                                                       "type":  "string",
@@ -18252,6 +18455,17 @@
                                                                       ],
                                                          "title":  "WebhookIn"
                                                      },
+                                       "WorkerProjectMappingIn":  {
+                                                                      "properties":  {
+                                                                                         "enabled":  {
+                                                                                                         "type":  "boolean",
+                                                                                                         "title":  "Enabled",
+                                                                                                         "default":  true
+                                                                                                     }
+                                                                                     },
+                                                                      "type":  "object",
+                                                                      "title":  "WorkerProjectMappingIn"
+                                                                  },
                                        "WorkerRegisterIn":  {
                                                                 "properties":  {
                                                                                    "worker_id":  {
