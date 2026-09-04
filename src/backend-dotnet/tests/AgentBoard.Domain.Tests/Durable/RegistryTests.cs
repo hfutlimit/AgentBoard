@@ -46,6 +46,29 @@ public class RegistryTests
     }
 
     [Fact]
+    public void PublishVersion_refuses_a_hash_that_does_not_describe_its_graph()
+    {
+        var fixture = new PlaneFixture();
+
+        // "Immutable" only holds if publishing freezes the collections and
+        // proves the hash: a caller-mutated node list with the old string, or
+        // a mismatched string outright, must fail closed (doc 151 §12 inv 1).
+        var tamperedHash = fixture.Version with { ContentHash = "sha256:deadbeef" };
+        Assert.Throws<AgentBoard.Domain.Common.InvalidValueException>(
+            () => fixture.Plane.Registry.PublishVersion(tamperedHash));
+
+        var published = fixture.Plane.Registry.RequireVersion(fixture.Version.VersionId);
+        var nodesField = (System.Collections.Generic.IReadOnlyList<WorkflowNode>)published.Nodes;
+        Assert.Throws<System.NotSupportedException>(() =>
+        {
+            // The stored copy must reject mutation even though the original
+            // List was passed in by the publisher.
+            ((System.Collections.Generic.IList<WorkflowNode>)nodesField)
+                .Add(PlaneFixture.Node(StageType.Proposal));
+        });
+    }
+
+    [Fact]
     public void Illegal_stage_transition_leaves_state_untouched()
     {
         var fixture = new PlaneFixture();

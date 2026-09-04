@@ -46,19 +46,22 @@ public sealed class CommandDispatcher
     private readonly ServerOutbox _outbox;
     private readonly Func<DateTimeOffset> _clock;
     private readonly Func<string> _nextId;
+    private readonly SentCommandLog _sent;
 
     public CommandDispatcher(
         WorkflowRegistry registry,
         LeaseRegistry leases,
         ServerOutbox outbox,
         Func<DateTimeOffset> clock,
-        Func<string> nextId)
+        Func<string> nextId,
+        SentCommandLog sent)
     {
         _registry = registry;
         _leases = leases;
         _outbox = outbox;
         _clock = clock;
         _nextId = nextId;
+        _sent = sent;
     }
 
     public Assignment Dispatch(
@@ -84,6 +87,21 @@ public sealed class CommandDispatcher
                 new TransitionContext("server", "assignment dispatched", SchemaVersions.Registry));
         }
 
+        // Every check and every object that can fail validation is produced
+        // BEFORE the first mutation, so an invalid dispatch cannot leave a
+        // half-applied (stage assigned / lease granted / attempt missing)
+        // trail behind it.
+        if (leaseBudget <= TimeSpan.Zero)
+        {
+            throw new InvalidValueException("a dispatch needs a positive lease budget");
+        }
+
+        if (_registry.RequireExecution(executionId).Outcome is not null)
+        {
+            throw new InvalidValueException(
+                $"execution '{executionId}' already resolved; dispatching again would court a second outcome");
+        }
+
         var now = _clock();
         var epoch = _leases.NextEpoch(executionId);
         var attemptId = $"att-{_nextId()}";
@@ -101,9 +119,6 @@ public sealed class CommandDispatcher
             IssuedAt: now,
             ExpiresAt: now + leaseBudget,
             PolicyRevisionId: policyRevisionId);
-
-        _leases.Grant(assignment);
-        _registry.AddAttempt(executionId, attemptId, epoch);
 
         var commandId = $"cmd-{_nextId()}";
         var command = new CommandEnvelope
@@ -130,7 +145,14 @@ public sealed class CommandDispatcher
             PolicyRevisionId = policyRevisionId,
         };
 
-        _outbox.AddCommand(command);
+        // Validating the outbox row is part of planning, not mutation: if the
+        // envelope were unserialisable or oversize we still hold nothing applied.
+        var outboxMessage = OutboxMessage.NewCommand(command, now);
+
+        _leases.Grant(assignment);
+        _registry.AddAttempt(executionId, attemptId, epoch);
+        _outbox.Add(outboxMessage);
+        _sent.Record(assignment.AssignmentId, command);
         return assignment;
     }
 
@@ -197,6 +219,8 @@ public sealed class ServerResultProcessor
     private readonly CommandDispatcher _dispatch;
     private readonly Func<DateTimeOffset> _clock;
     private readonly Func<string> _nextId;
+    private readonly SentCommandLog _sent;
+    private readonly PendingRetryQueue _retries;
 
     public ServerResultProcessor(
         WorkflowRegistry registry,
@@ -206,7 +230,9 @@ public sealed class ServerResultProcessor
         DeadLetterQueue deadLetters,
         CommandDispatcher dispatch,
         Func<DateTimeOffset> clock,
-        Func<string> nextId)
+        Func<string> nextId,
+        SentCommandLog sent,
+        PendingRetryQueue retries)
     {
         _registry = registry;
         _leases = leases;
@@ -216,6 +242,8 @@ public sealed class ServerResultProcessor
         _dispatch = dispatch;
         _clock = clock;
         _nextId = nextId;
+        _sent = sent;
+        _retries = retries;
     }
 
     public ResultVerdict Process(ResultEnvelope result)
@@ -290,6 +318,20 @@ public sealed class ServerResultProcessor
             var reason = string.Join("; ", mismatch.Select(e => $"{e.Field} {e.Reason}"));
             audit.Append("server", "result.rejected", result.MessageId, reason, result.CorrelationId);
             return new ResultVerdict(ResultOutcomeKind.RejectedSchema, reason);
+        }
+
+        // The Server holds the exact command envelope it issued; the result
+        // must be causally tied to it rather than merely self-consistent
+        // (doc 151 §5.6 ValidateResultFollowsCommand, wired into intake).
+        if (_sent.TryGet(result.AssignmentId, out var issuedCommand))
+        {
+            var followErrors = EnvelopeValidator.ValidateResultFollowsCommand(issuedCommand, result);
+            if (followErrors.Count > 0)
+            {
+                var reason = string.Join("; ", followErrors.Select(e => $"{e.Field} {e.Reason}"));
+                audit.Append("server", "result.rejected", result.MessageId, reason, result.CorrelationId);
+                return new ResultVerdict(ResultOutcomeKind.RejectedSchema, reason);
+            }
         }
 
         TrackedAttempt attempt;
@@ -397,19 +439,26 @@ public sealed class ServerResultProcessor
 
         if (decision.IsRetry)
         {
-            var assignment = _dispatch.Dispatch(
+            // The retry waits for its backoff deadline instead of hammering
+            // the provider immediately (doc 150 PR-012 "backoff 上限"), and the
+            // next assignment inherits the lease record's worker, agent and
+            // policy — never values the reporting result merely claims.
+            var current = _leases.CurrentFor(executionId)!;
+            var due = _clock() + decision.Delay!.Value;
+            _retries.Schedule(new PendingRetry(
                 executionId,
-                workerId: result.WorkerId,
-                agentId: result.AgentId,
-                requiredCapabilities: _leases.CurrentFor(executionId)!.RequiredCapabilities,
-                policyRevisionId: _leases.CurrentFor(executionId)!.PolicyRevisionId,
-                leaseBudget: TimeSpan.FromMinutes(5));
+                due,
+                current.WorkerId,
+                current.AgentId,
+                current.RequiredCapabilities,
+                current.PolicyRevisionId,
+                current.ExpiresAt - current.IssuedAt));
 
             audit.Append("server", "result.retry_scheduled", executionId,
-                $"{result.FailureCategory} failure {failureNumber}; retry attempt '{assignment.AttemptId}'",
+                $"{result.FailureCategory} failure {failureNumber}; retry due {due:O} ({decision.Reason})",
                 result.CorrelationId);
             return new ResultVerdict(ResultOutcomeKind.Accepted,
-                $"failure recorded; retry scheduled ({decision.Reason})", executionId, NewAttemptId: assignment.AttemptId);
+                $"failure recorded; retry scheduled for {due:O} ({decision.Reason})", executionId);
         }
 
         if (stage.Machine.Current is StageRunState.Running or StageRunState.Assigned)

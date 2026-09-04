@@ -19,15 +19,15 @@ internal sealed class PlaneFixture
         Now = new DateTimeOffset(2026, 9, 4, 0, 0, 0, TimeSpan.Zero);
         Plane = new DurableServerPlane(() => Now, NextId);
 
+        var nodes = new[]
+        {
+            Node(StageType.Development, StageType.Review),
+            Node(StageType.Review, StageType.Development, StageType.Qa),
+            Node(StageType.Qa),
+        };
         Version = new WorkflowVersion(
             "version-golden", "definition-golden", 1, "workflow.v1",
-            new[]
-            {
-                Node(StageType.Development, StageType.Review),
-                Node(StageType.Review, StageType.Development, StageType.Qa),
-                Node(StageType.Qa),
-            },
-            "sha256:golden");
+            nodes, WorkflowGraph.ComputeContentHash(nodes));
 
         Plane.Registry.PublishVersion(Version);
         Plane.Registry.CreateRun("run-1", Version.VersionId);
@@ -98,7 +98,10 @@ internal sealed class PlaneFixture
             SchemaVersion = "result.v1",
             MessageType = MessageTypes.ExecutionResult,
             CorrelationId = assignment.WorkflowRunId,
-            CausationId = "cmd-original",
+            // A real Node answers the exact command it received; the Server
+            // now enforces that causal binding, so the fixture must honor it.
+            CausationId = Plane.Sent.TryGet(assignment.AssignmentId, out var issued)
+                ? issued.MessageId : "cmd-unknown",
             IdempotencyKey = idempotencyKey ?? $"{assignment.AssignmentId}:{assignment.AttemptId}",
             WorkflowRunId = assignment.WorkflowRunId,
             StageRunId = assignment.StageRunId,

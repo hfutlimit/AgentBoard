@@ -38,7 +38,9 @@ public sealed record PlaneState(
     IReadOnlyList<DedupEntry> Inbox,
     IReadOnlyList<Assignment> Assignments,
     IReadOnlyList<DeadLetterEntry> DeadLetters,
-    IReadOnlyList<ApprovalRequest> Approvals);
+    IReadOnlyList<ApprovalRequest> Approvals,
+    IReadOnlyList<CommandEnvelope> SentCommands,
+    IReadOnlyList<PendingRetry> PendingRetries);
 
 public static class RegistryPersistence
 {
@@ -126,6 +128,8 @@ public sealed partial class WorkflowRegistry
 
 public sealed partial class AuditTrail
 {
+    internal void Clear() => _records.Clear();
+
     internal void Restore(IReadOnlyList<AuditRecord> records)
     {
         foreach (var record in records)
@@ -142,6 +146,8 @@ public sealed partial class AuditTrail
 
 public sealed partial class ServerOutbox
 {
+    internal void Clear() => _messages.Clear();
+
     public IReadOnlyList<OutboxMessage> Capture() => _messages.Values.ToList();
 
     internal void Restore(IReadOnlyList<OutboxMessage> messages)
@@ -155,6 +161,8 @@ public sealed partial class ServerOutbox
 
 public sealed partial class Inbox
 {
+    internal void Clear() => _entries.Clear();
+
     public IReadOnlyList<DedupEntry> Capture() => _entries.Values.ToList();
 
     internal void Restore(IReadOnlyList<DedupEntry> entries)
@@ -168,6 +176,12 @@ public sealed partial class Inbox
 
 public sealed partial class LeaseRegistry
 {
+    internal void Clear()
+    {
+        _byId.Clear();
+        _currentEpoch.Clear();
+    }
+
     public IReadOnlyList<Assignment> Capture() => _byId.Values.ToList();
 
     internal void Restore(IReadOnlyList<Assignment> assignments)
@@ -185,6 +199,8 @@ public sealed partial class LeaseRegistry
 
 public sealed partial class DeadLetterQueue
 {
+    internal void Clear() => _entries.Clear();
+
     public IReadOnlyList<DeadLetterEntry> Capture() => _entries.Values.ToList();
 
     internal void Restore(IReadOnlyList<DeadLetterEntry> entries)
@@ -198,6 +214,8 @@ public sealed partial class DeadLetterQueue
 
 public sealed partial class ApprovalInbox
 {
+    internal void Clear() => _requests.Clear();
+
     public IReadOnlyList<ApprovalRequest> Capture() => _requests.Values.ToList();
 
     internal void Restore(IReadOnlyList<ApprovalRequest> requests)
@@ -207,6 +225,16 @@ public sealed partial class ApprovalInbox
             _requests[request.ApprovalId] = request;
         }
     }
+}
+
+/// <summary>
+/// Commit target for the plane's durable snapshots. Implemented by the
+/// Infrastructure store; kept as an interface so the Domain can run its own
+/// rollback semantics in tests without a database (doc 150 NFR-001).
+/// </summary>
+public interface IPlaneCommitter
+{
+    void Commit(PlaneState state);
 }
 
 /// <summary>
@@ -227,9 +255,69 @@ public sealed class DurableServerPlane
         Outbox = new ServerOutbox(clock);
         DeadLetters = new DeadLetterQueue();
         Approvals = new ApprovalInbox(Registry.Audit, clock);
+        Sent = new SentCommandLog();
+        Retries = new PendingRetryQueue(clock);
         Planner = planner ?? new RetryPlanner();
-        Dispatcher = new CommandDispatcher(Registry, Leases, Outbox, clock, nextId);
-        Results = new ServerResultProcessor(Registry, Leases, Inbox, Planner, DeadLetters, Dispatcher, clock, nextId);
+        Dispatcher = new CommandDispatcher(Registry, Leases, Outbox, clock, nextId, Sent);
+        Results = new ServerResultProcessor(
+            Registry, Leases, Inbox, Planner, DeadLetters, Dispatcher, clock, nextId, Sent, Retries);
+    }
+
+    /// <summary>
+    /// Performs <paramref name="work"/> and commits the resulting state; when
+    /// the commit fails the whole in-memory plane is rolled back to the last
+    /// committed snapshot, so a persistence failure can never leave the Server
+    /// "advanced" against a store that knows nothing about it (doc 150
+    /// NFR-001: no confirmed-but-unrecorded, and no unconfirmed-but-applied).
+    /// </summary>
+    public void CommitAtomic(IPlaneCommitter committer, Action work)
+    {
+        var prior = Capture();
+        try
+        {
+            work();
+            committer.Commit(Capture());
+        }
+        catch
+        {
+            ResetTo(prior);
+            throw;
+        }
+    }
+
+    /// <summary>Dispatches every scheduled retry whose backoff has elapsed.</summary>
+    public int ProcessDueRetries()
+    {
+        var dispatched = 0;
+        foreach (var retry in Retries.TakeDue())
+        {
+            Dispatcher.Dispatch(
+                retry.ExecutionId, retry.WorkerId, retry.AgentId,
+                retry.Capabilities, retry.PolicyRevisionId, retry.LeaseBudget);
+            dispatched++;
+        }
+
+        return dispatched;
+    }
+
+    private void ResetTo(PlaneState prior)
+    {
+        Registry.Clear();
+        Registry.Load(prior.Registry);
+        Outbox.Clear();
+        Outbox.Restore(prior.Outbox);
+        Inbox.Clear();
+        Inbox.Restore(prior.Inbox);
+        Leases.Clear();
+        Leases.Restore(prior.Assignments);
+        DeadLetters.Clear();
+        DeadLetters.Restore(prior.DeadLetters);
+        Approvals.Clear();
+        Approvals.Restore(prior.Approvals);
+        Sent.Clear();
+        Sent.Restore(prior.SentCommands);
+        Retries.Clear();
+        Retries.Restore(prior.PendingRetries);
     }
 
     internal Func<DateTimeOffset> Clock { get; }
@@ -241,6 +329,8 @@ public sealed class DurableServerPlane
     public ServerOutbox Outbox { get; }
     public DeadLetterQueue DeadLetters { get; }
     public ApprovalInbox Approvals { get; }
+    public SentCommandLog Sent { get; }
+    public PendingRetryQueue Retries { get; }
     public RetryPlanner Planner { get; }
     public CommandDispatcher Dispatcher { get; }
     public ServerResultProcessor Results { get; }
@@ -251,7 +341,9 @@ public sealed class DurableServerPlane
         Inbox.Capture(),
         Leases.Capture(),
         DeadLetters.Capture(),
-        Approvals.Capture());
+        Approvals.Capture(),
+        Sent.Capture(),
+        Retries.Capture());
 
     public static DurableServerPlane Restore(Func<DateTimeOffset> clock, Func<string> nextId, PlaneState state)
     {
@@ -262,6 +354,82 @@ public sealed class DurableServerPlane
         plane.Leases.Restore(state.Assignments);
         plane.DeadLetters.Restore(state.DeadLetters);
         plane.Approvals.Restore(state.Approvals);
+        plane.Sent.Restore(state.SentCommands);
+        plane.Retries.Restore(state.PendingRetries);
         return plane;
     }
+}
+
+/// <summary>
+/// The commands the Server issued per assignment. The result intake re-checks
+/// a result against the exact envelope it caused (doc 151 §5.6: causation),
+/// instead of trusting fields the Node happens to echo back.
+/// </summary>
+public sealed class SentCommandLog
+{
+    private readonly Dictionary<string, CommandEnvelope> _byAssignment = new(StringComparer.Ordinal);
+
+    public IReadOnlyCollection<CommandEnvelope> Commands => _byAssignment.Values;
+
+    public void Record(string assignmentId, CommandEnvelope command) => _byAssignment[assignmentId] = command;
+
+    public bool TryGet(string assignmentId, out CommandEnvelope command) =>
+        _byAssignment.TryGetValue(assignmentId, out command!);
+
+    internal void Clear() => _byAssignment.Clear();
+
+    internal void Restore(IReadOnlyList<CommandEnvelope> commands)
+    {
+        foreach (var command in commands)
+        {
+            _byAssignment[command.AssignmentId] = command;
+        }
+    }
+
+    public IReadOnlyList<CommandEnvelope> Capture() => _byAssignment.Values.ToList();
+}
+
+/// <summary>
+/// A retry deferred to its backoff deadline. Retrying instantly on every
+/// provider failure turns a transient fault into a hammer; doc 150 PR-012
+/// requires the backoff to actually bound the attempt rate.
+/// </summary>
+public sealed record PendingRetry(
+    string ExecutionId,
+    DateTimeOffset Due,
+    string WorkerId,
+    string AgentId,
+    IReadOnlyList<string> Capabilities,
+    string PolicyRevisionId,
+    TimeSpan LeaseBudget);
+
+public sealed class PendingRetryQueue
+{
+    private readonly List<PendingRetry> _pending = new();
+    private readonly Func<DateTimeOffset> _clock;
+
+    public PendingRetryQueue(Func<DateTimeOffset> clock) => _clock = clock;
+
+    public IReadOnlyList<PendingRetry> Pending => _pending;
+
+    public void Schedule(PendingRetry retry) => _pending.Add(retry);
+
+    /// <summary>Removes and returns everything due at the current time, oldest first.</summary>
+    public IReadOnlyList<PendingRetry> TakeDue()
+    {
+        var now = _clock();
+        var due = _pending.Where(r => r.Due <= now).OrderBy(r => r.Due).ToList();
+        foreach (var retry in due)
+        {
+            _pending.Remove(retry);
+        }
+
+        return due;
+    }
+
+    internal void Clear() => _pending.Clear();
+
+    internal void Restore(IReadOnlyList<PendingRetry> retries) => _pending.AddRange(retries);
+
+    public IReadOnlyList<PendingRetry> Capture() => _pending.ToList();
 }

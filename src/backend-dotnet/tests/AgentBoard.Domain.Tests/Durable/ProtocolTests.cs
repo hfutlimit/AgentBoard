@@ -175,7 +175,7 @@ public class ProtocolTests
     // ------------------------------------------------------------------
 
     [Fact]
-    public void Retryable_failure_schedules_new_attempt_at_new_epoch_via_outbox()
+    public void Retryable_failure_waits_for_its_backoff_then_dispatches_at_new_epoch()
     {
         var fixture = new PlaneFixture();
         fixture.DispatchDev();
@@ -185,13 +185,69 @@ public class ProtocolTests
             fixture.Result(AttemptResultStatus.Failed, FailureCategory.ProviderFailure));
 
         Assert.Equal(ResultOutcomeKind.Accepted, verdict.Kind);
-        Assert.NotNull(verdict.NewAttemptId);
-        Assert.True(fixture.Plane.Outbox.Messages.Count > firstCommandCount);
+        Assert.Null(verdict.NewAttemptId);
 
+        // The retry is scheduled, not fired: hammering the provider on every
+        // transient failure is exactly what PR-012's backoff bound forbids.
         var execution = fixture.Plane.Registry.RequireExecution(fixture.ExecutionId);
+        Assert.Single(execution.Attempts);
+        Assert.Equal(firstCommandCount, fixture.Plane.Outbox.Messages.Count);
+        Assert.Single(fixture.Plane.Retries.Pending);
+
+        fixture.Advance(1); // default base delay is 2 seconds
+        Assert.Equal(1, fixture.Plane.ProcessDueRetries());
+
         Assert.Equal(2, execution.Attempts.Count);
         Assert.Equal(2, execution.Attempts[1].Current.LeaseEpoch);
+        Assert.True(fixture.Plane.Outbox.Messages.Count > firstCommandCount);
         Assert.Null(execution.Outcome);
+        Assert.Empty(fixture.Plane.Retries.Pending);
+    }
+
+    [Fact]
+    public void Result_not_following_its_issued_command_is_rejected()
+    {
+        var fixture = new PlaneFixture();
+        fixture.DispatchDev();
+
+        var command = fixture.Plane.Sent.Commands.Single();
+
+        // Right assignment, wrong causation: a self-consistent fabrication
+        // must not masquerade as the answer to the command actually sent.
+        var fabricated = fixture.Result(AttemptResultStatus.Succeeded, summary: "sneaky") with
+        {
+            CausationId = "cmd-that-was-never-sent",
+            IdempotencyKey = command.IdempotencyKey + "-altered",
+        };
+
+        var verdict = fixture.Plane.Results.Process(fabricated);
+        Assert.Equal(ResultOutcomeKind.RejectedSchema, verdict.Kind);
+        Assert.Null(fixture.Plane.Registry.RequireExecution(fixture.ExecutionId).Outcome);
+    }
+
+    [Fact]
+    public void CommitAtomic_rolls_the_plane_back_when_persistence_fails()
+    {
+        var fixture = new PlaneFixture();
+        fixture.DispatchDev();
+        var result = fixture.Result(AttemptResultStatus.Succeeded, summary: "dev done");
+
+        Assert.Throws<IOException>(() => fixture.Plane.CommitAtomic(new FailingCommitter(), () =>
+        {
+            fixture.Plane.Results.Process(result);
+            Assert.NotNull(fixture.Plane.Registry.RequireExecution(fixture.ExecutionId).Outcome); // applied in memory
+        }));
+
+        // ...and after the failed commit the plane is back at the last durable
+        // point: no outcome, and the redelivered result can be accepted once.
+        Assert.Null(fixture.Plane.Registry.RequireExecution(fixture.ExecutionId).Outcome);
+        Assert.Equal(ResultOutcomeKind.Accepted, fixture.Plane.Results.Process(result).Kind);
+        Assert.NotNull(fixture.Plane.Registry.RequireExecution(fixture.ExecutionId).Outcome);
+    }
+
+    private sealed class FailingCommitter : AgentBoard.Domain.Workflow.Durable.IPlaneCommitter
+    {
+        public void Commit(PlaneState state) => throw new IOException("simulated disk failure at commit");
     }
 
     [Fact]
@@ -232,36 +288,47 @@ public class ProtocolTests
 
         for (var i = 0; i < 3; i++)
         {
-            var attempt = tight.Registry.RequireExecution("exec-dev-1").LatestAttempt!;
-            tight.Leases.Renew(tight.Leases.CurrentFor("exec-dev-1")!.AssignmentId, fixture.Now + TimeSpan.FromMinutes(5));
+            var current = tight.Leases.CurrentFor("exec-dev-1")!;
+            tight.Dispatcher.GetType(); // no renewal needed: fresh leases each round
+
+            var command = tight.Sent.TryGet(current.AssignmentId, out var issued) ? issued : null;
+            Assert.NotNull(command);
+
             var envelope = new ResultEnvelope
             {
                 MessageId = $"msg-{i}",
                 SchemaVersion = "result.v1",
                 MessageType = MessageTypes.ExecutionResult,
                 CorrelationId = "run-1",
-                IdempotencyKey = $"{attempt.Current.LeaseEpoch}-idem-{i}",
+                IdempotencyKey = command!.IdempotencyKey,
+                CausationId = command.MessageId,
                 WorkflowRunId = "run-1",
                 StageRunId = "stg-dev-1",
                 ExecutionId = "exec-dev-1",
-                AttemptId = attempt.Current.AttemptId,
-                AssignmentId = tight.Leases.CurrentFor("exec-dev-1")!.AssignmentId,
-                WorkerId = "worker-1",
-                AgentId = "agent.dev",
-                LeaseEpoch = attempt.Current.LeaseEpoch,
+                AttemptId = current.AttemptId,
+                AssignmentId = current.AssignmentId,
+                WorkerId = current.WorkerId,
+                AgentId = current.AgentId,
+                LeaseEpoch = current.LeaseEpoch,
                 ResultStatus = AttemptResultStatus.Failed,
                 FailureCategory = FailureCategory.ProviderFailure,
                 Traceparent = PlaneFixture.Trace,
                 CreatedAt = fixture.Now,
             };
+
             var verdict = tight.Results.Process(envelope);
             Assert.Equal(ResultOutcomeKind.Accepted, verdict.Kind);
+
             if (verdict.DeadLetterId is not null)
             {
                 Assert.Single(tight.DeadLetters.Entries);
                 Assert.Equal(StageRunState.Failed, tight.Registry.RequireStage("stg-dev-1").Current.State);
                 return;
             }
+
+            // Retryable round: fire the deferred retry to keep the chain going.
+            fixture.Advance(1);
+            Assert.Equal(1, tight.ProcessDueRetries());
         }
 
         Assert.Fail("retry budget of 1 should have dead-lettered within three failures");

@@ -26,7 +26,7 @@ namespace AgentBoard.Infrastructure.Persistence.Workflow;
 /// for A4; the semantics tested here do not depend on the granularity.
 /// </para>
 /// </remarks>
-public sealed class SqlitePlaneStore : IDisposable
+public sealed class SqlitePlaneStore : IDisposable, IPlaneCommitter
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -83,6 +83,9 @@ public sealed class SqlitePlaneStore : IDisposable
         CommitState(plane.Capture());
     }
 
+    /// <summary>Domain-facing seam: commit a captured snapshot durably.</summary>
+    public void Commit(PlaneState state) => CommitState(state);
+
     public void CommitState(PlaneState state)
     {
         using var connection = Open();
@@ -96,6 +99,8 @@ public sealed class SqlitePlaneStore : IDisposable
             Write(connection, transaction, "leases", state.Assignments);
             Write(connection, transaction, "dead_letters", state.DeadLetters);
             Write(connection, transaction, "approvals", state.Approvals);
+            Write(connection, transaction, "sent_commands", state.SentCommands);
+            Write(connection, transaction, "pending_retries", state.PendingRetries);
             transaction.Commit();
         }
         catch
@@ -134,7 +139,9 @@ public sealed class SqlitePlaneStore : IDisposable
             Read<IReadOnlyList<DedupEntry>>(connection, "inbox") ?? Array.Empty<DedupEntry>(),
             Read<IReadOnlyList<Assignment>>(connection, "leases") ?? Array.Empty<Assignment>(),
             Read<IReadOnlyList<DeadLetterEntry>>(connection, "dead_letters") ?? Array.Empty<DeadLetterEntry>(),
-            Read<IReadOnlyList<ApprovalRequest>>(connection, "approvals") ?? Array.Empty<ApprovalRequest>());
+            Read<IReadOnlyList<ApprovalRequest>>(connection, "approvals") ?? Array.Empty<ApprovalRequest>(),
+            Read<IReadOnlyList<CommandEnvelope>>(connection, "sent_commands") ?? Array.Empty<CommandEnvelope>(),
+            Read<IReadOnlyList<PendingRetry>>(connection, "pending_retries") ?? Array.Empty<PendingRetry>());
 
         // Contracts records need no converter beyond string enums for the
         // status/category members.

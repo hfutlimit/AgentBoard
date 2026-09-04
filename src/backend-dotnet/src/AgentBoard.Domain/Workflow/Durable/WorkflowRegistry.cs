@@ -118,6 +118,16 @@ public sealed partial class WorkflowRegistry
     public IReadOnlyCollection<WorkflowVersion> Versions => _versions.Values;
     public IReadOnlyCollection<TrackedRun> Runs => _runs.Values;
 
+    internal void Clear()
+    {
+        _versions.Clear();
+        _runs.Clear();
+        _stages.Clear();
+        _executions.Clear();
+        _attempts.Clear();
+        Audit.Clear();
+    }
+
     // ---------------------------------------------------------------------
     // Versions (doc 150 PR-001)
     // ---------------------------------------------------------------------
@@ -131,15 +141,30 @@ public sealed partial class WorkflowRegistry
                 $"invalid workflow version: {string.Join("; ", errors.Select(e => $"{e.Field} {e.Reason}"))}");
         }
 
-        if (!_versions.TryAdd(version.VersionId, version))
+        // Records freeze membership, not contents: a caller still holds the
+        // List<WorkflowNode> it passed in. Recomputing the canonical hash
+        // against the caller's collections, then storing defensive copies,
+        // closes both the silent-mutation window and the trusting-the-string
+        // window (doc 151 §4.1, §12 invariant 1).
+        var expectedHash = WorkflowGraph.ComputeContentHash(version.Nodes);
+        if (!string.Equals(version.ContentHash, expectedHash, StringComparison.OrdinalIgnoreCase))
         {
-            throw new DuplicateException(
-                $"workflow version '{version.VersionId}' is already published; versions are immutable");
+            throw new InvalidValueException(
+                $"content hash '{version.ContentHash}' does not match the graph ({expectedHash}); " +
+                "published versions must prove their nodes, not merely name a hash");
         }
 
-        Audit.Append("server", "workflow.version.published", version.VersionId,
-            $"published v{version.Version} of definition '{version.DefinitionId}'");
-        return version;
+        var frozen = version with { Nodes = (IReadOnlyList<WorkflowNode>?)version.Nodes.ToArray() ?? Array.Empty<WorkflowNode>() };
+
+        if (!_versions.TryAdd(frozen.VersionId, frozen))
+        {
+            throw new DuplicateException(
+                $"workflow version '{frozen.VersionId}' is already published; versions are immutable");
+        }
+
+        Audit.Append("server", "workflow.version.published", frozen.VersionId,
+            $"published v{frozen.Version} of definition '{frozen.DefinitionId}'");
+        return frozen;
     }
 
     public WorkflowVersion RequireVersion(string versionId) =>

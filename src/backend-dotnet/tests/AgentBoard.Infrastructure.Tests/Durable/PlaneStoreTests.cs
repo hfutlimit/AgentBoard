@@ -84,7 +84,7 @@ public sealed class PlaneStoreTests : IDisposable
         // The result arrives and is applied in memory, but the Server dies
         // before the commit — the "authoritative update without a record"
         // state must be impossible: nothing about this result is durable.
-        var result = fixture.ResultRaw(assignment, AttemptResultStatus.Succeeded, summary: "dev done");
+        var result = fixture.ResultRaw(plane, assignment, AttemptResultStatus.Succeeded, summary: "dev done");
         Assert.Equal(ResultOutcomeKind.Accepted, plane.Results.Process(result).Kind);
 
         using var recovery = new SqlitePlaneStore(_dbPath);
@@ -157,7 +157,7 @@ public sealed class PlaneStoreTests : IDisposable
         // The old node's late result is rejected even though its attempt id
         // still exists after restore (PR-008, doc 151 §4.2 invariant 5).
         var stale = revived.Results.Process(
-            fixture.ResultRaw(first, AttemptResultStatus.Succeeded, summary: "late from epoch 1"));
+            fixture.ResultRaw(revived, first, AttemptResultStatus.Succeeded, summary: "late from epoch 1"));
         Assert.Equal(ResultOutcomeKind.RejectedStaleEpoch, stale.Kind);
         Assert.Null(revived.Registry.RequireExecution(fixture.ExecutionId).Outcome);
         Assert.NotNull(second);
@@ -214,15 +214,15 @@ public sealed class PlaneStoreTests : IDisposable
 
         public static Setup Run(DurableServerPlane plane, TestClock clock)
         {
+            var nodes = new[]
+            {
+                Node(StageType.Development, StageType.Review),
+                Node(StageType.Review, StageType.Development, StageType.Qa),
+                Node(StageType.Qa),
+            };
             var version = new WorkflowVersion(
                 "version-golden", "definition-golden", 1, "workflow.v1",
-                new[]
-                {
-                    Node(StageType.Development, StageType.Review),
-                    Node(StageType.Review, StageType.Development, StageType.Qa),
-                    Node(StageType.Qa),
-                },
-                "sha256:golden");
+                nodes, WorkflowGraph.ComputeContentHash(nodes));
 
             plane.Registry.PublishVersion(version);
             plane.Registry.CreateRun("run-1", version.VersionId);
@@ -240,24 +240,30 @@ public sealed class PlaneStoreTests : IDisposable
         public void Develop(TestClock clock, DurableServerPlane plane, out ResultEnvelope result)
         {
             var assignment = DispatchDev(plane);
-            result = ResultRaw(assignment, AttemptResultStatus.Succeeded, summary: "dev done");
+            result = ResultRaw(plane, assignment, AttemptResultStatus.Succeeded, summary: "dev done");
             var verdict = plane.Results.Process(result);
             Assert.Equal(ResultOutcomeKind.Accepted, verdict.Kind);
         }
 
         public ResultEnvelope ResultRaw(
+            DurableServerPlane plane,
             Assignment assignment,
             AttemptResultStatus status,
             FailureCategory failure = FailureCategory.None,
             string? summary = null)
         {
+            // The Server enforces the causal tie to the issued command, so a
+            // well-formed result must name the message it answers.
+            var command = plane.Sent.TryGet(assignment.AssignmentId, out var issued) ? issued : null;
+
             return new ResultEnvelope
             {
                 MessageId = $"msg-{NewId()}",
                 SchemaVersion = "result.v1",
                 MessageType = MessageTypes.ExecutionResult,
                 CorrelationId = assignment.WorkflowRunId,
-                IdempotencyKey = $"{assignment.AssignmentId}:{assignment.AttemptId}",
+                CausationId = command?.MessageId ?? "cmd-unknown",
+                IdempotencyKey = command?.IdempotencyKey ?? $"{assignment.AssignmentId}:{assignment.AttemptId}",
                 WorkflowRunId = assignment.WorkflowRunId,
                 StageRunId = assignment.StageRunId,
                 ExecutionId = assignment.ExecutionId,
@@ -277,7 +283,7 @@ public sealed class PlaneStoreTests : IDisposable
         public ResultEnvelope Result(AttemptResultStatus status, DurableServerPlane plane, string summary)
         {
             var assignment = plane.Leases.CurrentFor(ExecutionId)!;
-            return ResultRaw(assignment, status, summary: summary);
+            return ResultRaw(plane, assignment, status, summary: summary);
         }
 
         private static WorkflowNode Node(StageType stage, params StageType[] transitions) => new(
