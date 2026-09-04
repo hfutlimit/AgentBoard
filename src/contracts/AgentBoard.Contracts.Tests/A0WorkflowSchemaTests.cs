@@ -50,7 +50,7 @@ public sealed class A0WorkflowSchemaTests
         {
             Nodes = new[]
             {
-                ValidVersion().Nodes[0] with { Budget = new StageBudget(TimeSpan.Zero, TimeSpan.FromMinutes(5)) },
+                ValidVersion().Nodes[0] with { Budget = new StageBudget(0, 300) },
             },
         };
 
@@ -324,19 +324,19 @@ public sealed class A0WorkflowSchemaTests
             new WorkflowNode(
                 "design", StageType.Design, "design", "{}", "{}",
                 new[] { StageType.Development }, "retry-standard", "policy-requirements",
-                new StageBudget(TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(5)), true),
+                new StageBudget(1800, 300), true),
             new WorkflowNode(
                 "development", StageType.Development, "development", "{}", "{}",
                 new[] { StageType.Review }, "retry-standard", "policy-requirements",
-                new StageBudget(TimeSpan.FromMinutes(60), TimeSpan.FromMinutes(10)), true),
+                new StageBudget(3600, 600), true),
             new WorkflowNode(
                 "review", StageType.Review, "review", "{}", "{}",
                 new[] { StageType.Development, StageType.Qa }, "retry-standard", "policy-requirements",
-                new StageBudget(TimeSpan.FromMinutes(20), TimeSpan.FromMinutes(5)), true),
+                new StageBudget(1200, 300), true),
             new WorkflowNode(
                 "qa", StageType.Qa, "qa", "{}", "{}",
                 Array.Empty<StageType>(), "retry-standard", "policy-requirements",
-                new StageBudget(TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(5)), true),
+                new StageBudget(1800, 300), true),
         },
         "sha256:graph");
 

@@ -1,0 +1,24 @@
+{
+  "handoff_id": "handoff-uuid",
+  "source_stage_run_id": "development-iteration-2",
+  "source_outcome_id": "outcome-uuid",
+  "target_stage_type": "review",
+  "task_context": "{}",
+  "artifact_references": [
+    {
+      "uri": "artifact://patch-1",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size": 4096
+    }
+  ],
+  "workspace": {
+    "project_id": "project-uuid",
+    "workspace_id": "workspace-uuid",
+    "base_version": "commit-sha"
+  },
+  "commit_or_version": "commit-sha",
+  "test_evidence": ["unit: 24 passed"],
+  "review_findings": [],
+  "context_version": "handoff.v1",
+  "required_capabilities": ["review"]
+}

@@ -14,4 +14,11 @@
   <ItemGroup>
     <ProjectReference Include="..\AgentBoard.Contracts\AgentBoard.Contracts.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Representative wire examples (doc 154 A0 deliverable). Copied to the
+         output directory so the tests deserialize and validate them; an example
+         that drifts from the contract fails the build instead of rotting in a
+         markdown file nobody reads. -->
+    <None Include="Examples\**\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

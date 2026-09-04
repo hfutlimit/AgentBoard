@@ -58,16 +58,16 @@ public static class WorkflowValidator
                     $"'{node.StageType}' is not a defined stage type"));
             }
 
-            if (node.Budget.Timeout <= TimeSpan.Zero)
+            if (node.Budget.TimeoutSeconds <= 0)
             {
                 errors.Add(new EnvelopeError(
-                    $"{nameof(version.Nodes)}[].Budget", "Timeout must be positive"));
+                    $"{nameof(version.Nodes)}[].Budget", "TimeoutSeconds must be positive"));
             }
 
-            if (node.Budget.Lease <= TimeSpan.Zero)
+            if (node.Budget.LeaseSeconds <= 0)
             {
                 errors.Add(new EnvelopeError(
-                    $"{nameof(version.Nodes)}[].Budget", "Lease must be positive"));
+                    $"{nameof(version.Nodes)}[].Budget", "LeaseSeconds must be positive"));
             }
 
             declaredStages.Add(node.StageType);

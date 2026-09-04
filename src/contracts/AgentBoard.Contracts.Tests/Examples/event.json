@@ -1,0 +1,12 @@
+{
+  "event_id": "event-uuid",
+  "source": "node://worker-uuid/attempt/attempt-uuid",
+  "event_type": "agentboard.execution.tool_call",
+  "schema_version": "execution-event.v1",
+  "time": "2026-09-04T00:01:00+00:00",
+  "subject": "attempt-uuid",
+  "correlation_id": "workflow-run-uuid",
+  "causation_id": "msg-uuid",
+  "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+  "data": "{}"
+}

@@ -1,0 +1,45 @@
+{
+  "version_id": "version-1",
+  "definition_id": "definition-1",
+  "version": 1,
+  "schema_version": "workflow.v1",
+  "nodes": [
+    {
+      "node_id": "development",
+      "stage_type": "development",
+      "required_capability": "development",
+      "input_contract": "{}",
+      "output_contract": "{}",
+      "allowed_transitions": ["review"],
+      "retry_policy_ref": "retry-standard",
+      "policy_requirements": "policy-requirements",
+      "budget": { "timeout_seconds": 3600, "lease_seconds": 600 },
+      "handoff_required": true
+    },
+    {
+      "node_id": "review",
+      "stage_type": "review",
+      "required_capability": "review",
+      "input_contract": "{}",
+      "output_contract": "{}",
+      "allowed_transitions": ["development", "qa"],
+      "retry_policy_ref": "retry-standard",
+      "policy_requirements": "policy-requirements",
+      "budget": { "timeout_seconds": 1200, "lease_seconds": 300 },
+      "handoff_required": true
+    },
+    {
+      "node_id": "qa",
+      "stage_type": "qa",
+      "required_capability": "qa",
+      "input_contract": "{}",
+      "output_contract": "{}",
+      "allowed_transitions": [],
+      "retry_policy_ref": "retry-standard",
+      "policy_requirements": "policy-requirements",
+      "budget": { "timeout_seconds": 1800, "lease_seconds": 300 },
+      "handoff_required": true
+    }
+  ],
+  "content_hash": "sha256:graph"
+}

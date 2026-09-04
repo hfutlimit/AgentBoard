@@ -1,0 +1,11 @@
+{
+  "agent_id": "agent.dev.codex",
+  "role": "developer",
+  "capabilities": ["development"],
+  "provider_ref": "provider.codex",
+  "transport_ref": "transport.codex-cli",
+  "runtime_options": "{}",
+  "policy_revision_id": "policy-rev-17",
+  "local_prompt_policy_ref": "local://prompt-policy/dev-v1",
+  "preset": "developer"
+}

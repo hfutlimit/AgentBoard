@@ -1,0 +1,32 @@
+{
+  "message_id": "msg-result-uuid",
+  "schema_version": "result.v1",
+  "message_type": "execution.result",
+  "correlation_id": "workflow-run-uuid",
+  "causation_id": "msg-uuid",
+  "idempotency_key": "assignment-uuid:attempt-1",
+  "workflow_run_id": "workflow-run-uuid",
+  "stage_run_id": "stage-run-uuid",
+  "execution_id": "execution-uuid",
+  "attempt_id": "attempt-uuid",
+  "assignment_id": "assignment-uuid",
+  "worker_id": "worker-uuid",
+  "agent_id": "agent.dev.codex",
+  "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+  "lease_epoch": 3,
+  "result_status": "succeeded",
+  "failure_category": "none",
+  "outcome_summary": "Implemented the handler with unit tests.",
+  "artifact_references": [
+    {
+      "uri": "artifact://patch-1",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "size": 4096
+    }
+  ],
+  "commit_or_version": "commit-sha",
+  "test_evidence": ["unit: 24 passed"],
+  "review_findings": [],
+  "usage_summary": "tokens=12000",
+  "created_at": "2026-09-04T00:02:00+00:00"
+}

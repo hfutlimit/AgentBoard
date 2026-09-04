@@ -1,0 +1,15 @@
+{
+  "assignment_id": "assignment-uuid",
+  "workflow_run_id": "workflow-run-uuid",
+  "stage_run_id": "stage-run-uuid",
+  "execution_id": "execution-uuid",
+  "attempt_id": "attempt-uuid",
+  "worker_id": "worker-uuid",
+  "agent_id": "agent.dev.codex",
+  "lease_id": "lease-uuid",
+  "lease_epoch": 3,
+  "required_capabilities": ["development"],
+  "issued_at": "2026-09-04T00:00:00+00:00",
+  "expires_at": "2026-09-04T00:05:00+00:00",
+  "policy_revision_id": "policy-rev-17"
+}

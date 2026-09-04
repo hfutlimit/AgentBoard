@@ -4,9 +4,20 @@ namespace AgentBoard.Contracts;
 /// <summary>
 /// The time budget a stage node grants to one attempt (doc 151 §4.1).
 /// </summary>
-/// <param name="Timeout">How long the attempt may run before it is cancelled.</param>
-/// <param name="Lease">How long the assignment lease lasts before renewal.</param>
-public sealed record StageBudget(TimeSpan Timeout, TimeSpan Lease);
+/// <param name="TimeoutSeconds">How long the attempt may run before it is cancelled.</param>
+/// <param name="LeaseSeconds">How long the assignment lease lasts before renewal.</param>
+/// <remarks>
+/// Durations are carried as integer seconds rather than an ISO 8601 duration
+/// string or a framework time type. Seconds have exactly one encoding, whereas
+/// duration strings have several dialects that different stacks parse
+/// differently — and a lease budget that one side reads as 30 minutes and the
+/// other as 30 seconds is a fencing bug, not a formatting nit.
+/// </remarks>
+public sealed record StageBudget(long TimeoutSeconds, long LeaseSeconds)
+{
+    public TimeSpan Timeout => TimeSpan.FromSeconds(TimeoutSeconds);
+    public TimeSpan Lease => TimeSpan.FromSeconds(LeaseSeconds);
+}
 
 /// <summary>
 /// One node of a typed workflow graph (doc 151 §4.1).

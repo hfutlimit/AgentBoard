@@ -1,0 +1,22 @@
+{
+  "message_id": "msg-uuid",
+  "schema_version": "command.v1",
+  "message_type": "execution.assign",
+  "correlation_id": "workflow-run-uuid",
+  "causation_id": "previous-message-uuid",
+  "idempotency_key": "assignment-uuid:attempt-1",
+  "workflow_run_id": "workflow-run-uuid",
+  "stage_run_id": "stage-run-uuid",
+  "execution_id": "execution-uuid",
+  "attempt_id": "attempt-uuid",
+  "assignment_id": "assignment-uuid",
+  "worker_id": "worker-uuid",
+  "agent_id": "agent.dev.codex",
+  "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+  "lease_id": "lease-uuid",
+  "lease_epoch": 3,
+  "issued_at": "2026-09-04T00:00:00+00:00",
+  "expires_at": "2026-09-04T00:05:00+00:00",
+  "payload": "task=implement the handler",
+  "policy_revision_id": "policy-rev-17"
+}

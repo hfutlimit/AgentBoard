@@ -1,0 +1,19 @@
+{
+  "provider_id": "provider.codex",
+  "version": "1.0",
+  "supported_transports": ["transport.codex-cli", "transport.codex-native"],
+  "capabilities": ["development", "review"],
+  "adapter_capabilities": [
+    "check_auth",
+    "begin_official_login",
+    "check_ready",
+    "start_attempt",
+    "stream_local_events",
+    "cancel_attempt",
+    "collect_attempt_result"
+  ],
+  "supported_platforms": ["windows", "macos"],
+  "failure_categories": ["auth_expired", "provider_failure"],
+  "auth_model": "official_login",
+  "runtime_metadata": "{}"
+}
