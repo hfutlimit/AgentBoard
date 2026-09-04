@@ -84,6 +84,12 @@ public static class AssignmentValidator
                 "must equal the policy revision the assignment was issued under"));
         }
 
+        Match(errors, nameof(command.WorkflowRunId), command.WorkflowRunId, assignment.WorkflowRunId);
+        Match(errors, nameof(command.StageRunId), command.StageRunId, assignment.StageRunId);
+        Match(errors, nameof(command.ExecutionId), command.ExecutionId, assignment.ExecutionId);
+        Match(errors, nameof(command.WorkerId), command.WorkerId, assignment.WorkerId);
+        Match(errors, nameof(command.AgentId), command.AgentId, assignment.AgentId);
+
         return errors;
     }
 
@@ -116,6 +122,13 @@ public static class AssignmentValidator
                 nameof(result.AttemptId), "must equal the attempt the assignment covers"));
         }
 
+
+        Match(errors, nameof(result.WorkflowRunId), result.WorkflowRunId, assignment.WorkflowRunId);
+        Match(errors, nameof(result.StageRunId), result.StageRunId, assignment.StageRunId);
+        Match(errors, nameof(result.ExecutionId), result.ExecutionId, assignment.ExecutionId);
+        Match(errors, nameof(result.WorkerId), result.WorkerId, assignment.WorkerId);
+        Match(errors, nameof(result.AgentId), result.AgentId, assignment.AgentId);
+
         return errors;
     }
 
@@ -127,6 +140,14 @@ public static class AssignmentValidator
         result.LeaseEpoch != assignment.LeaseEpoch;
 
     public static bool IsValid(Assignment assignment) => Validate(assignment).Count == 0;
+
+    private static void Match(List<EnvelopeError> errors, string field, string? actual, string expected)
+    {
+        if (!string.Equals(actual, expected, StringComparison.Ordinal))
+        {
+            errors.Add(new EnvelopeError(field, $"must equal assignment value '{expected}'"));
+        }
+    }
 
     private static void Require(List<EnvelopeError> errors, string field, string? value)
     {

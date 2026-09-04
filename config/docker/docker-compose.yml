@@ -105,8 +105,13 @@ services:
       AgentBoard__Realtime__TrustedProxies__0: "10.0.0.0/8"
       AgentBoard__Realtime__TrustedProxies__1: "172.16.0.0/12"
       AgentBoard__Realtime__TrustedProxies__2: "192.168.0.0/16"
+      DurableWorkflow__Enabled: "${AGENTBOARD_DURABLE_WORKFLOW_ENABLED:-0}"
+      DurableWorkflow__DatabasePath: "/app/data/durable-workflow.db"
+      DurableWorkflow__RabbitMqUri: "amqp://agentboard:${AGENTBOARD_RABBITMQ_PASSWORD:-${AGENTBOARD_SECRET:?Set AGENTBOARD_SECRET}}@rabbitmq:5672/"
     depends_on:
       db:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
     ports:
       # Host 18099 → container 8080 (FastAPI api 占用宿主 18000，.NET 用 18099 避免宿主端口冲突).
@@ -197,6 +202,27 @@ services:
       retries: 10
       start_period: 30s
 
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: "agentboard"
+      # Dedicated credentials can be supplied for production. Existing local
+      # installations remain upgradeable by falling back to AGENTBOARD_SECRET.
+      RABBITMQ_DEFAULT_PASS: "${AGENTBOARD_RABBITMQ_PASSWORD:-${AGENTBOARD_SECRET:?Set AGENTBOARD_SECRET}}"
+    volumes:
+      - agentboard_rabbitmq:/var/lib/rabbitmq
+    ports:
+      - "127.0.0.1:${AGENTBOARD_RABBITMQ_PORT:-35672}:5672"
+      - "127.0.0.1:${AGENTBOARD_RABBITMQ_MANAGEMENT_PORT:-35673}:15672"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
 volumes:
   agentboard_mariadb:
   agentboard_dotnet_data:
+  agentboard_rabbitmq:

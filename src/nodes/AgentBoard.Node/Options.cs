@@ -135,6 +135,18 @@ public sealed class RabbitMqOptions
     public bool WorkflowConsumerEnabled { get; set; } = true;
 }
 
+/// <summary>Feature-gated Target-v1 durable execution plane settings.</summary>
+public sealed class DurableExecutionOptions
+{
+    public bool Enabled { get; set; }
+    public string DatabasePath { get; set; } = "";
+    public string PolicyPreset { get; set; } = "developer";
+    public string ProjectId { get; set; } = "local-project";
+    public string WorkspaceId { get; set; } = "local-workspace";
+    public string WorkspaceBaseVersion { get; set; } = "working-tree";
+    public ushort Prefetch { get; set; } = 4;
+}
+
 // =============================================================================
 // Sprint 4: Per-agent options. The single worker is configured to know all
 // three (workbuddy / MiniMax / codex); each agent has its own CLI command

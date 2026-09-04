@@ -97,10 +97,12 @@ public static class EnvelopeValidator
 
         // A failure without a category is unactionable: doc 150 PR-011 requires
         // the reason to be readable from a field, never parsed from prose.
-        // ChangesRequested is exempt in both directions — it is a business
-        // outcome of review (doc 151 §4.2 invariant 2), not a failure, and
-        // therefore carries no category at all.
-        if (result.ResultStatus is not (AttemptResultStatus.Succeeded or AttemptResultStatus.ChangesRequested)
+        // ChangesRequested and Cancelled are exempt in both directions: they
+        // are explicit business/control outcomes, not provider failures, and
+        // therefore carry no failure category.
+        if (result.ResultStatus is not (AttemptResultStatus.Succeeded
+            or AttemptResultStatus.ChangesRequested
+            or AttemptResultStatus.Cancelled)
             && result.FailureCategory == FailureCategory.None)
         {
             errors.Add(new EnvelopeError(
@@ -108,7 +110,9 @@ public static class EnvelopeValidator
                 "is required when ResultStatus is not Succeeded"));
         }
 
-        if (result.ResultStatus is AttemptResultStatus.Succeeded or AttemptResultStatus.ChangesRequested
+        if (result.ResultStatus is AttemptResultStatus.Succeeded
+            or AttemptResultStatus.ChangesRequested
+            or AttemptResultStatus.Cancelled
             && result.FailureCategory != FailureCategory.None)
         {
             errors.Add(new EnvelopeError(

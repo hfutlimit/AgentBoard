@@ -16,6 +16,10 @@ then replace at least:
 
 - `Node:Id`: stable unique ID, such as `dev-pc-01`.
 - `RabbitMq:Uri`: the node-accessible broker URI.
+- `DurableExecution:Enabled`: enables the Target-v1 command/result consumer.
+  When enabled, `RabbitMq:Uri` must point to the same durable broker used by
+  the Server and `DurableExecution:DatabasePath` must be persistent local
+  storage. Keep it disabled until the Server durable feature flag is enabled.
 - `AgentBoard:ServerUrl` + `AgentBoard:StartupToken`: the FastAPI base URL and a
   service-account token for the WORKSTATION identity. With
   `AgentBoard:RequireRegistration=true` the node fails fast at startup when

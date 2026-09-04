@@ -13,6 +13,10 @@ namespace AgentBoard.Node.Durable;
 /// <summary>What an atomic journal attempt ended as.</summary>
 public enum JournalAttempt { Accepted, Duplicate }
 
+public enum JournalCommandState { Pending, Completed }
+
+public sealed record JournaledCommand(CommandEnvelope Command, JournalCommandState State);
+
 /// <summary>
 /// Local durable home for received commands. The receiver ACKs the broker
 /// message only after this journal holds the command — an append that throws
@@ -36,11 +40,16 @@ public interface INodeCommandJournal
     JournalAttempt TryAccept(CommandEnvelope command, string messageKey, string businessKey);
 
     IReadOnlyList<CommandEnvelope> All();
+
+    IReadOnlyList<CommandEnvelope> Pending();
+
+    void MarkCompleted(string messageId);
 }
 
 public sealed class InMemoryNodeCommandJournal : INodeCommandJournal
 {
     private readonly Dictionary<string, CommandEnvelope> _byKey = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, JournalCommandState> _stateByMessage = new(StringComparer.Ordinal);
     private readonly object _gate = new();
 
     public JournalAttempt TryAccept(CommandEnvelope command, string messageKey, string businessKey)
@@ -55,6 +64,7 @@ public sealed class InMemoryNodeCommandJournal : INodeCommandJournal
             // Both keys written before the lock releases: one visible unit.
             _byKey[messageKey] = command;
             _byKey[businessKey] = command;
+            _stateByMessage[command.MessageId] = JournalCommandState.Pending;
             return JournalAttempt.Accepted;
         }
     }
@@ -66,6 +76,30 @@ public sealed class InMemoryNodeCommandJournal : INodeCommandJournal
             return _byKey.Values.ToList();
         }
     }
+
+    public IReadOnlyList<CommandEnvelope> Pending()
+    {
+        lock (_gate)
+        {
+            return _byKey.Values
+                .DistinctBy(command => command.MessageId)
+                .Where(command => _stateByMessage.GetValueOrDefault(command.MessageId) == JournalCommandState.Pending)
+                .ToList();
+        }
+    }
+
+    public void MarkCompleted(string messageId)
+    {
+        lock (_gate)
+        {
+            if (!_stateByMessage.ContainsKey(messageId))
+            {
+                throw new KeyNotFoundException($"journal command '{messageId}' was not accepted");
+            }
+
+            _stateByMessage[messageId] = JournalCommandState.Completed;
+        }
+    }
 }
 
 public enum AcceptanceKind
@@ -75,6 +109,7 @@ public enum AcceptanceKind
     RejectedSchema,
     RejectedNotForThisWorker,
     RejectedLeaseMismatch,
+    RejectedExpired,
 }
 
 /// <summary>
@@ -97,11 +132,24 @@ public sealed class AssignmentTracker
 {
     private readonly Dictionary<string, Assignment> _byExecution = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Assignment> _byId = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _handoffByAssignment = new(StringComparer.Ordinal);
+    private readonly object _gate = new();
 
-    public IReadOnlyCollection<Assignment> Current => _byExecution.Values;
+    public IReadOnlyCollection<Assignment> Current
+    {
+        get
+        {
+            lock (_gate) { return _byExecution.Values.ToArray(); }
+        }
+    }
 
-    public Assignment? CurrentFor(string executionId) =>
-        _byExecution.TryGetValue(executionId, out var assignment) ? assignment : null;
+    public Assignment? CurrentFor(string executionId)
+    {
+        lock (_gate)
+        {
+            return _byExecution.TryGetValue(executionId, out var assignment) ? assignment : null;
+        }
+    }
 
     /// <summary>
     /// Learns the assignment carried by an assign command (its payload is the
@@ -114,17 +162,39 @@ public sealed class AssignmentTracker
             return;
         }
 
-        Apply(ParseAssignment(command));
+        var payload = ParseAssignPayload(command);
+        Apply(payload.Assignment, payload.HandoffId);
     }
 
     /// <summary>Recording an already-parsed assignment cannot fail halfway.</summary>
-    public void Apply(Assignment assignment)
+    public void Apply(Assignment assignment, string? handoffId = null)
     {
+        lock (_gate)
+        {
+            // Higher or equal epoch replaces; the Node never keeps two live
+            // assignments for one execution.
+            if (_byExecution.TryGetValue(assignment.ExecutionId, out var current)
+                && assignment.LeaseEpoch < current.LeaseEpoch)
+            {
+                return;
+            }
 
-        // Higher or equal epoch replaces; the Node never keeps two live
-        // assignments for one execution.
-        _byExecution[assignment.ExecutionId] = assignment;
-        _byId[assignment.AssignmentId] = assignment;
+            _byExecution[assignment.ExecutionId] = assignment;
+            _byId[assignment.AssignmentId] = assignment;
+            if (!string.IsNullOrWhiteSpace(handoffId))
+            {
+                _handoffByAssignment[assignment.AssignmentId] = handoffId;
+            }
+        }
+    }
+
+    /// <summary>The handoff is bound to its assignment, never to global arrival order.</summary>
+    public string? HandoffFor(string assignmentId)
+    {
+        lock (_gate)
+        {
+            return _handoffByAssignment.TryGetValue(assignmentId, out var handoffId) ? handoffId : null;
+        }
     }
 
     /// <summary>
@@ -134,19 +204,22 @@ public sealed class AssignmentTracker
     /// broker conversation degrades by parse order, not by guessing
     /// (doc 151 §11 minor-compatibility rule).
     /// </summary>
-    public static Assignment ParseAssignment(CommandEnvelope command)
+    public static AssignCommandPayload ParseAssignPayload(CommandEnvelope command)
     {
         var wrapped = JsonSerializer.Deserialize<AssignCommandPayload>(
             command.Payload, new JsonSerializerOptions(JsonSerializerDefaults.Web));
 
         if (wrapped?.Assignment is { } assignment && AssignmentValidator.IsValid(assignment))
         {
-            return assignment;
+            return wrapped;
         }
 
-        return JsonSerializer.Deserialize<Assignment>(command.Payload)
+        var legacy = JsonSerializer.Deserialize<Assignment>(command.Payload)
             ?? throw new InvalidOperationException("assign command payload did not carry an assignment");
+        return new AssignCommandPayload(legacy);
     }
+
+    public static Assignment ParseAssignment(CommandEnvelope command) => ParseAssignPayload(command).Assignment;
 
     /// <summary>
     /// True when the Node still holds the right to submit results for this
@@ -154,27 +227,39 @@ public sealed class AssignmentTracker
     /// </summary>
     public bool MaySubmitResult(string assignmentId, DateTimeOffset now)
     {
-        if (!_byId.TryGetValue(assignmentId, out var assignment))
+        lock (_gate)
         {
-            return false;
+            if (!_byId.TryGetValue(assignmentId, out var assignment))
+            {
+                return false;
+            }
+
+            var stillCurrent = _byExecution.TryGetValue(assignment.ExecutionId, out var live)
+                && string.Equals(live.AssignmentId, assignmentId, StringComparison.Ordinal);
+
+            return stillCurrent && !assignment.IsExpired(now);
         }
-
-        var stillCurrent = _byExecution.TryGetValue(assignment.ExecutionId, out var live)
-            && string.Equals(live.AssignmentId, assignmentId, StringComparison.Ordinal);
-
-        return stillCurrent && !assignment.IsExpired(now);
     }
 
     /// <summary>Assignments whose lease elapsed; the runner must stop and release them.</summary>
-    public IReadOnlyList<Assignment> ExpiredAssignments(DateTimeOffset now) =>
-        _byExecution.Values.Where(a => a.IsExpired(now)).ToList();
+    public IReadOnlyList<Assignment> ExpiredAssignments(DateTimeOffset now)
+    {
+        lock (_gate)
+        {
+            return _byExecution.Values.Where(a => a.IsExpired(now)).ToList();
+        }
+    }
 
     /// <summary>Drops an expired assignment so its (late) result is never committed.</summary>
     public void Release(Assignment assignment)
     {
-        if (_byExecution.TryGetValue(assignment.ExecutionId, out var live) && live.AssignmentId == assignment.AssignmentId)
+        lock (_gate)
         {
-            _byExecution.Remove(assignment.ExecutionId);
+            if (_byExecution.TryGetValue(assignment.ExecutionId, out var live)
+                && live.AssignmentId == assignment.AssignmentId)
+            {
+                _byExecution.Remove(assignment.ExecutionId);
+            }
         }
     }
 }
@@ -228,18 +313,29 @@ public sealed class NodeCommandReceiver
                 ShouldAckBroker: false);
         }
 
+
+        if (command.ExpiresAt <= _clock())
+        {
+            // An expired command can never become executable. ACK it as a
+            // terminal stale delivery; requeueing cannot make its lease valid
+            // again and would create an infinite broker loop.
+            return new CommandAcceptance(AcceptanceKind.RejectedExpired,
+                $"command lease expired at {command.ExpiresAt:O}",
+                ShouldAckBroker: true);
+        }
+
         // The assignment a command carries is parsed and cross-checked BEFORE
         // the journal write. If the payload were only interpreted after the
         // durable accept, a malformed assignment would burn the dedup keys:
         // redelivery would answer "duplicate" (and ACK) while the tracker
         // never learned the lease, swallowing the command (doc 151 §5.5: the
         // Node validates before it accepts).
-        Assignment? parsedAssignment = null;
+        AssignCommandPayload? parsedPayload = null;
         if (command.MessageType == MessageTypes.ExecutionAssign)
         {
             try
             {
-                parsedAssignment = AssignmentTracker.ParseAssignment(command);
+                parsedPayload = AssignmentTracker.ParseAssignPayload(command);
             }
             catch (Exception e)
             {
@@ -247,10 +343,26 @@ public sealed class NodeCommandReceiver
                     $"assign payload is not a readable assignment: {e.Message}", ShouldAckBroker: false);
             }
 
-            var shapeErrors = AssignmentValidator.Validate(parsedAssignment)
-                .Concat(AssignmentValidator.ValidateCommandAgainstAssignment(command, parsedAssignment))
+            var shapeErrors = AssignmentValidator.Validate(parsedPayload.Assignment)
+                .Concat(AssignmentValidator.ValidateCommandAgainstAssignment(command, parsedPayload.Assignment))
                 .ToList();
 
+            if (parsedPayload.Handoff is not null)
+            {
+                shapeErrors.AddRange(EnvelopeValidator.Validate(parsedPayload.Handoff));
+                if (!string.Equals(parsedPayload.HandoffId, parsedPayload.Handoff.HandoffId, StringComparison.Ordinal))
+                {
+                    shapeErrors.Add(new EnvelopeError(nameof(parsedPayload.HandoffId),
+                        "must equal the embedded handoff context id"));
+                }
+
+                var offered = new HashSet<string>(parsedPayload.Assignment.RequiredCapabilities, StringComparer.Ordinal);
+                if (parsedPayload.Handoff.RequiredCapabilities.Any(capability => !offered.Contains(capability)))
+                {
+                    shapeErrors.Add(new EnvelopeError(nameof(parsedPayload.Assignment.RequiredCapabilities),
+                        "does not satisfy the embedded handoff"));
+                }
+            }
             if (shapeErrors.Count > 0)
             {
                 return new CommandAcceptance(AcceptanceKind.RejectedSchema,
@@ -264,14 +376,31 @@ public sealed class NodeCommandReceiver
         // execution; an assign against a known-but-superseded lease is
         // refused. Brand-new assignments (empty local record) pass through.
         var known = _tracker.CurrentFor(command.ExecutionId);
-        if (known is not null && command.MessageType == MessageTypes.ExecutionAssign)
+        if (command.MessageType == MessageTypes.ExecutionCancel)
+        {
+            if (known is null)
+            {
+                return new CommandAcceptance(AcceptanceKind.RejectedLeaseMismatch,
+                    $"cancel names unknown execution '{command.ExecutionId}'",
+                    ShouldAckBroker: true);
+            }
+
+            var mismatch = AssignmentValidator.ValidateCommandAgainstAssignment(command, known);
+            if (mismatch.Count > 0)
+            {
+                return new CommandAcceptance(AcceptanceKind.RejectedLeaseMismatch,
+                    string.Join("; ", mismatch.Select(e => $"{e.Field} {e.Reason}")),
+                    ShouldAckBroker: true);
+            }
+        }
+        else if (known is not null && command.MessageType == MessageTypes.ExecutionAssign)
         {
             var stale = AssignmentValidator.ValidateCommandAgainstAssignment(command, known);
             if (stale.Count > 0 && command.LeaseEpoch <= known.LeaseEpoch)
             {
                 return new CommandAcceptance(AcceptanceKind.RejectedLeaseMismatch,
                     string.Join("; ", stale.Select(e => $"{e.Field} {e.Reason}")),
-                    ShouldAckBroker: false);
+                    ShouldAckBroker: true);
             }
         }
 
@@ -290,10 +419,10 @@ public sealed class NodeCommandReceiver
 
         // The journal row and the parsed assignment now land together;
         // Apply(Assignment) cannot throw because parsing already succeeded.
-        if (parsedAssignment is not null)
+        if (parsedPayload is not null)
         {
-            _tracker.Apply(parsedAssignment);
-            LastHandoffId = TryReadHandoffId(command);
+            _tracker.Apply(parsedPayload.Assignment, parsedPayload.HandoffId);
+            LastHandoffId = parsedPayload.HandoffId;
         }
         else
         {
@@ -303,24 +432,6 @@ public sealed class NodeCommandReceiver
         return new CommandAcceptance(AcceptanceKind.Accepted,
             $"accepted under lease epoch {command.LeaseEpoch} at {_clock():O}",
             ShouldAckBroker: true, command);
-    }
-
-    /// <summary>
-    /// Best-effort read of the wrapper's handoff id; a bare payload carries none.
-    /// </summary>
-    private static string? TryReadHandoffId(CommandEnvelope command)
-    {
-        try
-        {
-            return System.Text.Json.JsonSerializer
-                .Deserialize<AssignCommandPayload>(
-                    command.Payload, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))
-                ?.HandoffId;
-        }
-        catch (System.Text.Json.JsonException)
-        {
-            return null;
-        }
     }
 
     /// <summary>

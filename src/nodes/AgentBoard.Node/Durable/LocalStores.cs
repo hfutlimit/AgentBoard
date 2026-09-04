@@ -216,6 +216,7 @@ public interface IResultOutboxLog
 public sealed class LocalResultOutbox
 {
     private readonly Dictionary<string, LocalOutboxRecord> _records = new(StringComparer.Ordinal);
+    private readonly object _gate = new();
     private readonly IResultTransport _transport;
     private readonly Func<DateTimeOffset> _clock;
     private readonly int _maxAttempts;
@@ -250,13 +251,37 @@ public sealed class LocalResultOutbox
         }
     }
 
-    public IReadOnlyCollection<LocalOutboxRecord> Records => _records.Values;
+    public IReadOnlyCollection<LocalOutboxRecord> Records
+    {
+        get
+        {
+            lock (_gate) { return _records.Values.ToArray(); }
+        }
+    }
+
+    /// <summary>
+    /// Finds a result already durably recorded for this command. This closes
+    /// the crash window between saving the result and completing the command
+    /// journal: restart completes the journal instead of invoking the provider
+    /// for the same accepted command a second time.
+    /// </summary>
+    public LocalOutboxRecord? ForCommand(string commandMessageId)
+    {
+        lock (_gate)
+        {
+            return _records.Values.FirstOrDefault(record =>
+                string.Equals(record.Result.CausationId, commandMessageId, StringComparison.Ordinal));
+        }
+    }
 
     /// <summary>Every state change is a write-through; the dictionary is a cache.</summary>
     private void Put(LocalOutboxRecord record)
     {
-        _records[record.MessageId] = record;
+        // The durable write is authoritative. If it fails, retain the previous
+        // cache value so memory never claims a transition the restart path
+        // cannot reproduce.
         _log?.Save(record);
+        _records[record.MessageId] = record;
     }
 
     /// <summary>The durable-accept point for a completed attempt.</summary>
@@ -273,67 +298,89 @@ public sealed class LocalResultOutbox
             result.MessageId, result.IdempotencyKey, result,
             LocalOutboxState.Pending, 0, _clock(), _clock(), null, null);
 
-        if (_records.TryGetValue(record.MessageId, out var held))
+        lock (_gate)
         {
-            // Same message id: already durably held; the repeat is a no-op.
-            return held;
-        }
+            if (_records.TryGetValue(record.MessageId, out var held))
+            {
+                // Same message id: already durably held; the repeat is a no-op.
+                return held;
+            }
 
-        Put(record);
-        return record;
+            Put(record);
+            return record;
+        }
     }
 
     /// <summary>Attempts every due record once; returns how many got confirmed.</summary>
     public int Drain()
     {
-        var now = _clock();
-        var confirmed = 0;
-
-        foreach (var record in _records.Values
-                     .Where(r => r.State is LocalOutboxState.Pending or LocalOutboxState.Published
-                                 && r.NextAttemptAt <= now)
-                     .ToList())
+        lock (_gate)
         {
-            var attempt = record with
-            {
-                State = LocalOutboxState.Published,
-                AttemptCount = record.AttemptCount + 1,
-                NextAttemptAt = null,
-            };
-            Put(attempt);
+            var now = _clock();
+            var confirmed = 0;
 
-            if (_transport.Publish(attempt) == BrokerConfirm.Confirmed)
+            foreach (var record in _records.Values
+                         .Where(r => r.State == LocalOutboxState.Published
+                                     || (r.State == LocalOutboxState.Pending && r.NextAttemptAt <= now))
+                         .ToList())
             {
+                var attempt = record with
+                {
+                    State = LocalOutboxState.Published,
+                    AttemptCount = record.AttemptCount + 1,
+                    NextAttemptAt = null,
+                };
+                Put(attempt);
+
+                BrokerConfirm publishResult;
+                string? publishError = null;
+                try
+                {
+                    publishResult = _transport.Publish(attempt);
+                }
+                catch (Exception error)
+                {
+                    // A transport exception is the same reliability outcome as a
+                    // missing broker confirm. Keep the record retryable, and avoid
+                    // persisting the exception message because it may contain a
+                    // broker URI or credential material.
+                    publishResult = BrokerConfirm.Failed;
+                    publishError = $"publish threw {error.GetType().Name}";
+                }
+
+                if (publishResult == BrokerConfirm.Confirmed)
+                {
+                    Put(attempt with
+                    {
+                        State = LocalOutboxState.Confirmed,
+                        ConfirmedAt = now,
+                    });
+                    confirmed++;
+                    continue;
+                }
+
+                if (attempt.AttemptCount >= _maxAttempts)
+                {
+                    Put(attempt with
+                    {
+                        State = LocalOutboxState.DeadLettered,
+                        LastError = $"{publishError ?? "publish not confirmed"}; retry budget exhausted",
+                    });
+                    continue;
+                }
+
+                var exponent = Math.Min(attempt.AttemptCount - 1, 20);
+                var delay = TimeSpan.FromTicks(Math.Min(_baseDelay.Ticks * (1L << exponent), _maxDelay.Ticks));
                 Put(attempt with
                 {
-                    State = LocalOutboxState.Confirmed,
-                    ConfirmedAt = now,
+                    State = LocalOutboxState.Pending,
+                    NextAttemptAt = now + delay,
+                    LastError = publishError ?? "publish not confirmed",
                 });
-                confirmed++;
-                continue;
             }
 
-            if (attempt.AttemptCount >= _maxAttempts)
-            {
-                Put(attempt with
-                {
-                    State = LocalOutboxState.DeadLettered,
-                    LastError = "publish not confirmed; retry budget exhausted",
-                });
-                continue;
-            }
-
-            var exponent = Math.Min(attempt.AttemptCount - 1, 20);
-            var delay = TimeSpan.FromTicks(Math.Min(_baseDelay.Ticks * (1L << exponent), _maxDelay.Ticks));
-            Put(attempt with
-            {
-                State = LocalOutboxState.Pending,
-                NextAttemptAt = now + delay,
-                LastError = "publish not confirmed",
-            });
+            return confirmed;
         }
-
-        return confirmed;
     }
 
     /// <summary>
@@ -341,10 +388,15 @@ public sealed class LocalResultOutbox
     /// not confirmed is re-published under the same message and idempotency
     /// keys, so the Server dedups rather than double-counting (doc 150 PR-007).
     /// </summary>
-    public IReadOnlyList<LocalOutboxRecord> UnackedAfterRestart() =>
-        _records.Values
-            .Where(r => r.State is LocalOutboxState.Pending or LocalOutboxState.Published)
-            .ToList();
+    public IReadOnlyList<LocalOutboxRecord> UnackedAfterRestart()
+    {
+        lock (_gate)
+        {
+            return _records.Values
+                .Where(r => r.State is LocalOutboxState.Pending or LocalOutboxState.Published)
+                .ToList();
+        }
+    }
 }
 
 /// <summary>

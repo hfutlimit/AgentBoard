@@ -179,6 +179,28 @@ public sealed class PlaneStoreTests : IDisposable
         Assert.Contains(revived.Registry.Audit.Records, r => r.Action == "stage.transition");
     }
 
+    [Fact]
+    public void Mutate_and_commit_helper_rolls_memory_back_when_work_fails()
+    {
+        var clock = new TestClock();
+        var plane = new DurableServerPlane(clock.Now, NewId);
+        var fixture = Setup.Run(plane, clock);
+
+        using var store = new SqlitePlaneStore(_dbPath);
+        store.Commit(plane);
+
+        Assert.Throws<IOException>(() => store.Commit(plane, () =>
+        {
+            fixture.DispatchDev(plane);
+            throw new IOException("simulated failure before commit");
+        }));
+
+        Assert.Equal(StageRunState.Pending,
+            plane.Registry.RequireStage("stg-dev-1").Current.State);
+        Assert.Empty(plane.Leases.Assignments);
+        Assert.Empty(plane.Outbox.Messages);
+    }
+
     // -----------------------------------------------------------------
     // Deterministic helpers (mirrors Domain.Tests' PlaneFixture at the
     // minimal size these tests need).

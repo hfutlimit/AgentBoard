@@ -42,10 +42,23 @@ public sealed class SqliteNodeCommandJournal : INodeCommandJournal, IDisposable
                 dedup_key   TEXT PRIMARY KEY,
                 message_id  TEXT NOT NULL,
                 command_json TEXT NOT NULL,
-                accepted_at TEXT NOT NULL
+                accepted_at TEXT NOT NULL,
+                state       INTEGER NOT NULL DEFAULT 0
             );
             """;
         command.ExecuteNonQuery();
+
+        // Upgrade databases created by the first A2 slice in place.
+        try
+        {
+            command.CommandText = "ALTER TABLE node_journal ADD COLUMN state INTEGER NOT NULL DEFAULT 0";
+            command.ExecuteNonQuery();
+        }
+        catch (SqliteException error) when (error.SqliteErrorCode == 1
+                                             && error.Message.Contains("duplicate column name", StringComparison.OrdinalIgnoreCase))
+        {
+            // Already on the stateful journal schema.
+        }
     }
 
     private SqliteConnection Open()
@@ -129,6 +142,34 @@ public sealed class SqliteNodeCommandJournal : INodeCommandJournal, IDisposable
         }
 
         return results;
+    }
+
+    public IReadOnlyList<CommandEnvelope> Pending()
+    {
+        using var connection = Open();
+        using var select = connection.CreateCommand();
+        select.CommandText = "SELECT command_json FROM node_journal WHERE state = 0 GROUP BY message_id ORDER BY MIN(rowid)";
+
+        var results = new List<CommandEnvelope>();
+        using var reader = select.ExecuteReader();
+        while (reader.Read())
+        {
+            results.Add(JsonSerializer.Deserialize<CommandEnvelope>(reader.GetString(0), NodeStoreJson.Options)!);
+        }
+
+        return results;
+    }
+
+    public void MarkCompleted(string messageId)
+    {
+        using var connection = Open();
+        using var update = connection.CreateCommand();
+        update.CommandText = "UPDATE node_journal SET state = 1 WHERE message_id = $m";
+        update.Parameters.AddWithValue("$m", messageId);
+        if (update.ExecuteNonQuery() == 0)
+        {
+            throw new KeyNotFoundException($"journal command '{messageId}' was not accepted");
+        }
     }
 
     public void Dispose() => SqliteConnection.ClearAllPools();
@@ -284,6 +325,73 @@ public sealed class SqliteResultOutboxLog : IResultOutboxLog, IDisposable
         }
 
         return results;
+    }
+
+    public void Dispose() => SqliteConnection.ClearAllPools();
+}
+
+public sealed class SqliteApprovalGrantStore : IApprovalGrantStore, IDisposable
+{
+    private readonly string _connectionString;
+
+    public SqliteApprovalGrantStore(string databasePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
+        _connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath }.ToString();
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            CREATE TABLE IF NOT EXISTS node_approval_grants (
+                approval_id TEXT PRIMARY KEY,
+                grant_json  TEXT NOT NULL,
+                expires_at  TEXT NOT NULL,
+                updated_at  TEXT NOT NULL
+            );
+            """;
+        command.ExecuteNonQuery();
+    }
+
+    private SqliteConnection Open()
+    {
+        var connection = new SqliteConnection(_connectionString);
+        connection.Open();
+        using var pragma = connection.CreateCommand();
+        pragma.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;";
+        pragma.ExecuteNonQuery();
+        return connection;
+    }
+
+    public void Save(ApprovalGrant grant)
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+            INSERT INTO node_approval_grants (approval_id, grant_json, expires_at, updated_at)
+            VALUES ($id, $json, $expires, $now)
+            ON CONFLICT(approval_id) DO UPDATE SET
+                grant_json = excluded.grant_json,
+                expires_at = excluded.expires_at,
+                updated_at = excluded.updated_at;
+            """;
+        command.Parameters.AddWithValue("$id", grant.ApprovalId);
+        command.Parameters.AddWithValue("$json", JsonSerializer.Serialize(grant, NodeStoreJson.Options));
+        command.Parameters.AddWithValue("$expires", grant.ExpiresAt.ToString("O"));
+        command.Parameters.AddWithValue("$now", DateTimeOffset.UtcNow.ToString("O"));
+        command.ExecuteNonQuery();
+    }
+
+    public IReadOnlyList<ApprovalGrant> LoadAll()
+    {
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT grant_json FROM node_approval_grants ORDER BY rowid";
+        var result = new List<ApprovalGrant>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            result.Add(JsonSerializer.Deserialize<ApprovalGrant>(reader.GetString(0), NodeStoreJson.Options)!);
+        }
+        return result;
     }
 
     public void Dispose() => SqliteConnection.ClearAllPools();

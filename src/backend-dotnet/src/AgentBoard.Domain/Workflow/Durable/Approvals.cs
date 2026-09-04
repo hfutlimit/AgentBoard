@@ -84,7 +84,15 @@ public sealed record ApprovalRequest(
     DateTimeOffset ExpiresAt,
     ApprovalState State,
     string? DecidedBy,
-    string? Reason);
+    string? Reason,
+    string? Resource = null,
+    string? AgentId = null,
+    StageType? Stage = null,
+    string? WorkflowRunId = null,
+    string? ProjectId = null,
+    string? WorkspaceId = null,
+    string? WorkspaceBaseVersion = null,
+    DateTimeOffset? DecidedAt = null);
 
 /// <summary>
 /// Approval inbox with bounded waits. An approval that nobody decides becomes
@@ -129,6 +137,42 @@ public sealed partial class ApprovalInbox
         return request;
     }
 
+    public ApprovalRequest Open(
+        string approvalId,
+        string stageRunId,
+        string assignmentId,
+        PolicyDecisionRequest decision,
+        TimeSpan approvalWindow)
+    {
+        var errors = PolicyValidator.Validate(decision);
+        if (errors.Count > 0)
+        {
+            throw new InvalidValueException(
+                "invalid approval decision context: " +
+                string.Join("; ", errors.Select(error => $"{error.Field} {error.Reason}")));
+        }
+
+        var now = _clock();
+        var request = new ApprovalRequest(
+            approvalId, stageRunId, assignmentId, decision.PolicyRevisionId, decision.Action.Kind,
+            now, now + approvalWindow, ApprovalState.Pending, null, null,
+            decision.Action.Resource, decision.AgentId, decision.Stage, decision.WorkflowRunId,
+            decision.Workspace!.ProjectId, decision.Workspace.WorkspaceId, decision.Workspace.BaseVersion);
+        Add(request);
+        return request;
+    }
+
+    private void Add(ApprovalRequest request)
+    {
+        if (!_requests.TryAdd(request.ApprovalId, request))
+        {
+            throw new DuplicateException($"approval '{request.ApprovalId}' already exists");
+        }
+
+        _audit.Append("server", "approval.opened", request.ApprovalId,
+            $"action '{request.ActionKind}' on stage '{request.StageRunId}' requires approval");
+    }
+
     public ApprovalRequest Decide(string approvalId, bool granted, string actor, string reason)
     {
         var request = Require(approvalId);
@@ -143,11 +187,27 @@ public sealed partial class ApprovalInbox
             throw new InvalidValueException("an operator decision must name its actor (doc 150 PR-015)");
         }
 
+        var now = _clock();
+        if (now >= request.ExpiresAt)
+        {
+            var expired = request with
+            {
+                State = ApprovalState.Expired,
+                DecidedBy = actor,
+                Reason = "approval window elapsed before operator decision",
+                DecidedAt = now,
+            };
+            _requests[approvalId] = expired;
+            _audit.Append(actor, "approval.expired", approvalId, expired.Reason);
+            return expired;
+        }
+
         var decided = request with
         {
             State = granted ? ApprovalState.Granted : ApprovalState.Denied,
             DecidedBy = actor,
             Reason = reason,
+            DecidedAt = now,
         };
 
         _requests[approvalId] = decided;
@@ -157,6 +217,9 @@ public sealed partial class ApprovalInbox
 
     /// <summary>Sweeps pending approvals whose window elapsed. Returns how many expired.</summary>
     public int ExpireStale()
+        => ExpireStaleRequests().Count;
+
+    public IReadOnlyList<ApprovalRequest> ExpireStaleRequests()
     {
         var now = _clock();
         var stale = _requests.Values
@@ -169,7 +232,7 @@ public sealed partial class ApprovalInbox
             _audit.Append("server", "approval.expired", request.ApprovalId, "operator did not decide within the window");
         }
 
-        return stale.Count;
+        return stale.Select(request => _requests[request.ApprovalId]).ToArray();
     }
 
     public ApprovalRequest Require(string approvalId) =>
@@ -179,4 +242,27 @@ public sealed partial class ApprovalInbox
 
     public bool IsGranted(string approvalId) =>
         _requests.TryGetValue(approvalId, out var request) && request.State == ApprovalState.Granted;
+
+    public ApprovalGrant Grant(string approvalId)
+    {
+        var request = Require(approvalId);
+        if (request.State != ApprovalState.Granted
+            || string.IsNullOrWhiteSpace(request.DecidedBy)
+            || string.IsNullOrWhiteSpace(request.Resource)
+            || string.IsNullOrWhiteSpace(request.AgentId)
+            || request.Stage is null
+            || string.IsNullOrWhiteSpace(request.WorkflowRunId)
+            || string.IsNullOrWhiteSpace(request.ProjectId)
+            || string.IsNullOrWhiteSpace(request.WorkspaceId)
+            || string.IsNullOrWhiteSpace(request.WorkspaceBaseVersion))
+        {
+            throw new InvalidValueException(
+                $"approval '{approvalId}' is not a fully bound granted decision");
+        }
+
+        return new ApprovalGrant(
+            request.ApprovalId, request.ActionKind, request.Resource, request.AgentId,
+            request.Stage.Value, request.WorkflowRunId, request.ProjectId, request.WorkspaceId,
+            request.WorkspaceBaseVersion, request.PolicyRevisionId, request.DecidedBy, request.ExpiresAt);
+    }
 }

@@ -329,6 +329,29 @@ public class ProtocolTests
     }
 
     [Fact]
+    public void Cancellation_result_must_follow_the_cancel_command_and_never_enters_the_dlq()
+    {
+        var fixture = new PlaneFixture();
+        var assignment = fixture.DispatchDev();
+        fixture.Plane.Dispatcher.DispatchCancel(fixture.ExecutionId, "operator requested stop");
+        var cancel = fixture.Plane.Sent.Commands.Single(c => c.MessageType == MessageTypes.ExecutionCancel);
+
+        var result = fixture.Result(AttemptResultStatus.Cancelled) with
+        {
+            CausationId = cancel.MessageId,
+            IdempotencyKey = cancel.IdempotencyKey,
+        };
+        var verdict = fixture.Plane.Results.Process(result);
+
+        Assert.Equal(ResultOutcomeKind.Accepted, verdict.Kind);
+        Assert.Equal(StageRunState.Cancelled, fixture.Plane.Registry.RequireStage(fixture.StageId).Current.State);
+        Assert.Equal(ExecutionAttemptState.Cancelled,
+            fixture.Plane.Registry.RequireAttempt(assignment.AttemptId).Current.State);
+        Assert.Empty(fixture.Plane.DeadLetters.Entries);
+        Assert.Null(fixture.Plane.Registry.RequireExecution(fixture.ExecutionId).Outcome);
+    }
+
+    [Fact]
     public void CommitAtomic_rolls_the_plane_back_when_persistence_fails()
     {
         var fixture = new PlaneFixture();
@@ -506,6 +529,54 @@ public class ProtocolTests
                 Array.Empty<string>(), new WorkspaceReference("p", "w", "v")));
     }
 
+    [Fact]
+    public void Handoff_source_stage_must_match_the_resolved_execution()
+    {
+        var fixture = new PlaneFixture();
+        fixture.CompleteDevelopment();
+
+        Assert.Throws<AgentBoard.Domain.Common.InvalidValueException>(() =>
+            fixture.Plane.IssueHandoff("stg-from-another-run", fixture.ExecutionId, StageType.Review,
+                new[] { "review" }, new WorkspaceReference("p", "w", "v")));
+    }
+
+    [Fact]
+    public void Handoff_workspace_version_must_match_accepted_evidence()
+    {
+        var fixture = new PlaneFixture();
+        fixture.DispatchDev();
+        var result = fixture.Result(AttemptResultStatus.Succeeded, summary: "dev done") with
+        {
+            CommitOrVersion = "commit-good",
+        };
+        Assert.Equal(ResultOutcomeKind.Accepted, fixture.Plane.Results.Process(result).Kind);
+
+        Assert.Throws<AgentBoard.Domain.Common.InvalidValueException>(() =>
+            fixture.Plane.IssueHandoff("stg-dev-1", fixture.ExecutionId, StageType.Review,
+                new[] { "review" }, new WorkspaceReference("p", "w", "commit-wrong")));
+    }
+
+    [Fact]
+    public void Handoff_is_deeply_frozen_and_cannot_be_dispatched_to_the_wrong_stage_type()
+    {
+        var fixture = new PlaneFixture();
+        fixture.CompleteDevelopment();
+        var capabilities = new List<string> { "review" };
+        var handoff = fixture.Plane.IssueHandoff("stg-dev-1", fixture.ExecutionId, StageType.Review,
+            capabilities, new WorkspaceReference("p", "w", "v"));
+
+        capabilities[0] = "qa";
+        Assert.Equal("review", Assert.Single(handoff.RequiredCapabilities));
+        Assert.Throws<NotSupportedException>(() =>
+            ((IList<string>)handoff.RequiredCapabilities)[0] = "qa");
+
+        fixture.Plane.Registry.AddStage("run-1", "stg-qa-1", StageType.Qa, 1, null);
+        fixture.Plane.Registry.AddExecution("stg-qa-1", "exec-qa");
+        Assert.Throws<AgentBoard.Domain.Common.InvalidValueException>(() =>
+            fixture.Plane.Dispatcher.Dispatch("exec-qa", "worker-2", "agent.qa", new[] { "review" },
+                "policy-rev-1", TimeSpan.FromMinutes(10), handoff.HandoffId));
+    }
+
     // ------------------------------------------------------------------
     // Approvals
     // ------------------------------------------------------------------
@@ -542,6 +613,54 @@ public class ProtocolTests
         var record = fixture.Plane.Registry.Audit.Records.Single(a => a.Action == "approval.granted");
         Assert.Equal("operator-jason", record.Actor);
         Assert.Equal("lgtm", record.Reason);
+    }
+
+    [Fact]
+    public void Server_grant_is_bound_to_the_full_policy_decision_context()
+    {
+        var fixture = new PlaneFixture();
+        var assignment = fixture.DispatchDev();
+        var decision = new PolicyDecisionRequest(
+            new PolicyAction(PolicyActionKinds.GitCommit, "/repo/a.cs"),
+            assignment.AgentId, assignment.RequiredCapabilities, StageType.Development,
+            assignment.WorkflowRunId, new WorkspaceReference("p", "w", "commit-1"),
+            assignment.PolicyRevisionId, ApprovalGranted: false, ApprovalChannelOpen: true);
+
+        var request = fixture.Plane.AwaitApproval(
+            fixture.StageId, assignment.AssignmentId, decision, TimeSpan.FromMinutes(5));
+        fixture.Plane.ResolveApproval(request.ApprovalId, granted: true,
+            actor: "operator-jason", reason: "reviewed exact command");
+        var grant = fixture.Plane.Approvals.Grant(request.ApprovalId);
+
+        Assert.Equal("/repo/a.cs", grant.Resource);
+        Assert.Equal(assignment.AgentId, grant.AgentId);
+        Assert.Equal("commit-1", grant.WorkspaceBaseVersion);
+        Assert.Equal("operator-jason", grant.GrantedBy);
+    }
+
+    [Fact]
+    public void Late_grant_expires_the_approval_and_fails_the_parked_stage()
+    {
+        var fixture = new PlaneFixture();
+        var assignment = fixture.DispatchDev();
+        var decision = new PolicyDecisionRequest(
+            new PolicyAction(PolicyActionKinds.GitCommit, "/repo/a.cs"),
+            assignment.AgentId, assignment.RequiredCapabilities, StageType.Development,
+            assignment.WorkflowRunId, new WorkspaceReference("p", "w", "commit-1"),
+            assignment.PolicyRevisionId, ApprovalGranted: false, ApprovalChannelOpen: true);
+        var request = fixture.Plane.AwaitApproval(
+            fixture.StageId, assignment.AssignmentId, decision, TimeSpan.FromMinutes(5));
+        fixture.Advance(6);
+
+        var stage = fixture.Plane.ResolveApproval(request.ApprovalId, granted: true,
+            actor: "operator-late", reason: "too late");
+
+        Assert.Equal(ApprovalState.Expired,
+            fixture.Plane.Approvals.Require(request.ApprovalId).State);
+        Assert.Equal(StageRunState.Failed, stage.State);
+        Assert.False(fixture.Plane.Approvals.IsGranted(request.ApprovalId));
+        Assert.Throws<AgentBoard.Domain.Common.InvalidValueException>(
+            () => fixture.Plane.Approvals.Grant(request.ApprovalId));
     }
 
     // ------------------------------------------------------------------

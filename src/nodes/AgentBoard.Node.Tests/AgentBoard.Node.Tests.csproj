@@ -13,5 +13,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\AgentBoard.Node\AgentBoard.Node.csproj" />
+    <ProjectReference Include="..\..\backend-dotnet\src\AgentBoard.Domain\AgentBoard.Domain.csproj" />
+    <ProjectReference Include="..\..\backend-dotnet\src\AgentBoard.Infrastructure\AgentBoard.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

@@ -1,6 +1,7 @@
 using AgentBoard.Node;
 using AgentBoard.Node.Agents;
 using AgentBoard.Node.Execution;
+using AgentBoard.Node.Durable;
 using AgentBoard.Node.Platform;
 using AgentBoard.Node.Process;
 using Microsoft.Extensions.Options;
@@ -52,6 +53,7 @@ builder.Services.Configure<AgentsOptions>(builder.Configuration.GetSection("Agen
 builder.Services.Configure<AgentBoardOptions>(builder.Configuration.GetSection("AgentBoard"));
 builder.Services.Configure<PortalOptions>(builder.Configuration.GetSection("Portal"));
 builder.Services.Configure<ProcessExecutorOptions>(builder.Configuration.GetSection("ProcessExecutor"));
+builder.Services.Configure<DurableExecutionOptions>(builder.Configuration.GetSection("DurableExecution"));
 
 // ---- M0.1 (v4.3): cross-platform abstractions -----------------------------
 // Resolved once through PlatformFactory so consumers (M0.4 IPC transport,
@@ -114,6 +116,43 @@ builder.Services.AddSingleton<WorkerState>();
 // from this one object so they cannot disagree (#7 in the 2026-08-28 review).
 builder.Services.AddSingleton<WorkerIdentity>();
 
+// ---- Target-v1 durable execution plane -----------------------------------
+builder.Services.AddSingleton<INodeCommandJournal>(sp =>
+    new SqliteNodeCommandJournal(DurableDatabasePath(sp)));
+builder.Services.AddSingleton<IEventSink>(sp =>
+    new SqliteEventSink(DurableDatabasePath(sp)));
+builder.Services.AddSingleton(sp => new LocalEventStore(sink: sp.GetRequiredService<IEventSink>()));
+builder.Services.AddSingleton<IResultOutboxLog>(sp =>
+    new SqliteResultOutboxLog(DurableDatabasePath(sp)));
+builder.Services.AddSingleton<IResultTransport>(sp =>
+    new DurableRabbitResultTransport(sp.GetRequiredService<IOptions<RabbitMqOptions>>().Value.Uri));
+builder.Services.AddSingleton(sp => new LocalResultOutbox(
+    sp.GetRequiredService<IResultTransport>(), () => DateTimeOffset.UtcNow,
+    log: sp.GetRequiredService<IResultOutboxLog>()));
+builder.Services.AddSingleton<AssignmentTracker>();
+builder.Services.AddSingleton(sp => CompiledPolicy.Compile(
+    sp.GetRequiredService<IOptions<DurableExecutionOptions>>().Value.PolicyPreset,
+    new Dictionary<string, AgentBoard.Contracts.PolicyDecision>()));
+builder.Services.AddSingleton<IApprovalGrantStore>(sp =>
+    new SqliteApprovalGrantStore(DurableDatabasePath(sp)));
+builder.Services.AddSingleton(sp =>
+    new LocalApprovalLedger(sp.GetRequiredService<IApprovalGrantStore>()));
+builder.Services.AddSingleton<DurableAssignmentRunner>(sp =>
+{
+    var options = sp.GetRequiredService<IOptions<DurableExecutionOptions>>().Value;
+    return new DurableAssignmentRunner(
+        sp.GetRequiredService<WorkerIdentity>().WorkerId,
+        sp.GetRequiredService<INodeCommandJournal>(),
+        sp.GetRequiredService<AssignmentTracker>(),
+        sp.GetRequiredService<LocalEventStore>(),
+        sp.GetRequiredService<LocalResultOutbox>(),
+        sp.GetRequiredService<IAgentAdapterRegistry>(),
+        sp.GetRequiredService<CompiledPolicy>(),
+        new AgentBoard.Contracts.WorkspaceReference(
+            options.ProjectId, options.WorkspaceId, options.WorkspaceBaseVersion),
+        approvalAuthority: sp.GetRequiredService<LocalApprovalLedger>());
+});
+
 // Readiness probe runs once at startup, after the DI graph is built.
 // Each registered agent's CLI is resolved and `--version` is invoked under
 // the worker's own identity (#5 in the 2026-08-28 review).
@@ -126,6 +165,7 @@ builder.Services.AddHostedService<WorkflowMqConsumerService>();
 builder.Services.AddHostedService<WorkerHeartbeatService>();
 builder.Services.AddHostedService<AgentBoardWebSocketService>();
 builder.Services.AddHostedService<WorkerStartupService>();  // PR-12
+builder.Services.AddHostedService<DurableCommandConsumerService>();
 
 // ---- HTTP ----------------------------------------------------------------
 builder.Services.AddHttpClient();
@@ -193,5 +233,32 @@ app.MapPost("/api/control/pause", (WorkerState state) => { state.Paused = true; 
 app.MapPost("/api/control/resume", (WorkerState state) => { state.Paused = false; return Results.Ok(state.Snapshot(Array.Empty<string>(), 0, 0, 0)); });
 app.MapPost("/api/executions/{id:long}/retry", async (ExecutionStore store, long id) =>
     await store.QueueRetryAsync(id) ? Results.Accepted() : Results.NotFound());
+app.MapGet("/api/durable", (
+    CompiledPolicy policy,
+    AssignmentTracker tracker,
+    INodeCommandJournal journal,
+    LocalResultOutbox outbox) => Results.Ok(new
+{
+    policy_revision_id = policy.RevisionId,
+    live_assignments = tracker.Current,
+    pending_commands = journal.Pending().Select(command => command.MessageId),
+    result_outbox = outbox.Records,
+}));
+app.MapGet("/api/durable/attempts/{attemptId}/events", (string attemptId, LocalEventStore events) =>
+    Results.Ok(events.ForAttempt(attemptId)));
+app.MapPost("/api/durable/approvals", (AgentBoard.Contracts.ApprovalGrant grant, LocalApprovalLedger ledger) =>
+    Results.Ok(ledger.Record(grant)));
 
 app.Run();
+
+static string DurableDatabasePath(IServiceProvider services)
+{
+    var durable = services.GetRequiredService<IOptions<DurableExecutionOptions>>().Value;
+    var node = services.GetRequiredService<IOptions<NodeOptions>>().Value;
+    var configured = string.IsNullOrWhiteSpace(durable.DatabasePath)
+        ? node.HistoryDatabasePath
+        : durable.DatabasePath;
+    var fullPath = Path.GetFullPath(configured);
+    Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+    return fullPath;
+}

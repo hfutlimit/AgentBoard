@@ -20,12 +20,22 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
     private readonly string _databasePath = Path.Combine(
         Path.GetTempPath(),
         $"agentboard-api-tests-{Guid.NewGuid():N}.db");
+    private readonly string _durableDatabasePath = Path.Combine(
+        Path.GetTempPath(),
+        $"agentboard-durable-api-tests-{Guid.NewGuid():N}.db");
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // "Testing" tells Serilog/OpenTelemetry to skip the file sink and
         // console-exporter overhead — keeps the per-test host lean.
         builder.UseEnvironment("Testing");
+
+        builder.ConfigureAppConfiguration((_, configuration) =>
+            configuration.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["DurableWorkflow:Enabled"] = "false",
+                ["DurableWorkflow:DatabasePath"] = _durableDatabasePath,
+            }));
 
         builder.ConfigureServices(services =>
         {
@@ -45,7 +55,7 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
     protected override void Dispose(bool disposing)
     {
         base.Dispose(disposing);
-        if (!disposing || !File.Exists(_databasePath))
+        if (!disposing)
         {
             return;
         }
@@ -58,7 +68,12 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
         {
             try
             {
-                File.Delete(_databasePath);
+                foreach (var databasePath in new[] { _databasePath, _durableDatabasePath })
+                {
+                    File.Delete(databasePath);
+                    File.Delete(databasePath + "-wal");
+                    File.Delete(databasePath + "-shm");
+                }
                 return;
             }
             catch (IOException) when (attempt < 4)

@@ -82,25 +82,41 @@ public static class WorkflowGraph
     /// <summary>Stable digest of the graph; node order does not affect it.</summary>
     public static string ComputeContentHash(IReadOnlyList<WorkflowNode> nodes)
     {
-        var canonical = new System.Text.StringBuilder();
+        ArgumentNullException.ThrowIfNull(nodes);
 
-        foreach (var node in nodes.OrderBy(n => n.NodeId, StringComparer.Ordinal))
+        // Do not concatenate caller-controlled strings with delimiters here.
+        // For example, capability="a|b", input="c" used to hash exactly like
+        // capability="a", input="b|c".  A canonical JSON token stream keeps
+        // field boundaries unambiguous while retaining deterministic ordering.
+        using var canonical = new System.IO.MemoryStream();
+        using (var writer = new System.Text.Json.Utf8JsonWriter(canonical))
         {
-            canonical.Append(node.NodeId).Append('|')
-                .Append(node.StageType).Append('|')
-                .Append(node.RequiredCapability).Append('|')
-                .Append(node.InputContract).Append('|')
-                .Append(node.OutputContract).Append('|')
-                .Append(string.Join(",", node.AllowedTransitions.OrderBy(t => t))).Append('|')
-                .Append(node.RetryPolicyRef).Append('|')
-                .Append(node.PolicyRequirements).Append('|')
-                .Append(node.Budget.TimeoutSeconds).Append('x')
-                .Append(node.Budget.LeaseSeconds).Append('|')
-                .Append(node.HandoffRequired).Append(';');
+            writer.WriteStartArray();
+            foreach (var node in nodes.OrderBy(n => n.NodeId, StringComparer.Ordinal))
+            {
+                writer.WriteStartObject();
+                writer.WriteString("nodeId", node.NodeId);
+                writer.WriteString("stageType", node.StageType.ToString());
+                writer.WriteString("requiredCapability", node.RequiredCapability);
+                writer.WriteString("inputContract", node.InputContract);
+                writer.WriteString("outputContract", node.OutputContract);
+                writer.WriteStartArray("allowedTransitions");
+                foreach (var transition in node.AllowedTransitions.OrderBy(t => t))
+                {
+                    writer.WriteStringValue(transition.ToString());
+                }
+                writer.WriteEndArray();
+                writer.WriteString("retryPolicyRef", node.RetryPolicyRef);
+                writer.WriteString("policyRequirements", node.PolicyRequirements);
+                writer.WriteNumber("timeoutSeconds", node.Budget.TimeoutSeconds);
+                writer.WriteNumber("leaseSeconds", node.Budget.LeaseSeconds);
+                writer.WriteBoolean("handoffRequired", node.HandoffRequired);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
         }
 
-        var hash = System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.UTF8.GetBytes(canonical.ToString()));
+        var hash = System.Security.Cryptography.SHA256.HashData(canonical.ToArray());
         return "sha256:" + Convert.ToHexString(hash).ToLowerInvariant();
     }
 

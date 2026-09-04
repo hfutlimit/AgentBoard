@@ -119,9 +119,9 @@ public sealed class SqlitePlaneStore : IDisposable, IPlaneCommitter
     /// </summary>
     public void Commit(DurableServerPlane plane, Action work)
     {
+        ArgumentNullException.ThrowIfNull(plane);
         ArgumentNullException.ThrowIfNull(work);
-        work();
-        Commit(plane);
+        plane.CommitAtomic(this, work);
     }
 
     /// <summary>Loads persisted state, or null when nothing was ever committed.</summary>

@@ -50,6 +50,7 @@ public sealed class CommandDispatcher
     private readonly Func<DateTimeOffset> _clock;
     private readonly Func<string> _nextId;
     private readonly SentCommandLog _sent;
+    private readonly HandoffRegistry _handoffs;
 
     public CommandDispatcher(
         WorkflowRegistry registry,
@@ -57,7 +58,8 @@ public sealed class CommandDispatcher
         ServerOutbox outbox,
         Func<DateTimeOffset> clock,
         Func<string> nextId,
-        SentCommandLog sent)
+        SentCommandLog sent,
+        HandoffRegistry handoffs)
     {
         _registry = registry;
         _leases = leases;
@@ -65,6 +67,7 @@ public sealed class CommandDispatcher
         _clock = clock;
         _nextId = nextId;
         _sent = sent;
+        _handoffs = handoffs;
     }
 
     public Assignment Dispatch(
@@ -74,7 +77,9 @@ public sealed class CommandDispatcher
         IReadOnlyList<string> requiredCapabilities,
         string policyRevisionId,
         TimeSpan leaseBudget,
-        string? handoffId = null)
+        string? handoffId = null,
+        string taskContext = "{}",
+        string? providerId = null)
     {
         var execution = _registry.RequireExecution(executionId);
         var stage = _registry.RequireStage(execution.Current.StageRunId);
@@ -99,13 +104,31 @@ public sealed class CommandDispatcher
                 $"execution '{executionId}' already resolved; dispatching again would court a second outcome");
         }
 
-        var mustAssignStage = stage.Machine.Current == StageRunState.Pending;
-
-        if (mustAssignStage)
+        HandoffContext? handoff = null;
+        if (!string.IsNullOrWhiteSpace(handoffId))
         {
-            _registry.MoveStage(stage.Current.StageRunId, StageRunState.Assigned,
-                new TransitionContext("server", "assignment dispatched", SchemaVersions.Registry));
+            handoff = _handoffs.Require(handoffId);
+            if (handoff.TargetStageType != stage.Current.StageType)
+            {
+                throw new InvalidValueException(
+                    $"handoff '{handoffId}' targets {handoff.TargetStageType}, not stage type {stage.Current.StageType}");
+            }
+
+            var offered = new HashSet<string>(requiredCapabilities, StringComparer.Ordinal);
+            var missing = handoff.RequiredCapabilities.Where(capability => !offered.Contains(capability)).ToList();
+            if (missing.Count > 0)
+            {
+                throw new InvalidValueException(
+                    $"assignment does not satisfy handoff '{handoffId}' capabilities: {string.Join(", ", missing)}");
+            }
+
+            if (handoff.ArtifactReferences.Any(artifact => artifact.IsExpired(_clock())))
+            {
+                throw new InvalidValueException($"handoff '{handoffId}' contains an expired artifact");
+            }
         }
+
+        var mustAssignStage = stage.Machine.Current == StageRunState.Pending;
 
         var now = _clock();
         var epoch = _leases.NextEpoch(executionId);
@@ -124,6 +147,13 @@ public sealed class CommandDispatcher
             IssuedAt: now,
             ExpiresAt: now + leaseBudget,
             PolicyRevisionId: policyRevisionId);
+
+        var assignmentErrors = AssignmentValidator.Validate(assignment);
+        if (assignmentErrors.Count > 0)
+        {
+            throw new InvalidValueException(
+                "invalid assignment: " + string.Join("; ", assignmentErrors.Select(e => $"{e.Field} {e.Reason}")));
+        }
 
         var commandId = $"cmd-{_nextId()}";
         var command = new CommandEnvelope
@@ -146,13 +176,20 @@ public sealed class CommandDispatcher
             IssuedAt = assignment.IssuedAt,
             ExpiresAt = assignment.ExpiresAt,
             Traceparent = NewTraceparent(commandId),
-            Payload = System.Text.Json.JsonSerializer.Serialize(new AssignCommandPayload(assignment, handoffId)),
+            Payload = System.Text.Json.JsonSerializer.Serialize(
+                new AssignCommandPayload(assignment, handoffId, handoff, taskContext, providerId)),
             PolicyRevisionId = policyRevisionId,
         };
 
         // Validating the outbox row is part of planning, not mutation: if the
         // envelope were unserialisable or oversize we still hold nothing applied.
         var outboxMessage = OutboxMessage.NewCommand(command, now);
+
+        if (mustAssignStage)
+        {
+            _registry.MoveStage(stage.Current.StageRunId, StageRunState.Assigned,
+                new TransitionContext("server", "assignment dispatched", SchemaVersions.Registry));
+        }
 
         _leases.Grant(assignment);
         _registry.AddAttempt(executionId, attemptId, epoch);
@@ -206,6 +243,7 @@ public sealed class CommandDispatcher
         };
 
         _outbox.AddCommand(command);
+        _sent.Record(current.AssignmentId, command);
     }
 }
 
@@ -346,7 +384,8 @@ public sealed class ServerResultProcessor
         // Unknown provenance FAILS CLOSED: accepting a result whose originating
         // command cannot be proven would let restored or partially committed
         // state legitimize fabricated outcomes (doc 150 section 10 rule 8).
-        if (!_sent.TryGet(result.AssignmentId, out var issuedCommand))
+        if (string.IsNullOrWhiteSpace(result.CausationId)
+            || !_sent.TryGetMessage(result.CausationId, out var issuedCommand))
         {
             var noProvenance = $"no issued command on record proves assignment '{result.AssignmentId}'; result origin cannot be verified";
             audit.Append("server", "result.rejected", result.MessageId, noProvenance, result.CorrelationId);
@@ -452,6 +491,17 @@ public sealed class ServerResultProcessor
                 return new ResultVerdict(
                     ResultOutcomeKind.Accepted, "changes requested", executionId, CreatedIteration: created);
 
+            case AttemptResultStatus.Cancelled:
+                if (stage.Machine.Current is StageRunState.Running or StageRunState.Assigned)
+                {
+                    _registry.MoveStage(stage.Current.StageRunId, StageRunState.Cancelled, ctx);
+                }
+
+                audit.Append("server", "result.accepted", result.AttemptId,
+                    "cancellation acknowledged", result.CorrelationId);
+                return new ResultVerdict(ResultOutcomeKind.Accepted,
+                    "cancellation acknowledged", executionId);
+
             default:
                 return ResolveFailure(result, executionId, stage, ctx, audit);
         }
@@ -476,6 +526,10 @@ public sealed class ServerResultProcessor
             // next assignment inherits the lease record's worker, agent and
             // policy — never values the reporting result merely claims.
             var current = _leases.CurrentFor(executionId)!;
+            _sent.TryGet(current.AssignmentId, out var assignmentCommand);
+            var priorPayload = assignmentCommand is { MessageType: MessageTypes.ExecutionAssign }
+                ? System.Text.Json.JsonSerializer.Deserialize<AssignCommandPayload>(assignmentCommand.Payload)
+                : null;
             var due = _clock() + decision.Delay!.Value;
             _retries.Schedule(new PendingRetry(
                 executionId,
@@ -484,7 +538,10 @@ public sealed class ServerResultProcessor
                 current.AgentId,
                 current.RequiredCapabilities,
                 current.PolicyRevisionId,
-                current.ExpiresAt - current.IssuedAt));
+                current.ExpiresAt - current.IssuedAt,
+                priorPayload?.HandoffId,
+                priorPayload?.TaskContext ?? "{}",
+                priorPayload?.ProviderId));
 
             audit.Append("server", "result.retry_scheduled", executionId,
                 $"{result.FailureCategory} failure {failureNumber}; retry due {due:O} ({decision.Reason})",

@@ -69,6 +69,21 @@ public sealed class A0WorkflowSchemaTests
     }
 
     [Fact]
+    public void Content_hash_preserves_field_boundaries()
+    {
+        var original = ValidVersion().Nodes[0];
+        var left = new[] { original with { RequiredCapability = "a|b", InputContract = "c" } };
+        var right = new[] { original with { RequiredCapability = "a", InputContract = "b|c" } };
+
+        // Delimiter concatenation made these two different graphs produce the
+        // same canonical string. The digest must be over an unambiguous token
+        // stream or it cannot prove which graph was published.
+        Assert.NotEqual(
+            WorkflowGraph.ComputeContentHash(left),
+            WorkflowGraph.ComputeContentHash(right));
+    }
+
+    [Fact]
     public void A_node_cannot_carry_a_script_shell_command_or_prompt()
     {
         // doc 151 §4.1 forbids any workflow DSL, shell hook or generic script

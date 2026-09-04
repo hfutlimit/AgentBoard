@@ -93,6 +93,29 @@ public sealed class SqliteDurableStoresTests : IDisposable
     }
 
     [Fact]
+    public void Pending_command_survives_restart_until_local_execution_is_durably_complete()
+    {
+        var command = Assign("cmd-pending", "idem-pending");
+        using (var first = new SqliteNodeCommandJournal(_dbPath))
+        {
+            Assert.Equal(JournalAttempt.Accepted,
+                first.TryAccept(command, "msg:cmd-pending", "idem:idem-pending"));
+            Assert.Single(first.Pending());
+        }
+
+        using (var restarted = new SqliteNodeCommandJournal(_dbPath))
+        {
+            Assert.Equal("cmd-pending", Assert.Single(restarted.Pending()).MessageId);
+            restarted.MarkCompleted("cmd-pending");
+        }
+
+        using var completed = new SqliteNodeCommandJournal(_dbPath);
+        Assert.Empty(completed.Pending());
+        Assert.Equal(JournalAttempt.Duplicate,
+            completed.TryAccept(command, "msg:cmd-pending", "idem:idem-pending"));
+    }
+
+    [Fact]
     public void Business_key_collision_is_detected_without_a_partial_write()
     {
         using var journal = new SqliteNodeCommandJournal(_dbPath);
@@ -185,6 +208,70 @@ public sealed class SqliteDurableStoresTests : IDisposable
         Assert.Equal(LocalOutboxState.Confirmed, Assert.Single(outbox3.Records).State);
     }
 
+    [Fact]
+    public void Transport_exception_is_scheduled_for_retry_instead_of_stranding_published()
+    {
+        var outbox = new LocalResultOutbox(
+            new ThrowingTransport(), () => _now,
+            baseDelay: TimeSpan.FromSeconds(2),
+            log: new SqliteResultOutboxLog(_dbPath));
+
+        outbox.Enqueue(MakeResult());
+        Assert.Equal(0, outbox.Drain());
+
+        var pending = Assert.Single(outbox.Records);
+        Assert.Equal(LocalOutboxState.Pending, pending.State);
+        Assert.Equal(_now.AddSeconds(2), pending.NextAttemptAt);
+        Assert.Equal("publish threw IOException", pending.LastError);
+    }
+
+    [Fact]
+    public void Crash_after_marking_published_is_retried_after_restart()
+    {
+        var result = MakeResult();
+        using (var log = new SqliteResultOutboxLog(_dbPath))
+        {
+            log.Save(new LocalOutboxRecord(
+                result.MessageId, result.IdempotencyKey, result,
+                LocalOutboxState.Published, 1, _now, null, null, null));
+        }
+
+        var transport = new FakeTransport();
+        var restarted = new LocalResultOutbox(
+            transport, () => _now, log: new SqliteResultOutboxLog(_dbPath));
+
+        Assert.Equal(1, restarted.Drain());
+        Assert.Equal(1, transport.PublishCount);
+        Assert.Equal(LocalOutboxState.Confirmed, Assert.Single(restarted.Records).State);
+    }
+
+    [Fact]
+    public void Approval_grant_survives_restart_and_remains_bound_to_its_exact_context()
+    {
+        var grant = new ApprovalGrant(
+            "apr-1", PolicyActionKinds.GitCommit, "/repo/a.cs", "agent.dev",
+            StageType.Development, "run-1", "project-1", "workspace-1", "commit-1",
+            "policy-rev-1", "operator", _now.AddMinutes(5));
+        using (var store = new SqliteApprovalGrantStore(_dbPath))
+        {
+            new LocalApprovalLedger(store).Record(grant);
+        }
+
+        using var reopened = new SqliteApprovalGrantStore(_dbPath);
+        var ledger = new LocalApprovalLedger(reopened);
+        var request = new PolicyDecisionRequest(
+            new PolicyAction(PolicyActionKinds.GitCommit, "/repo/a.cs"),
+            "agent.dev", new[] { "development" }, StageType.Development, "run-1",
+            new WorkspaceReference("project-1", "workspace-1", "commit-1"),
+            "policy-rev-1", ApprovalGranted: true, ApprovalId: "apr-1");
+
+        Assert.True(ledger.IsGranted("apr-1", request, _now));
+        Assert.False(ledger.IsGranted("apr-1", request with
+        {
+            Workspace = new WorkspaceReference("project-1", "workspace-1", "commit-2"),
+        }, _now));
+    }
+
     private ResultEnvelope MakeResult() => new()
     {
         MessageId = "msg-r1",
@@ -225,5 +312,11 @@ public sealed class SqliteDurableStoresTests : IDisposable
 
             return BrokerConfirm.Confirmed;
         }
+    }
+
+    private sealed class ThrowingTransport : IResultTransport
+    {
+        public BrokerConfirm Publish(LocalOutboxRecord record) =>
+            throw new IOException("amqp://user:secret@broker unavailable");
     }
 }

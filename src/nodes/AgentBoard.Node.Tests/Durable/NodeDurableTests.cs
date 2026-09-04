@@ -148,6 +148,7 @@ public class NodeDurableTests
         var acceptance = receiver.TryAccept(wrapped);
         Assert.Equal(AcceptanceKind.Accepted, acceptance.Kind);
         Assert.Equal("hnd-1", receiver.LastHandoffId);
+        Assert.Equal("hnd-1", tracker.HandoffFor(assignment.AssignmentId));
         Assert.NotNull(tracker.CurrentFor("exec-1"));
 
         // Bare payload still parses (fallback path).
@@ -155,6 +156,8 @@ public class NodeDurableTests
             execution: "exec-b");
         Assert.Equal(AcceptanceKind.Accepted, receiver.TryAccept(bare).Kind);
         Assert.Null(receiver.LastHandoffId);
+        Assert.Equal("hnd-1", tracker.HandoffFor(assignment.AssignmentId));
+        Assert.Null(tracker.HandoffFor("asg-2-att-b"));
     }
 
     [Fact]
@@ -209,6 +212,53 @@ public class NodeDurableTests
         var misaddressed = receiver.TryAccept(Assign(worker: "someone-else"));
         Assert.Equal(AcceptanceKind.RejectedNotForThisWorker, misaddressed.Kind);
         Assert.False(misaddressed.ShouldAckBroker);
+    }
+
+    [Fact]
+    public void Expired_command_is_terminally_acked_without_burning_dedup_keys()
+    {
+        var journal = new InMemoryNodeCommandJournal();
+        var receiver = new NodeCommandReceiver(
+            Worker, journal, new AssignmentTracker(), () => _now);
+        var expired = Assign(expiresAt: _now + TimeSpan.FromMinutes(1));
+        _now = _now.AddMinutes(2);
+
+        var rejection = receiver.TryAccept(expired);
+
+        Assert.Equal(AcceptanceKind.RejectedExpired, rejection.Kind);
+        Assert.True(rejection.ShouldAckBroker);
+        Assert.Empty(journal.All());
+    }
+
+    [Fact]
+    public void Cancel_must_match_the_current_assignment_before_it_is_journaled()
+    {
+        var journal = new InMemoryNodeCommandJournal();
+        var tracker = new AssignmentTracker();
+        var receiver = new NodeCommandReceiver(Worker, journal, tracker, () => _now);
+        var assign = Assign();
+        Assert.Equal(AcceptanceKind.Accepted, receiver.TryAccept(assign).Kind);
+
+        var cancel = assign with
+        {
+            MessageId = "cmd-cancel",
+            MessageType = MessageTypes.ExecutionCancel,
+            IdempotencyKey = $"{assign.AssignmentId}:cancel",
+            Payload = "{}",
+        };
+        var spoofed = cancel with { MessageId = "cmd-spoof", WorkerId = "someone-else" };
+        var stale = cancel with { MessageId = "cmd-stale", LeaseEpoch = 2 };
+
+        Assert.Equal(AcceptanceKind.RejectedNotForThisWorker, receiver.TryAccept(spoofed).Kind);
+        var staleVerdict = receiver.TryAccept(stale);
+        Assert.Equal(AcceptanceKind.RejectedLeaseMismatch, staleVerdict.Kind);
+        Assert.True(staleVerdict.ShouldAckBroker);
+        Assert.Equal(2, journal.All().Count); // only the assign's two in-memory keys
+
+        var accepted = receiver.TryAccept(cancel);
+        Assert.Equal(AcceptanceKind.Accepted, accepted.Kind);
+        Assert.True(accepted.ShouldAckBroker);
+        Assert.Equal(4, journal.All().Count);
     }
 
     [Fact]
@@ -432,7 +482,9 @@ public class NodeDurableTests
         var revision = CompiledPolicy.Compile(PolicyPresets.Developer, new Dictionary<string, PolicyDecision>());
         var ledger = new LocalApprovalLedger();
         ledger.Record(new ApprovalGrant(
-            "apr-9", PolicyActionKinds.GitCommit, revision.RevisionId, "operator-jason", _now + TimeSpan.FromMinutes(30)));
+            "apr-9", PolicyActionKinds.GitCommit, "/src/a.cs", "agent.dev", StageType.Development,
+            "run-1", "proj-1", "ws-1", "commit-sha", revision.RevisionId,
+            "operator-jason", _now + TimeSpan.FromMinutes(30)));
 
         var audit = new List<PolicyEnforcementPoint.AuditLine>();
         var pep = new PolicyEnforcementPoint(new PolicyDecisionPoint(revision, ledger, () => _now), audit.Add);
@@ -445,9 +497,18 @@ public class NodeDurableTests
         Assert.Equal("committed", executed.Value);
         Assert.Single(audit);
 
+        // The same approval id cannot be replayed against another resource.
+        var replay = Request(revision, PolicyActionKinds.GitCommit,
+            resource: "/src/other.cs", approvalGranted: true, approvalId: "apr-9");
+        Assert.NotEqual(PolicyDecision.Allow,
+            new PolicyDecisionPoint(revision, ledger, () => _now).Decide(replay).Decision);
+
         // An expired grant is not a grant.
         var lapsed = new LocalApprovalLedger();
-        lapsed.Record(new ApprovalGrant("apr-9", PolicyActionKinds.GitCommit, revision.RevisionId, "op", _now - TimeSpan.FromMinutes(1)));
+        lapsed.Record(new ApprovalGrant(
+            "apr-9", PolicyActionKinds.GitCommit, "/src/a.cs", "agent.dev", StageType.Development,
+            "run-1", "proj-1", "ws-1", "commit-sha", revision.RevisionId,
+            "op", _now - TimeSpan.FromMinutes(1)));
         var pdpLapsed = new PolicyDecisionPoint(revision, lapsed, () => _now);
         Assert.NotEqual(PolicyDecision.Allow,
             pdpLapsed.Decide(Request(revision, PolicyActionKinds.GitCommit, approvalGranted: true, approvalId: "apr-9")).Decision);
@@ -485,6 +546,10 @@ public class NodeDurableTests
             throw new IOException("simulated store crash before durable accept");
 
         public IReadOnlyList<CommandEnvelope> All() => Array.Empty<CommandEnvelope>();
+
+        public IReadOnlyList<CommandEnvelope> Pending() => Array.Empty<CommandEnvelope>();
+
+        public void MarkCompleted(string messageId) => throw new IOException("not accepted");
     }
 
     private sealed class FakeResultTransport : IResultTransport

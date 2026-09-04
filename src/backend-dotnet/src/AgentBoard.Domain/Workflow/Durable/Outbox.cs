@@ -197,7 +197,17 @@ public sealed class OutboxDispatcher
             NextAttemptAt = null,
         };
 
-        var outcome = _transport.Publish(attempted);
+        PublishResult outcome;
+        string? publishError = null;
+        try
+        {
+            outcome = _transport.Publish(attempted);
+        }
+        catch (Exception error)
+        {
+            outcome = PublishResult.Failed;
+            publishError = $"publish threw {error.GetType().Name}";
+        }
 
         if (outcome == PublishResult.Confirmed)
         {
@@ -215,13 +225,17 @@ public sealed class OutboxDispatcher
             {
                 State = OutboxState.Pending,
                 NextAttemptAt = now + decision.Delay!.Value,
-                LastError = "publish not confirmed",
+                LastError = publishError ?? "publish not confirmed",
             };
             _outbox.Replace(retry);
             return retry.State;
         }
 
-        var dead = attempted with { State = OutboxState.DeadLettered, LastError = "publish not confirmed; retry budget exhausted" };
+        var dead = attempted with
+        {
+            State = OutboxState.DeadLettered,
+            LastError = $"{publishError ?? "publish not confirmed"}; retry budget exhausted",
+        };
         _outbox.Replace(dead);
         _deadLetters.Enqueue(new DeadLetterEntry(
             Id: $"dlq-{dead.MessageId}",

@@ -68,19 +68,20 @@ public sealed class HandoffRegistry
 
     public HandoffContext Add(HandoffContext handoff)
     {
-        var errors = EnvelopeValidator.Validate(handoff);
+        var frozen = Freeze(handoff);
+        var errors = EnvelopeValidator.Validate(frozen);
         if (errors.Count > 0)
         {
             throw new Common.InvalidValueException(
                 $"invalid handoff: {string.Join("; ", errors.Select(e => $"{e.Field} {e.Reason}"))}");
         }
 
-        if (!_byId.TryAdd(handoff.HandoffId, handoff))
+        if (!_byId.TryAdd(frozen.HandoffId, frozen))
         {
             throw new Common.DuplicateException($"handoff '{handoff.HandoffId}' already exists");
         }
 
-        return handoff;
+        return frozen;
     }
 
     public HandoffContext Require(string handoffId) =>
@@ -96,11 +97,31 @@ public sealed class HandoffRegistry
     {
         foreach (var handoff in handoffs)
         {
-            _byId[handoff.HandoffId] = handoff;
+            var frozen = Freeze(handoff);
+            var errors = EnvelopeValidator.Validate(frozen);
+            if (errors.Count > 0)
+            {
+                throw new Common.InvalidValueException(
+                    $"persisted handoff '{handoff.HandoffId}' is invalid: " +
+                    string.Join("; ", errors.Select(e => $"{e.Field} {e.Reason}")));
+            }
+            _byId[frozen.HandoffId] = frozen;
         }
     }
 
     public IReadOnlyList<HandoffContext> Capture() => _byId.Values.ToList();
+
+    private static HandoffContext Freeze(HandoffContext handoff) => handoff with
+    {
+        ArtifactReferences = new System.Collections.ObjectModel.ReadOnlyCollection<ArtifactReference>(
+            handoff.ArtifactReferences.ToArray()),
+        TestEvidence = new System.Collections.ObjectModel.ReadOnlyCollection<string>(
+            handoff.TestEvidence.ToArray()),
+        ReviewFindings = new System.Collections.ObjectModel.ReadOnlyCollection<string>(
+            handoff.ReviewFindings.ToArray()),
+        RequiredCapabilities = new System.Collections.ObjectModel.ReadOnlyCollection<string>(
+            handoff.RequiredCapabilities.ToArray()),
+    };
 }
 
 /// <summary>Accepted results' evidence, keyed by attempt (bounded fields only).</summary>
@@ -113,10 +134,10 @@ public sealed class AttemptEvidenceLog
     public void Record(ResultEnvelope result) => _byAttempt[result.AttemptId] = new AttemptEvidence(
         result.AttemptId,
         result.OutcomeSummary ?? string.Empty,
-        result.ArtifactReferences,
+        new System.Collections.ObjectModel.ReadOnlyCollection<ArtifactReference>(result.ArtifactReferences.ToArray()),
         result.CommitOrVersion,
-        result.TestEvidence,
-        result.ReviewFindings);
+        new System.Collections.ObjectModel.ReadOnlyCollection<string>(result.TestEvidence.ToArray()),
+        new System.Collections.ObjectModel.ReadOnlyCollection<string>(result.ReviewFindings.ToArray()));
 
     public AttemptEvidence? For(string attemptId) =>
         _byAttempt.TryGetValue(attemptId, out var evidence) ? evidence : null;
@@ -352,7 +373,7 @@ public sealed class DurableServerPlane
         Sent = new SentCommandLog();
         Retries = new PendingRetryQueue(clock);
         Planner = planner ?? new RetryPlanner();
-        Dispatcher = new CommandDispatcher(Registry, Leases, Outbox, clock, nextId, Sent);
+        Dispatcher = new CommandDispatcher(Registry, Leases, Outbox, clock, nextId, Sent, Handoffs);
         Results = new ServerResultProcessor(
             Registry, Leases, Inbox, Planner, DeadLetters, Dispatcher, clock, nextId, Sent, Retries, Evidence);
     }
@@ -395,15 +416,51 @@ public sealed class DurableServerPlane
         return request;
     }
 
+    public ApprovalRequest AwaitApproval(
+        string stageRunId,
+        string assignmentId,
+        PolicyDecisionRequest decision,
+        TimeSpan window)
+    {
+        var request = Approvals.Open(
+            $"apr-{NextId()}", stageRunId, assignmentId, decision, window);
+
+        Registry.MoveStage(stageRunId, StageRunState.WaitingApproval,
+            new TransitionContext("server", $"approval requested for '{decision.Action.Kind}'", SchemaVersions.Registry));
+        return request;
+    }
+
     /// <summary>Resolves an open approval and moves the parked stage accordingly.</summary>
     public StageRun ResolveApproval(string approvalId, bool granted, string actor, string reason)
     {
         var request = Approvals.Decide(approvalId, granted, actor, reason);
+        var approved = request.State == ApprovalState.Granted;
 
         return Registry.MoveStage(
             request.StageRunId,
-            granted ? StageRunState.Running : StageRunState.Failed,
-            new TransitionContext(actor, granted ? "approval granted" : "approval denied", SchemaVersions.Registry));
+            approved ? StageRunState.Running : StageRunState.Failed,
+            new TransitionContext(actor,
+                request.State == ApprovalState.Expired
+                    ? "approval expired"
+                    : approved ? "approval granted" : "approval denied",
+                SchemaVersions.Registry));
+    }
+
+    /// <summary>Expires unattended approvals and closes their parked stages.</summary>
+    public int ExpireApprovals()
+    {
+        var expired = Approvals.ExpireStaleRequests();
+        foreach (var request in expired)
+        {
+            var stage = Registry.RequireStage(request.StageRunId);
+            if (stage.Machine.Current == StageRunState.WaitingApproval)
+            {
+                Registry.MoveStage(request.StageRunId, StageRunState.Failed,
+                    new TransitionContext("server", "approval window elapsed", SchemaVersions.Registry));
+            }
+        }
+
+        return expired.Count;
     }
 
     /// <summary>
@@ -419,7 +476,8 @@ public sealed class DurableServerPlane
         {
             Dispatcher.Dispatch(
                 retry.ExecutionId, retry.WorkerId, retry.AgentId,
-                retry.Capabilities, retry.PolicyRevisionId, retry.LeaseBudget);
+                retry.Capabilities, retry.PolicyRevisionId, retry.LeaseBudget,
+                retry.HandoffId, retry.TaskContext, retry.ProviderId);
             Retries.Complete(retry);
             dispatched++;
         }
@@ -472,7 +530,21 @@ public sealed class DurableServerPlane
                 $"execution '{executionId}' has no accepted outcome; a handoff must carry one (doc 151 §7)");
         }
 
+        if (!string.Equals(execution.Current.StageRunId, sourceStageRunId, StringComparison.Ordinal))
+        {
+            throw new Common.InvalidValueException(
+                $"execution '{executionId}' belongs to stage '{execution.Current.StageRunId}', " +
+                $"not claimed source stage '{sourceStageRunId}'");
+        }
+
         var evidence = Evidence.For(outcome.AcceptedAttemptId);
+        if (!string.IsNullOrWhiteSpace(evidence?.CommitOrVersion)
+            && !string.Equals(evidence.CommitOrVersion, workspace.BaseVersion, StringComparison.Ordinal))
+        {
+            throw new Common.InvalidValueException(
+                $"workspace base version '{workspace.BaseVersion}' does not match accepted evidence " +
+                $"version '{evidence.CommitOrVersion}'");
+        }
 
         var handoff = new HandoffContext
         {
@@ -490,10 +562,10 @@ public sealed class DurableServerPlane
             RequiredCapabilities = requiredCapabilities,
         };
 
-        Handoffs.Add(handoff);
-        Registry.Audit.Append("server", "handoff.issued", handoff.HandoffId,
+        var stored = Handoffs.Add(handoff);
+        Registry.Audit.Append("server", "handoff.issued", stored.HandoffId,
             $"{execution.Current.StageRunId} -> {targetStageType} over outcome '{outcome.OutcomeId}'");
-        return handoff;
+        return stored;
     }
 
     internal Func<DateTimeOffset> Clock { get; }
@@ -549,26 +621,41 @@ public sealed class DurableServerPlane
 /// </summary>
 public sealed class SentCommandLog
 {
-    private readonly Dictionary<string, CommandEnvelope> _byAssignment = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, CommandEnvelope> _byMessage = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, CommandEnvelope> _assignmentCommands = new(StringComparer.Ordinal);
 
-    public IReadOnlyCollection<CommandEnvelope> Commands => _byAssignment.Values;
+    public IReadOnlyCollection<CommandEnvelope> Commands => _byMessage.Values;
 
-    public void Record(string assignmentId, CommandEnvelope command) => _byAssignment[assignmentId] = command;
+    public void Record(string assignmentId, CommandEnvelope command)
+    {
+        _byMessage[command.MessageId] = command;
+        if (command.MessageType == MessageTypes.ExecutionAssign)
+        {
+            _assignmentCommands[assignmentId] = command;
+        }
+    }
 
     public bool TryGet(string assignmentId, out CommandEnvelope command) =>
-        _byAssignment.TryGetValue(assignmentId, out command!);
+        _assignmentCommands.TryGetValue(assignmentId, out command!);
 
-    internal void Clear() => _byAssignment.Clear();
+    public bool TryGetMessage(string messageId, out CommandEnvelope command) =>
+        _byMessage.TryGetValue(messageId, out command!);
+
+    internal void Clear()
+    {
+        _byMessage.Clear();
+        _assignmentCommands.Clear();
+    }
 
     internal void Restore(IReadOnlyList<CommandEnvelope> commands)
     {
         foreach (var command in commands)
         {
-            _byAssignment[command.AssignmentId] = command;
+            Record(command.AssignmentId, command);
         }
     }
 
-    public IReadOnlyList<CommandEnvelope> Capture() => _byAssignment.Values.ToList();
+    public IReadOnlyList<CommandEnvelope> Capture() => _byMessage.Values.ToList();
 }
 
 /// <summary>
@@ -583,7 +670,10 @@ public sealed record PendingRetry(
     string AgentId,
     IReadOnlyList<string> Capabilities,
     string PolicyRevisionId,
-    TimeSpan LeaseBudget);
+    TimeSpan LeaseBudget,
+    string? HandoffId = null,
+    string TaskContext = "{}",
+    string? ProviderId = null);
 
 public sealed class PendingRetryQueue
 {

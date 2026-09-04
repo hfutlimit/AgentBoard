@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 using System.Security.Cryptography;
 using System.Text;
+using System.Collections.Concurrent;
 using AgentBoard.Contracts;
 
 namespace AgentBoard.Node.Durable;
@@ -131,34 +132,63 @@ public static class PolicyPresets
 /// </summary>
 public interface IApprovalAuthority
 {
-    bool IsGranted(string? approvalId, PolicyAction action, string policyRevisionId, DateTimeOffset now);
+    bool IsGranted(string? approvalId, PolicyDecisionRequest request, DateTimeOffset now);
 }
 
-/// <summary>A durable approval the Server granted, synced to this Node.</summary>
-public sealed record ApprovalGrant(
-    string ApprovalId,
-    string ActionKind,
-    string PolicyRevisionId,
-    string GrantedBy,
-    DateTimeOffset ExpiresAt);
+public interface IApprovalGrantStore
+{
+    void Save(ApprovalGrant grant);
+    IReadOnlyList<ApprovalGrant> LoadAll();
+}
 
 /// <summary>
-/// The Node-local copy of server-issued grants. A3's transport wiring feeds it
-/// from DurableServerPlane.ResolveApproval; until a grant is recorded here the
-/// PDP cannot treat any action as approved.
+/// The Node-local copy of server-issued grants. The authenticated local approval
+/// endpoint records the exact grant; until it is durable here the PDP cannot
+/// treat any action as approved.
 /// </summary>
 public sealed class LocalApprovalLedger : IApprovalAuthority
 {
-    private readonly Dictionary<string, ApprovalGrant> _grants = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, ApprovalGrant> _grants = new(StringComparer.Ordinal);
+    private readonly IApprovalGrantStore? _store;
 
-    public ApprovalGrant Record(ApprovalGrant grant) => _grants[grant.ApprovalId] = grant;
+    public LocalApprovalLedger(IApprovalGrantStore? store = null)
+    {
+        _store = store;
+        if (store is not null)
+        {
+            foreach (var grant in store.LoadAll())
+            {
+                _grants[grant.ApprovalId] = grant;
+            }
+        }
+    }
 
-    public bool IsGranted(string? approvalId, PolicyAction action, string policyRevisionId, DateTimeOffset now) =>
+    public ApprovalGrant Record(ApprovalGrant grant)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(grant.ApprovalId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(grant.GrantedBy);
+        _store?.Save(grant);
+        return _grants[grant.ApprovalId] = grant;
+    }
+
+    private static bool Matches(ApprovalGrant grant, PolicyDecisionRequest request, DateTimeOffset now) =>
+        string.Equals(grant.ActionKind, request.Action.Kind, StringComparison.Ordinal)
+        && string.Equals(grant.Resource, request.Action.Resource, StringComparison.Ordinal)
+        && string.Equals(grant.AgentId, request.AgentId, StringComparison.Ordinal)
+        && grant.Stage == request.Stage
+        && string.Equals(grant.WorkflowRunId, request.WorkflowRunId, StringComparison.Ordinal)
+        && request.Workspace is not null
+        && string.Equals(grant.ProjectId, request.Workspace.ProjectId, StringComparison.Ordinal)
+        && string.Equals(grant.WorkspaceId, request.Workspace.WorkspaceId, StringComparison.Ordinal)
+        && string.Equals(grant.WorkspaceBaseVersion, request.Workspace.BaseVersion, StringComparison.Ordinal)
+        && string.Equals(grant.PolicyRevisionId, request.PolicyRevisionId, StringComparison.Ordinal)
+        && !string.IsNullOrWhiteSpace(grant.GrantedBy)
+        && grant.ExpiresAt > now;
+
+    public bool IsGranted(string? approvalId, PolicyDecisionRequest request, DateTimeOffset now) =>
         approvalId is not null
         && _grants.TryGetValue(approvalId, out var grant)
-        && string.Equals(grant.ActionKind, action.Kind, StringComparison.Ordinal)
-        && string.Equals(grant.PolicyRevisionId, policyRevisionId, StringComparison.Ordinal)
-        && grant.ExpiresAt > now;
+        && Matches(grant, request, now);
 }
 
 public sealed class PolicyDecisionPoint
@@ -219,7 +249,7 @@ public sealed class PolicyDecisionPoint
         // boolean alone authorizes nothing.
         var verifiedGrant = request.ApprovalGranted
             && _authority is not null
-            && _authority.IsGranted(request.ApprovalId, request.Action, _revision.RevisionId, _clock());
+            && _authority.IsGranted(request.ApprovalId, request, _clock());
 
         if (verifiedGrant)
         {
@@ -281,6 +311,25 @@ public sealed class PolicyEnforcementPoint
                 // without the flag being true.
                 return new EnforcementResult<T>(EnforcementOutcome.ApprovalRequired, failure, default);
         }
+    }
+
+    public async Task<EnforcementResult<T>> ExecuteAsync<T>(
+        PolicyDecisionRequest request,
+        Func<CancellationToken, Task<T>> action,
+        CancellationToken cancellationToken)
+    {
+        var (decision, failure) = _pdp.Decide(request);
+        _audit?.Invoke(new AuditLine("policy.decision", request.Action.Kind, request.Action.Resource, decision, failure));
+
+        return decision switch
+        {
+            PolicyDecision.Allow => new EnforcementResult<T>(
+                EnforcementOutcome.Executed, failure, await action(cancellationToken)),
+            PolicyDecision.Deny => new EnforcementResult<T>(
+                EnforcementOutcome.Denied, failure, default),
+            _ => new EnforcementResult<T>(
+                EnforcementOutcome.ApprovalRequired, failure, default),
+        };
     }
 
     public sealed record EnforcementResult<T>(EnforcementOutcome Outcome, FailureCategory Failure, T? Value);

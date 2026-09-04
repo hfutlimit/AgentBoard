@@ -21,6 +21,17 @@ public static class PolicyValidator
         Require(errors, $"{nameof(request.Action)}.Resource", request.Action.Resource);
         Require(errors, nameof(request.AgentId), request.AgentId);
         Require(errors, nameof(request.PolicyRevisionId), request.PolicyRevisionId);
+        Require(errors, nameof(request.WorkflowRunId), request.WorkflowRunId);
+
+        if (request.Stage is null || !Enum.IsDefined(request.Stage.Value))
+        {
+            errors.Add(new EnvelopeError(nameof(request.Stage), "must name a defined workflow stage"));
+        }
+
+        if (request.AgentCapabilities is null || request.AgentCapabilities.Count == 0)
+        {
+            errors.Add(new EnvelopeError(nameof(request.AgentCapabilities), "must declare at least one capability"));
+        }
 
         // doc 151 §5.3 requires the decision to consider the workspace, so one
         // must be supplied; a decision reached without it is not the decision
@@ -33,6 +44,7 @@ public static class PolicyValidator
         {
             Require(errors, "Workspace.ProjectId", request.Workspace.ProjectId);
             Require(errors, "Workspace.WorkspaceId", request.Workspace.WorkspaceId);
+            Require(errors, "Workspace.BaseVersion", request.Workspace.BaseVersion);
         }
 
         return errors;
@@ -70,11 +82,6 @@ public static class PolicyValidator
     public static (PolicyDecision Decision, FailureCategory Failure) ResolveApproval(
         PolicyDecisionRequest request)
     {
-        if (request.ApprovalGranted)
-        {
-            return (PolicyDecision.Allow, FailureCategory.None);
-        }
-
         if (request.ApprovalChannelOpen)
         {
             // A channel exists (Local Portal / designated operator): hold the
@@ -83,8 +90,10 @@ public static class PolicyValidator
             return (PolicyDecision.RequireApproval, FailureCategory.None);
         }
 
-        // Never wait on an approval that cannot arrive: the run must fail fast
-        // into a queryable, retryable state.
+        // This contract-only helper has no approval authority and therefore
+        // must never turn a caller-provided boolean into permission. Verified
+        // grants are resolved by the Node PDP through IApprovalAuthority.
+        // Without a channel, fail fast into a queryable state.
         return (PolicyDecision.Deny, FailureCategory.ApprovalUnavailable);
     }
 

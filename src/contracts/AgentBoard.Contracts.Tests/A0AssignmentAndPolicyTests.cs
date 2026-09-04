@@ -136,6 +136,11 @@ public sealed class A0AssignmentAndPolicyTests
             AssignmentId = assignment.AssignmentId,
             AttemptId = assignment.AttemptId,
             LeaseEpoch = assignment.LeaseEpoch,
+            WorkflowRunId = assignment.WorkflowRunId,
+            StageRunId = assignment.StageRunId,
+            ExecutionId = assignment.ExecutionId,
+            WorkerId = assignment.WorkerId,
+            AgentId = assignment.AgentId,
         };
 
         Assert.False(AssignmentValidator.IsStale(result, assignment));
@@ -209,12 +214,12 @@ public sealed class A0AssignmentAndPolicyTests
     }
 
     [Fact]
-    public void Approval_granted_resolves_to_allow()
+    public void Contract_helper_cannot_treat_a_bare_boolean_as_approval()
     {
         var verdict = PolicyValidator.ResolveApproval(ValidRequest() with { ApprovalGranted = true });
 
-        Assert.Equal(PolicyDecision.Allow, verdict.Decision);
-        Assert.Equal(FailureCategory.None, verdict.Failure);
+        Assert.Equal(PolicyDecision.Deny, verdict.Decision);
+        Assert.Equal(FailureCategory.ApprovalUnavailable, verdict.Failure);
     }
 
     [Fact]

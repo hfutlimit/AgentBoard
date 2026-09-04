@@ -74,3 +74,22 @@ public sealed record PolicyDecisionRequest(
     // approval record whose actor, revision and expiry an authority can verify
     // (doc 150 PR-015: non-repudiable operator actions).
     string? ApprovalId = null);
+
+/// <summary>
+/// Server-issued approval authority copied to the Node. Every security-relevant
+/// decision input is bound so an approval cannot be replayed for another file,
+/// agent, workflow, stage or workspace revision.
+/// </summary>
+public sealed record ApprovalGrant(
+    string ApprovalId,
+    string ActionKind,
+    string Resource,
+    string AgentId,
+    StageType Stage,
+    string WorkflowRunId,
+    string ProjectId,
+    string WorkspaceId,
+    string WorkspaceBaseVersion,
+    string PolicyRevisionId,
+    string GrantedBy,
+    DateTimeOffset ExpiresAt);

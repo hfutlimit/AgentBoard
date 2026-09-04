@@ -10,6 +10,7 @@
 using AgentBoard.Api.Api.Common;
 using AgentBoard.Api.Api.Conventions;
 using AgentBoard.Api.Auth;
+using AgentBoard.Api.Durable;
 using AgentBoard.Api.Middleware;
 using AgentBoard.Api.Observability;
 using AgentBoard.Api.Security;
@@ -86,6 +87,10 @@ builder.Services.AddApplication();
 // the AddInfrastructure extension chooses the right DbContext provider
 // (memory / sqlite / mysql) based on configuration.
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.Configure<DurableWorkflowOptions>(builder.Configuration.GetSection("DurableWorkflow"));
+builder.Services.AddSingleton<DurableServerRuntime>();
+builder.Services.AddHostedService<DurableServerOutboxService>();
+builder.Services.AddHostedService<DurableServerResultConsumerService>();
 
 // Auth: PBKDF2 password hashing + stateless HMAC bearer token. Both mirror
 // the FastAPI formats so the .NET BFF authenticates against the same users
