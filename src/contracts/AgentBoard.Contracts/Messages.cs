@@ -116,6 +116,14 @@ public sealed record ArtifactReference(
 }
 
 /// <summary>
+/// The payload of an <c>execution.assign</c> command: the assignment plus the
+/// handoff the source stage produced, when one is required (doc 151 §7:
+/// "target stage 只依赖 HandoffContext"). The id is a reference; the Server
+/// registry holds the durable copy the Node can fetch and verify.
+/// </summary>
+public sealed record AssignCommandPayload(Assignment Assignment, string? HandoffId = null);
+
+/// <summary>
 /// The workspace a stage runs against (doc 151 §7).
 /// </summary>
 /// <remarks>

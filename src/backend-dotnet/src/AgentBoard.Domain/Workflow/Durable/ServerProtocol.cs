@@ -73,7 +73,8 @@ public sealed class CommandDispatcher
         string agentId,
         IReadOnlyList<string> requiredCapabilities,
         string policyRevisionId,
-        TimeSpan leaseBudget)
+        TimeSpan leaseBudget,
+        string? handoffId = null)
     {
         var execution = _registry.RequireExecution(executionId);
         var stage = _registry.RequireStage(execution.Current.StageRunId);
@@ -145,7 +146,7 @@ public sealed class CommandDispatcher
             IssuedAt = assignment.IssuedAt,
             ExpiresAt = assignment.ExpiresAt,
             Traceparent = NewTraceparent(commandId),
-            Payload = System.Text.Json.JsonSerializer.Serialize(assignment),
+            Payload = System.Text.Json.JsonSerializer.Serialize(new AssignCommandPayload(assignment, handoffId)),
             PolicyRevisionId = policyRevisionId,
         };
 
@@ -225,6 +226,7 @@ public sealed class ServerResultProcessor
     private readonly Func<string> _nextId;
     private readonly SentCommandLog _sent;
     private readonly PendingRetryQueue _retries;
+    private readonly AttemptEvidenceLog? _evidence;
 
     public ServerResultProcessor(
         WorkflowRegistry registry,
@@ -236,7 +238,8 @@ public sealed class ServerResultProcessor
         Func<DateTimeOffset> clock,
         Func<string> nextId,
         SentCommandLog sent,
-        PendingRetryQueue retries)
+        PendingRetryQueue retries,
+        AttemptEvidenceLog? evidence = null)
     {
         _registry = registry;
         _leases = leases;
@@ -248,6 +251,7 @@ public sealed class ServerResultProcessor
         _nextId = nextId;
         _sent = sent;
         _retries = retries;
+        _evidence = evidence;
     }
 
     public ResultVerdict Process(ResultEnvelope result)
@@ -397,6 +401,11 @@ public sealed class ServerResultProcessor
             _registry.MoveAttempt(result.AttemptId, attemptTarget, ctx);
             _registry.RecordAttemptResult(result.AttemptId, new AttemptResult(
                 result.AttemptId, result.ResultStatus, result.FailureCategory, result.OutcomeSummary));
+
+            // Keep the bounded evidence (artifacts/commit/tests/findings) so a
+            // later IssueHandoff is built from what actually happened, not from
+            // what a stage-2 caller remembers (doc 150 PR-010).
+            _evidence?.Record(result);
         }
         catch (DomainException e) when (e is IllegalTransitionException or InvalidValueException or DuplicateException)
         {

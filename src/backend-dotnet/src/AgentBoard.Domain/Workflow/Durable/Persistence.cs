@@ -40,7 +40,99 @@ public sealed record PlaneState(
     IReadOnlyList<DeadLetterEntry> DeadLetters,
     IReadOnlyList<ApprovalRequest> Approvals,
     IReadOnlyList<CommandEnvelope> SentCommands,
-    IReadOnlyList<PendingRetry> PendingRetries);
+    IReadOnlyList<PendingRetry> PendingRetries,
+    IReadOnlyList<HandoffContext> Handoffs,
+    IReadOnlyList<AttemptEvidence> Evidence);
+
+/// <summary>
+/// What an accepted result contributed for later stages: the bounded evidence
+/// fields of the result envelope (artifacts, commit, test evidence, review
+/// findings). Previously these were dropped at intake, which made a truthful
+/// HandoffContext impossible to build — handoffs were specified (doc 150
+/// PR-010) but had no production producer (doc 151 §7).
+/// </summary>
+public sealed record AttemptEvidence(
+    string AttemptId,
+    string OutcomeSummary,
+    IReadOnlyList<ArtifactReference> ArtifactReferences,
+    string? CommitOrVersion,
+    IReadOnlyList<string> TestEvidence,
+    IReadOnlyList<string> ReviewFindings);
+
+/// <summary>Durable Server-side handoff registry (doc 151 §7).</summary>
+public sealed class HandoffRegistry
+{
+    private readonly Dictionary<string, HandoffContext> _byId = new(StringComparer.Ordinal);
+
+    public IReadOnlyCollection<HandoffContext> Handoffs => _byId.Values;
+
+    public HandoffContext Add(HandoffContext handoff)
+    {
+        var errors = EnvelopeValidator.Validate(handoff);
+        if (errors.Count > 0)
+        {
+            throw new Common.InvalidValueException(
+                $"invalid handoff: {string.Join("; ", errors.Select(e => $"{e.Field} {e.Reason}"))}");
+        }
+
+        if (!_byId.TryAdd(handoff.HandoffId, handoff))
+        {
+            throw new Common.DuplicateException($"handoff '{handoff.HandoffId}' already exists");
+        }
+
+        return handoff;
+    }
+
+    public HandoffContext Require(string handoffId) =>
+        _byId.TryGetValue(handoffId, out var handoff)
+            ? handoff
+            : throw new Common.NotFoundException($"handoff '{handoffId}' not found");
+
+    public bool TryGet(string handoffId, out HandoffContext handoff) => _byId.TryGetValue(handoffId, out handoff!);
+
+    internal void Clear() => _byId.Clear();
+
+    internal void Restore(IReadOnlyList<HandoffContext> handoffs)
+    {
+        foreach (var handoff in handoffs)
+        {
+            _byId[handoff.HandoffId] = handoff;
+        }
+    }
+
+    public IReadOnlyList<HandoffContext> Capture() => _byId.Values.ToList();
+}
+
+/// <summary>Accepted results' evidence, keyed by attempt (bounded fields only).</summary>
+public sealed class AttemptEvidenceLog
+{
+    private readonly Dictionary<string, AttemptEvidence> _byAttempt = new(StringComparer.Ordinal);
+
+    public IReadOnlyCollection<AttemptEvidence> Entries => _byAttempt.Values;
+
+    public void Record(ResultEnvelope result) => _byAttempt[result.AttemptId] = new AttemptEvidence(
+        result.AttemptId,
+        result.OutcomeSummary ?? string.Empty,
+        result.ArtifactReferences,
+        result.CommitOrVersion,
+        result.TestEvidence,
+        result.ReviewFindings);
+
+    public AttemptEvidence? For(string attemptId) =>
+        _byAttempt.TryGetValue(attemptId, out var evidence) ? evidence : null;
+
+    internal void Clear() => _byAttempt.Clear();
+
+    internal void Restore(IReadOnlyList<AttemptEvidence> entries)
+    {
+        foreach (var entry in entries)
+        {
+            _byAttempt[entry.AttemptId] = entry;
+        }
+    }
+
+    public IReadOnlyList<AttemptEvidence> Capture() => _byAttempt.Values.ToList();
+}
 
 public static class RegistryPersistence
 {
@@ -262,7 +354,7 @@ public sealed class DurableServerPlane
         Planner = planner ?? new RetryPlanner();
         Dispatcher = new CommandDispatcher(Registry, Leases, Outbox, clock, nextId, Sent);
         Results = new ServerResultProcessor(
-            Registry, Leases, Inbox, Planner, DeadLetters, Dispatcher, clock, nextId, Sent, Retries);
+            Registry, Leases, Inbox, Planner, DeadLetters, Dispatcher, clock, nextId, Sent, Retries, Evidence);
     }
 
     /// <summary>
@@ -353,6 +445,55 @@ public sealed class DurableServerPlane
         Sent.Restore(prior.SentCommands);
         Retries.Clear();
         Retries.Restore(prior.PendingRetries);
+        Handoffs.Clear();
+        Handoffs.Restore(prior.Handoffs);
+        Evidence.Clear();
+        Evidence.Restore(prior.Evidence);
+    }
+
+    /// <summary>
+    /// Issues the durable HandoffContext for the next stage from a resolved
+    /// execution: source outcome, bounded evidence, workspace and required
+    /// capability — the explicit, verifiable bridge that replaces "the
+    /// previous provider session is still around" (doc 150 PR-010, doc 151 §7).
+    /// </summary>
+    public HandoffContext IssueHandoff(
+        string sourceStageRunId,
+        string executionId,
+        StageType targetStageType,
+        IReadOnlyList<string> requiredCapabilities,
+        WorkspaceReference workspace,
+        string taskContext = "{}")
+    {
+        var execution = Registry.RequireExecution(executionId);
+        if (execution.Outcome is not { } outcome)
+        {
+            throw new Common.InvalidValueException(
+                $"execution '{executionId}' has no accepted outcome; a handoff must carry one (doc 151 §7)");
+        }
+
+        var evidence = Evidence.For(outcome.AcceptedAttemptId);
+
+        var handoff = new HandoffContext
+        {
+            HandoffId = $"hnd-{NextId()}",
+            SourceStageRunId = sourceStageRunId,
+            SourceOutcomeId = outcome.OutcomeId,
+            TargetStageType = targetStageType,
+            TaskContext = taskContext,
+            ArtifactReferences = evidence?.ArtifactReferences ?? Array.Empty<ArtifactReference>(),
+            Workspace = workspace,
+            CommitOrVersion = evidence?.CommitOrVersion,
+            TestEvidence = evidence?.TestEvidence ?? Array.Empty<string>(),
+            ReviewFindings = evidence?.ReviewFindings ?? Array.Empty<string>(),
+            ContextVersion = "handoff.v1",
+            RequiredCapabilities = requiredCapabilities,
+        };
+
+        Handoffs.Add(handoff);
+        Registry.Audit.Append("server", "handoff.issued", handoff.HandoffId,
+            $"{execution.Current.StageRunId} -> {targetStageType} over outcome '{outcome.OutcomeId}'");
+        return handoff;
     }
 
     internal Func<DateTimeOffset> Clock { get; }
@@ -366,6 +507,8 @@ public sealed class DurableServerPlane
     public ApprovalInbox Approvals { get; }
     public SentCommandLog Sent { get; }
     public PendingRetryQueue Retries { get; }
+    public HandoffRegistry Handoffs { get; } = new();
+    public AttemptEvidenceLog Evidence { get; } = new();
     public RetryPlanner Planner { get; }
     public CommandDispatcher Dispatcher { get; }
     public ServerResultProcessor Results { get; }
@@ -378,7 +521,9 @@ public sealed class DurableServerPlane
         DeadLetters.Capture(),
         Approvals.Capture(),
         Sent.Capture(),
-        Retries.Capture());
+        Retries.Capture(),
+        Handoffs.Capture(),
+        Evidence.Capture());
 
     public static DurableServerPlane Restore(Func<DateTimeOffset> clock, Func<string> nextId, PlaneState state)
     {
@@ -391,6 +536,8 @@ public sealed class DurableServerPlane
         plane.Approvals.Restore(state.Approvals);
         plane.Sent.Restore(state.SentCommands);
         plane.Retries.Restore(state.PendingRetries);
+        plane.Handoffs.Restore(state.Handoffs);
+        plane.Evidence.Restore(state.Evidence);
         return plane;
     }
 }

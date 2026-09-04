@@ -438,6 +438,75 @@ public class ProtocolTests
     }
 
     // ------------------------------------------------------------------
+    // Explicit stage handoff (doc 150 PR-010, doc 151 §7)
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public void IssueHandoff_carries_accepted_evidence_into_the_next_stage_contract()
+    {
+        var fixture = new PlaneFixture();
+        fixture.DispatchDev();
+        var digest = new string('a', 64);
+
+        var result = fixture.Result(AttemptResultStatus.Succeeded, summary: "dev done") with
+        {
+            ArtifactReferences = new[] { new ArtifactReference("artifact://diff", digest, 12) },
+            CommitOrVersion = "commit-1",
+            TestEvidence = new[] { "48 tests green" },
+        };
+        Assert.Equal(ResultOutcomeKind.Accepted, fixture.Plane.Results.Process(result).Kind);
+
+        var handoff = fixture.Plane.IssueHandoff("stg-dev-1", fixture.ExecutionId, StageType.Review,
+            new[] { "review" }, new WorkspaceReference("proj", "ws", "commit-1"));
+
+        Assert.Equal("handoff.v1", handoff.ContextVersion);
+        Assert.Equal("commit-1", handoff.CommitOrVersion);
+        Assert.Single(handoff.ArtifactReferences);
+        Assert.Single(handoff.TestEvidence);
+        var outcome = fixture.Plane.Registry.RequireExecution(fixture.ExecutionId).Outcome!;
+        Assert.Equal(outcome.OutcomeId, handoff.SourceOutcomeId);
+
+        // The next stage's command names the handoff; the target depends only
+        // on this context, never on the previous provider session.
+        fixture.Plane.Registry.AddStage("run-1", "stg-rev-1", StageType.Review, 1, null);
+        fixture.Plane.Registry.AddExecution("stg-rev-1", "exec-rev");
+        fixture.Plane.Dispatcher.Dispatch("exec-rev", "worker-2", "agent.rev", new[] { "review" },
+            "policy-rev-1", TimeSpan.FromMinutes(10), handoffId: handoff.HandoffId);
+
+        var command = fixture.Plane.Sent.Commands.Last();
+        var payload = System.Text.Json.JsonSerializer.Deserialize<AssignCommandPayload>(command.Payload)!;
+        Assert.Equal(handoff.HandoffId, payload.HandoffId);
+        Assert.Equal("exec-rev", payload.Assignment.ExecutionId);
+
+        // Durable across restart like everything else on the plane.
+        var state = fixture.Plane.Capture();
+        var revived = DurableServerPlane.Restore(() => fixture.Now, fixture.NextId, state);
+        Assert.Equal("commit-1", revived.Handoffs.Require(handoff.HandoffId).CommitOrVersion);
+    }
+
+    [Fact]
+    public void IssueHandoff_requires_an_accepted_outcome_first()
+    {
+        var fixture = new PlaneFixture();
+        fixture.DispatchDev();
+
+        Assert.Throws<AgentBoard.Domain.Common.InvalidValueException>(() =>
+            fixture.Plane.IssueHandoff("stg-dev-1", fixture.ExecutionId, StageType.Review,
+                new[] { "review" }, new WorkspaceReference("p", "w", "v")));
+    }
+
+    [Fact]
+    public void Handoff_without_capabilities_fails_closed_at_the_registry()
+    {
+        var fixture = new PlaneFixture();
+        fixture.CompleteDevelopment();
+
+        Assert.Throws<AgentBoard.Domain.Common.InvalidValueException>(() =>
+            fixture.Plane.IssueHandoff("stg-dev-1", fixture.ExecutionId, StageType.Review,
+                Array.Empty<string>(), new WorkspaceReference("p", "w", "v")));
+    }
+
+    // ------------------------------------------------------------------
     // Approvals
     // ------------------------------------------------------------------
 
