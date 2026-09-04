@@ -72,6 +72,40 @@ public sealed record WorkflowVersion(
     string ContentHash);
 
 /// <summary>
+/// Canonical hashing of a workflow graph. Collections inside immutable records
+/// are not themselves frozen, so publishing recomputes this and refuses a
+/// mismatch instead of trusting whatever string arrived — "the hash, not the
+/// type system, is what detects tampering with the graph" (doc 151 §4.1).
+/// </summary>
+public static class WorkflowGraph
+{
+    /// <summary>Stable digest of the graph; node order does not affect it.</summary>
+    public static string ComputeContentHash(IReadOnlyList<WorkflowNode> nodes)
+    {
+        var canonical = new System.Text.StringBuilder();
+
+        foreach (var node in nodes.OrderBy(n => n.NodeId, StringComparer.Ordinal))
+        {
+            canonical.Append(node.NodeId).Append('|')
+                .Append(node.StageType).Append('|')
+                .Append(node.RequiredCapability).Append('|')
+                .Append(node.InputContract).Append('|')
+                .Append(node.OutputContract).Append('|')
+                .Append(string.Join(",", node.AllowedTransitions.OrderBy(t => t))).Append('|')
+                .Append(node.RetryPolicyRef).Append('|')
+                .Append(node.PolicyRequirements).Append('|')
+                .Append(node.Budget.TimeoutSeconds).Append('x')
+                .Append(node.Budget.LeaseSeconds).Append('|')
+                .Append(node.HandoffRequired).Append(';');
+        }
+
+        var hash = System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(canonical.ToString()));
+        return "sha256:" + Convert.ToHexString(hash).ToLowerInvariant();
+    }
+}
+
+/// <summary>
 /// Why a stage run exists beyond the first iteration (doc 151 §4.2).
 /// </summary>
 public static class StageRunReasons

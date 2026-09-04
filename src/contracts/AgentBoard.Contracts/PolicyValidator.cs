@@ -75,6 +75,14 @@ public static class PolicyValidator
             return (PolicyDecision.Allow, FailureCategory.None);
         }
 
+        if (request.ApprovalChannelOpen)
+        {
+            // A channel exists (Local Portal / designated operator): hold the
+            // action until the decision arrives. The waiting stage itself is
+            // StageRunState.WaitingApproval, owned by the registry.
+            return (PolicyDecision.RequireApproval, FailureCategory.None);
+        }
+
         // Never wait on an approval that cannot arrive: the run must fail fast
         // into a queryable, retryable state.
         return (PolicyDecision.Deny, FailureCategory.ApprovalUnavailable);

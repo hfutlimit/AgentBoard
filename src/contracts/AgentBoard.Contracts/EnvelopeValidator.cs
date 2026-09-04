@@ -22,7 +22,16 @@ public static class EnvelopeValidator
     public static IReadOnlyList<EnvelopeError> Validate(CommandEnvelope command)
     {
         var errors = new List<EnvelopeError>();
-        ValidateHeader(command, errors);
+        ValidateHeader(command, errors, "command");
+
+        // A command envelope carrying a result-family type (or vice versa)
+        // would route by convention; the type set per envelope is closed.
+        if (command.MessageType is not (MessageTypes.ExecutionAssign or MessageTypes.ExecutionCancel))
+        {
+            errors.Add(new EnvelopeError(
+                nameof(command.MessageType),
+                $"'{command.MessageType}' is not a command message type; expected '{MessageTypes.ExecutionAssign}' or '{MessageTypes.ExecutionCancel}'"));
+        }
 
         Require(errors, nameof(command.LeaseId), command.LeaseId);
         Require(errors, nameof(command.PolicyRevisionId), command.PolicyRevisionId);
@@ -65,7 +74,14 @@ public static class EnvelopeValidator
     public static IReadOnlyList<EnvelopeError> Validate(ResultEnvelope result)
     {
         var errors = new List<EnvelopeError>();
-        ValidateHeader(result, errors);
+        ValidateHeader(result, errors, "result");
+
+        if (result.MessageType is not (MessageTypes.ExecutionResult or MessageTypes.ExecutionSummary))
+        {
+            errors.Add(new EnvelopeError(
+                nameof(result.MessageType),
+                $"'{result.MessageType}' is not a result message type; expected '{MessageTypes.ExecutionResult}' or '{MessageTypes.ExecutionSummary}'"));
+        }
 
         if (result.LeaseEpoch < 1)
         {
@@ -131,12 +147,7 @@ public static class EnvelopeValidator
                 nameof(envelope.Source), "must start with 'node://' to be globally dedupable"));
         }
 
-        if (!SchemaVersion.TryParse(envelope.SchemaVersion, out _))
-        {
-            errors.Add(new EnvelopeError(
-                nameof(envelope.SchemaVersion),
-                $"'{envelope.SchemaVersion}' is not a valid schema version"));
-        }
+        ValidateContractVersion(errors, nameof(envelope.SchemaVersion), envelope.SchemaVersion, "execution-event");
 
         return errors;
     }
@@ -157,12 +168,7 @@ public static class EnvelopeValidator
                 $"'{handoff.TargetStageType}' is not a defined stage type"));
         }
 
-        if (!SchemaVersion.TryParse(handoff.ContextVersion, out _))
-        {
-            errors.Add(new EnvelopeError(
-                nameof(handoff.ContextVersion),
-                $"'{handoff.ContextVersion}' is not a valid schema version"));
-        }
+        ValidateContractVersion(errors, nameof(handoff.ContextVersion), handoff.ContextVersion, "handoff");
 
         if (handoff.Workspace is null)
         {
@@ -232,7 +238,42 @@ public static class EnvelopeValidator
         return errors;
     }
 
-    private static void ValidateHeader(EnvelopeBase envelope, List<EnvelopeError> errors)
+    /// <summary>
+    /// doc 150 PR-016 / doc 151 §11: an unsupported major version must be
+    /// explicitly rejected, while a higher minor stays consumable because
+    /// unknown optional fields must be ignored. The expected contract name is
+    /// checked too — "result.v1" on a command envelope is a routing error,
+    /// not a version nit.
+    /// </summary>
+    internal const int SupportedMajor = 1;
+
+    private static void ValidateContractVersion(
+        List<EnvelopeError> errors, string field, string? schemaVersion, string expectedName)
+    {
+        if (!SchemaVersion.TryParse(schemaVersion, out var parsed))
+        {
+            errors.Add(new EnvelopeError(
+                field, $"'{schemaVersion}' is not a valid schema version"));
+            return;
+        }
+
+        if (!string.Equals(parsed.Name, expectedName, StringComparison.Ordinal))
+        {
+            errors.Add(new EnvelopeError(
+                field, $"'{schemaVersion}' names contract '{parsed.Name}'; this message type implements '{expectedName}'"));
+            return;
+        }
+
+        if (parsed.Major != SupportedMajor)
+        {
+            errors.Add(new EnvelopeError(
+                field,
+                $"'{expectedName}.v{parsed.Major}' is not supported; this consumer implements " +
+                $"'{expectedName}.v{SupportedMajor}' and must reject unknown majors rather than guess (doc 150 PR-016)"));
+        }
+    }
+
+    private static void ValidateHeader(EnvelopeBase envelope, List<EnvelopeError> errors, string expectedName)
     {
         Require(errors, nameof(envelope.MessageId), envelope.MessageId);
         Require(errors, nameof(envelope.CorrelationId), envelope.CorrelationId);
@@ -245,12 +286,7 @@ public static class EnvelopeValidator
         Require(errors, nameof(envelope.WorkerId), envelope.WorkerId);
         Require(errors, nameof(envelope.AgentId), envelope.AgentId);
 
-        if (!SchemaVersion.TryParse(envelope.SchemaVersion, out _))
-        {
-            errors.Add(new EnvelopeError(
-                nameof(envelope.SchemaVersion),
-                $"'{envelope.SchemaVersion}' is not a valid schema version"));
-        }
+        ValidateContractVersion(errors, nameof(envelope.SchemaVersion), envelope.SchemaVersion, expectedName);
 
         if (!MessageTypes.IsKnown(envelope.MessageType))
         {

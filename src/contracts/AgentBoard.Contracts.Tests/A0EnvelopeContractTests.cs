@@ -133,6 +133,36 @@ public sealed class A0EnvelopeContractTests
     // -------------------------------------------------------------------------
 
     [Fact]
+    public void Unsupported_major_version_is_rejected_rather_than_guessed()
+    {
+        // doc 150 PR-016: an unknown major must be refused outright. Parsing
+        // "command.v2" successfully is not enough: v2 may mean something
+        // entirely different to whoever wrote it.
+        var command = ValidCommand() with { SchemaVersion = "command.v2" };
+        Assert.Contains(EnvelopeValidator.Validate(command),
+            e => e.Field == nameof(CommandEnvelope.SchemaVersion));
+
+        var result = ValidResult() with { SchemaVersion = "result.v99" };
+        Assert.Contains(EnvelopeValidator.Validate(result),
+            e => e.Field == nameof(ResultEnvelope.SchemaVersion));
+
+        // A higher MINOR stays consumable: unknown optional fields are ignored.
+        var nextMinor = ValidCommand() with { SchemaVersion = "command.v1.4" };
+        Assert.Empty(EnvelopeValidator.Validate(nextMinor));
+    }
+
+    [Fact]
+    public void Envelope_family_and_message_type_must_agree()
+    {
+        // "execution.result" arriving as a CommandEnvelope is a routing bug;
+        // the closed per-envelope type sets refuse it at the boundary.
+        var crossed = ValidCommand() with { MessageType = MessageTypes.ExecutionResult };
+        Assert.Contains(
+            EnvelopeValidator.Validate(crossed),
+            e => e.Field == nameof(CommandEnvelope.MessageType));
+    }
+
+    [Fact]
     public void Unknown_message_type_is_rejected()
     {
         var command = ValidCommand() with { MessageType = "execution.???" };

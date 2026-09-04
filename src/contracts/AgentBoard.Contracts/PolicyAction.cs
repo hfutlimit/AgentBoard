@@ -63,4 +63,9 @@ public sealed record PolicyDecisionRequest(
     string? WorkflowRunId,
     WorkspaceReference? Workspace,
     string PolicyRevisionId,
-    bool ApprovalGranted);
+    bool ApprovalGranted,
+    // doc 150 PR-005 separates "wait for a local/designated Operator approval"
+    // from "no approval channel exists, fail fast". A bare boolean conflated
+    // the two and made the waiting state unreachable. Default false keeps
+    // existing constructions describing exactly the unattended case.
+    bool ApprovalChannelOpen = false);
