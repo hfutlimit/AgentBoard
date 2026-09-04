@@ -154,7 +154,7 @@ public sealed partial class WorkflowRegistry
                 "published versions must prove their nodes, not merely name a hash");
         }
 
-        var frozen = version with { Nodes = (IReadOnlyList<WorkflowNode>?)version.Nodes.ToArray() ?? Array.Empty<WorkflowNode>() };
+        var frozen = WorkflowGraph.Freeze(version);
 
         if (!_versions.TryAdd(frozen.VersionId, frozen))
         {

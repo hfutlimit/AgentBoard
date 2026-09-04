@@ -170,6 +170,85 @@ public class ProtocolTests
             fixture.Plane.Leases.Renew(assignment.AssignmentId, fixture.Now + TimeSpan.FromMinutes(10)));
     }
 
+    [Fact]
+    public void Zero_lease_budget_is_refused_before_any_mutation()
+    {
+        var fixture = new PlaneFixture();
+
+        Assert.Throws<AgentBoard.Domain.Common.InvalidValueException>(() => fixture.Plane.Dispatcher.Dispatch(
+            fixture.ExecutionId, "worker-1", "agent.dev", new[] { "development" }, "policy-rev-1",
+            TimeSpan.Zero));
+
+        // The stage must be untouched: an invalid dispatch may not even
+        // leave the Pending -> Assigned step behind (doc 151 §6.1 one unit).
+        Assert.Equal(StageRunState.Pending, fixture.Plane.Registry.RequireStage("stg-dev-1").Current.State);
+        Assert.Empty(fixture.Plane.Leases.Assignments);
+        Assert.Empty(fixture.Plane.Outbox.Messages);
+    }
+
+    [Fact]
+    public void Summary_traffic_cannot_finalize_the_authoritative_machines()
+    {
+        var fixture = new PlaneFixture();
+        fixture.DispatchDev();
+
+        var summary = fixture.Result(AttemptResultStatus.Succeeded, summary: "progress") with
+        {
+            MessageType = MessageTypes.ExecutionSummary,
+        };
+
+        var verdict = fixture.Plane.Results.Process(summary);
+        Assert.Equal(ResultOutcomeKind.RejectedNonAuthoritative, verdict.Kind);
+
+        var attempt = fixture.Plane.Registry.RequireExecution(fixture.ExecutionId).LatestAttempt!;
+        Assert.Equal(ExecutionAttemptState.Created, attempt.Current.State);
+        Assert.Null(fixture.Plane.Registry.RequireExecution(fixture.ExecutionId).Outcome);
+        Assert.Contains(fixture.Plane.Registry.Audit.Records, r => r.Action == "summary.received");
+    }
+
+    [Fact]
+    public void Result_without_provable_origin_fails_closed()
+    {
+        var fixture = new PlaneFixture();
+        fixture.CompleteDevelopment();
+
+        // A second execution+assignment recorded directly in the lease store
+        // (as restored or partially committed state might present) has no
+        // issued command behind it. The result must be refused, not trusted.
+        fixture.Plane.Registry.AddStage("run-1", "stg-dev-2", StageType.Development, 2, null);
+        fixture.Plane.Registry.AddExecution("stg-dev-2", "exec-2");
+        var assignment = new Assignment(
+            "asg-unproven", "run-1", "stg-dev-2", "exec-2", "att-unproven", "worker-1", "agent.dev",
+            "lease-x", 1, new[] { "development" }, fixture.Now, fixture.Now + TimeSpan.FromMinutes(10),
+            "policy-rev-1");
+        fixture.Plane.Leases.Grant(assignment);
+        fixture.Plane.Registry.AddAttempt("exec-2", "att-unproven", 1);
+
+        var verdict = fixture.Plane.Results.Process(new ResultEnvelope
+        {
+            MessageId = "msg-unproven",
+            SchemaVersion = "result.v1",
+            MessageType = MessageTypes.ExecutionResult,
+            CorrelationId = "run-1",
+            CausationId = "cmd-never-issued",
+            IdempotencyKey = "asg-unproven:att-unproven",
+            WorkflowRunId = "run-1",
+            StageRunId = "stg-dev-2",
+            ExecutionId = "exec-2",
+            AttemptId = "att-unproven",
+            AssignmentId = "asg-unproven",
+            WorkerId = "worker-1",
+            AgentId = "agent.dev",
+            LeaseEpoch = 1,
+            ResultStatus = AttemptResultStatus.Succeeded,
+            Traceparent = PlaneFixture.Trace,
+            CreatedAt = fixture.Now,
+        });
+
+        Assert.Equal(ResultOutcomeKind.RejectedSchema, verdict.Kind);
+        Assert.Contains("cannot be verified", verdict.Reason);
+    }
+
     // ------------------------------------------------------------------
     // Failure handling: retry vs DLQ
     // ------------------------------------------------------------------
@@ -195,6 +274,10 @@ public class ProtocolTests
         Assert.Single(fixture.Plane.Retries.Pending);
 
         fixture.Advance(1); // default base delay is 2 seconds
+
+        // A dispatch that throws must NOT consume the retry: losing the only
+        // deferred record would turn the backoff into a work-loss window.
+        Assert.Single(fixture.Plane.Retries.Pending);
         Assert.Equal(1, fixture.Plane.ProcessDueRetries());
 
         Assert.Equal(2, execution.Attempts.Count);
@@ -202,6 +285,26 @@ public class ProtocolTests
         Assert.True(fixture.Plane.Outbox.Messages.Count > firstCommandCount);
         Assert.Null(execution.Outcome);
         Assert.Empty(fixture.Plane.Retries.Pending);
+    }
+
+    [Fact]
+    public void Failed_retry_dispatch_keeps_the_retry_on_record()
+    {
+        var fixture = new PlaneFixture();
+        fixture.DispatchDev();
+        fixture.Plane.Results.Process(
+            fixture.Result(AttemptResultStatus.Failed, FailureCategory.ProviderFailure));
+        fixture.Advance(1);
+
+        // Make the retry impossible to dispatch: cancel the stage while the
+        // backoff sleeps, so the due dispatch refuses. The queue must retain
+        // the entry instead of having consumed it first.
+        fixture.Plane.Registry.MoveStage("stg-dev-1", StageRunState.Cancelled,
+            PlaneFixture.Ctx("operator cancelled while retry was deferred"));
+
+        Assert.Throws<AgentBoard.Domain.Common.InvalidValueException>(
+            () => fixture.Plane.ProcessDueRetries());
+        Assert.Single(fixture.Plane.Retries.Pending); // still there, nothing lost
     }
 
     [Fact]

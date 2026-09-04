@@ -58,13 +58,28 @@ public class RegistryTests
             () => fixture.Plane.Registry.PublishVersion(tamperedHash));
 
         var published = fixture.Plane.Registry.RequireVersion(fixture.Version.VersionId);
-        var nodesField = (System.Collections.Generic.IReadOnlyList<WorkflowNode>)published.Nodes;
         Assert.Throws<System.NotSupportedException>(() =>
         {
             // The stored copy must reject mutation even though the original
             // List was passed in by the publisher.
-            ((System.Collections.Generic.IList<WorkflowNode>)nodesField)
+            ((System.Collections.Generic.IList<WorkflowNode>)published.Nodes)
                 .Add(PlaneFixture.Node(StageType.Proposal));
+        });
+
+        // An array copy would still allow element REPLACEMENT via the IList
+        // indexer; the read-only wrapper must refuse that too.
+        Assert.Throws<System.NotSupportedException>(() =>
+        {
+            ((System.Collections.Generic.IList<WorkflowNode>)published.Nodes)[0] =
+                PlaneFixture.Node(StageType.Proposal);
+        });
+
+        // Nested collections are frozen as well: the node's own
+        // AllowedTransitions list is no longer the caller's mutable List.
+        Assert.Throws<System.NotSupportedException>(() =>
+        {
+            ((System.Collections.Generic.IList<StageType>)published.Nodes[0].AllowedTransitions)
+                .Add(StageType.Qa);
         });
     }
 

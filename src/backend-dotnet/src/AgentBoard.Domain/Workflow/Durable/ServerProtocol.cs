@@ -18,6 +18,9 @@ public enum ResultOutcomeKind
     RejectedStaleEpoch,
     RejectedLeaseExpired,
     RejectedIllegalTransition,
+
+    /// <summary>Best-effort summary traffic; recorded but never authoritative.</summary>
+    RejectedNonAuthoritative,
 }
 
 /// <summary>
@@ -81,25 +84,26 @@ public sealed class CommandDispatcher
             throw new InvalidValueException($"stage '{stage.Current.StageRunId}' is {stage.Current.State}; nothing to dispatch");
         }
 
-        if (stage.Machine.Current == StageRunState.Pending)
-        {
-            _registry.MoveStage(stage.Current.StageRunId, StageRunState.Assigned,
-                new TransitionContext("server", "assignment dispatched", SchemaVersions.Registry));
-        }
-
-        // Every check and every object that can fail validation is produced
-        // BEFORE the first mutation, so an invalid dispatch cannot leave a
-        // half-applied (stage assigned / lease granted / attempt missing)
-        // trail behind it.
+        // Every check that can fail runs BEFORE the first mutation, so an
+        // invalid dispatch cannot leave a half-applied (stage assigned / lease
+        // granted / attempt missing) trail behind it.
         if (leaseBudget <= TimeSpan.Zero)
         {
             throw new InvalidValueException("a dispatch needs a positive lease budget");
         }
 
-        if (_registry.RequireExecution(executionId).Outcome is not null)
+        if (execution.Outcome is not null)
         {
             throw new InvalidValueException(
                 $"execution '{executionId}' already resolved; dispatching again would court a second outcome");
+        }
+
+        var mustAssignStage = stage.Machine.Current == StageRunState.Pending;
+
+        if (mustAssignStage)
+        {
+            _registry.MoveStage(stage.Current.StageRunId, StageRunState.Assigned,
+                new TransitionContext("server", "assignment dispatched", SchemaVersions.Registry));
         }
 
         var now = _clock();
@@ -260,6 +264,18 @@ public sealed class ServerResultProcessor
             return new ResultVerdict(ResultOutcomeKind.RejectedSchema, reason);
         }
 
+        // Execution summaries are best-effort observation traffic (doc 151
+        // section 8.3: WSS/summary views must never carry final
+        // success/failure semantics). They must not move the machines.
+        if (result.MessageType == MessageTypes.ExecutionSummary)
+        {
+            audit.Append("server", "summary.received", result.AttemptId,
+                "non-authoritative summary observed; no state change", result.CorrelationId);
+            return new ResultVerdict(
+                ResultOutcomeKind.RejectedNonAuthoritative,
+                "execution.summary must not finalize attempts; publish the authoritative execution.result");
+        }
+
         // Step 1: inbox dedup on message instance, then on business operation.
         var messageKey = Inbox.MessageKey(result.MessageId);
         if (!_inbox.TryReserve(messageKey, DedupKind.Message, out var existingMessage))
@@ -322,16 +338,23 @@ public sealed class ServerResultProcessor
 
         // The Server holds the exact command envelope it issued; the result
         // must be causally tied to it rather than merely self-consistent
-        // (doc 151 §5.6 ValidateResultFollowsCommand, wired into intake).
-        if (_sent.TryGet(result.AssignmentId, out var issuedCommand))
+        // (doc 151 section 5.6 ValidateResultFollowsCommand, wired into intake).
+        // Unknown provenance FAILS CLOSED: accepting a result whose originating
+        // command cannot be proven would let restored or partially committed
+        // state legitimize fabricated outcomes (doc 150 section 10 rule 8).
+        if (!_sent.TryGet(result.AssignmentId, out var issuedCommand))
         {
-            var followErrors = EnvelopeValidator.ValidateResultFollowsCommand(issuedCommand, result);
-            if (followErrors.Count > 0)
-            {
-                var reason = string.Join("; ", followErrors.Select(e => $"{e.Field} {e.Reason}"));
-                audit.Append("server", "result.rejected", result.MessageId, reason, result.CorrelationId);
-                return new ResultVerdict(ResultOutcomeKind.RejectedSchema, reason);
-            }
+            var noProvenance = $"no issued command on record proves assignment '{result.AssignmentId}'; result origin cannot be verified";
+            audit.Append("server", "result.rejected", result.MessageId, noProvenance, result.CorrelationId);
+            return new ResultVerdict(ResultOutcomeKind.RejectedSchema, noProvenance);
+        }
+
+        var followErrors = EnvelopeValidator.ValidateResultFollowsCommand(issuedCommand, result);
+        if (followErrors.Count > 0)
+        {
+            var reason = string.Join("; ", followErrors.Select(e => $"{e.Field} {e.Reason}"));
+            audit.Append("server", "result.rejected", result.MessageId, reason, result.CorrelationId);
+            return new ResultVerdict(ResultOutcomeKind.RejectedSchema, reason);
         }
 
         TrackedAttempt attempt;

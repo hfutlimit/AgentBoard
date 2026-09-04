@@ -74,9 +74,11 @@ public sealed partial class WorkflowRegistry
     /// <summary>Loads persisted state into this (fresh) registry instance.</summary>
     internal void Load(RegistryState state)
     {
+        // Restored copies arrive as mutable lists from JSON; freeze them again
+        // or a restart silently un-freezes released graphs.
         foreach (var version in state.Versions)
         {
-            _versions[version.VersionId] = version;
+            _versions[version.VersionId] = WorkflowGraph.Freeze(version);
         }
 
         foreach (var run in state.Runs)
@@ -285,15 +287,48 @@ public sealed class DurableServerPlane
         }
     }
 
-    /// <summary>Dispatches every scheduled retry whose backoff has elapsed.</summary>
+    /// <summary>
+    /// Opens the durable approval record AND parks the stage in
+    /// WaitingApproval together, so "awaiting approval" is a state the Server
+    /// registry owns rather than a value a caller asserts (doc 150 PR-005).
+    /// </summary>
+    public ApprovalRequest AwaitApproval(
+        string stageRunId, string assignmentId, string policyRevisionId, string actionKind, TimeSpan window)
+    {
+        var request = Approvals.Open(
+            $"apr-{NextId()}", stageRunId, assignmentId, policyRevisionId, actionKind, window);
+
+        Registry.MoveStage(stageRunId, StageRunState.WaitingApproval,
+            new TransitionContext("server", $"approval requested for '{actionKind}'", SchemaVersions.Registry));
+        return request;
+    }
+
+    /// <summary>Resolves an open approval and moves the parked stage accordingly.</summary>
+    public StageRun ResolveApproval(string approvalId, bool granted, string actor, string reason)
+    {
+        var request = Approvals.Decide(approvalId, granted, actor, reason);
+
+        return Registry.MoveStage(
+            request.StageRunId,
+            granted ? StageRunState.Running : StageRunState.Failed,
+            new TransitionContext(actor, granted ? "approval granted" : "approval denied", SchemaVersions.Registry));
+    }
+
+    /// <summary>
+    /// Dispatches scheduled retries whose backoff has elapsed. Each stays in
+    /// the queue until its dispatch durably succeeded: a throwing or crashing
+    /// dispatch must leave the retry on record, or the deferral itself would
+    /// become a way to lose work (doc 150 PR-012 queryable terminal states).
+    /// </summary>
     public int ProcessDueRetries()
     {
         var dispatched = 0;
-        foreach (var retry in Retries.TakeDue())
+        foreach (var retry in Retries.Due())
         {
             Dispatcher.Dispatch(
                 retry.ExecutionId, retry.WorkerId, retry.AgentId,
                 retry.Capabilities, retry.PolicyRevisionId, retry.LeaseBudget);
+            Retries.Complete(retry);
             dispatched++;
         }
 
@@ -414,18 +449,15 @@ public sealed class PendingRetryQueue
 
     public void Schedule(PendingRetry retry) => _pending.Add(retry);
 
-    /// <summary>Removes and returns everything due at the current time, oldest first.</summary>
-    public IReadOnlyList<PendingRetry> TakeDue()
+    /// <summary>Everything due at the current time, oldest first, without removal.</summary>
+    public IReadOnlyList<PendingRetry> Due()
     {
         var now = _clock();
-        var due = _pending.Where(r => r.Due <= now).OrderBy(r => r.Due).ToList();
-        foreach (var retry in due)
-        {
-            _pending.Remove(retry);
-        }
-
-        return due;
+        return _pending.Where(r => r.Due <= now).OrderBy(r => r.Due).ToList();
     }
+
+    /// <summary>Takes a retry out of the queue only after its dispatch succeeded.</summary>
+    public void Complete(PendingRetry retry) => _pending.Remove(retry);
 
     internal void Clear() => _pending.Clear();
 
