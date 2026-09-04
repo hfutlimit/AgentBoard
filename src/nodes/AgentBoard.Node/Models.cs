@@ -249,7 +249,9 @@ public sealed record ExecutionContext(
     // prompt builder 按 type 分执行语义；null → implementation 语义。
     string? TaskType = null,
     string? WorkingDirectory = null,
-    bool DurableExecution = false);
+    bool DurableExecution = false,
+    AgentBoard.Contracts.StageType? StageType = null,
+    AgentBoard.Contracts.HandoffContext? Handoff = null);
 
 public sealed record AgentExecutionResult(
     bool Success,

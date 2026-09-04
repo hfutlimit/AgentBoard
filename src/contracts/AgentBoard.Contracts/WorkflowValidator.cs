@@ -45,6 +45,24 @@ public static class WorkflowValidator
             Require(errors, $"{nameof(version.Nodes)}[].RetryPolicyRef", node.RetryPolicyRef);
             Require(errors, $"{nameof(version.Nodes)}[].PolicyRequirements", node.PolicyRequirements);
 
+            if (node.MaxReworkIterations is not null &&
+                (node.StageType != StageType.Qa || node.MaxReworkIterations is < 1 or > 10))
+                errors.Add(new EnvelopeError(nameof(node.MaxReworkIterations),
+                    "only the QA node may declare the shared rework budget, between 1 and 10"));
+            if (node.StageType == StageType.Qa && node.AllowedTransitions.Contains(StageType.Development))
+            {
+                if (node.MaxReworkIterations is null)
+                    errors.Add(new EnvelopeError(nameof(node.MaxReworkIterations),
+                        "QA feedback requires a bounded shared rework budget"));
+                if (!SchemaVersion.TryParse(version.SchemaVersion, out var schema) ||
+                    schema.Name != "workflow" || schema.Major != 1 || schema.Minor < 1)
+                    errors.Add(new EnvelopeError(nameof(version.SchemaVersion),
+                        "QA feedback requires workflow.v1.1 or a compatible later minor"));
+            }
+            else if (node.MaxReworkIterations is not null)
+                errors.Add(new EnvelopeError(nameof(node.MaxReworkIterations),
+                    "a QA rework budget requires the QA->Development feedback edge"));
+
             if (!seenNodeIds.Add(node.NodeId))
             {
                 errors.Add(new EnvelopeError(
@@ -113,6 +131,30 @@ public static class WorkflowValidator
 
         if (errors.Count == 0)
         {
+            var qa = version.Nodes.FirstOrDefault(node => node.StageType == StageType.Qa);
+            if (qa?.MaxReworkIterations is not null)
+            {
+                var visited = new HashSet<StageType>();
+                WorkflowNode? cursor = WorkflowGraphNavigator.NodeFor(version, StageType.Development);
+                while (cursor is not null && visited.Add(cursor.StageType) && cursor.StageType != StageType.Qa)
+                    cursor = WorkflowGraphNavigator.Successor(version, cursor.StageType);
+                if (cursor?.StageType != StageType.Qa || !visited.Contains(StageType.Review))
+                    errors.Add(new EnvelopeError(nameof(version.Nodes),
+                        "QA rework must return through development, review and QA on the success path"));
+                foreach (var start in version.Nodes)
+                {
+                    visited.Clear();
+                    cursor = start;
+                    while (cursor is not null && visited.Add(cursor.StageType))
+                        cursor = WorkflowGraphNavigator.Successor(version, cursor.StageType);
+                    if (cursor is not null)
+                    {
+                        errors.Add(new EnvelopeError(nameof(version.Nodes),
+                            "bounded QA rework cannot contain a cycle on the success path"));
+                        break;
+                    }
+                }
+            }
             var normalInbound = version.Nodes
                 .SelectMany(source => source.AllowedTransitions
                     .Where(target => !WorkflowGraphNavigator.IsFeedbackEdge(source.StageType, target)))
@@ -122,7 +164,7 @@ public static class WorkflowValidator
             {
                 errors.Add(new EnvelopeError(
                     nameof(version.Nodes),
-                    $"must define exactly one entry node after excluding the Review->Development feedback edge; found {entries.Count}"));
+                    $"must define exactly one entry node after excluding feedback edges; found {entries.Count}"));
             }
             else
             {

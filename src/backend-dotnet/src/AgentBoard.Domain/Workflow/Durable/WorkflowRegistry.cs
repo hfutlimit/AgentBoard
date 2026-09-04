@@ -300,15 +300,20 @@ public sealed partial class WorkflowRegistry
     {
         var review = RequireStage(reviewStageId);
 
-        if (review.Current.StageType != StageType.Review)
+        if (review.Current.StageType is not (StageType.Review or StageType.Qa))
         {
-            throw new InvalidValueException($"stage '{reviewStageId}' is not a review stage");
+            throw new InvalidValueException($"stage '{reviewStageId}' is not a review or QA stage");
         }
 
-        MoveStage(reviewStageId, StageRunState.ChangesRequested, ctx);
-        var next = WorkflowValidator.NextDevelopmentIteration(review.Current, nextStageId);
-
         var run = RequireRun(review.Current.RunId);
+        WorkflowGraphNavigator.FeedbackSuccessor(RequireVersion(run.VersionId), review.Current.StageType);
+        var iteration = run.Stages.Where(stage => stage.Current.StageType == StageType.Development)
+            .Select(stage => stage.Current.Iteration).DefaultIfEmpty(0).Max() + 1;
+        MoveStage(reviewStageId, StageRunState.ChangesRequested, ctx);
+        var next = new StageRun(nextStageId, run.Current.RunId, StageType.Development, iteration,
+            review.Current.StageType == StageType.Qa
+                ? StageRunReasons.QaChangesRequested : StageRunReasons.ChangesRequested,
+            StageRunState.Pending);
         if (!_stages.TryAdd(nextStageId, new TrackedStage(next)))
         {
             throw new DuplicateException($"stage '{nextStageId}' already exists");

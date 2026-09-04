@@ -53,6 +53,7 @@ class StatusReason(StrEnum):
     # distinct from requirement, dependency, and capacity blockers.
     WORKFLOW_FAILED = "workflow_failed"
     WORKFLOW_CANCELLED = "workflow_cancelled"
+    REWORK_LIMIT_REACHED = "rework_limit_reached"
     # 迁移专用：历史 blocked 数据无明确原因，标记为遗留（Story 265 migration backfill）
     LEGACY = "legacy"
 
@@ -72,6 +73,7 @@ STATUS_REASONS_BY_STATUS: dict[str, set[str]] = {
         StatusReason.INSUFFICIENT_AGENTS,  # T3.1：调度候选不足（可自动解锁）
         StatusReason.WORKFLOW_FAILED,
         StatusReason.WORKFLOW_CANCELLED,
+        StatusReason.REWORK_LIMIT_REACHED,
         StatusReason.LEGACY,  # 迁移遗留数据专用
     },
 }

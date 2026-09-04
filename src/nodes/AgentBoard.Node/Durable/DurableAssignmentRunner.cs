@@ -155,7 +155,9 @@ public sealed class DurableAssignmentRunner
                             payload.Handoff?.TaskContext ?? payload.TaskContext,
                             payload.TaskType,
                             workingDirectory,
-                            DurableExecution: true), ct);
+                            DurableExecution: true,
+                            StageType: stage,
+                            Handoff: payload.Handoff), ct);
                     },
                     linked.Token);
 
@@ -300,6 +302,16 @@ public sealed class DurableAssignmentRunner
                 // successful attempt.
             }
         }
+
+        var payload = AssignmentTracker.ParseAssignPayload(command);
+        var stage = payload.StageType ?? payload.Handoff?.TargetStageType;
+        if (status == AttemptResultStatus.ChangesRequested &&
+            (stage is not (StageType.Review or StageType.Qa) ||
+             stage == StageType.Qa &&
+             (!testEvidence.Any(item => !string.IsNullOrWhiteSpace(item)) ||
+              !reviewFindings.Any(item => !string.IsNullOrWhiteSpace(item)))))
+            return Failure(command, FailureCategory.SchemaRejection,
+                "business feedback requires a review/QA stage and QA findings with test evidence");
 
         var failure = status is AttemptResultStatus.Succeeded
             or AttemptResultStatus.ChangesRequested

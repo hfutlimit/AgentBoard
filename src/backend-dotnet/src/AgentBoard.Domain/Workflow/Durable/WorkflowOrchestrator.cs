@@ -253,6 +253,15 @@ public sealed class WorkflowOrchestrator
         var run = _registry.RequireRun(review.Current.RunId);
         var version = _registry.RequireVersion(run.VersionId);
         var next = WorkflowGraphNavigator.FeedbackSuccessor(version, review.Current.StageType);
+        var maximum = version.Nodes.FirstOrDefault(node => node.StageType == StageType.Qa)?.MaxReworkIterations;
+        var reworkCount = run.Stages.Count(stage => stage.Current.StageType == StageType.Development
+            && stage.Current.Reason is StageRunReasons.ChangesRequested or StageRunReasons.QaChangesRequested);
+        if (maximum is { } limit && reworkCount >= limit)
+        {
+            _registry.MoveStage(reviewStageRunId, StageRunState.ChangesRequested, context);
+            Fail(reviewStageRunId, $"shared rework limit {limit} reached", "rework_limit_reached");
+            return WorkflowAdvanceResult.Completed;
+        }
         var stage = _registry.RequestChangesIteration(
             reviewStageRunId, $"stg-{_nextId()}", context);
         EnqueueTaskStatus(
@@ -260,11 +269,11 @@ public sealed class WorkflowOrchestrator
             _state.RequireRun(run.Current.RunId),
             "in_progress",
             null,
-            "durable review requested changes");
+            $"durable {review.Current.StageType} requested changes");
         return CreatePlannedStage(review, executionId, next, stage);
     }
 
-    public void Fail(string stageRunId, string reason)
+    public void Fail(string stageRunId, string reason, string statusReason = "workflow_failed")
     {
         var run = _registry.RequireRun(_registry.RequireStage(stageRunId).Current.RunId);
         if (run.Current.State == WorkflowRunState.Running)
@@ -274,7 +283,7 @@ public sealed class WorkflowOrchestrator
                 run.Current.RunId,
                 _state.RequireRun(run.Current.RunId),
                 "blocked",
-                "workflow_failed",
+                statusReason,
                 $"durable workflow failed: {reason}");
         }
     }

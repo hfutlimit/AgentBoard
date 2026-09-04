@@ -106,6 +106,20 @@ def test_todo_to_in_progress(session, task):
     assert task.status_reason is None
 
 
+def test_durable_qa_reopen_then_rework_limit_blocks_with_queryable_reason(session, task):
+    execute_transition(session, task, Status.IN_PROGRESS.value)
+    execute_transition(session, task, Status.IN_REVIEW.value)
+    execute_transition(session, task, Status.IN_PROGRESS.value)
+    execute_transition(session, task, Status.IN_REVIEW.value)
+    task.status_reason = StatusReason.REWORK_LIMIT_REACHED.value
+    execute_transition(session, task, Status.BLOCKED.value)
+    session.commit()
+    session.refresh(task)
+    assert task.status == Status.BLOCKED.value
+    assert task.status_reason == "rework_limit_reached"
+    assert task.previous_status == Status.IN_REVIEW.value
+
+
 def test_in_progress_to_in_review(session, task):
     execute_transition(session, task, Status.IN_PROGRESS.value)
     session.commit()

@@ -39,7 +39,8 @@ public sealed record WorkflowNode(
     string RetryPolicyRef,
     string PolicyRequirements,
     StageBudget Budget,
-    bool HandoffRequired);
+    bool HandoffRequired,
+    int? MaxReworkIterations = null);
 
 /// <summary>
 /// The editable definition a version is published from (doc 151 §4.1).
@@ -111,6 +112,9 @@ public static class WorkflowGraph
                 writer.WriteNumber("timeoutSeconds", node.Budget.TimeoutSeconds);
                 writer.WriteNumber("leaseSeconds", node.Budget.LeaseSeconds);
                 writer.WriteBoolean("handoffRequired", node.HandoffRequired);
+                // Omit absent extension fields to preserve existing published hashes.
+                if (node.MaxReworkIterations is { } maximum)
+                    writer.WriteNumber("maxReworkIterations", maximum);
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
@@ -147,14 +151,14 @@ public static class WorkflowGraph
 
 /// <summary>
 /// Deterministic runtime navigation for the constrained workflow graph.
-/// Review -&gt; Development is the one feedback edge: it is taken only for a
+/// Review/QA -&gt; Development feedback edges are taken only for a
 /// <c>changes_requested</c> outcome and therefore is not part of the normal
 /// success path or entry-node calculation.
 /// </summary>
 public static class WorkflowGraphNavigator
 {
     public static bool IsFeedbackEdge(StageType source, StageType target) =>
-        source == StageType.Review && target == StageType.Development;
+        source is StageType.Review or StageType.Qa && target == StageType.Development;
 
     public static WorkflowNode NodeFor(WorkflowVersion version, StageType stageType) =>
         version.Nodes.SingleOrDefault(node => node.StageType == stageType)
@@ -213,4 +217,5 @@ public static class StageRunReasons
     /// at a higher iteration rather than a "fix" stage.
     /// </summary>
     public const string ChangesRequested = "changes_requested";
+    public const string QaChangesRequested = "qa_changes_requested";
 }

@@ -458,6 +458,20 @@ public sealed class ServerResultProcessor
                 "attempt belongs to a different execution than the result claims");
         }
 
+        // Check feedback semantics before recording an attempt or outcome.
+        var resultStage = _registry.RequireStage(_stageIdFor(attempt.Current.ExecutionId));
+        if (result.ResultStatus == AttemptResultStatus.ChangesRequested)
+        {
+            if (resultStage.Current.StageType is not (StageType.Review or StageType.Qa))
+                return new ResultVerdict(ResultOutcomeKind.RejectedSchema,
+                    "only review and QA may request business changes");
+            if (resultStage.Current.StageType == StageType.Qa &&
+                (!result.ReviewFindings.Any(finding => !string.IsNullOrWhiteSpace(finding)) ||
+                 !result.TestEvidence.Any(evidence => !string.IsNullOrWhiteSpace(evidence))))
+                return new ResultVerdict(ResultOutcomeKind.RejectedSchema,
+                    "QA business defects require findings and test evidence");
+        }
+
         // Step 3/4: the attempt's terminal transition and its recorded result.
         var ctx = new TransitionContext(
             actor: $"node:{result.WorkerId}",
@@ -535,6 +549,17 @@ public sealed class ServerResultProcessor
                     AcceptedAt: _clock());
                 _registry.AcceptOutcome(executionId, reviewOutcome);
 
+                var version = _registry.RequireVersion(_registry.RequireRun(stage.Current.RunId).VersionId);
+                var node = WorkflowGraphNavigator.NodeFor(version, stage.Current.StageType);
+                if (!node.AllowedTransitions.Contains(StageType.Development))
+                {
+                    _registry.MoveStage(stage.Current.StageRunId, StageRunState.ChangesRequested, ctx);
+                    if (_orchestrator?.Manages(stage.Current.RunId) == true)
+                        _orchestrator.Fail(stage.Current.StageRunId, "business defects; no feedback edge");
+                    return new ResultVerdict(ResultOutcomeKind.Accepted,
+                        "business defects recorded; workflow has no feedback edge", executionId);
+                }
+
                 var created = _orchestrator?.Manages(stage.Current.RunId) != true
                     ? new WorkflowAdvanceResult(
                         _registry.RequestChangesIteration(
@@ -543,9 +568,11 @@ public sealed class ServerResultProcessor
                         null)
                     : _orchestrator.RequestChanges(stage.Current.StageRunId, executionId, ctx);
                 audit.Append("server", "result.accepted", result.AttemptId,
-                    $"changes requested; development iteration {created.Stage!.Iteration} created", result.CorrelationId);
+                    created.Stage is null ? "changes requested; rework limit reached" :
+                    $"changes requested; development iteration {created.Stage.Iteration} created", result.CorrelationId);
                 return new ResultVerdict(
-                    ResultOutcomeKind.Accepted, "changes requested", executionId, CreatedIteration: created.Stage);
+                    ResultOutcomeKind.Accepted, created.Stage is null ? "rework limit reached" : "changes requested",
+                    executionId, CreatedIteration: created.Stage);
 
             case AttemptResultStatus.Cancelled:
                 if (stage.Machine.Current is StageRunState.Running or StageRunState.Assigned)
