@@ -58,6 +58,19 @@ def _seed():
     member_token = _auth_token(client, "run_search_member")
     member_headers = {"Authorization": f"Bearer {member_token}"}
 
+    # create_run deliberately refuses to synthesize offline Agent rows.  Keep
+    # this integration fixture aligned with the real dispatch precondition by
+    # registering each Agent referenced by the schedules below.
+    for agent_id in ("codex", "claude"):
+        resp = client.post("/api/agents/register", headers=admin_headers, json={
+            "agent_id": agent_id,
+            "name": f"Run Search {agent_id.title()}",
+            "roles": '["developer"]',
+            "capabilities": "[]",
+            "cli_command": "echo ready",
+        })
+        assert resp.status_code in (200, 201), resp.text
+
     resp = client.post("/api/projects", headers=admin_headers,
                        json={"name": "Run Search Project A", "key": "RSA"})
     assert resp.status_code in (200, 201), resp.text
