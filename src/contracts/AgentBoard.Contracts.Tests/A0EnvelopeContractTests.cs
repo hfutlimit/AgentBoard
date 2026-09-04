@@ -133,6 +133,24 @@ public sealed class A0EnvelopeContractTests
     // -------------------------------------------------------------------------
 
     [Fact]
+    public void Result_identity_fields_must_match_the_issued_command()
+    {
+        var command = ValidCommand();
+
+        // Causation and correlation matching is not enough: a different
+        // worker's report riding a valid command id must be refused.
+        var wrongWorker = ValidResult(command) with { WorkerId = "mallory" };
+        Assert.Contains(
+            EnvelopeValidator.ValidateResultFollowsCommand(command, wrongWorker),
+            e => e.Field == nameof(ResultEnvelope.WorkerId));
+
+        var wrongStage = ValidResult(command) with { StageRunId = "stage-other" };
+        Assert.Contains(
+            EnvelopeValidator.ValidateResultFollowsCommand(command, wrongStage),
+            e => e.Field == nameof(ResultEnvelope.StageRunId));
+    }
+
+    [Fact]
     public void Unsupported_major_version_is_rejected_rather_than_guessed()
     {
         // doc 150 PR-016: an unknown major must be refused outright. Parsing

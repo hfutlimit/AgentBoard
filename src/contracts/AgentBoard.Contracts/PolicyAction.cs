@@ -68,4 +68,9 @@ public sealed record PolicyDecisionRequest(
     // from "no approval channel exists, fail fast". A bare boolean conflated
     // the two and made the waiting state unreachable. Default false keeps
     // existing constructions describing exactly the unattended case.
-    bool ApprovalChannelOpen = false);
+    bool ApprovalChannelOpen = false,
+    // The durable approval a granted decision must point at. A bare boolean
+    // let any caller assert "granted" with nothing behind it; the id names an
+    // approval record whose actor, revision and expiry an authority can verify
+    // (doc 150 PR-015: non-repudiable operator actions).
+    string? ApprovalId = null);

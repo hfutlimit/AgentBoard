@@ -235,6 +235,26 @@ public static class EnvelopeValidator
                 nameof(result.IdempotencyKey), "must equal the command's IdempotencyKey"));
         }
 
+        // The identities a result claims must be the identities the command
+        // was addressed to. Comparing only the correlation chain would let a
+        // different worker's report ride a valid causation id.
+        foreach (var (field, expected, actual) in new (string, string, string)[]
+        {
+            (nameof(result.WorkerId), command.WorkerId, result.WorkerId),
+            (nameof(result.AgentId), command.AgentId, result.AgentId),
+            (nameof(result.WorkflowRunId), command.WorkflowRunId, result.WorkflowRunId),
+            (nameof(result.StageRunId), command.StageRunId, result.StageRunId),
+            (nameof(result.ExecutionId), command.ExecutionId, result.ExecutionId),
+            (nameof(result.AttemptId), command.AttemptId, result.AttemptId),
+        })
+        {
+            if (!string.Equals(expected, actual, StringComparison.Ordinal))
+            {
+                errors.Add(new EnvelopeError(
+                    field, $"'{actual}' does not match the issued command's '{expected}'"));
+            }
+        }
+
         return errors;
     }
 

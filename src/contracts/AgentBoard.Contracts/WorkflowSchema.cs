@@ -103,6 +103,30 @@ public static class WorkflowGraph
             System.Text.Encoding.UTF8.GetBytes(canonical.ToString()));
         return "sha256:" + Convert.ToHexString(hash).ToLowerInvariant();
     }
+
+    /// <summary>
+    /// Deep copy into read-only collections. Records freeze their own
+    /// membership but a caller-held List inside the graph (the Nodes list
+    /// itself or any AllowedTransitions) stays mutable through it, and an
+    /// array copy would still allow element replacement via IList's indexer.
+    /// Publishing and restoring must both pass through this so the released
+    /// graph cannot change while its ContentHash keeps claiming otherwise
+    /// (doc 151 §12 invariant 1).
+    /// </summary>
+    public static WorkflowVersion Freeze(WorkflowVersion version) =>
+        version with
+        {
+            Nodes = FreezeNodes(version.Nodes),
+        };
+
+    private static IReadOnlyList<WorkflowNode> FreezeNodes(IReadOnlyList<WorkflowNode> nodes)
+    {
+        var copied = nodes
+            .Select(n => n with { AllowedTransitions = new System.Collections.ObjectModel.ReadOnlyCollection<StageType>(n.AllowedTransitions.ToArray()) })
+            .ToArray();
+
+        return new System.Collections.ObjectModel.ReadOnlyCollection<WorkflowNode>(copied);
+    }
 }
 
 /// <summary>
