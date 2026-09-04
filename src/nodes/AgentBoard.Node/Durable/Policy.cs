@@ -122,11 +122,57 @@ public static class PolicyPresets
 /// REQUIRE_APPROVAL, honoring default-deny for unknown kinds and fail-fast for
 /// approvals that cannot arrive (doc 150 PR-005, doc 151 §5.3).
 /// </summary>
+/// <summary>
+/// Backing store of approval authority. A granted decision must name a durable
+/// approval record that this can vouch for — kind, revision and expiry included
+/// — instead of trusting a caller-asserted boolean, which would let any code
+/// path grant itself permission (doc 150 PR-005: "Server 不能绕过 Node PEP",
+/// and PR-015's non-repudiable operator actions cut both ways).
+/// </summary>
+public interface IApprovalAuthority
+{
+    bool IsGranted(string? approvalId, PolicyAction action, string policyRevisionId, DateTimeOffset now);
+}
+
+/// <summary>A durable approval the Server granted, synced to this Node.</summary>
+public sealed record ApprovalGrant(
+    string ApprovalId,
+    string ActionKind,
+    string PolicyRevisionId,
+    string GrantedBy,
+    DateTimeOffset ExpiresAt);
+
+/// <summary>
+/// The Node-local copy of server-issued grants. A3's transport wiring feeds it
+/// from DurableServerPlane.ResolveApproval; until a grant is recorded here the
+/// PDP cannot treat any action as approved.
+/// </summary>
+public sealed class LocalApprovalLedger : IApprovalAuthority
+{
+    private readonly Dictionary<string, ApprovalGrant> _grants = new(StringComparer.Ordinal);
+
+    public ApprovalGrant Record(ApprovalGrant grant) => _grants[grant.ApprovalId] = grant;
+
+    public bool IsGranted(string? approvalId, PolicyAction action, string policyRevisionId, DateTimeOffset now) =>
+        approvalId is not null
+        && _grants.TryGetValue(approvalId, out var grant)
+        && string.Equals(grant.ActionKind, action.Kind, StringComparison.Ordinal)
+        && string.Equals(grant.PolicyRevisionId, policyRevisionId, StringComparison.Ordinal)
+        && grant.ExpiresAt > now;
+}
+
 public sealed class PolicyDecisionPoint
 {
     private readonly CompiledPolicy _revision;
+    private readonly IApprovalAuthority? _authority;
+    private readonly Func<DateTimeOffset> _clock;
 
-    public PolicyDecisionPoint(CompiledPolicy revision) => _revision = revision;
+    public PolicyDecisionPoint(CompiledPolicy revision, IApprovalAuthority? authority = null, Func<DateTimeOffset>? clock = null)
+    {
+        _revision = revision;
+        _authority = authority;
+        _clock = clock ?? (() => DateTimeOffset.UtcNow);
+    }
 
     public IReadOnlyList<string> Violations { get; private set; } = Array.Empty<string>();
 
@@ -168,10 +214,27 @@ public sealed class PolicyDecisionPoint
             return (decision, decision == PolicyDecision.Allow ? FailureCategory.None : FailureCategory.PolicyDenied);
         }
 
-        // REQUIRE_APPROVAL resolves through the A0 helper: granted becomes
-        // Allow; with no channel it fails fast as ApprovalUnavailable, never
-        // hangs (doc 151 §5.3).
-        return PolicyValidator.ResolveApproval(request);
+        // "Approved" is only real when an authority vouches for a durable
+        // grant record naming this action, revision and a live expiry. The
+        // boolean alone authorizes nothing.
+        var verifiedGrant = request.ApprovalGranted
+            && _authority is not null
+            && _authority.IsGranted(request.ApprovalId, request.Action, _revision.RevisionId, _clock());
+
+        if (verifiedGrant)
+        {
+            return (PolicyDecision.Allow, FailureCategory.None);
+        }
+
+        if (request.ApprovalChannelOpen)
+        {
+            // Channel exists: park until the Server's approval resolves
+            // (registry WaitingApproval on the server side, A3 wires the hop).
+            return (PolicyDecision.RequireApproval, FailureCategory.None);
+        }
+
+        // No channel: fail fast into a queryable state, never hang (doc 151 §5.3).
+        return (PolicyDecision.Deny, FailureCategory.ApprovalUnavailable);
     }
 }
 

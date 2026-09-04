@@ -114,7 +114,12 @@ public sealed class AssignmentTracker
             return;
         }
 
-        var assignment = ParseAssignment(command);
+        Apply(ParseAssignment(command));
+    }
+
+    /// <summary>Recording an already-parsed assignment cannot fail halfway.</summary>
+    public void Apply(Assignment assignment)
+    {
 
         // Higher or equal epoch replaces; the Node never keeps two live
         // assignments for one execution.
@@ -203,6 +208,38 @@ public sealed class NodeCommandReceiver
                 ShouldAckBroker: false);
         }
 
+        // The assignment a command carries is parsed and cross-checked BEFORE
+        // the journal write. If the payload were only interpreted after the
+        // durable accept, a malformed assignment would burn the dedup keys:
+        // redelivery would answer "duplicate" (and ACK) while the tracker
+        // never learned the lease, swallowing the command (doc 151 §5.5: the
+        // Node validates before it accepts).
+        Assignment? parsedAssignment = null;
+        if (command.MessageType == MessageTypes.ExecutionAssign)
+        {
+            try
+            {
+                parsedAssignment = AssignmentTracker.ParseAssignment(command);
+            }
+            catch (Exception e)
+            {
+                return new CommandAcceptance(AcceptanceKind.RejectedSchema,
+                    $"assign payload is not a readable assignment: {e.Message}", ShouldAckBroker: false);
+            }
+
+            var shapeErrors = AssignmentValidator.Validate(parsedAssignment)
+                .Concat(AssignmentValidator.ValidateCommandAgainstAssignment(command, parsedAssignment))
+                .ToList();
+
+            if (shapeErrors.Count > 0)
+            {
+                return new CommandAcceptance(AcceptanceKind.RejectedSchema,
+                    "assignment does not match its command: " +
+                    string.Join("; ", shapeErrors.Select(e => $"{e.Field} {e.Reason}")),
+                    ShouldAckBroker: false);
+            }
+        }
+
         // A cancel command must name the assignment currently held for its
         // execution; an assign against a known-but-superseded lease is
         // refused. Brand-new assignments (empty local record) pass through.
@@ -231,7 +268,13 @@ public sealed class NodeCommandReceiver
                 "command already durably accepted", ShouldAckBroker: true, command);
         }
 
-        _tracker.Apply(command);
+        // The journal row and the parsed assignment now land together;
+        // Apply(Assignment) cannot throw because parsing already succeeded.
+        if (parsedAssignment is not null)
+        {
+            _tracker.Apply(parsedAssignment);
+        }
+
         return new CommandAcceptance(AcceptanceKind.Accepted,
             $"accepted under lease epoch {command.LeaseEpoch} at {_clock():O}",
             ShouldAckBroker: true, command);

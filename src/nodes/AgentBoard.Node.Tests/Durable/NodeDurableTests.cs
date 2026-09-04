@@ -26,7 +26,8 @@ public class NodeDurableTests
         string worker = Worker,
         string? messageId = null,
         string? idempotency = null,
-        DateTimeOffset? expiresAt = null)
+        DateTimeOffset? expiresAt = null,
+        string? payload = null)
     {
         var issued = _now;
         var assignment = new Assignment(
@@ -53,7 +54,7 @@ public class NodeDurableTests
             IssuedAt = issued,
             ExpiresAt = assignment.ExpiresAt,
             Traceparent = Trace,
-            Payload = System.Text.Json.JsonSerializer.Serialize(assignment),
+            Payload = payload ?? System.Text.Json.JsonSerializer.Serialize(assignment),
             PolicyRevisionId = "policy-rev-1",
         };
     }
@@ -97,6 +98,30 @@ public class NodeDurableTests
         var assignment = tracker.CurrentFor("exec-1")!;
         Assert.NotNull(assignment);
         Assert.True(tracker.MaySubmitResult(assignment.AssignmentId, _now));
+    }
+
+    [Fact]
+    public void Unparseable_assignment_payload_is_rejected_before_the_journal()
+    {
+        var journal = new InMemoryNodeCommandJournal();
+        var tracker = new AssignmentTracker();
+        var receiver = new NodeCommandReceiver(Worker, journal, tracker, () => _now);
+
+        // Malformed assignment content must not consume the dedup keys: if it
+        // did, the redelivered good command would be swallowed as "duplicate"
+        // while the tracker never learned the lease.
+        var poisoned = Assign(messageId: "cmd-poison", payload: "this is not json");
+        var rejection = receiver.TryAccept(poisoned);
+
+        Assert.Equal(AcceptanceKind.RejectedSchema, rejection.Kind);
+        Assert.False(rejection.ShouldAckBroker);
+        Assert.Empty(journal.All());
+        Assert.Null(tracker.CurrentFor("exec-1"));
+
+        // The same message id, now well-formed, must not be treated as duplicate.
+        var good = Assign(messageId: "cmd-poison");
+        Assert.Equal(AcceptanceKind.Accepted, receiver.TryAccept(good).Kind);
+        Assert.NotNull(tracker.CurrentFor("exec-1"));
     }
 
     [Fact]
@@ -278,11 +303,13 @@ public class NodeDurableTests
         string kind,
         string resource = "/src/a.cs",
         bool approvalGranted = false,
-        string agent = "agent.dev") => new(
+        string agent = "agent.dev",
+        string? approvalId = null,
+        bool channelOpen = false) => new(
         new PolicyAction(kind, resource), agent, new[] { "development" },
         StageType.Development, "run-1",
         new WorkspaceReference("proj-1", "ws-1", "commit-sha"),
-        revision.RevisionId, approvalGranted);
+        revision.RevisionId, approvalGranted, channelOpen, approvalId);
 
     [Fact]
     public void Presets_compile_to_deterministic_revisions_with_distinct_id()
@@ -351,18 +378,46 @@ public class NodeDurableTests
     }
 
     [Fact]
-    public void Granted_approval_lets_the_enforcement_point_run_the_action()
+    public void Approval_granted_without_an_authority_record_authorizes_nothing()
     {
         var revision = CompiledPolicy.Compile(PolicyPresets.Developer, new Dictionary<string, PolicyDecision>());
-        var audit = new List<PolicyEnforcementPoint.AuditLine>();
-        var pep = new PolicyEnforcementPoint(new PolicyDecisionPoint(revision), audit.Add);
+        var pdp = new PolicyDecisionPoint(revision); // no authority wired
 
-        var executed = pep.Execute(Request(revision, PolicyActionKinds.GitCommit, approvalGranted: true),
+        // The caller simply claims ApprovalGranted = true. Without a durable
+        // grant an authority can vouch for, that claim must carry no weight
+        // (doc 150 PR-015's non-repudiation applies to approvals too).
+        var (decision, failure) = pdp.Decide(
+            Request(revision, PolicyActionKinds.GitCommit, approvalGranted: true));
+
+        Assert.Equal(PolicyDecision.Deny, decision);
+        Assert.Equal(FailureCategory.ApprovalUnavailable, failure);
+    }
+
+    [Fact]
+    public void Approval_granted_with_a_verified_ledger_record_runs_the_action()
+    {
+        var revision = CompiledPolicy.Compile(PolicyPresets.Developer, new Dictionary<string, PolicyDecision>());
+        var ledger = new LocalApprovalLedger();
+        ledger.Record(new ApprovalGrant(
+            "apr-9", PolicyActionKinds.GitCommit, revision.RevisionId, "operator-jason", _now + TimeSpan.FromMinutes(30)));
+
+        var audit = new List<PolicyEnforcementPoint.AuditLine>();
+        var pep = new PolicyEnforcementPoint(new PolicyDecisionPoint(revision, ledger, () => _now), audit.Add);
+
+        var executed = pep.Execute(
+            Request(revision, PolicyActionKinds.GitCommit, approvalGranted: true, approvalId: "apr-9"),
             () => "committed");
 
         Assert.Equal(EnforcementOutcome.Executed, executed.Outcome);
         Assert.Equal("committed", executed.Value);
         Assert.Single(audit);
+
+        // An expired grant is not a grant.
+        var lapsed = new LocalApprovalLedger();
+        lapsed.Record(new ApprovalGrant("apr-9", PolicyActionKinds.GitCommit, revision.RevisionId, "op", _now - TimeSpan.FromMinutes(1)));
+        var pdpLapsed = new PolicyDecisionPoint(revision, lapsed, () => _now);
+        Assert.NotEqual(PolicyDecision.Allow,
+            pdpLapsed.Decide(Request(revision, PolicyActionKinds.GitCommit, approvalGranted: true, approvalId: "apr-9")).Decision);
     }
 
     [Fact]
