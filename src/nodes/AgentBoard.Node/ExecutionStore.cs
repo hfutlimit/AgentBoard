@@ -50,6 +50,17 @@ public sealed class ExecutionStore
     {
         using var connection = new SqliteConnection(_connectionString);
         connection.Open();
+        // The dispatcher writes execution and inbox state while health/status
+        // readers poll the same database. Rollback-journal mode briefly takes
+        // an exclusive lock during every commit, which can starve those readers
+        // on slower shared hosts. WAL keeps readers independent from the single
+        // writer while preserving SQLite's serialization of writes. The mode is
+        // persistent, so all short-lived connections inherit it after startup.
+        using (var journal = connection.CreateCommand())
+        {
+            journal.CommandText = "PRAGMA journal_mode=WAL;";
+            journal.ExecuteScalar();
+        }
         using var command = connection.CreateCommand();
         command.CommandText = """
             CREATE TABLE IF NOT EXISTS executions (

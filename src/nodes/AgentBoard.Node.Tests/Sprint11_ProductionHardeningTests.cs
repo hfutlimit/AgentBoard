@@ -50,6 +50,20 @@ public sealed class Sprint11_ProductionHardeningTests
         return (registry, fake, channel, state);
     }
 
+    [Fact]
+    public async Task Execution_store_enables_WAL_for_concurrent_status_reads()
+    {
+        using var fx = new TempDbFixture();
+        await using var connection = new SqliteConnection(fx.Store.ConnectionString);
+        await connection.OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA journal_mode;";
+
+        var mode = Convert.ToString(await command.ExecuteScalarAsync());
+
+        Assert.Equal("wal", mode, ignoreCase: true);
+    }
+
     // -------------------------------------------------------------------------
     // 1. Terminal persistence: long-held BUSY exhausts the retry budget
     //    and falls through to MarkDegraded. The business result (Succeeded)

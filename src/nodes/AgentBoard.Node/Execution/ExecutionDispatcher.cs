@@ -306,12 +306,13 @@ public sealed class ExecutionDispatcher : BackgroundService
                         reason);
                     return DrainExit.Cancelled;
                 }
-                // Transient — log and return Cancelled so the
-                // outer loop applies TransientBackoff.
+                // Keep transient read contention distinct from cancellation:
+                // both outer loops apply the short retry backoff and continue
+                // draining instead of falling through to the idle timer.
                 _log.LogWarning(ex,
                     "DB pending list hit transient SQLite error during {Reason} drain; will retry with backoff",
                     reason);
-                return DrainExit.Cancelled;
+                return DrainExit.TransientBackoff;
             }
             if (pending.Count == 0) return DrainExit.Empty;
 
