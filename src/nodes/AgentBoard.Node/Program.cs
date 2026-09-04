@@ -1,6 +1,7 @@
 using AgentBoard.Node;
 using AgentBoard.Node.Agents;
 using AgentBoard.Node.Execution;
+using AgentBoard.Node.Platform;
 using AgentBoard.Node.Process;
 using Microsoft.Extensions.Options;
 
@@ -51,6 +52,15 @@ builder.Services.Configure<AgentsOptions>(builder.Configuration.GetSection("Agen
 builder.Services.Configure<AgentBoardOptions>(builder.Configuration.GetSection("AgentBoard"));
 builder.Services.Configure<PortalOptions>(builder.Configuration.GetSection("Portal"));
 builder.Services.Configure<ProcessExecutorOptions>(builder.Configuration.GetSection("ProcessExecutor"));
+
+// ---- M0.1 (v4.3): cross-platform abstractions -----------------------------
+// Resolved once through PlatformFactory so consumers (M0.4 IPC transport,
+// M1.0/M1.1 service install, M1.2 SQLite path) never branch on the host OS
+// themselves. Registration is eager: an unsupported platform fails at startup
+// with a named host rather than throwing later inside a background service.
+builder.Services.AddSingleton<IUserIdentity>(_ => PlatformFactory.CreateUserIdentity());
+builder.Services.AddSingleton<IPlatformInfo>(sp =>
+    PlatformFactory.CreatePlatformInfo(sp.GetRequiredService<IUserIdentity>()));
 
 // ---- Sprint 5: shared process layer ---------------------------------------
 builder.Services.AddSingleton<IProcessExecutor, ProcessExecutor>();
