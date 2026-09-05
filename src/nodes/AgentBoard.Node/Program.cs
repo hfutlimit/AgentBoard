@@ -23,6 +23,11 @@ try
 catch { /* best-effort; production still boots from default location */ }
 
 var builder = WebApplication.CreateBuilder(args);
+var configurationOnly = builder.Configuration.GetValue<bool>("Portal:ConfigurationOnly");
+var localDefaults = builder.Configuration.GetSection("WorkerOwned").Get<WorkerOwnedOptions>() ?? new();
+var localConfiguration = new LocalConfigurationStore(
+    builder.Configuration["LocalConfigurationPath"] ?? "data/worker-owned.local.json", localDefaults);
+var localSnapshot = localConfiguration.Load();
 builder.Host.UseWindowsService(options => options.ServiceName = "AgentBoard Node");
 builder.WebHost.UseUrls(builder.Configuration["Portal:Urls"] ?? "http://127.0.0.1:58240");
 
@@ -55,12 +60,15 @@ builder.Services.Configure<AgentBoardOptions>(builder.Configuration.GetSection("
 builder.Services.Configure<PortalOptions>(builder.Configuration.GetSection("Portal"));
 builder.Services.Configure<ProcessExecutorOptions>(builder.Configuration.GetSection("ProcessExecutor"));
 builder.Services.Configure<DurableExecutionOptions>(builder.Configuration.GetSection("DurableExecution"));
-builder.Services.Configure<WorkerOwnedOptions>(builder.Configuration.GetSection("WorkerOwned"));
-var workerOwned = builder.Configuration.GetValue<bool>("WorkerOwned:Enabled");
+builder.Services.AddSingleton<IOptions<WorkerOwnedOptions>>(Options.Create(localSnapshot));
+var workerOwned = localSnapshot.Enabled;
+// An explicitly saved but disabled Worker-owned configuration must never
+// fall back to the legacy broad consumers on restart.
+var localMode = workerOwned || File.Exists(localConfiguration.FilePath);
 if (workerOwned && builder.Configuration.GetValue<bool>("DurableExecution:Enabled"))
     throw new InvalidOperationException("WorkerOwned and legacy DurableExecution cannot both consume work");
 builder.Services.AddSingleton<LocalAdapterFactory>();
-builder.Services.AddHostedService<WorkerOwnedService>();
+if (!configurationOnly) builder.Services.AddHostedService<WorkerOwnedService>();
 builder.Services.AddSingleton<ILocalWorkspaceResolver, ConfiguredLocalWorkspaceResolver>();
 
 // ---- M0.1 (v4.3): cross-platform abstractions -----------------------------
@@ -165,7 +173,7 @@ builder.Services.AddSingleton<DurableAssignmentRunner>(sp =>
 builder.Services.AddSingleton<AgentBoard.Node.Agents.ReadinessProbe>();
 
 // ---- Hosted services -------------------------------------------------------
-if (!workerOwned)
+if (!localMode && !configurationOnly)
 {
     builder.Services.AddHostedService<ExecutionDispatcher>();
     builder.Services.AddHostedService<RabbitMqConsumerService>();
@@ -204,7 +212,7 @@ using (var scope = app.Services.CreateScope())
     // hand-off only, not the durable-buffer-to-memory path (#2 in the
     // 2026-08-28 review).
 
-    if (!workerOwned) await readiness.RunAllAsync(CancellationToken.None);
+    if (!localMode && !configurationOnly) await readiness.RunAllAsync(CancellationToken.None);
     log.LogInformation("AgentBoard Worker started; registered agents: [{List}]", string.Join(", ", registry.RegisteredAgents));
 }
 
@@ -230,7 +238,8 @@ app.Use(async (context, next) =>
 app.MapGet("/health", (WorkerState state, IAgentAdapterRegistry registry, IOptions<NodeOptions> worker, IOptions<WorkerOwnedOptions> local) =>
     Results.Ok(state.Snapshot(local.Value.Enabled ? local.Value.Agents.Select(a => a.Id).ToArray() : registry.RegisteredAgents,
         local.Value.Enabled ? 1 : worker.Value.MaxConcurrentExecutions, state.ActiveCount, 0)));
-app.MapGet("/", () => Results.Content(PortalPage.Html, "text/html; charset=utf-8"));
+app.MapGet("/", () => Results.Content(localMode || configurationOnly ? ConfigurationPortal.Html : PortalPage.Html, "text/html; charset=utf-8"));
+ConfigurationPortal.Map(app, localConfiguration, configurationOnly);
 app.MapGet("/api/worker", (WorkerState state, IAgentAdapterRegistry registry, IOptions<NodeOptions> worker, IOptions<WorkerOwnedOptions> local) =>
     Results.Ok(state.Snapshot(local.Value.Enabled ? local.Value.Agents.Select(a => a.Id).ToArray() : registry.RegisteredAgents,
         local.Value.Enabled ? 1 : worker.Value.MaxConcurrentExecutions, state.ActiveCount, 0)));

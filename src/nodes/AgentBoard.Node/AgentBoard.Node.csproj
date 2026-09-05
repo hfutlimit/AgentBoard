@@ -12,6 +12,7 @@
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
   </ItemGroup>
   <ItemGroup>
+    <EmbeddedResource Include="WorkerOwned/ConfigurationPortal.html" />
     <ProjectReference Include="..\..\contracts\AgentBoard.Contracts\AgentBoard.Contracts.csproj" />
   </ItemGroup>
 

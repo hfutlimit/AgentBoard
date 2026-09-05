@@ -10,7 +10,13 @@
     "Agents": [
       {
         "Id": "codex-a",
+        "Enabled": true,
         "Provider": "codex",
+        "PrePrompt": "Read repository guidance, requirements and accepted upstream evidence before working.",
+        "PostPrompt": "Verify acceptance criteria and report actual checks, results and evidence before returning the required JSON.",
+        "Prompts": {
+          "dev": { "Pre": "Reproduce reported bugs before implementing a fix.", "Post": "Run relevant regression tests and commit the bounded change." }
+        },
         "ProjectIds": [8],
         "WorkKinds": ["proposal", "design", "dev", "qa_review"],
         "Runtime": {
@@ -23,7 +29,13 @@
       },
       {
         "Id": "codex-b",
+        "Enabled": true,
         "Provider": "codex",
+        "PrePrompt": "Stay independent from the upstream implementer and verify evidence.",
+        "PostPrompt": "Distinguish verified results from untested assumptions.",
+        "Prompts": {
+          "qa": { "Pre": "Deploy locally and execute the acceptance tests.", "Post": "Report actual deployment/test steps, outcomes and actionable defects without modifying implementation." }
+        },
         "ProjectIds": [8],
         "WorkKinds": ["design_review", "dev_review", "qa"],
         "Runtime": {

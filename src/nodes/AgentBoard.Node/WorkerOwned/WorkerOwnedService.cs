@@ -93,7 +93,7 @@ public sealed class WorkerOwnedService : BackgroundService
         using var worker = await Post(client, "api/workers/register", new
             { worker_id = WorkerId, hostname = Environment.MachineName, status = "active" }, ct);
         worker.EnsureSuccessStatusCode();
-        foreach (var agent in _options.Agents)
+        foreach (var agent in _options.EnabledAgents)
         {
             using var agentClient = Client(agent);
             using var registration = await Post(agentClient, "api/agents/register", new
@@ -125,7 +125,7 @@ public sealed class WorkerOwnedService : BackgroundService
                 if (DateTimeOffset.UtcNow - _lastPresence > TimeSpan.FromSeconds(15))
                 {
                     _state.LastHeartbeatAttemptAt = DateTimeOffset.UtcNow;
-                    foreach (var profile in _options.Agents)
+                    foreach (var profile in _options.EnabledAgents)
                     {
                         using var presenceClient = Client(profile);
                         using var presence = await Post(presenceClient,
@@ -286,7 +286,7 @@ public sealed class WorkerOwnedService : BackgroundService
                     var result = await adapter.ExecuteAsync(new ExecutionContext(workId, $"worker-work:{workId}",
                         kind, accepted.RootElement.GetProperty("work").GetProperty("entity_id").GetInt64(),
                         accepted.RootElement.GetProperty("work").GetProperty("iteration").GetInt32(),
-                        profile.Provider, context, WorkPlanner.Prompt(kind, context), WorkingDirectory: workspace,
+                        profile.Provider, context, WorkPlanner.Prompt(kind, context, profile), WorkingDirectory: workspace,
                         WorkerOwnedExecution: true), running.Token);
                     running.Token.ThrowIfCancellationRequested();
                     if (!result.Success || string.IsNullOrWhiteSpace(result.OutputJson))
