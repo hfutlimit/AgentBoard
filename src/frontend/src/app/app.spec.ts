@@ -29,6 +29,45 @@ describe('App', () => {
     expect(app).toBeTruthy();
   });
 
+  it('should derive Epic status filters from an immutable stable newest-first list and reset pagination', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    const epics = [
+      { id: 101, project_id: 1, title: 'Old todo', description: '', status: 'todo', created_at: '2026-09-01T00:00:00Z' },
+      { id: 104, project_id: 1, title: 'Same timestamp todo', description: '', status: 'todo', created_at: '2026-09-03T00:00:00Z' },
+      { id: 103, project_id: 1, title: 'Same timestamp progress', description: '', status: 'in_progress', created_at: '2026-09-03T00:00:00Z' },
+      { id: 102, project_id: 1, title: 'Review', description: '', status: 'in_review', created_at: '2026-09-02T00:00:00Z' },
+      { id: 105, project_id: 1, title: 'Done', description: '', status: 'done', created_at: '2026-09-04T00:00:00Z' },
+      { id: 106, project_id: 1, title: 'Blocked', description: '', status: 'blocked', created_at: '2026-09-05T00:00:00Z' },
+      { id: 107, project_id: 1, title: 'Legacy backlog', description: '', status: 'backlog', created_at: '2026-09-06T00:00:00Z' },
+      { id: 108, project_id: 1, title: 'Legacy verifying', description: '', status: 'verifying', created_at: '2026-09-07T00:00:00Z' },
+    ] as unknown as Epic[];
+    const originalIds = epics.map((epic) => epic.id);
+    app.epics.set(epics);
+
+    expect(app.epicFilterStatus()).toBe('');
+    expect(app.visibleEpics().map((epic) => epic.id)).toEqual([108, 107, 106, 105, 104, 103, 102, 101]);
+    expect(app.epics().map((epic) => epic.id)).toEqual(originalIds);
+
+    for (const status of app.epicListFilterStatuses) {
+      app.epicsPage.set(3);
+      app.setEpicFilterStatus(status);
+      expect(app.epicsPage()).toBe(1);
+      expect(app.visibleEpics().every((epic) => epic.status === status)).toBe(true);
+    }
+
+    app.setEpicFilterStatus('todo');
+    expect(app.visibleEpics().map((epic) => epic.id)).toEqual([104, 101]);
+    app.epics.set(epics.filter((epic) => epic.status !== 'done'));
+    app.setEpicFilterStatus('done');
+    expect(app.visibleEpics()).toEqual([]);
+    app.epics.set(epics);
+    app.setEpicFilterStatus('');
+    expect(app.visibleEpics().map((epic) => epic.id)).toEqual([108, 107, 106, 105, 104, 103, 102, 101]);
+    app.setEpicFilterStatus('unexpected' as never);
+    expect(app.epicFilterStatus()).toBe('');
+  });
+
   it('should refresh every visible project collection after creating a project', async () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;

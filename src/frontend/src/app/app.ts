@@ -27,6 +27,14 @@ import { ProposalRealtimeService, ProposalQuestionRaised } from './proposal-real
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'global-stats' | 'not-found';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
 type ProjectListKind = 'epics' | 'sprints' | 'backlog' | 'members' | 'schedules';
+type EpicListFilterStatus = '' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'blocked';
+const EPIC_LIST_FILTER_STATUSES: readonly Exclude<EpicListFilterStatus, ''>[] = [
+  'todo',
+  'in_progress',
+  'in_review',
+  'done',
+  'blocked',
+];
 /** 设置页左侧菜单子标签：basic=基本信息，members=成员管理，schedules=自动化计划，export=数据导出 */
 type SettingsSubTabKind = 'basic' | 'members' | 'schedules' | 'export';
 
@@ -337,6 +345,9 @@ export class App implements OnInit, OnDestroy {
   readonly taskEditSpec = signal('');
   readonly projectListPageSize = 20;
   readonly epicsPage = signal(1);
+  /** Project-workspace-only Epic status filter; deliberately not persisted. */
+  readonly epicFilterStatus = signal<EpicListFilterStatus>('');
+  readonly epicListFilterStatuses = EPIC_LIST_FILTER_STATUSES;
   readonly sprintsPage = signal(1);
   readonly backlogPage = signal(1);
   readonly membersPage = signal(1);
@@ -655,9 +666,20 @@ export class App implements OnInit, OnDestroy {
     }
     return ordered;
   });
-  readonly visibleEpics = computed(() =>
-    this.match(this.epics(), (e) => `${e.title} ${e.description}`),
-  );
+  readonly visibleEpics = computed(() => {
+    const selectedStatus = this.epicFilterStatus();
+    const matched = this.match(this.epics(), (e) => `${e.title} ${e.description}`);
+    const createdMillis = (createdAt: string): number => {
+      const milliseconds = Date.parse(createdAt);
+      return Number.isFinite(milliseconds) ? milliseconds : Number.NEGATIVE_INFINITY;
+    };
+
+    return [...matched]
+      .filter((epic) => !selectedStatus || epic.status === selectedStatus)
+      .sort((left, right) =>
+        createdMillis(right.created_at) - createdMillis(left.created_at) || right.id - left.id,
+      );
+  });
   readonly visibleStories = computed(() =>
     this.match(this.stories(), (s) => `${s.title} ${s.description}`),
   );
@@ -1666,6 +1688,13 @@ export class App implements OnInit, OnDestroy {
     });
   }
 
+  setEpicFilterStatus(status: EpicListFilterStatus): void {
+    this.epicFilterStatus.set(
+      status === '' || this.epicListFilterStatuses.includes(status) ? status : '',
+    );
+    this.epicsPage.set(1);
+  }
+
   private resetProjectListPages(): void {
     this.epicsPage.set(1);
     this.sprintsPage.set(1);
@@ -2271,6 +2300,7 @@ export class App implements OnInit, OnDestroy {
                         : 'overview'; // 默认进入「项目概览」tab
         if (this.project()?.id !== id) {
           this.resetProjectListPages();
+          this.epicFilterStatus.set('');
           this.resetProjectTabs();
         }
         const project = await firstValueFrom(this.api.getProject(id));

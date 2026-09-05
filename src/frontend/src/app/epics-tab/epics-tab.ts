@@ -3,6 +3,8 @@ import { ManagedListComponent } from '../managed-list/managed-list';
 import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
 import type { Epic } from '../models';
 
+type EpicListFilterStatus = '' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'blocked';
+
 /**
  * EpicProgress — Epic 进度统计（与 App.epicProgress 返回结构对齐）。
  * 由父组件通过 epicProgressFor 函数 Input 提供，避免子组件重复持有 stories/tasks
@@ -75,8 +77,13 @@ export class EpicsTabComponent {
   @Input() error = '';
   /** 当前项目 ID（用于新建 Epic emit）。 */
   @Input() projectId: number | null = null;
+  /** 当前状态筛选值；由父组件持有，空字符串代表全部状态。 */
+  @Input() filterStatus: EpicListFilterStatus = '';
+  /** 可筛选的五个业务状态。 */
+  @Input() statuses: readonly Exclude<EpicListFilterStatus, ''>[] = [];
 
   @Output() pageChange = new EventEmitter<number>();
+  @Output() filterStatusChange = new EventEmitter<EpicListFilterStatus>();
   @Output() retry = new EventEmitter<void>();
   @Output() createEpic = new EventEmitter<number>();
   @Output() openEpic = new EventEmitter<{ event: MouseEvent; epic: Epic }>();

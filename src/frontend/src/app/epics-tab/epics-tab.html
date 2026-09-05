@@ -24,6 +24,19 @@
       }
     </app-workspace-heading>
   </ng-container>
+  <div class="row doc-toolbar epics-tab-toolbar" ml-toolbar>
+    <label for="project-epic-status-filter">状态</label>
+    <select
+      id="project-epic-status-filter"
+      class="doc-filter-select"
+      [value]="filterStatus"
+      (change)="filterStatusChange.emit($any($event.target).value)">
+      <option value="">全部状态</option>
+      @for (status of statuses; track status) {
+        <option [value]="status">{{ statusLabel(status) }}</option>
+      }
+    </select>
+  </div>
   <div class="entity-list epics-tab-v7" id="epics-list">
     @for (item of paginatedItems(epics, page); track item.id) {
       <a

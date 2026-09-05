@@ -2,6 +2,10 @@
 
 > 当前已实现行为的唯一事实来源。变更请看 `openspec/changes/`。
 
+## Purpose
+
+定义 AgentBoard 已实现的项目管理能力、API、数据模型和用户界面行为，为后续变更提供可验证的当前行为基线。
+
 ## 概述
 AgentBoard 是轻量项目管理工具，内嵌 OpenSpec/Superpowers 风格的规范能力：任务的 `spec` 字段存放 markdown 规范，并通过 MCP 暴露给 AI 编程工具。
 
@@ -35,6 +39,21 @@ Task 拥有按创建时间正序排列的评论流；评论字段为 `id, task_i
 `list/get/create/update/delete_project, list/create/get/update/delete_epic, list/create/get/update/delete_story, list/create/get/update/delete_task, set/get/append_task_spec, set_status, search_tasks(分页/优先级), list_comments, add_comment, delete_comment, spec_proposal, generate_tasks_from_spec, auth_register, auth_login, auth_me`
 
 > MCP 通过 `AGENTBOARD_API_URL` 调用 REST API，不直接访问数据库。列表/搜索工具支持 `limit` / `offset` 分页。`AGENTBOARD_MCP_TRANSPORT=http` 提供 `/mcp` Streamable HTTP 端点；远程端点默认验证与 REST 登录相同的 Bearer Token，并把当前请求 Token 透传给受保护 REST API。
+
+## Requirements
+
+### Requirement: 项目工作台 Epic 列表默认排序与状态筛选
+
+项目工作台的 Epics 列表 SHALL 从已加载的当前项目 Epic 派生显示结果，不新增后端查询参数或服务端排序。默认筛选为“全部状态”；结果 SHALL 按 `created_at` 降序、再按 `id` 降序稳定排序，且不得原地修改已加载的原始数组。
+
+工具栏 SHALL 提供“全部状态”以及待办、进行中、评审中、完成、已阻塞五个状态选项。选定状态时仅显示完全匹配的 Epic，切回“全部状态”时恢复所有已加载 Epic（包含不属于上述五个选项的历史状态）。筛选变更 SHALL 将分页复位至第 1 页，并保持既有进度、详情、新建、加载、错误和重试行为。
+
+#### Scenario: 状态筛选重置分页并保留稳定排序
+
+- **GIVEN** 当前项目已经加载多个创建时间相同或不同状态的 Epic，且用户位于非第一页
+- **WHEN** 用户选择任一业务状态或切回“全部状态”
+- **THEN** 列表显示对应的完整派生结果并回到第 1 页
+- **AND** 结果按 `created_at DESC, id DESC` 排序，历史状态仅在“全部状态”中保持可见
 
 ## Web UI
 项目树浏览；Project/Epic/Story/Task/Bug 全量增删改；状态流转；任务优先级徽章与编辑；description/spec 编辑；评论时间线；Story 列表/看板的任务详情抽屉；「插入 OpenSpec 提案模板」「从 spec 生成同级任务」按钮；markdown 渲染。
