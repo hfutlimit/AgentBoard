@@ -31,6 +31,10 @@ const change=(selector,value)=>{const el=d.querySelector(selector);el.value=valu
  await flush();
  assert.equal(w.location.hash,'');
  assert.equal(d.querySelector('#login'),null);
+ const favicon=d.querySelector('link[rel="icon"]');
+ assert.equal(favicon.type,'image/svg+xml');
+ assert.match(decodeURIComponent(favicon.getAttribute('href')),/>AB<\/text>/);
+ assert.match(favicon.getAttribute('href'),/^data:image\/svg\+xml,/);
  assert.equal(d.querySelector('#main').classList.contains('hidden'),false);
  assert.equal(d.querySelectorAll('[data-kind]').length,7);
  assert.match(d.querySelector('#connection').textContent,/prod.test/);
