@@ -1,12 +1,13 @@
 # Worker-owned 本机配置台
 
-这是真正读取 / 写入 .NET Worker-owned 本机配置的页面，不再使用旧 Python / Angular Processor Portal 的角色与项目映射协议。无需修改或重新部署生产服务器。
+这是真正读取 / 写入 .NET Worker-owned 本机配置的页面，不再使用旧 Python / Angular Processor Portal 的角色与项目映射协议。仅查看和保存配置不要求部署生产服务器；启用新版协作讨论执行则需要先部署对应服务端及迁移，见 [讨论协议](worker-owned-discussions.md)。
 
 ## 可配置内容
 
 - 多个独立 Agent 实例：ID、启用状态、Codex / WorkBuddy / MiniMax、模型、CLI 程序、参数和超时。
 - 项目：从生产 `GET /api/projects` 分页读取可见项目，先通过 `/api/auth/me` 校验真实身份；本机保存项目 ID → checkout 绝对路径。
-- 每个 Agent 的项目范围与七种工作类型：`proposal / design / design_review / dev / dev_review / qa / qa_review`。Bug 是 Dev 消费的 Task 类型，不是第八种工作类型。
+- 独立的「项目路径 Mapping」页面（`/#projects`）：项目范围属于 Worker，所有本地 Agent 自动参与全部映射项目，不再逐个 Agent 选项目。历史 Agent.ProjectIds 被忽略，保存时移除；升级后项目范围会扩大到 Worker 的全部映射，启动前请核对。
+- 每个 Agent 仅配置七种工作类型：`proposal / design / design_review / dev / dev_review / qa / qa_review`。Bug 是 Dev 消费的 Task 类型，不是第八种工作类型。
 - Agent 通用 pre/post，以及七种工作各自的 pre/post。页面附带可按需填入的建议提示词。
 
 提示词执行顺序：通用 pre → 专属 pre → 当前工作与上下文 → 专属 post → 通用 post → 结构化结果。
@@ -29,7 +30,7 @@ Pre 用于开始前准备，post 用于提交前自检，均进入同一次真�
 
 ## 保存与真正生效
 
-保存通过本机 `/api/local/configuration`，使用版本校验、跨进程编辑锁、原子替换及上一版 `.bak` 备份。非法工作类型、未映射项目、不存在的绝对目录、重复身份及超长提示词均会拒绝。不同页面的陈旧保存返回 409，不覆盖新设置。
+保存通过本机 `/api/local/configuration`，使用版本校验、跨进程编辑锁、原子替换及上一版 `.bak` 备份。非法工作类型、无效项目 ID、不存在的绝对目录、重复身份及超长提示词均会拒绝。不同页面的陈旧保存返回 409，不覆盖新设置。
 
 执行进程启动时读取这个完整快照，**不是逐项合并 JSON 数组**，因此删除的实例和工作类型不会从旧 appsettings 或环境数组中重新出现。
 

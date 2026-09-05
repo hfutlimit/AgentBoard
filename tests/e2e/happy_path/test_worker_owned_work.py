@@ -61,11 +61,118 @@ def complete(client, configured, wid, body, result, expected=200):
     return response
 
 
+def discussion_turn(client, configured, item, result=None):
+    response = client.get(f"/api/worker-work/discussions?project_id={configured[1]}&task_id={item.id}", headers=configured[3])
+    assert response.status_code == 200, response.text
+    d = response.json()["items"][0]
+    reviewer = d["turn"] % 2 == 1
+    kind = d["review_kind"] if reviewer else d["review_kind"].removesuffix("_review")
+    target = d["reviewer_agent"] if reviewer else d["owner_agent"]
+    response = client.post("/api/worker-work/offers", headers=configured[3], json={
+        "project_id": configured[1], "entity_type": "task", "entity_id": item.id,
+        "kind": kind, "iteration": d["turn"], "discussion_id": d["id"], "target_agent": target})
+    assert response.status_code == 200, response.text
+    wid = response.json()["id"]
+    body = claim_body(configured, kind, target)
+    accepted = claim(client, configured, wid, body).json()
+    assert accepted["context"]["discussion"]["id"] == d["id"]
+    if result is not None:
+        complete(client, configured, wid, body, result)
+    return wid, body
+
+
 def test_exactly_seven_kinds_and_project_isolation():
     assert len(WORK_KINDS) == 7
     assert queue_name(8, "dev") != queue_name(8, "qa") != queue_name(9, "qa")
     for bad in ("ticket", "review", "rework", "#", "dev.*"):
         with pytest.raises(ValueError): queue_name(8, bad)
+
+
+def start_dev_discussion(client, db_session, configured):
+    item = task(db_session, configured)
+    wid = offer(client, configured, item, "dev")
+    author = claim_body(configured, "dev")
+    claim(client, configured, wid, author)
+    complete(client, configured, wid, author, {"decision": "submit", "summary": "implemented"})
+    db_session.expire_all()
+    rid = offer(client, configured, item, "dev_review")
+    reviewer = claim_body(configured, "dev_review", "b")
+    claim(client, configured, rid, reviewer)
+    result = {"decision": "discuss", "summary": "Boundary condition appears wrong", "evidence": ["src/app.py:12"]}
+    complete(client, configured, rid, reviewer, result)
+    complete(client, configured, rid, reviewer, result)
+    return item
+
+
+def test_multi_round_discussion_targets_original_agents_and_withdraws_false_positive(client, db_session, configured):
+    from agentboard.features.scheduling.worker_work_models import WorkerDiscussion
+    from agentboard.features.work_items.models import Comment
+    item = start_dev_discussion(client, db_session, configured)
+    db_session.expire_all()
+    assert item.status == "in_review" and item.review_round == 0
+    assert db_session.query(WorkerDiscussion).count() == 1
+    assert client.post('/api/worker-work/offers', headers=configured[3], json={
+        'project_id': configured[1], 'entity_type': 'task', 'entity_id': item.id,
+        'kind': 'dev_review', 'iteration': 0}).status_code == 409
+    wid, author = discussion_turn(client, configured, item)
+    claim(client, configured, wid, claim_body(configured, "dev", "b"), 403)
+    before = db_session.query(Comment).count()
+    reply = {"decision": "respond", "position": "disagree", "summary": "Guard already covers it", "evidence": ["src/app.py:10"]}
+    complete(client, configured, wid, author, reply)
+    complete(client, configured, wid, author, reply)
+    db_session.expire_all()
+    assert db_session.query(Comment).count() == before + 1
+    rid, reviewer = discussion_turn(client, configured, item)
+    complete(client, configured, rid, reviewer, {"decision": "confirm", "summary": "Insist without agreement"}, 422)
+    complete(client, configured, rid, reviewer, {"decision": "discuss", "summary": "What about empty input?"})
+    discussion_turn(client, configured, item, {"decision": "respond", "position": "disagree", "summary": "Empty-input test proves guard", "evidence": ["tests/test_app.py:21"]})
+    discussion_turn(client, configured, item, {"decision": "withdraw", "summary": "Verified counter-evidence, false positive"})
+    db_session.expire_all()
+    assert item.status == "done" and item.review_round == 0
+    result = client.get(f"/api/worker-work/discussions?project_id={configured[1]}&story_id={configured[2]}", headers=configured[3]).json()
+    discussion = result["items"][0]
+    assert discussion["status"] == "withdrawn"
+    assert len(discussion["messages"]) == 5
+    assert all(m["reply_to_comment_id"] == p["comment_id"] for p, m in zip(discussion["messages"], discussion["messages"][1:]))
+    assert client.get(f"/api/worker-work/discussions?project_id={configured[1]}&task_id={item.id}").status_code == 401
+
+
+def test_discussion_retry_expiry_and_round_limit_escalate_without_rework(client, db_session, configured):
+    from agentboard.features.scheduling.worker_work_models import WorkerDiscussion
+    from agentboard.features.work_items.models import Comment
+    item = start_dev_discussion(client, db_session, configured)
+    wid, old = discussion_turn(client, configured, item)
+    response = client.post(f"/api/worker-work/{wid}/fail", headers=configured[3], json={**old, "result": {"summary": "CLI unavailable"}})
+    assert response.status_code == 200
+    db_session.expire_all()
+    assert item.status == "in_review"
+    renewed = claim_body(configured, "dev")
+    claim(client, configured, wid, renewed)
+    row = db_session.get(WorkerWork, wid)
+    row.lease_until = utc_now() - timedelta(seconds=1)
+    db_session.commit()
+    newest = claim_body(configured, "dev")
+    claim(client, configured, wid, newest)
+    reply = {"decision": "respond", "position": "disagree", "summary": "Counter-evidence"}
+    complete(client, configured, wid, renewed, reply, 409)
+    complete(client, configured, wid, newest, reply)
+    for turn in range(3):
+        rid, reviewer = discussion_turn(client, configured, item)
+        if turn < 2:
+            complete(client, configured, rid, reviewer, {"decision": "discuss", "summary": "Need clarification"})
+            discussion_turn(client, configured, item, reply)
+        else:
+            complete(client, configured, rid, reviewer, {"decision": "discuss", "summary": "Endless loop"}, 422)
+            complete(client, configured, rid, reviewer, {"decision": "escalate", "summary": "Requirement ambiguity needs human decision"})
+    db_session.expire_all()
+    assert item.status == "blocked" and item.review_round == 0
+    assert db_session.query(WorkerDiscussion).one().status == "escalated"
+    assert db_session.query(Comment).filter_by(story_id=configured[2]).count() >= 1
+
+
+def test_target_queue_uses_same_stable_hash_as_node():
+    assert queue_name(8, "dev", "a") == "agentboard.work.v2.project.8.dev.agent.ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb"
+    assert queue_name(8, "dev", "a") != queue_name(8, "dev", "b")
 
 
 def test_claim_competition_result_idempotence_and_no_self_review(client, db_session, configured):
@@ -154,7 +261,10 @@ def test_design_review_rejection_routes_back_to_design(client, db_session, confi
     rid = offer(client, configured, item, "design_review")
     reviewer = claim_body(configured, "design_review", "b")
     claim(client, configured, rid, reviewer)
-    complete(client, configured, rid, reviewer, {"decision": "reject", "summary": "missing design details"})
+    complete(client, configured, rid, reviewer, {"decision": "reject", "summary": "missing design details"}, 422)
+    complete(client, configured, rid, reviewer, {"decision": "discuss", "summary": "missing design details"})
+    discussion_turn(client, configured, item, {"decision": "respond", "position": "agree", "summary": "verified missing details"})
+    discussion_turn(client, configured, item, {"decision": "confirm", "summary": "agreed after verification"})
     db_session.expire_all()
     assert item.status == "todo" and item.review_round == 1
     offer(client, configured, item, "design", 1)
@@ -354,6 +464,10 @@ def test_failed_qa_creates_new_bugs_then_independent_retest_atomically(client, d
         count = db_session.query(Task).count()
         approved = {"decision": "approve", "summary": "Tests are reasonable; product has a bug"}
         complete(client, configured, rid, check, approved, 422)
+        complete(client, configured, rid, check, {"decision": "discuss", "subject": "qa_defects", "summary": "Verify reported defect"})
+        discussion_turn(client, configured, qa, {"decision": "respond", "position": "agree", "summary": "Reproduced, report is accurate"})
+        rid, check = discussion_turn(client, configured, qa)
+        approved["decision"] = "confirm"
         followup = {"source_work_id": qid, "bugs": defects,
             "retest": {"title": f"Retest {cycle}", "description": "Deploy and rerun original acceptance + bug repro"}}
         for invalid in ({**followup, "source_work_id": qid + 100}, {**followup, "bugs": []},
@@ -429,8 +543,36 @@ def test_unreasonable_failed_qa_is_retested_not_sent_to_dev(client, db_session, 
     rid = offer(client, configured, qa, "qa_review")
     body = claim_body(configured, "qa_review", "a")
     claim(client, configured, rid, body)
-    complete(client, configured, rid, body, {"decision": "reject", "summary": "Missing reproducible test evidence"})
+    complete(client, configured, rid, body, {"decision": "discuss", "subject": "review_findings", "summary": "Missing reproducible test evidence"})
+    discussion_turn(client, configured, qa, {"decision": "respond", "position": "agree", "summary": "Need to collect evidence"})
+    discussion_turn(client, configured, qa, {"decision": "confirm", "summary": "Correct QA, no product bug established"})
     db_session.expire_all()
     assert qa.status == "todo" and qa.review_round == 1
     assert db_session.query(Task).filter_by(type="bug").count() == 0
     offer(client, configured, qa, "qa", iteration=1)
+
+
+@pytest.mark.parametrize("subject", ["qa_defects", "review_findings"])
+def test_withdrawn_qa_concern_never_creates_unconfirmed_bugs(client, db_session, configured, subject):
+    qa = task(db_session, configured, "qa")
+    qid = offer(client, configured, qa, "qa")
+    body = claim_body(configured, "qa", "b")
+    claim(client, configured, qid, body)
+    complete(client, configured, qid, body, {"decision": "submit", "summary": "failed QA", "tests_passed": False,
+        "deployment_steps": ["start locally"], "test_steps": ["GET /test"], "test_results": ["HTTP 500"],
+        "defects": [{"title": "500", "description": "Reproduction under discussion"}]})
+    db_session.expire_all()
+    rid = offer(client, configured, qa, "qa_review")
+    reviewer = claim_body(configured, "qa_review", "a")
+    claim(client, configured, rid, reviewer)
+    complete(client, configured, rid, reviewer, {"decision": "discuss", "subject": subject, "summary": "Verify report"})
+    discussion_turn(client, configured, qa, {"decision": "respond", "position": "disagree", "summary": "Counter-evidence"})
+    discussion_turn(client, configured, qa, {"decision": "withdraw", "summary": "Verified counter-evidence"})
+    db_session.expire_all()
+    assert db_session.query(Task).filter_by(type="bug").count() == 0
+    if subject == "qa_defects":
+        assert qa.status == "todo" and qa.review_round == 1
+    else:
+        assert qa.status == "in_review"
+        next_review = offer(client, configured, qa, "qa_review")
+        assert next_review != rid  # No reuse of completed review; defects still need their own confirmation.

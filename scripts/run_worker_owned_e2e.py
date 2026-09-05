@@ -119,12 +119,12 @@ def main():
         config = {"Worker": {"Id": f"real-{args.provider}-worker", "HistoryDatabasePath": str(output / "node.db")},
             "WorkerOwned": {"Enabled": True, "ReconcileSeconds": 3,
                 "Projects": [{"ProjectId": project_id, "LocalPath": str(workspace)}],
-                "Agents": [{"Id": args.provider + "-a", "Provider": args.provider, "ProjectIds": [project_id],
+                "Agents": [{"Id": args.provider + "-a", "Provider": args.provider,
                     "WorkKinds": ["proposal", "design", "dev", "qa_review"], "Runtime": {
                         "Command": args.cli, "Model": model, "TimeoutMinutes": 12,
                         "MaxCapturedOutputChars": 100000,
                         "Arguments": cli_arguments}},
-                    {"Id": args.provider + "-b", "Provider": args.provider, "ProjectIds": [project_id],
+                    {"Id": args.provider + "-b", "Provider": args.provider,
                     "WorkKinds": ["design_review", "dev_review", "qa"], "Runtime": {
                         "Command": args.cli, "Model": model, "TimeoutMinutes": 12,
                         "MaxCapturedOutputChars": 100000,

@@ -51,6 +51,16 @@ public sealed class WorkerOwnedService : BackgroundService
         // claim token into two physical executions.
         using var processLock = new FileStream(Path.GetFullPath(_node.HistoryDatabasePath) + ".worker-owned.lock",
             FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        // Refuse to consume against an older Server which cannot fence discussion turns.
+        using (var preflight = Client())
+        {
+            using var response = await preflight.GetAsync($"api/worker-work/snapshot?project_id={_options.Projects[0].ProjectId}&entity_type=task&limit=1", stoppingToken);
+            response.EnsureSuccessStatusCode();
+            using var protocol = JsonDocument.Parse(await response.Content.ReadAsStringAsync(stoppingToken));
+            if (!protocol.RootElement.TryGetProperty("protocol", out var version)
+                || version.GetString() != "worker-work.discussions.v1")
+                throw new InvalidOperationException("Deploy the discussion-capable FastAPI/MCP migration before starting this Worker");
+        }
         await Register(stoppingToken);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
         var reconciliation = ReconcileLoop(lifetime.Token);
@@ -188,10 +198,14 @@ public sealed class WorkerOwnedService : BackgroundService
         using var channel = connection.CreateModel();
         channel.ExchangeDeclare(WorkerWorkKinds.Exchange, ExchangeType.Direct, durable: true);
         channel.ExchangeDeclare(WorkerWorkKinds.Exchange + ".dlx", ExchangeType.Fanout, durable: true);
-        var subscriptions = _options.Subscriptions().ToArray();
-        foreach (var (project, kind) in subscriptions)
+        var subscriptions = _options.Subscriptions().Select(s => (s.ProjectId, s.Kind, Target: (string?)null))
+            .Concat(_options.Projects.SelectMany(p => _options.EnabledAgents.SelectMany(a =>
+                a.WorkKinds.Select(k => (p.ProjectId, k, Target: (string?)a.Id))))).Distinct().ToArray();
+        static string Queue(int project, string kind, string? target) => target is null
+            ? WorkerWorkKinds.Queue(project, kind) : WorkerWorkKinds.AgentQueue(project, kind, target);
+        foreach (var (project, kind, target) in subscriptions)
         {
-            var queue = WorkerWorkKinds.Queue(project, kind);
+            var queue = Queue(project, kind, target);
             channel.QueueDeclare(queue, durable: true, exclusive: false, autoDelete: false,
                 arguments: new Dictionary<string, object> { ["x-dead-letter-exchange"] = WorkerWorkKinds.Exchange + ".dlx" });
             channel.QueueBind(queue, WorkerWorkKinds.Exchange, queue);
@@ -201,10 +215,10 @@ public sealed class WorkerOwnedService : BackgroundService
         while (!ct.IsCancellationRequested && connection.IsOpen)
         {
             var received = false;
-            foreach (var (project, kind) in subscriptions)
+            foreach (var (project, kind, target) in subscriptions)
             {
                 if (_state.Paused) break;
-                var delivery = channel.BasicGet(WorkerWorkKinds.Queue(project, kind), autoAck: false);
+                var delivery = channel.BasicGet(Queue(project, kind, target), autoAck: false);
                 if (delivery is null) continue;
                 received = true;
                 bool ack;
@@ -213,9 +227,10 @@ public sealed class WorkerOwnedService : BackgroundService
                     using var message = JsonDocument.Parse(delivery.Body);
                     var root = message.RootElement;
                     if (root.GetProperty("schema").GetString() != "worker-work.v2"
-                        || root.GetProperty("project_id").GetInt32() != project || root.GetProperty("kind").GetString() != kind)
+                        || root.GetProperty("project_id").GetInt32() != project || root.GetProperty("kind").GetString() != kind
+                        || (root.TryGetProperty("target_agent", out var recipient) ? recipient.GetString() : null) != target)
                         throw new InvalidDataException("Misrouted work envelope");
-                    ack = await Execute(root.GetProperty("work_id").GetInt64(), project, kind, ct);
+                    ack = await Execute(root.GetProperty("work_id").GetInt64(), project, kind, target, ct);
                 }
                 catch (Exception error) when (error is JsonException or InvalidDataException or KeyNotFoundException)
                 {
@@ -234,10 +249,11 @@ public sealed class WorkerOwnedService : BackgroundService
         }
     }
 
-    private async Task<bool> Execute(long workId, int project, string kind, CancellationToken ct)
+    private async Task<bool> Execute(long workId, int project, string kind, string? target, CancellationToken ct)
     {
         var saved = _journal.Get(workId);
-        foreach (var profile in _options.Candidates(project, kind).OrderBy(a => a.Id == saved?.AgentId ? 0 : 1))
+        foreach (var profile in _options.Candidates(project, kind).Where(a => target is null || a.Id == target)
+            .OrderBy(a => a.Id == saved?.AgentId ? 0 : 1))
         {
             var entry = saved?.AgentId == profile.Id ? saved : new JournalEntry(workId, profile.Id, Guid.NewGuid().ToString("N"), null);
             _journal.Save(entry);
@@ -294,7 +310,8 @@ public sealed class WorkerOwnedService : BackgroundService
                     _state.SetAgentReport(profile.Id, Agents.AgentReadiness.AllOk());
                     _state.IncrementAgentTotal(profile.Id);
                     var output = JsonNode.Parse(result.OutputJson)?.AsObject() ?? throw new InvalidDataException("Missing result object");
-                    WorkPlanner.ValidateResult(kind, output);
+                    var discussion = WorkPlanner.IsDiscussion(businessContext);
+                    if (!discussion) WorkPlanner.ValidateResult(kind, output);
                     if (kind == "proposal" && output["decision"]?.GetValue<string>() == "finalize"
                         && output["create_ticket"]?.GetValue<bool>() == true)
                     {
@@ -306,7 +323,7 @@ public sealed class WorkerOwnedService : BackgroundService
                     WorkPlanner.AddQaFollowup(kind, output, businessContext);
                     var after = await GitHead(workspace, running.Token);
                     var afterStatus = await Git(workspace, ["status", "--porcelain"], running.Token);
-                    if ((kind.EndsWith("_review", StringComparison.Ordinal) || kind is "qa" or "proposal")
+                    if ((discussion || kind.EndsWith("_review", StringComparison.Ordinal) || kind is "qa" or "proposal")
                         && (before != after || beforeStatus != afterStatus))
                         throw new InvalidOperationException("Read-only work changed the repository");
                     if (kind is "design" or "dev" && afterStatus != beforeStatus)

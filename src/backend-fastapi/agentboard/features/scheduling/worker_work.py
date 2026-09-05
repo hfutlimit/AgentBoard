@@ -26,7 +26,8 @@ from ..projects.service import user_is_project_member
 from ..proposals.models import Proposal, ProposalQuestion
 from ..work_items.models import Task, TaskDependency
 from ..work_items.service import get_task_readiness
-from .worker_work_models import WorkerWork
+from .worker_work_models import WorkerWork, WorkerDiscussion
+from . import worker_discussions as discussions
 
 WorkKind = Literal["proposal", "design", "design_review", "dev", "dev_review", "qa", "qa_review"]
 WORK_KINDS = ("proposal", "design", "design_review", "dev", "dev_review", "qa", "qa_review")
@@ -40,10 +41,11 @@ def enabled() -> bool:
     return value == "1"
 
 
-def queue_name(project_id: int, kind: str) -> str:
+def queue_name(project_id: int, kind: str, target_agent: str | None = None) -> str:
     if project_id <= 0 or kind not in WORK_KINDS:
         raise ValueError("explicit project and supported work kind required")
-    return f"{EXCHANGE}.project.{project_id}.{kind}"
+    queue = f"{EXCHANGE}.project.{project_id}.{kind}"
+    return queue + ".agent." + hashlib.sha256(target_agent.encode()).hexdigest() if target_agent else queue
 
 
 class Offer(BaseModel):
@@ -52,6 +54,8 @@ class Offer(BaseModel):
     entity_id: int = Field(gt=0)
     kind: WorkKind
     iteration: int = Field(ge=0)
+    discussion_id: int | None = Field(default=None, gt=0)
+    target_agent: str | None = Field(default=None, min_length=1, max_length=100)
 
 
 class Claim(BaseModel):
@@ -109,7 +113,14 @@ def expected(obj):
 
 def check_offer(s, body: Offer):
     obj = entity(s, body.entity_type, body.entity_id)
-    if obj.project_id != body.project_id or expected(obj) != (body.kind, body.iteration):
+    if obj.project_id != body.project_id:
+        raise HTTPException(409, "work no longer matches business state")
+    if body.discussion_id is not None:
+        if not isinstance(obj, Task):
+            raise HTTPException(409, "discussion requires a Task")
+        discussions.validate_turn(s, obj, body)
+    elif (body.target_agent is not None or expected(obj) != (body.kind, body.iteration)
+          or isinstance(obj, Task) and discussions.active(s, obj.id)):
         raise HTTPException(409, "work no longer matches business state")
     if isinstance(obj, Task):
         story = s.get(Story, obj.story_id)
@@ -129,9 +140,16 @@ def context(s, obj, work):
     from .service import _upstream_task_ids
     ids = _upstream_task_ids(s, obj.id) | {obj.id}
     evidence = s.query(WorkerWork).filter(WorkerWork.entity_type == "task",
-        WorkerWork.entity_id.in_(ids), WorkerWork.state == "completed").order_by(WorkerWork.id).all()
+        WorkerWork.entity_id.in_(ids), WorkerWork.state == "completed",
+        WorkerWork.discussion_id.is_(None)).order_by(WorkerWork.id).all()
     story = s.get(Story, obj.story_id)
-    return {**retry, "item": _ser(obj), "story": _ser(story), "evidence": [
+    from ..work_items.models import Comment
+    comments = s.query(Comment).filter(or_(Comment.task_id == obj.id,
+        Comment.story_id == obj.story_id)).order_by(Comment.id.desc()).limit(50).all()
+    discussion = s.get(WorkerDiscussion, work.discussion_id) if work.discussion_id else None
+    return {**retry, "item": _ser(obj), "story": _ser(story),
+        "discussion": discussions.view(discussion) if discussion else None,
+        "comments": [_ser(c) for c in reversed(comments)], "evidence": [
         {"work_id": w.id, "task_id": w.entity_id, "kind": w.kind,
          "agent_id": w.agent_id, "result": json.loads(w.result or "{}")} for w in evidence]}
 
@@ -269,8 +287,11 @@ def snapshot(project_id: int, entity_type: Literal["proposal", "task"],
             item["ready"] = get_task_readiness(s, obj)["ready"]
             story = s.get(Story, obj.story_id)
             item["story_status"] = story.status if story else "missing"
+            discussion = discussions.active(s, obj.id)
+            item["discussion"] = discussions.view(discussion) if discussion else None
         items.append(item)
-    return {"items": items, "next_after_id": rows[-1].id if len(rows) == limit else 0}
+    return {"protocol": "worker-work.discussions.v1", "items": items,
+            "next_after_id": rows[-1].id if len(rows) == limit else 0}
 
 
 @router.post("/offers")
@@ -278,12 +299,20 @@ def offer(body: Offer, authorization: str | None = Header(None), s: Session = De
     authorize(s, body.project_id, authorization)
     obj = check_offer(s, body)
     key = f"{body.entity_type}:{body.entity_id}:{body.kind}:{body.iteration}:{fingerprint(s, obj)}"
+    if body.discussion_id:
+        key += f":discussion:{body.discussion_id}"
+    elif body.entity_type == "task" and body.kind.endswith("_review"):
+        previous = s.query(WorkerDiscussion).filter_by(task_id=obj.id,
+            review_round=obj.review_round or 0).order_by(WorkerDiscussion.id.desc()).first()
+        if previous:
+            key += f":after:{previous.id}"
     existing = s.query(WorkerWork).filter_by(work_key=key).first()
     if existing:
         return {"id": existing.id, "state": existing.state}
     from sqlalchemy.exc import IntegrityError
     row = WorkerWork(work_key=key, project_id=body.project_id, entity_type=body.entity_type,
-        entity_id=body.entity_id, kind=body.kind, iteration=body.iteration, input_hash=fingerprint(s, obj))
+        entity_id=body.entity_id, kind=body.kind, iteration=body.iteration, input_hash=fingerprint(s, obj),
+        discussion_id=body.discussion_id, target_agent=body.target_agent)
     try:
         with s.begin_nested():
             s.add(row)
@@ -301,6 +330,8 @@ def resolve_claim(s, work_id, body, authorization):
     if row.project_id != body.project_id or row.kind != body.kind:
         raise HTTPException(409, "message does not match work scope")
     agent = s.query(Agent).filter_by(agent_id=body.agent_id).first()
+    if row.target_agent is not None and row.target_agent != body.agent_id:
+        raise HTTPException(403, "discussion reply belongs to its original participant")
     if (not agent or agent.user_id != actor.user_id
             or (actor.agent_registry_id is not None and actor.agent_registry_id != agent.id)):
         raise HTTPException(403, "Agent must belong to the authenticated caller")
@@ -348,7 +379,7 @@ def claim(work_id: int, body: Claim, authorization: str | None = Header(None), s
     recovering = row.state == "leased" and row.lease_until <= utc_now()
     if recovering:
         obj = entity(s, row.entity_type, row.entity_id)
-        valid_state = "in_review" if row.kind.endswith("_review") else ("analyzing" if isinstance(obj, Proposal) else "in_progress")
+        valid_state = "in_review" if row.discussion_id or row.kind.endswith("_review") else ("analyzing" if isinstance(obj, Proposal) else "in_progress")
         if obj.status != valid_state or row.input_hash != fingerprint(s, obj):
             changed = s.execute(update(WorkerWork).where(WorkerWork.id == work_id,
                 WorkerWork.state == "leased", WorkerWork.lease_until <= utc_now()).values(
@@ -359,13 +390,16 @@ def claim(work_id: int, body: Claim, authorization: str | None = Header(None), s
             return {"state": "failed"}  # Never overwrite the changed business item.
     else:
         obj = check_offer(s, Offer(project_id=row.project_id, entity_type=row.entity_type,
-            entity_id=row.entity_id, kind=row.kind, iteration=row.iteration))
+            entity_id=row.entity_id, kind=row.kind, iteration=row.iteration,
+            discussion_id=row.discussion_id, target_agent=row.target_agent))
+    if row.discussion_id:
+        discussions.validate_turn(s, obj, row)
     if row.input_hash != fingerprint(s, obj):
         raise HTTPException(409, "offered work is stale")
     owner = obj.author_id if isinstance(obj, Proposal) else obj.owner_user_id
     if owner is None or owner != agent.user_id:
         raise HTTPException(403, "work owner does not match Agent owner")
-    if isinstance(obj, Task):
+    if isinstance(obj, Task) and not row.discussion_id:
         from .service import get_assignment_exclusion
         exclusion = get_assignment_exclusion(s, obj, "review" if row.kind.endswith("_review") else "task")
         if agent.id in exclusion.agent_registry_ids:
@@ -388,9 +422,11 @@ def claim(work_id: int, body: Claim, authorization: str | None = Header(None), s
         raise HTTPException(409, "work item already has an active attempt") from None
     if changed.rowcount != 1:
         raise HTTPException(409, "work already claimed or attempts exhausted")
-    if recovering and not row.kind.endswith("_review"):
+    if recovering and not row.discussion_id and not row.kind.endswith("_review"):
         reset_execution(s, obj)
-    if isinstance(obj, Proposal):
+    if row.discussion_id:
+        pass  # Discussion must preserve the execution/review assignment and status.
+    elif isinstance(obj, Proposal):
         from ..proposals.service import claim_proposal
         if claim_proposal(s, obj.id, agent=body.worker_id, user_id=agent.user_id) is None:
             raise HTTPException(409, "proposal claim lost")
@@ -428,6 +464,12 @@ def block_failed_execution(s, obj, summary):
     elif obj.status in ("in_progress", "in_review"):
         from ..work_items.service import set_status
         set_status(s, obj.id, "blocked", reason=summary, status_reason="pending_requirement_change")
+        discussion = discussions.active(s, obj.id)
+        if discussion:
+            from ..work_items.service import create_comment
+            discussion.status, discussion.active_slot = "escalated", None
+            create_comment(s, story_id=obj.story_id, author="worker",
+                content=f"Task #{obj.id}, discussion #{discussion.id}: execution retries exhausted; human reconciliation required.\n\n{summary}")
 
 
 @router.post("/{work_id}/fail")
@@ -443,7 +485,7 @@ def fail(work_id: int, body: Completion, authorization: str | None = Header(None
         raise HTTPException(422, "failure evidence too large")
     row.result = failure_json
     row.active_slot = None
-    valid_state = "in_review" if row.kind.endswith("_review") else ("analyzing" if isinstance(obj, Proposal) else "in_progress")
+    valid_state = "in_review" if row.discussion_id or row.kind.endswith("_review") else ("analyzing" if isinstance(obj, Proposal) else "in_progress")
     if row.input_hash != fingerprint(s, obj) or obj.status != valid_state:
         row.state = "failed"
         return {"state": "failed"}  # Retain the failure, do not undo human changes.
@@ -451,10 +493,26 @@ def fail(work_id: int, body: Completion, authorization: str | None = Header(None
         row.state = "failed"
         block_failed_execution(s, obj, summary)
     else:
-        if not row.kind.endswith("_review"):
+        if not row.discussion_id and not row.kind.endswith("_review"):
             reset_execution(s, obj)
         row.state, row.published_at = "available", None
     return {"state": row.state}
+
+
+@router.get("/discussions")
+def list_discussions(project_id: int = Query(gt=0), task_id: int | None = Query(None, gt=0),
+        story_id: int | None = Query(None, gt=0), authorization: str | None = Header(None),
+        s: Session = Depends(get_session)):
+    authorize(s, project_id, authorization, "api:read")
+    if task_id is None and story_id is None:
+        raise HTTPException(422, "Task or Story scope required")
+    query = s.query(WorkerDiscussion).join(Task, Task.id == WorkerDiscussion.task_id).filter(
+        WorkerDiscussion.project_id == project_id)
+    if task_id is not None:
+        query = query.filter(WorkerDiscussion.task_id == task_id)
+    if story_id is not None:
+        query = query.filter(Task.story_id == story_id)
+    return {"items": [discussions.view(d) for d in query.order_by(WorkerDiscussion.id.desc()).limit(100)]}
 
 
 @router.get("/{work_id}")
@@ -524,18 +582,38 @@ def complete(work_id: int, body: Completion, authorization: str | None = Header(
             raise HTTPException(422, "proposal decision must be ask or finalize")
     else:
         from ..work_items.service import set_status, create_comment
+        if row.discussion_id:
+            discussion = discussions.validate_turn(s, obj, row)
+            if "qa_followup" in body.result and not (discussion.subject == "qa_defects"
+                    and row.kind == "qa_review" and decision == "confirm"):
+                raise HTTPException(422, "only confirmed QA defects may provide followup Tasks")
+            decision = discussions.apply_turn(s, obj, row, agent, body.result)
+            if decision is None:
+                row.state, row.result, row.active_slot = "completed", result_json, None
+                s.flush()
+                return {"state": "completed"}
         if row.kind.endswith("_review"):
             if obj.status != "in_review" or obj.reviewer_agent_id != agent.id:
                 raise HTTPException(409, "review assignment changed")
-            if decision not in ("approve", "reject"):
-                raise HTTPException(422, "review decision must be approve or reject")
+            if decision == "discuss" and not row.discussion_id:
+                if "qa_followup" in body.result:
+                    raise HTTPException(422, "discussion cannot create Bug Tasks before confirmation")
+                discussions.start(s, obj, row, agent, body.result)
+                row.state, row.result, row.active_slot = "completed", result_json, None
+                s.flush()
+                return {"state": "completed"}
+            if decision not in ("approve", "reject") or decision == "reject" and not row.discussion_id:
+                raise HTTPException(422, "raise findings with discuss; rejection requires a confirmed discussion")
             if row.kind == "qa_review" and decision == "approve":
                 execution = s.query(WorkerWork).filter_by(entity_type="task", entity_id=obj.id,
-                    kind="qa", iteration=row.iteration, state="completed").order_by(WorkerWork.id.desc()).first()
+                    kind="qa", iteration=obj.review_round or 0, state="completed").filter(
+                        WorkerWork.discussion_id.is_(None)).order_by(WorkerWork.id.desc()).first()
                 evidence = json.loads(execution.result or "{}") if execution else {}
                 if not isinstance(evidence.get("tests_passed"), bool):
                     raise HTTPException(422, "QA Review requires accepted QA execution evidence")
                 if evidence["tests_passed"] is False:
+                    if not row.discussion_id or body.result.get("decision") != "confirm":
+                        raise HTTPException(422, "failed QA requires discussion and confirmation before Bug creation")
                     materialize_qa_followup(s, obj, execution, body.result, agent)
                 elif "qa_followup" in body.result:
                     raise HTTPException(422, "passing QA must not create defect followups")

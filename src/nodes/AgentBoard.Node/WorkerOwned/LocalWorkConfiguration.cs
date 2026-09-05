@@ -32,15 +32,14 @@ public sealed class WorkerOwnedOptions
                 throw new InvalidOperationException("Project requires an existing absolute local checkout path");
         foreach (var agent in Agents)
         {
-            if (agent.Runtime is null || agent.WorkKinds is null || agent.ProjectIds is null
+            if (agent.Runtime is null || agent.WorkKinds is null
                 || agent.Prompts is null || agent.PrePrompt is null || agent.PostPrompt is null)
                 throw new InvalidOperationException("Agent configuration fields cannot be null");
             if (string.IsNullOrWhiteSpace(agent.Id) || string.IsNullOrWhiteSpace(agent.Runtime.Command)
                 || agent.Provider is not ("codex" or "workbuddy" or "minimax")
-                || agent.WorkKinds.Length == 0 || agent.ProjectIds.Length == 0
-                || agent.WorkKinds.Any(k => !WorkerWorkKinds.All.Contains(k, StringComparer.Ordinal))
-                || agent.ProjectIds.Any(id => Projects.All(p => p.ProjectId != id)))
-                throw new InvalidOperationException($"Agent '{agent.Id}' needs a supported provider, explicit work kinds and local projects");
+                || agent.WorkKinds.Length == 0
+                || agent.WorkKinds.Any(k => !WorkerWorkKinds.All.Contains(k, StringComparer.Ordinal)))
+                throw new InvalidOperationException($"Agent '{agent.Id}' needs a supported provider and explicit work kinds; projects are Worker-wide");
             if (agent.Runtime.TimeoutMinutes is < 1 or > 1440
                 || agent.Runtime.Arguments is null || agent.Runtime.Arguments.Any(a => a is null)
                 || agent.PrePrompt.Length > 20000 || agent.PostPrompt.Length > 20000
@@ -55,10 +54,10 @@ public sealed class WorkerOwnedOptions
     public IEnumerable<LocalAgentProfile> EnabledAgents => Agents.Where(a => a.Enabled);
 
     public IEnumerable<(int ProjectId, string Kind)> Subscriptions() => EnabledAgents
-        .SelectMany(a => a.ProjectIds.SelectMany(p => a.WorkKinds.Select(k => (p, k)))).Distinct();
+        .SelectMany(a => Projects.SelectMany(p => a.WorkKinds.Select(k => (p.ProjectId, k)))).Distinct();
 
     public IEnumerable<LocalAgentProfile> Candidates(int project, string kind) => EnabledAgents
-        .Where(a => a.ProjectIds.Contains(project) && a.WorkKinds.Contains(kind, StringComparer.Ordinal));
+        .Where(a => Projects.Any(p => p.ProjectId == project) && a.WorkKinds.Contains(kind, StringComparer.Ordinal));
 }
 
 public sealed class LocalProject
@@ -73,6 +72,8 @@ public sealed class LocalAgentProfile
     public string Id { get; set; } = "";
     public string Provider { get; set; } = "";
     public string[] WorkKinds { get; set; } = [];
+    // Legacy input retained for source compatibility, never used for eligibility.
+    [System.Text.Json.Serialization.JsonIgnore]
     public int[] ProjectIds { get; set; } = [];
     public AgentOptions Runtime { get; set; } = new();
     public string PrePrompt { get; set; } = "";

@@ -20,7 +20,7 @@ const dom = new JSDOM(html,{url:'http://127.0.0.1:18240/',runScripts:'dangerousl
    if(request.method==='PUT'){const body=JSON.parse(request.body);assert.equal(body.revision,revision);saved=body.configuration;revision='v2'}
    result={configuration:structuredClone(saved||initial),revision};
   }else if(url.endsWith('/status'))result={configurationOnly:true,serverUrl:'http://prod.test',apiCredentialConfigured:true,brokerConfigured:true,brokerHost:'mq.test',workerId:'local',configPath:'local.json'};
-  else if(url.endsWith('/projects'))result={items:[{id:16,name:'Real project shape'}],total:1};
+  else if(url.endsWith('/projects'))result={items:[{id:16,name:'Real project shape'},{id:17,name:'Second project'}],total:2};
   else throw Error('Unexpected request '+url);
   return{ok:true,text:async()=>JSON.stringify(result)};
  }; }});
@@ -35,6 +35,18 @@ const change=(selector,value)=>{const el=d.querySelector(selector);el.value=valu
  assert.equal(d.querySelectorAll('[data-kind]').length,7);
  assert.match(d.querySelector('#connection').textContent,/prod.test/);
  assert.match(d.querySelector('[data-map-id]').textContent,/Real project shape/);
+ assert.equal(d.querySelectorAll('[data-project]').length,0);
+ d.querySelector('#projectsTab').click();
+ assert.equal(w.location.hash,'#projects');
+ assert.equal(d.querySelector('#mappingPanel').classList.contains('hidden'),false);
+ assert.equal(d.querySelector('#agentSidebar').classList.contains('hidden'),true);
+ d.querySelector('#addProject').click();
+ assert.equal(d.querySelectorAll('[data-map-path]').length,2);
+ change('[data-map-id="1"]','17');
+ change('[data-map-path="1"]','E:\\second-project');
+ d.querySelector('#agentsTab').click();
+ assert.equal(d.querySelector('#mappingPanel').classList.contains('hidden'),true);
+ assert.equal(d.querySelectorAll('[data-project]').length,0);
  change('#pre','通用 pre 编辑');change('#scope','dev');
  assert.equal(d.querySelector('#pre').value,'dev-before');
  change('#post','开发 post 编辑');
@@ -47,6 +59,7 @@ const change=(selector,value)=>{const el=d.querySelector(selector);el.value=valu
  assert.equal(saved.agents[0].prePrompt,'通用 pre 编辑');
  assert.equal(saved.agents[0].prompts.dev.post,'开发 post 编辑');
  assert.equal(saved.agents[1].prePrompt,'b-before');
+ assert.equal(saved.projects[1].localPath,'E:\\second-project');
  assert.match(d.querySelector('#message').textContent,/重启/);
  d.querySelector('#reload').click();await flush();
  assert.equal(d.querySelector('#pre').value,'通用 pre 编辑');

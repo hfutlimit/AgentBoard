@@ -138,7 +138,7 @@ public sealed class LocalConfigurationTests : IDisposable
         a.PostPrompt = "COMMON_POST";
         a.Prompts["dev"] = new() { Pre = "DEV_PRE", Post = "DEV_POST" };
         a.Prompts["qa"] = new() { Pre = "QA_ONLY" };
-        var prompt = WorkPlanner.Prompt("dev", "TASK_CONTEXT", a);
+        var prompt = WorkPlanner.Prompt("dev", "{\"item\":\"TASK_CONTEXT\"}", a);
         var markers = new[] { "COMMON_PRE", "DEV_PRE", "TASK_CONTEXT", "DEV_POST", "COMMON_POST" };
         var positions = markers.Select(m => prompt.IndexOf(m, StringComparison.Ordinal)).ToArray();
         Assert.All(positions, p => Assert.True(p >= 0));

@@ -8,9 +8,9 @@
 | --- | --- | --- |
 | proposal | 需求分析、持续 grill、收敛并拆 Story/Task DAG；拆 ticket 不是单独能力 | 等待用户回答或 design |
 | design | 设计并提交设计产物 | design_review |
-| design_review | 独立评审设计，拒绝则回 design | dev |
+| design_review | 独立评审设计，讨论确认问题后回 design | dev |
 | dev | 开发、修复、测试并提交代码 | dev_review |
-| dev_review | 独立评审实现，拒绝则回 dev | qa |
+| dev_review | 独立评审实现，讨论确认问题后回 dev | qa |
 | qa | 独立 Task；本地部署、实际测试、提交部署步骤/测试步骤/实际结果 | qa_review |
 | qa_review | 评估 QA 工作及证据是否合理充分；不是再次做代码评审 | 所有 Task 完成后 Worker 请求关闭 Story |
 
@@ -19,6 +19,7 @@
 ## 边界与可靠性
 
 Worker 的 `WorkerOwned` 配置独占项目/本地路径、Agent 实例、模型、工作能力和下一步决策。
+Projects 为 Worker 统一 mapping，所有 Agent 参与全部映射项目；每个 Agent 只按 WorkKinds 区分工作职责。
 Server 不配置 WorkspaceId、BaseVersion、provider、阶段 WorkflowVersion，不选择 Agent。
 Server 仍负责业务数据、权限、依赖/人工门禁校验、租约 fencing、结果幂等和 RabbitMQ 持久化转发；
 “只发任务”不表示取消认证或允许 Worker 随意覆盖业务状态。
@@ -27,6 +28,7 @@ Worker 读取 `/api/worker-work/snapshot`，本地规划后提交 `offers`。Ser
 发布到 direct exchange `agentboard.work.v2`，共享队列/路由键为
 `agentboard.work.v2.project.<ProjectId>.<kind>`。不同 Worker 在相同项目/工作队列上竞争，
 dev-only Worker 不订阅 qa 队列。没有每个 Worker 一份的广播工作副本。
+例外是双方讨论回复：使用上述队列名加 `.agent.<sha256(agent-id)>` 定向给原参与 Agent，依然受本地项目/工作类型配置约束。讨论不是第八种工作；完整协议见 [协作讨论](worker-owned-discussions.md)。
 
 claim token 在本地 SQLite journal 先落盘；Server CAS 认领，租约 3 分钟，每 30 秒续租。
 结果先存 journal，再提交 fenced completion，最后 ACK。丢失 HTTP 响应重放结果，不重新运行模型。
@@ -44,14 +46,14 @@ journal 绑定 Server URL 与 Worker 身份；切换 Server/Worker 要使用新 
 QA 失败需提交 `defects=[{title,description}]`，包含复现步骤、期望/实际结果和证据。
 测试/部署阻塞也需如实记录，不能编造产品缺陷。QA Review 判断测试工作是否合理，而不是要求产品必须无缺陷：
 
-- 不合理报告：reject，原 QA Task 返工，不创建 Bug。
-- 合理报告且发现问题：approve，Worker 明确提交 `qa_followup`，Server 在同一 fenced completion 事务创建每个缺陷对应的 `bug` Task 和一个独立 QA 复测 Task。重放不会重复建单。
+- 不合理报告：先进行 `review_findings` 讨论，双方确认后原 QA Task 返工，不创建 Bug。
+- 合理报告且发现问题：先进行 `qa_defects` 讨论，双方确认后 Worker 明确提交 `qa_followup`，Server 在同一 fenced completion 事务创建每个缺陷对应的 `bug` Task 和一个独立 QA 复测 Task。重放不会重复建单。
 - Bug 依赖原 QA；复测依赖所有 Bug。Bug 走 `dev` / `dev_review` 队列，由本地具备对应能力的 Agent 竞争，不指定或退回原 Dev Agent。
 - 原 QA 完成代表其工作已获认可，失败证据不改写；原 Dev Task 不回退。新 Bug 和复测未完成时 Story 不能关闭。
 - 复测排除全部上游 `dev` 和 `bug` 实施者。复测再失败会进入新一轮 Bug / 复测链，直到复测和 QA Review 通过。
 
 计划在 Worker 生成，Server 只验证来源、完整缺陷列表、归属和依赖并持久化，不负责选择执行 Agent。
-该补丁需同时更新 FastAPI 与 Node；复用现有 Task/Dependency/WorkerWork 表，不增加额外数据库迁移。
+新版讨论需同时更新 FastAPI/MCP 与 Node，并迁移至 `a19d58e204bc`；Task/Story 讨论展示还需发布前端。
 
 ## 部署（默认不开启，不能与 v1 混跑）
 

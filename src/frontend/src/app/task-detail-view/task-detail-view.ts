@@ -145,13 +145,14 @@ export class AgentRunStreamComponent implements OnInit, OnDestroy {
 
 import { ViewEncapsulation, inject } from '@angular/core';
 import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
+import { WorkerDiscussionComponent } from '../worker-discussion/worker-discussion';
 import { ProjectDataService } from '../services/project-data.service';
 
 /** Task detail rendered as an entity tab inside the project workspace. */
 @Component({
   selector: 'app-task-detail-view',
   standalone: true,
-  imports: [CommonModule, WorkspaceHeadingComponent, AgentRunStreamComponent],
+  imports: [CommonModule, WorkspaceHeadingComponent, AgentRunStreamComponent, WorkerDiscussionComponent],
   templateUrl: './task-detail-view.html',
   encapsulation: ViewEncapsulation.None,
 })

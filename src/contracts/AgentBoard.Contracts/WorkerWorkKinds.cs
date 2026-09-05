@@ -32,4 +32,9 @@ public static class WorkerWorkKinds
     }
 
     public const string Exchange = "agentboard.work.v2";
+
+    // New work competes on the shared queue; replies return to a participant.
+    public static string AgentQueue(int projectId, string kind, string agentId) =>
+        Queue(projectId, kind) + ".agent." + Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(agentId))).ToLowerInvariant();
 }

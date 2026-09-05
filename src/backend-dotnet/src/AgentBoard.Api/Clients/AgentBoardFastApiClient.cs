@@ -3419,6 +3419,141 @@ namespace AgentBoard.Api.Clients
         System.Threading.Tasks.Task<object> Materialize_api_durable_materialize_postAsync(int project_id, Anonymous112 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
+        /// Snapshot
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        System.Threading.Tasks.Task<object> Snapshot_api_worker_work_snapshot_getAsync(int project_id, Entity_type entity_type, int? after_id, int? limit, Anonymous113 authorization);
+
+        /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
+        /// <summary>
+        /// Snapshot
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        System.Threading.Tasks.Task<object> Snapshot_api_worker_work_snapshot_getAsync(int project_id, Entity_type entity_type, int? after_id, int? limit, Anonymous113 authorization, System.Threading.CancellationToken cancellationToken);
+
+        /// <summary>
+        /// Offer
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        System.Threading.Tasks.Task<object> Offer_api_worker_work_offers_postAsync(Anonymous114 authorization, Offer body);
+
+        /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
+        /// <summary>
+        /// Offer
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        System.Threading.Tasks.Task<object> Offer_api_worker_work_offers_postAsync(Anonymous114 authorization, Offer body, System.Threading.CancellationToken cancellationToken);
+
+        /// <summary>
+        /// Claim
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        System.Threading.Tasks.Task<object> Claim_api_worker_work__work_id__claim_postAsync(int work_id, Anonymous115 authorization, Claim body);
+
+        /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
+        /// <summary>
+        /// Claim
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        System.Threading.Tasks.Task<object> Claim_api_worker_work__work_id__claim_postAsync(int work_id, Anonymous115 authorization, Claim body, System.Threading.CancellationToken cancellationToken);
+
+        /// <summary>
+        /// Fail
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        System.Threading.Tasks.Task<object> Fail_api_worker_work__work_id__fail_postAsync(int work_id, Anonymous116 authorization, Completion body);
+
+        /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
+        /// <summary>
+        /// Fail
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        System.Threading.Tasks.Task<object> Fail_api_worker_work__work_id__fail_postAsync(int work_id, Anonymous116 authorization, Completion body, System.Threading.CancellationToken cancellationToken);
+
+        /// <summary>
+        /// List Discussions
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        System.Threading.Tasks.Task<object> List_discussions_api_worker_work_discussions_getAsync(int project_id, Task_id task_id, Story_id4 story_id, Anonymous117 authorization);
+
+        /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
+        /// <summary>
+        /// List Discussions
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        System.Threading.Tasks.Task<object> List_discussions_api_worker_work_discussions_getAsync(int project_id, Task_id task_id, Story_id4 story_id, Anonymous117 authorization, System.Threading.CancellationToken cancellationToken);
+
+        /// <summary>
+        /// Work Status
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        System.Threading.Tasks.Task<object> Work_status_api_worker_work__work_id__getAsync(int work_id, Anonymous118 authorization);
+
+        /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
+        /// <summary>
+        /// Work Status
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        System.Threading.Tasks.Task<object> Work_status_api_worker_work__work_id__getAsync(int work_id, Anonymous118 authorization, System.Threading.CancellationToken cancellationToken);
+
+        /// <summary>
+        /// Heartbeat
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        System.Threading.Tasks.Task<object> Heartbeat_api_worker_work__work_id__heartbeat_postAsync(int work_id, Anonymous119 authorization, Claim body);
+
+        /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
+        /// <summary>
+        /// Heartbeat
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        System.Threading.Tasks.Task<object> Heartbeat_api_worker_work__work_id__heartbeat_postAsync(int work_id, Anonymous119 authorization, Claim body, System.Threading.CancellationToken cancellationToken);
+
+        /// <summary>
+        /// Complete
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        System.Threading.Tasks.Task<object> Complete_api_worker_work__work_id__complete_postAsync(int work_id, Anonymous120 authorization, Completion body);
+
+        /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
+        /// <summary>
+        /// Complete
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        System.Threading.Tasks.Task<object> Complete_api_worker_work__work_id__complete_postAsync(int work_id, Anonymous120 authorization, Completion body, System.Threading.CancellationToken cancellationToken);
+
+        /// <summary>
+        /// Complete Story
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        System.Threading.Tasks.Task<object> Complete_story_api_worker_work_stories__story_id__complete_postAsync(int story_id, Anonymous121 authorization);
+
+        /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
+        /// <summary>
+        /// Complete Story
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        System.Threading.Tasks.Task<object> Complete_story_api_worker_work_stories__story_id__complete_postAsync(int story_id, Anonymous121 authorization, System.Threading.CancellationToken cancellationToken);
+
+        /// <summary>
         /// Preview Agent Behavior
         /// </summary>
         /// <remarks>
@@ -3426,7 +3561,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<BehaviorPreviewResponse> Preview_agent_behavior_api_projects__project_id__agents_behavior_preview_postAsync(int project_id, Anonymous113 authorization, BehaviorPreviewRequest body);
+        System.Threading.Tasks.Task<BehaviorPreviewResponse> Preview_agent_behavior_api_projects__project_id__agents_behavior_preview_postAsync(int project_id, Anonymous122 authorization, BehaviorPreviewRequest body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3437,7 +3572,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<BehaviorPreviewResponse> Preview_agent_behavior_api_projects__project_id__agents_behavior_preview_postAsync(int project_id, Anonymous113 authorization, BehaviorPreviewRequest body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<BehaviorPreviewResponse> Preview_agent_behavior_api_projects__project_id__agents_behavior_preview_postAsync(int project_id, Anonymous122 authorization, BehaviorPreviewRequest body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Get Effective Behavior
@@ -3454,7 +3589,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_effective_behavior_api_agent_behavior_effective_getAsync(Project_id10 project_id, Agent_id agent_id, Work_type work_type, Anonymous114 authorization);
+        System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_effective_behavior_api_agent_behavior_effective_getAsync(Project_id10 project_id, Agent_id agent_id, Work_type work_type, Anonymous123 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3472,7 +3607,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_effective_behavior_api_agent_behavior_effective_getAsync(Project_id10 project_id, Agent_id agent_id, Work_type work_type, Anonymous114 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_effective_behavior_api_agent_behavior_effective_getAsync(Project_id10 project_id, Agent_id agent_id, Work_type work_type, Anonymous123 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Get Project Behavior
@@ -3483,7 +3618,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_project_behavior_api_projects__project_id__behavior_getAsync(int project_id, Work_type2 work_type, Anonymous115 authorization);
+        System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_project_behavior_api_projects__project_id__behavior_getAsync(int project_id, Work_type2 work_type, Anonymous124 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3495,7 +3630,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_project_behavior_api_projects__project_id__behavior_getAsync(int project_id, Work_type2 work_type, Anonymous115 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_project_behavior_api_projects__project_id__behavior_getAsync(int project_id, Work_type2 work_type, Anonymous124 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Update Project Behavior
@@ -3506,7 +3641,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Update_project_behavior_api_projects__project_id__behavior_putAsync(int project_id, Work_type3 work_type, Anonymous116 authorization, AgentBehaviorConfigPayload body);
+        System.Threading.Tasks.Task<object> Update_project_behavior_api_projects__project_id__behavior_putAsync(int project_id, Work_type3 work_type, Anonymous125 authorization, AgentBehaviorConfigPayload body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3518,7 +3653,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Update_project_behavior_api_projects__project_id__behavior_putAsync(int project_id, Work_type3 work_type, Anonymous116 authorization, AgentBehaviorConfigPayload body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Update_project_behavior_api_projects__project_id__behavior_putAsync(int project_id, Work_type3 work_type, Anonymous125 authorization, AgentBehaviorConfigPayload body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Reset Project Behavior
@@ -3529,7 +3664,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Reset_project_behavior_api_projects__project_id__behavior_deleteAsync(int project_id, Work_type4 work_type, Anonymous117 authorization);
+        System.Threading.Tasks.Task<object> Reset_project_behavior_api_projects__project_id__behavior_deleteAsync(int project_id, Work_type4 work_type, Anonymous126 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3541,7 +3676,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Reset_project_behavior_api_projects__project_id__behavior_deleteAsync(int project_id, Work_type4 work_type, Anonymous117 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Reset_project_behavior_api_projects__project_id__behavior_deleteAsync(int project_id, Work_type4 work_type, Anonymous126 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Get Agent Behavior
@@ -3552,7 +3687,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_agent_behavior_api_projects__project_id__agents__agent_id__behavior_getAsync(int project_id, int agent_id, Work_type5 work_type, Anonymous118 authorization);
+        System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_agent_behavior_api_projects__project_id__agents__agent_id__behavior_getAsync(int project_id, int agent_id, Work_type5 work_type, Anonymous127 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3564,7 +3699,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_agent_behavior_api_projects__project_id__agents__agent_id__behavior_getAsync(int project_id, int agent_id, Work_type5 work_type, Anonymous118 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_agent_behavior_api_projects__project_id__agents__agent_id__behavior_getAsync(int project_id, int agent_id, Work_type5 work_type, Anonymous127 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Update Agent Behavior
@@ -3575,7 +3710,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Update_agent_behavior_api_projects__project_id__agents__agent_id__behavior_putAsync(int project_id, int agent_id, Work_type6 work_type, Anonymous119 authorization, AgentBehaviorConfigPayload body);
+        System.Threading.Tasks.Task<object> Update_agent_behavior_api_projects__project_id__agents__agent_id__behavior_putAsync(int project_id, int agent_id, Work_type6 work_type, Anonymous128 authorization, AgentBehaviorConfigPayload body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3587,7 +3722,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Update_agent_behavior_api_projects__project_id__agents__agent_id__behavior_putAsync(int project_id, int agent_id, Work_type6 work_type, Anonymous119 authorization, AgentBehaviorConfigPayload body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Update_agent_behavior_api_projects__project_id__agents__agent_id__behavior_putAsync(int project_id, int agent_id, Work_type6 work_type, Anonymous128 authorization, AgentBehaviorConfigPayload body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Reset Agent Behavior
@@ -3598,7 +3733,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Reset_agent_behavior_api_projects__project_id__agents__agent_id__behavior_deleteAsync(int project_id, int agent_id, Work_type7 work_type, Anonymous120 authorization);
+        System.Threading.Tasks.Task<object> Reset_agent_behavior_api_projects__project_id__agents__agent_id__behavior_deleteAsync(int project_id, int agent_id, Work_type7 work_type, Anonymous129 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3610,7 +3745,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Reset_agent_behavior_api_projects__project_id__agents__agent_id__behavior_deleteAsync(int project_id, int agent_id, Work_type7 work_type, Anonymous120 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Reset_agent_behavior_api_projects__project_id__agents__agent_id__behavior_deleteAsync(int project_id, int agent_id, Work_type7 work_type, Anonymous129 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// List Project Learnings
@@ -3622,7 +3757,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">关联工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_project_learnings_api_projects__project_id__learnings_getAsync(int project_id, Category category, Work_type8 work_type, Anonymous121 authorization);
+        System.Threading.Tasks.Task<object> List_project_learnings_api_projects__project_id__learnings_getAsync(int project_id, Category category, Work_type8 work_type, Anonymous130 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3635,7 +3770,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">关联工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_project_learnings_api_projects__project_id__learnings_getAsync(int project_id, Category category, Work_type8 work_type, Anonymous121 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> List_project_learnings_api_projects__project_id__learnings_getAsync(int project_id, Category category, Work_type8 work_type, Anonymous130 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Create Project Learning
@@ -3645,7 +3780,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Create_project_learning_api_projects__project_id__learnings_postAsync(int project_id, Anonymous122 authorization, CreateLearningRequest body);
+        System.Threading.Tasks.Task<object> Create_project_learning_api_projects__project_id__learnings_postAsync(int project_id, Anonymous131 authorization, CreateLearningRequest body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3656,14 +3791,14 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Create_project_learning_api_projects__project_id__learnings_postAsync(int project_id, Anonymous122 authorization, CreateLearningRequest body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Create_project_learning_api_projects__project_id__learnings_postAsync(int project_id, Anonymous131 authorization, CreateLearningRequest body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Create Run Event Endpoint
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Create_run_event_endpoint_api_agent_runs__run_id__events_postAsync(int run_id, Anonymous123 authorization, XWorkerID x_Worker_ID, RunEventIn body);
+        System.Threading.Tasks.Task<object> Create_run_event_endpoint_api_agent_runs__run_id__events_postAsync(int run_id, Anonymous132 authorization, XWorkerID x_Worker_ID, RunEventIn body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3671,14 +3806,14 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Create_run_event_endpoint_api_agent_runs__run_id__events_postAsync(int run_id, Anonymous123 authorization, XWorkerID x_Worker_ID, RunEventIn body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Create_run_event_endpoint_api_agent_runs__run_id__events_postAsync(int run_id, Anonymous132 authorization, XWorkerID x_Worker_ID, RunEventIn body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// List Run Events Endpoint
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_run_events_endpoint_api_agent_runs__run_id__events_getAsync(int run_id, Before_id before_id, int? limit, Anonymous124 authorization);
+        System.Threading.Tasks.Task<object> List_run_events_endpoint_api_agent_runs__run_id__events_getAsync(int run_id, Before_id before_id, int? limit, Anonymous133 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3686,14 +3821,14 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_run_events_endpoint_api_agent_runs__run_id__events_getAsync(int run_id, Before_id before_id, int? limit, Anonymous124 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> List_run_events_endpoint_api_agent_runs__run_id__events_getAsync(int run_id, Before_id before_id, int? limit, Anonymous133 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Stream Run Events
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Stream_run_events_api_agent_runs__run_id__events_stream_getAsync(int run_id, Anonymous125 authorization);
+        System.Threading.Tasks.Task<object> Stream_run_events_api_agent_runs__run_id__events_stream_getAsync(int run_id, Anonymous134 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3701,7 +3836,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Stream_run_events_api_agent_runs__run_id__events_stream_getAsync(int run_id, Anonymous125 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Stream_run_events_api_agent_runs__run_id__events_stream_getAsync(int run_id, Anonymous134 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Register Agent
@@ -3714,7 +3849,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Register_agent_api_agents_register_postAsync(Anonymous126 authorization, AgentRegisterIn body);
+        System.Threading.Tasks.Task<object> Register_agent_api_agents_register_postAsync(Anonymous135 authorization, AgentRegisterIn body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3728,7 +3863,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Register_agent_api_agents_register_postAsync(Anonymous126 authorization, AgentRegisterIn body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Register_agent_api_agents_register_postAsync(Anonymous135 authorization, AgentRegisterIn body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Update Agent
@@ -3741,7 +3876,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Update_agent_api_agents__agent_id__putAsync(string agent_id, Anonymous127 authorization, AgentUpdateIn body);
+        System.Threading.Tasks.Task<object> Update_agent_api_agents__agent_id__putAsync(string agent_id, Anonymous136 authorization, AgentUpdateIn body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3755,7 +3890,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Update_agent_api_agents__agent_id__putAsync(string agent_id, Anonymous127 authorization, AgentUpdateIn body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Update_agent_api_agents__agent_id__putAsync(string agent_id, Anonymous136 authorization, AgentUpdateIn body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Delete Agent
@@ -3765,7 +3900,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Delete_agent_api_agents__agent_id__deleteAsync(string agent_id, Anonymous128 authorization);
+        System.Threading.Tasks.Task<object> Delete_agent_api_agents__agent_id__deleteAsync(string agent_id, Anonymous137 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3776,7 +3911,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Delete_agent_api_agents__agent_id__deleteAsync(string agent_id, Anonymous128 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Delete_agent_api_agents__agent_id__deleteAsync(string agent_id, Anonymous137 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Agent Heartbeat
@@ -3789,7 +3924,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Agent_heartbeat_api_agents__agent_id__heartbeat_postAsync(string agent_id, Anonymous129 authorization, Anonymous130 body);
+        System.Threading.Tasks.Task<object> Agent_heartbeat_api_agents__agent_id__heartbeat_postAsync(string agent_id, Anonymous138 authorization, Anonymous139 body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3803,7 +3938,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Agent_heartbeat_api_agents__agent_id__heartbeat_postAsync(string agent_id, Anonymous129 authorization, Anonymous130 body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Agent_heartbeat_api_agents__agent_id__heartbeat_postAsync(string agent_id, Anonymous138 authorization, Anonymous139 body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Agent Deregister
@@ -3816,7 +3951,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Agent_deregister_api_agents__agent_id__deregister_postAsync(string agent_id, Anonymous131 authorization, Anonymous132 body);
+        System.Threading.Tasks.Task<object> Agent_deregister_api_agents__agent_id__deregister_postAsync(string agent_id, Anonymous140 authorization, Anonymous141 body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3830,7 +3965,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Agent_deregister_api_agents__agent_id__deregister_postAsync(string agent_id, Anonymous131 authorization, Anonymous132 body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Agent_deregister_api_agents__agent_id__deregister_postAsync(string agent_id, Anonymous140 authorization, Anonymous141 body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Probe Agent
@@ -3850,7 +3985,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Probe_agent_api_agents__agent_id__probe_postAsync(string agent_id, Anonymous133 authorization, Anonymous134 body);
+        System.Threading.Tasks.Task<object> Probe_agent_api_agents__agent_id__probe_postAsync(string agent_id, Anonymous142 authorization, Anonymous143 body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3871,7 +4006,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Probe_agent_api_agents__agent_id__probe_postAsync(string agent_id, Anonymous133 authorization, Anonymous134 body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Probe_agent_api_agents__agent_id__probe_postAsync(string agent_id, Anonymous142 authorization, Anonymous143 body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// List Agents
@@ -3887,7 +4022,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_agents_api_agents_getAsync(Online online, Anonymous135 role, Anonymous136 authorization);
+        System.Threading.Tasks.Task<object> List_agents_api_agents_getAsync(Online online, Anonymous144 role, Anonymous145 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3904,7 +4039,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_agents_api_agents_getAsync(Online online, Anonymous135 role, Anonymous136 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> List_agents_api_agents_getAsync(Online online, Anonymous144 role, Anonymous145 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Durable Agent Select
@@ -3921,7 +4056,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Durable_agent_select_api_durable_agent_select_postAsync(Anonymous137 authorization, DurableAgentSelectIn body);
+        System.Threading.Tasks.Task<object> Durable_agent_select_api_durable_agent_select_postAsync(Anonymous146 authorization, DurableAgentSelectIn body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3939,7 +4074,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Durable_agent_select_api_durable_agent_select_postAsync(Anonymous137 authorization, DurableAgentSelectIn body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Durable_agent_select_api_durable_agent_select_postAsync(Anonymous146 authorization, DurableAgentSelectIn body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Register Worker Endpoint
@@ -3952,7 +4087,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Register_worker_endpoint_api_workers_register_postAsync(Anonymous138 authorization, WorkerRegisterIn body);
+        System.Threading.Tasks.Task<object> Register_worker_endpoint_api_workers_register_postAsync(Anonymous147 authorization, WorkerRegisterIn body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3966,7 +4101,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Register_worker_endpoint_api_workers_register_postAsync(Anonymous138 authorization, WorkerRegisterIn body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Register_worker_endpoint_api_workers_register_postAsync(Anonymous147 authorization, WorkerRegisterIn body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// List Workers Endpoint
@@ -3976,7 +4111,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_workers_endpoint_api_workers_getAsync(Anonymous139 authorization);
+        System.Threading.Tasks.Task<object> List_workers_endpoint_api_workers_getAsync(Anonymous148 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -3987,7 +4122,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_workers_endpoint_api_workers_getAsync(Anonymous139 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> List_workers_endpoint_api_workers_getAsync(Anonymous148 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// List Worker Instances
@@ -4008,7 +4143,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_worker_instances_api_workers__worker_id__instances_getAsync(string worker_id, Anonymous140 authorization);
+        System.Threading.Tasks.Task<object> List_worker_instances_api_workers__worker_id__instances_getAsync(string worker_id, Anonymous149 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4030,7 +4165,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_worker_instances_api_workers__worker_id__instances_getAsync(string worker_id, Anonymous140 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> List_worker_instances_api_workers__worker_id__instances_getAsync(string worker_id, Anonymous149 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Upsert Agent Instance For Agent
@@ -4042,7 +4177,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Upsert_agent_instance_for_agent_api_agents__agent_id__instances_postAsync(string agent_id, Anonymous141 authorization, AgentInstanceUpsertIn body);
+        System.Threading.Tasks.Task<object> Upsert_agent_instance_for_agent_api_agents__agent_id__instances_postAsync(string agent_id, Anonymous150 authorization, AgentInstanceUpsertIn body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4055,7 +4190,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Upsert_agent_instance_for_agent_api_agents__agent_id__instances_postAsync(string agent_id, Anonymous141 authorization, AgentInstanceUpsertIn body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Upsert_agent_instance_for_agent_api_agents__agent_id__instances_postAsync(string agent_id, Anonymous150 authorization, AgentInstanceUpsertIn body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Delete Agent Instance Endpoint
@@ -4072,7 +4207,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Delete_agent_instance_endpoint_api_agents__agent_id__instances_deleteAsync(string agent_id, string worker_id, Anonymous142 authorization);
+        System.Threading.Tasks.Task<object> Delete_agent_instance_endpoint_api_agents__agent_id__instances_deleteAsync(string agent_id, string worker_id, Anonymous151 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4090,7 +4225,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Delete_agent_instance_endpoint_api_agents__agent_id__instances_deleteAsync(string agent_id, string worker_id, Anonymous142 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Delete_agent_instance_endpoint_api_agents__agent_id__instances_deleteAsync(string agent_id, string worker_id, Anonymous151 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Pick Agent From Cache
@@ -4115,7 +4250,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="pinned">Optional agent_id to pin. If provided, returns this agent if it is in the cache and online; otherwise 503.</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Pick_agent_from_cache_api_agent_cache_pick_postAsync(Pinned pinned, Anonymous143 authorization);
+        System.Threading.Tasks.Task<object> Pick_agent_from_cache_api_agent_cache_pick_postAsync(Pinned pinned, Anonymous152 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4141,7 +4276,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="pinned">Optional agent_id to pin. If provided, returns this agent if it is in the cache and online; otherwise 503.</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Pick_agent_from_cache_api_agent_cache_pick_postAsync(Pinned pinned, Anonymous143 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Pick_agent_from_cache_api_agent_cache_pick_postAsync(Pinned pinned, Anonymous152 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Snapshot Agent Cache
@@ -4155,7 +4290,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Snapshot_agent_cache_api_agent_cache_snapshot_getAsync(Anonymous144 authorization);
+        System.Threading.Tasks.Task<object> Snapshot_agent_cache_api_agent_cache_snapshot_getAsync(Anonymous153 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4170,7 +4305,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Snapshot_agent_cache_api_agent_cache_snapshot_getAsync(Anonymous144 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Snapshot_agent_cache_api_agent_cache_snapshot_getAsync(Anonymous153 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// List Agent Instances Endpoint
@@ -4183,7 +4318,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_agent_instances_endpoint_api_agent_instances_getAsync(Worker_id worker_id, Agent_id2 agent_id, Anonymous145 authorization);
+        System.Threading.Tasks.Task<object> List_agent_instances_endpoint_api_agent_instances_getAsync(Worker_id worker_id, Agent_id2 agent_id, Anonymous154 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4197,7 +4332,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_agent_instances_endpoint_api_agent_instances_getAsync(Worker_id worker_id, Agent_id2 agent_id, Anonymous145 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> List_agent_instances_endpoint_api_agent_instances_getAsync(Worker_id worker_id, Agent_id2 agent_id, Anonymous154 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Get Agent Instance Endpoint
@@ -4207,7 +4342,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Get_agent_instance_endpoint_api_agent_instances__instance_id__getAsync(int instance_id, Anonymous146 authorization);
+        System.Threading.Tasks.Task<object> Get_agent_instance_endpoint_api_agent_instances__instance_id__getAsync(int instance_id, Anonymous155 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4218,7 +4353,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Get_agent_instance_endpoint_api_agent_instances__instance_id__getAsync(int instance_id, Anonymous146 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Get_agent_instance_endpoint_api_agent_instances__instance_id__getAsync(int instance_id, Anonymous155 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Delete Agent Instance Endpoint
@@ -4229,7 +4364,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Delete_agent_instance_endpoint_api_agent_instances__instance_id__deleteAsync(int instance_id, Anonymous147 authorization);
+        System.Threading.Tasks.Task<object> Delete_agent_instance_endpoint_api_agent_instances__instance_id__deleteAsync(int instance_id, Anonymous156 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4241,7 +4376,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Delete_agent_instance_endpoint_api_agent_instances__instance_id__deleteAsync(int instance_id, Anonymous147 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Delete_agent_instance_endpoint_api_agent_instances__instance_id__deleteAsync(int instance_id, Anonymous156 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Instance Heartbeat Endpoint
@@ -4255,7 +4390,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Instance_heartbeat_endpoint_api_workers__worker_id__agent_instances__instance_id__heartbeat_postAsync(string worker_id, int instance_id, Anonymous148 authorization, AgentInstanceHeartbeatIn body);
+        System.Threading.Tasks.Task<object> Instance_heartbeat_endpoint_api_workers__worker_id__agent_instances__instance_id__heartbeat_postAsync(string worker_id, int instance_id, Anonymous157 authorization, AgentInstanceHeartbeatIn body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4270,7 +4405,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Instance_heartbeat_endpoint_api_workers__worker_id__agent_instances__instance_id__heartbeat_postAsync(string worker_id, int instance_id, Anonymous148 authorization, AgentInstanceHeartbeatIn body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Instance_heartbeat_endpoint_api_workers__worker_id__agent_instances__instance_id__heartbeat_postAsync(string worker_id, int instance_id, Anonymous157 authorization, AgentInstanceHeartbeatIn body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Instance Deregister Endpoint
@@ -4280,7 +4415,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Instance_deregister_endpoint_api_workers__worker_id__agent_instances__instance_id__deregister_postAsync(string worker_id, int instance_id, Anonymous149 authorization, AgentInstanceHeartbeatIn body);
+        System.Threading.Tasks.Task<object> Instance_deregister_endpoint_api_workers__worker_id__agent_instances__instance_id__deregister_postAsync(string worker_id, int instance_id, Anonymous158 authorization, AgentInstanceHeartbeatIn body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4291,7 +4426,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Instance_deregister_endpoint_api_workers__worker_id__agent_instances__instance_id__deregister_postAsync(string worker_id, int instance_id, Anonymous149 authorization, AgentInstanceHeartbeatIn body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Instance_deregister_endpoint_api_workers__worker_id__agent_instances__instance_id__deregister_postAsync(string worker_id, int instance_id, Anonymous158 authorization, AgentInstanceHeartbeatIn body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// List Run Records Api
@@ -4301,7 +4436,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_run_records_api_api_runs_getAsync(Agent agent, Anonymous150 status, Anonymous151 q, int? limit, int? offset, Anonymous152 authorization);
+        System.Threading.Tasks.Task<object> List_run_records_api_api_runs_getAsync(Agent agent, Anonymous159 status, Anonymous160 q, int? limit, int? offset, Anonymous161 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4312,14 +4447,14 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_run_records_api_api_runs_getAsync(Agent agent, Anonymous150 status, Anonymous151 q, int? limit, int? offset, Anonymous152 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> List_run_records_api_api_runs_getAsync(Agent agent, Anonymous159 status, Anonymous160 q, int? limit, int? offset, Anonymous161 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// List Task Runs Api
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_task_runs_api_api_tasks__task_id__runs_getAsync(int task_id, int? limit, int? offset, Anonymous153 authorization);
+        System.Threading.Tasks.Task<object> List_task_runs_api_api_tasks__task_id__runs_getAsync(int task_id, int? limit, int? offset, Anonymous162 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4327,14 +4462,14 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_task_runs_api_api_tasks__task_id__runs_getAsync(int task_id, int? limit, int? offset, Anonymous153 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> List_task_runs_api_api_tasks__task_id__runs_getAsync(int task_id, int? limit, int? offset, Anonymous162 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Get Schedule
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Get_schedule_api_schedules__sid__getAsync(int sid, Anonymous154 authorization);
+        System.Threading.Tasks.Task<object> Get_schedule_api_schedules__sid__getAsync(int sid, Anonymous163 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4342,14 +4477,14 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Get_schedule_api_schedules__sid__getAsync(int sid, Anonymous154 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Get_schedule_api_schedules__sid__getAsync(int sid, Anonymous163 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Update Schedule
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Update_schedule_api_schedules__sid__patchAsync(int sid, Anonymous155 authorization, SchedulePatch body);
+        System.Threading.Tasks.Task<object> Update_schedule_api_schedules__sid__patchAsync(int sid, Anonymous164 authorization, SchedulePatch body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4357,14 +4492,14 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Update_schedule_api_schedules__sid__patchAsync(int sid, Anonymous155 authorization, SchedulePatch body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Update_schedule_api_schedules__sid__patchAsync(int sid, Anonymous164 authorization, SchedulePatch body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Delete Schedule
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Delete_schedule_api_schedules__sid__deleteAsync(int sid, Anonymous156 authorization);
+        System.Threading.Tasks.Task<object> Delete_schedule_api_schedules__sid__deleteAsync(int sid, Anonymous165 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4372,7 +4507,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Delete_schedule_api_schedules__sid__deleteAsync(int sid, Anonymous156 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Delete_schedule_api_schedules__sid__deleteAsync(int sid, Anonymous165 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Create Run
@@ -4394,7 +4529,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_runs_api_schedules__sid__runs_getAsync(int sid, int? limit, int? offset, Anonymous157 authorization);
+        System.Threading.Tasks.Task<object> List_runs_api_schedules__sid__runs_getAsync(int sid, int? limit, int? offset, Anonymous166 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4402,14 +4537,14 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_runs_api_schedules__sid__runs_getAsync(int sid, int? limit, int? offset, Anonymous157 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> List_runs_api_schedules__sid__runs_getAsync(int sid, int? limit, int? offset, Anonymous166 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Get Run
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Get_run_api_runs__rid__getAsync(int rid, Anonymous158 authorization);
+        System.Threading.Tasks.Task<object> Get_run_api_runs__rid__getAsync(int rid, Anonymous167 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4417,14 +4552,14 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Get_run_api_runs__rid__getAsync(int rid, Anonymous158 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Get_run_api_runs__rid__getAsync(int rid, Anonymous167 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Update Run
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Update_run_api_runs__rid__patchAsync(int rid, Anonymous159 authorization, XWorkerID2 x_Worker_ID, RunPatch body);
+        System.Threading.Tasks.Task<object> Update_run_api_runs__rid__patchAsync(int rid, Anonymous168 authorization, XWorkerID2 x_Worker_ID, RunPatch body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4432,14 +4567,14 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Update_run_api_runs__rid__patchAsync(int rid, Anonymous159 authorization, XWorkerID2 x_Worker_ID, RunPatch body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Update_run_api_runs__rid__patchAsync(int rid, Anonymous168 authorization, XWorkerID2 x_Worker_ID, RunPatch body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Delete Run
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Delete_run_api_runs__rid__deleteAsync(int rid, Anonymous160 authorization);
+        System.Threading.Tasks.Task<object> Delete_run_api_runs__rid__deleteAsync(int rid, Anonymous169 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4447,7 +4582,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Delete_run_api_runs__rid__deleteAsync(int rid, Anonymous160 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Delete_run_api_runs__rid__deleteAsync(int rid, Anonymous169 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Report Run Result
@@ -4458,7 +4593,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Report_run_result_api_runs__rid__report_postAsync(int rid, Anonymous161 authorization, XWorkerID3 x_Worker_ID, RunReportIn body);
+        System.Threading.Tasks.Task<object> Report_run_result_api_runs__rid__report_postAsync(int rid, Anonymous170 authorization, XWorkerID3 x_Worker_ID, RunReportIn body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4470,7 +4605,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Report_run_result_api_runs__rid__report_postAsync(int rid, Anonymous161 authorization, XWorkerID3 x_Worker_ID, RunReportIn body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Report_run_result_api_runs__rid__report_postAsync(int rid, Anonymous170 authorization, XWorkerID3 x_Worker_ID, RunReportIn body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Search Stories Api
@@ -4529,7 +4664,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Search_notifications_api_api_search_notifications_getAsync(string q, int? limit, Anonymous162 authorization);
+        System.Threading.Tasks.Task<object> Search_notifications_api_api_search_notifications_getAsync(string q, int? limit, Anonymous171 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4538,7 +4673,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Search_notifications_api_api_search_notifications_getAsync(string q, int? limit, Anonymous162 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Search_notifications_api_api_search_notifications_getAsync(string q, int? limit, Anonymous171 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Search Agents Api
@@ -4546,7 +4681,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Search_agents_api_api_search_agents_getAsync(string q, int? limit, Anonymous163 authorization);
+        System.Threading.Tasks.Task<object> Search_agents_api_api_search_agents_getAsync(string q, int? limit, Anonymous172 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4555,7 +4690,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Search_agents_api_api_search_agents_getAsync(string q, int? limit, Anonymous163 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Search_agents_api_api_search_agents_getAsync(string q, int? limit, Anonymous172 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Search Proposals Api
@@ -4563,7 +4698,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Search_proposals_api_api_search_proposals_getAsync(string q, int? limit, Anonymous164 authorization);
+        System.Threading.Tasks.Task<object> Search_proposals_api_api_search_proposals_getAsync(string q, int? limit, Anonymous173 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4572,7 +4707,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Search_proposals_api_api_search_proposals_getAsync(string q, int? limit, Anonymous164 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Search_proposals_api_api_search_proposals_getAsync(string q, int? limit, Anonymous173 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Search Tickets Api
@@ -4580,7 +4715,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Search_tickets_api_api_search_tickets_getAsync(string q, int? limit, Anonymous165 authorization);
+        System.Threading.Tasks.Task<object> Search_tickets_api_api_search_tickets_getAsync(string q, int? limit, Anonymous174 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4589,7 +4724,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Search_tickets_api_api_search_tickets_getAsync(string q, int? limit, Anonymous165 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Search_tickets_api_api_search_tickets_getAsync(string q, int? limit, Anonymous174 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Search Schedules Api
@@ -4597,7 +4732,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Search_schedules_api_api_search_schedules_getAsync(string q, int? limit, Anonymous166 authorization);
+        System.Threading.Tasks.Task<object> Search_schedules_api_api_search_schedules_getAsync(string q, int? limit, Anonymous175 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4606,7 +4741,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Search_schedules_api_api_search_schedules_getAsync(string q, int? limit, Anonymous166 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Search_schedules_api_api_search_schedules_getAsync(string q, int? limit, Anonymous175 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Search Runs Api
@@ -4614,7 +4749,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Search_runs_api_api_search_runs_getAsync(string q, int? limit, Anonymous167 authorization);
+        System.Threading.Tasks.Task<object> Search_runs_api_api_search_runs_getAsync(string q, int? limit, Anonymous176 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4623,7 +4758,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Search_runs_api_api_search_runs_getAsync(string q, int? limit, Anonymous167 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Search_runs_api_api_search_runs_getAsync(string q, int? limit, Anonymous176 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Meta
@@ -4784,7 +4919,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Dashboard_overview_api_overview_getAsync(Anonymous168 authorization);
+        System.Threading.Tasks.Task<object> Dashboard_overview_api_overview_getAsync(Anonymous177 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4799,7 +4934,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Dashboard_overview_api_overview_getAsync(Anonymous168 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Dashboard_overview_api_overview_getAsync(Anonymous177 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Cache Stats
@@ -4835,7 +4970,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Admin_list_users_api_admin_users_getAsync(int? limit, int? offset, Anonymous169 authorization);
+        System.Threading.Tasks.Task<object> Admin_list_users_api_admin_users_getAsync(int? limit, int? offset, Anonymous178 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4843,14 +4978,14 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Admin_list_users_api_admin_users_getAsync(int? limit, int? offset, Anonymous169 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Admin_list_users_api_admin_users_getAsync(int? limit, int? offset, Anonymous178 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Admin Update User
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Admin_update_user_api_admin_users__uid__patchAsync(int uid, Anonymous170 authorization, UserAdminPatch body);
+        System.Threading.Tasks.Task<object> Admin_update_user_api_admin_users__uid__patchAsync(int uid, Anonymous179 authorization, UserAdminPatch body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4858,14 +4993,14 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Admin_update_user_api_admin_users__uid__patchAsync(int uid, Anonymous170 authorization, UserAdminPatch body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Admin_update_user_api_admin_users__uid__patchAsync(int uid, Anonymous179 authorization, UserAdminPatch body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Admin List Projects
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Admin_list_projects_api_admin_projects_getAsync(int? limit, int? offset, Anonymous171 authorization);
+        System.Threading.Tasks.Task<object> Admin_list_projects_api_admin_projects_getAsync(int? limit, int? offset, Anonymous180 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4873,14 +5008,14 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Admin_list_projects_api_admin_projects_getAsync(int? limit, int? offset, Anonymous171 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Admin_list_projects_api_admin_projects_getAsync(int? limit, int? offset, Anonymous180 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Admin Delete Project
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Admin_delete_project_api_admin_projects__pid__deleteAsync(int pid, Anonymous172 authorization);
+        System.Threading.Tasks.Task<object> Admin_delete_project_api_admin_projects__pid__deleteAsync(int pid, Anonymous181 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4888,7 +5023,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Admin_delete_project_api_admin_projects__pid__deleteAsync(int pid, Anonymous172 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Admin_delete_project_api_admin_projects__pid__deleteAsync(int pid, Anonymous181 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// List Audit Logs
@@ -4898,7 +5033,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_audit_logs_api_audit_logs_getAsync(Project_id11 project_id, Entity_type entity_type, Entity_id entity_id, User_id2 user_id, Action action, int? limit, int? offset);
+        System.Threading.Tasks.Task<object> List_audit_logs_api_audit_logs_getAsync(Project_id11 project_id, Entity_type2 entity_type, Entity_id entity_id, User_id2 user_id, Action action, int? limit, int? offset);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4909,7 +5044,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_audit_logs_api_audit_logs_getAsync(Project_id11 project_id, Entity_type entity_type, Entity_id entity_id, User_id2 user_id, Action action, int? limit, int? offset, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> List_audit_logs_api_audit_logs_getAsync(Project_id11 project_id, Entity_type2 entity_type, Entity_id entity_id, User_id2 user_id, Action action, int? limit, int? offset, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Delete Dependency
@@ -4943,7 +5078,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Admin_list_pending_ticket_requests_api_admin_ticket_requests_pending_getAsync(int? limit, Anonymous173 authorization);
+        System.Threading.Tasks.Task<object> Admin_list_pending_ticket_requests_api_admin_ticket_requests_pending_getAsync(int? limit, Anonymous182 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4957,7 +5092,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Admin_list_pending_ticket_requests_api_admin_ticket_requests_pending_getAsync(int? limit, Anonymous173 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Admin_list_pending_ticket_requests_api_admin_ticket_requests_pending_getAsync(int? limit, Anonymous182 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Admin Reclaim Stale Ticket Requests
@@ -4970,7 +5105,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Admin_reclaim_stale_ticket_requests_api_admin_ticket_requests_reclaim_stale_postAsync(Anonymous174 authorization, Anonymous175 body);
+        System.Threading.Tasks.Task<object> Admin_reclaim_stale_ticket_requests_api_admin_ticket_requests_reclaim_stale_postAsync(Anonymous183 authorization, Anonymous184 body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -4984,7 +5119,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Admin_reclaim_stale_ticket_requests_api_admin_ticket_requests_reclaim_stale_postAsync(Anonymous174 authorization, Anonymous175 body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Admin_reclaim_stale_ticket_requests_api_admin_ticket_requests_reclaim_stale_postAsync(Anonymous183 authorization, Anonymous184 body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Agent Leaderboard Api
@@ -4993,7 +5128,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="task_type">按任务类型过滤，如 dev/qa/design/bug</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Agent_leaderboard_api_api_learning_agent_leaderboard_getAsync(Project_id12 project_id, Task_type task_type, int? limit, Anonymous176 authorization);
+        System.Threading.Tasks.Task<object> Agent_leaderboard_api_api_learning_agent_leaderboard_getAsync(Project_id12 project_id, Task_type task_type, int? limit, Anonymous185 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -5003,14 +5138,14 @@ namespace AgentBoard.Api.Clients
         /// <param name="task_type">按任务类型过滤，如 dev/qa/design/bug</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Agent_leaderboard_api_api_learning_agent_leaderboard_getAsync(Project_id12 project_id, Task_type task_type, int? limit, Anonymous176 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Agent_leaderboard_api_api_learning_agent_leaderboard_getAsync(Project_id12 project_id, Task_type task_type, int? limit, Anonymous185 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// List Outcomes Api
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_outcomes_api_api_learning_outcomes_getAsync(Project_id13 project_id, Task_id task_id, int? limit, Anonymous177 authorization);
+        System.Threading.Tasks.Task<object> List_outcomes_api_api_learning_outcomes_getAsync(Project_id13 project_id, Task_id2 task_id, int? limit, Anonymous186 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -5018,7 +5153,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> List_outcomes_api_api_learning_outcomes_getAsync(Project_id13 project_id, Task_id task_id, int? limit, Anonymous177 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> List_outcomes_api_api_learning_outcomes_getAsync(Project_id13 project_id, Task_id2 task_id, int? limit, Anonymous186 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Judge Task Api
@@ -5030,7 +5165,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Judge_task_api_api_learning_judge__task_id__postAsync(int task_id, Anonymous178 authorization);
+        System.Threading.Tasks.Task<object> Judge_task_api_api_learning_judge__task_id__postAsync(int task_id, Anonymous187 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -5043,7 +5178,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Judge_task_api_api_learning_judge__task_id__postAsync(int task_id, Anonymous178 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Judge_task_api_api_learning_judge__task_id__postAsync(int task_id, Anonymous187 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Judge Status Api
@@ -5053,7 +5188,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Judge_status_api_api_learning_judge_status_getAsync(Anonymous179 authorization);
+        System.Threading.Tasks.Task<object> Judge_status_api_api_learning_judge_status_getAsync(Anonymous188 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -5064,7 +5199,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Judge_status_api_api_learning_judge_status_getAsync(Anonymous179 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Judge_status_api_api_learning_judge_status_getAsync(Anonymous188 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Project Playbook Api
@@ -5075,7 +5210,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="project_id">项目 ID</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Project_playbook_api_api_learning_project_playbook_getAsync(int project_id, Anonymous180 authorization);
+        System.Threading.Tasks.Task<object> Project_playbook_api_api_learning_project_playbook_getAsync(int project_id, Anonymous189 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -5087,7 +5222,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="project_id">项目 ID</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Project_playbook_api_api_learning_project_playbook_getAsync(int project_id, Anonymous180 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Project_playbook_api_api_learning_project_playbook_getAsync(int project_id, Anonymous189 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Playbook Append Api
@@ -5097,7 +5232,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Playbook_append_api_api_learning_playbook__project_id__append_postAsync(int project_id, Anonymous181 authorization, PlaybookAppendIn body);
+        System.Threading.Tasks.Task<object> Playbook_append_api_api_learning_playbook__project_id__append_postAsync(int project_id, Anonymous190 authorization, PlaybookAppendIn body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -5108,7 +5243,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Playbook_append_api_api_learning_playbook__project_id__append_postAsync(int project_id, Anonymous181 authorization, PlaybookAppendIn body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Playbook_append_api_api_learning_playbook__project_id__append_postAsync(int project_id, Anonymous190 authorization, PlaybookAppendIn body, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Recall Api
@@ -5120,7 +5255,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="spec">查询文本（task spec / 描述摘要）</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Recall_api_api_learning_recall_getAsync(int project_id, string spec, int? top_k, Anonymous182 authorization);
+        System.Threading.Tasks.Task<object> Recall_api_api_learning_recall_getAsync(int project_id, string spec, int? top_k, Anonymous191 authorization);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -5133,7 +5268,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="spec">查询文本（task spec / 描述摘要）</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Recall_api_api_learning_recall_getAsync(int project_id, string spec, int? top_k, Anonymous182 authorization, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Recall_api_api_learning_recall_getAsync(int project_id, string spec, int? top_k, Anonymous191 authorization, System.Threading.CancellationToken cancellationToken);
 
         /// <summary>
         /// Sync Agent Cache Http
@@ -5154,7 +5289,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Sync_agent_cache_http_api_agent_cache_sync_postAsync(Anonymous183 authorization, object body);
+        System.Threading.Tasks.Task<object> Sync_agent_cache_http_api_agent_cache_sync_postAsync(Anonymous192 authorization, object body);
 
         /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
         /// <summary>
@@ -5176,7 +5311,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        System.Threading.Tasks.Task<object> Sync_agent_cache_http_api_agent_cache_sync_postAsync(Anonymous183 authorization, object body, System.Threading.CancellationToken cancellationToken);
+        System.Threading.Tasks.Task<object> Sync_agent_cache_http_api_agent_cache_sync_postAsync(Anonymous192 authorization, object body, System.Threading.CancellationToken cancellationToken);
 
     }
 
@@ -22947,6 +23082,976 @@ namespace AgentBoard.Api.Clients
         }
 
         /// <summary>
+        /// Snapshot
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        public virtual System.Threading.Tasks.Task<object> Snapshot_api_worker_work_snapshot_getAsync(int project_id, Entity_type entity_type, int? after_id, int? limit, Anonymous113 authorization)
+        {
+            return Snapshot_api_worker_work_snapshot_getAsync(project_id, entity_type, after_id, limit, authorization, System.Threading.CancellationToken.None);
+        }
+
+        /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
+        /// <summary>
+        /// Snapshot
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        public virtual async System.Threading.Tasks.Task<object> Snapshot_api_worker_work_snapshot_getAsync(int project_id, Entity_type entity_type, int? after_id, int? limit, Anonymous113 authorization, System.Threading.CancellationToken cancellationToken)
+        {
+            if (project_id == null)
+                throw new System.ArgumentNullException("project_id");
+
+            if (entity_type == null)
+                throw new System.ArgumentNullException("entity_type");
+
+            var client_ = _httpClient;
+            var disposeClient_ = false;
+            try
+            {
+                using (var request_ = new System.Net.Http.HttpRequestMessage())
+                {
+
+                    if (authorization != null)
+                        request_.Headers.TryAddWithoutValidation("authorization", ConvertToString(authorization, System.Globalization.CultureInfo.InvariantCulture));
+                    request_.Method = new System.Net.Http.HttpMethod("GET");
+                    request_.Headers.Accept.Add(System.Net.Http.Headers.MediaTypeWithQualityHeaderValue.Parse("application/json"));
+
+                    var urlBuilder_ = new System.Text.StringBuilder();
+
+                    // Operation Path: "api/worker-work/snapshot"
+                    urlBuilder_.Append("api/worker-work/snapshot");
+                    urlBuilder_.Append('?');
+                    urlBuilder_.Append(System.Uri.EscapeDataString("project_id")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(project_id, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                    urlBuilder_.Append(System.Uri.EscapeDataString("entity_type")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(entity_type, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                    if (after_id != null)
+                    {
+                        urlBuilder_.Append(System.Uri.EscapeDataString("after_id")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(after_id, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                    }
+                    if (limit != null)
+                    {
+                        urlBuilder_.Append(System.Uri.EscapeDataString("limit")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(limit, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                    }
+                    urlBuilder_.Length--;
+
+                    PrepareRequest(client_, request_, urlBuilder_);
+
+                    var url_ = urlBuilder_.ToString();
+                    request_.RequestUri = new System.Uri(url_, System.UriKind.RelativeOrAbsolute);
+
+                    PrepareRequest(client_, request_, url_);
+
+                    var response_ = await client_.SendAsync(request_, System.Net.Http.HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                    var disposeResponse_ = true;
+                    try
+                    {
+                        var headers_ = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.IEnumerable<string>>();
+                        foreach (var item_ in response_.Headers)
+                            headers_[item_.Key] = item_.Value;
+                        if (response_.Content != null && response_.Content.Headers != null)
+                        {
+                            foreach (var item_ in response_.Content.Headers)
+                                headers_[item_.Key] = item_.Value;
+                        }
+
+                        ProcessResponse(client_, response_);
+
+                        var status_ = (int)response_.StatusCode;
+                        if (status_ == 200)
+                        {
+                            var objectResponse_ = await ReadObjectResponseAsync<object>(response_, headers_, cancellationToken).ConfigureAwait(false);
+                            if (objectResponse_.Object == null)
+                            {
+                                throw new ApiException("Response was null which was not expected.", status_, objectResponse_.Text, headers_, null);
+                            }
+                            return objectResponse_.Object;
+                        }
+                        else
+                        if (status_ == 422)
+                        {
+                            var objectResponse_ = await ReadObjectResponseAsync<HTTPValidationError>(response_, headers_, cancellationToken).ConfigureAwait(false);
+                            if (objectResponse_.Object == null)
+                            {
+                                throw new ApiException("Response was null which was not expected.", status_, objectResponse_.Text, headers_, null);
+                            }
+                            throw new ApiException<HTTPValidationError>("Validation Error", status_, objectResponse_.Text, headers_, objectResponse_.Object, null);
+                        }
+                        else
+                        {
+                            var responseData_ = response_.Content == null ? null : await ReadAsStringAsync(response_.Content, cancellationToken).ConfigureAwait(false);
+                            throw new ApiException("The HTTP status code of the response was not expected (" + status_ + ").", status_, responseData_, headers_, null);
+                        }
+                    }
+                    finally
+                    {
+                        if (disposeResponse_)
+                            response_.Dispose();
+                    }
+                }
+            }
+            finally
+            {
+                if (disposeClient_)
+                    client_.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Offer
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        public virtual System.Threading.Tasks.Task<object> Offer_api_worker_work_offers_postAsync(Anonymous114 authorization, Offer body)
+        {
+            return Offer_api_worker_work_offers_postAsync(authorization, body, System.Threading.CancellationToken.None);
+        }
+
+        /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
+        /// <summary>
+        /// Offer
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        public virtual async System.Threading.Tasks.Task<object> Offer_api_worker_work_offers_postAsync(Anonymous114 authorization, Offer body, System.Threading.CancellationToken cancellationToken)
+        {
+            if (body == null)
+                throw new System.ArgumentNullException("body");
+
+            var client_ = _httpClient;
+            var disposeClient_ = false;
+            try
+            {
+                using (var request_ = new System.Net.Http.HttpRequestMessage())
+                {
+
+                    if (authorization != null)
+                        request_.Headers.TryAddWithoutValidation("authorization", ConvertToString(authorization, System.Globalization.CultureInfo.InvariantCulture));
+                    var json_ = Newtonsoft.Json.JsonConvert.SerializeObject(body, JsonSerializerSettings);
+                    var content_ = new System.Net.Http.StringContent(json_);
+                    content_.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/json");
+                    request_.Content = content_;
+                    request_.Method = new System.Net.Http.HttpMethod("POST");
+                    request_.Headers.Accept.Add(System.Net.Http.Headers.MediaTypeWithQualityHeaderValue.Parse("application/json"));
+
+                    var urlBuilder_ = new System.Text.StringBuilder();
+
+                    // Operation Path: "api/worker-work/offers"
+                    urlBuilder_.Append("api/worker-work/offers");
+
+                    PrepareRequest(client_, request_, urlBuilder_);
+
+                    var url_ = urlBuilder_.ToString();
+                    request_.RequestUri = new System.Uri(url_, System.UriKind.RelativeOrAbsolute);
+
+                    PrepareRequest(client_, request_, url_);
+
+                    var response_ = await client_.SendAsync(request_, System.Net.Http.HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                    var disposeResponse_ = true;
+                    try
+                    {
+                        var headers_ = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.IEnumerable<string>>();
+                        foreach (var item_ in response_.Headers)
+                            headers_[item_.Key] = item_.Value;
+                        if (response_.Content != null && response_.Content.Headers != null)
+                        {
+                            foreach (var item_ in response_.Content.Headers)
+                                headers_[item_.Key] = item_.Value;
+                        }
+
+                        ProcessResponse(client_, response_);
+
+                        var status_ = (int)response_.StatusCode;
+                        if (status_ == 200)
+                        {
+                            var objectResponse_ = await ReadObjectResponseAsync<object>(response_, headers_, cancellationToken).ConfigureAwait(false);
+                            if (objectResponse_.Object == null)
+                            {
+                                throw new ApiException("Response was null which was not expected.", status_, objectResponse_.Text, headers_, null);
+                            }
+                            return objectResponse_.Object;
+                        }
+                        else
+                        if (status_ == 422)
+                        {
+                            var objectResponse_ = await ReadObjectResponseAsync<HTTPValidationError>(response_, headers_, cancellationToken).ConfigureAwait(false);
+                            if (objectResponse_.Object == null)
+                            {
+                                throw new ApiException("Response was null which was not expected.", status_, objectResponse_.Text, headers_, null);
+                            }
+                            throw new ApiException<HTTPValidationError>("Validation Error", status_, objectResponse_.Text, headers_, objectResponse_.Object, null);
+                        }
+                        else
+                        {
+                            var responseData_ = response_.Content == null ? null : await ReadAsStringAsync(response_.Content, cancellationToken).ConfigureAwait(false);
+                            throw new ApiException("The HTTP status code of the response was not expected (" + status_ + ").", status_, responseData_, headers_, null);
+                        }
+                    }
+                    finally
+                    {
+                        if (disposeResponse_)
+                            response_.Dispose();
+                    }
+                }
+            }
+            finally
+            {
+                if (disposeClient_)
+                    client_.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Claim
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        public virtual System.Threading.Tasks.Task<object> Claim_api_worker_work__work_id__claim_postAsync(int work_id, Anonymous115 authorization, Claim body)
+        {
+            return Claim_api_worker_work__work_id__claim_postAsync(work_id, authorization, body, System.Threading.CancellationToken.None);
+        }
+
+        /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
+        /// <summary>
+        /// Claim
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        public virtual async System.Threading.Tasks.Task<object> Claim_api_worker_work__work_id__claim_postAsync(int work_id, Anonymous115 authorization, Claim body, System.Threading.CancellationToken cancellationToken)
+        {
+            if (work_id == null)
+                throw new System.ArgumentNullException("work_id");
+
+            if (body == null)
+                throw new System.ArgumentNullException("body");
+
+            var client_ = _httpClient;
+            var disposeClient_ = false;
+            try
+            {
+                using (var request_ = new System.Net.Http.HttpRequestMessage())
+                {
+
+                    if (authorization != null)
+                        request_.Headers.TryAddWithoutValidation("authorization", ConvertToString(authorization, System.Globalization.CultureInfo.InvariantCulture));
+                    var json_ = Newtonsoft.Json.JsonConvert.SerializeObject(body, JsonSerializerSettings);
+                    var content_ = new System.Net.Http.StringContent(json_);
+                    content_.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/json");
+                    request_.Content = content_;
+                    request_.Method = new System.Net.Http.HttpMethod("POST");
+                    request_.Headers.Accept.Add(System.Net.Http.Headers.MediaTypeWithQualityHeaderValue.Parse("application/json"));
+
+                    var urlBuilder_ = new System.Text.StringBuilder();
+
+                    // Operation Path: "api/worker-work/{work_id}/claim"
+                    urlBuilder_.Append("api/worker-work/");
+                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(work_id, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append("/claim");
+
+                    PrepareRequest(client_, request_, urlBuilder_);
+
+                    var url_ = urlBuilder_.ToString();
+                    request_.RequestUri = new System.Uri(url_, System.UriKind.RelativeOrAbsolute);
+
+                    PrepareRequest(client_, request_, url_);
+
+                    var response_ = await client_.SendAsync(request_, System.Net.Http.HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                    var disposeResponse_ = true;
+                    try
+                    {
+                        var headers_ = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.IEnumerable<string>>();
+                        foreach (var item_ in response_.Headers)
+                            headers_[item_.Key] = item_.Value;
+                        if (response_.Content != null && response_.Content.Headers != null)
+                        {
+                            foreach (var item_ in response_.Content.Headers)
+                                headers_[item_.Key] = item_.Value;
+                        }
+
+                        ProcessResponse(client_, response_);
+
+                        var status_ = (int)response_.StatusCode;
+                        if (status_ == 200)
+                        {
+                            var objectResponse_ = await ReadObjectResponseAsync<object>(response_, headers_, cancellationToken).ConfigureAwait(false);
+                            if (objectResponse_.Object == null)
+                            {
+                                throw new ApiException("Response was null which was not expected.", status_, objectResponse_.Text, headers_, null);
+                            }
+                            return objectResponse_.Object;
+                        }
+                        else
+                        if (status_ == 422)
+                        {
+                            var objectResponse_ = await ReadObjectResponseAsync<HTTPValidationError>(response_, headers_, cancellationToken).ConfigureAwait(false);
+                            if (objectResponse_.Object == null)
+                            {
+                                throw new ApiException("Response was null which was not expected.", status_, objectResponse_.Text, headers_, null);
+                            }
+                            throw new ApiException<HTTPValidationError>("Validation Error", status_, objectResponse_.Text, headers_, objectResponse_.Object, null);
+                        }
+                        else
+                        {
+                            var responseData_ = response_.Content == null ? null : await ReadAsStringAsync(response_.Content, cancellationToken).ConfigureAwait(false);
+                            throw new ApiException("The HTTP status code of the response was not expected (" + status_ + ").", status_, responseData_, headers_, null);
+                        }
+                    }
+                    finally
+                    {
+                        if (disposeResponse_)
+                            response_.Dispose();
+                    }
+                }
+            }
+            finally
+            {
+                if (disposeClient_)
+                    client_.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Fail
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        public virtual System.Threading.Tasks.Task<object> Fail_api_worker_work__work_id__fail_postAsync(int work_id, Anonymous116 authorization, Completion body)
+        {
+            return Fail_api_worker_work__work_id__fail_postAsync(work_id, authorization, body, System.Threading.CancellationToken.None);
+        }
+
+        /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
+        /// <summary>
+        /// Fail
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        public virtual async System.Threading.Tasks.Task<object> Fail_api_worker_work__work_id__fail_postAsync(int work_id, Anonymous116 authorization, Completion body, System.Threading.CancellationToken cancellationToken)
+        {
+            if (work_id == null)
+                throw new System.ArgumentNullException("work_id");
+
+            if (body == null)
+                throw new System.ArgumentNullException("body");
+
+            var client_ = _httpClient;
+            var disposeClient_ = false;
+            try
+            {
+                using (var request_ = new System.Net.Http.HttpRequestMessage())
+                {
+
+                    if (authorization != null)
+                        request_.Headers.TryAddWithoutValidation("authorization", ConvertToString(authorization, System.Globalization.CultureInfo.InvariantCulture));
+                    var json_ = Newtonsoft.Json.JsonConvert.SerializeObject(body, JsonSerializerSettings);
+                    var content_ = new System.Net.Http.StringContent(json_);
+                    content_.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/json");
+                    request_.Content = content_;
+                    request_.Method = new System.Net.Http.HttpMethod("POST");
+                    request_.Headers.Accept.Add(System.Net.Http.Headers.MediaTypeWithQualityHeaderValue.Parse("application/json"));
+
+                    var urlBuilder_ = new System.Text.StringBuilder();
+
+                    // Operation Path: "api/worker-work/{work_id}/fail"
+                    urlBuilder_.Append("api/worker-work/");
+                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(work_id, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append("/fail");
+
+                    PrepareRequest(client_, request_, urlBuilder_);
+
+                    var url_ = urlBuilder_.ToString();
+                    request_.RequestUri = new System.Uri(url_, System.UriKind.RelativeOrAbsolute);
+
+                    PrepareRequest(client_, request_, url_);
+
+                    var response_ = await client_.SendAsync(request_, System.Net.Http.HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                    var disposeResponse_ = true;
+                    try
+                    {
+                        var headers_ = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.IEnumerable<string>>();
+                        foreach (var item_ in response_.Headers)
+                            headers_[item_.Key] = item_.Value;
+                        if (response_.Content != null && response_.Content.Headers != null)
+                        {
+                            foreach (var item_ in response_.Content.Headers)
+                                headers_[item_.Key] = item_.Value;
+                        }
+
+                        ProcessResponse(client_, response_);
+
+                        var status_ = (int)response_.StatusCode;
+                        if (status_ == 200)
+                        {
+                            var objectResponse_ = await ReadObjectResponseAsync<object>(response_, headers_, cancellationToken).ConfigureAwait(false);
+                            if (objectResponse_.Object == null)
+                            {
+                                throw new ApiException("Response was null which was not expected.", status_, objectResponse_.Text, headers_, null);
+                            }
+                            return objectResponse_.Object;
+                        }
+                        else
+                        if (status_ == 422)
+                        {
+                            var objectResponse_ = await ReadObjectResponseAsync<HTTPValidationError>(response_, headers_, cancellationToken).ConfigureAwait(false);
+                            if (objectResponse_.Object == null)
+                            {
+                                throw new ApiException("Response was null which was not expected.", status_, objectResponse_.Text, headers_, null);
+                            }
+                            throw new ApiException<HTTPValidationError>("Validation Error", status_, objectResponse_.Text, headers_, objectResponse_.Object, null);
+                        }
+                        else
+                        {
+                            var responseData_ = response_.Content == null ? null : await ReadAsStringAsync(response_.Content, cancellationToken).ConfigureAwait(false);
+                            throw new ApiException("The HTTP status code of the response was not expected (" + status_ + ").", status_, responseData_, headers_, null);
+                        }
+                    }
+                    finally
+                    {
+                        if (disposeResponse_)
+                            response_.Dispose();
+                    }
+                }
+            }
+            finally
+            {
+                if (disposeClient_)
+                    client_.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// List Discussions
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        public virtual System.Threading.Tasks.Task<object> List_discussions_api_worker_work_discussions_getAsync(int project_id, Task_id task_id, Story_id4 story_id, Anonymous117 authorization)
+        {
+            return List_discussions_api_worker_work_discussions_getAsync(project_id, task_id, story_id, authorization, System.Threading.CancellationToken.None);
+        }
+
+        /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
+        /// <summary>
+        /// List Discussions
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        public virtual async System.Threading.Tasks.Task<object> List_discussions_api_worker_work_discussions_getAsync(int project_id, Task_id task_id, Story_id4 story_id, Anonymous117 authorization, System.Threading.CancellationToken cancellationToken)
+        {
+            if (project_id == null)
+                throw new System.ArgumentNullException("project_id");
+
+            var client_ = _httpClient;
+            var disposeClient_ = false;
+            try
+            {
+                using (var request_ = new System.Net.Http.HttpRequestMessage())
+                {
+
+                    if (authorization != null)
+                        request_.Headers.TryAddWithoutValidation("authorization", ConvertToString(authorization, System.Globalization.CultureInfo.InvariantCulture));
+                    request_.Method = new System.Net.Http.HttpMethod("GET");
+                    request_.Headers.Accept.Add(System.Net.Http.Headers.MediaTypeWithQualityHeaderValue.Parse("application/json"));
+
+                    var urlBuilder_ = new System.Text.StringBuilder();
+
+                    // Operation Path: "api/worker-work/discussions"
+                    urlBuilder_.Append("api/worker-work/discussions");
+                    urlBuilder_.Append('?');
+                    urlBuilder_.Append(System.Uri.EscapeDataString("project_id")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(project_id, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                    if (task_id != null)
+                    {
+                        urlBuilder_.Append(System.Uri.EscapeDataString("task_id")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(task_id, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                    }
+                    if (story_id != null)
+                    {
+                        urlBuilder_.Append(System.Uri.EscapeDataString("story_id")).Append('=').Append(System.Uri.EscapeDataString(ConvertToString(story_id, System.Globalization.CultureInfo.InvariantCulture))).Append('&');
+                    }
+                    urlBuilder_.Length--;
+
+                    PrepareRequest(client_, request_, urlBuilder_);
+
+                    var url_ = urlBuilder_.ToString();
+                    request_.RequestUri = new System.Uri(url_, System.UriKind.RelativeOrAbsolute);
+
+                    PrepareRequest(client_, request_, url_);
+
+                    var response_ = await client_.SendAsync(request_, System.Net.Http.HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                    var disposeResponse_ = true;
+                    try
+                    {
+                        var headers_ = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.IEnumerable<string>>();
+                        foreach (var item_ in response_.Headers)
+                            headers_[item_.Key] = item_.Value;
+                        if (response_.Content != null && response_.Content.Headers != null)
+                        {
+                            foreach (var item_ in response_.Content.Headers)
+                                headers_[item_.Key] = item_.Value;
+                        }
+
+                        ProcessResponse(client_, response_);
+
+                        var status_ = (int)response_.StatusCode;
+                        if (status_ == 200)
+                        {
+                            var objectResponse_ = await ReadObjectResponseAsync<object>(response_, headers_, cancellationToken).ConfigureAwait(false);
+                            if (objectResponse_.Object == null)
+                            {
+                                throw new ApiException("Response was null which was not expected.", status_, objectResponse_.Text, headers_, null);
+                            }
+                            return objectResponse_.Object;
+                        }
+                        else
+                        if (status_ == 422)
+                        {
+                            var objectResponse_ = await ReadObjectResponseAsync<HTTPValidationError>(response_, headers_, cancellationToken).ConfigureAwait(false);
+                            if (objectResponse_.Object == null)
+                            {
+                                throw new ApiException("Response was null which was not expected.", status_, objectResponse_.Text, headers_, null);
+                            }
+                            throw new ApiException<HTTPValidationError>("Validation Error", status_, objectResponse_.Text, headers_, objectResponse_.Object, null);
+                        }
+                        else
+                        {
+                            var responseData_ = response_.Content == null ? null : await ReadAsStringAsync(response_.Content, cancellationToken).ConfigureAwait(false);
+                            throw new ApiException("The HTTP status code of the response was not expected (" + status_ + ").", status_, responseData_, headers_, null);
+                        }
+                    }
+                    finally
+                    {
+                        if (disposeResponse_)
+                            response_.Dispose();
+                    }
+                }
+            }
+            finally
+            {
+                if (disposeClient_)
+                    client_.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Work Status
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        public virtual System.Threading.Tasks.Task<object> Work_status_api_worker_work__work_id__getAsync(int work_id, Anonymous118 authorization)
+        {
+            return Work_status_api_worker_work__work_id__getAsync(work_id, authorization, System.Threading.CancellationToken.None);
+        }
+
+        /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
+        /// <summary>
+        /// Work Status
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        public virtual async System.Threading.Tasks.Task<object> Work_status_api_worker_work__work_id__getAsync(int work_id, Anonymous118 authorization, System.Threading.CancellationToken cancellationToken)
+        {
+            if (work_id == null)
+                throw new System.ArgumentNullException("work_id");
+
+            var client_ = _httpClient;
+            var disposeClient_ = false;
+            try
+            {
+                using (var request_ = new System.Net.Http.HttpRequestMessage())
+                {
+
+                    if (authorization != null)
+                        request_.Headers.TryAddWithoutValidation("authorization", ConvertToString(authorization, System.Globalization.CultureInfo.InvariantCulture));
+                    request_.Method = new System.Net.Http.HttpMethod("GET");
+                    request_.Headers.Accept.Add(System.Net.Http.Headers.MediaTypeWithQualityHeaderValue.Parse("application/json"));
+
+                    var urlBuilder_ = new System.Text.StringBuilder();
+
+                    // Operation Path: "api/worker-work/{work_id}"
+                    urlBuilder_.Append("api/worker-work/");
+                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(work_id, System.Globalization.CultureInfo.InvariantCulture)));
+
+                    PrepareRequest(client_, request_, urlBuilder_);
+
+                    var url_ = urlBuilder_.ToString();
+                    request_.RequestUri = new System.Uri(url_, System.UriKind.RelativeOrAbsolute);
+
+                    PrepareRequest(client_, request_, url_);
+
+                    var response_ = await client_.SendAsync(request_, System.Net.Http.HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                    var disposeResponse_ = true;
+                    try
+                    {
+                        var headers_ = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.IEnumerable<string>>();
+                        foreach (var item_ in response_.Headers)
+                            headers_[item_.Key] = item_.Value;
+                        if (response_.Content != null && response_.Content.Headers != null)
+                        {
+                            foreach (var item_ in response_.Content.Headers)
+                                headers_[item_.Key] = item_.Value;
+                        }
+
+                        ProcessResponse(client_, response_);
+
+                        var status_ = (int)response_.StatusCode;
+                        if (status_ == 200)
+                        {
+                            var objectResponse_ = await ReadObjectResponseAsync<object>(response_, headers_, cancellationToken).ConfigureAwait(false);
+                            if (objectResponse_.Object == null)
+                            {
+                                throw new ApiException("Response was null which was not expected.", status_, objectResponse_.Text, headers_, null);
+                            }
+                            return objectResponse_.Object;
+                        }
+                        else
+                        if (status_ == 422)
+                        {
+                            var objectResponse_ = await ReadObjectResponseAsync<HTTPValidationError>(response_, headers_, cancellationToken).ConfigureAwait(false);
+                            if (objectResponse_.Object == null)
+                            {
+                                throw new ApiException("Response was null which was not expected.", status_, objectResponse_.Text, headers_, null);
+                            }
+                            throw new ApiException<HTTPValidationError>("Validation Error", status_, objectResponse_.Text, headers_, objectResponse_.Object, null);
+                        }
+                        else
+                        {
+                            var responseData_ = response_.Content == null ? null : await ReadAsStringAsync(response_.Content, cancellationToken).ConfigureAwait(false);
+                            throw new ApiException("The HTTP status code of the response was not expected (" + status_ + ").", status_, responseData_, headers_, null);
+                        }
+                    }
+                    finally
+                    {
+                        if (disposeResponse_)
+                            response_.Dispose();
+                    }
+                }
+            }
+            finally
+            {
+                if (disposeClient_)
+                    client_.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Heartbeat
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        public virtual System.Threading.Tasks.Task<object> Heartbeat_api_worker_work__work_id__heartbeat_postAsync(int work_id, Anonymous119 authorization, Claim body)
+        {
+            return Heartbeat_api_worker_work__work_id__heartbeat_postAsync(work_id, authorization, body, System.Threading.CancellationToken.None);
+        }
+
+        /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
+        /// <summary>
+        /// Heartbeat
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        public virtual async System.Threading.Tasks.Task<object> Heartbeat_api_worker_work__work_id__heartbeat_postAsync(int work_id, Anonymous119 authorization, Claim body, System.Threading.CancellationToken cancellationToken)
+        {
+            if (work_id == null)
+                throw new System.ArgumentNullException("work_id");
+
+            if (body == null)
+                throw new System.ArgumentNullException("body");
+
+            var client_ = _httpClient;
+            var disposeClient_ = false;
+            try
+            {
+                using (var request_ = new System.Net.Http.HttpRequestMessage())
+                {
+
+                    if (authorization != null)
+                        request_.Headers.TryAddWithoutValidation("authorization", ConvertToString(authorization, System.Globalization.CultureInfo.InvariantCulture));
+                    var json_ = Newtonsoft.Json.JsonConvert.SerializeObject(body, JsonSerializerSettings);
+                    var content_ = new System.Net.Http.StringContent(json_);
+                    content_.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/json");
+                    request_.Content = content_;
+                    request_.Method = new System.Net.Http.HttpMethod("POST");
+                    request_.Headers.Accept.Add(System.Net.Http.Headers.MediaTypeWithQualityHeaderValue.Parse("application/json"));
+
+                    var urlBuilder_ = new System.Text.StringBuilder();
+
+                    // Operation Path: "api/worker-work/{work_id}/heartbeat"
+                    urlBuilder_.Append("api/worker-work/");
+                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(work_id, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append("/heartbeat");
+
+                    PrepareRequest(client_, request_, urlBuilder_);
+
+                    var url_ = urlBuilder_.ToString();
+                    request_.RequestUri = new System.Uri(url_, System.UriKind.RelativeOrAbsolute);
+
+                    PrepareRequest(client_, request_, url_);
+
+                    var response_ = await client_.SendAsync(request_, System.Net.Http.HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                    var disposeResponse_ = true;
+                    try
+                    {
+                        var headers_ = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.IEnumerable<string>>();
+                        foreach (var item_ in response_.Headers)
+                            headers_[item_.Key] = item_.Value;
+                        if (response_.Content != null && response_.Content.Headers != null)
+                        {
+                            foreach (var item_ in response_.Content.Headers)
+                                headers_[item_.Key] = item_.Value;
+                        }
+
+                        ProcessResponse(client_, response_);
+
+                        var status_ = (int)response_.StatusCode;
+                        if (status_ == 200)
+                        {
+                            var objectResponse_ = await ReadObjectResponseAsync<object>(response_, headers_, cancellationToken).ConfigureAwait(false);
+                            if (objectResponse_.Object == null)
+                            {
+                                throw new ApiException("Response was null which was not expected.", status_, objectResponse_.Text, headers_, null);
+                            }
+                            return objectResponse_.Object;
+                        }
+                        else
+                        if (status_ == 422)
+                        {
+                            var objectResponse_ = await ReadObjectResponseAsync<HTTPValidationError>(response_, headers_, cancellationToken).ConfigureAwait(false);
+                            if (objectResponse_.Object == null)
+                            {
+                                throw new ApiException("Response was null which was not expected.", status_, objectResponse_.Text, headers_, null);
+                            }
+                            throw new ApiException<HTTPValidationError>("Validation Error", status_, objectResponse_.Text, headers_, objectResponse_.Object, null);
+                        }
+                        else
+                        {
+                            var responseData_ = response_.Content == null ? null : await ReadAsStringAsync(response_.Content, cancellationToken).ConfigureAwait(false);
+                            throw new ApiException("The HTTP status code of the response was not expected (" + status_ + ").", status_, responseData_, headers_, null);
+                        }
+                    }
+                    finally
+                    {
+                        if (disposeResponse_)
+                            response_.Dispose();
+                    }
+                }
+            }
+            finally
+            {
+                if (disposeClient_)
+                    client_.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Complete
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        public virtual System.Threading.Tasks.Task<object> Complete_api_worker_work__work_id__complete_postAsync(int work_id, Anonymous120 authorization, Completion body)
+        {
+            return Complete_api_worker_work__work_id__complete_postAsync(work_id, authorization, body, System.Threading.CancellationToken.None);
+        }
+
+        /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
+        /// <summary>
+        /// Complete
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        public virtual async System.Threading.Tasks.Task<object> Complete_api_worker_work__work_id__complete_postAsync(int work_id, Anonymous120 authorization, Completion body, System.Threading.CancellationToken cancellationToken)
+        {
+            if (work_id == null)
+                throw new System.ArgumentNullException("work_id");
+
+            if (body == null)
+                throw new System.ArgumentNullException("body");
+
+            var client_ = _httpClient;
+            var disposeClient_ = false;
+            try
+            {
+                using (var request_ = new System.Net.Http.HttpRequestMessage())
+                {
+
+                    if (authorization != null)
+                        request_.Headers.TryAddWithoutValidation("authorization", ConvertToString(authorization, System.Globalization.CultureInfo.InvariantCulture));
+                    var json_ = Newtonsoft.Json.JsonConvert.SerializeObject(body, JsonSerializerSettings);
+                    var content_ = new System.Net.Http.StringContent(json_);
+                    content_.Headers.ContentType = System.Net.Http.Headers.MediaTypeHeaderValue.Parse("application/json");
+                    request_.Content = content_;
+                    request_.Method = new System.Net.Http.HttpMethod("POST");
+                    request_.Headers.Accept.Add(System.Net.Http.Headers.MediaTypeWithQualityHeaderValue.Parse("application/json"));
+
+                    var urlBuilder_ = new System.Text.StringBuilder();
+
+                    // Operation Path: "api/worker-work/{work_id}/complete"
+                    urlBuilder_.Append("api/worker-work/");
+                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(work_id, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append("/complete");
+
+                    PrepareRequest(client_, request_, urlBuilder_);
+
+                    var url_ = urlBuilder_.ToString();
+                    request_.RequestUri = new System.Uri(url_, System.UriKind.RelativeOrAbsolute);
+
+                    PrepareRequest(client_, request_, url_);
+
+                    var response_ = await client_.SendAsync(request_, System.Net.Http.HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                    var disposeResponse_ = true;
+                    try
+                    {
+                        var headers_ = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.IEnumerable<string>>();
+                        foreach (var item_ in response_.Headers)
+                            headers_[item_.Key] = item_.Value;
+                        if (response_.Content != null && response_.Content.Headers != null)
+                        {
+                            foreach (var item_ in response_.Content.Headers)
+                                headers_[item_.Key] = item_.Value;
+                        }
+
+                        ProcessResponse(client_, response_);
+
+                        var status_ = (int)response_.StatusCode;
+                        if (status_ == 200)
+                        {
+                            var objectResponse_ = await ReadObjectResponseAsync<object>(response_, headers_, cancellationToken).ConfigureAwait(false);
+                            if (objectResponse_.Object == null)
+                            {
+                                throw new ApiException("Response was null which was not expected.", status_, objectResponse_.Text, headers_, null);
+                            }
+                            return objectResponse_.Object;
+                        }
+                        else
+                        if (status_ == 422)
+                        {
+                            var objectResponse_ = await ReadObjectResponseAsync<HTTPValidationError>(response_, headers_, cancellationToken).ConfigureAwait(false);
+                            if (objectResponse_.Object == null)
+                            {
+                                throw new ApiException("Response was null which was not expected.", status_, objectResponse_.Text, headers_, null);
+                            }
+                            throw new ApiException<HTTPValidationError>("Validation Error", status_, objectResponse_.Text, headers_, objectResponse_.Object, null);
+                        }
+                        else
+                        {
+                            var responseData_ = response_.Content == null ? null : await ReadAsStringAsync(response_.Content, cancellationToken).ConfigureAwait(false);
+                            throw new ApiException("The HTTP status code of the response was not expected (" + status_ + ").", status_, responseData_, headers_, null);
+                        }
+                    }
+                    finally
+                    {
+                        if (disposeResponse_)
+                            response_.Dispose();
+                    }
+                }
+            }
+            finally
+            {
+                if (disposeClient_)
+                    client_.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// Complete Story
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        public virtual System.Threading.Tasks.Task<object> Complete_story_api_worker_work_stories__story_id__complete_postAsync(int story_id, Anonymous121 authorization)
+        {
+            return Complete_story_api_worker_work_stories__story_id__complete_postAsync(story_id, authorization, System.Threading.CancellationToken.None);
+        }
+
+        /// <param name="cancellationToken">A cancellation token that can be used by other objects or threads to receive notice of cancellation.</param>
+        /// <summary>
+        /// Complete Story
+        /// </summary>
+        /// <returns>Successful Response</returns>
+        /// <exception cref="ApiException">A server side error occurred.</exception>
+        public virtual async System.Threading.Tasks.Task<object> Complete_story_api_worker_work_stories__story_id__complete_postAsync(int story_id, Anonymous121 authorization, System.Threading.CancellationToken cancellationToken)
+        {
+            if (story_id == null)
+                throw new System.ArgumentNullException("story_id");
+
+            var client_ = _httpClient;
+            var disposeClient_ = false;
+            try
+            {
+                using (var request_ = new System.Net.Http.HttpRequestMessage())
+                {
+
+                    if (authorization != null)
+                        request_.Headers.TryAddWithoutValidation("authorization", ConvertToString(authorization, System.Globalization.CultureInfo.InvariantCulture));
+                    request_.Content = new System.Net.Http.StringContent(string.Empty, System.Text.Encoding.UTF8, "application/json");
+                    request_.Method = new System.Net.Http.HttpMethod("POST");
+                    request_.Headers.Accept.Add(System.Net.Http.Headers.MediaTypeWithQualityHeaderValue.Parse("application/json"));
+
+                    var urlBuilder_ = new System.Text.StringBuilder();
+
+                    // Operation Path: "api/worker-work/stories/{story_id}/complete"
+                    urlBuilder_.Append("api/worker-work/stories/");
+                    urlBuilder_.Append(System.Uri.EscapeDataString(ConvertToString(story_id, System.Globalization.CultureInfo.InvariantCulture)));
+                    urlBuilder_.Append("/complete");
+
+                    PrepareRequest(client_, request_, urlBuilder_);
+
+                    var url_ = urlBuilder_.ToString();
+                    request_.RequestUri = new System.Uri(url_, System.UriKind.RelativeOrAbsolute);
+
+                    PrepareRequest(client_, request_, url_);
+
+                    var response_ = await client_.SendAsync(request_, System.Net.Http.HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+                    var disposeResponse_ = true;
+                    try
+                    {
+                        var headers_ = new System.Collections.Generic.Dictionary<string, System.Collections.Generic.IEnumerable<string>>();
+                        foreach (var item_ in response_.Headers)
+                            headers_[item_.Key] = item_.Value;
+                        if (response_.Content != null && response_.Content.Headers != null)
+                        {
+                            foreach (var item_ in response_.Content.Headers)
+                                headers_[item_.Key] = item_.Value;
+                        }
+
+                        ProcessResponse(client_, response_);
+
+                        var status_ = (int)response_.StatusCode;
+                        if (status_ == 200)
+                        {
+                            var objectResponse_ = await ReadObjectResponseAsync<object>(response_, headers_, cancellationToken).ConfigureAwait(false);
+                            if (objectResponse_.Object == null)
+                            {
+                                throw new ApiException("Response was null which was not expected.", status_, objectResponse_.Text, headers_, null);
+                            }
+                            return objectResponse_.Object;
+                        }
+                        else
+                        if (status_ == 422)
+                        {
+                            var objectResponse_ = await ReadObjectResponseAsync<HTTPValidationError>(response_, headers_, cancellationToken).ConfigureAwait(false);
+                            if (objectResponse_.Object == null)
+                            {
+                                throw new ApiException("Response was null which was not expected.", status_, objectResponse_.Text, headers_, null);
+                            }
+                            throw new ApiException<HTTPValidationError>("Validation Error", status_, objectResponse_.Text, headers_, objectResponse_.Object, null);
+                        }
+                        else
+                        {
+                            var responseData_ = response_.Content == null ? null : await ReadAsStringAsync(response_.Content, cancellationToken).ConfigureAwait(false);
+                            throw new ApiException("The HTTP status code of the response was not expected (" + status_ + ").", status_, responseData_, headers_, null);
+                        }
+                    }
+                    finally
+                    {
+                        if (disposeResponse_)
+                            response_.Dispose();
+                    }
+                }
+            }
+            finally
+            {
+                if (disposeClient_)
+                    client_.Dispose();
+            }
+        }
+
+        /// <summary>
         /// Preview Agent Behavior
         /// </summary>
         /// <remarks>
@@ -22954,7 +24059,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<BehaviorPreviewResponse> Preview_agent_behavior_api_projects__project_id__agents_behavior_preview_postAsync(int project_id, Anonymous113 authorization, BehaviorPreviewRequest body)
+        public virtual System.Threading.Tasks.Task<BehaviorPreviewResponse> Preview_agent_behavior_api_projects__project_id__agents_behavior_preview_postAsync(int project_id, Anonymous122 authorization, BehaviorPreviewRequest body)
         {
             return Preview_agent_behavior_api_projects__project_id__agents_behavior_preview_postAsync(project_id, authorization, body, System.Threading.CancellationToken.None);
         }
@@ -22968,7 +24073,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<BehaviorPreviewResponse> Preview_agent_behavior_api_projects__project_id__agents_behavior_preview_postAsync(int project_id, Anonymous113 authorization, BehaviorPreviewRequest body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<BehaviorPreviewResponse> Preview_agent_behavior_api_projects__project_id__agents_behavior_preview_postAsync(int project_id, Anonymous122 authorization, BehaviorPreviewRequest body, System.Threading.CancellationToken cancellationToken)
         {
             if (project_id == null)
                 throw new System.ArgumentNullException("project_id");
@@ -23076,7 +24181,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_effective_behavior_api_agent_behavior_effective_getAsync(Project_id10 project_id, Agent_id agent_id, Work_type work_type, Anonymous114 authorization)
+        public virtual System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_effective_behavior_api_agent_behavior_effective_getAsync(Project_id10 project_id, Agent_id agent_id, Work_type work_type, Anonymous123 authorization)
         {
             return Get_effective_behavior_api_agent_behavior_effective_getAsync(project_id, agent_id, work_type, authorization, System.Threading.CancellationToken.None);
         }
@@ -23097,7 +24202,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_effective_behavior_api_agent_behavior_effective_getAsync(Project_id10 project_id, Agent_id agent_id, Work_type work_type, Anonymous114 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_effective_behavior_api_agent_behavior_effective_getAsync(Project_id10 project_id, Agent_id agent_id, Work_type work_type, Anonymous123 authorization, System.Threading.CancellationToken cancellationToken)
         {
             var client_ = _httpClient;
             var disposeClient_ = false;
@@ -23201,7 +24306,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_project_behavior_api_projects__project_id__behavior_getAsync(int project_id, Work_type2 work_type, Anonymous115 authorization)
+        public virtual System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_project_behavior_api_projects__project_id__behavior_getAsync(int project_id, Work_type2 work_type, Anonymous124 authorization)
         {
             return Get_project_behavior_api_projects__project_id__behavior_getAsync(project_id, work_type, authorization, System.Threading.CancellationToken.None);
         }
@@ -23216,7 +24321,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_project_behavior_api_projects__project_id__behavior_getAsync(int project_id, Work_type2 work_type, Anonymous115 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_project_behavior_api_projects__project_id__behavior_getAsync(int project_id, Work_type2 work_type, Anonymous124 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (project_id == null)
                 throw new System.ArgumentNullException("project_id");
@@ -23317,7 +24422,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Update_project_behavior_api_projects__project_id__behavior_putAsync(int project_id, Work_type3 work_type, Anonymous116 authorization, AgentBehaviorConfigPayload body)
+        public virtual System.Threading.Tasks.Task<object> Update_project_behavior_api_projects__project_id__behavior_putAsync(int project_id, Work_type3 work_type, Anonymous125 authorization, AgentBehaviorConfigPayload body)
         {
             return Update_project_behavior_api_projects__project_id__behavior_putAsync(project_id, work_type, authorization, body, System.Threading.CancellationToken.None);
         }
@@ -23332,7 +24437,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Update_project_behavior_api_projects__project_id__behavior_putAsync(int project_id, Work_type3 work_type, Anonymous116 authorization, AgentBehaviorConfigPayload body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Update_project_behavior_api_projects__project_id__behavior_putAsync(int project_id, Work_type3 work_type, Anonymous125 authorization, AgentBehaviorConfigPayload body, System.Threading.CancellationToken cancellationToken)
         {
             if (project_id == null)
                 throw new System.ArgumentNullException("project_id");
@@ -23440,7 +24545,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Reset_project_behavior_api_projects__project_id__behavior_deleteAsync(int project_id, Work_type4 work_type, Anonymous117 authorization)
+        public virtual System.Threading.Tasks.Task<object> Reset_project_behavior_api_projects__project_id__behavior_deleteAsync(int project_id, Work_type4 work_type, Anonymous126 authorization)
         {
             return Reset_project_behavior_api_projects__project_id__behavior_deleteAsync(project_id, work_type, authorization, System.Threading.CancellationToken.None);
         }
@@ -23455,7 +24560,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Reset_project_behavior_api_projects__project_id__behavior_deleteAsync(int project_id, Work_type4 work_type, Anonymous117 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Reset_project_behavior_api_projects__project_id__behavior_deleteAsync(int project_id, Work_type4 work_type, Anonymous126 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (project_id == null)
                 throw new System.ArgumentNullException("project_id");
@@ -23556,7 +24661,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_agent_behavior_api_projects__project_id__agents__agent_id__behavior_getAsync(int project_id, int agent_id, Work_type5 work_type, Anonymous118 authorization)
+        public virtual System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_agent_behavior_api_projects__project_id__agents__agent_id__behavior_getAsync(int project_id, int agent_id, Work_type5 work_type, Anonymous127 authorization)
         {
             return Get_agent_behavior_api_projects__project_id__agents__agent_id__behavior_getAsync(project_id, agent_id, work_type, authorization, System.Threading.CancellationToken.None);
         }
@@ -23571,7 +24676,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_agent_behavior_api_projects__project_id__agents__agent_id__behavior_getAsync(int project_id, int agent_id, Work_type5 work_type, Anonymous118 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<EffectiveBehaviorConfig> Get_agent_behavior_api_projects__project_id__agents__agent_id__behavior_getAsync(int project_id, int agent_id, Work_type5 work_type, Anonymous127 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (project_id == null)
                 throw new System.ArgumentNullException("project_id");
@@ -23677,7 +24782,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Update_agent_behavior_api_projects__project_id__agents__agent_id__behavior_putAsync(int project_id, int agent_id, Work_type6 work_type, Anonymous119 authorization, AgentBehaviorConfigPayload body)
+        public virtual System.Threading.Tasks.Task<object> Update_agent_behavior_api_projects__project_id__agents__agent_id__behavior_putAsync(int project_id, int agent_id, Work_type6 work_type, Anonymous128 authorization, AgentBehaviorConfigPayload body)
         {
             return Update_agent_behavior_api_projects__project_id__agents__agent_id__behavior_putAsync(project_id, agent_id, work_type, authorization, body, System.Threading.CancellationToken.None);
         }
@@ -23692,7 +24797,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Update_agent_behavior_api_projects__project_id__agents__agent_id__behavior_putAsync(int project_id, int agent_id, Work_type6 work_type, Anonymous119 authorization, AgentBehaviorConfigPayload body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Update_agent_behavior_api_projects__project_id__agents__agent_id__behavior_putAsync(int project_id, int agent_id, Work_type6 work_type, Anonymous128 authorization, AgentBehaviorConfigPayload body, System.Threading.CancellationToken cancellationToken)
         {
             if (project_id == null)
                 throw new System.ArgumentNullException("project_id");
@@ -23805,7 +24910,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Reset_agent_behavior_api_projects__project_id__agents__agent_id__behavior_deleteAsync(int project_id, int agent_id, Work_type7 work_type, Anonymous120 authorization)
+        public virtual System.Threading.Tasks.Task<object> Reset_agent_behavior_api_projects__project_id__agents__agent_id__behavior_deleteAsync(int project_id, int agent_id, Work_type7 work_type, Anonymous129 authorization)
         {
             return Reset_agent_behavior_api_projects__project_id__agents__agent_id__behavior_deleteAsync(project_id, agent_id, work_type, authorization, System.Threading.CancellationToken.None);
         }
@@ -23820,7 +24925,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Reset_agent_behavior_api_projects__project_id__agents__agent_id__behavior_deleteAsync(int project_id, int agent_id, Work_type7 work_type, Anonymous120 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Reset_agent_behavior_api_projects__project_id__agents__agent_id__behavior_deleteAsync(int project_id, int agent_id, Work_type7 work_type, Anonymous129 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (project_id == null)
                 throw new System.ArgumentNullException("project_id");
@@ -23927,7 +25032,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">关联工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> List_project_learnings_api_projects__project_id__learnings_getAsync(int project_id, Category category, Work_type8 work_type, Anonymous121 authorization)
+        public virtual System.Threading.Tasks.Task<object> List_project_learnings_api_projects__project_id__learnings_getAsync(int project_id, Category category, Work_type8 work_type, Anonymous130 authorization)
         {
             return List_project_learnings_api_projects__project_id__learnings_getAsync(project_id, category, work_type, authorization, System.Threading.CancellationToken.None);
         }
@@ -23943,7 +25048,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="work_type">关联工作类型</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> List_project_learnings_api_projects__project_id__learnings_getAsync(int project_id, Category category, Work_type8 work_type, Anonymous121 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> List_project_learnings_api_projects__project_id__learnings_getAsync(int project_id, Category category, Work_type8 work_type, Anonymous130 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (project_id == null)
                 throw new System.ArgumentNullException("project_id");
@@ -24047,7 +25152,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Create_project_learning_api_projects__project_id__learnings_postAsync(int project_id, Anonymous122 authorization, CreateLearningRequest body)
+        public virtual System.Threading.Tasks.Task<object> Create_project_learning_api_projects__project_id__learnings_postAsync(int project_id, Anonymous131 authorization, CreateLearningRequest body)
         {
             return Create_project_learning_api_projects__project_id__learnings_postAsync(project_id, authorization, body, System.Threading.CancellationToken.None);
         }
@@ -24061,7 +25166,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Create_project_learning_api_projects__project_id__learnings_postAsync(int project_id, Anonymous122 authorization, CreateLearningRequest body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Create_project_learning_api_projects__project_id__learnings_postAsync(int project_id, Anonymous131 authorization, CreateLearningRequest body, System.Threading.CancellationToken cancellationToken)
         {
             if (project_id == null)
                 throw new System.ArgumentNullException("project_id");
@@ -24159,7 +25264,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Create_run_event_endpoint_api_agent_runs__run_id__events_postAsync(int run_id, Anonymous123 authorization, XWorkerID x_Worker_ID, RunEventIn body)
+        public virtual System.Threading.Tasks.Task<object> Create_run_event_endpoint_api_agent_runs__run_id__events_postAsync(int run_id, Anonymous132 authorization, XWorkerID x_Worker_ID, RunEventIn body)
         {
             return Create_run_event_endpoint_api_agent_runs__run_id__events_postAsync(run_id, authorization, x_Worker_ID, body, System.Threading.CancellationToken.None);
         }
@@ -24170,7 +25275,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Create_run_event_endpoint_api_agent_runs__run_id__events_postAsync(int run_id, Anonymous123 authorization, XWorkerID x_Worker_ID, RunEventIn body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Create_run_event_endpoint_api_agent_runs__run_id__events_postAsync(int run_id, Anonymous132 authorization, XWorkerID x_Worker_ID, RunEventIn body, System.Threading.CancellationToken cancellationToken)
         {
             if (run_id == null)
                 throw new System.ArgumentNullException("run_id");
@@ -24271,7 +25376,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> List_run_events_endpoint_api_agent_runs__run_id__events_getAsync(int run_id, Before_id before_id, int? limit, Anonymous124 authorization)
+        public virtual System.Threading.Tasks.Task<object> List_run_events_endpoint_api_agent_runs__run_id__events_getAsync(int run_id, Before_id before_id, int? limit, Anonymous133 authorization)
         {
             return List_run_events_endpoint_api_agent_runs__run_id__events_getAsync(run_id, before_id, limit, authorization, System.Threading.CancellationToken.None);
         }
@@ -24282,7 +25387,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> List_run_events_endpoint_api_agent_runs__run_id__events_getAsync(int run_id, Before_id before_id, int? limit, Anonymous124 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> List_run_events_endpoint_api_agent_runs__run_id__events_getAsync(int run_id, Before_id before_id, int? limit, Anonymous133 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (run_id == null)
                 throw new System.ArgumentNullException("run_id");
@@ -24383,7 +25488,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Stream_run_events_api_agent_runs__run_id__events_stream_getAsync(int run_id, Anonymous125 authorization)
+        public virtual System.Threading.Tasks.Task<object> Stream_run_events_api_agent_runs__run_id__events_stream_getAsync(int run_id, Anonymous134 authorization)
         {
             return Stream_run_events_api_agent_runs__run_id__events_stream_getAsync(run_id, authorization, System.Threading.CancellationToken.None);
         }
@@ -24394,7 +25499,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Stream_run_events_api_agent_runs__run_id__events_stream_getAsync(int run_id, Anonymous125 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Stream_run_events_api_agent_runs__run_id__events_stream_getAsync(int run_id, Anonymous134 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (run_id == null)
                 throw new System.ArgumentNullException("run_id");
@@ -24491,7 +25596,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Register_agent_api_agents_register_postAsync(Anonymous126 authorization, AgentRegisterIn body)
+        public virtual System.Threading.Tasks.Task<object> Register_agent_api_agents_register_postAsync(Anonymous135 authorization, AgentRegisterIn body)
         {
             return Register_agent_api_agents_register_postAsync(authorization, body, System.Threading.CancellationToken.None);
         }
@@ -24508,7 +25613,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Register_agent_api_agents_register_postAsync(Anonymous126 authorization, AgentRegisterIn body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Register_agent_api_agents_register_postAsync(Anonymous135 authorization, AgentRegisterIn body, System.Threading.CancellationToken cancellationToken)
         {
             if (body == null)
                 throw new System.ArgumentNullException("body");
@@ -24607,7 +25712,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Update_agent_api_agents__agent_id__putAsync(string agent_id, Anonymous127 authorization, AgentUpdateIn body)
+        public virtual System.Threading.Tasks.Task<object> Update_agent_api_agents__agent_id__putAsync(string agent_id, Anonymous136 authorization, AgentUpdateIn body)
         {
             return Update_agent_api_agents__agent_id__putAsync(agent_id, authorization, body, System.Threading.CancellationToken.None);
         }
@@ -24624,7 +25729,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Update_agent_api_agents__agent_id__putAsync(string agent_id, Anonymous127 authorization, AgentUpdateIn body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Update_agent_api_agents__agent_id__putAsync(string agent_id, Anonymous136 authorization, AgentUpdateIn body, System.Threading.CancellationToken cancellationToken)
         {
             if (agent_id == null)
                 throw new System.ArgumentNullException("agent_id");
@@ -24724,7 +25829,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Delete_agent_api_agents__agent_id__deleteAsync(string agent_id, Anonymous128 authorization)
+        public virtual System.Threading.Tasks.Task<object> Delete_agent_api_agents__agent_id__deleteAsync(string agent_id, Anonymous137 authorization)
         {
             return Delete_agent_api_agents__agent_id__deleteAsync(agent_id, authorization, System.Threading.CancellationToken.None);
         }
@@ -24738,7 +25843,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Delete_agent_api_agents__agent_id__deleteAsync(string agent_id, Anonymous128 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Delete_agent_api_agents__agent_id__deleteAsync(string agent_id, Anonymous137 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (agent_id == null)
                 throw new System.ArgumentNullException("agent_id");
@@ -24834,7 +25939,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Agent_heartbeat_api_agents__agent_id__heartbeat_postAsync(string agent_id, Anonymous129 authorization, Anonymous130 body)
+        public virtual System.Threading.Tasks.Task<object> Agent_heartbeat_api_agents__agent_id__heartbeat_postAsync(string agent_id, Anonymous138 authorization, Anonymous139 body)
         {
             return Agent_heartbeat_api_agents__agent_id__heartbeat_postAsync(agent_id, authorization, body, System.Threading.CancellationToken.None);
         }
@@ -24851,7 +25956,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Agent_heartbeat_api_agents__agent_id__heartbeat_postAsync(string agent_id, Anonymous129 authorization, Anonymous130 body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Agent_heartbeat_api_agents__agent_id__heartbeat_postAsync(string agent_id, Anonymous138 authorization, Anonymous139 body, System.Threading.CancellationToken cancellationToken)
         {
             if (agent_id == null)
                 throw new System.ArgumentNullException("agent_id");
@@ -24952,7 +26057,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Agent_deregister_api_agents__agent_id__deregister_postAsync(string agent_id, Anonymous131 authorization, Anonymous132 body)
+        public virtual System.Threading.Tasks.Task<object> Agent_deregister_api_agents__agent_id__deregister_postAsync(string agent_id, Anonymous140 authorization, Anonymous141 body)
         {
             return Agent_deregister_api_agents__agent_id__deregister_postAsync(agent_id, authorization, body, System.Threading.CancellationToken.None);
         }
@@ -24969,7 +26074,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Agent_deregister_api_agents__agent_id__deregister_postAsync(string agent_id, Anonymous131 authorization, Anonymous132 body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Agent_deregister_api_agents__agent_id__deregister_postAsync(string agent_id, Anonymous140 authorization, Anonymous141 body, System.Threading.CancellationToken cancellationToken)
         {
             if (agent_id == null)
                 throw new System.ArgumentNullException("agent_id");
@@ -25077,7 +26182,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Probe_agent_api_agents__agent_id__probe_postAsync(string agent_id, Anonymous133 authorization, Anonymous134 body)
+        public virtual System.Threading.Tasks.Task<object> Probe_agent_api_agents__agent_id__probe_postAsync(string agent_id, Anonymous142 authorization, Anonymous143 body)
         {
             return Probe_agent_api_agents__agent_id__probe_postAsync(agent_id, authorization, body, System.Threading.CancellationToken.None);
         }
@@ -25101,7 +26206,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Probe_agent_api_agents__agent_id__probe_postAsync(string agent_id, Anonymous133 authorization, Anonymous134 body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Probe_agent_api_agents__agent_id__probe_postAsync(string agent_id, Anonymous142 authorization, Anonymous143 body, System.Threading.CancellationToken cancellationToken)
         {
             if (agent_id == null)
                 throw new System.ArgumentNullException("agent_id");
@@ -25205,7 +26310,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> List_agents_api_agents_getAsync(Online online, Anonymous135 role, Anonymous136 authorization)
+        public virtual System.Threading.Tasks.Task<object> List_agents_api_agents_getAsync(Online online, Anonymous144 role, Anonymous145 authorization)
         {
             return List_agents_api_agents_getAsync(online, role, authorization, System.Threading.CancellationToken.None);
         }
@@ -25225,7 +26330,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> List_agents_api_agents_getAsync(Online online, Anonymous135 role, Anonymous136 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> List_agents_api_agents_getAsync(Online online, Anonymous144 role, Anonymous145 authorization, System.Threading.CancellationToken cancellationToken)
         {
             var client_ = _httpClient;
             var disposeClient_ = false;
@@ -25331,7 +26436,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Durable_agent_select_api_durable_agent_select_postAsync(Anonymous137 authorization, DurableAgentSelectIn body)
+        public virtual System.Threading.Tasks.Task<object> Durable_agent_select_api_durable_agent_select_postAsync(Anonymous146 authorization, DurableAgentSelectIn body)
         {
             return Durable_agent_select_api_durable_agent_select_postAsync(authorization, body, System.Threading.CancellationToken.None);
         }
@@ -25352,7 +26457,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Durable_agent_select_api_durable_agent_select_postAsync(Anonymous137 authorization, DurableAgentSelectIn body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Durable_agent_select_api_durable_agent_select_postAsync(Anonymous146 authorization, DurableAgentSelectIn body, System.Threading.CancellationToken cancellationToken)
         {
             if (body == null)
                 throw new System.ArgumentNullException("body");
@@ -25451,7 +26556,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Register_worker_endpoint_api_workers_register_postAsync(Anonymous138 authorization, WorkerRegisterIn body)
+        public virtual System.Threading.Tasks.Task<object> Register_worker_endpoint_api_workers_register_postAsync(Anonymous147 authorization, WorkerRegisterIn body)
         {
             return Register_worker_endpoint_api_workers_register_postAsync(authorization, body, System.Threading.CancellationToken.None);
         }
@@ -25468,7 +26573,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Register_worker_endpoint_api_workers_register_postAsync(Anonymous138 authorization, WorkerRegisterIn body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Register_worker_endpoint_api_workers_register_postAsync(Anonymous147 authorization, WorkerRegisterIn body, System.Threading.CancellationToken cancellationToken)
         {
             if (body == null)
                 throw new System.ArgumentNullException("body");
@@ -25564,7 +26669,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> List_workers_endpoint_api_workers_getAsync(Anonymous139 authorization)
+        public virtual System.Threading.Tasks.Task<object> List_workers_endpoint_api_workers_getAsync(Anonymous148 authorization)
         {
             return List_workers_endpoint_api_workers_getAsync(authorization, System.Threading.CancellationToken.None);
         }
@@ -25578,7 +26683,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> List_workers_endpoint_api_workers_getAsync(Anonymous139 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> List_workers_endpoint_api_workers_getAsync(Anonymous148 authorization, System.Threading.CancellationToken cancellationToken)
         {
             var client_ = _httpClient;
             var disposeClient_ = false;
@@ -25678,7 +26783,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> List_worker_instances_api_workers__worker_id__instances_getAsync(string worker_id, Anonymous140 authorization)
+        public virtual System.Threading.Tasks.Task<object> List_worker_instances_api_workers__worker_id__instances_getAsync(string worker_id, Anonymous149 authorization)
         {
             return List_worker_instances_api_workers__worker_id__instances_getAsync(worker_id, authorization, System.Threading.CancellationToken.None);
         }
@@ -25703,7 +26808,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> List_worker_instances_api_workers__worker_id__instances_getAsync(string worker_id, Anonymous140 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> List_worker_instances_api_workers__worker_id__instances_getAsync(string worker_id, Anonymous149 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (worker_id == null)
                 throw new System.ArgumentNullException("worker_id");
@@ -25799,7 +26904,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Upsert_agent_instance_for_agent_api_agents__agent_id__instances_postAsync(string agent_id, Anonymous141 authorization, AgentInstanceUpsertIn body)
+        public virtual System.Threading.Tasks.Task<object> Upsert_agent_instance_for_agent_api_agents__agent_id__instances_postAsync(string agent_id, Anonymous150 authorization, AgentInstanceUpsertIn body)
         {
             return Upsert_agent_instance_for_agent_api_agents__agent_id__instances_postAsync(agent_id, authorization, body, System.Threading.CancellationToken.None);
         }
@@ -25815,7 +26920,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Upsert_agent_instance_for_agent_api_agents__agent_id__instances_postAsync(string agent_id, Anonymous141 authorization, AgentInstanceUpsertIn body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Upsert_agent_instance_for_agent_api_agents__agent_id__instances_postAsync(string agent_id, Anonymous150 authorization, AgentInstanceUpsertIn body, System.Threading.CancellationToken cancellationToken)
         {
             if (agent_id == null)
                 throw new System.ArgumentNullException("agent_id");
@@ -25923,7 +27028,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Delete_agent_instance_endpoint_api_agents__agent_id__instances_deleteAsync(string agent_id, string worker_id, Anonymous142 authorization)
+        public virtual System.Threading.Tasks.Task<object> Delete_agent_instance_endpoint_api_agents__agent_id__instances_deleteAsync(string agent_id, string worker_id, Anonymous151 authorization)
         {
             return Delete_agent_instance_endpoint_api_agents__agent_id__instances_deleteAsync(agent_id, worker_id, authorization, System.Threading.CancellationToken.None);
         }
@@ -25944,7 +27049,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Delete_agent_instance_endpoint_api_agents__agent_id__instances_deleteAsync(string agent_id, string worker_id, Anonymous142 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Delete_agent_instance_endpoint_api_agents__agent_id__instances_deleteAsync(string agent_id, string worker_id, Anonymous151 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (agent_id == null)
                 throw new System.ArgumentNullException("agent_id");
@@ -26059,7 +27164,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="pinned">Optional agent_id to pin. If provided, returns this agent if it is in the cache and online; otherwise 503.</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Pick_agent_from_cache_api_agent_cache_pick_postAsync(Pinned pinned, Anonymous143 authorization)
+        public virtual System.Threading.Tasks.Task<object> Pick_agent_from_cache_api_agent_cache_pick_postAsync(Pinned pinned, Anonymous152 authorization)
         {
             return Pick_agent_from_cache_api_agent_cache_pick_postAsync(pinned, authorization, System.Threading.CancellationToken.None);
         }
@@ -26088,7 +27193,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="pinned">Optional agent_id to pin. If provided, returns this agent if it is in the cache and online; otherwise 503.</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Pick_agent_from_cache_api_agent_cache_pick_postAsync(Pinned pinned, Anonymous143 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Pick_agent_from_cache_api_agent_cache_pick_postAsync(Pinned pinned, Anonymous152 authorization, System.Threading.CancellationToken cancellationToken)
         {
             var client_ = _httpClient;
             var disposeClient_ = false;
@@ -26188,7 +27293,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Snapshot_agent_cache_api_agent_cache_snapshot_getAsync(Anonymous144 authorization)
+        public virtual System.Threading.Tasks.Task<object> Snapshot_agent_cache_api_agent_cache_snapshot_getAsync(Anonymous153 authorization)
         {
             return Snapshot_agent_cache_api_agent_cache_snapshot_getAsync(authorization, System.Threading.CancellationToken.None);
         }
@@ -26206,7 +27311,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Snapshot_agent_cache_api_agent_cache_snapshot_getAsync(Anonymous144 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Snapshot_agent_cache_api_agent_cache_snapshot_getAsync(Anonymous153 authorization, System.Threading.CancellationToken cancellationToken)
         {
             var client_ = _httpClient;
             var disposeClient_ = false;
@@ -26298,7 +27403,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> List_agent_instances_endpoint_api_agent_instances_getAsync(Worker_id worker_id, Agent_id2 agent_id, Anonymous145 authorization)
+        public virtual System.Threading.Tasks.Task<object> List_agent_instances_endpoint_api_agent_instances_getAsync(Worker_id worker_id, Agent_id2 agent_id, Anonymous154 authorization)
         {
             return List_agent_instances_endpoint_api_agent_instances_getAsync(worker_id, agent_id, authorization, System.Threading.CancellationToken.None);
         }
@@ -26315,7 +27420,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> List_agent_instances_endpoint_api_agent_instances_getAsync(Worker_id worker_id, Agent_id2 agent_id, Anonymous145 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> List_agent_instances_endpoint_api_agent_instances_getAsync(Worker_id worker_id, Agent_id2 agent_id, Anonymous154 authorization, System.Threading.CancellationToken cancellationToken)
         {
             var client_ = _httpClient;
             var disposeClient_ = false;
@@ -26414,7 +27519,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Get_agent_instance_endpoint_api_agent_instances__instance_id__getAsync(int instance_id, Anonymous146 authorization)
+        public virtual System.Threading.Tasks.Task<object> Get_agent_instance_endpoint_api_agent_instances__instance_id__getAsync(int instance_id, Anonymous155 authorization)
         {
             return Get_agent_instance_endpoint_api_agent_instances__instance_id__getAsync(instance_id, authorization, System.Threading.CancellationToken.None);
         }
@@ -26428,7 +27533,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Get_agent_instance_endpoint_api_agent_instances__instance_id__getAsync(int instance_id, Anonymous146 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Get_agent_instance_endpoint_api_agent_instances__instance_id__getAsync(int instance_id, Anonymous155 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (instance_id == null)
                 throw new System.ArgumentNullException("instance_id");
@@ -26522,7 +27627,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Delete_agent_instance_endpoint_api_agent_instances__instance_id__deleteAsync(int instance_id, Anonymous147 authorization)
+        public virtual System.Threading.Tasks.Task<object> Delete_agent_instance_endpoint_api_agent_instances__instance_id__deleteAsync(int instance_id, Anonymous156 authorization)
         {
             return Delete_agent_instance_endpoint_api_agent_instances__instance_id__deleteAsync(instance_id, authorization, System.Threading.CancellationToken.None);
         }
@@ -26537,7 +27642,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Delete_agent_instance_endpoint_api_agent_instances__instance_id__deleteAsync(int instance_id, Anonymous147 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Delete_agent_instance_endpoint_api_agent_instances__instance_id__deleteAsync(int instance_id, Anonymous156 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (instance_id == null)
                 throw new System.ArgumentNullException("instance_id");
@@ -26634,7 +27739,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Instance_heartbeat_endpoint_api_workers__worker_id__agent_instances__instance_id__heartbeat_postAsync(string worker_id, int instance_id, Anonymous148 authorization, AgentInstanceHeartbeatIn body)
+        public virtual System.Threading.Tasks.Task<object> Instance_heartbeat_endpoint_api_workers__worker_id__agent_instances__instance_id__heartbeat_postAsync(string worker_id, int instance_id, Anonymous157 authorization, AgentInstanceHeartbeatIn body)
         {
             return Instance_heartbeat_endpoint_api_workers__worker_id__agent_instances__instance_id__heartbeat_postAsync(worker_id, instance_id, authorization, body, System.Threading.CancellationToken.None);
         }
@@ -26652,7 +27757,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Instance_heartbeat_endpoint_api_workers__worker_id__agent_instances__instance_id__heartbeat_postAsync(string worker_id, int instance_id, Anonymous148 authorization, AgentInstanceHeartbeatIn body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Instance_heartbeat_endpoint_api_workers__worker_id__agent_instances__instance_id__heartbeat_postAsync(string worker_id, int instance_id, Anonymous157 authorization, AgentInstanceHeartbeatIn body, System.Threading.CancellationToken cancellationToken)
         {
             if (worker_id == null)
                 throw new System.ArgumentNullException("worker_id");
@@ -26758,7 +27863,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Instance_deregister_endpoint_api_workers__worker_id__agent_instances__instance_id__deregister_postAsync(string worker_id, int instance_id, Anonymous149 authorization, AgentInstanceHeartbeatIn body)
+        public virtual System.Threading.Tasks.Task<object> Instance_deregister_endpoint_api_workers__worker_id__agent_instances__instance_id__deregister_postAsync(string worker_id, int instance_id, Anonymous158 authorization, AgentInstanceHeartbeatIn body)
         {
             return Instance_deregister_endpoint_api_workers__worker_id__agent_instances__instance_id__deregister_postAsync(worker_id, instance_id, authorization, body, System.Threading.CancellationToken.None);
         }
@@ -26772,7 +27877,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Instance_deregister_endpoint_api_workers__worker_id__agent_instances__instance_id__deregister_postAsync(string worker_id, int instance_id, Anonymous149 authorization, AgentInstanceHeartbeatIn body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Instance_deregister_endpoint_api_workers__worker_id__agent_instances__instance_id__deregister_postAsync(string worker_id, int instance_id, Anonymous158 authorization, AgentInstanceHeartbeatIn body, System.Threading.CancellationToken cancellationToken)
         {
             if (worker_id == null)
                 throw new System.ArgumentNullException("worker_id");
@@ -26878,7 +27983,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> List_run_records_api_api_runs_getAsync(Agent agent, Anonymous150 status, Anonymous151 q, int? limit, int? offset, Anonymous152 authorization)
+        public virtual System.Threading.Tasks.Task<object> List_run_records_api_api_runs_getAsync(Agent agent, Anonymous159 status, Anonymous160 q, int? limit, int? offset, Anonymous161 authorization)
         {
             return List_run_records_api_api_runs_getAsync(agent, status, q, limit, offset, authorization, System.Threading.CancellationToken.None);
         }
@@ -26892,7 +27997,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> List_run_records_api_api_runs_getAsync(Agent agent, Anonymous150 status, Anonymous151 q, int? limit, int? offset, Anonymous152 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> List_run_records_api_api_runs_getAsync(Agent agent, Anonymous159 status, Anonymous160 q, int? limit, int? offset, Anonymous161 authorization, System.Threading.CancellationToken cancellationToken)
         {
             var client_ = _httpClient;
             var disposeClient_ = false;
@@ -27000,7 +28105,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> List_task_runs_api_api_tasks__task_id__runs_getAsync(int task_id, int? limit, int? offset, Anonymous153 authorization)
+        public virtual System.Threading.Tasks.Task<object> List_task_runs_api_api_tasks__task_id__runs_getAsync(int task_id, int? limit, int? offset, Anonymous162 authorization)
         {
             return List_task_runs_api_api_tasks__task_id__runs_getAsync(task_id, limit, offset, authorization, System.Threading.CancellationToken.None);
         }
@@ -27011,7 +28116,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> List_task_runs_api_api_tasks__task_id__runs_getAsync(int task_id, int? limit, int? offset, Anonymous153 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> List_task_runs_api_api_tasks__task_id__runs_getAsync(int task_id, int? limit, int? offset, Anonymous162 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (task_id == null)
                 throw new System.ArgumentNullException("task_id");
@@ -27112,7 +28217,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Get_schedule_api_schedules__sid__getAsync(int sid, Anonymous154 authorization)
+        public virtual System.Threading.Tasks.Task<object> Get_schedule_api_schedules__sid__getAsync(int sid, Anonymous163 authorization)
         {
             return Get_schedule_api_schedules__sid__getAsync(sid, authorization, System.Threading.CancellationToken.None);
         }
@@ -27123,7 +28228,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Get_schedule_api_schedules__sid__getAsync(int sid, Anonymous154 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Get_schedule_api_schedules__sid__getAsync(int sid, Anonymous163 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (sid == null)
                 throw new System.ArgumentNullException("sid");
@@ -27213,7 +28318,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Update_schedule_api_schedules__sid__patchAsync(int sid, Anonymous155 authorization, SchedulePatch body)
+        public virtual System.Threading.Tasks.Task<object> Update_schedule_api_schedules__sid__patchAsync(int sid, Anonymous164 authorization, SchedulePatch body)
         {
             return Update_schedule_api_schedules__sid__patchAsync(sid, authorization, body, System.Threading.CancellationToken.None);
         }
@@ -27224,7 +28329,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Update_schedule_api_schedules__sid__patchAsync(int sid, Anonymous155 authorization, SchedulePatch body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Update_schedule_api_schedules__sid__patchAsync(int sid, Anonymous164 authorization, SchedulePatch body, System.Threading.CancellationToken cancellationToken)
         {
             if (sid == null)
                 throw new System.ArgumentNullException("sid");
@@ -27321,7 +28426,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Delete_schedule_api_schedules__sid__deleteAsync(int sid, Anonymous156 authorization)
+        public virtual System.Threading.Tasks.Task<object> Delete_schedule_api_schedules__sid__deleteAsync(int sid, Anonymous165 authorization)
         {
             return Delete_schedule_api_schedules__sid__deleteAsync(sid, authorization, System.Threading.CancellationToken.None);
         }
@@ -27332,7 +28437,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Delete_schedule_api_schedules__sid__deleteAsync(int sid, Anonymous156 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Delete_schedule_api_schedules__sid__deleteAsync(int sid, Anonymous165 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (sid == null)
                 throw new System.ArgumentNullException("sid");
@@ -27528,7 +28633,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> List_runs_api_schedules__sid__runs_getAsync(int sid, int? limit, int? offset, Anonymous157 authorization)
+        public virtual System.Threading.Tasks.Task<object> List_runs_api_schedules__sid__runs_getAsync(int sid, int? limit, int? offset, Anonymous166 authorization)
         {
             return List_runs_api_schedules__sid__runs_getAsync(sid, limit, offset, authorization, System.Threading.CancellationToken.None);
         }
@@ -27539,7 +28644,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> List_runs_api_schedules__sid__runs_getAsync(int sid, int? limit, int? offset, Anonymous157 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> List_runs_api_schedules__sid__runs_getAsync(int sid, int? limit, int? offset, Anonymous166 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (sid == null)
                 throw new System.ArgumentNullException("sid");
@@ -27640,7 +28745,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Get_run_api_runs__rid__getAsync(int rid, Anonymous158 authorization)
+        public virtual System.Threading.Tasks.Task<object> Get_run_api_runs__rid__getAsync(int rid, Anonymous167 authorization)
         {
             return Get_run_api_runs__rid__getAsync(rid, authorization, System.Threading.CancellationToken.None);
         }
@@ -27651,7 +28756,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Get_run_api_runs__rid__getAsync(int rid, Anonymous158 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Get_run_api_runs__rid__getAsync(int rid, Anonymous167 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (rid == null)
                 throw new System.ArgumentNullException("rid");
@@ -27741,7 +28846,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Update_run_api_runs__rid__patchAsync(int rid, Anonymous159 authorization, XWorkerID2 x_Worker_ID, RunPatch body)
+        public virtual System.Threading.Tasks.Task<object> Update_run_api_runs__rid__patchAsync(int rid, Anonymous168 authorization, XWorkerID2 x_Worker_ID, RunPatch body)
         {
             return Update_run_api_runs__rid__patchAsync(rid, authorization, x_Worker_ID, body, System.Threading.CancellationToken.None);
         }
@@ -27752,7 +28857,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Update_run_api_runs__rid__patchAsync(int rid, Anonymous159 authorization, XWorkerID2 x_Worker_ID, RunPatch body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Update_run_api_runs__rid__patchAsync(int rid, Anonymous168 authorization, XWorkerID2 x_Worker_ID, RunPatch body, System.Threading.CancellationToken cancellationToken)
         {
             if (rid == null)
                 throw new System.ArgumentNullException("rid");
@@ -27852,7 +28957,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Delete_run_api_runs__rid__deleteAsync(int rid, Anonymous160 authorization)
+        public virtual System.Threading.Tasks.Task<object> Delete_run_api_runs__rid__deleteAsync(int rid, Anonymous169 authorization)
         {
             return Delete_run_api_runs__rid__deleteAsync(rid, authorization, System.Threading.CancellationToken.None);
         }
@@ -27863,7 +28968,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Delete_run_api_runs__rid__deleteAsync(int rid, Anonymous160 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Delete_run_api_runs__rid__deleteAsync(int rid, Anonymous169 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (rid == null)
                 throw new System.ArgumentNullException("rid");
@@ -27957,7 +29062,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Report_run_result_api_runs__rid__report_postAsync(int rid, Anonymous161 authorization, XWorkerID3 x_Worker_ID, RunReportIn body)
+        public virtual System.Threading.Tasks.Task<object> Report_run_result_api_runs__rid__report_postAsync(int rid, Anonymous170 authorization, XWorkerID3 x_Worker_ID, RunReportIn body)
         {
             return Report_run_result_api_runs__rid__report_postAsync(rid, authorization, x_Worker_ID, body, System.Threading.CancellationToken.None);
         }
@@ -27972,7 +29077,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Report_run_result_api_runs__rid__report_postAsync(int rid, Anonymous161 authorization, XWorkerID3 x_Worker_ID, RunReportIn body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Report_run_result_api_runs__rid__report_postAsync(int rid, Anonymous170 authorization, XWorkerID3 x_Worker_ID, RunReportIn body, System.Threading.CancellationToken cancellationToken)
         {
             if (rid == null)
                 throw new System.ArgumentNullException("rid");
@@ -28392,7 +29497,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Search_notifications_api_api_search_notifications_getAsync(string q, int? limit, Anonymous162 authorization)
+        public virtual System.Threading.Tasks.Task<object> Search_notifications_api_api_search_notifications_getAsync(string q, int? limit, Anonymous171 authorization)
         {
             return Search_notifications_api_api_search_notifications_getAsync(q, limit, authorization, System.Threading.CancellationToken.None);
         }
@@ -28404,7 +29509,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Search_notifications_api_api_search_notifications_getAsync(string q, int? limit, Anonymous162 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Search_notifications_api_api_search_notifications_getAsync(string q, int? limit, Anonymous171 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (q == null)
                 throw new System.ArgumentNullException("q");
@@ -28501,7 +29606,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Search_agents_api_api_search_agents_getAsync(string q, int? limit, Anonymous163 authorization)
+        public virtual System.Threading.Tasks.Task<object> Search_agents_api_api_search_agents_getAsync(string q, int? limit, Anonymous172 authorization)
         {
             return Search_agents_api_api_search_agents_getAsync(q, limit, authorization, System.Threading.CancellationToken.None);
         }
@@ -28513,7 +29618,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Search_agents_api_api_search_agents_getAsync(string q, int? limit, Anonymous163 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Search_agents_api_api_search_agents_getAsync(string q, int? limit, Anonymous172 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (q == null)
                 throw new System.ArgumentNullException("q");
@@ -28610,7 +29715,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Search_proposals_api_api_search_proposals_getAsync(string q, int? limit, Anonymous164 authorization)
+        public virtual System.Threading.Tasks.Task<object> Search_proposals_api_api_search_proposals_getAsync(string q, int? limit, Anonymous173 authorization)
         {
             return Search_proposals_api_api_search_proposals_getAsync(q, limit, authorization, System.Threading.CancellationToken.None);
         }
@@ -28622,7 +29727,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Search_proposals_api_api_search_proposals_getAsync(string q, int? limit, Anonymous164 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Search_proposals_api_api_search_proposals_getAsync(string q, int? limit, Anonymous173 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (q == null)
                 throw new System.ArgumentNullException("q");
@@ -28719,7 +29824,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Search_tickets_api_api_search_tickets_getAsync(string q, int? limit, Anonymous165 authorization)
+        public virtual System.Threading.Tasks.Task<object> Search_tickets_api_api_search_tickets_getAsync(string q, int? limit, Anonymous174 authorization)
         {
             return Search_tickets_api_api_search_tickets_getAsync(q, limit, authorization, System.Threading.CancellationToken.None);
         }
@@ -28731,7 +29836,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Search_tickets_api_api_search_tickets_getAsync(string q, int? limit, Anonymous165 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Search_tickets_api_api_search_tickets_getAsync(string q, int? limit, Anonymous174 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (q == null)
                 throw new System.ArgumentNullException("q");
@@ -28828,7 +29933,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Search_schedules_api_api_search_schedules_getAsync(string q, int? limit, Anonymous166 authorization)
+        public virtual System.Threading.Tasks.Task<object> Search_schedules_api_api_search_schedules_getAsync(string q, int? limit, Anonymous175 authorization)
         {
             return Search_schedules_api_api_search_schedules_getAsync(q, limit, authorization, System.Threading.CancellationToken.None);
         }
@@ -28840,7 +29945,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Search_schedules_api_api_search_schedules_getAsync(string q, int? limit, Anonymous166 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Search_schedules_api_api_search_schedules_getAsync(string q, int? limit, Anonymous175 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (q == null)
                 throw new System.ArgumentNullException("q");
@@ -28937,7 +30042,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Search_runs_api_api_search_runs_getAsync(string q, int? limit, Anonymous167 authorization)
+        public virtual System.Threading.Tasks.Task<object> Search_runs_api_api_search_runs_getAsync(string q, int? limit, Anonymous176 authorization)
         {
             return Search_runs_api_api_search_runs_getAsync(q, limit, authorization, System.Threading.CancellationToken.None);
         }
@@ -28949,7 +30054,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="q">关键词</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Search_runs_api_api_search_runs_getAsync(string q, int? limit, Anonymous167 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Search_runs_api_api_search_runs_getAsync(string q, int? limit, Anonymous176 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (q == null)
                 throw new System.ArgumentNullException("q");
@@ -29941,7 +31046,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Dashboard_overview_api_overview_getAsync(Anonymous168 authorization)
+        public virtual System.Threading.Tasks.Task<object> Dashboard_overview_api_overview_getAsync(Anonymous177 authorization)
         {
             return Dashboard_overview_api_overview_getAsync(authorization, System.Threading.CancellationToken.None);
         }
@@ -29959,7 +31064,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Dashboard_overview_api_overview_getAsync(Anonymous168 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Dashboard_overview_api_overview_getAsync(Anonymous177 authorization, System.Threading.CancellationToken cancellationToken)
         {
             var client_ = _httpClient;
             var disposeClient_ = false;
@@ -30143,7 +31248,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Admin_list_users_api_admin_users_getAsync(int? limit, int? offset, Anonymous169 authorization)
+        public virtual System.Threading.Tasks.Task<object> Admin_list_users_api_admin_users_getAsync(int? limit, int? offset, Anonymous178 authorization)
         {
             return Admin_list_users_api_admin_users_getAsync(limit, offset, authorization, System.Threading.CancellationToken.None);
         }
@@ -30154,7 +31259,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Admin_list_users_api_admin_users_getAsync(int? limit, int? offset, Anonymous169 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Admin_list_users_api_admin_users_getAsync(int? limit, int? offset, Anonymous178 authorization, System.Threading.CancellationToken cancellationToken)
         {
             var client_ = _httpClient;
             var disposeClient_ = false;
@@ -30250,7 +31355,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Admin_update_user_api_admin_users__uid__patchAsync(int uid, Anonymous170 authorization, UserAdminPatch body)
+        public virtual System.Threading.Tasks.Task<object> Admin_update_user_api_admin_users__uid__patchAsync(int uid, Anonymous179 authorization, UserAdminPatch body)
         {
             return Admin_update_user_api_admin_users__uid__patchAsync(uid, authorization, body, System.Threading.CancellationToken.None);
         }
@@ -30261,7 +31366,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Admin_update_user_api_admin_users__uid__patchAsync(int uid, Anonymous170 authorization, UserAdminPatch body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Admin_update_user_api_admin_users__uid__patchAsync(int uid, Anonymous179 authorization, UserAdminPatch body, System.Threading.CancellationToken cancellationToken)
         {
             if (uid == null)
                 throw new System.ArgumentNullException("uid");
@@ -30358,7 +31463,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Admin_list_projects_api_admin_projects_getAsync(int? limit, int? offset, Anonymous171 authorization)
+        public virtual System.Threading.Tasks.Task<object> Admin_list_projects_api_admin_projects_getAsync(int? limit, int? offset, Anonymous180 authorization)
         {
             return Admin_list_projects_api_admin_projects_getAsync(limit, offset, authorization, System.Threading.CancellationToken.None);
         }
@@ -30369,7 +31474,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Admin_list_projects_api_admin_projects_getAsync(int? limit, int? offset, Anonymous171 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Admin_list_projects_api_admin_projects_getAsync(int? limit, int? offset, Anonymous180 authorization, System.Threading.CancellationToken cancellationToken)
         {
             var client_ = _httpClient;
             var disposeClient_ = false;
@@ -30465,7 +31570,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Admin_delete_project_api_admin_projects__pid__deleteAsync(int pid, Anonymous172 authorization)
+        public virtual System.Threading.Tasks.Task<object> Admin_delete_project_api_admin_projects__pid__deleteAsync(int pid, Anonymous181 authorization)
         {
             return Admin_delete_project_api_admin_projects__pid__deleteAsync(pid, authorization, System.Threading.CancellationToken.None);
         }
@@ -30476,7 +31581,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Admin_delete_project_api_admin_projects__pid__deleteAsync(int pid, Anonymous172 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Admin_delete_project_api_admin_projects__pid__deleteAsync(int pid, Anonymous181 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (pid == null)
                 throw new System.ArgumentNullException("pid");
@@ -30569,7 +31674,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> List_audit_logs_api_audit_logs_getAsync(Project_id11 project_id, Entity_type entity_type, Entity_id entity_id, User_id2 user_id, Action action, int? limit, int? offset)
+        public virtual System.Threading.Tasks.Task<object> List_audit_logs_api_audit_logs_getAsync(Project_id11 project_id, Entity_type2 entity_type, Entity_id entity_id, User_id2 user_id, Action action, int? limit, int? offset)
         {
             return List_audit_logs_api_audit_logs_getAsync(project_id, entity_type, entity_id, user_id, action, limit, offset, System.Threading.CancellationToken.None);
         }
@@ -30583,7 +31688,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> List_audit_logs_api_audit_logs_getAsync(Project_id11 project_id, Entity_type entity_type, Entity_id entity_id, User_id2 user_id, Action action, int? limit, int? offset, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> List_audit_logs_api_audit_logs_getAsync(Project_id11 project_id, Entity_type2 entity_type, Entity_id entity_id, User_id2 user_id, Action action, int? limit, int? offset, System.Threading.CancellationToken cancellationToken)
         {
             var client_ = _httpClient;
             var disposeClient_ = false;
@@ -30806,7 +31911,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Admin_list_pending_ticket_requests_api_admin_ticket_requests_pending_getAsync(int? limit, Anonymous173 authorization)
+        public virtual System.Threading.Tasks.Task<object> Admin_list_pending_ticket_requests_api_admin_ticket_requests_pending_getAsync(int? limit, Anonymous182 authorization)
         {
             return Admin_list_pending_ticket_requests_api_admin_ticket_requests_pending_getAsync(limit, authorization, System.Threading.CancellationToken.None);
         }
@@ -30823,7 +31928,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Admin_list_pending_ticket_requests_api_admin_ticket_requests_pending_getAsync(int? limit, Anonymous173 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Admin_list_pending_ticket_requests_api_admin_ticket_requests_pending_getAsync(int? limit, Anonymous182 authorization, System.Threading.CancellationToken cancellationToken)
         {
             var client_ = _httpClient;
             var disposeClient_ = false;
@@ -30921,7 +32026,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Admin_reclaim_stale_ticket_requests_api_admin_ticket_requests_reclaim_stale_postAsync(Anonymous174 authorization, Anonymous175 body)
+        public virtual System.Threading.Tasks.Task<object> Admin_reclaim_stale_ticket_requests_api_admin_ticket_requests_reclaim_stale_postAsync(Anonymous183 authorization, Anonymous184 body)
         {
             return Admin_reclaim_stale_ticket_requests_api_admin_ticket_requests_reclaim_stale_postAsync(authorization, body, System.Threading.CancellationToken.None);
         }
@@ -30938,7 +32043,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Admin_reclaim_stale_ticket_requests_api_admin_ticket_requests_reclaim_stale_postAsync(Anonymous174 authorization, Anonymous175 body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Admin_reclaim_stale_ticket_requests_api_admin_ticket_requests_reclaim_stale_postAsync(Anonymous183 authorization, Anonymous184 body, System.Threading.CancellationToken cancellationToken)
         {
             var client_ = _httpClient;
             var disposeClient_ = false;
@@ -31030,7 +32135,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="task_type">按任务类型过滤，如 dev/qa/design/bug</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Agent_leaderboard_api_api_learning_agent_leaderboard_getAsync(Project_id12 project_id, Task_type task_type, int? limit, Anonymous176 authorization)
+        public virtual System.Threading.Tasks.Task<object> Agent_leaderboard_api_api_learning_agent_leaderboard_getAsync(Project_id12 project_id, Task_type task_type, int? limit, Anonymous185 authorization)
         {
             return Agent_leaderboard_api_api_learning_agent_leaderboard_getAsync(project_id, task_type, limit, authorization, System.Threading.CancellationToken.None);
         }
@@ -31043,7 +32148,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="task_type">按任务类型过滤，如 dev/qa/design/bug</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Agent_leaderboard_api_api_learning_agent_leaderboard_getAsync(Project_id12 project_id, Task_type task_type, int? limit, Anonymous176 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Agent_leaderboard_api_api_learning_agent_leaderboard_getAsync(Project_id12 project_id, Task_type task_type, int? limit, Anonymous185 authorization, System.Threading.CancellationToken cancellationToken)
         {
             var client_ = _httpClient;
             var disposeClient_ = false;
@@ -31143,7 +32248,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> List_outcomes_api_api_learning_outcomes_getAsync(Project_id13 project_id, Task_id task_id, int? limit, Anonymous177 authorization)
+        public virtual System.Threading.Tasks.Task<object> List_outcomes_api_api_learning_outcomes_getAsync(Project_id13 project_id, Task_id2 task_id, int? limit, Anonymous186 authorization)
         {
             return List_outcomes_api_api_learning_outcomes_getAsync(project_id, task_id, limit, authorization, System.Threading.CancellationToken.None);
         }
@@ -31154,7 +32259,7 @@ namespace AgentBoard.Api.Clients
         /// </summary>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> List_outcomes_api_api_learning_outcomes_getAsync(Project_id13 project_id, Task_id task_id, int? limit, Anonymous177 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> List_outcomes_api_api_learning_outcomes_getAsync(Project_id13 project_id, Task_id2 task_id, int? limit, Anonymous186 authorization, System.Threading.CancellationToken cancellationToken)
         {
             var client_ = _httpClient;
             var disposeClient_ = false;
@@ -31259,7 +32364,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Judge_task_api_api_learning_judge__task_id__postAsync(int task_id, Anonymous178 authorization)
+        public virtual System.Threading.Tasks.Task<object> Judge_task_api_api_learning_judge__task_id__postAsync(int task_id, Anonymous187 authorization)
         {
             return Judge_task_api_api_learning_judge__task_id__postAsync(task_id, authorization, System.Threading.CancellationToken.None);
         }
@@ -31275,7 +32380,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Judge_task_api_api_learning_judge__task_id__postAsync(int task_id, Anonymous178 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Judge_task_api_api_learning_judge__task_id__postAsync(int task_id, Anonymous187 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (task_id == null)
                 throw new System.ArgumentNullException("task_id");
@@ -31369,7 +32474,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Judge_status_api_api_learning_judge_status_getAsync(Anonymous179 authorization)
+        public virtual System.Threading.Tasks.Task<object> Judge_status_api_api_learning_judge_status_getAsync(Anonymous188 authorization)
         {
             return Judge_status_api_api_learning_judge_status_getAsync(authorization, System.Threading.CancellationToken.None);
         }
@@ -31383,7 +32488,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Judge_status_api_api_learning_judge_status_getAsync(Anonymous179 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Judge_status_api_api_learning_judge_status_getAsync(Anonymous188 authorization, System.Threading.CancellationToken cancellationToken)
         {
             var client_ = _httpClient;
             var disposeClient_ = false;
@@ -31473,7 +32578,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="project_id">项目 ID</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Project_playbook_api_api_learning_project_playbook_getAsync(int project_id, Anonymous180 authorization)
+        public virtual System.Threading.Tasks.Task<object> Project_playbook_api_api_learning_project_playbook_getAsync(int project_id, Anonymous189 authorization)
         {
             return Project_playbook_api_api_learning_project_playbook_getAsync(project_id, authorization, System.Threading.CancellationToken.None);
         }
@@ -31488,7 +32593,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="project_id">项目 ID</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Project_playbook_api_api_learning_project_playbook_getAsync(int project_id, Anonymous180 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Project_playbook_api_api_learning_project_playbook_getAsync(int project_id, Anonymous189 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (project_id == null)
                 throw new System.ArgumentNullException("project_id");
@@ -31583,7 +32688,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Playbook_append_api_api_learning_playbook__project_id__append_postAsync(int project_id, Anonymous181 authorization, PlaybookAppendIn body)
+        public virtual System.Threading.Tasks.Task<object> Playbook_append_api_api_learning_playbook__project_id__append_postAsync(int project_id, Anonymous190 authorization, PlaybookAppendIn body)
         {
             return Playbook_append_api_api_learning_playbook__project_id__append_postAsync(project_id, authorization, body, System.Threading.CancellationToken.None);
         }
@@ -31597,7 +32702,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Playbook_append_api_api_learning_playbook__project_id__append_postAsync(int project_id, Anonymous181 authorization, PlaybookAppendIn body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Playbook_append_api_api_learning_playbook__project_id__append_postAsync(int project_id, Anonymous190 authorization, PlaybookAppendIn body, System.Threading.CancellationToken cancellationToken)
         {
             if (project_id == null)
                 throw new System.ArgumentNullException("project_id");
@@ -31700,7 +32805,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="spec">查询文本（task spec / 描述摘要）</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Recall_api_api_learning_recall_getAsync(int project_id, string spec, int? top_k, Anonymous182 authorization)
+        public virtual System.Threading.Tasks.Task<object> Recall_api_api_learning_recall_getAsync(int project_id, string spec, int? top_k, Anonymous191 authorization)
         {
             return Recall_api_api_learning_recall_getAsync(project_id, spec, top_k, authorization, System.Threading.CancellationToken.None);
         }
@@ -31716,7 +32821,7 @@ namespace AgentBoard.Api.Clients
         /// <param name="spec">查询文本（task spec / 描述摘要）</param>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Recall_api_api_learning_recall_getAsync(int project_id, string spec, int? top_k, Anonymous182 authorization, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Recall_api_api_learning_recall_getAsync(int project_id, string spec, int? top_k, Anonymous191 authorization, System.Threading.CancellationToken cancellationToken)
         {
             if (project_id == null)
                 throw new System.ArgumentNullException("project_id");
@@ -31830,7 +32935,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual System.Threading.Tasks.Task<object> Sync_agent_cache_http_api_agent_cache_sync_postAsync(Anonymous183 authorization, object body)
+        public virtual System.Threading.Tasks.Task<object> Sync_agent_cache_http_api_agent_cache_sync_postAsync(Anonymous192 authorization, object body)
         {
             return Sync_agent_cache_http_api_agent_cache_sync_postAsync(authorization, body, System.Threading.CancellationToken.None);
         }
@@ -31855,7 +32960,7 @@ namespace AgentBoard.Api.Clients
         /// </remarks>
         /// <returns>Successful Response</returns>
         /// <exception cref="ApiException">A server side error occurred.</exception>
-        public virtual async System.Threading.Tasks.Task<object> Sync_agent_cache_http_api_agent_cache_sync_postAsync(Anonymous183 authorization, object body, System.Threading.CancellationToken cancellationToken)
+        public virtual async System.Threading.Tasks.Task<object> Sync_agent_cache_http_api_agent_cache_sync_postAsync(Anonymous192 authorization, object body, System.Threading.CancellationToken cancellationToken)
         {
             if (body == null)
                 throw new System.ArgumentNullException("body");
@@ -32580,6 +33685,44 @@ namespace AgentBoard.Api.Clients
 
     }
 
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Claim
+    {
+
+        [Newtonsoft.Json.JsonProperty("project_id", Required = Newtonsoft.Json.Required.Always)]
+        public int Project_id { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("kind", Required = Newtonsoft.Json.Required.Always)]
+        [System.ComponentModel.DataAnnotations.Required(AllowEmptyStrings = true)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public ClaimKind Kind { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("worker_id", Required = Newtonsoft.Json.Required.Always)]
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(100, MinimumLength = 1)]
+        public string Worker_id { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("agent_id", Required = Newtonsoft.Json.Required.Always)]
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(100, MinimumLength = 1)]
+        public string Agent_id { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("token", Required = Newtonsoft.Json.Required.Always)]
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(64, MinimumLength = 32)]
+        public string Token { get; set; }
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
     /// <summary>
     /// 协同与留痕行为。
     /// </summary>
@@ -32628,6 +33771,48 @@ namespace AgentBoard.Api.Clients
         [Newtonsoft.Json.JsonProperty("content", Required = Newtonsoft.Json.Required.Always)]
         [System.ComponentModel.DataAnnotations.Required]
         public string Content { get; set; }
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Completion
+    {
+
+        [Newtonsoft.Json.JsonProperty("project_id", Required = Newtonsoft.Json.Required.Always)]
+        public int Project_id { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("kind", Required = Newtonsoft.Json.Required.Always)]
+        [System.ComponentModel.DataAnnotations.Required(AllowEmptyStrings = true)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public CompletionKind Kind { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("worker_id", Required = Newtonsoft.Json.Required.Always)]
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(100, MinimumLength = 1)]
+        public string Worker_id { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("agent_id", Required = Newtonsoft.Json.Required.Always)]
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(100, MinimumLength = 1)]
+        public string Agent_id { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("token", Required = Newtonsoft.Json.Required.Always)]
+        [System.ComponentModel.DataAnnotations.Required]
+        [System.ComponentModel.DataAnnotations.StringLength(64, MinimumLength = 32)]
+        public string Token { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("result", Required = Newtonsoft.Json.Required.Always)]
+        [System.ComponentModel.DataAnnotations.Required]
+        public object Result { get; set; } = new object();
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
 
@@ -32802,7 +33987,7 @@ namespace AgentBoard.Api.Clients
         public Epic_id4 Epic_id { get; set; }
 
         [Newtonsoft.Json.JsonProperty("story_id", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public Story_id4 Story_id { get; set; }
+        public Story_id5 Story_id { get; set; }
 
         [Newtonsoft.Json.JsonProperty("folder_id", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
         public Folder_id2 Folder_id { get; set; }
@@ -32844,7 +34029,7 @@ namespace AgentBoard.Api.Clients
         public Epic_id5 Epic_id { get; set; }
 
         [Newtonsoft.Json.JsonProperty("story_id", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public Story_id5 Story_id { get; set; }
+        public Story_id6 Story_id { get; set; }
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
 
@@ -33170,6 +34355,47 @@ namespace AgentBoard.Api.Clients
         [System.ComponentModel.DataAnnotations.Required(AllowEmptyStrings = true)]
         [System.ComponentModel.DataAnnotations.RegularExpression(@"^(owner|member)$")]
         public string Role { get; set; }
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Offer
+    {
+
+        [Newtonsoft.Json.JsonProperty("project_id", Required = Newtonsoft.Json.Required.Always)]
+        public int Project_id { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("entity_type", Required = Newtonsoft.Json.Required.Always)]
+        [System.ComponentModel.DataAnnotations.Required(AllowEmptyStrings = true)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public OfferEntity_type Entity_type { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("entity_id", Required = Newtonsoft.Json.Required.Always)]
+        public int Entity_id { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("kind", Required = Newtonsoft.Json.Required.Always)]
+        [System.ComponentModel.DataAnnotations.Required(AllowEmptyStrings = true)]
+        [Newtonsoft.Json.JsonConverter(typeof(Newtonsoft.Json.Converters.StringEnumConverter))]
+        public OfferKind Kind { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("iteration", Required = Newtonsoft.Json.Required.Always)]
+        [System.ComponentModel.DataAnnotations.Range(0, int.MaxValue)]
+        public int Iteration { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("discussion_id", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        public Discussion_id Discussion_id { get; set; }
+
+        [Newtonsoft.Json.JsonProperty("target_agent", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+        public Target_agent Target_agent { get; set; }
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
 
@@ -33555,7 +34781,7 @@ namespace AgentBoard.Api.Clients
         public Converged_spec Converged_spec { get; set; }
 
         [Newtonsoft.Json.JsonProperty("story_id", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public Story_id6 Story_id { get; set; }
+        public Story_id7 Story_id { get; set; }
 
         [Newtonsoft.Json.JsonProperty("auto_create_ticket", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
         public Auto_create_ticket Auto_create_ticket { get; set; }
@@ -33686,7 +34912,7 @@ namespace AgentBoard.Api.Clients
     {
 
         [Newtonsoft.Json.JsonProperty("task_id", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public Task_id2 Task_id { get; set; }
+        public Task_id3 Task_id { get; set; }
 
         [Newtonsoft.Json.JsonProperty("idempotency_key", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
         public Idempotency_key Idempotency_key { get; set; }
@@ -33728,7 +34954,7 @@ namespace AgentBoard.Api.Clients
         public Finished_at Finished_at { get; set; }
 
         [Newtonsoft.Json.JsonProperty("task_id", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public Task_id3 Task_id { get; set; }
+        public Task_id4 Task_id { get; set; }
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
 
@@ -33785,7 +35011,7 @@ namespace AgentBoard.Api.Clients
         public Agent2 Agent { get; set; }
 
         [Newtonsoft.Json.JsonProperty("task_id", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public Task_id4 Task_id { get; set; }
+        public Task_id5 Task_id { get; set; }
 
         [Newtonsoft.Json.JsonProperty("task_priority", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
         public Task_priority Task_priority { get; set; }
@@ -33830,7 +35056,7 @@ namespace AgentBoard.Api.Clients
         public Agent3 Agent { get; set; }
 
         [Newtonsoft.Json.JsonProperty("task_id", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public Task_id5 Task_id { get; set; }
+        public Task_id6 Task_id { get; set; }
 
         [Newtonsoft.Json.JsonProperty("task_priority", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
         public Task_priority2 Task_priority { get; set; }
@@ -34274,7 +35500,7 @@ namespace AgentBoard.Api.Clients
         public Epic_id8 Epic_id { get; set; }
 
         [Newtonsoft.Json.JsonProperty("story_id", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public Story_id7 Story_id { get; set; }
+        public Story_id8 Story_id { get; set; }
 
         [Newtonsoft.Json.JsonProperty("title", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
         public Title10 Title { get; set; }
@@ -34302,7 +35528,7 @@ namespace AgentBoard.Api.Clients
         public Epic_id9 Epic_id { get; set; }
 
         [Newtonsoft.Json.JsonProperty("story_id", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-        public Story_id8 Story_id { get; set; }
+        public Story_id9 Story_id { get; set; }
 
         [Newtonsoft.Json.JsonProperty("title", Required = Newtonsoft.Json.Required.DisallowNull, NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
         public Title11 Title { get; set; }
@@ -36670,7 +37896,184 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public enum Entity_type
+    {
+
+        [System.Runtime.Serialization.EnumMember(Value = @"proposal")]
+        Proposal = 0,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"task")]
+        Task = 1,
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial class Anonymous113
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Anonymous114
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Anonymous115
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Anonymous116
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Task_id
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Story_id4
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Anonymous117
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Anonymous118
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Anonymous119
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Anonymous120
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Anonymous121
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Anonymous122
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -36730,7 +38133,7 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Anonymous114
+    public partial class Anonymous123
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -36763,7 +38166,7 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Anonymous115
+    public partial class Anonymous124
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -36796,7 +38199,7 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Anonymous116
+    public partial class Anonymous125
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -36829,7 +38232,7 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Anonymous117
+    public partial class Anonymous126
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -36862,7 +38265,7 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Anonymous118
+    public partial class Anonymous127
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -36895,7 +38298,7 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Anonymous119
+    public partial class Anonymous128
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -36928,7 +38331,7 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Anonymous120
+    public partial class Anonymous129
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -36965,171 +38368,6 @@ namespace AgentBoard.Api.Clients
     /// </summary>
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial class Work_type8
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Anonymous121
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Anonymous122
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Anonymous123
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class XWorkerID
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Before_id
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Anonymous124
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Anonymous125
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Anonymous126
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Anonymous127
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Anonymous128
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Anonymous129
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -37189,6 +38427,36 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class XWorkerID
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Before_id
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial class Anonymous133
     {
 
@@ -37205,21 +38473,6 @@ namespace AgentBoard.Api.Clients
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial class Anonymous134
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Online
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -37353,24 +38606,6 @@ namespace AgentBoard.Api.Clients
 
     }
 
-    /// <summary>
-    /// Optional agent_id to pin. If provided, returns this agent if it is in the cache and online; otherwise 503.
-    /// </summary>
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Pinned
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial class Anonymous143
     {
@@ -37387,37 +38622,22 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Online
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial class Anonymous144
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Worker_id
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Agent_id2
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -37507,21 +38727,6 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Agent
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial class Anonymous150
     {
 
@@ -37538,6 +38743,24 @@ namespace AgentBoard.Api.Clients
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial class Anonymous151
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    /// <summary>
+    /// Optional agent_id to pin. If provided, returns this agent if it is in the cache and online; otherwise 503.
+    /// </summary>
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Pinned
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -37568,6 +38791,36 @@ namespace AgentBoard.Api.Clients
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial class Anonymous153
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Worker_id
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Agent_id2
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -37657,7 +38910,7 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Anonymous159
+    public partial class Agent
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -37672,7 +38925,7 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class XWorkerID2
+    public partial class Anonymous159
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -37703,21 +38956,6 @@ namespace AgentBoard.Api.Clients
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial class Anonymous161
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class XWorkerID3
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -37837,6 +39075,21 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class XWorkerID2
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial class Anonymous169
     {
 
@@ -37867,6 +39120,21 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class XWorkerID3
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial class Anonymous171
     {
 
@@ -37883,81 +39151,6 @@ namespace AgentBoard.Api.Clients
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial class Anonymous172
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Project_id11
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Entity_type
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Entity_id
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class User_id2
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Action
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -38016,74 +39209,8 @@ namespace AgentBoard.Api.Clients
 
     }
 
-    /// <summary>
-    /// 按项目过滤（可选）
-    /// </summary>
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Project_id12
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    /// <summary>
-    /// 按任务类型过滤，如 dev/qa/design/bug
-    /// </summary>
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Task_type
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial class Anonymous176
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Project_id13
-    {
-
-        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
-
-        [Newtonsoft.Json.JsonExtensionData]
-        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
-        {
-            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
-            set { _additionalProperties = value; }
-        }
-
-    }
-
-    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Task_id
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -38173,6 +39300,81 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Project_id11
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Entity_type2
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Entity_id
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class User_id2
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Action
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial class Anonymous182
     {
 
@@ -38189,6 +39391,207 @@ namespace AgentBoard.Api.Clients
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial class Anonymous183
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Anonymous184
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    /// <summary>
+    /// 按项目过滤（可选）
+    /// </summary>
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Project_id12
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    /// <summary>
+    /// 按任务类型过滤，如 dev/qa/design/bug
+    /// </summary>
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Task_type
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Anonymous185
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Project_id13
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Task_id2
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Anonymous186
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Anonymous187
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Anonymous188
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Anonymous189
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Anonymous190
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Anonymous191
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Anonymous192
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -38668,6 +40071,60 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public enum ClaimKind
+    {
+
+        [System.Runtime.Serialization.EnumMember(Value = @"proposal")]
+        Proposal = 0,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"design")]
+        Design = 1,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"design_review")]
+        Design_review = 2,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"dev")]
+        Dev = 3,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"dev_review")]
+        Dev_review = 4,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"qa")]
+        Qa = 5,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"qa_review")]
+        Qa_review = 6,
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public enum CompletionKind
+    {
+
+        [System.Runtime.Serialization.EnumMember(Value = @"proposal")]
+        Proposal = 0,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"design")]
+        Design = 1,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"design_review")]
+        Design_review = 2,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"dev")]
+        Dev = 3,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"dev_review")]
+        Dev_review = 4,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"qa")]
+        Qa = 5,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"qa_review")]
+        Qa_review = 6,
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial class Work_type9
     {
 
@@ -38773,7 +40230,7 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Story_id4
+    public partial class Story_id5
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -38908,7 +40365,7 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Story_id5
+    public partial class Story_id6
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -39134,6 +40591,75 @@ namespace AgentBoard.Api.Clients
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
     public partial class Lease_seconds
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public enum OfferEntity_type
+    {
+
+        [System.Runtime.Serialization.EnumMember(Value = @"proposal")]
+        Proposal = 0,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"task")]
+        Task = 1,
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public enum OfferKind
+    {
+
+        [System.Runtime.Serialization.EnumMember(Value = @"proposal")]
+        Proposal = 0,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"design")]
+        Design = 1,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"design_review")]
+        Design_review = 2,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"dev")]
+        Dev = 3,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"dev_review")]
+        Dev_review = 4,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"qa")]
+        Qa = 5,
+
+        [System.Runtime.Serialization.EnumMember(Value = @"qa_review")]
+        Qa_review = 6,
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Discussion_id
+    {
+
+        private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
+
+        [Newtonsoft.Json.JsonExtensionData]
+        public System.Collections.Generic.IDictionary<string, object> AdditionalProperties
+        {
+            get { return _additionalProperties ?? (_additionalProperties = new System.Collections.Generic.Dictionary<string, object>()); }
+            set { _additionalProperties = value; }
+        }
+
+    }
+
+    [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
+    public partial class Target_agent
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -39508,7 +41034,7 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Story_id6
+    public partial class Story_id7
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -39613,7 +41139,7 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Task_id2
+    public partial class Task_id3
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -39748,7 +41274,7 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Task_id3
+    public partial class Task_id4
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -39823,7 +41349,7 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Task_id4
+    public partial class Task_id5
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -39973,7 +41499,7 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Task_id5
+    public partial class Task_id6
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -40603,7 +42129,7 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Story_id7
+    public partial class Story_id8
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;
@@ -40648,7 +42174,7 @@ namespace AgentBoard.Api.Clients
     }
 
     [System.CodeDom.Compiler.GeneratedCode("NJsonSchema", "14.5.0.0 (NJsonSchema v11.4.0.0 (Newtonsoft.Json v13.0.0.0))")]
-    public partial class Story_id8
+    public partial class Story_id9
     {
 
         private System.Collections.Generic.IDictionary<string, object> _additionalProperties;

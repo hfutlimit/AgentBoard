@@ -244,8 +244,19 @@ function addToOfflineQueue(req: QueuedRequest): void {
 
 export const OFFLINE_QUEUE_FLUSH_EVENT = 'agentboard:flush-offline-queue';
 
+export interface WorkerDiscussion {
+  id: number; task_id: number; status: string; subject: string; turn: number; max_rounds: number;
+  owner_agent: string; reviewer_agent: string;
+  messages: { comment_id: number; reply_to_comment_id: number | null; agent_id: string;
+    target_agent: string | null; decision: string; position?: string; body: string; evidence: string[] }[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class ApiService {
+  workerDiscussions(projectId: number, taskId?: number, storyId?: number) {
+    return this.request<{ items: WorkerDiscussion[] }>('GET', '/api/worker-work/discussions', undefined,
+      { project_id: projectId, task_id: taskId, story_id: storyId });
+  }
   listTaskRuns(taskId: number) {
     return this.request<{ items: AgentRun[]; total: number }>('GET', `/api/tasks/${taskId}/runs`);
   }

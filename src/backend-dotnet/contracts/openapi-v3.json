@@ -10234,6 +10234,100 @@
                                                                                      }
                                                                    }
                                                       },
+                  "/api/worker-work/discussions":  {
+                                                       "get":  {
+                                                                   "tags":  [
+                                                                                "scheduling",
+                                                                                "worker-work"
+                                                                            ],
+                                                                   "summary":  "List Discussions",
+                                                                   "operationId":  "list_discussions_api_worker_work_discussions_get",
+                                                                   "parameters":  [
+                                                                                      {
+                                                                                          "name":  "project_id",
+                                                                                          "in":  "query",
+                                                                                          "required":  true,
+                                                                                          "schema":  {
+                                                                                                         "type":  "integer",
+                                                                                                         "exclusiveMinimum":  0,
+                                                                                                         "title":  "Project Id"
+                                                                                                     }
+                                                                                      },
+                                                                                      {
+                                                                                          "name":  "task_id",
+                                                                                          "in":  "query",
+                                                                                          "required":  false,
+                                                                                          "schema":  {
+                                                                                                         "anyOf":  [
+                                                                                                                       {
+                                                                                                                           "type":  "integer",
+                                                                                                                           "exclusiveMinimum":  0
+                                                                                                                       },
+                                                                                                                       {
+                                                                                                                           "type":  "null"
+                                                                                                                       }
+                                                                                                                   ],
+                                                                                                         "title":  "Task Id"
+                                                                                                     }
+                                                                                      },
+                                                                                      {
+                                                                                          "name":  "story_id",
+                                                                                          "in":  "query",
+                                                                                          "required":  false,
+                                                                                          "schema":  {
+                                                                                                         "anyOf":  [
+                                                                                                                       {
+                                                                                                                           "type":  "integer",
+                                                                                                                           "exclusiveMinimum":  0
+                                                                                                                       },
+                                                                                                                       {
+                                                                                                                           "type":  "null"
+                                                                                                                       }
+                                                                                                                   ],
+                                                                                                         "title":  "Story Id"
+                                                                                                     }
+                                                                                      },
+                                                                                      {
+                                                                                          "name":  "authorization",
+                                                                                          "in":  "header",
+                                                                                          "required":  false,
+                                                                                          "schema":  {
+                                                                                                         "anyOf":  [
+                                                                                                                       {
+                                                                                                                           "type":  "string"
+                                                                                                                       },
+                                                                                                                       {
+                                                                                                                           "type":  "null"
+                                                                                                                       }
+                                                                                                                   ],
+                                                                                                         "title":  "Authorization"
+                                                                                                     }
+                                                                                      }
+                                                                                  ],
+                                                                   "responses":  {
+                                                                                     "200":  {
+                                                                                                 "description":  "Successful Response",
+                                                                                                 "content":  {
+                                                                                                                 "application/json":  {
+                                                                                                                                          "schema":  {
+
+                                                                                                                                                     }
+                                                                                                                                      }
+                                                                                                             }
+                                                                                             },
+                                                                                     "422":  {
+                                                                                                 "description":  "Validation Error",
+                                                                                                 "content":  {
+                                                                                                                 "application/json":  {
+                                                                                                                                          "schema":  {
+                                                                                                                                                         "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                     }
+                                                                                                                                      }
+                                                                                                             }
+                                                                                             }
+                                                                                 }
+                                                               }
+                                                   },
                   "/api/worker-work/{work_id}":  {
                                                      "get":  {
                                                                  "tags":  [
@@ -17530,7 +17624,32 @@
                                                                                           "type":  "integer",
                                                                                           "minimum":  0.0,
                                                                                           "title":  "Iteration"
-                                                                                      }
+                                                                                      },
+                                                                        "discussion_id":  {
+                                                                                              "anyOf":  [
+                                                                                                            {
+                                                                                                                "type":  "integer",
+                                                                                                                "exclusiveMinimum":  0.0
+                                                                                                            },
+                                                                                                            {
+                                                                                                                "type":  "null"
+                                                                                                            }
+                                                                                                        ],
+                                                                                              "title":  "Discussion Id"
+                                                                                          },
+                                                                        "target_agent":  {
+                                                                                             "anyOf":  [
+                                                                                                           {
+                                                                                                               "type":  "string",
+                                                                                                               "maxLength":  100,
+                                                                                                               "minLength":  1
+                                                                                                           },
+                                                                                                           {
+                                                                                                               "type":  "null"
+                                                                                                           }
+                                                                                                       ],
+                                                                                             "title":  "Target Agent"
+                                                                                         }
                                                                     },
                                                      "type":  "object",
                                                      "required":  [

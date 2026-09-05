@@ -16,10 +16,11 @@ def qa_acceptance_closed(tasks, completed, edges):
         if task_id in visiting:
             return False
         qa = max((w for w in completed if w["entity_type"] == "task" and w["entity_id"] == task_id
-                  and w["kind"] == "qa"), key=lambda w: w["id"], default=None)
+                  and w["kind"] == "qa" and w["result"].get("decision") == "submit"), key=lambda w: w["id"], default=None)
         review = max((w for w in completed if w["entity_type"] == "task" and w["entity_id"] == task_id
-                      and w["kind"] == "qa_review"), key=lambda w: w["id"], default=None)
-        if not qa or not review or review["result"].get("decision") != "approve" or review["iteration"] != qa["iteration"]:
+                      and w["kind"] == "qa_review" and (w["result"].get("decision") == "approve"
+                      or w["result"].get("decision") == "confirm" and "qa_followup" in w["result"])), key=lambda w: w["id"], default=None)
+        if not qa or not review or review["id"] < qa["id"]:
             return False
         if qa["result"].get("tests_passed") is True:
             return True
@@ -69,9 +70,13 @@ def evidence(database: Path, proposal_id: int):
         kinds = {w["kind"] for w in completed}
         independent = True
         for work in completed:
+            if work["result"].get("decision") in ("respond", "discuss", "withdraw", "escalate"):
+                continue
             if work["kind"].endswith("_review"):
                 original = [w for w in completed if w["entity_id"] == work["entity_id"]
-                            and w["kind"] == work["kind"].removesuffix("_review") and w["iteration"] == work["iteration"]]
+                            and w["kind"] == work["kind"].removesuffix("_review")
+                            and w["result"].get("decision") == "submit" and w["id"] < work["id"]]
+                original = sorted(original, key=lambda w: w["id"])[-1:]
                 independent &= bool(original) and all(w["agent_id"] != work["agent_id"] for w in original)
             if work["kind"] == "qa":
                 upstream, pending = set(), [work["entity_id"]]

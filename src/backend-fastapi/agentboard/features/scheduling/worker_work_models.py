@@ -14,6 +14,8 @@ class WorkerWork(Base):
     entity_type: Mapped[str] = mapped_column(String(20))
     entity_id: Mapped[int] = mapped_column(Integer, index=True)
     kind: Mapped[str] = mapped_column(String(24))
+    discussion_id: Mapped[int | None] = mapped_column(ForeignKey("worker_discussions.id"), nullable=True)
+    target_agent: Mapped[str | None] = mapped_column(String(100), nullable=True)
     iteration: Mapped[int] = mapped_column(Integer)
     state: Mapped[str] = mapped_column(String(20), default="available", index=True)
     active_slot: Mapped[str | None] = mapped_column(String(10), nullable=True)
@@ -26,4 +28,24 @@ class WorkerWork(Base):
     input_hash: Mapped[str] = mapped_column(String(64), default="")
     result: Mapped[str | None] = mapped_column(Text, nullable=True)
     attempt_history: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+
+class WorkerDiscussion(Base):
+    __tablename__ = "worker_discussions"
+    __table_args__ = (UniqueConstraint("task_id", "active_slot", name="uq_worker_discussion_active_task"),)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id"), index=True)
+    source_work_id: Mapped[int] = mapped_column(Integer)
+    review_kind: Mapped[str] = mapped_column(String(24))
+    subject: Mapped[str] = mapped_column(String(24), default="review_findings")
+    review_round: Mapped[int] = mapped_column(Integer)
+    owner_agent: Mapped[str] = mapped_column(String(100))
+    reviewer_agent: Mapped[str] = mapped_column(String(100))
+    status: Mapped[str] = mapped_column(String(20), default="open")
+    active_slot: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    turn: Mapped[int] = mapped_column(Integer, default=0)
+    max_rounds: Mapped[int] = mapped_column(Integer, default=3)
+    messages: Mapped[str] = mapped_column(Text, default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

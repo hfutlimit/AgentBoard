@@ -10,6 +10,40 @@ namespace AgentBoard.Node.Tests;
 public class WorkerOwnedTests
 {
     [Fact]
+    public void Discussion_reply_is_read_only_and_targeted_without_an_eighth_work_kind()
+    {
+        var discussion = new { id = 9, status = "open", turn = 2, subject = "review_findings",
+            owner_agent = "original-dev", reviewer_agent = "original-reviewer" };
+        var item = JsonSerializer.SerializeToElement(new { id = 42, type = "dev", status = "in_review",
+            ready = true, story_status = "in_progress", review_round = 0, discussion });
+        var next = WorkPlanner.Next(8, "task", item)!;
+        Assert.Equal("dev", next.Kind);
+        Assert.Equal("original-dev", next.TargetAgent);
+        Assert.Equal(9, next.DiscussionId);
+        Assert.Equal(2, next.Iteration);
+        var prompt = WorkPlanner.Prompt("dev", JsonSerializer.Serialize(new { item, discussion }));
+        Assert.Contains("Leave ALL files and HEAD unchanged", prompt);
+        Assert.Contains("position='agree'|'disagree'|'clarify'", prompt);
+        Assert.DoesNotContain("commit your changes", prompt);
+        Assert.Equal("agentboard.work.v2.project.8.dev.agent.ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+            WorkerWorkKinds.AgentQueue(8, "dev", "a"));
+        Assert.Equal(7, WorkerWorkKinds.All.Count);
+    }
+
+    [Fact]
+    public void Review_requires_discussion_before_rejection_and_old_approval_cannot_create_bugs()
+    {
+        Assert.Contains("Never reject or create bugs before discussion", WorkPlanner.Prompt("dev_review", "{}"));
+        var output = new JsonObject { ["decision"] = "approve" };
+        WorkPlanner.AddQaFollowup("qa_review", output, JsonSerializer.SerializeToElement(new { }));
+        Assert.Null(output["qa_followup"]);
+        output["decision"] = "confirm";
+        WorkPlanner.AddQaFollowup("qa_review", output,
+            JsonSerializer.SerializeToElement(new { discussion = new { subject = "review_findings" } }));
+        Assert.Null(output["qa_followup"]);
+    }
+
+    [Fact]
     public void Expanded_qa_defect_feedback_preserves_evidence_in_description()
     {
         var output = JsonNode.Parse("""{"decision":"submit","tests_passed":false,"defects":[{"title":"Unicode","description":"fallback","expected_result":"Chinese","actual_result":"world"}]}""")!.AsObject();
@@ -36,11 +70,12 @@ public class WorkerOwnedTests
     }
 
     [Fact]
-    public void Approved_failed_qa_plans_bugs_and_retest_on_worker_from_latest_own_evidence()
+    public void Confirmed_failed_qa_plans_bugs_and_retest_on_worker_from_latest_own_evidence()
     {
         var context = JsonSerializer.SerializeToElement(new
         {
             item = new { id = 5, title = "QA greeting", description = "Original acceptance" },
+            discussion = new { subject = "qa_defects" },
             evidence = new[]
             {
                 new { work_id = 4, task_id = 5, kind = "qa", result = new { tests_passed = true, defects = Array.Empty<object>() } },
@@ -49,7 +84,7 @@ public class WorkerOwnedTests
                 new { work_id = 8, task_id = 99, kind = "qa", result = new { tests_passed = true, defects = Array.Empty<object>() } },
             },
         });
-        var output = JsonNode.Parse("""{"decision":"approve","summary":"reasonable testing"}""")!.AsObject();
+        var output = JsonNode.Parse("""{"decision":"confirm","summary":"verified together"}""")!.AsObject();
         WorkPlanner.AddQaFollowup("qa_review", output, context);
         var plan = output["qa_followup"]!;
         Assert.Equal(7, plan["source_work_id"]!.GetValue<long>());
@@ -156,17 +191,19 @@ public class WorkerOwnedTests
     }
 
     [Fact]
-    public void Two_codex_profiles_have_separate_capabilities_and_project_scope()
+    public void All_agents_share_worker_projects_but_keep_separate_work_capabilities()
     {
         var options = new WorkerOwnedOptions
         {
+            Projects = [new() { ProjectId = 8 }, new() { ProjectId = 9 }],
             Agents = [new() { Id = "codex-a", Provider = "codex", ProjectIds = [8], WorkKinds = ["dev"] },
                       new() { Id = "codex-b", Provider = "codex", ProjectIds = [8, 9], WorkKinds = ["qa", "qa_review"] }],
         };
         Assert.Single(options.Candidates(8, "dev"));
-        Assert.Empty(options.Candidates(9, "dev"));
+        Assert.Single(options.Candidates(9, "dev"));
+        Assert.Empty(options.Candidates(10, "dev"));
         Assert.Equal("codex-b", Assert.Single(options.Candidates(8, "qa")).Id);
-        Assert.Equal(5, options.Subscriptions().Count());
+        Assert.Equal(6, options.Subscriptions().Count());
         Assert.DoesNotContain((8, "dev_review"), options.Subscriptions());
     }
 

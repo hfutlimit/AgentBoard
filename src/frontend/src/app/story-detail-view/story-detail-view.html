@@ -83,6 +83,7 @@
           </div>
         }
 
+        <app-worker-discussion [projectId]="host.project()?.id" [storyId]="current.id" />
         <div class="card comments-card">
           <div class="section-header">
             <h3>评论 <span class="count">{{ host.storyComments().length }}</span></h3>
