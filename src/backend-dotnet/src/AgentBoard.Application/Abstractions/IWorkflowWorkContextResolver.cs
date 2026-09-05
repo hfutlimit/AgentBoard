@@ -9,6 +9,7 @@ public enum WorkflowWorkResolutionStatus
     NotFound,
     MissingOwner,
     DependenciesNotReady,
+    DependenciesUnavailable,
 }
 
 public sealed record WorkflowWorkResolution(

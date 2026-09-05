@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MIT
-using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using AgentBoard.Application.Abstractions;
@@ -67,6 +66,11 @@ public sealed class WorkflowWorkContextResolver : IWorkflowWorkContextResolver
 
         var blockingIds = await ResolveBlockingTaskIdsAsync(
             taskId, cancellationToken);
+        if (blockingIds is null)
+        {
+            return new WorkflowWorkResolution(
+                WorkflowWorkResolutionStatus.DependenciesUnavailable, null, status);
+        }
         if (blockingIds.Count > 0)
         {
             return new WorkflowWorkResolution(
@@ -93,40 +97,56 @@ public sealed class WorkflowWorkContextResolver : IWorkflowWorkContextResolver
             Array.Empty<int>());
     }
 
-    private async Task<IReadOnlyList<int>> ResolveBlockingTaskIdsAsync(
+    private async Task<IReadOnlyList<int>?> ResolveBlockingTaskIdsAsync(
         int taskId, CancellationToken cancellationToken)
     {
-        var client = _clients.CreateClient("AgentBoardFastApi");
-        using var response = await SendAuthorizedAsync(
-            client, HttpMethod.Get, $"api/tasks/{taskId}/dependencies", cancellationToken);
-        if (!response.IsSuccessStatusCode)
+        try
         {
-            return Array.Empty<int>();
-        }
+            var client = _clients.CreateClient("AgentBoardFastApi");
+            using var response = await SendAuthorizedAsync(
+                client, HttpMethod.Get, $"api/tasks/{taskId}/dependencies", cancellationToken);
+            if (!response.IsSuccessStatusCode) return null;
 
-        using var doc = JsonDocument.Parse(
-            await response.Content.ReadAsStringAsync(cancellationToken));
-        var result = new List<int>();
-        if (doc.RootElement.TryGetProperty("blocked_by", out var blockedBy)
-            && blockedBy.ValueKind == JsonValueKind.Array)
-        {
-            foreach (var entry in blockedBy.EnumerateArray())
+            using var doc = JsonDocument.Parse(
+                await response.Content.ReadAsStringAsync(cancellationToken));
+            // FastAPI /dependencies: blockers are prerequisites; blocked_by
+            // contains reverse dependents. Do not confuse this with /readiness.
+            if (doc.RootElement.ValueKind != JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty("blockers", out var blockers)
+                || blockers.ValueKind != JsonValueKind.Array) return null;
+
+            var result = new HashSet<int>();
+            foreach (var entry in blockers.EnumerateArray())
             {
-                var hasNested = entry.TryGetProperty("task", out var nested)
-                    && nested.ValueKind == JsonValueKind.Object;
-                var source = hasNested ? nested : entry;
-                var blockerStatus = GetString(source, "status");
-                var blockerId = hasNested
-                    ? GetNullableInt(nested, "id")
-                    : GetNullableInt(entry, "depends_on_id");
-                if (blockerId is not null
-                    && !string.Equals(blockerStatus, "done", StringComparison.OrdinalIgnoreCase))
+                if (entry.ValueKind != JsonValueKind.Object) return null;
+                var dependencyType = GetString(entry, "type");
+                // Same policy as FastAPI get_task_readiness: only blocks gates execution.
+                if (dependencyType is "relates_to" or "blocked_by") continue;
+                if (dependencyType != "blocks") return null;
+
+                var blockerId = GetNullableInt(entry, "task_id");
+                if (blockerId is null or <= 0
+                    || !entry.TryGetProperty("task", out var task)) return null;
+                if (task.ValueKind == JsonValueKind.Null)
                 {
+                    // A deleted/missing prerequisite is not complete.
                     result.Add(blockerId.Value);
+                    continue;
                 }
+                if (task.ValueKind != JsonValueKind.Object
+                    || GetNullableInt(task, "id") != blockerId) return null;
+                var status = GetString(task, "status");
+                if (string.IsNullOrWhiteSpace(status)) return null;
+                if (status != "done") result.Add(blockerId.Value);
             }
+            return result.Order().ToArray();
         }
-        return result.Order().ToArray();
+        catch (HttpRequestException) { return null; }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return null; // Upstream timeout, not caller cancellation.
+        }
+        catch (JsonException) { return null; }
     }
 
     private async Task<HttpResponseMessage> SendAuthorizedAsync(
@@ -153,7 +173,7 @@ public sealed class WorkflowWorkContextResolver : IWorkflowWorkContextResolver
     {
         if (!element.TryGetProperty(property, out var value) || value.ValueKind == JsonValueKind.Null)
             return null;
-        return value.TryGetInt32(out var parsed)
+        return value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var parsed)
             ? parsed
             : int.TryParse(value.ToString(), out var fallback) ? fallback : null;
     }

@@ -49,6 +49,16 @@ public sealed class DurableWorkflowController : ControllerBase
                 Detail = $"Task {request.TaskId} has no owner_user_id; durable assignment fails closed.",
             });
         }
+        if (resolution.Status == WorkflowWorkResolutionStatus.DependenciesUnavailable)
+        {
+            Response.Headers["Retry-After"] = "30";
+            return StatusCode(StatusCodes.Status503ServiceUnavailable, new ProblemDetails
+            {
+                Status = StatusCodes.Status503ServiceUnavailable,
+                Title = "Task dependencies could not be verified",
+                Detail = "The business API dependency read failed or returned an invalid response; no workflow was started.",
+            });
+        }
         if (resolution.Status == WorkflowWorkResolutionStatus.DependenciesNotReady)
         {
             return Conflict(new ProblemDetails

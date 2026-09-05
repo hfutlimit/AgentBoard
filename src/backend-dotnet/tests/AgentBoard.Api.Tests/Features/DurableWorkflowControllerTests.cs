@@ -90,6 +90,86 @@ public sealed class DurableWorkflowControllerTests : IClassFixture<ApiWebApplica
         stage.GetProperty("state").GetInt32().Should().Be((int)StageRunState.Running);
     }
 
+    [Fact]
+    public async Task Real_dependency_contract_blocks_downstream_but_not_upstream_and_unlocks_after_done()
+    {
+        using var factory = ApiWebApplicationFactory.CreateDurable();
+        using var client = NewAuthenticatedClient(factory);
+        var prerequisiteId = await SeedEligibleTask(factory.Services);
+        int dependentId;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var prerequisite = await db.Tasks.FindAsync(prerequisiteId);
+            var dependent = new TaskItem
+            {
+                ProjectId = prerequisite!.ProjectId,
+                OwnerUserId = prerequisite.OwnerUserId,
+                Title = "B depends on A",
+                Type = "dev",
+                Description = string.Empty,
+                Spec = string.Empty,
+                NeededCapabilities = "[]",
+                CreatedAt = DateTime.UtcNow,
+                UpdatedAt = DateTime.UtcNow,
+            };
+            db.Tasks.Add(dependent);
+            await db.SaveChangesAsync();
+            dependentId = dependent.Id;
+            db.TaskDependencies.Add(new TaskDependency
+            {
+                TaskId = dependentId, DependsOnId = prerequisiteId,
+                DependencyType = "blocks", CreatedAt = DateTime.UtcNow,
+            });
+            await db.SaveChangesAsync();
+        }
+        var version = DevelopmentOnlyVersion("dependency-version");
+        (await client.PostAsJsonAsync("/api/durable-workflows/versions", version, Wire))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        var blocked = await client.PostAsJsonAsync("/api/durable-workflows/runs",
+            new StartRunRequest("dependent", version.VersionId, dependentId, "workspace", "base"), Wire);
+        blocked.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await blocked.Content.ReadAsStringAsync()).Should().Contain($"blocked by tasks: {prerequisiteId}.");
+        var runtime = factory.Services.GetRequiredService<DurableServerRuntime>();
+        runtime.Read(plane => plane.Registry.Snapshot("dependent")).Should().BeNull();
+        runtime.Read(plane => plane.Outbox.Messages).Should().BeEmpty();
+
+        var upstream = await client.PostAsJsonAsync("/api/durable-workflows/runs",
+            new StartRunRequest("prerequisite", version.VersionId, prerequisiteId, "workspace", "base"), Wire);
+        upstream.StatusCode.Should().Be(HttpStatusCode.OK);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            (await db.Tasks.FindAsync(prerequisiteId))!.Status = "done";
+            await db.SaveChangesAsync();
+        }
+        var unlocked = await client.PostAsJsonAsync("/api/durable-workflows/runs",
+            new StartRunRequest("dependent", version.VersionId, dependentId, "workspace", "base"), Wire);
+        unlocked.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Theory]
+    [InlineData(401)]
+    [InlineData(403)]
+    [InlineData(404)]
+    [InlineData(500)]
+    [InlineData(503)]
+    public async Task Dependency_read_failure_returns_503_without_mutating_the_plane(int status)
+    {
+        using var factory = ApiWebApplicationFactory.CreateDurable();
+        factory.DependencyReadStatus = (HttpStatusCode)status;
+        using var client = NewAuthenticatedClient(factory);
+        var taskId = await SeedEligibleTask(factory.Services);
+        var response = await client.PostAsJsonAsync("/api/durable-workflows/runs",
+            new StartRunRequest("unverified", "unpublished", taskId, "workspace", "base"), Wire);
+        response.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        response.Headers.RetryAfter!.Delta.Should().Be(TimeSpan.FromSeconds(30));
+        var runtime = factory.Services.GetRequiredService<DurableServerRuntime>();
+        runtime.Read(plane => plane.Registry.Snapshot("unverified")).Should().BeNull();
+        runtime.Read(plane => plane.Outbox.Messages).Should().BeEmpty();
+        runtime.Read(plane => plane.TaskProjections.Entries).Should().BeEmpty();
+    }
+
     private static HttpClient NewAuthenticatedClient(ApiWebApplicationFactory factory)
     {
         // The durable gate rejects anonymous callers (401) before the enabled

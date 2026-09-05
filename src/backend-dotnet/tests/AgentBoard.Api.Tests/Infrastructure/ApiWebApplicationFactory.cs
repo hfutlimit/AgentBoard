@@ -40,6 +40,8 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
 
     public static ApiWebApplicationFactory CreateDurable() => new(true);
 
+    public HttpStatusCode? DependencyReadStatus { get; set; }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // "Testing" tells Serilog/OpenTelemetry to skip the file sink and
@@ -91,7 +93,8 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
             services
                 .AddHttpClient("AgentBoardFastApi")
                 .ConfigurePrimaryHttpMessageHandler(serviceProvider =>
-                    new MiniFastApiHandler(serviceProvider.GetRequiredService<IServiceScopeFactory>()));
+                    new MiniFastApiHandler(serviceProvider.GetRequiredService<IServiceScopeFactory>(),
+                        () => DependencyReadStatus));
         });
     }
 
@@ -144,9 +147,13 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
     {
         private static readonly TimeSpan HeartbeatTtl = TimeSpan.FromMinutes(5);
         private readonly IServiceScopeFactory _scopeFactory;
+        private readonly Func<HttpStatusCode?> _dependencyReadStatus;
 
-        public MiniFastApiHandler(IServiceScopeFactory scopeFactory) =>
+        public MiniFastApiHandler(IServiceScopeFactory scopeFactory, Func<HttpStatusCode?> dependencyReadStatus)
+        {
             _scopeFactory = scopeFactory;
+            _dependencyReadStatus = dependencyReadStatus;
+        }
 
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
@@ -163,7 +170,9 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
             else if (method == HttpMethod.Get
                 && System.Text.RegularExpressions.Regex.IsMatch(path, @"/api/tasks/\d+/dependencies$"))
             {
-                response = Ok(new JsonObject { ["blocked_by"] = new JsonArray() });
+                response = _dependencyReadStatus() is { } failure
+                    ? new HttpResponseMessage(failure)
+                    : ReadDependencies(path);
             }
             else if (method == HttpMethod.Get
                 && System.Text.RegularExpressions.Regex.IsMatch(path, @"/api/tasks/\d+$"))
@@ -218,6 +227,36 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
                 ["api_key_prefix"] = key.KeyPrefix,
                 ["agent_ref"] = null,
             });
+        }
+
+        private HttpResponseMessage ReadDependencies(string path)
+        {
+            var taskId = int.Parse(System.Text.RegularExpressions.Regex.Match(path, @"/api/tasks/(\d+)/dependencies$").Groups[1].Value);
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            // Mirror the real FastAPI service, including reverse edges and missing tasks.
+            JsonObject Entry(TaskDependency edge, int relatedId)
+            {
+                var task = db.Tasks.FirstOrDefault(t => t.Id == relatedId);
+                return new JsonObject
+                {
+                    ["id"] = edge.Id,
+                    ["task_id"] = relatedId,
+                    ["type"] = edge.DependencyType,
+                    ["task"] = task is null ? null : new JsonObject
+                    {
+                        ["id"] = task.Id,
+                        ["status"] = task.Status,
+                    },
+                };
+            }
+            var blockers = new JsonArray();
+            foreach (var edge in db.TaskDependencies.Where(d => d.TaskId == taskId).ToList())
+                blockers.Add(Entry(edge, edge.DependsOnId));
+            var reverse = new JsonArray();
+            foreach (var edge in db.TaskDependencies.Where(d => d.DependsOnId == taskId).ToList())
+                reverse.Add(Entry(edge, edge.TaskId));
+            return Ok(new JsonObject { ["blockers"] = blockers, ["blocked_by"] = reverse });
         }
 
         private HttpResponseMessage ReadTask(string path)
