@@ -493,6 +493,10 @@ def scan_review_timeouts(s: Session, *, project_id: int | None = None,
               # 内部重派详情（(entity_id, new_reviewer_id)），供 API 层发布事件，响应中剔除
               "_stories_reassigned": [], "_tasks_reassigned": []}
 
+    from .worker_work import enabled as worker_owned_enabled
+    if worker_owned_enabled():
+        return result  # Only fenced Worker leases govern review recovery.
+
     st_q = s.query(Story).filter(
         Story.status == "pending_review",
         Story.reviewer_id.isnot(None),
@@ -1807,6 +1811,9 @@ def complete_story(s: Session, id: int, *, changed_by: int | None = None,
     )
     if r.rowcount != 1:
         s.rollback()
+        s.refresh(st)
+        if st.status == "done":
+            return st  # Another eligible Worker already closed the same Story.
         raise IllegalTransition("complete 冲突：Story 状态已被并发修改")
     _record_story_status_history(s, id, old, "done", changed_by=changed_by,
                                  reason=reason or "全部任务完成，自动收尾")
@@ -1877,6 +1884,9 @@ def unblock_insufficient_agent_tasks(s: Session, owner_user_id: int) -> int:
     （dispatch 成功会写 assignment 并清 deferred reason）。
     返回解锁数量。
     """
+    from .worker_work import enabled as worker_owned_enabled
+    if worker_owned_enabled():
+        return 0  # Server presence must not make local Agent eligibility decisions.
     from ..work_items.models import Task as TaskModel
     from ..work_items.state_machine import TaskStateMachine
 

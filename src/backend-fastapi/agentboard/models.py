@@ -22,6 +22,7 @@ from .domains.common.enums import (
     StatusReason,
 )
 from .domains.common.models import Base, utc_now as _now
+from .features.scheduling.worker_work_models import WorkerWork
 from .domains.identity.models import ApiKey, Notification, User
 from .domains.projects.models import (
     Agent, Epic, Project, ProjectMember, ReviewVote, Sprint, Story,

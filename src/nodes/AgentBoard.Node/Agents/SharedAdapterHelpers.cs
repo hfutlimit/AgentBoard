@@ -26,7 +26,7 @@ internal static class SharedAdapterHelpers
             Cancelled: result.Cancelled);
     }
 
-    private static string? TryExtractProviderJson(string text)
+    internal static string? TryExtractProviderJson(string text)
     {
         // Codex --json emits JSONL event envelopes. The business result is the
         // text of the last completed agent_message, not the final
@@ -38,12 +38,17 @@ internal static class SharedAdapterHelpers
             {
                 using var document = JsonDocument.Parse(line.Trim());
                 var root = document.RootElement;
+                if (root.ValueKind != JsonValueKind.Object) continue;
                 if (root.TryGetProperty("type", out var type)
+                    && type.ValueKind == JsonValueKind.String
                     && type.GetString() == "item.completed"
                     && root.TryGetProperty("item", out var item)
+                    && item.ValueKind == JsonValueKind.Object
                     && item.TryGetProperty("type", out var itemType)
+                    && itemType.ValueKind == JsonValueKind.String
                     && itemType.GetString() == "agent_message"
-                    && item.TryGetProperty("text", out var message))
+                    && item.TryGetProperty("text", out var message)
+                    && message.ValueKind == JsonValueKind.String)
                 {
                     agentMessage = message.GetString();
                 }
@@ -91,6 +96,8 @@ internal static class SharedAdapterHelpers
     public static string BuildWorkloadPrompt(
         string agentName, ExecutionContext context, string? correlationId = null)
     {
+        if (context.WorkerOwnedExecution)
+            return context.Prompt ?? throw new InvalidOperationException("Worker-owned execution requires its local prompt");
         if (context.DurableExecution)
         {
             return BuildDurablePrompt(agentName, context, correlationId);

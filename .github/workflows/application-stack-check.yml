@@ -55,6 +55,7 @@ jobs:
           python -m pytest tests/test_run_event_bus.py -q
           python -m pytest tests/test_proposal_realtime.py -q
           python -m pytest tests/test_api_keys.py -q
+          python -m pytest tests/e2e/happy_path/test_worker_owned_work.py -q
           for test_file in \
             tests/test_domain_boundaries.py \
             tests/unit/test_behavior_models.py \

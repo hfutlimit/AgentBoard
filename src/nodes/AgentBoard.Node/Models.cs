@@ -251,7 +251,8 @@ public sealed record ExecutionContext(
     string? WorkingDirectory = null,
     bool DurableExecution = false,
     AgentBoard.Contracts.StageType? StageType = null,
-    AgentBoard.Contracts.HandoffContext? Handoff = null);
+    AgentBoard.Contracts.HandoffContext? Handoff = null,
+    bool WorkerOwnedExecution = false);
 
 public sealed record AgentExecutionResult(
     bool Success,

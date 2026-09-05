@@ -36,6 +36,11 @@ public sealed class ProcessExecutor : IProcessExecutor
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            // CLI protocols are UTF-8, not the Windows user's legacy code page.
+            // In particular Codex rejects Chinese stdin encoded as GBK.
+            StandardInputEncoding = new System.Text.UTF8Encoding(false),
+            StandardOutputEncoding = new System.Text.UTF8Encoding(false),
+            StandardErrorEncoding = new System.Text.UTF8Encoding(false),
             UseShellExecute = false,
             CreateNoWindow = true,
         };

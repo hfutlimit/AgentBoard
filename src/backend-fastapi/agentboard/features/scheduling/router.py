@@ -69,6 +69,8 @@ from .run_event_bus import (
 router = APIRouter(tags=["scheduling"])
 from .durable_intake import router as durable_intake_router
 router.include_router(durable_intake_router)
+from .worker_work import router as worker_work_router
+router.include_router(worker_work_router)
 
 from .behavior_router import router as behavior_router  # noqa: E402
 router.include_router(behavior_router)

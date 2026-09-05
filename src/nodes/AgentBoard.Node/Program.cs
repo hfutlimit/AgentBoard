@@ -4,6 +4,7 @@ using AgentBoard.Node.Execution;
 using AgentBoard.Node.Durable;
 using AgentBoard.Node.Platform;
 using AgentBoard.Node.Process;
+using AgentBoard.Node.WorkerOwned;
 using Microsoft.Extensions.Options;
 
 // Lock the content root to the directory the executable lives in. Without
@@ -54,6 +55,12 @@ builder.Services.Configure<AgentBoardOptions>(builder.Configuration.GetSection("
 builder.Services.Configure<PortalOptions>(builder.Configuration.GetSection("Portal"));
 builder.Services.Configure<ProcessExecutorOptions>(builder.Configuration.GetSection("ProcessExecutor"));
 builder.Services.Configure<DurableExecutionOptions>(builder.Configuration.GetSection("DurableExecution"));
+builder.Services.Configure<WorkerOwnedOptions>(builder.Configuration.GetSection("WorkerOwned"));
+var workerOwned = builder.Configuration.GetValue<bool>("WorkerOwned:Enabled");
+if (workerOwned && builder.Configuration.GetValue<bool>("DurableExecution:Enabled"))
+    throw new InvalidOperationException("WorkerOwned and legacy DurableExecution cannot both consume work");
+builder.Services.AddSingleton<LocalAdapterFactory>();
+builder.Services.AddHostedService<WorkerOwnedService>();
 builder.Services.AddSingleton<ILocalWorkspaceResolver, ConfiguredLocalWorkspaceResolver>();
 
 // ---- M0.1 (v4.3): cross-platform abstractions -----------------------------
@@ -158,13 +165,16 @@ builder.Services.AddSingleton<DurableAssignmentRunner>(sp =>
 builder.Services.AddSingleton<AgentBoard.Node.Agents.ReadinessProbe>();
 
 // ---- Hosted services -------------------------------------------------------
-builder.Services.AddHostedService<ExecutionDispatcher>();
-builder.Services.AddHostedService<RabbitMqConsumerService>();
-builder.Services.AddHostedService<WorkflowMqConsumerService>();
-builder.Services.AddHostedService<WorkerHeartbeatService>();
-builder.Services.AddHostedService<AgentBoardWebSocketService>();
-builder.Services.AddHostedService<WorkerStartupService>();  // PR-12
-builder.Services.AddHostedService<DurableCommandConsumerService>();
+if (!workerOwned)
+{
+    builder.Services.AddHostedService<ExecutionDispatcher>();
+    builder.Services.AddHostedService<RabbitMqConsumerService>();
+    builder.Services.AddHostedService<WorkflowMqConsumerService>();
+    builder.Services.AddHostedService<WorkerHeartbeatService>();
+    builder.Services.AddHostedService<AgentBoardWebSocketService>();
+    builder.Services.AddHostedService<WorkerStartupService>();
+    builder.Services.AddHostedService<DurableCommandConsumerService>();
+}
 
 // ---- HTTP ----------------------------------------------------------------
 builder.Services.AddHttpClient();
@@ -194,7 +204,7 @@ using (var scope = app.Services.CreateScope())
     // hand-off only, not the durable-buffer-to-memory path (#2 in the
     // 2026-08-28 review).
 
-    await readiness.RunAllAsync(CancellationToken.None);
+    if (!workerOwned) await readiness.RunAllAsync(CancellationToken.None);
     log.LogInformation("AgentBoard Worker started; registered agents: [{List}]", string.Join(", ", registry.RegisteredAgents));
 }
 
@@ -217,11 +227,13 @@ app.Use(async (context, next) =>
     await next();
 });
 
-app.MapGet("/health", (WorkerState state, IAgentAdapterRegistry registry, IOptions<NodeOptions> worker) =>
-    Results.Ok(state.Snapshot(registry.RegisteredAgents, worker.Value.MaxConcurrentExecutions, state.ActiveCount, 0)));
+app.MapGet("/health", (WorkerState state, IAgentAdapterRegistry registry, IOptions<NodeOptions> worker, IOptions<WorkerOwnedOptions> local) =>
+    Results.Ok(state.Snapshot(local.Value.Enabled ? local.Value.Agents.Select(a => a.Id).ToArray() : registry.RegisteredAgents,
+        local.Value.Enabled ? 1 : worker.Value.MaxConcurrentExecutions, state.ActiveCount, 0)));
 app.MapGet("/", () => Results.Content(PortalPage.Html, "text/html; charset=utf-8"));
-app.MapGet("/api/worker", (WorkerState state, IAgentAdapterRegistry registry, IOptions<NodeOptions> worker) =>
-    Results.Ok(state.Snapshot(registry.RegisteredAgents, worker.Value.MaxConcurrentExecutions, state.ActiveCount, 0)));
+app.MapGet("/api/worker", (WorkerState state, IAgentAdapterRegistry registry, IOptions<NodeOptions> worker, IOptions<WorkerOwnedOptions> local) =>
+    Results.Ok(state.Snapshot(local.Value.Enabled ? local.Value.Agents.Select(a => a.Id).ToArray() : registry.RegisteredAgents,
+        local.Value.Enabled ? 1 : worker.Value.MaxConcurrentExecutions, state.ActiveCount, 0)));
 app.MapGet("/api/executions", async (ExecutionStore store, int? limit, string? agent) =>
     Results.Ok(await store.ListAsync(Math.Clamp(limit ?? 100, 1, 500), agent)));
 app.MapGet("/api/executions/{id:long}", async (ExecutionStore store, long id) =>

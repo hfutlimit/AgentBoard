@@ -14,6 +14,24 @@ public sealed class Sprint5_ProcessExecutorTests
 {
     private readonly ProcessExecutor _exec = new();
 
+    [Fact]
+    public async Task Chinese_stdin_is_utf8_without_a_bom()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        const string input = "设计评审 QA 中文 🚀";
+        var script = "$r = New-Object System.IO.StreamReader([Console]::OpenStandardInput(), (New-Object System.Text.UTF8Encoding($false,$true))); "
+            + "$s = $r.ReadToEnd(); [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false); [Console]::Write($s)";
+        var result = await _exec.ExecuteAsync(new ProcessSpec
+        {
+            Executable = @"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe",
+            Arguments = ["-NoProfile", "-NonInteractive", "-Command", script],
+            StdinPayload = input, Timeout = TimeSpan.FromSeconds(15),
+            Environment = new Dictionary<string, string?> { ["SystemRoot"] = Environment.GetEnvironmentVariable("SystemRoot") },
+        }, CancellationToken.None);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(input, result.OutputTail);
+    }
+
     // -------------------------------------------------------------------------
     // 1. Timeout — long-running process killed at timeout boundary
     // -------------------------------------------------------------------------

@@ -220,6 +220,9 @@ def claim_proposal(s: Session, id: int, *, agent: str = "",
     再升级为写锁，在并发下平白增加锁冲突（WAL 模式下还可能触发 BUSY_SNAPSHOT）。
     因此「区分 404 与竞争失败」的查询放在 rowcount=0 之后才执行。
     """
+    from ..scheduling.worker_work import enabled as worker_owned_enabled
+    if worker_owned_enabled() and not s.info.get("worker_owned_command"):
+        raise InvalidValue("Worker-owned proposals require a fenced work claim")
     now = utc_now()
     claimable = sorted(st.value for st in CLAIMABLE_STATUSES)
     conditions = [Proposal.id == id, Proposal.status.in_(claimable)]
@@ -473,6 +476,9 @@ def execute_ticket_request(
 
     返回 ``{"ticket": {...}, "request": {...}}``。
     """
+    from ..scheduling.worker_work import enabled as worker_owned_enabled
+    if worker_owned_enabled() and not s.info.get("worker_owned_command"):
+        raise InvalidValue("Ticket planning belongs to the Worker proposal command")
     p = _proposal_or_404(s, proposal_id)
 
     resolved_type = ""
@@ -742,6 +748,9 @@ def claim_ticket_request(
     条件 UPDATE 由数据库仲裁，恰一个赢家；返回 None 表示竞争失败（已被他人
     认领 / 已完成 / 不存在），调用方据此跳过或 409。
     """
+    from ..scheduling.worker_work import enabled as worker_owned_enabled
+    if worker_owned_enabled() and not s.info.get("worker_owned_command"):
+        raise InvalidValue("Independent ticket consumers are disabled in Worker-owned mode")
     now = utc_now()
     res = s.execute(
         update(ProposalTicketRequest)
@@ -906,6 +915,9 @@ def reclaim_stale_proposals(
     PATCH converged_spec 等**与持有者无关**的写入都会刷新它，导致一个早已崩溃的
     Worker 的租约被旁人不断续期，提案永久卡死在 analyzing。
     """
+    from ..scheduling.worker_work import enabled as worker_owned_enabled
+    if worker_owned_enabled():
+        return []  # worker_work owns the fenced lease, not claimed_at.
     if lease_seconds < 0:
         raise InvalidValue("lease_seconds must be >= 0")
     now = utc_now()
@@ -958,6 +970,9 @@ def recover_failed_proposals(
       无限循环；
     - 距上次失败（updated_at）不足 window_seconds 跳过，控制重投频率。
     """
+    from ..scheduling.worker_work import enabled as worker_owned_enabled
+    if worker_owned_enabled():
+        return []  # Do not bypass the bounded Worker attempt history.
     # AGENT_ERROR_KEYWORDS 定义于顶层 service.py（Phase 9 未迁移），延迟导入避免循环
     from ...service import AGENT_ERROR_KEYWORDS
     if window_seconds < 0:

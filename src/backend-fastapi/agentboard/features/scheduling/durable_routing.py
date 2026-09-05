@@ -7,11 +7,16 @@ import os
 
 
 def durable_project_enabled(project_id: int) -> bool:
+    from .worker_work import enabled
+    if enabled():
+        return True  # Worker-owned mode excludes every legacy allocator.
     values = os.getenv("AGENTBOARD_DURABLE_PROJECT_IDS", "").split(",")
     return project_id in {int(value.strip()) for value in values if value.strip()}
 
 
 def require_legacy_task(s, task) -> None:
     from ...core.exceptions import InvalidValue
+    if s.info.get("worker_owned_command"):
+        return
     if durable_project_enabled(task.project_id):
         raise InvalidValue("task is managed by durable workflow; legacy assignment is disabled")

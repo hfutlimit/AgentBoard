@@ -1,0 +1,42 @@
+{
+  "Worker": {
+    "Id": "local-worker-a",
+    "HistoryDatabasePath": "data/worker-a.db"
+  },
+  "WorkerOwned": {
+    "Enabled": true,
+    "ReconcileSeconds": 5,
+    "Projects": [{ "ProjectId": 8, "LocalPath": "E:\\Projects\\KnowledgeVault" }],
+    "Agents": [
+      {
+        "Id": "codex-a",
+        "Provider": "codex",
+        "ProjectIds": [8],
+        "WorkKinds": ["proposal", "design", "dev", "qa_review"],
+        "Runtime": {
+          "Command": "codex",
+          "Model": "gpt-5.6-terra",
+          "Arguments": ["exec", "--json"],
+          "TimeoutMinutes": 30,
+          "MaxCapturedOutputChars": 100000
+        }
+      },
+      {
+        "Id": "codex-b",
+        "Provider": "codex",
+        "ProjectIds": [8],
+        "WorkKinds": ["design_review", "dev_review", "qa"],
+        "Runtime": {
+          "Command": "codex",
+          "Model": "gpt-5.6-terra",
+          "Arguments": ["exec", "--json"],
+          "TimeoutMinutes": 30,
+          "MaxCapturedOutputChars": 100000
+        }
+      }
+    ]
+  },
+  "DurableExecution": { "Enabled": false },
+  "AgentBoard": { "ServerUrl": "http://127.0.0.1:8000" },
+  "Portal": { "Urls": "http://127.0.0.1:58240" }
+}

@@ -128,6 +128,11 @@ class OutboxPublisher:
 
     def _drain_once(self) -> int:
         """Drain one batch. Runs in a thread (via ``to_thread``)."""
+        from ...features.scheduling.worker_work_relay import drain_once
+        try:
+            drain_once()
+        except Exception:
+            log.exception("worker-owned relay deferred; continuing legacy event outbox")
         # Each tick gets its own session. This is intentional: the
         # main session is owned by the FastAPI request thread and we
         # never want to share it with a background thread.

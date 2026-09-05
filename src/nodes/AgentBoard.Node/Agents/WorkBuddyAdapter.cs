@@ -91,7 +91,7 @@ public sealed class WorkBuddyAdapter : IAgentAdapter
             tail);
         return new AgentExecutionResult(
             Success: result.ExitCode == 0 && !result.TimedOut && !result.Cancelled,
-            OutputJson: TryExtractLastJson(output),
+            OutputJson: SharedAdapterHelpers.TryExtractProviderJson(output),
             ErrorMessage: result.Cancelled ? "cancelled"
                 : result.TimedOut ? "timeout"
                 : result.ExitCode == 0 ? null : $"exit {result.ExitCode}: {result.StderrTail}",

@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 def authorize(s, project_id, authorization, permission):
     actor = api_helpers.resolve_actor_context(authorization, s, required_permission=permission)
+    from .worker_work import enabled
+    if enabled():
+        raise HTTPException(409, "Worker-owned mode disables Server durable intake")
     if not (actor.is_admin or user_is_project_member(s, project_id, actor.user_id)):
         raise HTTPException(403, "durable intake requires project membership")
     if not durable_project_enabled(project_id):
