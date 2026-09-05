@@ -178,7 +178,13 @@ def main():
                 print(json.dumps({"proposal": state[0], "tasks": state[1]}, ensure_ascii=False), flush=True)
                 previous = state
             report.update(proposal_status=p.get("status"), story_id=sid, tasks=tasks)
-            if sid and (len(tasks) != 3 or {t["type"] for t in tasks} != {"design", "dev", "qa"}):
+            if sid and (sum(t["type"] == "design" for t in tasks) != 1
+                    or sum(t["type"] == "dev" for t in tasks) != 1
+                    or sum(t["type"] == "qa" and not any(label.startswith("qa-source-work:")
+                        for label in json.loads(t.get("labels", "[]"))) for t in tasks) != 1
+                    or any(t["type"] not in {"design", "dev", "bug", "qa"} for t in tasks)
+                    or any(t["type"] == "bug" and not any(label.startswith("qa-source-work:")
+                        for label in json.loads(t.get("labels", "[]"))) for t in tasks)):
                 raise RuntimeError("This small fixture requires one Design, one Dev and one QA Task; plan over-decomposed")
             business = evidence(output / "business.db", proposal_id)
             if any(count >= 3 for count in business["failure_reasons"].values()):
@@ -189,7 +195,7 @@ def main():
                 story = client.get(f"/api/stories/{sid}").json()
                 report["story_status"] = story.get("status")
                 if story.get("status") == "done":
-                    assert {t["type"] for t in tasks} == {"design", "dev", "qa"}
+                    assert {"design", "dev", "qa"} <= {t["type"] for t in tasks}
                     assert all(t["status"] == "done" for t in tasks)
                     assert business["passed"], "Seven-kind and independent-Agent evidence is incomplete"
                     report["passed"] = True

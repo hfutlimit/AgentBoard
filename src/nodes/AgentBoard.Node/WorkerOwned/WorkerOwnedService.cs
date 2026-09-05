@@ -302,6 +302,7 @@ public sealed class WorkerOwnedService : BackgroundService
                             ?? throw new InvalidDataException("Proposal requires a converged specification"));
                         output["activate_story"] = true;
                     }
+                    WorkPlanner.AddQaFollowup(kind, output, businessContext);
                     var after = await GitHead(workspace, running.Token);
                     var afterStatus = await Git(workspace, ["status", "--porcelain"], running.Token);
                     if ((kind.EndsWith("_review", StringComparison.Ordinal) || kind is "qa" or "proposal")

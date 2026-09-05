@@ -53,5 +53,5 @@
 - 生产用有效凭据请求新 `/api/worker-work/snapshot` 返回 404，尚未部署 v2；不能用本地通过代替生产通过。
 - 新协议由 FastAPI 承载，需更新 FastAPI、迁移业务 DB、发布新 Node，并排空/停用旧中央执行消费者。
   详细切换边界见 [运行说明](worker-owned-execution.md)。
-- QA 发现真实缺陷后的自动返工去向仍待用户确认。当前保守阻止 failed QA 关闭 Story；
-  不应把这一保守门禁描述成已完整实现“QA 工作合理但发现产品缺陷”的闭环。
+- 后续用户确认 QA 发现问题新建 `bug` Task，由 dev 能力处理。已补齐 Worker 生成明确 Bug/复测计划、Server 原子落库、Bug 实施者不得复测，以及连续两轮缺陷修复后才关闭 Story 的协议回归。
+  此补丁验证为后端协议 16 项（含旧 majority 配置不干扰 Worker 独立评审）、Node 291 项；此前两轮真实 CLI 成功记录不代表这个新增失败分支已完成真实 CLI/生产 E2E。

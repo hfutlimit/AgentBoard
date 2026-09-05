@@ -307,3 +307,130 @@ def test_legacy_review_recovery_does_not_reassign_local_agents(client, db_sessio
     assert unblock_insufficient_agent_tasks(db_session, configured[0]) == 0
     db_session.refresh(item)
     assert item.status == "in_review" and item.reviewer_agent_id == original
+
+
+@pytest.mark.parametrize("legacy_review_mode", ["single", "majority"])
+def test_failed_qa_creates_new_bugs_then_independent_retest_atomically(client, db_session, configured, monkeypatch, legacy_review_mode):
+    # Agent c fixes bugs but did not implement the original dev. It must still
+    # be excluded from QA through bug dependencies, not just dev dependencies.
+    monkeypatch.setenv("AGENTBOARD_REVIEW_MODE", legacy_review_mode)
+    db_session.add(Agent(agent_id="c", name="c", user_id=configured[0], roles="[]"))
+    db_session.commit()
+
+    def execute_and_review(item, kind, author="a", reviewer="b"):
+        wid = offer(client, configured, item, kind)
+        body = claim_body(configured, kind, author)
+        claim(client, configured, wid, body)
+        complete(client, configured, wid, body, {"decision": "submit", "summary": "implemented"})
+        db_session.expire_all()
+        rid = offer(client, configured, item, kind + "_review")
+        check = claim_body(configured, kind + "_review", reviewer)
+        claim(client, configured, rid, check)
+        complete(client, configured, rid, check, {"decision": "approve", "summary": "reviewed"})
+        db_session.expire_all()
+
+    dev = task(db_session, configured)
+    execute_and_review(dev, "dev")
+    qa = task(db_session, configured, "qa")
+    db_session.add(TaskDependency(task_id=qa.id, depends_on_id=dev.id, dependency_type="blocks"))
+    db_session.commit()
+    initial_qa = qa
+    for cycle in range(2):
+        qid = offer(client, configured, qa, "qa")
+        tester = claim_body(configured, "qa", "b")
+        claim(client, configured, qid, tester)
+        defects = [{"title": f"Fix greeting {cycle}", "description": "GET /greet: expected 200, actual 500; log ref /tmp/error"}]
+        failed = {"decision": "submit", "summary": "Found reproducible bug", "tests_passed": False,
+            "deployment_steps": ["start locally"], "test_steps": ["GET /greet"],
+            "test_results": ["HTTP 500"], "defects": defects}
+        complete(client, configured, qid, tester, {**failed, "defects": []}, 422)
+        complete(client, configured, qid, tester, {**failed, "tests_passed": True}, 422)
+        complete(client, configured, qid, tester, failed)
+        db_session.expire_all()
+        assert qa.status == "in_review"
+        rid = offer(client, configured, qa, "qa_review")
+        check = claim_body(configured, "qa_review", "a")
+        claim(client, configured, rid, check)
+        count = db_session.query(Task).count()
+        approved = {"decision": "approve", "summary": "Tests are reasonable; product has a bug"}
+        complete(client, configured, rid, check, approved, 422)
+        followup = {"source_work_id": qid, "bugs": defects,
+            "retest": {"title": f"Retest {cycle}", "description": "Deploy and rerun original acceptance + bug repro"}}
+        for invalid in ({**followup, "source_work_id": qid + 100}, {**followup, "bugs": []},
+                        {**followup, "retest": {"title": "", "description": "bad"}}):
+            complete(client, configured, rid, check, {**approved, "qa_followup": invalid}, 422)
+        db_session.expire_all()
+        assert db_session.query(Task).count() == count and qa.status == "in_review"
+        approved["qa_followup"] = followup
+        complete(client, configured, rid, check, approved)
+        complete(client, configured, rid, check, approved)  # lost HTTP reply: no duplicate Tasks
+        db_session.expire_all()
+        assert db_session.query(Task).count() == count + 2
+        assert qa.status == "done" and dev.status == "done" and dev.review_round == 0
+        bug = db_session.query(Task).filter_by(type="bug", title=defects[0]["title"]).one()
+        retest = db_session.query(Task).filter_by(type="qa", title=f"Retest {cycle}").one()
+        assert bug.story_id == qa.story_id and bug.owner_user_id == qa.owner_user_id
+        assert bug.assignee_id is None and bug.status == "todo"
+        assert db_session.query(TaskDependency).filter_by(task_id=bug.id, depends_on_id=qa.id).one()
+        assert db_session.query(TaskDependency).filter_by(task_id=retest.id, depends_on_id=bug.id).one()
+        early = client.post("/api/worker-work/offers", headers=configured[3], json={
+            "project_id": configured[1], "entity_type": "task", "entity_id": retest.id, "kind": "qa", "iteration": 0})
+        assert early.status_code == 409
+        close = client.post(f"/api/worker-work/stories/{configured[2]}/complete", headers=configured[3], json={})
+        assert close.status_code != 200
+        execute_and_review(bug, "dev", "c", "b")
+        next_id = offer(client, configured, retest, "qa")
+        claim(client, configured, next_id, claim_body(configured, "qa", "c"), 403)
+        claim(client, configured, next_id, claim_body(configured, "qa", "a"), 403)
+        qa = retest
+
+    qid = offer(client, configured, qa, "qa")
+    body = claim_body(configured, "qa", "b")
+    claim(client, configured, qid, body)
+    complete(client, configured, qid, body, {"decision": "submit", "summary": "Fixes verified", "tests_passed": True,
+        "deployment_steps": ["start fixed app locally"], "test_steps": ["repro and regression"], "test_results": ["all pass"]})
+    db_session.expire_all()
+    rid = offer(client, configured, qa, "qa_review")
+    body = claim_body(configured, "qa_review", "a")
+    claim(client, configured, rid, body)
+    complete(client, configured, rid, body, {"decision": "approve", "summary": "QA evidence sufficient"})
+    close = client.post(f"/api/worker-work/stories/{configured[2]}/complete", headers=configured[3], json={})
+    assert close.status_code == 200, close.text
+    db_session.expire_all()
+    assert db_session.get(Story, configured[2]).status == "done"
+    assert initial_qa.status == "done"
+    # The live harness must accept historical failed QA only when its concrete
+    # linked bug/retest chain is closed, never merely because Tasks say done.
+    from pathlib import Path
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[3] / "scripts"))
+    from report_worker_owned_e2e import qa_acceptance_closed
+    tasks = [{"id": t.id, "type": t.type, "status": t.status, "labels": t.labels}
+             for t in db_session.query(Task).filter_by(story_id=configured[2])]
+    works = [{"id": w.id, "entity_type": w.entity_type, "entity_id": w.entity_id,
+              "kind": w.kind, "iteration": w.iteration, "result": json.loads(w.result)}
+             for w in db_session.query(WorkerWork).filter_by(state="completed")]
+    edges = {(e.task_id, e.depends_on_id) for e in db_session.query(TaskDependency)}
+    assert qa_acceptance_closed(tasks, works, edges)
+    assert not qa_acceptance_closed(tasks, works, set())
+    last_qa = max((w for w in works if w["kind"] == "qa"), key=lambda w: w["id"])
+    last_qa["result"]["tests_passed"] = False
+    assert not qa_acceptance_closed(tasks, works, edges)
+
+
+def test_unreasonable_failed_qa_is_retested_not_sent_to_dev(client, db_session, configured):
+    qa = task(db_session, configured, "qa")
+    qid = offer(client, configured, qa, "qa")
+    body = claim_body(configured, "qa", "b")
+    claim(client, configured, qid, body)
+    complete(client, configured, qid, body, {"decision": "submit", "summary": "claimed failure", "tests_passed": False,
+        "deployment_steps": ["start"], "test_steps": ["test"], "test_results": ["failed"],
+        "defects": [{"title": "Unsubstantiated defect", "description": "No usable reproduction evidence"}]})
+    db_session.expire_all()
+    rid = offer(client, configured, qa, "qa_review")
+    body = claim_body(configured, "qa_review", "a")
+    claim(client, configured, rid, body)
+    complete(client, configured, rid, body, {"decision": "reject", "summary": "Missing reproducible test evidence"})
+    db_session.expire_all()
+    assert qa.status == "todo" and qa.review_round == 1
+    assert db_session.query(Task).filter_by(type="bug").count() == 0
+    offer(client, configured, qa, "qa", iteration=1)

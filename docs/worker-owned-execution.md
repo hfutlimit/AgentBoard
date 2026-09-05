@@ -39,6 +39,20 @@ journal 绑定 Server URL 与 Worker 身份；切换 Server/Worker 要使用新 
 跨机器独立 checkout 暂不自动传输/推送提交：必须事先有可用的上游提交，否则 fail-closed。
 当前每个 Worker 串行执行，配置多个 Agent profile 不等于单进程并行；需要并行可运行多个独立 Worker。
 
+## QA 缺陷闭环
+
+QA 失败需提交 `defects=[{title,description}]`，包含复现步骤、期望/实际结果和证据。
+测试/部署阻塞也需如实记录，不能编造产品缺陷。QA Review 判断测试工作是否合理，而不是要求产品必须无缺陷：
+
+- 不合理报告：reject，原 QA Task 返工，不创建 Bug。
+- 合理报告且发现问题：approve，Worker 明确提交 `qa_followup`，Server 在同一 fenced completion 事务创建每个缺陷对应的 `bug` Task 和一个独立 QA 复测 Task。重放不会重复建单。
+- Bug 依赖原 QA；复测依赖所有 Bug。Bug 走 `dev` / `dev_review` 队列，由本地具备对应能力的 Agent 竞争，不指定或退回原 Dev Agent。
+- 原 QA 完成代表其工作已获认可，失败证据不改写；原 Dev Task 不回退。新 Bug 和复测未完成时 Story 不能关闭。
+- 复测排除全部上游 `dev` 和 `bug` 实施者。复测再失败会进入新一轮 Bug / 复测链，直到复测和 QA Review 通过。
+
+计划在 Worker 生成，Server 只验证来源、完整缺陷列表、归属和依赖并持久化，不负责选择执行 Agent。
+该补丁需同时更新 FastAPI 与 Node；复用现有 Task/Dependency/WorkerWork 表，不增加额外数据库迁移。
+
 ## 部署（默认不开启，不能与 v1 混跑）
 
 1. 备份真实业务数据库，暂停并排空旧 ProposalWorker/Node/v1 durable 的在途工作。

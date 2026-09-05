@@ -911,7 +911,7 @@ def get_assignment_exclusion(
         task_ids = {
             int(row[0])
             for row in s.query(Task.id).filter(
-                Task.id.in_(upstream), Task.type == "dev",
+                Task.id.in_(upstream), Task.type.in_(("dev", "bug")),
             ).all()
         } if upstream else set()
         reason_label = "upstream_dev_implementer"
@@ -1616,7 +1616,9 @@ def review_task(s: Session, *, task_id: int, reviewer_user_id: int,
     if not comment:
         raise InvalidValue("review comment is required (approve/reject must carry a comment)")
     # S3 M3：多数决模式走投票分支（未达法定票数不结算，状态保持）
-    if get_review_mode() == REVIEW_MODE_MAJORITY:
+    # Worker-owned has an explicitly leased independent reviewer; the old
+    # central quorum must not consume its completion without settling work.
+    if get_review_mode() == REVIEW_MODE_MAJORITY and not s.info.get("worker_owned_command"):
         t, _settled = _vote_majority(
             s, t, entity_type="task", reviewer_user_id=reviewer_user_id,
             reviewer_agent_id=reviewer_agent_id,

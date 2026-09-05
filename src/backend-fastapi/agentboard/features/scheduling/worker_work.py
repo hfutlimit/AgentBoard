@@ -202,6 +202,57 @@ def materialize_worker_plan(s, proposal, result):
         confirm_story(s, applied.story_id, changed_by=proposal.author_id)
 
 
+def qa_defects(result):
+    defects = result.get("defects", [])
+    if (not isinstance(defects, list) or len(defects) > 50
+            or any(not isinstance(d, dict) or set(d) != {"title", "description"}
+                   or not isinstance(d["title"], str) or not 1 <= len(d["title"].strip()) <= 300
+                   or not isinstance(d["description"], str) or not d["description"].strip()
+                   for d in defects)):
+        raise HTTPException(422, "QA defects require bounded title and reproducible description")
+    if result.get("tests_passed") is False and not defects:
+        raise HTTPException(422, "failed QA requires actionable defects (including test/deployment blockers)")
+    if result.get("tests_passed") is True and defects:
+        raise HTTPException(422, "QA cannot pass with unresolved defects")
+    return defects
+
+
+def materialize_qa_followup(s, qa, execution, result, agent):
+    """Validate/persist the Worker's explicit bug + retest command atomically.
+
+    Original QA evidence remains immutable. No central Agent selection, offers,
+    or planning: local Workers offer these new business items on later scans.
+    """
+    from ..work_items.service import create_task, create_comment
+    evidence = json.loads(execution.result or "{}")
+    defects = qa_defects(evidence)
+    plan = result.get("qa_followup")
+    if (not isinstance(plan, dict) or set(plan) != {"source_work_id", "bugs", "retest"}
+            or type(plan["source_work_id"]) is not int or plan["source_work_id"] != execution.id
+            or plan["bugs"] != defects):
+        raise HTTPException(422, "Worker must supply qa_followup for every accepted QA defect")
+    retest = plan["retest"]
+    if (not isinstance(retest, dict) or set(retest) != {"title", "description"}
+            or not isinstance(retest["title"], str) or not 1 <= len(retest["title"].strip()) <= 300
+            or not isinstance(retest["description"], str) or not retest["description"].strip()):
+        raise HTTPException(422, "Worker must supply an independent retest Task")
+    created = []
+    for spec in [*defects, retest]:
+        task = create_task(s, project_id=qa.project_id, story_id=qa.story_id,
+            title=spec["title"], description=spec["description"],
+            type="qa" if len(created) == len(defects) else "bug",
+            owner_user_id=qa.owner_user_id, created_by_user_id=agent.user_id,
+            created_by_agent_id=agent.id, needs_human_confirmation=False,
+            labels=json.dumps([f"qa-source-task:{qa.id}", f"qa-source-work:{execution.id}"]), commit=False)
+        parents = [item.id for item in created] if task.type == "qa" else [qa.id]
+        for parent in parents:
+            s.add(TaskDependency(task_id=task.id, depends_on_id=parent, dependency_type="blocks"))
+        created.append(task)
+    create_comment(s, author=agent.agent_id, task_id=qa.id, content=json.dumps({
+        "source_work_id": execution.id, "bug_task_ids": [t.id for t in created[:-1]],
+        "retest_task_id": created[-1].id}, ensure_ascii=False))
+
+
 @router.get("/snapshot")
 def snapshot(project_id: int, entity_type: Literal["proposal", "task"],
              after_id: int = Query(0, ge=0), limit: int = Query(100, ge=1, le=200),
@@ -480,9 +531,16 @@ def complete(work_id: int, body: Completion, authorization: str | None = Header(
                 raise HTTPException(422, "review decision must be approve or reject")
             if row.kind == "qa_review" and decision == "approve":
                 execution = s.query(WorkerWork).filter_by(entity_type="task", entity_id=obj.id,
-                    kind="qa", iteration=row.iteration, state="completed").first()
-                if not execution or json.loads(execution.result or "{}").get("tests_passed") is not True:
-                    raise HTTPException(422, "cannot complete QA with failed or missing acceptance tests")
+                    kind="qa", iteration=row.iteration, state="completed").order_by(WorkerWork.id.desc()).first()
+                evidence = json.loads(execution.result or "{}") if execution else {}
+                if not isinstance(evidence.get("tests_passed"), bool):
+                    raise HTTPException(422, "QA Review requires accepted QA execution evidence")
+                if evidence["tests_passed"] is False:
+                    materialize_qa_followup(s, obj, execution, body.result, agent)
+                elif "qa_followup" in body.result:
+                    raise HTTPException(422, "passing QA must not create defect followups")
+            elif "qa_followup" in body.result:
+                raise HTTPException(422, "only approved failed QA can create defect followups")
             from .service import review_task
             review_task(s, task_id=obj.id, reviewer_user_id=agent.user_id,
                 reviewer_agent_id=agent.id, reviewer_agent_name=agent.agent_id,
@@ -507,6 +565,7 @@ def complete(work_id: int, body: Completion, authorization: str | None = Header(
                     values = body.result.get(field)
                     if not isinstance(values, list) or not values or any(not isinstance(v, str) or not v.strip() for v in values):
                         raise HTTPException(422, f"QA requires nonempty {field}")
+                qa_defects(body.result)
             create_comment(s, author=agent.agent_id, content=result_json, task_id=obj.id)
             set_status(s, obj.id, "in_review", changed_by=agent.user_id, reason="Worker submitted execution evidence")
     row.state, row.result, row.active_slot = "completed", result_json, None

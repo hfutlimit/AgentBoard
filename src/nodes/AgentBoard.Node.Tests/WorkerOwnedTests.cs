@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using AgentBoard.Contracts;
 using AgentBoard.Node.WorkerOwned;
 using AgentBoard.Node.Agents;
@@ -8,6 +9,49 @@ namespace AgentBoard.Node.Tests;
 
 public class WorkerOwnedTests
 {
+    [Fact]
+    public void Approved_failed_qa_plans_bugs_and_retest_on_worker_from_latest_own_evidence()
+    {
+        var context = JsonSerializer.SerializeToElement(new
+        {
+            item = new { id = 5, title = "QA greeting", description = "Original acceptance" },
+            evidence = new[]
+            {
+                new { work_id = 4, task_id = 5, kind = "qa", result = new { tests_passed = true, defects = Array.Empty<object>() } },
+                new { work_id = 7, task_id = 5, kind = "qa", result = new { tests_passed = false,
+                    defects = new object[] { new { title = "Fix 500", description = "GET /greet: expected 200, actual 500" } } } },
+                new { work_id = 8, task_id = 99, kind = "qa", result = new { tests_passed = true, defects = Array.Empty<object>() } },
+            },
+        });
+        var output = JsonNode.Parse("""{"decision":"approve","summary":"reasonable testing"}""")!.AsObject();
+        WorkPlanner.AddQaFollowup("qa_review", output, context);
+        var plan = output["qa_followup"]!;
+        Assert.Equal(7, plan["source_work_id"]!.GetValue<long>());
+        Assert.Equal("Fix 500", Assert.Single(plan["bugs"]!.AsArray())!["title"]!.GetValue<string>());
+        Assert.Contains("Original acceptance", plan["retest"]!["description"]!.GetValue<string>());
+        Assert.Contains("ALL linked bug Tasks", plan["retest"]!["description"]!.GetValue<string>());
+        output.Remove("qa_followup");
+        output["decision"] = "reject";
+        WorkPlanner.AddQaFollowup("qa_review", output, context);
+        Assert.Null(output["qa_followup"]);
+        output["decision"] = "approve";
+        WorkPlanner.AddQaFollowup("dev_review", output, context);
+        Assert.Null(output["qa_followup"]);
+    }
+
+    [Fact]
+    public void Passed_qa_does_not_plan_bug_tasks()
+    {
+        var context = JsonSerializer.SerializeToElement(new
+        {
+            item = new { id = 5 },
+            evidence = new[] { new { work_id = 7, task_id = 5, kind = "qa", result = new { tests_passed = true } } },
+        });
+        var output = new JsonObject { ["decision"] = "approve" };
+        WorkPlanner.AddQaFollowup("qa_review", output, context);
+        Assert.Null(output["qa_followup"]);
+    }
+
     [Fact]
     public void Acceptance_checkboxes_do_not_become_duplicate_development_tasks()
     {
@@ -104,6 +148,8 @@ public class WorkerOwnedTests
     [InlineData("design", "todo", "design")]
     [InlineData("design", "in_review", "design_review")]
     [InlineData("dev", "in_review", "dev_review")]
+    [InlineData("bug", "todo", "dev")]
+    [InlineData("bug", "in_review", "dev_review")]
     [InlineData("qa", "todo", "qa")]
     [InlineData("qa", "in_review", "qa_review")]
     public void Worker_plans_task_and_matching_review(string type, string status, string expected)
