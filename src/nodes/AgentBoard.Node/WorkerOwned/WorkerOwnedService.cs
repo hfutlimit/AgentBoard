@@ -375,6 +375,14 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
                     entry = entry with { Result = output.ToJsonString() };
                     _journal.Save(entry);
                 }
+                if (kind == WorkerWorkKinds.Design && !WorkPlanner.IsDiscussion(accepted.RootElement.GetProperty("context")))
+                {
+                    var output = JsonNode.Parse(entry.Result!)!.AsObject();
+                    await DesignDocumentPublisher.Publish(client, workId, project,
+                        accepted.RootElement.GetProperty("context"), output, running.Token);
+                    entry = entry with { Result = output.ToJsonString() };
+                    _journal.Save(entry);
+                }
                 using var completion = await Post(client, $"api/worker-work/{workId}/complete", new
                 { project_id = project, kind, worker_id = WorkerId, agent_id = profile.Id, token = entry.Token,
                   result = JsonSerializer.Deserialize<JsonElement>(entry.Result!) }, running.Token);
