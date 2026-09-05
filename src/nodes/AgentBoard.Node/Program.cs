@@ -68,7 +68,13 @@ var localMode = workerOwned || File.Exists(localConfiguration.FilePath);
 if (workerOwned && builder.Configuration.GetValue<bool>("DurableExecution:Enabled"))
     throw new InvalidOperationException("WorkerOwned and legacy DurableExecution cannot both consume work");
 builder.Services.AddSingleton<LocalAdapterFactory>();
-if (!configurationOnly) builder.Services.AddHostedService<WorkerOwnedService>();
+builder.Services.AddSingleton(localConfiguration);
+builder.Services.AddSingleton<ILocalWorkerFactory, LocalWorkerFactory>();
+builder.Services.AddSingleton<LocalWorkerRuntime>(services =>
+    new LocalWorkerRuntime(localConfiguration, services.GetRequiredService<ILocalWorkerFactory>(),
+        services.GetRequiredService<WorkerState>(), services.GetRequiredService<ILogger<LocalWorkerRuntime>>())
+    { AutoStart = !configurationOnly && workerOwned, CanControl = localMode || configurationOnly });
+builder.Services.AddHostedService(services => services.GetRequiredService<LocalWorkerRuntime>());
 builder.Services.AddSingleton<ILocalWorkspaceResolver, ConfiguredLocalWorkspaceResolver>();
 
 // ---- M0.1 (v4.3): cross-platform abstractions -----------------------------

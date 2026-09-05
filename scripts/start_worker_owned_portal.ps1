@@ -39,7 +39,7 @@ try {
         '--DurableExecution:Enabled=false',
         ('"--LocalConfigurationPath=' + $ConfigurationPath + '"'),
         ('"--Node:Id=' + $WorkerId + '"'),
-        ('"--Node:HistoryDatabasePath=' + (Join-Path $portalOutput 'portal.db') + '"')
+        ('"--Node:HistoryDatabasePath=' + (Join-Path $portalOutput 'execution.db') + '"')
     )
     $portalProcess = Start-Process -FilePath (Get-Command dotnet.exe).Source -ArgumentList $portalArguments -WindowStyle Hidden -PassThru -WorkingDirectory $portalRepo -RedirectStandardOutput (Join-Path $portalOutput 'portal.stdout.log') -RedirectStandardError (Join-Path $portalOutput 'portal.stderr.log')
     $portalResult = @{ processId = $portalProcess.Id; url = "http://127.0.0.1:$Port/"; configurationPath = $ConfigurationPath; configurationOnly = $true }

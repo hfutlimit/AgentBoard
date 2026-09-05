@@ -5,7 +5,7 @@ const {readFileSync} = require('node:fs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const html = readFileSync(path.join(__dirname,'../src/nodes/AgentBoard.Node/WorkerOwned/ConfigurationPortal.html'),'utf8');
-let saved,revision='v1',addFailure=false,addRequests=0;
+let saved,revision='v1',addFailure=false,addRequests=0,runtimeState='stopped',startRequests=0,stopRequests=0;
 const initial={enabled:true,reconcileSeconds:5,projects:[{projectId:16,localPath:'E:\\sample'}],agents:[
  {id:'a',provider:'codex',enabled:true,workKinds:['dev'],projectIds:[16],prePrompt:'common-before',postPrompt:'common-after',prompts:{dev:{pre:'dev-before',post:'dev-after'}},runtime:{command:'codex',arguments:['exec','--json'],model:'terra',timeoutMinutes:30}},
  {id:'b',provider:'codex',enabled:true,workKinds:['qa'],projectIds:[16],prePrompt:'b-before',postPrompt:'b-after',prompts:{},runtime:{command:'codex',arguments:['exec'],model:'terra',timeoutMinutes:30}}
@@ -26,9 +26,12 @@ const dom = new JSDOM(html,{url:'http://127.0.0.1:18240/',runScripts:'dangerousl
    const body=JSON.parse(request.body);assert.equal(body.revision,revision);
    saved=structuredClone(saved||initial);saved.agents.push({id:body.id,provider:body.provider,enabled:false,workKinds:[],prompts:{},prePrompt:'',postPrompt:'',runtime:{command:body.provider,model:body.model,arguments:['exec','--json'],timeoutMinutes:30}});
    revision='created-'+addRequests;result={configuration:structuredClone(saved),revision};
-  }else if(url.endsWith('/status'))result={configurationOnly:true,serverUrl:'http://prod.test',apiCredentialConfigured:true,brokerConfigured:true,brokerHost:'mq.test',workerId:'local',configPath:'local.json'};
+  }else if(url.endsWith('/runtime/start')){assert.equal(request.method,'POST');startRequests++;runtimeState='starting';result={state:runtimeState}};
+  if(url.endsWith('/runtime/stop')){assert.equal(request.method,'POST');stopRequests++;runtimeState='stopping';result={state:runtimeState}};
+  if(url.endsWith('/runtime'))result={state:runtimeState};
+  else if(url.endsWith('/status'))result={configurationOnly:true,serverUrl:'http://prod.test',apiCredentialConfigured:true,brokerConfigured:true,brokerHost:'mq.test',workerId:'local',configPath:'local.json'};
   else if(url.endsWith('/projects'))result={items:[{id:16,name:'Real project shape'},{id:17,name:'Second project'}],total:2};
-  else throw Error('Unexpected request '+url);
+  else if(!result)throw Error('Unexpected request '+url);
   return{ok:true,text:async()=>JSON.stringify(result)};
  }; }});
 const w=dom.window,d=w.document;
@@ -45,16 +48,18 @@ const change=(selector,value)=>{const el=d.querySelector(selector);el.value=valu
  assert.equal(d.querySelector('#main').classList.contains('hidden'),false);
  assert.equal(d.querySelectorAll('[data-kind]').length,7);
  assert.match(d.querySelector('#connection').textContent,/prod.test/);
- assert.match(d.querySelector('[data-map-id]').textContent,/Real project shape/);
+ assert.match(d.querySelector('#mappings').textContent,/Real project shape/);
  assert.equal(d.querySelectorAll('[data-project]').length,0);
  d.querySelector('#projectsTab').click();
  assert.equal(w.location.hash,'#projects');
  assert.equal(d.querySelector('#mappingPanel').classList.contains('hidden'),false);
  assert.equal(d.querySelector('#agentSidebar').classList.contains('hidden'),true);
  d.querySelector('#addProject').click();
- assert.equal(d.querySelectorAll('[data-map-path]').length,2);
- change('[data-map-id="1"]','17');
- change('[data-map-path="1"]','E:\\second-project');
+ assert.equal(d.querySelector('#projectDialog').open,true);
+ change('#mappingProject','17');
+ change('#mappingPath','E:\\second-project');
+ d.querySelector('#projectForm').dispatchEvent(new w.Event('submit',{cancelable:true}));
+ assert.equal(d.querySelectorAll('.mapping').length,2);
  d.querySelector('#agentsTab').click();
  assert.equal(d.querySelector('#mappingPanel').classList.contains('hidden'),true);
  assert.equal(d.querySelectorAll('[data-project]').length,0);
@@ -71,7 +76,7 @@ const change=(selector,value)=>{const el=d.querySelector(selector);el.value=valu
  assert.equal(saved.agents[0].prompts.dev.post,'开发 post 编辑');
  assert.equal(saved.agents[1].prePrompt,'b-before');
  assert.equal(saved.projects[1].localPath,'E:\\second-project');
- assert.match(d.querySelector('#message').textContent,/重启/);
+ assert.match(d.querySelector('#message').textContent,/启动/);
  d.querySelector('#reload').click();await flush();
  assert.equal(d.querySelector('#pre').value,'通用 pre 编辑');
  change('#scope','dev');assert.equal(d.querySelector('#post').value,'开发 post 编辑');
@@ -105,5 +110,13 @@ const change=(selector,value)=>{const el=d.querySelector(selector);el.value=valu
  change('#model','glm-5.3-flash');assert.equal(d.querySelector('#model').value,'glm-5.3-flash');
  change('#provider','minimax');assert.deepEqual(options('#model'),['m3']);
  d.querySelector('#removeAgent').click();assert.equal(d.querySelectorAll('[data-agent]').length,2);
+ assert.equal(d.querySelector('#startWorker').disabled,false);
+ d.querySelector('#startWorker').click();d.querySelector('#startWorker').click();await flush();await flush();
+ assert.equal(startRequests,1);assert.equal(d.querySelector('#startWorker').disabled,true);
+ assert.match(d.querySelector('#runtimeStatus').textContent,/正在启动/);
+ assert.equal(d.querySelector('#stopWorker').disabled,false);
+ d.querySelector('#stopWorker').click();await flush();await flush();
+ assert.equal(stopRequests,1);assert.match(d.querySelector('#runtimeStatus').textContent,/正在停止/);
+ assert.equal(d.querySelector('#startWorker').disabled,true);
  dom.window.close();console.log('PASS: seven kinds, production project shape, prompt scopes, independent profiles, save/reload, provider switch, add/remove.');
 })().catch(e=>{dom.window.close();console.error(e);process.exitCode=1});

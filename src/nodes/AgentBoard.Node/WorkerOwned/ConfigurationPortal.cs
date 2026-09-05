@@ -44,6 +44,17 @@ public static class ConfigurationPortal
             return await next(context);
         });
         group.MapGet("/configuration", () => Results.Ok(store.Read()));
+        group.MapGet("/runtime", async (LocalWorkerRuntime runtime, CancellationToken ct) =>
+            Results.Ok(await runtime.StatusAsync(ct)));
+        group.MapPost("/runtime/start", async (LocalWorkerRuntime runtime, CancellationToken ct) =>
+        {
+            try { return Results.Ok(await runtime.StartExecutionAsync(ct)); }
+            catch (InvalidOperationException e) { return Results.BadRequest(new { detail = e.Message }); }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            { return Results.BadRequest(new { detail = "无法读取配置或取得执行锁，请检查本机目录权限。" }); }
+        });
+        group.MapPost("/runtime/stop", async (LocalWorkerRuntime runtime, CancellationToken ct) =>
+            Results.Ok(await runtime.StopExecutionAsync(ct)));
         group.MapPost("/agents", (CreateLocalAgentRequest request) =>
         {
             try { return Results.Ok(store.AddAgent(request)); }

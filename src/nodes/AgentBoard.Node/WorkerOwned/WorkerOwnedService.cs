@@ -13,7 +13,7 @@ namespace AgentBoard.Node.WorkerOwned;
 /// Local orchestration and competing-consumer execution. No Worker-specific
 /// queue and no broad broadcast subscription. Only configured project/kinds.
 /// </summary>
-public sealed class WorkerOwnedService : BackgroundService
+public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
         { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
@@ -29,6 +29,14 @@ public sealed class WorkerOwnedService : BackgroundService
     private WorkJournal _journal = null!;
     private readonly Dictionary<string, long> _instances = new(StringComparer.Ordinal);
     private DateTimeOffset _lastPresence;
+    private volatile bool _draining;
+    public Task? Completion => ExecuteTask;
+    private volatile bool _brokerConnected;
+    private long _lastScanTicks;
+    public bool BrokerConnected { get => _brokerConnected; private set => _brokerConnected = value; }
+    public DateTimeOffset? LastScanAt => Interlocked.Read(ref _lastScanTicks) is var ticks && ticks > 0
+        ? new DateTimeOffset(ticks, TimeSpan.Zero) : null;
+    public void Drain() => _draining = true;
 
     public WorkerOwnedService(IOptions<WorkerOwnedOptions> options, IOptions<AgentBoardOptions> api,
         IOptions<RabbitMqOptions> rabbit, IOptions<NodeOptions> node, LocalAdapterFactory adapters,
@@ -66,7 +74,7 @@ public sealed class WorkerOwnedService : BackgroundService
         var reconciliation = ReconcileLoop(lifetime.Token);
         try
         {
-            while (!stoppingToken.IsCancellationRequested)
+            while (!stoppingToken.IsCancellationRequested && !_draining)
             {
                 try { await Consume(lifetime.Token); }
                 catch (Exception error) when (!stoppingToken.IsCancellationRequested)
@@ -74,10 +82,12 @@ public sealed class WorkerOwnedService : BackgroundService
                     _log.LogWarning("Worker-owned broker interrupted ({Error}); reconnecting", error.GetType().Name);
                     await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
                 }
+                finally { BrokerConnected = false; }
             }
         }
         finally
         {
+            BrokerConnected = false;
             lifetime.Cancel();
             try { await reconciliation; } catch (OperationCanceledException) { }
         }
@@ -127,7 +137,7 @@ public sealed class WorkerOwnedService : BackgroundService
 
     private async Task ReconcileLoop(CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested)
+        while (!ct.IsCancellationRequested && !_draining)
         {
             try
             {
@@ -148,7 +158,7 @@ public sealed class WorkerOwnedService : BackgroundService
                 }
                 foreach (var project in _options.Projects)
                 {
-                    if (_state.Paused) break;
+                    if (_state.Paused || _draining) break;
                     var tasks = new List<JsonElement>();
                     foreach (var entityType in new[] { "proposal", "task" })
                     {
@@ -182,6 +192,7 @@ public sealed class WorkerOwnedService : BackgroundService
                         }
                     }
                 }
+                Interlocked.Exchange(ref _lastScanTicks, DateTimeOffset.UtcNow.Ticks);
             }
             catch (Exception error) when (!ct.IsCancellationRequested)
             {
@@ -196,6 +207,7 @@ public sealed class WorkerOwnedService : BackgroundService
         var factory = new ConnectionFactory { Uri = new Uri(_rabbit.Uri), AutomaticRecoveryEnabled = false };
         using var connection = factory.CreateConnection();
         using var channel = connection.CreateModel();
+        channel.ConfirmSelect();
         channel.ExchangeDeclare(WorkerWorkKinds.Exchange, ExchangeType.Direct, durable: true);
         channel.ExchangeDeclare(WorkerWorkKinds.Exchange + ".dlx", ExchangeType.Fanout, durable: true);
         var subscriptions = _options.Subscriptions().Select(s => (s.ProjectId, s.Kind, Target: (string?)null))
@@ -212,12 +224,13 @@ public sealed class WorkerOwnedService : BackgroundService
         }
         // Pull one unacked message at a time. This avoids prefetch stealing
         // seven queues worth of work while this Worker has only one free slot.
-        while (!ct.IsCancellationRequested && connection.IsOpen)
+        BrokerConnected = true;
+        while (!ct.IsCancellationRequested && connection.IsOpen && !_draining)
         {
             var received = false;
             foreach (var (project, kind, target) in subscriptions)
             {
-                if (_state.Paused) break;
+                if (_state.Paused || _draining) break;
                 var delivery = channel.BasicGet(Queue(project, kind, target), autoAck: false);
                 if (delivery is null) continue;
                 received = true;
@@ -241,12 +254,30 @@ public sealed class WorkerOwnedService : BackgroundService
                 if (ack) channel.BasicAck(delivery.DeliveryTag, multiple: false);
                 else
                 {
-                    channel.BasicNack(delivery.DeliveryTag, multiple: false, requeue: true);
+                    // Immediate requeue can put an ineligible item back at the head forever,
+                    // starving later work for this Worker. Confirm a durable copy at the tail
+                    // before acknowledging the original. Claims fence duplicate deliveries.
+                    ReturnToTail(channel, Queue(project, kind, target), delivery);
                     await Task.Delay(TimeSpan.FromSeconds(2), ct);
                 }
             }
             if (!received) await Task.Delay(TimeSpan.FromSeconds(1), ct);
         }
+    }
+
+    internal static void ReturnToTail(IModel channel, string queue, BasicGetResult delivery)
+    {
+        var returned = false;
+        EventHandler<RabbitMQ.Client.Events.BasicReturnEventArgs> onReturn = (_, _) => returned = true;
+        channel.BasicReturn += onReturn;
+        try
+        {
+            channel.BasicPublish("", queue, mandatory: true, delivery.BasicProperties, delivery.Body);
+            channel.WaitForConfirmsOrDie(TimeSpan.FromSeconds(5));
+            if (returned) throw new IOException("Retry queue is unavailable; original delivery retained");
+            channel.BasicAck(delivery.DeliveryTag, multiple: false);
+        }
+        finally { channel.BasicReturn -= onReturn; }
     }
 
     private async Task<bool> Execute(long workId, int project, string kind, string? target, CancellationToken ct)
@@ -260,7 +291,16 @@ public sealed class WorkerOwnedService : BackgroundService
             using var client = Client(profile);
             var lease = new { project_id = project, kind, worker_id = WorkerId, agent_id = profile.Id, token = entry.Token };
             using var claim = await Post(client, $"api/worker-work/{workId}/claim", lease, ct);
-            if (claim.StatusCode == HttpStatusCode.Forbidden) continue; // dynamic self-review/QA exclusion
+            if (claim.StatusCode == HttpStatusCode.Forbidden)
+            {
+                var detail = await claim.Content.ReadAsStringAsync(ct);
+                var reason = detail.Contains("work owner does not match", StringComparison.Ordinal) ? "owner mismatch"
+                    : detail.Contains("independent reviewer/QA", StringComparison.Ordinal) ? "independent Agent required"
+                    : detail.Contains("Agent must belong", StringComparison.Ordinal) ? "Agent identity mismatch"
+                    : detail.Contains("original participant", StringComparison.Ordinal) ? "original participant required" : "forbidden";
+                _log.LogInformation("Work {WorkId} cannot be claimed by {Agent}: {Reason}", workId, profile.Id, reason);
+                continue;
+            }
             if (claim.StatusCode == HttpStatusCode.Conflict)
             {
                 var reason = await claim.Content.ReadAsStringAsync(ct);
