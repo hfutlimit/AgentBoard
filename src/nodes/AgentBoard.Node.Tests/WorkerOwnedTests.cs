@@ -10,6 +10,32 @@ namespace AgentBoard.Node.Tests;
 public class WorkerOwnedTests
 {
     [Fact]
+    public void Expanded_qa_defect_feedback_preserves_evidence_in_description()
+    {
+        var output = JsonNode.Parse("""{"decision":"submit","tests_passed":false,"defects":[{"title":"Unicode","description":"fallback","expected_result":"Chinese","actual_result":"world"}]}""")!.AsObject();
+        var error = Assert.Throws<InvalidDataException>(() => WorkPlanner.ValidateResult("qa", output));
+        Assert.Contains("INSIDE the description", error.Message);
+        output["defects"] = JsonNode.Parse("""[{"title":"Unicode","description":"GET /greet?name=张三; expected Chinese, actual world; evidence /tmp/result.json"}]""");
+        WorkPlanner.ValidateResult("qa", output);
+    }
+
+    [Theory]
+    [InlineData("null")]
+    [InlineData("{}")]
+    [InlineData("[]")]
+    [InlineData("42")]
+    [InlineData("\" \"")]
+    public void Proposal_spec_type_feedback_is_actionable(string spec)
+    {
+        var output = JsonNode.Parse("{\"decision\":\"finalize\",\"spec\":" + spec + "}")!.AsObject();
+        var error = Assert.Throws<InvalidDataException>(() => WorkPlanner.ValidateResult("proposal", output));
+        Assert.Contains("JSON STRING", error.Message);
+        output["spec"] = "# Scope\nAn actionable specification";
+        WorkPlanner.ValidateResult("proposal", output);
+        Assert.Contains("spec MUST be a nonempty JSON STRING", WorkPlanner.Prompt("proposal", "{}"));
+    }
+
+    [Fact]
     public void Approved_failed_qa_plans_bugs_and_retest_on_worker_from_latest_own_evidence()
     {
         var context = JsonSerializer.SerializeToElement(new

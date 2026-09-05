@@ -294,6 +294,7 @@ public sealed class WorkerOwnedService : BackgroundService
                     _state.SetAgentReport(profile.Id, Agents.AgentReadiness.AllOk());
                     _state.IncrementAgentTotal(profile.Id);
                     var output = JsonNode.Parse(result.OutputJson)?.AsObject() ?? throw new InvalidDataException("Missing result object");
+                    WorkPlanner.ValidateResult(kind, output);
                     if (kind == "proposal" && output["decision"]?.GetValue<string>() == "finalize"
                         && output["create_ticket"]?.GetValue<bool>() == true)
                     {

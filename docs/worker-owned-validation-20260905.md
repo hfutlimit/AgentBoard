@@ -1,5 +1,7 @@
 # Worker-owned v2 验证记录（2026-09-05）
 
+后续生产验证已完成，见 [生产 Codex 受控故障闭环记录](worker-owned-production-validation-20260905.md)。下文保留此前隔离环境验证的时间边界。
+
 范围：真实 CLI + 两个独立 Node Worker + 真实 RabbitMQ + 隔离 FastAPI/SQLite + 专用 KnowledgeVault Git worktree。
 不是 fake adapter，也不是生产服务器的验收。测试只提交 Proposal，不手工写 Task/Story 完成状态。
 
