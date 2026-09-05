@@ -89,7 +89,7 @@ public sealed class TargetV1GoldenPathTests
             request => Assert.Contains("agent.development", request.ExcludedAgentIds));
         var qaRequest = selector.Requests.Single(request => request.StageType == StageType.Qa);
         Assert.Contains("agent.development", qaRequest.ExcludedAgentIds);
-        Assert.Contains("agent.review", qaRequest.ExcludedAgentIds);
+        Assert.DoesNotContain("agent.review", qaRequest.ExcludedAgentIds);
         Assert.Equal(
             new[] { "in_progress", "in_review", "in_progress", "in_review", "in_review", "done" },
             server.TaskProjections.Entries

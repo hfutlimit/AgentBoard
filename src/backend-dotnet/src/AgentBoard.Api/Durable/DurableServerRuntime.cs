@@ -11,6 +11,7 @@ public sealed class DurableWorkflowOptions
     public string DatabasePath { get; set; } = "data/durable-workflow.db";
     public string RabbitMqUri { get; set; } = "";
     public ushort Prefetch { get; set; } = 8;
+    public DurableIntakeOptions Intake { get; set; } = new();
 }
 
 /// <summary>Serialized mutation and SQLite commit boundary for the Server plane.</summary>

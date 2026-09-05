@@ -665,6 +665,8 @@ def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None
     t = s.get(Task, task_id)
     if not t:
         raise NotFound(f"task {task_id} not found")
+    from .durable_routing import require_legacy_task
+    require_legacy_task(s, t)
     if t.status != Status.IN_REVIEW:
         raise InvalidValue(
             f"task {task_id} is not in_review (current status: {t.status})")
@@ -1092,6 +1094,9 @@ def dispatch_implementation_task(
     task = s.get(Task, task_id)
     if task is None:
         raise NotFound(f"task {task_id} not found")
+    from .durable_routing import durable_project_enabled
+    if durable_project_enabled(task.project_id):
+        return None  # Persisted business todo is consumed by the Durable intake.
     if task.status != TaskStatus.TODO:
         log.info(
             "PR-10 dispatch: task %s status=%s，跳过（已派过）",
@@ -1309,6 +1314,10 @@ def claim_story(s: Session, id: int, *, changed_by: int | None = None,
     st = s.get(Story, id)
     if not st:
         raise NotFound(f"story {id} not found")
+    from .durable_routing import durable_project_enabled
+    epic = s.get(Epic, st.epic_id)
+    if epic and durable_project_enabled(epic.project_id):
+        raise IllegalTransition("story tasks are managed by durable workflow; legacy claim disabled")
     r = s.execute(
         update(Story).where(Story.id == id, Story.status == "confirmed")
         .values(
@@ -1595,6 +1604,8 @@ def review_task(s: Session, *, task_id: int, reviewer_user_id: int,
     t = s.get(Task, task_id)
     if not t:
         raise NotFound(f"task {task_id} not found")
+    from .durable_routing import require_legacy_task
+    require_legacy_task(s, t)
     if verdict not in ("approve", "reject"):
         raise InvalidValue(f"invalid verdict '{verdict}' (expected approve|reject)")
     comment = (comment or "").strip()
@@ -1780,6 +1791,15 @@ def complete_story(s: Session, id: int, *, changed_by: int | None = None,
         s.refresh(st); return st
     if st.status == "blocked":
         raise IllegalTransition(f"story {id} 处于 blocked，禁止自动收尾（需人工仲裁）")
+    from .durable_routing import durable_project_enabled
+    epic = s.get(Epic, st.epic_id)
+    if epic and durable_project_enabled(epic.project_id):
+        # Authoritative final guard; a paged client read must never complete
+        # a Story while unobserved downstream tasks are still running.
+        if not s.query(Task.id).filter(Task.story_id == id).first() or s.query(Task.id).filter(
+            Task.story_id == id, Task.status != "done"
+        ).first():
+            raise IllegalTransition("durable story still has unfinished tasks")
     old = st.status
     r = s.execute(
         update(Story).where(Story.id == id, Story.status == old)

@@ -162,7 +162,15 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
             var method = request.Method;
 
             HttpResponseMessage response;
-            if (method == HttpMethod.Get
+            if (method == HttpMethod.Post && path == "/api/durable/materialize")
+            {
+                response = Ok(new JsonObject { ["completed_request_ids"] = new JsonArray() });
+            }
+            else if (method == HttpMethod.Get && path == "/api/durable/ready-tasks")
+            {
+                response = ReadyTasks(request.RequestUri!);
+            }
+            else if (method == HttpMethod.Get
                 && path.EndsWith("/api/auth/introspect", StringComparison.OrdinalIgnoreCase))
             {
                 response = Introspect(request);
@@ -227,6 +235,31 @@ public sealed class ApiWebApplicationFactory : WebApplicationFactory<Program>
                 ["api_key_prefix"] = key.KeyPrefix,
                 ["agent_ref"] = null,
             });
+        }
+
+        private HttpResponseMessage ReadyTasks(Uri uri)
+        {
+            var query = Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query);
+            var projectId = int.Parse(query["project_id"]!);
+            var afterId = int.Parse(query["after_id"]!);
+            using var scope = _scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var items = new JsonArray();
+            foreach (var task in db.Tasks.Where(t => t.ProjectId == projectId && t.Id > afterId
+                         && t.Status == "todo" && t.CurrentAssignmentId == null).OrderBy(t => t.Id).ToList())
+            {
+                var deps = db.TaskDependencies.Where(d => d.TaskId == task.Id && d.DependencyType == "blocks").ToList();
+                if (deps.Any(d => db.Tasks.FirstOrDefault(t => t.Id == d.DependsOnId)?.Status != "done")) continue;
+                var ids = new JsonArray();
+                foreach (var dep in deps) ids.Add(dep.DependsOnId);
+                items.Add(new JsonObject
+                {
+                    ["id"] = task.Id, ["type"] = task.Type, ["story_id"] = task.StoryId,
+                    ["dependency_ids"] = ids,
+                    ["context"] = new JsonObject { ["title"] = task.Title, ["spec"] = task.Spec },
+                });
+            }
+            return Ok(new JsonObject { ["items"] = items, ["next_after_id"] = 0 });
         }
 
         private HttpResponseMessage ReadDependencies(string path)

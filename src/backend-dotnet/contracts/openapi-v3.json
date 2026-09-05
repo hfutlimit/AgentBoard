@@ -193,6 +193,72 @@
                                                                    }
                                                  }
                                    },
+                  "/api/auth/introspect":  {
+                                               "get":  {
+                                                           "tags":  [
+                                                                        "auth"
+                                                                    ],
+                                                           "summary":  "Introspect",
+                                                           "description":  "Self-authenticating credential introspection for the .NET BFF.\n\nResolves a login token or ``abk_`` API key the same way every other\nprotected route does and returns the verified caller identity plus the\nkey\u0027s declared permissions. Invalid/absent credentials yield 401; a\ncredential missing ``required_permission`` yields 403. This lets the BFF\ntrust FastAPI as the single source of truth for credentials instead of a\nlocal (and drift-prone) copy.",
+                                                           "operationId":  "introspect_api_auth_introspect_get",
+                                                           "parameters":  [
+                                                                              {
+                                                                                  "name":  "required_permission",
+                                                                                  "in":  "query",
+                                                                                  "required":  false,
+                                                                                  "schema":  {
+                                                                                                 "anyOf":  [
+                                                                                                               {
+                                                                                                                   "type":  "string"
+                                                                                                               },
+                                                                                                               {
+                                                                                                                   "type":  "null"
+                                                                                                               }
+                                                                                                           ],
+                                                                                                 "title":  "Required Permission"
+                                                                                             }
+                                                                              },
+                                                                              {
+                                                                                  "name":  "authorization",
+                                                                                  "in":  "header",
+                                                                                  "required":  false,
+                                                                                  "schema":  {
+                                                                                                 "anyOf":  [
+                                                                                                               {
+                                                                                                                   "type":  "string"
+                                                                                                               },
+                                                                                                               {
+                                                                                                                   "type":  "null"
+                                                                                                               }
+                                                                                                           ],
+                                                                                                 "title":  "Authorization"
+                                                                                             }
+                                                                              }
+                                                                          ],
+                                                           "responses":  {
+                                                                             "200":  {
+                                                                                         "description":  "Successful Response",
+                                                                                         "content":  {
+                                                                                                         "application/json":  {
+                                                                                                                                  "schema":  {
+
+                                                                                                                                             }
+                                                                                                                              }
+                                                                                                     }
+                                                                                     },
+                                                                             "422":  {
+                                                                                         "description":  "Validation Error",
+                                                                                         "content":  {
+                                                                                                         "application/json":  {
+                                                                                                                                  "schema":  {
+                                                                                                                                                 "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                             }
+                                                                                                                              }
+                                                                                                     }
+                                                                                     }
+                                                                         }
+                                                       }
+                                           },
                   "/api/auth/change-password":  {
                                                     "post":  {
                                                                  "tags":  [
@@ -9734,6 +9800,147 @@
                                                                           }
                                                         }
                                           },
+                  "/api/durable/ready-tasks":  {
+                                                   "get":  {
+                                                               "tags":  [
+                                                                            "scheduling",
+                                                                            "durable-intake"
+                                                                        ],
+                                                               "summary":  "Ready Tasks",
+                                                               "operationId":  "ready_tasks_api_durable_ready_tasks_get",
+                                                               "parameters":  [
+                                                                                  {
+                                                                                      "name":  "project_id",
+                                                                                      "in":  "query",
+                                                                                      "required":  true,
+                                                                                      "schema":  {
+                                                                                                     "type":  "integer",
+                                                                                                     "title":  "Project Id"
+                                                                                                 }
+                                                                                  },
+                                                                                  {
+                                                                                      "name":  "after_id",
+                                                                                      "in":  "query",
+                                                                                      "required":  false,
+                                                                                      "schema":  {
+                                                                                                     "type":  "integer",
+                                                                                                     "minimum":  0,
+                                                                                                     "default":  0,
+                                                                                                     "title":  "After Id"
+                                                                                                 }
+                                                                                  },
+                                                                                  {
+                                                                                      "name":  "limit",
+                                                                                      "in":  "query",
+                                                                                      "required":  false,
+                                                                                      "schema":  {
+                                                                                                     "type":  "integer",
+                                                                                                     "maximum":  200,
+                                                                                                     "minimum":  1,
+                                                                                                     "default":  50,
+                                                                                                     "title":  "Limit"
+                                                                                                 }
+                                                                                  },
+                                                                                  {
+                                                                                      "name":  "authorization",
+                                                                                      "in":  "header",
+                                                                                      "required":  false,
+                                                                                      "schema":  {
+                                                                                                     "anyOf":  [
+                                                                                                                   {
+                                                                                                                       "type":  "string"
+                                                                                                                   },
+                                                                                                                   {
+                                                                                                                       "type":  "null"
+                                                                                                                   }
+                                                                                                               ],
+                                                                                                     "title":  "Authorization"
+                                                                                                 }
+                                                                                  }
+                                                                              ],
+                                                               "responses":  {
+                                                                                 "200":  {
+                                                                                             "description":  "Successful Response",
+                                                                                             "content":  {
+                                                                                                             "application/json":  {
+                                                                                                                                      "schema":  {
+
+                                                                                                                                                 }
+                                                                                                                                  }
+                                                                                                         }
+                                                                                         },
+                                                                                 "422":  {
+                                                                                             "description":  "Validation Error",
+                                                                                             "content":  {
+                                                                                                             "application/json":  {
+                                                                                                                                      "schema":  {
+                                                                                                                                                     "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                 }
+                                                                                                                                  }
+                                                                                                         }
+                                                                                         }
+                                                                             }
+                                                           }
+                                               },
+                  "/api/durable/materialize":  {
+                                                   "post":  {
+                                                                "tags":  [
+                                                                             "scheduling",
+                                                                             "durable-intake"
+                                                                         ],
+                                                                "summary":  "Materialize",
+                                                                "operationId":  "materialize_api_durable_materialize_post",
+                                                                "parameters":  [
+                                                                                   {
+                                                                                       "name":  "project_id",
+                                                                                       "in":  "query",
+                                                                                       "required":  true,
+                                                                                       "schema":  {
+                                                                                                      "type":  "integer",
+                                                                                                      "title":  "Project Id"
+                                                                                                  }
+                                                                                   },
+                                                                                   {
+                                                                                       "name":  "authorization",
+                                                                                       "in":  "header",
+                                                                                       "required":  false,
+                                                                                       "schema":  {
+                                                                                                      "anyOf":  [
+                                                                                                                    {
+                                                                                                                        "type":  "string"
+                                                                                                                    },
+                                                                                                                    {
+                                                                                                                        "type":  "null"
+                                                                                                                    }
+                                                                                                                ],
+                                                                                                      "title":  "Authorization"
+                                                                                                  }
+                                                                                   }
+                                                                               ],
+                                                                "responses":  {
+                                                                                  "200":  {
+                                                                                              "description":  "Successful Response",
+                                                                                              "content":  {
+                                                                                                              "application/json":  {
+                                                                                                                                       "schema":  {
+
+                                                                                                                                                  }
+                                                                                                                                   }
+                                                                                                          }
+                                                                                          },
+                                                                                  "422":  {
+                                                                                              "description":  "Validation Error",
+                                                                                              "content":  {
+                                                                                                              "application/json":  {
+                                                                                                                                       "schema":  {
+                                                                                                                                                      "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                  }
+                                                                                                                                   }
+                                                                                                          }
+                                                                                          }
+                                                                              }
+                                                            }
+                                               },
                   "/api/projects/{project_id}/agents/behavior/preview":  {
                                                                              "post":  {
                                                                                           "tags":  [
@@ -11290,6 +11497,66 @@
                                                                 }
                                               }
                                   },
+                  "/api/durable/agent-select":  {
+                                                    "post":  {
+                                                                 "tags":  [
+                                                                              "scheduling"
+                                                                          ],
+                                                                 "summary":  "Durable Agent Select",
+                                                                 "description":  "Select the next runnable Agent/Worker for a Durable workflow stage.\n\nFaithful HTTP port of ``DatabaseAgentSelector.Select``: same\nownership gate (owner ∈ project, agent owned by owner), same\npresence/heartbeat cutoff, same capability-level check, and same\nprovider resolution. Returns ``{\"selection\": null}`` when nothing is\neligible rather than 404, so the orchestrator keeps the todo deferred\ninstead of failing the run.",
+                                                                 "operationId":  "durable_agent_select_api_durable_agent_select_post",
+                                                                 "parameters":  [
+                                                                                    {
+                                                                                        "name":  "authorization",
+                                                                                        "in":  "header",
+                                                                                        "required":  false,
+                                                                                        "schema":  {
+                                                                                                       "anyOf":  [
+                                                                                                                     {
+                                                                                                                         "type":  "string"
+                                                                                                                     },
+                                                                                                                     {
+                                                                                                                         "type":  "null"
+                                                                                                                     }
+                                                                                                                 ],
+                                                                                                       "title":  "Authorization"
+                                                                                                   }
+                                                                                    }
+                                                                                ],
+                                                                 "requestBody":  {
+                                                                                     "required":  true,
+                                                                                     "content":  {
+                                                                                                     "application/json":  {
+                                                                                                                              "schema":  {
+                                                                                                                                             "$ref":  "#/components/schemas/DurableAgentSelectIn"
+                                                                                                                                         }
+                                                                                                                          }
+                                                                                                 }
+                                                                                 },
+                                                                 "responses":  {
+                                                                                   "200":  {
+                                                                                               "description":  "Successful Response",
+                                                                                               "content":  {
+                                                                                                               "application/json":  {
+                                                                                                                                        "schema":  {
+
+                                                                                                                                                   }
+                                                                                                                                    }
+                                                                                                           }
+                                                                                           },
+                                                                                   "422":  {
+                                                                                               "description":  "Validation Error",
+                                                                                               "content":  {
+                                                                                                               "application/json":  {
+                                                                                                                                        "schema":  {
+                                                                                                                                                       "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                   }
+                                                                                                                                    }
+                                                                                                           }
+                                                                                           }
+                                                                               }
+                                                             }
+                                                },
                   "/api/workers/register":  {
                                                 "post":  {
                                                              "tags":  [
@@ -16346,6 +16613,45 @@
                                                                                  ],
                                                                     "title":  "DocumentSourceConfig",
                                                                     "description":  "文档与数据源配置项。"
+                                                                },
+                                       "DurableAgentSelectIn":  {
+                                                                    "properties":  {
+                                                                                       "project_id":  {
+                                                                                                          "type":  "integer",
+                                                                                                          "title":  "Project Id"
+                                                                                                      },
+                                                                                       "owner_user_id":  {
+                                                                                                             "type":  "integer",
+                                                                                                             "title":  "Owner User Id"
+                                                                                                         },
+                                                                                       "capabilities":  {
+                                                                                                            "items":  {
+                                                                                                                          "additionalProperties":  true,
+                                                                                                                          "type":  "object"
+                                                                                                                      },
+                                                                                                            "type":  "array",
+                                                                                                            "title":  "Capabilities",
+                                                                                                            "default":  [
+
+                                                                                                                        ]
+                                                                                                        },
+                                                                                       "exclude":  {
+                                                                                                       "items":  {
+                                                                                                                     "type":  "string"
+                                                                                                                 },
+                                                                                                       "type":  "array",
+                                                                                                       "title":  "Exclude",
+                                                                                                       "default":  [
+
+                                                                                                                   ]
+                                                                                                   }
+                                                                                   },
+                                                                    "type":  "object",
+                                                                    "required":  [
+                                                                                     "project_id",
+                                                                                     "owner_user_id"
+                                                                                 ],
+                                                                    "title":  "DurableAgentSelectIn"
                                                                 },
                                        "EffectiveBehaviorConfig":  {
                                                                        "properties":  {

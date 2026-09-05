@@ -29,11 +29,12 @@ public sealed record TaskStatusProjection(
 public sealed class TaskStatusProjectionOutbox
 {
     private readonly Dictionary<string, TaskStatusProjection> _entries = new(StringComparer.Ordinal);
+    private readonly List<string> _order = new();
     private readonly Func<DateTimeOffset> _clock;
 
     public TaskStatusProjectionOutbox(Func<DateTimeOffset> clock) => _clock = clock;
 
-    public IReadOnlyCollection<TaskStatusProjection> Entries => _entries.Values;
+    public IReadOnlyCollection<TaskStatusProjection> Entries => Capture();
 
     public TaskStatusProjection Enqueue(
         string projectionId,
@@ -56,17 +57,22 @@ public sealed class TaskStatusProjectionOutbox
         {
             throw new Common.DuplicateException($"task projection '{projectionId}' already exists");
         }
+        _order.Add(projectionId);
         return entry;
     }
 
     /// <summary>
-    /// Claims only the oldest due entry. Serial delivery preserves state-machine
-    /// order and an expired claim recovers a crash after the remote HTTP call.
+    /// Claims the first unfinished entry for each task in durable insertion
+    /// order. A retry delay or live claim must not let a later status overtake
+    /// it; other tasks remain independently deliverable.
     /// </summary>
     public TaskStatusProjection? BeginNext(TimeSpan claimWindow)
     {
         var now = _clock();
-        var next = _entries.Values
+        var next = _order.Select(id => _entries[id])
+            .Where(entry => entry.State != TaskStatusProjectionState.Completed)
+            .GroupBy(entry => entry.TaskId)
+            .Select(entries => entries.First())
             .Where(entry =>
                 (entry.State == TaskStatusProjectionState.Pending && entry.AvailableAt <= now)
                 || (entry.State == TaskStatusProjectionState.Dispatching && entry.ClaimExpiresAt <= now))
@@ -117,12 +123,21 @@ public sealed class TaskStatusProjectionOutbox
             ? entry
             : throw new Common.NotFoundException($"task projection '{projectionId}' not found");
 
-    internal void Clear() => _entries.Clear();
+    internal void Clear()
+    {
+        _entries.Clear();
+        _order.Clear();
+    }
 
     internal void Restore(IReadOnlyList<TaskStatusProjection> entries)
     {
-        foreach (var entry in entries) _entries[entry.ProjectionId] = entry;
+        Clear();
+        foreach (var entry in entries)
+        {
+            _entries.Add(entry.ProjectionId, entry);
+            _order.Add(entry.ProjectionId);
+        }
     }
 
-    public IReadOnlyList<TaskStatusProjection> Capture() => _entries.Values.ToList();
+    public IReadOnlyList<TaskStatusProjection> Capture() => _order.Select(id => _entries[id]).ToList();
 }

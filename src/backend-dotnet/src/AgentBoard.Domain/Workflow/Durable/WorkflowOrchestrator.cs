@@ -20,7 +20,8 @@ public sealed record WorkflowWorkContext(
     WorkspaceReference Workspace,
     string TaskContext,
     IReadOnlyList<AgentCapabilityRequirement> RequiredCapabilities,
-    string? TaskType = null);
+    string? TaskType = null,
+    IReadOnlyList<string>? UpstreamDevelopmentAgents = null);
 
 public sealed record AgentSelectionRequest(
     string WorkflowRunId,
@@ -130,6 +131,8 @@ public sealed class WorkflowOrchestrationRegistry
     {
         RequiredCapabilities = new System.Collections.ObjectModel.ReadOnlyCollection<AgentCapabilityRequirement>(
             context.RequiredCapabilities.ToArray()),
+        UpstreamDevelopmentAgents = context.UpstreamDevelopmentAgents is null ? null
+            : new System.Collections.ObjectModel.ReadOnlyCollection<string>(context.UpstreamDevelopmentAgents.ToArray()),
     };
 }
 
@@ -200,6 +203,12 @@ public sealed class WorkflowOrchestrator
         _registry.MoveRun(runId, WorkflowRunState.Queued, Context("workflow queued"));
         run = _registry.MoveRun(runId, WorkflowRunState.Running, Context("workflow started"));
         EnqueueTaskStatus(runId, context, "in_progress", null, "durable workflow started");
+        if (entry.StageType is StageType.Review or StageType.Qa)
+        {
+            // A standalone validation task still traverses the business
+            // state machine: todo -> in_progress -> in_review -> done.
+            EnqueueTaskStatus(runId, context, "in_review", null, "durable validation started");
+        }
 
         var stage = _registry.AddStage(runId, $"stg-{_nextId()}", entry.StageType, 1, null);
         var execution = _registry.AddExecution(stage.StageRunId, $"exec-{_nextId()}");
@@ -388,6 +397,8 @@ public sealed class WorkflowOrchestrator
         var work = _state.RequireRun(run.Current.RunId);
         var requirements = RequiredCapabilityRequirements(work, node);
         var excluded = ExcludedAgents(run, stage.Current.StageType);
+        if (work.TaskType == "qa" || stage.Current.StageType == StageType.Qa)
+            excluded.UnionWith(work.UpstreamDevelopmentAgents ?? []);
         var selected = _selector.Select(new AgentSelectionRequest(
             run.Current.RunId,
             stage.Current.StageRunId,
@@ -438,9 +449,11 @@ public sealed class WorkflowOrchestrator
     {
         if (target is not (StageType.Review or StageType.Qa)) return new HashSet<string>(StringComparer.Ordinal);
 
+        // QA may be performed by the independent reviewer, but never the
+        // implementer. Design review also excludes the design author.
         var excludeTypes = target == StageType.Review
-            ? new HashSet<StageType> { StageType.Development }
-            : new HashSet<StageType> { StageType.Development, StageType.Review };
+            ? new HashSet<StageType> { StageType.Development, StageType.Design }
+            : new HashSet<StageType> { StageType.Development };
         var stageIds = run.Stages
             .Where(stage => excludeTypes.Contains(stage.Current.StageType))
             .Select(stage => stage.Current.StageRunId)

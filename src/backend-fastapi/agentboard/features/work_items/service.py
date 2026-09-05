@@ -471,6 +471,8 @@ def try_assign_task(
     task = s.get(Task, task_id)
     if not task:
         raise NotFound(f"task {task_id} not found")
+    from ..scheduling.durable_routing import require_legacy_task
+    require_legacy_task(s, task)
     if task.status != Status.TODO or task.current_assignment_id is not None:
         raise InvalidValue(
             f"task {task_id} already claimed or not claimable (status={task.status})"

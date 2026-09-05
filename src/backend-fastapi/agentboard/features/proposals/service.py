@@ -79,9 +79,16 @@ def reclaim_stale_ticket_requests(
                 ProposalTicketRequest.updated_at < cutoff)
         .all()
     ]
+    reclaimed = []
     for rid in stale_ids:
+        from ..scheduling.durable_routing import durable_project_enabled
+        request = s.get(ProposalTicketRequest, rid)
+        proposal = s.get(Proposal, request.proposal_id) if request else None
+        if request and request.type == "auto_story" and proposal and durable_project_enabled(proposal.project_id):
+            continue  # Project-scoped Durable materializer owns recovery/replay.
         fail_ticket_request(s, rid, error=f"处理超时（>{lease_seconds}s），自动回退")
-    return stale_ids
+        reclaimed.append(rid)
+    return reclaimed
 
 
 def _proposal_or_404(s: Session, proposal_id: int) -> Proposal:
@@ -518,7 +525,12 @@ def execute_ticket_request(
         req.parent_epic_id = epic_id if resolved_type != "epic" else None
         req.parent_story_id = story_id if resolved_type == "task" else None
 
-    if ProposalStatus(p.status) is not ProposalStatus.TICKET_PREPARING:
+    can_resume_auto_story = (
+        req.type == AUTO_STORY_TICKET_TYPE
+        and p.story_id is not None
+        and ProposalStatus(p.status) is ProposalStatus.STORY_CREATED
+    )
+    if ProposalStatus(p.status) is not ProposalStatus.TICKET_PREPARING and not can_resume_auto_story:
         # 兜底：若 proposal 未在 ticket_preparing（例如创建请求时已置位），
         # 此处校验状态机合法迁移，避免竞态下跳过中间态。
         err = (

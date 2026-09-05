@@ -94,6 +94,8 @@ builder.Services.AddSingleton<FastApiTaskProjectionClient>();
 builder.Services.AddHostedService<DurableServerOutboxService>();
 builder.Services.AddHostedService<DurableServerResultConsumerService>();
 builder.Services.AddHostedService<DurableTaskProjectionService>();
+builder.Services.AddSingleton<DurableTaskIntakeService>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<DurableTaskIntakeService>());
 
 // Auth: PBKDF2 password hashing + stateless HMAC bearer token. Both mirror
 // the FastAPI formats so the .NET BFF authenticates against the same users

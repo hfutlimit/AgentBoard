@@ -10,6 +10,7 @@ using AgentBoard.Application.Identity;
 using AgentBoard.Contracts;
 using AgentBoard.Domain.Entities;
 using AgentBoard.Domain.Identity;
+using AgentBoard.Domain.Workflow.Durable;
 using AgentBoard.Infrastructure.Persistence;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
@@ -168,6 +169,117 @@ public sealed class DurableWorkflowControllerTests : IClassFixture<ApiWebApplica
         runtime.Read(plane => plane.Registry.Snapshot("unverified")).Should().BeNull();
         runtime.Read(plane => plane.Outbox.Messages).Should().BeEmpty();
         runtime.Read(plane => plane.TaskProjections.Entries).Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Intake_starts_persisted_todo_without_run_POST_and_replays_idempotently()
+    {
+        using var factory = ApiWebApplicationFactory.CreateDurable();
+        using var client = NewAuthenticatedClient(factory);
+        var taskId = await SeedEligibleTask(factory.Services);
+        var runtime = factory.Services.GetRequiredService<DurableServerRuntime>();
+        var version = DevelopmentOnlyVersion("intake-version");
+        runtime.Mutate(plane => plane.Registry.PublishVersion(version));
+        int projectId;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            projectId = (await db.Tasks.FindAsync(taskId))!.ProjectId;
+        }
+        var options = factory.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<DurableWorkflowOptions>>().Value;
+        options.Intake.Enabled = true;
+        options.Intake.Projects.Add(new DurableIntakeProject
+        {
+            ProjectId = projectId, WorkspaceId = "intake-workspace", BaseVersion = "base-commit",
+            WorkflowVersions = new() { ["dev"] = version.VersionId },
+        });
+        var intake = factory.Services.GetRequiredService<DurableTaskIntakeService>();
+        await intake.ScanOnceAsync(default);
+        var runId = $"business-task-{taskId}";
+        runtime.Read(plane => plane.Registry.Snapshot(runId)).Should().NotBeNull();
+        var before = runtime.Read(plane => plane.Outbox.Messages.Count());
+        await Task.WhenAll(intake.ScanOnceAsync(default), intake.ScanOnceAsync(default));
+        runtime.Read(plane => plane.Outbox.Messages.Count()).Should().Be(before);
+        runtime.Read(plane => plane.Registry.Runs.Count).Should().Be(1);
+        runtime.Read(plane => plane.Orchestration.RequireRun(runId).TaskContext).Should().Contain("Target v1");
+
+        int dependentId;
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var prerequisite = (await db.Tasks.FindAsync(taskId))!;
+            var dependent = new TaskItem
+            {
+                ProjectId = projectId, OwnerUserId = prerequisite.OwnerUserId, Type = "qa",
+                Title = "Independent QA", Description = "", Spec = "", NeededCapabilities = "[]",
+                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow,
+            };
+            db.Tasks.Add(dependent);
+            await db.SaveChangesAsync();
+            dependentId = dependent.Id;
+            db.TaskDependencies.Add(new TaskDependency
+            {
+                TaskId = dependentId, DependsOnId = taskId, DependencyType = "blocks", CreatedAt = DateTime.UtcNow,
+            });
+            // Make the sole online developer otherwise eligible for QA: the
+            // upstream provenance, not a missing capability, must exclude it.
+            db.Agents.Single(a => a.AgentId == "agent.dev").Capabilities =
+                "[{\"name\":\"development\",\"level\":3},{\"name\":\"qa\",\"level\":3}]";
+            await db.SaveChangesAsync();
+        }
+        var qaNodes = new[] { new WorkflowNode("qa", StageType.Qa, "qa", "{}", "{}",
+            [], "retry-standard", "policy-v1", new StageBudget(3600, 600), false) };
+        var qaVersion = new WorkflowVersion("intake-qa", "definition-qa", 1, "workflow.v1", qaNodes,
+            WorkflowGraph.ComputeContentHash(qaNodes));
+        runtime.Mutate(plane => plane.Registry.PublishVersion(qaVersion));
+        options.Intake.Projects[0].WorkflowVersions["qa"] = qaVersion.VersionId;
+        await intake.ScanOnceAsync(default);
+        runtime.Read(plane => plane.Registry.Snapshot($"business-task-{dependentId}")).Should().BeNull();
+        // Feed the real result processor a protocol-valid fixture result. This
+        // is an integration test, not a claim that a real provider ran.
+        runtime.Mutate(plane =>
+        {
+            var assignment = plane.Leases.Capture().Single(a => a.WorkflowRunId == runId);
+            plane.Sent.TryGet(assignment.AssignmentId, out var command).Should().BeTrue();
+            plane.Results.Process(new ResultEnvelope
+            {
+                MessageId = "intake-result", SchemaVersion = "result.v1", MessageType = MessageTypes.ExecutionResult,
+                CorrelationId = runId, CausationId = command!.MessageId,
+                IdempotencyKey = $"{assignment.AssignmentId}:{assignment.AttemptId}", WorkflowRunId = runId,
+                StageRunId = assignment.StageRunId, ExecutionId = assignment.ExecutionId,
+                AttemptId = assignment.AttemptId, AssignmentId = assignment.AssignmentId,
+                WorkerId = assignment.WorkerId, AgentId = assignment.AgentId, LeaseEpoch = assignment.LeaseEpoch,
+                ResultStatus = AttemptResultStatus.Succeeded, FailureCategory = FailureCategory.None,
+                OutcomeSummary = "upstream implementation complete", CommitOrVersion = "accepted-commit",
+                Traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+                CreatedAt = DateTimeOffset.UtcNow,
+            }).Kind.Should().Be(ResultOutcomeKind.Accepted);
+        });
+        runtime.Read(plane => plane.Registry.Snapshot(runId)!.Run.State).Should().Be(WorkflowRunState.Succeeded);
+        using (var scope = factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            (await db.Tasks.FindAsync(taskId))!.Status = "done"; // fake HTTP projection target
+            await db.SaveChangesAsync();
+        }
+        await intake.ScanOnceAsync(default);
+        var qaRunId = $"business-task-{dependentId}";
+        var qaContext = runtime.Read(plane => plane.Orchestration.RequireRun(qaRunId));
+        qaContext.UpstreamDevelopmentAgents.Should().Contain("agent.dev");
+        qaContext.Workspace.BaseVersion.Should().Be("accepted-commit");
+        qaContext.TaskContext.Should().Contain("upstream implementation complete");
+        runtime.Read(plane => plane.TaskProjections.Entries.Where(p => p.RunId == qaRunId)
+            .Select(p => p.TargetStatus).ToArray()).Should().Equal("in_progress", "in_review");
+        // No second eligible agent exists, so it must wait, never self-QA.
+        runtime.Read(plane => plane.Leases.Capture().Any(a => a.WorkflowRunId == qaRunId)).Should().BeFalse();
+        await intake.ScanOnceAsync(default);
+        runtime.Read(plane => plane.Registry.Runs.Count).Should().Be(2);
+        using var recovered = new DurableServerRuntime(
+            Microsoft.Extensions.Options.Options.Create(options),
+            factory.Services.GetRequiredService<IAgentSelector>());
+        recovered.Read(plane => plane.Orchestration.RequireRun(qaRunId).UpstreamDevelopmentAgents)
+            .Should().Contain("agent.dev");
+        recovered.Read(plane => plane.Registry.Runs.Count).Should().Be(2);
     }
 
     private static HttpClient NewAuthenticatedClient(ApiWebApplicationFactory factory)
