@@ -8,6 +8,28 @@ namespace AgentBoard.Node.Tests;
 
 public sealed class LocalConfigurationTests : IDisposable
 {
+    [Theory]
+    [InlineData("127.0.0.1", "127.0.0.1:18240", "", "GET", "", true)]
+    [InlineData("::1", "localhost:18240", "", "GET", "", true)]
+    [InlineData("127.0.0.1", "127.0.0.1:18240", "http://127.0.0.1:18240", "PUT", "1", true)]
+    [InlineData("127.0.0.1", "evil.test:18240", "", "GET", "", false)]
+    [InlineData("192.168.1.20", "127.0.0.1:18240", "", "GET", "", false)]
+    [InlineData("127.0.0.1", "127.0.0.1:18240", "http://evil.test", "GET", "", false)]
+    [InlineData("127.0.0.1", "127.0.0.1:18240", "null", "PUT", "1", false)]
+    [InlineData("127.0.0.1", "127.0.0.1:18240", "", "PUT", "", false)]
+    public void Local_portal_needs_no_key_but_rejects_remote_and_cross_site_requests(
+        string peer, string host, string origin, string method, string marker, bool allowed)
+    {
+        var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        context.Connection.RemoteIpAddress = System.Net.IPAddress.Parse(peer);
+        context.Request.Scheme = "http";
+        context.Request.Host = new(host);
+        context.Request.Method = method;
+        if (origin.Length > 0) context.Request.Headers.Origin = origin;
+        if (marker.Length > 0) context.Request.Headers["X-AgentBoard-Local-Portal"] = marker;
+        Assert.Equal(allowed, ConfigurationPortal.IsLocalRequest(context));
+    }
+
     private readonly string directory = Path.Combine(Path.GetTempPath(), "worker-config-tests-" + Guid.NewGuid().ToString("N"));
     public LocalConfigurationTests() => Directory.CreateDirectory(directory);
     public void Dispose() => Directory.Delete(directory, recursive: true);

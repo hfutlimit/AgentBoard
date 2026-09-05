@@ -218,7 +218,8 @@ using (var scope = app.Services.CreateScope())
 
 app.Use(async (context, next) =>
 {
-    if (context.Request.Path.StartsWithSegments("/health") || context.Request.Path == "/")
+    if (context.Request.Path.StartsWithSegments("/health") || context.Request.Path == "/"
+        || context.Request.Path.StartsWithSegments("/api/local"))
     {
         await next();
         return;

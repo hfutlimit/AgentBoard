@@ -15,7 +15,7 @@ Pre 用于开始前准备，post 用于提交前自检，均进入同一次真�
 
 ## 启动与凭据
 
-使用环境变量提供 `AgentBoard__ServerUrl`、`AgentBoard__StartupToken`、`RabbitMq__Uri`，不要把密钥写进 JSON 或命令行。`Portal__ApiKey` 是独立的本机页面访问密钥，不是生产 API token。
+使用环境变量提供 `AgentBoard__ServerUrl`、`AgentBoard__StartupToken`、`RabbitMq__Uri`，不要把密钥写进 JSON 或命令行。本机配置台无需 Portal Key，打开即进入。生产 API 仍使用环境凭据鉴权。
 
 ```powershell
 ./scripts/start_worker_owned_portal.ps1
@@ -25,7 +25,7 @@ Pre 用于开始前准备，post 用于提交前自检，均进入同一次真�
 
 默认本机配置位置：`%LOCALAPPDATA%\AgentBoard\worker-owned.local.json`。启动参数 `-ConfigurationPath` 可指定不同 Worker 的配置文件。该文件是 **WorkerOwnedOptions 本身**，不带外层 `WorkerOwned`；原 `config/examples/worker-owned.json` 仍是完整 appsettings 格式，不能原样当作此文件。
 
-打开页面后输入本机 Portal Key。需要桌面工具自动打开时，脚本可用 `-PassThruBootstrap` 返回带 fragment 的启动链接；该结果包含本机密钥，调用方必须直接交给本机浏览器，不打印、记录或分享。页面读取后立即清除 fragment，仅在当前浏览器 session 保存。
+页面不再保存访问密钥或显示登录框。仅接受回环来源、localhost / 回环 Host 和同源浏览器请求；保存操作使用自动附带的非秘密请求标记，避免其他网页伪造提交。旧版 Node 控制 API 的鉴权不变。本次免密仅针对新版 `/api/local/*` 配置台，不是放开生产 API 或允许远程配置。
 
 ## 保存与真正生效
 
@@ -41,11 +41,13 @@ Pre 用于开始前准备，post 用于提交前自检，均进入同一次真�
 dotnet <发布目录>/AgentBoard.Node.dll --LocalConfigurationPath=<本机配置路径> --Portal:ConfigurationOnly=false --DurableExecution:Enabled=false
 ```
 
-仍需通过环境配置生产连接、独立 Node ID、Portal Key 和每个 Worker 独立的 HistoryDatabasePath。单 Worker 目前串行调用其多个实例；多个 Worker 可竞争业务范围内的工作。停用单个 Agent 后不会登记、心跳、订阅或选择它；已有本机配置的 Worker 即使关闭 Worker-owned，也不会回退启动旧版广域消费者。
+仍需通过环境配置生产连接、独立 Node ID 和每个 Worker 独立的 HistoryDatabasePath。单 Worker 目前串行调用其多个实例；多个 Worker 可竞争业务范围内的工作。停用单个 Agent 后不会登记、心跳、订阅或选择它；已有本机配置的 Worker 即使关闭 Worker-owned，也不会回退启动旧版广域消费者。
 
 配置页只显示 RabbitMQ 环境配置是否存在，不把它标记为已连通。生产连接状态以真正的身份校验和项目读取为准。生产凭据不返回浏览器，页面也不编辑服务账号凭据。若旧配置含每 Agent 独立 token，请先迁移到合适的环境凭据方案再使用此页保存；此页只管理无密钥的本地配置。
 
 ## 2026-09-05 验证
+
+本机免密更新：317 项 .NET 测试通过，页面 DOM 测试通过；真实无 Portal Key 读取 / 保存配置均成功，生产项目读取仍为 14 个。跨源与 DNS 重绑定 Host 请求返回 403。下面的 309 项及 401 记录是首次带 Portal Key 版本的历史验证，不再表示新版配置台需要密钥。
 
 - .NET Node 测试：309 通过，包含保存重载、能力过滤、禁用实例、陈旧版本、跨进程编辑锁、凭据屏蔽、非法输入、提示词顺序，以及保存的 pre/post 真正进入 Codex adapter stdin。
 - `node scripts/test_worker_owned_portal.cjs`：页面 DOM 交互测试通过，覆盖七种工作、项目响应格式、提示词范围切换、多 Agent 隔离、保存重载、CLI 类型切换和增删实例。此测试使用模拟 HTTP，不冒充生产测试。

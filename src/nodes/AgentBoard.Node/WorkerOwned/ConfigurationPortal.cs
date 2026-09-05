@@ -7,6 +7,21 @@ namespace AgentBoard.Node.WorkerOwned;
 
 public static class ConfigurationPortal
 {
+    // Local UI needs no secret. Host/origin checks prevent a remote website
+    // (including DNS rebinding) from turning the loopback portal into an API.
+    internal static bool IsLocalRequest(HttpContext http)
+    {
+        var host = http.Request.Host.Host.Trim('[', ']');
+        var origin = http.Request.Headers.Origin.ToString();
+        var localHost = host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+            || (IPAddress.TryParse(host, out var address) && IPAddress.IsLoopback(address));
+        var readOnly = HttpMethods.IsGet(http.Request.Method) || HttpMethods.IsHead(http.Request.Method);
+        return http.Connection.RemoteIpAddress is { } peer && IPAddress.IsLoopback(peer)
+            && localHost
+            && (origin.Length == 0 || origin == $"{http.Request.Scheme}://{http.Request.Host}")
+            && (readOnly || http.Request.Headers["X-AgentBoard-Local-Portal"] == "1");
+    }
+
     public static string Html { get; } = ReadPage();
     private static string ReadPage()
     {
@@ -19,14 +34,11 @@ public static class ConfigurationPortal
     {
         var activeRevision = store.Read().Revision;
         var group = app.MapGroup("/api/local");
-        // API key is checked by Program middleware. Also reject cross-origin
-        // browser access and non-loopback peers; this is not a remote admin API.
+        // No Portal Key: trusted local access only, never a remote admin API.
         group.AddEndpointFilter(async (context, next) =>
         {
             var http = context.HttpContext;
-            var origin = http.Request.Headers.Origin.ToString();
-            if (http.Connection.RemoteIpAddress is not { } peer || !IPAddress.IsLoopback(peer)
-                || (origin.Length > 0 && origin != $"{http.Request.Scheme}://{http.Request.Host}"))
+            if (!IsLocalRequest(http))
                 return Results.StatusCode(403);
             http.Response.Headers.CacheControl = "no-store";
             return await next(context);

@@ -10,10 +10,11 @@ const initial={enabled:true,reconcileSeconds:5,projects:[{projectId:16,localPath
  {id:'a',provider:'codex',enabled:true,workKinds:['dev'],projectIds:[16],prePrompt:'common-before',postPrompt:'common-after',prompts:{dev:{pre:'dev-before',post:'dev-after'}},runtime:{command:'codex',arguments:['exec','--json'],model:'terra',timeoutMinutes:30}},
  {id:'b',provider:'codex',enabled:true,workKinds:['qa'],projectIds:[16],prePrompt:'b-before',postPrompt:'b-after',prompts:{},runtime:{command:'codex',arguments:['exec'],model:'terra',timeoutMinutes:30}}
 ]};
-const dom = new JSDOM(html,{url:'http://127.0.0.1:18240/#key=test-only',runScripts:'dangerously',beforeParse(w){
+const dom = new JSDOM(html,{url:'http://127.0.0.1:18240/',runScripts:'dangerously',beforeParse(w){
  w.confirm=()=>true;
  w.fetch=async(url,request)=>{
-  assert.equal(request.headers['X-AgentBoard-Worker-Key'],'test-only');
+  assert.equal(request.headers['X-AgentBoard-Worker-Key'],undefined);
+  assert.equal(request.headers['X-AgentBoard-Local-Portal'],'1');
   let result;
   if(url.endsWith('/configuration')){
    if(request.method==='PUT'){const body=JSON.parse(request.body);assert.equal(body.revision,revision);saved=body.configuration;revision='v2'}
@@ -29,6 +30,7 @@ const change=(selector,value)=>{const el=d.querySelector(selector);el.value=valu
 (async()=>{
  await flush();
  assert.equal(w.location.hash,'');
+ assert.equal(d.querySelector('#login'),null);
  assert.equal(d.querySelector('#main').classList.contains('hidden'),false);
  assert.equal(d.querySelectorAll('[data-kind]').length,7);
  assert.match(d.querySelector('#connection').textContent,/prod.test/);
