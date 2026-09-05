@@ -55,6 +55,21 @@ Task 拥有按创建时间正序排列的评论流；评论字段为 `id, task_i
 - **THEN** 列表显示对应的完整派生结果并回到第 1 页
 - **AND** 结果按 `created_at DESC, id DESC` 排序，历史状态仅在“全部状态”中保持可见
 
+### Requirement: Epic 支持已阻塞状态持久化
+
+系统 SHALL 将 `blocked` 作为 Epic 的可持久化状态。`PATCH /api/epics/{id}` 使用
+`{"status":"blocked"}` 更新既有 Epic 时 SHALL 返回 HTTP 200，并在响应与后续读取中
+返回 `status: "blocked"`。SQLite 与 MariaDB 的 `ck_epics_status` 约束 SHALL 与 ORM
+模型一致，允许 `backlog`、`todo`、`in_progress`、`in_review`、`verifying`、`done` 和
+`blocked`，不得将该合法请求泄漏为数据库完整性错误或 HTTP 500。
+
+#### Scenario: 通过 API 将 Epic 标记为已阻塞
+
+- **GIVEN** 一个已持久化的 Epic
+- **WHEN** 客户端调用 `PATCH /api/epics/{id}` 并提交 `{"status":"blocked"}`
+- **THEN** 服务返回 HTTP 200 和 `status: "blocked"`
+- **AND** 后续读取该 Epic 时状态仍为 `blocked`
+
 ## Web UI
 项目树浏览；Project/Epic/Story/Task/Bug 全量增删改；状态流转；任务优先级徽章与编辑；description/spec 编辑；评论时间线；Story 列表/看板的任务详情抽屉；「插入 OpenSpec 提案模板」「从 spec 生成同级任务」按钮；markdown 渲染。
 

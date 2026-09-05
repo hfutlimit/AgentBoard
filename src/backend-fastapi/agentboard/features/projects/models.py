@@ -54,7 +54,7 @@ class Project(Base):
 class Epic(Base):
     __tablename__ = "epics"
     __table_args__ = (CheckConstraint(
-        "status IN ('backlog','todo','in_progress','in_review','verifying','done')",
+        "status IN ('backlog','todo','in_progress','in_review','verifying','done','blocked')",
         name="ck_epics_status",
     ),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
