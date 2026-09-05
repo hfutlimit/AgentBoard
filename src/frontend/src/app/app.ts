@@ -5,6 +5,7 @@ import { NavigationEnd, Router, RouterLink, RouterOutlet } from '@angular/router
 import { firstValueFrom, Subscription } from 'rxjs';
 
 import { buildRevisionDiff, RevisionDiffBlock } from './shared/utils/revision-diff';
+import { workerCommentMarkdown } from './shared/utils/worker-comment-markdown';
 import { DOCUMENT } from '@angular/common';
 import { Inject } from '@angular/core';
 import { filter } from 'rxjs/operators';
@@ -8251,6 +8252,10 @@ export class App implements OnInit, OnDestroy {
 
   /* 轻量 Markdown 渲染（无第三方依赖，离线可用）。
      支持：标题、粗体/斜体、行内/块代码、有序/无序列表、引用、链接、图片、分隔线、表格、以及 ```mermaid 代码块。 */
+  renderCommentMarkdown(src: string): string {
+    return this.renderMarkdown(workerCommentMarkdown(src));
+  }
+
   renderMarkdown(src: string): string {
     if (!src) return '';
     const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

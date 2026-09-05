@@ -644,7 +644,8 @@ def complete(work_id: int, body: Completion, authorization: str | None = Header(
                     if not isinstance(values, list) or not values or any(not isinstance(v, str) or not v.strip() for v in values):
                         raise HTTPException(422, f"QA requires nonempty {field}")
                 qa_defects(body.result)
-            create_comment(s, author=agent.agent_id, content=result_json, task_id=obj.id)
+            from ..work_items.comment_format import format_worker_comment
+            create_comment(s, author=agent.agent_id, content=format_worker_comment(body.result, row.kind), task_id=obj.id)
             set_status(s, obj.id, "in_review", changed_by=agent.user_id, reason="Worker submitted execution evidence")
     row.state, row.result, row.active_slot = "completed", result_json, None
     s.flush()

@@ -61,6 +61,25 @@ def complete(client, configured, wid, body, result, expected=200):
     return response
 
 
+def test_execution_comment_is_markdown_but_worker_evidence_remains_json(client, db_session, configured):
+    item = task(db_session, configured)
+    wid = offer(client, configured, item, "dev")
+    body = claim_body(configured, "dev")
+    claim(client, configured, wid, body)
+    result = {"decision": "submit", "summary": "实现完成", "agent_id": "a",
+              "test_results": ["65 passed"], "commit": "abc123"}
+    complete(client, configured, wid, body, result)
+    response = client.get(f"/api/tasks/{item.id}/comments", headers=configured[3])
+    assert response.status_code == 200
+    comment = response.json()[-1]["content"]
+    assert comment.startswith("### 开发结果 · 提交评审")
+    assert "65 passed" in comment and "abc123" in comment
+    db_session.expire_all()
+    assert json.loads(db_session.get(WorkerWork, wid).result) == result
+    complete(client, configured, wid, body, result)  # Idempotent completion does not add another comment.
+    assert client.get(f"/api/tasks/{item.id}/comments", headers=configured[3]).json() == response.json()
+
+
 def discussion_turn(client, configured, item, result=None):
     response = client.get(f"/api/worker-work/discussions?project_id={configured[1]}&task_id={item.id}", headers=configured[3])
     assert response.status_code == 200, response.text

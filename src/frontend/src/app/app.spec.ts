@@ -29,6 +29,22 @@ describe('App', () => {
     expect(app).toBeTruthy();
   });
 
+  it('renders legacy Worker comments as readable safe Markdown without changing other content', () => {
+    const app = TestBed.createComponent(App).componentInstance;
+    const raw = JSON.stringify({ agent_id: 'qa', decision: 'submit', summary: '环境阻塞',
+      tests_passed: false, test_results: ['82 passed'],
+      defects: [{ title: '浏览器不可用', description: '<img src=x onerror=alert(1)>' }] });
+    const element = document.createElement('div');
+    element.innerHTML = app.renderCommentMarkdown(raw);
+    expect(element.querySelector('h3')?.textContent).toBe('QA结果 · 提交评审');
+    expect(element.textContent).toContain('验收是否通过');
+    expect(element.textContent).toContain('浏览器不可用');
+    expect(element.querySelector('img')).toBeNull();
+    expect(app.renderMarkdown(raw)).not.toContain('<h3>QA结果');
+    const discussion = '### 讨论\n\n已核对证据。';
+    expect(app.renderCommentMarkdown(discussion)).toBe(app.renderMarkdown(discussion));
+  });
+
   it('should derive Epic status filters from an immutable stable newest-first list and reset pagination', () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;

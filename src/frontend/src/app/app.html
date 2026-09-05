@@ -1,4 +1,4 @@
-﻿@if (!authVisible()) {
+@if (!authVisible()) {
 <!-- Task 402: 离线提示条 + Task 808: 离线队列数量 -->
 @if (offlineBanner()) {
   <div class="offline-banner">
@@ -562,7 +562,7 @@
                             <strong>{{ comment.author }}</strong
                             ><time>{{ timeAgo(comment.created_at) }}</time>
                           </div>
-                          <div class="md text-pre" [innerHTML]="renderMarkdown(comment.content)"></div>
+                          <div class="md text-pre" [innerHTML]="renderCommentMarkdown(comment.content)"></div>
                         </div>
                       </article>
                     } @empty {
@@ -722,7 +722,7 @@
                               <strong>{{ comment.author }}</strong
                               ><time>{{ timeAgo(comment.created_at) }}</time>
                             </div>
-                            <div class="md text-pre" [innerHTML]="renderMarkdown(comment.content)"></div>
+                            <div class="md text-pre" [innerHTML]="renderCommentMarkdown(comment.content)"></div>
                           </div>
                         </article>
                       } @empty {
@@ -1590,7 +1590,7 @@
                         <strong>{{ comment.author }}</strong
                         ><time>{{ timeAgo(comment.created_at) }}</time>
                       </div>
-                      <div class="md text-pre" [innerHTML]="renderMarkdown(comment.content)"></div>
+                      <div class="md text-pre" [innerHTML]="renderCommentMarkdown(comment.content)"></div>
                     </div>
                   </article>
                 } @empty {
@@ -1892,7 +1892,7 @@
                     <span class="avatar comment-avatar">{{ c.author.slice(0, 2) }}</span>
                     <div class="comment-body">
                       <div class="comment-meta"><strong>{{ c.author }}</strong><time>{{ timeAgo(c.created_at) }}</time></div>
-                      <div class="md text-pre" [innerHTML]="renderMarkdown(c.content)"></div>
+                      <div class="md text-pre" [innerHTML]="renderCommentMarkdown(c.content)"></div>
                     </div>
                   </article>
                 } @empty {
@@ -2811,7 +2811,7 @@
                   <span class="qv-comment-time">{{ timeAgo(c.created_at) }}</span>
                   <button type="button" class="qv-comment-del" title="删除评论" aria-label="删除评论" (click)="qvDeleteComment(c.id)">🗑</button>
                 </div>
-                <div class="qv-comment-body" [innerHTML]="renderMarkdown(c.content)"></div>
+                <div class="qv-comment-body" [innerHTML]="renderCommentMarkdown(c.content)"></div>
               </div>
             }
           </div>

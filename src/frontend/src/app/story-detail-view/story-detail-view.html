@@ -97,7 +97,7 @@
                 <span class="avatar comment-avatar">{{ comment.author.slice(0, 2) }}</span>
                 <div class="comment-body">
                   <div class="comment-meta"><strong>{{ comment.author }}</strong><time>{{ host.timeAgo(comment.created_at) }}</time></div>
-                  <div class="md text-pre" [innerHTML]="host.renderMarkdown(comment.content)"></div>
+                  <div class="md text-pre" [innerHTML]="host.renderCommentMarkdown(comment.content)"></div>
                 </div>
               </article>
             } @empty {
