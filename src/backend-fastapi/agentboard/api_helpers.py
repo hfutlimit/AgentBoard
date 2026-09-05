@@ -127,6 +127,7 @@ class ActorContext:
     agent_ref: str | None = None
     username: str | None = None
     api_key_prefix: str | None = None
+    permissions: tuple[str, ...] = ()
 
 
 def resolve_actor_context(
@@ -147,12 +148,13 @@ def resolve_actor_context(
 
     uid = auth.parse_token(token)
     api_key = None
+    permissions: tuple[str, ...] = ()
     if not uid and token.startswith(auth.API_KEY_PREFIX):
         api_key = service.lookup_api_key_by_hash(s, auth.hash_api_key(token))
         if api_key and api_key.enabled and api_key.revoked_at is None:
-            permissions = auth.decode_permissions(api_key.permissions)
+            permissions = tuple(auth.decode_permissions(api_key.permissions))
             if required_permission and not auth.permission_allows(
-                permissions, required_permission
+                list(permissions), required_permission
             ):
                 raise HTTPException(
                     status_code=403,
@@ -174,6 +176,7 @@ def resolve_actor_context(
         agent_ref=agent.agent_id if agent else None,
         username=user.username,
         api_key_prefix=api_key.key_prefix if api_key else None,
+        permissions=permissions,
     )
 
 

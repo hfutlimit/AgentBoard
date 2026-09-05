@@ -1,115 +1,162 @@
 // SPDX-License-Identifier: MIT
+using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using AgentBoard.Domain.Common;
 using AgentBoard.Domain.Workflow.Durable;
-using AgentBoard.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 
 namespace AgentBoard.Infrastructure.Scheduling;
 
 /// <summary>
-/// Selects a runnable AgentInstance using the existing AgentBoard ownership,
-/// project authorization, heartbeat, capability, and self-review constraints.
-/// Roles are intentionally not an authorization gate; workload eligibility is
-/// dynamic and capability-based.
+/// Selects a runnable AgentInstance for a durable workflow stage by calling the
+/// FastAPI <c>POST /api/durable/agent-select</c> endpoint over HTTP with the
+/// internal service credential.
 /// </summary>
+/// <remarks>
+/// This used to run the ownership/heartbeat/capability/provider joins against
+/// the local SQLite shadow database. That shadow holds no business rows in this
+/// deployment (and the .NET BFF has no live MySQL provider — Pomelo ships no
+/// EF Core 10 release), so eligibility had to be read from the single source of
+/// truth, FastAPI + MariaDB. The authoritative selection policy now lives in
+/// <c>agentboard/features/scheduling/router.py::durable_agent_select</c>; this
+/// class is a thin, fail-closed transport that shapes the request and parses the
+/// response back into <see cref="AgentSelection"/>.
+/// <para>
+/// Fail-closed contract: a missing/placeholder credential, a non-2xx response, a
+/// <c>{"selection": null}</c> body, or any parse error all yield <c>null</c>, so
+/// the orchestrator keeps the todo deferred rather than dispatching to an
+/// unverified executor. The endpoint enforces auth even over 127.0.0.1.
+/// </para>
+/// </remarks>
 public sealed class DatabaseAgentSelector : IAgentSelector
 {
-    private static readonly TimeSpan HeartbeatTtl = TimeSpan.FromMinutes(5);
-    private readonly IServiceScopeFactory _scopes;
+    private static readonly JsonSerializerOptions WriteOptions = new(JsonSerializerDefaults.Web);
+    private readonly IHttpClientFactory _clients;
+    private readonly IConfiguration _configuration;
 
-    public DatabaseAgentSelector(IServiceScopeFactory scopes) => _scopes = scopes;
+    public DatabaseAgentSelector(
+        IHttpClientFactory clients,
+        IConfiguration configuration)
+    {
+        _clients = clients;
+        _configuration = configuration;
+    }
 
     public AgentSelection? Select(AgentSelectionRequest request)
     {
-        using var scope = _scopes.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var cutoff = DateTime.UtcNow - HeartbeatTtl;
-
-        if (!db.ProjectMembers.AsNoTracking().Any(member =>
-                member.ProjectId == request.ProjectId && member.UserId == request.OwnerUserId))
+        var token = _configuration["AgentBoard:FastApi:InternalToken"];
+        if (string.IsNullOrWhiteSpace(token)
+            || string.Equals(token, "REPLACE_WITH_INTERNAL_SERVICE_TOKEN", StringComparison.Ordinal))
         {
+            // No internal credential configured → cannot authenticate the read
+            // upstream. Fail closed instead of dispatching blind.
             return null;
         }
-
-        var rows = (
-            from agent in db.Agents.AsNoTracking()
-            join instance in db.AgentInstances.AsNoTracking() on agent.AgentId equals instance.AgentId
-            join worker in db.Workers.AsNoTracking() on instance.WorkerId equals worker.WorkerId
-            join mapping in db.WorkerProjectMappings.AsNoTracking()
-                on new { instance.WorkerId, request.ProjectId }
-                equals new { mapping.WorkerId, mapping.ProjectId }
-            where agent.Enabled
-                  && agent.Online
-                  && agent.UserId == request.OwnerUserId
-                  && instance.Enabled
-                  && instance.Online
-                  && instance.LastHeartbeat != null
-                  && instance.LastHeartbeat >= cutoff
-                  && worker.Status == "active"
-                  && worker.LastHeartbeat != null
-                  && worker.LastHeartbeat >= cutoff
-                  && mapping.Enabled
-            orderby agent.Id, instance.WorkerId
-            select new { Agent = agent, Instance = instance })
-            .ToList();
-
-        foreach (var row in rows)
-        {
-            if (request.ExcludedAgentIds.Contains(row.Agent.AgentId)) continue;
-
-            IReadOnlyDictionary<string, double> capabilities;
-            try
-            {
-                capabilities = AgentCapabilityJson.ParseProfile(row.Agent.Capabilities);
-            }
-            catch (InvalidValueException)
-            {
-                continue; // malformed profiles fail closed
-            }
-
-            if (request.RequiredCapabilities.Any(required =>
-                    !capabilities.TryGetValue(required.Name, out var level)
-                    || level < required.MinimumLevel))
-            {
-                continue;
-            }
-
-            var providerId = ResolveProviderId(row.Agent.Roles, row.Instance.ExecutorType);
-            if (providerId is null) continue;
-
-            return new AgentSelection(
-                row.Instance.WorkerId,
-                row.Agent.AgentId,
-                capabilities.Keys.OrderBy(name => name, StringComparer.OrdinalIgnoreCase).ToList(),
-                providerId);
-        }
-
-        return null;
-    }
-
-    private static string? ResolveProviderId(string rolesJson, string? executorType)
-    {
-        var direct = executorType?.Trim().ToLowerInvariant();
-        if (!string.IsNullOrWhiteSpace(direct)) return direct;
 
         try
         {
-            using var roles = JsonDocument.Parse(string.IsNullOrWhiteSpace(rolesJson) ? "[]" : rolesJson);
-            if (roles.RootElement.ValueKind != JsonValueKind.Array) return null;
-            var supported = new HashSet<string>(
-                new[] { "codex", "workbuddy", "minimax", "qwen", "fake", "scenario" },
-                StringComparer.OrdinalIgnoreCase);
-            return roles.RootElement.EnumerateArray()
-                .Where(role => role.ValueKind == JsonValueKind.String)
-                .Select(role => role.GetString()?.Trim().ToLowerInvariant())
-                .FirstOrDefault(role => role is not null && supported.Contains(role));
+            return SelectAsync(request, token).GetAwaiter().GetResult();
         }
-        catch (JsonException)
+        catch (Exception)
+        {
+            // Transport/parse failures never surface to the run — a null keeps
+            // the stage deferred and observable, matching the old selector's
+            // "no candidates" behavior.
+            return null;
+        }
+    }
+
+    private async Task<AgentSelection?> SelectAsync(
+        AgentSelectionRequest request, string token)
+    {
+        var payload = BuildRequestPayload(request);
+
+        var client = _clients.CreateClient("AgentBoardFastApi");
+        using var message = new HttpRequestMessage(
+            HttpMethod.Post, "api/durable/agent-select")
+        {
+            Content = new StringContent(
+                payload.ToJsonString(WriteOptions), Encoding.UTF8, "application/json"),
+        };
+        message.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        using var response = await client.SendAsync(message);
+        if (!response.IsSuccessStatusCode)
         {
             return null;
         }
+
+        using var doc = JsonDocument.Parse(
+            await response.Content.ReadAsStringAsync());
+        return ParseSelection(doc.RootElement);
+    }
+
+    private static JsonNode BuildRequestPayload(AgentSelectionRequest request)
+    {
+        var capabilities = new JsonArray();
+        foreach (var requirement in request.RequiredCapabilities)
+        {
+            capabilities.Add(new JsonObject
+            {
+                ["name"] = requirement.Name,
+                ["minimum_level"] = requirement.MinimumLevel,
+            });
+        }
+
+        var exclude = new JsonArray();
+        foreach (var excluded in request.ExcludedAgentIds)
+        {
+            exclude.Add(excluded);
+        }
+
+        return new JsonObject
+        {
+            ["project_id"] = request.ProjectId,
+            ["owner_user_id"] = request.OwnerUserId,
+            ["capabilities"] = capabilities,
+            ["exclude"] = exclude,
+        };
+    }
+
+    private static AgentSelection? ParseSelection(JsonElement root)
+    {
+        if (!root.TryGetProperty("selection", out var selection)
+            || selection.ValueKind != JsonValueKind.Object)
+        {
+            return null;
+        }
+
+        var workerId = GetString(selection, "worker_id");
+        var agentId = GetString(selection, "agent_id");
+        if (string.IsNullOrWhiteSpace(workerId) || string.IsNullOrWhiteSpace(agentId))
+        {
+            return null;
+        }
+
+        var capabilities = new List<string>();
+        if (selection.TryGetProperty("capabilities", out var capArray)
+            && capArray.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in capArray.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String)
+                {
+                    capabilities.Add(item.GetString()!);
+                }
+            }
+        }
+
+        var providerId = GetString(selection, "provider_id");
+        return new AgentSelection(workerId, agentId, capabilities, providerId);
+    }
+
+    private static string? GetString(JsonElement element, string property)
+    {
+        if (!element.TryGetProperty(property, out var value) || value.ValueKind == JsonValueKind.Null)
+            return null;
+        return value.ValueKind == JsonValueKind.String ? value.GetString() : value.ToString();
     }
 }
 

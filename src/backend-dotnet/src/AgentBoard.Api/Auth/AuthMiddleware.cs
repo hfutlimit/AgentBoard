@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: MIT
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Security.Claims;
 using System.Text.Json;
 using AgentBoard.Application.Abstractions;
 using AgentBoard.Application.Identity;
 using AgentBoard.Domain.Identity;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Configuration;
 
 namespace AgentBoard.Api.Auth;
 
@@ -24,16 +27,23 @@ public sealed class AuthMiddleware
     private const string Scheme = "Bearer ";
     private readonly RequestDelegate _next;
     private readonly ITokenService _tokens;
+    private readonly IHttpClientFactory _http;
+    private readonly IConfiguration _configuration;
 
-    public AuthMiddleware(RequestDelegate next, ITokenService tokens)
+    public AuthMiddleware(
+        RequestDelegate next,
+        ITokenService tokens,
+        IHttpClientFactory http,
+        IConfiguration configuration)
     {
         _next = next;
         _tokens = tokens;
+        _http = http;
+        _configuration = configuration;
     }
 
     public async Task InvokeAsync(
         HttpContext context,
-        IApiKeyRepository apiKeys,
         IUserRepository users)
     {
         var auth = context.Request.Headers.Authorization.ToString();
@@ -49,30 +59,25 @@ public sealed class AuthMiddleware
             var raw = auth.Substring(Scheme.Length).Trim();
             if (raw.StartsWith("abk_", StringComparison.Ordinal))
             {
-                // P0-3: single-row index seek via the unique key_hash column
-                // instead of the previous ListAsync(predicate) scan. We still
-                // do an in-memory `Enabled` check so disabled keys are
-                // rejected even if a stale hash somehow matched.
-                var digest = Convert.ToHexString(
-                    System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(raw)))
-                    .ToLowerInvariant();
-                var key = await apiKeys.GetByHashAsync(digest, context.RequestAborted);
-                if (key is { Enabled: true })
+                // Credential interop: an ``abk_`` key is authoritative only in
+                // FastAPI (the business database). Validate it there via
+                // /api/auth/introspect instead of a local, drift-prone shadow
+                // copy — this is what makes a FastAPI-valid API key also pass
+                // .NET durable auth. Any failure/miss falls through to
+                // anonymous (fail closed); .NET's own ApiKeyPermissionMiddleware
+                // still enforces api:read / api:write from the mapped claims.
+                var actor = await IntrospectViaFastApiAsync(raw, context.RequestAborted);
+                if (actor is not null)
                 {
-                    var user = await users.GetByIdAsync(key.UserId, context.RequestAborted);
                     var claims = new List<Claim>
                     {
-                        new("uid", key.UserId.ToString(), ClaimValueTypes.Integer32),
+                        new("uid", actor.Id.ToString(), ClaimValueTypes.Integer32),
                         new("auth_scheme", "api_key"),
                     };
-                    if (user is not null)
-                    {
-                        // P0-2: stamp username + is_admin so CurrentUserService
-                        // does not have to round-trip the DB on every read.
-                        claims.Add(new Claim("username", user.Username));
-                        claims.Add(new Claim("is_admin", user.IsAdmin ? "true" : "false"));
-                    }
-                    foreach (var permission in ParseScopes(key.Scopes))
+                    if (!string.IsNullOrEmpty(actor.Username))
+                        claims.Add(new Claim("username", actor.Username));
+                    claims.Add(new Claim("is_admin", actor.IsAdmin ? "true" : "false"));
+                    foreach (var permission in actor.Permissions)
                         claims.Add(new Claim("api_key_permission", permission));
                     context.User = new ClaimsPrincipal(new ClaimsIdentity(claims, "AgentBoardApiKey"));
                 }
@@ -105,16 +110,56 @@ public sealed class AuthMiddleware
         await _next(context);
     }
 
-    private static IReadOnlyList<string> ParseScopes(string? raw)
+    private sealed record IntrospectedActor(
+        int Id, string? Username, bool IsAdmin, IReadOnlyList<string> Permissions);
+
+    /// <summary>
+    /// Validates an <c>abk_</c> API key against FastAPI (the credential source
+    /// of truth) via <c>/api/auth/introspect</c>. Returns <c>null</c> on any
+    /// non-success response or transport failure so the caller leaves the
+    /// request anonymous (fail closed).
+    /// </summary>
+    private async Task<IntrospectedActor?> IntrospectViaFastApiAsync(
+        string rawKey, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(raw)) return Array.Empty<string>();
         try
         {
-            return JsonSerializer.Deserialize<string[]>(raw) ?? Array.Empty<string>();
+            var client = _http.CreateClient("AgentBoardFastApi");
+            using var request = new HttpRequestMessage(HttpMethod.Get, "api/auth/introspect");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", rawKey);
+            using var response = await client.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode) return null;
+
+            using var document = JsonDocument.Parse(
+                await response.Content.ReadAsStringAsync(cancellationToken));
+            var root = document.RootElement;
+            if (!root.TryGetProperty("id", out var idEl)
+                || !idEl.TryGetInt32(out var id))
+            {
+                return null;
+            }
+
+            var permissions = new List<string>();
+            if (root.TryGetProperty("permissions", out var perms)
+                && perms.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in perms.EnumerateArray())
+                    if (item.ValueKind == JsonValueKind.String && item.GetString() is { } p)
+                        permissions.Add(p);
+            }
+
+            var username = root.TryGetProperty("username", out var u) && u.ValueKind == JsonValueKind.String
+                ? u.GetString()
+                : null;
+            var isAdmin = root.TryGetProperty("is_admin", out var a)
+                && a.ValueKind == JsonValueKind.True;
+
+            return new IntrospectedActor(id, username, isAdmin, permissions);
         }
-        catch (JsonException)
+        catch (Exception)
         {
-            return Array.Empty<string>();
+            // Fail closed: any introspection problem is treated as anonymous.
+            return null;
         }
     }
 }

@@ -56,6 +56,37 @@ def me(authorization: str | None = Header(None), s: Session = Depends(get_sessio
 
 
 
+@router.get("/api/auth/introspect")
+def introspect(
+    authorization: str | None = Header(None),
+    required_permission: str | None = Query(None),
+    s: Session = Depends(get_session),
+):
+    """Self-authenticating credential introspection for the .NET BFF.
+
+    Resolves a login token or ``abk_`` API key the same way every other
+    protected route does and returns the verified caller identity plus the
+    key's declared permissions. Invalid/absent credentials yield 401; a
+    credential missing ``required_permission`` yields 403. This lets the BFF
+    trust FastAPI as the single source of truth for credentials instead of a
+    local (and drift-prone) copy.
+    """
+    actor = api_helpers.resolve_actor_context(
+        authorization, s, required_permission=required_permission,
+    )
+    return {
+        "id": actor.user_id,
+        "username": actor.username,
+        "is_admin": actor.is_admin,
+        "auth_scheme": "api_key" if actor.api_key_id is not None else "bearer",
+        "permissions": list(actor.permissions),
+        "api_key_id": actor.api_key_id,
+        "api_key_prefix": actor.api_key_prefix,
+        "agent_ref": actor.agent_ref,
+    }
+
+
+
 @router.patch("/api/auth/me")
 def update_me(
     body: UserProfilePatch,

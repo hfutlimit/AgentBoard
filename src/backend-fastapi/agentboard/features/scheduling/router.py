@@ -35,7 +35,26 @@ from .schemas import (
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
 from ...api import agent_state_hub  # noqa: E402 — Agent 状态 WebSocket 广播 hub（定义于 api.py 顶层）
 from .models import AgentRun, RunEvent  # noqa: E402 — P1-4 SSE watermark snapshot
-from ..projects.models import AgentInstance  # noqa: E402 — DELETE /api/agents/{id}/instances (2026-09-02); agent-ephemeral cache reads
+from ..projects.models import (  # noqa: E402 — DELETE /api/agents/{id}/instances (2026-09-02); agent-ephemeral cache reads; durable agent-select
+    Agent,
+    AgentInstance,
+    Worker,
+    WorkerProjectMapping,
+)
+# Durable control-plane agent selection (HTTP port of the .NET
+# DatabaseAgentSelector): presence-refresh helpers, capability
+# normalizers, and the UTC clock used for heartbeat cutoffs.
+from ..projects.service import (  # noqa: E402
+    expire_stale_agent_heartbeats,
+    expire_stale_worker_heartbeats,
+)
+from .matching import (  # noqa: E402
+    normalize_capabilities,
+    normalize_required_capabilities,
+)
+from ...core.common.models import utc_now  # noqa: E402
+from ...core.exceptions import InvalidValue  # noqa: E402
+from datetime import timedelta  # noqa: E402
 from ...agent_registry_cache import (  # noqa: E402 — Phase 1 (agent-ephemeral-2026-09)
     ephemeral_agents_enabled,
     get_default_cache,
@@ -457,6 +476,159 @@ def list_agents(online: bool | None = Query(None), role: str | None = Query(None
         raise HTTPException(status_code=401, detail="unauthorized")
     rows = service.list_agents(s, online=online, role=role, order_by_created=True)
     return [a.to_public_dict() for a in rows]
+
+
+# ---------- Durable control-plane Agent selection (HTTP port) ----------
+#
+# The .NET Durable orchestrator used to resolve a stage's executor by
+# joining its *shadow* DB (empty in this deployment). These endpoints
+# move that decision back to the single source of truth (FastAPI +
+# MariaDB) so StartRun selects a real, currently-runnable Agent/Worker.
+# Auth is enforced on loopback too: ``resolve_actor_context`` rejects an
+# anonymous or wrong-scope bearer, and the caller must belong to the
+# project it is selecting within.
+
+class DurableAgentSelectIn(BaseModel):
+    project_id: int
+    owner_user_id: int
+    # [{name, minimum_level}] — minimum_level defaults to 1 when omitted.
+    capabilities: list[dict] = []
+    # AgentIds (``Agent.agent_id``) the orchestrator wants skipped, e.g.
+    # agents that already failed this stage. Exact match, mirroring the
+    # .NET selector's ``ExcludedAgentIds.Contains``.
+    exclude: list[str] = []
+
+
+_SUPPORTED_PROVIDERS = {"codex", "workbuddy", "minimax", "qwen", "fake", "scenario"}
+_DURABLE_HEARTBEAT_TTL = timedelta(minutes=5)
+
+
+def _provider_from(executor_type: str | None, roles_json: str | None) -> str | None:
+    """Mirror of the .NET ``ResolveProviderId``: prefer the instance's
+    physical ``executor_type``; otherwise take the first supported CLI
+    role. Returns ``None`` when neither yields a known provider (fails
+    closed so an unknown executor is never dispatched to)."""
+    direct = (executor_type or "").strip().lower()
+    if direct:
+        return direct
+    try:
+        roles = json.loads(roles_json or "[]")
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(roles, list):
+        return None
+    for role in roles:
+        if isinstance(role, str):
+            lowered = role.strip().lower()
+            if lowered in _SUPPORTED_PROVIDERS:
+                return lowered
+    return None
+
+
+@router.post("/api/durable/agent-select")
+def durable_agent_select(
+    body: DurableAgentSelectIn,
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    """Select the next runnable Agent/Worker for a Durable workflow stage.
+
+    Faithful HTTP port of ``DatabaseAgentSelector.Select``: same
+    ownership gate (owner ∈ project, agent owned by owner), same
+    presence/heartbeat cutoff, same capability-level check, and same
+    provider resolution. Returns ``{"selection": null}`` when nothing is
+    eligible rather than 404, so the orchestrator keeps the todo deferred
+    instead of failing the run.
+    """
+    # Caller identity + scope. Raises 401 (anonymous/invalid) even on
+    # 127.0.0.1; api:read is required because this is a read-only probe.
+    actor = api_helpers.resolve_actor_context(
+        authorization, s, required_permission="api:read",
+    )
+    # Least privilege: an internal token may only enumerate agents inside
+    # projects it is a member of (svc key holds project-8 membership).
+    if not (
+        actor.is_admin
+        or service.user_is_project_member(s, body.project_id, actor.user_id)
+    ):
+        raise HTTPException(status_code=403, detail="selection requires project membership")
+
+    # Normalize the task requirements up front; reject malformed input
+    # with 400 instead of leaking a 500 to the orchestrator.
+    try:
+        requirements = normalize_required_capabilities(body.capabilities)
+    except InvalidValue as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    required_map = {r["name"]: r["minimum_level"] for r in requirements}
+
+    # Refresh presence exactly like the live dispatcher path.
+    expire_stale_agent_heartbeats(s)
+    expire_stale_worker_heartbeats(s)
+
+    def _none():
+        return {"selection": None, "reason": "no-eligible-agent"}
+
+    # Business gate mirrored from the .NET selector: the owner must be a
+    # member of the project, else there is nothing legitimately selectable.
+    if not service.user_is_project_member(s, body.project_id, body.owner_user_id):
+        return _none()
+
+    cutoff = utc_now() - _DURABLE_HEARTBEAT_TTL
+    exclude = {x for x in body.exclude if x}
+
+    rows = (
+        s.query(Agent, AgentInstance)
+        .join(AgentInstance, AgentInstance.agent_id == Agent.agent_id)
+        .join(Worker, Worker.worker_id == AgentInstance.worker_id)
+        .join(
+            WorkerProjectMapping,
+            (WorkerProjectMapping.worker_id == AgentInstance.worker_id)
+            & (WorkerProjectMapping.project_id == body.project_id),
+        )
+        .filter(
+            Agent.enabled.is_(True),
+            Agent.online.is_(True),
+            Agent.user_id == body.owner_user_id,
+            AgentInstance.enabled.is_(True),
+            AgentInstance.online.is_(True),
+            AgentInstance.last_heartbeat.isnot(None),
+            AgentInstance.last_heartbeat >= cutoff,
+            Worker.status == "active",
+            Worker.last_heartbeat.isnot(None),
+            Worker.last_heartbeat >= cutoff,
+            WorkerProjectMapping.enabled.is_(True),
+        )
+        .order_by(Agent.id.asc(), AgentInstance.worker_id.asc())
+        .all()
+    )
+
+    for agent, inst in rows:
+        if agent.agent_id in exclude:
+            continue
+        try:
+            profile = {
+                c["name"]: c["level"]
+                for c in normalize_capabilities(agent.capabilities)
+            }
+        except InvalidValue:
+            continue  # malformed capability profile fails closed
+        if any(
+            name not in profile or profile[name] < minimum
+            for name, minimum in required_map.items()
+        ):
+            continue
+        provider = _provider_from(inst.executor_type, agent.roles)
+        if provider is None:
+            continue
+        return {
+            "selection": {
+                "worker_id": inst.worker_id,
+                "agent_id": agent.agent_id,
+                "capabilities": sorted(profile.keys(), key=str.lower),
+                "provider_id": provider,
+            }
+        }
+    return _none()
 
 
 # ---------- Worker + AgentInstance（2026-08-26 P1：多 Worker 部署隔离） ----------

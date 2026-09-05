@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using AgentBoard.Api.Durable;
 using AgentBoard.Api.Features.DurableWorkflow;
 using AgentBoard.Api.Tests.Infrastructure;
+using AgentBoard.Application.Identity;
 using AgentBoard.Contracts;
 using AgentBoard.Domain.Entities;
 using AgentBoard.Domain.Identity;
@@ -28,7 +30,7 @@ public sealed class DurableWorkflowControllerTests : IClassFixture<ApiWebApplica
     [Fact]
     public async Task Disabled_surface_rejects_before_mutating_the_durable_plane()
     {
-        using var client = _factory.CreateClient();
+        using var client = NewAuthenticatedClient(_factory);
         var version = DevelopmentOnlyVersion("version-disabled");
 
         var response = await client.PostAsJsonAsync("/api/durable-workflows/versions", version, Wire);
@@ -44,7 +46,7 @@ public sealed class DurableWorkflowControllerTests : IClassFixture<ApiWebApplica
     public async Task Enabled_start_selects_an_owned_online_agent_and_hides_manual_graph_mutation()
     {
         using var factory = ApiWebApplicationFactory.CreateDurable();
-        using var client = factory.CreateClient();
+        using var client = NewAuthenticatedClient(factory);
         var taskId = await SeedEligibleTask(factory.Services);
         var version = DevelopmentOnlyVersion("version-http");
 
@@ -86,6 +88,20 @@ public sealed class DurableWorkflowControllerTests : IClassFixture<ApiWebApplica
         var stage = snapshot.RootElement.GetProperty("stages")[0].GetProperty("stage");
         stage.GetProperty("stage_type").GetInt32().Should().Be((int)StageType.Development);
         stage.GetProperty("state").GetInt32().Should().Be((int)StageRunState.Running);
+    }
+
+    private static HttpClient NewAuthenticatedClient(ApiWebApplicationFactory factory)
+    {
+        // The durable gate rejects anonymous callers (401) before the enabled
+        // check, so every request here must present an identity. A locally
+        // issued HMAC bearer (v1) is validated entirely inside the BFF — no
+        // FastAPI round-trip — which keeps this a hermetic controller test.
+        using var scope = factory.Services.CreateScope();
+        var tokens = scope.ServiceProvider.GetRequiredService<ITokenService>();
+        var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", tokens.IssueToken(1));
+        return client;
     }
 
     private static WorkflowVersion DevelopmentOnlyVersion(string versionId)
