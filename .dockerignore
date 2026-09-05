@@ -42,6 +42,14 @@ tests/
 .vscode/
 .workbuddy/
 .DS_Store
-src/frontend/node_modules/
+# Node dependencies can also exist in temporary nested checkouts used by
+# local tooling. Docker's build context walks those paths too, and Windows
+# filesystem metadata on them is not portable to the Linux build tar stream.
+**/node_modules/
 src/frontend/dist/
 src/frontend/.angular/
+
+# Runtime-control worktrees and other disposable task output are never build
+# inputs. Excluding the whole directory keeps all service builds reproducible
+# without depending on the host's temporary filesystem modes.
+tmp/

@@ -18,12 +18,14 @@ WORKDIR /src
 COPY src/backend-dotnet/AgentBoard.slnx src/backend-dotnet/AgentBoard.slnx
 COPY src/backend-dotnet/Directory.Build.props src/backend-dotnet/Directory.Build.props
 COPY src/backend-dotnet/global.json src/backend-dotnet/global.json
+COPY src/contracts/AgentBoard.Contracts/AgentBoard.Contracts.csproj src/contracts/AgentBoard.Contracts/AgentBoard.Contracts.csproj
 COPY src/backend-dotnet/src/AgentBoard.Api/AgentBoard.Api.csproj src/backend-dotnet/src/AgentBoard.Api/AgentBoard.Api.csproj
 COPY src/backend-dotnet/src/AgentBoard.Application/AgentBoard.Application.csproj src/backend-dotnet/src/AgentBoard.Application/AgentBoard.Application.csproj
 COPY src/backend-dotnet/src/AgentBoard.Domain/AgentBoard.Domain.csproj src/backend-dotnet/src/AgentBoard.Domain/AgentBoard.Domain.csproj
 COPY src/backend-dotnet/src/AgentBoard.Infrastructure/AgentBoard.Infrastructure.csproj src/backend-dotnet/src/AgentBoard.Infrastructure/AgentBoard.Infrastructure.csproj
 COPY src/backend-dotnet/tests/AgentBoard.Api.Tests/AgentBoard.Api.Tests.csproj src/backend-dotnet/tests/AgentBoard.Api.Tests/AgentBoard.Api.Tests.csproj
 COPY src/backend-dotnet/tests/AgentBoard.Application.Tests/AgentBoard.Application.Tests.csproj src/backend-dotnet/tests/AgentBoard.Application.Tests/AgentBoard.Application.Tests.csproj
+COPY src/backend-dotnet/tests/AgentBoard.Domain.Tests/AgentBoard.Domain.Tests.csproj src/backend-dotnet/tests/AgentBoard.Domain.Tests/AgentBoard.Domain.Tests.csproj
 COPY src/backend-dotnet/tests/AgentBoard.Infrastructure.Tests/AgentBoard.Infrastructure.Tests.csproj src/backend-dotnet/tests/AgentBoard.Infrastructure.Tests/AgentBoard.Infrastructure.Tests.csproj
 
 RUN dotnet restore src/backend-dotnet/AgentBoard.slnx
@@ -33,6 +35,7 @@ FROM restore AS build
 WORKDIR /src
 
 COPY src/backend-dotnet/ src/backend-dotnet/
+COPY src/contracts/ src/contracts/
 
 RUN dotnet publish src/backend-dotnet/src/AgentBoard.Api/AgentBoard.Api.csproj \
     --configuration Release \
