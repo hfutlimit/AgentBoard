@@ -5,13 +5,15 @@ const {readFileSync} = require('node:fs');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const html = readFileSync(path.join(__dirname,'../src/nodes/AgentBoard.Node/WorkerOwned/ConfigurationPortal.html'),'utf8');
-let saved,revision='v1';
+let saved,revision='v1',addFailure=false,addRequests=0;
 const initial={enabled:true,reconcileSeconds:5,projects:[{projectId:16,localPath:'E:\\sample'}],agents:[
  {id:'a',provider:'codex',enabled:true,workKinds:['dev'],projectIds:[16],prePrompt:'common-before',postPrompt:'common-after',prompts:{dev:{pre:'dev-before',post:'dev-after'}},runtime:{command:'codex',arguments:['exec','--json'],model:'terra',timeoutMinutes:30}},
  {id:'b',provider:'codex',enabled:true,workKinds:['qa'],projectIds:[16],prePrompt:'b-before',postPrompt:'b-after',prompts:{},runtime:{command:'codex',arguments:['exec'],model:'terra',timeoutMinutes:30}}
 ]};
 const dom = new JSDOM(html,{url:'http://127.0.0.1:18240/',runScripts:'dangerously',beforeParse(w){
  w.confirm=()=>true;
+ w.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','')};
+ w.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open')};
  w.fetch=async(url,request)=>{
   assert.equal(request.headers['X-AgentBoard-Worker-Key'],undefined);
   assert.equal(request.headers['X-AgentBoard-Local-Portal'],'1');
@@ -19,6 +21,11 @@ const dom = new JSDOM(html,{url:'http://127.0.0.1:18240/',runScripts:'dangerousl
   if(url.endsWith('/configuration')){
    if(request.method==='PUT'){const body=JSON.parse(request.body);assert.equal(body.revision,revision);saved=body.configuration;revision='v2'}
    result={configuration:structuredClone(saved||initial),revision};
+  }else if(url.endsWith('/agents')){
+   addRequests++;if(addFailure)return{ok:false,text:async()=>JSON.stringify({detail:'Simulated save conflict'})};
+   const body=JSON.parse(request.body);assert.equal(body.revision,revision);
+   saved=structuredClone(saved||initial);saved.agents.push({id:body.id,provider:body.provider,enabled:false,workKinds:[],prompts:{},prePrompt:'',postPrompt:'',runtime:{command:body.provider,model:body.model,arguments:['exec','--json'],timeoutMinutes:30}});
+   revision='created-'+addRequests;result={configuration:structuredClone(saved),revision};
   }else if(url.endsWith('/status'))result={configurationOnly:true,serverUrl:'http://prod.test',apiCredentialConfigured:true,brokerConfigured:true,brokerHost:'mq.test',workerId:'local',configPath:'local.json'};
   else if(url.endsWith('/projects'))result={items:[{id:16,name:'Real project shape'},{id:17,name:'Second project'}],total:2};
   else throw Error('Unexpected request '+url);
@@ -68,9 +75,35 @@ const change=(selector,value)=>{const el=d.querySelector(selector);el.value=valu
  d.querySelector('#reload').click();await flush();
  assert.equal(d.querySelector('#pre').value,'通用 pre 编辑');
  change('#scope','dev');assert.equal(d.querySelector('#post').value,'开发 post 编辑');
- d.querySelector('#addAgent').click();assert.equal(d.querySelectorAll('[data-agent]').length,3);
- change('#provider','workbuddy');assert.equal(d.querySelector('#command').value,'workbuddy');
- assert.equal(d.querySelector('#arguments').value,'--print\n--output-format\njson');
+ const options=selector=>[...d.querySelector(selector).options].filter(o=>!o.disabled).map(o=>o.value);
+ assert.deepEqual(options('#model'),['gpt-5.6-terra','gpt-5.6-sol','gpt-5.6-luna']);
+ d.querySelector('#addAgent').click();assert.equal(d.querySelectorAll('[data-agent]').length,2);
+ assert.equal(d.querySelector('#addAgentDialog').open,true);
+ change('#newProvider','workbuddy');assert.deepEqual(options('#newModel'),['hy4-preview','glm-5.3-flash']);
+ change('#newProvider','minimax');assert.deepEqual(options('#newModel'),['m3']);
+ d.querySelector('#cancelAddAgent').click();assert.equal(d.querySelector('#addAgentDialog').open,false);
+ assert.equal(addRequests,0);
+ change('#post','Unsubmitted existing edits');
+ d.querySelector('#addAgent').click();change('#newAgentId','a');
+ const submit=()=>d.querySelector('#addAgentForm').dispatchEvent(new w.Event('submit',{cancelable:true}));
+ submit();await flush();assert.match(d.querySelector('#addAgentError').textContent,/已存在/);assert.equal(addRequests,0);
+ change('#newAgentId','new-codex');change('#newModel','gpt-5.6-sol');addFailure=true;
+ submit();await flush();assert.equal(d.querySelectorAll('[data-agent]').length,2);
+ assert.equal(d.querySelector('#addAgentDialog').open,true);assert.match(d.querySelector('#addAgentError').textContent,/Simulated save conflict/);
+ addFailure=false;submit();submit();await flush();
+ assert.equal(addRequests,2);assert.equal(d.querySelectorAll('[data-agent]').length,3);
+ assert.equal(d.querySelector('#addAgentDialog').open,false);
+ assert.equal(d.querySelector('#model').value,'gpt-5.6-sol');
+ assert.equal(d.querySelector('#agentEnabled').checked,false);
+ assert.equal(saved.agents[2].enabled,false);
+ assert.equal(saved.agents[0].prompts.dev.post,'开发 post 编辑');
+ d.querySelector('[data-agent="0"]').click();change('#scope','dev');assert.equal(d.querySelector('#post').value,'Unsubmitted existing edits');
+ d.querySelector('[data-agent="2"]').click();
+ change('#provider','workbuddy');assert.equal(d.querySelector('#command').value,'codebuddy');
+ assert.deepEqual(options('#model'),['hy4-preview','glm-5.3-flash']);
+ assert.equal(d.querySelector('#arguments').value,'-p\n-y\n--output-format\ntext');
+ change('#model','glm-5.3-flash');assert.equal(d.querySelector('#model').value,'glm-5.3-flash');
+ change('#provider','minimax');assert.deepEqual(options('#model'),['m3']);
  d.querySelector('#removeAgent').click();assert.equal(d.querySelectorAll('[data-agent]').length,2);
  dom.window.close();console.log('PASS: seven kinds, production project shape, prompt scopes, independent profiles, save/reload, provider switch, add/remove.');
 })().catch(e=>{dom.window.close();console.error(e);process.exitCode=1});

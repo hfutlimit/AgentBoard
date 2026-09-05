@@ -17,12 +17,13 @@ public sealed class WorkerOwnedOptions
     {
         if (!Enabled) return;
         ValidateConfiguration();
+        if (Projects.Length == 0) throw new InvalidOperationException("Map a project before starting execution");
     }
 
     public void ValidateConfiguration()
     {
         if (Projects is null || Agents is null) throw new InvalidOperationException("Projects and Agents are required");
-        if (Projects.Length == 0 || Agents.Length == 0)
+        if ((Projects.Length == 0 && Agents.Any(a => a.Enabled)) || Agents.Length == 0)
             throw new InvalidOperationException("WorkerOwned requires explicit local Projects and Agents");
         if (Projects.Select(p => p.ProjectId).Distinct().Count() != Projects.Length
             || Agents.Select(a => a.Id).Distinct(StringComparer.Ordinal).Count() != Agents.Length)
@@ -37,7 +38,7 @@ public sealed class WorkerOwnedOptions
                 throw new InvalidOperationException("Agent configuration fields cannot be null");
             if (string.IsNullOrWhiteSpace(agent.Id) || string.IsNullOrWhiteSpace(agent.Runtime.Command)
                 || agent.Provider is not ("codex" or "workbuddy" or "minimax")
-                || agent.WorkKinds.Length == 0
+                || (agent.Enabled && agent.WorkKinds.Length == 0)
                 || agent.WorkKinds.Any(k => !WorkerWorkKinds.All.Contains(k, StringComparer.Ordinal)))
                 throw new InvalidOperationException($"Agent '{agent.Id}' needs a supported provider and explicit work kinds; projects are Worker-wide");
             if (agent.Runtime.TimeoutMinutes is < 1 or > 1440
@@ -97,6 +98,7 @@ public sealed class LocalAdapterFactory(IProcessExecutor process, ILoggerFactory
         var runtime = System.Text.Json.JsonSerializer.Deserialize<AgentOptions>(
             System.Text.Json.JsonSerializer.Serialize(profile.Runtime))!;
         runtime.AgentBoardToken = "";
+        runtime.Arguments = LocalAgentCatalog.ModelArguments(runtime.Arguments, runtime.Model);
         var options = Options.Create(new AgentsOptions
         {
             Codex = runtime, WorkBuddy = runtime, MiniMax = runtime,

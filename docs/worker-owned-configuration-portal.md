@@ -4,6 +4,10 @@
 
 ## 可配置内容
 
+- 新增 Agent 先弹窗填写 ID、执行工具和模型；成功保存到本机后进入详细配置。新实例默认停用、无工作类型，不领取任务。取消/校验失败不会新增；新增不会顺带保存其他实例尚未保存的编辑。
+- 模型下拉随工具联动：Codex 为 `gpt-5.6-sol / gpt-5.6-terra / gpt-5.6-luna`；WorkBuddy 为 `hy4-preview / glm-5.3-flash`；MiniMax 为 `m3`。模型选择会作为 CLI `--model` 参数传入，并替换历史参数中的模型值。已有非列表模型保留为不可选提示，不静默改写。
+- 添加接口 `/api/local/agents` 使用同样的回环/同源检查和配置 revision CAS。它仅创建本机配置，不注册生产 Agent、不安装 CLI、不执行模型探测。
+
 - 多个独立 Agent 实例：ID、启用状态、Codex / WorkBuddy / MiniMax、模型、CLI 程序、参数和超时。
 - 项目：从生产 `GET /api/projects` 分页读取可见项目，先通过 `/api/auth/me` 校验真实身份；本机保存项目 ID → checkout 绝对路径。
 - 独立的「项目路径 Mapping」页面（`/#projects`）：项目范围属于 Worker，所有本地 Agent 自动参与全部映射项目，不再逐个 Agent 选项目。历史 Agent.ProjectIds 被忽略，保存时移除；升级后项目范围会扩大到 Worker 的全部映射，启动前请核对。

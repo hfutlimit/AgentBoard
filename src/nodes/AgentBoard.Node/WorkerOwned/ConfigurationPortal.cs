@@ -44,6 +44,13 @@ public static class ConfigurationPortal
             return await next(context);
         });
         group.MapGet("/configuration", () => Results.Ok(store.Read()));
+        group.MapPost("/agents", (CreateLocalAgentRequest request) =>
+        {
+            try { return Results.Ok(store.AddAgent(request)); }
+            catch (ConfigurationConflictException) { return Results.Conflict(new { detail = "配置已变化，请重新加载后添加。" }); }
+            catch (Exception e) when (e is InvalidOperationException or ArgumentException)
+            { return Results.BadRequest(new { detail = e.Message }); }
+        });
         group.MapPut("/configuration", (ConfigurationSnapshot request) =>
         {
             try { return Results.Ok(store.Save(request)); }

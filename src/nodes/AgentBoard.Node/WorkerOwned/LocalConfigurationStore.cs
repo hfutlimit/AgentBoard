@@ -58,6 +58,17 @@ public sealed class LocalConfigurationStore(string path, WorkerOwnedOptions defa
         }
     }
 
+    public ConfigurationSnapshot AddAgent(CreateLocalAgentRequest request)
+    {
+        var profile = LocalAgentCatalog.Create(request);
+        var snapshot = Read();
+        if (snapshot.Revision != request.Revision) throw new ConfigurationConflictException();
+        if (snapshot.Configuration.Agents.Any(a => a.Id == profile.Id))
+            throw new ArgumentException("Agent ID already exists");
+        snapshot.Configuration.Agents = [.. snapshot.Configuration.Agents, profile];
+        return Save(snapshot); // CAS inside Save also protects concurrent additions.
+    }
+
     private string Revision() => Convert.ToHexString(SHA256.HashData(File.Exists(FilePath)
         ? File.ReadAllBytes(FilePath) : Encoding.UTF8.GetBytes(JsonSerializer.Serialize(defaults, Json))));
 
