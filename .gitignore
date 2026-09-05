@@ -141,6 +141,7 @@ commit_msg.txt
 # Worker local secret slot — never commit live tokens (was leaked @65e6460; template is tracked instead)
 # P7b (2026-09-03): path renamed with src/workers/AgentBoard.ProposalWorker -> src/nodes/AgentBoard.Node
 src/nodes/AgentBoard.Node/appsettings.Local.json
+src/workers/AgentBoard.ProposalWorker/appsettings.Local.json
 
 # ===== MCP 文档导出快照（MCP 端是真源，本地仅离线阅读，不入库） =====
 docs/mcp/

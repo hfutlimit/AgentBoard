@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 import shlex
 import subprocess
 from pathlib import Path
@@ -48,8 +49,10 @@ log = logging.getLogger("agentboard.processors.invokers")
 #   AGENTBOARD_WORKER_AGENT_COMMANDS = {"<alias>": "<cmd template>", ...}
 #       alias = 通道名（minimax / codebuddy / workbuddy ...），key 顺序即为
 #       兜底优先级（first wins），值与旧的 AGENTBOARD_WORKER_AGENT_CMD 格式一致
-#   AGENTBOARD_WORKER_AGENT_ROUTING  = {"<action>": "<alias>", ...}
+#   AGENTBOARD_WORKER_AGENT_ROUTING  = {"<action>": "<alias>" | ["<alias>", ...], ...}
 #       action = Worker 已知的路由键（见 KNOWN_ROUTING_ACTIONS）；未列出 → 走首条
+#       值可为单个 alias 字符串，也可为候选 alias 列表；列表时在该 action 的候选里
+#       **随机挑一个**（配合能力门：实操类只列有 MCP 的 codebuddy，决策类可列多个）。
 #
 # 兼容：AGENTBOARD_WORKER_AGENT_CMD（旧单值）依然受 SubprocessProcessorInvoker
 # 独立支持；只要新路由变量未设，旧用法不变。
@@ -131,8 +134,8 @@ def parse_agent_command_map() -> dict[str, str]:
     return out
 
 
-def parse_agent_routing() -> dict[str, str]:
-    """读 AGENTBOARD_WORKER_AGENT_ROUTING，返回 {action: alias}。
+def parse_agent_routing() -> dict[str, str | list[str]]:
+    """读 AGENTBOARD_WORKER_AGENT_ROUTING，返回 {action: alias 或候选列表}。
 
     action 先经历史别名归一化，再校验是否在 KNOWN_ROUTING_ACTIONS 内；
     未知键 **告警后忽略**（不再静默丢弃）—— 配错路由是排障噩梦。
@@ -150,21 +153,23 @@ def parse_agent_routing() -> dict[str, str]:
     if not isinstance(data, dict):
         log.warning("AGENTBOARD_WORKER_AGENT_ROUTING 必须是 JSON 对象，忽略")
         return {}
-    out: dict[str, str] = {}
+    out: dict[str, str | list[str]] = {}
     for k, v in data.items():
         action = str(k).strip()
         action = _ROUTING_ACTION_ALIASES.get(action, action)
-        alias = str(v).strip() if v is not None else ""
         if action not in KNOWN_ROUTING_ACTIONS:
             log.warning(
                 "AGENTBOARD_WORKER_AGENT_ROUTING 含未知路由键 %r"
                 "（已知：%s），该条被忽略 —— 请核对 Worker 实际产生的 action",
                 k, list(KNOWN_ROUTING_ACTIONS))
             continue
-        if not alias:
+        # 值可为单个 alias 字符串，或候选 alias 列表（列表 = 在该 action 候选里随机选）
+        raw_aliases = v if isinstance(v, list) else ([] if v is None else [v])
+        aliases = [str(a).strip() for a in raw_aliases if a is not None and str(a).strip()]
+        if not aliases:
             log.warning("AGENTBOARD_WORKER_AGENT_ROUTING 键 %r 的 alias 为空，忽略", k)
             continue
-        out[action] = alias
+        out[action] = aliases if isinstance(v, list) else aliases[0]
     return out
 
 
@@ -182,7 +187,7 @@ class RoutedSubprocessInvoker:
     last_invoker: SubprocessProcessorInvoker | None = None
 
     def __init__(self, commands: dict[str, str] | None = None,
-                 routing: dict[str, str] | None = None,
+                 routing: dict[str, str | list[str]] | None = None,
                  fallback: SubprocessProcessorInvoker | None = None,
                  timeout: int = 900, cwd: str | None = None,
                  env: dict | None = None,
@@ -194,8 +199,12 @@ class RoutedSubprocessInvoker:
                 "若只需单 agent 请直接用 SubprocessProcessorInvoker + AGENTBOARD_WORKER_AGENT_CMD"
             )
         routing = routing if routing is not None else parse_agent_routing()
-        # alias 校验：routing 里出现的 alias 必须在 commands 里存在
-        unknown = [a for a in routing.values() if a not in cmds]
+        routing = {
+            key: [aliases] if isinstance(aliases, str) else list(aliases)
+            for key, aliases in routing.items()
+        }
+        # alias 校验：routing 候选里出现的每个 alias 都必须在 commands 里存在
+        unknown = sorted({a for aliases in routing.values() for a in aliases if a not in cmds})
         if unknown:
             raise ValueError(
                 f"AGENTBOARD_WORKER_AGENT_ROUTING 引用了未定义的 alias：{unknown}；"
@@ -204,7 +213,7 @@ class RoutedSubprocessInvoker:
         # 按声明顺序排 alias（dict 保序）—— 兜底取 first
         self.aliases: list[str] = list(cmds.keys())
         self.fallback_alias: str = self.aliases[0]
-        self.routing: dict[str, str] = dict(routing)
+        self.routing: dict[str, list[str]] = dict(routing)
         self.prompt_builder: Callable[[dict], str] | None = prompt_builder
         # 子 invoker 池：与旧 SubprocessProcessorInvoker 共享 cwd / env / timeout / prompt_builder
         self._children: dict[str, SubprocessProcessorInvoker] = {
@@ -216,15 +225,26 @@ class RoutedSubprocessInvoker:
         }
 
     def route(self, action_or_work_type: str) -> tuple[str, SubprocessProcessorInvoker]:
-        """按 work_type 或 action 选 alias + 子 invoker。未命中 → 兜底第一条。"""
-        key = str(action_or_work_type or "").strip()
+        """按 work_type 或 action 选 alias + 子 invoker。
+
+        候选是列表时随机挑一个（不检查负载；单元素列表=确定走那条）；
+        未命中路由 → 兜底第一条。
+        """
+        key = str(getattr(action_or_work_type, "value", action_or_work_type) or "").strip()
         key = _ROUTING_ACTION_ALIASES.get(key, key)
-        alias = self.routing.get(key) or self.fallback_alias
+        candidates = self.routing.get(key)
+        alias = random.choice(candidates) if candidates else self.fallback_alias
         return alias, self._children[alias]
 
     def _prepare_routed_execution(self, context: dict) -> tuple[str, SubprocessProcessorInvoker, dict]:
-        work_type = str((context or {}).get("work_type") or "").strip()
-        action = str((context or {}).get("action") or "").strip()
+        def _norm_key(v: object) -> str:
+            # WorkType 是 str 枚举：str(枚举) 得到 "WorkType.PROPOSAL_CLARIFY"，
+            # 而路由表键用的是 value（"proposal_clarify"）—— 必须先取 .value 再匹配，
+            # 否则永远命中不了、全部回退到 commands 首条。非枚举值原样返回。
+            v = getattr(v, "value", v)
+            return str(v or "").strip()
+        work_type = _norm_key((context or {}).get("work_type"))
+        action = _norm_key((context or {}).get("action"))
 
         # 优先使用显式 work_type 匹配，未配置时回退到 action
         target_key = work_type if work_type and (work_type in self.routing or _ROUTING_ACTION_ALIASES.get(work_type) in self.routing) else action

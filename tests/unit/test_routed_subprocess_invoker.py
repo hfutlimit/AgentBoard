@@ -13,6 +13,7 @@ import os
 import json
 import subprocess  # noqa: F401  (ensure invokers can be imported without runtime CLI)
 import sys
+import pytest
 from pathlib import Path
 from unittest import mock
 
@@ -63,6 +64,54 @@ def test_parse_commands_rejects_non_object(monkeypatch):
 def test_parse_routing_rejects_non_object(monkeypatch):
     _patch_env(monkeypatch, {"a": "b"}, "not-a-dict")
     assert parse_agent_routing() == {}
+
+
+def test_candidate_routing_preserves_legacy_strings_and_normalizes_lists(monkeypatch):
+    monkeypatch.setenv("AGENTBOARD_WORKER_AGENT_ROUTING", json.dumps({
+        "clarify": "minimax",
+        "review": [" codebuddy ", None, "", "minimax"],
+        "process_story": [],
+    }))
+    assert parse_agent_routing() == {
+        "clarify": "minimax",
+        "review_task": ["codebuddy", "minimax"],
+    }
+
+
+def test_candidate_routing_selects_only_configured_candidates():
+    invoker = RoutedSubprocessInvoker(
+        commands={"fallback": "echo fallback", "first": "echo first", "second": "echo second"},
+        routing={"clarify": ["first", "second"]},
+    )
+    with mock.patch("agentboard.processors.invokers.random.choice", return_value="second") as choose:
+        alias, child = invoker.route("clarify")
+    choose.assert_called_once_with(["first", "second"])
+    assert alias == "second"
+    assert child is invoker._children["second"]
+
+
+def test_candidate_routing_rejects_unknown_alias():
+    with pytest.raises(ValueError, match="missing"):
+        RoutedSubprocessInvoker(
+            commands={"known": "echo known"},
+            routing={"clarify": ["known", "missing"]},
+        )
+
+
+def test_enum_work_type_routes_before_action_without_changing_input():
+    from agentboard.processors.contract import WorkType
+
+    invoker = RoutedSubprocessInvoker(
+        commands={"fallback": "echo fallback", "clarifier": "echo clarifier"},
+        routing={"proposal_clarify": ["clarifier"], "clarify": "fallback"},
+    )
+    invoker._children = _FakeChildren({"fallback": "echo fallback", "clarifier": "echo clarifier"})
+    context = {"work_type": WorkType.PROPOSAL_CLARIFY, "action": "clarify"}
+    invoker.invoke(context)
+    assert invoker.last_routed == "clarifier"
+    assert invoker.route(WorkType.PROPOSAL_CLARIFY)[0] == "clarifier"
+    assert invoker.last_invoker.invocations[0]["_routed_work_type"] == "proposal_clarify"
+    assert "_routed_alias" not in context
 
 
 def test_routes_by_action(monkeypatch):
