@@ -2,30 +2,30 @@
 
 ### Requirement: Worker-owned 本机配置台提供隔离的任务记录
 
-在 Worker-owned 模式下，系统 SHALL 在本机配置台的每个当前配置 Agent 详情中提供“基本信息、任务类型、提示词、任务记录”四个中文标签。任务记录 SHALL 只展示当前 Worker/Server scope 与当前 Agent 的本机持久化执行尝试；系统不得用服务端 AgentRun、生产 API、旧 `ExecutionStore` 或 `/api/executions` 填充该页面。切换标签或 Agent SHALL 保留尚未保存的配置编辑，历史记录 SHALL 不因 Agent 停用、移除或 Worker 重启而删除；重新创建同 ID 的 Agent 后 SHALL 可查看同一 scope 的既有记录。
+在 Worker-owned 模式下，系统 SHALL 在每个当前配置 Agent 详情提供“基本信息、任务类型、提示词、任务记录”四个中文标签。任务记录 SHALL 只展示当前 Worker/Server scope 和当前 Agent 的本机持久化 attempt；不得用服务端 AgentRun、生产 API、旧 `ExecutionStore` 或 `/api/executions` 填充。切换标签或 Agent SHALL 保留未保存编辑；历史不得因停用、移除或重启删除，重建同 ID Agent 后可在同 scope 查看。列表 SHALL 以 `(started_at, record_id)` 倒序 keyset cursor 分页，默认 20 且服务端限制页大小；详情 SHALL 走可回退 hash 路由并显示状态演进、交付状态和受控详情。默认列表不得展示审计标识、凭据、提示词、完整 context、绝对路径或 token。
 
-列表 SHALL 按开始时间和稳定 record ID 倒序以 keyset cursor 分页，默认 20 条且服务端限制页大小；页面 SHALL 提供刷新、上一页、下一页、加载、空和错误状态。详情 SHALL 可经可回退 hash 路由访问，并显示本机 Agent、Provider/模型、工作类型、关联业务项、起止时间、状态演进、结果或错误详情，以及交付确认状态。默认列表不得显示凭据、提示词、完整上下文、绝对工作目录或原始 token；审计标识只可在详情按需显示。
+#### Scenario: 当前 Agent 的安全分页与详情返回
 
-#### Scenario: 当前 Agent 查看本机隔离记录并返回详情
+- **GIVEN** 同一 SQLite 有不同 scope 或 Agent 的记录，当前配置含 `design-a`
+- **WHEN** 操作者切换 `design-a` 的任务记录、翻页、打开详情并返回
+- **THEN** 仅显示当前 scope/Agent 的稳定倒序记录，前后页不重复或跳项
+- **AND** draft、详情路由、返回和浏览器前进后退均保持可用
+- **AND** 页面不渲染 token、凭据、提示词、context 或绝对路径
 
-- **GIVEN** 同一数据库中存在不同 scope 或不同 Agent 的本机执行历史，且当前本机配置包含 Agent `design-a`
-- **WHEN** 操作者切换到 `design-a` 的“任务记录”标签、翻到下一页并打开一条记录详情后返回
-- **THEN** 列表只显示当前 scope 和 `design-a` 的倒序记录，且前后页不重复或跳过记录
-- **AND** 详情和返回路由保持可用，未保存的基本信息、任务类型和提示词编辑仍然保留
-- **AND** 页面未显示 token、凭据、提示词、完整上下文或绝对路径
+### Requirement: 本机历史具有可恢复状态事件与严格安全边界
 
-### Requirement: 本机任务记录安全持久化、恢复与只读访问
+系统 SHALL 在 `HistoryDatabasePath` 维护独立于 `WorkJournal`/`ExecutionStore` 的 history records 与只追加状态 events，并以 canonical Server origin + Worker ID 绑定 scope。一次 attempt SHALL 由 `work_id` 和 fenced token 指纹唯一标识。每次状态转换 SHALL 在同一事务更新记录快照并追加有序事件；详情 SHALL 返回完整事件序列。Provider 前 SHALL 已持久化 `running`；journal 保存原始结果后 SHALL 为 `result_pending_delivery`；completion 确认后 SHALL 为 `succeeded`；Provider、校验或明确 fail 路径 SHALL 为 `failed`；启动恢复遗留 `running` SHALL 为 `interrupted`。
 
-系统 SHALL 在当前 Worker 的 `HistoryDatabasePath` 中维护独立于 `WorkJournal` 和 `ExecutionStore` 的 Worker-owned 历史表，并以 canonical Server origin 与 Worker ID 绑定 scope。一次物理执行尝试 SHALL 由 `work_id` 和 fenced claim token 指纹唯一标识；token 本身不得持久化到可见历史或返回给浏览器。Provider 实际执行前 SHALL 已经持久化 `running` 记录；journal 已保存结构化结果而服务端 completion 未确认时 SHALL 为 `result_pending_delivery`；completion 确认后 SHALL 为 `succeeded`；Provider、校验或明确 fail 路径 SHALL 为 `failed`。启动恢复 SHALL 将遗留 `running` 标为 `interrupted`，保留已有 journal 结果用于只补交付，且展示历史或恢复扫描不得调用 Provider。
+系统 SHALL 保持当前 journal cleanup：成功 completion 不删除 journal，仅既有明确 fail 成功和换 token 冲突可删除。journal 成功而 pending 失败、或 completion 成功而 succeeded 写入失败时，Worker SHALL 保留 journal 并在持锁恢复/对账中幂等补写，且不得重调 Provider。历史 GET/恢复扫描不得调用 Provider；GET 不得请求生产 API、读取 journal raw result、暴露旧 `/api/executions`。
 
-所有结果、错误和状态备注 SHALL 在持久化与返回前进行集中脱敏和长度限制。系统 SHALL 拒绝跨 scope 数据；历史写入或 scope 初始化失败时 SHALL fail-closed，不得静默调用未记录的 Provider，并留下不含 secret 的本机诊断日志。
+结果投影 SHALL 限于七种 work kind 的显式 allowlist；未知字段和 raw JSON SHALL 不持久化或返回。错误详情 SHALL 使用固定安全代码而非原始异常。写入和 DTO SHALL 有集中脱敏与长度限制。scope 初始化或必要历史写入失败时 SHALL fail-closed，不得静默调用未记录 Provider，并留下无 secret 的本机诊断。
 
-系统 SHALL 在既有 `/api/local` 的 loopback、Host、同源与 no-store 安全边界下提供：`GET /api/local/agents/{agentId}/work-records`（限制 cursor、状态过滤和页大小的摘要分页）及 `GET /api/local/work-records/{recordId}`（已脱敏详情）。这两个接口 SHALL 不请求生产 API、不读取/暴露 journal 原始结果、不暴露旧 `/api/executions`，并对非法参数返回 400、未知 Agent/跨 scope/不存在记录返回 404、本机来源校验失败返回 403，响应均不得含敏感内部信息。
+两个 GET SHALL 处于 `/api/local` 的 loopback、Host、同源、`X-AgentBoard-Local-Portal: 1` 与 no-store 边界：`/agents/{agentId}/work-records` 提供受签名 cursor/状态/页大小限制的摘要，`/work-records/{recordId}` 提供 scope/当前 Agent 限定的详情。非法参数 SHALL 为 400，未知 Agent、跨 scope、已移除 Agent 或不存在记录 SHALL 为 404，本机来源/portal 标记失败 SHALL 为 403，响应不得含敏感内部信息。
 
-#### Scenario: 回执超时后重启只补交付而不重跑 Provider
+#### Scenario: pending 与 completion 写入故障不会重跑 Provider
 
-- **GIVEN** Provider 已成功产生结构化结果且该结果已写入 WorkJournal 和本机历史的 `result_pending_delivery`，但 fenced completion 的网络响应超时
-- **WHEN** Worker 重启、重新取得同一工作并进行正常恢复/回执
-- **THEN** Worker 使用 journal 中的已保存结果补交付，不再次调用 Provider
-- **AND** 服务端 completion 确认后本机历史变为 `succeeded` 和已确认交付
-- **AND** 两条本机 GET 接口仅返回脱敏投影，跨 scope 或非本机来源的请求不能读取该记录
+- **GIVEN** Provider 结果已经成功写入 WorkJournal
+- **WHEN** pending 历史写入失败，或 `/complete` 返回成功但 succeeded 历史写入失败，Worker 重启/重放
+- **THEN** Worker 保留 journal 并只执行幂等历史对账、必要发布和 fenced completion，不再次调用 Provider
+- **AND** 状态恢复后事件序列可显示 pending、confirmed 或安全失败事实
+- **AND** 成功 completion 不会因为本功能删除 journal

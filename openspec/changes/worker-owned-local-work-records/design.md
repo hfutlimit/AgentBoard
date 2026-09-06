@@ -1,148 +1,105 @@
 # Design: Worker-owned 本机任务记录页面
 
-## 1. 范围和不变量
+## 1. 范围、决策和不变量
 
-本设计只扩展 `src/nodes/AgentBoard.Node/WorkerOwned/ConfigurationPortal.html` 及其本机 .NET host。记录代表**当前 Worker-owned 实例**的一次实际执行尝试，不是服务端 AgentRun，也不是旧 `ExecutionStore` 的执行记录。它不读取或混入其他 Worker、其他 Server scope 或生产 API 数据。
+本设计只扩展 `src/nodes/AgentBoard.Node/WorkerOwned/ConfigurationPortal.html` 和同进程的 .NET host。记录代表当前 Worker-owned 实例的一次物理执行尝试，不是服务端 AgentRun，也不是旧 `ExecutionStore` 的执行记录；历史读取不混入其他 Worker、Server scope 或生产 API 数据。
 
-下列不变量必须保持：
+1. 历史使用 `HistoryDatabasePath` 的同一 SQLite 文件，但完全独立于 `worker_owned_journal` 和旧存储。`WorkJournal` 仍保存 claim token 与原始结果供 fenced 重放；历史只保存可展示投影，接口从不读取 journal 原始结果。
+2. 兼容现有 `WorkerOwnedService`：成功 `/complete` 后不调用 `WorkJournal.Remove`；仅服务端明确 `/fail` 成功和 `new_token_required` 保持既有 Remove 行为。不得在本 change 中宣称或实现“成功后删除 journal”。
+3. `scope = canonical-server-origin + "|" + worker_id`。历史 identity 首次创建原子写入该 scope；身份不符、数据库损坏、恢复或必要写入失败都 fail-closed，不删除或重建数据库。
+4. Provider 实际调用前，`running` 和其首个状态事件必须在一个 SQLite 事务中提交。失败时不得调用 Provider；仅写安全本地日志，按现有 fenced fail/retry 边界退出。
+5. 历史 GET 不调用 Provider、Server API、journal replay 或运行控制。只有已持锁运行的 `WorkerOwnedService` 能做恢复、对账、发布与补交付。
+6. 停止仍为 drain：停止领取新工作、等待当前调用结束。顶部状态唯一来自 `LocalWorkerRuntime.StatusAsync`。
 
-1. 历史表独立于 `worker_owned_journal`；journal 仍是“claim 身份/原始结果优先落盘、完成后可删除”的重放账本，`ExecutionStore` 和 `/api/executions` 不改变语义。
-2. 历史只存可向本机操作者展示的脱敏审计投影；原始 structured result 仅继续由 journal 保存以完成 fenced 回执，不能被历史接口读出。
-3. 每一条历史记录都强制绑定 `scope = canonical-server-origin + "|" + worker_id`。即使共享同一 `HistoryDatabasePath`，查询、写入、详情和启动恢复均带该 scope。
-4. Provider 调用前，`running` 记录必须同步提交成功；若失败，Provider 不得启动，应记录本地诊断并沿既有 claim 的 fail/retry 边界处理。
-5. 历史 GET 绝不调用 Provider、Server API、journal replay 或运行控制。恢复/补交付只能由已经在运行的 `WorkerOwnedService` 执行。
-6. 停止仍只设置 drain、停止领取新工作、等待当前调用结束；状态仍唯一来自 `LocalWorkerRuntime.StatusAsync`。
-
-## 2. 组件和数据流
+## 2. 组件、存储与状态事件
 
 ```text
-Rabbit delivery
-  -> fenced claim (WorkJournal: work id + token + optional raw result)
-  -> LocalWorkRecordStore.CreateRunning (durable local audit projection)
-  -> Provider
-  -> WorkJournal.Save(raw structured result)
-  -> LocalWorkRecordStore.MarkResultPendingDelivery(redacted summary/detail)
-  -> optional DesignDocumentPublisher
-  -> fenced /complete
-  -> LocalWorkRecordStore.MarkSucceeded
-     \-> on provider/validation/explicit failure: MarkFailed
+claim accepted -> journal claim -> CreateRunning + event (atomic) -> Provider
+  -> WorkJournal.Save(raw result) -> MarkPending + event (atomic) -> publish if design
+  -> fenced /complete -> MarkSucceeded + event (atomic)
+                 \-> provider/validation/explicit fail -> MarkFailed + event
 
-ConfigurationPortal GET
-  -> LocalWorkRecordStore.List(scope, agent, cursor, state)
-  -> LocalWorkRecordStore.Get(scope, record id)
-  -> sanitized DTO only
+Worker startup/replay (process lock held)
+  -> RecoverRunning -> interrupted event
+  -> journal/result reconciliation -> pending or succeeded event, never Provider
+
+portal GET -> LocalWorkRecordStore scoped DTOs only
 ```
 
-新增 `LocalWorkRecordStore`（或等价的 WorkerOwned 专属存储）使用 `NodeOptions.HistoryDatabasePath` 的同一 SQLite 文件，但创建自己的 `worker_owned_work_records` 与 `worker_owned_work_record_identity` 表；不得把 schema 塞进或复用 `worker_owned_journal`。初始化沿用 WAL/FULL durability 设置，并通过 identity 表在首次使用时原子写入 scope。已有 journal 所在数据库若被其他 scope 绑定，历史存储同样 fail-closed；保留数据库并要求新路径，而非清空或接管。
+`LocalWorkRecordStore` 建立下列专属表，初始化使用 WAL 与 `synchronous=FULL`：
 
-`WorkerOwnedService` 将一个 in-memory attempt handle（record id、work id、claim token 指纹）贯穿 claim、执行和回执。token 仅参与唯一性/关联，绝不写入响应或页面；持久化时保存不可逆 SHA-256 指纹，日志也不记录 token。应以 `(scope, work_id, claim_token_fingerprint)` 做唯一约束；同一 fenced token 的重新投递更新同一条 attempt，新 token 创建新的 attempt。
+| 表 | 关键列和约束 | 用途 |
+| --- | --- | --- |
+| `worker_owned_work_record_identity` | `singleton=1`, `scope`, `cursor_key`（随机 32-byte secret） | 原子 scope 绑定及签名 cursor；key 永不返回/记录。 |
+| `worker_owned_work_records` | `record_id` 随机 UUID/ULID PK；`scope`；`work_id`；`claim_token_fingerprint`；`agent_id/provider/model/work_kind`；安全业务项投影；状态、交付状态、时间和投影字段；`UNIQUE(scope, work_id, claim_token_fingerprint)` | 一条物理 attempt 的当前快照。 |
+| `worker_owned_work_record_events` | `scope`, `record_id`, `sequence`, `occurred_at`, `state`, `delivery_state`, `event_code`; `UNIQUE(scope, record_id, sequence)` | 只追加的、可展示完整状态演进。 |
 
-## 3. 本地历史数据模型
+记录表至少索引 `(scope, agent_id, started_at DESC, record_id DESC)`、`(scope, state, started_at DESC, record_id DESC)`；事件按 `(scope, record_id, sequence)` 读取。任何状态变更在同一事务内更新 record、将 `sequence + 1` 的事件追加并更新时间。相同 attempt 的 `CreateRunning` 返回既有 handle 而不重复事件；所有后续 transition 以 record id、scope 和期望前态 compare-and-set，重复调用返回已达成状态，非法倒退失败。详情按 sequence 升序返回事件，故“完整状态演进”不依赖会被覆盖的备注列。
 
-表 `worker_owned_work_records` 至少包括：
+业务项只投影已 claim work 的 `entity_type` 和 `entity_id`（如“任务 #1716”），不保存标题或 context。token 只作为 SHA-256 指纹参与唯一约束，绝不进入事件、DTO、页面或日志。
 
-| 字段 | 说明 |
-| --- | --- |
-| `record_id` TEXT PK | 随机不可猜测 UUID/ULID；不是 work id 或 token。 |
-| `scope` TEXT NOT NULL | canonical server origin + `|` + Worker ID；所有索引和查询的一部分。 |
-| `work_id` INTEGER NOT NULL | 服务端业务工作 ID，仅在本机详情中作为审计标识按需展示。 |
-| `claim_token_fingerprint` TEXT NOT NULL | SHA-256 token 指纹，用于 attempt 去重，不返回。 |
-| `agent_id`, `provider`, `model`, `work_kind` | 运行时已选择的本机 Agent、Provider/模型和七种工作类型。 |
-| `business_item_id`, `business_item_label` | 从已 claim 的 work 安全投影得到的关联业务项；label 限长，不保存完整 context。 |
-| `state` | `running`、`result_pending_delivery`、`succeeded`、`failed`、`interrupted`。 |
-| `started_at`, `ended_at`, `updated_at` | UTC 时间；`ended_at` 仅终态/中断写入。 |
-| `result_summary`, `result_detail` | 已脱敏、限长的结果投影；detail 只在详情接口返回。 |
-| `failure_summary`, `failure_detail` | 已脱敏、限长的失败投影；detail 只在详情接口返回。 |
-| `delivery_state`, `delivered_at` | `not_applicable` / `pending` / `confirmed`；用于明确“结果待交付”。 |
-| `transition_note` | 已脱敏、限长的状态迁移说明（例如启动恢复中断），不含异常堆栈。 |
+## 3. 状态机、故障窗口和恢复对账
 
-索引为 `(scope, agent_id, started_at DESC, record_id DESC)` 和 `(scope, state, started_at DESC, record_id DESC)`。`business_item_label` 取安全的类型/ID/标题摘要；若来源字段不能安全取得，只保存类型和 ID，不回退保存整段业务 context。
+状态为 `running`、`result_pending_delivery`、`succeeded`、`failed`、`interrupted`；交付状态为 `not_applicable`、`pending`、`confirmed`。事件代码是受控枚举：`created`、`journal_result_saved`、`completion_confirmed`、`provider_failed`、`validation_failed`、`explicit_fail_confirmed`、`recovered_interrupted`、`pending_reconciled`、`completion_reconciled`，页面以中文静态映射显示，不能写任意备注。
 
-所有可展示文本先经一个中心 `WorkRecordRedactor` 处理，再写库、再作为 DTO 输出。它需要：删除/遮盖常见 JSON secret 名（token、password、secret、authorization、api key 等，大小写不敏感）；遮盖 bearer/token 值、长高熵 token 类字符串；把 Windows、Unix 和 UNC 绝对路径替换为“本机路径已隐藏”；将控制字符标准化；分别限制摘要（例如 500 字符）、详情（例如 8 KiB）和错误详情（例如 4 KiB）。限制常量由实现集中定义并用边界测试锁定。不能可靠识别的敏感业务全文不得被采集；历史 detail 应从已验证的结果字段白名单形成，而非直接复制 `OutputJson`、prompt 或 `context`。
+| 时点/故障 | Worker 行为 | 历史事实与后续恢复 |
+| --- | --- | --- |
+| claim 已接受，Provider 前 | `CreateRunning` 成功后才调用 Provider；若失败，不调用 Provider，也不 `/complete`。 | 有 record 则 `running`；无 record 时只安全本地诊断，保留/按既有契约处理 claim。 |
+| Provider/解析/校验失败 | 先 `MarkFailed`，成功后调用既有 `/fail`；失败落库失败时不发送 `/fail`，保留 journal/claim 供重试并记录诊断。 | `failed/not_applicable` 有追加事件；不可持久化时不会伪造成功。 |
+| `WorkJournal.Save(raw)` 成功，`MarkPending` 失败 | 不发布设计文档、不 `/complete`，保留 journal 原始结果，作为可重试的本地历史故障退出。 | 下次相同 token 的 Worker replay 先由 journal 原始结果生成严格投影并幂等 `EnsurePending`；不得调用 Provider。 |
+| pending 成功，`/complete` 传输失败 | 保持 pending 与 journal；抛出以走现有 requeue/replay。 | 后续 claim/replay 只补发布（如适用）和 completion，不重调 Provider。 |
+| `/complete` 2xx，`MarkSucceeded` 失败 | 不调用 `/fail`、不删除 journal；在当前 Worker 作有界退避重试。仍失败则安全日志并结束本次消息。 | 启动/领取恢复用 journal identity 查询 Worker 专用工作状态；已完成则幂等 `MarkSucceeded`，仍活动则保持 pending。此对账不调用 Provider。 |
+| 启动时遗留 `running` | 取得进程锁后、消费前 `RecoverRunning(scope)`。 | 原子转 `interrupted/not_applicable` 并追加 `recovered_interrupted`；若同 attempt journal 有 result，`EnsurePending` 后只补交付。无 result 永久保留，中断后的新 token 建新 attempt。 |
 
-## 4. 状态迁移和恢复
+`ReconcilePendingAndJournal(scope)` 仅在 Worker 持有进程锁、初始化成功后以及正常 replay 中运行。它只枚举本机 journal/历史 identity；必要时调用 Worker 已有的工作状态/claim/complete 契约确定服务器已完成、失败或仍活动。服务器已完成才写 `succeeded/confirmed`，服务器失败才写 `failed/not_applicable`，未知/传输失败保持 pending 并稍后重试。它不访问页面请求路径、不会删除成功 journal、不会把 record 的展示结果作为原始结果来源，也不会创建 Provider。
 
-```text
-Create before Provider: running
-Provider returns and journal raw result fsync succeeds: result_pending_delivery / pending
-fenced complete confirmed: succeeded / confirmed
-provider, parsing, validation or explicit fail path: failed / not_applicable
-process startup finds previous running without terminal transition: interrupted / not_applicable
-```
+## 4. 严格可展示投影与脱敏边界
 
-- 创建 `running` 必须发生在 Provider 实际调用前。claim 失败、未被接受或被其他 Agent 拒绝时不创建“执行中”记录。
-- Provider 输出经过现有结构校验，且 `WorkJournal.Save` 成功后，历史更新为 `result_pending_delivery`。即使随后 HTTP completion 超时，这个状态仍是准确的本机事实。
-- 服务端 `/complete` 仅在成功响应后调用 `MarkSucceeded`；失败回执、Provider 失败或业务校验失败调用 `MarkFailed`，并记录安全摘要。历史更新失败不得把业务成功改写成失败；必须写本地日志并让执行路径保留可重试/可诊断事实。
-- `WorkerOwnedService` 在取得数据库与进程锁后、开始消费前执行 `RecoverInterrupted(scope)`：把前次遗留的 `running` 标为 `interrupted`，写入“执行在 Worker 重启前中断；等待正常领取/恢复决策”。它不推测 Provider 是否完成，不伪造成功。
-- 若 `WorkJournal` 已有 raw result，后续正常 claim/replay 直接执行 `DesignDocumentPublisher`（如适用）和 fenced completion；不调用 Provider。对应历史先/保持为 `result_pending_delivery`，成功回执后转 `succeeded`。
-- 没有 journal result 的 `interrupted` attempt 永久保留作为一次中断审计；以后获准重试时，现有 fenced-claim 规则决定是否执行，使用新 token 的物理尝试另建记录。页面浏览、刷新、详情和恢复标记本身永不重新调用 Provider。
+Provider `OutputJson` 是不可信任任意 JSON。`WorkRecordProjection` 必须先完成已有业务校验，再按 kind 读取下表的**唯一允许字段**；任何未知字段、对象、数组、`summary`、`spec`、`content`、`artifacts`、`test_steps`、`test_results`、`evidence`、`defects` 文本、URL、prompt 或 context 一律不持久化。缺失或类型/值不合格时结果详情退化为固定“已取得结构化结果，等待/完成交付”，不得复制 raw JSON。
+
+| work kind | 可持久化/返回的结果投影 | 禁止内容 |
+| --- | --- | --- |
+| `proposal` | `decision` 仅 `ask`/`finalize`；`create_ticket` 布尔值 | `spec`、ticket plan、问题/摘要文本。 |
+| `design` | `commit` 仅 40/64 位十六进制；`design_document_id` 仅正整数 | 文档标题、内容、URL、artifacts、summary。 |
+| `design_review` | `decision` 仅 `approve`/`discuss` | findings、evidence、summary。 |
+| `dev` | `commit` 仅 40/64 位十六进制 | summary、测试和任意实现输出。 |
+| `dev_review` | `decision` 仅 `approve`/`discuss` | findings、evidence、summary。 |
+| `qa` | `tests_passed` 布尔；`defect_count` 为已验证 defects 数量，最大 100 | defects 文本、部署/测试步骤和结果。 |
+| `qa_review` | `decision` 仅 `approve`/`discuss`/`confirm` | findings、证据、QA follow-up。 |
+
+结果摘要由固定中文句式和上述已验证标量组成；详情只是相同受控标量的标签化展示。失败摘要/详情不复制 `Exception.Message`、provider `ErrorMessage`、HTTP body 或堆栈，而是 `ProviderFailed`、`OutputMissing`、`OutputInvalid`、`JournalSaveFailed`、`HistoryWriteFailed`、`CompletionTransport`、`CompletionRejected`、`LeaseLost`、`Cancelled`、`Unknown` 等固定代码、中文说明和 retryable 布尔值。
+
+所有允许字符串仍经中心 `WorkRecordRedactor` 两次处理（写入前和 DTO 前）：移除 secret 键，遮盖 Bearer/token/高熵值，替换 Windows/Unix/UNC 绝对路径，标准化控制字符，并限制摘要 500 字符、结果详情 8 KiB、失败详情 4 KiB、事件说明 200 字符。投影的白名单是主要边界；正则脱敏仅为纵深防御。测试必须对每种 kind 的未知敏感字段断言不落库、不出 DTO。
 
 ## 5. 受保护的本机接口
 
-接口挂在已有 `/api/local` group，复用 `ConfigurationPortal.IsLocalRequest` endpoint filter：请求必须来自 loopback peer、`localhost` 或 loopback Host，Origin 缺失或严格同源；所有响应 `Cache-Control: no-store`。这两个 GET 是只读，不额外要求 `X-AgentBoard-Local-Portal: 1`，但 portal fetch 仍附带该 header 以保持统一调用习惯。缺少/错误本地来源统一 403 且不泄露存储信息。
+两接口加入既有 `/api/local` group，保留 `ConfigurationPortal.IsLocalRequest` 的 loopback peer、loopback/localhost Host、空或严格同源 Origin 和 `Cache-Control: no-store`。历史 endpoints 再要求 `X-AgentBoard-Local-Portal: 1`，即使 GET 也必须有；失败统一 403、无存储信息。页面 fetch 已统一发送该 header。
 
 ### `GET /api/local/agents/{agentId}/work-records`
 
-仅返回当前 scope 和 `agentId` 的本机摘要。`agentId` 必须是当前本机配置中的已知 Agent；未知 Agent 返回 404（不枚举其他历史 Agent）。参数：
+`agentId` 必须是当前本机配置 Agent，否则 404；删除 Agent 时历史不删除但不可通过 API 枚举，重建相同 id 后可见。服务端以当前 scope、agent id 和可选 `state` 查询。
 
-| 参数 | 规则 |
-| --- | --- |
-| `cursor` | 可选、不透明 base64url 游标，编码 `started_at` + `record_id`，最大长度 512；非法、解码失败、scope/agent 不匹配为 400。 |
-| `state` | 可选枚举：`running`、`result_pending_delivery`、`succeeded`、`failed`、`interrupted`；其他值为 400。 |
-| `pageSize` | 可选整数；默认 20，服务端 clamp 到 1–100。 |
+- `pageSize`：缺省 20；可解析整数 clamp 到 1–100，非整数或超过合理参数长度返回 400。
+- `state`：缺省无筛选；仅五个状态，其他值 400。
+- `cursor`：最长 512 的 base64url；签名载荷含 scope、agent、state、`started_at`、`record_id` 和 identity `cursor_key` 的 HMAC。缺失可接受；解码、签名、过滤条件或 scope/agent 不匹配均 400。
 
-响应为 `{ items, nextCursor }`。每项包含 `recordId`、Agent、工作类型、关联业务项安全摘要、显示状态、开始/结束时间、耗时、结果摘要或失败摘要、`deliveryState`；没有 token、prompt、context、路径或原始结果。按 `(started_at DESC, record_id DESC)` keyset 分页，避免 offset 在新增记录下跳项或重复。
+返回 `{ items, nextCursor }`。`items` 含用于跳转的 `recordId`（页面默认不显示）、工作类型、业务项安全标签、状态、交付状态、开始/结束时间、耗时和受控结果或失败摘要。以 `(started_at DESC, record_id DESC)` keyset 查询，取 `pageSize + 1` 生成下一页，避免新增数据下 offset 跳项/重复。
 
 ### `GET /api/local/work-records/{recordId}`
 
-`recordId` 只接受 UUID/ULID 格式和合理长度。查询必须限定当前 scope；不存在、跨 scope 或不属于当前本机已配置 Agent 均返回 404。响应是单条已脱敏详情，除摘要外包含 Provider/模型、业务项、起止时间、完整状态演进（时间、状态、已脱敏备注）、结果或错误详情以及 delivery state/时间。它不接受 work id、token 或 agent override，且不会访问 Server/journal/provider。
+只接受合理长度 UUID/ULID。按当前 scope 查询，且所属 agent 必须仍是当前配置 Agent；不存在、跨 scope、已移除 agent 一律 404。返回摘要、Provider/模型、work kind、业务项、时间、交付状态/时间、严格投影详情、固定失败详情和按 sequence 升序的事件。审计 ID 仅由页面在折叠区展示；token、prompt、context、路径、raw result 绝不返回。参数/存储异常映射为无路径、连接串或 secret 的 400/500 problem detail 与安全本机结构化日志；接口不使用 HTTP client、journal、Provider、`ExecutionStore` 或 `/api/executions`。
 
-接口实现将 storage/format 例外映射为不含路径、连接串或 secret 的 400/500 problem detail，同时记录本地结构化日志；不得返回原始 SQLite 异常。
+## 6. 页面与路由
 
-## 6. 页面和路由
+每个 Agent 编辑区有四个中文标签：基本信息（ID、启用、工具、模型、CLI、超时）、任务类型（七种 work kind/职责）、提示词（通用/专属 pre/post、顺序说明）和任务记录。切换标签或 Agent 前调用 `readEditor()` 同步 DOM 至现有 `snap`；切换不保存、不重载、不变更 revision，故 draft 保留且多 Agent 隔离。
 
-保持顶部 Worker 状态和“保存并启动/停止执行”实现：页面继续调用 `GET /api/local/runtime` 的 `LocalWorkerRuntime.StatusAsync` 结果；开始操作先完成 revision-CAS 保存再请求 start；运行中重复点击由 runtime 的 gate 去重；停止只发 drain，只有当前 work 完成、Worker 退出后才显示“未启动”。
+任务记录首次进入和“刷新”调用列表，显示加载、错误、空态、上一页、下一页。列表 hash 为 `#agents/<encoded-agent-id>/work-records`，详情为 `#agents/<encoded-agent-id>/work-records/<record-id>`；`hashchange` 支持直接访问、前进/后退和“返回任务记录”。编码后再验证 route 参数，所有服务器文本 HTML escape，API 错误只显示固定中文提示。状态中文映射为“执行中、结果待交付、已成功交付、执行失败、执行中断/待恢复”；默认不渲染审计 ID、凭据、提示词、完整上下文、路径或 token。保留现有 runtime 状态、先 CAS 保存后启动、重复 start gate 和 drain stop 行为。
 
-每个 Agent 编辑区改为下列四个中文标签：
+## 7. 验收与测试
 
-1. **基本信息**：现有 Agent ID、启用、工具、模型、CLI、超时等字段。
-2. **任务类型**：现有七种 work kind 与职责说明。
-3. **提示词**：现有通用/专属 pre/post 和执行顺序说明。
-4. **任务记录**：当前 selected Agent 的本机历史，独立于编辑表单的 draft。
-
-切换标签时先调用既有 `readEditor()` 将 DOM 值同步入 `snap`，再切换可见 pane；不保存、不重载、不修改 revision，故未保存编辑不丢失。切换 Agent 也先同步当前 draft。任务记录标签首次进入及“刷新”时请求列表；展示加载、错误、空态、上一页/下一页。默认每页 20，前端不信任页面大小，显示服务端给出的分页结果。
-
-详情使用 hash 路由 `#agents/<encoded-agent-id>/work-records/<record-id>`，列表标签使用 `#agents/<encoded-agent-id>/work-records`。进入详情调用单条 GET，提供“返回任务记录”按钮和 `hashchange` 处理；直接打开、浏览器前进/后退均可恢复列表或详情。路由参数必须 `encodeURIComponent`/解码后校验，渲染一律 HTML escape。页面只使用中文业务文字，默认不显示审计 ID；详情可在“审计信息”折叠区显示 record/work ID，仍不显示 token、prompt、context 或路径。
-
-显示映射：`running=执行中`，`result_pending_delivery=结果待交付`，`succeeded=已成功交付`，`failed=执行失败`，`interrupted=执行中断/待恢复`。列表以开始时间倒序，结束时间为空时显示“进行中/未完成”，耗时按当前时间或结束时间计算。任何 API 错误在页面以无敏感中文提示展示，不把 response body 原样插入 DOM。
-
-## 7. 兼容性、错误处理和可观测性
-
-- 不迁移、不读取旧 `ExecutionStore` 表，不提供旧 `/api/executions` 到新路由的 alias；旧门户继续原样工作。
-- Agent 从本地配置移除后，历史不删除；同 ID Agent 重新创建后按相同 scope/agent id 可见既有记录。移除期间详情接口按“当前已配置 Agent”约束返回 404，防止历史成为已删除身份枚举端点。
-- scope 或数据库 identity 不匹配、存储损坏、写入失败、恢复扫描失败均 fail-closed：不消费/不调用 Provider，记录不含凭据的本机诊断。只读页面返回安全错误；不自动修复、删除或重建数据库。
-- 记录状态和 delivery state 是本机审计事实，不能以 Server 或 UI 推测覆盖。操作日志使用 record id、work id、agent、状态类别和异常类型，不写 raw context/token/输出。
-
-## 8. 验收与测试策略
-
-### 单元/存储测试
-
-- 新建、同 token 幂等、新 token 新 attempt、scope/agent 隔离、重开 SQLite 后持久化和不匹配 scope fail-closed。
-- 状态迁移：写前 running、journal-result 后 pending、completion 成功、失败、启动恢复 interrupted；恢复只处理 running。
-- 脱敏/限长覆盖 JSON secret、Bearer/token、路径、控制字符、超长文本及详情/摘要白名单；确认 DTO 永不含 token、prompt、context、绝对路径或 raw result。
-- keyset 分页（倒序、并列时间、无重复/漏项）、cursor 篡改/跨 agent/scope、状态筛选和大小边界。
-
-### HTTP/运行测试
-
-- loopback/host/origin 防护与 no-store 仍生效；非 loopback、DNS-rebind Host、跨源或缺失本机写标记（现有写 API）仍拒绝。历史 GET 不调用生产 HTTP client、provider 或旧 ExecutionStore。
-- 未知 Agent、跨 scope record、非法 record/cursor/status 返回明确的 400/404/403 且没有路径/凭据。
-- 用 fake adapter 验证：历史写入失败时 adapter 未调用；成功结果存 journal 后模拟 completion 网络错误再启动，adapter 不会二次调用且最终转成功；crash 前 running 变 interrupted。
-- `LocalWorkerRuntime` 重复 start 不创建第二消费者，stop 维持 draining 至 active work 完成；现有 runtime 测试保持通过。
-
-### 页面 DOM/交互测试
-
-- 四标签存在且为中文；基本信息/任务类型/提示词已有配置可编辑；多 Agent 切换和四标签切换不丢失 draft。
-- mock 本机接口验证任务记录的 loading/error/empty/list/pagination/refresh、状态文案、详情与 hash 返回/前进后退。
-- 断言默认列表与详情不渲染凭据、提示词、完整上下文、绝对路径或 token；审计标识仅在详情折叠区。
-
-QA 应在隔离的本地配置和 `HistoryDatabasePath` 上启动实际 portal/Worker，使用可控 fake provider 或隔离服务验证记录、分页、详情和 drain 回归；不得连接或变更生产环境。生产部署、真实 provider 执行和跨进程 crash E2E 不属于本 design 的已验证结论，实施后必须单独报告。
+- 存储：reopen、identity/scope/agent 隔离、同 token 幂等和新 token 新 attempt；record/event 同事务、完整有序事件、CAS 不倒退、五态迁移、分页和 cursor 签名篡改。
+- 故障/恢复：CreateRunning 失败 adapter 零调用；journal 成功/pending 失败不 complete、重启只补 pending；completion 2xx/MarkSucceeded 失败有界重试和 Worker 对账；网络超时重放不调 Provider；running 恢复 interrupted；保持既有 journal success 不 Remove 和 fail/new-token Remove。
+- 投影与安全：每种 work kind 允许字段、未知敏感字段、raw output、prompt/context/token、Bearer、secret、路径、控制字符和超长输入均不进入 SQLite/DTO/DOM；失败详情不含原始异常文本。
+- HTTP：loopback/Host/Origin/header/no-store、非法 cursor/state/record、未知/删除 Agent、跨 scope、500 安全映射；断言 GET 未实例化 Provider、未使用 production HTTP client、journal raw result、`ExecutionStore` 或 `/api/executions`。
+- DOM：四个中文标签、draft 保留、多 Agent 隔离、loading/error/empty/refresh/pagination、hash 详情/返回/前进后退、敏感内容不渲染；现有保存启动、重复启动与 drain 停止回归。
+- QA 在隔离配置、临时 `HistoryDatabasePath` 和 fake provider/隔离服务中实际验证 portal/Worker；不连接或变更生产环境。真实 provider、生产部署、跨进程 crash E2E 不在本 design 的已验证范围，实施后另报。

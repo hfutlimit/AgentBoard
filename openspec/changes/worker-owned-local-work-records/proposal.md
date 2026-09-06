@@ -2,31 +2,33 @@
 
 ## 背景
 
-Worker-owned 配置台已经能维护本机 Agent、保存配置并控制本机 Worker 的启动和排空停止，但不能向操作者说明某个本机 Agent 实际执行过什么、结果是否已成功交付、或 Worker 在重启前中断在何处。旧 `ExecutionStore` 与 `/api/executions` 服务于另一套执行模型；`WorkJournal` 则是完成后删除的 fenced-claim 重放账本。二者都不能作为本功能的用户可见历史来源。
+Worker-owned 配置台已能维护本机 Agent、保存配置并控制本机 Worker 的启动与排空停止，但操作者无法查看某个本机 Agent 的实际执行、交付确认或重启中断。旧 `ExecutionStore`/`/api/executions` 属于另一套执行模型；`WorkJournal` 是含 fenced claim token 与原始结果的运行重放账本，不能成为用户可见历史。
+
+当前 `WorkerOwnedService` 的成功 `/complete` 路径**不会**调用 `WorkJournal.Remove`；只有服务端明确 fail 成功和 `new_token_required` 冲突会清理 journal。本变更保持该既有 cleanup 语义，不以历史功能为由改变它。
 
 ## 目标
 
-- 在 `ConfigurationPortal.html` 的每个 Agent 详情中提供“基本信息、任务类型、提示词、任务记录”四标签，切换不丢失未保存配置编辑。
-- 在当前 `HistoryDatabasePath` 内增加独立、scope 绑定、长期保留的 Worker-owned 本机执行历史，按一次实际 attempt（`work_id` + fenced claim token）记录。
-- 为当前 portal 提供受既有本机安全边界保护的摘要分页和详情只读接口；接口不调用生产 API，不代理旧 `/api/executions`。
-- 如实显示运行、结果待交付、成功、失败与启动恢复中断；已有 journal 结果恢复时只补交付，不能因为记录展示而再次执行 Provider。
+- 在 `ConfigurationPortal.html` 的 Agent 详情提供“基本信息、任务类型、提示词、任务记录”四标签，切换不丢失未保存编辑。
+- 在 `HistoryDatabasePath` 内创建独立、scope 绑定、长期保留的 attempt 历史及追加状态事件；一次 attempt 由 `work_id` 与 fenced token 指纹唯一确定。
+- 提供受现有 loopback/Host/同源/no-store 边界及 portal 标记保护的本机只读分页、详情接口，不访问生产 API，也不代理旧执行接口。
+- 可靠反映执行、待交付、已交付、失败和恢复中断；journal 已有结果时只补交付，绝不因历史恢复或查询重调 Provider。
 
 ## 非目标
 
-- 不改造旧 Processor Portal、`ExecutionStore`、`/api/executions` 或服务端 AgentRun。
-- 不把完整业务上下文、提示词、凭据、token 或绝对工作目录持久化/返回给浏览器。
-- 不改变 Server fenced claim/complete/fail 契约、队列选择、单实例锁、配置 revision-CAS 或“停止执行=排空当前任务”的语义。
-- 本 change 不部署、不迁移生产数据库，也不让本机历史接口访问生产 API。
+- 不改造旧 Processor Portal、`ExecutionStore`、`/api/executions`、服务端 AgentRun、fenced claim/complete/fail 契约、队列、单实例锁或配置 revision-CAS。
+- 不变更 `WorkJournal` 的现有成功保留、明确失败/换 token 清理行为。
+- 不向历史持久化或浏览器返回完整上下文、提示词、凭据、token、绝对工作路径、原始 Provider 输出或原始异常文本。
+- 不部署、不迁移生产数据库；两条本机历史 GET 不请求生产 API。
 
 ## 影响范围
 
-- `src/nodes/AgentBoard.Node/WorkerOwned/`：新增历史存储、脱敏与 DTO，接入 `WorkerOwnedService`、`ConfigurationPortal`。
-- `src/nodes/AgentBoard.Node/WorkerOwned/ConfigurationPortal.html`：四标签、任务记录列表、详情 hash 路由与交互状态。
-- `src/nodes/AgentBoard.Node.Tests/`、`scripts/test_worker_owned_portal.cjs`：存储/恢复/API/页面行为回归。
+- `src/nodes/AgentBoard.Node/WorkerOwned/`：历史存储、追加事件、严格结果投影、恢复/对账和本机路由。
+- `ConfigurationPortal.html`：四标签、任务记录列表、详情 hash 路由与安全显示。
+- `src/nodes/AgentBoard.Node.Tests/`、`scripts/test_worker_owned_portal.cjs`：存储、故障窗口、接口安全和 DOM 回归。
 
 ## 风险与缓解
 
-- 历史写入失败若继续调用 Provider，会造成不可审计执行；将其视为执行前置条件失败，走既有 fail/retry 边界并写本地诊断日志。
-- 共享 SQLite 文件可能混读不同 Server/Worker；历史库使用与 journal 相同的稳定 scope，首次绑定后拒绝不匹配 scope，并且所有查询强制 scope 谓词。
-- 原始 Provider 输出与错误可能带敏感内容；写入前统一限长、移除已知 secret 键和值模式、归一化本机路径，接口只投影脱敏字段。
-- 崩溃窗口可能留下 running attempt；启动时一次性标记为“执行中断/待恢复”，若已有 journal 结果则只进入补交付路径；无结果 attempt 不会由查看页面触发 Provider。
+- Provider 前的历史写入失败会造成不可审计执行：视为前置失败，不调用 Provider，不确认完成，记录无 secret 的本机诊断并走已有 fail/retry 边界。
+- journal 成功而 pending 历史落库失败、或 completion 已确认而成功状态落库失败：保留 journal，停止该次交付并在 Worker 专属恢复/对账中幂等补写；绝不以查看历史重调 Provider。
+- 原始 JSON 与异常文本是不可信输入：按七种 work kind 建立允许字段投影；未知字段一律不用，失败详情使用固定错误代码而非原始文本，再进行集中脱敏与限长。
+- 同一 SQLite 被其他 Worker/Server 使用：历史 identity 原子绑定稳定 scope，所有读写含 scope 谓词，冲突 fail-closed 且不删除原库。
