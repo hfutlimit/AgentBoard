@@ -1423,33 +1423,59 @@ def reclaim_stale_tasks(
     后续写入（评审驳回回退、人工改派等），说明工作项仍在活跃流转，一律保护。
     只有「认领后无任何动静且超时」的行才视为持有者已死。
 
-    同样只回收 claimed_by 非空的行 —— 人工认领（assignee 直派 / apply /
-    arbitrate）不写租约列，天然不受影响。回收同时清 assignee_id 并释放。
+    回收范围（两类）：
+
+    1. ``claimed_by`` 非空且 ``claimed_at`` 超期 —— agent 显式认领的行；
+    2. active ``TaskAssignment.source == 'arbitration'`` —— apply → arbitrate
+       把任务推到 in_progress 但**不写租约列**（见
+       ``work_items.models.Task.claimed_by`` 注释）。MQ-less 部署里这条路径
+       没有任何租约，worker 掉了就永久卡住，且不回收会被
+       ``coordinator._poll_assigned_in_progress`` 每轮重投。
+
+    人工路径（``manual`` / ``schedule`` 且没有租约列）依旧不受影响。
+
+    回收必须同时**释放分配**：只清 ``assignee_id`` 而留着 ``current_assignment_id``
+    会让任务落回「todo + FK 非空 + active_slot 被占」的死结 —— 所有
+    claim/apply/arbitrate 路径都要求 FK 为 NULL，且
+    ``uq_task_assignment_active_slot`` 挡住新的 active 分配，于是回收本身
+    制造了 #1716 那个只能靠 admin force-clear 解开的状态（2026-09-07 回归）。
+    这里把原分配标成 ``released`` 并清指针，让任务真正可再认领。
     """
     if lease_seconds < 0:
         raise InvalidValue("lease_seconds must be >= 0")
     cutoff = utc_now() - timedelta(seconds=lease_seconds)
-    ids = [
-        row[0]
-        for row in s.query(Task.id)
+    rows = (
+        s.query(Task.id, Task.current_assignment_id)
+        .outerjoin(TaskAssignment, Task.current_assignment_id == TaskAssignment.id)
         .filter(
             Task.status == Status.IN_PROGRESS,
-            Task.claimed_by.isnot(None),
-            Task.claimed_by != "",
-            Task.claimed_at.isnot(None),
-            Task.claimed_at < cutoff,
             Task.updated_at < cutoff,
+            or_(
+                and_(
+                    Task.claimed_by.isnot(None),
+                    Task.claimed_by != "",
+                    Task.claimed_at.isnot(None),
+                    Task.claimed_at < cutoff,
+                ),
+                and_(
+                    Task.current_assignment_id.isnot(None),
+                    TaskAssignment.source == "arbitration",
+                ),
+            ),
         )
         .all()
-    ]
+    )
+    ids = [row[0] for row in rows]
     if not ids:
         return []
+    # 先记下「任务 → 当时的 active 分配」映射：UPDATE 会把指针清空，之后无从查证。
+    assignment_by_task = {row[0]: row[1] for row in rows if row[1] is not None}
     s.execute(
         update(Task)
         .where(
             Task.id.in_(ids),
             Task.status == Status.IN_PROGRESS,
-            Task.claimed_at < cutoff,
+            or_(Task.claimed_at.is_(None), Task.claimed_at < cutoff),
             Task.updated_at < cutoff,
         )
         .values(
@@ -1459,6 +1485,9 @@ def reclaim_stale_tasks(
             previous_status=None,
             claimed_by="",
             claimed_at=None,
+            current_assignment_id=None,
+            assignment_deferred_reason=None,
+            assignment_deferred_at=None,
         )
         .execution_options(synchronize_session=False),
     )
@@ -1471,6 +1500,24 @@ def reclaim_stale_tasks(
                 Task.claimed_by == "")
         .all()
     ]
+    # 释放确实被回收那些行的 active 分配：让 active_slot 空出来，
+    # 后续 try_assign_task 才能插入新的 active 行。
+    released_assignment_ids = [
+        assignment_by_task[tid] for tid in reclaimed
+        if tid in assignment_by_task
+    ]
+    released = 0
+    if released_assignment_ids:
+        result = s.execute(
+            update(TaskAssignment)
+            .where(
+                TaskAssignment.id.in_(released_assignment_ids),
+                TaskAssignment.status == "active",
+            )
+            .values(status="released", active_slot=None, completed_at=utc_now())
+            .execution_options(synchronize_session=False)
+        )
+        released = int(result.rowcount or 0)
     for tid in reclaimed:
         _record_status_history(s, tid, str(Status.IN_PROGRESS), str(Status.TODO),
                                changed_by=None, reason="租约到期回收（Worker 崩溃兜底）")
@@ -1480,8 +1527,8 @@ def reclaim_stale_tasks(
         if t is not None:
             _invalidate_project_stats_cache(t.project_id)
     if reclaimed:
-        log.warning("reclaim_stale_tasks: 回收 %d 条过期租约 task=%s",
-                    len(reclaimed), reclaimed)
+        log.warning("reclaim_stale_tasks: 回收 %d 条过期租约 task=%s 释放分配 %d 条",
+                    len(reclaimed), reclaimed, released)
     return reclaimed
 
 
