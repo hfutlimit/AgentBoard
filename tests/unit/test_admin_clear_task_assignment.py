@@ -179,6 +179,37 @@ def test_assignment_already_completed_does_not_overwrite(
     assert t.current_assignment_id is None
 
 
+def test_release_helpers_are_shared_and_idempotent(
+    session, task_with_assignment, admin_user,
+):
+    """5 个调用点共用的释放入口本身要可靠。"""
+    t, a = task_with_assignment
+
+    # 未知 outcome 必须当场报错，不能让脏值写进审计列
+    with pytest.raises(work_items_service.InvalidValue):
+        work_items_service.close_assignment_row(s=session, assignment_id=a.id,
+                                                 outcome="exploded")
+
+    # finalize：关槽位但保留审计指针
+    finalized = work_items_service.finalize_task_assignment(session, t)
+    session.refresh(t)
+    session.refresh(a)
+    assert finalized.status == "completed"
+    assert a.active_slot is None
+    assert t.current_assignment_id == a.id, "终态后指针是审计记录，不该解绑"
+
+    # 幂等：再来一次（例如 reclaim 与 admin 同时到达）不得覆盖先写者
+    again = work_items_service.close_assignment_row(
+        session, a.id, outcome="superseded",
+    )
+    assert again.status == "completed"
+
+    # 不 keep_pointer 的路径必须解绑，否则任务回到 todo 也认不了
+    work_items_service.release_task_assignment(session, t, outcome="released")
+    session.refresh(t)
+    assert t.current_assignment_id is None
+
+
 def test_writes_status_history_with_admin_reason(
     session, task_with_assignment, admin_user,
 ):

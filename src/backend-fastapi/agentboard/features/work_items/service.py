@@ -659,9 +659,9 @@ def claim_development_task(
     """Backward-compatible claim wrapper around the unified assignment CAS.
 
     认领成功后写租约列 claimed_by/claimed_at（与 stories/proposals 对齐），
-    供 reclaim_stale_tasks 判定持有 Worker 崩溃回收。注意：facade 绑定的是本
-    实现；``features.scheduling.service`` 里还有一个同名旧副本（含相同租约
-    写入），两处需同步维护 —— 历史拆分遗留，后续应收敛为单一实现。
+    供 reclaim_stale_tasks 判定持有 Worker 崩溃后回收。本函数是认领的
+    **唯一实现**：features/scheduling/service.py 里那份不建 TaskAssignment、
+    不查 durable 门的旧副本已于 2026-09-07 删除，不要再加第二份。
     """
     task, _assignment = try_assign_task(
         s,
@@ -676,23 +676,75 @@ def claim_development_task(
     return task
 
 
+# ---------------------------------------------------------------------------
+# Assignment 释放的唯一入口（2026-09-07 收口 review P0-4）
+#
+# 「关掉一次分配」这个动作原本在 5 个地方各写一遍（finalize / admin force-clear /
+# reclaim / worker retry / review reject），各自决定 status 与是否清
+# ``current_assignment_id``。同一个事实多处定义 = 状态漂移的源头，收敛到这里。
+# ---------------------------------------------------------------------------
+
+ASSIGNMENT_OUTCOMES = ("completed", "released", "cancelled", "superseded")
+
+
+def close_assignment_row(
+    s: Session, assignment_id: int | None, *, outcome: str,
+) -> TaskAssignment | None:
+    """把一次尝试（``TaskAssignment`` 行）置为终态并让出 active 槽位。
+
+    - 幂等：非 ``active`` 的行原样返回，绝不覆盖先写者（重放 / 双回调安全）。
+    - ``active_slot = None`` 是「这次尝试已结束」的硬标志：
+      ``uq_task_assignment_active_slot`` 靠它才允许同一 task 再分配。
+    """
+    if assignment_id is None:
+        return None
+    if outcome not in ASSIGNMENT_OUTCOMES:
+        raise InvalidValue(
+            f"unknown assignment outcome {outcome!r}; "
+            f"expected one of {ASSIGNMENT_OUTCOMES}"
+        )
+    assignment = s.get(TaskAssignment, assignment_id)
+    if assignment is None or assignment.status != "active":
+        return assignment
+    assignment.status = outcome
+    assignment.active_slot = None
+    assignment.completed_at = utc_now()
+    s.flush()
+    return assignment
+
+
+def release_task_assignment(
+    s: Session, task: Task, *, outcome: str = "completed",
+    keep_pointer: bool = False, clear_deferred: bool = False,
+    commit: bool = True,
+) -> TaskAssignment | None:
+    """关闭 task 当前分配；除 ``keep_pointer`` 外一律解开 ``current_assignment_id``。
+
+    ``keep_pointer=True`` 是 ``finalize_task_assignment`` 的终态语义：任务已经
+    done/blocked，指针继续指向真实跑过的那次执行（审计用，不是活锁）。其余路径
+    （租约回收 / admin 解锁 / worker 重试与返工）必须清指针，否则任务即使回到
+    todo 也永远无法再被认领。
+    """
+    assignment = close_assignment_row(
+        s, task.current_assignment_id, outcome=outcome,
+    )
+    if not keep_pointer:
+        task.current_assignment_id = None
+    if clear_deferred:
+        task.assignment_deferred_reason = None
+        task.assignment_deferred_at = None
+    if commit:
+        _commit(s)
+    return assignment
+
+
 def finalize_task_assignment(
     s: Session, task: Task, *, commit: bool = True,
 ) -> TaskAssignment | None:
     """Close the active slot while retaining the assignment audit pointer."""
-    if task.current_assignment_id is None:
-        return None
-    assignment = s.get(TaskAssignment, task.current_assignment_id)
-    if assignment is None or assignment.status != "active":
-        return assignment
-    assignment.status = "completed"
-    assignment.active_slot = None
-    assignment.completed_at = utc_now()
-    if commit:
-        _commit(s)
-    else:
-        s.flush()
-    return assignment
+    return release_task_assignment(
+        s, task, outcome="completed", keep_pointer=True, commit=commit,
+    )
 
 
 def admin_clear_task_assignment(
@@ -743,14 +795,9 @@ def admin_clear_task_assignment(
     if t.current_assignment_id is None:
         return t  # no-op: nothing to clear
     old_assignment_id = t.current_assignment_id
-    assignment = s.get(TaskAssignment, old_assignment_id)
-    if assignment is not None and assignment.status == "active":
-        assignment.status = "superseded"
-        assignment.active_slot = None
-        assignment.completed_at = utc_now()
-    t.current_assignment_id = None
-    t.assignment_deferred_reason = None
-    t.assignment_deferred_at = None
+    release_task_assignment(
+        s, t, outcome="superseded", clear_deferred=True, commit=False,
+    )
     _record_status_history(
         s,
         task_id,

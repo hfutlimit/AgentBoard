@@ -1501,23 +1501,17 @@ def reclaim_stale_tasks(
         .all()
     ]
     # 释放确实被回收那些行的 active 分配：让 active_slot 空出来，
-    # 后续 try_assign_task 才能插入新的 active 行。
-    released_assignment_ids = [
-        assignment_by_task[tid] for tid in reclaimed
-        if tid in assignment_by_task
-    ]
+    # 后续 try_assign_task 才能插入新的 active 行。语义走 work_items 的统一入口。
+    from ..work_items.service import close_assignment_row
+
     released = 0
-    if released_assignment_ids:
-        result = s.execute(
-            update(TaskAssignment)
-            .where(
-                TaskAssignment.id.in_(released_assignment_ids),
-                TaskAssignment.status == "active",
-            )
-            .values(status="released", active_slot=None, completed_at=utc_now())
-            .execution_options(synchronize_session=False)
-        )
-        released = int(result.rowcount or 0)
+    for tid in reclaimed:
+        assignment_id = assignment_by_task.get(tid)
+        if assignment_id is None:
+            continue
+        closed = close_assignment_row(s, assignment_id, outcome="released")
+        if closed is not None and closed.status == "released":
+            released += 1
     for tid in reclaimed:
         _record_status_history(s, tid, str(Status.IN_PROGRESS), str(Status.TODO),
                                changed_by=None, reason="租约到期回收（Worker 崩溃兜底）")
@@ -1781,52 +1775,12 @@ def report_run_result(s: Session, id: int, *, status: str, summary: str | None =
     _commit(s); s.refresh(run); return run
 
 
-def claim_development_task(s: Session, task_id: int, *, user_id: int,
-                           claimed_by: str = "worker") -> Task:
-    """开发任务竞争认领（Epic 122 切片 2 M1，CAS 并发安全；Story 265 后仅认领 todo）。
-
-    - 条件 UPDATE ``status = todo`` → ``in_progress + assignee_id=user_id``，
-      rowcount=1 才成功；并发下另一个写者获胜 → 明确错误（含现状）；
-    - 复用 Epic 118 护栏语义：已认领（in_progress/in_review 等）或已结束（done/blocked）
-      的任务拒绝重复认领，不创建 Run、不改状态；
-    - 认领是「系统操作」，绕开 TRANSITIONS 常规校验；
-    - Story 265 收敛：仅 todo 可认领（backlog 已下线，旧 backlog 数据由迁移脚本归并到 todo）。
-
-    认领成功同时写入租约（claimed_by/claimed_at）：持有者崩溃后由
-    ``reclaim_stale_tasks`` 回收。人工 set_status/apply 路径不写这两列，
-    因此回收只影响 agent 认领的行。
-    """
-    t = s.get(Task, task_id)
-    if not t:
-        raise NotFound(f"task {task_id} not found")
-    if t.status != Status.TODO:
-        raise InvalidValue(
-            f"task {task_id} already claimed or not claimable (status={t.status})")
-    old_status = t.status
-    now = utc_now()
-    r = s.execute(
-        update(Task).where(
-            Task.id == task_id,
-            Task.status == Status.TODO,
-        ).values(
-            status=Status.IN_PROGRESS,
-            assignee_id=user_id,
-            claimed_by=(claimed_by or "worker")[:100],
-            claimed_at=now,
-        )
-    )
-    if r.rowcount != 1:
-        s.rollback()
-        cur = s.get(Task, task_id)
-        raise InvalidValue(
-            f"task {task_id} claim conflict: already claimed "
-            f"(status={cur.status if cur else 'deleted'})")
-    _record_status_history(s, task_id, str(old_status), str(Status.IN_PROGRESS),
-                           changed_by=user_id, reason="claim")
-    _commit(s)
-    s.refresh(t)
-    _invalidate_project_stats_cache(t.project_id)
-    return t
+# 注：本模块曾有一份 ``claim_development_task`` 旧副本（Epic 122 拆分遗留），
+# 无任何调用方（facade 与 features/scheduling/__init__ 都绑的是 work_items 那份），
+# 且语义已经漂移：它不建 TaskAssignment、不查 durable/legacy 门，一旦被接回去就会
+# 在 durable 项目上产出「in_progress 但没有分配记录」的任务。2026-09-07 收口删除。
+# 认领的唯一实现：``features/work_items/service.py::claim_development_task``
+# （= try_assign_task CAS + 租约列）。
 
 
 def complete_story(s: Session, id: int, *, changed_by: int | None = None,

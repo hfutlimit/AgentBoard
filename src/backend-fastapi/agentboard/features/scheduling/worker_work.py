@@ -446,13 +446,10 @@ def reset_execution(s, obj):
         from ..proposals.service import set_proposal_status
         set_proposal_status(s, obj.id, "queued")
     else:
-        from .models import TaskAssignment
-        from ..work_items.service import set_status
-        old = s.get(TaskAssignment, obj.current_assignment_id) if obj.current_assignment_id else None
-        if old:
-            old.status, old.active_slot = "completed", None
-            old.completed_at = utc_now()
-        obj.current_assignment_id = None
+        from ..work_items.service import release_task_assignment, set_status
+        # 统一入口：关掉这次尝试（保留 completed 语义，供评审隔离识别
+        # 「本 task 由此 agent 实现过」）并解开 current_assignment_id。
+        release_task_assignment(s, obj, outcome="completed", commit=False)
         set_status(s, obj.id, "todo", reason="Worker retry after fenced attempt")
 
 
@@ -624,12 +621,8 @@ def complete(work_id: int, body: Completion, authorization: str | None = Header(
                 reviewer_agent_id=agent.id, reviewer_agent_name=agent.agent_id,
                 verdict=decision, comment=summary)
             if decision == "reject" and obj.status == "in_progress":
-                from .models import TaskAssignment
-                assignment = s.get(TaskAssignment, obj.current_assignment_id) if obj.current_assignment_id else None
-                if assignment:
-                    assignment.status, assignment.active_slot = "completed", None
-                    assignment.completed_at = utc_now()
-                obj.current_assignment_id = None
+                from ..work_items.service import release_task_assignment
+                release_task_assignment(s, obj, outcome="completed", commit=False)
                 set_status(s, obj.id, "todo", changed_by=agent.user_id, reason="Worker requested rework")
         else:
             if obj.status != "in_progress" or obj.assignee_id != agent.user_id:
