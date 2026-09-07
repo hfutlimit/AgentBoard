@@ -630,19 +630,58 @@ class ProcessorCoordinator:
             assignment_id = 0
         return ("task.assigned", "task", task_id, assignment_id)
 
+    @staticmethod
+    def _poll_cycle_retry_key(retry_key: tuple[str, str, int, int]) -> tuple[str, str, int, int]:
+        """Task 级计数桶（ref_id=0）：跨分配、封顶总轮数。"""
+        return (retry_key[0], retry_key[1], retry_key[2], 0)
+
     def _poll_assigned_exhausted(
         self, retry_key: tuple[str, str, int, int],
     ) -> bool:
-        """已死信 → 本轮跳过（MQ 有 ack，轮询没有，只能自己记账）。"""
+        """已死信 → 本轮跳过（MQ 有 ack，轮询没有，只能自己记账）。
+
+        两级预算：分配级（``WORKFLOW_RETRY_BACKOFF_SECONDS`` 次瞬时重试）与
+        Task 级（``config.task_max_cycles`` 份分配预算）。后者封住
+        「reclaim → 重新 arbitrate → 再烧一轮」的无界循环。
+        """
+        cycle_key = self._poll_cycle_retry_key(retry_key)
+        cycle_id = _execution_id_from_retry_key(cycle_key)
+        max_cycles = max(1, int(self.config.task_max_cycles or 1))
+        used_cycles = self._get_attempt(cycle_id)
+        if used_cycles >= max_cycles:
+            log.warning(
+                "Task #%s 已烧掉 %d/%d 份分配预算，Worker 停止自动重投（"
+                "需人工退回 todo 或清理 message_attempts）",
+                retry_key[2], used_cycles, max_cycles,
+            )
+            return True
         execution_id = _execution_id_from_retry_key(retry_key)
         attempt = self._get_attempt(execution_id)
-        if attempt < len(WORKFLOW_RETRY_BACKOFF_SECONDS):
-            return False
-        log.warning(
-            "Task #%s assignment#%s 轮询重投已达上限 %d，跳过（等租约回收或人工介入）",
-            retry_key[2], retry_key[3], len(WORKFLOW_RETRY_BACKOFF_SECONDS),
+        if attempt >= len(WORKFLOW_RETRY_BACKOFF_SECONDS):
+            log.debug(
+                "Task #%s assignment#%s 本轮预算用尽，等待回收",
+                retry_key[2], retry_key[3],
+            )
+            return True
+        return False
+
+    def _burn_poll_cycle(self, retry_key: tuple[str, str, int, int]) -> None:
+        """一份分配预算报废 → Task 级计数 +1。"""
+        cycle_key = self._poll_cycle_retry_key(retry_key)
+        cycle_id = _execution_id_from_retry_key(cycle_key)
+        used = self._get_attempt(cycle_id) + 1
+        max_cycles = max(1, int(self.config.task_max_cycles or 1))
+        self._set_attempt(
+            cycle_id, used,
+            last_error=f"assignment #{retry_key[3]} dead-lettered",
+            status="dead_lettered" if used >= max_cycles else "pending",
+            retry_key=cycle_key,
         )
-        return True
+        if used >= max_cycles:
+            log.error(
+                "Task #%s 达到 Worker 自动重投上限 %d 轮（最后一次分配 #%s）",
+                retry_key[2], max_cycles, retry_key[3],
+            )
 
     def _record_poll_attempt(
         self,
@@ -668,12 +707,18 @@ class ProcessorCoordinator:
                 "轮询派发 Task #%s 永久失败，死信：%s", retry_key[2],
                 result.summary or status,
             )
+            self._burn_poll_cycle(retry_key)
             return
+        new_attempt = attempt + 1
+        exhausted = new_attempt >= len(WORKFLOW_RETRY_BACKOFF_SECONDS)
         self._set_attempt(
-            execution_id, attempt + 1,
+            execution_id, new_attempt,
             last_error=result.summary or str(status),
-            status="pending", retry_key=retry_key,
+            status="dead_lettered" if exhausted else "pending",
+            retry_key=retry_key,
         )
+        if exhausted:
+            self._burn_poll_cycle(retry_key)
 
     def _dispatch_task(self, task: dict, *, event: str) -> ExecutionResult:
         """Build an ExecutionCommand for ``task`` and dispatch it.

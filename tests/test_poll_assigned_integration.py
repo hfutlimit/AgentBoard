@@ -473,3 +473,74 @@ def test_assigned_poll_inflight_duplicate_keeps_the_budget():
     assert coord._msg_retries == {}
     _poll(coord)
     assert coord.dispatch.call_count == 2
+
+
+def _poll_with_assignment(coord, assignment_id):
+    coord.client.get.return_value.json.return_value = [
+        {"id": 11, "type": "design", "current_assignment_id": assignment_id},
+    ]
+    return _poll(coord)
+
+
+def _run_assignment_round(coord, assignment_id) -> int:
+    """把一份分配预算跑到头：轮询 cap+1 轮，返回实际派发次数（应为 cap）。"""
+    from agentboard.processors.coordinator import WORKFLOW_RETRY_BACKOFF_SECONDS
+
+    cap = len(WORKFLOW_RETRY_BACKOFF_SECONDS)
+    before = coord.dispatch.call_count
+    for _ in range(cap + 1):
+        _poll_with_assignment(coord, assignment_id)
+    return coord.dispatch.call_count - before
+
+
+def test_assigned_poll_task_cycle_ceiling_stops_re_arbitration_loops():
+    """P0-2 的实质风险：reclaim → 重新 arbitrate → 又一份 6 次预算，可以无限续。
+
+    Task 级上限把总轮数封住：默认 3 份分配预算用完后 Worker 不再自动重投，
+    哪怕分配 id 一直在换。
+    """
+    from agentboard.processors.config import ProcessorConfig
+    from agentboard.processors.coordinator import WORKFLOW_RETRY_BACKOFF_SECONDS
+
+    cap = len(WORKFLOW_RETRY_BACKOFF_SECONDS)
+    config = ProcessorConfig(api_url="http://test", token="x",
+                             agent_id="cb-1", task_poll_enabled=True,
+                             task_max_cycles=2,
+                             mq=mock.MagicMock(enabled=False))
+    coord = _make_minimal_coord(config)
+    coord._msg_retries = {}
+    coord._session_factory = None
+    from agentboard.processors.contract import ExecutionResult, ExecutionStatus
+    result = mock.MagicMock(spec=ExecutionResult)
+    result.status = ExecutionStatus.FAILED_TRANSIENT
+    result.summary = "boom"
+    coord.dispatch = mock.MagicMock(return_value=result)
+
+    assert _run_assignment_round(coord, 101) == cap   # 烧掉第 1 轮
+    assert _run_assignment_round(coord, 102) == cap   # 烧掉第 2 轮 = 上限
+    assert _run_assignment_round(coord, 103) == 0     # Task 级预算已尽
+
+
+def test_assigned_poll_default_task_cycles_allows_three_rounds():
+    """默认 3 轮：前 3 份分配各自拿到完整预算，第 4 份被拒。"""
+    coord = _make_poll_coord(dispatch_status="failed_transient")
+    for assignment_id in (201, 202, 203):
+        assert _run_assignment_round(coord, assignment_id) > 0, assignment_id
+    assert _run_assignment_round(coord, 204) == 0
+
+
+def test_lease_shorter_than_agent_timeout_warns_at_config_time(caplog):
+    """P1-1 的最小正确版本：租约必须盖得住一次执行，否则回收会放掉活着的持有者。"""
+    import logging
+
+    from agentboard.processors.config import ProcessorConfig
+
+    with caplog.at_level(logging.WARNING, logger="agentboard.processors"):
+        ProcessorConfig(lease_seconds=600, agent_timeout=900)
+    assert any("AGENTBOARD_WORKER_LEASE" in rec.getMessage()
+               for rec in caplog.records)
+
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="agentboard.processors"):
+        ProcessorConfig()  # 默认 1800 > 900
+    assert not [r for r in caplog.records if "AGENTBOARD_WORKER_LEASE" in r.getMessage()]

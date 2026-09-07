@@ -99,7 +99,9 @@ class ProcessorConfig:
     poll_interval: float = 10.0
     # 单轮最多处理多少个提案，避免一个 Worker 长时间独占
     batch_size: int = 5
-    # analyzing 租约（秒）：超过即判定持有者已崩溃，回退 queued 重投
+    # analyzing 租约（秒）：超过即判定持有者已崩溃，回退 queued 重投。
+    # 同时是 reclaim_stale_tasks 的 lease_seconds —— 必须 > agent_timeout，
+    # 否则会回收仍在执行的持有者，造成同一 Task 双跑（见 __post_init__ 自检）。
     lease_seconds: int = 1800
     # 澄清轮次上限，防止 Agent 无限提问
     max_rounds: int = 5
@@ -114,6 +116,11 @@ class ProcessorConfig:
     # 单 Worker 部署必备,否则 task 被 arbitration 派到 in_progress
     # 后永远等不到 consumer (repro: #1716)。
     task_poll_enabled: bool = False
+    # 同一个 Task 允许烧掉几份「分配级重试预算」（AGENTBOARD_WORKER_TASK_MAX_CYCLES）。
+    # 一份 = WORKFLOW_RETRY_BACKOFF_SECONDS 次瞬时重试，用尽即对该分配死信；本字段
+    # 封顶跨分配的总轮数，防止 reclaim → 重新 arbitrate → 再烧一轮 的无界循环。
+    # 达到上限后只记日志 + message_attempts 可查，等人把任务退回 todo 重新认领。
+    task_max_cycles: int = 3
     # 消息总线（P2）。url 为空即禁用，Worker 回退 P1 轮询模式。
     mq: "mq.MQConfig" = field(default_factory=lambda: mq.MQConfig())
     # MQ 模式下的维护周期（秒）：回收超租约 + 自愈重投遗留工作项
@@ -137,6 +144,21 @@ class ProcessorConfig:
     # 生产建议开；灰度期可以一台 worker 开 + 一台不开对比
     use_coordinator: bool = True
 
+    def __post_init__(self) -> None:
+        """配置自检：租约必须盖得住一次执行，否则回收会放掉活着的持有者。
+
+        ``lease_seconds`` 同时是 reclaim_stale_tasks 的判定窗口；若它不大于
+        ``agent_timeout``，一次正常的长执行就会被判死、回收成 todo，随后被
+        第二个持有者重跑（同一 Task 双执行）。只告警不抛异常，避免打断启动。
+        """
+        if self.lease_seconds and self.agent_timeout and \
+                self.lease_seconds <= self.agent_timeout:
+            log.warning(
+                "配置风险：AGENTBOARD_WORKER_LEASE=%ss <= AGENTBOARD_WORKER_AGENT_TIMEOUT=%ss，"
+                "租约回收可能打断仍在执行的持有者导致重复执行；建议 lease >= timeout + 300s",
+                self.lease_seconds, self.agent_timeout,
+            )
+
     @classmethod
     def from_env(cls) -> "ProcessorConfig":
         return cls(
@@ -158,6 +180,7 @@ class ProcessorConfig:
             lease_seconds=_env_int("AGENTBOARD_WORKER_LEASE", 1800),
             max_rounds=_env_int("AGENTBOARD_WORKER_MAX_ROUNDS", 5),
             task_poll_enabled=_env_truthy("AGENTBOARD_WORKER_TASK_POLL"),
+            task_max_cycles=_env_int("AGENTBOARD_WORKER_TASK_MAX_CYCLES", 3),
             agent_cmd=os.getenv("AGENTBOARD_WORKER_AGENT_CMD", ""),
             agent_timeout=_env_int("AGENTBOARD_WORKER_AGENT_TIMEOUT", 900),
             async_story_executor=_env_int("AGENTBOARD_WORKER_ASYNC_STORY", 0) == 1,
