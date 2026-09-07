@@ -18,7 +18,7 @@ public static class LocalWorkRecordStates
 
 public sealed record LocalWorkRecordStart(long WorkId, string ClaimToken, string AgentId,
     string Provider, string Model, string WorkKind, string BusinessItem);
-public sealed record LocalWorkRecordSummary(string RecordId, string AgentId, string WorkKind,
+public sealed record LocalWorkRecordSummary(string RecordId, long WorkId, string AgentId, string WorkKind,
     string BusinessItem, string State, string DeliveryState, DateTimeOffset StartedAt,
     DateTimeOffset? EndedAt, string? Summary);
 public sealed record LocalWorkRecordEvent(int Sequence, DateTimeOffset OccurredAt, string State,
@@ -174,7 +174,7 @@ public sealed class LocalWorkRecordStore
         (string At, string Id)? position = cursor is null ? null : DecodeCursor(cursor, agentId, state);
         using var connection = Open(); using var cmd = connection.CreateCommand();
         cmd.CommandText = """
-            SELECT record_id,agent_id,work_kind,business_item,state,delivery_state,started_at,ended_at,result_summary,failure_code
+            SELECT record_id,work_id,agent_id,work_kind,business_item,state,delivery_state,started_at,ended_at,result_summary,failure_code
             FROM worker_owned_work_records WHERE scope=$scope AND agent_id=$agent
             AND ($state IS NULL OR state=$state)
             AND ($at IS NULL OR started_at<$at OR (started_at=$at AND record_id<$id))
@@ -192,16 +192,16 @@ public sealed class LocalWorkRecordStore
     public LocalWorkRecordDetail? Get(string id)
     {
         using var connection = Open(); using var cmd = connection.CreateCommand();
-        cmd.CommandText = "SELECT record_id,agent_id,work_kind,business_item,state,delivery_state,started_at,ended_at,result_summary,failure_code,provider,model,result_detail,retryable,delivered_at FROM worker_owned_work_records WHERE scope=$scope AND record_id=$id";
+        cmd.CommandText = "SELECT record_id,work_id,agent_id,work_kind,business_item,state,delivery_state,started_at,ended_at,result_summary,failure_code,provider,model,result_detail,retryable,delivered_at FROM worker_owned_work_records WHERE scope=$scope AND record_id=$id";
         cmd.Parameters.AddWithValue("$scope", _scope); cmd.Parameters.AddWithValue("$id", id); using var reader = cmd.ExecuteReader(); if (!reader.Read()) return null;
-        var summary = ReadSummary(reader); var failure = reader.IsDBNull(9) ? null : WorkRecordRedactor.Clean(reader.GetString(9), 200); var provider = reader.GetString(10); var model = reader.GetString(11); var detail = reader.IsDBNull(12) ? null : WorkRecordRedactor.Clean(reader.GetString(12), 8192); var retryable = reader.GetInt32(13) != 0;
-        DateTimeOffset? delivered = reader.IsDBNull(14) ? null : DateTimeOffset.Parse(reader.GetString(14)); reader.Close();
+        var summary = ReadSummary(reader); var failure = reader.IsDBNull(10) ? null : WorkRecordRedactor.Clean(reader.GetString(10), 200); var provider = reader.GetString(11); var model = reader.GetString(12); var detail = reader.IsDBNull(13) ? null : WorkRecordRedactor.Clean(reader.GetString(13), 8192); var retryable = reader.GetInt32(14) != 0;
+        DateTimeOffset? delivered = reader.IsDBNull(15) ? null : DateTimeOffset.Parse(reader.GetString(15)); reader.Close();
         cmd.Parameters.Clear(); cmd.CommandText = "SELECT sequence,occurred_at,state,delivery_state,event_code FROM worker_owned_work_record_events WHERE scope=$scope AND record_id=$id ORDER BY sequence"; cmd.Parameters.AddWithValue("$scope", _scope); cmd.Parameters.AddWithValue("$id", id);
         var events = new List<LocalWorkRecordEvent>(); using var eventsReader = cmd.ExecuteReader(); while (eventsReader.Read()) events.Add(new(eventsReader.GetInt32(0), DateTimeOffset.Parse(eventsReader.GetString(1)), eventsReader.GetString(2), eventsReader.GetString(3), eventsReader.GetString(4)));
         return new(summary, provider, model, detail, failure, retryable, delivered, events);
     }
 
-    private static LocalWorkRecordSummary ReadSummary(SqliteDataReader reader) => new(reader.GetString(0), reader.GetString(1), reader.GetString(2), WorkRecordRedactor.Clean(reader.GetString(3), 200), reader.GetString(4), reader.GetString(5), DateTimeOffset.Parse(reader.GetString(6)), reader.IsDBNull(7) ? null : DateTimeOffset.Parse(reader.GetString(7)), WorkRecordRedactor.Clean(reader.IsDBNull(8) ? reader.IsDBNull(9) ? "" : reader.GetString(9) : reader.GetString(8), 500));
+    private static LocalWorkRecordSummary ReadSummary(SqliteDataReader reader) => new(reader.GetString(0), reader.GetInt64(1), reader.GetString(2), reader.GetString(3), WorkRecordRedactor.Clean(reader.GetString(4), 200), reader.GetString(5), reader.GetString(6), DateTimeOffset.Parse(reader.GetString(7)), reader.IsDBNull(8) ? null : DateTimeOffset.Parse(reader.GetString(8)), WorkRecordRedactor.Clean(reader.IsDBNull(9) ? reader.IsDBNull(10) ? "" : reader.GetString(10) : reader.GetString(9), 500));
     private SqliteConnection Open() { var c = new SqliteConnection(_connectionString); c.Open(); return c; }
     private static string Fingerprint(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
     private string EncodeCursor(string agent, string? state, LocalWorkRecordSummary item)
@@ -223,7 +223,8 @@ public sealed record WorkRecordProjection(string Summary, string Detail)
     {
         string value = kind switch
         {
-            "dev" or "design" => Commit(output),
+            "dev" => Commit(output),
+            "design" => DesignResult(output),
             "proposal" => ProposalDecision(output),
             "qa" => QaResult(output),
             "design_review" or "dev_review" or "qa_review" => Decision(output),
@@ -231,12 +232,38 @@ public sealed record WorkRecordProjection(string Summary, string Detail)
         };
         return new($"Structured {kind} result: {value}", $"Result: {value}");
     }
-    private static string Commit(JsonObject output) => output["commit"]?.GetValue<string>() is { } commit && (commit.Length is 40 or 64) && commit.All(Uri.IsHexDigit) ? commit : "recorded";
-    private static string ProposalDecision(JsonObject output) { var value = output["decision"]?.GetValue<string>(); return value is "ask" or "finalize" ? value : "recorded"; }
-    private static string Decision(JsonObject output) { var value = output["decision"]?.GetValue<string>(); return value is "approve" or "discuss" or "respond" or "confirm" or "withdraw" or "escalate" ? value : "recorded"; }
+    private static string? StringValue(JsonObject output, string name) => output[name] is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+    private static bool? BoolValue(JsonObject output, string name) => output[name] is JsonValue value && value.TryGetValue<bool>(out var flag) ? flag : null;
+    private static string Commit(JsonObject output) => StringValue(output, "commit") is { } commit && (commit.Length is 40 or 64) && commit.All(Uri.IsHexDigit) ? commit : "recorded";
+    private static string DesignResult(JsonObject output)
+    {
+        var commit = Commit(output);
+        return output["design_document_id"] is JsonValue value
+               && ((value.TryGetValue<long>(out var documentId) && documentId > 0)
+                   || (value.TryGetValue<int>(out var documentId32) && documentId32 > 0))
+            ? $"{commit}; document: {(value.TryGetValue<long>(out var id) ? id : value.GetValue<int>())}"
+            : commit;
+    }
+    private static string ProposalDecision(JsonObject output)
+    {
+        var decision = StringValue(output, "decision");
+        if (decision is not ("ask" or "finalize")) return "recorded";
+        return BoolValue(output, "create_ticket") is { } create ? $"{decision}; create ticket: {create}" : decision;
+    }
+    private static string Decision(JsonObject output)
+    {
+        var decision = StringValue(output, "decision");
+        if (decision is not ("approve" or "discuss" or "respond" or "confirm" or "withdraw" or "escalate")) return "recorded";
+        // Discussion replies may expose their controlled position, but never
+        // the review text, evidence, or free-form discussion payload.
+        var position = StringValue(output, "position");
+        return decision == "respond" && position is "agree" or "disagree" or "clarify"
+            ? $"respond; position: {position}"
+            : decision;
+    }
     private static string QaResult(JsonObject output)
     {
-        var result = output["tests_passed"]?.GetValue<bool>() is bool passed ? passed ? "passed" : "failed" : "recorded";
+        var result = BoolValue(output, "tests_passed") is bool passed ? passed ? "passed" : "failed" : "recorded";
         // The raw defect objects contain descriptions and evidence. Keep only
         // their bounded cardinality in the local display projection.
         var count = output["defects"] is JsonArray defects ? Math.Min(defects.Count, 100) : 0;
@@ -251,6 +278,11 @@ public static class WorkRecordRedactor
     {
         if (string.IsNullOrEmpty(value)) return value;
         var cleaned = System.Text.RegularExpressions.Regex.Replace(value, "(?i)(bearer\\s+|token[=:]\\s*|secret[=:]\\s*)[^\\s,;]+", "$1[redacted]");
+        // A long opaque credential may not have a helpful key name.  Keep the
+        // short, controlled projection values usable while removing values
+        // which look like a copied API key, JWT, or fenced token.
+        cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, "(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-])",
+            match => match.Value.Length is 40 or 64 && match.Value.All(Uri.IsHexDigit) ? match.Value : "[redacted]");
         cleaned = System.Text.RegularExpressions.Regex.Replace(cleaned, "(?<!\\w)(?:[A-Za-z]:\\\\|\\\\\\\\|/)(?:[^\\s<>\\\"']+)", "[path]");
         cleaned = new string(cleaned.Select(c => char.IsControl(c) && c is not '\r' and not '\n' and not '\t' ? ' ' : c).ToArray());
         return cleaned.Length <= limit ? cleaned : cleaned[..limit];

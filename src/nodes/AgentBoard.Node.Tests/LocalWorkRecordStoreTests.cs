@@ -25,6 +25,7 @@ public sealed class LocalWorkRecordStoreTests : IDisposable
         store.MarkSucceeded(id);
         var detail = Assert.IsType<LocalWorkRecordDetail>(store.Get(id));
         Assert.Equal(LocalWorkRecordStates.Succeeded, detail.Summary.State);
+        Assert.Equal(9, detail.Summary.WorkId);
         Assert.Equal(["created", "journal_result_saved", "completion_confirmed"], detail.Events.Select(e => e.Code));
         Assert.DoesNotContain("prompt", detail.ResultDetail!, StringComparison.OrdinalIgnoreCase);
         Assert.Throws<InvalidOperationException>(() => new LocalWorkRecordStore(_path, "https://other.test|worker-a"));
@@ -66,9 +67,40 @@ public sealed class LocalWorkRecordStoreTests : IDisposable
     {
         var projection = WorkRecordProjection.From("dev", new JsonObject { ["commit"] = new string('b', 40), ["context"] = "C:\\secret\\context.json" });
         Assert.DoesNotContain("context", projection.Detail, StringComparison.OrdinalIgnoreCase);
-        var cleaned = WorkRecordRedactor.Clean("Bearer abcdefghijklmnop C:\\temp\\secret token=abc", 500);
+        var opaque = new string('g', 36);
+        var commit = new string('a', 40);
+        var cleaned = WorkRecordRedactor.Clean($"Bearer abcdefghijklmnop C:\\temp\\secret token=abc {opaque} {commit}", 500);
         Assert.DoesNotContain("abcdefghijklmnop", cleaned);
         Assert.DoesNotContain("C:\\temp", cleaned);
+        Assert.DoesNotContain(opaque, cleaned);
+        Assert.Contains(commit, cleaned);
+    }
+
+    [Fact]
+    public void Projection_only_keeps_the_explicitly_allowed_discussion_and_design_scalars()
+    {
+        var design = WorkRecordProjection.From("design", new JsonObject
+        {
+            ["commit"] = new string('e', 40), ["design_document_id"] = 42,
+            ["summary"] = "do not persist this"
+        });
+        var response = WorkRecordProjection.From("dev_review", new JsonObject
+        {
+            ["decision"] = "respond", ["position"] = "clarify",
+            ["evidence"] = "C:\\private\\evidence.json"
+        });
+        var proposal = WorkRecordProjection.From("proposal", new JsonObject
+        {
+            ["decision"] = "finalize", ["create_ticket"] = true,
+            ["spec"] = "secret ticket content"
+        });
+
+        Assert.Contains("document: 42", design.Detail);
+        Assert.DoesNotContain("persist", design.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("position: clarify", response.Detail);
+        Assert.DoesNotContain("private", response.Detail, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("create ticket: True", proposal.Detail);
+        Assert.DoesNotContain("secret", proposal.Detail, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]
