@@ -129,6 +129,60 @@ public sealed class LocalWorkRecordStore
     public void MarkFailed(string id, string code, bool retryable = false) => Transition(id,
         [LocalWorkRecordStates.Running, LocalWorkRecordStates.Pending, LocalWorkRecordStates.Interrupted], LocalWorkRecordStates.Failed,
         "not_applicable", "failed", null, null, WorkRecordProjection.FailureCode(code), retryable, null);
+
+    /// <summary>
+    /// Records a terminal fact learned from the fenced work API after a local
+    /// success write failed.  It deliberately identifies the attempt by the
+    /// journal token fingerprint, never by work id alone, and never creates a
+    /// record.  This makes restart/replay reconciliation presentation-only and
+    /// cannot trigger a provider call.
+    /// </summary>
+    public bool ReconcileTerminal(long workId, string claimToken, string terminalState)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(claimToken);
+        if (terminalState is not (LocalWorkRecordStates.Succeeded or LocalWorkRecordStates.Failed))
+            throw new ArgumentException("Invalid terminal work state", nameof(terminalState));
+
+        using var connection = Open();
+        using var tx = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = tx;
+        command.CommandText = "SELECT record_id, state FROM worker_owned_work_records WHERE scope=$scope AND work_id=$work AND token_fingerprint=$token";
+        command.Parameters.AddWithValue("$scope", _scope);
+        command.Parameters.AddWithValue("$work", workId);
+        command.Parameters.AddWithValue("$token", Fingerprint(claimToken));
+        using var reader = command.ExecuteReader();
+        if (!reader.Read()) { tx.Commit(); return false; }
+        var id = reader.GetString(0);
+        var current = reader.GetString(1);
+        reader.Close();
+
+        if (current is LocalWorkRecordStates.Succeeded or LocalWorkRecordStates.Failed)
+        {
+            tx.Commit();
+            return false;
+        }
+
+        if (terminalState == LocalWorkRecordStates.Succeeded)
+        {
+            // A completed result is only known for an already-persisted result
+            // attempt.  A bare running attempt is recovered honestly instead.
+            if (current is not (LocalWorkRecordStates.Pending or LocalWorkRecordStates.Interrupted))
+            {
+                tx.Commit();
+                return false;
+            }
+            Transition(connection, tx, id, [LocalWorkRecordStates.Pending, LocalWorkRecordStates.Interrupted],
+                LocalWorkRecordStates.Succeeded, "confirmed", "completion_reconciled", null, null, null, false, DateTimeOffset.UtcNow);
+        }
+        else
+        {
+            Transition(connection, tx, id, [LocalWorkRecordStates.Running, LocalWorkRecordStates.Pending, LocalWorkRecordStates.Interrupted],
+                LocalWorkRecordStates.Failed, "not_applicable", "failure_reconciled", null, null, "CompletionRejected", false, null);
+        }
+        tx.Commit();
+        return true;
+    }
     public void RecoverInterrupted() => BulkInterrupt();
 
     private void BulkInterrupt()

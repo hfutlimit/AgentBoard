@@ -22,6 +22,12 @@ public static class ConfigurationPortal
             && (readOnly || http.Request.Headers["X-AgentBoard-Local-Portal"] == "1");
     }
 
+    // History reads are intentionally stricter than the legacy read-only
+    // configuration endpoints. Check this before configuration lookup so a
+    // missing marker never reveals whether an Agent exists.
+    internal static bool HasLocalPortalMarker(HttpRequest request) =>
+        request.Headers["X-AgentBoard-Local-Portal"] == "1";
+
     public static string Html { get; } = ReadPage();
     private static string ReadPage()
     {
@@ -46,15 +52,15 @@ public static class ConfigurationPortal
         group.MapGet("/configuration", () => Results.Ok(store.Read()));
         group.MapGet("/agents/{agentId}/work-records", (HttpContext http, string agentId, int? pageSize, string? state, string? cursor, LocalWorkRecordStore records) =>
         {
+            if (!HasLocalPortalMarker(http.Request)) return Results.StatusCode(403);
             if (!store.Read().Configuration.Agents.Any(a => StringComparer.Ordinal.Equals(a.Id, agentId))) return Results.NotFound();
-            if (http.Request.Headers["X-AgentBoard-Local-Portal"] != "1") return Results.StatusCode(403);
             try { return Results.Ok(records.List(agentId, pageSize ?? 20, state, cursor)); }
             catch (ArgumentException) { return Results.BadRequest(new { detail = "Invalid local history paging parameter" }); }
             catch (Exception) { return Results.Problem("Local work history is unavailable", statusCode: 500); }
         });
         group.MapGet("/work-records/{recordId}", (HttpContext http, string recordId, string? agentId, LocalWorkRecordStore records) =>
         {
-            if (http.Request.Headers["X-AgentBoard-Local-Portal"] != "1") return Results.StatusCode(403);
+            if (!HasLocalPortalMarker(http.Request)) return Results.StatusCode(403);
             if (recordId.Length is < 16 or > 64 || !recordId.All(c => char.IsAsciiLetterOrDigit(c) || c == '-')) return Results.BadRequest(new { detail = "Invalid local work record" });
             if (string.IsNullOrWhiteSpace(agentId) || agentId.Length > 100) return Results.BadRequest(new { detail = "Invalid local Agent" });
             try

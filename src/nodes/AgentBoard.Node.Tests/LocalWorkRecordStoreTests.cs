@@ -63,6 +63,30 @@ public sealed class LocalWorkRecordStoreTests : IDisposable
     }
 
     [Fact]
+    public void Terminal_server_reconciliation_updates_only_the_matching_pending_or_interrupted_attempt()
+    {
+        var store = new LocalWorkRecordStore(_path, "https://server.test|worker-a");
+        var pending = store.CreateRunning(new(21, "token-pending", "agent-a", "codex", "model", "dev", "task #21"));
+        store.MarkPending(pending, WorkRecordProjection.From("dev", new JsonObject { ["commit"] = new string('d', 40) }));
+        var interrupted = store.CreateRunning(new(22, "token-interrupted", "agent-a", "codex", "model", "dev", "task #22"));
+        store.RecoverInterrupted();
+        var running = store.CreateRunning(new(23, "token-running", "agent-a", "codex", "model", "dev", "task #23"));
+        var serverFailed = store.CreateRunning(new(24, "token-failed", "agent-a", "codex", "model", "dev", "task #24"));
+
+        Assert.True(store.ReconcileTerminal(21, "token-pending", LocalWorkRecordStates.Succeeded));
+        Assert.True(store.ReconcileTerminal(22, "token-interrupted", LocalWorkRecordStates.Succeeded));
+        Assert.False(store.ReconcileTerminal(23, "token-running", LocalWorkRecordStates.Succeeded));
+        Assert.True(store.ReconcileTerminal(24, "token-failed", LocalWorkRecordStates.Failed));
+        Assert.False(store.ReconcileTerminal(21, "wrong-token", LocalWorkRecordStates.Succeeded));
+
+        Assert.Equal(LocalWorkRecordStates.Succeeded, store.Get(pending, "agent-a")!.Summary.State);
+        Assert.Equal(LocalWorkRecordStates.Succeeded, store.Get(interrupted, "agent-a")!.Summary.State);
+        Assert.Equal(LocalWorkRecordStates.Running, store.Get(running, "agent-a")!.Summary.State);
+        Assert.Equal(LocalWorkRecordStates.Failed, store.Get(serverFailed, "agent-a")!.Summary.State);
+        Assert.Equal("completion_reconciled", store.Get(pending, "agent-a")!.Events[^1].Code);
+    }
+
+    [Fact]
     public void Detail_lookup_is_bound_to_the_requested_agent()
     {
         var store = new LocalWorkRecordStore(_path, "https://server.test|worker-a");

@@ -30,6 +30,15 @@ public sealed class LocalConfigurationTests : IDisposable
         Assert.Equal(allowed, ConfigurationPortal.IsLocalRequest(context));
     }
 
+    [Fact]
+    public void Local_history_requires_its_portal_marker_before_any_configuration_lookup()
+    {
+        var context = new Microsoft.AspNetCore.Http.DefaultHttpContext();
+        Assert.False(ConfigurationPortal.HasLocalPortalMarker(context.Request));
+        context.Request.Headers["X-AgentBoard-Local-Portal"] = "1";
+        Assert.True(ConfigurationPortal.HasLocalPortalMarker(context.Request));
+    }
+
     private readonly string directory = Path.Combine(Path.GetTempPath(), "worker-config-tests-" + Guid.NewGuid().ToString("N"));
     public LocalConfigurationTests() => Directory.CreateDirectory(directory);
     public void Dispose() => Directory.Delete(directory, recursive: true);

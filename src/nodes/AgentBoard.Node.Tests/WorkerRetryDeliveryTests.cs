@@ -23,6 +23,27 @@ public sealed class WorkerRetryDeliveryTests
     }
 
     [Fact]
+    public void Completed_server_state_reconciles_only_a_saved_matching_attempt_without_provider_execution()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"worker-reconcile-{Guid.NewGuid():N}.db");
+        try
+        {
+            var records = new LocalWorkRecordStore(path, "https://server.test|worker-a");
+            var recordId = records.CreateRunning(new(31, "token-31", "agent-a", "codex", "model", "dev", "task #31"));
+            records.MarkPending(recordId, WorkRecordProjection.From("dev", new System.Text.Json.Nodes.JsonObject { ["commit"] = new string('e', 40) }));
+
+            Assert.True(WorkerOwnedService.ReconcileTerminalHistory(records, new JournalEntry(31, "agent-a", "token-31", "{\"commit\":\"saved\"}"), "completed"));
+            Assert.False(WorkerOwnedService.ReconcileTerminalHistory(records, new JournalEntry(31, "agent-a", "token-31", null), "completed"));
+            Assert.Equal(LocalWorkRecordStates.Succeeded, records.Get(recordId, "agent-a")!.Summary.State);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            foreach (var suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(path + suffix)) File.Delete(path + suffix);
+        }
+    }
+
+    [Fact]
     public void Deferred_work_is_confirmed_before_original_ack()
     {
         var channel = DispatchProxy.Create<IModel, ChannelProxy>();
