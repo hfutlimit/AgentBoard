@@ -466,13 +466,15 @@ def try_assign_task(
     match_reason: dict | str | None = None,
     workload_type: str | None = None,
     commit: bool = True,
+    bypass_legacy_check: bool = False,
 ) -> tuple[Task, TaskAssignment]:
     """Atomically reserve a todo task and persist its exact execution owner."""
     task = s.get(Task, task_id)
     if not task:
         raise NotFound(f"task {task_id} not found")
-    from ..scheduling.durable_routing import require_legacy_task
-    require_legacy_task(s, task)
+    if not bypass_legacy_check:
+        from ..scheduling.durable_routing import require_legacy_task
+        require_legacy_task(s, task)
     if task.status != Status.TODO or task.current_assignment_id is not None:
         raise InvalidValue(
             f"task {task_id} already claimed or not claimable (status={task.status})"
@@ -877,6 +879,11 @@ def arbitrate_task(
 
     candidates.sort(key=lambda item: (-item[0].score, item[1].id))
     winner, agent = candidates[0]
+    # ``try_assign_task`` carries a legacy-only gate that rejects
+    # durable-workflow projects. ``arbitrate_task`` IS the durable
+    # workflow path, so bypass that gate here — the upstream checks
+    # in this function (status, mode, application eligibility) are the
+    # real authorization for the assignment.
     assigned_task, assignment = try_assign_task(
         s,
         task_id,
@@ -886,6 +893,7 @@ def arbitrate_task(
         match_score=winner.score,
         match_reason=winner.reason,
         commit=False,
+        bypass_legacy_check=True,
     )
     for application in pending:
         application.status = "accepted" if application.id == winner.id else "rejected"
