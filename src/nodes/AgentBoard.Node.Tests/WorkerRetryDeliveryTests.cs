@@ -8,6 +8,20 @@ namespace AgentBoard.Node.Tests;
 
 public sealed class WorkerRetryDeliveryTests
 {
+    [Theory]
+    [InlineData(typeof(InvalidDataException), "response contained token=secret-value", "OutputInvalid")]
+    [InlineData(typeof(InvalidOperationException), "Provider said Bearer secret-value", "Unknown")]
+    public void Failure_codes_never_copy_untrusted_exception_text(Type exceptionType, string message, string expected)
+    {
+        var error = (Exception)Activator.CreateInstance(exceptionType, message)!;
+
+        var code = WorkerOwnedService.SafeFailureCode(error);
+
+        Assert.Equal(expected, code);
+        Assert.DoesNotContain("secret-value", code, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(message, code, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Deferred_work_is_confirmed_before_original_ack()
     {

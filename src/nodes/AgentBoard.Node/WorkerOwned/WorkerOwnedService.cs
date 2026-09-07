@@ -18,6 +18,8 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
     private sealed class HistoryWriteException(Exception inner) : Exception("Local work history persistence failed", inner);
     private sealed class JournalWriteException(Exception inner) : Exception("Worker journal persistence failed", inner);
     private sealed class CompletionLeaseConflictException : Exception;
+    private sealed class CompletionRejectedException : Exception;
+    private sealed class ProviderExecutionException : Exception;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
         { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
     private readonly WorkerOwnedOptions _options;
@@ -285,6 +287,20 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
         finally { channel.BasicReturn -= onReturn; }
     }
 
+    // Provider and HTTP response text are untrusted.  This value is exposed in
+    // the local runtime snapshot and sent back to the Server, so it must always
+    // be a stable, non-sensitive diagnostic category rather than an exception
+    // message or response body.
+    internal static string SafeFailureCode(Exception error) => WorkRecordProjection.FailureCode(error switch
+    {
+        JournalWriteException => "JournalSaveFailed",
+        CompletionRejectedException => "CompletionRejected",
+        ProviderExecutionException => "ProviderFailed",
+        InvalidDataException or JsonException => "OutputInvalid",
+        OperationCanceledException => "Cancelled",
+        _ => "Unknown"
+    });
+
     private async Task<bool> Execute(long workId, int project, string kind, string? target, CancellationToken ct)
     {
         var saved = _journal.Get(workId);
@@ -364,7 +380,7 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
                         WorkerOwnedExecution: true), running.Token);
                     running.Token.ThrowIfCancellationRequested();
                     if (!result.Success || string.IsNullOrWhiteSpace(result.OutputJson))
-                        throw new InvalidOperationException(result.ErrorMessage ?? "Provider returned no structured business result");
+                        throw new ProviderExecutionException();
                     _state.SetAgentReport(profile.Id, Agents.AgentReadiness.AllOk());
                     _state.IncrementAgentTotal(profile.Id);
                     var output = JsonNode.Parse(result.OutputJson)?.AsObject() ?? throw new InvalidDataException("Missing result object");
@@ -419,7 +435,7 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
                 if (completion.StatusCode == HttpStatusCode.Conflict)
                     throw new CompletionLeaseConflictException();
                 if (completion.StatusCode == HttpStatusCode.UnprocessableEntity)
-                    throw new InvalidDataException("Worker result validation failed: " + await completion.Content.ReadAsStringAsync(running.Token));
+                    throw new CompletionRejectedException();
                 completion.EnsureSuccessStatusCode();
                 try { await PersistHistory(() => { _records.MarkSucceeded(recordId); return true; }, running.Token); }
                 catch (Exception historyError)
@@ -439,7 +455,7 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
                 // journal/result-pending history is deliberately retained.
                 // Story #432 owns the fenced recovery protocol; requeuing it
                 // here could immediately overwrite the only saved result.
-                _state.LastError = "Completion fence conflict; result remains pending delivery";
+                _state.LastError = "LeaseLost";
                 _log.LogWarning("Completion fence conflict for work {WorkId}; local result remains pending delivery", workId);
                 return true;
             }
@@ -448,9 +464,10 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
                 // A network/lease error keeps the saved result for replay;
                 // never reinvoke a provider merely because completion timed out.
                 if (error is HttpRequestException or TaskCanceledException) throw;
+                var failureCode = SafeFailureCode(error);
                 _log.LogWarning("Work {WorkId} failed: {Error}", workId, error.GetType().Name);
-                _state.LastError = error.Message;
-                try { if (recordId is not null) await PersistHistory(() => { _records.MarkFailed(recordId, error is JournalWriteException ? "JournalSaveFailed" : error is InvalidDataException ? "OutputInvalid" : "ProviderFailed"); return true; }, ct); }
+                _state.LastError = failureCode;
+                try { if (recordId is not null) await PersistHistory(() => { _records.MarkFailed(recordId, failureCode); return true; }, ct); }
                 catch (Exception historyError)
                 {
                     _log.LogError("Local history write failed for work {WorkId}: {Error}", workId, historyError.GetType().Name);
@@ -458,7 +475,7 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
                 }
                 using var failed = await Post(client, $"api/worker-work/{workId}/fail", new
                 { project_id = project, kind, worker_id = WorkerId, agent_id = profile.Id, token = entry.Token,
-                  result = new { summary = error.Message[..Math.Min(2000, error.Message.Length)] } }, ct);
+                  result = new { summary = failureCode } }, ct);
                 failed.EnsureSuccessStatusCode();
                 _journal.Remove(workId);
                 return true; // Server persisted either the retry outbox or terminal failure.

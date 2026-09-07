@@ -140,5 +140,20 @@ const change=(selector,value)=>{const el=d.querySelector(selector);el.value=valu
  d.querySelector('#stopWorker').click();await flush();await flush();
  assert.equal(stopRequests,1);assert.match(d.querySelector('#runtimeStatus').textContent,/正在停止/);
  assert.equal(d.querySelector('#startWorker').disabled,true);
+ const direct=new JSDOM(html,{url:'http://127.0.0.1:18240/#agents/b/work-records/fedcba9876543210fedcba9876543210',runScripts:'dangerously',beforeParse(w){
+  w.confirm=()=>true;w.HTMLDialogElement.prototype.showModal=function(){this.setAttribute('open','')};w.HTMLDialogElement.prototype.close=function(){this.removeAttribute('open')};
+  w.fetch=async(url,request)=>{assert.equal(request.headers['X-AgentBoard-Local-Portal'],'1');let result;
+   if(url.endsWith('/configuration'))result={configuration:structuredClone(initial),revision:'direct'};
+   else if(url.endsWith('/status'))result={configurationOnly:true,serverUrl:'http://prod.test',apiCredentialConfigured:true,brokerConfigured:true,brokerHost:'mq.test',workerId:'local',configPath:'local.json'};
+   else if(url.endsWith('/projects'))result={items:[]};
+   else if(url.endsWith('/runtime'))result={state:'stopped'};
+   else if(url.endsWith('/work-records/fedcba9876543210fedcba9876543210?agentId=b'))result={summary:{recordId:'fedcba9876543210fedcba9876543210',workId:18,agentId:'b',workKind:'qa',businessItem:'task #18',state:'failed',deliveryState:'not_applicable',startedAt:'2026-09-07T00:02:00Z',endedAt:'2026-09-07T00:03:00Z'},provider:'codex',model:'gpt-5.6-sol',failureCode:'ProviderFailed',events:[]};
+   else throw Error('Unexpected direct-route request '+url);return{ok:true,text:async()=>JSON.stringify(result)};
+  };
+ }});
+ await flush();await flush();await flush();
+ assert.equal(direct.window.document.querySelector('.agent.selected strong').textContent.trim(),'b');
+ assert.match(direct.window.document.querySelector('#editor').textContent,/ProviderFailed/);
+ direct.window.close();
  dom.window.close();console.log('PASS: seven kinds, production project shape, prompt scopes, independent profiles, save/reload, provider switch, add/remove.');
 })().catch(e=>{dom.window.close();console.error(e);process.exitCode=1});
