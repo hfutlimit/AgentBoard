@@ -15,6 +15,8 @@ namespace AgentBoard.Node.WorkerOwned;
 /// </summary>
 public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
 {
+    private sealed class HistoryWriteException(Exception inner) : Exception("Local work history persistence failed", inner);
+    private sealed class JournalWriteException(Exception inner) : Exception("Worker journal persistence failed", inner);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
         { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
     private readonly WorkerOwnedOptions _options;
@@ -25,6 +27,7 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
     private readonly ILogger<WorkerOwnedService> _log;
     private readonly IHttpClientFactory _http;
     private readonly WorkerState _state;
+    private readonly LocalWorkRecordStore _records;
     private string WorkerId => _state.WorkerId;
     private WorkJournal _journal = null!;
     private readonly Dictionary<string, long> _instances = new(StringComparer.Ordinal);
@@ -40,10 +43,10 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
 
     public WorkerOwnedService(IOptions<WorkerOwnedOptions> options, IOptions<AgentBoardOptions> api,
         IOptions<RabbitMqOptions> rabbit, IOptions<NodeOptions> node, LocalAdapterFactory adapters,
-        IHttpClientFactory http, ILogger<WorkerOwnedService> log, WorkerState state)
+        IHttpClientFactory http, ILogger<WorkerOwnedService> log, WorkerState state, LocalWorkRecordStore records)
     {
         _options = options.Value; _api = api.Value; _rabbit = rabbit.Value;
-        _node = node.Value; _adapters = adapters; _http = http; _log = log; _state = state;
+        _node = node.Value; _adapters = adapters; _http = http; _log = log; _state = state; _records = records;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -59,6 +62,7 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
         // claim token into two physical executions.
         using var processLock = new FileStream(Path.GetFullPath(_node.HistoryDatabasePath) + ".worker-owned.lock",
             FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        _records.RecoverInterrupted();
         // Refuse to consume against an older Server which cannot fence discussion turns.
         using (var preflight = Client())
         {
@@ -318,8 +322,21 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
             var active = new ActiveExecution(workId, $"worker-work:{workId}", kind,
                 accepted.RootElement.GetProperty("work").GetProperty("entity_id").GetInt64(), profile.Id, DateTimeOffset.UtcNow);
             _state.Begin(active);
+            string? recordId = null;
             try
             {
+                // This durable write is deliberately before adapter creation. If it
+                // cannot commit, execution is retried without touching the provider.
+                try
+                {
+                    recordId = await PersistHistory(() => _records.CreateRunning(new(workId, entry.Token, profile.Id, profile.Provider, profile.Runtime.Model,
+                        kind, $"{kind} #{active.WorkloadId}")), running.Token);
+                }
+                catch (Exception historyError)
+                {
+                    _log.LogError("Local history start failed for work {WorkId}: {Error}", workId, historyError.GetType().Name);
+                    throw new HistoryWriteException(historyError);
+                }
                 if (entry.Result is null)
                 {
                     var workspace = _options.Projects.Single(p => p.ProjectId == project).LocalPath;
@@ -373,7 +390,15 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
                     output["provider"] = profile.Provider;
                     output["model"] = profile.Runtime.Model;
                     entry = entry with { Result = output.ToJsonString() };
-                    _journal.Save(entry);
+                    try { _journal.Save(entry); }
+                    catch (Exception journalError) { throw new JournalWriteException(journalError); }
+                }
+                var projectionOutput = JsonNode.Parse(entry.Result!)?.AsObject() ?? throw new InvalidDataException("Missing journal result");
+                try { await PersistHistory(() => { _records.MarkPending(recordId, WorkRecordProjection.From(kind, projectionOutput)); return true; }, running.Token); }
+                catch (Exception historyError)
+                {
+                    _log.LogError("Local history pending write failed for work {WorkId}: {Error}", workId, historyError.GetType().Name);
+                    throw new HistoryWriteException(historyError);
                 }
                 if (kind == WorkerWorkKinds.Design && !WorkPlanner.IsDiscussion(accepted.RootElement.GetProperty("context")))
                 {
@@ -389,17 +414,31 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
                 if (completion.StatusCode is HttpStatusCode.UnprocessableEntity or HttpStatusCode.Conflict)
                     throw new InvalidDataException("Worker result validation failed: " + await completion.Content.ReadAsStringAsync(running.Token));
                 completion.EnsureSuccessStatusCode();
+                try { await PersistHistory(() => { _records.MarkSucceeded(recordId); return true; }, running.Token); }
+                catch (Exception historyError)
+                {
+                    // Completion is already authoritative. Keep the journal for a
+                    // later safe reconciliation; do not turn it into /fail.
+                    _log.LogError("Local history success write failed for work {WorkId}: {Error}", workId, historyError.GetType().Name);
+                }
                 _state.LastError = null;
                 _log.LogInformation("Work {WorkId} {Kind} completed by {Agent}", workId, kind, profile.Id);
                 return true;
             }
+            catch (HistoryWriteException) { throw; }
             catch (Exception error) when (!ct.IsCancellationRequested && !running.IsCancellationRequested)
             {
                 // A network/lease error keeps the saved result for replay;
                 // never reinvoke a provider merely because completion timed out.
                 if (error is HttpRequestException or TaskCanceledException) throw;
-                _log.LogWarning("Work {WorkId} failed: {Error}", workId, error.Message);
+                _log.LogWarning("Work {WorkId} failed: {Error}", workId, error.GetType().Name);
                 _state.LastError = error.Message;
+                try { if (recordId is not null) await PersistHistory(() => { _records.MarkFailed(recordId, error is JournalWriteException ? "JournalSaveFailed" : error is InvalidDataException ? "OutputInvalid" : "ProviderFailed"); return true; }, ct); }
+                catch (Exception historyError)
+                {
+                    _log.LogError("Local history write failed for work {WorkId}: {Error}", workId, historyError.GetType().Name);
+                    throw;
+                }
                 using var failed = await Post(client, $"api/worker-work/{workId}/fail", new
                 { project_id = project, kind, worker_id = WorkerId, agent_id = profile.Id, token = entry.Token,
                   result = new { summary = error.Message[..Math.Min(2000, error.Message.Length)] } }, ct);
@@ -415,6 +454,25 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
             }
         }
         return false;
+    }
+
+    // SQLite writes are local durability facts, so retry only a small bounded
+    // number of times.  In particular, never make a history failure invisible
+    // by proceeding to a provider call or reporting an unpersisted success.
+    private static async Task<T> PersistHistory<T>(Func<T> write, CancellationToken ct)
+    {
+        Exception? last = null;
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try { return write(); }
+            catch (Exception error) when (attempt < 2)
+            {
+                last = error;
+                await Task.Delay(TimeSpan.FromMilliseconds(50 * (attempt + 1)), ct);
+            }
+            catch (Exception error) { last = error; }
+        }
+        throw new IOException("Local work history write did not complete", last);
     }
 
     private static async Task Renew(HttpClient client, long id, object lease, CancellationTokenSource running)

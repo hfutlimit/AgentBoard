@@ -69,6 +69,15 @@ if (workerOwned && builder.Configuration.GetValue<bool>("DurableExecution:Enable
     throw new InvalidOperationException("WorkerOwned and legacy DurableExecution cannot both consume work");
 builder.Services.AddSingleton<LocalAdapterFactory>();
 builder.Services.AddSingleton(localConfiguration);
+builder.Services.AddSingleton<LocalWorkRecordStore>(services =>
+{
+    var node = services.GetRequiredService<IOptions<NodeOptions>>().Value;
+    var api = services.GetRequiredService<IOptions<AgentBoardOptions>>().Value;
+    var worker = services.GetRequiredService<WorkerState>();
+    var origin = Uri.TryCreate(api.ServerUrl, UriKind.Absolute, out var server)
+        ? server.GetLeftPart(UriPartial.Authority).TrimEnd('/') : "unconfigured-server";
+    return new LocalWorkRecordStore(node.HistoryDatabasePath, origin + "|" + worker.WorkerId);
+});
 builder.Services.AddSingleton<ILocalWorkerFactory, LocalWorkerFactory>();
 builder.Services.AddSingleton<LocalWorkerRuntime>(services =>
     new LocalWorkerRuntime(localConfiguration, services.GetRequiredService<ILocalWorkerFactory>(),

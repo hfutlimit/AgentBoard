@@ -18,7 +18,10 @@ const dom = new JSDOM(html,{url:'http://127.0.0.1:18240/',runScripts:'dangerousl
   assert.equal(request.headers['X-AgentBoard-Worker-Key'],undefined);
   assert.equal(request.headers['X-AgentBoard-Local-Portal'],'1');
   let result;
-  if(url.endsWith('/configuration')){
+   if(url.includes('/agents/a/work-records?'))result={items:[{recordId:'0123456789abcdef0123456789abcdef',workKind:'dev',businessItem:'task #17',state:'succeeded',deliveryState:'confirmed',startedAt:'2026-09-07T00:00:00Z',endedAt:'2026-09-07T00:01:00Z',summary:'Structured dev result'}],nextCursor:null};
+   else if(url.includes('/agents/b/work-records?'))result={items:[{recordId:'fedcba9876543210fedcba9876543210',workKind:'qa',businessItem:'task #18',state:'failed',deliveryState:'not_applicable',startedAt:'2026-09-07T00:02:00Z',endedAt:'2026-09-07T00:03:00Z',summary:'Safe failure code'}],nextCursor:null};
+   else if(url.endsWith('/work-records/0123456789abcdef0123456789abcdef'))result={summary:{recordId:'0123456789abcdef0123456789abcdef',workKind:'dev',businessItem:'task #17',state:'succeeded',deliveryState:'confirmed',startedAt:'2026-09-07T00:00:00Z'},provider:'codex',model:'gpt-5.6-sol',resultDetail:'Result: abcdef',events:[{occurredAt:'2026-09-07T00:00:00Z',state:'running'}]};
+   else if(url.endsWith('/configuration')){
    if(request.method==='PUT'){const body=JSON.parse(request.body);assert.equal(body.revision,revision);saved=body.configuration;revision='v2'}
    result={configuration:structuredClone(saved||initial),revision};
   }else if(url.endsWith('/agents')){
@@ -46,6 +49,7 @@ const change=(selector,value)=>{const el=d.querySelector(selector);el.value=valu
  assert.match(decodeURIComponent(favicon.getAttribute('href')),/>AB<\/text>/);
  assert.match(favicon.getAttribute('href'),/^data:image\/svg\+xml,/);
  assert.equal(d.querySelector('#main').classList.contains('hidden'),false);
+ d.querySelector('[data-editor-tab="kinds"]').click();
  assert.equal(d.querySelectorAll('[data-kind]').length,7);
  assert.match(d.querySelector('#connection').textContent,/prod.test/);
  assert.match(d.querySelector('#mappings').textContent,/Real project shape/);
@@ -63,10 +67,20 @@ const change=(selector,value)=>{const el=d.querySelector(selector);el.value=valu
  d.querySelector('#agentsTab').click();
  assert.equal(d.querySelector('#mappingPanel').classList.contains('hidden'),true);
  assert.equal(d.querySelectorAll('[data-project]').length,0);
+ d.querySelector('[data-editor-tab="records"]').click();await flush();await flush();
+ assert.match(d.querySelector('#editor').textContent,/task #17/);
+ d.querySelector('[data-record-id]').click();await flush();await flush();
+ assert.match(d.querySelector('#editor').textContent,/gpt-5.6-sol/);
+ d.querySelector('[data-history-back]').click();await flush();
+ d.querySelector('[data-editor-tab="prompts"]').click();
  change('#pre','通用 pre 编辑');change('#scope','dev');
  assert.equal(d.querySelector('#pre').value,'dev-before');
  change('#post','开发 post 编辑');
  d.querySelector('[data-agent="1"]').click();
+ d.querySelector('[data-editor-tab="records"]').click();await flush();await flush();
+ assert.match(d.querySelector('#editor').textContent,/task #18/);
+ assert.doesNotMatch(d.querySelector('#editor').textContent,/task #17/);
+ d.querySelector('[data-editor-tab="prompts"]').click();
  assert.equal(d.querySelector('#pre').value,'b-before');
  d.querySelector('[data-agent="0"]').click();
  assert.equal(d.querySelector('#pre').value,'通用 pre 编辑');
@@ -80,6 +94,7 @@ const change=(selector,value)=>{const el=d.querySelector(selector);el.value=valu
  d.querySelector('#reload').click();await flush();
  assert.equal(d.querySelector('#pre').value,'通用 pre 编辑');
  change('#scope','dev');assert.equal(d.querySelector('#post').value,'开发 post 编辑');
+ d.querySelector('[data-editor-tab="basic"]').click();
  const options=selector=>[...d.querySelector(selector).options].filter(o=>!o.disabled).map(o=>o.value);
  assert.deepEqual(options('#model'),['gpt-5.6-terra','gpt-5.6-sol','gpt-5.6-luna']);
  d.querySelector('#addAgent').click();assert.equal(d.querySelectorAll('[data-agent]').length,2);
@@ -88,7 +103,7 @@ const change=(selector,value)=>{const el=d.querySelector(selector);el.value=valu
  change('#newProvider','minimax');assert.deepEqual(options('#newModel'),['m3']);
  d.querySelector('#cancelAddAgent').click();assert.equal(d.querySelector('#addAgentDialog').open,false);
  assert.equal(addRequests,0);
- change('#post','Unsubmitted existing edits');
+ d.querySelector('[data-editor-tab="prompts"]').click();change('#post','Unsubmitted existing edits');
  d.querySelector('#addAgent').click();change('#newAgentId','a');
  const submit=()=>d.querySelector('#addAgentForm').dispatchEvent(new w.Event('submit',{cancelable:true}));
  submit();await flush();assert.match(d.querySelector('#addAgentError').textContent,/已存在/);assert.equal(addRequests,0);
@@ -98,12 +113,13 @@ const change=(selector,value)=>{const el=d.querySelector(selector);el.value=valu
  addFailure=false;submit();submit();await flush();
  assert.equal(addRequests,2);assert.equal(d.querySelectorAll('[data-agent]').length,3);
  assert.equal(d.querySelector('#addAgentDialog').open,false);
+ d.querySelector('[data-editor-tab="basic"]').click();
  assert.equal(d.querySelector('#model').value,'gpt-5.6-sol');
  assert.equal(d.querySelector('#agentEnabled').checked,false);
  assert.equal(saved.agents[2].enabled,false);
  assert.equal(saved.agents[0].prompts.dev.post,'开发 post 编辑');
- d.querySelector('[data-agent="0"]').click();change('#scope','dev');assert.equal(d.querySelector('#post').value,'Unsubmitted existing edits');
- d.querySelector('[data-agent="2"]').click();
+ d.querySelector('[data-agent="0"]').click();d.querySelector('[data-editor-tab="prompts"]').click();change('#scope','dev');assert.equal(d.querySelector('#post').value,'Unsubmitted existing edits');
+ d.querySelector('[data-agent="2"]').click();d.querySelector('[data-editor-tab="basic"]').click();
  change('#provider','workbuddy');assert.equal(d.querySelector('#command').value,'codebuddy');
  assert.deepEqual(options('#model'),['hy4-preview','glm-5.3-flash']);
  assert.equal(d.querySelector('#arguments').value,'-p\n-y\n--output-format\ntext');

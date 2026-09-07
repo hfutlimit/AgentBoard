@@ -44,6 +44,26 @@ public static class ConfigurationPortal
             return await next(context);
         });
         group.MapGet("/configuration", () => Results.Ok(store.Read()));
+        group.MapGet("/agents/{agentId}/work-records", (HttpContext http, string agentId, int? pageSize, string? state, string? cursor, LocalWorkRecordStore records) =>
+        {
+            if (!store.Read().Configuration.Agents.Any(a => StringComparer.Ordinal.Equals(a.Id, agentId))) return Results.NotFound();
+            if (http.Request.Headers["X-AgentBoard-Local-Portal"] != "1") return Results.StatusCode(403);
+            try { return Results.Ok(records.List(agentId, pageSize ?? 20, state, cursor)); }
+            catch (ArgumentException) { return Results.BadRequest(new { detail = "Invalid local history paging parameter" }); }
+            catch (Exception) { return Results.Problem("Local work history is unavailable", statusCode: 500); }
+        });
+        group.MapGet("/work-records/{recordId}", (HttpContext http, string recordId, LocalWorkRecordStore records) =>
+        {
+            if (http.Request.Headers["X-AgentBoard-Local-Portal"] != "1") return Results.StatusCode(403);
+            if (recordId.Length is < 16 or > 64 || !recordId.All(c => char.IsAsciiLetterOrDigit(c) || c == '-')) return Results.BadRequest(new { detail = "Invalid local work record" });
+            try
+            {
+                var detail = records.Get(recordId);
+                if (detail is null || !store.Read().Configuration.Agents.Any(a => StringComparer.Ordinal.Equals(a.Id, detail.Summary.AgentId))) return Results.NotFound();
+                return Results.Ok(detail);
+            }
+            catch (Exception) { return Results.Problem("Local work history is unavailable", statusCode: 500); }
+        });
         group.MapGet("/runtime", async (LocalWorkerRuntime runtime, CancellationToken ct) =>
             Results.Ok(await runtime.StatusAsync(ct)));
         group.MapPost("/runtime/start", async (LocalWorkerRuntime runtime, CancellationToken ct) =>
@@ -114,5 +134,6 @@ public static class ConfigurationPortal
             catch (Exception e) when (e is HttpRequestException or TaskCanceledException or JsonException or KeyNotFoundException)
             { return Results.Problem("无法连接生产 API，请检查连接及环境凭据", statusCode: 502); }
         });
+
     }
 }
