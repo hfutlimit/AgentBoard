@@ -547,7 +547,7 @@ class ProcessorCoordinator:
                     continue
                 task_payload = claimed.json() or task
                 if self._dispatch_task(task_payload, event="task.available") \
-                        is ExecutionStatus.SUCCESS:
+                        .status is ExecutionStatus.SUCCESS:
                     handled += 1
         return handled
 
@@ -558,8 +558,8 @@ class ProcessorCoordinator:
         When ``config.mq.enabled`` is false the server's
         ``publish_workflow_event_for_agent`` is a no-op, so an
         in-progress task that arbitration assigned to this agent has
-        no MQ consumer to wake the worker. Without this fallback, the
-        task waits forever (repro: #1716). The worker asks the server
+        no MQ consumer to wake it. Without this fallback, the task
+        waits forever (repro: #1716). The worker asks the server
         "give me every in-progress task whose active assignment
         belongs to my logical agent_id" (via the
         ``assigned_agent_id`` filter on ``GET /api/tasks``) and runs
@@ -569,6 +569,12 @@ class ProcessorCoordinator:
         Scope (2026-09-07 P3 收口 review): one Worker process per
         logical agent. Multi-worker concurrent polling would need a
         server-side execution lease / CAS, deferred until needed.
+
+        Retry budget (2026-09-07 收口 review)：这条路径没有 ack，也没有
+        ``WorkerWork.attempts < 3`` 那样的上限，一轮一轮问下来等于「每 60s
+        重投一次」。因此每次派发前查 ``message_attempts`` 计数，超上限就
+        死信跳过；``reclaim_stale_tasks`` 随后会把静默超期的 arbitrate 分配
+        回收成 todo，重新分配后拿到新的 assignment id → 新的重试预算。
         """
         agent_id_str = (self.config.agent_id or "").strip()
         if not agent_id_str:
@@ -601,18 +607,81 @@ class ProcessorCoordinator:
             for task in items:
                 if not task.get("id"):
                     continue
-                if self._dispatch_task(task, event="task.assigned") \
-                        is ExecutionStatus.SUCCESS:
+                retry_key = self._poll_assigned_retry_key(task)
+                if self._poll_assigned_exhausted(retry_key):
+                    continue
+                result = self._dispatch_task(task, event="task.assigned")
+                self._record_poll_attempt(retry_key, result)
+                if result.status is ExecutionStatus.SUCCESS:
                     handled += 1
         return handled
 
-    def _dispatch_task(self, task: dict, *, event: str) -> ExecutionStatus:
+    @staticmethod
+    def _poll_assigned_retry_key(task: dict) -> tuple[str, str, int, int]:
+        """retry key 把 ``current_assignment_id`` 当 ref_id：同一份分配的重试
+        计数彼此相连，换了新分配（回收后重新 arbitrate）自动拿到新预算。"""
+        try:
+            task_id = int(task["id"])
+        except (KeyError, TypeError, ValueError):
+            task_id = 0
+        try:
+            assignment_id = int(task.get("current_assignment_id") or 0)
+        except (TypeError, ValueError):
+            assignment_id = 0
+        return ("task.assigned", "task", task_id, assignment_id)
+
+    def _poll_assigned_exhausted(
+        self, retry_key: tuple[str, str, int, int],
+    ) -> bool:
+        """已死信 → 本轮跳过（MQ 有 ack，轮询没有，只能自己记账）。"""
+        execution_id = _execution_id_from_retry_key(retry_key)
+        attempt = self._get_attempt(execution_id)
+        if attempt < len(WORKFLOW_RETRY_BACKOFF_SECONDS):
+            return False
+        log.warning(
+            "Task #%s assignment#%s 轮询重投已达上限 %d，跳过（等租约回收或人工介入）",
+            retry_key[2], retry_key[3], len(WORKFLOW_RETRY_BACKOFF_SECONDS),
+        )
+        return True
+
+    def _record_poll_attempt(
+        self,
+        retry_key: tuple[str, str, int, int],
+        result: ExecutionResult,
+    ) -> None:
+        """把一次轮询派发的结果落到 ``message_attempts``，保证重投有上限。"""
+        execution_id = _execution_id_from_retry_key(retry_key)
+        status = result.status
+        if status is ExecutionStatus.SUCCESS:
+            self._delete_attempt(retry_key)
+            return
+        if status is ExecutionStatus.SKIPPED:
+            return  # 进程内 in-flight 重复，不消耗预算也不清零
+        attempt = self._get_attempt(execution_id)
+        if status in (ExecutionStatus.FAILED_PERMANENT, ExecutionStatus.REJECTED):
+            self._set_attempt(
+                execution_id, len(WORKFLOW_RETRY_BACKOFF_SECONDS),
+                last_error=result.summary or "permanent failure",
+                status="dead_lettered", retry_key=retry_key,
+            )
+            log.error(
+                "轮询派发 Task #%s 永久失败，死信：%s", retry_key[2],
+                result.summary or status,
+            )
+            return
+        self._set_attempt(
+            execution_id, attempt + 1,
+            last_error=result.summary or str(status),
+            status="pending", retry_key=retry_key,
+        )
+
+    def _dispatch_task(self, task: dict, *, event: str) -> ExecutionResult:
         """Build an ExecutionCommand for ``task`` and dispatch it.
 
         Shared by ``_poll_available_tasks`` (after claim) and
         ``_poll_assigned_in_progress`` (skip claim — already
-        arbitrated). Returns the resulting ``ExecutionStatus`` so the
-        caller can count successes without re-dispatching.
+        arbitrated). Returns the full ``ExecutionResult`` so callers can
+        both count successes and record the outcome for bounded retries.
         """
         task_id = int(task["id"])
         work_type = WorkType.from_task(task.get("type"), is_review=False)
@@ -627,7 +696,7 @@ class ProcessorCoordinator:
                 "task": task,
             },
         ))
-        return result.status
+        return result
 
     # ---------- MQ 事件流驱动 ----------
 

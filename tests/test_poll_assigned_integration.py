@@ -367,3 +367,109 @@ def test_task_poll_enabled_reads_from_config_not_env(monkeypatch):
     assert "tasks" not in stats or stats.get("tasks", 0) == 0
     assert stats.get("assigned_in_progress", 0) == 0
     coord.client.get.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# INVARIANT 3: 轮询重投有上限（这条路径没有 MQ ack，也没有 WorkerWork
+# 的 attempts<3，只能自己按 message_attempts 记账）
+# ---------------------------------------------------------------------------
+
+
+def _make_poll_coord(*, dispatch_status, task_payload=None):
+    """Coordinator whose assigned-poll always sees one task and whose
+    dispatch outcome is fixed to ``dispatch_status``."""
+    from agentboard.processors.config import ProcessorConfig
+    from agentboard.processors.contract import ExecutionResult, ExecutionStatus
+
+    config = ProcessorConfig(api_url="http://test", token="x",
+                             agent_id="cb-1", task_poll_enabled=True,
+                             mq=mock.MagicMock(enabled=False))
+    coord = _make_minimal_coord(config)
+    # 类属性 dict 会被所有实例共享，测试必须自带一份。
+    coord._msg_retries = {}
+    coord._session_factory = None
+    result = mock.MagicMock(spec=ExecutionResult)
+    result.status = ExecutionStatus(dispatch_status)
+    result.summary = "boom"
+    coord.dispatch = mock.MagicMock(return_value=result)
+    coord.client.get.return_value.json.return_value = [
+        task_payload or {"id": 11, "type": "design", "current_assignment_id": 77},
+    ]
+    return coord
+
+
+def _poll(coord):
+    with mock.patch.object(coord, "_mapped_project_ids", return_value=[3]):
+        coord.poll_once()
+    return coord.dispatch.call_count
+
+
+def test_assigned_poll_transient_failures_are_bounded():
+    """连续瞬时失败最多重投 len(WORKFLOW_RETRY_BACKOFF_SECONDS) 次。"""
+    from agentboard.processors.coordinator import WORKFLOW_RETRY_BACKOFF_SECONDS
+
+    cap = len(WORKFLOW_RETRY_BACKOFF_SECONDS)
+    coord = _make_poll_coord(dispatch_status="failed_transient")
+    for _ in range(cap):
+        _poll(coord)
+    assert coord.dispatch.call_count == cap
+
+    _poll(coord)  # 已死信 → 不再打扰
+    assert coord.dispatch.call_count == cap
+
+
+def test_assigned_poll_new_assignment_gets_fresh_budget():
+    """回收后重新 arbitrate → 新 assignment id → 新的重试预算。"""
+    from agentboard.processors.coordinator import WORKFLOW_RETRY_BACKOFF_SECONDS
+
+    cap = len(WORKFLOW_RETRY_BACKOFF_SECONDS)
+    coord = _make_poll_coord(dispatch_status="failed_transient")
+    for _ in range(cap + 1):
+        _poll(coord)
+    assert coord.dispatch.call_count == cap
+
+    coord.client.get.return_value.json.return_value = [
+        {"id": 11, "type": "design", "current_assignment_id": 78},
+    ]
+    _poll(coord)
+    assert coord.dispatch.call_count == cap + 1
+
+
+def test_assigned_poll_success_clears_the_budget():
+    """跑成功一次就清零，后续失败重新享有完整预算。"""
+    from agentboard.processors.coordinator import WORKFLOW_RETRY_BACKOFF_SECONDS
+    from agentboard.processors.contract import ExecutionStatus
+
+    cap = len(WORKFLOW_RETRY_BACKOFF_SECONDS)
+    coord = _make_poll_coord(dispatch_status="failed_transient")
+    _poll(coord)
+    assert coord.dispatch.call_count == 1
+
+    coord.dispatch.return_value.status = ExecutionStatus.SUCCESS
+    _poll(coord)
+    assert coord.dispatch.call_count == 2
+
+    coord.dispatch.return_value.status = ExecutionStatus.FAILED_TRANSIENT
+    for _ in range(cap):
+        _poll(coord)
+    # 清零后又能重投 cap 次（1 次成功前的失败 + cap 次新预算）
+    assert coord.dispatch.call_count == 2 + cap
+
+
+def test_assigned_poll_permanent_failure_dead_letters_at_once():
+    """永久失败没有重试意义 → 立刻死信，不再每 60s 起一次 agent。"""
+    coord = _make_poll_coord(dispatch_status="failed_permanent")
+    _poll(coord)
+    assert coord.dispatch.call_count == 1
+    _poll(coord)
+    assert coord.dispatch.call_count == 1
+
+
+def test_assigned_poll_inflight_duplicate_keeps_the_budget():
+    """SKIPPED（进程内 in-flight 重复）既不消耗也不清零预算。"""
+    coord = _make_poll_coord(dispatch_status="skipped")
+    _poll(coord)
+    assert coord.dispatch.call_count == 1
+    assert coord._msg_retries == {}
+    _poll(coord)
+    assert coord.dispatch.call_count == 2
