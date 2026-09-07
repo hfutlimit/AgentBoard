@@ -17,6 +17,7 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
 {
     private sealed class HistoryWriteException(Exception inner) : Exception("Local work history persistence failed", inner);
     private sealed class JournalWriteException(Exception inner) : Exception("Worker journal persistence failed", inner);
+    private sealed class CompletionLeaseConflictException : Exception;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
         { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
     private readonly WorkerOwnedOptions _options;
@@ -411,7 +412,13 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
                 using var completion = await Post(client, $"api/worker-work/{workId}/complete", new
                 { project_id = project, kind, worker_id = WorkerId, agent_id = profile.Id, token = entry.Token,
                   result = JsonSerializer.Deserialize<JsonElement>(entry.Result!) }, running.Token);
-                if (completion.StatusCode is HttpStatusCode.UnprocessableEntity or HttpStatusCode.Conflict)
+                // A 409 is a completion fence or business conflict, not a
+                // provider or result-validation failure. The journal and the
+                // local record must remain pending for the separate recovery
+                // boundary; do not manufacture a /fail for a produced result.
+                if (completion.StatusCode == HttpStatusCode.Conflict)
+                    throw new CompletionLeaseConflictException();
+                if (completion.StatusCode == HttpStatusCode.UnprocessableEntity)
                     throw new InvalidDataException("Worker result validation failed: " + await completion.Content.ReadAsStringAsync(running.Token));
                 completion.EnsureSuccessStatusCode();
                 try { await PersistHistory(() => { _records.MarkSucceeded(recordId); return true; }, running.Token); }
@@ -426,6 +433,16 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
                 return true;
             }
             catch (HistoryWriteException) { throw; }
+            catch (CompletionLeaseConflictException)
+            {
+                // This delivery attempt is terminal locally, but its durable
+                // journal/result-pending history is deliberately retained.
+                // Story #432 owns the fenced recovery protocol; requeuing it
+                // here could immediately overwrite the only saved result.
+                _state.LastError = "Completion fence conflict; result remains pending delivery";
+                _log.LogWarning("Completion fence conflict for work {WorkId}; local result remains pending delivery", workId);
+                return true;
+            }
             catch (Exception error) when (!ct.IsCancellationRequested && !running.IsCancellationRequested)
             {
                 // A network/lease error keeps the saved result for replay;

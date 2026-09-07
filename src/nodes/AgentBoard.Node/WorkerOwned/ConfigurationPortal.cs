@@ -52,14 +52,16 @@ public static class ConfigurationPortal
             catch (ArgumentException) { return Results.BadRequest(new { detail = "Invalid local history paging parameter" }); }
             catch (Exception) { return Results.Problem("Local work history is unavailable", statusCode: 500); }
         });
-        group.MapGet("/work-records/{recordId}", (HttpContext http, string recordId, LocalWorkRecordStore records) =>
+        group.MapGet("/work-records/{recordId}", (HttpContext http, string recordId, string? agentId, LocalWorkRecordStore records) =>
         {
             if (http.Request.Headers["X-AgentBoard-Local-Portal"] != "1") return Results.StatusCode(403);
             if (recordId.Length is < 16 or > 64 || !recordId.All(c => char.IsAsciiLetterOrDigit(c) || c == '-')) return Results.BadRequest(new { detail = "Invalid local work record" });
+            if (string.IsNullOrWhiteSpace(agentId) || agentId.Length > 100) return Results.BadRequest(new { detail = "Invalid local Agent" });
             try
             {
-                var detail = records.Get(recordId);
-                if (detail is null || !store.Read().Configuration.Agents.Any(a => StringComparer.Ordinal.Equals(a.Id, detail.Summary.AgentId))) return Results.NotFound();
+                if (!store.Read().Configuration.Agents.Any(a => StringComparer.Ordinal.Equals(a.Id, agentId))) return Results.NotFound();
+                var detail = records.Get(recordId, agentId);
+                if (detail is null) return Results.NotFound();
                 return Results.Ok(detail);
             }
             catch (Exception) { return Results.Problem("Local work history is unavailable", statusCode: 500); }

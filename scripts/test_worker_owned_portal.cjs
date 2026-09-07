@@ -20,7 +20,8 @@ const dom = new JSDOM(html,{url:'http://127.0.0.1:18240/',runScripts:'dangerousl
   let result;
    if(url.includes('/agents/a/work-records?'))result={items:[{recordId:'0123456789abcdef0123456789abcdef',workId:17,agentId:'a',workKind:'dev',businessItem:'task #17',state:'succeeded',deliveryState:'confirmed',startedAt:'2026-09-07T00:00:00Z',endedAt:'2026-09-07T00:01:00Z',summary:'Structured dev result'}],nextCursor:null};
    else if(url.includes('/agents/b/work-records?'))result={items:[{recordId:'fedcba9876543210fedcba9876543210',workKind:'qa',businessItem:'task #18',state:'failed',deliveryState:'not_applicable',startedAt:'2026-09-07T00:02:00Z',endedAt:'2026-09-07T00:03:00Z',summary:'Safe failure code'}],nextCursor:null};
-   else if(url.endsWith('/work-records/0123456789abcdef0123456789abcdef'))result={summary:{recordId:'0123456789abcdef0123456789abcdef',workId:17,agentId:'a',workKind:'dev',businessItem:'task #17',state:'succeeded',deliveryState:'confirmed',startedAt:'2026-09-07T00:00:00Z',endedAt:'2026-09-07T00:01:00Z'},provider:'codex',model:'gpt-5.6-sol',resultDetail:'Result: abcdef',events:[{occurredAt:'2026-09-07T00:00:00Z',state:'running'}]};
+   else if(url.endsWith('/work-records/0123456789abcdef0123456789abcdef?agentId=a'))result={summary:{recordId:'0123456789abcdef0123456789abcdef',workId:17,agentId:'a',workKind:'dev',businessItem:'task #17',state:'succeeded',deliveryState:'confirmed',startedAt:'2026-09-07T00:00:00Z',endedAt:'2026-09-07T00:01:00Z'},provider:'codex',model:'gpt-5.6-sol',resultDetail:'Result: abcdef',events:[{occurredAt:'2026-09-07T00:00:00Z',state:'running'}]};
+   else if(url.endsWith('/work-records/fedcba9876543210fedcba9876543210?agentId=b'))result={summary:{recordId:'fedcba9876543210fedcba9876543210',workId:18,agentId:'b',workKind:'qa',businessItem:'task #18',state:'failed',deliveryState:'not_applicable',startedAt:'2026-09-07T00:02:00Z',endedAt:'2026-09-07T00:03:00Z'},provider:'codex',model:'gpt-5.6-sol',failureCode:'ProviderFailed',events:[{occurredAt:'2026-09-07T00:02:00Z',state:'failed'}]};
    else if(url.endsWith('/configuration')){
    if(request.method==='PUT'){const body=JSON.parse(request.body);assert.equal(body.revision,revision);saved=body.configuration;revision='v2'}
    result={configuration:structuredClone(saved||initial),revision};
@@ -82,6 +83,9 @@ const change=(selector,value)=>{const el=d.querySelector(selector);el.value=valu
  d.querySelector('[data-editor-tab="records"]').click();await flush();await flush();
  assert.match(d.querySelector('#editor').textContent,/task #18/);
  assert.doesNotMatch(d.querySelector('#editor').textContent,/task #17/);
+ d.querySelector('[data-record-id]').click();await flush();await flush();
+ assert.match(d.querySelector('#editor').textContent,/ProviderFailed/);
+ d.querySelector('[data-history-back]').click();await flush();
  d.querySelector('[data-editor-tab="prompts"]').click();
  assert.equal(d.querySelector('#pre').value,'b-before');
  d.querySelector('[data-agent="0"]').click();

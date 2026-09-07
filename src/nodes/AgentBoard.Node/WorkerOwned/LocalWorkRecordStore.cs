@@ -189,11 +189,12 @@ public sealed class LocalWorkRecordStore
         return new(items, next);
     }
 
-    public LocalWorkRecordDetail? Get(string id)
+    public LocalWorkRecordDetail? Get(string id, string agentId)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(agentId);
         using var connection = Open(); using var cmd = connection.CreateCommand();
-        cmd.CommandText = "SELECT record_id,work_id,agent_id,work_kind,business_item,state,delivery_state,started_at,ended_at,result_summary,failure_code,provider,model,result_detail,retryable,delivered_at FROM worker_owned_work_records WHERE scope=$scope AND record_id=$id";
-        cmd.Parameters.AddWithValue("$scope", _scope); cmd.Parameters.AddWithValue("$id", id); using var reader = cmd.ExecuteReader(); if (!reader.Read()) return null;
+        cmd.CommandText = "SELECT record_id,work_id,agent_id,work_kind,business_item,state,delivery_state,started_at,ended_at,result_summary,failure_code,provider,model,result_detail,retryable,delivered_at FROM worker_owned_work_records WHERE scope=$scope AND record_id=$id AND agent_id=$agent";
+        cmd.Parameters.AddWithValue("$scope", _scope); cmd.Parameters.AddWithValue("$id", id); cmd.Parameters.AddWithValue("$agent", agentId); using var reader = cmd.ExecuteReader(); if (!reader.Read()) return null;
         var summary = ReadSummary(reader); var failure = reader.IsDBNull(10) ? null : WorkRecordRedactor.Clean(reader.GetString(10), 200); var provider = reader.GetString(11); var model = reader.GetString(12); var detail = reader.IsDBNull(13) ? null : WorkRecordRedactor.Clean(reader.GetString(13), 8192); var retryable = reader.GetInt32(14) != 0;
         DateTimeOffset? delivered = reader.IsDBNull(15) ? null : DateTimeOffset.Parse(reader.GetString(15)); reader.Close();
         cmd.Parameters.Clear(); cmd.CommandText = "SELECT sequence,occurred_at,state,delivery_state,event_code FROM worker_owned_work_record_events WHERE scope=$scope AND record_id=$id ORDER BY sequence"; cmd.Parameters.AddWithValue("$scope", _scope); cmd.Parameters.AddWithValue("$id", id);

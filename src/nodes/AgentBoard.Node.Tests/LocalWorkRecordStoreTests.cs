@@ -23,7 +23,7 @@ public sealed class LocalWorkRecordStoreTests : IDisposable
         Assert.Equal(id, store.CreateRunning(start));
         store.MarkPending(id, WorkRecordProjection.From("dev", new JsonObject { ["commit"] = new string('a', 40), ["prompt"] = "do not store" }));
         store.MarkSucceeded(id);
-        var detail = Assert.IsType<LocalWorkRecordDetail>(store.Get(id));
+        var detail = Assert.IsType<LocalWorkRecordDetail>(store.Get(id, "agent-a"));
         Assert.Equal(LocalWorkRecordStates.Succeeded, detail.Summary.State);
         Assert.Equal(9, detail.Summary.WorkId);
         Assert.Equal(["created", "journal_result_saved", "completion_confirmed"], detail.Events.Select(e => e.Code));
@@ -56,10 +56,22 @@ public sealed class LocalWorkRecordStoreTests : IDisposable
         store.MarkSucceeded(id);
 
         Assert.Throws<InvalidOperationException>(() => store.MarkFailed(id, "ProviderFailed"));
-        var detail = Assert.IsType<LocalWorkRecordDetail>(store.Get(id));
+        var detail = Assert.IsType<LocalWorkRecordDetail>(store.Get(id, "agent-a"));
         Assert.Equal(LocalWorkRecordStates.Succeeded, detail.Summary.State);
         Assert.Equal(["created", "recovered_interrupted", "journal_result_saved", "completion_confirmed"],
             detail.Events.Select(e => e.Code));
+    }
+
+    [Fact]
+    public void Detail_lookup_is_bound_to_the_requested_agent()
+    {
+        var store = new LocalWorkRecordStore(_path, "https://server.test|worker-a");
+        var first = store.CreateRunning(new(12, "token-12", "agent-a", "codex", "model", "dev", "task #12"));
+        var second = store.CreateRunning(new(13, "token-13", "agent-b", "codex", "model", "qa", "task #13"));
+
+        Assert.NotNull(store.Get(first, "agent-a"));
+        Assert.NotNull(store.Get(second, "agent-b"));
+        Assert.Null(store.Get(second, "agent-a"));
     }
 
     [Fact]
