@@ -13,6 +13,7 @@ from ...core.application import service
 from ..identity.schemas import UserAdminPatch
 from ..proposals.schemas import TicketReclaimIn
 from ..scheduling.schemas import SprintPatch
+from ..work_items.schemas import AdminClearAssignmentIn
 from datetime import datetime
 from ...models import ALL_TYPES, ALL_STATUSES, ALL_PRIORITIES, ALL_SPRINT_STATUSES, ALL_SCHEDULE_TYPES, ALL_RUN_STATUSES
 from ... import api_helpers  # Phase 5: _current_user, _auth_is_required, etc.
@@ -227,6 +228,38 @@ def delete_dependency(did: int, s: Session = Depends(get_session)):
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
     return {"ok": True}
+
+
+@router.post("/api/admin/tasks/{tid}/clear-assignment")
+def admin_clear_task_assignment_endpoint(
+    tid: int, body: AdminClearAssignmentIn | None = None,
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    """[admin] Force-clear a task's ``current_assignment_id`` FK.
+
+    Escape hatch for tasks stuck in ``todo`` with a non-null
+    ``current_assignment_id`` (owner died / durable workflow failed to
+    release / operator wants to re-route). Marks the underlying
+    ``TaskAssignment`` as ``superseded`` (audit-distinct from
+    ``completed``) and clears the FK so all claim/apply/arbitrate
+    paths can proceed. Does not change task status — caller decides
+    what to do next.
+
+    No-op when ``current_assignment_id`` is already NULL.
+
+    See ``service.admin_clear_task_assignment`` docstring for the full
+    rationale and audit semantics.
+    """
+    actor = api_helpers._require_admin(authorization, s, permission="api:write")
+    reason = (body.reason if body else "") or ""
+    try:
+        updated = service.admin_clear_task_assignment(
+            s, tid, admin_user_id=actor.user_id, reason=reason,
+        )
+    except service.NotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return service._ser(updated)
 
 
 # ---------- Epic 22 Story 22.3: 数据导入 ----------

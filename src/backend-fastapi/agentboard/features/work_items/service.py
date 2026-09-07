@@ -693,6 +693,79 @@ def finalize_task_assignment(
     return assignment
 
 
+def admin_clear_task_assignment(
+    s: Session, task_id: int, *, admin_user_id: int, reason: str = "",
+    commit: bool = True,
+) -> Task:
+    """Admin force-clear a task's ``current_assignment_id`` FK without
+    transitioning the task to a terminal state.
+
+    Why this exists
+    ---------------
+    ``current_assignment_id`` is an audit pointer (set on every claim /
+    apply / arbitrate). The normal cleanup path runs in
+    :func:`finalize_task_assignment`, which is only invoked by
+    :func:`set_status` when the task moves to ``done`` or ``blocked``.
+    A task stuck in ``todo`` (e.g. owner died, durable workflow failed
+    to release, operator wants to re-route) cannot reach a terminal
+    state, so its ``current_assignment_id`` stays set forever.
+
+    Consequence: every claim / apply / arbitrate / transfer / poll path
+    has a ``status==todo AND current_assignment_id IS NULL`` precondition
+    (``try_assign_task``, ``apply_for_task``, ``arbitrate_task``,
+    ``coordinator._poll_available_tasks``). All of them 409 the operator
+    out. There is no other HTTP path that clears the FK (PATCH
+    ``/api/tasks/{tid}`` has it out of its ``allowed`` whitelist,
+    ``finalize_task_assignment`` only fires on terminal transitions).
+
+    This admin endpoint is the explicit escape hatch.
+
+    Behavior
+    --------
+    1. Mark the underlying ``TaskAssignment`` as ``superseded``
+       (distinct from ``completed`` to preserve audit semantics:
+       ``completed`` = agent finished, ``superseded`` = admin override).
+    2. Set ``task.current_assignment_id = NULL``.
+    3. Clear ``task.assignment_deferred_reason`` /
+       ``assignment_deferred_at`` (the assignment is gone, deferral
+       state no longer applies).
+    4. Write a ``TaskStatusHistory`` row with the unchanged status and
+       the admin reason in the change reason.
+    5. Status is **not** mutated; caller decides what to do next
+       (e.g. revert to ``todo`` via set_status, or accept current
+       state). No-op when ``current_assignment_id`` is already NULL.
+    """
+    t = s.get(Task, task_id)
+    if not t:
+        raise NotFound(f"task {task_id} not found")
+    if t.current_assignment_id is None:
+        return t  # no-op: nothing to clear
+    old_assignment_id = t.current_assignment_id
+    assignment = s.get(TaskAssignment, old_assignment_id)
+    if assignment is not None and assignment.status == "active":
+        assignment.status = "superseded"
+        assignment.active_slot = None
+        assignment.completed_at = utc_now()
+    t.current_assignment_id = None
+    t.assignment_deferred_reason = None
+    t.assignment_deferred_at = None
+    _record_status_history(
+        s,
+        task_id,
+        t.status,
+        t.status,
+        changed_by=admin_user_id,
+        reason=f"admin clear assignment #{old_assignment_id}: {reason or '(no reason)'}",
+    )
+    if commit:
+        _commit(s)
+    else:
+        s.flush()
+    s.refresh(t)
+    _invalidate_project_stats_cache(t.project_id)
+    return t
+
+
 def apply_for_task(
     s: Session,
     task_id: int,

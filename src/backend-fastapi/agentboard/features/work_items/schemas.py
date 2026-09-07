@@ -3,6 +3,16 @@
 from pydantic import BaseModel, Field, field_validator
 
 
+class AdminClearAssignmentIn(BaseModel):
+	"""Body for POST /api/admin/tasks/{tid}/clear-assignment.
+
+	``reason`` is recorded in TaskStatusHistory.change_reason and on the
+	superseded TaskAssignment row for audit purposes.
+	"""
+
+	reason: str = Field(default="", max_length=500)
+
+
 class TaskIn(BaseModel):
 	project_id: int = Field(gt=0)
 	title: str = Field(min_length=1, max_length=300)
