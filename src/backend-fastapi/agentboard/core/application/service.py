@@ -1197,6 +1197,7 @@ def _invalidate_project_stats_cache(project_id: int) -> None:
 def search_tasks(s: Session, *, project_id=None, epic_id=None, story_id=None,
                  sprint_id=None, type=None, status=None, priority=None, q=None,
                  reviewer_id: int | None = None,
+                 agent_id: int | None = None,
                  limit: int | None = None, offset: int = 0,
                  project_ids: list[int] | None = None):
     """跨项目任务搜索。
@@ -1204,6 +1205,12 @@ def search_tasks(s: Session, *, project_id=None, epic_id=None, story_id=None,
     ``project_ids``（T2.1 读门）：只返回这些 project 的 task；``None`` 表示
     不加这层过滤（admin / 内部调用）。与 ``project_id``（单项目精确查询）
     是两个维度 —— 前者是**权限边界**，后者是**查询条件**，不要混用。
+
+    ``agent_id``（2026-09-07 #1716 fallback）：当 worker 在没有 RabbitMQ
+    的部署下需要拉"已派给自己（in_progress）但还没执行"的任务时，按
+    ``TaskAssignment.agent_registry_id`` 过滤。JOIN 是一次性拿
+    assignment 行的 id + agent 关联，避免 worker 拉全部 in_progress
+    task 再二次查询 assignment 关联表。
     """
     qry = s.query(Task)
     if project_id is not None:
@@ -1229,6 +1236,13 @@ def search_tasks(s: Session, *, project_id=None, epic_id=None, story_id=None,
         qry = qry.filter(Task.reviewer_id == reviewer_id)
     if epic_id is not None:
         qry = qry.join(Story, Task.story_id == Story.id).filter(Story.epic_id == epic_id)
+    if agent_id is not None:
+        # JOIN active assignment; filter by agent_registry_id.
+        from ...features.scheduling.models import TaskAssignment
+        qry = qry.join(
+            TaskAssignment,
+            Task.current_assignment_id == TaskAssignment.id,
+        ).filter(TaskAssignment.agent_registry_id == agent_id)
     if q:
         like = f"%{q}%"
         qry = qry.filter(or_(Task.title.ilike(like), Task.description.ilike(like),

@@ -962,6 +962,7 @@ def search_tasks(project_id: int | None = None, epic_id: int | None = None,
                  type: str | None = None, status: str | None = None,
                  priority: str | None = None, q: str | None = Query(None),
                  reviewer_id: str | None = Query(None),
+                 agent_id: str | None = Query(None),
                  limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
                  s: Session = Depends(get_session),
                  authorization: str | None = Header(None)):
