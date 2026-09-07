@@ -483,14 +483,16 @@ class ProcessorCoordinator:
             "1", "true", "yes",
         }:
             stats["tasks"] = self._poll_available_tasks()
-            # MQ fallback for already-assigned in_progress tasks.
-            # When ``AGENTBOARD_MQ_URL`` is empty the server's
-            # ``publish_workflow_event_for_agent`` is a no-op, so an
-            # in_progress task that arbitration assigned to a given
-            # agent has no MQ consumer to wake the worker. Polling
-            # for "tasks currently assigned to me, status=in_progress"
-            # is the durable-workflow fallback.
-            stats["assigned_in_progress"] = self._poll_assigned_in_progress()
+            # MQ fallback for already-assigned in_progress tasks. Only
+            # run when AGENTBOARD_MQ_URL is empty (or pika unavailable) —
+            # otherwise MQ drives dispatch and polling would double-process
+            # the same task (repro: 247efcb-review P1). Long-term this
+            # needs a distributed execution lease to be safe under
+            # multi-worker polling, but the gate is the right
+            # short-term stop.
+            mq_url = (os.getenv("AGENTBOARD_MQ_URL") or "").strip()
+            if not mq_url:
+                stats["assigned_in_progress"] = self._poll_assigned_in_progress()
 
         stale_stories = maintenance.reclaim_stale_stories(self.client, self.config)
         stale_tasks = maintenance.reclaim_stale_tasks(self.client, self.config)
@@ -640,27 +642,36 @@ class ProcessorCoordinator:
 
     def _resolve_self_agent_registry_id(self) -> int | None:
         """Return the ``agents.id`` (PK) for this worker's configured
-        ``AGENTBOARD_WORKER_AGENT_ID``, or None if not registered.
+        agent identity, or None if it can't be resolved.
 
-        Resolution order: dedicated ``GET /api/agents/{agent_id}`` →
-        ``list_agents`` filter (if available) → None. Workers only need
-        this in the MQ-less fallback path; the dedicated endpoint keeps
-        the lookup a single round trip.
+        Uses the existing ``POST /api/agents/{agent_id}/heartbeat``
+        endpoint as a side-effect-free lookup: the server's heartbeat
+        returns ``to_public_dict()`` (which contains the integer ``id``
+        PK). One round trip, no new endpoint required (and avoiding a
+        new ``GET /api/agents/{id}`` sidesteps a known
+        scheduling-router circular import).
+
+        Prefers ``self.config.agent_id`` (loaded from
+        ``AGENTBOARD_WORKER_AGENT_ID`` at processor construction) over
+        re-reading the env every cycle — env is read once at boot, then
+        the config is the source of truth.
         """
-        agent_id_str = (os.getenv("AGENTBOARD_WORKER_AGENT_ID") or "").strip()
+        agent_id_str = (self.config.agent_id or "").strip()
         if not agent_id_str:
             return None
         try:
-            response = self.client.get(
-                f"/api/agents/{agent_id_str}",
+            response = self.client.post(
+                f"/api/agents/{agent_id_str}/heartbeat",
+                json={"probe_ok": True,
+                      "probe_message": "poll_assign_resolve"},
             )
-            if response.status_code == 200:
-                row = response.json() or {}
-                rid = row.get("id")
-                if rid is not None:
-                    return int(rid)
+            response.raise_for_status()
+            row = response.json() or {}
+            rid = row.get("id")
+            if rid is not None:
+                return int(rid)
         except Exception as exc:
-            log.debug("resolve_self_agent_registry_id REST failed: %s", exc)
+            log.debug("resolve_self_agent_registry_id heartbeat failed: %s", exc)
         return None
 
     # ---------- MQ 事件流驱动 ----------

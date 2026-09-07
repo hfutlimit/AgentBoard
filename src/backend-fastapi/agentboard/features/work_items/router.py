@@ -962,7 +962,7 @@ def search_tasks(project_id: int | None = None, epic_id: int | None = None,
                  type: str | None = None, status: str | None = None,
                  priority: str | None = None, q: str | None = Query(None),
                  reviewer_id: str | None = Query(None),
-                 agent_id: str | None = Query(None),
+                 agent_id: int | None = Query(None, ge=1),
                  limit: int = Query(100, ge=1, le=200), offset: int = Query(0, ge=0),
                  s: Session = Depends(get_session),
                  authorization: str | None = Header(None)):
@@ -978,6 +978,11 @@ def search_tasks(project_id: int | None = None, epic_id: int | None = None,
                 rid = int(reviewer_id)
             except (TypeError, ValueError):
                 raise HTTPException(status_code=422, detail="invalid reviewer_id")
+    # ``agent_id`` is the agent registry PK (agents.id), NOT a logical
+    # name. ``int | None`` + ``Query(None, ge=1)`` so FastAPI rejects
+    # non-int input up front (avoids the silently-ignored-string bug
+    # fixed in 247efcb-review).
+    aid: int | None = agent_id
     try:
         # T2.1 读门：不带 project_id 的全局搜索必须收敛到「可读项目」，
         # 否则任何登录用户能拉到全库 task（实测泄漏点）。
@@ -992,11 +997,13 @@ def search_tasks(project_id: int | None = None, epic_id: int | None = None,
                     story_id=story_id, sprint_id=sprint_id,
                     type=type, status=status,
                     priority=priority, q=q, reviewer_id=rid,
+                    agent_id=aid,
                     limit=limit, offset=offset, project_ids=readable)]
         rows = service.search_tasks(s, project_id=project_id, epic_id=epic_id,
                                     story_id=story_id, sprint_id=sprint_id,
                                     type=type, status=status,
                                     priority=priority, q=q, reviewer_id=rid,
+                                    agent_id=aid,
                                     limit=limit, offset=offset)
     except service.InvalidValue as e:
         raise HTTPException(status_code=422, detail=str(e))
