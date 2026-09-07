@@ -233,6 +233,16 @@ public sealed class AgentsOptions
     public AgentOptions MiniMax { get; set; } = new() { Command = "MiniMax" };
     public AgentOptions Codex { get; set; } = new() { Command = "codex" };
     /// <summary>
+    /// Second Codex slot. Both Codex slots drive the same `codex` CLI through
+    /// <c>CodexAdapter</c> and are distinguished only by
+    /// <see cref="AgentOptions.AgentId"/> — which is exactly the case PR-12
+    /// documented ("多 agent 同 type 时靠这个区分（codex-dev-1 vs codex-dev-2）")
+    /// but which the hardcoded slot list could not express, because a slot is
+    /// one (tool, AgentId) pair.
+    /// Leaving Command empty disables it, same as every other slot.
+    /// </summary>
+    public AgentOptions Codex2 { get; set; } = new() { Command = "" };
+    /// <summary>
     /// 千问办公 (Qwen) agent slot. Disabled by default (Command=""). Wire
     /// <c>Agents:Qwen:Command</c> to the <c>scripts/qwen_invoker.py</c>
     /// (python.exe + script, mirroring how WorkBuddy/Codex are pointed at the

@@ -69,6 +69,11 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_truthy(name: str) -> bool:
+    raw = (os.getenv(name) or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 @dataclass
 class ProcessorConfig:
     """Processor 运行参数，全部可由环境变量覆盖（容器部署友好）。"""
@@ -103,6 +108,12 @@ class ProcessorConfig:
     # 单次 Agent 调用超时（秒）
     agent_timeout: int = 900
     http_timeout: float = 30.0
+    # 任务轮询：true → Worker 同时扫 todo (claim) 和 in_progress
+    # (assigned-to-me fallback)。生产 MQ 部署只依赖 MQ 时可以关。
+    # 环境变量 ``AGENTBOARD_WORKER_TASK_POLL=1|true|yes``。MQ-less
+    # 单 Worker 部署必备,否则 task 被 arbitration 派到 in_progress
+    # 后永远等不到 consumer (repro: #1716)。
+    task_poll_enabled: bool = False
     # 消息总线（P2）。url 为空即禁用，Worker 回退 P1 轮询模式。
     mq: "mq.MQConfig" = field(default_factory=lambda: mq.MQConfig())
     # MQ 模式下的维护周期（秒）：回收超租约 + 自愈重投遗留工作项
@@ -146,6 +157,7 @@ class ProcessorConfig:
             batch_size=_env_int("AGENTBOARD_WORKER_BATCH", 5),
             lease_seconds=_env_int("AGENTBOARD_WORKER_LEASE", 1800),
             max_rounds=_env_int("AGENTBOARD_WORKER_MAX_ROUNDS", 5),
+            task_poll_enabled=_env_truthy("AGENTBOARD_WORKER_TASK_POLL"),
             agent_cmd=os.getenv("AGENTBOARD_WORKER_AGENT_CMD", ""),
             agent_timeout=_env_int("AGENTBOARD_WORKER_AGENT_TIMEOUT", 900),
             async_story_executor=_env_int("AGENTBOARD_WORKER_ASYNC_STORY", 0) == 1,

@@ -476,22 +476,16 @@ class ProcessorCoordinator:
                     stats["stories"] += 1
 
         # 4. 租约超期回收
-        # In deployments without RabbitMQ, ``task.available`` is not
-        # delivered to workers.  Opt-in polling closes that gap while being
-        # restricted to locally mapped projects.
-        if os.getenv("AGENTBOARD_WORKER_TASK_POLL", "0").strip().lower() in {
-            "1", "true", "yes",
-        }:
+        # Polling is opt-in (config.task_poll_enabled) — read once at
+        # boot, never via os.getenv at call time. MQ-less assigned-task
+        # fallback (P3 收口 review) only runs when MQ is also disabled;
+        # otherwise the broker drives dispatch and polling would
+        # double-process. Scope: a single Worker process per logical
+        # agent. Multi-worker / MQ-down recovery is an explicit future
+        # task (server-side execution lease / CAS).
+        if self.config.task_poll_enabled:
             stats["tasks"] = self._poll_available_tasks()
-            # MQ fallback for already-assigned in_progress tasks. Only
-            # run when AGENTBOARD_MQ_URL is empty (or pika unavailable) —
-            # otherwise MQ drives dispatch and polling would double-process
-            # the same task (repro: 247efcb-review P1). Long-term this
-            # needs a distributed execution lease to be safe under
-            # multi-worker polling, but the gate is the right
-            # short-term stop.
-            mq_url = (os.getenv("AGENTBOARD_MQ_URL") or "").strip()
-            if not mq_url:
+            if not self.config.mq.enabled:
                 stats["assigned_in_progress"] = self._poll_assigned_in_progress()
 
         stale_stories = maintenance.reclaim_stale_stories(self.client, self.config)
@@ -552,19 +546,8 @@ class ProcessorCoordinator:
                 if claimed.status_code != 200:
                     continue
                 task_payload = claimed.json() or task
-                work_type = WorkType.from_task(task_payload.get("type"), is_review=False)
-                result = self.dispatch(ExecutionCommand(
-                    execution_id=f"task_{task_id}_{int(time.time())}",
-                    work_type=work_type,
-                    entity_type="task",
-                    entity_id=int(task_id),
-                    context={
-                        "event": "task.available",
-                        "work_type": work_type.value,
-                        "task": task_payload,
-                    },
-                ))
-                if result.status is ExecutionStatus.SUCCESS:
+                if self._dispatch_task(task_payload, event="task.available") \
+                        is ExecutionStatus.SUCCESS:
                     handled += 1
         return handled
 
@@ -572,25 +555,24 @@ class ProcessorCoordinator:
         """MQ fallback path: scan in-progress tasks already assigned to
         this worker's agent and dispatch them.
 
-        When ``AGENTBOARD_MQ_URL`` is empty the server's
+        When ``config.mq.enabled`` is false the server's
         ``publish_workflow_event_for_agent`` is a no-op, so an
-        in-progress task that arbitration assigned to a given agent has
+        in-progress task that arbitration assigned to this agent has
         no MQ consumer to wake the worker. Without this fallback, the
         task waits forever (repro: #1716). The worker asks the server
-        "give me every in-progress task whose active
-        TaskAssignment.agent_registry_id == me" (via the new
-        ``agent_id`` filter on ``GET /api/tasks``) and runs the same
-        dispatch as the todo path — claim is skipped because the
-        assignment already exists.
+        "give me every in-progress task whose active assignment
+        belongs to my logical agent_id" (via the
+        ``assigned_agent_id`` filter on ``GET /api/tasks``) and runs
+        the same dispatch as the todo path — claim is skipped because
+        arbitration already set ``current_assignment_id``.
+
+        Scope (2026-09-07 P3 收口 review): one Worker process per
+        logical agent. Multi-worker concurrent polling would need a
+        server-side execution lease / CAS, deferred until needed.
         """
-        # Resolve ``AGENTBOARD_WORKER_AGENT_ID`` (logical agent name
-        # like ``codebuddy-1``) → agent_registry_id (FK to ``agents.id``).
-        # Heartbeat keeps the local registry in sync, so this is
-        # safe to call every cycle.
-        agent_id = self._resolve_self_agent_registry_id()
-        if agent_id is None:
-            # No heartbeat yet (e.g. just started, .NET path active).
-            # Nothing to poll.
+        agent_id_str = (self.config.agent_id or "").strip()
+        if not agent_id_str:
+            log.debug("_poll_assigned_in_progress: empty config.agent_id, skip")
             return 0
         project_ids = self._mapped_project_ids()
         if not project_ids:
@@ -603,7 +585,7 @@ class ProcessorCoordinator:
                     params={
                         "project_id": project_id,
                         "status": "in_progress",
-                        "agent_id": agent_id,
+                        "assigned_agent_id": agent_id_str,
                         "limit": max(1, self.config.batch_size),
                     },
                 )
@@ -611,68 +593,41 @@ class ProcessorCoordinator:
                 tasks = response.json() or []
             except Exception as exc:
                 log.warning(
-                    "扫描 project#%s agent#%s in_progress Task 失败：%s",
-                    project_id, agent_id, exc,
+                    "扫描 project#%s agent=%s in_progress Task 失败：%s",
+                    project_id, agent_id_str, exc,
                 )
                 continue
             items = tasks if isinstance(tasks, list) else tasks.get("items", [])
             for task in items:
-                task_id = task.get("id")
-                if not task_id:
+                if not task.get("id"):
                     continue
-                # No claim: arbitration already set current_assignment_id.
-                # Dispatch straight to the executor; if the executor
-                # dedupes by in-flight task id (which it does), re-runs
-                # are no-ops.
-                work_type = WorkType.from_task(task.get("type"), is_review=False)
-                result = self.dispatch(ExecutionCommand(
-                    execution_id=f"task_{task_id}_{int(time.time())}",
-                    work_type=work_type,
-                    entity_type="task",
-                    entity_id=int(task_id),
-                    context={
-                        "event": "task.assigned",
-                        "work_type": work_type.value,
-                        "task": task,
-                    },
-                ))
-                if result.status is ExecutionStatus.SUCCESS:
+                if self._dispatch_task(task, event="task.assigned") \
+                        is ExecutionStatus.SUCCESS:
                     handled += 1
         return handled
 
-    def _resolve_self_agent_registry_id(self) -> int | None:
-        """Return the ``agents.id`` (PK) for this worker's configured
-        agent identity, or None if it can't be resolved.
+    def _dispatch_task(self, task: dict, *, event: str) -> ExecutionStatus:
+        """Build an ExecutionCommand for ``task`` and dispatch it.
 
-        Uses the existing ``POST /api/agents/{agent_id}/heartbeat``
-        endpoint as a side-effect-free lookup: the server's heartbeat
-        returns ``to_public_dict()`` (which contains the integer ``id``
-        PK). One round trip, no new endpoint required (and avoiding a
-        new ``GET /api/agents/{id}`` sidesteps a known
-        scheduling-router circular import).
-
-        Prefers ``self.config.agent_id`` (loaded from
-        ``AGENTBOARD_WORKER_AGENT_ID`` at processor construction) over
-        re-reading the env every cycle — env is read once at boot, then
-        the config is the source of truth.
+        Shared by ``_poll_available_tasks`` (after claim) and
+        ``_poll_assigned_in_progress`` (skip claim — already
+        arbitrated). Returns the resulting ``ExecutionStatus`` so the
+        caller can count successes without re-dispatching.
         """
-        agent_id_str = (self.config.agent_id or "").strip()
-        if not agent_id_str:
-            return None
-        try:
-            response = self.client.post(
-                f"/api/agents/{agent_id_str}/heartbeat",
-                json={"probe_ok": True,
-                      "probe_message": "poll_assign_resolve"},
-            )
-            response.raise_for_status()
-            row = response.json() or {}
-            rid = row.get("id")
-            if rid is not None:
-                return int(rid)
-        except Exception as exc:
-            log.debug("resolve_self_agent_registry_id heartbeat failed: %s", exc)
-        return None
+        task_id = int(task["id"])
+        work_type = WorkType.from_task(task.get("type"), is_review=False)
+        result = self.dispatch(ExecutionCommand(
+            execution_id=f"task_{task_id}_{int(time.time())}",
+            work_type=work_type,
+            entity_type="task",
+            entity_id=task_id,
+            context={
+                "event": event,
+                "work_type": work_type.value,
+                "task": task,
+            },
+        ))
+        return result.status
 
     # ---------- MQ 事件流驱动 ----------
 

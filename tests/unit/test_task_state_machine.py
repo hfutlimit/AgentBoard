@@ -11,9 +11,8 @@ import pytest
 
 from agentboard.core.common.enums import Status, StatusReason
 from agentboard.core.exceptions import IllegalTransition, InvalidValue
-from agentboard.core.infrastructure.database import (
-    SessionLocal, engine, init_db,
-)
+from agentboard.core.infrastructure import database as _database
+from agentboard.core.infrastructure.database import init_db, engine
 from agentboard.features.identity.models import User
 from agentboard.features.projects.models import Project
 from agentboard.features.work_items.models import Task
@@ -34,7 +33,7 @@ def _init_db():
 
 @pytest.fixture
 def session():
-    s = SessionLocal()
+    s = _database.SessionLocal()
     try:
         yield s
     finally:

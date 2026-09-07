@@ -34,8 +34,8 @@
     },
     {
       "path": "/documents",
-      "final_text_len": 1304,
-      "h1": "项目中心\n11",
+      "final_text_len": 5584,
+      "h1": "项目中心\n104",
       "is_404": false,
       "overflow_px": 0,
       "verdict": "OK"
@@ -50,7 +50,7 @@
     },
     {
       "path": "/settings",
-      "final_text_len": 650,
+      "final_text_len": 369,
       "h1": "个人设置",
       "is_404": false,
       "overflow_px": 0,
@@ -58,16 +58,16 @@
     },
     {
       "path": "/agents",
-      "final_text_len": 1462,
-      "h1": "Agent 池\n7",
+      "final_text_len": 455,
+      "h1": "Agent 池\n3",
       "is_404": false,
       "overflow_px": 0,
       "verdict": "OK"
     },
     {
       "path": "/proposals",
-      "final_text_len": 1304,
-      "h1": "项目中心\n11",
+      "final_text_len": 5584,
+      "h1": "项目中心\n104",
       "is_404": false,
       "overflow_px": 0,
       "verdict": "OK"
@@ -79,7 +79,7 @@
       "text": ""
     },
     {
-      "href": "/project/3",
+      "href": "/project/104",
       "text": "进入工作台"
     },
     {
@@ -138,7 +138,7 @@
         "rect": "87x30"
       },
       {
-        "text": "AGB\nAgentBoa",
+        "text": "d\ndesign_his",
         "title": "",
         "aria": "",
         "cls": "project-master-row-v7 active",
@@ -146,7 +146,7 @@
         "rect": "341x112"
       },
       {
-        "text": "SBD\nSmartBid",
+        "text": "d\ndesign_blo",
         "title": "",
         "aria": "",
         "cls": "project-master-row-v7",
@@ -154,7 +154,7 @@
         "rect": "341x112"
       },
       {
-        "text": "ZPMC\nZPMC\nZP",
+        "text": "d\ndesign_old",
         "title": "",
         "aria": "",
         "cls": "project-master-row-v7",
@@ -162,7 +162,7 @@
         "rect": "341x112"
       },
       {
-        "text": "DP\nDevPilot\n",
+        "text": "d\ndesign_lif",
         "title": "",
         "aria": "",
         "cls": "project-master-row-v7",
@@ -170,7 +170,7 @@
         "rect": "341x112"
       },
       {
-        "text": "RESUME\nResum",
+        "text": "d\ndesign_dir",
         "title": "",
         "aria": "",
         "cls": "project-master-row-v7",
@@ -178,7 +178,7 @@
         "rect": "341x112"
       },
       {
-        "text": "DEV\nDevPolit",
+        "text": "d\ndesign_def",
         "title": "",
         "aria": "",
         "cls": "project-master-row-v7",
@@ -186,7 +186,7 @@
         "rect": "341x112"
       },
       {
-        "text": "KV\nKnowledge",
+        "text": "p\np1_ec126df",
         "title": "",
         "aria": "",
         "cls": "project-master-row-v7",
@@ -194,7 +194,7 @@
         "rect": "341x112"
       },
       {
-        "text": "m\nmcp\n— · Me",
+        "text": "p\np1_42884be",
         "title": "",
         "aria": "",
         "cls": "project-master-row-v7",
@@ -202,7 +202,7 @@
         "rect": "341x112"
       },
       {
-        "text": "测\n测试项目\n— · M",
+        "text": "p\np1_1f786f1",
         "title": "",
         "aria": "",
         "cls": "project-master-row-v7",
@@ -210,7 +210,7 @@
         "rect": "341x112"
       },
       {
-        "text": "TP\nTest Proj",
+        "text": "p\np1_eaab80f",
         "title": "",
         "aria": "",
         "cls": "project-master-row-v7",
@@ -218,7 +218,751 @@
         "rect": "341x112"
       },
       {
-        "text": "CHESS\nChessP",
+        "text": "p\np1_ea1c1b6",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_0422083",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_6c84cbd",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_d13019d",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_e89d363",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_4a88455",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_932ed96",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_ac2c5ce",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_c65e9d0",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_58c569c",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_cfece2f",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_005548c",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_dca299c",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_9e3374b",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_7d172bb",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_ebaba2a",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_e34379d",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_2df591e",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_fb2c244",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_his",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_blo",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_old",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_lif",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_dir",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_def",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_f5b7583",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_a7020ef",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_ab52367",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_293878a",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_c08bd2e",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_33876bd",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_76ed236",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_6fbe462",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_9f60c0a",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_9d46094",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_7ad866c",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_83c50ff",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_a752d2f",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_40d7b1c",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_his",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_blo",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_old",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_lif",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_dir",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_def",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_his",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_blo",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_old",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_lif",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_dir",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_def",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_his",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_blo",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_old",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_lif",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_dir",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_def",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_e5bbebd",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_96938a2",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_c3ce77d",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_9d37efc",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_c840753",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_0e61d2e",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_e543ab0",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "P\nP265test_2",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_his",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_blo",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_old",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_lif",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_dir",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "d\ndesign_def",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_e147008",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_b66ffd3",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_20b0234",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_dfb921b",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_214743e",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_c6cfd5a",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_44b6157",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_1fef5ef",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_fbacd12",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_f6236f8",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_5889e33",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_9a22679",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_3d7fdcb",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_89b1085",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_24383d3",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1\n— · Mem",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "DEMO\nDemo\nDE",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_b66eeeb",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_d662238",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_b256a97",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_dadb029",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_95b378a",
+        "title": "",
+        "aria": "",
+        "cls": "project-master-row-v7",
+        "hasSvg": false,
+        "rect": "341x112"
+      },
+      {
+        "text": "p\np1_a73ebde",
         "title": "",
         "aria": "",
         "cls": "project-master-row-v7",

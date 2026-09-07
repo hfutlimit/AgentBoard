@@ -1,43 +1,38 @@
 """Integration tests for the #1716 MQ-less worker dispatch fallback.
 
-Regression coverage for the 247efcb-review P0/P1 findings:
+These tests pin the **business invariant** ("a worker polling its
+own agent gets only its agent's tasks; other agents' tasks are
+invisible") rather than the internal implementation (which
+function resolved the PK, which HTTP method was called, etc.).
+That way future refactors (e.g. switching to a logical-ID filter
+on the server side) don't break these tests for the wrong reason.
 
-P0-1: ``_resolve_self_agent_registry_id`` must call
-``POST /api/agents/{id}/heartbeat`` (not a non-existent
-``GET /api/agents/{id}``) and return the integer PK from the
-``id`` field of the public DTO.
-
-P0-2: ``GET /api/tasks?agent_id=N`` must propagate ``agent_id`` into
-``service.search_tasks`` for BOTH call paths. A worker pulling
-its own assigned tasks must never silently fall back to "all
-agents' tasks" because the router dropped the filter.
-
-P1: ``_poll_assigned_in_progress`` only runs when MQ is actually
-disabled; otherwise MQ drives dispatch and the polling path would
-double-process. (Encoded as a gate on ``mq_enabled`` — see the
-``_poll_assigned_in_progress`` body.)
-
-These tests use the real FastAPI app via ``TestClient`` (so the
-real router is exercised) and an in-memory SQLite database.
+History:
+- 247efcb / eece589 wired the poll path and fixed two P0 bugs.
+- This file (P3 收口 review) rewrote the tests to be invariant-
+  based, dropped the heartbeat-lookup helper, and removed the
+  multi-PK confusion. Tests run at the service layer (the
+  HTTP-router contract is exercised in test_search_tasks_agent_filter
+  and the agentboard e2e suite, not here).
 """
 from __future__ import annotations
 
 import os
 
 # DB URL must be set BEFORE the agentboard package is imported.
-os.environ["AGENTBOARD_DB_URL"] = "sqlite:///./_test_poll_assigned_tmp.db"
+# Use a fresh, unique per-file path; the autouse fixture rebinds
+# the module-level engine + SessionLocal to it via reset_engine()
+# before init_db() runs alembic migrations.
+os.environ["AGENTBOARD_DB_URL"] = "sqlite:///./_test_poll_assigned_v3_tmp.db"
 
-import sys
 import uuid
 from unittest import mock
 
 import pytest
-from fastapi.testclient import TestClient
 
 from agentboard.core.common.enums import Status
-from agentboard.core.infrastructure.database import (
-    SessionLocal, engine, init_db,
-)
+from agentboard.core.infrastructure import database as _database
+from agentboard.core.infrastructure.database import init_db, engine
 from agentboard.features.identity.models import User
 from agentboard.features.projects.models import Agent as AgentRow, Project
 from agentboard.features.scheduling.models import TaskAssignment
@@ -51,20 +46,42 @@ from agentboard.features.work_items.models import Task
 
 @pytest.fixture(scope="module", autouse=True)
 def _init_db():
-    db_path = os.path.abspath("_test_poll_assigned_tmp.db")
+    # Test isolation: the agentboard repo's tests share the process
+    # so a single engine module-level. We rebind to a fresh per-file
+    # path and force ``Base.metadata.create_all()`` instead of alembic
+    # upgrade — alembic is a no-op on a freshly-cleared db (it can't
+    # tell the db is empty from the alembic_version table alone after
+    # a previous test wiped the file). ``create_all`` is enough for
+    # the small surface these tests touch.
+    db_path = os.path.abspath("_test_poll_assigned_v3_tmp.db")
     if os.path.exists(db_path):
-        os.remove(db_path)
-    init_db()
+        try:
+            os.remove(db_path)
+        except OSError:
+            pass
+    from agentboard.core.infrastructure import database
+    database.reset_engine()
+    # Force schema creation (bypasses alembic which no-ops on an
+    # empty db after a previous test wiped the file). Explicit model
+    # imports ensure ``Base.metadata`` actually has the tables when
+    # this test file is the first to run.
+    from agentboard.core.common.models import Base
+    from agentboard.features.identity import models as _id_models
+    from agentboard.features.projects import models as _proj_models
+    from agentboard.features.scheduling import models as _sched_models
+    from agentboard.features.work_items import models as _wi_models
+    Base.metadata.create_all(bind=database.engine)
     yield
     engine.dispose(close=True)
 
 
 @pytest.fixture
 def session():
-    s = SessionLocal()
+    s = _database.SessionLocal()
     try:
         yield s
     finally:
+        s.rollback()
         s.close()
 
 
@@ -94,9 +111,10 @@ def project(session):
 
 @pytest.fixture
 def two_agents(session, admin_user):
-    """Two agents both owned by admin user 4 (so admin token can
-    manage both). Different logical names so we can verify the
-    router actually filters by agent_id rather than by user_id."""
+    """Two distinct logical agents both owned by admin user 4. The
+    invariant test cares that a worker asking for Agent A's tasks
+    only sees Agent A's, never B's.
+    """
     suffix = uuid.uuid4().hex[:6]
     a = AgentRow(
         agent_id=f"poller-{suffix}-a",
@@ -121,16 +139,16 @@ def two_agents(session, admin_user):
     return a, b
 
 
-def _make_in_progress_task(session, project, agent, *, title):
+def _make_in_progress_task(session, project, agent, *, title, admin_user_id):
     t = Task(
         project_id=project.id, title=title, type="design",
         status=Status.IN_PROGRESS.value, assignment_mode="claim",
-        assignee_id=4,
+        assignee_id=admin_user_id,
     )
     session.add(t)
     session.flush()
     a = TaskAssignment(
-        task_id=t.id, agent_registry_id=agent.id, user_id=4,
+        task_id=t.id, agent_registry_id=agent.id, user_id=admin_user_id,
         source="claim", status="active", active_slot="active",
     )
     session.add(a)
@@ -141,211 +159,109 @@ def _make_in_progress_task(session, project, agent, *, title):
     return t
 
 
-def _admin_token() -> str:
-    from agentboard.main import app
-    client = TestClient(app)
-    r = client.post("/api/auth/login",
-                    json={"username": "admin", "password": "admin123"})
-    if r.status_code == 200:
-        return r.json()["token"]
-    # Fallback for test DBs that may not have admin yet — use a known
-    # token from mcp.json if available; otherwise fail.
-    pytest.skip("admin login failed: " + r.text)
-
-
 # ---------------------------------------------------------------------------
-# P0-2: GET /api/tasks?agent_id=N actually filters server-side
+# INVARIANT 1: each worker's poll only sees its own agent's tasks
 # ---------------------------------------------------------------------------
 
 
-def _override_admin_scope(app, admin_user):
-    """Bypass the auth/login chain by injecting admin scope via
-    FastAPI's ``app.dependency_overrides``. This lets us hit the real
-    router → service contract without seeding a real admin user /
-    password in the test DB.
-    """
-    from agentboard.core.infrastructure.database import get_session as real_get_session
-    from agentboard.features.work_items import router as wi_router
-
-    def fake_get_session():
-        s = SessionLocal()
-        try:
-            yield s
-        finally:
-            s.close()
-
-    def fake_caller_uid_admin(authorization, s):
-        return admin_user.id, True
-
-    def fake_auth_is_required():
-        return False
-
-    def fake_readable_project_ids(s, uid, is_admin=False):
-        return None  # skip the readable-projects filter branch
-
-    app.dependency_overrides[real_get_session] = fake_get_session
-    app.dependency_overrides[wi_router.api_helpers._caller_uid_admin] = (
-        fake_caller_uid_admin
-    )
-    app.dependency_overrides[wi_router.api_helpers._auth_is_required] = (
-        fake_auth_is_required
-    )
-    app.dependency_overrides[wi_router.service.readable_project_ids] = (
-        fake_readable_project_ids
-    )
-
-
-def test_router_passes_agent_id_to_service_filter(
+def test_assigned_polling_filter_isolates_agents_per_project(
     session, project, two_agents, admin_user,
 ):
-    """When the worker sends ``?agent_id=N``, the router must propagate
-    that into ``service.search_tasks`` so the SQL JOINs on
-    ``TaskAssignment.agent_registry_id``. If the router drops the
-    filter, all in-progress tasks come back and any agent can grab
-    any task — the P0-2 ownership hole the 247efcb-review flagged.
-
-    We hit the real FastAPI router via TestClient, override the auth
-    chain so we don't need a seeded admin user, and capture the
-    kwargs the router passes to ``service.search_tasks``.
-    """
-    from agentboard.main import app
-    from agentboard.features.work_items import router as wi_router
+    """Invariant: Agent A and Agent B both have an in-progress task
+    in the same project. The service-layer
+    ``search_tasks(assigned_agent_id=...)`` filter must return only
+    Agent A's task when the worker asks for A, and only Agent B's
+    task when it asks for B. This is the ownership guarantee that
+    fixes the #1716 P0 silent-filter-drop bug."""
+    from agentboard.core.application import service as core_service
 
     agent_a, agent_b = two_agents
-    _make_in_progress_task(session, project, agent_a, title="a")
-    _make_in_progress_task(session, project, agent_b, title="b")
+    task_a = _make_in_progress_task(
+        session, project, agent_a, title="a", admin_user_id=admin_user.id)
+    task_b = _make_in_progress_task(
+        session, project, agent_b, title="b", admin_user_id=admin_user.id)
 
-    captured: dict = {}
-
-    def fake_search_tasks(s, **kwargs):
-        captured.update(kwargs)
-        return []
-
-    _override_admin_scope(app, admin_user)
-    try:
-        with mock.patch.object(wi_router.service, "search_tasks",
-                               side_effect=fake_search_tasks):
-            with TestClient(app) as c:
-                r = c.get(
-                    "/api/tasks",
-                    params={"project_id": project.id,
-                            "status": "in_progress",
-                            "agent_id": agent_a.id},
-                )
-                # Must succeed (200) and the search_tasks kwarg must
-                # carry agent_id. If the router drops it, agent_a's task
-                # is the only one that comes back and the assertion
-                # below catches that.
-                assert r.status_code == 200, r.text
-    finally:
-        app.dependency_overrides.clear()
-
-    # CRITICAL P0-2 assertion: agent_id must reach service.search_tasks
-    # as a kwarg. If the router ever drops it again, this fails.
-    assert captured.get("agent_id") == agent_a.id, captured
-    assert captured.get("project_id") == project.id
-    assert captured.get("status") == "in_progress"
+    rows_a = core_service.search_tasks(
+        session, project_id=project.id, status=Status.IN_PROGRESS.value,
+        assigned_agent_id=agent_a.agent_id,
+    )
+    rows_b = core_service.search_tasks(
+        session, project_id=project.id, status=Status.IN_PROGRESS.value,
+        assigned_agent_id=agent_b.agent_id,
+    )
+    ids_a = {r.id for r in rows_a}
+    ids_b = {r.id for r in rows_b}
+    assert ids_a == {task_a.id}, ids_a
+    assert ids_b == {task_b.id}, ids_b
+    assert task_b.id not in ids_a
+    assert task_a.id not in ids_b
 
 
-def test_search_tasks_router_rejects_str_agent_id(admin_user):
-    """Type-level guard: ``agent_id: int | None = Query(None, ge=1)``
-    must reject a non-int up front (regression for the P0-2
-    silent-string-drop). Without the int type the router would forward
-    a string and ``service.search_tasks(agent_id="codebuddy-1")``
-    would silently ignore the filter and leak every agent's tasks.
-    """
-    from agentboard.main import app
-    from agentboard.features.work_items import router as wi_router
+def test_assigned_polling_filter_via_registry_id(
+    session, project, two_agents, admin_user,
+):
+    """The ``agent_registry_id`` (int PK) filter path is the
+    admin/internal one. Workers must NOT use it — they should pass
+    the logical ``assigned_agent_id`` instead."""
+    from agentboard.core.application import service as core_service
 
-    captured: dict = {}
+    agent_a, agent_b = two_agents
+    task_a = _make_in_progress_task(
+        session, project, agent_a, title="a",
+        admin_user_id=admin_user.id)
+    _make_in_progress_task(
+        session, project, agent_b, title="b",
+        admin_user_id=admin_user.id)
 
-    def fake_search_tasks(s, **kwargs):
-        captured.update(kwargs)
-        return []
-
-    _override_admin_scope(app, admin_user)
-    try:
-        with mock.patch.object(wi_router.service, "search_tasks",
-                               side_effect=fake_search_tasks):
-            with TestClient(app) as c:
-                r = c.get("/api/tasks", params={"agent_id": "codebuddy-1"})
-                # FastAPI must reject the str before service.search_tasks
-                # is called.
-                assert r.status_code == 422, r.text
-                assert captured == {}, captured
-    finally:
-        app.dependency_overrides.clear()
+    rows = core_service.search_tasks(
+        session, project_id=project.id, status=Status.IN_PROGRESS.value,
+        agent_registry_id=agent_a.id,
+    )
+    assert {r.id for r in rows} == {task_a.id}
 
 
-# TestClient helper that opens a fresh client per call (avoids
-# app-lifespan issues in the test session).
-def client_get(path, *, params, headers):
-    from agentboard.main import app
-    with TestClient(app) as c:
-        return c.get(path, params=params, headers=headers)
-
-
-# ---------------------------------------------------------------------------
-# P0-1: coordinator resolve uses heartbeat, not a non-existent GET
-# ---------------------------------------------------------------------------
-
-
-def test_resolve_uses_heartbeat_and_returns_pk(session, two_agents, monkeypatch):
-    """``_resolve_self_agent_registry_id`` must:
-    1. Hit ``POST /api/agents/{logical}/heartbeat`` (returns to_public_dict)
-    2. Pull the integer ``id`` out of that response
-    3. NOT hit ``GET /api/agents/{logical}`` (which does not exist on the
-       server — adding it would re-trigger a scheduling-router circular
-       import)."""
-    from agentboard.processors.coordinator import ProcessorCoordinator
-    from agentboard.processors.config import ProcessorConfig
+def test_assigned_polling_filter_does_not_match_other_statuses(
+    session, project, two_agents, admin_user,
+):
+    """Agent A has a todo, an in-progress, and a done task all
+    assigned to it. The assigned polling filter
+    (``status=in_progress + assigned_agent_id=A``) must return only
+    the in-progress one."""
+    from agentboard.core.application import service as core_service
 
     agent_a, _ = two_agents
-    config = ProcessorConfig(
-        api_url="http://test", token="x", agent_id=agent_a.agent_id,
+    in_progress = _make_in_progress_task(
+        session, project, agent_a, title="a-in-prog",
+        admin_user_id=admin_user.id)
+
+    todo = Task(
+        project_id=project.id, title="a-todo", type="design",
+        status=Status.TODO.value, assignment_mode="claim",
     )
-    coord = ProcessorCoordinator.__new__(ProcessorCoordinator)
-    coord.config = config
-    coord.client = mock.MagicMock()
+    session.add(todo)
+    session.commit()
+    done = Task(
+        project_id=project.id, title="a-done", type="design",
+        status=Status.DONE.value, assignment_mode="claim",
+    )
+    session.add(done)
+    session.commit()
 
-    resp = mock.MagicMock(status_code=200)
-    resp.raise_for_status = mock.MagicMock()
-    resp.json.return_value = {"id": agent_a.id, "agent_id": agent_a.agent_id}
-    coord.client.post.return_value = resp
-
-    pk = coord._resolve_self_agent_registry_id()
-    assert pk == agent_a.id, pk
-
-    # Must hit heartbeat POST, NOT GET on a non-existent endpoint
-    called_post = coord.client.post.call_args
-    assert called_post is not None
-    url = called_post[0][0]
-    assert url == f"/api/agents/{agent_a.agent_id}/heartbeat"
-    assert coord.client.get.call_count == 0, \
-        f"must not call GET /api/agents/{{id}} (no such endpoint); calls={coord.client.get.call_args_list}"
-
-
-def test_resolve_returns_none_when_agent_id_blank():
-    from agentboard.processors.coordinator import ProcessorCoordinator
-    from agentboard.processors.config import ProcessorConfig
-
-    config = ProcessorConfig(api_url="http://test", token="x", agent_id="")
-    coord = ProcessorCoordinator.__new__(ProcessorCoordinator)
-    coord.config = config
-    coord.client = mock.MagicMock()
-    assert coord._resolve_self_agent_registry_id() is None
-    coord.client.post.assert_not_called()
+    rows = core_service.search_tasks(
+        session, project_id=project.id, status=Status.IN_PROGRESS.value,
+        assigned_agent_id=agent_a.agent_id,
+    )
+    assert {r.id for r in rows} == {in_progress.id}
 
 
 # ---------------------------------------------------------------------------
-# P1: poll_assigned runs only when MQ is disabled
+# INVARIANT 2: Coordinator gate — polling only runs when MQ is disabled
 # ---------------------------------------------------------------------------
 
 
 def _make_minimal_coord(config):
-    """Create a ProcessorCoordinator that has just enough attributes
-    to run ``poll_once`` (the real constructor pulls in handlers,
-    heartbeats, etc — far too much for these isolated unit tests)."""
+    """Minimal ProcessorCoordinator with the attrs ``poll_once``
+    touches."""
     from agentboard.processors.coordinator import ProcessorCoordinator
 
     coord = ProcessorCoordinator.__new__(ProcessorCoordinator)
@@ -353,14 +269,10 @@ def _make_minimal_coord(config):
     coord.client = mock.MagicMock()
     coord.client.get.return_value.status_code = 200
     coord.client.get.return_value.raise_for_status = mock.MagicMock()
-    # dispatch returns a result with status=SUCCESS so the
-    # ``if result.status is ExecutionStatus.SUCCESS`` branch fires.
     from agentboard.processors.contract import ExecutionStatus
     _success = mock.MagicMock()
     _success.status = ExecutionStatus.SUCCESS
     coord.dispatch = mock.MagicMock(return_value=_success)
-    # poll_once accesses self.registry, self.invoker, self._coordinator,
-    # self._work_executor; mock them all.
     coord.registry = mock.MagicMock()
     coord.invoker = mock.MagicMock()
     coord._coordinator = None
@@ -368,58 +280,90 @@ def _make_minimal_coord(config):
     return coord
 
 
-def test_poll_assigned_skipped_when_mq_enabled(monkeypatch):
-    """P1: when AGENTBOARD_MQ_URL is set, the worker is driven by the
-    MQ consumer; ``_poll_assigned_in_progress`` must not also run or
-    we'll double-dispatch."""
+def test_assigned_polling_skipped_when_mq_enabled(monkeypatch):
+    """P3 review: ``_poll_assigned_in_progress`` only runs when
+    ``config.mq.enabled`` is false. With MQ configured, the broker
+    is the sole execution delivery path and polling would
+    double-process. No heartbeat call — that was the P0-1 source
+    of the previous commit's side-effect bug."""
     from agentboard.processors.config import ProcessorConfig
 
     config = ProcessorConfig(api_url="http://test", token="x",
-                             agent_id="cb-1")
+                             agent_id="cb-1", task_poll_enabled=True,
+                             mq=mock.MagicMock(enabled=True))
     coord = _make_minimal_coord(config)
     coord.client.get.return_value.json.return_value = []
 
-    with mock.patch.object(coord, "_resolve_self_agent_registry_id",
-                           return_value=42), \
-         mock.patch.object(coord, "_mapped_project_ids",
-                           return_value=[3]), \
-         mock.patch.dict(os.environ, {
-             "AGENTBOARD_WORKER_TASK_POLL": "1",
-             "AGENTBOARD_MQ_URL": "amqp://example/rabbit",
-         }, clear=False):
+    with mock.patch.object(coord, "_mapped_project_ids",
+                           return_value=[3]):
         stats = coord.poll_once()
 
-    # The MQ path would consume events; the poll-assigned path must
-    # not have been entered, so 'assigned_in_progress' must be absent
-    # (or zero) in stats.
     assert stats.get("assigned_in_progress", 0) == 0
     coord.dispatch.assert_not_called()
 
 
-def test_poll_assigned_runs_when_mq_disabled(monkeypatch):
+def test_assigned_polling_runs_when_mq_disabled(monkeypatch):
+    """P3 review: with ``config.mq.enabled = False`` the worker
+    must pull its agent's in_progress tasks and dispatch them, using
+    the logical ``assigned_agent_id`` (NOT a PK — workers never
+    resolve PKs). No heartbeat call."""
     from agentboard.processors.config import ProcessorConfig
 
     config = ProcessorConfig(api_url="http://test", token="x",
-                             agent_id="cb-1")
+                             agent_id="cb-1", task_poll_enabled=True,
+                             mq=mock.MagicMock(enabled=False))
     coord = _make_minimal_coord(config)
-    # Two in_progress tasks for our agent.
     coord.client.get.return_value.json.return_value = [
         {"id": 11, "type": "design"},
         {"id": 22, "type": "design"},
     ]
 
-    # Force MQ-disabled deterministically (don't rely on host env).
-    monkeypatch.delenv("AGENTBOARD_MQ_URL", raising=False)
-    monkeypatch.setenv("AGENTBOARD_WORKER_TASK_POLL", "1")
-
-    with mock.patch.object(coord, "_resolve_self_agent_registry_id",
-                           return_value=42), \
-         mock.patch.object(coord, "_mapped_project_ids",
+    with mock.patch.object(coord, "_mapped_project_ids",
                            return_value=[3]):
         stats = coord.poll_once()
 
-    # With MQ disabled, the poll-assigned path runs; it scanned one
-    # project and found two in_progress tasks for our agent.
-    # dispatch is called once per task (2 here).
     assert coord.dispatch.call_count == 2
     assert stats.get("assigned_in_progress") == 2
+    # No heartbeat identity lookup — that was the previous-commit bug.
+    heartbeat_calls = [c for c in coord.client.post.call_args_list
+                      if "/heartbeat" in str(c)]
+    assert not heartbeat_calls, (
+        f"must not call heartbeat as identity lookup; got {heartbeat_calls}"
+    )
+    get_args = coord.client.get.call_args_list
+    assert get_args, "expected at least one GET /api/tasks call"
+    saw_assigned = False
+    for c in get_args:
+        params = c.kwargs.get("params") or (c.args[1] if len(c.args) > 1 else {})
+        if params.get("assigned_agent_id") == "cb-1":
+            saw_assigned = True
+            assert "agent_registry_id" not in params, (
+                "worker should pass the logical agent_id; "
+                f"agent_registry_id PK should not leak here: {params}"
+            )
+    assert saw_assigned, (
+        f"expected one GET with assigned_agent_id=cb-1; got {get_args}"
+    )
+
+
+def test_task_poll_enabled_reads_from_config_not_env(monkeypatch):
+    """P3 review: ``poll_once`` reads ``self.config.task_poll_enabled``,
+    not ``os.getenv('AGENTBOARD_WORKER_TASK_POLL')`` — env is read
+    once at boot, the config is the source of truth. This test
+    explicitly checks that even when MQ is disabled (so polling
+    would otherwise run), a config with ``task_poll_enabled=False``
+    short-circuits the whole path."""
+    from agentboard.processors.config import ProcessorConfig
+
+    config = ProcessorConfig(api_url="http://test", token="x",
+                             agent_id="cb-1",
+                             task_poll_enabled=False,
+                             mq=mock.MagicMock(enabled=False))
+    coord = _make_minimal_coord(config)
+    # Note: env var is "1" but config says False — config must win.
+    monkeypatch.setenv("AGENTBOARD_WORKER_TASK_POLL", "1")
+
+    stats = coord.poll_once()
+    assert "tasks" not in stats or stats.get("tasks", 0) == 0
+    assert stats.get("assigned_in_progress", 0) == 0
+    coord.client.get.assert_not_called()

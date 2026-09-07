@@ -13,15 +13,14 @@ search filters.
 """
 import os
 
-os.environ["AGENTBOARD_DB_URL"] = "sqlite:///./_test_search_agent_tmp.db"
+os.environ["AGENTBOARD_DB_URL"] = "sqlite:///./_test_search_agent_v2_tmp.db"
 
 import uuid
 import pytest
 
 from agentboard.core.common.enums import Status
-from agentboard.core.infrastructure.database import (
-    SessionLocal, engine, init_db,
-)
+from agentboard.core.infrastructure import database as _database
+from agentboard.core.infrastructure.database import init_db, engine
 from agentboard.features.identity.models import User
 from agentboard.features.projects.models import Agent as AgentRow, Project
 from agentboard.features.scheduling.models import TaskAssignment
@@ -29,19 +28,25 @@ from agentboard.core.application import service as core_service
 from agentboard.features.work_items.models import Task
 
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(autouse=True)
 def _init_db():
-    db_path = os.path.abspath("_test_search_agent_tmp.db")
-    if os.path.exists(db_path):
-        os.remove(db_path)
-    init_db()
+    from agentboard.core.infrastructure import database
+    database.reset_engine()
+    # Force schema creation via SQLAlchemy metadata (alembic no-ops
+    # on a freshly-cleared db after a previous test file wiped it).
+    from agentboard.core.common.models import Base
+    from agentboard.features.identity import models as _id_models
+    from agentboard.features.projects import models as _proj_models
+    from agentboard.features.scheduling import models as _sched_models
+    from agentboard.features.work_items import models as _wi_models
+    Base.metadata.create_all(bind=database.engine)
     yield
     engine.dispose(close=True)
 
 
 @pytest.fixture
 def session():
-    s = SessionLocal()
+    s = _database.SessionLocal()
     try:
         yield s
     finally:
@@ -127,7 +132,7 @@ def _make_in_progress_task(session, project, agent, *, title="x"):
     return t
 
 
-def test_search_by_agent_returns_only_assigned_tasks(
+def test_search_by_agent_registry_id_returns_only_assigned_tasks(
     session, project, codebuddy_agent, other_agent,
 ):
     mine = _make_in_progress_task(session, project, codebuddy_agent, title="mine")
@@ -135,7 +140,24 @@ def test_search_by_agent_returns_only_assigned_tasks(
 
     rows = core_service.search_tasks(
         session, project_id=project.id, status=Status.IN_PROGRESS.value,
-        agent_id=codebuddy_agent.id,
+        agent_registry_id=codebuddy_agent.id,
+    )
+    assert {r.id for r in rows} == {mine.id}
+
+
+def test_search_by_assigned_agent_id_returns_only_assigned_tasks(
+    session, project, codebuddy_agent, other_agent,
+):
+    """P3 review: the worker-polling path uses ``assigned_agent_id``
+    (logical name, e.g. ``codebuddy-1``) — not the registry PK. This
+    test mirrors that filter and pins the same isolation invariant.
+    """
+    mine = _make_in_progress_task(session, project, codebuddy_agent, title="mine")
+    _make_in_progress_task(session, project, other_agent, title="theirs")
+
+    rows = core_service.search_tasks(
+        session, project_id=project.id, status=Status.IN_PROGRESS.value,
+        assigned_agent_id=codebuddy_agent.agent_id,
     )
     assert {r.id for r in rows} == {mine.id}
 
@@ -143,6 +165,8 @@ def test_search_by_agent_returns_only_assigned_tasks(
 def test_search_by_agent_excludes_todo_and_terminal(
     session, project, codebuddy_agent,
 ):
+    """Three tasks: todo, in_progress, done — all assigned to my
+    agent. Only the in_progress one comes back."""
     # todo task assigned to my agent (should NOT come back)
     todo = Task(
         project_id=project.id, title="todo", type="design",
@@ -177,7 +201,7 @@ def test_search_by_agent_excludes_todo_and_terminal(
     in_progress = _make_in_progress_task(session, project, codebuddy_agent, title="active")
     rows = core_service.search_tasks(
         session, project_id=project.id, status=Status.IN_PROGRESS.value,
-        agent_id=codebuddy_agent.id,
+        agent_registry_id=codebuddy_agent.id,
     )
     assert {r.id for r in rows} == {in_progress.id}
 

@@ -145,3 +145,7 @@ src/workers/AgentBoard.ProposalWorker/appsettings.Local.json
 
 # ===== MCP 文档导出快照（MCP 端是真源，本地仅离线阅读，不入库） =====
 docs/mcp/
+
+# ===== 文档复审报告（MCP 端 doc/comment 是真源，本地仅评审过程产物，不入库） =====
+review-reports/
+review-reports/**

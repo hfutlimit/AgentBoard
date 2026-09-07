@@ -17,9 +17,8 @@ import uuid
 import pytest
 
 from agentboard.core.common.enums import Status
-from agentboard.core.infrastructure.database import (
-    SessionLocal, engine, init_db,
-)
+from agentboard.core.infrastructure import database as _database
+from agentboard.core.infrastructure.database import init_db, engine
 from agentboard.features.identity.models import User
 from agentboard.features.projects.models import Project
 from agentboard.features.scheduling.durable_routing import durable_project_enabled
@@ -32,15 +31,27 @@ from agentboard.features.work_items.models import Task
 def _init_db():
     db_path = os.path.abspath("_test_arbitrate_durable_tmp.db")
     if os.path.exists(db_path):
-        os.remove(db_path)
-    init_db()
+        try:
+            os.remove(db_path)
+        except OSError:
+            pass
+    from agentboard.core.infrastructure import database
+    database.reset_engine()
+    # Force schema creation via SQLAlchemy metadata (alembic no-ops
+    # on a freshly-cleared db after a previous test file wiped it).
+    from agentboard.core.common.models import Base
+    from agentboard.features.identity import models as _id_models
+    from agentboard.features.projects import models as _proj_models
+    from agentboard.features.scheduling import models as _sched_models
+    from agentboard.features.work_items import models as _wi_models
+    Base.metadata.create_all(bind=database.engine)
     yield
     engine.dispose(close=True)
 
 
 @pytest.fixture
 def session():
-    s = SessionLocal()
+    s = _database.SessionLocal()
     try:
         yield s
     finally:

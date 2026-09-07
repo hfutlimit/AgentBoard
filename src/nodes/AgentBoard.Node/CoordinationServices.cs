@@ -239,10 +239,21 @@ public sealed class WorkerStartupService : BackgroundService
         {
             ("workbuddy", _agents.WorkBuddy),
             ("codex",     _agents.Codex),
+            // Second Codex instance: same tool (so the same adapter and the
+            // same executor_type on the server), different AgentId. Disabled
+            // unless Agents:Codex2:Command is set.
+            ("codex",     _agents.Codex2),
             ("MiniMax",   _agents.MiniMax),
             ("qwen",      _agents.Qwen),
             ("scenario",  _agents.Scenario),
         };
+
+        // Two slots may now share a tool (the second Codex instance does). The
+        // default agent id is "{worker_id}-{tool}", which would collide and make
+        // the second registration silently overwrite the first, so duplicates are
+        // refused rather than merged.
+        var seenAgentIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         foreach (var (tool, opt) in slots)
         {
             if (string.Equals(tool, "scenario", StringComparison.OrdinalIgnoreCase)
@@ -264,6 +275,15 @@ public sealed class WorkerStartupService : BackgroundService
             var agentId = string.IsNullOrWhiteSpace(opt.AgentId)
                 ? $"{_worker.Id}-{tool}"           // 默认 = "{worker_id}-{tool}"
                 : opt.AgentId;
+            if (!seenAgentIds.Add(agentId))
+            {
+                _log.LogError(
+                    "PR-12: duplicate agent id '{AgentId}' — another slot already registered it. " +
+                    "Set Agents:<Slot>:AgentId explicitly for every agent that shares a tool " +
+                    "(two Codex slots both default to '{WorkerId}-codex'); skipping this slot.",
+                    agentId, _worker.Id);
+                continue;
+            }
             // P0-1：per-agent 身份。AgentBoardToken 优先，空则回退全局
             // StartupToken（旧行为）。Reviewer isolation 要求同一 worker 上的
             // 不同 agent 有不同 user_id，因此多 agent 部署必须给每个 agent
