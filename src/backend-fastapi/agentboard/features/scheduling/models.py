@@ -98,8 +98,12 @@ class TaskAssignment(Base):
             "source IN ('claim','arbitration','schedule','manual','worker')",
             name="ck_task_assignment_source",
         ),
+        # 'superseded'（迁移 b3c4d5e6f7g8）= admin 强制解开 current_assignment_id
+        # 死结时写入，与 cancelled（操作者正常取消）审计可分。模型约束必须与迁移
+        # 保持同步：tests/conftest.py 用 create_all 建表，漏值会让 admin_clear_task_assignment
+        # 直接撞 CHECK 约束。
         CheckConstraint(
-            "status IN ('active','completed','released','cancelled')",
+            "status IN ('active','completed','released','cancelled','superseded')",
             name="ck_task_assignment_status",
         ),
     )

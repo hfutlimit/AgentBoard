@@ -7,6 +7,8 @@ endpoint is the explicit escape hatch — these tests pin the service
 behavior so the contract is stable.
 """
 import os
+import re
+from pathlib import Path
 
 os.environ["AGENTBOARD_DB_URL"] = "sqlite:///./_test_admin_clear_tmp.db"
 
@@ -199,3 +201,56 @@ def test_schema_max_length_on_reason():
     # Over the limit: Pydantic raises ValidationError at construction time
     with pytest.raises(ValidationError):
         AdminClearAssignmentIn(reason="x" * 501)
+
+
+# ---------- 模型约束 vs 迁移约束 防漂移 ----------
+# 本轮真实回归：迁移 b3c4d5e6f7g8 给 task_assignments.status 加了
+# 'superseded'，但 SQLAlchemy 模型的 CheckConstraint 忘了同步。
+# tests/conftest.py 与任何 create_all 建表路径都只读模型，于是
+# admin_clear_task_assignment 一上来就撞 IntegrityError（本文件 3 个用例
+# 当时全红）。这条守卫把「模型 == 迁移」钉死，两侧任一侧漏改都会失败。
+
+_MIGRATIONS_DIR = (
+    Path(__file__).resolve().parents[2]
+    / "src" / "backend-fastapi" / "migrations" / "versions"
+)
+
+
+def _model_assignment_statuses() -> set[str]:
+    from sqlalchemy import CheckConstraint
+
+    for constraint in TaskAssignment.__table_args__:
+        if not isinstance(constraint, CheckConstraint):
+            continue
+        sqltext = str(constraint.sqltext)
+        if "status IN" in sqltext and "'active'" in sqltext:
+            return set(re.findall(r"'([^']+)'", sqltext))
+    raise AssertionError("TaskAssignment 模型上没有 status CHECK 约束")
+
+
+def _migrated_assignment_statuses() -> set[str]:
+    statuses: set[str] = set()
+    matched_file = False
+    for path in sorted(_MIGRATIONS_DIR.glob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        if "ck_task_assignment_status" not in text:
+            continue
+        matched_file = True
+        # 只认含 'active' 的那条 IN 列表，避开同文件里的 ck_tasks_status 等。
+        for match in re.finditer(r"status IN \(([^)]*)\)", text):
+            literals = re.findall(r"'([^']+)'", match.group(1))
+            if "active" in literals:
+                statuses.update(literals)
+    assert matched_file, "没找到定义 ck_task_assignment_status 的迁移"
+    return statuses
+
+
+def test_model_check_constraint_matches_migrations():
+    model = _model_assignment_statuses()
+    migrated = _migrated_assignment_statuses()
+    assert model == migrated, (
+        f"TaskAssignment 模型约束与迁移不一致：model={sorted(model)} "
+        f"migrations={sorted(migrated)}"
+    )
+    # admin force-clear 写的值必须在两侧都存在
+    assert "superseded" in model
