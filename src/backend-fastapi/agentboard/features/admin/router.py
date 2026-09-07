@@ -255,7 +255,7 @@ def admin_clear_task_assignment_endpoint(
     reason = (body.reason if body else "") or ""
     try:
         updated = service.admin_clear_task_assignment(
-            s, tid, admin_user_id=actor.user_id, reason=reason,
+            s, tid, admin_user_id=actor.id, reason=reason,
         )
     except service.NotFound as e:
         raise HTTPException(status_code=404, detail=str(e))

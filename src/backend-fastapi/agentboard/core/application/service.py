@@ -2768,6 +2768,7 @@ from ...features.work_items.service import (  # noqa: F401,F403
     get_task_readiness, get_unlocked_dependent_tasks,
     list_task_status_history, set_status,
     try_assign_task, claim_development_task, finalize_task_assignment,
+    admin_clear_task_assignment,
     apply_for_task, arbitrate_task,
     submit_task_for_review,
     # T2.3 移交
