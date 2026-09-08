@@ -42,3 +42,6 @@ __screenshots__/
 # System files
 .DS_Store
 Thumbs.db
+
+# 本地 dev-server 反向代理到 mock API（dev-only，避免误提交）
+/proxy.local.conf.json

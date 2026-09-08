@@ -43,7 +43,7 @@ export class WorkspaceDrawerComponent {
   readonly heading = computed(() => {
     const state = this.drawer.state();
     if (!state) return '';
-    if (state.title) return state.title;
+    if (state.title) return state.title.replace(/^(Epic|提案|Story|Task)\s·\s/, '');
     const detail = state.kind === 'task' ? this.host.task() : state.kind === 'story' ? this.host.story() : null;
     const t = detail as { title?: string } | null;
     return t?.title || `${this.typeLabel()} #${state.entityId}`;

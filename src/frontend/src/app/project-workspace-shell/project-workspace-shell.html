@@ -66,10 +66,14 @@
               class="tab-strip-link"
               (click)="onTabClick($event, view)">
               <svg class="tab-strip-icon" aria-hidden="true"><use [attr.href]="'#' + view.iconId"></use></svg>
-              @if (view.parentTitle) {
+              <!-- 父级面包屑只在「父 Tab 没打开」时出现：
+                   已经缩进挂在父 Tab 下面时，缩进本身就说明了归属，
+                   再挂一遍父名会把真实标题挤成省略号（280px 预算不够）。
+                   完整路径始终保留在 title / aria-label 里，不会真的丢。 -->
+              @if (view.parentTitle && !view.grouped) {
                 <span class="tab-strip-parent">{{ view.parentTitle }} ›</span>
               }
-              <span class="tab-strip-label">{{ view.title }}</span>
+              <span class="tab-strip-label">{{ tabLabel(view) }}</span>
             </a>
             <span
               class="tab-strip-pin"

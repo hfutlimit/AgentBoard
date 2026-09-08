@@ -277,11 +277,23 @@ export class ProjectWorkspaceShellComponent {
     this.tabsService.togglePin(tab.id);
   }
 
+  /**
+   * Tab 上真正显示的文字：去掉 `Epic · ` / `Task · ` 这类类型前缀。
+   *
+   * 类型已经由左侧色条（Epic 蓝 / Story 绿 / Task 黄 / 提案紫）+ 图标表达了，
+   * 前缀在 280px 的 Tab 预算里纯属浪费，还会把真正的标题挤成省略号。
+   * 只有「工作台视图」类 Tab（概览 / Epics / 看板…）没有前缀，天然不受影响。
+   */
+  tabLabel(view: WorkspaceTabView): string {
+    return this.stripKindPrefix(view.title);
+  }
+
   /** Tab 完整路径（用于 title / aria-label，保证层级一直可感知） */
   tabFullLabel(view: WorkspaceTabView): string {
     const parts: string[] = [];
-    if (view.parentTitle) parts.push(view.parentTitle);
-    parts.push(view.title);
+    // 父级同样可能带类型前缀，一起剥掉，避免出现 `Epic · Epic 31 › Task · xxx`
+    if (view.parentTitle) parts.push(this.stripKindPrefix(view.parentTitle));
+    parts.push(this.stripKindPrefix(view.title));
     return parts.join(' › ');
   }
 
@@ -354,7 +366,9 @@ export class ProjectWorkspaceShellComponent {
   }
 
   recentLabel(entry: WorkspaceRecentEntry): string {
-    return entry.parentTitle ? `${entry.parentTitle} › ${entry.title}` : entry.title;
+    const title = this.stripKindPrefix(entry.title);
+    const parent = entry.parentTitle ? this.stripKindPrefix(entry.parentTitle) : '';
+    return parent ? `${parent} › ${title}` : title;
   }
 
   @HostListener('document:click')

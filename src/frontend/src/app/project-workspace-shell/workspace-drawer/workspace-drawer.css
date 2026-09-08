@@ -1,12 +1,16 @@
 /* WorkspaceDrawerComponent — 工作台右侧 Drawer（Story #435）
  *
  * 设计：右侧贴边浮层，宽度可调（默认 520px，最小 360px）。
- * 遮罩只覆盖主内容区，不遮挡左侧项目导航与顶部栏。
+ * 顶栏（64px）保持可见可点 —— Drawer 是「瞄一眼」的非模态上下文，
+ * 不该把全局导航、通知、项目切换一起挡住。
  */
 
 .ws-drawer-backdrop {
   position: fixed;
-  inset: 0;
+  top: var(--topbar-h, 64px);
+  right: 0;
+  bottom: 0;
+  left: 0;
   background: rgba(15, 23, 42, 0.18);
   z-index: 40;
 }
@@ -18,7 +22,7 @@ body.ws-drawer-resizing {
 
 .ws-drawer {
   position: fixed;
-  top: 0;
+  top: var(--topbar-h, 64px);
   right: 0;
   bottom: 0;
   z-index: 41;
@@ -54,6 +58,7 @@ body.ws-drawer-resizing {
   padding: 14px 16px 12px;
   border-bottom: 1px solid var(--color-border, rgba(15, 23, 42, 0.1));
   flex: 0 0 auto;
+  flex-wrap: nowrap;
 }
 
 .ws-drawer-head-main {
@@ -64,13 +69,18 @@ body.ws-drawer-resizing {
 .ws-drawer-crumb {
   display: flex;
   align-items: center;
+  flex-wrap: nowrap;
+  min-width: 0;
   gap: 6px;
   font-size: 12px;
   color: var(--color-text-muted, #64748b);
   margin-bottom: 4px;
 }
 
+/* 父级路径可能很长（Epic › Story），必须单行省略，否则头部会从 48px 撑到 70px+ */
 .ws-drawer-parent {
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -78,12 +88,14 @@ body.ws-drawer-resizing {
 }
 
 .ws-drawer-sep {
+  flex: 0 0 auto;
   opacity: 0.6;
 }
 
 .ws-drawer-kind {
   display: inline-flex;
   align-items: center;
+  flex: 0 0 auto;
   height: 18px;
   padding: 0 7px;
   border-radius: 9px;
@@ -171,6 +183,20 @@ body.ws-drawer-resizing {
   padding: 16px;
 }
 
+/* 详情组件自带面包屑与 H1，和 Drawer 头部的「父级路径 + 标题 + 类型徽章」完全重复。
+   抽屉里隐藏它们，避免同一条层级路径在 560px 宽度内出现两遍、标题出现两遍。
+   注意：.workspace-heading-v7 .workspace-heading-left h1 也是 (0,3,1)，
+   且在 Drawer 渲染详情组件时才注入、排在后面会赢，所以这里必须再抬一级权重。 */
+.ws-drawer-body .crumb-bar,
+.ws-drawer-body .workspace-heading-v7 .workspace-heading-left h1 {
+  display: none;
+}
+.ws-drawer-body .workspace-heading-v7 {
+  padding-top: 0;
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+
 .ws-drawer-loading,
 .ws-drawer-empty {
   display: flex;
@@ -196,25 +222,25 @@ body.ws-drawer-resizing {
 }
 
 /* 暗色模式 */
-:host-context(.theme-dark) .ws-drawer {
+[data-theme='dark'] .ws-drawer {
   background: var(--color-surface, #0f172a);
   border-left-color: rgba(255, 255, 255, 0.1);
   box-shadow: -16px 0 40px rgba(0, 0, 0, 0.5);
 }
-:host-context(.theme-dark) .ws-drawer-head {
+[data-theme='dark'] .ws-drawer-head {
   border-bottom-color: rgba(255, 255, 255, 0.08);
 }
-:host-context(.theme-dark) .ws-drawer-title {
+[data-theme='dark'] .ws-drawer-title {
   color: #f1f5f9;
 }
-:host-context(.theme-dark) .ws-drawer-btn {
+[data-theme='dark'] .ws-drawer-btn {
   background: rgba(255, 255, 255, 0.06);
   border-color: rgba(255, 255, 255, 0.12);
   color: #e2e8f0;
 }
-:host-context(.theme-dark) .ws-drawer-btn:hover {
+[data-theme='dark'] .ws-drawer-btn:hover {
   background: rgba(255, 255, 255, 0.12);
 }
-:host-context(.theme-dark) .ws-drawer-backdrop {
+[data-theme='dark'] .ws-drawer-backdrop {
   background: rgba(0, 0, 0, 0.45);
 }

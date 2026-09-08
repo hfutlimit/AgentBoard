@@ -4,6 +4,30 @@
  * 新版：sidebar + main（顶部多 tab 条 + 多 pane 容器）
  * topbar 由 App 组件保留，这里只动 .project-workspace-shell 内部
  */
+/* ─── 主题令牌别名（Story #435） ───────────────────────────────────────
+ *
+ * 本文件与 Drawer 用的 --color-* 命名（--color-surface / --color-border /
+ * --color-text / --color-text-muted ...）在全局根本没有定义——全局只有
+ * --surface / --border / --text 这套。结果 var() 永远走 fallback 的浅色值，
+ * 暗色模式下 Tab 条和抽屉会亮成一块白板。
+ *
+ * 这里把它们映射到应用真实令牌，并把作用域限定在工作台外壳内，
+ * 避免顺带改变其他同样用了 var(--color-*) 的组件外观。
+ * 浅色下映射值与原 fallback 基本一致，不会造成视觉回归。 */
+.project-workspace-shell,
+app-workspace-drawer {
+  --color-surface: var(--surface, #ffffff);
+  --color-surface-2: var(--surface-2, #f8fafc);
+  --color-surface-3: var(--surface-3, #f1f5f9);
+  --color-background-secondary: var(--surface-2, #f8fafc);
+  --color-border: var(--border, #e2e8f0);
+  --color-border-secondary: var(--border-2, #eef2f6);
+  --color-text: var(--text, #0f172a);
+  --color-text-muted: var(--text-2, #475569);
+  --color-text-secondary: var(--text-2, #475569);
+  --color-accent: var(--blue, #2563eb);
+}
+
 .project-workspace-shell {
   display: grid;
   grid-template-columns: 218px minmax(0, 1fr);
@@ -280,7 +304,12 @@
 }
 
 /* ─── Tab 条右侧动作区 ─────────────────────────────────────────────── */
+/* Tab 多到溢出时，动作区必须跟着滚出视野就找不到了 —— 用 sticky 钉在右端，
+   左侧加一段同色渐变把滚过去的 Tab 淡出，视觉上仍是「一条」。 */
 .tab-strip-tail {
+  position: sticky;
+  right: 0;
+  z-index: 2;
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -288,6 +317,21 @@
   padding-left: 8px;
   flex: 0 0 auto;
   align-self: center;
+  background: var(--color-surface, var(--surface, #ffffff));
+}
+.tab-strip-tail::before {
+  content: '';
+  position: absolute;
+  right: 100%;
+  top: -4px;
+  bottom: -4px;
+  width: 18px;
+  pointer-events: none;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--color-surface, var(--surface, #ffffff))
+  );
 }
 
 .tab-strip-menu-wrap {
@@ -473,60 +517,60 @@
 }
 
 /* 暗色模式 */
-:host-context(.theme-dark) .tab-strip-item {
+[data-theme='dark'] .tab-strip-item {
   background: rgba(255, 255, 255, 0.04);
   border-color: rgba(255, 255, 255, 0.08);
   color: rgba(226, 232, 240, 0.7);
 }
-:host-context(.theme-dark) .tab-strip-item:hover {
+[data-theme='dark'] .tab-strip-item:hover {
   background: rgba(255, 255, 255, 0.08);
   color: rgba(241, 245, 249, 0.95);
 }
-:host-context(.theme-dark) .tab-strip-item--active {
+[data-theme='dark'] .tab-strip-item--active {
   background: rgba(15, 23, 42, 0.9);
   color: #f1f5f9;
   border-color: rgba(255, 255, 255, 0.12);
 }
-:host-context(.theme-dark) .tab-strip-close:hover {
+[data-theme='dark'] .tab-strip-close:hover {
   background: rgba(255, 255, 255, 0.14);
 }
 
 /* 暗色模式 — Story #435 新增元素 */
-:host-context(.theme-dark) .tab-strip {
+[data-theme='dark'] .tab-strip {
   --ws-accent-neutral: #64748b;
   --ws-accent-epic: #60a5fa;
   --ws-accent-story: #4ade80;
   --ws-accent-task: #fbbf24;
   --ws-accent-proposal: #c084fc;
 }
-:host-context(.theme-dark) .tab-strip-item--child::before {
+[data-theme='dark'] .tab-strip-item--child::before {
   background: rgba(255, 255, 255, 0.24);
 }
-:host-context(.theme-dark) .tab-strip-item--child {
+[data-theme='dark'] .tab-strip-item--child {
   background: rgba(255, 255, 255, 0.02);
 }
-:host-context(.theme-dark) .tab-strip-pin:hover {
+[data-theme='dark'] .tab-strip-pin:hover {
   background: rgba(255, 255, 255, 0.14);
 }
-:host-context(.theme-dark) .tab-strip-pin--on .tab-strip-pin-icon {
+[data-theme='dark'] .tab-strip-pin--on .tab-strip-pin-icon {
   fill: #93c5fd;
 }
-:host-context(.theme-dark) .tab-strip-tail-btn:hover,
-:host-context(.theme-dark) .tab-strip-tail-btn.is-on {
+[data-theme='dark'] .tab-strip-tail-btn:hover,
+[data-theme='dark'] .tab-strip-tail-btn.is-on {
   background: rgba(255, 255, 255, 0.1);
   color: #f1f5f9;
 }
-:host-context(.theme-dark) .ws-dropdown {
+[data-theme='dark'] .ws-dropdown {
   background: #0f172a;
   border-color: rgba(255, 255, 255, 0.12);
   box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
 }
-:host-context(.theme-dark) .ws-dropdown-item:hover {
+[data-theme='dark'] .ws-dropdown-item:hover {
   background: rgba(255, 255, 255, 0.1);
 }
-:host-context(.theme-dark) .ws-dropdown-divider {
+[data-theme='dark'] .ws-dropdown-divider {
   background: rgba(255, 255, 255, 0.1);
 }
-:host-context(.theme-dark) .ws-recent-title {
+[data-theme='dark'] .ws-recent-title {
   color: #f1f5f9;
 }
