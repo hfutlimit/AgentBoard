@@ -301,44 +301,44 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
         _ => "Unknown"
     });
 
-	private static (string? State, bool AttemptMatches) ReadTerminalResponse(JsonElement root)
-	{
-		if (root.TryGetProperty("detail", out var detail) && detail.ValueKind == JsonValueKind.Object)
-			root = detail;
-		var state = root.TryGetProperty("state", out var stateValue) && stateValue.ValueKind == JsonValueKind.String
-			? stateValue.GetString() : null;
-		var attemptMatches = root.TryGetProperty("attempt_matches", out var matchValue)
-			&& matchValue.ValueKind == JsonValueKind.True;
-		return (state, attemptMatches);
-	}
+    private static (string? State, bool AttemptMatches) ReadTerminalResponse(JsonElement root)
+    {
+        if (root.TryGetProperty("detail", out var detail) && detail.ValueKind == JsonValueKind.Object)
+            root = detail;
+        var state = root.TryGetProperty("state", out var stateValue) && stateValue.ValueKind == JsonValueKind.String
+            ? stateValue.GetString() : null;
+        var attemptMatches = root.TryGetProperty("attempt_matches", out var matchValue)
+            && matchValue.ValueKind == JsonValueKind.True;
+        return (state, attemptMatches);
+    }
 
-	private static (string? State, bool AttemptMatches) ReadTerminalResponse(string body)
-	{
-		try
-		{
-			using var document = JsonDocument.Parse(body);
-			return ReadTerminalResponse(document.RootElement);
-		}
-		catch (JsonException)
-		{
-			return (null, false);
-		}
-	}
+    private static (string? State, bool AttemptMatches) ReadTerminalResponse(string body)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(body);
+            return ReadTerminalResponse(document.RootElement);
+        }
+        catch (JsonException)
+        {
+            return (null, false);
+        }
+    }
 
     // A terminal state returned by the Server is authoritative, but only a
     // matching journal attempt may update display history.  This path has no
     // adapter access: it is deliberately safe during restart/replay.
-	internal static bool ReconcileTerminalHistory(LocalWorkRecordStore records, JournalEntry? entry, string? state,
-		bool attemptMatches)
-	{
-		if (!attemptMatches || entry is null || state is not ("completed" or "failed")) return false;
+    internal static bool ReconcileTerminalHistory(LocalWorkRecordStore records, JournalEntry? entry, string? state,
+        bool attemptMatches)
+    {
+        if (!attemptMatches || entry is null || state is not ("completed" or "failed")) return false;
         // Do not turn a pre-provider running record into success just because
         // an unrelated server completion was observed.  Pending/interrupted
         // records with a saved journal result are the only success candidates.
-		if (state == "completed" && string.IsNullOrWhiteSpace(entry.Result)) return false;
-		return records.ReconcileTerminal(entry.WorkId, entry.Token,
-			state == "completed" ? LocalWorkRecordStates.Succeeded : LocalWorkRecordStates.Failed);
-	}
+        if (state == "completed" && string.IsNullOrWhiteSpace(entry.Result)) return false;
+        return records.ReconcileTerminal(entry.WorkId, entry.Token,
+            state == "completed" ? LocalWorkRecordStates.Succeeded : LocalWorkRecordStates.Failed);
+    }
 
     private async Task<bool> Execute(long workId, int project, string kind, string? target, CancellationToken ct)
     {
@@ -364,33 +364,33 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
             if (claim.StatusCode == HttpStatusCode.Conflict)
             {
                 var reason = await claim.Content.ReadAsStringAsync(ct);
-				var newTokenRequired = reason.Contains("new_token_required", StringComparison.Ordinal);
-				if (newTokenRequired) _journal.Remove(workId);
-				var claimTerminal = ReadTerminalResponse(reason);
-				var terminal = claimTerminal.State;
-				var attemptMatches = claimTerminal.AttemptMatches;
-				if (terminal is not ("completed" or "failed"))
-				{
-					using var status = await client.GetAsync($"api/worker-work/{workId}", ct);
-					status.EnsureSuccessStatusCode();
-					using var state = JsonDocument.Parse(await status.Content.ReadAsStringAsync(ct));
-					terminal = state.RootElement.GetProperty("state").GetString();
-					// The status endpoint is work-scoped and cannot prove the
-					// identity of the local execution attempt.
-					attemptMatches = false;
-				}
-				if (terminal is "completed" or "failed")
-					ReconcileTerminalHistory(_records, entry, terminal, attemptMatches);
-				return terminal is "completed" or "failed";
+                var newTokenRequired = reason.Contains("new_token_required", StringComparison.Ordinal);
+                if (newTokenRequired) _journal.Remove(workId);
+                var claimTerminal = ReadTerminalResponse(reason);
+                var terminal = claimTerminal.State;
+                var attemptMatches = claimTerminal.AttemptMatches;
+                if (terminal is not ("completed" or "failed"))
+                {
+                    using var status = await client.GetAsync($"api/worker-work/{workId}", ct);
+                    status.EnsureSuccessStatusCode();
+                    using var state = JsonDocument.Parse(await status.Content.ReadAsStringAsync(ct));
+                    terminal = state.RootElement.GetProperty("state").GetString();
+                    // The status endpoint is work-scoped and cannot prove the
+                    // identity of the local execution attempt.
+                    attemptMatches = false;
+                }
+                if (terminal is "completed" or "failed")
+                    ReconcileTerminalHistory(_records, entry, terminal, attemptMatches);
+                return terminal is "completed" or "failed";
             }
             claim.EnsureSuccessStatusCode();
             using var accepted = JsonDocument.Parse(await claim.Content.ReadAsStringAsync(ct));
-			var acceptedTerminal = ReadTerminalResponse(accepted.RootElement);
-			if (acceptedTerminal.State is "completed" or "failed")
-			{
-				ReconcileTerminalHistory(_records, entry, acceptedTerminal.State, acceptedTerminal.AttemptMatches);
-				return true;
-			}
+            var acceptedTerminal = ReadTerminalResponse(accepted.RootElement);
+            if (acceptedTerminal.State is "completed" or "failed")
+            {
+                ReconcileTerminalHistory(_records, entry, acceptedTerminal.State, acceptedTerminal.AttemptMatches);
+                return true;
+            }
             using var running = CancellationTokenSource.CreateLinkedTokenSource(ct);
             var renewal = Renew(client, workId, lease, running);
             var active = new ActiveExecution(workId, $"worker-work:{workId}", kind,
