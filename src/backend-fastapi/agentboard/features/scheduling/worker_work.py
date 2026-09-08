@@ -338,6 +338,12 @@ def resolve_claim(s, work_id, body, authorization):
     return row, agent
 
 
+def terminal_attempt_matches(row, body, agent):
+    return (row.agent_id == agent.id
+            and row.worker_id == body.worker_id
+            and row.lease_token == body.token)
+
+
 def fenced(s, work_id, body, authorization):
     row, agent = resolve_claim(s, work_id, body, authorization)
     changed = s.execute(update(WorkerWork).where(WorkerWork.id == work_id,
@@ -354,9 +360,13 @@ def fenced(s, work_id, body, authorization):
 def claim(work_id: int, body: Claim, authorization: str | None = Header(None), s: Session = Depends(get_session)):
     row, agent = resolve_claim(s, work_id, body, authorization)
     if row.state == "completed":
-        return {"state": "completed"}
+        return {"state": "completed", "attempt_matches": terminal_attempt_matches(row, body, agent)}
     if row.state == "failed":
-        raise HTTPException(409, "work failed; manual reconciliation required")
+        raise HTTPException(409, detail={
+            "state": "failed",
+            "attempt_matches": terminal_attempt_matches(row, body, agent),
+            "reason": "work failed; manual reconciliation required",
+        })
     # A crashed third attempt must become terminal, not an endless RabbitMQ
     # redelivery that can never acquire another lease. Expiry is transport
     # cleanup, not a Server decision about the next business stage.
@@ -370,7 +380,7 @@ def claim(work_id: int, body: Claim, authorization: str | None = Header(None), s
             raise HTTPException(409, "lease changed during expiry reconciliation")
         if row.input_hash == fingerprint(s, obj):
             block_failed_execution(s, obj, "Three execution attempts exhausted after lease expiry")
-        return {"state": "failed"}
+        return {"state": "failed", "attempt_matches": terminal_attempt_matches(row, body, agent)}
     if row.state == "leased" and row.lease_token == body.token and row.lease_until <= utc_now():
         raise HTTPException(409, "new_token_required after lease expiry")
     if row.state == "leased" and row.lease_token == body.token and row.lease_until > utc_now():
@@ -387,7 +397,7 @@ def claim(work_id: int, body: Claim, authorization: str | None = Header(None), s
                     result=json.dumps({"summary": "Expired work changed; manual reconciliation required"})))
             if changed.rowcount != 1:
                 raise HTTPException(409, "lease changed during reconciliation")
-            return {"state": "failed"}  # Never overwrite the changed business item.
+            return {"state": "failed", "attempt_matches": terminal_attempt_matches(row, body, agent)}  # Never overwrite the changed business item.
     else:
         obj = check_offer(s, Offer(project_id=row.project_id, entity_type=row.entity_type,
             entity_id=row.entity_id, kind=row.kind, iteration=row.iteration,

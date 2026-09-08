@@ -32,8 +32,11 @@ public sealed class WorkerRetryDeliveryTests
             var recordId = records.CreateRunning(new(31, "token-31", "agent-a", "codex", "model", "dev", "task #31"));
             records.MarkPending(recordId, WorkRecordProjection.From("dev", new System.Text.Json.Nodes.JsonObject { ["commit"] = new string('e', 40) }));
 
-            Assert.True(WorkerOwnedService.ReconcileTerminalHistory(records, new JournalEntry(31, "agent-a", "token-31", "{\"commit\":\"saved\"}"), "completed"));
-            Assert.False(WorkerOwnedService.ReconcileTerminalHistory(records, new JournalEntry(31, "agent-a", "token-31", null), "completed"));
+			Assert.False(WorkerOwnedService.ReconcileTerminalHistory(records,
+				new JournalEntry(31, "agent-a", "token-31", "{\"commit\":\"saved\"}"), "completed", false));
+			Assert.Equal(LocalWorkRecordStates.Pending, records.Get(recordId, "agent-a")!.Summary.State);
+			Assert.True(WorkerOwnedService.ReconcileTerminalHistory(records, new JournalEntry(31, "agent-a", "token-31", "{\"commit\":\"saved\"}"), "completed", true));
+			Assert.False(WorkerOwnedService.ReconcileTerminalHistory(records, new JournalEntry(31, "agent-a", "token-31", null), "completed", true));
             Assert.Equal(LocalWorkRecordStates.Succeeded, records.Get(recordId, "agent-a")!.Summary.State);
         }
         finally
