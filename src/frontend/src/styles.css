@@ -1757,6 +1757,8 @@ details.form-section > form { padding: 16px; }
 .empty-state h2, .empty-state h3 { margin: 0 0 8px; font-size: 1.1rem; }
 .empty-state p { color: var(--text-2); margin: 0; }
 .empty-state.empty-compact { padding: 32px 20px; }
+.empty-state-actions { display: flex; gap: 10px; align-items: center; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
+.empty-state-actions a.btn-primary-sm { text-decoration: none; }
 
 /* Error State */
 .error-state {

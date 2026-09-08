@@ -214,6 +214,50 @@ describe('App', () => {
     expect(element.querySelector('#boardToggle')?.classList).toContain('is-active');
   });
 
+  // #1427: 详情主体加载失败（信号为空）时，主内容区必须给出可见兜底，而非整块空白。
+  it('should render a visible fallback instead of a blank page when the story detail entity is null', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    app.authVisible.set(false);
+    app.loading.set(false);
+    app.view.set('story');
+    app.story.set(null);
+    app.error.set('');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.textContent).toContain('无法加载该 Story');
+    expect(element.querySelector('.empty-state button')?.textContent).toContain('重试');
+
+    // 主体存在时不得误显兜底
+    const now = '2026-08-13T00:00:00';
+    app.project.set({ id: 1, name: 'AgentBoard', key: 'AB', description: '', is_private: false, created_at: now } satisfies Project);
+    app.epic.set({ id: 2, project_id: 1, title: 'UX cleanup', description: '', status: 'in_progress', created_at: now } satisfies Epic);
+    app.story.set({ id: 3, epic_id: 2, title: 'Real story', description: '', status: 'in_progress', needs_design: false, created_at: now } satisfies Story);
+    app.storyTab.set('detail');
+    fixture.detectChanges();
+    expect(element.textContent).not.toContain('无法加载该 Story');
+  });
+
+  it('should render a visible fallback instead of a blank page when the task detail entity is null', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    app.authVisible.set(false);
+    app.loading.set(false);
+    app.view.set('task');
+    app.task.set(null);
+    app.error.set('');
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.textContent).toContain('无法加载该 Task');
+    expect(element.querySelector('.empty-state button')?.textContent).toContain('重试');
+  });
+
   it('should hide technical health controls and render the enterprise user menu', async () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;
