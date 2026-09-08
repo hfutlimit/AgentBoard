@@ -624,6 +624,15 @@
                 </div>
               </div>
             }
+          } @else {
+            <div class="card empty-state">
+              <h2>无法加载该 Epic</h2>
+              <p class="muted empty-state-hint">{{ error() || '内容可能已被删除、无访问权限，或加载时发生错误。' }}</p>
+              <div class="empty-state-actions">
+                <button type="button" class="btn-primary-sm" (click)="refresh()">重试</button>
+                <a routerLink="/" class="btn-primary-sm">返回首页</a>
+              </div>
+            </div>
           }
         }
         @case ('story') {
@@ -1961,6 +1970,15 @@
                 </div>
               </div>
             }
+          } @else {
+            <div class="card empty-state">
+              <h2>无法加载该文档</h2>
+              <p class="muted empty-state-hint">{{ error() || '内容可能已被删除、无访问权限，或加载时发生错误。' }}</p>
+              <div class="empty-state-actions">
+                <button type="button" class="btn-primary-sm" (click)="refresh()">重试</button>
+                <a routerLink="/" class="btn-primary-sm">返回首页</a>
+              </div>
+            </div>
           }
         }
 
@@ -2053,6 +2071,15 @@
                 暂无任务。在任务详情中选择「加入 Sprint」将任务分配至此。
               </div>
             }
+          } @else {
+            <div class="card empty-state">
+              <h2>无法加载该 Sprint</h2>
+              <p class="muted empty-state-hint">{{ error() || '内容可能已被删除、无访问权限，或加载时发生错误。' }}</p>
+              <div class="empty-state-actions">
+                <button type="button" class="btn-primary-sm" (click)="refresh()">重试</button>
+                <a routerLink="/" class="btn-primary-sm">返回首页</a>
+              </div>
+            </div>
           }
         }
         @case ('agents') {
@@ -2450,6 +2477,15 @@
                 }
               </section>
             }
+          } @else {
+            <div class="card empty-state">
+              <h2>无法加载该提案</h2>
+              <p class="muted empty-state-hint">{{ error() || '内容可能已被删除、无访问权限，或加载时发生错误。' }}</p>
+              <div class="empty-state-actions">
+                <button type="button" class="btn-primary-sm" (click)="refresh()">重试</button>
+                <a routerLink="/" class="btn-primary-sm">返回首页</a>
+              </div>
+            </div>
           }
         }
 

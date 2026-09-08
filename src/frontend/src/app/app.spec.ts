@@ -258,6 +258,70 @@ describe('App', () => {
     expect(element.querySelector('.empty-state button')?.textContent).toContain('重试');
   });
 
+  it('should render a visible fallback when the epic detail entity is null', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    app.authVisible.set(false);
+    app.loading.set(false);
+    app.error.set('');
+    app.view.set('epic');
+    app.epic.set(null);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.textContent).toContain('无法加载该 Epic');
+    expect(element.querySelector('.empty-state button')?.textContent).toContain('重试');
+  });
+
+  it('should render a visible fallback when the sprint detail entity is null', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    app.authVisible.set(false);
+    app.loading.set(false);
+    app.error.set('');
+    app.view.set('sprint');
+    app.sprint.set(null);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.textContent).toContain('无法加载该 Sprint');
+    expect(element.querySelector('.empty-state button')?.textContent).toContain('重试');
+  });
+
+  it('should render a visible fallback when the document detail entity is null', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    app.authVisible.set(false);
+    app.loading.set(false);
+    app.error.set('');
+    app.view.set('document');
+    app.docItem.set(null);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.textContent).toContain('无法加载该文档');
+    expect(element.querySelector('.empty-state button')?.textContent).toContain('重试');
+  });
+
+  it('should render a visible fallback when the proposal detail entity is null', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    await fixture.whenStable();
+    app.authVisible.set(false);
+    app.loading.set(false);
+    app.error.set('');
+    app.view.set('proposal');
+    app.proposalItem.set(null);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.textContent).toContain('无法加载该提案');
+    expect(element.querySelector('.empty-state button')?.textContent).toContain('重试');
+  });
+
   it('should hide technical health controls and render the enterprise user menu', async () => {
     const fixture = TestBed.createComponent(App);
     const app = fixture.componentInstance;
