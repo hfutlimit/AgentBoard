@@ -1,14 +1,18 @@
-import { Component, ViewEncapsulation, computed, effect, inject } from '@angular/core';
+import { Component, HostListener, ViewEncapsulation, computed, effect, inject, signal } from '@angular/core';
 import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
 import { filter } from 'rxjs/operators';
 import { TabPaneComponent } from './tab-pane/tab-pane';
+import { WorkspaceDrawerComponent } from './workspace-drawer/workspace-drawer';
 import { ProjectDataService } from '../services/project-data.service';
+import { WorkspaceDrawerService } from '../services/workspace-drawer.service';
 import {
   WorkspaceEntityTabKind,
+  WorkspaceRecentEntry,
   WorkspaceSectionTabKind,
+  WorkspaceTabView,
   WorkspaceTabsService,
-  WorkspaceTab,
 } from '../services/workspace-tabs.service';
+import type { WorkspaceTab } from '../services/workspace-tabs.service';
 
 /**
  * ProjectWorkspaceShellComponent — 项目工作台外壳（2026-08-21 结构调整，v2 修）
@@ -20,6 +24,11 @@ import {
  *
  * v4：Epic / Proposal 详情成为工作台实体 tab。普通单击由工作台状态接管，
  * Ctrl/Cmd/中键仍通过链接 href 使用浏览器原生新标签行为。
+ *
+ * v5（Story #435）：Tab 从「页面」升级为「工作上下文」
+ *   - Tab 条按 Project → Epic → Story → Task 分层：类型色标 + 缩进 + 父级面包屑
+ *   - Task 默认走右侧 Drawer，不占一级 Tab（见 WorkspaceDrawerComponent）
+ *   - 固定（Pin）与「最近访问」让工作上下文可恢复
  *
  * URL ↔ Tab 状态映射规则（v2 调整后）：
  * - 初次加载 / 直链 / 刷新：shell 构造函数读一次 URL，调 openTab(projectId, kind)，
@@ -33,7 +42,7 @@ import {
 @Component({
   selector: 'app-project-workspace-shell',
   standalone: true,
-  imports: [RouterOutlet, TabPaneComponent],
+  imports: [RouterOutlet, TabPaneComponent, WorkspaceDrawerComponent],
   templateUrl: './project-workspace-shell.html',
   styleUrl: './project-workspace-shell.css',
   encapsulation: ViewEncapsulation.None,
@@ -41,6 +50,7 @@ import {
 export class ProjectWorkspaceShellComponent {
   readonly host = inject(ProjectDataService).getWorkspaceHost<any>();
   readonly tabsService = inject(WorkspaceTabsService);
+  readonly drawerService = inject(WorkspaceDrawerService);
   private readonly router = inject(Router);
   /** 左侧菜单 8 项（顺序固定：概览 → 设置），用于渲染 sidebar nav */
   readonly menuItems: ReadonlyArray<{ kind: WorkspaceSectionTabKind; label: string; iconId: string; ariaLabel: string }> = [
@@ -63,8 +73,15 @@ export class ProjectWorkspaceShellComponent {
   readonly onlineAgentCount = computed(() => this.host.agents().filter((agent: any) => agent.online).length);
 
   readonly tabs = this.tabsService.tabs;
+  /** Tab 条渲染视图（已按固定置顶 + 父子聚拢排序，并带缩进深度） */
+  readonly displayTabs = this.tabsService.displayTabs;
+  readonly recent = this.tabsService.recent;
   readonly activeId = this.tabsService.activeId;
   readonly isEmpty = this.tabsService.isEmpty;
+
+  /** Tab 条右侧下拉：最近访问 / 更多操作 */
+  readonly recentOpen = signal(false);
+  readonly moreOpen = signal(false);
 
   private readonly knownKinds: ReadonlySet<string> = new Set([
     'overview', 'kanban', 'epics', 'backlog', 'proposals', 'documents', 'members', 'settings',
@@ -117,6 +134,43 @@ export class ProjectWorkspaceShellComponent {
         this.tabsService.makeEntityId(projectId, 'task', task.id),
         `Task · ${task.title}`,
       );
+    });
+
+    // ── Story #435：详情加载完成后把子 Tab 挂到父 Tab 下（层级一直可见） ──
+    effect(() => {
+      const story = this.host.story();
+      const epic = this.host.epic();
+      const projectId = this.host.project()?.id;
+      if (!story || !epic?.id || !projectId) return;
+      this.tabsService.setParent(
+        this.tabsService.makeEntityId(projectId, 'story', story.id),
+        this.tabsService.makeEntityId(projectId, 'epic', epic.id),
+        epic.title,
+      );
+    });
+
+    effect(() => {
+      const task = this.host.task();
+      const epic = this.host.epic();
+      const story = this.host.story();
+      const projectId = this.host.project()?.id;
+      if (!task || !projectId) return;
+      // Task 优先挂到 Story 下，没有 Story 数据时退到 Epic
+      if (story?.id) {
+        this.tabsService.setParent(
+          this.tabsService.makeEntityId(projectId, 'task', task.id),
+          this.tabsService.makeEntityId(projectId, 'story', story.id),
+          story.title,
+        );
+        return;
+      }
+      if (epic?.id) {
+        this.tabsService.setParent(
+          this.tabsService.makeEntityId(projectId, 'task', task.id),
+          this.tabsService.makeEntityId(projectId, 'epic', epic.id),
+          epic.title,
+        );
+      }
     });
 
     // 初次挂载：从 router.url 同步当前激活 tab 到 service
@@ -179,6 +233,11 @@ export class ProjectWorkspaceShellComponent {
       parsed.entityId &&
       (parsed.kind === 'epic' || parsed.kind === 'proposal' || parsed.kind === 'story' || parsed.kind === 'task')
     ) {
+      // Story #435：Task 直链/刷新时按当前偏好进 Drawer，与点击行为保持一致
+      if (parsed.kind === 'task' && this.drawerService.taskPrefersDrawer()) {
+        void this.host.openWorkspaceEntity('task', parsed.entityId);
+        return;
+      }
       this.tabsService.openEntityTab(parsed.pid, parsed.kind, parsed.entityId);
       return;
     }
@@ -197,6 +256,7 @@ export class ProjectWorkspaceShellComponent {
     event.stopPropagation();
     const pid = this.host.project()?.id;
     if (typeof pid !== 'number') return;
+    this.drawerService.close();
     this.tabsService.openTab(pid, kind);
     this.replaceUrl(this.tabsService.activeTab()!);
     this.loadProjectTabIfNeeded(kind, pid);
@@ -204,13 +264,91 @@ export class ProjectWorkspaceShellComponent {
 
   /**
    * 点击 tab 条：同样不触发 router 跳路由，纯 service 状态切换 + URL 静默同步。
+   * Story #435：切到常驻 Tab 即离开「临时查看详情」模式，Drawer 随之关闭。
    */
   onTabClick(event: MouseEvent, tab: WorkspaceTab): void {
     event.preventDefault();
     event.stopPropagation();
+    this.drawerService.close();
     this.tabsService.activateTab(tab.id);
     this.replaceUrl(tab);
     this.loadWorkspaceTab(tab);
+  }
+
+  /** 固定 / 取消固定：固定项置顶且不被批量关闭清掉（Story #435） */
+  onTabPin(event: Event, tab: WorkspaceTab): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this.tabsService.togglePin(tab.id);
+  }
+
+  /** Tab 完整路径（用于 title / aria-label，保证层级一直可感知） */
+  tabFullLabel(view: WorkspaceTabView): string {
+    const parts: string[] = [];
+    if (view.parentTitle) parts.push(view.parentTitle);
+    parts.push(view.title);
+    return parts.join(' › ');
+  }
+
+  /** 缩进像素：depth 0/1/2 → 0/12/24 */
+  indentPx(view: WorkspaceTabView): number {
+    return view.depth * 12;
+  }
+
+  // ─── 最近访问 / 更多 ────────────────────────────────────────────────
+
+  toggleRecent(event: MouseEvent): void {
+    event.stopPropagation();
+    this.moreOpen.set(false);
+    this.recentOpen.update((v) => !v);
+  }
+
+  toggleMore(event: MouseEvent): void {
+    event.stopPropagation();
+    this.recentOpen.set(false);
+    this.moreOpen.update((v) => !v);
+  }
+
+  openRecent(entry: WorkspaceRecentEntry): void {
+    this.recentOpen.set(false);
+    void this.host.openWorkspaceEntity(entry.kind, entry.entityId, this.stripKindPrefix(entry.title));
+  }
+
+  closeOthers(): void {
+    const active = this.tabsService.activeTab();
+    if (!active) return;
+    this.moreOpen.set(false);
+    this.tabsService.closeOthers(active.id);
+  }
+
+  closeAll(): void {
+    this.moreOpen.set(false);
+    this.tabsService.closeAll();
+  }
+
+  toggleTaskMode(): void {
+    this.drawerService.toggleTaskMode();
+    this.moreOpen.set(false);
+  }
+
+  clearRecent(): void {
+    this.recentOpen.set(false);
+    this.tabsService.clearRecent();
+  }
+
+  /** 最近访问里存的是 `Task · xxx` 形式的标签，回传 host 时要还原成原始标题 */
+  private stripKindPrefix(title: string): string {
+    return title.replace(/^(Epic|提案|Story|Task)\s·\s/, '');
+  }
+
+  recentLabel(entry: WorkspaceRecentEntry): string {
+    return entry.parentTitle ? `${entry.parentTitle} › ${entry.title}` : entry.title;
+  }
+
+  @HostListener('document:click')
+  onDocumentClick(): void {
+    this.recentOpen.set(false);
+    this.moreOpen.set(false);
   }
 
   /**

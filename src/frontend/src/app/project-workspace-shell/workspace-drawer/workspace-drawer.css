@@ -1,0 +1,220 @@
+/* WorkspaceDrawerComponent — 工作台右侧 Drawer（Story #435）
+ *
+ * 设计：右侧贴边浮层，宽度可调（默认 520px，最小 360px）。
+ * 遮罩只覆盖主内容区，不遮挡左侧项目导航与顶部栏。
+ */
+
+.ws-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.18);
+  z-index: 40;
+}
+
+body.ws-drawer-resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.ws-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  min-width: 360px;
+  max-width: calc(100vw - 120px);
+  background: var(--color-surface, #ffffff);
+  border-left: 1px solid var(--color-border, rgba(15, 23, 42, 0.12));
+  box-shadow: -16px 0 40px rgba(15, 23, 42, 0.16);
+}
+
+/* 左边缘拖拽把手 */
+.ws-drawer-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 2;
+}
+.ws-drawer-resize:hover {
+  background: var(--color-accent, #2563eb);
+  opacity: 0.35;
+}
+
+/* ─── 头部 ─────────────────────────────────────────────────────────── */
+.ws-drawer-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--color-border, rgba(15, 23, 42, 0.1));
+  flex: 0 0 auto;
+}
+
+.ws-drawer-head-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ws-drawer-crumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-muted, #64748b);
+  margin-bottom: 4px;
+}
+
+.ws-drawer-parent {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60%;
+}
+
+.ws-drawer-sep {
+  opacity: 0.6;
+}
+
+.ws-drawer-kind {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: var(--ws-accent-neutral-bg, rgba(100, 116, 139, 0.14));
+  color: var(--ws-accent-neutral-fg, #475569);
+}
+.ws-drawer-kind[data-kind='epic'] {
+  background: var(--ws-accent-epic-bg, rgba(37, 99, 235, 0.14));
+  color: var(--ws-accent-epic-fg, #1d4ed8);
+}
+.ws-drawer-kind[data-kind='story'] {
+  background: var(--ws-accent-story-bg, rgba(22, 163, 74, 0.14));
+  color: var(--ws-accent-story-fg, #15803d);
+}
+.ws-drawer-kind[data-kind='task'] {
+  background: var(--ws-accent-task-bg, rgba(217, 119, 6, 0.16));
+  color: var(--ws-accent-task-fg, #b45309);
+}
+.ws-drawer-kind[data-kind='proposal'] {
+  background: var(--ws-accent-proposal-bg, rgba(147, 51, 234, 0.14));
+  color: var(--ws-accent-proposal-fg, #7e22ce);
+}
+
+.ws-drawer-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--color-text, #0f172a);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ws-drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.ws-drawer-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border, rgba(15, 23, 42, 0.14));
+  border-radius: 6px;
+  background: var(--color-surface-2, #f8fafc);
+  color: var(--color-text, #0f172a);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.12s ease;
+}
+.ws-drawer-btn:hover {
+  background: var(--color-surface-3, #eef2f7);
+}
+.ws-drawer-btn .icon-v7 {
+  width: 14px;
+  height: 14px;
+}
+
+.ws-drawer-btn--icon {
+  padding: 0;
+  width: 28px;
+  justify-content: center;
+}
+
+.ws-drawer-close-icon {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+/* ─── 主体 ─────────────────────────────────────────────────────────── */
+.ws-drawer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.ws-drawer-loading,
+.ws-drawer-empty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 160px;
+  justify-content: center;
+  color: var(--color-text-muted, #64748b);
+  font-size: 13px;
+}
+
+.ws-drawer-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-border, rgba(15, 23, 42, 0.16));
+  border-top-color: var(--color-accent, #2563eb);
+  border-radius: 50%;
+  animation: ws-drawer-spin 0.7s linear infinite;
+}
+
+@keyframes ws-drawer-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 暗色模式 */
+:host-context(.theme-dark) .ws-drawer {
+  background: var(--color-surface, #0f172a);
+  border-left-color: rgba(255, 255, 255, 0.1);
+  box-shadow: -16px 0 40px rgba(0, 0, 0, 0.5);
+}
+:host-context(.theme-dark) .ws-drawer-head {
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+:host-context(.theme-dark) .ws-drawer-title {
+  color: #f1f5f9;
+}
+:host-context(.theme-dark) .ws-drawer-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #e2e8f0;
+}
+:host-context(.theme-dark) .ws-drawer-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+:host-context(.theme-dark) .ws-drawer-backdrop {
+  background: rgba(0, 0, 0, 0.45);
+}

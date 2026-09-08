@@ -127,12 +127,22 @@
   text-decoration: none;
 }
 
+/* 色条已占位 9px，link 左侧内边距收紧，避免图标被推得太远 */
+.tab-strip-accent + .tab-strip-link {
+  padding-left: 6px;
+}
+
 .tab-strip-icon {
   width: 14px;
   height: 14px;
   flex: 0 0 14px;
   color: currentColor;
   opacity: 0.8;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .tab-strip-item--active .tab-strip-icon {
@@ -175,6 +185,258 @@
   width: 12px;
   height: 12px;
   fill: currentColor;
+}
+
+/* ─── Tab 层级视觉（Story #435） ─────────────────────────────────────
+   Epic 蓝 / Story 绿 / Task 黄 / 提案 紫 / 工作台视图 灰。
+   色条只在左侧 3px，不抢文字注意力，但足以让类型一眼可辨。 */
+.tab-strip {
+  --ws-accent-neutral: #94a3b8;
+  --ws-accent-epic: #2563eb;
+  --ws-accent-story: #16a34a;
+  --ws-accent-task: #d97706;
+  --ws-accent-proposal: #9333ea;
+}
+
+.tab-strip-item {
+  max-width: 280px;
+  padding-left: 0;
+}
+
+.tab-strip-accent {
+  flex: 0 0 3px;
+  align-self: stretch;
+  margin-right: 6px;
+  border-top-left-radius: 6px;
+  background: var(--ws-accent-neutral);
+  opacity: 0.75;
+}
+.tab-strip-item[data-accent='epic'] .tab-strip-accent { background: var(--ws-accent-epic); }
+.tab-strip-item[data-accent='story'] .tab-strip-accent { background: var(--ws-accent-story); }
+.tab-strip-item[data-accent='task'] .tab-strip-accent { background: var(--ws-accent-task); }
+.tab-strip-item[data-accent='proposal'] .tab-strip-accent { background: var(--ws-accent-proposal); }
+.tab-strip-item--active .tab-strip-accent { opacity: 1; }
+
+/* 子 Tab（Story / Task）：缩进 + 稍矮，形成视觉分组 */
+.tab-strip-item--child {
+  height: 30px;
+  font-size: 12.5px;
+  background: transparent;
+  border-top-left-radius: 5px;
+  border-top-right-radius: 5px;
+}
+.tab-strip-item--child::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  width: 5px;
+  height: 1px;
+  background: var(--color-border, rgba(15, 23, 42, 0.28));
+}
+
+.tab-strip-parent {
+  flex: 0 1 auto;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-muted, #64748b);
+  font-size: 11.5px;
+  margin-right: 2px;
+}
+
+.tab-strip-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  cursor: pointer;
+  flex: 0 0 18px;
+  opacity: 0;
+  transition: background-color 0.12s ease, opacity 0.12s ease;
+}
+.tab-strip-item:hover .tab-strip-pin,
+.tab-strip-item--active .tab-strip-pin,
+.tab-strip-pin--on {
+  opacity: 0.75;
+}
+.tab-strip-pin:hover {
+  background: rgba(15, 23, 42, 0.12);
+  opacity: 1;
+}
+.tab-strip-pin--on {
+  opacity: 1;
+}
+.tab-strip-pin-icon {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+}
+.tab-strip-pin--on .tab-strip-pin-icon {
+  fill: var(--color-accent, #2563eb);
+}
+
+/* ─── Tab 条右侧动作区 ─────────────────────────────────────────────── */
+.tab-strip-tail {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  padding-left: 8px;
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+.tab-strip-menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.tab-strip-tail-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-muted, #475569);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.tab-strip-tail-btn:hover,
+.tab-strip-tail-btn.is-on {
+  background: var(--color-surface-3, #eef2f7);
+  color: var(--color-text, #0f172a);
+}
+.tab-strip-tail-btn--icon {
+  padding: 0;
+  width: 26px;
+  justify-content: center;
+}
+.tab-strip-tail-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ─── 下拉菜单（最近访问 / 更多） ──────────────────────────────────── */
+.ws-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 220px;
+  max-width: 320px;
+  padding: 6px;
+  border: 1px solid var(--color-border, rgba(15, 23, 42, 0.12));
+  border-radius: 8px;
+  background: var(--color-surface, #ffffff);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  text-align: left;
+}
+
+.ws-dropdown-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted, #64748b);
+}
+
+.ws-dropdown-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--color-accent, #2563eb);
+  cursor: pointer;
+}
+
+.ws-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--color-text, #0f172a);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.ws-dropdown-item:hover {
+  background: var(--color-surface-3, #eef2f7);
+}
+
+.ws-dropdown-divider {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--color-border, rgba(15, 23, 42, 0.1));
+}
+
+.ws-dropdown-empty {
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text-muted, #64748b);
+}
+
+.ws-recent-item {
+  align-items: flex-start;
+  gap: 8px;
+}
+.ws-recent-dot {
+  flex: 0 0 8px;
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--ws-accent-neutral);
+}
+.ws-recent-item[data-accent='epic'] .ws-recent-dot { background: var(--ws-accent-epic); }
+.ws-recent-item[data-accent='story'] .ws-recent-dot { background: var(--ws-accent-story); }
+.ws-recent-item[data-accent='task'] .ws-recent-dot { background: var(--ws-accent-task); }
+.ws-recent-item[data-accent='proposal'] .ws-recent-dot { background: var(--ws-accent-proposal); }
+
+.ws-recent-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.ws-recent-title {
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--color-text, #0f172a);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-recent-meta {
+  font-size: 11px;
+  color: var(--color-text-muted, #64748b);
 }
 
 /* ─── Tab pane stack ───────────────────────────────────────────────── */
@@ -227,4 +489,44 @@
 }
 :host-context(.theme-dark) .tab-strip-close:hover {
   background: rgba(255, 255, 255, 0.14);
+}
+
+/* 暗色模式 — Story #435 新增元素 */
+:host-context(.theme-dark) .tab-strip {
+  --ws-accent-neutral: #64748b;
+  --ws-accent-epic: #60a5fa;
+  --ws-accent-story: #4ade80;
+  --ws-accent-task: #fbbf24;
+  --ws-accent-proposal: #c084fc;
+}
+:host-context(.theme-dark) .tab-strip-item--child::before {
+  background: rgba(255, 255, 255, 0.24);
+}
+:host-context(.theme-dark) .tab-strip-item--child {
+  background: rgba(255, 255, 255, 0.02);
+}
+:host-context(.theme-dark) .tab-strip-pin:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+:host-context(.theme-dark) .tab-strip-pin--on .tab-strip-pin-icon {
+  fill: #93c5fd;
+}
+:host-context(.theme-dark) .tab-strip-tail-btn:hover,
+:host-context(.theme-dark) .tab-strip-tail-btn.is-on {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
+}
+:host-context(.theme-dark) .ws-dropdown {
+  background: #0f172a;
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+}
+:host-context(.theme-dark) .ws-dropdown-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+:host-context(.theme-dark) .ws-dropdown-divider {
+  background: rgba(255, 255, 255, 0.1);
+}
+:host-context(.theme-dark) .ws-recent-title {
+  color: #f1f5f9;
 }

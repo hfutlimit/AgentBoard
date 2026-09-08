@@ -1,0 +1,58 @@
+<!-- 工作台右侧 Drawer（Story #435）：Task 等「瞄一眼」实体的详情容器 -->
+<div class="ws-drawer-backdrop" (click)="onBackdropClick()"></div>
+<aside
+  class="ws-drawer"
+  role="dialog"
+  aria-modal="false"
+  aria-label="工作项详情抽屉"
+  [style.width.px]="drawer.width()">
+  <div
+    class="ws-drawer-resize"
+    role="separator"
+    aria-orientation="vertical"
+    aria-label="调整抽屉宽度"
+    (mousedown)="startResize($event)"></div>
+
+  <header class="ws-drawer-head">
+    <div class="ws-drawer-head-main">
+      <div class="ws-drawer-crumb">
+        @if (parentPath()) {
+          <span class="ws-drawer-parent">{{ parentPath() }}</span>
+          <span class="ws-drawer-sep">›</span>
+        }
+        <span class="ws-drawer-kind" [attr.data-kind]="drawer.state()?.kind">{{ typeLabel() }}</span>
+      </div>
+      <h2 class="ws-drawer-title">{{ heading() }}</h2>
+    </div>
+    <div class="ws-drawer-actions">
+      <button type="button" class="ws-drawer-btn" (click)="promoteToTab()" title="固定为常驻 Tab">
+        <svg class="icon-v7" aria-hidden="true"><use href="#i-board"/></svg>
+        <span>在 Tab 中打开</span>
+      </button>
+      <button type="button" class="ws-drawer-btn ws-drawer-btn--icon" (click)="close()" aria-label="关闭抽屉">
+        <svg class="ws-drawer-close-icon" aria-hidden="true" viewBox="0 0 16 16"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 0 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="ws-drawer-body">
+    @if (pending()) {
+      <div class="ws-drawer-loading">
+        <span class="ws-drawer-spinner" aria-hidden="true"></span>
+        <span>正在加载{{ typeLabel() }}详情…</span>
+      </div>
+    } @else {
+      @switch (drawer.state()?.kind) {
+        @case ('task') {
+          <app-task-detail-view />
+        }
+        @case ('story') {
+          <app-story-detail-view />
+        }
+        @default {
+          <div class="ws-drawer-empty">该类型暂不支持在抽屉中查看，请在工作台内打开。</div>
+        }
+      }
+    }
+  </div>
+</aside>

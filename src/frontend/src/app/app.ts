@@ -23,6 +23,7 @@ import { WorkspaceTopbarComponent } from './workspace-topbar/workspace-topbar';
 import { WorkspaceHeadingComponent } from './workspace-heading/workspace-heading';
 import { ProjectDataService } from './services/project-data.service';
 import { WorkspaceEntityTabKind, WorkspaceTabsService } from './services/workspace-tabs.service';
+import { WorkspaceDrawerService } from './services/workspace-drawer.service';
 import { ProposalRealtimeService, ProposalQuestionRaised } from './proposal-realtime.service';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'global-stats' | 'not-found';
@@ -1397,6 +1398,7 @@ export class App implements OnInit, OnDestroy {
     private readonly router: Router,
     private readonly projectData: ProjectDataService,
     private readonly workspaceTabs: WorkspaceTabsService,
+    readonly workspaceDrawer: WorkspaceDrawerService,
     @Inject(DOCUMENT) private readonly document: Document,
     public readonly themeService: ThemeService,
     private readonly proposalRealtime: ProposalRealtimeService,
@@ -1840,6 +1842,7 @@ export class App implements OnInit, OnDestroy {
     kind: WorkspaceEntityTabKind,
     entityId: number,
     title?: string,
+    opts?: { asTab?: boolean },
   ): Promise<void> {
     const projectId = this.project()?.id;
     if (!projectId) return;
@@ -1850,7 +1853,15 @@ export class App implements OnInit, OnDestroy {
       task: 'Task',
     };
     const label = title ? `${kindLabels[kind]} · ${title}` : undefined;
-    this.workspaceTabs.openEntityTab(projectId, kind, entityId, label);
+    // Story #435：Task 默认进右侧 Drawer，不占一级 Tab；asTab 或用户改了偏好时才开 Tab。
+    // Drawer 与 Tab 共用同一份 host.task() 状态，所以二者互斥——开一个就关另一个。
+    const useDrawer = !opts?.asTab && kind === 'task' && this.workspaceDrawer.taskPrefersDrawer();
+    if (useDrawer) {
+      this.workspaceDrawer.open({ kind, entityId, title: label });
+    } else {
+      this.workspaceDrawer.close();
+      this.workspaceTabs.openEntityTab(projectId, kind, entityId, label);
+    }
     const sections: Record<WorkspaceEntityTabKind, string> = {
       epic: 'epics',
       proposal: 'proposals',
