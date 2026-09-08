@@ -142,6 +142,7 @@ export class ProjectWorkspaceShellComponent {
       const epic = this.host.epic();
       const projectId = this.host.project()?.id;
       if (!story || !epic?.id || !projectId) return;
+      if (story.epic_id !== epic.id) return; // 校验：只挂到该 Story 真正所属的 Epic
       this.tabsService.setParent(
         this.tabsService.makeEntityId(projectId, 'story', story.id),
         this.tabsService.makeEntityId(projectId, 'epic', epic.id),
@@ -151,24 +152,18 @@ export class ProjectWorkspaceShellComponent {
 
     effect(() => {
       const task = this.host.task();
-      const epic = this.host.epic();
       const story = this.host.story();
       const projectId = this.host.project()?.id;
       if (!task || !projectId) return;
-      // Task 优先挂到 Story 下，没有 Story 数据时退到 Epic
-      if (story?.id) {
+      // Story #435 review P1-2：必须校验关系，避免用「上一个 Story」把 Task 永久挂错。
+      // Task 父级 = 其真正所属的 Story；无 story_id 的 Task 不猜父级（保持未挂）。
+      // 旧的「退到当前 Epic 单例」分支已删除：Epic 只能经该 Task 自己的 Story 得到，
+      // 直接用共享 epic() 会串到上一个实体的 Epic。
+      if (task.story_id && story?.id === task.story_id) {
         this.tabsService.setParent(
           this.tabsService.makeEntityId(projectId, 'task', task.id),
           this.tabsService.makeEntityId(projectId, 'story', story.id),
           story.title,
-        );
-        return;
-      }
-      if (epic?.id) {
-        this.tabsService.setParent(
-          this.tabsService.makeEntityId(projectId, 'task', task.id),
-          this.tabsService.makeEntityId(projectId, 'epic', epic.id),
-          epic.title,
         );
       }
     });
@@ -324,6 +319,23 @@ export class ProjectWorkspaceShellComponent {
   closeAll(): void {
     this.moreOpen.set(false);
     this.tabsService.closeAll();
+    const active = this.tabsService.activeTab();
+    if (active) {
+      this.replaceUrl(active);
+      this.loadWorkspaceTab(active);
+      return;
+    }
+    // 一个 Pin 都没有：回「概览」，避免空工作台 + Tab/URL/内容三者不一致。
+    const pid = this.host.project()?.id;
+    if (typeof pid === 'number') {
+      this.drawerService.close();
+      this.tabsService.openTab(pid, 'overview');
+      const overview = this.tabsService.activeTab();
+      if (overview) {
+        this.replaceUrl(overview);
+        this.loadWorkspaceTab(overview);
+      }
+    }
   }
 
   toggleTaskMode(): void {

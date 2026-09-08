@@ -1273,6 +1273,11 @@ export class App implements OnInit, OnDestroy {
 
   private routeSub?: Subscription;
   private routeLoadGeneration = 0;
+  /**
+   * 工作台详情加载代际（Story #435 review P1-1）：Tab/Drawer 快速切换实体时，
+   * 只有「当前最近一次打开」的异步结果才允许写回共享信号，避免迟到响应覆盖当前实体。
+   */
+  private workspaceEntityGeneration = 0;
   private toastTimer?: ReturnType<typeof setTimeout>;
   private notifTimer?: ReturnType<typeof setInterval>;    // Task 401: 通知轮询
   private readonly handleAuthExpired = (): void => {
@@ -1765,6 +1770,7 @@ export class App implements OnInit, OnDestroy {
 
   /** 在项目工作台内加载 Epic 详情，不切换根级 view。 */
   async loadWorkspaceEpicDetail(epicId: number): Promise<void> {
+    const generation = ++this.workspaceEntityGeneration;
     this.epicTab.set('detail');
     this.epicEditOpen.set(false);
     this.epic.set(null);
@@ -1773,6 +1779,7 @@ export class App implements OnInit, OnDestroy {
       firstValueFrom(this.api.listStories(epicId)),
       firstValueFrom(this.api.listEpicComments(epicId)),
     ]);
+    if (generation !== this.workspaceEntityGeneration) return;
     this.epic.set(epic);
     this.stories.set(stories);
     this.epicComments.set(epicComments);
@@ -1780,14 +1787,16 @@ export class App implements OnInit, OnDestroy {
 
   /** 工作台切换 Proposal Tab 时先清理上一个实体的瞬时 UI，避免短暂串页。 */
   async loadWorkspaceProposalDetail(proposalId: number): Promise<void> {
+    const generation = ++this.workspaceEntityGeneration;
     this.stopTicketPolling();
     this.proposalRoundDetail.set(null);
     this.proposalItem.set(null);
-    await this.loadProposalDetail(proposalId);
+    await this.loadProposalDetail(proposalId, generation);
   }
 
   /** Load a Story inside the project shell without switching the root view. */
   async loadWorkspaceStoryDetail(storyId: number): Promise<void> {
+    const generation = ++this.workspaceEntityGeneration;
     this.storyTab.set('detail');
     this.storyTaskPage.set(1);
     this.story.set(null);
@@ -1800,6 +1809,7 @@ export class App implements OnInit, OnDestroy {
     ]);
     const projectId = this.project()?.id;
     if (projectId && epic.project_id !== projectId) throw new Error('Story does not belong to this project');
+    if (generation !== this.workspaceEntityGeneration) return;
     this.story.set(story);
     this.epic.set(epic);
     this.storyComments.set(storyComments);
@@ -1811,15 +1821,21 @@ export class App implements OnInit, OnDestroy {
 
   /** Load a Task inside the project shell without switching the root view. */
   async loadWorkspaceTaskDetail(taskId: number): Promise<void> {
+    const generation = ++this.workspaceEntityGeneration;
     this.task.set(null);
     this.comments.set([]);
     this.attachments.set([]);
+    // Story #435 review P1-2：进入 Task 详情先清上一个 Story/Epic 单例，否则无
+    // story_id 的 Task 会沿用旧 Story/Epic，使父级 effect 把 Task 永久挂错。
+    this.story.set(null);
+    this.epic.set(null);
     const [task, comments] = await Promise.all([
       firstValueFrom(this.api.getTask(taskId)),
       firstValueFrom(this.api.listComments(taskId)),
     ]);
     const projectId = this.project()?.id;
     if (projectId && task.project_id !== projectId) throw new Error('Task does not belong to this project');
+    if (generation !== this.workspaceEntityGeneration) return;
     this.task.set(task);
     this.comments.set(comments);
     await this.loadAttachments(taskId);
@@ -1827,9 +1843,11 @@ export class App implements OnInit, OnDestroy {
       const story = await firstValueFrom(this.api.getStory(task.story_id));
       const epic = await firstValueFrom(this.api.getEpic(story.epic_id));
       if (projectId && epic.project_id !== projectId) throw new Error('Task does not belong to this project');
+      if (generation !== this.workspaceEntityGeneration) return;
       this.story.set(story);
       this.epic.set(epic);
     }
+    if (generation !== this.workspaceEntityGeneration) return;
     await Promise.all([
       this.loadSprints(task.project_id),
       this.loadMembers(task.project_id),
@@ -1858,6 +1876,8 @@ export class App implements OnInit, OnDestroy {
     const useDrawer = !opts?.asTab && kind === 'task' && this.workspaceDrawer.taskPrefersDrawer();
     if (useDrawer) {
       this.workspaceDrawer.open({ kind, entityId, title: label });
+      // Story #435 review P2：Drawer 打开同样是一次「实体访问」，需记入最近访问。
+      this.workspaceTabs.recordEntityVisit(projectId, kind, entityId, label);
     } else {
       this.workspaceDrawer.close();
       this.workspaceTabs.openEntityTab(projectId, kind, entityId, label);
@@ -7018,11 +7038,12 @@ export class App implements OnInit, OnDestroy {
   }
 
   /** 详情工作台：拉提案主体 + 轮次问答，并用服务端已有答案初始化本地草稿 */
-  async loadProposalDetail(id: number): Promise<void> {
+  async loadProposalDetail(id: number, generation?: number): Promise<void> {
     const [item, rounds] = await Promise.all([
       firstValueFrom(this.api.getProposal(id)),
       firstValueFrom(this.api.listProposalRounds(id)),
     ]);
+    if (generation !== undefined && generation !== this.workspaceEntityGeneration) return;
     this.proposalItem.set(item);
     this.proposalRounds.set(Array.isArray(rounds) ? rounds : []);
     this.syncProposalDrafts();

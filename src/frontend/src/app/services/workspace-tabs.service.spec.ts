@@ -224,4 +224,29 @@ describe('WorkspaceTabsService recent context (Story #435)', () => {
     service.setProject(7);
     expect(service.recent().map((e) => e.id)).toEqual(['7-epic-31']);
   });
+
+  it('records a Drawer-only entity visit into recent without creating a tab (#435 P2)', () => {
+    const service = new WorkspaceTabsService();
+    service.setProject(7);
+    // Drawer 路径：不建 Tab，仅记录一次实体访问
+    service.recordEntityVisit(7, 'task', 1001, 'Task · QA 验证');
+
+    expect(service.tabs()).toEqual([]);
+    expect(service.recent().map((e) => e.id)).toEqual(['7-task-1001']);
+    expect(service.recent()[0].path).toBe('/project/7/tasks/1001');
+    expect(service.recent()[0].level).toBe('task');
+  });
+
+  it('re-visiting a known entity via Drawer bumps it to top and preserves the richer title', () => {
+    const service = new WorkspaceTabsService();
+    service.setProject(7);
+    service.openEntityTab(7, 'story', 434, 'Story · 完整标题');
+    service.openEntityTab(7, 'task', 1001, 'Task X');
+
+    // 不传标题：已存在条目应仅刷新排序，不被占位标题覆盖
+    service.recordEntityVisit(7, 'story', 434);
+
+    expect(service.recent().map((e) => e.id)).toEqual(['7-story-434', '7-task-1001']);
+    expect(service.recent()[0].title).toBe('Story · 完整标题');
+  });
 });

@@ -394,6 +394,35 @@ export class WorkspaceTabsService {
     this.writeRecent();
   }
 
+  /**
+   * Story #435 review P2：无论走 Tab 还是 Drawer，一次实体访问都应记入最近访问。
+   * 已存在则仅刷新排序（保留更完整的标题），否则按给定 / 占位标题新增一条。
+   */
+  recordEntityVisit(
+    projectId: number,
+    kind: WorkspaceEntityTabKind,
+    entityId: number,
+    title?: string,
+  ): void {
+    const id = this.makeEntityId(projectId, kind, entityId);
+    const existing = this._recent().find((entry) => entry.id === id);
+    if (existing) {
+      this.recordRecent({ ...existing, visitedAt: Date.now() });
+      return;
+    }
+    const meta = TAB_META[kind];
+    this.recordRecent({
+      id,
+      kind,
+      entityId,
+      title: title || `${meta.title} #${entityId}`,
+      level: meta.level,
+      accent: meta.accent,
+      path: this.pathFor(projectId, kind, entityId),
+      visitedAt: Date.now(),
+    });
+  }
+
   /** 从最近访问里移除一条（Tab 关闭时不同步删除——历史应当保留） */
   clearRecent(): void {
     this._recent.set([]);
