@@ -1,6 +1,6 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { of, Subject } from 'rxjs';
+import { of, Subject, throwError } from 'rxjs';
 import { delay, tap } from 'rxjs/operators';
 import { vi } from 'vitest';
 
@@ -320,6 +320,42 @@ describe('App', () => {
     const element = fixture.nativeElement as HTMLElement;
     expect(element.textContent).toContain('无法加载该提案');
     expect(element.querySelector('.empty-state button')?.textContent).toContain('重试');
+  });
+
+  // #1427（真·失败路径）：standalone 详情导航到取数失败的实体时，必须清掉上一实体，
+  // 让 @else 兜底出现，而不是「URL 是 B、内容仍是 A」。
+  it('clears the previous entity when a standalone detail load fails (no stale A under B URL)', async () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance as any;
+    const now = '2026-08-13T00:00:00';
+    fixture.detectChanges();
+    await fixture.whenStable();
+    app.authVisible.set(false);
+    app.loading.set(false);
+    app.error.set('');
+    // 已打开 Story A
+    app.view.set('story');
+    app.storyTab.set('detail');
+    app.project.set({ id: 1, name: 'P', key: 'PK', description: '', is_private: false, created_at: now } satisfies Project);
+    app.epic.set({ id: 2, project_id: 1, title: 'E', description: '', status: 'in_progress', created_at: now } satisfies Epic);
+    app.story.set({ id: 111, epic_id: 2, title: 'Story A', description: '', status: 'done', needs_design: false, created_at: now } satisfies Story);
+    fixture.detectChanges();
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.textContent).toContain('Story A');
+
+    // 导航到 Story B，但 getStory(B) 失败
+    const api = TestBed.inject(ApiService) as any;
+    api.getStory = () => throwError(() => new Error('boom'));
+    app.activePathname = () => '/story/222';
+    await app.loadRoute();
+    fixture.detectChanges();
+
+    expect(app.story()).toBeNull();
+    expect(element.textContent).not.toContain('Story A');
+    // 取数失败 → error() 置位，走顶层全局错误态（加载失败 + 重试）；
+    // 关键是旧 A 已被清空、不再在 B 的 URL 下串页。
+    expect(element.textContent).toContain('加载失败');
+    expect(element.querySelector('.error-state button')?.textContent).toContain('重试');
   });
 
   it('should hide technical health controls and render the enterprise user menu', async () => {

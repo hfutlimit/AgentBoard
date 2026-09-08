@@ -2248,6 +2248,38 @@ export class App implements OnInit, OnDestroy {
     return this.project()?.id === projectId && this.projectTabGeneration === generation;
   }
 
+  /**
+   * 进入 standalone 详情路由（/story/:id、/epic/:id、/task/:id、/sprint/:id）时，
+   * 先清空上一实体与其子列表，避免「URL 已是 B、内容仍是 A」——即取 B 失败时
+   * `@if (entity())` 仍因旧 A 而为真、继续渲染 A。与 loadWorkspaceStoryDetail /
+   * loadWorkspaceTaskDetail / loadWorkspaceEpicDetail 的重置口径保持一致。
+   */
+  private resetStandaloneDetail(
+    kind: 'story' | 'task' | 'epic' | 'sprint',
+  ): void {
+    switch (kind) {
+      case 'story':
+        this.story.set(null);
+        this.tasks.set([]);
+        this.storyComments.set([]);
+        break;
+      case 'task':
+        this.task.set(null);
+        this.comments.set([]);
+        this.attachments.set([]);
+        break;
+      case 'epic':
+        this.epic.set(null);
+        this.stories.set([]);
+        this.epicComments.set([]);
+        break;
+      case 'sprint':
+        this.sprint.set(null);
+        this.sprintTasks.set([]);
+        break;
+    }
+  }
+
   private async loadRoute(skeleton: boolean = true): Promise<void> {
     // 未登录时不加载任何业务数据，由独立登录页接管
     if (this.authVisible()) return;
@@ -2337,23 +2369,27 @@ export class App implements OnInit, OnDestroy {
       } else if (kind === 'epic' && id > 0) {
         this.view.set('epic');
         this.epicTab.set('detail');
+        this.resetStandaloneDetail('epic');
         const [epic, stories, epicComments] = await Promise.all([
           firstValueFrom(this.api.getEpic(id)),
           firstValueFrom(this.api.listStories(id)),
           firstValueFrom(this.api.listEpicComments(id)),
         ]);
+        if (generation !== this.routeLoadGeneration) return;
         this.epic.set(epic);
         this.stories.set(stories);
         this.epicComments.set(epicComments);
         this.project.set(await firstValueFrom(this.api.getProject(epic.project_id)));
       } else if (kind === 'story' && id > 0) {
         this.view.set('story');
+        this.resetStandaloneDetail('story');
         this.storyTab.set('detail');
         this.storyTaskPage.set(1);
         // 防止全局搜索词 / 其他视图的筛选条件泄漏到 Story 任务列表导致空白
         this.search.set('');
         this.clearFilters();
         const story = await firstValueFrom(this.api.getStory(id));
+        if (generation !== this.routeLoadGeneration) return;
         this.story.set(story);
         // 分页加载 story 任务，确保只属于当前 story
         await this.loadStoryTasks(id, 1);
@@ -2368,10 +2404,12 @@ export class App implements OnInit, OnDestroy {
         await this.loadMembers(epic.project_id);
       } else if (kind === 'task' && id > 0) {
         this.view.set('task');
+        this.resetStandaloneDetail('task');
         const [task, comments] = await Promise.all([
           firstValueFrom(this.api.getTask(id)),
           firstValueFrom(this.api.listComments(id)),
         ]);
+        if (generation !== this.routeLoadGeneration) return;
         this.task.set(task);
         this.comments.set(comments);
         setTimeout(() => this.enhanceMermaid(), 80);
@@ -2395,10 +2433,12 @@ export class App implements OnInit, OnDestroy {
         this.updatePrevNextTasks(id);
       } else if (kind === 'sprint' && id > 0) {
         this.view.set('sprint');
+        this.resetStandaloneDetail('sprint');
         const [sprint, tasks] = await Promise.all([
           firstValueFrom(this.api.getSprint(id)),
           firstValueFrom(this.api.listSprintTasks(id)),
         ]);
+        if (generation !== this.routeLoadGeneration) return;
         this.sprint.set(sprint);
         this.sprintTasks.set(tasks);
         this.project.set(await firstValueFrom(this.api.getProject(sprint.project_id)));
@@ -2443,6 +2483,7 @@ export class App implements OnInit, OnDestroy {
             return;
           }
           this.view.set('proposal');
+          this.proposalItem.set(null);
           await this.loadProposalDetail(id);
           const p = this.proposalItem();
           if (p) {
@@ -8045,6 +8086,7 @@ export class App implements OnInit, OnDestroy {
   /** 加载独立文档详情视图：视图内仅文档内容 + 操作按钮（顶栏/侧栏在模板中按 view==='document' 隐藏）。 */
   async loadDocumentDetail(id: number): Promise<void> {
     this.view.set('document');
+    this.docItem.set(null);
     this.docDetailTab.set('content');
     const doc = await firstValueFrom(this.api.getDocument(id));
     this.docItem.set(doc);
