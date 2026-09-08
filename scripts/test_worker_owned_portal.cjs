@@ -42,7 +42,29 @@ const w=dom.window,d=w.document;
 const flush=()=>new Promise(resolve=>setImmediate(resolve));
 const change=(selector,value)=>{const el=d.querySelector(selector);el.value=value;el.dispatchEvent(new w.Event('input',{bubbles:true}));el.dispatchEvent(new w.Event('change',{bubbles:true}))};
 (async()=>{
- await flush();
+ let releaseProjects;
+ const projectsPending=new Promise(resolve=>{releaseProjects=resolve});
+ const blockedDom=new JSDOM(html,{url:'http://127.0.0.1:18242/',runScripts:'dangerously',beforeParse(w){
+  w.confirm=()=>true;
+  w.fetch=async(url,request)=>{
+   assert.equal(request.headers['X-AgentBoard-Local-Portal'],'1');
+   if(url.endsWith('/configuration'))return{ok:true,text:async()=>JSON.stringify({configuration:structuredClone(initial),revision:'blocked'})};
+   if(url.endsWith('/status'))return{ok:true,text:async()=>JSON.stringify({configurationOnly:true,serverUrl:'http://prod.test',apiCredentialConfigured:true,brokerConfigured:true,brokerHost:'mq.test',workerId:'local',configPath:'local.json'})};
+   if(url.endsWith('/projects'))return projectsPending;
+   if(url.endsWith('/runtime'))return{ok:true,text:async()=>JSON.stringify({state:'stopped'})};
+   throw Error('Unexpected pending-project request '+url);
+  };
+ }});
+ try{
+  await flush();await flush();
+  assert.equal(blockedDom.window.document.querySelectorAll('[data-agent]').length,2,
+   'local agents should render while production projects are pending');
+ }finally{
+  releaseProjects({ok:true,text:async()=>JSON.stringify({items:[]})});
+  await flush();await flush();
+  blockedDom.window.close();
+ }
+ await flush();await flush();await flush();await flush();
  assert.equal(w.location.hash,'');
  assert.equal(d.querySelector('#login'),null);
  const favicon=d.querySelector('link[rel="icon"]');

@@ -29,7 +29,10 @@ try {
             if ($portalUserValue) { [Environment]::SetEnvironmentVariable($portalName, $portalUserValue, 'Process') }
         }
     }
-    if (-not $env:AgentBoard__ServerUrl -or -not $env:AgentBoard__StartupToken) {
+    if (-not $env:AgentBoard__StartupToken) {
+        $env:AgentBoard__StartupToken = [Environment]::GetEnvironmentVariable('AGENTBOARD_MCP_API_KEY', 'User')
+    }
+    if (-not $env:AgentBoard__ServerUrl -or -not $env:AgentBoard__StartupToken -or $env:AgentBoard__StartupToken -match '^(REPLACE-|PLACEHOLDER)') {
         throw 'Set AgentBoard__ServerUrl and AgentBoard__StartupToken in environment; never pass credentials on the command line.'
     }
     $portalArguments = @(
