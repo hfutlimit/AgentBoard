@@ -29,6 +29,132 @@ describe('App', () => {
     expect(app).toBeTruthy();
   });
 
+  it('renders quick navigation only for the ordinary document preview content flow', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    app.authVisible.set(false);
+    app.loading.set(false);
+    app.view.set('document');
+    app.docViewMode.set('preview');
+    app.docDetailTab.set('content');
+    app.docFullscreenOpen.set(false);
+    app.docItem.set({
+      id: 1724,
+      project_id: 3,
+      epic_id: null,
+      story_id: null,
+      folder_id: null,
+      title: '快速定位测试文档',
+      content: '# 正文\n\n长文档正文',
+      type: 'plan',
+      status: 'draft',
+      author_id: null,
+      author: null,
+      created_at: '2026-09-08T00:00:00Z',
+      updated_at: '2026-09-08T00:00:00Z',
+      current_revision_id: null,
+      current_revision_number: null,
+    });
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    expect(element.querySelector('[data-testid="document-quick-navigation"]')).not.toBeNull();
+    expect(element.querySelector('#document-jump-to-content')?.textContent).toContain('正文开头');
+    expect(element.querySelector('#document-jump-to-comments')?.textContent).toContain('评论开头');
+    expect(element.querySelectorAll('#document-content-start')).toHaveLength(1);
+    expect(element.querySelectorAll('#document-comments-start')).toHaveLength(1);
+
+    for (const state of [
+      { viewMode: 'preview' as const, detailTab: 'history' as const, fullscreen: false },
+      { viewMode: 'split-edit' as const, detailTab: 'content' as const, fullscreen: false },
+      { viewMode: 'split-read' as const, detailTab: 'content' as const, fullscreen: false },
+      { viewMode: 'preview' as const, detailTab: 'content' as const, fullscreen: true },
+    ]) {
+      app.docViewMode.set(state.viewMode);
+      app.docDetailTab.set(state.detailTab);
+      app.docFullscreenOpen.set(state.fullscreen);
+      fixture.detectChanges();
+      expect(element.querySelector('[data-testid="document-quick-navigation"]')).toBeNull();
+      expect(element.querySelector('#document-content-start')).toBeNull();
+      expect(element.querySelector('#document-comments-start')).toBeNull();
+    }
+  });
+
+  it('scrolls to stable document targets with motion preference and safe API fallbacks', () => {
+    const fixture = TestBed.createComponent(App);
+    const app = fixture.componentInstance;
+    fixture.detectChanges();
+    const api = TestBed.inject(ApiService) as unknown as {
+      listDocumentComments: ReturnType<typeof vi.fn>;
+    };
+    api.listDocumentComments = vi.fn();
+    app.authVisible.set(false);
+    app.loading.set(false);
+    app.view.set('document');
+    app.docViewMode.set('preview');
+    app.docDetailTab.set('content');
+    app.docFullscreenOpen.set(false);
+    app.docItem.set({
+      id: 1724,
+      project_id: 3,
+      epic_id: null,
+      story_id: null,
+      folder_id: null,
+      title: '快速定位测试文档',
+      content: '',
+      type: 'plan',
+      status: 'draft',
+      author_id: null,
+      author: null,
+      created_at: '2026-09-08T00:00:00Z',
+      updated_at: '2026-09-08T00:00:00Z',
+      current_revision_id: null,
+      current_revision_number: null,
+    });
+    fixture.detectChanges();
+
+    const element = fixture.nativeElement as HTMLElement;
+    const contentTarget = element.querySelector('#document-content-start') as HTMLElement;
+    const commentsTarget = element.querySelector('#document-comments-start') as HTMLElement;
+    const contentScroll = vi.fn();
+    const commentsScroll = vi.fn();
+    Object.defineProperty(contentTarget, 'scrollIntoView', { configurable: true, value: contentScroll });
+    Object.defineProperty(commentsTarget, 'scrollIntoView', { configurable: true, value: commentsScroll });
+
+    const originalMatchMedia = Object.getOwnPropertyDescriptor(window, 'matchMedia');
+    const matchMedia = vi.fn((query: string) => ({ matches: query.includes('reduce') }));
+    Object.defineProperty(window, 'matchMedia', { configurable: true, value: matchMedia });
+    try {
+      app.scrollDocumentDetailTo('content');
+      expect(contentScroll).toHaveBeenCalledWith({ behavior: 'auto', block: 'start', inline: 'nearest' });
+
+      matchMedia.mockReturnValue({ matches: false });
+      app.scrollDocumentDetailTo('comments');
+      expect(commentsScroll).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+
+      delete (window as unknown as { matchMedia?: typeof window.matchMedia }).matchMedia;
+      expect(() => app.scrollDocumentDetailTo('content')).not.toThrow();
+      expect(contentScroll).toHaveBeenLastCalledWith({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+      Object.defineProperty(window, 'matchMedia', { configurable: true, value: matchMedia });
+      matchMedia.mockImplementation(() => { throw new Error('matchMedia unavailable'); });
+      expect(() => app.scrollDocumentDetailTo('content')).not.toThrow();
+      expect(contentScroll).toHaveBeenLastCalledWith({ behavior: 'smooth', block: 'start', inline: 'nearest' });
+
+      Object.defineProperty(contentTarget, 'scrollIntoView', { configurable: true, value: undefined });
+      expect(() => app.scrollDocumentDetailTo('content')).not.toThrow();
+      commentsTarget.remove();
+      expect(() => app.scrollDocumentDetailTo('comments')).not.toThrow();
+      expect(api.listDocumentComments).not.toHaveBeenCalled();
+    } finally {
+      if (originalMatchMedia) {
+        Object.defineProperty(window, 'matchMedia', originalMatchMedia);
+      } else {
+        delete (window as unknown as { matchMedia?: typeof window.matchMedia }).matchMedia;
+      }
+    }
+  });
+
   it('renders legacy Worker comments as readable safe Markdown without changing other content', () => {
     const app = TestBed.createComponent(App).componentInstance;
     const raw = JSON.stringify({ agent_id: 'qa', decision: 'submit', summary: '环境阻塞',

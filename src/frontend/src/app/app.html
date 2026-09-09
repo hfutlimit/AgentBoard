@@ -1810,9 +1810,21 @@
             </div>
             <h1 class="doc-title">{{ d.title }}</h1>
 
+            @if (isDocumentQuickNavigationMode()) {
+              <nav class="doc-quick-nav" aria-label="文档快速定位" data-testid="document-quick-navigation">
+                <button id="document-jump-to-content" data-testid="document-jump-to-content" type="button" class="ghost-sm"
+                  (click)="scrollDocumentDetailTo('content')">正文开头</button>
+                <button id="document-jump-to-comments" data-testid="document-jump-to-comments" type="button" class="ghost-sm"
+                  (click)="scrollDocumentDetailTo('comments')">评论开头</button>
+              </nav>
+            }
+
             @if (docViewMode() === 'preview') {
             @if (docDetailTab() === 'content') {
-              <article class="card md doc-content" [innerHTML]="renderMarkdown(d.content)"></article>
+              <article class="card md doc-content"
+                [attr.id]="isDocumentQuickNavigationMode() ? 'document-content-start' : null"
+                [attr.data-testid]="isDocumentQuickNavigationMode() ? 'document-content-start' : null"
+                [innerHTML]="renderMarkdown(d.content)"></article>
             } @else {
               <!-- Epic 139: history tab -->
               <div class="card doc-revisions">
@@ -1907,7 +1919,9 @@
             }
 
             <div class="card comments-card">
-              <div class="section-header">
+              <div class="section-header"
+                [attr.id]="isDocumentQuickNavigationMode() ? 'document-comments-start' : null"
+                [attr.data-testid]="isDocumentQuickNavigationMode() ? 'document-comments-start' : null">
                 <h3>评论 / 协作者讨论 <span class="count">{{ documentComments().length }}</span></h3>
                 <button class="ghost-sm" (click)="toggleDocCommentPreview()" [class.active]="docCommentPreview()">
                   {{ docCommentPreview() ? '✏ 编辑' : '👁 预览' }}

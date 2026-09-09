@@ -27,6 +27,7 @@ import { WorkspaceDrawerService } from './services/workspace-drawer.service';
 import { ProposalRealtimeService, ProposalQuestionRaised } from './proposal-realtime.service';
 
 type ViewKind = 'home' | 'projects' | 'project' | 'epic' | 'story' | 'task' | 'sprint' | 'documents' | 'document' | 'proposals' | 'proposal' | 'agents' | 'notifications' | 'admin' | 'settings' | 'global-stats' | 'not-found';
+type DocumentQuickNavigationTarget = 'content' | 'comments';
 type CreateKind = 'project' | 'epic' | 'story' | 'task';
 type ProjectListKind = 'epics' | 'sprints' | 'backlog' | 'members' | 'schedules';
 type EpicListFilterStatus = '' | 'todo' | 'in_progress' | 'in_review' | 'done' | 'blocked';
@@ -94,6 +95,10 @@ interface PaletteCommand {
   encapsulation: ViewEncapsulation.None,
 })
 export class App implements OnInit, OnDestroy {
+  private readonly documentQuickNavigationIds: Record<DocumentQuickNavigationTarget, string> = {
+    content: 'document-content-start',
+    comments: 'document-comments-start',
+  };
   readonly projects = signal<Project[]>([]);
   readonly recentProjects = signal<Project[]>([]);
   readonly favoriteProjects = signal<Project[]>([]);
@@ -7874,6 +7879,37 @@ export class App implements OnInit, OnDestroy {
   }
   toggleDocFullscreenTheme(): void {
     this.docFullscreenTheme.set(this.docFullscreenTheme() === 'dark' ? 'light' : 'dark');
+  }
+  /** 普通预览内容流中可用的快速定位状态。 */
+  isDocumentQuickNavigationMode(): boolean {
+    return this.view() === 'document'
+      && this.docViewMode() === 'preview'
+      && this.docDetailTab() === 'content'
+      && !this.docFullscreenOpen();
+  }
+  /** 滚动到文档正文或评论卡片的稳定 DOM 起点。 */
+  scrollDocumentDetailTo(target: DocumentQuickNavigationTarget): void {
+    if (!this.isDocumentQuickNavigationMode()) return;
+
+    const targetId = this.documentQuickNavigationIds[target];
+    if (!targetId) return;
+    const targetElement = this.document.getElementById(targetId);
+    if (!targetElement || typeof targetElement.scrollIntoView !== 'function') return;
+
+    let reduceMotion = false;
+    const view = this.document.defaultView;
+    if (typeof view?.matchMedia === 'function') {
+      try {
+        reduceMotion = view.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      } catch {
+        // 非浏览器测试宿主或旧宿主实现异常时回退为默认平滑滚动。
+      }
+    }
+    targetElement.scrollIntoView({
+      behavior: reduceMotion ? 'auto' : 'smooth',
+      block: 'start',
+      inline: 'nearest',
+    });
   }
   /** 文档首段非空内容做 summary（≤80 字）。 */
   docSummary(d: DocumentItem): string {
