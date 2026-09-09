@@ -297,6 +297,12 @@ def snapshot(project_id: int, entity_type: Literal["proposal", "task"],
 @router.post("/offers")
 def offer(body: Offer, authorization: str | None = Header(None), s: Session = Depends(get_session)):
     authorize(s, body.project_id, authorization)
+    # Defense-in-depth: Pydantic already enforces entity_type in {"proposal","task"} and
+    # entity_id > 0, but historical ghost WorkerWork rows (entity_type='' / entity_id=0)
+    # show this used to be looser. Reject explicitly so a future refactor cannot silently
+    # resurrect those rows.
+    if body.entity_type not in {"proposal", "task"} or body.entity_id <= 0:
+        raise HTTPException(422, "offer requires valid entity_type and positive entity_id")
     obj = check_offer(s, body)
     key = f"{body.entity_type}:{body.entity_id}:{body.kind}:{body.iteration}:{fingerprint(s, obj)}"
     if body.discussion_id:
