@@ -307,16 +307,25 @@ def admin_reclaim_stale_ticket_requests(
 
 # ---------- Worker queue hygiene (Story 434 / 2026-09-09) ----------
 
+from ..scheduling.worker_work import (  # noqa: E402  (single source of truth)
+    GHOST_CLEANUP_CONFIRM, GHOST_DELETE_SQL, GHOST_SELECT_SQL, GHOST_WHERE_SQL)
+
+
 class GhostCleanupIn(BaseModel):
     """Admin operator input to clean WorkerWork ghost rows.
 
-    A ghost row is any worker_work record with a missing/empty entity_type or a
-    non-positive entity_id (i.e., it does not point at a real Proposal/Task).
-    Such rows block the .NET worker (claim → 404/403) and the friendly log
-    message collapses the reason into a generic "owner mismatch".
+    A ghost row is any worker_work record whose ``entity_type``/``entity_id``
+    pair cannot resolve to a real Proposal/Task (empty/NULL type, or a
+    non-positive id). Those rows were minted before ``Offer`` enforced its
+    reference. They are unclaimable: ``claim`` rebuilt an ``Offer`` from the
+    stored columns and Pydantic rejected it, so the worker saw an opaque 500
+    (and, before the 409 ``ghost_work_row`` refusal landed, a misleading log).
+    The relay also used to republish them, which is how a handful of rows stalled
+    the whole queue.
     """
     dry_run: bool = True
     limit: int = Field(default=1000, ge=1, le=10000)
+    confirm: str | None = Field(default=None, max_length=64)
 
 
 @router.post("/api/admin/worker-work/cleanup-ghost")
@@ -327,26 +336,21 @@ def admin_cleanup_ghost_worker_work(
 ):
     """[admin] 删除/统计 worker_work 表中的 ghost 行。
 
-    Ghost 定义(任一即中):entity_type 不在 {'proposal','task'};entity_id <= 0;
-    entity_type 为空字符串/None。dry_run=True 只统计不删除。
+    Ghost 判定复用 worker_work 模块里的唯一一份谓词(见 GHOST_WHERE_SQL),与
+    relay/claim 拦截和 scripts/cleanup_ghost_work.py 保持同步。
 
-    权限:REQUIRE_AUTH=1 下仅 admin 可访问。Worker 维护期可由 admin 触发。
+    安全:默认 dry_run 只统计;真要删除必须带 confirm="delete-ghost-rows"。
+    权限:REQUIRE_AUTH=1 下仅 admin 可访问(本地 open-CRUD 模式仍放行,故加 confirm)。
     """
-    from ..scheduling.worker_work_models import WorkerWork  # local import 避免循环
-    uid, is_admin = api_helpers._caller_uid_admin(authorization)
+    uid, is_admin = api_helpers._caller_uid_admin(authorization, s)
     if api_helpers._auth_is_required() and not is_admin:
         raise HTTPException(status_code=403, detail="admin required")
+    if not body.dry_run and body.confirm != GHOST_CLEANUP_CONFIRM:
+        raise HTTPException(
+            status_code=422,
+            detail=f'deleting ghost rows requires confirm="{GHOST_CLEANUP_CONFIRM}"')
 
-    # 显式枚举,避免在 MariaDB/SQLite 上对 NULL/空串的语义差异
-    stmt = text(
-        "SELECT id, project_id, entity_type, entity_id, kind, state, created_at "
-        "FROM worker_work "
-        "WHERE entity_id IS NULL OR entity_id <= 0 "
-        "   OR entity_type IS NULL OR entity_type = '' "
-        "   OR entity_type NOT IN ('proposal', 'task') "
-        "ORDER BY id ASC LIMIT :limit"
-    )
-    rows = s.execute(stmt, {"limit": body.limit}).mappings().all()
+    rows = s.execute(text(GHOST_SELECT_SQL), {"limit": body.limit}).mappings().all()
     ids = [int(r["id"]) for r in rows]
     samples = [
         {"id": int(r["id"]), "project_id": int(r["project_id"]),
@@ -354,11 +358,17 @@ def admin_cleanup_ghost_worker_work(
          "kind": r["kind"], "state": r["state"]}
         for r in rows[:20]
     ]
+    # Deleting the queue row leaves worker_discussions.source_work_id dangling
+    # (it is a plain Integer, not an FK), so report the blast radius first.
+    linked_discussions = 0
+    if ids:
+        linked = text(
+            "SELECT COUNT(*) AS n FROM worker_discussions "
+            "WHERE source_work_id IN :ids").bindparams(bindparam("ids", expanding=True))
+        linked_discussions = int(s.execute(linked, {"ids": ids}).scalar() or 0)
     deleted = 0
     if ids and not body.dry_run:
-        del_stmt = text("DELETE FROM worker_work WHERE id IN :ids").bindparams(
-            bindparam("ids", expanding=True)
-        )
+        del_stmt = text(GHOST_DELETE_SQL).bindparams(bindparam("ids", expanding=True))
         result = s.execute(del_stmt, {"ids": ids})
         s.commit()
         deleted = int(result.rowcount or 0)
@@ -366,6 +376,8 @@ def admin_cleanup_ghost_worker_work(
         "matched": len(ids),
         "deleted": deleted,
         "dry_run": body.dry_run,
+        "limit": body.limit,
+        "linked_discussions": linked_discussions,
         "sample": samples,
         "ids": ids if not body.dry_run else ids[:20],
     }
@@ -382,7 +394,7 @@ def admin_inspect_ghost_worker_work(
     用于排查"看起来是 ghost 但 cleanup-ghost 端点 matched=0"的场景(可能是 SQL
     谓词/编码差异)。
     """
-    uid, is_admin = api_helpers._caller_uid_admin(authorization)
+    uid, is_admin = api_helpers._caller_uid_admin(authorization, s)
     if api_helpers._auth_is_required() and not is_admin:
         raise HTTPException(status_code=403, detail="admin required")
 
@@ -392,7 +404,8 @@ def admin_inspect_ghost_worker_work(
     stmt = text(
         "SELECT id, project_id, entity_type, entity_id, kind, state, "
         "       LENGTH(entity_type) AS et_len, "
-        "       HEX(entity_type) AS et_hex "
+        "       HEX(entity_type) AS et_hex, "
+        f"       CASE WHEN {'(' + GHOST_WHERE_SQL + ')'} THEN 1 ELSE 0 END AS is_ghost "
         "FROM worker_work WHERE state = 'available' "
         "ORDER BY id ASC LIMIT :limit"
     )
@@ -407,6 +420,7 @@ def admin_inspect_ghost_worker_work(
             "entity_type_hex": r["et_hex"],
             "kind": r["kind"],
             "state": r["state"],
+            "is_ghost": bool(r["is_ghost"]),
         }
         for r in rows
     ]

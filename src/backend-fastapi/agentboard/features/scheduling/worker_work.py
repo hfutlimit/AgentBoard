@@ -33,6 +33,41 @@ WorkKind = Literal["proposal", "design", "design_review", "dev", "dev_review", "
 WORK_KINDS = ("proposal", "design", "design_review", "dev", "dev_review", "qa", "qa_review")
 EXCHANGE = "agentboard.work.v2"
 
+# A queue row is only executable while it points at a real business item. Rows
+# written before Offer enforced its reference (entity_type='' / entity_id=0) can
+# never be claimed: ``check_offer`` rebuilds an Offer from the stored columns and
+# Pydantic rejects them, so the row stalls the relay as a 500 instead of dying
+# quietly. Everything that has to recognise such a row shares this one definition
+# (claim guard, relay filter, admin cleanup endpoint, scripts/cleanup_ghost_work.py,
+# and the idempotent alembic data migration).
+WORK_ENTITY_TYPES = ("proposal", "task")
+GHOST_WORK_REASON = "ghost_work_row"
+_GHOST_TYPE_LIST = ", ".join(f"'{value}'" for value in WORK_ENTITY_TYPES)
+GHOST_WHERE_SQL = (
+    "entity_id IS NULL OR entity_id <= 0 "
+    "OR entity_type IS NULL OR entity_type = '' "
+    f"OR entity_type NOT IN ({_GHOST_TYPE_LIST})"
+)
+GHOST_SELECT_SQL = (
+    "SELECT id, project_id, entity_type, entity_id, kind, state, created_at "
+    f"FROM worker_work WHERE {GHOST_WHERE_SQL} ORDER BY id ASC LIMIT :limit"
+)
+GHOST_DELETE_SQL = "DELETE FROM worker_work WHERE id IN :ids"
+# Explicit opt-in phrase required by both the admin endpoint and
+# scripts/cleanup_ghost_work.py before either deletes anything (the local
+# open-CRUD mode runs with auth off, so a typo must not sweep the queue).
+GHOST_CLEANUP_CONFIRM = "delete-ghost-rows"
+
+
+def is_ghost_row(row: WorkerWork) -> bool:
+    """True when a queue row cannot possibly resolve to a Proposal/Task."""
+    return row.entity_type not in WORK_ENTITY_TYPES or (row.entity_id or 0) <= 0
+
+
+def ghost_free_condition():
+    """ORM predicate selecting only claimable rows (mirrors GHOST_WHERE_SQL)."""
+    return WorkerWork.entity_type.in_(WORK_ENTITY_TYPES) & (WorkerWork.entity_id > 0)
+
 
 def enabled() -> bool:
     value = os.getenv("AGENTBOARD_WORKER_OWNED_ENABLED", "0")
@@ -297,12 +332,10 @@ def snapshot(project_id: int, entity_type: Literal["proposal", "task"],
 @router.post("/offers")
 def offer(body: Offer, authorization: str | None = Header(None), s: Session = Depends(get_session)):
     authorize(s, body.project_id, authorization)
-    # Defense-in-depth: Pydantic already enforces entity_type in {"proposal","task"} and
-    # entity_id > 0, but historical ghost WorkerWork rows (entity_type='' / entity_id=0)
-    # show this used to be looser. Reject explicitly so a future refactor cannot silently
-    # resurrect those rows.
-    if body.entity_type not in {"proposal", "task"} or body.entity_id <= 0:
-        raise HTTPException(422, "offer requires valid entity_type and positive entity_id")
+    # ``Offer`` itself is the input contract (entity_type is a Literal and
+    # entity_id must be positive), so a request can never mint a ghost row. Legacy
+    # ghost rows predating that model are refused at claim time and skipped by the
+    # relay; see resolve_claim / drain_once / GHOST_WHERE_SQL.
     obj = check_offer(s, body)
     key = f"{body.entity_type}:{body.entity_id}:{body.kind}:{body.iteration}:{fingerprint(s, obj)}"
     if body.discussion_id:
@@ -333,6 +366,18 @@ def resolve_claim(s, work_id, body, authorization):
     if not row:
         raise HTTPException(404, "work not found")
     actor = authorize(s, row.project_id, authorization)
+    if is_ghost_row(row):
+        # Refuse before any branch rebuilds an Offer from the stored columns; that
+        # construction raises a Pydantic ValidationError (an opaque 500) for rows
+        # whose reference was never resolvable in the first place.
+        raise HTTPException(409, detail={
+            "reason": GHOST_WORK_REASON,
+            "state": row.state,
+            "entity_type": row.entity_type,
+            "entity_id": row.entity_id,
+            "detail": ("queue row has no valid entity reference and can never be claimed; "
+                       "clean it with POST /api/admin/worker-work/cleanup-ghost"),
+        })
     if row.project_id != body.project_id or row.kind != body.kind:
         raise HTTPException(409, "message does not match work scope")
     agent = s.query(Agent).filter_by(agent_id=body.agent_id).first()

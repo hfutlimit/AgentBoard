@@ -6016,6 +6016,39 @@
                                                                                    }
                                                                     },
                                                                     {
+                                                                        "name":  "assigned_agent_id",
+                                                                        "in":  "query",
+                                                                        "required":  false,
+                                                                        "schema":  {
+                                                                                       "anyOf":  [
+                                                                                                     {
+                                                                                                         "type":  "string"
+                                                                                                     },
+                                                                                                     {
+                                                                                                         "type":  "null"
+                                                                                                     }
+                                                                                                 ],
+                                                                                       "title":  "Assigned Agent Id"
+                                                                                   }
+                                                                    },
+                                                                    {
+                                                                        "name":  "agent_registry_id",
+                                                                        "in":  "query",
+                                                                        "required":  false,
+                                                                        "schema":  {
+                                                                                       "anyOf":  [
+                                                                                                     {
+                                                                                                         "type":  "integer",
+                                                                                                         "minimum":  1
+                                                                                                     },
+                                                                                                     {
+                                                                                                         "type":  "null"
+                                                                                                     }
+                                                                                                 ],
+                                                                                       "title":  "Agent Registry Id"
+                                                                                   }
+                                                                    },
+                                                                    {
                                                                         "name":  "limit",
                                                                         "in":  "query",
                                                                         "required":  false,
@@ -15274,6 +15307,82 @@
                                                                                }
                                                              }
                                               },
+                  "/api/admin/tasks/{tid}/clear-assignment":  {
+                                                                  "post":  {
+                                                                               "tags":  [
+                                                                                            "admin"
+                                                                                        ],
+                                                                               "summary":  "Admin Clear Task Assignment Endpoint",
+                                                                               "description":  "[admin] Force-clear a task\u0027s ``current_assignment_id`` FK.\n\nEscape hatch for tasks stuck in ``todo`` with a non-null\n``current_assignment_id`` (owner died / durable workflow failed to\nrelease / operator wants to re-route). Marks the underlying\n``TaskAssignment`` as ``superseded`` (audit-distinct from\n``completed``) and clears the FK so all claim/apply/arbitrate\npaths can proceed. Does not change task status — caller decides\nwhat to do next.\n\nNo-op when ``current_assignment_id`` is already NULL.\n\nSee ``service.admin_clear_task_assignment`` docstring for the full\nrationale and audit semantics.",
+                                                                               "operationId":  "admin_clear_task_assignment_endpoint_api_admin_tasks__tid__clear_assignment_post",
+                                                                               "parameters":  [
+                                                                                                  {
+                                                                                                      "name":  "tid",
+                                                                                                      "in":  "path",
+                                                                                                      "required":  true,
+                                                                                                      "schema":  {
+                                                                                                                     "type":  "integer",
+                                                                                                                     "title":  "Tid"
+                                                                                                                 }
+                                                                                                  },
+                                                                                                  {
+                                                                                                      "name":  "authorization",
+                                                                                                      "in":  "header",
+                                                                                                      "required":  false,
+                                                                                                      "schema":  {
+                                                                                                                     "anyOf":  [
+                                                                                                                                   {
+                                                                                                                                       "type":  "string"
+                                                                                                                                   },
+                                                                                                                                   {
+                                                                                                                                       "type":  "null"
+                                                                                                                                   }
+                                                                                                                               ],
+                                                                                                                     "title":  "Authorization"
+                                                                                                                 }
+                                                                                                  }
+                                                                                              ],
+                                                                               "requestBody":  {
+                                                                                                   "content":  {
+                                                                                                                   "application/json":  {
+                                                                                                                                            "schema":  {
+                                                                                                                                                           "anyOf":  [
+                                                                                                                                                                         {
+                                                                                                                                                                             "$ref":  "#/components/schemas/AdminClearAssignmentIn"
+                                                                                                                                                                         },
+                                                                                                                                                                         {
+                                                                                                                                                                             "type":  "null"
+                                                                                                                                                                         }
+                                                                                                                                                                     ],
+                                                                                                                                                           "title":  "Body"
+                                                                                                                                                       }
+                                                                                                                                        }
+                                                                                                               }
+                                                                                               },
+                                                                               "responses":  {
+                                                                                                 "200":  {
+                                                                                                             "description":  "Successful Response",
+                                                                                                             "content":  {
+                                                                                                                             "application/json":  {
+                                                                                                                                                      "schema":  {
+
+                                                                                                                                                                 }
+                                                                                                                                                  }
+                                                                                                                         }
+                                                                                                         },
+                                                                                                 "422":  {
+                                                                                                             "description":  "Validation Error",
+                                                                                                             "content":  {
+                                                                                                                             "application/json":  {
+                                                                                                                                                      "schema":  {
+                                                                                                                                                                     "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                                 }
+                                                                                                                                                  }
+                                                                                                                         }
+                                                                                                         }
+                                                                                             }
+                                                                           }
+                                                              },
                   "/api/admin/ticket-requests/pending":  {
                                                              "get":  {
                                                                          "tags":  [
@@ -15403,6 +15512,131 @@
                                                                                               }
                                                                             }
                                                                },
+                  "/api/admin/worker-work/cleanup-ghost":  {
+                                                               "post":  {
+                                                                            "tags":  [
+                                                                                         "admin"
+                                                                                     ],
+                                                                            "summary":  "Admin Cleanup Ghost Worker Work",
+                                                                            "description":  "[admin] 删除/统计 worker_work 表中的 ghost 行。\n\nGhost 判定复用 worker_work 模块里的唯一一份谓词(见 GHOST_WHERE_SQL),与\nrelay/claim 拦截和 scripts/cleanup_ghost_work.py 保持同步。\n\n安全:默认 dry_run 只统计;真要删除必须带 confirm=\"delete-ghost-rows\"。\n权限:REQUIRE_AUTH=1 下仅 admin 可访问(本地 open-CRUD 模式仍放行,故加 confirm)。",
+                                                                            "operationId":  "admin_cleanup_ghost_worker_work_api_admin_worker_work_cleanup_ghost_post",
+                                                                            "parameters":  [
+                                                                                               {
+                                                                                                   "name":  "authorization",
+                                                                                                   "in":  "header",
+                                                                                                   "required":  false,
+                                                                                                   "schema":  {
+                                                                                                                  "anyOf":  [
+                                                                                                                                {
+                                                                                                                                    "type":  "string"
+                                                                                                                                },
+                                                                                                                                {
+                                                                                                                                    "type":  "null"
+                                                                                                                                }
+                                                                                                                            ],
+                                                                                                                  "title":  "Authorization"
+                                                                                                              }
+                                                                                               }
+                                                                                           ],
+                                                                            "requestBody":  {
+                                                                                                "content":  {
+                                                                                                                "application/json":  {
+                                                                                                                                         "schema":  {
+                                                                                                                                                        "$ref":  "#/components/schemas/GhostCleanupIn",
+                                                                                                                                                        "default":  {
+                                                                                                                                                                        "dry_run":  true,
+                                                                                                                                                                        "limit":  1000
+                                                                                                                                                                    }
+                                                                                                                                                    }
+                                                                                                                                     }
+                                                                                                            }
+                                                                                            },
+                                                                            "responses":  {
+                                                                                              "200":  {
+                                                                                                          "description":  "Successful Response",
+                                                                                                          "content":  {
+                                                                                                                          "application/json":  {
+                                                                                                                                                   "schema":  {
+
+                                                                                                                                                              }
+                                                                                                                                               }
+                                                                                                                      }
+                                                                                                      },
+                                                                                              "422":  {
+                                                                                                          "description":  "Validation Error",
+                                                                                                          "content":  {
+                                                                                                                          "application/json":  {
+                                                                                                                                                   "schema":  {
+                                                                                                                                                                  "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                              }
+                                                                                                                                               }
+                                                                                                                      }
+                                                                                                      }
+                                                                                          }
+                                                                        }
+                                                           },
+                  "/api/admin/worker-work/inspect-ghost":  {
+                                                               "get":  {
+                                                                           "tags":  [
+                                                                                        "admin"
+                                                                                    ],
+                                                                           "summary":  "Admin Inspect Ghost Worker Work",
+                                                                           "description":  "[admin] 调试用:列出 state=available 的 worker_work 行,以及 raw entity_type/entity_id。\n\n用于排查\"看起来是 ghost 但 cleanup-ghost 端点 matched=0\"的场景(可能是 SQL\n谓词/编码差异)。",
+                                                                           "operationId":  "admin_inspect_ghost_worker_work_api_admin_worker_work_inspect_ghost_get",
+                                                                           "parameters":  [
+                                                                                              {
+                                                                                                  "name":  "limit",
+                                                                                                  "in":  "query",
+                                                                                                  "required":  false,
+                                                                                                  "schema":  {
+                                                                                                                 "type":  "integer",
+                                                                                                                 "maximum":  500,
+                                                                                                                 "minimum":  1,
+                                                                                                                 "default":  50,
+                                                                                                                 "title":  "Limit"
+                                                                                                             }
+                                                                                              },
+                                                                                              {
+                                                                                                  "name":  "authorization",
+                                                                                                  "in":  "header",
+                                                                                                  "required":  false,
+                                                                                                  "schema":  {
+                                                                                                                 "anyOf":  [
+                                                                                                                               {
+                                                                                                                                   "type":  "string"
+                                                                                                                               },
+                                                                                                                               {
+                                                                                                                                   "type":  "null"
+                                                                                                                               }
+                                                                                                                           ],
+                                                                                                                 "title":  "Authorization"
+                                                                                                             }
+                                                                                              }
+                                                                                          ],
+                                                                           "responses":  {
+                                                                                             "200":  {
+                                                                                                         "description":  "Successful Response",
+                                                                                                         "content":  {
+                                                                                                                         "application/json":  {
+                                                                                                                                                  "schema":  {
+
+                                                                                                                                                             }
+                                                                                                                                              }
+                                                                                                                     }
+                                                                                                     },
+                                                                                             "422":  {
+                                                                                                         "description":  "Validation Error",
+                                                                                                         "content":  {
+                                                                                                                         "application/json":  {
+                                                                                                                                                  "schema":  {
+                                                                                                                                                                 "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                             }
+                                                                                                                                              }
+                                                                                                                     }
+                                                                                                     }
+                                                                                         }
+                                                                       }
+                                                           },
                   "/api/learning/agent-leaderboard":  {
                                                           "get":  {
                                                                       "tags":  [
@@ -15990,6 +16224,19 @@
               },
     "components":  {
                        "schemas":  {
+                                       "AdminClearAssignmentIn":  {
+                                                                      "properties":  {
+                                                                                         "reason":  {
+                                                                                                        "type":  "string",
+                                                                                                        "maxLength":  500,
+                                                                                                        "title":  "Reason",
+                                                                                                        "default":  ""
+                                                                                                    }
+                                                                                     },
+                                                                      "type":  "object",
+                                                                      "title":  "AdminClearAssignmentIn",
+                                                                      "description":  "Body for POST /api/admin/tasks/{tid}/clear-assignment.\n\n``reason`` is recorded in TaskStatusHistory.change_reason and on the\nsuperseded TaskAssignment row for audit purposes."
+                                                                  },
                                        "AgentBehaviorConfigPayload":  {
                                                                           "properties":  {
                                                                                              "preparation":  {
@@ -17515,6 +17762,37 @@
                                                          "type":  "object",
                                                          "title":  "EpicPatch"
                                                      },
+                                       "GhostCleanupIn":  {
+                                                              "properties":  {
+                                                                                 "dry_run":  {
+                                                                                                 "type":  "boolean",
+                                                                                                 "title":  "Dry Run",
+                                                                                                 "default":  true
+                                                                                             },
+                                                                                 "limit":  {
+                                                                                               "type":  "integer",
+                                                                                               "maximum":  10000.0,
+                                                                                               "minimum":  1.0,
+                                                                                               "title":  "Limit",
+                                                                                               "default":  1000
+                                                                                           },
+                                                                                 "confirm":  {
+                                                                                                 "anyOf":  [
+                                                                                                               {
+                                                                                                                   "type":  "string",
+                                                                                                                   "maxLength":  64
+                                                                                                               },
+                                                                                                               {
+                                                                                                                   "type":  "null"
+                                                                                                               }
+                                                                                                           ],
+                                                                                                 "title":  "Confirm"
+                                                                                             }
+                                                                             },
+                                                              "type":  "object",
+                                                              "title":  "GhostCleanupIn",
+                                                              "description":  "Admin operator input to clean WorkerWork ghost rows.\n\nA ghost row is any worker_work record whose ``entity_type``/``entity_id``\npair cannot resolve to a real Proposal/Task (empty/NULL type, or a\nnon-positive id). Those rows were minted before ``Offer`` enforced its\nreference. They are unclaimable: ``claim`` rebuilt an ``Offer`` from the\nstored columns and Pydantic rejected it, so the worker saw an opaque 500\n(and, before the 409 ``ghost_work_row`` refusal landed, a misleading log).\nThe relay also used to republish them, which is how a handful of rows stalled\nthe whole queue."
+                                                          },
                                        "HTTPValidationError":  {
                                                                    "properties":  {
                                                                                       "detail":  {

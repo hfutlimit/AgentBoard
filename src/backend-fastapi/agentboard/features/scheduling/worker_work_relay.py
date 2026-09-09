@@ -5,7 +5,7 @@ from datetime import timedelta
 from sqlalchemy import or_
 from ...core.common.models import utc_now
 from ...core.infrastructure import database
-from .worker_work import EXCHANGE, enabled, queue_name
+from .worker_work import EXCHANGE, enabled, ghost_free_condition, queue_name
 from .worker_work_models import WorkerWork
 
 
@@ -15,7 +15,9 @@ def drain_once():
     import pika
     now = utc_now()
     with database.SessionLocal() as s:
-        rows = s.query(WorkerWork).filter(or_(
+        # Ghost rows (no resolvable entity reference) can never be claimed, so
+        # publishing them only burns redeliveries and buries real work in noise.
+        rows = s.query(WorkerWork).filter(ghost_free_condition(), or_(
             (WorkerWork.state == "available") & WorkerWork.published_at.is_(None),
             (WorkerWork.state == "leased") & (WorkerWork.lease_until < now)
             & (WorkerWork.published_at < now - timedelta(minutes=3))
