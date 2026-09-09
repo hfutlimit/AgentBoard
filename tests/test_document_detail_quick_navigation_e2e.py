@@ -211,6 +211,38 @@ def _api_call(base: str, method: str, path: str, token: str | None = None, body=
         return error.code, json.loads(payload)
 
 
+def _assert_nav_is_pinned(page) -> None:
+    """滚到最底部且不点击任何按钮时，快速定位条必须仍贴在视口顶部。
+
+    这是 sticky 的可证伪判据：若 ``position: sticky`` 失效（祖先裁切、滚动根不对），
+    nav 会随文档流滚出视口，nav.top 将远小于 0。
+    """
+    page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
+    page.wait_for_function(
+        """
+        () => {
+          const nav = document.querySelector('.doc-quick-nav')?.getBoundingClientRect();
+          return !!nav && nav.top >= 0 && nav.top <= 60 && nav.bottom <= innerHeight;
+        }
+        """,
+        timeout=3000,
+    )
+    geometry = page.evaluate(
+        """
+        () => {
+          const nav = document.querySelector('.doc-quick-nav')?.getBoundingClientRect();
+          return {
+            ok: !!nav && nav.top >= 0 && nav.top <= 60 && nav.bottom <= innerHeight,
+            nav: nav && { top: nav.top, bottom: nav.bottom },
+            scrollY,
+            innerHeight,
+          };
+        }
+        """
+    )
+    assert geometry["ok"], geometry
+
+
 def _assert_target_is_below_sticky_nav(page, target_id: str) -> None:
     page.wait_for_function(
         """
@@ -330,7 +362,7 @@ def test_document_detail_quick_navigation(page, servers):
     assert page.locator("#document-comments-start").count() == 1
     baseline_request_count = len(api_requests)
 
-    page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
+    _assert_nav_is_pinned(page)
     page.get_by_role("button", name="正文开头").click()
     page.wait_for_timeout(350)
     _assert_target_is_below_sticky_nav(page, "document-content-start")
