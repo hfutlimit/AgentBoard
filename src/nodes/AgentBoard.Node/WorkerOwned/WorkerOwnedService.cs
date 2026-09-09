@@ -364,6 +364,19 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
             if (claim.StatusCode == HttpStatusCode.Conflict)
             {
                 var reason = await claim.Content.ReadAsStringAsync(ct);
+                if (reason.Contains("ghost_work_row", StringComparison.Ordinal))
+                {
+                    // The Server refuses the row because its stored entity
+                    // reference can never resolve to a Proposal/Task. No Agent can
+                    // claim it, so drop the delivery instead of returning false:
+                    // false would ReturnToTail it and starve later work forever,
+                    // exactly like the ineligible-claim starvation this loop already
+                    // guards against. Durable state lives in the DB, and the relay no
+                    // longer publishes such rows, so acking loses nothing.
+                    _log.LogWarning("Work {WorkId} is a ghost queue row (unresolvable entity reference); no Agent can claim it. Clean it with POST /api/admin/worker-work/cleanup-ghost", workId);
+                    _journal.Remove(workId);
+                    return true;
+                }
                 var newTokenRequired = reason.Contains("new_token_required", StringComparison.Ordinal);
                 if (newTokenRequired) _journal.Remove(workId);
                 var claimTerminal = ReadTerminalResponse(reason);
@@ -382,6 +395,17 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
                 if (terminal is "completed" or "failed")
                     ReconcileTerminalHistory(_records, entry, terminal, attemptMatches);
                 return terminal is "completed" or "failed";
+            }
+            if (claim.StatusCode == HttpStatusCode.NotFound)
+            {
+                // Previously this fell through to EnsureSuccessStatusCode and
+                // surfaced as an opaque HttpRequestException in the logs. The row is
+                // gone from the Server's durable store, so requeuing cannot help;
+                // drop the delivery with the Server's own wording preserved.
+                var detail = await claim.Content.ReadAsStringAsync(ct);
+                _log.LogWarning("Work {WorkId} is unknown to the Server (404): {Detail}", workId, detail);
+                _journal.Remove(workId);
+                return true;
             }
             claim.EnsureSuccessStatusCode();
             using var accepted = JsonDocument.Parse(await claim.Content.ReadAsStringAsync(ct));
