@@ -1,6 +1,6 @@
 /* WorkspaceDrawerComponent — 工作台右侧 Drawer（Story #435）
  *
- * 设计：右侧贴边浮层，宽度可调（默认 520px，最小 360px）。
+ * 设计：右侧贴边浮层，宽度可调（默认视口 60%，下限 600px）。
  * 顶栏（64px）保持可见可点 —— Drawer 是「瞄一眼」的非模态上下文，
  * 不该把全局导航、通知、项目切换一起挡住。
  */
@@ -28,7 +28,7 @@ body.ws-drawer-resizing {
   z-index: 41;
   display: flex;
   flex-direction: column;
-  min-width: 360px;
+  min-width: 600px;
   max-width: calc(100vw - 120px);
   background: var(--color-surface, #ffffff);
   border-left: 1px solid var(--color-border, rgba(15, 23, 42, 0.12));
@@ -184,7 +184,7 @@ body.ws-drawer-resizing {
 }
 
 /* 详情组件自带面包屑与 H1，和 Drawer 头部的「父级路径 + 标题 + 类型徽章」完全重复。
-   抽屉里隐藏它们，避免同一条层级路径在 560px 宽度内出现两遍、标题出现两遍。
+   抽屉里隐藏它们，避免同一条层级路径在 600px+ 宽度内出现两遍、标题出现两遍。
    注意：.workspace-heading-v7 .workspace-heading-left h1 也是 (0,3,1)，
    且在 Drawer 渲染详情组件时才注入、排在后面会赢，所以这里必须再抬一级权重。 */
 .ws-drawer-body .crumb-bar,

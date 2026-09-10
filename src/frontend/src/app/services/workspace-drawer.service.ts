@@ -20,8 +20,12 @@ export interface WorkspaceDrawerState {
 
 const WIDTH_KEY = 'agentboard_ws_drawer_width';
 const TASK_MODE_KEY = 'agentboard_ws_task_in_drawer';
-const DEFAULT_WIDTH = 520;
-const MIN_WIDTH = 360;
+/** 抽屉默认宽度 = 视口 60%（产品决策：详情要看得清，而不是「瞄一眼」） */
+const DEFAULT_WIDTH_RATIO = 0.6;
+/** 抽屉最小可拖动宽度；同时也是 default 的下限，避免窄屏 60% 反而比 360 还小 */
+const MIN_WIDTH = 600;
+/** 默认上限：留 120px 给左侧导航 / 顶栏呼吸空间 */
+const MIN_AVAILABLE_WIDTH = 120;
 
 @Injectable({ providedIn: 'root' })
 export class WorkspaceDrawerService {
@@ -49,7 +53,7 @@ export class WorkspaceDrawerService {
   }
 
   setWidth(px: number): void {
-    const next = Math.max(MIN_WIDTH, Math.min(px, typeof window === 'undefined' ? 900 : window.innerWidth - 160));
+    const next = Math.max(MIN_WIDTH, Math.min(px, this.maxAllowedWidth()));
     this._width.set(next);
     this.writeNumber(WIDTH_KEY, next);
   }
@@ -66,7 +70,20 @@ export class WorkspaceDrawerService {
   private readWidth(): number {
     const raw = this.readString(WIDTH_KEY);
     const n = raw ? Number(raw) : NaN;
-    return Number.isFinite(n) && n >= MIN_WIDTH ? n : DEFAULT_WIDTH;
+    if (Number.isFinite(n) && n >= MIN_WIDTH) return n;
+    return this.defaultWidth();
+  }
+
+  /** 视口 60%，clamp 到 [MIN_WIDTH, maxAllowedWidth()] */
+  private defaultWidth(): number {
+    const viewport = typeof window === 'undefined' ? 1280 : window.innerWidth;
+    const target = Math.round(viewport * DEFAULT_WIDTH_RATIO);
+    return Math.max(MIN_WIDTH, Math.min(target, this.maxAllowedWidth()));
+  }
+
+  private maxAllowedWidth(): number {
+    if (typeof window === 'undefined') return 1200;
+    return Math.max(MIN_WIDTH, window.innerWidth - MIN_AVAILABLE_WIDTH);
   }
 
   private readTaskMode(): boolean {
