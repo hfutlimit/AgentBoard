@@ -25,8 +25,23 @@ from sqlalchemy.orm import Session
 
 from . import service, auth, mq, cache
 from .cache import get_cache, API_CACHE_TTL
+from .core.infrastructure import database as _db
 from .features.projects.models import Sprint  # noqa: E402 — sprint_id 归属解析
-from .database import get_session, SessionLocal
+from .database import get_session
+
+# ``SessionLocal`` is intentionally NOT imported here. Several middleware and
+# helper paths (``_caller_uid_admin``, ``_resolve_project_id_from_request``,
+# ``_write_audit_log``) need to open an ad-hoc session without going through
+# FastAPI's ``Depends(get_session)`` (e.g. before dependency resolution, or
+# when no session has been threaded in). An import-time ``from .database
+# import SessionLocal`` would freeze the binding to the engine built at
+# module import (default ``./agentboard.db``), which both:
+#   1. cannot follow test fixtures that swap ``database.SessionLocal`` to a
+#      per-test engine; and
+#   2. silently loses audit/middleware writes in production if the env URL
+#      is changed after import (e.g. via ``reset_engine()``).
+# All callers below must therefore use ``_db.SessionLocal()`` so the lookup
+# goes through the module attribute at call time.
 from .core.common.models import utc_now
 
 
@@ -41,7 +56,7 @@ def request_session(request: Request | WebSocket):
     """
     override = request.app.dependency_overrides.get(get_session)
     if override is None:
-        with SessionLocal() as session:
+        with _db.SessionLocal() as session:
             yield session
         return
 
@@ -515,7 +530,7 @@ def _caller_uid_admin(
     uid = auth.parse_token(token)
     if not uid and token.startswith(auth.API_KEY_PREFIX):
         if s is None:
-            with SessionLocal() as session:
+            with _db.SessionLocal() as session:
                 ak = service.lookup_api_key_by_hash(session, auth.hash_api_key(token))
                 if ak and ak.enabled:
                     uid = ak.user_id
@@ -528,7 +543,7 @@ def _caller_uid_admin(
     if s is not None:
         u = service.get_user(s, uid)
         return uid, bool(u and u.is_admin)
-    with SessionLocal() as session:
+    with _db.SessionLocal() as session:
         u = service.get_user(session, uid)
         return uid, bool(u and u.is_admin)
 
@@ -560,7 +575,7 @@ def _resolve_project_id_from_request(
     if request.app.dependency_overrides.get(get_session) is not None:
         with request_session(request) as session:
             return _resolve_project_id_from_request_with_session(request, session)
-    with SessionLocal() as session:
+    with _db.SessionLocal() as session:
         return _resolve_project_id_from_request_with_session(request, session)
 
 
@@ -750,7 +765,7 @@ def _write_audit_log(uid, action, entity_type, entity_id, path, request,
                     body_text, status_code, duration_ms) -> None:
     """在线程池中执行的审计落库（不阻塞事件循环）。"""
     try:
-        with SessionLocal() as ss:
+        with _db.SessionLocal() as ss:
             service.create_audit_log(
                 ss, user_id=uid, action=action, entity_type=entity_type or "unknown",
                 entity_id=entity_id, method=request.method, path=path,

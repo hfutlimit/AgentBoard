@@ -86,6 +86,18 @@ def app_engine(broker):
 
     from agentboard.core.infrastructure import database
     from agentboard.core.infrastructure.database import get_session
+    # Save the process-global bindings so teardown can restore them. Without
+    # this, the last test's in-memory engine stays pinned on the module and
+    # the next test session starts with stale references; in particular
+    # ``api_helpers.SessionLocal`` is a module-import-time binding (we switched
+    # the call sites to ``_db.SessionLocal`` so it isn't a hard dependency,
+    # but anything else that took an import-time handle will see the dead
+    # engine). Save + restore makes the fixture truly per-test.
+    # Use ``getattr`` with default because ``_session_factory`` is not part
+    # of the module's public surface (only set by previous test fixtures).
+    saved_engine = database.engine
+    saved_session = database.SessionLocal
+    saved_factory = getattr(database, "_session_factory", None)
     database.engine = engine
     database.SessionLocal = Session
     database._session_factory = Session
@@ -114,7 +126,19 @@ def app_engine(broker):
     try:
         yield engine
     finally:
+        # Teardown: restore every module-level binding we mutated, dispose the
+        # in-memory engine so its connection is released, and drop the
+        # FastAPI dependency override. Order matters: dispose before restoring
+        # so a handler that runs during teardown can't accidentally pick up a
+        # disposed connection under the restored (old) engine.
         app.dependency_overrides.pop(get_session, None)
+        engine.dispose()
+        database.engine = saved_engine
+        database.SessionLocal = saved_session
+        if saved_factory is not None:
+            database._session_factory = saved_factory
+        elif hasattr(database, "_session_factory"):
+            del database._session_factory
 
 
 @pytest.fixture

@@ -351,63 +351,48 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
             using var client = Client(profile);
             var lease = new { project_id = project, kind, worker_id = WorkerId, agent_id = profile.Id, token = entry.Token };
             using var claim = await Post(client, $"api/worker-work/{workId}/claim", lease, ct);
-            if (claim.StatusCode == HttpStatusCode.Forbidden)
+            var outcome = ClaimFailureClassifier.Classify(claim.StatusCode,
+                await claim.Content.ReadAsStringAsync(ct));
+            switch (outcome.Kind)
             {
-                var detail = await claim.Content.ReadAsStringAsync(ct);
-                var reason = detail.Contains("work owner does not match", StringComparison.Ordinal) ? "owner mismatch"
-                    : detail.Contains("independent reviewer/QA", StringComparison.Ordinal) ? "independent Agent required"
-                    : detail.Contains("Agent must belong", StringComparison.Ordinal) ? "Agent identity mismatch"
-                    : detail.Contains("original participant", StringComparison.Ordinal) ? "original participant required" : "forbidden";
-                _log.LogInformation("Work {WorkId} cannot be claimed by {Agent}: {Reason}", workId, profile.Id, reason);
-                continue;
-            }
-            if (claim.StatusCode == HttpStatusCode.Conflict)
-            {
-                var reason = await claim.Content.ReadAsStringAsync(ct);
-                if (reason.Contains("ghost_work_row", StringComparison.Ordinal))
-                {
-                    // The Server refuses the row because its stored entity
-                    // reference can never resolve to a Proposal/Task. No Agent can
-                    // claim it, so drop the delivery instead of returning false:
-                    // false would ReturnToTail it and starve later work forever,
-                    // exactly like the ineligible-claim starvation this loop already
-                    // guards against. Durable state lives in the DB, and the relay no
-                    // longer publishes such rows, so acking loses nothing.
-                    _log.LogWarning("Work {WorkId} is a ghost queue row (unresolvable entity reference); no Agent can claim it. Clean it with POST /api/admin/worker-work/cleanup-ghost", workId);
+                case ClaimFailureClassifier.Kind.Forbidden:
+                    _log.LogInformation("Work {WorkId} cannot be claimed by {Agent}: {Reason}",
+                        workId, profile.Id, outcome.Reason);
+                    continue;
+                case ClaimFailureClassifier.Kind.AckAndDrop:
+                    // Reasons here (ghost_work_row, new_token_required, 404) all
+                    // describe a state the Server will not move on its own; returning
+                    // false would ReturnToTail this exact row and starve later work,
+                    // so the contract is to ack and remove the local journal entry.
+                    _log.LogWarning(
+                        "Work {WorkId} ack-and-drop ({Reason}); Server no longer has a claimable state. {Detail}",
+                        workId, outcome.Reason, outcome.Detail);
                     _journal.Remove(workId);
                     return true;
-                }
-                var newTokenRequired = reason.Contains("new_token_required", StringComparison.Ordinal);
-                if (newTokenRequired) _journal.Remove(workId);
-                var claimTerminal = ReadTerminalResponse(reason);
-                var terminal = claimTerminal.State;
-                var attemptMatches = claimTerminal.AttemptMatches;
-                if (terminal is not ("completed" or "failed"))
+                case ClaimFailureClassifier.Kind.Conflict:
                 {
-                    using var status = await client.GetAsync($"api/worker-work/{workId}", ct);
-                    status.EnsureSuccessStatusCode();
-                    using var state = JsonDocument.Parse(await status.Content.ReadAsStringAsync(ct));
-                    terminal = state.RootElement.GetProperty("state").GetString();
-                    // The status endpoint is work-scoped and cannot prove the
-                    // identity of the local execution attempt.
-                    attemptMatches = false;
+                    var claimTerminal = ReadTerminalResponse(outcome.Detail!);
+                    var terminal = claimTerminal.State;
+                    var attemptMatches = claimTerminal.AttemptMatches;
+                    if (terminal is not ("completed" or "failed"))
+                    {
+                        using var status = await client.GetAsync($"api/worker-work/{workId}", ct);
+                        status.EnsureSuccessStatusCode();
+                        using var state = JsonDocument.Parse(await status.Content.ReadAsStringAsync(ct));
+                        terminal = state.RootElement.GetProperty("state").GetString();
+                        // The status endpoint is work-scoped and cannot prove the
+                        // identity of the local execution attempt.
+                        attemptMatches = false;
+                    }
+                    if (terminal is "completed" or "failed")
+                        ReconcileTerminalHistory(_records, entry, terminal, attemptMatches);
+                    return terminal is "completed" or "failed";
                 }
-                if (terminal is "completed" or "failed")
-                    ReconcileTerminalHistory(_records, entry, terminal, attemptMatches);
-                return terminal is "completed" or "failed";
+                case ClaimFailureClassifier.Kind.Unexpected:
+                default:
+                    claim.EnsureSuccessStatusCode();
+                    break;
             }
-            if (claim.StatusCode == HttpStatusCode.NotFound)
-            {
-                // Previously this fell through to EnsureSuccessStatusCode and
-                // surfaced as an opaque HttpRequestException in the logs. The row is
-                // gone from the Server's durable store, so requeuing cannot help;
-                // drop the delivery with the Server's own wording preserved.
-                var detail = await claim.Content.ReadAsStringAsync(ct);
-                _log.LogWarning("Work {WorkId} is unknown to the Server (404): {Detail}", workId, detail);
-                _journal.Remove(workId);
-                return true;
-            }
-            claim.EnsureSuccessStatusCode();
             using var accepted = JsonDocument.Parse(await claim.Content.ReadAsStringAsync(ct));
             var acceptedTerminal = ReadTerminalResponse(accepted.RootElement);
             if (acceptedTerminal.State is "completed" or "failed")

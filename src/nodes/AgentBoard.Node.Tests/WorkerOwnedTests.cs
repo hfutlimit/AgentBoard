@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using AgentBoard.Contracts;
@@ -243,5 +244,40 @@ public class WorkerOwnedTests
         Assert.Contains("INDEPENDENT QA Task", qa);
         Assert.Contains("deployment_steps", qa);
         Assert.Contains("Review the QA WORK", WorkPlanner.Prompt("qa_review", "{}"));
+    }
+
+    // -- P3 regression: Node ↔ Server error protocol is JSON, not a substring
+    // search. The delivery loop's call site must read ``detail.reason`` to
+    // decide between AckAndDrop (ghost, new-token, 404), Forbidden (try
+    // next candidate), Conflict (terminal reconcile), and Unexpected
+    // (EnsureSuccessStatusCode). The substring fallback stays as a safety
+    // net for any non-JSON response shape.
+    [Fact]
+    public void Claim_409_with_ghost_work_row_reason_classifies_as_ack_and_drop()
+    {
+        var body = """{"detail":{"reason":"ghost_work_row","state":"available","entity_type":"","entity_id":0}}""";
+        var outcome = ClaimFailureClassifier.Classify(HttpStatusCode.Conflict, body);
+        Assert.Equal(ClaimFailureClassifier.Kind.AckAndDrop, outcome.Kind);
+        Assert.Equal(ClaimFailureClassifier.Reasons.GhostWorkRow, outcome.Reason);
+    }
+
+    [Fact]
+    public void Claim_404_classifies_as_ack_and_drop_even_without_detail_body()
+    {
+        var outcome = ClaimFailureClassifier.Classify(HttpStatusCode.NotFound, "");
+        Assert.Equal(ClaimFailureClassifier.Kind.AckAndDrop, outcome.Kind);
+        Assert.Equal("row not found on server", outcome.Reason);
+    }
+
+    [Fact]
+    public void Claim_plain_409_without_reason_substring_falls_back_to_legacy_label()
+    {
+        // The substring fallback guards against a non-JSON response or a
+        // future schema change. ``work_failed`` is one of the known terminal
+        // reasons the loop must keep honoring even if the envelope moves.
+        var outcome = ClaimFailureClassifier.Classify(HttpStatusCode.Conflict,
+            "work failed; manual reconciliation required (work_failed)");
+        Assert.Equal(ClaimFailureClassifier.Kind.Conflict, outcome.Kind);
+        Assert.Equal(ClaimFailureClassifier.Reasons.WorkFailed, outcome.Reason);
     }
 }
