@@ -47,12 +47,14 @@ export class ProposalsTabComponent {
   @Input() statuses: ProposalStatus[] = [];
   @Input() loading = false;
   @Input() error = '';
+  @Input() refreshing = false;
   @Input() projectId: number | null = null;
 
   @Output() filterStatusChange = new EventEmitter<ProposalStatus | ''>();
   @Output() searchQueryChange = new EventEmitter<string>();
   @Output() createProposal = new EventEmitter<void>();
   @Output() retry = new EventEmitter<void>();
+  @Output() refresh = new EventEmitter<void>();
   @Output() openProposal = new EventEmitter<{ event: MouseEvent; proposal: ProposalItem }>();
 
   /** 提案状态文案（与 App.proposalStatusLabel 一致，纯函数复制）。 */

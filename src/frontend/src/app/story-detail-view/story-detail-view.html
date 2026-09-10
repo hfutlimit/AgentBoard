@@ -118,7 +118,19 @@
       <div class="list-panel workspace-story-task-list">
         <div class="section-header">
           <h3>Tasks <span class="count">{{ host.storyTaskTotal() }}</span></h3>
-          <button class="btn-primary-sm" (click)="host.openCreate('task', current.id, host.project()?.id)">＋ 新建 Task</button>
+          <div class="section-header-actions">
+            <button id="story-task-refresh-btn" class="btn icon-btn refresh-btn" type="button"
+              (click)="host.refreshStoryTasks()" [disabled]="host.refreshing()"
+              [title]="host.refreshing() ? '刷新中…' : '刷新 Task 列表'">
+              @if (host.refreshing()) {
+                <span class="refresh-spinner" aria-hidden="true"></span>
+              } @else {
+                <svg class="refresh-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              }
+              <span class="refresh-label">{{ host.refreshing() ? '刷新中' : '刷新' }}</span>
+            </button>
+            <button class="btn-primary-sm" (click)="host.openCreate('task', current.id, host.project()?.id)">＋ 新建 Task</button>
+          </div>
         </div>
         <div class="entity-list">
           @for (item of host.tasks(); track item.id) {

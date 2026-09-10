@@ -2900,6 +2900,49 @@ export class App implements OnInit, OnDestroy {
     }
   }
 
+  /** 手动刷新当前 Story 的 Task 列表：仅重新拉取本 Story 任务（保留当前页码），
+   *  不清空详情、不闪骨架屏；复用 refreshing 守卫，据 loadStoryTasks 返回值如实反馈成败。 */
+  async refreshStoryTasks(): Promise<void> {
+    const storyId = this.story()?.id;
+    if (!storyId || this.refreshing()) return;
+    this.refreshing.set(true);
+    try {
+      const ok = await this.loadStoryTasks(storyId, this.storyTaskPage());
+      this.notify(ok ? 'Task 列表已刷新' : '刷新失败，请稍后重试', ok ? 'success' : 'error');
+    } finally {
+      this.refreshing.set(false);
+    }
+  }
+
+  /** 手动刷新需求提案列表：沿用当前状态过滤重新拉取，保留旧内容（不清空、不闪骨架屏）。 */
+  async refreshProposals(): Promise<void> {
+    if (this.refreshing()) return;
+    this.refreshing.set(true);
+    try {
+      await this.loadProposals(this.project()?.id);
+      this.notify('提案列表已刷新', 'success');
+    } catch (error) {
+      this.notify(`刷新提案失败：${this.message(error)}`, 'error');
+    } finally {
+      this.refreshing.set(false);
+    }
+  }
+
+  /** 主动刷新当前提案详情：重新拉取提案主体 + 轮次问答，保留页面（不清空、不闪骨架屏）。 */
+  async refreshProposalDetail(): Promise<void> {
+    const id = this.proposalItem()?.id;
+    if (!id || this.refreshing()) return;
+    this.refreshing.set(true);
+    try {
+      await this.loadProposalDetail(id);
+      this.notify('提案详情已刷新', 'success');
+    } catch (error) {
+      this.notify(`刷新提案失败：${this.message(error)}`, 'error');
+    } finally {
+      this.refreshing.set(false);
+    }
+  }
+
   /** Epic 81 (v6.9): 是否已开启后台自动刷新（偏好持久化于 localStorage） */
   isAutoRefreshEnabled(): boolean {
     return localStorage.getItem('agentboard_auto_refresh') === 'on';
@@ -3741,7 +3784,7 @@ export class App implements OnInit, OnDestroy {
   }
 
   /** 分页加载 Story 的任务（修复：确保只加载当前 story 的 task/bug） */
-  async loadStoryTasks(storyId: number, page: number): Promise<void> {
+  async loadStoryTasks(storyId: number, page: number): Promise<boolean> {
     const limit = this.storyTaskPageSize;
     const offset = (page - 1) * limit;
     try {
@@ -3753,9 +3796,11 @@ export class App implements OnInit, OnDestroy {
       // 计算总页数
       const totalPages = Math.max(1, Math.ceil((result.total || 0) / limit));
       this.taskPageCount.set(totalPages);
+      return true;
     } catch {
       this.tasks.set([]);
       this.storyTaskTotal.set(0);
+      return false;
     }
   }
 

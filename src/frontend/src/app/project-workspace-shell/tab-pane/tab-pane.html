@@ -53,11 +53,13 @@
         [loading]="host.isProjectTabLoading('proposals')"
         [error]="host.projectTabError('proposals')"
         [projectId]="host.project()?.id ?? null"
+        [refreshing]="host.refreshing()"
         (filterStatusChange)="host.proposalFilterStatus.set($event)"
         (searchQueryChange)="host.proposalSearchQuery.set($event)"
         (createProposal)="host.openProposalModal()"
         (openProposal)="openEntity($event.event, 'proposal', $event.proposal.id, $event.proposal.title)"
         (retry)="host.retryProjectTab('proposals')"
+        (refresh)="host.refreshProposals()"
       />
     }
     @case ('members') {

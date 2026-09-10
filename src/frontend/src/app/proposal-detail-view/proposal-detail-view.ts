@@ -24,12 +24,14 @@ export class ProposalDetailViewComponent {
   readonly ticketGenerating = this.host.ticketGenerating;
   readonly proposalTicketRequests = this.host.proposalTicketRequests;
   readonly proposalTab = this.host.proposalTab;
+  readonly refreshing = this.host.refreshing;
   readonly proposalRounds = this.host.proposalRounds;
   readonly proposalSubmitting = this.host.proposalSubmitting;
 
   readonly projectName = (id: number): string => this.host.projectName(id);
   readonly proposalStatusLabel = (status: string): string => this.host.proposalStatusLabel(status);
   readonly advanceProposalStatus = (status: string): Promise<void> => this.host.advanceProposalStatus(status);
+  readonly refreshProposalDetail = (): Promise<void> => this.host.refreshProposalDetail();
   readonly isAgentFailure = (proposal: any): boolean => this.host.isAgentFailure(proposal);
   readonly onTicketTypeChange = (type: string): void => this.host.onTicketTypeChange(type);
   readonly ticketTypeLabel = (type: string): string => this.host.ticketTypeLabel(type);
