@@ -46,6 +46,11 @@ def test_pr8_happy_path_dev_to_ready_for_review(
     # T1.5 + T3.1：claim 走 owner 门，PR-10 dispatch 走 owner 名下 agent 门；
     # 老 PR-8 时代只有 assignee_id，dispatch 现在是 hard fail 缺 owner/agent
     # → blocked。三件套 Worker+Agent+AgentInstance 缺一不可。
+    # T1.5（commit c1b7e16）+ PR-10（agent-implements-task）：reviewer 候选
+    # 池也限 owner 名下（self-review 通过 same_task_implementer 排除），
+    # 所以准备两个同 owner agent：dev-agent（被 dispatch 当 assignee）
+    # + review-agent（被 assign-reviewer 选中）。少一个就回到 422
+    # 「无 candidate」的 escape hatch —— 那条路 PR-9 重写前先关掉。
     from agentboard.core.common.models import utc_now
     from agentboard.features.projects.models import Agent, AgentInstance, Worker
     now = utc_now()
@@ -53,15 +58,26 @@ def test_pr8_happy_path_dev_to_ready_for_review(
                           hostname="pr8-test", status="active",
                           last_heartbeat=now))
     db_session.flush()
-    db_session.add(Agent(agent_id=f"pr8-{user_id}", name=f"pr8-{user_id}",
-                          user_id=user_id, roles="[]",
+    dev_agent_id = f"pr8-dev-{user_id}"
+    review_agent_id = f"pr8-rev-{user_id}"
+    db_session.add(Agent(agent_id=dev_agent_id, name=dev_agent_id,
+                          user_id=user_id, roles='["dev"]',
+                          online=True, enabled=True,
+                          last_heartbeat=now))
+    db_session.add(Agent(agent_id=review_agent_id, name=review_agent_id,
+                          user_id=user_id, roles='["review"]',
                           online=True, enabled=True,
                           last_heartbeat=now))
     db_session.flush()
     db_session.add(AgentInstance(worker_id=f"pr8-w-{user_id}",
-                                  agent_id=f"pr8-{user_id}",
+                                  agent_id=dev_agent_id,
                                   online=True, enabled=True,
-                                  cli_command="echo test",
+                                  cli_command="echo dev",
+                                  last_heartbeat=now))
+    db_session.add(AgentInstance(worker_id=f"pr8-w-{user_id}",
+                                  agent_id=review_agent_id,
+                                  online=True, enabled=True,
+                                  cli_command="echo review",
                                   last_heartbeat=now))
     db_session.commit()
 
@@ -113,20 +129,23 @@ def test_pr8_happy_path_dev_to_ready_for_review(
 
     # 6. 模拟 workflow_worker：调 assign-reviewer 端点
     # （真实 worker 也会调这个端点，只是多走 MQ 一圈）
+    # T1.5 policy：reviewer 候选池 = owner 名下 - implementer。
+    # setup 已建 dev_agent + review_agent 两个同 owner agent；少建就
+    # 422 「无 candidate」会让这个测试变假绿。**禁止 422 return 绕过**。
     r = client.post(
         f"/api/tasks/{dev_id}/assign-reviewer",
         json={"count": 1},
         headers=H,
     )
-    assert r.status_code in (200, 201, 422), r.text
-    # 422 表示"已指派或没 online reviewer"，happy path 下应 200/201
-    if r.status_code not in (200, 201):
-        # 没 reviewer agent 注册 —— E2E 不依赖具体 reviewer agent
-        # 用 admin force-complete 路径或者接受 422 跳过
-        # 这种情况 happy path 仍跑通（PR-9 单独测 review）
-        return
+    assert r.status_code in (200, 201), (
+        f"assign-reviewer 应真绿（reviewer 真实分配），不能 422 假绿。"
+        f"实际 {r.status_code}: {r.text}"
+    )
 
-    # 7. 验：reviewer 已设
+    # 7. 验：reviewer 已设（真绿关键证据）
+    # 不验具体哪个 agent 被选（self-review 排除是 T1.5 内部行为，由
+    # get_assignment_exclusion(same_task_implementer) 负责；单元层 e2e
+    # 只验 assign-reviewer 端点确实有 reviewer 落到 Task 上）
     db_session.expire_all()
     t = db_session.get(task_service.Task, dev_id)
     assert t.reviewer_id is not None, "assign-reviewer 成功应设置 reviewer_id"

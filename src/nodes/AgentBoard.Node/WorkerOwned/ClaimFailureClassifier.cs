@@ -7,18 +7,26 @@ namespace AgentBoard.Node.WorkerOwned;
 /// <summary>
 /// Classifies a claim HTTP response into a structured outcome. Replaces the
 /// previous substring-match approach (commit fdfe9ad) so the Node ↔ Server
-/// error contract is read through a JSON DTO, with a substring fallback kept
-/// for safety against any future non-JSON response shapes.
+/// error contract is read through a structured JSON parser, with a substring
+/// fallback kept for safety against any future non-JSON response shapes.
+///
+/// (Not a strict DTO deserialize: we use <c>JsonNode</c> for forward
+/// compatibility with extra envelope fields. Switch to <c>JsonSerializer
+/// .Deserialize&lt;ErrorEnvelope&gt;</c> once the Server schema is frozen.)
 ///
 /// The decision tree the delivery loop actually drives:
 /// <list type="bullet">
-///   <item><see cref="AckAndDrop"/>  — remove the local journal entry and ack the
-///     delivery (do NOT call ReturnToTail; returning false here would loop the
-///     same unclaimable row back into the queue and starve later work);</item>
-///   <item><see cref="Forbidden"/>   — try the next candidate Agent;</item>
-///   <item><see cref="Conflict"/>    — caller falls through to terminal reconciliation
-///     (lease exhausted / claim lost / new-token-required);</item>
-///   <item><see cref="Unexpected"/>  — bubble up via EnsureSuccessStatusCode.</item>
+///   <item><see cref="Kind.AckAndDrop"/>  — remove the local journal entry and ack
+///     the delivery. Returned for <c>ghost_work_row</c> (row cannot be claimed by
+///     any Agent), <c>new_token_required</c> (lease expired; the Server has
+///     already moved on), and any 404 (row gone from durable store). Do NOT call
+///     ReturnToTail; returning false here would loop the same unclaimable row
+///     back into the queue and starve later work.</item>
+///   <item><see cref="Kind.Forbidden"/>   — try the next candidate Agent.</item>
+///   <item><see cref="Kind.Conflict"/>    — terminal reconciliation needed:
+///     <c>work_failed</c>, lease conflict, or claim-lost-after-race. The caller
+///     falls through to ReadTerminalResponse + status endpoint fallback.</item>
+///   <item><see cref="Kind.Unexpected"/>  — bubble up via EnsureSuccessStatusCode.</item>
 /// </list>
 /// </summary>
 internal static class ClaimFailureClassifier

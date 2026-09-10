@@ -1,18 +1,24 @@
-"""PR-7 Happy Path E2E: Proposal → Design → User Confirm → Dev Unlock。
+"""PR-7 Happy Path E2E: Proposal → Design → User Confirm → Dev Dispatch。
 
-链路：
+链路（PR-10 dispatch 模型）:
   1. 建 story + design task (needs_human_confirmation=True) + dev task
   2. 设计者 submit-review design → in_review
      验：PR-6 行为 —— 没发 internal event，Python workflow_worker 看不到
   3. 用户 POST /api/tasks/{design_id}/user_confirm
-     → 设计 done, comment 留 trail, dev task 被 unlock
+     → 设计 done + comment 留 trail
+     → dev task 依赖解锁
+     → **PR-10 dispatch** 立即把 dev 推到 in_progress
+     → task.assigned 路由到 owner 名下 dev-agent
   4. 验：design 状态=done + status_reason=completed
-     dev 在 get_unlocked_dependent_tasks 返回里
-  5. 验：EVENT_TASK_REVIEWED + EVENT_TASK_AVAILABLE 已 publish
+     dev 状态=in_progress（不再用 get_unlocked_dependent_tasks / TODO
+     列表判断 —— dispatch 后 dev 不在 TODO 状态）
+     dev.assignment_deferred_reason 为空（dispatch 成功）
+  5. 验：broadcast 至少 1 条 task.reviewed
+     PR-10 不发 task.available 给 dev（走 task.assigned 到 agent 队列）
 
-bug 链（修前）：
+bug 链（修前）:
   design done → auto review → reviewer approve → unlock dev → user 没看设计
-bug 修后（PR-6）：
+bug 修后（PR-6）:
   design done → 等 user 显式 confirm 才进 done → user 看过设计才进开发
 """
 from __future__ import annotations
