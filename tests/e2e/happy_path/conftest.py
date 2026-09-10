@@ -85,10 +85,36 @@ def app_engine(broker):
     Session = sessionmaker(bind=engine)
 
     from agentboard.core.infrastructure import database
+    from agentboard.core.infrastructure.database import get_session
     database.engine = engine
     database.SessionLocal = Session
     database._session_factory = Session
-    return engine
+    # Middleware (project_access_middleware / audit_log_middleware) resolves
+    # the request session via `api_helpers.request_session`, which checks
+    # `app.dependency_overrides[get_session]` first. Without this override
+    # the middleware falls back to the import-time `SessionLocal` (bound to
+    # the module-load default `./agentboard.db` engine), which on a fresh
+    # checkout may not exist or may be a stale placeholder; the resulting
+    # "file is not a database" exception is then swallowed by audit_log_middleware
+    # or surfaces as 500 for routes that go through project_access_middleware.
+    # The override mirrors `get_session`'s generator signature (commit on
+    # success, rollback on exception, close finally) so route handlers and
+    # middleware observe the same transaction boundary they get in production.
+    def _override_get_session():
+        s = Session()
+        try:
+            yield s
+            s.commit()
+        except Exception:
+            s.rollback()
+            raise
+        finally:
+            s.close()
+    app.dependency_overrides[get_session] = _override_get_session
+    try:
+        yield engine
+    finally:
+        app.dependency_overrides.pop(get_session, None)
 
 
 @pytest.fixture

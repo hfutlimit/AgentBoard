@@ -19,6 +19,11 @@ nul
 backups/
 db-backups/*.sql
 
+# Encoding-corrupted editor backups (e.g. PowerShell tools that copy files as UTF-16 bytes
+# then save with .NEW suffix). These are not diff-friendly; remove or back up locally.
+*.NEW
+.local-backup/
+
 # One-off manual E2E scripts and runtime evidence; maintained tests belong in tests/.
 deliverables/e2e_*.py
 deliverables/e2e_*.png
