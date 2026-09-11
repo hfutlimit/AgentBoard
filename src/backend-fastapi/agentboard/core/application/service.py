@@ -631,6 +631,35 @@ def confirm_story(s: Session, id: int, *, changed_by: int | None = None) -> Stor
     epic = s.get(Epic, st.epic_id)
     if epic is not None:
         _invalidate_project_stats_cache(epic.project_id)
+    # WorkflowRun slice 2: ensure a WorkflowRun exists for this Story and emit
+    # workflow_started. Best-effort: do not break the confirm flow if event
+    # emission fails (the run is the durable artifact, events are audit/projection).
+    try:
+        from ...features.workflow_runs.service import (
+            ensure_story_workflow_run, emit_workflow_event,
+        )
+        project_id = epic.project_id if epic is not None else None
+        if project_id is not None:
+            run = ensure_story_workflow_run(s, story_id=id, project_id=project_id)
+            if run.status == "queued":  # newly created
+                emit_workflow_event(
+                    s,
+                    workflow_run_id=run.id,
+                    event_type="workflow_started",
+                    actor_type="user",
+                    actor_id=changed_by,
+                    phase="design",
+                    state="running",
+                    summary=f"Story #{id} workflow started",
+                    payload={
+                        "workflow_type": "story",
+                        "story_id": id,
+                        "initial_phase": "design",
+                    },
+                )
+    except Exception:
+        # Do not break confirm on event emission failure.
+        pass
     return st
 
 def unclaim_story(s: Session, id: int, *, changed_by: int | None = None,

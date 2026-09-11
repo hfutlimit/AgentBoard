@@ -296,21 +296,30 @@ REGISTRY: list[DodEntry] = [
     # 后续 slice 在同一 entry 累计 closed_date，直到 slice 7 收尾标 done。
     DodEntry(
         id="workflow-run-foundation-slice1-2026-09-11",
-        feature="WorkflowRun + Active Workflows Overview · AI Team Live Operations Dashboard (slice 1 of 7)",
+        feature="WorkflowRun + Active Workflows Overview · AI Team Live Operations Dashboard (slice 1+2 of 7)",
         date_added="2026-09-11",
         test_files=[
             "tests/unit/test_workflow_run_state_machine.py",
             "tests/unit/test_workflow_run_phase_transition_graph.py",
             "tests/unit/test_workflow_run_models.py",
             "tests/unit/test_workflow_run_service.py",
+            "tests/unit/test_workflow_run_event_contract.py",
+            "tests/unit/test_workflow_run_emit_events.py",
+            "tests/unit/test_workflow_run_hooks.py",
         ],
         coverage_summary=(
-            "70 个单测全绿（status state machine 30 + phase transition graph 15 + models schema 10 + service helper 15）："
+            "132 个单测全绿：status state machine 30 + phase transition graph 15 + models schema 10 + service helper 15 + "
+            "event contract 47 + emit helper 9 + service hooks 5。覆盖："
             "WorkflowRun status 状态机含 `failed` 严格终态（不可 `→ running`）/"
             "Phase 显式 transition graph 含 `qa → development` rework 合法 + 任意 mutation 非法/"
             "Schema CHECK 约束（status / phase / actor_type）+ workflow_type 无 CHECK 保留扩展性/"
             "Service helper（create / transition_status / transition_phase / touch）+ Story reopen 关联 `reopened_from_run_id` 旧 run 历史不变/"
-            "Migration `m5n6o7p8q9r0_create_workflow_runs_and_events.py` 在 z8a9b0c1d2e3 之后链上注册"
+            "Migration `m5n6o7p8q9r0_create_workflow_runs_and_events.py` 在 z8a9b0c1d2e3 之后链上注册/"
+            "19 种 event_type 契约（17 + `task_reopened` 单 run 内 + `workflow_reopened` 跨 run 严格区分）/"
+            "retry_kind 三桶分法（execution / review_cycle / mq_delivery，mq_delivery 不进 normal UI）/"
+            "`emit_workflow_event` atomic 写 event + bump run version + retry_kind membership 校验/"
+            "`confirm_story` hook 自动 ensure WorkflowRun + emit `workflow_started`（幂等：第二次 confirm 不再 emit）/"
+            "`set_status` reopen hook：`in_review`/`done` → `in_progress` emit `task_reopened`（普通 forward transition 不 emit）"
         ),
         acceptance=[
             "workflow_runs + workflow_run_events 表创建（Alembic `m5n6o7p8q9r0`，双数据库兼容：MariaDB + SQLite）",
@@ -320,18 +329,21 @@ REGISTRY: list[DodEntry] = [
             "Phase transition graph：`design → development → qa` + `qa → development`（rework）合法；任意 mutation（含 `design → qa` 跨级跳跃）非法",
             "Service helper：`create_workflow_run` / `transition_workflow_run_status` / `transition_workflow_run_phase` / `touch_workflow_run` + IllegalWorkflowTransition / IllegalPhaseTransition 显式异常",
             "`task_reopened`（单 run 内 review 打回）vs `workflow_reopened`（跨 run 生命周期）命名严格区分（slice 2 落地）",
+            "19 种 event_type contract + payload required keys + actor_type 白名单 + retry_kind membership 校验",
+            "`confirm_story` hook：ensure WorkflowRun（idempotent）+ emit `workflow_started`（精确 1 次）",
+            "`set_status` reopen hook：`in_review`/`done` → `in_progress` emit `task_reopened`（普通 forward transition 不 emit）",
+            "Event emission is best-effort：state transition MUST NOT break if event store errors",
         ],
         status="in_progress",
-        closed_date="",  # slice 1 done, slice 2-7 pending → close at slice 7
+        closed_date="",  # slice 1+2 done, slice 3-7 pending → close at slice 7
         notes=(
             "Workflow Run Foundation 是 AgentBoard 从「项目管理 Dashboard」升级为「AI Team Live Operations Dashboard」的起点。"
-            "本 entry 覆盖 slice 1 (schema + 状态机 + service helper)，slice 2-7 在同 entry 累计：\n"
-            "1) slice 2: Task/Review/QA 状态变化写 WorkflowEvent（含 `workflow_reopened` / `retry_scheduled` event；phase transition graph 落地）\n"
-            "2) slice 3: agent_runs 接入（schedule_id nullable + workflow_run_id + stage_type + create_agent_run 抽象）\n"
-            "3) slice 4: 4 个 read API（active-workflows 必须内嵌 latest_event + active_executions 避免 N+1）\n"
-            "4) slice 5: Angular Active Workflows panel + detail timeline（阶段 rail 5 态 ✓/●/○/⚠/×）\n"
-            "5) slice 6: SignalR workflow.changed + Angular realtime 订阅\n"
-            "6) slice 7: reconciliation 工具 + 完整 E2E 套件（reopen / N+1 / 三类 retry 独立计数）\n"
+            "本 entry 覆盖 slice 1 (schema + 状态机 + service helper) + slice 2 (19 event contract + emit helper + confirm/set_status hooks + reopen + retry_scheduled)，slice 3-7 在同 entry 累计：\n"
+            "1) slice 3: agent_runs 接入（schedule_id nullable + workflow_run_id + stage_type + create_agent_run 抽象）\n"
+            "2) slice 4: 4 个 read API（active-workflows 必须内嵌 latest_event + active_executions 避免 N+1）\n"
+            "3) slice 5: Angular Active Workflows panel + detail timeline（阶段 rail 5 态 ✓/●/○/⚠/×）\n"
+            "4) slice 6: SignalR workflow.changed + Angular realtime 订阅\n"
+            "5) slice 7: reconciliation 工具 + 完整 E2E 套件（reopen / N+1 / 三类 retry 独立计数）\n"
             "全部 7 slice 收尾后 closed_date 填实际完成日。README Status 在 slice 1-4 阶段只标 'Workflow Run foundation'，slice 5 后升级为 'Active Workflows Overview'（避免假绿）。"
         ),
     ),

@@ -308,8 +308,8 @@ Story+Epic)绕过了中央 `delete_task`(:1032)的防御性级联。
 
 | # | Slice | 状态 | 提交 | DoD 链接 |
 |---|---|---|---|---|
-| **1** | **workflow_runs + workflow_run_events 表 + 状态机 + service helper** | **✅ done (本 commit)** | **(slice 1 commit)** | **`tests/e2e/dod_registry.py::workflow-run-foundation-slice1-2026-09-11`** |
-| 2 | Task/Review/QA 状态变化写 WorkflowEvent（含 `workflow_reopened` / `retry_scheduled` event；phase transition graph 落地） | 🔜 todo | 后续 commit | 同上 |
+| **1** | **workflow_runs + workflow_run_events 表 + 状态机 + service helper** | **✅ done** | **(slice 1 commit)** | **`tests/e2e/dod_registry.py::workflow-run-foundation-slice1-2026-09-11`** |
+| **2** | **Task/Review/QA 状态变化写 WorkflowEvent**（19 种 event contract + `emit_workflow_event` + `confirm_story` / `set_status` reopen hook + `reopen_story_workflow` + `record_retry_scheduled` + phase_changed 自动 emit） | **✅ done** | **(slice 2 commit)** | **同上** |
 | 3 | `agent_runs` 接入：`schedule_id` nullable + `workflow_run_id` + `stage_type` + 旧行迁移 + `create_agent_run` 抽象 | 🔜 todo | 后续 commit | 同上 |
 | 4 | 4 个 read API：`active-workflows`（**内嵌 latest_event + active_executions 避免 N+1**）/ `detail` / `events` / `executions` | 🔜 todo | 后续 commit | 同上 |
 | 5 | Angular Active Workflows panel + detail timeline（阶段 rail 5 态：`✓` / `●` / `○` / `⚠` / `×`） | 🔜 todo | 后续 commit | 同上 |

@@ -363,6 +363,8 @@ def set_status(
             f"current status={t.status}, refusing to transition to {new_status}",
         )
     _check_status(new_status)
+    # WorkflowRun slice 2: capture old_status for reopen event detection.
+    old_status = t.status
     # 调用方传入的 status_reason 优先(覆盖 entity 上现有的)
     if status_reason is not None:
         t.status_reason = status_reason
@@ -371,6 +373,35 @@ def set_status(
     s.refresh(t)
     if t.status in (Status.DONE, Status.BLOCKED):
         finalize_task_assignment(s, t)
+    # WorkflowRun slice 2: emit task_reopened when a previously terminal task
+    # is moved back to in_progress (e.g. review rejected, user-driven reopen).
+    # Distinct from workflow_reopened which is cross-run (Story reopen).
+    if (
+        old_status in (Status.IN_REVIEW, Status.DONE)
+        and t.status == Status.IN_PROGRESS
+        and t.story_id is not None
+    ):
+        try:
+            from ..workflow_runs.service import ensure_story_workflow_run, emit_workflow_event
+            run = ensure_story_workflow_run(s, story_id=t.story_id, project_id=t.project_id)
+            emit_workflow_event(
+                s,
+                workflow_run_id=run.id,
+                event_type="task_reopened",
+                actor_type="user" if changed_by else "system",
+                actor_id=changed_by,
+                task_id=t.id,
+                state="reopened",
+                summary=f"Task #{t.id} reopened: {old_status} → in_progress",
+                payload={
+                    "task_id": t.id,
+                    "reason": reason or "in-run reopen",
+                    "from_status": old_status,
+                },
+            )
+        except Exception:
+            # Event emission is best-effort; do not break the state transition.
+            pass
     # Epic 140 切片 1：终态（done/blocked）自动沉淀能力评分 outcome（幂等）
     # 8/17 review P1/P2 修复：返回 outcome 用于上游判「是否值得 judge」。
     # 非终态调用 outcome 为 None → 不会触发 schedule_judge，省掉
