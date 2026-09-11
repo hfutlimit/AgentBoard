@@ -431,7 +431,18 @@ PYTHONPATH=src/backend-fastapi python tests/test_smoke.py
 
 ## Status
 
-最近一次结构性变更（2026-08-21 19:30）：**v7.3 Story 详情页任务列表简化 + delete cascade bugfix**。
+最近一次结构性变更（2026-09-11）：**Workflow Run foundation (slice 1 / 7)** —— AI Team Live Operations Dashboard 起点。
+
+### Workflow Run foundation（slice 1 of 7, 2026-09-11）
+- **产品定位**：AgentBoard 从「项目管理 Dashboard」起步升级为「AI Team Live Operations Dashboard」
+- 新增 `workflow_runs` + `workflow_run_events` 两张表（Alembic `m5n6o7p8q9r0`）
+- WorkflowRun 状态机：`failed` **严格终态**（不可 `→ running`，retry 必须新建 run + `reopened_from_run_id` 关联）
+- Phase 显式 transition graph：`design → development → qa` + `qa → development`（rework），禁止任意 mutation
+- `workflow_type` schema 不写死 CHECK（v1 仅 `'story'`，future `schedule`/`proposal`/`ticket` 落地无需 migration）
+- `task_reopened`（单 run 内 review 打回）vs `workflow_reopened`（跨 run 生命周期）严格区分
+- 70 单测全绿（status state machine + phase transition graph + 模型 schema + service helper）
+- 后续 slice：event emit / agent_runs 接入 / 4 API / Angular panel / SignalR push / reconciliation
+- 详细：`openspec/changes/workflow-run-overview-20260911/`
 
 ### v7.3 任务列表简化（本 commit）
 - Story 详情页「Task 列表」tab 旧 4 行 taskbar + 11 个 chip + 8 个 export 菜单项的繁复 UI

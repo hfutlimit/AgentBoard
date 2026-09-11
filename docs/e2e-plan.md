@@ -290,3 +290,30 @@ Story+Epic)绕过了中央 `delete_task`(:1032)的防御性级联。
 | 6 | 编写细粒度单测 `test_work_type_from_task_mapping` 等并通过全量 236 测试 | ✅ done | (Stage 3 commit) | 同上 |
 | 7 | 注册 DoD 记录 + 更新 e2e-plan.md + commit & push | ✅ done | (Stage 3 commit) | 同上 |
 
+## 20. Workflow Run Foundation · AI Team Live Operations Dashboard 起点 (2026-09-11, slice 1 of 7)
+
+**目标**: 为 AgentBoard 引入顶层 `WorkflowRun` 抽象 + `WorkflowRunEvent` 事件流，把"项目 Overview"从任务计数面板升级为"AI Team Live Operations Dashboard"——让用户看到 Agent 团队现在在干什么、刚完成了什么、下一步是什么、哪里在等待。本 spec 拍板方案 A+：`WorkflowRun` 顶层执行实例（Story 维度），`AgentRun` 仍是某个 Agent 的具体执行实例；事件流是产品真相，`current_phase` 是 UI 投影。
+
+**关联**: `openspec/changes/workflow-run-overview-20260911/` 完整三件套（proposal / design / tasks）。前置 `openspec/changes/ticket-flow-story-agent-20260809/` Story 状态机 + 自动处理 + 评审下沉 Task 层。
+
+**核心变化 (slice 1 / 7 范围)**:
+- **新表**：`workflow_runs`（执行实例）+ `workflow_run_events`（不可变事件流），Alembic `m5n6o7p8q9r0`。
+- **`workflow_type` schema 不写死 CHECK**：v1 仅接受 `'story'`，但 `schedule` / `proposal` / `ticket` / `deployment` 字段允许，**schema 可扩展，实现只支持 story**。
+- **状态机 `failed` 严格终态**：`failed` / `completed` / `cancelled` 全部 terminal；`failed → running` **永远拒绝**（避免 dashboard 监控失真）；recoverable execution failure 走 ExecutionAttempt（agent_runs 新行）+ WorkflowRun 仍 `running`；retry terminal workflow = 新建 run + `reopened_from_run_id` 关联，老 run 历史永久不变。
+- **Phase 显式 transition graph**：`design → development → qa` + `qa → development`（QA 重工），**禁止任意 mutation**；未来新 transition 必须新增 `rework_requested` 显式入口。
+- **`task_reopened` vs `workflow_reopened` 严格区分**：`task_reopened` 单 run 内 review 打回；`workflow_reopened` 跨 run 生命周期（Story reopen / retry terminal workflow）。
+- **Service helper 落地**：`create_workflow_run` / `transition_workflow_run_status` / `transition_workflow_run_phase` / `touch_workflow_run`，slice 2 接入 `emit_workflow_event` 时复用。
+
+**切片进度 (7 slice 全做，本 slice 收尾)**:
+
+| # | Slice | 状态 | 提交 | DoD 链接 |
+|---|---|---|---|---|
+| **1** | **workflow_runs + workflow_run_events 表 + 状态机 + service helper** | **✅ done (本 commit)** | **(slice 1 commit)** | **`tests/e2e/dod_registry.py::workflow-run-foundation-slice1-2026-09-11`** |
+| 2 | Task/Review/QA 状态变化写 WorkflowEvent（含 `workflow_reopened` / `retry_scheduled` event；phase transition graph 落地） | 🔜 todo | 后续 commit | 同上 |
+| 3 | `agent_runs` 接入：`schedule_id` nullable + `workflow_run_id` + `stage_type` + 旧行迁移 + `create_agent_run` 抽象 | 🔜 todo | 后续 commit | 同上 |
+| 4 | 4 个 read API：`active-workflows`（**内嵌 latest_event + active_executions 避免 N+1**）/ `detail` / `events` / `executions` | 🔜 todo | 后续 commit | 同上 |
+| 5 | Angular Active Workflows panel + detail timeline（阶段 rail 5 态：`✓` / `●` / `○` / `⚠` / `×`） | 🔜 todo | 后续 commit | 同上 |
+| 6 | SignalR `workflow.changed` + Angular realtime 订阅 | 🔜 todo | 后续 commit | 同上 |
+| 7 | reconciliation 工具 + 完整 E2E 套件（含 reopen / N+1 / 三类 retry 独立计数） | 🔜 todo | 后续 commit | 同上 |
+
+**README Status 约定（重要）**：UI 真正出来前（slice 1-4）只标 "Workflow Run foundation" 而非 "Overview implemented"，避免假绿；slice 5 后才升级为 "Active Workflows Overview"。

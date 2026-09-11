@@ -43,6 +43,14 @@ from .domains.proposals.models import (
     ProposalStatus,
     ProposalTicketRequest,
 )
+from .domains.workflow_runs.models import (
+    WORKFLOW_RUN_PHASES,
+    WORKFLOW_RUN_STATUSES,
+    WORKFLOW_RUN_TERMINAL_STATUSES,
+    WORKFLOW_TYPES_V1,
+    WorkflowRun,
+    WorkflowRunEvent,
+)
 from .features.learning.models import TaskOutcome
 
 __all__ = [
@@ -58,4 +66,6 @@ __all__ = [
     "ScheduleType", "Sprint", "SprintStatus", "Status", "StatusReason", "Story", "StoryStatusHistory",
     "Task", "TaskApplication", "TaskAssignment", "TaskDependency", "TaskOutcome", "RunEvent",
     "TaskStatusHistory", "User", "WebhookConfig",
+    "WORKFLOW_RUN_PHASES", "WORKFLOW_RUN_STATUSES", "WORKFLOW_RUN_TERMINAL_STATUSES",
+    "WORKFLOW_TYPES_V1", "WorkflowRun", "WorkflowRunEvent",
 ]
