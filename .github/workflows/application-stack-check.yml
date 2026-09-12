@@ -75,7 +75,14 @@ jobs:
             tests/unit/test_stage0_worker_resilience.py \
             tests/unit/test_story_async_executor.py \
             tests/unit/test_task_state_machine.py \
-            tests/unit/test_worker_coordinator.py; do
+            tests/unit/test_worker_coordinator.py \
+            tests/unit/test_workflow_run_state_machine.py \
+            tests/unit/test_workflow_run_phase_transition_graph.py \
+            tests/unit/test_workflow_run_models.py \
+            tests/unit/test_workflow_run_service.py \
+            tests/unit/test_workflow_run_event_contract.py \
+            tests/unit/test_workflow_run_emit_events.py \
+            tests/unit/test_workflow_run_hooks.py; do
             python -m pytest "$test_file" -q
           done
 
