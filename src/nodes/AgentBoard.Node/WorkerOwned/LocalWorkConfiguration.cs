@@ -17,37 +17,37 @@ public sealed class WorkerOwnedOptions
     {
         if (!Enabled) return;
         ValidateConfiguration();
-        if (Projects.Length == 0) throw new InvalidOperationException("Map a project before starting execution");
+        if (Projects.Length == 0) throw new InvalidOperationException("开始执行前请先在「项目路径 Mapping」中映射至少一个项目到本地 checkout");
     }
 
     public void ValidateConfiguration()
     {
-        if (Projects is null || Agents is null) throw new InvalidOperationException("Projects and Agents are required");
+        if (Projects is null || Agents is null) throw new InvalidOperationException("Projects 和 Agents 配置项不能为空");
         if ((Projects.Length == 0 && Agents.Any(a => a.Enabled)) || Agents.Length == 0)
-            throw new InvalidOperationException("WorkerOwned requires explicit local Projects and Agents");
+            throw new InvalidOperationException("启用 Agent 前必须先在「项目路径 Mapping」中至少映射一个项目到本地 checkout（项目由 Worker 统一映射，Agent 不再单独勾选项目）");
         if (Projects.Select(p => p.ProjectId).Distinct().Count() != Projects.Length
             || Agents.Select(a => a.Id).Distinct(StringComparer.Ordinal).Count() != Agents.Length)
-            throw new InvalidOperationException("Duplicate project or Agent identity");
+            throw new InvalidOperationException("存在重复的项目 ID 或 Agent ID");
         foreach (var project in Projects)
             if (project.ProjectId <= 0 || !Path.IsPathFullyQualified(project.LocalPath) || !Directory.Exists(project.LocalPath))
-                throw new InvalidOperationException("Project requires an existing absolute local checkout path");
+                throw new InvalidOperationException($"项目 #{project.ProjectId} 需要填写一个已存在的绝对路径作为本地 checkout 目录（当前：{project.LocalPath}）");
         foreach (var agent in Agents)
         {
             if (agent.Runtime is null || agent.WorkKinds is null
                 || agent.Prompts is null || agent.PrePrompt is null || agent.PostPrompt is null)
-                throw new InvalidOperationException("Agent configuration fields cannot be null");
+                throw new InvalidOperationException("Agent 配置字段不能为空");
             if (string.IsNullOrWhiteSpace(agent.Id) || string.IsNullOrWhiteSpace(agent.Runtime.Command)
                 || agent.Provider is not ("codex" or "workbuddy" or "minimax")
                 || (agent.Enabled && agent.WorkKinds.Length == 0)
                 || agent.WorkKinds.Any(k => !WorkerWorkKinds.All.Contains(k, StringComparer.Ordinal)))
-                throw new InvalidOperationException($"Agent '{agent.Id}' needs a supported provider and explicit work kinds; projects are Worker-wide");
+                throw new InvalidOperationException($"Agent '{agent.Id}' 需要合法的 provider（codex / workbuddy / minimax）并至少选择一种工作类型；项目由 Worker 统一映射，Agent 上不再单独勾选");
             if (agent.Runtime.TimeoutMinutes is < 1 or > 1440
                 || agent.Runtime.Arguments is null || agent.Runtime.Arguments.Any(a => a is null)
                 || agent.PrePrompt.Length > 20000 || agent.PostPrompt.Length > 20000
                 || agent.Prompts.Any(p => !WorkerWorkKinds.All.Contains(p.Key, StringComparer.Ordinal)
                     || p.Value is null || p.Value.Pre is null || p.Value.Post is null
                     || p.Value.Pre.Length > 20000 || p.Value.Post.Length > 20000))
-                throw new InvalidOperationException("Invalid timeout or work-kind prompts (maximum 20000 characters per prompt)");
+                throw new InvalidOperationException($"Agent '{agent.Id}' 的超时时间或提示词不合法（单个提示词最长 20000 字符）");
         }
     }
 
