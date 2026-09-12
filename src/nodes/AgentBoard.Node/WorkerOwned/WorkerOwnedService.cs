@@ -31,6 +31,7 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
     private readonly IHttpClientFactory _http;
     private readonly WorkerState _state;
     private readonly LocalWorkRecordStore _records;
+    private readonly LocalDiagnostics _diag;
     private string WorkerId => _state.WorkerId;
     private WorkJournal _journal = null!;
     private readonly Dictionary<string, long> _instances = new(StringComparer.Ordinal);
@@ -46,10 +47,12 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
 
     public WorkerOwnedService(IOptions<WorkerOwnedOptions> options, IOptions<AgentBoardOptions> api,
         IOptions<RabbitMqOptions> rabbit, IOptions<NodeOptions> node, LocalAdapterFactory adapters,
-        IHttpClientFactory http, ILogger<WorkerOwnedService> log, WorkerState state, LocalWorkRecordStore records)
+        IHttpClientFactory http, ILogger<WorkerOwnedService> log, WorkerState state, LocalWorkRecordStore records,
+        LocalDiagnostics diag)
     {
         _options = options.Value; _api = api.Value; _rabbit = rabbit.Value;
         _node = node.Value; _adapters = adapters; _http = http; _log = log; _state = state; _records = records;
+        _diag = diag;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -351,15 +354,20 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
             using var client = Client(profile);
             var lease = new { project_id = project, kind, worker_id = WorkerId, agent_id = profile.Id, token = entry.Token };
             using var claim = await Post(client, $"api/worker-work/{workId}/claim", lease, ct);
+            _diag.IncClaimAttempt();
             var outcome = ClaimFailureClassifier.Classify(claim.StatusCode,
                 await claim.Content.ReadAsStringAsync(ct));
             switch (outcome.Kind)
             {
                 case ClaimFailureClassifier.Kind.Forbidden:
+                    _diag.IncClaimForbidden();
+                    _diag.LastClaimFailureAt = DateTimeOffset.UtcNow;
                     _log.LogInformation("Work {WorkId} cannot be claimed by {Agent}: {Reason}",
                         workId, profile.Id, outcome.Reason);
                     continue;
                 case ClaimFailureClassifier.Kind.AckAndDrop:
+                    _diag.IncClaimAckDrop();
+                    _diag.LastClaimFailureAt = DateTimeOffset.UtcNow;
                     // Reasons here (ghost_work_row, new_token_required, 404) all
                     // describe a state the Server will not move on its own; returning
                     // false would ReturnToTail this exact row and starve later work,
@@ -371,6 +379,8 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
                     return true;
                 case ClaimFailureClassifier.Kind.Conflict:
                 {
+                    _diag.IncClaimConflict();
+                    _diag.LastClaimFailureAt = DateTimeOffset.UtcNow;
                     var claimTerminal = ReadTerminalResponse(outcome.Detail!);
                     var terminal = claimTerminal.State;
                     var attemptMatches = claimTerminal.AttemptMatches;
@@ -390,9 +400,13 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
                 }
                 case ClaimFailureClassifier.Kind.Unexpected:
                 default:
+                    _diag.IncClaimUnexpected();
+                    _diag.LastClaimFailureAt = DateTimeOffset.UtcNow;
                     claim.EnsureSuccessStatusCode();
                     break;
             }
+            _diag.IncClaimSuccess();
+            _diag.LastClaimSuccessAt = DateTimeOffset.UtcNow;
             using var accepted = JsonDocument.Parse(await claim.Content.ReadAsStringAsync(ct));
             var acceptedTerminal = ReadTerminalResponse(accepted.RootElement);
             if (acceptedTerminal.State is "completed" or "failed")

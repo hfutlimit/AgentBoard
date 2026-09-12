@@ -142,6 +142,8 @@ builder.Services.AddSingleton<ExecutionCoordinator>();
 
 // ---- Sprint 6: worker state (must be after Process layer for snapshot) ----
 builder.Services.AddSingleton<WorkerState>();
+// In-process observability (zero external deps; see LocalDiagnostics.cs).
+builder.Services.AddSingleton<LocalDiagnostics>();
 
 // Single resolved worker id; all consumers (state, rabbit, heartbeat) read
 // from this one object so they cannot disagree (#7 in the 2026-08-28 review).
@@ -254,6 +256,71 @@ app.Use(async (context, next) =>
 app.MapGet("/health", (WorkerState state, IAgentAdapterRegistry registry, IOptions<NodeOptions> worker, IOptions<WorkerOwnedOptions> local) =>
     Results.Ok(state.Snapshot(local.Value.Enabled ? local.Value.Agents.Select(a => a.Id).ToArray() : registry.RegisteredAgents,
         local.Value.Enabled ? 1 : worker.Value.MaxConcurrentExecutions, state.ActiveCount, 0)));
+// Liveness: process is up. Cheap, no DB / no RabbitMQ. Suitable for k8s
+// livenessProbe / Windows service watchdog. Always 200 unless the host is
+// literally dying.
+app.MapGet("/health/live", () => Results.Ok(new { status = "alive" }));
+// Readiness: refuse traffic when the worker is paused, degraded, or
+// obviously out of capacity. Suitable for k8s readinessProbe / external
+// load balancer. Returns 503 with reason so the operator dashboard can
+// surface "why".
+app.MapGet("/health/ready", (WorkerState state) =>
+{
+    if (state.IsDegraded)
+        return Results.Json(new { ready = false, reason = "degraded", detail = state.DegradedReason }, statusCode: 503);
+    if (state.Paused)
+        return Results.Json(new { ready = false, reason = "paused" }, statusCode: 503);
+    return Results.Ok(new { ready = true });
+});
+// Snapshot of the in-process counters + recent warning/error buffer. The
+// review's recommended replacement for the previous "/api/worker" payload,
+// which only returned the worker snapshot and forced operators to grep
+// logs to see whether the last 50 claim attempts all failed. Endpoints
+// are local (no auth beyond the existing portal key check at /api/* if
+// the operator sets one up) — there is no external scraper.
+app.MapGet("/api/diag", (LocalDiagnostics diag, WorkerState state) => Results.Ok(new
+{
+    worker_id = state.WorkerId,
+    status = state.IsDegraded ? "degraded" : (state.Paused ? "paused" : (state.ActiveCount > 0 ? "busy" : "online")),
+    degraded_reason = state.DegradedReason,
+    paused = state.Paused,
+    active_count = state.ActiveCount,
+    counters = new
+    {
+        messages_consumed    = diag.MessagesConsumed,
+        messages_acked       = diag.MessagesAcked,
+        messages_nacked      = diag.MessagesNacked,
+        claim_attempts       = diag.ClaimAttempts,
+        claim_successes      = diag.ClaimSuccesses,
+        claim_ack_drop       = diag.ClaimAckDrop,
+        claim_conflict       = diag.ClaimConflict,
+        claim_forbidden      = diag.ClaimForbidden,
+        claim_unexpected     = diag.ClaimUnexpected,
+        execution_started    = diag.ExecutionStarted,
+        execution_succeeded  = diag.ExecutionSucceeded,
+        execution_failed     = diag.ExecutionFailed,
+        execution_degraded   = diag.ExecutionDegraded,
+        rabbit_disconnects   = diag.RabbitDisconnects,
+        rabbit_reconnects    = diag.RabbitReconnects,
+        sqlite_busy_retries  = diag.SqliteBusyRetries,
+    },
+    last_seen = new
+    {
+        last_claim_success_at     = diag.LastClaimSuccessAt,
+        last_claim_failure_at     = diag.LastClaimFailureAt,
+        last_execution_finish_at  = diag.LastExecutionFinishAt,
+        last_rabbit_disconnect_at = diag.LastRabbitDisconnectAt,
+        last_heartbeat_attempt_at = state.LastHeartbeatAttemptAt,
+        last_heartbeat_success_at = state.LastHeartbeatSuccessAt,
+    },
+}));
+// Bounded ring buffer (newest first) of WARNING/ERROR log entries the
+// process has emitted. Bypasses the file system entirely; survives only as
+// long as the process. Operators use this when "the worker is acting up
+// but the log file is on a host I cannot SSH to" — i.e. the local portal
+// page can render it directly.
+app.MapGet("/api/diag/recent-errors", (LocalDiagnostics diag, int? limit) =>
+    Results.Ok(diag.RecentErrors(limit ?? LocalDiagnostics.MaxRecentErrors)));
 app.MapGet("/", () => Results.Content(localMode || configurationOnly ? ConfigurationPortal.Html : PortalPage.Html, "text/html; charset=utf-8"));
 ConfigurationPortal.Map(app, localConfiguration, configurationOnly);
 app.MapGet("/api/worker", (WorkerState state, IAgentAdapterRegistry registry, IOptions<NodeOptions> worker, IOptions<WorkerOwnedOptions> local) =>
