@@ -14,7 +14,7 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, Request, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, sessionmaker
 
 from ...core.infrastructure.database import get_session
@@ -87,6 +87,13 @@ run_event_bus: IRunEventBus = InProcessRunEventBus()
 class RunEventIn(BaseModel):
     event_type: str
     payload: dict
+
+
+class TaskProgressIn(BaseModel):
+    # 2026-09-14 P1: in-flight heartbeat body. ``note`` is a short human-readable
+    # status string. Keep it small (server caps at 500 chars) so the column
+    # stays cheap and the UI rendering stays sane.
+    note: str = Field(default="", max_length=500)
 
 def _decode_event_payload(payload: str | dict) -> str | dict:
     if not isinstance(payload, str):
@@ -170,6 +177,78 @@ def create_run_event_endpoint(
     payload = _event_to_wire(run_event)
     run_event_bus.broadcast(run_id, payload)
     return payload
+
+
+@router.post("/api/agent-runs/{run_id}/progress", status_code=200)
+def report_task_progress_endpoint(
+    run_id: int,
+    body: TaskProgressIn,
+    authorization: str | None = Header(None),
+    worker_id: str | None = Header(None, alias="X-Worker-ID"),
+    s: Session = Depends(get_session),
+):
+    """2026-09-14 P1: in-flight heartbeat endpoint.
+
+    Agents should call this at most every 10 minutes while a run is in
+    flight. The server updates ``last_progress_at`` / ``last_progress_note``
+    and clears ``is_stale`` so the active-workflows panel stops yelling.
+
+    Authorization mirrors ``/events``: any caller that can mutate the run
+    (its owning user / API key / worker lease holder) can heartbeat it.
+    """
+    run, actor = api_helpers._authorize_run_mutation(
+        authorization, s, run_id, operation="progress", worker_id=worker_id,
+    )
+    try:
+        updated = service.report_task_progress(
+            s,
+            run_id=run_id,
+            note=body.note,
+            actor_user_id=actor.user_id if actor else None,
+        )
+    except service.NotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except service.InvalidValue as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "id": updated.id,
+        "status": updated.status,
+        "last_progress_at": updated.last_progress_at.isoformat()
+            if updated.last_progress_at else None,
+        "last_progress_note": updated.last_progress_note,
+        "is_stale": updated.is_stale,
+    }
+
+
+@router.post("/api/scheduling/scan-stale-runs", status_code=200)
+def scan_stale_agent_runs_endpoint(
+    warn_after_seconds: int = Query(
+        default=30 * 60, ge=0,
+        description="Flip is_stale=True when last_progress_at is older than this",
+    ),
+    takeover_after_seconds: int = Query(
+        default=60 * 60, ge=0,
+        description="Force soft_takeover when last_progress_at is older than this",
+    ),
+    max_per_run: int = Query(default=20, ge=1, le=200),
+    authorization: str | None = Header(None),
+    s: Session = Depends(get_session),
+):
+    """2026-09-14 P1: cron / scheduler calls this periodically.
+
+    Returns ``{"warned": [...], "taken_over": [...], "scanned_at": ...}``.
+    Designed to be cheap enough to call every minute: a no-op pass is
+    one indexed read on ``(status, last_progress_at)``.
+    """
+    from .service import scan_stale_agent_runs
+    api_helpers._auth_is_required(authorization, s)
+    result = scan_stale_agent_runs(
+        s,
+        warn_after_seconds=warn_after_seconds,
+        takeover_after_seconds=takeover_after_seconds,
+        max_per_run=max_per_run,
+    )
+    return result
 
 
 @router.get("/api/agent-runs/{run_id}/events")

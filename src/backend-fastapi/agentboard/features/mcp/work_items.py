@@ -56,9 +56,19 @@ def _task_generated(task_id):
 def _comment_list(task_id):
     return _http("GET", f"/api/tasks/{task_id}/comments")
 
-def _comment_create(task_id, author, content):
-    return _http("POST", f"/api/tasks/{task_id}/comments",
-                 json={"author": author, "content": content})
+def _comment_create(task_id, author, content, linked_document_id=None):
+    """2026-09-14 P2: ``linked_document_id`` cross-references a Document so
+    the UI can render the comment as a collapsed link card instead of
+    inlining the full text. The body is still kept verbatim for search;
+    the column is a rendering hint + reverse-lookup key.
+
+    Existing callers that pass only ``(task_id, author, content)`` keep
+    working unchanged — the new arg is optional and defaults to None.
+    """
+    body = {"author": author, "content": content}
+    if linked_document_id is not None:
+        body["linked_document_id"] = linked_document_id
+    return _http("POST", f"/api/tasks/{task_id}/comments", json=body)
 
 def _comment_delete(comment_id):
     return _http("DELETE", f"/api/comments/{comment_id}")

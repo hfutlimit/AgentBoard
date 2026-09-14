@@ -2752,3 +2752,312 @@ def _story_last_activity(s: Session, story: Story) -> datetime:
     if last_comment is not None and last_comment > story.created_at:
         return last_comment
     return story.created_at
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-14 P1: Agent in-flight progress + stale detection + soft takeover
+# ---------------------------------------------------------------------------
+#
+# Background
+# ----------
+# Before this section, the only safety net for an agent that died mid-execution
+# was ``reclaim_stale_tasks`` based on the **Task-level claim lease**
+# (DEFAULT_TASK_CLAIM_LEASE_SECONDS = 1800s, defined above). That lease is
+# renewed indirectly via ``task.updated_at < cutoff`` — i.e., ANY write to the
+# task resets the clock. A long-running agent that never writes to the task
+# row will be reclaimed as "dead" even though it is making progress.
+#
+# The new layer adds an **AgentRun-level heartbeat** the agent calls every
+# ~10 minutes (``report_task_progress``). The heartbeat is independent of the
+# claim lease and serves two purposes:
+#
+# 1. UI signal: ``scan_stale_agent_runs`` flips ``is_stale=True`` on runs
+#    whose heartbeat is older than the warn threshold, so the active-workflows
+#    panel can show a yellow "agent silent since X" badge BEFORE the hard
+#    reclaim happens. Users see the problem while there's still time to act.
+#
+# 2. Faster soft takeover: ``soft_takeover_run`` uses the heartbeat gap as
+#    the primary signal that the original agent is gone, not the task lease.
+#    That lets the swap happen at the heartbeat threshold (default 60 min)
+#    instead of the task lease (30 min) — a much tighter feedback loop.
+#
+# Design contract
+# ---------------
+# - Agents call ``report_task_progress(run_id, note)`` at most every 10 min.
+# - The server treats the heartbeat as **advisory** — it never blocks
+#   legitimate work. The agent can keep running with is_stale=True; only
+#   ``soft_takeover_run`` escalates to task reassignment.
+# - The takeover is **soft**: it marks the AgentRun failed and reverts the
+#   task to TODO, releasing the active TaskAssignment. The next arbitration
+#   cycle picks it up. This preserves comment history / spec / partial work
+#   so the next agent can pick up where the dead one left off.
+# - ``report_task_progress`` does NOT touch ``task.updated_at`` on purpose:
+#   if the agent heartbeats but never advances the task, the task-level
+#   lease still expires and the existing reclaim path triggers. The two
+#   layers are independent and orthogonal, each catching failures the other
+#   misses.
+#
+# Tunables (overridable per call; defaults are conservative for dev)
+# -------------------------------------------------------------------
+# - WARN_AFTER_SECONDS = 30 * 60    # is_stale=True; UI yellow
+# - TAKEOVER_AFTER_SECONDS = 60 * 60  # soft_takeover: run failed, task → todo
+
+PROGRESS_WARN_AFTER_SECONDS = 30 * 60
+PROGRESS_TAKEOVER_AFTER_SECONDS = 60 * 60
+PROGRESS_NOTE_MAX_LEN = 500
+
+
+def report_task_progress(
+    s: Session,
+    *,
+    run_id: int,
+    note: str,
+    actor_user_id: int | None = None,
+) -> AgentRun:
+    """Agent mid-execution heartbeat.
+
+    Updates ``agent_runs.last_progress_at`` and ``last_progress_note``,
+    clears ``is_stale``. The heartbeat is bound to a specific ``run_id``
+    (not a ``task_id``) because AgentRun is the unit of execution — one
+    run can be retrying a task multiple times; the heartbeat always
+    refers to the *current* attempt.
+
+    Parameters
+    ----------
+    run_id
+        The AgentRun id the agent is currently working on.
+    note
+        Human-readable status string. Bounded to 500 chars to keep the
+        column cheap. Should be terse ("migrations 3/5 done, on c1d2e3")
+        because reviewers / the next agent read it during handover.
+    actor_user_id
+        Optional user id of the agent's user account. Not enforced (the
+        run is already tied to a specific agent_registry_id) but used for
+        audit logging in case we wire that up later.
+
+    Returns
+    -------
+    The updated ``AgentRun`` row (refreshed).
+
+    Raises
+    ------
+    NotFound
+        If the run id does not exist.
+    InvalidValue
+        If the run is already in a terminal status (success/failed/
+        cancelled) — heartbeating a finished run is meaningless and
+        likely a bug in the caller.
+    """
+    run = s.get(AgentRun, run_id)
+    if not run:
+        raise NotFound(f"agent run {run_id} not found")
+    if run.status in ("success", "failed", "cancelled"):
+        raise InvalidValue(
+            f"agent run {run_id} is in terminal status '{run.status}'; "
+            "cannot heartbeat a finished run"
+        )
+    note_clean = (note or "").strip()[:PROGRESS_NOTE_MAX_LEN]
+    now = utc_now()
+    run.last_progress_at = now
+    run.last_progress_note = note_clean or None
+    run.is_stale = False
+    _commit(s)
+    s.refresh(run)
+    return run
+
+
+def scan_stale_agent_runs(
+    s: Session,
+    *,
+    warn_after_seconds: int = PROGRESS_WARN_AFTER_SECONDS,
+    takeover_after_seconds: int = PROGRESS_TAKEOVER_AFTER_SECONDS,
+    max_per_run: int = 20,
+) -> dict:
+    """Two-pass stale scan: warn (UI) + takeover (swap to next agent).
+
+    Pass 1 — WARN
+        Find AgentRuns whose ``last_progress_at`` is older than
+        ``warn_after_seconds`` AND not already marked stale. Flip
+        ``is_stale=True``. UI uses this to surface "silent for X min"
+        badges. This pass is purely advisory and does NOT touch the
+        task.
+
+    Pass 2 — TAKEOVER
+        Find AgentRuns that are stale AND whose ``last_progress_at``
+        is older than ``takeover_after_seconds`` AND whose task is
+        still in progress. For each, call ``soft_takeover_run``. The
+        swap is soft: the run is marked failed (so it shows up in the
+        dead-run history), the task reverts to TODO, and the active
+        TaskAssignment is closed. Existing arbitration / next-claim
+        flow picks the task up.
+
+    The two passes are split on purpose: warn is cheap (no task writes),
+    takeover is expensive (touches 2-3 tables). A scheduler that polls
+    every 60s can call this with a 5 min warn and 30 min takeover
+    without thrashing.
+
+    Returns
+    -------
+    A summary dict ``{"warned": [...], "taken_over": [...], "skipped": N}``
+    with the run ids touched in each phase. Empty lists when nothing
+    matched.
+    """
+    now = utc_now()
+    warn_cutoff = now - timedelta(seconds=warn_after_seconds)
+    takeover_cutoff = now - timedelta(seconds=takeover_after_seconds)
+
+    # Pass 1: warn (flip is_stale=True for newly-stale runs).
+    # Treat NULL last_progress_at as "stale since run start" so legacy
+    # rows from before the heartbeat exists don't silently look fresh.
+    warn_rows = (
+        s.query(AgentRun)
+        .filter(
+            AgentRun.status == "running",
+            AgentRun.is_stale.is_(False),
+            or_(
+                AgentRun.last_progress_at.is_(None),
+                AgentRun.last_progress_at < warn_cutoff,
+            ),
+        )
+        .order_by(AgentRun.started_at.asc().nullslast())
+        .limit(max_per_run)
+        .all()
+    )
+    warned_ids: list[int] = []
+    for run in warn_rows:
+        run.is_stale = True
+        warned_ids.append(run.id)
+    if warned_ids:
+        _commit(s)
+        log.warning(
+            "scan_stale_agent_runs: marked %d runs as stale (warn_after=%ds)",
+            len(warned_ids), warn_after_seconds,
+        )
+
+    # Pass 2: takeover.
+    takeover_rows = (
+        s.query(AgentRun)
+        .filter(
+            AgentRun.status == "running",
+            AgentRun.is_stale.is_(True),
+            or_(
+                AgentRun.last_progress_at.is_(None),
+                AgentRun.last_progress_at < takeover_cutoff,
+            ),
+        )
+        .order_by(AgentRun.started_at.asc().nullslast())
+        .limit(max_per_run)
+        .all()
+    )
+    taken_over_ids: list[int] = []
+    for run in takeover_rows:
+        if run.task_id is None:
+            # Schedule-level run with no associated task; nothing to swap.
+            # Mark it failed anyway so it doesn't accumulate forever.
+            run.status = "failed"
+            run.finished_at = now
+            run.error_message = "stale_run_no_task"
+            taken_over_ids.append(run.id)
+            continue
+        try:
+            soft_takeover_run(s, run, reason="stale_progress_takeover")
+            taken_over_ids.append(run.id)
+        except Exception as exc:  # pragma: no cover — defensive
+            log.exception("scan_stale_agent_runs: takeover failed for run %s: %s",
+                          run.id, exc)
+    if taken_over_ids:
+        _commit(s)
+        log.warning(
+            "scan_stale_agent_runs: took over %d stale runs",
+            len(taken_over_ids),
+        )
+    return {
+        "warned": warned_ids,
+        "taken_over": taken_over_ids,
+        "scanned_at": now.isoformat(),
+    }
+
+
+def soft_takeover_run(s: Session, run: AgentRun, *, reason: str) -> Task:
+    """Reap a single stale run: mark it failed, revert the task to TODO.
+
+    The takeover is *soft* in the sense that it does not invent a new
+    agent; it just hands the task back to the pool. The next arbitration
+    or claim cycle picks it up. Comment history / spec / partial commits
+    on the task remain untouched so the next agent can pick up where
+    the dead one left off.
+
+    Side effects
+    ------------
+    1. ``AgentRun.status`` ← ``failed``
+    2. ``AgentRun.finished_at`` ← now
+    3. ``AgentRun.error_message`` ← ``reason``
+    4. ``Task.status`` ← ``TODO`` (only if currently IN_PROGRESS)
+    5. Active ``TaskAssignment`` closed (status='released')
+    6. Status history row recorded for the task
+
+    The function is idempotent: calling it twice on the same run is a
+    no-op after the first call because the run is no longer 'running'.
+
+    Returns
+    -------
+    The (refreshed) ``Task`` after the takeover. If the task was
+    already in a non-IN_PROGRESS state, the function is a no-op
+    except for the run-state update; the returned task reflects
+    whatever the current state is.
+
+    Raises
+    ------
+    NotFound
+        If the run's task_id no longer exists (shouldn't happen, FK
+        protects, but guard anyway).
+    """
+    now = utc_now()
+    run.status = "failed"
+    run.finished_at = now
+    run.error_message = (run.error_message or "") + f"\nsoft_takeover: {reason}"
+    if run.task_id is None:
+        return None  # type: ignore[return-value]
+    task = s.get(Task, run.task_id)
+    if task is None:
+        raise NotFound(f"task {run.task_id} not found for run {run.id}")
+    if task.status != Status.IN_PROGRESS:
+        # Task has already moved on (review, blocked, etc.) — do not
+        # touch it. The run is still correctly marked failed.
+        return task
+    # Release the active assignment first; same pattern as
+    # ``reclaim_stale_tasks`` to avoid the
+    # "todo + FK non-null + active_slot taken" deadlock.
+    from ..work_items.service import close_assignment_row
+    if task.current_assignment_id is not None:
+        close_assignment_row(s, task.current_assignment_id, outcome="released")
+    s.execute(
+        update(Task)
+        .where(Task.id == task.id, Task.status == Status.IN_PROGRESS)
+        .values(
+            status=Status.TODO,
+            assignee_id=None,
+            status_reason=None,
+            previous_status=None,
+            claimed_by="",
+            claimed_at=None,
+            current_assignment_id=None,
+            assignment_deferred_reason=None,
+            assignment_deferred_at=None,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    _record_status_history(
+        s, task.id, str(Status.IN_PROGRESS), str(Status.TODO),
+        changed_by=None,
+        reason=f"soft_takeover: {reason}",
+    )
+    _commit(s)
+    s.expire_all()
+    _invalidate_project_stats_cache(task.project_id)
+    log.warning(
+        "soft_takeover_run: run=%d task=%d agent_run_agent_id=%s reason=%s",
+        run.id, task.id,
+        getattr(run, "agent", "?"), reason,
+    )
+    return s.get(Task, task.id)

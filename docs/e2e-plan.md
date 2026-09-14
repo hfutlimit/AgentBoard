@@ -3,7 +3,7 @@
 > 配套 `tests/e2e/dod_registry.py` — 每完成一个 e2e 阶段,在两处同步更新。
 > 维护规则:阶段完成 = 1) e2e test 跑过 2) 单测不被破坏 3) 文档就位 4) commit + push。
 
-最后更新:2026-08-21 19:30 (v7.3 任务列表简化 + delete cascade bugfix 收尾)
+最后更新:2026-09-14 13:30 (Workflow Run foundation slice 1+2 done + 9-14 文档清理 + merge migration 提交)
 
 ---
 

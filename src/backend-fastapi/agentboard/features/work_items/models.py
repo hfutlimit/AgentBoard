@@ -144,6 +144,16 @@ class Comment(Base):
     epic_id: Mapped[int | None] = mapped_column(ForeignKey("epics.id"), nullable=True, index=True)
     author: Mapped[str] = mapped_column(String(100), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    # 2026-09-14 P2: optional cross-reference to a Document. When set, the
+    # UI renders the comment body as a collapsed link card pointing at the
+    # document, instead of inlining the full text. The body is still kept
+    # verbatim for search; the column is purely a rendering hint + reverse
+    # lookup key for "all comments referencing this document."
+    # ON DELETE SET NULL: deleting the document removes the link but keeps
+    # the comment's body so the conversation thread stays coherent.
+    linked_document_id: Mapped[int | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now, onupdate=utc_now)
 

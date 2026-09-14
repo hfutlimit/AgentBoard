@@ -926,7 +926,10 @@ def create_comment(
 ):
     try:
         author = api_helpers.resolve_comment_author(authorization, s, body.author)
-        comment = service.create_comment(s, task_id=tid, author=author, content=body.content)
+        comment = service.create_comment(
+            s, task_id=tid, author=author, content=body.content,
+            linked_document_id=body.linked_document_id,
+        )
         api_helpers._mention_notify(s, author=author, content=body.content, link=f"/task/{tid}")
         return service._ser(comment)
     except service.NotFound as e:

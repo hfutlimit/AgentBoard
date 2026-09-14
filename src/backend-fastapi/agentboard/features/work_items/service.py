@@ -1329,12 +1329,28 @@ def _comment_target(
 
 def create_comment(s: Session, *, author: str, content: str,
                    task_id: int | None = None, story_id: int | None = None,
-                   epic_id: int | None = None) -> Comment:
+                   epic_id: int | None = None,
+                   linked_document_id: int | None = None) -> Comment:
     target = _comment_target(s, task_id=task_id, story_id=story_id, epic_id=epic_id)
     author, content = (author or "").strip(), (content or "").strip()
     if not author or not content:
         raise InvalidValue("author and content are required")
-    comment = Comment(author=author[:100], content=content, **target)
+    # 2026-09-14 P2: optional cross-reference to a Document. The FK column
+    # is on Comment itself; the UI uses it to render the comment body as a
+    # collapsed link card. We do NOT police "content vs document body
+    # duplication" here — that's the agent's responsibility, the database
+    # is content-agnostic. We only verify the document exists so a stale
+    # id doesn't slip into the DB (the FK on delete is SET NULL, so
+    # historical comments survive a delete even without this check).
+    if linked_document_id is not None:
+        from ..documents.models import Document
+        if not s.get(Document, linked_document_id):
+            raise NotFound(f"document {linked_document_id} not found")
+    comment = Comment(
+        author=author[:100], content=content,
+        linked_document_id=linked_document_id,
+        **target,
+    )
     s.add(comment); _commit(s); s.refresh(comment); return comment
 
 # ---- 同步自 service.py ----

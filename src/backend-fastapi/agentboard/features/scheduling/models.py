@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import (
-    CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text,
+    Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -61,6 +61,18 @@ class AgentRun(Base):
     log_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
     lease_worker_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    # 2026-09-14 P1: in-flight heartbeat. Agent calls report_task_progress to
+    # refresh last_progress_at + last_progress_note. Stays NULL for runs that
+    # have never reported progress (e.g. legacy rows, short-lived runs).
+    # scan_stale_agent_runs treats NULL as "stale immediately" so legacy rows
+    # are surfaced for human review rather than silently kept alive forever.
+    last_progress_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    last_progress_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Server-side stale flag, flipped by scan_stale_agent_runs when the gap
+    # between now and last_progress_at exceeds the warn threshold. Distinct
+    # from status='failed' because the run is still being given a chance to
+    # recover (soft takeover) before being marked failed.
+    is_stale: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
 
 

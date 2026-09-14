@@ -352,9 +352,22 @@ def list_comments(task_id: int) -> list | dict:
 
 
 @mcp.tool()
-def add_comment(task_id: int, author: str, content: str) -> dict:
-    """给任务追加 markdown 评论；Agent 可用它同步开始、阻塞和完成状态。"""
-    return mcp_work_items._comment_create(task_id, author, content)
+def add_comment(
+    task_id: int, author: str, content: str,
+    linked_document_id: int | None = None,
+) -> dict:
+    """给任务追加 markdown 评论；Agent 可用它同步开始、阻塞和完成状态。
+
+    2026-09-14 P2: ``linked_document_id`` cross-references a Document so
+    the UI can render this comment as a collapsed link card pointing at
+    the document, instead of inlining the full body text. Use this when
+    you created a Document for the same artifact — paste a short
+    summary in ``content`` and pass the document id here. The full
+    document body stays in the Document; the comment is the trail.
+    """
+    return mcp_work_items._comment_create(
+        task_id, author, content, linked_document_id=linked_document_id,
+    )
 
 
 @mcp.tool()
@@ -1041,6 +1054,64 @@ def create_document(project_id: int, title: str, content: str = "",
 
 
 @mcp.tool()
+def post_document_link(
+    project_id: int, title: str, content: str,
+    task_id: int, comment_author: str, comment_summary: str = "",
+    type: str = "plan", status: str = "draft",
+    epic_id: int | None = None, story_id: int | None = None,
+    author_id: int | None = None, folder_id: int | None = None,
+) -> dict:
+    """2026-09-14 P2: create a document and post a task comment that links to it.
+
+    One-shot workflow for the common agent pattern "I produced an artifact
+    (design doc / runbook / post-mortem), so I'll both create a Document
+    AND mention it on the task." Without this helper the agent typically
+    pastes the document body into the comment, which duplicates the
+    content and drifts on edits. This helper does it right:
+
+    1. Creates the Document (with the full body).
+    2. Posts a task comment with ``linked_document_id`` pointing at
+       the new document. The body is a short summary (or empty
+       string if you don't want any body at all — the link is the
+       message).
+
+    Returns ``{"document": {...}, "comment": {...}}`` so the agent
+    can confirm both writes succeeded. If the comment step fails
+    (e.g. task deleted between the two writes) the document is
+    left in place; cleanup is left to the caller since the document
+    is independently useful.
+
+    Args:
+        project_id: Document's project.
+        title:      Document title (and the link text in the comment).
+        content:    Full document body. Goes into the document, NOT
+                    the comment.
+        task_id:    Task that should show the linked comment.
+        comment_author: Author name to use on the comment.
+        comment_summary: Optional short text for the comment body.
+                    Defaults to "📄 {title}" so the comment is
+                    self-explanatory when the doc link is collapsed.
+    """
+    document = create_document(
+        project_id=project_id, title=title, content=content,
+        type=type, status=status,
+        epic_id=epic_id, story_id=story_id,
+        author_id=author_id, folder_id=folder_id,
+    )
+    document_id = document.get("id") if isinstance(document, dict) else None
+    if document_id is None:
+        # create_document returned a non-dict shape (e.g. error string);
+        # surface it to the caller without attempting the comment.
+        return {"document": document, "comment": None}
+    summary = (comment_summary or "").strip() or f"📄 {title}"
+    comment = add_comment(
+        task_id=task_id, author=comment_author, content=summary,
+        linked_document_id=document_id,
+    )
+    return {"document": document, "comment": comment}
+
+
+@mcp.tool()
 def get_document(document_id: int) -> dict:
     """获取文档详情（含 title / content / type / status）。"""
     return mcp_documents._doc_get(document_id)
@@ -1638,6 +1709,30 @@ def scan_review_timeouts(project_id: int | None = None,
 def report_run_event(run_id: int, event_type: str, payload: dict) -> dict:
     """Report a real-time event for an agent run (e.g., state_change, mcp_call, log)."""
     return _run_event_create(run_id, event_type, payload)
+
+
+@mcp.tool()
+def report_task_progress(run_id: int, note: str = "") -> dict:
+    """Report mid-execution progress for an agent run (2026-09-14 P1).
+
+    Call this at most every 10 minutes while the run is in flight. The
+    server updates ``last_progress_at`` and clears ``is_stale`` so the
+    active-workflows panel stops flagging the run as silent. Without
+    these heartbeats, the server will eventually mark the run stale and
+    swap the task to another agent via ``soft_takeover_run``.
+
+    Args:
+        run_id: The AgentRun id the agent is currently working on.
+        note:   Optional short human-readable status string (capped at
+                500 chars on the server). Keep it terse — reviewers and
+                the next agent read this during handover
+                ("migrations 3/5 done, on c1d2e3").
+
+    Returns:
+        Dict with ``id``, ``status``, ``last_progress_at``,
+        ``last_progress_note``, ``is_stale``.
+    """
+    return _run_progress_report(run_id, note=note)
 
 @mcp.tool()
 def get_task_review_context(task_id: int) -> dict:
