@@ -14,20 +14,58 @@
 
 **Attempt 收敛建议**（设计层，不落库）：对外口径统一为「attempt = 一次 AgentRun」，`TaskAssignment` 是**调度关系不是执行**，`MessageAttempt` 是**投递重试不是执行**。三者在文档与 UI 里不要都叫 attempt。
 
-## 2. 两条流必须分开
+## 2. 三条流，不是两条
 
-| | Workflow Event Stream | Agent Knowledge Stream |
-|---|---|---|
-| 承载 | `workflow_run_events`（已存在） | 新建（本变更） |
-| 关注 | **状态变化** | **经验** |
-| 事件 | `workflow_started` / `task_assigned` / `review_completed` … | `analysis` / `decision` / `discovery` / `failure` / `handoff` |
-| 性质 | **封闭枚举**，19 类 + 必填 payload 校验 | **开放集合** |
-| 量级 | 一次 run 十几条 | 一次执行几十到几百条 |
-| 消费 | 状态机 / timeline | 记忆沉淀 / 交接 / UI 过程展示 |
+| 流 | 承载 | 关注 | 性质 | 保留 | 禁止混入 |
+|---|---|---|---|---|---|
+| **Workflow events** | `workflow_run_events`（已有，story 446） | 状态变化 | **封闭枚举** 19 类 + 必填 payload 校验 | 长期 | tool_call / 经验 |
+| **Activity** | 新建 `agent_run_activities`（story 451） | 过程（读了哪个文件、跑了哪条命令） | **开放集合**，高量 | **短周期** | `workflow_run_events` |
+| **Knowledge** | **落到既有 `learnings` 表**（story 458） | 可晋升的经验 | 结构化 + 溯源 + confidence | 晋升后长期 | activity 原文 |
 
-**为什么不合并**：`workflow_run_events` 背后是 `EVENT_TYPE_REQUIRED_KEYS` 的校验枚举。知识事件是开放集合，放进去只能放弃校验或把枚举改成开放 —— 等于退掉 slice 2 最值钱的部分。另外 `workflow_run_events.workflow_run_id` 是 **NOT NULL FK**（`models.py:107-108`），run-less 的知识条目根本挂不进去。
+**为什么 knowledge 没有第三次「新建」**：`learnings` 已经是带溯源与置信度的知识条目（见 §2.5），再建 `agent_knowledge_entries` 就是第三套记忆。
 
-仓库已有同类先例：契约里的 `RETRY_KINDS_UI_VISIBLE`（`mq_delivery` 不进 normal UI）——「可见性」这个轴已有表达方式。
+**「test failed」归哪条**：执行期进 **activity**（过程事实）；只有当它**总结成一条可复用教训**（如「用 ORM Include 做嵌套查询 → N+1，已弃」）时才**晋升**为 knowledge 条目。
+
+**晋升链（本设计的核心机制）**：
+
+```
+activity 原文 / 一次分析
+        ↓ 晋升（agent 显式 or 评审后确认）
+learnings 条目（机器检索索引，带 provenance + confidence）
+        ↓ 晋升（人可读、可被规范引用）
+Project Memory 分面（人读真源，可 supersede）
+```
+
+Handoff Package 是**任务级实体**，不是第四条流，也不是第六个记忆面。
+
+**为什么 workflow events 不吸收后两者**：`workflow_run_events` 背后是 `EVENT_TYPE_REQUIRED_KEYS` 的校验枚举，知识/活动是开放集合，放进去只能放弃校验或把枚举改成开放 —— 等于退掉 slice 2 最值钱的部分。另外 `workflow_run_events.workflow_run_id` 是 **NOT NULL FK**（`models.py:107-108`），run-less 条目根本挂不进去。仓库已有同类先例：`RETRY_KINDS_UI_VISIBLE`（`mq_delivery` 不进 normal UI）。
+
+## 2.5 Memory / learnings / Knowledge 三层边界（**已冻结，实现不得新增第三套**）
+
+Epic 155 的纠错学习库已经落地并**接进了 prompt**，本变更必须与它划界而不是并行：
+
+| 层 | 载体 | 用途 | 证据 |
+|---|---|---|---|
+| **机器检索索引** | `learnings` 表 | 按 project / agent / work_type 检索后**注入 agent prompt** | `features/learning/models.py:158-191`；写入 `scheduling/behavior_router.py:322`；检索 `processors/learning/retriever.py:105 learning_retriever`；注入 `processors/behavior/context_builder.py:508 _resolve_learnings` → 渲染成 `- [{category}] {summary}`（:208） |
+| **人读真源** | `Document.type='memory'` 五面 | 人可读、可评审、可 supersede 的规范 | `mcp_server.py:1313/1337` |
+| **晋升通道** | 无独立表 | activity / 分析 → learnings → Memory 分面 | 本文 §2 |
+
+`learnings` 已有列与两面记忆的对应关系：
+
+| `learnings` 列 | 对应 |
+|---|---|
+| `category`（5 类：`accepted_review_feedback` / `review_judgment_reversal` / `qa_defect` / `execution_failure` / `project_convention`） | ≈ knowledge 类型 |
+| `summary` / `lesson` | ≈ 条目摘要 / 正文 |
+| `source_run_id` / `source_task_id` / `source_review_id` | **已满足「可追溯到 attempt」** |
+| `confidence` | ≈ 权威等级 |
+| `agent_id` / `work_type` / `tags_json` | 检索维度 |
+
+**冻结决定**：
+
+1. **不新建 `agent_knowledge_entries` 表**。Story 458 改为「定义 learnings 的写入面 + 晋升到 Memory 分面的通道」。
+2. `project_convention` category 与 Memory 的 **Coding Rules** 面对应；`execution_failure` 与 **Failed Attempts** 面对应 —— 晋升时按此映射，不再造第二套分类。
+3. 防腐（story 456）**同时适用于 `learnings` 与 Memory 分面**：`learnings` 目前无 supersede、无保留策略，是同一类腐化风险。
+4. 两面**不做双向同步**：Memory 是人读快照，`learnings` 是机器索引；不一致时以 Memory 分面为人读准，以 `learnings` 为检索准，并在升迁时显式记 `source_run_id`。
 
 ## 3. Handoff Package 契约
 
@@ -49,15 +87,24 @@
 }
 ```
 
-**加载契约**：新 agent 启动时**必须**读到上一 attempt 的 handoff（若存在）+ `get_project_memory` + `git diff` + 测试结果。
+**加载契约（区分强制与可选，每项都要有来源）**：
+
+| 项 | 强度 | 来源 |
+|---|---|---|
+| 上一 attempt 的 Handoff Package（若存在） | **强制** | story 457 落库的 handoff 实体，按 `task_id` 取最新一条 |
+| `get_project_memory` | **强制** | 既有 MCP 工具（项目级 + 该 agent 专有），会话启动即调 |
+| `git diff` | **可选** | 相对**该 task 认领时的基线 commit**（story 459 受理时记录），由 worker 侧在 workspace 内执行；没有基线就不给 diff，不得猜 |
+| 测试结果 | **可选** | 优先取 handoff 的 `verification` 字段；其次取 activity 中 `kind=command` 且判定为测试的最后一条；取不到就显式标「无测试证据」 |
+
+⚠ 不要把「可选」写成「强制」——没有基线 commit 时 `git diff` 无法定义，强制加载会变成凭猜测造内容。
 
 **边界**：handoff 只传递上下文，**不做代码级差异接管**（不自动 rebase A 的未提交改动）。
 
-## 4. Project Memory：六面结构 + 防腐
+## 4. Project Memory：五面结构 + 防腐
 
 现状（`mcp_server.py:1350`）：`merged = (old + "\n\n" + content)` —— 无限追加，正是"变成垃圾文档"的路径。
 
-目标结构（沿用 `Document.type='memory'`，**不新建表**；分面用 title 前缀或 content 内小节，二选一在任务阶段定）：
+目标结构（**五面**，不是六面；Handoff 是任务级独立产物，见 §3）：
 
 ```
 项目记忆
@@ -68,14 +115,25 @@
 └── Coding Rules       编码规范 / 约定
 ```
 
-**防腐策略（本变更的核心，直接决定长期价值）：**
+### 4.1 存储方案（**已冻结，实现照做，不再"任务阶段定"**）
 
-| 问题 | 策略 |
-|---|---|
-| 重复追加同一结论 | 写入前做**规范化去重**（同义同义改写要判为同一条） |
-| 失效结论越积越多 | 每条记忆带**时效与适用范围**；被新决策取代的标 `superseded_by` 而非删除 |
-| 自由文本无权威等级 | 引入**来源等级**（人写的 > agent 推断的 > 单次观察），冲突时高等级覆盖 |
-| 无限增长 | **保留策略**：Failed Attempts 与 Decisions 长期保留，一次性观察类定期归档 |
+| 决定 | 取值 | 理由 |
+|---|---|---|
+| 分面怎么落 | **沿用 `Document.type='memory'`，不新建表**；分面用 **content 内小节标题**（如 `## Decisions`）编码，**不用**多份 title | 现在已经是「一项目一 memory 文档」，新增六份文档会让 `get_project_memory` 的合并语义与 `limit=100` 截断变脆；小节标题是最小改动且人读友好 |
+| 分面标识 | 解析 content 的 `## <Facet>` 小节；未知小节归入 `Notes`（不丢内容） | 向后兼容既有自由文本（无小节时代码视为 `Notes`） |
+| 写入接口 | `append_agent_memory(project_id, content, facet=...)`；`facet` 缺省 = `Notes` | 旧调用零改动 |
+| 读取接口 | `get_project_memory` 保留 `documents` + `combined`，新增 `facets: {Decisions: [...], ...}` | 旧调用方不报错 |
+| 权威等级来源 | 由**写入方**标注（人经 MCP 写 = `human`，agent 写 = `agent`），不推断 | 推断不可靠 |
+
+### 4.2 防腐策略
+
+| 问题 | 策略 | 落地范围 |
+|---|---|---|
+| 重复追加同一结论 | 写入前**规范化去重**（NFKC + 大小写 + 空白/标点归一后比对） | Memory 分面 + `learnings` 写入面 |
+| 失效结论越积越多 | 每条带 `superseded_by`；被取代的**标记而不删除** | 同上 |
+| 权威等级冲突 | `human` > `agent`，冲突时高等级胜出并在返回里标明 | Memory 分面 |
+| 无限增长 | Failed Attempts / Decisions 长期；一次性观察类定期归档 | 同上 |
+| **语义级去重** | ⚠ **本变更为 spike，不进实现** —— 依赖 embedding / learning 引擎，仓库虽有 `episode_embedding` 但复用可行性未验证。字面归一去重先落地，语义去重单列决策 | spike |
 
 ## 5. 并行策略：按隔离，不按 agent
 

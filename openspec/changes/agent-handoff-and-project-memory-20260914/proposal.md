@@ -36,10 +36,11 @@
 
 ## 改什么
 
-1. **Project Memory 分面化**：把自由文本追加升级为六类结构（Decisions / Architecture / Known Issues / Failed Attempts / Coding Rules / Handoff），保持 `get_project_memory` 向后兼容。
+1. **Project Memory 分面化**：把自由文本追加升级为**五类**结构（Decisions / Architecture / Known Issues / Failed Attempts / Coding Rules），保持 `get_project_memory` 向后兼容。
+   - ⚠ **Handoff 不是第六个记忆面**：它是**任务级独立产物**（Handoff Package），有自己的生命周期与加载契约，不写进 memory 文档。分面数**以五为准**。
 2. **Memory 防腐**：去重 / 时效 / 权威等级 / 淘汰 —— 直接回答「如何避免变成垃圾文档」。
 3. **Handoff Package 契约**：结构化交接产物（status / completed / remaining / known_issues / changed_files / next_steps）+ 生成时机 + 新 agent 强制加载。
-4. **Agent Knowledge Stream**：与 `workflow_run_events` **分离**的第二条流（analysis / decision / discovery / failure / handoff）。
+4. **Knowledge Stream 与既有 learnings 划界**（⚠ 见 design.md §2.5）：Epic 155 已有的 `learnings` 表 + `LearningRetriever` → `context_builder` 注入链**已经是「带溯源与置信度的知识条目」**。本变更**不新建第三套记忆**，只定义「写入 → 晋升」通道。
 5. **Entity 边界与并行策略**：明确 Agent / Worker / AgentRun / Attempt / Memory 五个对象的边界；并行策略沿用现有「按 workspace 隔离」不变式，不改成「按 agent 串行」。
 
 ## 影响范围
