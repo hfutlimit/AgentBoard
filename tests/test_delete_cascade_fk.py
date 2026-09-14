@@ -69,13 +69,33 @@ def _list_tasks(s, story_id: int):
 
 
 def _move_to_done(s, t) -> None:
-    """模拟真实生产路径：todo → in_progress → done（带 status_reason）。"""
+    """模拟真实生产路径：todo → in_progress → in_review → done（带 status_reason）。
+
+    5 状态机(Story 265)不允许 in_progress → done 直跳，必须经 in_review 中转。
+    """
     service.update_task(s, t.id, status=Status.IN_PROGRESS)
+    s.commit()
+    service.update_task(s, t.id, status=Status.IN_REVIEW)
     s.commit()
     service.update_task(
         s, t.id, status=Status.DONE, status_reason=StatusReason.COMPLETED,
     )
     s.commit()
+
+
+def _register_reviewer_agent(s, reviewer_user):
+    """注册一个 mock reviewer Agent（必填字段 reviewer_agent_id 的来源）。
+
+    ReviewVote.reviewer_agent_id 是 NOT NULL（per-agent 一票的 UNIQUE 判定列），
+    测试 fixture 必须显式注册 agent + 绑 user，否则 INSERT 撞 NOT NULL 约束。
+    """
+    import uuid
+    from agentboard.features.scheduling.service import register_agent
+    return register_agent(
+        s, agent_id=f"rev_{uuid.uuid4().hex[:8]}",
+        name="Test Reviewer Agent",
+        roles='["reviewer"]', user_id=reviewer_user.id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -159,10 +179,14 @@ def test_delete_task_with_review_vote_comment_unbinds_fk(session):
     reviewer = service.register_user(
         session, username=f"rev_{uuid.uuid4().hex[:8]}", password="password123",
     )
+    # ReviewVote.reviewer_agent_id 是 NOT NULL（per-agent 一票的 UNIQUE 判定列），
+    # 须先注册 mock agent 才能 INSERT。
+    reviewer_agent = _register_reviewer_agent(session, reviewer)
     # 直接插 ReviewVote（entity_type=task 锚定本 task）
     from agentboard.features.projects.models import ReviewVote
     vote = ReviewVote(
         entity_type="task", entity_id=t_id, reviewer_user_id=reviewer.id,
+        reviewer_agent_id=reviewer_agent.id,
         verdict="reject", comment_id=c_id, round=1,
     )
     session.add(vote); session.commit()
@@ -216,12 +240,15 @@ def test_delete_epic_unbinds_review_vote_anchor(session):
     voter = service.register_user(
         session, username=f"voter_{uuid.uuid4().hex[:8]}", password="password123",
     )
+    # ReviewVote.reviewer_agent_id 是 NOT NULL，须先注册 mock agent
+    voter_agent = _register_reviewer_agent(session, voter)
     c = service.create_comment(
         session, author=u.username, content="story review", story_id=st.id,
     )
     c_id = c.id
     vote = ReviewVote(
         entity_type="story", entity_id=st.id, reviewer_user_id=voter.id,
+        reviewer_agent_id=voter_agent.id,
         verdict="approve", comment_id=c_id, round=1,
     )
     session.add(vote); session.commit()
