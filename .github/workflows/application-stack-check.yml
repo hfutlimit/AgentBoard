@@ -9,6 +9,7 @@ on:
       - 'src/frontend/**'
       - 'src/nodes/**'
       - 'tests/**'
+      - 'scripts/**'
       - '.github/workflows/application-stack-check.yml'
   pull_request:
     paths:
@@ -16,6 +17,7 @@ on:
       - 'src/frontend/**'
       - 'src/nodes/**'
       - 'tests/**'
+      - 'scripts/**'
       - '.github/workflows/application-stack-check.yml'
 
 jobs:
@@ -28,6 +30,12 @@ jobs:
           python-version: '3.14'
       - name: Install backend dependencies
         run: python -m pip install -r src/backend-fastapi/requirements.txt
+      - name: Verify single Alembic head (migration graph gate)
+        # Fails fast with a named error listing the offending heads. Without
+        # this, a stale-parent migration only shows up as "Multiple head
+        # revisions are present" inside the init_db() startup traceback
+        # (incident 2026-09-12, fixed by merge revision n2o3p4q5r6s7).
+        run: python scripts/migration-graph-gate.py
       - name: Verify Alembic clean upgrade and RunEvent audit schema
         working-directory: src/backend-fastapi
         env:
