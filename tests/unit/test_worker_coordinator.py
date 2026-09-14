@@ -21,11 +21,16 @@ class DummyClient:
     def __init__(self):
         self.posts: list[tuple[str, dict]] = []
         self.gets: list[str] = []
+        # Body returned by the stale-progress scan endpoint. Defaults to an
+        # empty scan so unrelated poll_once cases stay unaffected.
+        self.scan_stale_response: dict = {}
 
     def request(self, method: str, path: str, **kwargs):
         req = httpx.Request(method, f"http://127.0.0.1:58124{path}")
         if method == "POST":
             self.posts.append((path, kwargs.get("json", {})))
+            if path.endswith("/scan-stale-runs"):
+                return httpx.Response(200, json=self.scan_stale_response, request=req)
             if path.endswith("/claim"):
                 return httpx.Response(200, json={"status": "ok"}, request=req)
             if "/review" in path:
@@ -218,6 +223,32 @@ def test_coordinator_poll_once_aggregates_all_domains():
     assert stats["clarified"] >= 1
     assert "stale_stories" in stats
     assert "stale_tasks" in stats
+
+
+def test_coordinator_poll_once_drives_the_stale_progress_scan():
+    """poll_once must drive the stale-progress scan.
+
+    F2 (2026-09-14 review): ``scan_stale_agent_runs`` had exactly one caller —
+    a manual ``POST /api/scheduling/scan-stale-runs`` — so the takeover safety
+    net never ran on its own. A recovery mechanism without a trigger does not
+    exist; this asserts the trigger is the same maintenance pass that already
+    reclaims stale leases.
+    """
+    invoker = CallableProcessorInvoker(lambda ctx: AgentDecision(
+        action="ask", summary="Processed",
+    ))
+    config = ProcessorConfig(agent="test_agent", agent_cmd="echo test")
+    dummy = DummyClient()
+    dummy.scan_stale_response = {
+        "warned": [11, 12], "taken_over": [13], "scanned_at": "2026-09-14T00:00:00",
+    }
+
+    coord = ProcessorCoordinator(config, invoker=invoker, client=dummy)
+    stats = coord.poll_once()
+
+    assert ("/api/scheduling/scan-stale-runs", {}) in dummy.posts
+    assert stats["runs_warned"] == 2
+    assert stats["runs_taken_over"] == 1
 
 
 def test_work_type_from_task_mapping():

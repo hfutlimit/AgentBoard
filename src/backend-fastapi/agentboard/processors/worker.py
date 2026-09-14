@@ -423,6 +423,10 @@ class ProposalProcessor:
     def reclaim_stale_tasks(self) -> list[int]:
         return maintenance.reclaim_stale_tasks(self.client, self.config)
 
+    def scan_stale_runs(self) -> dict:
+        """进度停滞 AgentRun 的告警 / 接管（委托 maintenance.scan_stale_runs）。"""
+        return maintenance.scan_stale_runs(self.client, self.config)
+
     def recover_failed(self) -> list[int]:
         return maintenance.recover_failed(self.client, self.config)
 
@@ -624,13 +628,14 @@ class ProposalProcessor:
 
     def _maintenance_loop(self, publisher: "mq.ProposalPublisher",
                           stop: threading.Event) -> None:
-        """后台维护：回收超租约（提案 + 转换请求 + Story/Task）+ 自愈重投。"""
+        """后台维护：回收超租约（提案 + 转换请求 + Story/Task）+ 进度停滞接管 + 自愈重投。"""
         while not stop.wait(self.config.maintenance_interval):
             try:
                 self.reclaim_stale()
                 self.reclaim_stale_ticket_requests()
                 self.reclaim_stale_stories()
                 self.reclaim_stale_tasks()
+                self.scan_stale_runs()
                 self.sweep(publisher)
             except Exception:
                 log.exception("维护周期异常，将在下个周期重试")

@@ -129,6 +129,42 @@ def recover_failed(client: httpx.Client, config: Any) -> list[int]:
     return list(ids)
 
 
+def scan_stale_runs(client: httpx.Client, config: Any) -> dict:
+    """进度停滞扫描：AgentRun 长时间没上报 progress → 告警 / 接管。
+
+    两趟下沉到服务端 ``POST /api/scheduling/scan-stale-runs``：
+
+    1. ``is_stale=True``（UI 告警，不动业务状态）；
+    2. 超过更久仍停滞 → ``soft_takeover_run``（run 标 failed + Task 回退 todo
+       + 释放 assignment），交回候选池等下一轮仲裁。
+
+    阈值用**服务端默认**（warn 30min / takeover 60min）—— 不在 Worker 侧复制
+    一份常量，避免两边漂移。
+
+    这是 ``report_task_progress`` 的对应恢复端。之前它只有人工端点、没有任何
+    周期触发器，等于安全网没挂绳（2026-09-14 外部 review P0）。
+    """
+    r = client.request("POST", "/api/scheduling/scan-stale-runs")
+    if r.status_code != 200:
+        log.warning("扫描进度停滞 run 失败：%s %s", r.status_code, r.text[:200])
+        return {}
+    try:
+        result = r.json() or {}
+    except Exception as e:
+        log.warning("进度停滞扫描响应解析失败：%s", e)
+        return {}
+    warned = result.get("warned") or []
+    taken_over = result.get("taken_over") or []
+    if warned:
+        log.warning("进度停滞告警：%d 个 AgentRun 标记 is_stale（尚无任务变更）",
+                    len(warned))
+    if taken_over:
+        log.error("进度停滞接管：%d 个 AgentRun 已 soft takeover"
+                  "（run→failed，Task 回退 todo，assignment 已释放）",
+                  len(taken_over))
+    return result
+
+
 def sweep(client: httpx.Client, config: Any, fetch_work, publisher: Any) -> int:
     """自愈重投：把仍滞留在 queued/answered 的工作项重新投递。
 

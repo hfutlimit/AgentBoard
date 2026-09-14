@@ -493,6 +493,14 @@ class ProcessorCoordinator:
         stats["stale_stories"] = stale_stories
         stats["stale_tasks"] = stale_tasks
 
+        # 5. 进度停滞 AgentRun：告警 / soft takeover。
+        # 与上面的「租约超期回收」互补 —— 租约看认领时长，这里看 agent 是否
+        # 真的还在上报 progress（report_task_progress）。同一趟维护里驱动，
+        # 避免再起一个调度器（2026-09-14 review P0）。
+        stale_runs = maintenance.scan_stale_runs(self.client, self.config)
+        stats["runs_warned"] = len(stale_runs.get("warned") or [])
+        stats["runs_taken_over"] = len(stale_runs.get("taken_over") or [])
+
         return stats
 
     def _mapped_project_ids(self) -> list[int]:
