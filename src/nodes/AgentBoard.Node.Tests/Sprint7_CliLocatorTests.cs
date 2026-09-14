@@ -16,6 +16,18 @@ namespace AgentBoard.Node.Tests;
 public sealed class Sprint7_CliLocatorTests
 {
     [Fact]
+    public void LocateCursor_uses_configured_absolute_path_when_present()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+
+        var opts = new AgentOptions { Command = Path.Combine(Environment.SystemDirectory, "cmd.exe") };
+        var resolved = CliLocator.LocateCursor(opts, NullLogger.Instance);
+
+        Assert.Equal(opts.Command, resolved.Executable);
+        Assert.StartsWith("config:", resolved.Source);
+    }
+
+    [Fact]
     public void LocateCodex_uses_configured_absolute_path_when_present()
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return; // appveyor skip

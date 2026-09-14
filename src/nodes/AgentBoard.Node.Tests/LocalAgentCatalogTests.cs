@@ -12,6 +12,8 @@ public sealed class LocalAgentCatalogTests
     [InlineData("workbuddy", "hy4-preview")]
     [InlineData("workbuddy", "glm-5.3-flash")]
     [InlineData("minimax", "m3")]
+    [InlineData("cursor", "cursor-grok-4.6-high")]
+    [InlineData("cursor", "composer-2.5")]
     public void Basic_profile_is_disabled_until_user_selects_work(string provider, string model)
     {
         var agent = LocalAgentCatalog.Create(new(" test-agent ", provider, model, "revision"));
@@ -32,6 +34,7 @@ public sealed class LocalAgentCatalogTests
         Assert.Equal(3, LocalAgentCatalog.Models("codex").Length);
         Assert.Equal(2, LocalAgentCatalog.Models("workbuddy").Length);
         Assert.Single(LocalAgentCatalog.Models("minimax"));
+        Assert.Equal(2, LocalAgentCatalog.Models("cursor").Length);
         Assert.Throws<ArgumentException>(() => LocalAgentCatalog.Create(new("a", "workbuddy", "gpt-5.6-sol", "v1")));
         Assert.Throws<ArgumentException>(() => LocalAgentCatalog.Create(new(" ", "codex", "gpt-5.6-sol", "v1")));
         string[] args = ["exec", "--model", "old", "--model=older", "-m", "oldest", "--json"];

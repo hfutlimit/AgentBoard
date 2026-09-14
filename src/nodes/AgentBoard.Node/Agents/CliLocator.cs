@@ -109,6 +109,42 @@ public static class CliLocator
     }
 
     /// <summary>
+    /// Locate the Cursor CLI (<c>agent</c>). The Windows installer lands in
+    /// <c>%USERPROFILE%\.local\bin\agent.exe</c>; npm-global and the desktop
+    /// app's <c>cursor.cmd</c> are fallbacks.
+    /// </summary>
+    public static ResolvedCli LocateCursor(AgentOptions opts, ILogger log)
+    {
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var candidates = new List<string>
+        {
+            Path.Combine(userProfile, ".local", "bin", "agent.exe"),
+            Path.Combine(userProfile, ".local", "bin", "agent.cmd"),
+            Path.Combine(localAppData, "cursor-agent", "agent.exe"),
+            Path.Combine(localAppData, "cursor-agent", "agent.cmd"),
+            Path.Combine(NpmGlobalBin(), "agent.cmd"),
+            Path.Combine(NpmGlobalBin(), "agent.exe"),
+            Path.Combine(NpmGlobalBin(), "agent"),
+            Path.Combine(localAppData, "Programs", "cursor", "resources", "app", "bin", "cursor.cmd"),
+        };
+        try
+        {
+            return Resolve("agent", opts, candidates, BaseEnv(), log);
+        }
+        catch (CliNotFoundException)
+        {
+            var cursor = WhereOnPath("cursor") ?? WhereOnPath("cursor.cmd");
+            if (cursor is not null)
+            {
+                log.LogInformation("CLI cursor: resolved via where.exe {Path}", cursor);
+                return new ResolvedCli(cursor, $"where:{cursor}", BaseEnv(), Array.Empty<string>());
+            }
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Generic resolution for an agent that has no well-known install
     /// locations on disk — e.g. the 千问办公 (qwen) agent, whose Command points
     /// directly at a Python invoker (<c>python.exe scripts/qwen_invoker.py</c>).

@@ -9,6 +9,7 @@ public static class LocalAgentCatalog
         "codex" => ["gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6-luna"],
         "workbuddy" => ["hy4-preview", "glm-5.3-flash"],
         "minimax" => ["m3"],
+        "cursor" => ["cursor-grok-4.6-high", "composer-2.5"],
         _ => [],
     };
 
@@ -24,12 +25,18 @@ public static class LocalAgentCatalog
             Id = id, Provider = request.Provider, Enabled = false, WorkKinds = [],
             Runtime = new()
             {
-                Command = request.Provider == "workbuddy" ? "codebuddy" : request.Provider,
+                Command = request.Provider switch
+                {
+                    "workbuddy" => "codebuddy",
+                    "cursor" => "agent",
+                    _ => request.Provider,
+                },
                 Model = request.Model,
                 Arguments = request.Provider switch
                 {
                     "codex" => ["exec", "--json"],
                     "workbuddy" => ["-p", "-y", "--output-format", "text"],
+                    "cursor" => ["-p", "--force", "--trust", "--approve-mcps", "--output-format", "json"],
                     _ => ["--print"],
                 },
                 TimeoutMinutes = 30, MaxCapturedOutputChars = 100000,

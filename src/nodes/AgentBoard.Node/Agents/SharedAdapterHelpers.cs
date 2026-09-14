@@ -63,6 +63,39 @@ internal static class SharedAdapterHelpers
             : TryExtractLastJson(text);
     }
 
+    /// <summary>
+    /// Cursor CLI <c>--output-format json</c> wraps the assistant text in a
+    /// top-level <c>result</c> field. Prefer that inner payload, then fall
+    /// back to the generic last-JSON scan used by Codex / WorkBuddy.
+    /// </summary>
+    internal static string? TryExtractCursorJson(string text)
+    {
+        var trimmed = text.Trim();
+        try
+        {
+            using var document = JsonDocument.Parse(trimmed);
+            var root = document.RootElement;
+            if (root.ValueKind == JsonValueKind.Object
+                && root.TryGetProperty("result", out var result))
+            {
+                if (result.ValueKind == JsonValueKind.String)
+                {
+                    var inner = result.GetString();
+                    return string.IsNullOrWhiteSpace(inner)
+                        ? TryExtractLastJson(trimmed)
+                        : TryExtractLastJson(inner) ?? TryExtractLastJson(trimmed);
+                }
+                if (result.ValueKind == JsonValueKind.Object)
+                    return result.GetRawText();
+            }
+        }
+        catch (JsonException)
+        {
+            // Chatter before/after the JSON envelope is common.
+        }
+        return TryExtractProviderJson(text);
+    }
+
     private static string? TryExtractLastJson(string text)
     {
         string? last = null;

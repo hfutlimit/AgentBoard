@@ -138,7 +138,20 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
                 worker_id = WorkerId, executor_type = agent.Provider, model = agent.Runtime.Model,
                 cli_command = Path.GetFileName(agent.Runtime.Command), enabled = true,
             }, ct);
-            instance.EnsureSuccessStatusCode();
+            if (!instance.IsSuccessStatusCode)
+            {
+                // Older servers only allow codex/workbuddy/minimax/qwen. Worker-owned
+                // routing does not need executor_type; retry without it so presence works.
+                using var fallback = await Post(agentClient, $"api/agents/{Uri.EscapeDataString(agent.Id)}/instances", new
+                {
+                    worker_id = WorkerId, model = agent.Runtime.Model,
+                    cli_command = Path.GetFileName(agent.Runtime.Command), enabled = true,
+                }, ct);
+                fallback.EnsureSuccessStatusCode();
+                using var fallbackResult = JsonDocument.Parse(await fallback.Content.ReadAsStringAsync(ct));
+                _instances[agent.Id] = fallbackResult.RootElement.GetProperty("id").GetInt64();
+                continue;
+            }
             using var registrationResult = JsonDocument.Parse(await instance.Content.ReadAsStringAsync(ct));
             _instances[agent.Id] = registrationResult.RootElement.GetProperty("id").GetInt64();
         }

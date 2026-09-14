@@ -169,7 +169,7 @@ public sealed class WorkerStartupService : BackgroundService
         if (_agentboard.RequireRegistration)
         {
             var registeredTools = _instances.Keys
-                .Where(t => t is "workbuddy" or "codex" or "MiniMax" or "qwen")
+                .Where(t => t is "workbuddy" or "codex" or "MiniMax" or "qwen" or "cursor")
                 .ToList();
             if (registeredTools.Count == 0)
             {
@@ -245,6 +245,7 @@ public sealed class WorkerStartupService : BackgroundService
             ("codex",     _agents.Codex2),
             ("MiniMax",   _agents.MiniMax),
             ("qwen",      _agents.Qwen),
+            ("cursor",    _agents.Cursor),
             ("scenario",  _agents.Scenario),
         };
 

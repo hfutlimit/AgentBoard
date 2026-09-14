@@ -153,6 +153,9 @@ const change=(selector,value)=>{const el=d.querySelector(selector);el.value=valu
  assert.equal(d.querySelector('#arguments').value,'-p\n-y\n--output-format\ntext');
  change('#model','glm-5.3-flash');assert.equal(d.querySelector('#model').value,'glm-5.3-flash');
  change('#provider','minimax');assert.deepEqual(options('#model'),['m3']);
+ change('#provider','cursor');assert.deepEqual(options('#model'),['cursor-grok-4.6-high','composer-2.5']);
+ assert.equal(d.querySelector('#command').value,'agent');
+ assert.equal(d.querySelector('#arguments').value,'-p\n--force\n--trust\n--approve-mcps\n--output-format\njson');
  d.querySelector('#removeAgent').click();assert.equal(d.querySelectorAll('[data-agent]').length,2);
  assert.equal(d.querySelector('#startWorker').disabled,false);
  d.querySelector('#startWorker').click();d.querySelector('#startWorker').click();await flush();await flush();

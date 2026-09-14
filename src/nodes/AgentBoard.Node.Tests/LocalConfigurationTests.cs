@@ -169,6 +169,34 @@ public sealed class LocalConfigurationTests : IDisposable
     }
 
     [Fact]
+    public async Task Saved_prompts_reach_the_actual_cursor_adapter_stdin()
+    {
+        var store = new LocalConfigurationStore(Path.Combine(directory, "config.json"), Configuration());
+        var draft = store.Read();
+        draft.Configuration.Agents[0].Id = "cursor-grok";
+        draft.Configuration.Agents[0].Provider = "cursor";
+        draft.Configuration.Agents[0].Runtime.Command = Environment.ProcessPath!;
+        draft.Configuration.Agents[0].Runtime.Model = "cursor-grok-4.6-high";
+        draft.Configuration.Agents[0].Runtime.Arguments = ["-p", "--force", "--trust", "--approve-mcps", "--output-format", "json"];
+        draft.Configuration.Agents[0].PrePrompt = "READ_LOCAL_GUIDANCE";
+        draft.Configuration.Agents[0].PostPrompt = "VERIFY_ACTUAL_RESULTS";
+        store.Save(draft);
+        var profile = store.Load().Agents[0];
+        var process = new CaptureProcess();
+        var adapter = new LocalAdapterFactory(process, NullLoggerFactory.Instance).Create(profile);
+        Assert.Equal("cursor", adapter.AgentType);
+        await adapter.ExecuteAsync(new ExecutionContext(1, "test", WorkloadTypes.Task, 42, 1,
+            "cursor", "{}", WorkPlanner.Prompt("dev", "{}", profile),
+            WorkingDirectory: directory, WorkerOwnedExecution: true), CancellationToken.None);
+        Assert.Contains("READ_LOCAL_GUIDANCE", process.Spec!.StdinPayload);
+        Assert.Contains("VERIFY_ACTUAL_RESULTS", process.Spec.StdinPayload);
+        Assert.Contains("--output-format", process.Spec.Arguments);
+        Assert.Contains("json", process.Spec.Arguments);
+        Assert.Contains("--model", process.Spec.Arguments);
+        Assert.Contains("cursor-grok-4.6-high", process.Spec.Arguments);
+    }
+
+    [Fact]
     public async Task Saved_prompts_reach_the_actual_codex_adapter_stdin()
     {
         var store = new LocalConfigurationStore(Path.Combine(directory, "config.json"), Configuration());

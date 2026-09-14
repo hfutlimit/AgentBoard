@@ -257,6 +257,7 @@ public sealed class ReadinessProbe
                 "minimax" => CliLocator.LocateMinimax(opts, _log),
                 "codex" => CliLocator.LocateCodex(opts, _log),
                 "qwen" => CliLocator.LocateGeneric("qwen", opts, _log),
+                "cursor" => CliLocator.LocateCursor(opts, _log),
                 _ => throw new CliNotFoundException(agentType, opts.Command ?? "", "no locator wired"),
             };
         }
@@ -332,6 +333,7 @@ public sealed class ReadinessProbe
         "minimax" => _agents.MiniMax,
         "codex" => _agents.Codex,
         "qwen" => _agents.Qwen,
+        "cursor" => _agents.Cursor,
         "fake" => _agents.Fake,
         _ => null,
     };

@@ -253,6 +253,12 @@ public sealed class AgentsOptions
     /// </summary>
     public AgentOptions Qwen { get; set; } = new() { Command = "" };
     /// <summary>
+    /// Cursor CLI (<c>agent</c>) slot. Disabled by default. Headless flags live
+    /// in <see cref="AgentOptions.Arguments"/>; model is injected as
+    /// <c>--model</c>. Auth is <c>CURSOR_API_KEY</c> or a prior <c>agent login</c>.
+    /// </summary>
+    public AgentOptions Cursor { get; set; } = new() { Command = "" };
+    /// <summary>
     /// In-process stand-in adapter. Always returns a synthetic success
     /// decision without spawning any external CLI. Useful for local dev /
     /// smoke when no real CLI is installed; <see cref="Agents.FakeAdapter"/>
