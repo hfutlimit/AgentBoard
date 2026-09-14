@@ -5,6 +5,9 @@
 **来源**: 2026-09-14 外部架构 review 第 4-5 轮（handoff / shared memory）
 **前置**: `workflow-run-overview-20260911`（WorkflowRun slice 1+2 已落地）
 **关联**: AgentBoard Epic 168（Agent Runtime Contract & Workflow Reconciler）、Epic 169（本变更）
+**前置设计（不要重造）**: AgentBoard MCP **doc 11「Agent 记忆升维方案（get_project_memory）」**（Epic 78，2026-07-27）—— 它已定义记忆分层（项目级 / Agent 级 / 任务级 `task.spec`）与两个 MCP 工具，并明确「对标 Mem0 / Zep，但长在 PM 里、与任务闭环打通」。本变更只做**结构 + 防腐 + 交接契约**升级。
+  - ⚠ **该 doc 与代码已漂移**：doc 11 写的 `get_agent_memory(project_id)` **不存在**，实现合并进了 `get_project_memory(project_id, agent=)`（传 `agent` 时返回「项目级 + 该 Agent 专属」）。落地本变更时**以代码为准**，并顺手把 doc 11 的漂移标注掉。
+  - 看板侧镜像：MCP doc 205（`type=design`，挂 Epic 169）。
 
 ---
 
