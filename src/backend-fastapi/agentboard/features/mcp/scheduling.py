@@ -144,3 +144,14 @@ def _agent_complete_run(run_id, output, status="success", error_message=None):
 
 def _run_event_create(run_id, event_type, payload):
     return _http("POST", f"/api/agent-runs/{run_id}/events", json={"event_type": event_type, "payload": payload})
+
+
+# 2026-09-14 P1: in-flight heartbeat. Agents should call this at most every
+# 10 minutes while a run is in flight. Keeps the run from being flagged
+# stale / taken over by ``scan_stale_agent_runs``.
+def _run_progress_report(run_id, note=""):
+    return _http(
+        "POST",
+        f"/api/agent-runs/{run_id}/progress",
+        json={"note": note},
+    )
