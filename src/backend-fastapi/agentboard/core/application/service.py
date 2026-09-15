@@ -640,8 +640,18 @@ def confirm_story(s: Session, id: int, *, changed_by: int | None = None) -> Stor
         )
         project_id = epic.project_id if epic is not None else None
         if project_id is not None:
-            run = ensure_story_workflow_run(s, story_id=id, project_id=project_id)
-            if run.status == "queued":  # newly created
+            run, is_newly_created = ensure_story_workflow_run(
+                s, story_id=id, project_id=project_id,
+            )
+            # 2026-09-15 follow-up: emit ``workflow_started`` only when
+            # ``ensure_story_workflow_run`` actually created a new run.
+            # The previous ``if run.status == "queued"`` check could
+            # never fire because the helper auto-advances queued→running,
+            # so the UI never saw a workflow_started event for fresh
+            # confirm paths. The new ``is_newly_created`` flag replaces
+            # the status check and is the authoritative "this run was
+            # materialised by this call" signal.
+            if is_newly_created:
                 emit_workflow_event(
                     s,
                     workflow_run_id=run.id,

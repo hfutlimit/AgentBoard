@@ -337,9 +337,23 @@ def unclaim_story(s: Session, id: int, *, changed_by: int | None = None,
 
 
 def update_run(s: Session, id: int, **fields) -> AgentRun | None:
+    """Update mutable fields on an ``AgentRun``.
+
+    2026-09-15 follow-up: when ``status`` transitions to ``running``, also
+    initialise ``started_at`` (caller-supplied value wins) **and**
+    ``last_progress_at``. Without ``last_progress_at`` the stale scanner
+    treated a brand-new running run as "stale since the start of time"
+    because of the ``or_(last_progress_at.is_(None), ...)`` clause in
+    ``scan_stale_agent_runs``. Initialising both keeps the effective
+    progress timestamp equal to ``started_at`` from the moment of launch,
+    which is what the COALESCE in the scanner falls back to anyway. This
+    is a defence-in-depth fix: callers (executor.py) can still override
+    either field explicitly when they have a more accurate value.
+    """
     run = s.get(AgentRun, id)
     if not run:
         return None
+    transitioning_to_running = False
     for k, v in fields.items():
         if k == "status" and v is not None:
             if v not in ALL_RUN_STATUSES:
@@ -348,6 +362,7 @@ def update_run(s: Session, id: int, **fields) -> AgentRun | None:
             if v != current and v not in RUN_TRANSITIONS.get(current, set()):
                 raise IllegalTransition(f"run status {current} -> {v} illegal")
             run.status = v
+            transitioning_to_running = (v == "running" and current != "running")
         elif k == "output" and v is not None:
             run.output = v
         elif k == "error_message" and v is not None:
@@ -362,6 +377,17 @@ def update_run(s: Session, id: int, **fields) -> AgentRun | None:
             run.finished_at = v
         elif k == "task_id" and v is not None:
             run.task_id = v
+    # 2026-09-15 P0 fix: brand-new running runs must have a non-NULL
+    # ``last_progress_at`` so the scanner's COALESCE fallback doesn't
+    # shadow a run that's actually still warming up. ``started_at`` is
+    # filled below iff the caller didn't pass one explicitly; if they
+    # did, the value above already won.
+    if transitioning_to_running and run.last_progress_at is None:
+        run.last_progress_at = run.started_at or utc_now()
+    if transitioning_to_running and run.started_at is None:
+        run.started_at = utc_now()
+        if run.last_progress_at is None:
+            run.last_progress_at = run.started_at
     _commit(s); s.refresh(run); return run
 
 
@@ -1423,6 +1449,21 @@ def reclaim_stale_tasks(
     后续写入（评审驳回回退、人工改派等），说明工作项仍在活跃流转，一律保护。
     只有「认领后无任何动静且超时」的行才视为持有者已死。
 
+    2026-09-15 follow-up: also exclude any Task that has an active
+    ``AgentRun`` whose effective progress timestamp is fresher than the
+    claim lease. A long-running agent may legitimately never write the
+    Task row (e.g. agent is exploring, refactoring, or running tests
+    without intermediate status changes), so the *agent heartbeat* is
+    the new ground truth for "agent still alive" — Task.claimed_at and
+    Task.updated_at are only the lease's secondary signal.
+
+    Heartbeat-gating is the dual of the AgentRun-scanner gate: if the
+    heartbeat is fresher than the lease, we trust the agent and skip
+    this Task; if the heartbeat is also older than the lease, the
+    scanner path will mark the run stale and ``soft_takeover_run`` will
+    revert the task via its own CAS. The two layers therefore no longer
+    race on a long-running healthy agent.
+
     回收范围（两类）：
 
     1. ``claimed_by`` 非空且 ``claimed_at`` 超期 —— agent 显式认领的行；
@@ -1444,12 +1485,27 @@ def reclaim_stale_tasks(
     if lease_seconds < 0:
         raise InvalidValue("lease_seconds must be >= 0")
     cutoff = utc_now() - timedelta(seconds=lease_seconds)
+    # Heartbeat gate: any active AgentRun whose effective progress
+    # timestamp is fresher than the lease means the agent is still
+    # working even if it hasn't touched the Task row. Use ``NOT EXISTS``
+    # so the planner can short-circuit on the first matching run; if
+    # none exists, the original lease-only check applies.
+    heartbeat_subq = (
+        s.query(AgentRun.id)
+        .filter(
+            AgentRun.task_id == Task.id,
+            AgentRun.status == "running",
+            func.coalesce(AgentRun.last_progress_at, AgentRun.started_at) >= cutoff,
+        )
+        .exists()
+    )
     rows = (
         s.query(Task.id, Task.current_assignment_id)
         .outerjoin(TaskAssignment, Task.current_assignment_id == TaskAssignment.id)
         .filter(
             Task.status == Status.IN_PROGRESS,
             Task.updated_at < cutoff,
+            ~heartbeat_subq,
             or_(
                 and_(
                     Task.claimed_by.isnot(None),
@@ -2907,17 +2963,20 @@ def scan_stale_agent_runs(
     takeover_cutoff = now - timedelta(seconds=takeover_after_seconds)
 
     # Pass 1: warn (flip is_stale=True for newly-stale runs).
-    # Treat NULL last_progress_at as "stale since run start" so legacy
-    # rows from before the heartbeat exists don't silently look fresh.
+    #
+    # 2026-09-15 P0 fix: NULL ``last_progress_at`` is no longer treated as
+    # "stale since the start of time". We now use ``COALESCE(last_progress_at,
+    # started_at)`` as the effective progress timestamp, and ``started_at``
+    # itself is initialised when the run transitions to ``running`` (see
+    # ``update_run``). Legacy rows from before the heartbeat migration
+    # remain correctly handled because they have a non-NULL ``started_at``
+    # written at creation time.
     warn_rows = (
         s.query(AgentRun)
         .filter(
             AgentRun.status == "running",
             AgentRun.is_stale.is_(False),
-            or_(
-                AgentRun.last_progress_at.is_(None),
-                AgentRun.last_progress_at < warn_cutoff,
-            ),
+            func.coalesce(AgentRun.last_progress_at, AgentRun.started_at) < warn_cutoff,
         )
         .order_by(AgentRun.started_at.asc().nullslast())
         .limit(max_per_run)
@@ -2934,16 +2993,13 @@ def scan_stale_agent_runs(
             len(warned_ids), warn_after_seconds,
         )
 
-    # Pass 2: takeover.
+    # Pass 2: takeover. Same COALESCE fallback as Pass 1.
     takeover_rows = (
         s.query(AgentRun)
         .filter(
             AgentRun.status == "running",
             AgentRun.is_stale.is_(True),
-            or_(
-                AgentRun.last_progress_at.is_(None),
-                AgentRun.last_progress_at < takeover_cutoff,
-            ),
+            func.coalesce(AgentRun.last_progress_at, AgentRun.started_at) < takeover_cutoff,
         )
         .order_by(AgentRun.started_at.asc().nullslast())
         .limit(max_per_run)
@@ -2989,22 +3045,34 @@ def soft_takeover_run(s: Session, run: AgentRun, *, reason: str) -> Task:
 
     Side effects
     ------------
-    1. ``AgentRun.status`` ← ``failed``
+    1. ``AgentRun.status`` ← ``failed``  (CAS-guarded; see below)
     2. ``AgentRun.finished_at`` ← now
     3. ``AgentRun.error_message`` ← ``reason``
     4. ``Task.status`` ← ``TODO`` (only if currently IN_PROGRESS)
     5. Active ``TaskAssignment`` closed (status='released')
     6. Status history row recorded for the task
 
-    The function is idempotent: calling it twice on the same run is a
-    no-op after the first call because the run is no longer 'running'.
+    Idempotency / race safety
+    -------------------------
+    The 2026-09-15 P0 fix turns the AgentRun transition into a CAS
+    ``UPDATE`` guarded by ``status='running' AND is_stale=true``. The
+    previous implementation just mutated the ORM object, so a heartbeat
+    that flipped ``is_stale`` back to ``False`` between the scanner's
+    SELECT and this call would be silently overwritten — the agent's
+    recovery would be discarded and the run marked failed anyway.
+
+    ``rowcount`` is the source of truth: 1 → continue with the task
+    side-effects; 0 → another writer already moved the run out of
+    ``running`` (or the heartbeat recovered it) and we return ``None``
+    without touching the task.
 
     Returns
     -------
     The (refreshed) ``Task`` after the takeover. If the task was
-    already in a non-IN_PROGRESS state, the function is a no-op
-    except for the run-state update; the returned task reflects
-    whatever the current state is.
+    already in a non-IN_PROGRESS state, the function returns the task
+    unchanged (run already marked failed by the CAS). If the CAS lost
+    (another writer recovered the run first), the function returns
+    ``None`` and the caller should treat it as "no takeover needed".
 
     Raises
     ------
@@ -3013,9 +3081,33 @@ def soft_takeover_run(s: Session, run: AgentRun, *, reason: str) -> Task:
         protects, but guard anyway).
     """
     now = utc_now()
-    run.status = "failed"
-    run.finished_at = now
-    run.error_message = (run.error_message or "") + f"\nsoft_takeover: {reason}"
+    # 2026-09-15 P0 fix: CAS on the AgentRun transition. The where-clause
+    # is the *minimum* invariant the scanner guarantees about a takeover
+    # candidate; we don't need to re-check ``COALESCE(...) < cutoff``
+    # because the scanner already filtered on it. Guarding on
+    # ``is_stale=true`` is what closes the heartbeat race: a fresh
+    # heartbeat clears ``is_stale`` and the CAS loses.
+    cas = s.execute(
+        update(AgentRun)
+        .where(
+            AgentRun.id == run.id,
+            AgentRun.status == "running",
+            AgentRun.is_stale.is_(True),
+        )
+        .values(
+            status="failed",
+            finished_at=now,
+            error_message=(run.error_message or "") + f"\nsoft_takeover: {reason}",
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if cas.rowcount == 0:
+        log.info(
+            "soft_takeover_run: CAS lost for run=%d (already recovered "
+            "or not stale); skipping task side-effects",
+            run.id,
+        )
+        return None
     if run.task_id is None:
         return None  # type: ignore[return-value]
     task = s.get(Task, run.task_id)

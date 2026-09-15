@@ -90,7 +90,7 @@ def project(session):
 
 def test_emit_writes_event_and_bumps_run(session, project):
     p, st, user = project
-    run = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
+    run, _ = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
     initial_version = run.version
     initial_activity = run.last_activity_at
 
@@ -119,7 +119,7 @@ def test_emit_writes_event_and_bumps_run(session, project):
 
 def test_emit_rejects_unknown_event_type(session, project):
     p, st, _ = project
-    run = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
+    run, _ = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
     with pytest.raises(InvalidWorkflowEvent):
         emit_workflow_event(
             session,
@@ -131,7 +131,7 @@ def test_emit_rejects_unknown_event_type(session, project):
 
 def test_emit_rejects_missing_required_payload(session, project):
     p, st, _ = project
-    run = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
+    run, _ = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
     with pytest.raises(InvalidWorkflowEvent, match="missing required payload keys"):
         emit_workflow_event(
             session,
@@ -144,29 +144,102 @@ def test_emit_rejects_missing_required_payload(session, project):
 
 def test_ensure_returns_existing_active_run(session, project):
     p, st, _ = project
-    r1 = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
-    r2 = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
+    r1, _ = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
+    r2, _ = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
     assert r1.id == r2.id  # idempotent
 
 
 def test_ensure_creates_new_after_previous_terminal(session, project):
-    """If previous run is terminal, ensure creates a new active run."""
+    """If previous run is terminal, ensure creates a new active run.
+
+    2026-09-15 follow-up: ``ensure_story_workflow_run`` now auto-advances
+    the freshly-created run from ``queued`` to ``running`` so the row
+    never stays stuck on the brand-new side of the lifecycle. So the
+    pre-condition for the "create new after terminal" check is just
+    "previous is terminal", no need to manually transition queued→running.
+    """
     p, st, _ = project
-    r1 = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
+    r1, _ = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
+    assert r1.status == "running"
     from agentboard.features.workflow_runs.service import transition_workflow_run_status
-    transition_workflow_run_status(session, r1, to_status="running")
     transition_workflow_run_status(session, r1, to_status="completed", set_finished_at=True)
-    r2 = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
+    r2, _ = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
     assert r2.id != r1.id
     assert r1.status == "completed"  # untouched
-    assert r2.status == "queued"
+    assert r2.status == "running"  # auto-advanced
+
+
+def test_reopen_cancels_previous_active_run(session, project):
+    """2026-09-15 follow-up: ``reopen_story_workflow`` must cancel any
+    non-terminal predecessor before creating the new run. Previously the
+    docstring promised this behaviour but the implementation just
+    created the new run, leaving ``ensure_story_workflow_run`` to see
+    two active rows for the same Story.
+    """
+    p, st, _ = project
+    r1, _ = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
+    assert r1.status == "running"
+    # Confirm the pre-condition: r1 is the active run.
+    active_before, _ = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
+    assert active_before.id == r1.id
+
+    r2 = reopen_story_workflow(
+        session, story_id=st.id, project_id=p.id, reason="story_reopened",
+    )
+    session.refresh(r1)
+    session.refresh(r2)
+
+    # r1 must now be cancelled (terminal) — the docstring's promise, made real.
+    assert r1.status == "cancelled"
+    assert r1.finished_at is not None
+    # r2 is the new active run.
+    assert r2.id != r1.id
+    assert r2.reopened_from_run_id == r1.id
+    assert r2.status == "running"
+    # And ensure picks r2, not r1 (find-or-create invariant).
+    after, _ = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
+    assert after.id == r2.id
+
+    # Exactly one event on r2 (workflow_reopened); r1's cancel transition
+    # bumped its own version but did NOT emit a cross-run event.
+    s = session
+    events = (
+        s.query(WorkflowRunEvent)
+        .filter(WorkflowRunEvent.workflow_run_id == r2.id)
+        .all()
+    )
+    assert len(events) == 1
+    assert events[0].event_type == "workflow_reopened"
+
+
+def test_reopen_does_not_mutate_already_terminal_predecessor(session, project):
+    """If the previous run is already terminal (``completed`` /
+    ``failed`` / ``cancelled``), reopen must not try to transition it
+    again — that's an ``IllegalWorkflowTransition`` from a terminal
+    state and would break the reopen flow."""
+    p, st, _ = project
+    r1, _ = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
+    from agentboard.features.workflow_runs.service import transition_workflow_run_status
+    transition_workflow_run_status(session, r1, to_status="failed", set_finished_at=True)
+    session.refresh(r1)
+    assert r1.status == "failed"
+
+    # Should NOT raise — ``failed`` is terminal so the cancel guard skips.
+    r2 = reopen_story_workflow(
+        session, story_id=st.id, project_id=p.id, reason="after_failure",
+    )
+    session.refresh(r1)
+    session.refresh(r2)
+    assert r1.status == "failed", "predecessor must remain failed, untouched"
+    assert r2.id != r1.id
+    assert r2.reopened_from_run_id == r1.id
+    assert r2.status == "running"
 
 
 def test_reopen_creates_new_run_with_link(session, project):
     p, st, _ = project
-    r1 = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
+    r1, _ = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
     from agentboard.features.workflow_runs.service import transition_workflow_run_status
-    transition_workflow_run_status(session, r1, to_status="running")
     transition_workflow_run_status(session, r1, to_status="completed", set_finished_at=True)
     r2 = reopen_story_workflow(
         session, story_id=st.id, project_id=p.id, reason="story_reopened",
@@ -174,7 +247,7 @@ def test_reopen_creates_new_run_with_link(session, project):
     assert r2.id != r1.id
     assert r2.reopened_from_run_id == r1.id
     assert r2.phase == "design"
-    assert r2.status == "queued"
+    assert r2.status == "running"  # 2026-09-15: auto-advanced
     assert r1.status == "completed"  # old run is untouched
 
     # workflow_reopened event was emitted on the new run.
@@ -194,7 +267,7 @@ def test_reopen_creates_new_run_with_link(session, project):
 
 def test_transition_phase_emits_phase_changed_event(session, project):
     p, st, _ = project
-    run = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
+    run, _ = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
     transition_workflow_run_phase(session, run, to_phase="development", reason="auto")
 
     s = session
@@ -212,9 +285,36 @@ def test_transition_phase_emits_phase_changed_event(session, project):
     assert payload["reason"] == "auto"
 
 
+def test_transition_phase_bumps_version_exactly_once(session, project):
+    """2026-09-15 follow-up: a single ``transition_workflow_run_phase`` call
+    must bump ``run.version`` exactly once (inside the emitted
+    ``phase_changed`` event). Previously the helper also bumped version
+    directly, so every phase change increased version by 2 — which made
+    the SignalR ``workflow.changed`` broadcast skip every other event.
+    """
+    p, st, _ = project
+    run, _ = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
+    # ``ensure_story_workflow_run`` triggers an internal queued→running
+    # transition that itself emits no event but DOES set ``started_at``
+    # and bumps ``version`` once via ``transition_workflow_run_status``.
+    # Capture the post-ensure baseline explicitly.
+    session.refresh(run)
+    baseline = run.version
+    transition_workflow_run_phase(session, run, to_phase="development", reason="auto")
+    session.refresh(run)
+    assert run.version == baseline + 1, (
+        f"phase transition bumped version by {run.version - baseline}, "
+        "expected exactly 1 (the touch inside emit_workflow_event)"
+    )
+    # And a second phase change must be +1 again, not +2.
+    transition_workflow_run_phase(session, run, to_phase="qa", reason="auto")
+    session.refresh(run)
+    assert run.version == baseline + 2
+
+
 def test_record_retry_scheduled_all_three_kinds(session, project):
     p, st, _ = project
-    run = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
+    run, _ = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
     for kind in ("execution", "review_cycle", "mq_delivery"):
         record_retry_scheduled(
             session,
@@ -238,7 +338,7 @@ def test_record_retry_scheduled_all_three_kinds(session, project):
 
 def test_record_retry_scheduled_rejects_invalid_kind(session, project):
     p, st, _ = project
-    run = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
+    run, _ = ensure_story_workflow_run(session, story_id=st.id, project_id=p.id)
     with pytest.raises(InvalidWorkflowEvent, match="retry_kind must be one of"):
         # retry_kind must be in {execution, review_cycle, mq_delivery}
         record_retry_scheduled(

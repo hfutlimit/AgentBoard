@@ -239,9 +239,21 @@ def scan_stale_agent_runs_endpoint(
     Returns ``{"warned": [...], "taken_over": [...], "scanned_at": ...}``.
     Designed to be cheap enough to call every minute: a no-op pass is
     one indexed read on ``(status, last_progress_at)``.
+
+    Auth model (2026-09-15 P0 fix): admin-only when auth is enabled,
+    mirroring ``/api/admin/ticket-requests/reclaim-stale``. Previously the
+    handler called ``_auth_is_required(authorization, s)`` with two args,
+    but the helper takes zero args — every request raised ``TypeError``
+    before reaching the service. Now aligned with the rest of the admin
+    endpoints; maintenance worker uses the same admin credential as
+    ticket-request reclaim, so no behaviour change for the worker.
     """
     from .service import scan_stale_agent_runs
-    api_helpers._auth_is_required(authorization, s)
+    uid, is_admin = api_helpers._caller_uid_admin(authorization)
+    if api_helpers._auth_is_required() and uid is None:
+        raise HTTPException(status_code=401, detail="unauthorized")
+    if api_helpers._auth_is_required() and not is_admin:
+        raise HTTPException(status_code=403, detail="admin required")
     result = scan_stale_agent_runs(
         s,
         warn_after_seconds=warn_after_seconds,

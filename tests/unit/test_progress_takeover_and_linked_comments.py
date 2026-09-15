@@ -423,3 +423,241 @@ def test_list_comments_returns_linked_document_id(session, project, admin_user):
     assert len(rows) == 1
     serialized = work_items_service._ser(rows[0])
     assert serialized["linked_document_id"] == doc.id
+
+
+# ===========================================================================
+# 2026-09-15 P0 follow-ups:
+#   - ``update_run(status='running')`` must initialise ``started_at`` and
+#     ``last_progress_at`` so the scanner's COALESCE fallback is never
+#     materialised for a brand-new run.
+#   - ``scan_stale_agent_runs`` must no longer flag a freshly-running run
+#     as stale just because ``last_progress_at`` happens to be NULL on a
+#     row written before the heartbeat migration.
+# ===========================================================================
+
+def test_update_run_running_initialises_progress(session, project, agent, admin_user):
+    """``update_run(s, run.id, status='running')`` stamps ``started_at`` AND
+    ``last_progress_at`` so the scanner sees a brand-new run as fresh.
+
+    Prior behaviour (2026-09-14): the executor set ``status='running'`` and
+    ``started_at`` via ``update_run`` but ``last_progress_at`` stayed NULL.
+    The next scan flipped ``is_stale=True`` immediately, and within the
+    same pass the takeover query marked the run failed — same wall-clock
+    minute. Lock the fix in.
+    """
+    t, _a = _make_in_progress_task(
+        session, project, agent, title="p2-running-init", user_id=admin_user.id,
+    )
+    run = _make_agent_run(session, t.id, agent, status="pending")
+    assert run.last_progress_at is None
+    assert run.started_at is None
+
+    scheduling_service.update_run(session, run.id, status="running")
+    session.refresh(run)
+    assert run.status == "running"
+    assert run.started_at is not None
+    assert run.last_progress_at is not None
+    # SQLite stores timestamps at second-level precision in some test
+    # builds; the two values are written within the same call so they
+    # must be within a few seconds of each other.
+    assert abs((run.last_progress_at - run.started_at).total_seconds()) < 5
+
+
+def test_update_run_running_preserves_caller_started_at(session, project, agent, admin_user):
+    """If the caller passes ``started_at`` explicitly, the value wins and
+    ``last_progress_at`` aligns with it (not ``utc_now()``). The executor
+    relies on this for clock-skew correction."""
+    from datetime import datetime
+    t, _a = _make_in_progress_task(
+        session, project, agent, title="p2-running-skew", user_id=admin_user.id,
+    )
+    run = _make_agent_run(session, t.id, agent, status="pending")
+    # SQLite drops tzinfo on round-trip; use a naive UTC value that the
+    # production code will see as the same instant.
+    explicit = datetime(2026, 9, 15, 10, 30)
+
+    scheduling_service.update_run(
+        session, run.id, status="running", started_at=explicit,
+    )
+    session.refresh(run)
+    assert run.started_at == explicit
+    assert run.last_progress_at == explicit
+
+
+def test_scan_stale_does_not_kill_freshly_running_run(
+    session, project, agent, admin_user,
+):
+    """The regression: a row whose ``last_progress_at`` is NULL but whose
+    ``started_at`` is fresh used to be flagged stale in the very first
+    scan. With ``COALESCE(last_progress_at, started_at)`` that path is
+    closed. We backdate ``started_at`` to 5 s ago and assert the scanner
+    leaves the run alone."""
+    t, _a = _make_in_progress_task(
+        session, project, agent, title="p2-fresh-run", user_id=admin_user.id,
+    )
+    run = _make_agent_run(session, t.id, agent, status="running")
+    # Simulate "transition happened a moment ago, heartbeat hasn't fired".
+    session.execute(
+        update(AgentRun).where(AgentRun.id == run.id).values(
+            last_progress_at=None,
+            started_at=utc_now() - timedelta(seconds=5),
+        )
+    )
+    session.commit()
+
+    result = scheduling_service.scan_stale_agent_runs(
+        session, warn_after_seconds=30 * 60, takeover_after_seconds=60 * 60,
+    )
+    assert run.id not in result["warned"]
+    assert run.id not in result["taken_over"]
+    session.refresh(run)
+    assert run.is_stale is False
+    assert run.status == "running"
+
+
+def test_scan_stale_still_warns_when_started_at_is_old_and_no_heartbeat(
+    session, project, agent, admin_user,
+):
+    """Defensive: if ``started_at`` itself is past the warn threshold and
+    the agent never reported any heartbeat, the scanner still treats the
+    run as stale. This preserves the original "stale since run start"
+    behaviour for legacy rows that predate the heartbeat."""
+    t, _a = _make_in_progress_task(
+        session, project, agent, title="p2-legacy-no-hb", user_id=admin_user.id,
+    )
+    run = _make_agent_run(session, t.id, agent, status="running")
+    session.execute(
+        update(AgentRun).where(AgentRun.id == run.id).values(
+            last_progress_at=None,
+            started_at=utc_now() - timedelta(minutes=45),
+        )
+    )
+    session.commit()
+
+    result = scheduling_service.scan_stale_agent_runs(
+        session, warn_after_seconds=30 * 60, takeover_after_seconds=60 * 60,
+    )
+    assert run.id in result["warned"]
+    session.refresh(run)
+    assert run.is_stale is True
+
+
+# ===========================================================================
+# 2026-09-15 P0 follow-ups — soft_takeover_run race safety
+#
+# The previous implementation did ``run.status = "failed"`` directly on
+# the ORM object, which is not a CAS. The tests below pin the new
+# behaviour: when ``is_stale`` flips back to False (the agent
+# recovered) between the scanner's SELECT and the takeover call, the
+# takeover must NOT mark the run failed or revert the task.
+# ===========================================================================
+
+def test_soft_takeover_cas_loses_when_is_stale_cleared_by_heartbeat(
+    session, project, agent, admin_user,
+):
+    """Simulate the race: scanner sees stale run; agent heartbeats between
+    scanner SELECT and takeover call, clearing ``is_stale``. The CAS
+    must lose (rowcount 0) and the task must NOT be reverted.
+    """
+    t, _a = _make_in_progress_task(
+        session, project, agent, title="p2-take-race", user_id=admin_user.id,
+    )
+    run = _make_agent_run(session, t.id, agent, status="running")
+    # Scanner's snapshot: is_stale=True, old progress.
+    session.execute(
+        update(AgentRun).where(AgentRun.id == run.id).values(
+            is_stale=True,
+            last_progress_at=utc_now() - timedelta(minutes=70),
+        )
+    )
+    session.commit()
+
+    # Now the agent recovers between SELECT and takeover call. In real
+    # life this is ``report_task_progress`` clearing is_stale.
+    session.refresh(run)
+    scheduling_service.report_task_progress(
+        session, run_id=run.id, note="recovered",
+        actor_user_id=admin_user.id,
+    )
+
+    # Takeover attempt must CAS-lose.
+    session.refresh(run)
+    result = scheduling_service.soft_takeover_run(
+        session, run, reason="stale_progress_takeover",
+    )
+    assert result is None  # CAS lost
+
+    session.refresh(run)
+    session.refresh(t)
+    assert run.status == "running", "run must not be flipped to failed"
+    assert run.is_stale is False, "heartbeat's clear must survive"
+    assert t.status == Status.IN_PROGRESS.value, "task must not be reverted"
+
+
+def test_soft_takeover_cas_loses_on_already_terminal_run(
+    session, project, agent, admin_user,
+):
+    """If a concurrent writer already moved the run out of ``running``,
+    the takeover CAS must lose. The task is not touched (the previous
+    caller may already have moved it through review)."""
+    t, _a = _make_in_progress_task(
+        session, project, agent, title="p2-take-terminal", user_id=admin_user.id,
+    )
+    run = _make_agent_run(session, t.id, agent, status="running")
+    session.execute(
+        update(AgentRun).where(AgentRun.id == run.id).values(
+            is_stale=True,
+            last_progress_at=utc_now() - timedelta(minutes=70),
+        )
+    )
+    session.commit()
+
+    # Simulate "another thread completed the run".
+    session.execute(
+        update(AgentRun).where(AgentRun.id == run.id)
+        .values(status="success", finished_at=utc_now())
+    )
+    session.commit()
+
+    session.refresh(run)
+    result = scheduling_service.soft_takeover_run(
+        session, run, reason="stale_progress_takeover",
+    )
+    assert result is None  # CAS lost on status guard
+
+    session.refresh(run)
+    session.refresh(t)
+    assert run.status == "success", "must not overwrite the writer's success"
+    assert t.status == Status.IN_PROGRESS.value, "task untouched"
+
+
+def test_soft_takeover_succeeds_when_run_is_stale_and_terminal_task(
+    session, project, agent, admin_user,
+):
+    """Happy path: stale run + in_progress task → run marked failed,
+    task reverted, assignment released. Verifies the CAS still does the
+    right thing when no race occurs."""
+    t, a = _make_in_progress_task(
+        session, project, agent, title="p2-take-happy", user_id=admin_user.id,
+    )
+    run = _make_agent_run(session, t.id, agent, status="running")
+    session.execute(
+        update(AgentRun).where(AgentRun.id == run.id).values(
+            is_stale=True,
+            last_progress_at=utc_now() - timedelta(minutes=70),
+        )
+    )
+    session.commit()
+
+    session.refresh(run)
+    scheduling_service.soft_takeover_run(
+        session, run, reason="stale_progress_takeover",
+    )
+    session.refresh(run)
+    session.refresh(t)
+    session.refresh(a)
+    assert run.status == "failed"
+    assert "soft_takeover" in (run.error_message or "")
+    assert t.status == Status.TODO.value
+    assert t.current_assignment_id is None
+    assert a.status == "released"

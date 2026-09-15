@@ -239,3 +239,108 @@ def test_in_progress_without_assignment_is_untouched(session, project, admin_use
     assert scheduling_service.reclaim_stale_tasks(session, lease_seconds=1800) == []
     session.refresh(t)
     assert t.status == Status.IN_PROGRESS.value
+
+
+# ===========================================================================
+# 2026-09-15 follow-up: reclaim_stale_tasks must respect the AgentRun
+# heartbeat. A long-running agent may legitimately never write the Task
+# row, so the *effective progress timestamp* on the active run is the
+# authoritative "agent still alive" signal. Lock the contract down.
+# ===========================================================================
+
+from agentboard.features.scheduling.models import AgentRun  # noqa: E402
+
+
+def _make_running_run(session, task_id, agent, *, progress_age_seconds):
+    """Create a ``status='running'`` ``AgentRun`` whose ``last_progress_at``
+    is ``progress_age_seconds`` old. The heartbeat gate reads this column."""
+    from datetime import datetime
+    run = AgentRun(
+        schedule_id=0, task_id=task_id, agent_registry_id=agent.id,
+        agent=agent.agent_id, status="running",
+    )
+    session.add(run)
+    session.flush()
+    session.execute(
+        update(AgentRun).where(AgentRun.id == run.id).values(
+            started_at=utc_now() - timedelta(seconds=progress_age_seconds + 60),
+            last_progress_at=utc_now() - timedelta(seconds=progress_age_seconds),
+        )
+    )
+    session.commit()
+    session.refresh(run)
+    return run
+
+
+def test_reclaim_skips_task_with_fresh_agent_run_heartbeat(
+    session, project, agent, admin_user,
+):
+    """Stale Task lease, but the agent's heartbeat is fresh → trust the
+    agent, do not reclaim. Without this guard the worker would have
+    killed a 45-minute Codex run mid-refactor.
+    """
+    t, a = _make_assigned_task(
+        session, project, agent, source="arbitration",
+        title="long-running", user_id=admin_user.id, stale=True,
+    )
+    # Lease = 1800s, but heartbeat is only 60s old. Task row hasn't been
+    # touched because the agent is doing pure reasoning.
+    _make_running_run(session, t.id, agent, progress_age_seconds=60)
+    assert scheduling_service.reclaim_stale_tasks(session, lease_seconds=1800) == []
+    session.refresh(t)
+    session.refresh(a)
+    assert t.status == Status.IN_PROGRESS.value
+    assert t.current_assignment_id == a.id
+    assert a.status == "active"
+
+
+def test_reclaim_proceeds_when_heartbeat_also_stale(
+    session, project, agent, admin_user,
+):
+    """Heartbeat older than the lease → reclaim proceeds. The run will
+    still get marked stale by the scanner pass and ``soft_takeover_run``
+    will do the cross-table cleanup there; this is the happy
+    double-confirmation path."""
+    t, a = _make_assigned_task(
+        session, project, agent, source="arbitration",
+        title="truly-dead", user_id=admin_user.id, stale=True,
+    )
+    # Heartbeat older than 1800s lease → not protected.
+    _make_running_run(session, t.id, agent, progress_age_seconds=7200)
+    reclaimed = scheduling_service.reclaim_stale_tasks(session, lease_seconds=1800)
+    assert t.id in reclaimed
+    session.refresh(t)
+    assert t.status == Status.TODO.value
+
+
+def test_reclaim_skips_when_any_active_run_has_fresh_heartbeat(
+    session, project, agent, admin_user,
+):
+    """If multiple runs exist for the same task (e.g. one retry attempt
+    died and a second was spawned), a fresh heartbeat on ANY of them
+    protects the task. The guard uses ``EXISTS`` semantics, not
+    ``FOR ALL``."""
+    t, a = _make_assigned_task(
+        session, project, agent, source="arbitration",
+        title="multi-run", user_id=admin_user.id, stale=True,
+    )
+    # First run died long ago — terminal, doesn't count.
+    dead = AgentRun(
+        schedule_id=0, task_id=t.id, agent_registry_id=agent.id,
+        agent=agent.agent_id, status="failed",
+    )
+    session.add(dead)
+    session.flush()
+    session.execute(
+        update(AgentRun).where(AgentRun.id == dead.id).values(
+            started_at=utc_now() - timedelta(hours=4),
+            last_progress_at=utc_now() - timedelta(hours=4),
+            finished_at=utc_now() - timedelta(hours=3, minutes=50),
+        )
+    )
+    # Second run is alive and just heartbeated.
+    _make_running_run(session, t.id, agent, progress_age_seconds=10)
+    session.commit()
+    assert scheduling_service.reclaim_stale_tasks(session, lease_seconds=1800) == []
+    session.refresh(t)
+    assert t.status == Status.IN_PROGRESS.value

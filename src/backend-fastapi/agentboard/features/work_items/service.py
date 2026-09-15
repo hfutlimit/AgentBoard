@@ -383,7 +383,15 @@ def set_status(
     ):
         try:
             from ..workflow_runs.service import ensure_story_workflow_run, emit_workflow_event
-            run = ensure_story_workflow_run(s, story_id=t.story_id, project_id=t.project_id)
+            # 2026-09-15: ensure returns ``(run, is_newly_created)``. The
+            # ``task_reopened`` event below is meaningful regardless of
+            # whether the run was just created or already existed (an
+            # existing run is the common case — task reopened after
+            # review rejection reuses the original run), so we drop the
+            # ``is_newly_created`` flag here.
+            run, _is_newly_created = ensure_story_workflow_run(
+                s, story_id=t.story_id, project_id=t.project_id,
+            )
             emit_workflow_event(
                 s,
                 workflow_run_id=run.id,

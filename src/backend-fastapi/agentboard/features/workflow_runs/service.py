@@ -117,11 +117,19 @@ def transition_workflow_run_phase(
     ``WORKFLOW_PHASE_TRANSITIONS`` (no "phase = anything" allowed).
 
     The ``phase_changed`` event is emitted atomically (same session).
+
+    2026-09-15 follow-up: ``run.version`` is bumped **once**, inside
+    ``emit_workflow_event``'s ``touch_workflow_run`` call. The previous
+    implementation also bumped it here, which made every phase change
+    increment version by 2 (one here, one in the touch). That's a real
+    bug for the active-workflows panel that uses version as the
+    SignalR broadcast cursor — listeners would skip every other event.
+    The fix is to leave version management solely to
+    ``emit_workflow_event``.
     """
     from_phase = run.phase
     assert_transition_phase(from_phase, to_phase)
     run.phase = to_phase
-    run.version = (run.version or 1) + 1
     s.add(run)
     s.flush()
     emit_workflow_event(
@@ -211,15 +219,27 @@ def ensure_story_workflow_run(
     *,
     story_id: int,
     project_id: int,
-) -> WorkflowRun:
+) -> tuple[WorkflowRun, bool]:
     """Find-or-create the WorkflowRun for a Story.
 
     v1: every Story has at most ONE *active* (non-terminal) WorkflowRun. If
     the Story already has a non-terminal run, return it. Otherwise create a
     new run with status=queued, phase=design.
 
-    Slice 7 reconciliation will eventually reconcile this against the event
-    stream; for now this is a simple "latest active run" lookup.
+    2026-09-15 follow-up: when we create (or return) a run that is still
+    in ``status='queued'``, advance it to ``running`` here. Previously
+    nothing flipped queued→running automatically, so the run stayed in
+    queued state forever while the rest of the system emitted events
+    with ``state='running'``. UI users saw a queued badge and no
+    timeline.
+
+    Returns ``(run, is_newly_created)``. ``is_newly_created`` is True only
+    when this call materialised a brand-new WorkflowRun (not when it
+    returned an existing one). Callers that need to emit a one-shot
+    ``workflow_started`` event use the flag to stay idempotent — the
+    function is still idempotent itself: the second call returns the
+    same row with ``is_newly_created=False`` and never re-emits the
+    transition.
     """
     existing = (
         s.query(WorkflowRun)
@@ -229,14 +249,18 @@ def ensure_story_workflow_run(
         .first()
     )
     if existing is not None:
-        return existing
-    return create_workflow_run(
+        if existing.status == "queued":
+            transition_workflow_run_status(s, existing, to_status="running")
+        return existing, False
+    new_run = create_workflow_run(
         s,
         project_id=project_id,
         workflow_type="story",
         story_id=story_id,
         initial_phase="design",
     )
+    transition_workflow_run_status(s, new_run, to_status="running")
+    return new_run, True
 
 
 def reopen_story_workflow(
@@ -251,6 +275,24 @@ def reopen_story_workflow(
     Pinned by user 2026-09-11: the old run is NEVER mutated. If the previous
     run is still active, mark it cancelled first (no concurrent runs), then
     create the new run with ``reopened_from_run_id`` pointing at it.
+
+    2026-09-15 follow-up: the cancel-old step that the docstring already
+    promised is now actually implemented. The previous implementation
+    just called ``create_workflow_run`` and left any active ``previous``
+    run untouched. That had two visible consequences:
+
+    1. ``ensure_story_workflow_run`` would find two non-terminal runs on
+       the same Story and return the **older** one, breaking the
+       find-or-create semantics for any caller that landed between
+       reopen and the next task event.
+    2. The active-workflows panel kept showing the old run in the
+       timeline alongside the new one, with no visual indicator that
+       one of them was dead.
+
+    The fix is to ``transition_workflow_run_status(... cancelled)`` on
+    any non-terminal ``previous`` row before creating the new one.
+    The state machine permits ``{queued, running, waiting, blocked} →
+    cancelled`` so this is always legal.
     """
     previous = (
         s.query(WorkflowRun)
@@ -258,6 +300,15 @@ def reopen_story_workflow(
         .order_by(WorkflowRun.id.desc())
         .first()
     )
+    if previous is not None and previous.status in (
+        "queued", "running", "waiting", "blocked",
+    ):
+        # Cancel the predecessor so concurrent callers see exactly one
+        # active run for the Story. ``transition_workflow_run_status``
+        # bumps ``version`` and writes ``finished_at`` if needed.
+        transition_workflow_run_status(
+            s, previous, to_status="cancelled", set_finished_at=True,
+        )
     new_run = create_workflow_run(
         s,
         project_id=project_id,
@@ -266,6 +317,10 @@ def reopen_story_workflow(
         reopened_from_run_id=previous.id if previous is not None else None,
         initial_phase="design",
     )
+    # 2026-09-15: ensure keeps the brand-new run consistent with the
+    # rest of the system (auto queued→running + ``is_newly_created``
+    # flag for ``workflow_started`` emit).
+    transition_workflow_run_status(s, new_run, to_status="running")
     # Cross-run lifecycle event (distinct from in-run `task_reopened`).
     emit_workflow_event(
         s,

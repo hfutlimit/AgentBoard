@@ -100,7 +100,7 @@ def test_confirm_story_creates_workflow_run_and_workflow_started_event(session, 
         .all()
     )
     assert len(runs) == 1
-    assert runs[0].status == "queued"
+    assert runs[0].status == "running"  # 2026-09-15: ensure auto-advances
     assert runs[0].phase == "design"
     assert runs[0].workflow_type == "story"
 
