@@ -143,16 +143,24 @@ def scan_stale_runs(client: httpx.Client, config: Any) -> dict:
 
     这是 ``report_task_progress`` 的对应恢复端。之前它只有人工端点、没有任何
     周期触发器，等于安全网没挂绳（2026-09-14 外部 review P0）。
+
+    Returns
+    -------
+    服务端的响应 dict，键 ``warned`` / ``taken_over`` / ``scanned_at``。
+    当端点非 200 / 响应无法解析时返回 ``{"error": <code-or-message>,
+    "warned": [], "taken_over": []}`` 而不是 ``{}``，让 coordinator 把
+    ``error`` 落进 stats（"scan_error": 1）以便运维侧能区分"扫描正常但没
+    抓到停滞 run"和"worker→server 链路本身坏了"。
     """
     r = client.request("POST", "/api/scheduling/scan-stale-runs")
     if r.status_code != 200:
         log.warning("扫描进度停滞 run 失败：%s %s", r.status_code, r.text[:200])
-        return {}
+        return {"error": r.status_code, "warned": [], "taken_over": []}
     try:
         result = r.json() or {}
     except Exception as e:
         log.warning("进度停滞扫描响应解析失败：%s", e)
-        return {}
+        return {"error": f"parse_error: {e}", "warned": [], "taken_over": []}
     warned = result.get("warned") or []
     taken_over = result.get("taken_over") or []
     if warned:

@@ -628,7 +628,19 @@ class ProposalProcessor:
 
     def _maintenance_loop(self, publisher: "mq.ProposalPublisher",
                           stop: threading.Event) -> None:
-        """后台维护：回收超租约（提案 + 转换请求 + Story/Task）+ 进度停滞接管 + 自愈重投。"""
+        """后台维护：回收超租约（提案 + 转换请求 + Story/Task）+ 进度停滞接管 + 自愈重投。
+
+        顺序意图（2026-09-15 review P2 follow-up）：
+        - reclaim_stale_tasks 看的是 **Task claim lease**（默认 30min），超时
+          就把 task 退回 todo + 释放 assignment。AgentRun.status 这时仍是
+          running（heartbeat 端点没改它）。
+        - scan_stale_runs 看的是 **AgentRun heartbeat**（默认 60min 才触发
+          soft_takeover），从端点取走 is_stale=True 的 run。它内部对
+          task.status != IN_PROGRESS 的 run 是 no-op（见
+          soft_takeover_run），所以 reclaim 先跑、scan 再跑不会重复改 task
+          —— 只会多一条 "run→failed" 的状态写入。可以接受。
+        - sweep 只重投 queued/answered 的工作项，跟前面两层不重叠。
+        """
         while not stop.wait(self.config.maintenance_interval):
             try:
                 self.reclaim_stale()

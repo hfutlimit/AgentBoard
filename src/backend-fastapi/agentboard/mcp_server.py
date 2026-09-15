@@ -1075,11 +1075,18 @@ def post_document_link(
        string if you don't want any body at all — the link is the
        message).
 
-    Returns ``{"document": {...}, "comment": {...}}`` so the agent
-    can confirm both writes succeeded. If the comment step fails
-    (e.g. task deleted between the two writes) the document is
-    left in place; cleanup is left to the caller since the document
-    is independently useful.
+    Returns ``{"document": {...}, "comment": {...}}`` on the happy path
+    so the agent can confirm both writes succeeded.
+
+    Failure modes:
+      - **create_document fails / returns no id** — raises ``RuntimeError``
+        and the comment step is NOT attempted. The document was never
+        written, so the caller can simply retry without worrying about a
+        stray doc to clean up.
+      - **comment step fails** (e.g. task deleted between the two writes)
+        — the document is left in place and ``comment`` is returned as
+        the error payload. Cleanup is left to the caller since the
+        document is independently useful.
 
     Args:
         project_id: Document's project.
@@ -1101,8 +1108,11 @@ def post_document_link(
     document_id = document.get("id") if isinstance(document, dict) else None
     if document_id is None:
         # create_document returned a non-dict shape (e.g. error string);
-        # surface it to the caller without attempting the comment.
-        return {"document": document, "comment": None}
+        # no document row was written, so the safe thing is to surface
+        # the failure to the caller instead of silently swallowing it.
+        # The agent can retry without leaving a stray doc behind.
+        preview = document if isinstance(document, str) else repr(document)[:200]
+        raise RuntimeError(f"create_document failed: {preview}")
     summary = (comment_summary or "").strip() or f"📄 {title}"
     comment = add_comment(
         task_id=task_id, author=comment_author, content=summary,

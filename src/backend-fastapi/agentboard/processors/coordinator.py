@@ -500,6 +500,12 @@ class ProcessorCoordinator:
         stale_runs = maintenance.scan_stale_runs(self.client, self.config)
         stats["runs_warned"] = len(stale_runs.get("warned") or [])
         stats["runs_taken_over"] = len(stale_runs.get("taken_over") or [])
+        # scan_error 让运维侧把 "没抓到停滞 run" 和 "worker→server 链路坏"
+        # 分开 —— 前者是健康空结果，后者是网络/服务异常。1 = 该趟扫描失败。
+        if stale_runs.get("error") is not None:
+            stats["runs_scan_error"] = 1
+        else:
+            stats["runs_scan_error"] = 0
 
         return stats
 

@@ -86,7 +86,11 @@ public sealed class CursorAdapter : IAgentAdapter
     {
         var env = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         foreach (var (k, v) in locatorEnv) env[k] = v;
-        foreach (var name in new[] { "CURSOR_API_KEY", "CURSOR_CONFIG_DIR", "HOME" })
+        // Cursor 1.0+ uses CURSOR_TOKEN (Bearer-style API token); the older
+        // CURSOR_API_KEY is still accepted by some installations. Forward both
+        // so whichever the user set on the host reaches the CLI. CURSOR_CONFIG_DIR
+        // and HOME round out the auth + config bootstrap the CLI expects.
+        foreach (var name in new[] { "CURSOR_TOKEN", "CURSOR_API_KEY", "CURSOR_CONFIG_DIR", "HOME" })
         {
             var value = System.Environment.GetEnvironmentVariable(name);
             if (!string.IsNullOrWhiteSpace(value) && !env.ContainsKey(name)) env[name] = value;
