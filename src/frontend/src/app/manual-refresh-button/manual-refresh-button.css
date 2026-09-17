@@ -1,0 +1,75 @@
+/* ManualRefreshButtonComponent — 36×36 方形图标按钮（Story #437）
+ * 收敛四个手动刷新入口的呈现/状态/无障碍语义。
+ * 颜色与尺寸走现有主题变量；不依赖 .icon-btn 默认 padding/尺寸。
+ */
+.manual-refresh-button {
+  box-sizing: border-box;
+  padding: 0;
+  margin: 0;
+  inline-size: 36px;
+  block-size: 36px;
+  min-inline-size: 36px;
+  min-block-size: 36px;
+  flex: 0 0 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border, rgba(148, 163, 184, .35));
+  color: var(--text-2, #475569);
+  cursor: pointer;
+  transition: background-color .15s ease, color .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.manual-refresh-button:hover:not(:disabled) {
+  background: var(--surface-2, rgba(148, 163, 184, .08));
+  border-color: var(--brand-500, #3b82f6);
+  color: var(--text, #0f172a);
+}
+.manual-ref-button:focus-visible,
+.manual-refresh-button:focus-visible {
+  outline: none;
+  border-color: var(--brand-500, #3b82f6);
+  box-shadow: 0 0 0 3px var(--brand-ring, rgba(59, 130, 246, .25));
+}
+.manual-refresh-button:active:not(:disabled) {
+  background: var(--surface-2, rgba(148, 163, 184, .12));
+  border-color: var(--brand-500, #3b82f6);
+  color: var(--text, #0f172a);
+}
+.manual-refresh-button:disabled,
+.manual-refresh-button.is-busy {
+  cursor: not-allowed;
+  background: var(--surface-2, rgba(148, 163, 184, .08));
+  border-color: var(--border, rgba(148, 163, 184, .35));
+  color: var(--text-3, #94a3b8);
+}
+.manual-refresh-button .refresh-icon,
+.manual-refresh-button .refresh-spinner {
+  width: 16px;
+  height: 16px;
+}
+.manual-refresh-button .refresh-spinner {
+  border-radius: 50%;
+  border: 2px solid var(--border, rgba(148, 163, 184, .35));
+  border-top-color: var(--brand-500, #3b82f6);
+  animation: mrb-spin .7s linear infinite;
+}
+@keyframes mrb-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .manual-refresh-button .refresh-spinner {
+    animation-duration: 1.4s;
+  }
+}
+
+/* 根 App slim 工具栏专门覆盖：.taskbar--slim 默认 32px，这里专门覆写 */
+.taskbar--slim .btn.icon-btn.manual-refresh-button {
+  inline-size: 36px;
+  block-size: 36px;
+  min-inline-size: 36px;
+  min-block-size: 36px;
+  flex: 0 0 36px;
+}

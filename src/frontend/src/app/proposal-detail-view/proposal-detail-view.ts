@@ -2,13 +2,14 @@ import { CommonModule } from '@angular/common';
 import { Component, ViewEncapsulation, inject } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
+import { ManualRefreshButtonComponent } from '../manual-refresh-button/manual-refresh-button';
 import { ProjectDataService } from '../services/project-data.service';
 
 /** Workspace Proposal detail adapter that reuses the root App's existing signals and actions. */
 @Component({
   selector: 'app-proposal-detail-view',
   standalone: true,
-  imports: [CommonModule, RouterLink, WorkspaceHeadingComponent],
+  imports: [CommonModule, RouterLink, WorkspaceHeadingComponent, ManualRefreshButtonComponent],
   templateUrl: './proposal-detail-view.html',
   encapsulation: ViewEncapsulation.None,
 })

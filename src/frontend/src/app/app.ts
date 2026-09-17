@@ -16,6 +16,7 @@ import { LoginComponent } from './login/login';
 import { AgentRow, AgentSchedule, ApiKeyInfo, Attachment, AuditLog, Comment, Epic, ItemType, KanbanBoard, KanbanStory, Notification, OverviewStats, Priority, Project, ProjectTabKind, ProjectMember, ProjectStats, ReviewStats, ReviewTimeoutResult, Sprint, SprintStatus, Status, Story, StoryStatusHistoryRow, Task, TaskDependencies, UserProfile, WebhookConfig, DocumentItem, DocumentCommentItem, DocumentFolder, DocumentRevisionItem, DocumentType, DocumentStatus, DOCUMENT_TYPES, DOCUMENT_STATUSES, ProposalItem, ProposalRoundItem, ProposalQuestionItem, ProposalStatus, PROPOSAL_STATUSES, TicketRequestItem, TicketType, TicketItem } from './models';
 import { BottomTabBarComponent } from './bottom-tab-bar/bottom-tab-bar';
 import { FocusTrapDirective } from './shared/focus-trap.directive';
+import { ManualRefreshButtonComponent } from './manual-refresh-button/manual-refresh-button';
 import { ManagedListComponent } from './managed-list/managed-list';
 import { HomeShellComponent } from './home-shell/home-shell';
 import { AccountSettingsComponent } from './account-settings/account-settings';
@@ -89,7 +90,7 @@ interface PaletteCommand {
 
 @Component({
   selector: 'app-root',
-  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, HomeShellComponent, AccountSettingsComponent, WorkspaceTopbarComponent, WorkspaceHeadingComponent, BottomTabBarComponent, FocusTrapDirective],
+  imports: [CommonModule, FormsModule, RouterLink, RouterOutlet, LoginComponent, HomeShellComponent, AccountSettingsComponent, WorkspaceTopbarComponent, WorkspaceHeadingComponent, BottomTabBarComponent, FocusTrapDirective, ManualRefreshButtonComponent],
   templateUrl: './app.html',
   styleUrls: ['./app.css', './app-features.css'],
   encapsulation: ViewEncapsulation.None,

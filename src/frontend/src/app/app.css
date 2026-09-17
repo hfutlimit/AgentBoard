@@ -1635,42 +1635,15 @@ router-outlet {
   line-height: 1;
 }
 
-/* Epic 78 (v6.6): 手动刷新按钮 + 刷新中加载态 */
-.btn.refresh-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 500;
-  transition: background-color .15s ease, color .15s ease, opacity .15s ease;
-}
-.btn.refresh-btn .refresh-icon {
-  width: 15px;
-  height: 15px;
-  transition: transform .3s ease;
-}
-.btn.refresh-btn:not(:disabled):hover .refresh-icon {
-  transform: rotate(90deg);
-}
-.btn.refresh-btn:disabled {
-  cursor: progress;
-  opacity: .75;
-}
-.refresh-spinner {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 2px solid var(--border, rgba(148, 163, 184, .35));
-  border-top-color: var(--primary, #3b82f6);
-  animation: refresh-spin .7s linear infinite;
-  flex-shrink: 0;
-}
-@keyframes refresh-spin {
-  to { transform: rotate(360deg); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .refresh-spinner { animation-duration: 1.4s; }
-  .btn.refresh-btn .refresh-icon { transition: none; }
-}
+/* Epic 78 (v6.6) + v7.x 手动刷新按钮 + spinner 已迁移至
+ * src/frontend/src/app/manual-refresh-button/ (Story #437 / openspec:unified-manual-refresh-controls)。
+ * 全局 `.btn.refresh-btn` / `.refresh-icon` / `.refresh-spinner` 规则已废弃，由组件封装样式接管。
+ */
+
+/* Epic 78 (v6.6) + v7.x 手动刷新按钮 + spinner 已迁移至
+ * src/frontend/src/app/manual-refresh-button/ (Story #437 / openspec:unified-manual-refresh-controls)。
+ * 全局 `.btn.refresh-btn` / `.refresh-icon` / `.refresh-spinner` 规则已废弃，由组件封装样式接管。
+ */
 
 /* Epic 81 (v6.9): 后台自动刷新轮询开关 */
 .btn.auto-refresh-btn {

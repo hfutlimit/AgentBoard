@@ -1,6 +1,7 @@
 import { Component, EventEmitter, Input, Output, ViewEncapsulation } from '@angular/core';
 import { ManagedListComponent } from '../managed-list/managed-list';
 import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
+import { ManualRefreshButtonComponent } from '../manual-refresh-button/manual-refresh-button';
 import type { ProposalItem, ProposalStatus } from '../models';
 
 /**
@@ -35,7 +36,7 @@ import type { ProposalItem, ProposalStatus } from '../models';
 @Component({
   selector: 'app-proposals-tab',
   standalone: true,
-  imports: [ManagedListComponent, WorkspaceHeadingComponent],
+  imports: [ManagedListComponent, WorkspaceHeadingComponent, ManualRefreshButtonComponent],
   templateUrl: './proposals-tab.html',
   styleUrl: './proposals-tab.css',
   encapsulation: ViewEncapsulation.None,
