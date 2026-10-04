@@ -10,8 +10,13 @@
   导航不得清除条件。
 - [ ] 实现 `clearEpicSearch()`：只清除关键词、保留状态筛选、复位页码，并用当前项目 ID
   调用既有 `loadProjectTab('epics', projectId, true)`；不得新增或复制 API 请求。
-- [ ] 扩展 Epic Tab 的本地请求代次，使同项目强制刷新前的请求不能在 success/error/finally
-  覆盖较新请求；保留既有跨项目 `projectTabGeneration` 防护和 retry/loading/error 行为。
+- [ ] 为所有写入共享 `epics` 的 `listEpics` 请求建立递增的共享 Epic 快照代次：
+  `overview` 聚合分支和 Epics Tab（含强制刷新）均在实际请求开始时捕获它，并仅在项目与
+  快照代次都仍当前时写 `epics`；overview 的非 Epic 聚合结果继续仅按原项目代次处理。
+- [ ] 保留并扩展 Epics Tab 专用状态代次，使同项目强制刷新前的 Epics Tab 请求不能在
+  success/error/finally 覆盖较新 Tab 请求的 loaded/loading/error；将共享快照代次传入
+  `loadEpicProgressData`，并在 `stories` 和 `tasks` 每次写入前校验，防止旧进度链污染当前
+  Epic 进度。保留既有跨项目 `projectTabGeneration` 防护和 retry 行为。
 - [ ] 为 `EpicsTabComponent` 增加 `searchQuery` 输入、`searchQueryChange` 和 `clearSearch`
   输出；在工具栏加入可访问关键词输入和仅关键词非空时出现的清空按钮，不注入 API 服务。
 - [ ] 在路由工作台与标签页工作台两个 `app-epics-tab` 装配点接入相同的关键词输入/输出
@@ -23,8 +28,10 @@
   原数组不变、分页复位，以及通用 `search` 不影响 Epic 列表。
 - [ ] 覆盖项目切换复位关键词和状态、同项目 Tab 不复位、清空仅保留状态且强制重新加载
   当前项目、无当前项目时不请求、加载失败后的既有 error/retry 投影。
-- [ ] 用可控异步请求覆盖同项目强制刷新与旧请求乱序返回、项目切换后旧响应返回，并断言
-  不会覆盖较新/当前数据、错误或 loading 状态。
+- [ ] 用可控异步请求覆盖同项目强制刷新与旧 Epics Tab 请求乱序返回、旧 `overview`
+  Epic 响应晚于强制刷新、旧快照的 stories/tasks 链晚于新快照，以及项目切换后旧响应
+  返回；断言旧响应不会覆盖较新/当前 `epics`、`stories`、`tasks`、错误或 loading，且
+  overview 的非 Epic 聚合结果仍遵循原项目代次。
 - [ ] 在 `EpicsTabComponent` 测试受控输入、立即事件、空白无清空按钮、非空清空按钮和
   clear 输出，以及既有状态下拉回归。
 - [ ] 为两个工作台入口增加绑定级或模板回归测试，确认都将同一关键词值和三个事件合同

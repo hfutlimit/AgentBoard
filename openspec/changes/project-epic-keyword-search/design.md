@@ -25,7 +25,8 @@
 3. 清空仅移除关键词、复位分页并强制重新加载当前项目 Epic；状态筛选和既有请求/错误
    交互保持有效。
 4. 项目切换重置两个 Epic 临时条件；两个工作台入口的行为一致。
-5. 旧项目或较早的同项目强制请求永远不能覆盖当前强制刷新结果。
+5. 旧项目或较早的同项目请求永远不能覆盖当前 Epic 快照；这同时适用于 `overview`
+   聚合加载、`epics` Tab 强制刷新和已由旧快照启动的进度异步链。
 
 ### 非目标
 
@@ -106,23 +107,51 @@ const query = this.epicSearchQuery().trim().toLocaleLowerCase();
 ### 3.2 新旧响应防护
 
 现有 `projectTabGeneration` 必须继续作为跨项目防护：项目切换后返回的请求不能写入新
-项目。由于 `force=true` 可以在同一项目已有 Epic 请求尚未结束时再发一个请求，单靠项目
-generation 无法决定两个同项目响应的新旧。本变更在 App 内为 Epic Tab 增加递增的本地
-请求代次（例如 `epicLoadGeneration`），不是 API 版本、缓存或持久化状态。
+项目。它不足以隔离同一项目的竞态，且不能识别 `overview` 与 `epics` 两个分支都写入的
+共享信号。因此实现须区分两个仅内存中的递增代次（名称可不同，但职责不可合并或遗漏）：
 
-每次实际开始 `loadProjectTab('epics', ...)` 时捕获该代次；只有下列条件同时成立，才可
-设置 `epics`、启动该批进度加载、写错误、修改 loaded/loading 状态：
+1. **共享 Epic 快照代次**（例如 `epicSnapshotGeneration`）：每一次实际发起
+   `listEpics(projectId)`、且其结果可能写入 `epics` 的请求都先递增并捕获该值。这包括
+   `loadProjectTab('overview', ...)` 聚合中的 `listEpics`，以及
+   `loadProjectTab('epics', ...)`（含清空后的 `force=true`）。只有项目代次和共享快照代次
+   都仍为当前时，结果才可写 `epics`。`overview` 的 proposals、members、stats 等非 Epic
+   结果仍只使用其原有项目代次，不得因 Epic 快照失效而丢弃。
+2. **Epics Tab 状态代次**（例如 `epicTabLoadGeneration`）：仅每一次实际 Epics Tab
+   加载递增并捕获，用于该 Tab 的 `loaded`、`loading`、`error` 及 retry 投影。它防止较早
+   的 Epics Tab 请求在 success、catch 或 finally 覆盖较新的 Epics Tab 请求状态；`overview`
+   不拥有也不修改这些 Tab 状态。
+
+可提取两个判定 helper，以避免各分支漏检：
 
 ```ts
-this.isCurrentProjectTabRequest(projectId, projectGeneration) &&
-requestGeneration === this.epicLoadGeneration
+isCurrentEpicSnapshot(projectId, projectGeneration, snapshotGeneration) {
+  return this.isCurrentProjectTabRequest(projectId, projectGeneration)
+    && snapshotGeneration === this.epicSnapshotGeneration;
+}
+
+isCurrentEpicsTabLoad(projectId, projectGeneration, tabLoadGeneration) {
+  return this.isCurrentProjectTabRequest(projectId, projectGeneration)
+    && tabLoadGeneration === this.epicTabLoadGeneration;
+}
 ```
 
-其他 Tab 沿用现有项目 generation 逻辑。新项目切换通过既有 `projectTabGeneration` 使旧
-项目失效；同项目较早请求则因 Epic request generation 失效。实现必须保证失效请求的
-`finally` 不会把较新请求的 loading 状态提前设为 false，失效请求的失败也不会覆盖较新
-成功结果。这样清空后真正完成的强制刷新数据才是可见结果，且现有 retry 仍可重新走该
-受保护路径。
+Epics Tab 成功写入 `epics` 与启动进度链时必须同时满足两个 helper；其 error、loaded、
+loading/finally 只使用 Epics Tab 状态 helper。`overview` 中的 Epic 结果只使用共享快照
+helper 后写入 `epics`，绝不能仅以 `projectTabGeneration` 写入。这样同项目中较早启动而
+较晚返回的 overview 不会覆盖清空触发的刷新，也不会让较早的 Epics Tab 请求把过时的
+loading/error 投影到较新的请求上。
+
+`loadEpicProgressData` 必须接收启动它的共享快照代次。它在 `stories.set(...)` 前，以及
+`tasks.set(...)` 前（同时保留现有 `view() !== 'story'` 条件），都必须调用
+`isCurrentEpicSnapshot(...)`。任何新 `listEpics` 请求一开始递增共享快照代次，即会令
+此前已启动但尚未完成的进度链失效；失效链不得写 `stories` 或 `tasks`。这保证 Epic
+进度不会由不再对应当前 `epics` 快照的异步结果重新污染。进度加载失败仍不得阻塞 Epic
+主列表，也不应改变 Epics Tab 的错误投影。
+
+新项目切换通过既有 `projectTabGeneration` 使所有旧项目分支失效；同项目较早请求和已启动
+的旧进度链则因共享快照或 Epics Tab 状态代次失效。实现必须保证失效请求的 `finally` 不会
+把较新请求的 loading 状态提前设为 false，失效请求的失败也不会覆盖较新成功结果。这样
+清空后真正完成的强制刷新数据才是可见结果，且现有 retry 仍可重新走受保护路径。
 
 ## 4. `EpicsTabComponent` 展示合同
 
@@ -165,7 +194,8 @@ requestGeneration === this.epicLoadGeneration
 
 预期修改文件：
 
-- `src/frontend/src/app/app.ts`
+- `src/frontend/src/app/app.ts`（含 `overview`/`epics` 共享快照写入者和
+  `loadEpicProgressData` 的代次传播）
 - `src/frontend/src/app/epics-tab/epics-tab.ts`
 - `src/frontend/src/app/epics-tab/epics-tab.html`
 - 必要时 `src/frontend/src/app/epics-tab/epics-tab.css`
@@ -191,9 +221,13 @@ requestGeneration === this.epicLoadGeneration
 4. 使用可控的 `listEpics` Observable/Promise 验证：输入搜索不调用它；点击清空只调用
    一次带当前项目 ID 的强制 Epic Tab 加载；状态筛选未变；成功数据参与派生；失败后保留
    既有 error 与 retry 可用。若没有当前项目，清空不得请求。
-5. 构造重叠请求：同项目旧请求后返回、清空强制请求先返回，断言最终数据/error/loading
-   均来自强制请求；再切换项目并完成旧请求，断言它不能写入新项目。覆盖 success、error
-   和 finally 分支，防止旧请求解除新请求 loading。
+5. 用可控异步请求构造三类竞态：(a) 同项目旧 Epics Tab 请求后返回、清空强制请求先
+   返回，断言最终数据/error/loading 均来自强制请求；(b) 旧 `overview` 的
+   `listEpics` 晚于清空强制刷新返回，断言它不能覆盖 `epics`，而该 overview 的
+   proposals/members/stats 仍可按原项目代次写入；(c) 旧 Epic 快照启动的 stories/tasks
+   链在较新快照出现后完成，断言它不能写 `stories` 或（非 story 视图的）`tasks`。另再
+   切换项目并完成旧请求，断言它不能写入新项目。覆盖 success、error 和 finally 分支，
+   防止旧 Epics Tab 请求解除新请求 loading。
 6. `EpicsTabComponent` 测试输入值反映到控件、每个 input 事件原样 emit、仅规范化关键词
    非空时存在清空按钮、点击只 emit、空白时无按钮，并确认现有状态选择输出不回归。
 7. 对两个工作台入口分别做绑定级测试或静态模板回归，确认三项关键词绑定存在且调用同一
@@ -222,7 +256,7 @@ git diff --check
 | 与状态组合、变更回第一页 | 固定派生顺序与统一 handler 状态表。|
 | 清空后刷新 | 宿主 `clearEpicSearch` 先复位、后走 `loadProjectTab(..., true)`。|
 | 清空保留状态、项目切换全复位 | 单独的状态转换与路由切换断言。|
-| 失败/retry/旧响应安全 | 复用 Tab 状态投影并为同项目强制请求补充本地请求代次。|
+| 失败/retry/旧响应安全 | 项目代次叠加共享 Epic 快照代次；Epics Tab 状态另用本地代次，进度链传播共享代次。|
 | 双入口一致 | 两处同样的 input/output 绑定与回归测试。|
 
 ## 8. 风险与缓解
@@ -231,7 +265,8 @@ git diff --check
 | --- | --- |
 | 误用通用 `search`，导致跨页面筛选泄漏 | `visibleEpics` 只读取 `epicSearchQuery`；单测改动通用 search 仍无影响。|
 | 清空只是本地修改，服务端更新未参与 | 清空事件只能进入宿主强制 Tab 加载路径；测试断言 `listEpics(currentProjectId)`。|
-| 同项目旧请求晚到覆盖刷新结果 | 给 Epic Tab 请求增加本地递增代次，应用于 success/error/finally。|
+| overview 或旧 Epics 请求晚到覆盖刷新结果 | 所有 `listEpics` 写入者共用递增快照代次；Epics Tab 状态另行保护。|
+| 旧 Epic 快照的进度链晚到污染当前进度 | 将共享快照代次传入进度链，并在 stories/tasks 每次写入前校验。|
 | 组件自行请求导致路由与标签页不一致 | 组件只投影输入/输出；两个入口调用同一 App handler。|
 | 关键词与状态先后顺序不同造成结果/分页不一致 | 单一 `visibleEpics` 及两个 handler 的固定复位规则。|
 | 空白查询误显示清空或无结果 | 所有业务判断使用 `trim()`；保存原始值仅为受控输入。|

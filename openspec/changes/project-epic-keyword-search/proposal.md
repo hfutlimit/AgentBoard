@@ -21,8 +21,9 @@
    现有 loading、error 和 retry 投影继续负责请求状态。
 5. 切换项目时同时清空 Epic 关键词与状态筛选；路由工作台和标签页工作台的两个
    `app-epics-tab` 装配点传递完全相同的新输入/输出合同。
-6. 让强制刷新与正在进行的同项目 Epic 请求可区分，确保先前请求、旧项目请求均不
-   能覆盖较新的当前项目结果。
+6. 让所有会写入共享 Epic 快照的同项目请求可区分：`overview` 聚合加载与 `epics`
+   Tab 强制刷新均须使用同一快照代次；由该快照触发且尚未完成的进度异步链也必须随之
+   失效。这样先前请求、旧项目请求以及先前进度链均不能覆盖较新的当前项目结果。
 
 ## Non-goals
 
@@ -35,7 +36,7 @@
 ## Impact
 
 - `src/frontend/src/app/app.ts`：Epic 专属 signal、派生列表、分页/项目切换复位、
-  清空强制刷新及请求新旧判定。
+  清空强制刷新，以及覆盖 `overview`、`epics` 和进度链的共享快照/Tab 状态请求判定。
 - `src/frontend/src/app/epics-tab/`：关键词输入、条件清空按钮和输入/输出契约。
 - `src/frontend/src/app/project-workspace-route/` 与
   `src/frontend/src/app/project-workspace-shell/tab-pane/`：两个装配入口的新绑定。

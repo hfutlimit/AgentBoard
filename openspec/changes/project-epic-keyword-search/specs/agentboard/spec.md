@@ -24,8 +24,12 @@ Epic 关键词为空；关键词 SHALL 由项目工作台独立状态持有，�
 当规范化关键词非空时，工具栏 SHALL 提供可操作的清空按钮。点击清空 SHALL 只清除
 关键词、保留当前状态筛选、将分页复位至第 1 页，并通过既有项目 Tab 强制加载路径重新
 请求当前项目的 Epic 列表。强制加载必须继续使用现有 `listEpics(projectId)`、loading、
-error、retry 和跨项目请求防护；较早的同项目 Epic 请求和旧项目请求均不得覆盖较新的
-当前项目结果、错误或 loading 状态。
+error、retry 和跨项目请求防护。所有可能写入共享 `epics` 的同项目 `listEpics` 请求
+（包括 `overview` 聚合加载与 Epics Tab 加载）SHALL 使用同一递增的 Epic 快照代次；只有
+项目代次与快照代次均当前的结果才可写 `epics`。Epics Tab 的 loaded/loading/error SHALL
+另按其自身的 Tab 加载代次保护。由某一 Epic 快照启动的进度异步链 SHALL 在写 `stories`
+或 `tasks` 前校验同一项目与快照代次，因而较早的同项目请求、旧项目请求及旧进度链均
+不得覆盖较新的当前项目 Epic、进度、错误或 loading 状态。
 
 #### Scenario: 关键词与状态筛选的本地交集
 
@@ -53,10 +57,12 @@ error、retry 和跨项目请求防护；较早的同项目 Epic 请求和旧项
 - **AND** 刷新完成后的服务端数据参与当前状态筛选与渲染
 - **AND** 请求失败时既有错误态与重试按钮仍可用
 
-#### Scenario: 项目和请求代次隔离
+#### Scenario: 项目、共享快照与进度链代次隔离
 
-- **GIVEN** 一个项目的 Epic 请求正在进行，用户清空关键词触发同项目强制刷新，或随后切换到另一项目
-- **WHEN** 较早请求在较新请求或项目切换后返回
-- **THEN** 较早请求不得覆盖较新同项目刷新结果
-- **AND** 旧项目请求不得覆盖当前项目的 Epic、错误或 loading 状态
+- **GIVEN** 一个项目的 `overview` 或 Epics Tab Epic 请求正在进行，且同项目较早的
+  Epics Tab 快照已启动 stories/tasks 进度链；用户清空关键词触发同项目强制刷新，或随后切换到另一项目
+- **WHEN** 较早的 overview/Epics Tab 请求或此前 Epic 快照启动的进度链在较新请求或项目切换后返回
+- **THEN** 较早请求不得覆盖较新同项目刷新结果，旧进度链不得写入 `stories` 或 `tasks`
+- **AND** 旧项目请求不得覆盖当前项目的 Epic、进度、错误或 loading 状态
+- **AND** 较早 overview 的非 Epic 聚合结果仍只受原有项目代次约束
 - **AND** 实际切换项目后 Epic 关键词和状态筛选均为空
