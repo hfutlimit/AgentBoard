@@ -27,6 +27,8 @@
 4. 项目切换重置两个 Epic 临时条件；两个工作台入口的行为一致。
 5. 旧项目或较早的同项目请求永远不能覆盖当前 Epic 快照；这同时适用于 `overview`
    聚合加载、`epics` Tab 强制刷新和已由旧快照启动的进度异步链。
+6. 新建提案弹窗的 Epic 候选不再写入共享 `epics`；旧提案弹窗请求也不得在项目切换或
+   较新操作后以旧项目数据打开/初始化弹窗或显示错误。
 
 ### 非目标
 
@@ -153,6 +155,46 @@ loading/error 投影到较新的请求上。
 把较新请求的 loading 状态提前设为 false，失效请求的失败也不会覆盖较新成功结果。这样
 清空后真正完成的强制刷新数据才是可见结果，且现有 retry 仍可重新走受保护路径。
 
+### 3.3 提案弹窗候选的隔离
+
+`openProposalModal()` 是当前第三个会写共享 `epics` 的 `listEpics(project.id)` 调用点，但它的结果仅用于新建
+提案时选择目标 Epic；它不属于项目工作台 Epic 列表快照。实现必须新增专用候选状态，例如
+`proposalModalEpics = signal<Epic[]>([])`，并将新建提案弹窗中目标 Epic 的下拉来源从
+共享 `epics()` 改为该专用状态。该调用点不得再写共享 `epics`，因此不会参与、递增或使
+`epicSnapshotGeneration` 失效。
+
+打开弹窗时必须在发起请求前捕获 `project.id` 与 `projectTabGeneration`，并递增、捕获专用
+`proposalModalLoadGeneration`。请求的成功、失败提示以及草稿/`proposalNewProjectId`/
+`proposalNewTargetEpicId` 初始化和 `proposalModalOpen.set(true)` 都只能在以下条件同时成立
+时执行：当前项目 ID 仍相同、项目代次仍匹配、弹窗加载代次仍是最新。项目 ID 实际切换时，
+除既有 Tab 重置外，还必须使该弹窗代次失效、清空专用候选，并关闭/复位未完成或已打开的
+新建提案弹窗，保证新项目不会显示旧项目上下文。
+
+如果当前（未失效）的请求失败，沿用现有语义：提示本次加载失败，并以空的专用候选初始化
+和打开当前项目的弹窗；失效请求的 success、catch 和后续初始化不得产生任何状态写入、
+通知或打开动作。若用户在同一项目快速两次打开，只有最后一次可初始化弹窗。这种专用隔离
+避免了弹窗候选加载与清空强制刷新相互抢占共享快照，也保证 `visibleEpics` 只由受保护的
+overview/Epics Tab 写入者更新。
+
+### 3.4 共享 `epics` 写入者审计与边界
+
+实现前必须以 `epics.set(` 为准复核写入者，而不能只按 `listEpics` 调用次数推断。当前
+工作台边界内的异步写入者和处理合同如下；新增写入者时必须先加入其中一种明确的所有权，
+不得绕过它直接写共享 signal。
+
+| 写入/用途路径 | 数据域 | 本次合同 |
+| --- | --- | --- |
+| `loadProjectTab('overview')` | 当前项目 Epic 快照 | 请求开始递增共享快照代次；写入前校验项目和快照。|
+| `loadProjectTab('epics')` | 当前项目 Epic 快照 | 同一共享快照校验；另以 Epics Tab 状态代次保护 loading/error/loaded；成功后向进度链传递快照。|
+| `openProposalModal()` | 提案弹窗目标 Epic 候选 | 迁移到 `proposalModalEpics`，不再写共享 `epics`；使用项目加弹窗加载代次。|
+| `resetProjectTabs()` | 切换项目时清空旧快照 | 同步清空而非异步响应；递增项目代次，并同时使弹窗加载失效。|
+| `loadDashboardFullTree()` | 首页跨项目汇总 | 不属于当前项目快照；保留其 `routeLoadGeneration` 与 `view() === 'home'` 守卫，故在项目工作台时不能写入。不得把它误接入项目快照代次。|
+
+文档、工单和其他编辑弹窗的 `listEpics` 调用只写各自的候选 signal（例如
+`docCreateEpics`、`docDetailEpics`、`ticketEpics`），不写共享 `epics`，因此不属于本次
+项目列表快照竞争域。测试应对 `openProposalModal()` 断言专用候选被写入而共享 `epics`
+保持由清空刷新得到的值；首页守卫沿用现有首页测试，不以本变更重定义其汇总语义。
+
 ## 4. `EpicsTabComponent` 展示合同
 
 组件新增以下公开输入/输出，继续不注入任何服务：
@@ -195,7 +237,9 @@ loading/error 投影到较新的请求上。
 预期修改文件：
 
 - `src/frontend/src/app/app.ts`（含 `overview`/`epics` 共享快照写入者和
-  `loadEpicProgressData` 的代次传播）
+  `loadEpicProgressData` 的代次传播，以及提案弹窗专用候选/代次）
+- `src/frontend/src/app/app.html`（或当前承载新建提案弹窗的模板），将目标 Epic 下拉改为
+  `proposalModalEpics()`，不得回读共享 `epics()`
 - `src/frontend/src/app/epics-tab/epics-tab.ts`
 - `src/frontend/src/app/epics-tab/epics-tab.html`
 - 必要时 `src/frontend/src/app/epics-tab/epics-tab.css`
@@ -221,12 +265,14 @@ loading/error 投影到较新的请求上。
 4. 使用可控的 `listEpics` Observable/Promise 验证：输入搜索不调用它；点击清空只调用
    一次带当前项目 ID 的强制 Epic Tab 加载；状态筛选未变；成功数据参与派生；失败后保留
    既有 error 与 retry 可用。若没有当前项目，清空不得请求。
-5. 用可控异步请求构造三类竞态：(a) 同项目旧 Epics Tab 请求后返回、清空强制请求先
+5. 用可控异步请求构造四类竞态：(a) 同项目旧 Epics Tab 请求后返回、清空强制请求先
    返回，断言最终数据/error/loading 均来自强制请求；(b) 旧 `overview` 的
    `listEpics` 晚于清空强制刷新返回，断言它不能覆盖 `epics`，而该 overview 的
    proposals/members/stats 仍可按原项目代次写入；(c) 旧 Epic 快照启动的 stories/tasks
    链在较新快照出现后完成，断言它不能写 `stories` 或（非 story 视图的）`tasks`。另再
-   切换项目并完成旧请求，断言它不能写入新项目。覆盖 success、error 和 finally 分支，
+   切换项目并完成旧请求，断言它不能写入新项目；(d) `openProposalModal()` 的旧响应分别
+   晚于清空强制刷新及项目切换返回，断言它不写共享 `epics`、不打开/初始化旧项目弹窗、
+   不显示旧错误，且当前请求仍用专用候选正常初始化。覆盖 success、error 和 finally 分支，
    防止旧 Epics Tab 请求解除新请求 loading。
 6. `EpicsTabComponent` 测试输入值反映到控件、每个 input 事件原样 emit、仅规范化关键词
    非空时存在清空按钮、点击只 emit、空白时无按钮，并确认现有状态选择输出不回归。
@@ -265,8 +311,9 @@ git diff --check
 | --- | --- |
 | 误用通用 `search`，导致跨页面筛选泄漏 | `visibleEpics` 只读取 `epicSearchQuery`；单测改动通用 search 仍无影响。|
 | 清空只是本地修改，服务端更新未参与 | 清空事件只能进入宿主强制 Tab 加载路径；测试断言 `listEpics(currentProjectId)`。|
-| overview 或旧 Epics 请求晚到覆盖刷新结果 | 所有 `listEpics` 写入者共用递增快照代次；Epics Tab 状态另行保护。|
+| overview 或旧 Epics 请求晚到覆盖刷新结果 | 所有共享 `epics` 写入者共用递增快照代次；Epics Tab 状态另行保护。|
 | 旧 Epic 快照的进度链晚到污染当前进度 | 将共享快照代次传入进度链，并在 stories/tasks 每次写入前校验。|
+| 提案弹窗旧请求把旧项目 Epic 写回列表或打开旧弹窗 | 候选改用专用 signal，项目代次叠加弹窗加载代次；失效请求不写、不提示、不打开。|
 | 组件自行请求导致路由与标签页不一致 | 组件只投影输入/输出；两个入口调用同一 App handler。|
 | 关键词与状态先后顺序不同造成结果/分页不一致 | 单一 `visibleEpics` 及两个 handler 的固定复位规则。|
 | 空白查询误显示清空或无结果 | 所有业务判断使用 `trim()`；保存原始值仅为受控输入。|

@@ -24,6 +24,9 @@
 6. 让所有会写入共享 Epic 快照的同项目请求可区分：`overview` 聚合加载与 `epics`
    Tab 强制刷新均须使用同一快照代次；由该快照触发且尚未完成的进度异步链也必须随之
    失效。这样先前请求、旧项目请求以及先前进度链均不能覆盖较新的当前项目结果。
+7. 将 `openProposalModal()` 取得的 Epic 候选改为提案弹窗专用状态，而不是写入共享
+   `epics`；该请求和弹窗初始化使用项目代次加弹窗加载代次保护。项目切换或较新的
+   弹窗打开操作后，旧响应不得覆盖当前 Epic 列表、显示旧错误，或以旧项目初始化/打开弹窗。
 
 ## Non-goals
 
@@ -36,11 +39,14 @@
 ## Impact
 
 - `src/frontend/src/app/app.ts`：Epic 专属 signal、派生列表、分页/项目切换复位、
-  清空强制刷新，以及覆盖 `overview`、`epics` 和进度链的共享快照/Tab 状态请求判定。
+  清空强制刷新，以及覆盖 `overview`、`epics` 和进度链的共享快照/Tab 状态请求判定；
+  提案弹窗的专用 Epic 候选与其项目/弹窗代次保护。
+- `src/frontend/src/app/app.html`（或当前承载新建提案弹窗的模板）：将目标 Epic 下拉来源
+  切换到提案弹窗专用候选，避免再消费共享 `epics`。
 - `src/frontend/src/app/epics-tab/`：关键词输入、条件清空按钮和输入/输出契约。
 - `src/frontend/src/app/project-workspace-route/` 与
   `src/frontend/src/app/project-workspace-shell/tab-pane/`：两个装配入口的新绑定。
 - `src/frontend/src/app/app.spec.ts`、`epics-tab.spec.ts` 及必要的入口模板测试：
-  覆盖派生、刷新、请求防覆盖和绑定回归。
+  覆盖派生、刷新、共享请求防覆盖、提案弹窗竞态和绑定回归。
 
 后端、REST/MCP 合同、数据库、部署产物及当前工作树中的无关修改均不在范围内。
