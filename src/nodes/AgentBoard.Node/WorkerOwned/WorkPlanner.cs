@@ -5,10 +5,18 @@ using AgentBoard.Contracts;
 
 namespace AgentBoard.Node.WorkerOwned;
 
-public sealed record WorkOffer(int ProjectId, string EntityType, int EntityId, string Kind, int Iteration,
-    int? DiscussionId = null, string? TargetAgent = null);
-
-/// <summary>Workflow progression belongs here, on the Worker, not in Server intake.</summary>
+/// <summary>
+/// Local prompt assembly and provider-result validation for worker-owned
+/// execution.
+///
+/// <para>
+/// Workflow progression no longer lives here. Since the <c>serverplan</c>
+/// protocol the Server owns the state machine: it derives the next unit of
+/// work from business state, materialises the <c>worker_work</c> row and lets
+/// the relay publish it. The Worker only executes what it is handed and
+/// reports the result back.
+/// </para>
+/// </summary>
 public static class WorkPlanner
 {
     public static bool IsDiscussion(JsonElement context) => context.TryGetProperty("discussion", out var d)
@@ -25,91 +33,6 @@ public static class WorkPlanner
             && defects.Any(d => d is not JsonObject obj || obj.Count != 2
                 || !obj.ContainsKey("title") || !obj.ContainsKey("description")))
             throw new InvalidDataException("Each QA defects entry must contain EXACTLY title and description (both strings). Put reproduction steps, expected/actual results and evidence references INSIDE the description Markdown string, not extra properties. Preserve all real test evidence.");
-    }
-
-    public static void AddQaFollowup(string kind, JsonObject output, JsonElement context)
-    {
-        if (kind != WorkerWorkKinds.QaReview || !IsDiscussion(context)
-            || context.GetProperty("discussion").GetProperty("subject").GetString() != "qa_defects"
-            || output["decision"]?.GetValue<string>() != "confirm") return;
-        var item = context.GetProperty("item");
-        var taskId = item.GetProperty("id").GetInt32();
-        var execution = context.GetProperty("evidence").EnumerateArray()
-            .Where(e => e.GetProperty("task_id").GetInt32() == taskId
-                && e.GetProperty("kind").GetString() == WorkerWorkKinds.Qa)
-            .OrderBy(e => e.GetProperty("work_id").GetInt64()).LastOrDefault();
-        if (execution.ValueKind == JsonValueKind.Undefined)
-            throw new InvalidDataException("QA Review requires accepted QA evidence");
-        var result = execution.GetProperty("result");
-        if (result.GetProperty("tests_passed").GetBoolean()) return;
-        var defects = result.GetProperty("defects");
-        if (defects.ValueKind != JsonValueKind.Array || defects.GetArrayLength() == 0)
-            throw new InvalidDataException("Failed QA requires actionable defects");
-        var title = $"QA复测 #{taskId}: {item.GetProperty("title").GetString()}";
-        output["qa_followup"] = new JsonObject
-        {
-            ["source_work_id"] = execution.GetProperty("work_id").GetInt64(),
-            ["bugs"] = JsonNode.Parse(defects.GetRawText()),
-            ["retest"] = new JsonObject
-            {
-                ["title"] = title[..Math.Min(300, title.Length)],
-                ["description"] = $"Retest QA Task #{taskId} after ALL linked bug Tasks pass Dev Review. "
-                    + "Deploy locally again; reproduce each reported failure, verify fixes and rerun original acceptance/regression tests. "
-                    + "Return actual deployment_steps, test_steps, test_results, tests_passed and any remaining defects. "
-                    + "Use upstream QA evidence and original scope: " + item.GetProperty("description").GetString(),
-            },
-        };
-    }
-
-    public static JsonObject TicketPlan(string title, string spec)
-    {
-        var design = $"设计：{title}";
-        var qa = $"QA验收：{title}";
-        // Markdown checkboxes include acceptance criteria, not just work
-        // packages. Without an explicit Agent-produced DAG use one cohesive
-        // implementation Task, never reinterpret arbitrary prose as a plan.
-        string[] development = [$"实现：{title}"];
-        var tasks = new JsonArray();
-        var edges = new JsonArray();
-        tasks.Add(new JsonObject { ["title"] = design, ["type"] = "design", ["description"] = spec });
-        foreach (var dev in development)
-        {
-            tasks.Add(new JsonObject { ["title"] = dev, ["type"] = "dev", ["description"] = spec });
-            edges.Add(new JsonArray(JsonValue.Create(design), JsonValue.Create(dev)));
-            edges.Add(new JsonArray(JsonValue.Create(dev), JsonValue.Create(qa)));
-        }
-        tasks.Add(new JsonObject { ["title"] = qa, ["type"] = "qa", ["description"] = spec });
-        return new JsonObject { ["tasks"] = tasks, ["dependencies"] = edges };
-    }
-    public static WorkOffer? Next(int projectId, string entityType, JsonElement item)
-    {
-        string? Read(string key) => item.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String
-            ? value.GetString() : null;
-        int Number(string key) => item.TryGetProperty(key, out var value) && value.TryGetInt32(out var n) ? n : 0;
-        var status = Read("status");
-        if (entityType == "proposal")
-            return status is "queued" or "answered"
-                ? new(projectId, entityType, Number("id"), WorkerWorkKinds.Proposal, Number("current_round")) : null;
-        if (entityType != "task" || Read("type") is not ("design" or "dev" or "bug" or "qa")
-            || status is not ("todo" or "in_review")
-            || Read("story_status") is "backlog" or "blocked" or "done" or "missing"
-            || !item.TryGetProperty("ready", out var ready) || !ready.GetBoolean()
-            || (item.TryGetProperty("needs_human_confirmation", out var human) && human.ValueKind == JsonValueKind.True))
-            return null;
-        if (status == "todo" && item.TryGetProperty("current_assignment_id", out var assignment)
-            && assignment.ValueKind != JsonValueKind.Null) return null;
-        if (item.TryGetProperty("discussion", out var discussion) && discussion.ValueKind == JsonValueKind.Object)
-        {
-            if (status != "in_review" || discussion.GetProperty("status").GetString() != "open") return null;
-            var turn = discussion.GetProperty("turn").GetInt32();
-            var reviewerTurn = turn % 2 == 1;
-            return new(projectId, entityType, Number("id"),
-                WorkerWorkKinds.ForTask(Read("type") ?? "", reviewerTurn), turn,
-                discussion.GetProperty("id").GetInt32(),
-                discussion.GetProperty(reviewerTurn ? "reviewer_agent" : "owner_agent").GetString());
-        }
-        return new(projectId, entityType, Number("id"),
-            WorkerWorkKinds.ForTask(Read("type") ?? "", status == "in_review"), Number("review_round"));
     }
 
     public static string Prompt(string kind, string context, LocalAgentProfile? profile = null) => $$"""

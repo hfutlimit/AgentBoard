@@ -12,21 +12,24 @@
 | dev | 开发、修复、测试并提交代码 | dev_review |
 | dev_review | 独立评审实现，讨论确认问题后回 dev | qa |
 | qa | 独立 Task；本地部署、实际测试、提交部署步骤/测试步骤/实际结果 | qa_review |
-| qa_review | 评估 QA 工作及证据是否合理充分；不是再次做代码评审 | 所有 Task 完成后 Worker 请求关闭 Story |
+| qa_review | 评估 QA 工作及证据是否合理充分；不是再次做代码评审 | 所有 Task 完成后由 Server 收尾 Story |
 
 同一 Agent 不可自审。QA 排除上游 Dev 实施 Agent；上游 Dev 可以评审另一 Agent 完成的 QA。
 
 ## 边界与可靠性
 
-Worker 的 `WorkerOwned` 配置独占项目/本地路径、Agent 实例、模型、工作能力和下一步决策。
+Worker 的 `WorkerOwned` 配置决定项目/本地路径、Agent 实例、模型、工作能力和本机执行。
+**下一步决策（状态机）归 Server**：`worker_planner` 从业务状态算出下一个 work 并物化队列行。
 Projects 为 Worker 统一 mapping，所有 Agent 参与全部映射项目；每个 Agent 只按 WorkKinds 区分工作职责。
 Server 不配置 WorkspaceId、BaseVersion、provider、阶段 WorkflowVersion，不选择 Agent。
 Server 仍负责业务数据、权限、依赖/人工门禁校验、租约 fencing、结果幂等和 RabbitMQ 持久化转发；
 “只发任务”不表示取消认证或允许 Worker 随意覆盖业务状态。
 
-Worker 读取 `/api/worker-work/snapshot`，本地规划后提交 `offers`。Server 校验并持久化 outbox，
-发布到 direct exchange `agentboard.work.v2`，共享队列/路由键为
-`agentboard.work.v2.project.<ProjectId>.<kind>`。不同 Worker 在相同项目/工作队列上竞争，
+Worker 启动与每个 presence 周期声明自己负责的项目（`POST /api/worker-work/projects`，写入
+`worker_project_mappings`）。Server 只对这些项目规划，并发布到 direct exchange `agentboard.work.v2`，
+共享队列/路由键为
+`agentboard.work.v2.project.<ProjectId>.<kind>`。Worker 不再读取 snapshot、也不再提交 offers：
+它只消费本地已启用身份与能力的队列，执行后回报结果。不同 Worker 在相同项目/工作队列上竞争，
 dev-only Worker 不订阅 qa 队列。没有每个 Worker 一份的广播工作副本。
 例外是双方讨论回复：使用上述队列名加 `.agent.<sha256(agent-id)>` 定向给原参与 Agent，依然受本地项目/工作类型配置约束。讨论不是第八种工作；完整协议见 [协作讨论](worker-owned-discussions.md)。
 
@@ -52,8 +55,11 @@ QA 失败需提交 `defects=[{title,description}]`，包含复现步骤、期望
 - 原 QA 完成代表其工作已获认可，失败证据不改写；原 Dev Task 不回退。新 Bug 和复测未完成时 Story 不能关闭。
 - 复测排除全部上游 `dev` 和 `bug` 实施者。复测再失败会进入新一轮 Bug / 复测链，直到复测和 QA Review 通过。
 
-计划在 Worker 生成，Server 只验证来源、完整缺陷列表、归属和依赖并持久化，不负责选择执行 Agent。
-新版讨论需同时更新 FastAPI/MCP 与 Node，并迁移至 `a19d58e204bc`；Task/Story 讨论展示还需发布前端。
+计划在 **Server** 生成（`worker_planner`，以及完成时补齐的 `default_ticket_plan` /
+`build_qa_followup`）。Server 同时验证来源、完整缺陷列表、归属和依赖并持久化，但不选择执行 Agent。
+新版讨论需同时更新 FastAPI/MCP 与 Node，并迁移至 `a19d58e204bc`；协议串为
+`worker-work.serverplan.v1`（Worker 启动时门禁，老 Server/老 Worker 不能混跑）；
+Task/Story 讨论展示还需发布前端。
 
 ## 部署（默认不开启，不能与 v1 混跑）
 
@@ -86,8 +92,7 @@ python scripts/run_worker_owned_e2e.py --provider codex --model gpt-5.6-terra --
 ```
 
 WorkBuddy 用 `--provider workbuddy --cli <安装目录中的codebuddy> --model auto`。
-MiniMax 必须使用核实可运行的官方 headless CLI；当前本机安装的 wrapper 指向缺失 daemon/cli.js，
-因此 harness 尚未启用它，不用其他 provider 或第三方 invoker 冒充 MiniMax Code。
+MiniMax 与 Qwen provider 已于 2026-10-09 移除，不再有对应的 adapter / invoker。
 报告含 Proposal/Story/Task 状态；DB 包含每个 work 的 Agent、attempt/result/history；
 Node 日志与专用 Git 提交作为补充证据。输出目录含本地 journal，应按敏感运行数据保护。
 测试结束仅停止本次创建的子进程和 broker，保留数据及专用 checkout，不删除用户仓库或现有容器。

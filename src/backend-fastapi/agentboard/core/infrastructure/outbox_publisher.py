@@ -128,7 +128,16 @@ class OutboxPublisher:
 
     def _drain_once(self) -> int:
         """Drain one batch. Runs in a thread (via ``to_thread``)."""
+        from ...features.scheduling.worker_planner import plan_once
         from ...features.scheduling.worker_work_relay import drain_once
+        try:
+            # ``plan_once`` is internally throttled and a no-op unless
+            # worker-owned execution is enabled; it materialises the work rows
+            # that ``drain_once`` then publishes. Planning must run first so a
+            # freshly created row is not delayed by a whole tick.
+            plan_once()
+        except Exception:
+            log.exception("worker-owned planner deferred; continuing legacy event outbox")
         try:
             drain_once()
         except Exception:

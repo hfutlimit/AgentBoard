@@ -184,11 +184,19 @@ public static class CliLocator
     /// <summary>
     /// Common environment variables the spawned CLI needs. Kept as a
     /// minimal allow-list — adapters may layer more on top.
+    ///
+    /// ``HOME`` is included deliberately: the child process environment is
+    /// cleared by <see cref="ProcessExecutor"/> (Sprint 5 isolation), and
+    /// Node-based CLIs (e.g. the WorkBuddy ``codebuddy`` script) resolve their
+    /// per-user config/login directory through ``os.homedir()``, which honours
+    /// ``HOME`` first on POSIX and falls back to ``USERPROFILE`` on Windows.
+    /// Without it a CLI can look "installed but not logged in" even though the
+    /// operator is logged in interactively under the same account.
     /// </summary>
     private static IReadOnlyDictionary<string, string> BaseEnv()
     {
         var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var name in new[] { "PATH", "USERPROFILE", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC",
+        foreach (var name in new[] { "PATH", "USERPROFILE", "HOME", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC",
                                      "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA", "APPDATA", "TEMP", "TMP", "PATHEXT" })
         {
             var v = Environment.GetEnvironmentVariable(name);

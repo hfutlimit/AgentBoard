@@ -76,12 +76,12 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
             response.EnsureSuccessStatusCode();
             using var protocol = JsonDocument.Parse(await response.Content.ReadAsStringAsync(stoppingToken));
             if (!protocol.RootElement.TryGetProperty("protocol", out var version)
-                || version.GetString() != "worker-work.discussions.v1")
-                throw new InvalidOperationException("Deploy the discussion-capable FastAPI/MCP migration before starting this Worker");
+                || version.GetString() != "worker-work.serverplan.v1")
+                throw new InvalidOperationException("Deploy the serverplan FastAPI/MCP migration before starting this Worker");
         }
         await Register(stoppingToken);
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
-        var reconciliation = ReconcileLoop(lifetime.Token);
+        var presence = PresenceLoop(lifetime.Token);
         try
         {
             while (!stoppingToken.IsCancellationRequested && !_draining)
@@ -99,7 +99,7 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
         {
             BrokerConnected = false;
             lifetime.Cancel();
-            try { await reconciliation; } catch (OperationCanceledException) { }
+            try { await presence; } catch (OperationCanceledException) { }
         }
     }
 
@@ -158,7 +158,18 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
         _log.LogInformation("Worker-owned local profiles registered: {Agents}", string.Join(", ", _options.Agents.Select(a => a.Id)));
     }
 
-    private async Task ReconcileLoop(CancellationToken ct)
+    /// <summary>
+    /// Keeps the Server's view of this Worker alive: agent-instance presence
+    /// heartbeats plus an idempotent re-assertion of the projects this Worker
+    /// is allowed to work on.
+    ///
+    /// Planning used to live here — the Worker scanned business state and
+    /// posted ``/offers``. Since the ``serverplan`` protocol the Server owns
+    /// the state machine and materialises every work row itself; the Worker
+    /// only declares its project scope, then consumes the queues it
+    /// subscribed to and reports results.
+    /// </summary>
+    private async Task PresenceLoop(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested && !_draining)
         {
@@ -168,6 +179,14 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
                 if (DateTimeOffset.UtcNow - _lastPresence > TimeSpan.FromSeconds(15))
                 {
                     _state.LastHeartbeatAttemptAt = DateTimeOffset.UtcNow;
+                    // Re-asserted every cycle: idempotent, and it self-heals a
+                    // mapping post that failed while the Server was restarting.
+                    using var projects = await Post(client, "api/worker-work/projects", new
+                    {
+                        worker_id = WorkerId,
+                        project_ids = _options.Projects.Select(p => p.ProjectId),
+                    }, ct);
+                    projects.EnsureSuccessStatusCode();
                     foreach (var profile in _options.EnabledAgents)
                     {
                         using var presenceClient = Client(profile);
@@ -179,47 +198,11 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
                     _lastPresence = DateTimeOffset.UtcNow;
                     _state.LastHeartbeatSuccessAt = _lastPresence;
                 }
-                foreach (var project in _options.Projects)
-                {
-                    if (_state.Paused || _draining) break;
-                    var tasks = new List<JsonElement>();
-                    foreach (var entityType in new[] { "proposal", "task" })
-                    {
-                        var cursor = 0;
-                        do
-                        {
-                            using var page = await client.GetAsync($"api/worker-work/snapshot?project_id={project.ProjectId}&entity_type={entityType}&after_id={cursor}", ct);
-                            page.EnsureSuccessStatusCode();
-                            using var json = JsonDocument.Parse(await page.Content.ReadAsStringAsync(ct));
-                            foreach (var item in json.RootElement.GetProperty("items").EnumerateArray())
-                            {
-                                if (entityType == "task") tasks.Add(item.Clone());
-                                var offer = WorkPlanner.Next(project.ProjectId, entityType, item);
-                                if (offer is null) continue;
-                                using var response = await Post(client, "api/worker-work/offers", offer, ct);
-                                if (response.StatusCode != HttpStatusCode.Conflict) response.EnsureSuccessStatusCode();
-                            }
-                            cursor = json.RootElement.GetProperty("next_after_id").GetInt32();
-                        } while (cursor > 0 && !ct.IsCancellationRequested);
-                    }
-                    // This closure decision is also Worker-owned. Server
-                    // independently verifies every child before applying it.
-                    foreach (var group in tasks.Where(t => t.GetProperty("story_id").ValueKind == JsonValueKind.Number)
-                        .GroupBy(t => t.GetProperty("story_id").GetInt32()))
-                    {
-                        if (group.All(t => t.GetProperty("status").GetString() == "done")
-                            && group.First().GetProperty("story_status").GetString() is not ("done" or "blocked" or "backlog"))
-                        {
-                            using var closed = await Post(client, $"api/worker-work/stories/{group.Key}/complete", new { }, ct);
-                            if (closed.StatusCode != HttpStatusCode.Conflict) closed.EnsureSuccessStatusCode();
-                        }
-                    }
-                }
                 Interlocked.Exchange(ref _lastScanTicks, DateTimeOffset.UtcNow.Ticks);
             }
             catch (Exception error) when (!ct.IsCancellationRequested)
             {
-                _log.LogWarning("Worker reconciliation deferred ({Error}): {Message}", error.GetType().Name, error.Message);
+                _log.LogWarning("Worker presence deferred ({Error}): {Message}", error.GetType().Name, error.Message);
             }
             await Task.Delay(TimeSpan.FromSeconds(Math.Max(2, _options.ReconcileSeconds)), ct);
         }
@@ -359,8 +342,26 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
     private async Task<bool> Execute(long workId, int project, string kind, string? target, CancellationToken ct)
     {
         var saved = _journal.Get(workId);
-        foreach (var profile in _options.Candidates(project, kind).Where(a => target is null || a.Id == target)
-            .OrderBy(a => a.Id == saved?.AgentId ? 0 : 1))
+        var candidates = _options.Candidates(project, kind)
+            .Where(a => target is null || a.Id == target)
+            .OrderBy(a => a.Id == saved?.AgentId ? 0 : 1)
+            .ToList();
+        if (candidates.Count == 0)
+        {
+            // No enabled local Agent can serve this work. Requeueing would spin
+            // forever: ReturnToTail re-pulls the same delivery every 2s and the
+            // candidate set never changes (typically an Agent was disabled while
+            // its kind was still in the queue). Ack and drop instead — the claim
+            // contract has no "no executor" terminal state, and the Server owns
+            // re-offering (it re-creates the row, with a fresh work_key, when a
+            // capable Agent appears again).
+            _log.LogWarning(
+                "Work {WorkId} {Kind} has no eligible local Agent (target={Target}); acking and dropping",
+                workId, kind, target ?? "<any>");
+            _journal.Remove(workId);
+            return true;
+        }
+        foreach (var profile in candidates)
         {
             var entry = saved?.AgentId == profile.Id ? saved : new JournalEntry(workId, profile.Id, Guid.NewGuid().ToString("N"), null);
             _journal.Save(entry);
@@ -482,12 +483,12 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
                     if (kind == "proposal" && output["decision"]?.GetValue<string>() == "finalize"
                         && output["create_ticket"]?.GetValue<bool>() == true)
                     {
-                        var title = accepted.RootElement.GetProperty("context").GetProperty("item").GetProperty("title").GetString()!;
-                        output["ticket_plan"] ??= WorkPlanner.TicketPlan(title, output["spec"]?.GetValue<string>()
-                            ?? throw new InvalidDataException("Proposal requires a converged specification"));
+                        // The Server owns task planning: it fills the canonical
+                        // design -> dev -> QA DAG when the Agent converged without
+                        // one, and it builds the QA defect follow-up itself. The
+                        // Worker only relays the Agent's intent.
                         output["activate_story"] = true;
                     }
-                    WorkPlanner.AddQaFollowup(kind, output, businessContext);
                     var after = await GitHead(workspace, running.Token);
                     var afterStatus = await Git(workspace, ["status", "--porcelain"], running.Token);
                     if ((discussion || kind.EndsWith("_review", StringComparison.Ordinal) || kind is "qa" or "proposal")

@@ -33,6 +33,13 @@ WorkKind = Literal["proposal", "design", "design_review", "dev", "dev_review", "
 WORK_KINDS = ("proposal", "design", "design_review", "dev", "dev_review", "qa", "qa_review")
 EXCHANGE = "agentboard.work.v2"
 
+# Compatibility gate for the Worker↔Server contract. Bumped when the Server
+# takes over workflow planning: a Worker that still plans its own offers must
+# not run against this Server (and vice versa), because both would try to
+# materialise the same work. The Worker refuses to start unless it can read
+# this exact value from GET /api/worker-work/snapshot.
+PROTOCOL = "worker-work.serverplan.v1"
+
 # A queue row is only executable while it points at a real business item. Rows
 # written before Offer enforced its reference (entity_type='' / entity_id=0) can
 # never be claimed: ``check_offer`` rebuilds an Offer from the stored columns and
@@ -206,6 +213,26 @@ def fingerprint(s, obj):
     return hashlib.sha256(json.dumps(fields, ensure_ascii=False).encode()).hexdigest()
 
 
+def default_ticket_plan(title: str, spec: str) -> dict:
+    """Canonical design -> dev -> QA graph for a converge without an explicit plan.
+
+    Mirrors the Worker-era ``WorkPlanner.TicketPlan`` fallback. Markdown
+    checkboxes carry the acceptance criteria, not the work packages, so an
+    Agent that converges without a DAG still gets exactly one implementation
+    Task instead of Server-side prose reinterpretation.
+    """
+    design, qa = f"设计：{title}", f"QA验收：{title}"
+    dev = f"实现：{title}"
+    return {
+        "tasks": [
+            {"title": design, "type": "design", "description": spec},
+            {"title": dev, "type": "dev", "description": spec},
+            {"title": qa, "type": "qa", "description": spec},
+        ],
+        "dependencies": [[design, dev], [dev, qa]],
+    }
+
+
 def materialize_worker_plan(s, proposal, result):
     """Persist a Worker-supplied DAG; do not infer stages from spec on Server."""
     from ..proposals import service as proposals
@@ -270,20 +297,51 @@ def qa_defects(result):
     return defects
 
 
+def build_qa_followup(qa, execution, result) -> dict:
+    """Server-side Bug + independent-retest plan for confirmed QA defects.
+
+    Mirrors the Worker-era ``WorkPlanner.AddQaFollowup`` so the retest Task
+    carries the same reproducible brief. The Server owns task creation, so the
+    Worker no longer has to describe the follow-up work itself.
+    """
+    defects = result.get("defects", [])
+    title = f"QA复测 #{qa.id}: {qa.title}"[:300]
+    return {
+        "source_work_id": execution.id,
+        "bugs": defects,
+        "retest": {
+            "title": title,
+            "description": (
+                f"Retest QA Task #{qa.id} after ALL linked bug Tasks pass Dev Review. "
+                "Deploy locally again; reproduce each reported failure, verify fixes and rerun "
+                "original acceptance/regression tests. Return actual deployment_steps, test_steps, "
+                "test_results, tests_passed and any remaining defects. "
+                f"Use upstream QA evidence and original scope: {qa.description}"
+            ),
+        },
+    }
+
+
 def materialize_qa_followup(s, qa, execution, result, agent):
-    """Validate/persist the Worker's explicit bug + retest command atomically.
+    """Validate/persist the Bug + retest command atomically.
+
+    The plan is built here when the Worker did not supply one (it no longer has
+    to: the Server owns task creation). A Worker-supplied plan is still accepted
+    during rollout, but must match the immutable QA evidence exactly.
 
     Original QA evidence remains immutable. No central Agent selection, offers,
-    or planning: local Workers offer these new business items on later scans.
+    or planning: the planner offers these new business items on later passes.
     """
     from ..work_items.service import create_task, create_comment
     evidence = json.loads(execution.result or "{}")
     defects = qa_defects(evidence)
     plan = result.get("qa_followup")
+    if plan is None:
+        plan = build_qa_followup(qa, execution, evidence)
     if (not isinstance(plan, dict) or set(plan) != {"source_work_id", "bugs", "retest"}
             or type(plan["source_work_id"]) is not int or plan["source_work_id"] != execution.id
             or plan["bugs"] != defects):
-        raise HTTPException(422, "Worker must supply qa_followup for every accepted QA defect")
+        raise HTTPException(422, "qa_followup must match the accepted QA defects")
     retest = plan["retest"]
     if (not isinstance(retest, dict) or set(retest) != {"title", "description"}
             or not isinstance(retest["title"], str) or not 1 <= len(retest["title"].strip()) <= 300
@@ -325,18 +383,12 @@ def snapshot(project_id: int, entity_type: Literal["proposal", "task"],
             discussion = discussions.active(s, obj.id)
             item["discussion"] = discussions.view(discussion) if discussion else None
         items.append(item)
-    return {"protocol": "worker-work.discussions.v1", "items": items,
+    return {"protocol": PROTOCOL, "items": items,
             "next_after_id": rows[-1].id if len(rows) == limit else 0}
 
 
-@router.post("/offers")
-def offer(body: Offer, authorization: str | None = Header(None), s: Session = Depends(get_session)):
-    authorize(s, body.project_id, authorization)
-    # ``Offer`` itself is the input contract (entity_type is a Literal and
-    # entity_id must be positive), so a request can never mint a ghost row. Legacy
-    # ghost rows predating that model are refused at claim time and skipped by the
-    # relay; see resolve_claim / drain_once / GHOST_WHERE_SQL.
-    obj = check_offer(s, body)
+def work_key(s, body: Offer, obj) -> str:
+    """Business-identity key for an offer; stable across duplicate publishers."""
     key = f"{body.entity_type}:{body.entity_id}:{body.kind}:{body.iteration}:{fingerprint(s, obj)}"
     if body.discussion_id:
         key += f":discussion:{body.discussion_id}"
@@ -345,9 +397,24 @@ def offer(body: Offer, authorization: str | None = Header(None), s: Session = De
             review_round=obj.review_round or 0).order_by(WorkerDiscussion.id.desc()).first()
         if previous:
             key += f":after:{previous.id}"
+    return key
+
+
+def materialize_offer(s, body: Offer) -> tuple[WorkerWork, bool]:
+    """Validate an offer against business state and upsert its queue row.
+
+    Returns ``(row, created)`` — ``created`` is False when an identical offer
+    already exists, which is what keeps the planner idempotent across passes.
+    Idempotency is keyed on ``work_key`` (which folds in the business
+    fingerprint), so the Server planner and any Worker that still posts
+    ``/offers`` converge on one row instead of duplicating work. Raises
+    ``HTTPException`` when the offered work no longer matches business state.
+    """
+    obj = check_offer(s, body)
+    key = work_key(s, body, obj)
     existing = s.query(WorkerWork).filter_by(work_key=key).first()
     if existing:
-        return {"id": existing.id, "state": existing.state}
+        return existing, False
     from sqlalchemy.exc import IntegrityError
     row = WorkerWork(work_key=key, project_id=body.project_id, entity_type=body.entity_type,
         entity_id=body.entity_id, kind=body.kind, iteration=body.iteration, input_hash=fingerprint(s, obj),
@@ -358,7 +425,60 @@ def offer(body: Offer, authorization: str | None = Header(None), s: Session = De
             s.flush()
     except IntegrityError:
         row = s.query(WorkerWork).filter_by(work_key=key).one()
+        return row, False
+    return row, True
+
+
+@router.post("/offers")
+def offer(body: Offer, authorization: str | None = Header(None), s: Session = Depends(get_session)):
+    authorize(s, body.project_id, authorization)
+    # ``Offer`` itself is the input contract (entity_type is a Literal and
+    # entity_id must be positive), so a request can never mint a ghost row. Legacy
+    # ghost rows predating that model are refused at claim time and skipped by the
+    # relay; see resolve_claim / drain_once / GHOST_WHERE_SQL.
+    #
+    # The Server planner is the primary publisher since the serverplan protocol;
+    # this endpoint stays for rollout compatibility and shares the exact same
+    # idempotent materialisation, so a mixed fleet cannot duplicate work.
+    row, _ = materialize_offer(s, body)
     return {"id": row.id, "state": row.state}
+
+
+class WorkerProjectsIn(BaseModel):
+    worker_id: str = Field(min_length=1, max_length=100)
+    project_ids: list[int] = Field(min_length=1, max_length=200)
+
+
+@router.post("/projects")
+def register_projects(body: WorkerProjectsIn, authorization: str | None = Header(None),
+                      s: Session = Depends(get_session)):
+    """Declare which projects this Worker is allowed to work on.
+
+    The Server planner only materialises work for mapped projects, so scope
+    must be declared explicitly instead of guessed. Each project is checked
+    with the same membership rule the Worker already passes for /offers.
+    Mappings for projects no longer listed are disabled, so removing a project
+    from the local configuration actually stops Server-side planning for it.
+    """
+    from ..projects.service import map_worker_to_project, NotFound
+    wanted = sorted(set(body.project_ids))
+    if any(project_id <= 0 for project_id in wanted):
+        raise HTTPException(422, "project ids must be positive")
+    for project_id in wanted:
+        authorize(s, project_id, authorization)
+    for project_id in wanted:
+        try:
+            map_worker_to_project(s, worker_id=body.worker_id, project_id=project_id)
+        except NotFound as error:
+            raise HTTPException(404, str(error)) from None
+    from ..projects.models import WorkerProjectMapping
+    stale = s.query(WorkerProjectMapping).filter(
+        WorkerProjectMapping.worker_id == body.worker_id,
+        WorkerProjectMapping.enabled.is_(True),
+        WorkerProjectMapping.project_id.notin_(wanted)).all()
+    for mapping in stale:
+        mapping.enabled = False
+    return {"project_ids": wanted, "disabled": [m.project_id for m in stale]}
 
 
 def resolve_claim(s, work_id, body, authorization):
@@ -630,11 +750,17 @@ def complete(work_id: int, body: Completion, authorization: str | None = Header(
                 raise HTTPException(422, "converged spec is required")
             proposals.update_proposal(s, obj.id, converged_spec=spec)
             proposals.set_proposal_status(s, obj.id, "converged")
-            # Explicit Worker instruction; do not run an automatic Server
-            # materializer. Existing conversion remains the single validator.
+            # Conversion stays an explicit, human-approved step
+            # (``auto_create_ticket``); ``materialize_worker_plan`` remains the
+            # single validator of whatever DAG is finally submitted.
             if body.result.get("create_ticket") is True:
                 if not obj.auto_create_ticket:
                     raise HTTPException(409, "proposal requires human conversion approval")
+                if not isinstance(body.result.get("ticket_plan"), dict):
+                    # The Server owns planning: a converge without an explicit
+                    # DAG gets the canonical design -> dev -> QA graph instead
+                    # of failing the whole proposal round.
+                    body.result["ticket_plan"] = default_ticket_plan(obj.title, spec)
                 materialize_worker_plan(s, obj, body.result)
         else:
             raise HTTPException(422, "proposal decision must be ask or finalize")
