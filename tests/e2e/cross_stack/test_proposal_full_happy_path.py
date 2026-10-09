@@ -138,7 +138,6 @@ def _worker_env(
         "RabbitMq__WorkflowNamespace": namespace,
         "RabbitMq__WorkflowConsumerEnabled": "true",
         "Agents__WorkBuddy__Command": "",
-        "Agents__MiniMax__Command": "",
         "Agents__Codex__Command": "",
         "Agents__Fake__Command": "",
         "Agents__Scenario__Command": "enabled",

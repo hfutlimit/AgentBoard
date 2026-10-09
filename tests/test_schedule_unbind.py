@@ -410,16 +410,16 @@ def test_two_schedules_cannot_dispatch_same_todo_task(test_db):
         ).count() == 1
 
 
-def test_minimax_is_a_valid_schedule_agent(test_db):
+def test_qoder_is_a_valid_schedule_agent(test_db):
     from agentboard import service
 
     with test_db() as s:
-        project = service.create_project(s, name="MiniMax schedule")
+        project = service.create_project(s, name="Qoder schedule")
         schedule = service.create_schedule(
-            s, project_id=project.id, title="MiniMax", schedule_type="cron",
-            cron_expr="*/5 * * * *", agent="minimax",
+            s, project_id=project.id, title="Qoder", schedule_type="cron",
+            cron_expr="*/5 * * * *", agent="qoder",
         )
-        assert schedule.agent == "minimax"
+        assert schedule.agent == "qoder"
 
 
 def test_trigger_no_eligible_skips_without_run(test_db):

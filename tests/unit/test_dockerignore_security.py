@@ -2,7 +2,7 @@
 
 背景：
     Dockerfile:24 `COPY . .` 会把构建上下文里所有未被 `.dockerignore`
-    排除的文件烤进镜像层。`.env` 含生产密钥（MINIMAX_API_KEY / amqp 凭据），
+    排除的文件烤进镜像层。`.env` 含生产密钥（OPENAI_API_KEY / amqp 凭据），
     一旦进入镜像，任何拉取者可经 `docker history --no-trunc` 还原层内容。
 
 本测试用静态方式校验 `.dockerignore` 排除 `.env*`，无需 docker，CI 友好。

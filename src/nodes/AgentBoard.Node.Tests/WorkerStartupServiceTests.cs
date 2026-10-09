@@ -24,7 +24,7 @@ public class WorkerStartupServiceTests
             {
                 new FakeAdapter("workbuddy"),
                 new FakeAdapter("codex"),
-                new FakeAdapter("minimax"),
+                new FakeAdapter("cursor"),
             },
             NullLogger<AgentAdapterRegistry>.Instance);
         return registry;
@@ -40,7 +40,6 @@ public class WorkerStartupServiceTests
         {
             WorkBuddy = new AgentOptions { Command = "workbuddy", AgentId = "workbuddy-on-dev" },
             Codex     = new AgentOptions { Command = "codex",     AgentId = "codex-on-dev"     },
-            MiniMax   = new AgentOptions { Command = "" },  // 禁用
             Fake      = new AgentOptions { Command = "" },  // 跳过
         };
         return (wo, ab, agents);
@@ -83,7 +82,7 @@ public class WorkerStartupServiceTests
 
         // 期望至少：
         //   1 x POST /api/workers/register
-        //   2 x POST /api/agents/register   (workbuddy + codex, minimax 跳过)
+        //   2 x POST /api/agents/register   (workbuddy + codex)
         //   2 x POST /api/agents/{id}/instances
         Assert.Contains(stub.Requests, r => r.Method == "POST" && r.Url.Contains("/api/workers/register"));
         Assert.Equal(2, stub.Requests.Count(r =>
@@ -107,8 +106,6 @@ public class WorkerStartupServiceTests
         Assert.Contains(instances, r =>
             System.Text.Json.JsonDocument.Parse(r.Body).RootElement
                 .GetProperty("executor_type").GetString() == "codex");
-        // minimax 没注册（Command="" 跳过）
-        Assert.DoesNotContain(stub.Requests, r => r.Url.Contains("minimax"));
     }
 
     [Fact]

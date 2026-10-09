@@ -191,7 +191,6 @@ export class App {
     // 尝试从 cli_command 识别 CLI 类型
     const cmd = a.cli_command || '';
     if (cmd.includes('codebuddy')) this.cliType.set('codebuddy');
-    else if (cmd.includes('minimax')) this.cliType.set('minimax');
     else this.cliType.set('codex');
     const roles = this.parseRoles(a.roles);
     this.developerRole.set(roles.includes('developer'));
@@ -221,8 +220,7 @@ export class App {
   protected readonly agentHasFullAccess = (agent: AgentRow) => {
     const cmd = agent.cli_command || '';
     return cmd.includes('--dangerously-bypass-approvals-and-sandbox')
-      || /(^|\s)-y(\s|$)/.test(cmd)
-      || cmd.includes('minimax_adapter.py');
+      || /(^|\s)-y(\s|$)/.test(cmd);
   };
 
   protected readonly agentRoleLabel = (agent: AgentRow) => {

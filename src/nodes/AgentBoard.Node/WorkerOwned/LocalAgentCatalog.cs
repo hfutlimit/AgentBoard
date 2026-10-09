@@ -8,7 +8,6 @@ public static class LocalAgentCatalog
     {
         "codex" => ["gpt-5.6-terra", "gpt-5.6-sol", "gpt-5.6-luna"],
         "workbuddy" => ["hy4-preview", "glm-5.3-flash"],
-        "minimax" => ["m3"],
         "cursor" => ["cursor-grok-4.6-high", "composer-2.5"],
         _ => [],
     };

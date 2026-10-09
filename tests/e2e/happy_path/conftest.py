@@ -1,6 +1,6 @@
 """Happy Path E2E 共享 fixture（PR-7/8/9 共用）。
 
-不调 .NET 也不调真实 CLI（codex / workbuddy / minimax 都不在测试机），
+不调 .NET 也不调真实 CLI（codex / workbuddy 都不在测试机），
 全链路在 Python 进程内：
 - FastAPI TestClient 触发 REST 端点
 - InMemoryWorkflowBroker 替代 RabbitMQ

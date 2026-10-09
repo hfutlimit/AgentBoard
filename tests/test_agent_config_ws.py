@@ -179,7 +179,7 @@ def test_probe_cli_sync_model_placeholder(tmp_path):
     用短命令名验证（避免 sys.executable 长路径把预览截断到 120 字符外）。
     """
     from agentboard.api import _probe_cli_sync
-    ok, msg = _probe_cli_sync("minimax --model {model}", model="hy3", timeout=8)
+    ok, msg = _probe_cli_sync("codebuddy --model {model}", model="hy3", timeout=8)
     assert ok is True, msg
     assert "hy3" in msg  # model 替换后进入 dry-run 预览
     assert "{model}" not in msg  # 占位符已替换

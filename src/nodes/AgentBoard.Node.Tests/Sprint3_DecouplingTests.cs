@@ -128,7 +128,7 @@ public sealed class Sprint3_DecouplingTests
         var registry = new AgentAdapterRegistry(new[]
         {
             FakeAgentAdapter.Throws("workbuddy", new InvalidOperationException("kaboom")),
-            FakeAgentAdapter.Success("minimax"),
+            FakeAgentAdapter.Success("cursor"),
         }, NullLogger<AgentAdapterRegistry>.Instance);
         var state = new WorkerState(opts, new WorkerIdentity(opts));
         var channel = new ExecutionChannel(opts);
@@ -140,14 +140,14 @@ public sealed class Sprint3_DecouplingTests
         await coord.ExecuteAsync(r1, inboxId1, CancellationToken.None);
 
         // 2) succeeding execution right after
-        var r2 = Req(agent: "minimax", id: 2);
+        var r2 = Req(agent: "cursor", id: 2);
         var (inboxId2, _) = await inbox.TryEnqueueAsync(r2, CancellationToken.None);
         await coord.ExecuteAsync(r2, inboxId2, CancellationToken.None);
 
         // The second one must have completed even though the first threw.
         var recs = await store.ListAsync(10);
-        var minimaxRec = recs.First(r => r.AgentType == "minimax");
-        Assert.Equal("Succeeded", minimaxRec.Status);
+        var cursorRec = recs.First(r => r.AgentType == "cursor");
+        Assert.Equal("Succeeded", cursorRec.Status);
 
         // Cleanup
         try { File.Delete(opts.Value.HistoryDatabasePath); } catch { }

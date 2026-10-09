@@ -160,9 +160,9 @@ public sealed class LocalWorkspaceMappingOptions
 }
 
 // =============================================================================
-// Sprint 4: Per-agent options. The single worker is configured to know all
-// three (workbuddy / MiniMax / codex); each agent has its own CLI command
-// and timeout. Setting Command = "" disables an agent at startup.
+// Sprint 4: Per-agent options. The single worker is configured to know each
+// supported CLI (workbuddy / codex / cursor); each agent has its own CLI
+// command and timeout. Setting Command = "" disables an agent at startup.
 // =============================================================================
 
 public sealed class AgentOptions
@@ -183,7 +183,7 @@ public sealed class AgentOptions
     /// PR-12：logical agent identity（PR-11 WorkflowMessage.agent_id）。
     /// 多 agent 同 type 时靠这个区分（codex-dev-1 vs codex-dev-2）。
     /// startup 时 upsert 到 FastAPI /api/agents/{agent_id} + instance。
-    /// 默认 = tools 简写（"workbuddy" / "codex" / "MiniMax"）。
+    /// 默认 = tools 简写（"workbuddy" / "codex" / "cursor"）。
     /// </summary>
     public string AgentId { get; set; } = "";
     /// <summary>
@@ -230,7 +230,6 @@ public sealed class AgentOptions
 public sealed class AgentsOptions
 {
     public AgentOptions WorkBuddy { get; set; } = new() { Command = "workbuddy" };
-    public AgentOptions MiniMax { get; set; } = new() { Command = "MiniMax" };
     public AgentOptions Codex { get; set; } = new() { Command = "codex" };
     /// <summary>
     /// Second Codex slot. Both Codex slots drive the same `codex` CLI through
@@ -242,16 +241,6 @@ public sealed class AgentsOptions
     /// Leaving Command empty disables it, same as every other slot.
     /// </summary>
     public AgentOptions Codex2 { get; set; } = new() { Command = "" };
-    /// <summary>
-    /// 千问办公 (Qwen) agent slot. Disabled by default (Command=""). Wire
-    /// <c>Agents:Qwen:Command</c> to the <c>scripts/qwen_invoker.py</c>
-    /// (python.exe + script, mirroring how WorkBuddy/Codex are pointed at the
-    /// Python invoker in <c>appsettings.Local.json</c>) and set
-    /// <c>QWEN_MODEL=qwen3.8-flash</c> + <c>QWEN_API_KEY</c> in the worker env.
-    /// The invoker is a single-shot decision agent with no interactive approval
-    /// gate → "完全访问" (unattended) is inherent to the pattern.
-    /// </summary>
-    public AgentOptions Qwen { get; set; } = new() { Command = "" };
     /// <summary>
     /// Cursor CLI (<c>agent</c>) slot. Disabled by default. Headless flags live
     /// in <see cref="AgentOptions.Arguments"/>; model is injected as

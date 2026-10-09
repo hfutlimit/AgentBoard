@@ -76,7 +76,7 @@ public sealed class Sprint7_CliLocatorTests
         var resolved = CliLocator.LocateCodex(opts, NullLogger.Instance);
 
         Assert.True(resolved.ExtraEnv.ContainsKey("PATH"),
-            "Locator must surface PATH so codex/minimax/codebuddy can resolve node etc.");
+            "Locator must surface PATH so codex/codebuddy can resolve node etc.");
         if (OperatingSystem.IsWindows()
             && !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("SYSTEMDRIVE")))
         {
@@ -88,9 +88,9 @@ public sealed class Sprint7_CliLocatorTests
     [Fact]
     public void CliNotFoundException_carries_agent_type_and_command()
     {
-        var ex = new CliNotFoundException("minimax", "x", "searched-list");
+        var ex = new CliNotFoundException("cursor", "x", "searched-list");
 
-        Assert.Equal("minimax", ex.AgentType);
+        Assert.Equal("cursor", ex.AgentType);
         Assert.Equal("x", ex.AgentCmd);
         Assert.Contains("searched-list", ex.Message);
     }
@@ -128,36 +128,6 @@ public sealed class Sprint7_CliLocatorTests
         {
             File.Delete(script);
         }
-    }
-
-    [Fact]
-    public async Task MiniMax_adapter_forwards_configured_arguments()
-    {
-        var executor = new RecordingExecutor();
-        var options = new AgentsOptions
-        {
-            MiniMax = new AgentOptions
-            {
-                Command = Environment.ProcessPath!,
-                Arguments = new[] { "-p", "--output-format", "text" },
-                ApiKeyEnv = "",
-            },
-        };
-        var adapter = new MiniMaxAdapter(
-            executor, Options.Create(options), Options.Create(new AgentBoardOptions()),
-            NullLogger<MiniMaxAdapter>.Instance);
-
-        await adapter.ExecuteAsync(
-            new AgentBoard.Node.ExecutionContext(
-                1, "proposal:42:0:minimax", "proposal", 42, 0,
-                "minimax", "{}", null),
-            CancellationToken.None);
-
-        Assert.Equal("-p", executor.Spec!.Arguments[0]);
-        Assert.Contains("Handle proposal 42", executor.Spec.Arguments[1]);
-        Assert.Equal("--output-format", executor.Spec.Arguments[2]);
-        Assert.Equal("text", executor.Spec.Arguments[3]);
-        Assert.Null(executor.Spec.StdinPayload);
     }
 
     private static string? FindOnPath(string executable)

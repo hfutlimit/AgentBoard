@@ -72,7 +72,7 @@ _CLI_FORBIDDEN_META_RE = re.compile(r"[;|`<>]|&&|\|\||\$\(|\$\{|\n|\r")
 def validate_cli_command(cmd: str | None) -> None:
     """校验 Agent ``cli_command`` 模板不含 shell 注入向量（B-A2 防御）。
 
-    接受形如 ``codebuddy --model {model}`` / ``"minimax" --version`` 的纯 CLI
+    接受形如 ``codebuddy --model {model}`` / ``"codex" --version`` 的纯 CLI
     调用；拒绝 ``cmd /c calc.exe`` / ``codebuddy; rm -rf /`` / ``$(whoami)`` 等。
     ``{model}`` 占位符本身不是危险字符，模板阶段放行；probe 时替换后再校验
     （防 ``model`` 字段注入）。

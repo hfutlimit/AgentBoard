@@ -68,13 +68,13 @@ def test_parse_routing_rejects_non_object(monkeypatch):
 
 def test_candidate_routing_preserves_legacy_strings_and_normalizes_lists(monkeypatch):
     monkeypatch.setenv("AGENTBOARD_WORKER_AGENT_ROUTING", json.dumps({
-        "clarify": "minimax",
-        "review": [" codebuddy ", None, "", "minimax"],
+        "clarify": "legacy",
+        "review": [" codebuddy ", None, "", "legacy"],
         "process_story": [],
     }))
     assert parse_agent_routing() == {
-        "clarify": "minimax",
-        "review_task": ["codebuddy", "minimax"],
+        "clarify": "legacy",
+        "review_task": ["codebuddy", "legacy"],
     }
 
 
@@ -116,12 +116,12 @@ def test_enum_work_type_routes_before_action_without_changing_input():
 
 def test_routes_by_action(monkeypatch):
     cmds = {
-        "minimax": '"python" "inv_min.py"',
+        "legacy": '"python" "inv_min.py"',
         "codebuddy": '"node" "inv_cb.cmd"',
     }
     routing = {
-        "clarify": "minimax",
-        "create_ticket": "minimax",
+        "clarify": "legacy",
+        "create_ticket": "legacy",
         "process_story": "codebuddy",
         "review": "codebuddy",
         "owner_response": "codebuddy",
@@ -134,13 +134,13 @@ def test_routes_by_action(monkeypatch):
 
     invoker.invoke({"action": "clarify", "payload": "x"})
 
-    assert invoker.last_routed == "minimax"
+    assert invoker.last_routed == "legacy"
     assert "inv_min.py" in invoker.last_invoker.cmd
 
 
 def test_unknown_action_falls_back_to_first(monkeypatch):
     cmds = {
-        "minimax": '"python" "a.py"',
+        "legacy": '"python" "a.py"',
         "codebuddy": '"python" "b.py"',
     }
     _patch_env(monkeypatch, cmds, {})  # no routing → first wins
@@ -148,7 +148,7 @@ def test_unknown_action_falls_back_to_first(monkeypatch):
     invoker._children = _FakeChildren(cmds)
 
     invoker.invoke({"action": "unknown_action"})
-    assert invoker.last_routed == "minimax"
+    assert invoker.last_routed == "legacy"
 
 
 def test_empty_commands_raises(monkeypatch):
@@ -204,11 +204,11 @@ def test_invoke_with_prompt_passes_exact_sentinel_to_routed_subprocess(tmp_path:
     monkeypatch.setenv("AGENTBOARD_LOCAL_MAPPINGS", str(mapping))
 
     cmds = {
-        "minimax": '"fake-agent" "minimax"',
+        "legacy": '"fake-agent" "legacy"',
         "codebuddy": '"fake-agent" "codebuddy"',
     }
     routing = {
-        "proposal_clarify": "minimax",
+        "proposal_clarify": "legacy",
         "implementation": "codebuddy",
     }
     _patch_env(monkeypatch, cmds, routing)
@@ -243,7 +243,7 @@ def test_invoke_with_prompt_passes_exact_sentinel_to_routed_subprocess(tmp_path:
     decision = guarded_invoker.invoke_with_prompt(SENTINEL, context)
 
     assert decision.action == "ask"
-    assert routed_invoker.last_routed == "minimax"
+    assert routed_invoker.last_routed == "legacy"
     assert len(captured_runs) == 1
     stdin_input = captured_runs[0]["kwargs"].get("input", "")
     assert SENTINEL in stdin_input
@@ -266,7 +266,7 @@ def test_invoke_with_prompt_passes_exact_sentinel_to_routed_subprocess(tmp_path:
 
 def test_routed_invoker_with_instance_prompt_builder(tmp_path: Path, monkeypatch):
     """Verify instance-level prompt_builder propagates to child invokers."""
-    cmds = {"minimax": '"fake-agent" "minimax"'}
+    cmds = {"legacy": '"fake-agent" "legacy"'}
     _patch_env(monkeypatch, cmds, {})
 
     custom_builder_called = []

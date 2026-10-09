@@ -140,7 +140,7 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
             }, ct);
             if (!instance.IsSuccessStatusCode)
             {
-                // Older servers only allow codex/workbuddy/minimax/qwen. Worker-owned
+                // Older servers only allow a fixed set of executor types. Worker-owned
                 // routing does not need executor_type; retry without it so presence works.
                 using var fallback = await Post(agentClient, $"api/agents/{Uri.EscapeDataString(agent.Id)}/instances", new
                 {

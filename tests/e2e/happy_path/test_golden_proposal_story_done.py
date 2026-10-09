@@ -161,7 +161,7 @@ def test_auto_proposal_reaches_story_done_with_dynamic_qa_separation(
         project_id=project_id,
         user_id=third_user.id,
         name="third",
-        executor_type="minimax",
+        executor_type="cursor",
     )
 
     target_epic = create_epic(

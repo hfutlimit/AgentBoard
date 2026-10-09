@@ -2,7 +2,7 @@ namespace AgentBoard.Node.Agents;
 
 /// <summary>
 /// Sprint 4. One implementation per agent CLI. The single worker holds
-/// three of these (workbuddy / MiniMax / codex) and routes by AgentType.
+/// each of these (workbuddy / cursor / codex) and routes by AgentType.
 /// </summary>
 public interface IAgentAdapter
 {

@@ -106,9 +106,7 @@ builder.Services.AddSingleton<IProcessExecutor, ProcessExecutor>();
 // (we still register so the registry logs the full list, but Get() will
 // throw at runtime if a message arrives for a disabled agent).
 builder.Services.AddSingleton<IAgentAdapter, WorkBuddyAdapter>();
-builder.Services.AddSingleton<IAgentAdapter, MiniMaxAdapter>();
 builder.Services.AddSingleton<IAgentAdapter, CodexAdapter>();
-builder.Services.AddSingleton<IAgentAdapter, QwenAdapter>();
 builder.Services.AddSingleton<IAgentAdapter, CursorAdapter>();
 builder.Services.AddSingleton<IAgentAdapter, FakeAdapter>();
 builder.Services.AddSingleton<IAgentAdapter, DeterministicScenarioAdapter>();
@@ -230,7 +228,23 @@ using (var scope = app.Services.CreateScope())
     // hand-off only, not the durable-buffer-to-memory path (#2 in the
     // 2026-08-28 review).
 
-    if (!localMode && !configurationOnly) await readiness.RunAllAsync(CancellationToken.None);
+    // Readiness probe runs at startup unless the Node was started strictly as a
+    // ConfigurationOnly portal (which has no dispatcher to act on the result).
+    //
+    // 历史坑（2026-09-23 #1716 follow-up）：原本是 `!localMode && !configurationOnly`，
+    // 在 worker-owned 模式下 localMode=true，readiness 完全跳过 → 3 个 local agent 永远停在
+    // cli_ready=False / ready=False / total_exec=0，dispatch loop 用 readiness 把它们全部跳过
+    // → 永远没机会执行第一次 → 没法调 SetAgentReport(AllOk)——经典 catch-22。
+    // 这里去掉 `localMode` gate 让所有模式都 probe；ConfigurationOnly 仍跳过（无 dispatcher
+    // 消费这份 readiness 报告）。Probe 自身的 trace 在 ReadinessProbe.cs:74-94 已经写，
+    // 这里再加一对 [startup] 头/尾 marker，方便以后 grep。
+    if (!configurationOnly)
+    {
+        log.LogInformation("[startup] readiness probe starting (localMode={LocalMode})", localMode);
+        await readiness.RunAllAsync(CancellationToken.None);
+        log.LogInformation("[startup] readiness probe done");
+    }
+
     log.LogInformation("AgentBoard Worker started; registered agents: [{List}]", string.Join(", ", registry.RegisteredAgents));
 }
 

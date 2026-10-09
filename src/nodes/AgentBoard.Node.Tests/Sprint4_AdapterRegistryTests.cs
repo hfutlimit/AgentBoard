@@ -17,12 +17,12 @@ public sealed class Sprint4_AdapterRegistryTests
     public void Registry_routes_by_agent_type()
     {
         var workbuddy = FakeAgentAdapter.Success("workbuddy");
-        var minimax = FakeAgentAdapter.Success("minimax");
+        var cursorAgent = FakeAgentAdapter.Success("cursor");
         var codex = FakeAgentAdapter.Success("codex");
-        var registry = new AgentAdapterRegistry(new IAgentAdapter[] { workbuddy, minimax, codex }, NullLogger<AgentAdapterRegistry>.Instance);
+        var registry = new AgentAdapterRegistry(new IAgentAdapter[] { workbuddy, cursorAgent, codex }, NullLogger<AgentAdapterRegistry>.Instance);
 
         Assert.Equal(workbuddy, registry.Get("workbuddy"));
-        Assert.Equal(minimax, registry.Get("minimax"));
+        Assert.Equal(cursorAgent, registry.Get("cursor"));
         Assert.Equal(codex, registry.Get("codex"));
     }
 
@@ -49,13 +49,13 @@ public sealed class Sprint4_AdapterRegistryTests
         var registry = new AgentAdapterRegistry(new IAgentAdapter[]
         {
             FakeAgentAdapter.Success("workbuddy"),
-            FakeAgentAdapter.Success("minimax"),
+            FakeAgentAdapter.Success("cursor"),
             FakeAgentAdapter.Success("codex"),
         }, NullLogger<AgentAdapterRegistry>.Instance);
 
         Assert.Equal(3, registry.RegisteredAgents.Count);
         Assert.Contains("workbuddy", registry.RegisteredAgents);
-        Assert.Contains("minimax", registry.RegisteredAgents);
+        Assert.Contains("cursor", registry.RegisteredAgents);
         Assert.Contains("codex", registry.RegisteredAgents);
     }
 
@@ -64,7 +64,7 @@ public sealed class Sprint4_AdapterRegistryTests
     {
         var registry = new AgentAdapterRegistry(new[] { FakeAgentAdapter.Success("workbuddy") }, NullLogger<AgentAdapterRegistry>.Instance);
         Assert.True(registry.IsRegistered("workbuddy"));
-        Assert.False(registry.IsRegistered("minimax"));
+        Assert.False(registry.IsRegistered("cursor"));
         Assert.False(registry.IsRegistered(""));
     }
 
@@ -76,7 +76,7 @@ public sealed class Sprint4_AdapterRegistryTests
         new AgentAdapterRegistry(new IAgentAdapter[]
         {
             FakeAgentAdapter.Success("workbuddy"),
-            FakeAgentAdapter.Success("minimax"),
+            FakeAgentAdapter.Success("cursor"),
             FakeAgentAdapter.Success("codex"),
         }, NullLogger<AgentAdapterRegistry>.Instance);
 
@@ -97,18 +97,18 @@ public sealed class Sprint4_AdapterRegistryTests
         // 2026-09-02 Glm53F bug regression: the injected Agents:DefaultAgent
         // must win over the "workbuddy" fallback (and must NOT be a hard-coded
         // slot name the C# registry never modeled).
-        var mapper = new ProposalMessageMapper(ThreeAgentRegistry(), defaultAgent: "minimax");
+        var mapper = new ProposalMessageMapper(ThreeAgentRegistry(), defaultAgent: "cursor");
         var msg = new ProposalMessage(ProposalId: 9, Round: 0, Reason: "r", Timestamp: "t", AgentType: null);
         var req = mapper.MapToExecution(msg, "test");
 
-        Assert.Equal("minimax", req.AgentType);
-        Assert.Equal("proposal:9:0:minimax", req.ExecutionKey);
+        Assert.Equal("cursor", req.AgentType);
+        Assert.Equal("proposal:9:0:cursor", req.ExecutionKey);
     }
 
     [Fact]
     public void Mapper_server_agent_type_beats_injected_default()
     {
-        var mapper = new ProposalMessageMapper(ThreeAgentRegistry(), defaultAgent: "minimax");
+        var mapper = new ProposalMessageMapper(ThreeAgentRegistry(), defaultAgent: "cursor");
         var msg = new ProposalMessage(ProposalId: 10, Round: 0, Reason: "r", Timestamp: "t", AgentType: "codex");
         var req = mapper.MapToExecution(msg, "test");
 
@@ -119,11 +119,11 @@ public sealed class Sprint4_AdapterRegistryTests
     public void Mapper_uses_explicit_agent_type_when_present()
     {
         var mapper = new ProposalMessageMapper(ThreeAgentRegistry());
-        var msg = new ProposalMessage(ProposalId: 2, Round: 1, Reason: "r", Timestamp: "t", AgentType: "minimax");
+        var msg = new ProposalMessage(ProposalId: 2, Round: 1, Reason: "r", Timestamp: "t", AgentType: "cursor");
         var req = mapper.MapToExecution(msg, "test");
 
-        Assert.Equal("minimax", req.AgentType);
-        Assert.Equal("proposal:2:1:minimax", req.ExecutionKey);
+        Assert.Equal("cursor", req.AgentType);
+        Assert.Equal("proposal:2:1:cursor", req.ExecutionKey);
     }
 
     [Fact]
@@ -150,13 +150,13 @@ public sealed class Sprint4_AdapterRegistryTests
     public void Mapper_distinguishes_agents_per_proposal()
     {
         // Two different agents working on the same proposal must produce different
-        // execution keys, so e.g. workbuddy and minimax running on the same
+        // execution keys, so e.g. workbuddy and cursor running on the same
         // proposal don't suppress each other via idempotency.
         var mapper = new ProposalMessageMapper(ThreeAgentRegistry());
         var workbuddy = mapper.MapToExecution(new ProposalMessage(1, 0, "r", "t", "workbuddy"), "test");
-        var minimax = mapper.MapToExecution(new ProposalMessage(1, 0, "r", "t", "minimax"), "test");
+        var cursorAgent = mapper.MapToExecution(new ProposalMessage(1, 0, "r", "t", "cursor"), "test");
         var codex = mapper.MapToExecution(new ProposalMessage(1, 0, "r", "t", "codex"), "test");
-        Assert.Equal(3, new[] { workbuddy.ExecutionKey, minimax.ExecutionKey, codex.ExecutionKey }.Distinct().Count());
+        Assert.Equal(3, new[] { workbuddy.ExecutionKey, cursorAgent.ExecutionKey, codex.ExecutionKey }.Distinct().Count());
     }
 
     // -------------------------------------------------------------------------
@@ -175,14 +175,14 @@ public sealed class Sprint4_AdapterRegistryTests
         var store = new ExecutionStore(opts, NullLogger<ExecutionStore>.Instance);
         var inbox = new InboxStore(store, NullLogger<InboxStore>.Instance);
         var workbuddy = FakeAgentAdapter.Success("workbuddy");
-        var minimax = FakeAgentAdapter.Success("minimax");
+        var cursorAgent = FakeAgentAdapter.Success("cursor");
         var codex = FakeAgentAdapter.Success("codex");
-        var registry = new AgentAdapterRegistry(new IAgentAdapter[] { workbuddy, minimax, codex }, NullLogger<AgentAdapterRegistry>.Instance);
+        var registry = new AgentAdapterRegistry(new IAgentAdapter[] { workbuddy, cursorAgent, codex }, NullLogger<AgentAdapterRegistry>.Instance);
         var state = new WorkerState(opts, new WorkerIdentity(opts));
         var channel = new ExecutionChannel(opts);
         var coord = new ExecutionCoordinator(store, inbox, channel, registry, state, NullLogger<ExecutionCoordinator>.Instance);
 
-        foreach (var (agent, id) in new[] { ("workbuddy", 1L), ("minimax", 2L), ("codex", 3L) })
+        foreach (var (agent, id) in new[] { ("workbuddy", 1L), ("cursor", 2L), ("codex", 3L) })
         {
             var req = new ExecutionRequest($"proposal:{id}:0:{agent}", "proposal", id, agent, 0, "test", "{}");
             var (inboxId, _) = await inbox.TryEnqueueAsync(req, CancellationToken.None);
@@ -190,7 +190,7 @@ public sealed class Sprint4_AdapterRegistryTests
         }
 
         Assert.Equal(1, workbuddy.CallCount);
-        Assert.Equal(1, minimax.CallCount);
+        Assert.Equal(1, cursorAgent.CallCount);
         Assert.Equal(1, codex.CallCount);
 
         try { File.Delete(opts.Value.HistoryDatabasePath); } catch { }

@@ -61,9 +61,8 @@ public sealed class WorkBuddyAdapter : IAgentAdapter
             AgentType = AgentType,
         };
         // 2026-09-02 (operator verify): log the exact command we are
-        // about to spawn so post-mortem on 124 can confirm whether
-        // the new template (codebuddy CLI) or the old misrouted
-        // (python scripts/minimax_invoker.py) is actually in effect.
+        // about to spawn so post-mortem can confirm which CLI/arguments
+        // template is actually in effect.
         _log.LogInformation(
             "WorkBuddyAdapter.Execute: workload={Workload} id={Id} " +
             "cmd='{Cmd}' args=[{Args}] model-hint={Model}",

@@ -222,7 +222,7 @@ public sealed class Sprint12_GenericWorkloadTests
     {
         var mapper = new WorkflowMessageMapper(ThreeAgentRegistry());
         var wb = mapper.MapToExecution(MakeWorkflow("task.available", 1, agent: "workbuddy"), "agent");
-        var m2 = mapper.MapToExecution(MakeWorkflow("task.available", 1, agent: "minimax"), "agent");
+        var m2 = mapper.MapToExecution(MakeWorkflow("task.available", 1, agent: "cursor"), "agent");
         Assert.NotEqual(wb.ExecutionKey, m2.ExecutionKey);
     }
 
@@ -253,7 +253,7 @@ public sealed class Sprint12_GenericWorkloadTests
         using var fx = new TempDbFixture();
         var fake = FakeAgentAdapter.Success("workbuddy", outputJson: """{"action":"ok"}""");
         var registry = new AgentAdapterRegistry(
-            new IAgentAdapter[] { fake, FakeAgentAdapter.Success("minimax"), FakeAgentAdapter.Success("codex") },
+            new IAgentAdapter[] { fake, FakeAgentAdapter.Success("cursor"), FakeAgentAdapter.Success("codex") },
             NullLogger<AgentAdapterRegistry>.Instance);
         var channel = new ExecutionChannel(Options.Create(fx.Options));
         var state = new WorkerState(Options.Create(fx.Options), new WorkerIdentity(Options.Create(fx.Options)));
@@ -302,7 +302,7 @@ public sealed class Sprint12_GenericWorkloadTests
         using var fx = new TempDbFixture();
         var fake = FakeAgentAdapter.Success("workbuddy");
         var registry = new AgentAdapterRegistry(
-            new IAgentAdapter[] { fake, FakeAgentAdapter.Success("minimax") },
+            new IAgentAdapter[] { fake, FakeAgentAdapter.Success("cursor") },
             NullLogger<AgentAdapterRegistry>.Instance);
         var channel = new ExecutionChannel(Options.Create(fx.Options));
         var state = new WorkerState(Options.Create(fx.Options), new WorkerIdentity(Options.Create(fx.Options)));
@@ -336,7 +336,7 @@ public sealed class Sprint12_GenericWorkloadTests
         using var fx = new TempDbFixture();
         var dev = FakeAgentAdapter.Success("workbuddy");
         var registry = new AgentAdapterRegistry(
-            new IAgentAdapter[] { dev, FakeAgentAdapter.Success("minimax") },
+            new IAgentAdapter[] { dev, FakeAgentAdapter.Success("cursor") },
             NullLogger<AgentAdapterRegistry>.Instance);
         var channel = new ExecutionChannel(Options.Create(fx.Options));
         var state = new WorkerState(Options.Create(fx.Options), new WorkerIdentity(Options.Create(fx.Options)));
@@ -389,7 +389,7 @@ public sealed class Sprint12_GenericWorkloadTests
         new IAgentAdapter[]
         {
             FakeAgentAdapter.Success("workbuddy"),
-            FakeAgentAdapter.Success("minimax"),
+            FakeAgentAdapter.Success("cursor"),
             FakeAgentAdapter.Success("codex"),
         },
         NullLogger<AgentAdapterRegistry>.Instance);

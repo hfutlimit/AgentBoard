@@ -27,7 +27,7 @@ public sealed class CliNotFoundException(string agentType, string agentCmd, stri
 }
 
 /// <summary>
-/// Resolves the absolute path of an agent CLI (Codex / MiniMax / WorkBuddy)
+/// Resolves the absolute path of an agent CLI (Codex / WorkBuddy / Cursor)
 /// from the worker's <see cref="AgentOptions"/>. Probe order:
 ///
 ///   1. <c>opts.Command</c> is an absolute path that exists on disk.
@@ -61,23 +61,6 @@ public static class CliLocator
             codexHome is null ? "" : Path.Combine(codexHome, "codex.exe"),
         };
         return Resolve("codex", opts, candidates, BaseEnv(), log);
-    }
-
-    /// <summary>
-    /// Locate the minimax CLI (npm package <c>minimax-cli</c>).
-    /// On Windows, npm-global installs the wrapper as <c>minimax.cmd</c>;
-    /// we surface the .cmd path so <see cref="ProcessExecutor"/> can wrap
-    /// it via <c>cmd /c</c>.
-    /// </summary>
-    public static ResolvedCli LocateMinimax(AgentOptions opts, ILogger log)
-    {
-        var candidates = new List<string>
-        {
-            Path.Combine(NpmGlobalBin(), "minimax.cmd"),
-            Path.Combine(NpmGlobalBin(), "minimax.exe"),
-            Path.Combine(NpmGlobalBin(), "minimax"),
-        };
-        return Resolve("minimax", opts, candidates, BaseEnv(), log);
     }
 
     /// <summary>
@@ -143,16 +126,6 @@ public static class CliLocator
             throw;
         }
     }
-
-    /// <summary>
-    /// Generic resolution for an agent that has no well-known install
-    /// locations on disk — e.g. the 千问办公 (qwen) agent, whose Command points
-    /// directly at a Python invoker (<c>python.exe scripts/qwen_invoker.py</c>).
-    /// Resolution relies solely on <c>opts.Command</c> (absolute path used as-is,
-    /// bare name via where.exe). No Node-script wrapping.
-    /// </summary>
-    public static ResolvedCli LocateGeneric(string agentType, AgentOptions opts, ILogger log)
-        => Resolve(agentType, opts, Array.Empty<string>(), BaseEnv(), log);
 
     /// <summary>
     /// Returns the user-level npm global bin directory (e.g.

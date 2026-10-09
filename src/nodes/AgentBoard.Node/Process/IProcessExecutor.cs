@@ -54,11 +54,10 @@ public sealed class ProcessExecutor : IProcessExecutor
         }
 
         // Windows: npm-global installs ship CLI wrappers as .cmd files
-        // (e.g. minimax.cmd, codex.cmd). Process.Start does not resolve
+        // (e.g. codex.cmd). Process.Start does not resolve
         // .cmd/.bat directly — it raises Win32Exception 193. Wrap with
         // cmd.exe so the OS can apply PATHEXT semantics transparently.
-        // See docs/workbuddy-cli-integration.md and
-        // docs/minimax-code-integration.md for the original analysis.
+        // See docs/workbuddy-cli-integration.md for the original analysis.
         if (OperatingSystem.IsWindows() &&
             NeedsCmdWrapper(spec.Executable, out var wrappedPath))
         {

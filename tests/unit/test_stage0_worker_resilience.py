@@ -189,7 +189,7 @@ def test_parse_routing_normalizes_legacy_alias(monkeypatch):
 
 def test_parse_routing_warns_and_skips_unknown_key(monkeypatch):
     monkeypatch.setenv("AGENTBOARD_WORKER_AGENT_ROUTING",
-                       '{"typo_action": "minimax", "process_story": "codebuddy"}')
+                       '{"typo_action": "legacy", "process_story": "codebuddy"}')
     warnings: list[str] = []
     monkeypatch.setattr(inv_mod.log, "warning",
                         lambda msg, *args: warnings.append(msg % args if args else msg))

@@ -39,15 +39,15 @@ log = logging.getLogger("agentboard.processors.invokers")
 # =============================================================================
 # 背景：旧 Worker 的 AGENTBOARD_WORKER_AGENT_CMD 是单字符串，只能起一个 agent
 # 进程级拆分方式（多 Proposal Worker 进程）会出现「同认领、同回退」竞态刷评论
-# 的问题（实测：minimax 通道没 MCP 接入时认领 Story 必失败 → 每 10s 重试一次
+# 的问题（实测：某直连通道没 MCP 接入时认领 Story 必失败 → 每 10s 重试一次
 # 烧 token 还在 Story 上刷一条失败评论）。本模块加一组解析器 + RoutedSubprocessInvoker，
 # 让一个 Worker 进程内按 work_item.action 路由到不同的子 agent，保持 CAS 认领的
-# 单一性，又能按通道能力错开（clarify/ticket 走 minimax 直连，story/review 走
+# 单一性，又能按通道能力错开（clarify/ticket 走直连通道，story/review 走
 # codebuddy 接 MCP）。
 #
 # 配置（环境变量，全部为 JSON 字符串）：
 #   AGENTBOARD_WORKER_AGENT_COMMANDS = {"<alias>": "<cmd template>", ...}
-#       alias = 通道名（minimax / codebuddy / workbuddy ...），key 顺序即为
+#       alias = 通道名（codebuddy / workbuddy ...），key 顺序即为
 #       兜底优先级（first wins），值与旧的 AGENTBOARD_WORKER_AGENT_CMD 格式一致
 #   AGENTBOARD_WORKER_AGENT_ROUTING  = {"<action>": "<alias>" | ["<alias>", ...], ...}
 #       action = Worker 已知的路由键（见 KNOWN_ROUTING_ACTIONS）；未列出 → 走首条
