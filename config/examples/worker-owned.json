@@ -5,7 +5,7 @@
   },
   "WorkerOwned": {
     "Enabled": true,
-    "ReconcileSeconds": 5,
+    "PresenceSeconds": 5,
     "Projects": [{ "ProjectId": 8, "LocalPath": "E:\\Projects\\KnowledgeVault" }],
     "Agents": [
       {

@@ -9,7 +9,7 @@ namespace AgentBoard.Node.WorkerOwned;
 public sealed class WorkerOwnedOptions
 {
     public bool Enabled { get; set; }
-    public int ReconcileSeconds { get; set; } = 5;
+    public int PresenceSeconds { get; set; } = 5;
     public LocalProject[] Projects { get; set; } = [];
     public LocalAgentProfile[] Agents { get; set; } = [];
 

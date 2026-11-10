@@ -39,9 +39,9 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
     private volatile bool _draining;
     public Task? Completion => ExecuteTask;
     private volatile bool _brokerConnected;
-    private long _lastScanTicks;
+    private long _lastPresenceTicks;
     public bool BrokerConnected { get => _brokerConnected; private set => _brokerConnected = value; }
-    public DateTimeOffset? LastScanAt => Interlocked.Read(ref _lastScanTicks) is var ticks && ticks > 0
+    public DateTimeOffset? LastPresenceAt => Interlocked.Read(ref _lastPresenceTicks) is var ticks && ticks > 0
         ? new DateTimeOffset(ticks, TimeSpan.Zero) : null;
     public void Drain() => _draining = true;
 
@@ -198,13 +198,13 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
                     _lastPresence = DateTimeOffset.UtcNow;
                     _state.LastHeartbeatSuccessAt = _lastPresence;
                 }
-                Interlocked.Exchange(ref _lastScanTicks, DateTimeOffset.UtcNow.Ticks);
+                Interlocked.Exchange(ref _lastPresenceTicks, DateTimeOffset.UtcNow.Ticks);
             }
             catch (Exception error) when (!ct.IsCancellationRequested)
             {
                 _log.LogWarning("Worker presence deferred ({Error}): {Message}", error.GetType().Name, error.Message);
             }
-            await Task.Delay(TimeSpan.FromSeconds(Math.Max(2, _options.ReconcileSeconds)), ct);
+            await Task.Delay(TimeSpan.FromSeconds(Math.Max(2, _options.PresenceSeconds)), ct);
         }
     }
 

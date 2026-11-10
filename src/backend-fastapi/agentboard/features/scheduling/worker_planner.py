@@ -40,7 +40,7 @@ log = logging.getLogger("agentboard.features.scheduling.worker_planner")
 
 # Planning is a full business-state scan, so it is throttled independently of
 # the outbox tick (which is sub-second). Mirrors the Worker-era reconcile
-# cadence (``WorkerOwned:ReconcileSeconds`` = 5).
+# cadence (``WorkerOwned:PresenceSeconds`` = 5).
 DEFAULT_PLAN_INTERVAL_SECONDS = 5.0
 PLAN_INTERVAL_ENV = "AGENTBOARD_WORKER_PLAN_SECONDS"
 
