@@ -446,7 +446,7 @@ def offer(body: Offer, authorization: str | None = Header(None), s: Session = De
 
 class WorkerProjectsIn(BaseModel):
     worker_id: str = Field(min_length=1, max_length=100)
-    project_ids: list[int] = Field(min_length=1, max_length=200)
+    project_ids: list[int] = Field(min_length=0, max_length=200)
 
 
 @router.post("/projects")
@@ -458,7 +458,10 @@ def register_projects(body: WorkerProjectsIn, authorization: str | None = Header
     must be declared explicitly instead of guessed. Each project is checked
     with the same membership rule the Worker already passes for /offers.
     Mappings for projects no longer listed are disabled, so removing a project
-    from the local configuration actually stops Server-side planning for it.
+    from the local configuration actually stops Server-side planning for it;
+    an empty list retires the Worker's whole scope. Workers are shared across
+    users, so disabling a stale mapping additionally requires membership in
+    that project — a caller can never shrink another project's workforce.
     """
     from ..projects.service import map_worker_to_project, NotFound
     wanted = sorted(set(body.project_ids))
@@ -476,9 +479,18 @@ def register_projects(body: WorkerProjectsIn, authorization: str | None = Header
         WorkerProjectMapping.worker_id == body.worker_id,
         WorkerProjectMapping.enabled.is_(True),
         WorkerProjectMapping.project_id.notin_(wanted)).all()
+    disabled = []
     for mapping in stale:
+        try:
+            authorize(s, mapping.project_id, authorization)
+        except HTTPException as error:
+            if error.status_code != 403:
+                raise
+            # Foreign mappings stay for project admins via /api/projects/{pid}/workers.
+            continue
         mapping.enabled = False
-    return {"project_ids": wanted, "disabled": [m.project_id for m in stale]}
+        disabled.append(mapping.project_id)
+    return {"project_ids": wanted, "disabled": disabled}
 
 
 def resolve_claim(s, work_id, body, authorization):

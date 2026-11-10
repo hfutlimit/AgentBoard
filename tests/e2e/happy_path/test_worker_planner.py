@@ -6,12 +6,13 @@ replaced it, including the decision semantics that used to live in the C#
 ``WorkerOwnedTests`` (``WorkPlanner.Next`` / ``TicketPlan`` / ``AddQaFollowup``).
 """
 import json
+import uuid
 
 import pytest
-from conftest import setup_user_project
+from conftest import auth_headers, login_token, setup_user_project
 
 from agentboard.features.projects.models import (
-    Agent, AgentInstance, Story, Worker, WorkerProjectMapping,
+    Agent, AgentInstance, ProjectMember, Story, Worker, WorkerProjectMapping,
 )
 from agentboard.features.scheduling import worker_planner as planner
 from agentboard.features.scheduling.worker_work import default_ticket_plan
@@ -226,3 +227,114 @@ def test_default_ticket_plan_keeps_acceptance_out_of_development_tasks():
     assert len([task for task in plan["tasks"] if task["type"] == "dev"]) == 1
     design, dev, qa = (task["title"] for task in plan["tasks"])
     assert plan["dependencies"] == [[design, dev], [dev, qa]]
+
+
+# ---------------------------------------------------------------------------
+# project scope declaration (POST /api/worker-work/projects)
+# ---------------------------------------------------------------------------
+
+def declare_projects(client, db_session, uid, worker_id, project_ids):
+    headers = auth_headers(login_token(client, db_session, uid))
+    return client.post("/api/worker-work/projects", headers=headers,
+                       json={"worker_id": worker_id, "project_ids": project_ids})
+
+
+def add_mapped_project(db, uid, worker_id, project_id):
+    if not db.query(Worker).filter_by(worker_id=worker_id).first():
+        db.add(Worker(worker_id=worker_id, hostname="scope-host", status="active"))
+    db.add(WorkerProjectMapping(worker_id=worker_id, project_id=project_id, enabled=True))
+    db.commit()
+
+
+def make_member_project(db, uid):
+    from agentboard.features.projects.service import create_project
+
+    project = create_project(db, name="scope project", key=f"S-{uuid.uuid4().hex[:6].upper()}")
+    db.add(ProjectMember(project_id=project.id, user_id=uid, role="owner"))
+    db.commit()
+    return project.id
+
+
+def test_declaration_requires_membership_in_listed_projects(client, db_session, plan_env):
+    stranger_uid, _ = setup_user_project(db_session)
+    add_mapped_project(db_session, plan_env[0], "w-scope", plan_env[1])
+
+    response = declare_projects(client, db_session, stranger_uid, "w-scope", [plan_env[1]])
+
+    assert response.status_code == 403
+
+
+def test_declaration_disables_stale_and_reenables_listed(client, db_session, plan_env):
+    uid, pid, _ = plan_env
+    other_pid = make_member_project(db_session, uid)
+    add_mapped_project(db_session, uid, "w-scope", pid)
+    add_mapped_project(db_session, uid, "w-scope", other_pid)
+
+    response = declare_projects(client, db_session, uid, "w-scope", [pid])
+
+    assert response.status_code == 200
+    assert response.json()["disabled"] == [other_pid]
+    db_session.expire_all()
+    mappings = {m.project_id: m.enabled for m in
+                db_session.query(WorkerProjectMapping).filter_by(worker_id="w-scope")}
+    assert mappings == {pid: True, other_pid: False}
+
+    back = declare_projects(client, db_session, uid, "w-scope", [pid, other_pid])
+    assert back.status_code == 200
+    db_session.expire_all()
+    assert db_session.query(WorkerProjectMapping).filter_by(
+        worker_id="w-scope", project_id=other_pid).one().enabled is True
+
+
+def test_declaration_cannot_disable_projects_the_caller_does_not_belong_to(
+        client, db_session, plan_env):
+    # Workers are shared across users: a member of project B must not be able
+    # to shrink a Worker's scope for project A by omitting A from the list.
+    uid, pid, _ = plan_env
+    other_uid, other_pid = setup_user_project(db_session)
+    add_mapped_project(db_session, uid, "w-shared", pid)
+    add_mapped_project(db_session, other_uid, "w-shared", other_pid)
+
+    response = declare_projects(client, db_session, other_uid, "w-shared", [other_pid])
+
+    assert response.status_code == 200
+    assert response.json()["disabled"] == []
+    db_session.expire_all()
+    assert db_session.query(WorkerProjectMapping).filter_by(
+        worker_id="w-shared", project_id=pid).one().enabled is True
+
+
+def test_declaration_accepts_empty_scope_and_disables_all_caller_projects(
+        client, db_session, plan_env):
+    uid, pid, _ = plan_env
+    other_pid = make_member_project(db_session, uid)
+    add_mapped_project(db_session, uid, "w-scope", pid)
+    add_mapped_project(db_session, uid, "w-scope", other_pid)
+
+    response = declare_projects(client, db_session, uid, "w-scope", [])
+
+    assert response.status_code == 200
+    assert sorted(response.json()["disabled"]) == sorted([pid, other_pid])
+    db_session.expire_all()
+    assert all(m.enabled is False for m in
+               db_session.query(WorkerProjectMapping).filter_by(worker_id="w-scope"))
+
+
+def test_empty_scope_still_cannot_touch_foreign_projects(client, db_session, plan_env):
+    uid, pid, _ = plan_env
+    other_uid, other_pid = setup_user_project(db_session)
+    add_mapped_project(db_session, uid, "w-shared", pid)
+    add_mapped_project(db_session, other_uid, "w-shared", other_pid)
+
+    response = declare_projects(client, db_session, other_uid, "w-shared", [])
+
+    assert response.status_code == 200
+    assert response.json()["disabled"] == [other_pid]
+    db_session.expire_all()
+    assert db_session.query(WorkerProjectMapping).filter_by(
+        worker_id="w-shared", project_id=pid).one().enabled is True
+
+
+def test_declaration_unknown_worker_is_404(client, db_session, plan_env):
+    response = declare_projects(client, db_session, plan_env[0], "w-missing", [plan_env[1]])
+    assert response.status_code == 404
