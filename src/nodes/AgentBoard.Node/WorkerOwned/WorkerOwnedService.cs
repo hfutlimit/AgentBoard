@@ -352,9 +352,10 @@ public sealed class WorkerOwnedService : BackgroundService, ILocalWorkerRun
             // forever: ReturnToTail re-pulls the same delivery every 2s and the
             // candidate set never changes (typically an Agent was disabled while
             // its kind was still in the queue). Ack and drop instead — the claim
-            // contract has no "no executor" terminal state, and the Server owns
-            // re-offering (it re-creates the row, with a fresh work_key, when a
-            // capable Agent appears again).
+            // contract has no "no executor" terminal state. The row stays
+            // available on the Server; once a capable Agent is online again the
+            // planner resets published_at after a grace period and the relay
+            // re-publishes the same row (same work_key, no duplicate work).
             _log.LogWarning(
                 "Work {WorkId} {Kind} has no eligible local Agent (target={Target}); acking and dropping",
                 workId, kind, target ?? "<any>");

@@ -215,6 +215,73 @@ def test_plan_once_closes_a_story_once_every_task_is_done(client, db_session, pl
 
 
 # ---------------------------------------------------------------------------
+# re-publishing available rows whose queue message was dropped
+# ---------------------------------------------------------------------------
+
+def published_row(db_session, env, *, age_minutes):
+    from datetime import timedelta
+
+    from agentboard.core.common.models import utc_now
+
+    map_worker(db_session, env, kinds=["dev"])
+    make_task(db_session, env, "dev")
+    assert planner.plan_once(force=True) == 1
+    row = db_session.query(WorkerWork).one()
+    row.published_at = utc_now() - timedelta(minutes=age_minutes)
+    db_session.commit()
+    return row
+
+
+def test_plan_once_republishes_available_rows_whose_message_was_dropped(client, db_session, plan_env):
+    # Ack-and-drop (no eligible local Agent) leaves the row available but
+    # published; the relay never re-publishes it on its own. Once coverage
+    # is back, the planner must hand the row to the relay again.
+    row = published_row(db_session, plan_env, age_minutes=4)
+
+    assert planner.plan_once(force=True) == 0  # no new row: same work_key
+    db_session.expire_all()
+    assert db_session.query(WorkerWork).count() == 1
+    assert db_session.get(WorkerWork, row.id).published_at is None
+
+
+def test_plan_once_leaves_freshly_published_rows_alone(client, db_session, plan_env):
+    row = published_row(db_session, plan_env, age_minutes=0)
+    published_at = row.published_at
+
+    planner.plan_once(force=True)
+
+    db_session.expire_all()
+    assert db_session.get(WorkerWork, row.id).published_at == published_at
+
+
+def test_plan_once_does_not_republish_while_no_agent_is_online(client, db_session, plan_env):
+    row = published_row(db_session, plan_env, age_minutes=4)
+    db_session.query(AgentInstance).one().online = False
+    db_session.commit()
+
+    planner.plan_once(force=True)
+
+    db_session.expire_all()
+    assert db_session.get(WorkerWork, row.id).published_at is not None
+
+
+def test_plan_once_does_not_touch_leased_rows(client, db_session, plan_env):
+    from datetime import timedelta
+
+    from agentboard.core.common.models import utc_now
+
+    row = published_row(db_session, plan_env, age_minutes=4)
+    row.state = "leased"
+    row.lease_until = utc_now() + timedelta(minutes=3)
+    db_session.commit()
+
+    planner.plan_once(force=True)
+
+    db_session.expire_all()
+    assert db_session.get(WorkerWork, row.id).published_at is not None
+
+
+# ---------------------------------------------------------------------------
 # Server-side defaults moved out of the Worker
 # ---------------------------------------------------------------------------
 

@@ -22,10 +22,12 @@ from __future__ import annotations
 import logging
 import os
 import time
+from datetime import timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import func
 
+from ...core.common.models import utc_now
 from ...core.infrastructure import database
 from ..projects.models import Agent, AgentInstance, Story, WorkerProjectMapping
 from ..proposals.models import Proposal
@@ -42,6 +44,12 @@ log = logging.getLogger("agentboard.features.scheduling.worker_planner")
 # cadence (``WorkerOwned:ReconcileSeconds`` = 5).
 DEFAULT_PLAN_INTERVAL_SECONDS = 5.0
 PLAN_INTERVAL_ENV = "AGENTBOARD_WORKER_PLAN_SECONDS"
+
+# Grace before a still-available row is handed back to the relay. Matches the
+# relay's expired-lease re-publish window; normal claims land within seconds,
+# so only rows whose queue message vanished (ack-and-drop, crash after ack)
+# are affected.
+AVAILABLE_REPUBLISH_GRACE = timedelta(minutes=3)
 
 # task.type -> (execution kind, review kind). ``bug`` is implemented by the
 # dev-capable Agents, exactly like the Worker-era ``WorkerWorkKinds.ForTask``.
@@ -193,7 +201,7 @@ def plan_project(s, project_id: int) -> int:
                 )
                 continue
             try:
-                _, created_row = materialize_offer(s, offer)
+                row, created_row = materialize_offer(s, offer)
             except HTTPException as error:
                 # State moved (or is not yet offerable); the next pass re-derives
                 # everything from business state, so skipping is the right answer.
@@ -204,6 +212,11 @@ def plan_project(s, project_id: int) -> int:
                 continue
             if created_row:
                 created += 1
+            elif (row.state == "available" and row.published_at is not None
+                  and row.published_at < utc_now() - AVAILABLE_REPUBLISH_GRACE):
+                # The queue message is gone but the work is still offerable and
+                # coverage is back: let the relay publish the same row again.
+                row.published_at = None
     return created
 
 
