@@ -13,3 +13,12 @@
 - [x] .NET 测试同步（移除已迁移的 C# 规划断言）
 - [x] 新增 `tests/e2e/happy_path/test_worker_planner.py`（18 例：类型→kind 映射、人审门、讨论轮次、覆盖过滤、plan_once 幂等、Story 收尾、默认 DAG）
 - [x] 回归 `test_worker_owned_work.py` / `test_worker_work_ghost_rows.py`
+
+## 审查修复（2026-11-10）
+
+- [x] `/projects` 禁用按受影响项目成员资格收敛、允许空集（05fcf5d）
+- [x] planner 重发被丢弃消息的可用行，修正 ack-drop 恢复注释（295384b）
+- [x] 计数分离、死代码清理、fail-open 与 QA 自动补齐分支测试（9f4cc5a）
+- [x] presence 语义命名同步（6594741）
+- [x] OpenAPI 快照与生成客户端同步，live-drift 无漂移（4885ec3）
+- [x] 归档变更并同步 `openspec/specs/agentboard/spec.md`
