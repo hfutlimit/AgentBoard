@@ -25,7 +25,6 @@ import time
 from datetime import timedelta
 
 from fastapi import HTTPException
-from sqlalchemy import func
 
 from ...core.common.models import utc_now
 from ...core.infrastructure import database
@@ -122,10 +121,6 @@ def covered_kinds(s, project_id: int) -> set[str] | None:
         except Exception:  # malformed capability JSON must never stop planning
             return None
     return declared & set(WORK_KINDS)
-
-
-def is_discussion(s, task) -> "object | None":
-    return discussions.active(s, task.id)
 
 
 def offer_for(s, project_id: int, entity_type: str, item) -> Offer | None:
@@ -227,7 +222,6 @@ def complete_finished_stories(s, project_id: int) -> int:
         for row in s.query(Task.story_id)
         .filter(Task.project_id == project_id, Task.story_id.isnot(None))
         .group_by(Task.story_id)
-        .having(func.count(Task.id) > 0)
         .all()
     ]
     from .service import complete_story
@@ -262,17 +256,18 @@ def plan_once(force: bool = False) -> int:
         return 0
     _last_plan_at = now
     created = 0
+    closed = 0
     with database.SessionLocal() as s:
         try:
             for project_id in mapped_projects(s):
                 created += plan_project(s, project_id)
-                created += complete_finished_stories(s, project_id)
+                closed += complete_finished_stories(s, project_id)
             s.commit()
         except Exception:
             s.rollback()
             raise
-    if created:
-        log.info("Worker plan: materialised %d work row(s)", created)
+    if created or closed:
+        log.info("Worker plan: materialised %d work row(s), closed %d story(ies)", created, closed)
     return created
 
 

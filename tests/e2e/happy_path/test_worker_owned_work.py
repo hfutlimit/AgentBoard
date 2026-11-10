@@ -550,6 +550,45 @@ def test_failed_qa_creates_new_bugs_then_independent_retest_atomically(client, d
     assert not qa_acceptance_closed(tasks, works, edges)
 
 
+def test_confirmed_qa_defects_get_server_built_followup_without_worker_plan(client, db_session, configured):
+    # Since serverplan the Worker relays only the confirm intent; the Server
+    # builds the canonical bug + retest plan itself from immutable QA evidence.
+    qa = task(db_session, configured, "qa")
+    qa.description = "Original acceptance scope for the greeting endpoint"
+    db_session.commit()
+    qid = offer(client, configured, qa, "qa")
+    tester = claim_body(configured, "qa", "b")
+    claim(client, configured, qid, tester)
+    defects = [{"title": "Fix greeting", "description": "GET /greet: expected 200, actual 500; log ref /tmp/error"}]
+    failed = {"decision": "submit", "summary": "Found reproducible bug", "tests_passed": False,
+        "deployment_steps": ["start locally"], "test_steps": ["GET /greet"],
+        "test_results": ["HTTP 500"], "defects": defects}
+    complete(client, configured, qid, tester, failed)
+    db_session.expire_all()
+    assert qa.status == "in_review"
+    rid = offer(client, configured, qa, "qa_review")
+    check = claim_body(configured, "qa_review", "a")
+    claim(client, configured, rid, check)
+    complete(client, configured, rid, check,
+             {"decision": "discuss", "subject": "qa_defects", "summary": "Verify reported defect"})
+    discussion_turn(client, configured, qa,
+                    {"decision": "respond", "position": "agree", "summary": "Reproduced, report is accurate"})
+    rid, check = discussion_turn(client, configured, qa)
+    count = db_session.query(Task).count()
+
+    complete(client, configured, rid, check, {"decision": "confirm", "summary": "Defects confirmed"})
+
+    db_session.expire_all()
+    assert db_session.query(Task).count() == count + 2
+    bug = db_session.query(Task).filter_by(type="bug", title=defects[0]["title"]).one()
+    retest = db_session.query(Task).filter_by(type="qa", title=f"QA复测 #{qa.id}: {qa.title}"[:300]).one()
+    assert f"Retest QA Task #{qa.id}" in retest.description and qa.description in retest.description
+    assert bug.story_id == qa.story_id and bug.status == "todo"
+    assert db_session.query(TaskDependency).filter_by(task_id=bug.id, depends_on_id=qa.id).one()
+    assert db_session.query(TaskDependency).filter_by(task_id=retest.id, depends_on_id=bug.id).one()
+    assert qa.status == "done"
+
+
 def test_unreasonable_failed_qa_is_retested_not_sent_to_dev(client, db_session, configured):
     qa = task(db_session, configured, "qa")
     qid = offer(client, configured, qa, "qa")

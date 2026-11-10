@@ -170,6 +170,13 @@ def test_coverage_intersects_with_the_seven_work_kinds(db_session, plan_env):
     assert planner.covered_kinds(db_session, plan_env[1]) == {"dev"}
 
 
+def test_coverage_fails_open_on_malformed_capability_json(db_session, plan_env):
+    map_worker(db_session, plan_env, kinds=["dev"])
+    db_session.query(Agent).one().capabilities = "{not json"
+    db_session.commit()
+    assert planner.covered_kinds(db_session, plan_env[1]) is None
+
+
 # ---------------------------------------------------------------------------
 # planning pass
 # ---------------------------------------------------------------------------
@@ -208,7 +215,7 @@ def test_plan_once_closes_a_story_once_every_task_is_done(client, db_session, pl
 
     task.status = "done"
     db_session.commit()
-    planner.plan_once(force=True)
+    assert planner.plan_once(force=True) == 0  # story closure is not a new work row
 
     db_session.expire_all()
     assert db_session.get(Story, plan_env[2].id).status == "done"
