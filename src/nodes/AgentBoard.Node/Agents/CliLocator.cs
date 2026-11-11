@@ -27,7 +27,7 @@ public sealed class CliNotFoundException(string agentType, string agentCmd, stri
 }
 
 /// <summary>
-/// Resolves the absolute path of an agent CLI (Codex / WorkBuddy / Cursor)
+/// Resolves the absolute path of an agent CLI (Codex / WorkBuddy / Cursor / Qoder)
 /// from the worker's <see cref="AgentOptions"/>. Probe order:
 ///
 ///   1. <c>opts.Command</c> is an absolute path that exists on disk.
@@ -125,6 +125,27 @@ public static class CliLocator
             }
             throw;
         }
+    }
+
+    /// <summary>
+    /// Locate the Qoder CN CLI (<c>qoderclicn</c>). The native installer places
+    /// it under <c>%USERPROFILE%\.qoder-cn\bin\qoderclicn</c> and cannot always
+    /// add that directory to PATH (the user PATH has a 2047-character limit),
+    /// so the known install location is probed before PATH. The native
+    /// <c>.exe</c> is preferred over the <c>qodercn.cmd</c> dispatcher, which
+    /// would add cmd.exe and powershell.exe layers to every execution.
+    /// </summary>
+    public static ResolvedCli LocateQoder(AgentOptions opts, ILogger log)
+    {
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var candidates = new List<string>
+        {
+            Path.Combine(userProfile, ".qoder-cn", "bin", "qoderclicn", "qoderclicn.exe"),
+            Path.Combine(NpmGlobalBin(), "qoderclicn.cmd"),
+            Path.Combine(NpmGlobalBin(), "qoderclicn.exe"),
+            Path.Combine(NpmGlobalBin(), "qoderclicn"),
+        };
+        return Resolve("qoderclicn", opts, candidates, BaseEnv(), log);
     }
 
     /// <summary>

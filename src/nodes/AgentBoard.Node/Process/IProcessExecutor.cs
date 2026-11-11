@@ -22,6 +22,10 @@ public sealed class ProcessExecutor : IProcessExecutor
     {
         new(@"(?i)(openai|anthropic|minimax|codex)[_-]?api[_-]?key\s*[=:]\s*\S+", System.Text.RegularExpressions.RegexOptions.Compiled),
         new(@"Authorization:\s*Bearer\s+\S+", System.Text.RegularExpressions.RegexOptions.Compiled),
+        // Qoder PATs are bare `pt-` tokens, so neither vendor-key rule above
+        // matches them. The boundary keeps ordinary words ending in "pt"
+        // intact; the length floor keeps short "pt-" text intact.
+        new(@"(?<![A-Za-z0-9_])pt-[A-Za-z0-9_-]{20,}", System.Text.RegularExpressions.RegexOptions.Compiled),
     };
 
     public async Task<ProcessResult> ExecuteAsync(ProcessSpec spec, CancellationToken ct)

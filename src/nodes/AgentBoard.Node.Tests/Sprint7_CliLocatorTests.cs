@@ -57,6 +57,19 @@ public sealed class Sprint7_CliLocatorTests
     }
 
     [Fact]
+    public void LocateQoder_uses_configured_absolute_path_when_present()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+
+        var opts = new AgentOptions { Command = Path.Combine(Environment.SystemDirectory, "cmd.exe") };
+        var resolved = CliLocator.LocateQoder(opts, NullLogger.Instance);
+
+        Assert.Equal(opts.Command, resolved.Executable);
+        Assert.StartsWith("config:", resolved.Source);
+        Assert.Empty(resolved.PrefixArguments);
+    }
+
+    [Fact]
     public void NpmGlobalBin_prefers_appdata_npm()
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;

@@ -248,6 +248,13 @@ public sealed class AgentsOptions
     /// </summary>
     public AgentOptions Cursor { get; set; } = new() { Command = "" };
     /// <summary>
+    /// Qoder CN CLI (<c>qoderclicn</c>) slot. Disabled by default. Headless
+    /// flags live in <see cref="AgentOptions.Arguments"/>; model is injected as
+    /// <c>--model</c>. Auth is <c>QODERCN_PERSONAL_ACCESS_TOKEN</c> via
+    /// <see cref="AgentOptions.ApiKeyEnv"/>, or a prior <c>qoderclicn login</c>.
+    /// </summary>
+    public AgentOptions Qoder { get; set; } = new() { Command = "" };
+    /// <summary>
     /// In-process stand-in adapter. Always returns a synthetic success
     /// decision without spawning any external CLI. Useful for local dev /
     /// smoke when no real CLI is installed; <see cref="Agents.FakeAdapter"/>

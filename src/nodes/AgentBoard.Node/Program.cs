@@ -108,6 +108,7 @@ builder.Services.AddSingleton<IProcessExecutor, ProcessExecutor>();
 builder.Services.AddSingleton<IAgentAdapter, WorkBuddyAdapter>();
 builder.Services.AddSingleton<IAgentAdapter, CodexAdapter>();
 builder.Services.AddSingleton<IAgentAdapter, CursorAdapter>();
+builder.Services.AddSingleton<IAgentAdapter, QoderAdapter>();
 builder.Services.AddSingleton<IAgentAdapter, FakeAdapter>();
 builder.Services.AddSingleton<IAgentAdapter, DeterministicScenarioAdapter>();
 builder.Services.AddSingleton<IAgentAdapterRegistry, AgentAdapterRegistry>();

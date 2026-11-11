@@ -256,6 +256,7 @@ public sealed class ReadinessProbe
                 "workbuddy" => CliLocator.LocateCodebuddy(opts, _log),
                 "codex" => CliLocator.LocateCodex(opts, _log),
                 "cursor" => CliLocator.LocateCursor(opts, _log),
+                "qoder" => CliLocator.LocateQoder(opts, _log),
                 _ => throw new CliNotFoundException(agentType, opts.Command ?? "", "no locator wired"),
             };
         }
@@ -330,6 +331,7 @@ public sealed class ReadinessProbe
         "workbuddy" => _agents.WorkBuddy,
         "codex" => _agents.Codex,
         "cursor" => _agents.Cursor,
+        "qoder" => _agents.Qoder,
         "fake" => _agents.Fake,
         _ => null,
     };

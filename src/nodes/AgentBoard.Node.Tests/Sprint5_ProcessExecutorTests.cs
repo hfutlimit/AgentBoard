@@ -172,6 +172,35 @@ public sealed class Sprint5_ProcessExecutorTests
     }
 
     [Fact]
+    public async Task Redaction_replaces_qoder_personal_access_token()
+    {
+        const string token = "pt-SyntheticProbeToken0123456789_00000000-0000-0000-0000-000000000000";
+        var spec = new ProcessSpec
+        {
+            Executable = "cmd",
+            Arguments = new[] { "/c", $"echo QODERCN_PERSONAL_ACCESS_TOKEN={token}" },
+        };
+        var result = await _exec.ExecuteAsync(spec, CancellationToken.None);
+
+        Assert.DoesNotContain(token, result.RedactedOutput);
+        Assert.Contains("***REDACTED***", result.RedactedOutput);
+    }
+
+    [Fact]
+    public async Task Redaction_does_not_match_pt_inside_a_longer_word()
+    {
+        const string text = "except-abcdefghijklmnopqrstuvwxyz0123456789";
+        var spec = new ProcessSpec
+        {
+            Executable = "cmd",
+            Arguments = new[] { "/c", $"echo {text}" },
+        };
+        var result = await _exec.ExecuteAsync(spec, CancellationToken.None);
+
+        Assert.Contains(text, result.RedactedOutput);
+    }
+
+    [Fact]
     public async Task Redaction_does_not_touch_non_secret_text()
     {
         var plainText = "plain text 12345 with no api keys here";

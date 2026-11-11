@@ -37,10 +37,10 @@ public sealed class WorkerOwnedOptions
                 || agent.Prompts is null || agent.PrePrompt is null || agent.PostPrompt is null)
                 throw new InvalidOperationException("Agent 配置字段不能为空");
             if (string.IsNullOrWhiteSpace(agent.Id) || string.IsNullOrWhiteSpace(agent.Runtime.Command)
-                || agent.Provider is not ("codex" or "workbuddy" or "cursor")
+                || agent.Provider is not ("codex" or "workbuddy" or "cursor" or "qoder")
                 || (agent.Enabled && agent.WorkKinds.Length == 0)
                 || agent.WorkKinds.Any(k => !WorkerWorkKinds.All.Contains(k, StringComparer.Ordinal)))
-                throw new InvalidOperationException($"Agent '{agent.Id}' 需要合法的 provider（codex / workbuddy / cursor）并至少选择一种工作类型；项目由 Worker 统一映射，Agent 上不再单独勾选");
+                throw new InvalidOperationException($"Agent '{agent.Id}' 需要合法的 provider（codex / workbuddy / cursor / qoder）并至少选择一种工作类型；项目由 Worker 统一映射，Agent 上不再单独勾选");
             if (agent.Runtime.TimeoutMinutes is < 1 or > 1440
                 || agent.Runtime.Arguments is null || agent.Runtime.Arguments.Any(a => a is null)
                 || agent.PrePrompt.Length > 20000 || agent.PostPrompt.Length > 20000
@@ -101,7 +101,7 @@ public sealed class LocalAdapterFactory(IProcessExecutor process, ILoggerFactory
         runtime.Arguments = LocalAgentCatalog.ModelArguments(runtime.Arguments, runtime.Model);
         var options = Options.Create(new AgentsOptions
         {
-            Codex = runtime, WorkBuddy = runtime, Cursor = runtime,
+            Codex = runtime, WorkBuddy = runtime, Cursor = runtime, Qoder = runtime,
         });
         var api = Options.Create(new AgentBoardOptions());
         return profile.Provider switch
@@ -109,6 +109,7 @@ public sealed class LocalAdapterFactory(IProcessExecutor process, ILoggerFactory
             "codex" => new CodexAdapter(process, options, api, logs.CreateLogger<CodexAdapter>()),
             "workbuddy" => new WorkBuddyAdapter(process, options, api, logs.CreateLogger<WorkBuddyAdapter>()),
             "cursor" => new CursorAdapter(process, options, api, logs.CreateLogger<CursorAdapter>()),
+            "qoder" => new QoderAdapter(process, options, logs.CreateLogger<QoderAdapter>()),
             _ => throw new InvalidOperationException("Unsupported local provider"),
         };
     }

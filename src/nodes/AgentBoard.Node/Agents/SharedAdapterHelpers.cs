@@ -64,11 +64,12 @@ internal static class SharedAdapterHelpers
     }
 
     /// <summary>
-    /// Cursor CLI <c>--output-format json</c> wraps the assistant text in a
-    /// top-level <c>result</c> field. Prefer that inner payload, then fall
-    /// back to the generic last-JSON scan used by Codex / WorkBuddy.
+    /// Cursor and Qoder CLIs both wrap the assistant text in a top-level
+    /// <c>result</c> field when run with <c>--output-format json</c>. Prefer
+    /// that inner payload, then fall back to the generic last-JSON scan used
+    /// by Codex / WorkBuddy.
     /// </summary>
-    internal static string? TryExtractCursorJson(string text)
+    internal static string? TryExtractResultEnvelopeJson(string text)
     {
         var trimmed = text.Trim();
         try

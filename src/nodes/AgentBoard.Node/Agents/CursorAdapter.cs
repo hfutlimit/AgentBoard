@@ -70,7 +70,7 @@ public sealed class CursorAdapter : IAgentAdapter
         var output = result.RedactedOutput ?? "";
         return new AgentExecutionResult(
             Success: result.ExitCode == 0 && !result.TimedOut && !result.Cancelled,
-            OutputJson: SharedAdapterHelpers.TryExtractCursorJson(output),
+            OutputJson: SharedAdapterHelpers.TryExtractResultEnvelopeJson(output),
             ErrorMessage: result.Cancelled ? "cancelled"
                 : result.TimedOut ? "timeout"
                 : result.ExitCode == 0 ? null : $"exit {result.ExitCode}: {result.StderrTail}",
