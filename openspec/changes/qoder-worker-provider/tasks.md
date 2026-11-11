@@ -55,7 +55,7 @@
 - [x] 7.2 真实链路 harness（`D:\tmp\Debug\QoderHarness`，一次性、不进仓库）：父进程被 SDK 变量污染的前提下，locator 命中已知路径 → 真实 CLI 执行 → `SUCCESS=True` / `EXIT=0` / `OUTPUT_JSON={"decision":"submit","summary":"harness write done"}` / 文件真实写入 `HARNESS_OK`，耗时 22.4s
 - [ ] 7.3 服务端在环验收：门户建 qoder 实例 → 映射项目 → 启用 → 真实领一个 work kind → `/complete` 成功且本地历史 succeeded（需 AgentBoard Server + RabbitMQ 在环，尚未执行）
 - [ ] 7.4 归档变更至 `openspec/changes/archive/` 并同步 `openspec/specs/`（待 7.3 完成）
-- [ ] 7.5 提交并推送（待用户确认）
+- [x] 7.5 提交并推送：`ff46687` → `origin/main`（18 文件，745 增 14 删）
 
 ## 附：发现的既有 flaky 测试（非本次回归，未修改）
 
