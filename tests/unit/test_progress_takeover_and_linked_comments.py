@@ -661,3 +661,42 @@ def test_soft_takeover_succeeds_when_run_is_stale_and_terminal_task(
     assert t.status == Status.TODO.value
     assert t.current_assignment_id is None
     assert a.status == "released"
+
+
+def test_scan_stale_excludes_cas_lost_run_from_taken_over(
+    session, project, agent, admin_user, monkeypatch,
+):
+    """2026-09-19 fix: soft_takeover_run returns None when its CAS lost
+    (a fresh heartbeat recovered the run between Pass 2's SELECT and the
+    takeover call). scan_stale_agent_runs must then NOT list the run under
+    ``taken_over`` — otherwise the maintenance API over-reports takeovers
+    that never happened.
+    """
+    t, _a = _make_in_progress_task(
+        session, project, agent, title="scan-cas-lost", user_id=admin_user.id,
+    )
+    run = _make_agent_run(session, t.id, agent, status="running")
+    # Make the run a genuine Pass-2 takeover candidate (task_id set, stale,
+    # progress older than the takeover cutoff) so the loop actually calls
+    # soft_takeover_run for it.
+    session.execute(
+        update(AgentRun).where(AgentRun.id == run.id).values(
+            is_stale=True,
+            last_progress_at=utc_now() - timedelta(minutes=70),
+        )
+    )
+    session.commit()
+
+    # Simulate the race: the takeover attempt returns None (CAS lost), the
+    # same signal a fresh heartbeat clearing is_stale produces in production.
+    monkeypatch.setattr(
+        scheduling_service, "soft_takeover_run",
+        lambda s, r, *, reason: None,
+    )
+
+    result = scheduling_service.scan_stale_agent_runs(
+        session, warn_after_seconds=30 * 60, takeover_after_seconds=60 * 60,
+    )
+    assert run.id not in result["taken_over"], (
+        "a CAS-lost run must not be reported as taken over"
+    )

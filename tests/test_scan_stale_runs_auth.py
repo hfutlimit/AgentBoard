@@ -15,12 +15,12 @@ What we lock down here
 This file intentionally calls the live FastAPI app via ``TestClient`` so
 the regression is at the router layer, not just inside the service helper.
 """
-import os
-
-# Force ``AGENTBOARD_REQUIRE_AUTH=1`` for the first three scenarios. The
-# fourth case clears it explicitly after we capture the value.
-os.environ["AGENTBOARD_REQUIRE_AUTH"] = "1"
-
+# NOTE: auth-mode env is deliberately NOT set at module import time. Dozens
+# of sibling test modules pop / overwrite ``AGENTBOARD_REQUIRE_AUTH`` during
+# import, so a module-level assignment here is silently clobbered depending
+# on collection order (the 403 case then returned 200). Each test below sets
+# the var via the ``monkeypatch`` fixture immediately before the request, so
+# the assertions are order-independent and auto-restored afterwards.
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -67,7 +67,8 @@ def _setup():
     return client, admin_token, normal_token
 
 
-def test_scan_stale_runs_requires_auth_when_auth_enabled():
+def test_scan_stale_runs_requires_auth_when_auth_enabled(monkeypatch):
+    monkeypatch.setenv("AGENTBOARD_REQUIRE_AUTH", "1")
     client, _admin_tok, _norm_tok = _setup()
     try:
         r = client.post("/api/scheduling/scan-stale-runs")
@@ -76,7 +77,8 @@ def test_scan_stale_runs_requires_auth_when_auth_enabled():
         app.dependency_overrides.clear()
 
 
-def test_scan_stale_runs_requires_admin_role():
+def test_scan_stale_runs_requires_admin_role(monkeypatch):
+    monkeypatch.setenv("AGENTBOARD_REQUIRE_AUTH", "1")
     client, _admin_tok, normal_token = _setup()
     try:
         r = client.post(
@@ -89,7 +91,8 @@ def test_scan_stale_runs_requires_admin_role():
         app.dependency_overrides.clear()
 
 
-def test_scan_stale_runs_admin_returns_well_formed_payload():
+def test_scan_stale_runs_admin_returns_well_formed_payload(monkeypatch):
+    monkeypatch.setenv("AGENTBOARD_REQUIRE_AUTH", "1")
     client, admin_token, _normal_tok = _setup()
     try:
         r = client.post(
@@ -107,17 +110,14 @@ def test_scan_stale_runs_admin_returns_well_formed_payload():
         app.dependency_overrides.clear()
 
 
-def test_scan_stale_runs_works_in_dev_mode_without_auth():
-    # Dev mode: AGENTBOARD_REQUIRE_AUTH unset → no auth, endpoint callable.
-    saved = os.environ.pop("AGENTBOARD_REQUIRE_AUTH", None)
+def test_scan_stale_runs_works_in_dev_mode_without_auth(monkeypatch):
+    # Dev mode: AGENTBOARD_REQUIRE_AUTH deleted → no auth, endpoint callable.
+    # monkeypatch.delenv auto-restores any prior value after the test.
+    monkeypatch.delenv("AGENTBOARD_REQUIRE_AUTH", raising=False)
+    client, _admin_tok, _normal_tok = _setup()
     try:
-        client, _admin_tok, _normal_tok = _setup()
-        try:
-            r = client.post("/api/scheduling/scan-stale-runs")
-            assert r.status_code == 200, r.text
-            assert "warned" in r.json()
-        finally:
-            app.dependency_overrides.clear()
+        r = client.post("/api/scheduling/scan-stale-runs")
+        assert r.status_code == 200, r.text
+        assert "warned" in r.json()
     finally:
-        if saved is not None:
-            os.environ["AGENTBOARD_REQUIRE_AUTH"] = saved
+        app.dependency_overrides.clear()

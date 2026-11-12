@@ -3016,8 +3016,12 @@ def scan_stale_agent_runs(
             taken_over_ids.append(run.id)
             continue
         try:
-            soft_takeover_run(s, run, reason="stale_progress_takeover")
-            taken_over_ids.append(run.id)
+            result = soft_takeover_run(s, run, reason="stale_progress_takeover")
+            # soft_takeover_run returns None when its CAS lost (a fresh
+            # heartbeat recovered the run between Pass 2's SELECT and this
+            # call) — such a run must NOT be reported as taken over.
+            if result is not None:
+                taken_over_ids.append(run.id)
         except Exception as exc:  # pragma: no cover — defensive
             log.exception("scan_stale_agent_runs: takeover failed for run %s: %s",
                           run.id, exc)
@@ -3034,7 +3038,7 @@ def scan_stale_agent_runs(
     }
 
 
-def soft_takeover_run(s: Session, run: AgentRun, *, reason: str) -> Task:
+def soft_takeover_run(s: Session, run: AgentRun, *, reason: str) -> Task | None:
     """Reap a single stale run: mark it failed, revert the task to TODO.
 
     The takeover is *soft* in the sense that it does not invent a new
@@ -3109,7 +3113,7 @@ def soft_takeover_run(s: Session, run: AgentRun, *, reason: str) -> Task:
         )
         return None
     if run.task_id is None:
-        return None  # type: ignore[return-value]
+        return None
     task = s.get(Task, run.task_id)
     if task is None:
         raise NotFound(f"task {run.task_id} not found for run {run.id}")

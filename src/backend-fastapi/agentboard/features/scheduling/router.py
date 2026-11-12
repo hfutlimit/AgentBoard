@@ -249,7 +249,11 @@ def scan_stale_agent_runs_endpoint(
     ticket-request reclaim, so no behaviour change for the worker.
     """
     from .service import scan_stale_agent_runs
-    uid, is_admin = api_helpers._caller_uid_admin(authorization)
+    # Pass the request-scoped session so the admin lookup uses the same DB
+    # as the scan below; _caller_uid_admin(authorization) alone would fall
+    # back to the global _db.SessionLocal (wrong store + order-sensitive
+    # under tests that swap the engine).
+    uid, is_admin = api_helpers._caller_uid_admin(authorization, s)
     if api_helpers._auth_is_required() and uid is None:
         raise HTTPException(status_code=401, detail="unauthorized")
     if api_helpers._auth_is_required() and not is_admin:
