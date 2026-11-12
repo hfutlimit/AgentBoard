@@ -5,7 +5,7 @@ Pipeline:
   1. Load tokens from tmp/remote_service_users.json (wb_main + codex_main + admin).
   2. Inject tokens into appsettings.Local.json (StartToken / per-agent AgentBoardToken / Portal.ApiKey).
   3. dotnet build src/nodes/AgentBoard.Node
-  4. Set env (MINIMAX_API_KEY, DOTNET_ENVIRONMENT=Local).
+  4. Set env (DOTNET_ENVIRONMENT=Local).
   5. Start the worker in background, capture pid + out/err log paths.
 
 Tokens are NEVER echoed; they are written only to the on-disk appsettings.Local.json (next to the
@@ -93,20 +93,6 @@ Write-Host "[deploy] appsettings copied to $BinDir"
 # env
 $env:DOTNET_ENVIRONMENT = 'Local'
 $env:ASPNETCORE_ENVIRONMENT = 'Local'
-# 读 MINIMAX_API_KEY from .env.worker（line grep）
-Write-Host ("[deploy] Root=[{0}]" -f $Root)
-$envFile = Join-Path $Root 'tmp\agentboard-worker\.env.worker'
-Write-Host ("[deploy] envFile path=[{0}]" -f $envFile)
-if (Test-Path $envFile) {
-    $mmLine = Select-String -Path $envFile -Pattern '^MINIMAX_API_KEY='
-    if ($mmLine) {
-        $val = $mmLine.Line -replace '^MINIMAX_API_KEY=', ''
-        $env:MINIMAX_API_KEY = $val
-        Write-Host "[deploy] MINIMAX_API_KEY loaded from .env.worker (len=$($val.Length))"
-    } else {
-        Write-Warning "[deploy] MINIMAX_API_KEY not found in $envFile; minimax_invoker.py will fail"
-    }
-}
 
 if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir | Out-Null }
 $out = Join-Path $LogDir 'worker.out.log'

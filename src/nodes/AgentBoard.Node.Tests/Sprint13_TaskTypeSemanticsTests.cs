@@ -254,7 +254,7 @@ public sealed class Sprint13_TaskTypeSemanticsTests
         new IAgentAdapter[]
         {
             FakeAgentAdapter.Success("workbuddy"),
-            FakeAgentAdapter.Success("minimax"),
+            FakeAgentAdapter.Success("cursor"),
             FakeAgentAdapter.Success("codex"),
         },
         NullLogger<AgentAdapterRegistry>.Instance);

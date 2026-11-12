@@ -64,11 +64,12 @@ internal static class SharedAdapterHelpers
     }
 
     /// <summary>
-    /// Cursor CLI <c>--output-format json</c> wraps the assistant text in a
-    /// top-level <c>result</c> field. Prefer that inner payload, then fall
-    /// back to the generic last-JSON scan used by Codex / WorkBuddy.
+    /// Cursor and Qoder CLIs both wrap the assistant text in a top-level
+    /// <c>result</c> field when run with <c>--output-format json</c>. Prefer
+    /// that inner payload, then fall back to the generic last-JSON scan used
+    /// by Codex / WorkBuddy.
     /// </summary>
-    internal static string? TryExtractCursorJson(string text)
+    internal static string? TryExtractResultEnvelopeJson(string text)
     {
         var trimmed = text.Trim();
         try
@@ -119,7 +120,7 @@ internal static class SharedAdapterHelpers
     /// <summary>
     /// PR-3 (Generic AgentWorker): workload-aware prompt builder.
     /// Replaces the legacy "Handle proposal {id}" hard-coded prompt that
-    /// made Codex / WorkBuddy / MiniMax treat every workload as a proposal
+    /// made the CLI adapters treat every workload as a proposal
     /// (PR-2 review P0-4). The dispatch decision (which agent runs this) is
     /// upstream of this builder — we already know who we are. What we need
     /// to know is *what* we are doing: a task implementation, a review,
@@ -296,7 +297,7 @@ internal static class SharedAdapterHelpers
     ///       registration 的 fallback 语义一致）。
     ///   AGENTBOARD_API_URL   —— FastAPI 地址（MCP 默认
     ///       http://127.0.0.1:58124）。
-    /// CLI（codex/workbuddy/minimax）spawn MCP server 子进程时继承这
+    /// CLI（codex/workbuddy/cursor）spawn MCP server 子进程时继承这
     /// 两个变量；两个都拿不到才不注入（dev 环境无鉴权可跑）。
     /// </summary>
     public static void ApplyAgentBoardIdentity(

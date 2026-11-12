@@ -117,7 +117,7 @@ def main():
         token = login.json()["token"]
         client.headers["Authorization"] = "Bearer " + token
         config = {"Worker": {"Id": f"real-{args.provider}-worker", "HistoryDatabasePath": str(output / "node.db")},
-            "WorkerOwned": {"Enabled": True, "ReconcileSeconds": 3,
+            "WorkerOwned": {"Enabled": True, "PresenceSeconds": 3,
                 "Projects": [{"ProjectId": project_id, "LocalPath": str(workspace)}],
                 "Agents": [{"Id": args.provider + "-a", "Provider": args.provider,
                     "WorkKinds": ["proposal", "design", "dev", "qa_review"], "Runtime": {

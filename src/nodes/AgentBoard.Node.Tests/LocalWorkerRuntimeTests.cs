@@ -114,7 +114,7 @@ public sealed class LocalWorkerRuntimeTests : IDisposable
         public Task Completion => Finished.Task;
         public bool Ready, Draining, Cancelled;
         public bool BrokerConnected => Ready;
-        public DateTimeOffset? LastScanAt => Ready ? DateTimeOffset.UtcNow : null;
+        public DateTimeOffset? LastPresenceAt => Ready ? DateTimeOffset.UtcNow : null;
         public Task StartAsync(CancellationToken ct) => Task.CompletedTask;
         public Task StopAsync(CancellationToken ct) { Cancelled = true; Finished.TrySetResult(); return Task.CompletedTask; }
         public void Drain() => Draining = true;

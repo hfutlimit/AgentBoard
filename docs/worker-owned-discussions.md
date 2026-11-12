@@ -10,7 +10,8 @@
 
 1. Review 没有问题可直接 `approve`；任何拒绝建议先 `discuss`，附 summary 与 evidence 引用。
 2. `WorkerDiscussion` 记录原实施 Agent、原 Reviewer、review_round、轮次与回复评论 ID；Task 保持 `in_review`。
-3. Worker 根据 snapshot 的讨论状态明确 offer 下一轮，Server 校验 scope / turn / recipient，并转发到
+3. Server 的 planner 根据业务状态算出下一轮讨论并物化 work 行（偶数轮=原作者，奇数轮=Reviewer），
+   经 relay 转发到
    `agentboard.work.v2.project.<id>.<kind>.agent.<sha256(UTF-8 Agent ID)>`。Node 只消费本地启用身份及能力的定向队列。
 4. 原作者 `respond`，position 为 `agree / disagree / clarify`；Reviewer 可以 `discuss / confirm / withdraw / escalate`。
    `confirm` 必须有原作者上一条明确同意。不同意不能强行驳回；最多三次作者回复，再继续只能撤回或转人工。
@@ -36,7 +37,7 @@ Story 展示子 Task 讨论与升级留言；尚不支持 Agent 自动发起独�
 1. 安全暂停旧 Worker，等待在途执行完成。备份业务数据库。
 2. 同步 FastAPI **及 MCP** 代码，Alembic `upgrade head` 至 `a19d58e204bc`（新增 worker_discussions、WorkerWork 讨论关联/目标身份），重启对应服务。
 3. 发布 Angular 前端（Task/Story 展示）与新 Node。不要重启旧 .NET durable 中央编排。
-4. 先验证鉴权、snapshot `protocol=worker-work.discussions.v1`、讨论读接口。Node 启动会拒绝旧协议服务器，避免消费后连续失败。
+4. 先验证鉴权、snapshot `protocol=worker-work.serverplan.v1`、讨论读接口。Node 启动会拒绝旧协议服务器，避免消费后连续失败。
 5. 核对本地统一项目范围与七种能力，再启动执行 Worker。配置台可提前更新，configuration-only 不消费消息。
 
 测试目录中的业务协议测试使用隔离 DB，不代表真实生产 Agent E2E。生产尚未部署这一版本时，不能沿用旧版本 E2E 结论声称讨论已上线。

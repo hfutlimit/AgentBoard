@@ -71,7 +71,7 @@ public sealed class WorkerHeartbeatService : BackgroundService
 // ===================== PR-12: Worker startup bootstrap =====================
 //
 // PR-2 review 收尾：.NET worker 启动时自动把本机 register 到 FastAPI
-// 并为每个配置的 agent (WorkBuddy / Codex / MiniMax) upsert AgentInstance，
+// 并为每个配置的 agent (WorkBuddy / Codex / Cursor) upsert AgentInstance，
 // 关闭"运维必须先手动建 worker + AgentInstance 行才能跑"这个配置缺口。
 //
 // 调用 FastAPI 端点（已存在）：
@@ -169,7 +169,7 @@ public sealed class WorkerStartupService : BackgroundService
         if (_agentboard.RequireRegistration)
         {
             var registeredTools = _instances.Keys
-                .Where(t => t is "workbuddy" or "codex" or "MiniMax" or "qwen" or "cursor")
+                .Where(t => t is "workbuddy" or "codex" or "cursor")
                 .ToList();
             if (registeredTools.Count == 0)
             {
@@ -243,8 +243,6 @@ public sealed class WorkerStartupService : BackgroundService
             // same executor_type on the server), different AgentId. Disabled
             // unless Agents:Codex2:Command is set.
             ("codex",     _agents.Codex2),
-            ("MiniMax",   _agents.MiniMax),
-            ("qwen",      _agents.Qwen),
             ("cursor",    _agents.Cursor),
             ("scenario",  _agents.Scenario),
         };

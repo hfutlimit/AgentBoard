@@ -62,7 +62,7 @@ def isolated_web_app(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     )
     # STATIC_DIR 外的敏感文件（模拟项目根 .env / 源码）
     (tmp_path / ".env").write_text(
-        "MINIMAX_API_KEY=sk-LEAKED\nAGENTBOARD_WORKER_TOKEN=abk_LEAKED\n",
+        "OPENAI_API_KEY=sk-LEAKED\nAGENTBOARD_WORKER_TOKEN=abk_LEAKED\n",
         encoding="utf-8",
     )
     fake_pkg = tmp_path / "agentboard"
@@ -157,7 +157,7 @@ class TestPathTraversalBlocked:
             f"{normalized_url!r} 意外状态码 {r.status_code}"
         )
         body = r.text
-        assert "MINIMAX_API_KEY" not in body, (
+        assert "OPENAI_API_KEY" not in body, (
             f"{normalized_url!r} 响应体含 .env 密钥（穿越成功）"
         )
         assert "abk_LEAKED" not in body, (
@@ -172,7 +172,7 @@ class TestPathTraversalBlocked:
         with TestClient(isolated_web_app.app) as client:
             r = client.get("/..%2F.env", follow_redirects=False)
         assert r.status_code == 404
-        assert "MINIMAX_API_KEY" not in r.text
+        assert "OPENAI_API_KEY" not in r.text
 
     def test_source_code_not_readable(self, isolated_web_app) -> None:
         """``GET /..%2Fagentboard%2Fprocessor_portal.py`` 必须读不到源码。"""

@@ -33,7 +33,7 @@ def _seed_session() -> tuple[Session, int, int]:
     session.add_all([
         Agent(agent_id="codex", name="Codex Worker", model="gpt-5.6",
               user_id=owner_a.id),
-        Agent(agent_id="minimax", name="MiniMax Worker", model="MiniMax-M2.7",
+        Agent(agent_id="qoder", name="Qoder Worker", model="qoder-1",
               user_id=owner_b.id),
     ])
     task_a = Task(
@@ -53,8 +53,8 @@ def _seed_session() -> tuple[Session, int, int]:
         agent="codex", task_id=task_a.id,
     )
     schedule_b = AgentSchedule(
-        project_id=project.id, title="MiniMax execution", schedule_type="once",
-        agent="minimax", task_id=task_b.id,
+        project_id=project.id, title="Qoder execution", schedule_type="once",
+        agent="qoder", task_id=task_b.id,
     )
     session.add_all([schedule_a, schedule_b])
     session.flush()
@@ -104,8 +104,8 @@ def test_enriched_records_support_status_and_text_search():
     assert result["total"] == 1
     item = result["items"][0]
     assert item["id"] == run_b
-    assert item["agent"] == "minimax"
-    assert item["model"] == "MiniMax-M2.7"
+    assert item["agent"] == "qoder"
+    assert item["model"] == "qoder-1"
     assert item["task_description"] == "Use the task spec when description is empty."
     assert item["error_message"] == "model timeout"
 

@@ -1405,7 +1405,7 @@ def _validate_cron(expr: str) -> None:
 
 #: 可绑定到 AgentSchedule.agent 的合法 Agent 名（与 executor.KNOWN_AGENTS 对应；
 #: 校验仅防手滑，松绑后实际分发由 executor 注册表决定）
-SCHEDULE_AGENTS = ("codex", "claude", "workbuddy", "qoder", "minimax")
+SCHEDULE_AGENTS = ("codex", "claude", "workbuddy", "qoder")
 
 #: 任务优先级权重（值越大优先级越高；用于 pick_eligible_task 排序与门槛）
 PRIORITY_RANK = {

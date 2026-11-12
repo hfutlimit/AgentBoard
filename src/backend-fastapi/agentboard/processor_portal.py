@@ -23,8 +23,8 @@ Design notes
   ``project_id`` (Story 243 acceptance 4).
 - Agent config is isolated by ``AGENTBOARD_WORKER_ID``; the server-side
   global agent pool is neither read nor modified.
-- CLI/model dropdowns are built-in presets (codex / codebuddy /
-  minimax-cli); saving renders the command template.
+- CLI/model dropdowns are built-in presets (codex / codebuddy);
+  saving renders the command template.
 - Login-free constraint: uvicorn binds 127.0.0.1 only; production use
   must go through a reverse proxy + access control.
 """
@@ -36,7 +36,6 @@ import os
 import re
 import shutil
 import socket
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -158,16 +157,6 @@ CLI_PRESETS: dict[str, dict[str, Any]] = {
         "full_access_arg": " -y",
         "supports_full_access": True,
         "default_full_access": True,
-    },
-    "minimax": {
-        "label": "MiniMax CLI (adapter)",
-        "python": sys.executable,
-        "adapter": "",  # absolute path to scripts/minimax_plan_invoker.py
-        "models": ["MiniMax-M2.7-highspeed", "MiniMax-M2.7", "MiniMax-M3"],
-        "template": '"{python}" "{adapter}"',
-        "full_access_arg": "",
-        "supports_full_access": False,
-        "default_full_access": False,
     },
 }
 
@@ -430,11 +419,6 @@ def create_app(
                 node=p["node"], cli=p["cli"], model=model or p["models"][0], mcp=mcp,
                 full_access=access_arg,
             )
-        if cli_type == "minimax":
-            adapter = p.get("adapter") or str(
-                _repo_root() / "scripts" / "minimax_plan_invoker.py"
-            )
-            return p["template"].format(python=p["python"], adapter=adapter)
         return p["template"]
 
     def _ensure_worker_registered() -> Any:
@@ -757,8 +741,7 @@ def create_app(
         )
         existing_cmd = str(existing.get("cli_command", ""))
         existing_full_access = (
-            cli_type == "minimax"
-            or "--dangerously-bypass-approvals-and-sandbox" in existing_cmd
+            "--dangerously-bypass-approvals-and-sandbox" in existing_cmd
             or " -y " in f" {existing_cmd} "
         )
         full_access = (

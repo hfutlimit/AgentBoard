@@ -254,10 +254,9 @@ public sealed class ReadinessProbe
             resolved = agentType.ToLowerInvariant() switch
             {
                 "workbuddy" => CliLocator.LocateCodebuddy(opts, _log),
-                "minimax" => CliLocator.LocateMinimax(opts, _log),
                 "codex" => CliLocator.LocateCodex(opts, _log),
-                "qwen" => CliLocator.LocateGeneric("qwen", opts, _log),
                 "cursor" => CliLocator.LocateCursor(opts, _log),
+                "qoder" => CliLocator.LocateQoder(opts, _log),
                 _ => throw new CliNotFoundException(agentType, opts.Command ?? "", "no locator wired"),
             };
         }
@@ -330,10 +329,9 @@ public sealed class ReadinessProbe
     private AgentOptions? ResolveOpts(string agentType) => agentType.ToLowerInvariant() switch
     {
         "workbuddy" => _agents.WorkBuddy,
-        "minimax" => _agents.MiniMax,
         "codex" => _agents.Codex,
-        "qwen" => _agents.Qwen,
         "cursor" => _agents.Cursor,
+        "qoder" => _agents.Qoder,
         "fake" => _agents.Fake,
         _ => null,
     };

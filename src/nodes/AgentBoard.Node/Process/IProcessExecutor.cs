@@ -22,6 +22,10 @@ public sealed class ProcessExecutor : IProcessExecutor
     {
         new(@"(?i)(openai|anthropic|minimax|codex)[_-]?api[_-]?key\s*[=:]\s*\S+", System.Text.RegularExpressions.RegexOptions.Compiled),
         new(@"Authorization:\s*Bearer\s+\S+", System.Text.RegularExpressions.RegexOptions.Compiled),
+        // Qoder PATs are bare `pt-` tokens, so neither vendor-key rule above
+        // matches them. The boundary keeps ordinary words ending in "pt"
+        // intact; the length floor keeps short "pt-" text intact.
+        new(@"(?<![A-Za-z0-9_])pt-[A-Za-z0-9_-]{20,}", System.Text.RegularExpressions.RegexOptions.Compiled),
     };
 
     public async Task<ProcessResult> ExecuteAsync(ProcessSpec spec, CancellationToken ct)
@@ -54,11 +58,10 @@ public sealed class ProcessExecutor : IProcessExecutor
         }
 
         // Windows: npm-global installs ship CLI wrappers as .cmd files
-        // (e.g. minimax.cmd, codex.cmd). Process.Start does not resolve
+        // (e.g. codex.cmd). Process.Start does not resolve
         // .cmd/.bat directly — it raises Win32Exception 193. Wrap with
         // cmd.exe so the OS can apply PATHEXT semantics transparently.
-        // See docs/workbuddy-cli-integration.md and
-        // docs/minimax-code-integration.md for the original analysis.
+        // See docs/workbuddy-cli-integration.md for the original analysis.
         if (OperatingSystem.IsWindows() &&
             NeedsCmdWrapper(spec.Executable, out var wrappedPath))
         {

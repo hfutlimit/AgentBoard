@@ -82,7 +82,7 @@ class TestValidateCliCommand:
         "codebuddy",
         "codebuddy --version",
         "codebuddy --model {model}",
-        "minimax --model {model} --stream",
+        "codebuddy --model {model} --stream",
         '"C:\\Program Files\\Some CLI\\agent.exe" --version',
         "/usr/local/bin/codebuddy --model hy3",
     ])
@@ -132,7 +132,7 @@ class TestProbeCliSyncDryRun:
 
     def test_model_placeholder_replaced_in_preview(self) -> None:
         from agentboard.api_helpers import _probe_cli_sync
-        ok, msg = _probe_cli_sync("minimax --model {model}", model="hy3")
+        ok, msg = _probe_cli_sync("codebuddy --model {model}", model="hy3")
         assert ok is True
         assert "hy3" in msg
         assert "{model}" not in msg  # 占位符已替换
@@ -140,7 +140,7 @@ class TestProbeCliSyncDryRun:
     def test_empty_model_removes_placeholder(self) -> None:
         """model 为空时 {model} 占位符被移除（与 worker._probe_cli 同语义）。"""
         from agentboard.api_helpers import _probe_cli_sync
-        ok, msg = _probe_cli_sync("minimax --model {model}", model="")
+        ok, msg = _probe_cli_sync("codebuddy --model {model}", model="")
         assert ok is True
         assert "{model}" not in msg
 

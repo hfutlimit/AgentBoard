@@ -350,7 +350,6 @@ public sealed class Sprint11_ProductionHardeningTests
                 Command = "",  // CLI not required for this test
                 McpUrl = $"http://127.0.0.1:{deadPort}/healthz",
             },
-            MiniMax = new() { Command = "" },
             Codex = new() { Command = "" },
             Fake = new() { Command = "" },
         };
@@ -464,7 +463,6 @@ public sealed class Sprint11_ProductionHardeningTests
             var agents = new AgentsOptions
             {
                 WorkBuddy = new AgentOptions { Command = "", McpUrl = url },
-                MiniMax = new() { Command = "" },
                 Codex = new() { Command = "" },
                 Fake = new() { Command = "" },
             };
@@ -510,7 +508,6 @@ public sealed class Sprint11_ProductionHardeningTests
             var agents = new AgentsOptions
             {
                 WorkBuddy = new AgentOptions { Command = "", McpUrl = url },
-                MiniMax = new() { Command = "" },
                 Codex = new() { Command = "" },
                 Fake = new() { Command = "" },
             };
@@ -546,7 +543,6 @@ public sealed class Sprint11_ProductionHardeningTests
         var agents = new AgentsOptions
         {
             WorkBuddy = new AgentOptions { Command = "" /* no McpUrl */ },
-            MiniMax = new() { Command = "" },
             Codex = new() { Command = "" },
             Fake = new() { Command = "" },
         };

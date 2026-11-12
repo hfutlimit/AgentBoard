@@ -105,7 +105,7 @@ def test_resolve_worker_returns_online_instance(db_session):
 def test_resolve_worker_no_match_returns_none(db_session):
     _make_worker(db_session, "dev-pc-01")
     _make_instance(db_session, "dev-pc-01", "codex-agent", online=True)
-    assert resolve_worker_for_agent(db_session, "minimax-agent") is None
+    assert resolve_worker_for_agent(db_session, "unknown-agent") is None
 
 
 def test_resolve_worker_empty_agent_id_returns_none(db_session):

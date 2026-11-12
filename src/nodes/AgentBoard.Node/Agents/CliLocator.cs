@@ -27,7 +27,7 @@ public sealed class CliNotFoundException(string agentType, string agentCmd, stri
 }
 
 /// <summary>
-/// Resolves the absolute path of an agent CLI (Codex / MiniMax / WorkBuddy)
+/// Resolves the absolute path of an agent CLI (Codex / WorkBuddy / Cursor / Qoder)
 /// from the worker's <see cref="AgentOptions"/>. Probe order:
 ///
 ///   1. <c>opts.Command</c> is an absolute path that exists on disk.
@@ -61,23 +61,6 @@ public static class CliLocator
             codexHome is null ? "" : Path.Combine(codexHome, "codex.exe"),
         };
         return Resolve("codex", opts, candidates, BaseEnv(), log);
-    }
-
-    /// <summary>
-    /// Locate the minimax CLI (npm package <c>minimax-cli</c>).
-    /// On Windows, npm-global installs the wrapper as <c>minimax.cmd</c>;
-    /// we surface the .cmd path so <see cref="ProcessExecutor"/> can wrap
-    /// it via <c>cmd /c</c>.
-    /// </summary>
-    public static ResolvedCli LocateMinimax(AgentOptions opts, ILogger log)
-    {
-        var candidates = new List<string>
-        {
-            Path.Combine(NpmGlobalBin(), "minimax.cmd"),
-            Path.Combine(NpmGlobalBin(), "minimax.exe"),
-            Path.Combine(NpmGlobalBin(), "minimax"),
-        };
-        return Resolve("minimax", opts, candidates, BaseEnv(), log);
     }
 
     /// <summary>
@@ -145,14 +128,25 @@ public static class CliLocator
     }
 
     /// <summary>
-    /// Generic resolution for an agent that has no well-known install
-    /// locations on disk — e.g. the 千问办公 (qwen) agent, whose Command points
-    /// directly at a Python invoker (<c>python.exe scripts/qwen_invoker.py</c>).
-    /// Resolution relies solely on <c>opts.Command</c> (absolute path used as-is,
-    /// bare name via where.exe). No Node-script wrapping.
+    /// Locate the Qoder CN CLI (<c>qoderclicn</c>). The native installer places
+    /// it under <c>%USERPROFILE%\.qoder-cn\bin\qoderclicn</c> and cannot always
+    /// add that directory to PATH (the user PATH has a 2047-character limit),
+    /// so the known install location is probed before PATH. The native
+    /// <c>.exe</c> is preferred over the <c>qodercn.cmd</c> dispatcher, which
+    /// would add cmd.exe and powershell.exe layers to every execution.
     /// </summary>
-    public static ResolvedCli LocateGeneric(string agentType, AgentOptions opts, ILogger log)
-        => Resolve(agentType, opts, Array.Empty<string>(), BaseEnv(), log);
+    public static ResolvedCli LocateQoder(AgentOptions opts, ILogger log)
+    {
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var candidates = new List<string>
+        {
+            Path.Combine(userProfile, ".qoder-cn", "bin", "qoderclicn", "qoderclicn.exe"),
+            Path.Combine(NpmGlobalBin(), "qoderclicn.cmd"),
+            Path.Combine(NpmGlobalBin(), "qoderclicn.exe"),
+            Path.Combine(NpmGlobalBin(), "qoderclicn"),
+        };
+        return Resolve("qoderclicn", opts, candidates, BaseEnv(), log);
+    }
 
     /// <summary>
     /// Returns the user-level npm global bin directory (e.g.
@@ -211,11 +205,19 @@ public static class CliLocator
     /// <summary>
     /// Common environment variables the spawned CLI needs. Kept as a
     /// minimal allow-list — adapters may layer more on top.
+    ///
+    /// ``HOME`` is included deliberately: the child process environment is
+    /// cleared by <see cref="ProcessExecutor"/> (Sprint 5 isolation), and
+    /// Node-based CLIs (e.g. the WorkBuddy ``codebuddy`` script) resolve their
+    /// per-user config/login directory through ``os.homedir()``, which honours
+    /// ``HOME`` first on POSIX and falls back to ``USERPROFILE`` on Windows.
+    /// Without it a CLI can look "installed but not logged in" even though the
+    /// operator is logged in interactively under the same account.
     /// </summary>
     private static IReadOnlyDictionary<string, string> BaseEnv()
     {
         var dict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var name in new[] { "PATH", "USERPROFILE", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC",
+        foreach (var name in new[] { "PATH", "USERPROFILE", "HOME", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC",
                                      "HOMEDRIVE", "HOMEPATH", "LOCALAPPDATA", "APPDATA", "TEMP", "TMP", "PATHEXT" })
         {
             var v = Environment.GetEnvironmentVariable(name);

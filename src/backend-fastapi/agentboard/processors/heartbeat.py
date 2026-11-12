@@ -109,8 +109,8 @@ def probe_cli(config: Any, cmd: str, model: str = "") -> tuple[bool, str]:
     # Some adapter commands deliberately encode invocation failures as a
     # structured ``{"action":"fail", ...}`` decision while exiting with 0.
     # Treating that protocol-level failure as a healthy version probe creates
-    # a misleading online Agent that can never accept work (notably the
-    # MiniMax stdin adapter when ``--version`` supplies no prompt).
+    # a misleading online Agent that can never accept work (notably adapters
+    # that still emit a decision when ``--version`` supplies no prompt).
     stdout_text = (proc.stdout or "").strip()
     if ok and stdout_text:
         try:

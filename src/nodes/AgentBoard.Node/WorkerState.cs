@@ -12,7 +12,7 @@ namespace AgentBoard.Node;
 /// Multi-agent view:
 ///   {
 ///     worker_id, version, status, capacity, paused,
-///     agents: { workbuddy: {running, total, lastUsedAt}, MiniMax: {...}, codex: {...} },
+///     agents: { workbuddy: {running, total, lastUsedAt}, cursor: {...}, codex: {...} },
 ///     active_executions: [{id, agent_type, workload_type, workload_id, started_at}],
 ///     lastHeartbeatAttemptAt, lastHeartbeatSuccessAt, lastError
 ///   }

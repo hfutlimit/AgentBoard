@@ -38,16 +38,16 @@ public sealed class Sprint6_WorkerStateTests : IDisposable
         var state = NewState();
 
         BeginAndCount(state, "workbuddy");
-        BeginAndCount(state, "minimax");
+        BeginAndCount(state, "cursor");
         BeginAndCount(state, "codex");
 
-        var doc = SnapshotJson(state, new[] { "workbuddy", "minimax", "codex" });
+        var doc = SnapshotJson(state, new[] { "workbuddy", "cursor", "codex" });
         Assert.Equal(1, doc.GetProperty("agents").GetProperty("workbuddy").GetProperty("running").GetInt32());
-        Assert.Equal(1, doc.GetProperty("agents").GetProperty("minimax").GetProperty("running").GetInt32());
+        Assert.Equal(1, doc.GetProperty("agents").GetProperty("cursor").GetProperty("running").GetInt32());
         Assert.Equal(1, doc.GetProperty("agents").GetProperty("codex").GetProperty("running").GetInt32());
 
         Assert.Equal(1, doc.GetProperty("agents").GetProperty("workbuddy").GetProperty("total_executions").GetInt32());
-        Assert.Equal(1, doc.GetProperty("agents").GetProperty("minimax").GetProperty("total_executions").GetInt32());
+        Assert.Equal(1, doc.GetProperty("agents").GetProperty("cursor").GetProperty("total_executions").GetInt32());
         Assert.Equal(1, doc.GetProperty("agents").GetProperty("codex").GetProperty("total_executions").GetInt32());
     }
 
@@ -132,9 +132,9 @@ public sealed class Sprint6_WorkerStateTests : IDisposable
     {
         var state = NewState();
         BeginAndCount(state, "workbuddy", workloadId: 100);
-        BeginAndCount(state, "minimax", workloadId: 200);
+        BeginAndCount(state, "cursor", workloadId: 200);
 
-        var doc = SnapshotJson(state, new[] { "workbuddy", "minimax" });
+        var doc = SnapshotJson(state, new[] { "workbuddy", "cursor" });
         var active = doc.GetProperty("active_executions");
         Assert.Equal(2, active.GetArrayLength());
 
@@ -143,7 +143,7 @@ public sealed class Sprint6_WorkerStateTests : IDisposable
             .Select(a => a.GetProperty("agent_type").GetString())
             .ToHashSet();
         Assert.Contains("workbuddy", types);
-        Assert.Contains("minimax", types);
+        Assert.Contains("cursor", types);
     }
 
     [Fact]
@@ -304,12 +304,12 @@ public sealed class Sprint6_WorkerStateTests : IDisposable
         BeginAndCount(state, "workbuddy");
         BeginAndCount(state, "workbuddy");
 
-        var doc = SnapshotJson(state, new[] { "workbuddy", "minimax", "codex" });
+        var doc = SnapshotJson(state, new[] { "workbuddy", "cursor", "codex" });
         Assert.Equal(2, doc.GetProperty("agents").GetProperty("workbuddy").GetProperty("running").GetInt32());
         Assert.Equal(2, doc.GetProperty("agents").GetProperty("workbuddy").GetProperty("total_executions").GetInt32());
 
-        Assert.Equal(0, doc.GetProperty("agents").GetProperty("minimax").GetProperty("running").GetInt32());
-        Assert.Equal(0, doc.GetProperty("agents").GetProperty("minimax").GetProperty("total_executions").GetInt32());
+        Assert.Equal(0, doc.GetProperty("agents").GetProperty("cursor").GetProperty("running").GetInt32());
+        Assert.Equal(0, doc.GetProperty("agents").GetProperty("cursor").GetProperty("total_executions").GetInt32());
 
         Assert.Equal(0, doc.GetProperty("agents").GetProperty("codex").GetProperty("running").GetInt32());
         Assert.Equal(0, doc.GetProperty("agents").GetProperty("codex").GetProperty("total_executions").GetInt32());

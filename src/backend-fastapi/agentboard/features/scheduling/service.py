@@ -127,7 +127,7 @@ _CRON_PATTERN = _re.compile(
 )
 
 #: 可绑定到 AgentSchedule.agent 的合法 Agent 名（与 executor.KNOWN_AGENTS 对应）
-SCHEDULE_AGENTS = ("codex", "claude", "workbuddy", "qoder", "minimax")
+SCHEDULE_AGENTS = ("codex", "claude", "workbuddy", "qoder")
 
 #: 任务优先级权重（值越大优先级越高；用于 pick_eligible_task 排序与门槛）
 PRIORITY_RANK = {
@@ -811,7 +811,7 @@ def assign_task_reviewer(s: Session, task_id: int, *, user_id: int | None = None
 #   - "task 和 qa 不同 agent" 硬约束：从 TaskAssignment 历史查本 task
 #     之前的 assignee，候选池里排除
 
-# task_type + workload_type → agent_type（workbuddy/codex/minimax）
+# task_type + workload_type → agent_type（workbuddy/codex）
 # PR-10 简单映射；后期接 tag/score 后这块改成 Agent.scores 查询
 _DISPATCH_AGENT_TYPE = {
     ("design", "task"): "workbuddy",
@@ -835,7 +835,7 @@ def _agent_type_for(task_type: str, workload_type: str) -> str | None:
 # PR-10 follow-up：物理 executor type 以 AgentInstance.executor_type 为准；
 # roles 只在旧数据迁移期用于 CLI executor 兼容推导，不参与 workload 授权。
 # .NET WorkflowMessageMapper 把 agent_type 必填，缺值 → DLQ。
-_AGENT_EXECUTOR_TOOLS = ("codex", "workbuddy", "minimax", "qwen", "cursor")
+_AGENT_EXECUTOR_TOOLS = ("codex", "workbuddy", "cursor")
 EXECUTOR_TYPES = frozenset((*_AGENT_EXECUTOR_TOOLS, "fake", "scenario"))
 
 

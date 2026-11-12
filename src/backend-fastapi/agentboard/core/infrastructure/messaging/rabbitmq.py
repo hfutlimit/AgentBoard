@@ -894,7 +894,7 @@ class WorkflowMessage:
     PR-2 加 3 字段（dispatch 决策 + 审计最小依赖）：
 
     - ``agent_type``：希望执行该事件的 CLI 类型（``workbuddy`` / ``codex`` /
-      ``minimax``）。缺省时 consumer 按 task_type_routing 查表回填（PR-3）。
+      ``cursor``）。缺省时 consumer 按 task_type_routing 查表回填（PR-3）。
     - ``workload_type``：工作类别（``task`` / ``review`` / ``rework`` /
       ``ticket``），与 .NET 端 ``WorkloadTypes`` 对齐。consumer 用来选
       正确的 adapter（PR-3）。

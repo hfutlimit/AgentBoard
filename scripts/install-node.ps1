@@ -806,7 +806,7 @@ Write-Section "Registering Windows service"
 # (REG_MULTI_SZ).
 $envPairs = @()
 foreach ($name in @(
-    'MINIMAX_API_KEY', 'OPENAI_API_KEY', 'AGENTBOARD_WEB_API_URL', 'AGENTBOARD_TOKEN',
+    'OPENAI_API_KEY', 'AGENTBOARD_WEB_API_URL', 'AGENTBOARD_TOKEN',
     'PATH', 'PATHEXT', 'APPDATA', 'LOCALAPPDATA', 'USERPROFILE', 'CODEX_HOME',
     'HOME', 'TEMP', 'TMP'
 )) {

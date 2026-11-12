@@ -20,12 +20,10 @@ import logging
 import os
 import shlex
 import subprocess
-import sys
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 from .domains.common.enums import RunStatus
@@ -33,7 +31,7 @@ from .domains.common.enums import RunStatus
 log = logging.getLogger("agentboard.executor")
 
 #: 内置预留的 agent 名字（后续 Story 102/103 交付具体实现）
-KNOWN_AGENTS = ("codex", "claude", "workbuddy", "qoder", "minimax")
+KNOWN_AGENTS = ("codex", "claude", "workbuddy", "qoder")
 
 
 def _now_utc() -> datetime:
@@ -512,45 +510,6 @@ class ClaudeLauncher(CliLauncher):
     description = "Claude Code CLI Agent（claude -p，print 模式）"
     command = ["claude", "-p"]
     env_var = "AGENTBOARD_CLAUDE_BIN"
-
-
-@adapter("minimax")
-class MiniMaxLauncher(CliLauncher):
-    """MiniMax 直打 chat API（经 ``scripts/minimax_invoker.py`` 桥接）。
-
-    复用 CliLauncher 的 stdin→prompt / stdout→JSON 协议：把 ``minimax_invoker.py``
-    当成"内部 CLI"拉起，prompt 通过 stdin 喂入、子进程输出决策 JSON 到 stdout
-    并退出 0（API 错误也走 fail action + exit 0，避免 crash）。
-
-    - 命令模板：``[<python>, <abs>/scripts/minimax_invoker.py]``
-    - 环境变量 ``AGENTBOARD_MINIMAX_BIN`` 可覆盖完整命令（测试或自定义路径）
-    - API 鉴权：子进程从 env ``MINIMAX_API_KEY`` 读（生产设 Worker 启动 env 即可）
-    - API 域名/模型：env ``MINIMAX_BASE_URL`` / ``MINIMAX_MODEL``
-    - 路径解析：``scripts/minimax_invoker.py`` 在仓库根目录下，与
-      ``agentboard/executor.py`` 同级（executor 上一级 + ``scripts/``）
-
-    2026-08-13: 接入 executor 框架（OpenSpec change
-    ``agent-integration-codex-minimax-e2e``），让 ``AgentSchedule.agent="minimax"``
-    直接走 Executor，与 codex/claude 同等待遇。timeout 600s 适配 MiniMax API
-    单次调用的常见耗时。
-    """
-
-    name = "minimax"
-    description = "MiniMax 直打 chat API（scripts/minimax_invoker.py 桥接）"
-    command = [
-        sys.executable,
-        str(
-            (
-                Path(__file__).resolve().parent.parent
-                if (Path(__file__).resolve().parent.parent / "scripts").is_dir()
-                else Path(__file__).resolve().parent.parent.parent.parent
-            )
-            / "scripts"
-            / "minimax_invoker.py"
-        ),
-    ]
-    env_var = "AGENTBOARD_MINIMAX_BIN"
-    timeout_seconds = 600.0
 
 
 # ---------------------------------------------------------------------------

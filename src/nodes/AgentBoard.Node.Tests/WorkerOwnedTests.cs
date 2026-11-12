@@ -17,11 +17,9 @@ public class WorkerOwnedTests
             owner_agent = "original-dev", reviewer_agent = "original-reviewer" };
         var item = JsonSerializer.SerializeToElement(new { id = 42, type = "dev", status = "in_review",
             ready = true, story_status = "in_progress", review_round = 0, discussion });
-        var next = WorkPlanner.Next(8, "task", item)!;
-        Assert.Equal("dev", next.Kind);
-        Assert.Equal("original-dev", next.TargetAgent);
-        Assert.Equal(9, next.DiscussionId);
-        Assert.Equal(2, next.Iteration);
+        // Workflow planning moved Server-side (serverplan protocol). The Worker
+        // only has to render the read-only discussion-turn prompt and route the
+        // reply onto the targeted agent queue.
         var prompt = WorkPlanner.Prompt("dev", JsonSerializer.Serialize(new { item, discussion }));
         Assert.Contains("Leave ALL files and HEAD unchanged", prompt);
         Assert.Contains("position='agree'|'disagree'|'clarify'", prompt);
@@ -32,16 +30,9 @@ public class WorkerOwnedTests
     }
 
     [Fact]
-    public void Review_requires_discussion_before_rejection_and_old_approval_cannot_create_bugs()
+    public void Review_prompt_requires_discussion_before_rejection()
     {
         Assert.Contains("Never reject or create bugs before discussion", WorkPlanner.Prompt("dev_review", "{}"));
-        var output = new JsonObject { ["decision"] = "approve" };
-        WorkPlanner.AddQaFollowup("qa_review", output, JsonSerializer.SerializeToElement(new { }));
-        Assert.Null(output["qa_followup"]);
-        output["decision"] = "confirm";
-        WorkPlanner.AddQaFollowup("qa_review", output,
-            JsonSerializer.SerializeToElement(new { discussion = new { subject = "review_findings" } }));
-        Assert.Null(output["qa_followup"]);
     }
 
     [Fact]
@@ -71,59 +62,6 @@ public class WorkerOwnedTests
     }
 
     [Fact]
-    public void Confirmed_failed_qa_plans_bugs_and_retest_on_worker_from_latest_own_evidence()
-    {
-        var context = JsonSerializer.SerializeToElement(new
-        {
-            item = new { id = 5, title = "QA greeting", description = "Original acceptance" },
-            discussion = new { subject = "qa_defects" },
-            evidence = new[]
-            {
-                new { work_id = 4, task_id = 5, kind = "qa", result = new { tests_passed = true, defects = Array.Empty<object>() } },
-                new { work_id = 7, task_id = 5, kind = "qa", result = new { tests_passed = false,
-                    defects = new object[] { new { title = "Fix 500", description = "GET /greet: expected 200, actual 500" } } } },
-                new { work_id = 8, task_id = 99, kind = "qa", result = new { tests_passed = true, defects = Array.Empty<object>() } },
-            },
-        });
-        var output = JsonNode.Parse("""{"decision":"confirm","summary":"verified together"}""")!.AsObject();
-        WorkPlanner.AddQaFollowup("qa_review", output, context);
-        var plan = output["qa_followup"]!;
-        Assert.Equal(7, plan["source_work_id"]!.GetValue<long>());
-        Assert.Equal("Fix 500", Assert.Single(plan["bugs"]!.AsArray())!["title"]!.GetValue<string>());
-        Assert.Contains("Original acceptance", plan["retest"]!["description"]!.GetValue<string>());
-        Assert.Contains("ALL linked bug Tasks", plan["retest"]!["description"]!.GetValue<string>());
-        output.Remove("qa_followup");
-        output["decision"] = "reject";
-        WorkPlanner.AddQaFollowup("qa_review", output, context);
-        Assert.Null(output["qa_followup"]);
-        output["decision"] = "approve";
-        WorkPlanner.AddQaFollowup("dev_review", output, context);
-        Assert.Null(output["qa_followup"]);
-    }
-
-    [Fact]
-    public void Passed_qa_does_not_plan_bug_tasks()
-    {
-        var context = JsonSerializer.SerializeToElement(new
-        {
-            item = new { id = 5 },
-            evidence = new[] { new { work_id = 7, task_id = 5, kind = "qa", result = new { tests_passed = true } } },
-        });
-        var output = new JsonObject { ["decision"] = "approve" };
-        WorkPlanner.AddQaFollowup("qa_review", output, context);
-        Assert.Null(output["qa_followup"]);
-    }
-
-    [Fact]
-    public void Acceptance_checkboxes_do_not_become_duplicate_development_tasks()
-    {
-        var plan = WorkPlanner.TicketPlan("Greeting", "## Implementation\n- [ ] Build greeting\n## Acceptance\n- [ ] Default name\n- [ ] Chinese\n- [ ] HTTP 404");
-        var tasks = plan["tasks"]!.AsArray();
-        Assert.Equal(3, tasks.Count);
-        Assert.Single(tasks, t => t!["type"]!.GetValue<string>() == "dev");
-        Assert.Contains("ticket_plan", WorkPlanner.Prompt("proposal", "{}"));
-    }
-    [Fact]
     public void Journal_preserves_claim_and_completion_across_reopen()
     {
         var path = Path.Combine(Path.GetTempPath(), $"worker-owned-journal-test-{Guid.NewGuid():N}.db");
@@ -148,13 +86,6 @@ public class WorkerOwnedTests
         }
     }
 
-    [Fact]
-    public void Unsupported_historical_task_does_not_abort_reconciliation()
-    {
-        var item = JsonSerializer.SerializeToElement(new { id = 42, type = "ticket", status = "todo",
-            ready = true, story_status = "in_progress" });
-        Assert.Null(WorkPlanner.Next(8, "task", item));
-    }
     [Theory]
     [InlineData("{\"type\":42}")]
     [InlineData("{\"type\":\"item.completed\",\"item\":\"warning\"}")]
@@ -206,31 +137,6 @@ public class WorkerOwnedTests
         Assert.Equal("codex-b", Assert.Single(options.Candidates(8, "qa")).Id);
         Assert.Equal(6, options.Subscriptions().Count());
         Assert.DoesNotContain((8, "dev_review"), options.Subscriptions());
-    }
-
-    [Theory]
-    [InlineData("design", "todo", "design")]
-    [InlineData("design", "in_review", "design_review")]
-    [InlineData("dev", "in_review", "dev_review")]
-    [InlineData("bug", "todo", "dev")]
-    [InlineData("bug", "in_review", "dev_review")]
-    [InlineData("qa", "todo", "qa")]
-    [InlineData("qa", "in_review", "qa_review")]
-    public void Worker_plans_task_and_matching_review(string type, string status, string expected)
-    {
-        var item = JsonSerializer.SerializeToElement(new { id = 42, type, status, story_status = "in_progress",
-            ready = true, needs_human_confirmation = false, review_round = 2 });
-        var work = WorkPlanner.Next(8, "task", item);
-        Assert.Equal(expected, work!.Kind);
-        Assert.Equal(2, work.Iteration);
-    }
-
-    [Fact]
-    public void Worker_does_not_offer_blocked_or_human_gated_work()
-    {
-        var item = JsonSerializer.SerializeToElement(new { id = 42, type = "qa", status = "todo", story_status = "in_progress",
-            ready = false, review_round = 0 });
-        Assert.Null(WorkPlanner.Next(8, "task", item));
     }
 
     [Fact]

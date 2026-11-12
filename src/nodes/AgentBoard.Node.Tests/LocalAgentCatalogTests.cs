@@ -11,9 +11,10 @@ public sealed class LocalAgentCatalogTests
     [InlineData("codex", "gpt-5.6-luna")]
     [InlineData("workbuddy", "hy4-preview")]
     [InlineData("workbuddy", "glm-5.3-flash")]
-    [InlineData("minimax", "m3")]
     [InlineData("cursor", "cursor-grok-4.6-high")]
     [InlineData("cursor", "composer-2.5")]
+    [InlineData("qoder", "Auto")]
+    [InlineData("qoder", "GLM-5.3")]
     public void Basic_profile_is_disabled_until_user_selects_work(string provider, string model)
     {
         var agent = LocalAgentCatalog.Create(new(" test-agent ", provider, model, "revision"));
@@ -33,13 +34,35 @@ public sealed class LocalAgentCatalogTests
     {
         Assert.Equal(3, LocalAgentCatalog.Models("codex").Length);
         Assert.Equal(2, LocalAgentCatalog.Models("workbuddy").Length);
-        Assert.Single(LocalAgentCatalog.Models("minimax"));
         Assert.Equal(2, LocalAgentCatalog.Models("cursor").Length);
         Assert.Throws<ArgumentException>(() => LocalAgentCatalog.Create(new("a", "workbuddy", "gpt-5.6-sol", "v1")));
         Assert.Throws<ArgumentException>(() => LocalAgentCatalog.Create(new(" ", "codex", "gpt-5.6-sol", "v1")));
         string[] args = ["exec", "--model", "old", "--model=older", "-m", "oldest", "--json"];
         Assert.Equal(["exec", "--json", "--model", "gpt-5.6-sol"], LocalAgentCatalog.ModelArguments(args, "gpt-5.6-sol"));
         Assert.Equal("old", args[2]);
+    }
+
+    [Fact]
+    public void Qoder_catalog_uses_native_cli_and_excludes_personal_byok_models()
+    {
+        var models = LocalAgentCatalog.Models("qoder");
+        Assert.Contains("Auto", models);
+        Assert.Contains("GLM-5.3", models);
+        // A personal BYOK provider id is operator-specific and must never be
+        // shipped in the repository catalog.
+        Assert.DoesNotContain(models, m => m.Contains("qoder-custom-", StringComparison.Ordinal));
+
+        var agent = LocalAgentCatalog.Create(new("q", "qoder", "Auto", "v1"));
+        Assert.Equal("qoderclicn", agent.Runtime.Command);
+        Assert.Equal(
+            new[]
+            {
+                "-p", "--output-format", "json",
+                "--permission-mode", "bypass_permissions",
+                "--no-session-persistence",
+                "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}",
+            },
+            agent.Runtime.Arguments);
     }
 
     [Fact]
@@ -57,7 +80,7 @@ public sealed class LocalAgentCatalogTests
             var added = store.AddAgent(new("b", "workbuddy", "hy4-preview", created.Revision));
             Assert.Equal(2, added.Configuration.Agents.Length);
             Assert.Empty(added.Configuration.Agents[0].PrePrompt);
-            Assert.Throws<ConfigurationConflictException>(() => store.AddAgent(new("c", "minimax", "m3", created.Revision)));
+            Assert.Throws<ConfigurationConflictException>(() => store.AddAgent(new("c", "cursor", "composer-2.5", created.Revision)));
             Assert.Throws<ArgumentException>(() => store.AddAgent(new("a", "codex", "gpt-5.6-sol", added.Revision)));
             Assert.Equal(2, store.Load().Agents.Length);
         }

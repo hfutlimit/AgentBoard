@@ -7,7 +7,7 @@ public interface ILocalWorkerRun : IDisposable
 {
     Task? Completion { get; }
     bool BrokerConnected { get; }
-    DateTimeOffset? LastScanAt { get; }
+    DateTimeOffset? LastPresenceAt { get; }
     Task StartAsync(CancellationToken ct);
     Task StopAsync(CancellationToken ct);
     void Drain();
@@ -25,7 +25,7 @@ public sealed class LocalWorkerFactory(IServiceProvider services) : ILocalWorker
 }
 
 public sealed record LocalRuntimeStatus(string State, string? LoadedRevision, bool ConfigurationChanged,
-    bool BrokerConnected, DateTimeOffset? LastScanAt, int ActiveCount, string? Error);
+    bool BrokerConnected, DateTimeOffset? LastPresenceAt, int ActiveCount, string? Error);
 
 /// <summary>The portal owns a restartable worker lifetime, independently of the HTTP host.</summary>
 public sealed class LocalWorkerRuntime(LocalConfigurationStore store, ILocalWorkerFactory factory,
@@ -111,12 +111,12 @@ public sealed class LocalWorkerRuntime(LocalConfigurationStore store, ILocalWork
 
     private LocalRuntimeStatus Status() => new(
         run is null ? (error is null ? "stopped" : "failed") : stopping ? "stopping"
-            : !run.BrokerConnected || run.LastScanAt is null
-                || DateTimeOffset.UtcNow - run.LastScanAt > TimeSpan.FromSeconds(60) ? "starting"
+            : !run.BrokerConnected || run.LastPresenceAt is null
+                || DateTimeOffset.UtcNow - run.LastPresenceAt > TimeSpan.FromSeconds(60) ? "starting"
             : state.Paused ? "paused"
             : state.ActiveCount > 0 ? "busy" : "running",
         revision, run is not null && revision != store.Read().Revision,
-        run?.BrokerConnected ?? false, run?.LastScanAt, state.ActiveCount, error);
+        run?.BrokerConnected ?? false, run?.LastPresenceAt, state.ActiveCount, error);
 
     public async Task StartAsync(CancellationToken ct)
     {

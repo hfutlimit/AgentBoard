@@ -10129,6 +10129,67 @@
                                                                              }
                                                            }
                                               },
+                  "/api/worker-work/projects":  {
+                                                    "post":  {
+                                                                 "tags":  [
+                                                                              "scheduling",
+                                                                              "worker-work"
+                                                                          ],
+                                                                 "summary":  "Register Projects",
+                                                                 "description":  "Declare which projects this Worker is allowed to work on.\n\nThe Server planner only materialises work for mapped projects, so scope\nmust be declared explicitly instead of guessed. Each project is checked\nwith the same membership rule the Worker already passes for /offers.\nMappings for projects no longer listed are disabled, so removing a project\nfrom the local configuration actually stops Server-side planning for it;\nan empty list retires the Worker\u0027s whole scope. Workers are shared across\nusers, so disabling a stale mapping additionally requires membership in\nthat project — a caller can never shrink another project\u0027s workforce.",
+                                                                 "operationId":  "register_projects_api_worker_work_projects_post",
+                                                                 "parameters":  [
+                                                                                    {
+                                                                                        "name":  "authorization",
+                                                                                        "in":  "header",
+                                                                                        "required":  false,
+                                                                                        "schema":  {
+                                                                                                       "anyOf":  [
+                                                                                                                     {
+                                                                                                                         "type":  "string"
+                                                                                                                     },
+                                                                                                                     {
+                                                                                                                         "type":  "null"
+                                                                                                                     }
+                                                                                                                 ],
+                                                                                                       "title":  "Authorization"
+                                                                                                   }
+                                                                                    }
+                                                                                ],
+                                                                 "requestBody":  {
+                                                                                     "required":  true,
+                                                                                     "content":  {
+                                                                                                     "application/json":  {
+                                                                                                                              "schema":  {
+                                                                                                                                             "$ref":  "#/components/schemas/WorkerProjectsIn"
+                                                                                                                                         }
+                                                                                                                          }
+                                                                                                 }
+                                                                                 },
+                                                                 "responses":  {
+                                                                                   "200":  {
+                                                                                               "description":  "Successful Response",
+                                                                                               "content":  {
+                                                                                                               "application/json":  {
+                                                                                                                                        "schema":  {
+
+                                                                                                                                                   }
+                                                                                                                                    }
+                                                                                                           }
+                                                                                           },
+                                                                                   "422":  {
+                                                                                               "description":  "Validation Error",
+                                                                                               "content":  {
+                                                                                                               "application/json":  {
+                                                                                                                                        "schema":  {
+                                                                                                                                                       "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                   }
+                                                                                                                                    }
+                                                                                                           }
+                                                                                           }
+                                                                               }
+                                                             }
+                                                },
                   "/api/worker-work/{work_id}/claim":  {
                                                            "post":  {
                                                                         "tags":  [
@@ -11618,6 +11679,179 @@
                                                                                                 }
                                                                                     }
                                                                   }
+                                                      },
+                  "/api/agent-runs/{run_id}/progress":  {
+                                                            "post":  {
+                                                                         "tags":  [
+                                                                                      "scheduling"
+                                                                                  ],
+                                                                         "summary":  "Report Task Progress Endpoint",
+                                                                         "description":  "2026-09-14 P1: in-flight heartbeat endpoint.\n\nAgents should call this at most every 10 minutes while a run is in\nflight. The server updates ``last_progress_at`` / ``last_progress_note``\nand clears ``is_stale`` so the active-workflows panel stops yelling.\n\nAuthorization mirrors ``/events``: any caller that can mutate the run\n(its owning user / API key / worker lease holder) can heartbeat it.",
+                                                                         "operationId":  "report_task_progress_endpoint_api_agent_runs__run_id__progress_post",
+                                                                         "parameters":  [
+                                                                                            {
+                                                                                                "name":  "run_id",
+                                                                                                "in":  "path",
+                                                                                                "required":  true,
+                                                                                                "schema":  {
+                                                                                                               "type":  "integer",
+                                                                                                               "title":  "Run Id"
+                                                                                                           }
+                                                                                            },
+                                                                                            {
+                                                                                                "name":  "authorization",
+                                                                                                "in":  "header",
+                                                                                                "required":  false,
+                                                                                                "schema":  {
+                                                                                                               "anyOf":  [
+                                                                                                                             {
+                                                                                                                                 "type":  "string"
+                                                                                                                             },
+                                                                                                                             {
+                                                                                                                                 "type":  "null"
+                                                                                                                             }
+                                                                                                                         ],
+                                                                                                               "title":  "Authorization"
+                                                                                                           }
+                                                                                            },
+                                                                                            {
+                                                                                                "name":  "X-Worker-ID",
+                                                                                                "in":  "header",
+                                                                                                "required":  false,
+                                                                                                "schema":  {
+                                                                                                               "anyOf":  [
+                                                                                                                             {
+                                                                                                                                 "type":  "string"
+                                                                                                                             },
+                                                                                                                             {
+                                                                                                                                 "type":  "null"
+                                                                                                                             }
+                                                                                                                         ],
+                                                                                                               "title":  "X-Worker-Id"
+                                                                                                           }
+                                                                                            }
+                                                                                        ],
+                                                                         "requestBody":  {
+                                                                                             "required":  true,
+                                                                                             "content":  {
+                                                                                                             "application/json":  {
+                                                                                                                                      "schema":  {
+                                                                                                                                                     "$ref":  "#/components/schemas/TaskProgressIn"
+                                                                                                                                                 }
+                                                                                                                                  }
+                                                                                                         }
+                                                                                         },
+                                                                         "responses":  {
+                                                                                           "200":  {
+                                                                                                       "description":  "Successful Response",
+                                                                                                       "content":  {
+                                                                                                                       "application/json":  {
+                                                                                                                                                "schema":  {
+
+                                                                                                                                                           }
+                                                                                                                                            }
+                                                                                                                   }
+                                                                                                   },
+                                                                                           "422":  {
+                                                                                                       "description":  "Validation Error",
+                                                                                                       "content":  {
+                                                                                                                       "application/json":  {
+                                                                                                                                                "schema":  {
+                                                                                                                                                               "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                           }
+                                                                                                                                            }
+                                                                                                                   }
+                                                                                                   }
+                                                                                       }
+                                                                     }
+                                                        },
+                  "/api/scheduling/scan-stale-runs":  {
+                                                          "post":  {
+                                                                       "tags":  [
+                                                                                    "scheduling"
+                                                                                ],
+                                                                       "summary":  "Scan Stale Agent Runs Endpoint",
+                                                                       "description":  "2026-09-14 P1: cron / scheduler calls this periodically.\n\nReturns ``{\"warned\": [...], \"taken_over\": [...], \"scanned_at\": ...}``.\nDesigned to be cheap enough to call every minute: a no-op pass is\none indexed read on ``(status, last_progress_at)``.\n\nAuth model (2026-09-15 P0 fix): admin-only when auth is enabled,\nmirroring ``/api/admin/ticket-requests/reclaim-stale``. Previously the\nhandler called ``_auth_is_required(authorization, s)`` with two args,\nbut the helper takes zero args — every request raised ``TypeError``\nbefore reaching the service. Now aligned with the rest of the admin\nendpoints; maintenance worker uses the same admin credential as\nticket-request reclaim, so no behaviour change for the worker.",
+                                                                       "operationId":  "scan_stale_agent_runs_endpoint_api_scheduling_scan_stale_runs_post",
+                                                                       "parameters":  [
+                                                                                          {
+                                                                                              "name":  "warn_after_seconds",
+                                                                                              "in":  "query",
+                                                                                              "required":  false,
+                                                                                              "schema":  {
+                                                                                                             "type":  "integer",
+                                                                                                             "minimum":  0,
+                                                                                                             "description":  "Flip is_stale=True when last_progress_at is older than this",
+                                                                                                             "default":  1800,
+                                                                                                             "title":  "Warn After Seconds"
+                                                                                                         },
+                                                                                              "description":  "Flip is_stale=True when last_progress_at is older than this"
+                                                                                          },
+                                                                                          {
+                                                                                              "name":  "takeover_after_seconds",
+                                                                                              "in":  "query",
+                                                                                              "required":  false,
+                                                                                              "schema":  {
+                                                                                                             "type":  "integer",
+                                                                                                             "minimum":  0,
+                                                                                                             "description":  "Force soft_takeover when last_progress_at is older than this",
+                                                                                                             "default":  3600,
+                                                                                                             "title":  "Takeover After Seconds"
+                                                                                                         },
+                                                                                              "description":  "Force soft_takeover when last_progress_at is older than this"
+                                                                                          },
+                                                                                          {
+                                                                                              "name":  "max_per_run",
+                                                                                              "in":  "query",
+                                                                                              "required":  false,
+                                                                                              "schema":  {
+                                                                                                             "type":  "integer",
+                                                                                                             "maximum":  200,
+                                                                                                             "minimum":  1,
+                                                                                                             "default":  20,
+                                                                                                             "title":  "Max Per Run"
+                                                                                                         }
+                                                                                          },
+                                                                                          {
+                                                                                              "name":  "authorization",
+                                                                                              "in":  "header",
+                                                                                              "required":  false,
+                                                                                              "schema":  {
+                                                                                                             "anyOf":  [
+                                                                                                                           {
+                                                                                                                               "type":  "string"
+                                                                                                                           },
+                                                                                                                           {
+                                                                                                                               "type":  "null"
+                                                                                                                           }
+                                                                                                                       ],
+                                                                                                             "title":  "Authorization"
+                                                                                                         }
+                                                                                          }
+                                                                                      ],
+                                                                       "responses":  {
+                                                                                         "200":  {
+                                                                                                     "description":  "Successful Response",
+                                                                                                     "content":  {
+                                                                                                                     "application/json":  {
+                                                                                                                                              "schema":  {
+
+                                                                                                                                                         }
+                                                                                                                                          }
+                                                                                                                 }
+                                                                                                 },
+                                                                                         "422":  {
+                                                                                                     "description":  "Validation Error",
+                                                                                                     "content":  {
+                                                                                                                     "application/json":  {
+                                                                                                                                              "schema":  {
+                                                                                                                                                             "$ref":  "#/components/schemas/HTTPValidationError"
+                                                                                                                                                         }
+                                                                                                                                          }
+                                                                                                                 }
+                                                                                                 }
+                                                                                     }
+                                                                   }
                                                       },
                   "/api/agent-runs/{run_id}/events/stream":  {
                                                                  "get":  {
@@ -17049,7 +17283,19 @@
                                                                                             "type":  "string",
                                                                                             "minLength":  1,
                                                                                             "title":  "Content"
-                                                                                        }
+                                                                                        },
+                                                                            "linked_document_id":  {
+                                                                                                       "anyOf":  [
+                                                                                                                     {
+                                                                                                                         "type":  "integer",
+                                                                                                                         "minimum":  1.0
+                                                                                                                     },
+                                                                                                                     {
+                                                                                                                         "type":  "null"
+                                                                                                                     }
+                                                                                                                 ],
+                                                                                                       "title":  "Linked Document Id"
+                                                                                                   }
                                                                         },
                                                          "type":  "object",
                                                          "required":  [
@@ -19569,6 +19815,18 @@
                                                          "type":  "object",
                                                          "title":  "TaskPatch"
                                                      },
+                                       "TaskProgressIn":  {
+                                                              "properties":  {
+                                                                                 "note":  {
+                                                                                              "type":  "string",
+                                                                                              "maxLength":  500,
+                                                                                              "title":  "Note",
+                                                                                              "default":  ""
+                                                                                          }
+                                                                             },
+                                                              "type":  "object",
+                                                              "title":  "TaskProgressIn"
+                                                          },
                                        "TaskTransferIn":  {
                                                               "properties":  {
                                                                                  "new_owner_user_id":  {
@@ -19871,6 +20129,31 @@
                                                                       "type":  "object",
                                                                       "title":  "WorkerProjectMappingIn"
                                                                   },
+                                       "WorkerProjectsIn":  {
+                                                                "properties":  {
+                                                                                   "worker_id":  {
+                                                                                                     "type":  "string",
+                                                                                                     "maxLength":  100,
+                                                                                                     "minLength":  1,
+                                                                                                     "title":  "Worker Id"
+                                                                                                 },
+                                                                                   "project_ids":  {
+                                                                                                       "items":  {
+                                                                                                                     "type":  "integer"
+                                                                                                                 },
+                                                                                                       "type":  "array",
+                                                                                                       "maxItems":  200,
+                                                                                                       "minItems":  0,
+                                                                                                       "title":  "Project Ids"
+                                                                                                   }
+                                                                               },
+                                                                "type":  "object",
+                                                                "required":  [
+                                                                                 "worker_id",
+                                                                                 "project_ids"
+                                                                             ],
+                                                                "title":  "WorkerProjectsIn"
+                                                            },
                                        "WorkerRegisterIn":  {
                                                                 "properties":  {
                                                                                    "worker_id":  {

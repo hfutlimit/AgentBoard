@@ -326,7 +326,7 @@ codex mcp get agentboard
 #### Worker 端拉起 Codex
 
 `CodexLauncher` 已注册到 `agentboard.executor.ADAPTERS`（OpenSpec change
-`epic78-story102-cli-launcher` + `agent-integration-codex-minimax-e2e`）。
+`epic78-story102-cli-launcher`）。
 跑一个 Agent run：
 
 ```bash
@@ -341,29 +341,8 @@ AGENTBOARD_CODEX_BIN="codex exec --json" \
 
 > 端到端验证：见 `tests/test_codex_e2e.py`（fake codex CLI 模拟真实协议）。
 
-### MiniMax（直打 chat API 路径）
-
-`MiniMaxLauncher` 已注册到 `agentboard.executor.ADAPTERS`（2026-08-13），内部
-桥接 `scripts/minimax_invoker.py`（直打 `api.minimaxi.com/v1`，绕开 minimax-cli
-v1.0.1 的 MCP HTTP 缺陷）。
-
-```powershell
-# 1. 准备 Token Plan Key（sk-cp- 开头；普通 API Key 会被 402 余额不足挡）
-$env:MINIMAX_API_KEY="sk-cp-REPLACE_WITH_TOKEN_PLAN_KEY"
-$env:MINIMAX_BASE_URL="https://api.minimaxi.com/v1"   # 国内平台
-$env:MINIMAX_MODEL="MiniMax-M2"                       # 国内模型名
-
-# 2. 启动 executor daemon
-AGENTBOARD_DEFAULT_AGENT=minimax \
-  PYTHONPATH=src/backend-fastapi python -m agentboard.executor --loop
-```
-
-`AgentSchedule.agent = "minimax"` 走 MiniMax；`agent = "codex"` 走 Codex；
-`agent = "claude"` 走 Claude Code。同一执行器、按 schedule 字段分发。
-
-> 详细背景与踩坑：`docs/minimax-code-integration.md`（包含 CLI 路径与直打
-> API 路径的对比）。端到端验证：`tests/test_minimax_e2e.py` + 
-> `tests/test_minimax_invoker_unit.py`（fake HTTP server 模拟 MiniMax API）。
+`AgentSchedule.agent = "codex"` 走 Codex；`agent = "claude"` 走 Claude Code。
+同一执行器、按 schedule 字段分发。
 
 ### 其他 MCP Agent
 
