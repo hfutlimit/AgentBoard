@@ -345,7 +345,7 @@ public class WorkerStartupServiceTests
     }
 
     [Fact]
-    public async Task Require_registration_fails_fast_when_no_workbuddy_or_codex_registered()
+    public async Task Require_registration_fails_fast_when_no_supported_cli_registered()
     {
         var stub = new StubHandler();
         var http = new HttpClient(stub);
@@ -365,11 +365,75 @@ public class WorkerStartupServiceTests
         await svc.StartAsync(CancellationToken.None);
         var ex = await WaitForStartupFailureAsync(svc);
         Assert.IsType<InvalidOperationException>(ex);
-        Assert.Contains("no WorkBuddy/Codex agent was registered", ex!.Message);
+        Assert.Contains("no WorkBuddy/Codex/Cursor/Qoder agent was registered", ex!.Message);
         Assert.Contains("Agents:WorkBuddy:Command is empty", ex.Message);
         // worker 本身注册了，但没有任何 agent
         Assert.Contains(stub.Requests, r => r.Url.Contains("/api/workers/register"));
         Assert.DoesNotContain(stub.Requests, r => r.Url.EndsWith("/api/agents/register"));
+    }
+
+    [Fact]
+    public async Task Require_registration_succeeds_with_only_qoder_and_heartbeats_its_instance()
+    {
+        var heartbeatSent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stub = new StubHandler
+        {
+            OnSend = request =>
+            {
+                if (request.RequestUri!.AbsolutePath.EndsWith("/agent-instances/42/heartbeat"))
+                    heartbeatSent.TrySetResult();
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("{\"id\":42}", System.Text.Encoding.UTF8, "application/json"),
+                };
+            },
+        };
+        using var http = new HttpClient(stub);
+        var (wo, ab, agents) = BuildOpts();
+        ab.RequireRegistration = true;
+        ab.StartupToken = "worker-token";
+        agents.WorkBuddy.Command = "";
+        agents.Codex.Command = "";
+        agents.Cursor.Command = "";
+        agents.Qoder = new AgentOptions
+        {
+            Command = "qoderclicn", AgentId = "qoder-on-dev", AgentBoardToken = "qoder-token",
+        };
+        var registry = new AgentAdapterRegistry(
+            new IAgentAdapter[] { new FakeAdapter("qoder") },
+            NullLogger<AgentAdapterRegistry>.Instance);
+        using var svc = new WorkerStartupService(
+            new FixedHttpFactory(http),
+            Options.Create(wo), Options.Create(ab), Options.Create(agents),
+            registry, NullLogger<WorkerStartupService>.Instance,
+            Options.Create(new RabbitMqOptions { Uri = "amqp://test" }));
+
+        await svc.StartAsync(CancellationToken.None);
+        try
+        {
+            // A heartbeat proves registration passed the RequireRegistration gate.
+            await heartbeatSent.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        finally
+        {
+            await svc.StopAsync(CancellationToken.None);
+        }
+
+        Assert.Null(svc.StartupFailure);
+        Assert.Single(stub.Requests, r => r.Url.EndsWith("/api/workers/register"));
+        var registration = Assert.Single(stub.Requests, r => r.Url.EndsWith("/api/agents/register"));
+        using var agentJson = JsonDocument.Parse(registration.Body);
+        Assert.Equal("qoder-on-dev", agentJson.RootElement.GetProperty("agent_id").GetString());
+        Assert.Equal("qoderclicn", agentJson.RootElement.GetProperty("cli_command").GetString());
+        var instance = Assert.Single(stub.Requests, r => r.Url.EndsWith("/instances"));
+        Assert.EndsWith("/api/agents/qoder-on-dev/instances", instance.Url);
+        using var instanceJson = JsonDocument.Parse(instance.Body);
+        Assert.Equal("qoder", instanceJson.RootElement.GetProperty("executor_type").GetString());
+        Assert.Equal(wo.Id, instanceJson.RootElement.GetProperty("worker_id").GetString());
+        var heartbeat = Assert.Single(stub.Requests, r => r.Url.EndsWith("/agent-instances/42/heartbeat"));
+        Assert.EndsWith($"/api/workers/{wo.Id}/agent-instances/42/heartbeat", heartbeat.Url);
+        Assert.All(new[] { registration, instance, heartbeat }, r =>
+            Assert.Equal("Bearer qoder-token", r.Headers.GetValues("Authorization").Single()));
     }
 }
 

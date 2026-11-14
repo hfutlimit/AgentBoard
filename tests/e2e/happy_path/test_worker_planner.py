@@ -412,3 +412,10 @@ def test_empty_scope_still_cannot_touch_foreign_projects(client, db_session, pla
 def test_declaration_unknown_worker_is_404(client, db_session, plan_env):
     response = declare_projects(client, db_session, plan_env[0], "w-missing", [plan_env[1]])
     assert response.status_code == 404
+
+
+def test_empty_scope_without_auth_is_401(client, db_session, plan_env, monkeypatch):
+    monkeypatch.setenv("AGENTBOARD_REQUIRE_AUTH", "1")
+    response = client.post("/api/worker-work/projects",
+                           json={"worker_id": "w-noauth", "project_ids": []})
+    assert response.status_code == 401

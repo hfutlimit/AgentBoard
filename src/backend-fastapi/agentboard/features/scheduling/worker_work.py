@@ -464,6 +464,9 @@ def register_projects(body: WorkerProjectsIn, authorization: str | None = Header
     that project — a caller can never shrink another project's workforce.
     """
     from ..projects.service import map_worker_to_project, NotFound
+    api_helpers.resolve_actor_context(authorization, s, required_permission="api:write")
+    if not enabled():
+        raise HTTPException(409, "worker-owned execution is disabled")
     wanted = sorted(set(body.project_ids))
     if any(project_id <= 0 for project_id in wanted):
         raise HTTPException(422, "project ids must be positive")

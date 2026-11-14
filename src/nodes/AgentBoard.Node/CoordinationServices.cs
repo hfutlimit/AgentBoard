@@ -71,7 +71,7 @@ public sealed class WorkerHeartbeatService : BackgroundService
 // ===================== PR-12: Worker startup bootstrap =====================
 //
 // PR-2 review 收尾：.NET worker 启动时自动把本机 register 到 FastAPI
-// 并为每个配置的 agent (WorkBuddy / Codex / Cursor) upsert AgentInstance，
+// 并为每个配置的 agent (WorkBuddy / Codex / Cursor / Qoder) upsert AgentInstance，
 // 关闭"运维必须先手动建 worker + AgentInstance 行才能跑"这个配置缺口。
 //
 // 调用 FastAPI 端点（已存在）：
@@ -163,13 +163,13 @@ public sealed class WorkerStartupService : BackgroundService
         await RegisterWorkerAsync(stoppingToken);
         // 2. 给每个启用的 agent upsert instance
         await UpsertAgentInstancesAsync(stoppingToken);
-        // 3. P0-3 fail-fast：生产模式下至少要有 WorkBuddy 或 Codex 注册成功，
+        // 3. P0-3 fail-fast：生产模式下至少要有 WorkBuddy / Codex / Cursor / Qoder 注册成功，
         //    否则 dispatch 永远选不到执行者（最常见的踩法是 Command 留空指望
         //    CliLocator 自动发现——scheduling 层根本看不到这个 agent）。
         if (_agentboard.RequireRegistration)
         {
             var registeredTools = _instances.Keys
-                .Where(t => t is "workbuddy" or "codex" or "cursor")
+                .Where(t => t is "workbuddy" or "codex" or "cursor" or "qoder")
                 .ToList();
             if (registeredTools.Count == 0)
             {
@@ -180,9 +180,10 @@ public sealed class WorkerStartupService : BackgroundService
                     ? " Agents:Codex:Command is empty"
                     : "";
                 throw new InvalidOperationException(
-                    "AgentBoard:RequireRegistration=true but no WorkBuddy/Codex agent was registered." +
+                    "AgentBoard:RequireRegistration=true but no WorkBuddy/Codex/Cursor/Qoder agent was registered." +
                     detail +
                     " Set Agents:WorkBuddy:Command (e.g. codebuddy) / Agents:Codex:Command (e.g. codex)" +
+                    " / Agents:Qoder:Command (e.g. qoderclicn)" +
                     " and AgentBoard:ServerUrl + AgentBoard:StartupToken.");
             }
         }
@@ -244,6 +245,7 @@ public sealed class WorkerStartupService : BackgroundService
             // unless Agents:Codex2:Command is set.
             ("codex",     _agents.Codex2),
             ("cursor",    _agents.Cursor),
+            ("qoder",     _agents.Qoder),
             ("scenario",  _agents.Scenario),
         };
 

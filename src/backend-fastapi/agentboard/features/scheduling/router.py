@@ -598,7 +598,7 @@ class DurableAgentSelectIn(BaseModel):
     exclude: list[str] = []
 
 
-_SUPPORTED_PROVIDERS = {"codex", "workbuddy", "cursor", "fake", "scenario"}
+_SUPPORTED_PROVIDERS = {"codex", "workbuddy", "cursor", "qoder", "fake", "scenario"}
 _DURABLE_HEARTBEAT_TTL = timedelta(minutes=5)
 
 
