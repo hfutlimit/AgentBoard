@@ -117,7 +117,7 @@ class Completion(Claim):
 router = APIRouter(prefix="/api/worker-work", tags=["worker-work"])
 
 
-def write_actor(s: Session, authorization: str | None, permission="api:write"):
+def write_actor(s: Session, authorization: str | None, permission="api:write") -> api_helpers.ActorContext:
     """Resolve the caller credential once and gate on the execution flag.
 
     Every worker-owned command boundary needs both, including the ones that
@@ -130,7 +130,7 @@ def write_actor(s: Session, authorization: str | None, permission="api:write"):
     return actor
 
 
-def authorize_member(s: Session, project_id: int, actor):
+def authorize_member(s: Session, project_id: int, actor: api_helpers.ActorContext) -> api_helpers.ActorContext:
     if not (actor.is_admin or user_is_project_member(s, project_id, actor.user_id)):
         raise HTTPException(403, "project membership required")
     # Reused business services still enforce ownership/exclusions. Only this

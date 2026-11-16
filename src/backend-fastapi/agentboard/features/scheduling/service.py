@@ -3043,12 +3043,13 @@ def _cas_fail_stale_run(
 ) -> bool:
     """Fail a stale run only while it is still ``running`` AND ``is_stale``.
 
-    2026-09-15 P0 fix, shared by both takeover paths: the where-clause is the
-    *minimum* invariant the scanner guarantees about a candidate, so there is
-    no need to re-check ``COALESCE(...) < cutoff``. Guarding on ``is_stale``
-    is what closes the heartbeat race — a fresh heartbeat clears it and the
-    CAS loses. ``rowcount`` is the source of truth; ``False`` means another
-    writer won and the caller must not report a takeover.
+    The CAS invariant comes from the 2026-09-15 P0 fix; both takeover paths
+    share it since 2026-11-16. The where-clause is the *minimum* invariant the
+    scanner guarantees about a candidate, so there is no need to re-check
+    ``COALESCE(...) < cutoff``. Guarding on ``is_stale`` is what closes the
+    heartbeat race — a fresh heartbeat clears it and the CAS loses.
+    ``rowcount`` is the source of truth; ``False`` means another writer won
+    and the caller must not report a takeover.
     """
     cas = s.execute(
         update(AgentRun)
