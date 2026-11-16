@@ -666,7 +666,7 @@ def test_soft_takeover_succeeds_when_run_is_stale_and_terminal_task(
 def test_scan_stale_excludes_cas_lost_run_from_taken_over(
     session, project, agent, admin_user, monkeypatch,
 ):
-    """2026-09-19 fix: soft_takeover_run returns None when its CAS lost
+    """2026-11-12 fix: soft_takeover_run returns None when its CAS lost
     (a fresh heartbeat recovered the run between Pass 2's SELECT and the
     takeover call). scan_stale_agent_runs must then NOT list the run under
     ``taken_over`` — otherwise the maintenance API over-reports takeovers
@@ -700,3 +700,76 @@ def test_scan_stale_excludes_cas_lost_run_from_taken_over(
     assert run.id not in result["taken_over"], (
         "a CAS-lost run must not be reported as taken over"
     )
+
+
+def _make_stale_taskless_run(session, agent):
+    """A schedule-level run (no task) that Pass 2 must consider for takeover."""
+    run = _make_agent_run(session, None, agent, status="running")
+    session.execute(
+        update(AgentRun).where(AgentRun.id == run.id).values(
+            is_stale=True,
+            last_progress_at=utc_now() - timedelta(minutes=70),
+        )
+    )
+    session.commit()
+    session.refresh(run)
+    return run
+
+
+def test_scan_stale_reaps_taskless_run_and_reports_it(session, project, agent):
+    """A genuinely stale schedule-level run is failed and reported, with the
+    same ``stale_run_no_task`` marker the scanner has always written."""
+    run = _make_stale_taskless_run(session, agent)
+
+    result = scheduling_service.scan_stale_agent_runs(
+        session, warn_after_seconds=30 * 60, takeover_after_seconds=60 * 60,
+    )
+
+    assert run.id in result["taken_over"]
+    session.refresh(run)
+    assert run.status == "failed"
+    assert run.error_message == "stale_run_no_task"
+    assert run.finished_at is not None
+
+
+def test_cas_fail_stale_run_loses_when_heartbeat_cleared_is_stale(
+    session, project, agent,
+):
+    """The task-less reap must share the takeover CAS invariant: a heartbeat
+    that clears ``is_stale`` between the scanner's SELECT and the write wins,
+    so the recovered run stays running."""
+    run = _make_stale_taskless_run(session, agent)
+    session.execute(
+        update(AgentRun).where(AgentRun.id == run.id).values(is_stale=False)
+    )
+    session.commit()
+    session.refresh(run)
+
+    reaped = scheduling_service._cas_fail_stale_run(
+        session, run, error_message="stale_run_no_task", now=utc_now(),
+    )
+
+    assert reaped is False
+    session.refresh(run)
+    assert run.status == "running", "a recovered run must not be failed"
+    assert run.is_stale is False, "the heartbeat's clear must survive"
+
+
+def test_scan_stale_excludes_recovered_taskless_run_from_taken_over(
+    session, project, agent, monkeypatch,
+):
+    """Same reporting invariant as the task-backed path: when the task-less
+    CAS loses, the run must not be listed under ``taken_over``."""
+    run = _make_stale_taskless_run(session, agent)
+    monkeypatch.setattr(
+        scheduling_service, "_cas_fail_stale_run",
+        lambda s, r, *, error_message, now: False,
+    )
+
+    result = scheduling_service.scan_stale_agent_runs(
+        session, warn_after_seconds=30 * 60, takeover_after_seconds=60 * 60,
+    )
+
+    assert run.id not in result["taken_over"]
+    session.refresh(run)
+    assert run.status == "running"

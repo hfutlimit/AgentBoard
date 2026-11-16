@@ -3009,11 +3009,11 @@ def scan_stale_agent_runs(
     for run in takeover_rows:
         if run.task_id is None:
             # Schedule-level run with no associated task; nothing to swap.
-            # Mark it failed anyway so it doesn't accumulate forever.
-            run.status = "failed"
-            run.finished_at = now
-            run.error_message = "stale_run_no_task"
-            taken_over_ids.append(run.id)
+            # Mark it failed anyway so it doesn't accumulate forever — under
+            # the same CAS as the task-backed path, so a heartbeat that
+            # recovered the run between SELECT and here is not overwritten.
+            if _cas_fail_stale_run(s, run, error_message="stale_run_no_task", now=now):
+                taken_over_ids.append(run.id)
             continue
         try:
             result = soft_takeover_run(s, run, reason="stale_progress_takeover")
@@ -3036,6 +3036,31 @@ def scan_stale_agent_runs(
         "taken_over": taken_over_ids,
         "scanned_at": now.isoformat(),
     }
+
+
+def _cas_fail_stale_run(
+    s: Session, run: AgentRun, *, error_message: str, now: datetime,
+) -> bool:
+    """Fail a stale run only while it is still ``running`` AND ``is_stale``.
+
+    2026-09-15 P0 fix, shared by both takeover paths: the where-clause is the
+    *minimum* invariant the scanner guarantees about a candidate, so there is
+    no need to re-check ``COALESCE(...) < cutoff``. Guarding on ``is_stale``
+    is what closes the heartbeat race — a fresh heartbeat clears it and the
+    CAS loses. ``rowcount`` is the source of truth; ``False`` means another
+    writer won and the caller must not report a takeover.
+    """
+    cas = s.execute(
+        update(AgentRun)
+        .where(
+            AgentRun.id == run.id,
+            AgentRun.status == "running",
+            AgentRun.is_stale.is_(True),
+        )
+        .values(status="failed", finished_at=now, error_message=error_message)
+        .execution_options(synchronize_session=False)
+    )
+    return cas.rowcount == 1
 
 
 def soft_takeover_run(s: Session, run: AgentRun, *, reason: str) -> Task | None:
@@ -3085,27 +3110,11 @@ def soft_takeover_run(s: Session, run: AgentRun, *, reason: str) -> Task | None:
         protects, but guard anyway).
     """
     now = utc_now()
-    # 2026-09-15 P0 fix: CAS on the AgentRun transition. The where-clause
-    # is the *minimum* invariant the scanner guarantees about a takeover
-    # candidate; we don't need to re-check ``COALESCE(...) < cutoff``
-    # because the scanner already filtered on it. Guarding on
-    # ``is_stale=true`` is what closes the heartbeat race: a fresh
-    # heartbeat clears ``is_stale`` and the CAS loses.
-    cas = s.execute(
-        update(AgentRun)
-        .where(
-            AgentRun.id == run.id,
-            AgentRun.status == "running",
-            AgentRun.is_stale.is_(True),
-        )
-        .values(
-            status="failed",
-            finished_at=now,
-            error_message=(run.error_message or "") + f"\nsoft_takeover: {reason}",
-        )
-        .execution_options(synchronize_session=False)
-    )
-    if cas.rowcount == 0:
+    if not _cas_fail_stale_run(
+        s, run,
+        error_message=(run.error_message or "") + f"\nsoft_takeover: {reason}",
+        now=now,
+    ):
         log.info(
             "soft_takeover_run: CAS lost for run=%d (already recovered "
             "or not stale); skipping task side-effects",
