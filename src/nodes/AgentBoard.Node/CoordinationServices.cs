@@ -168,22 +168,31 @@ public sealed class WorkerStartupService : BackgroundService
         //    CliLocator 自动发现——scheduling 层根本看不到这个 agent）。
         if (_agentboard.RequireRegistration)
         {
+            // 白名单、诊断与补救提示同源：新增 provider 只改这一张表，
+            // 不会再出现「标题列四个、诊断只报两个」的漂移。
+            var supportedClis = new (string Tool, string Name, AgentOptions Options, string Example)[]
+            {
+                ("workbuddy", "WorkBuddy", _agents.WorkBuddy, "codebuddy"),
+                ("codex",     "Codex",     _agents.Codex,     "codex"),
+                ("cursor",    "Cursor",    _agents.Cursor,    "agent"),
+                ("qoder",     "Qoder",     _agents.Qoder,     "qoderclicn"),
+            };
             var registeredTools = _instances.Keys
-                .Where(t => t is "workbuddy" or "codex" or "cursor" or "qoder")
+                .Where(t => supportedClis.Any(c => c.Tool == t))
                 .ToList();
             if (registeredTools.Count == 0)
             {
-                var detail = _agents.WorkBuddy.Command is null or ""
-                    ? " Agents:WorkBuddy:Command is empty"
-                    : "";
-                detail += _agents.Codex.Command is null or ""
-                    ? " Agents:Codex:Command is empty"
-                    : "";
+                var empty = supportedClis
+                    .Where(c => string.IsNullOrEmpty(c.Options.Command))
+                    .ToList();
+                var detail = string.Concat(empty.Select(c => $" Agents:{c.Name}:Command is empty"));
+                var hint = string.Join(" / ", empty.Select(c => $"Agents:{c.Name}:Command (e.g. {c.Example})"));
                 throw new InvalidOperationException(
-                    "AgentBoard:RequireRegistration=true but no WorkBuddy/Codex/Cursor/Qoder agent was registered." +
+                    "AgentBoard:RequireRegistration=true but no " +
+                    string.Join("/", supportedClis.Select(c => c.Name)) +
+                    " agent was registered." +
                     detail +
-                    " Set Agents:WorkBuddy:Command (e.g. codebuddy) / Agents:Codex:Command (e.g. codex)" +
-                    " / Agents:Qoder:Command (e.g. qoderclicn)" +
+                    " Set " + hint +
                     " and AgentBoard:ServerUrl + AgentBoard:StartupToken.");
             }
         }

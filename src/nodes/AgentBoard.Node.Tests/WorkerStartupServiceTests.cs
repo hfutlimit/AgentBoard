@@ -373,6 +373,40 @@ public class WorkerStartupServiceTests
     }
 
     [Fact]
+    public async Task Require_registration_failure_diagnoses_every_empty_supported_cli()
+    {
+        var stub = new StubHandler();
+        var http = new HttpClient(stub);
+        var (wo, ab, agents) = BuildOpts();
+        ab.RequireRegistration = true;
+        agents.WorkBuddy.Command = "";
+        agents.Codex.Command = "";
+        agents.Cursor.Command = "";
+        agents.Qoder.Command = "";
+        var svc = new WorkerStartupService(
+            new FixedHttpFactory(http),
+            Options.Create(wo), Options.Create(ab), Options.Create(agents),
+            ThreeAgentRegistry(), NullLogger<WorkerStartupService>.Instance,
+            Options.Create(new RabbitMqOptions { Uri = "amqp://test" }));
+
+        await svc.StartAsync(CancellationToken.None);
+        var ex = await WaitForStartupFailureAsync(svc);
+
+        Assert.IsType<InvalidOperationException>(ex);
+        // 标题列出的四个工具，诊断与补救提示都必须逐个覆盖，否则运维只看到
+        // WorkBuddy/Codex 两条线索，会漏掉真正留空的 Cursor/Qoder。
+        foreach (var (name, example) in new[]
+                 {
+                     ("WorkBuddy", "codebuddy"), ("Codex", "codex"),
+                     ("Cursor", "agent"), ("Qoder", "qoderclicn"),
+                 })
+        {
+            Assert.Contains($"Agents:{name}:Command is empty", ex!.Message);
+            Assert.Contains($"Agents:{name}:Command (e.g. {example})", ex.Message);
+        }
+    }
+
+    [Fact]
     public async Task Require_registration_succeeds_with_only_qoder_and_heartbeats_its_instance()
     {
         var heartbeatSent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
