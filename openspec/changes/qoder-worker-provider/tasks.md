@@ -90,3 +90,29 @@
    - 现象：整文件运行时每轮失败的用例都不同（`test_failed_qa_creates_new_bugs_then_independent_retest_atomically`、`test_discussion_retry_expiry_and_round_limit_escalate_without_rework`、`test_expired_third_attempt_becomes_terminal_and_retains_history`、`test_qa_is_independent_task_with_its_own_review_and_steps` 等），单条隔离运行通过。
    - 证据：同一文件在 `worker_work.py` 的 HEAD 版本与重构版本上**各跑 3 轮**——HEAD 为 2 失败 / 1 失败 / 23 全通过，重构版为 1 / 2 / 2 失败，且同名用例在两侧都失败过。故与本轮重构无关，属既有非确定性。
    - 未定位根因（涉及租约到期与讨论轮次的时间判定），同样留待独立变更。
+
+4. 收集期 import 顺序决定全局 DB 绑定（系统性，2026-11-16 发现）
+   - 机制：多数 unit 模块在 import 期写 `os.environ["AGENTBOARD_DB_URL"]`，而 `agentboard.core.infrastructure.database` 的 `engine` 在**首次 import 时**按当时的 env 绑定。谁先 import agentboard，谁就决定了全局 engine；后设 env 的模块（如 `tests/unit/test_projects_service.py`，其 fixture 调 `init_db()` 跑 alembic）拿到的是别人的 engine，于是 `table projects already exists` 批量 setup ERROR。
+   - 证据：`test_projects_service.py` 单跑 16 passed；把**既有**模块 `test_agent_cache_endpoints.py` 放在它前面 → 16 errors；把 `test_progress_takeover_and_linked_comments.py` 放在前面 → 同样 16 errors。故与本轮新增文件无关，是既有约定的结构性问题。
+   - 本轮处置：新增的 `test_executor_provider_contract.py` 不加入该链——私有内存 engine + 全部 agentboard import 推迟到 fixture/测试内。实测与 `test_projects_service` 正反顺序均 27 passed、与 `test_progress_takeover` 正反顺序均 35 passed（`7da1dee`）。
+   - 全量套件因此长期带大量 setup ERROR，需独立变更治理（统一 per-module engine 注入或 session 级 fixture），本轮不做无关重构。
+
+5. `tests/e2e/happy_path` 声明测试在全量上下文中失败（既有，已双树对照取证）
+   - 根因：`tests/test_agent_search.py` 等模块在 **import 期**调 `init_db()` 跑 alembic 并 rebind 全局 DB，happy_path 的 `login_token` 随后拿到不是 fixture 那套库 → `conftest.py:213 AssertionError: {"detail":"invalid username or password"}`。
+   - 双树对照（同一组合 `test_agent_search.py + happy_path/test_worker_planner.py`）：基线 `3136720` 为 **6 failed / 35 passed**，本轮为 **8 failed / 35 passed**，差值正好是本轮新增的 2 条声明测试；两侧 traceback 同为 `conftest.py:213`（基线 6 处、当前 8 处）。单跑 happy_path 目录则声明测试全过。
+   - 结论：与本轮代码无关，新增测试只是继承了同一既有污染。
+
+## 附：全量套件基线对照（2026-11-16）
+
+同一环境、同一命令 `python -m pytest -q --tb=line -rf`：
+
+| 树 | failed | passed | errors | 耗时 |
+|---|---|---|---|---|
+| 基线 `3136720`（独立 detached worktree） | 219 | 1520 | 275 | 27:46 |
+| 本轮修复后 `7da1dee` | 218 | 1528 | 286 | 29:22 |
+
+- 基线失败集抽样 79 条，在当前运行中 **79/79 仍失败**，失败集稳定。
+- 本轮新增 18 条测试（takeover 3 / planner 2 / auth 2 / provider 契约 11）在全量中**零 setup error**；`test_executor_provider_contract`、`test_scan_stale_runs_auth`、`test_progress_takeover_and_linked_comments` 三个文件在全量 FAILED 清单中**零命中**。
+- 失败主因为环境类：`croniter` 是已声明依赖（`src/backend-fastapi/requirements.txt:13`）但本机未安装（27 处）、alembic `table projects already exists`（237 处）、live API 启动超时（87 处）、`URLError` 连接被拒（27 处）、legacy 路径 `FileNotFoundError`（27 处）、`invalid literal for int() ':1]'`（41 处）。
+- errors +11 全部落在本轮未触碰的模块，且属上述时间敏感/环境类；基线输出当时经 `tail -80` 截断，未保留完整 error 名单，故该差值只能归到环境波动而非逐条对齐——如需逐条对齐须重跑基线并保留完整输出。
+- .NET 全量：`AgentBoard.Node.Tests` **376 passed / 0 failed**（基线台账 374 + `3136720` 的 qoder 启动测试 1 + 本轮诊断测试 1）。

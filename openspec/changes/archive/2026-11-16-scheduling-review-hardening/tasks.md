@@ -12,4 +12,5 @@
 - [x] 规格同步：MODIFIED「Worker 项目范围声明按成员资格收敛」补前置门与单次解析；ADDED「Stale run 回收上报与实际回收一致」覆盖两条路径三场景
 - [x] 归档本变更至 `openspec/changes/archive/2026-11-16-scheduling-review-hardening/` 并同步 `openspec/specs/agentboard/spec.md`
 - [x] 验证：takeover 文件 24 passed、声明文件 32 passed、auth 文件 6 passed、相邻 reclaim/coordinator 27 passed
+- [x] 全量对照：.NET 376 passed / 0 failed；Python 全量基线 `3136720` 219 failed / 1520 passed / 275 errors vs 本轮 218 / 1528 / 286，基线失败集抽样 79/79 仍失败，本轮新增测试零 setup error。声明测试在全量上下文的失败已用双树最小组合复现为既有污染（基线 6 failed、本轮 8 failed，同为 `happy_path/conftest.py:213`）。详见 `qoder-worker-provider/tasks.md` 附录
 - [ ] `openspec validate --strict`：本机未安装 openspec CLI（`which openspec` 与 `npx --no-install openspec` 均失败），改为手工结构校验——MODIFIED 标题与 `specs/agentboard/spec.md` 既有 requirement 逐字一致、每个 requirement 至少一个 `#### Scenario:`、GIVEN/WHEN/THEN 齐全。安装 CLI 后需补跑
