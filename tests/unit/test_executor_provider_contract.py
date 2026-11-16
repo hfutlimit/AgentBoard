@@ -9,55 +9,43 @@ they cannot prove the Server accepts a provider — this file does.
 roles fallback) must stay in sync with ``EXECUTOR_TYPES``: Python is now the
 single source of truth for provider resolution, because the .NET
 ``DatabaseAgentSelector`` is a thin HTTP transport.
-"""
-import os
 
+Isolation: every ``agentboard`` import is deferred into a fixture or test, and
+the DB is a private in-memory engine. Importing ``agentboard`` at module scope
+binds the global engine before sibling modules assign their own
+``AGENTBOARD_DB_URL`` during collection, which breaks their alembic setup; this
+file must not join that chain.
+"""
 import json
 import uuid
 
 import pytest
-
-from agentboard.core.exceptions import InvalidValue
-from agentboard.core.infrastructure import database as _database
-from agentboard.features.projects.models import Agent as AgentRow
-from agentboard.features.scheduling import service as scheduling_service
-
-# router imports api at module scope; load the app first to avoid the cycle.
-from agentboard.api import app  # noqa: F401
-from agentboard.features.scheduling.router import _SUPPORTED_PROVIDERS, _provider_from
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 CLI_TOOLS = ("codex", "workbuddy", "cursor", "qoder")
-DB_URL = "sqlite:///./_test_executor_provider_contract_tmp.db"
 
 
-@pytest.fixture(scope="module", autouse=True)
-def _init_db():
-    # reset_engine() reads AGENTBOARD_DB_URL at call time, so the env is set
-    # here and restored on teardown instead of at import: a module-level
-    # assignment would be clobbered by (or clobber) sibling modules depending
-    # on collection order.
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setenv("AGENTBOARD_DB_URL", DB_URL)
-        db_path = os.path.abspath("_test_executor_provider_contract_tmp.db")
-        if os.path.exists(db_path):
-            try:
-                os.remove(db_path)
-            except OSError:
-                pass
-        _database.reset_engine()
-        from agentboard.core.common.models import Base
-        from agentboard.features.identity import models as _id_models  # noqa: F401
-        from agentboard.features.projects import models as _proj_models  # noqa: F401
-        from agentboard.features.scheduling import models as _sched_models  # noqa: F401
-        from agentboard.features.work_items import models as _wi_models  # noqa: F401
-        Base.metadata.create_all(bind=_database.engine)
-        yield
-        _database.engine.dispose(close=True)
+@pytest.fixture(scope="module")
+def engine():
+    from agentboard.core.common.models import Base
+    from agentboard.features.identity import models as _id_models  # noqa: F401
+    from agentboard.features.projects import models as _proj_models  # noqa: F401
+    from agentboard.features.scheduling import models as _sched_models  # noqa: F401
+    from agentboard.features.work_items import models as _wi_models  # noqa: F401
+
+    eng = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool,
+    )
+    Base.metadata.create_all(eng)
+    yield eng
+    eng.dispose()
 
 
 @pytest.fixture
-def session():
-    s = _database.SessionLocal()
+def session(engine):
+    s = sessionmaker(bind=engine, autoflush=False)()
     try:
         yield s
     finally:
@@ -68,6 +56,9 @@ def session():
 @pytest.fixture
 def registered_agent(session):
     """A Worker plus a logical Agent, ready to mount an instance."""
+    from agentboard.features.projects.models import Agent as AgentRow
+    from agentboard.features.scheduling import service as scheduling_service
+
     suffix = uuid.uuid4().hex[:8]
     worker_id = f"w-provider-{suffix}"
     scheduling_service.register_worker(session, worker_id=worker_id, hostname="provider-host")
@@ -83,6 +74,8 @@ def registered_agent(session):
 
 @pytest.mark.parametrize("tool", CLI_TOOLS)
 def test_instance_registration_accepts_every_cli_executor(session, registered_agent, tool):
+    from agentboard.features.scheduling import service as scheduling_service
+
     worker_id, agent = registered_agent
 
     instance = scheduling_service.upsert_agent_instance(
@@ -94,6 +87,9 @@ def test_instance_registration_accepts_every_cli_executor(session, registered_ag
 
 
 def test_instance_registration_rejects_unknown_executor(session, registered_agent):
+    from agentboard.core.exceptions import InvalidValue
+    from agentboard.features.scheduling import service as scheduling_service
+
     worker_id, agent = registered_agent
 
     with pytest.raises(InvalidValue):
@@ -105,15 +101,26 @@ def test_instance_registration_rejects_unknown_executor(session, registered_agen
 
 @pytest.mark.parametrize("tool", CLI_TOOLS)
 def test_durable_provider_resolution_accepts_every_cli_executor(tool):
+    # router imports api at module scope; load the app first to avoid the cycle.
+    import agentboard.api  # noqa: F401
+    from agentboard.features.scheduling.router import _provider_from
+
     assert _provider_from(tool, None) == tool
     assert _provider_from(None, json.dumps(["planner", tool])) == tool
 
 
 def test_durable_provider_resolution_fails_closed_on_unknown_role():
+    import agentboard.api  # noqa: F401
+    from agentboard.features.scheduling.router import _provider_from
+
     assert _provider_from(None, json.dumps(["not-a-provider"])) is None
 
 
 def test_provider_whitelists_stay_in_sync():
+    import agentboard.api  # noqa: F401
+    from agentboard.features.scheduling import service as scheduling_service
+    from agentboard.features.scheduling.router import _SUPPORTED_PROVIDERS
+
     expected = {"codex", "workbuddy", "cursor", "qoder", "fake", "scenario"}
     assert set(scheduling_service.EXECUTOR_TYPES) == expected
     assert _SUPPORTED_PROVIDERS == expected
