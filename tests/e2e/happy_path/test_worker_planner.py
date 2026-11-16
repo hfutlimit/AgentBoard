@@ -419,3 +419,51 @@ def test_empty_scope_without_auth_is_401(client, db_session, plan_env, monkeypat
     response = client.post("/api/worker-work/projects",
                            json={"worker_id": "w-noauth", "project_ids": []})
     assert response.status_code == 401
+
+
+def test_declaration_when_worker_owned_disabled_is_409(client, db_session, plan_env, monkeypatch):
+    monkeypatch.setenv("AGENTBOARD_WORKER_OWNED_ENABLED", "0")
+    response = declare_projects(client, db_session, plan_env[0], "w-scope", [plan_env[1]])
+    assert response.status_code == 409
+
+
+def test_declaration_credential_cost_does_not_grow_with_project_count(
+        client, db_session, plan_env, monkeypatch):
+    # The audit middleware resolves the caller once per request; the endpoint
+    # must add exactly one resolution of its own, no matter how many projects
+    # are listed or retired. Comparing two scope sizes keeps the assertion
+    # independent of that middleware floor.
+    uid, pid, _ = plan_env
+    second_pid = make_member_project(db_session, uid)
+    third_pid = make_member_project(db_session, uid)
+    headers = auth_headers(login_token(client, db_session, uid))
+
+    from agentboard import api_helpers
+
+    real = api_helpers.resolve_actor_context
+    calls = []
+
+    def counting(authorization, s, **kwargs):
+        calls.append(authorization)
+        return real(authorization, s, **kwargs)
+
+    monkeypatch.setattr(api_helpers, "resolve_actor_context", counting)
+
+    add_mapped_project(db_session, uid, "w-scope", pid)
+    single = client.post("/api/worker-work/projects", headers=headers,
+                         json={"worker_id": "w-scope", "project_ids": [pid]})
+    assert single.status_code == 200
+    single_calls = len(calls)
+
+    calls.clear()
+    add_mapped_project(db_session, uid, "w-scope", second_pid)
+    add_mapped_project(db_session, uid, "w-scope", third_pid)
+    triple = client.post("/api/worker-work/projects", headers=headers,
+                         json={"worker_id": "w-scope",
+                               "project_ids": [pid, second_pid, third_pid]})
+    assert triple.status_code == 200
+    assert triple.json()["project_ids"] == sorted([pid, second_pid, third_pid])
+    assert len(calls) == single_calls, (
+        f"credential resolution must not scale with project count: "
+        f"1 project={single_calls}, 3 projects={len(calls)}"
+    )

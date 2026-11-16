@@ -117,10 +117,20 @@ class Completion(Claim):
 router = APIRouter(prefix="/api/worker-work", tags=["worker-work"])
 
 
-def authorize(s: Session, project_id: int, authorization: str | None, permission="api:write"):
+def write_actor(s: Session, authorization: str | None, permission="api:write"):
+    """Resolve the caller credential once and gate on the execution flag.
+
+    Every worker-owned command boundary needs both, including the ones that
+    carry no project id (an empty scope declaration), so they share this gate
+    instead of repeating it.
+    """
     actor = api_helpers.resolve_actor_context(authorization, s, required_permission=permission)
     if not enabled():
         raise HTTPException(409, "worker-owned execution is disabled")
+    return actor
+
+
+def authorize_member(s: Session, project_id: int, actor):
     if not (actor.is_admin or user_is_project_member(s, project_id, actor.user_id)):
         raise HTTPException(403, "project membership required")
     # Reused business services still enforce ownership/exclusions. Only this
@@ -128,6 +138,10 @@ def authorize(s: Session, project_id: int, authorization: str | None, permission
     s.info["worker_owned_command"] = True
     s.info["auto_commit"] = False
     return actor
+
+
+def authorize(s: Session, project_id: int, authorization: str | None, permission="api:write"):
+    return authorize_member(s, project_id, write_actor(s, authorization, permission))
 
 
 def entity(s, entity_type, entity_id):
@@ -462,16 +476,19 @@ def register_projects(body: WorkerProjectsIn, authorization: str | None = Header
     an empty list retires the Worker's whole scope. Workers are shared across
     users, so disabling a stale mapping additionally requires membership in
     that project — a caller can never shrink another project's workforce.
+
+    Like every worker-owned command boundary this requires a valid credential
+    (401) and an enabled execution plane (409) *before* looking at the scope,
+    so an empty declaration is not an unauthenticated probe. The credential is
+    resolved once and reused for every membership check.
     """
     from ..projects.service import map_worker_to_project, NotFound
-    api_helpers.resolve_actor_context(authorization, s, required_permission="api:write")
-    if not enabled():
-        raise HTTPException(409, "worker-owned execution is disabled")
+    actor = write_actor(s, authorization)
     wanted = sorted(set(body.project_ids))
     if any(project_id <= 0 for project_id in wanted):
         raise HTTPException(422, "project ids must be positive")
     for project_id in wanted:
-        authorize(s, project_id, authorization)
+        authorize_member(s, project_id, actor)
     for project_id in wanted:
         try:
             map_worker_to_project(s, worker_id=body.worker_id, project_id=project_id)
@@ -485,7 +502,7 @@ def register_projects(body: WorkerProjectsIn, authorization: str | None = Header
     disabled = []
     for mapping in stale:
         try:
-            authorize(s, mapping.project_id, authorization)
+            authorize_member(s, mapping.project_id, actor)
         except HTTPException as error:
             if error.status_code != 403:
                 raise
