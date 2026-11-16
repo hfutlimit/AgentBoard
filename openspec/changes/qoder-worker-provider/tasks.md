@@ -41,6 +41,10 @@
 - [x] 5.4 `AgentsOptions.Qoder` 槽位、Catalog 三处分支、白名单、`LocalAdapterFactory` 分支
 - [x] 5.5 `Program.cs` DI 注册 `QoderAdapter`
 - [x] 5.6 `ReadinessProbe` 两处分支补 qoder（探活用通用 `--version`，实测支持）
+- [x] 5.7 `WorkerStartupService`：instance upsert 槽位 + `RequireRegistration` 白名单补 qoder（`3136720`）；新增「只配 qoder 也能启动并心跳」测试，断言注册 / instance / heartbeat 三段 URL、payload 与 Bearer 头
+- [x] 5.8 三份 appsettings 补 Qoder 槽位（默认停用，字段与 Cursor 同构）（`3136720`）
+- [x] 5.9 服务端 `EXECUTOR_TYPES` 补 qoder（`3136720`）——`upsert_agent_instance` 确有枚举校验，原 proposal「无校验」断言错误，已在 proposal 修正
+- [x] 5.10 服务端 `_SUPPORTED_PROVIDERS` 补 qoder（`3136720`），与 `EXECUTOR_TYPES` 保持一致；.NET `DatabaseAgentSelector` 已是薄 HTTP 传输，Python 是 provider 解析唯一事实来源
 
 ## 6. 配置门户
 
@@ -57,6 +61,18 @@
 - [ ] 7.4 归档变更至 `openspec/changes/archive/` 并同步 `openspec/specs/`（待 7.3 完成）
 - [x] 7.5 提交并推送：`ff46687` → `origin/main`（18 文件，745 增 14 删）
 
+## 8. 审查收口（2026-11-16 双轴审查后）
+
+- [x] 8.1 修正 proposal 的错误事实与范围声明：注册端有 `EXECUTOR_TYPES` 校验（一次性探针实测 qoder 通过 / 未知值被拒），服务端两处白名单纳入范围，影响范围表与「改什么」清单同步
+- [x] 8.2 补服务端 provider 契约回归 `tests/unit/test_executor_provider_contract.py`（11 passed）：四家 CLI 注册被接受、未知 executor 被拒、durable roles fallback 与 executor_type 直传、两个白名单同步。临时摘掉 qoder 实测 3 条失败，证明守卫非空（`533dc70`）
+- [x] 8.3 fail-fast 的白名单 / 诊断 / 补救提示同源于一张表，补「四个工具逐个诊断 + 示例命令」测试；`WorkerStartupServiceTests` 13 passed（`fd28009`）
+- [x] 8.4 复核并撤回两条不成立的风险，按「只修确认项」不改代码：
+  - .NET presence 耦合导致心跳停摆——`LocalWorkConfiguration.Validate()` 禁止 `Projects` 为空、`ExecuteAsync` 要求非空 `StartupToken`、preflight 还索引 `Projects[0]`，且全仓唯一运行时调用方就是它，场景不可达
+  - `_caller_uid_admin` 漏校验 `revoked_at`——`revoke_api_key` 同时置 `enabled=False`，应用内造不出「enabled 且已撤销」的行；改为修正 `revoke_api_key` 里「lookup 已过滤 enabled」的假陈述，并补 admin API key 回归（已撤销→401、有效→200）（`67bc427`）
+- [x] 8.5 同源竞态收口：`scan_stale_agent_runs` 的 `task_id is None` 分支此前直接 ORM 改 `failed`，抽出 `_cas_fail_stale_run` 供两条回收路径共用，补 3 条测试（`6521182`）
+- [x] 8.6 声明端点守卫去重：抽出 `write_actor` / `authorize_member`，凭据每请求只解析一次（3 项目声明实测 5 次 → 2 次，含审计中间件那一次），docstring 补 401/409 契约（`f200d2b`）
+- [ ] 8.7 7.3 服务端在环验收仍未执行（需 AgentBoard Server + RabbitMQ 在环），故 7.4 归档继续等待
+
 ## 附：发现的既有 flaky 测试（非本次回归，未修改）
 
 全量回归中偶发两个失败，均已定位为既有缺陷：
@@ -69,3 +85,8 @@
    - 证据：隔离运行通过；后续 5 轮全量未复现。
 
 按"不做无关修复"原则本次不改，留待独立变更处理。
+
+3. `tests/e2e/happy_path/test_worker_owned_work.py`（Python 侧，2026-11-16 审查收口时发现）
+   - 现象：整文件运行时每轮失败的用例都不同（`test_failed_qa_creates_new_bugs_then_independent_retest_atomically`、`test_discussion_retry_expiry_and_round_limit_escalate_without_rework`、`test_expired_third_attempt_becomes_terminal_and_retains_history`、`test_qa_is_independent_task_with_its_own_review_and_steps` 等），单条隔离运行通过。
+   - 证据：同一文件在 `worker_work.py` 的 HEAD 版本与重构版本上**各跑 3 轮**——HEAD 为 2 失败 / 1 失败 / 23 全通过，重构版为 1 / 2 / 2 失败，且同名用例在两侧都失败过。故与本轮重构无关，属既有非确定性。
+   - 未定位根因（涉及租约到期与讨论轮次的时间判定），同样留待独立变更。
