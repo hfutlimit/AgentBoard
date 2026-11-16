@@ -12,8 +12,6 @@ single source of truth for provider resolution, because the .NET
 """
 import os
 
-os.environ["AGENTBOARD_DB_URL"] = "sqlite:///./_test_executor_provider_contract_tmp.db"
-
 import json
 import uuid
 
@@ -21,7 +19,6 @@ import pytest
 
 from agentboard.core.exceptions import InvalidValue
 from agentboard.core.infrastructure import database as _database
-from agentboard.core.infrastructure.database import engine
 from agentboard.features.projects.models import Agent as AgentRow
 from agentboard.features.scheduling import service as scheduling_service
 
@@ -30,25 +27,32 @@ from agentboard.api import app  # noqa: F401
 from agentboard.features.scheduling.router import _SUPPORTED_PROVIDERS, _provider_from
 
 CLI_TOOLS = ("codex", "workbuddy", "cursor", "qoder")
+DB_URL = "sqlite:///./_test_executor_provider_contract_tmp.db"
 
 
 @pytest.fixture(scope="module", autouse=True)
 def _init_db():
-    db_path = os.path.abspath("_test_executor_provider_contract_tmp.db")
-    if os.path.exists(db_path):
-        try:
-            os.remove(db_path)
-        except OSError:
-            pass
-    _database.reset_engine()
-    from agentboard.core.common.models import Base
-    from agentboard.features.identity import models as _id_models  # noqa: F401
-    from agentboard.features.projects import models as _proj_models  # noqa: F401
-    from agentboard.features.scheduling import models as _sched_models  # noqa: F401
-    from agentboard.features.work_items import models as _wi_models  # noqa: F401
-    Base.metadata.create_all(bind=_database.engine)
-    yield
-    engine.dispose(close=True)
+    # reset_engine() reads AGENTBOARD_DB_URL at call time, so the env is set
+    # here and restored on teardown instead of at import: a module-level
+    # assignment would be clobbered by (or clobber) sibling modules depending
+    # on collection order.
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("AGENTBOARD_DB_URL", DB_URL)
+        db_path = os.path.abspath("_test_executor_provider_contract_tmp.db")
+        if os.path.exists(db_path):
+            try:
+                os.remove(db_path)
+            except OSError:
+                pass
+        _database.reset_engine()
+        from agentboard.core.common.models import Base
+        from agentboard.features.identity import models as _id_models  # noqa: F401
+        from agentboard.features.projects import models as _proj_models  # noqa: F401
+        from agentboard.features.scheduling import models as _sched_models  # noqa: F401
+        from agentboard.features.work_items import models as _wi_models  # noqa: F401
+        Base.metadata.create_all(bind=_database.engine)
+        yield
+        _database.engine.dispose(close=True)
 
 
 @pytest.fixture
