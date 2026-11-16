@@ -147,9 +147,11 @@ def revoke_api_key(s: Session, key_id: int, user_id: int) -> bool:
     ``agent_run_events.api_key_id`` foreign keys remain valid (that FK
     is ``ON DELETE RESTRICT`` as of migration 9k0l1m2n3o4p).
 
-    Authentication: ``lookup_api_key_by_hash`` already filters on
-    ``api_key.enabled``, so a revoked key cannot be used to mint new
-    requests. Audit reads continue to see the actor identity.
+    Authentication: ``lookup_api_key_by_hash`` returns the row regardless of
+    state, so every caller must check ``enabled`` itself. Revocation therefore
+    clears ``enabled`` as well as stamping ``revoked_at`` — dropping either
+    write would let a revoked key authenticate again. Audit reads continue to
+    see the actor identity.
     """
     k = s.get(ApiKey, key_id)
     if not k or k.user_id != user_id:

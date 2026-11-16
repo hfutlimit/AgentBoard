@@ -29,6 +29,7 @@ from sqlalchemy.pool import StaticPool
 from agentboard import auth, service
 from agentboard.api import app
 from agentboard.core.infrastructure.database import get_session
+from agentboard.features.identity.models import User
 
 
 def _setup():
@@ -64,12 +65,12 @@ def _setup():
 
     app.dependency_overrides[get_session] = override_session
     client = TestClient(app)
-    return client, admin_token, normal_token
+    return client, admin_token, normal_token, sessions
 
 
 def test_scan_stale_runs_requires_auth_when_auth_enabled(monkeypatch):
     monkeypatch.setenv("AGENTBOARD_REQUIRE_AUTH", "1")
-    client, _admin_tok, _norm_tok = _setup()
+    client, _admin_tok, _norm_tok, _sessions = _setup()
     try:
         r = client.post("/api/scheduling/scan-stale-runs")
         assert r.status_code == 401, r.text
@@ -79,7 +80,7 @@ def test_scan_stale_runs_requires_auth_when_auth_enabled(monkeypatch):
 
 def test_scan_stale_runs_requires_admin_role(monkeypatch):
     monkeypatch.setenv("AGENTBOARD_REQUIRE_AUTH", "1")
-    client, _admin_tok, normal_token = _setup()
+    client, _admin_tok, normal_token, _sessions = _setup()
     try:
         r = client.post(
             "/api/scheduling/scan-stale-runs",
@@ -93,7 +94,7 @@ def test_scan_stale_runs_requires_admin_role(monkeypatch):
 
 def test_scan_stale_runs_admin_returns_well_formed_payload(monkeypatch):
     monkeypatch.setenv("AGENTBOARD_REQUIRE_AUTH", "1")
-    client, admin_token, _normal_tok = _setup()
+    client, admin_token, _normal_tok, _sessions = _setup()
     try:
         r = client.post(
             "/api/scheduling/scan-stale-runs",
@@ -114,10 +115,55 @@ def test_scan_stale_runs_works_in_dev_mode_without_auth(monkeypatch):
     # Dev mode: AGENTBOARD_REQUIRE_AUTH deleted → no auth, endpoint callable.
     # monkeypatch.delenv auto-restores any prior value after the test.
     monkeypatch.delenv("AGENTBOARD_REQUIRE_AUTH", raising=False)
-    client, _admin_tok, _normal_tok = _setup()
+    client, _admin_tok, _normal_tok, _sessions = _setup()
     try:
         r = client.post("/api/scheduling/scan-stale-runs")
         assert r.status_code == 200, r.text
         assert "warned" in r.json()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_scan_stale_runs_rejects_revoked_admin_api_key(monkeypatch):
+    """A revoked admin key must not pass the admin gate.
+
+    ``lookup_api_key_by_hash`` returns the row regardless of state, so every
+    caller filters on ``enabled`` itself; revocation sets ``enabled=False``
+    alongside ``revoked_at``. This locks that reachable invariant.
+    """
+    monkeypatch.setenv("AGENTBOARD_REQUIRE_AUTH", "1")
+    client, _admin_tok, _norm_tok, sessions = _setup()
+    try:
+        with sessions() as s:
+            admin = s.query(User).filter_by(username="scan-admin").one()
+            key, plaintext = service.create_api_key(
+                s, user_id=admin.id, name="scan-key", permissions=["api:read"],
+            )
+            assert service.revoke_api_key(s, key.id, admin.id) is True
+        r = client.post(
+            "/api/scheduling/scan-stale-runs",
+            headers={"Authorization": f"Bearer {plaintext}"},
+        )
+        assert r.status_code == 401, r.text
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_scan_stale_runs_accepts_valid_admin_api_key(monkeypatch):
+    monkeypatch.setenv("AGENTBOARD_REQUIRE_AUTH", "1")
+    client, _admin_tok, _norm_tok, sessions = _setup()
+    try:
+        with sessions() as s:
+            admin = s.query(User).filter_by(username="scan-admin").one()
+            _key, plaintext = service.create_api_key(
+                s, user_id=admin.id, name="scan-key",
+                permissions=["api:read", "api:write"],
+            )
+        r = client.post(
+            "/api/scheduling/scan-stale-runs",
+            headers={"Authorization": f"Bearer {plaintext}"},
+        )
+        assert r.status_code == 200, r.text
+        assert set(r.json().keys()) >= {"warned", "taken_over", "scanned_at"}
     finally:
         app.dependency_overrides.clear()
