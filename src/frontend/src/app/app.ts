@@ -290,6 +290,8 @@ export class App implements OnInit, OnDestroy {
   readonly docFolders = signal<DocumentFolder[]>([]);
   /** 当前所在文件夹 id；null = 根目录 */
   readonly docFolderId = signal<number | null>(null);
+  /** 文档资源管理器 workspace 根文件夹 id；null = 项目根（任何文件夹都可以作为 workspace 打开） */
+  readonly docTreeRootId = signal<number | null>(null);
   /** 新建 / 重命名文件夹弹窗 */
   readonly docFolderModal = signal<{ mode: 'create' | 'rename'; folderId?: number; parentId?: number | null } | null>(null);
   readonly docFolderName = signal('');
@@ -2092,6 +2094,7 @@ export class App implements OnInit, OnDestroy {
         this.documents.set(docs || []);
         this.docFolders.set(folders || []);
         this.docFolderId.set(null);
+        this.docTreeRootId.set(null);
         // Epic 138: 项目 Tab 若当前在列表视图，触发评论数拉取
         if (this.docListViewMode() === 'list' && docs && docs.length) {
           void this.loadDocCommentCounts(docs);
@@ -7480,6 +7483,17 @@ export class App implements OnInit, OnDestroy {
     this.docFolderId.set(fid);
     this.docItem.set(null);
   }
+  /** 以某文件夹为 workspace 打开文档资源管理器（null = 返回项目根），并同步浏览位置。 */
+  setDocTreeRoot(fid: number | null): void {
+    this.docTreeRootId.set(fid);
+    this.enterDocFolder(fid);
+  }
+  /** 当前项目全量文档（不受文件夹/过滤收窄，供资源管理器树展示完整结构）。 */
+  projectDocsAll(): DocumentItem[] {
+    const pid = this.project()?.id;
+    if (!pid) return [];
+    return this.documents().filter((d) => d.project_id === pid);
+  }
   async loadDocFolders(): Promise<void> {
     const pid = this.project()?.id;
     try {
@@ -7540,6 +7554,7 @@ export class App implements OnInit, OnDestroy {
         await this.loadDocFolders();
         await this.loadDocuments();
         if (this.docFolderId() === folder.id) this.docFolderId.set(folder.parent_id);
+        if (this.docTreeRootId() === folder.id) this.docTreeRootId.set(folder.parent_id);
       } catch (error) {
         this.notify(`删除失败：${this.message(error)}`, 'error');
       }

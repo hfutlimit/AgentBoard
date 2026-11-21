@@ -91,6 +91,11 @@
         [error]="host.projectTabError('documents')"
         [dragItem]="host.docDrag()"
         [dropTargetId]="host.docDropId()"
+        [allDocs]="host.projectDocsAll()"
+        [allFolders]="host.docScopeFolders()"
+        [workspaceRootId]="host.docTreeRootId()"
+        [currentFolderId]="host.docFolderId()"
+        [projectName]="host.project()?.name ?? ''"
         [epicTitleFor]="host.epicTitle"
         [docScopePathFor]="host.docScopePath"
         [docFolderCountFor]="host.docFolderCount"
@@ -113,6 +118,7 @@
         (dropOver)="host.onDocDropOver($event.event, $event.target)"
         (dropLeave)="host.onDocDropLeave()"
         (drop)="host.onDocDrop($event.event, $event.target)"
+        (setWorkspaceRoot)="host.setDocTreeRoot($event)"
         (retry)="host.retryProjectTab('documents')"
       />
     }

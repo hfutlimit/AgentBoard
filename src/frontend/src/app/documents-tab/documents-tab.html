@@ -1,4 +1,28 @@
-﻿﻿﻿<app-managed-list
+﻿<div class="doc-vscode">
+  <app-doc-explorer
+    class="doc-vscode-side"
+    [folders]="allFolders"
+    [docs]="allDocs"
+    [currentFolderId]="currentFolderId"
+    [workspaceRootId]="workspaceRootId"
+    [projectName]="projectName"
+    [dragItem]="dragItem"
+    [dropTargetId]="dropTargetId"
+    (openFolder)="enterFolder.emit($event)"
+    (openDoc)="openDoc.emit($event)"
+    (setWorkspaceRoot)="setWorkspaceRoot.emit($event)"
+    (renameFolder)="renameFolder.emit($event)"
+    (deleteFolder)="deleteFolder.emit($event)"
+    (createDoc)="createDoc.emit()"
+    (createFolder)="createFolder.emit()"
+    (dragStart)="dragStart.emit($event)"
+    (dragEnd)="dragEnd.emit()"
+    (dropOver)="dropOver.emit($event)"
+    (dropLeave)="dropLeave.emit()"
+    (drop)="drop.emit($event)"
+  />
+  <div class="doc-vscode-main">
+<app-managed-list
   [loading]="loading"
   [error]="error"
   errorPrefix="文档加载失败"
@@ -206,3 +230,5 @@
     }
   }
 </app-managed-list>
+  </div>
+</div>

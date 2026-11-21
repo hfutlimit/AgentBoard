@@ -1,0 +1,85 @@
+<div class="doc-explorer">
+  <div class="doc-explorer-head">
+    <span class="doc-explorer-title">资源管理器</span>
+    <span class="doc-explorer-head-actions">
+      <button type="button" class="ghost-xs" title="新建文档" (click)="createDoc.emit()">＋📄</button>
+      <button type="button" class="ghost-xs" title="新建文件夹" (click)="createFolder.emit()">＋📁</button>
+      <button type="button" class="ghost-xs" title="全部折叠" (click)="collapseAll()">⊟</button>
+    </span>
+  </div>
+  <div class="doc-explorer-search">
+    <input
+      type="search"
+      placeholder="搜索文档 / 文件夹…"
+      aria-label="搜索文档或文件夹"
+      [value]="query()"
+      (input)="query.set($any($event.target).value)" />
+  </div>
+  @if (workspaceRootId !== null) {
+    <div class="doc-explorer-rootbar">
+      <span class="doc-explorer-rootname" [title]="rootName()">📁 {{ rootName() }}</span>
+      <button type="button" class="ghost-xs" title="返回项目根目录" (click)="setWorkspaceRoot.emit(null)">⤴ 项目根</button>
+    </div>
+  }
+  <div
+    class="doc-explorer-tree"
+    role="tree"
+    aria-label="文档目录树"
+    (dragover)="onFolderDragOver($event, null)"
+    (dragleave)="dropLeave.emit()"
+    (drop)="onFolderDrop($event, null)">
+    @for (n of nodes(); track n.key) {
+      @if (n.kind === 'folder') {
+        <div
+          class="doc-tree-row doc-tree-folder"
+          role="treeitem"
+          [attr.aria-expanded]="n.hasChildren ? n.isExpanded : null"
+          [class.active]="n.id === currentFolderId"
+          [class.doc-drop-target]="dropTargetId === (n.id === null ? 'root' : n.id) && !!dragItem"
+          [class.doc-dragging]="dragItem?.kind === 'folder' && dragItem?.id === n.id"
+          [style.padding-left.px]="8 + n.depth * 14"
+          [attr.draggable]="n.id !== null ? 'true' : null"
+          (dragstart)="n.id !== null && dragStart.emit({ event: $event, item: { kind: 'folder', id: n.id } })"
+          (dragend)="dragEnd.emit()"
+          (dragover)="onFolderDragOver($event, n.id)"
+          (dragleave)="dropLeave.emit()"
+          (drop)="onFolderDrop($event, n.id)"
+          (click)="onFolderClick(n)">
+          <span class="doc-tree-chevron" [class.leaf]="!n.hasChildren" (click)="onChevronClick($event, n)">{{ n.isExpanded ? '▾' : '▸' }}</span>
+          <span class="doc-tree-icon">{{ n.id === null ? '🗂' : (n.isExpanded ? '📂' : '📁') }}</span>
+          <span class="doc-tree-name" [title]="n.name">{{ n.name }}</span>
+          @if (n.count > 0) {
+            <span class="doc-tree-count" [title]="'含 ' + n.count + ' 篇文档'">{{ n.count }}</span>
+          }
+          @if (n.id !== null) {
+            <span class="doc-tree-actions">
+              <button type="button" class="ghost-xs" title="以此文件夹为 workspace 打开" (click)="$event.stopPropagation(); setWorkspaceRoot.emit(n.id)">⤢</button>
+              <button type="button" class="ghost-xs" title="重命名文件夹" (click)="$event.stopPropagation(); renameFolder.emit(n.folder!)">✎</button>
+              <button type="button" class="ghost-xs danger" title="删除文件夹" (click)="$event.stopPropagation(); deleteFolder.emit(n.folder!)">🗑</button>
+            </span>
+          }
+        </div>
+      } @else {
+        <div
+          class="doc-tree-row doc-tree-doc"
+          role="treeitem"
+          [style.padding-left.px]="22 + n.depth * 14"
+          draggable="true"
+          [class.doc-dragging]="dragItem?.kind === 'document' && dragItem?.id === n.id"
+          [title]="n.name"
+          (click)="openDoc.emit(n.doc!)"
+          (dragstart)="dragStart.emit({ event: $event, item: { kind: 'document', id: n.doc!.id } })"
+          (dragend)="dragEnd.emit()">
+          <span class="doc-tree-icon">{{ docIcon(n.doc!.type) }}</span>
+          <span class="doc-tree-name">{{ n.name }}</span>
+          @if (n.path) {
+            <span class="doc-tree-path">{{ n.path }}</span>
+          }
+        </div>
+      }
+    }
+    @if (nodes().length === 0) {
+      <div class="doc-tree-empty">{{ query() ? '没有匹配的结果' : '暂无文档，点击右上 ＋ 新建' }}</div>
+    }
+  </div>
+</div>

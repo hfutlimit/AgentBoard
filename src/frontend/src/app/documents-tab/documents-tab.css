@@ -76,3 +76,47 @@
 [data-theme='dark'] .documents-tab-v7 .doc-crumb:hover {
   color: var(--blue-bright);
 }
+
+/* ── VS Code 风格分栏布局：左资源管理器 + 右内容区 ───────────────────── */
+.doc-vscode {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.doc-vscode-side {
+  position: sticky;
+  top: 12px;
+  display: flex;
+  max-height: calc(100vh - 160px);
+  min-width: 0;
+}
+
+.doc-vscode-side .doc-explorer {
+  width: 100%;
+  max-height: calc(100vh - 160px);
+}
+
+.doc-vscode-main {
+  min-width: 0;
+}
+
+/* 目录树 drop 目标与既有 navy 高亮一致 */
+.doc-tree-row.doc-drop-target {
+  background: var(--blue-soft) !important;
+  box-shadow: 0 0 0 2px var(--brand-ring);
+}
+
+@media (max-width: 900px) {
+  .doc-vscode {
+    grid-template-columns: 1fr;
+  }
+  .doc-vscode-side {
+    position: static;
+    max-height: 320px;
+  }
+  .doc-vscode-side .doc-explorer {
+    max-height: 320px;
+  }
+}

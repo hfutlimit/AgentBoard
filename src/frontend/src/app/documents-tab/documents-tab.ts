@@ -2,6 +2,7 @@ import { Component, EventEmitter, Input, Output, ViewEncapsulation } from '@angu
 import { DatePipe } from '@angular/common';
 import { ManagedListComponent } from '../managed-list/managed-list';
 import { WorkspaceHeadingComponent } from '../workspace-heading/workspace-heading';
+import { DocExplorerComponent } from '../doc-explorer/doc-explorer';
 import type { DocumentItem, DocumentFolder, DocumentType, DocumentStatus, Epic } from '../models';
 
 /**
@@ -79,7 +80,7 @@ type DocListViewMode = 'tile' | 'list';
 @Component({
   selector: 'app-documents-tab',
   standalone: true,
-  imports: [ManagedListComponent, DatePipe, WorkspaceHeadingComponent],
+  imports: [ManagedListComponent, DatePipe, WorkspaceHeadingComponent, DocExplorerComponent],
   templateUrl: './documents-tab.html',
   styleUrl: './documents-tab.css',
   encapsulation: ViewEncapsulation.None,
@@ -103,6 +104,14 @@ export class DocumentsTabComponent {
   @Input() error = '';
   @Input() dragItem: DocDragItem | null = null;
   @Input() dropTargetId: number | 'root' | null = null;
+
+  // VS Code 风格资源管理器（左侧目录树）数据契约：
+  // allDocs / allFolders 为项目全量（未过滤）结构真源；workspaceRootId 为树根。
+  @Input() allDocs: DocumentItem[] = [];
+  @Input() allFolders: DocumentFolder[] = [];
+  @Input() workspaceRootId: number | null = null;
+  @Input() currentFolderId: number | null = null;
+  @Input() projectName = '';
 
   // 查询函数 Input（箭头属性，F7 模式，this 绑定到 App 实例）
   @Input() epicTitleFor: (eid: number | null) => string = () => '';
@@ -129,6 +138,8 @@ export class DocumentsTabComponent {
   @Output() dropLeave = new EventEmitter<void>();
   @Output() drop = new EventEmitter<{ event: DragEvent; target: number | 'root' }>();
   @Output() retry = new EventEmitter<void>();
+  /** 以文件夹为 workspace 打开 / 返回项目根（资源管理器）。 */
+  @Output() setWorkspaceRoot = new EventEmitter<number | null>();
 
   /** 文档类型文案（与 App.docTypeLabel 一致，纯函数复制）。 */
   docTypeLabel(t: DocumentType): string {
